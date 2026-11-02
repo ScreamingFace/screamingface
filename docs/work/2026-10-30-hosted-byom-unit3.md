@@ -109,6 +109,11 @@ The owner approved the spec and the plan in plain words on 2026-10-30, after the
   - `e33cad0ae` feat(screamingface-engine): serve /classify through the Gateway
   - `4b7cd78f0` feat(screamingface): add Client.classify and sf.classify
   - then one docs commit with the spec, the plan, this ledger and the three mirrors.
+  - Third review, on `d0df253e6` with the owner's go-ahead on 2026-11-02:
+    `330156c47` fix(aigateway): refuse non-Unicode field names and level the queue timeout;
+    `cb98ad0f7` fix(screamingface-engine): refuse a /classify query that is not UTF-8;
+    `664621b83` fix(screamingface): keep the result of a classification that ran; then one docs
+    commit.
 - **Gates, first implementation** (`uv run .claude/scripts/run_gates.py <stack> --base origin/main`
   on `fed613da2`):
   - `screamingface`: all green, approved OME-1796 transition accepted; pytest 5151 passed,
@@ -168,6 +173,58 @@ The owner approved the spec and the plan in plain words on 2026-10-30, after the
     approved OME-1794 and OME-1796 transitions accepted.
   - Targeted runs: the SDK's `tests/test_classify.py` 98 passed; the Gateway's two classification
     route modules 44 passed.
+- **Third review** (2026-11-02, read-only on `d0df253e6`; the owner chose findings 1, 3 to 9 for
+  this PR and asked whether finding 2 was intended). Planned, each with a test that fails first:
+  - 1, SDK: an Access re-login on the artifact fetch after a `303` answers `access_reauthenticated`
+    marked retryable, although the classification ran. After that login the artifact fetch alone
+    is sent once more; nothing is marked replay-safe, and any other failure there is
+    `result_unavailable`.
+  - 3, SDK: the `admission_timeout` branch compares with a code url4 spells
+    `x.admission_timeout` and no `/classify` call can reach it. The branch goes; its test case
+    changes to the not-retryable answer (owner go-ahead).
+  - 4, SDK: the Engine's `404 result_unavailable` after a run becomes `PlanningError`; it becomes
+    the same `ExecutionError` as a failed artifact fetch.
+  - 5, Engine: percent-escapes that are not UTF-8 are decoded to U+FFFD before the envelope check
+    and classified; they are refused as `malformed_source` before any Gateway call.
+  - 6, Gateway: the Gateway's own `503 provider_queue_timeout` logs at ERROR; it logs at WARNING
+    as chat does (OME-1461), and an upstream `503` stays ERROR.
+  - 7, Gateway: a lone surrogate in an unknown field name answers `500`; it answers
+    `400 invalid_request` without echoing names.
+  - 8, Gateway: a test that an ungranted account gets the same `unknown provider` answer for a
+    classifier, an undeclared and a chat alias.
+  - 9, Engine: the access-log filter passes any record that is not uvicorn's 5-tuple unchanged,
+    and its test builds that tuple by hand. A test now drives uvicorn's own `h11` and `httptools`
+    protocols in process. The filter is unchanged: cutting every argument would change
+    `test_a_record_of_another_shape_or_logger_is_untouched`, a test of this unit.
+  - Not changed: finding 2 (a publish-phase `503` keeps `Retry-After` though the run may be
+    stored) is an Engine-wide behaviour pinned by earlier tests, and finding 10 (the model ID in
+    telemetry) is deferred.
+  - Finding 2 was intended: OME-1395 (#1098, spec R10 and R11) answers a failed publish with
+    `503` and `Retry-After`. A publish whose acknowledgement was lost was not considered there.
+    The SDK's OME-1066 covers it only for `GET /?q=`, whose topic comes from the token; a mount
+    takes a new topic per request, so a retry may start a second run. `stop()` cannot help: it
+    does nothing for a topic the runner has not scheduled.
+- **Gates, third review** (same command, one stack at a time, on `d0df253e6` plus the
+  uncommitted fixes):
+  - `aigateway`: all green, approved OME-1794 transition accepted.
+  - `screamingface-engine`: all green on the third run. The first run failed only at pyright,
+    3 errors in the new uvicorn test: `config.http_protocol_class` is typed
+    `type[asyncio.Protocol]`, so the test now takes `H11Protocol` and `HttpToolsProtocol`
+    directly. The second run hung for 37 minutes in
+    `test_worker_claim.py::test_the_control_request_reaches_only_the_owning_worker`; its worker
+    was aborted to name the test (6584 passed, 1 failed, coverage 43% with that worker lost).
+    That test and `worker/loop.py` are identical to origin/main; alone it passed 15 of 15, and
+    after `test_access_log_redaction.py` in one process 5 of 5. It is a load-sensitive hang
+    outside this unit, so a green Engine gate here is probabilistic.
+  - `screamingface`: all green on the first run, approved OME-1796 transition accepted. The
+    changed `503-admission-timeout` case sits in this unit's own `test_classify.py`, which is
+    not on origin/main, so the append-only check cannot see it; the owner approved it in plain
+    words.
+  - Targeted runs: the SDK's `test_classify.py` with `test_public_surface.py` 112 passed; the
+    Gateway's classification tests 230 passed; the Engine's classification tests 95 passed;
+    `test_access_log_redaction.py` 14 passed, and with `_ACCESS_ARGS = 6` all 4 new cases fail.
+  - Base: origin/main moved to `834c3086a` (#1641, #1637), Gateway operator docs only and none
+    of this unit's files, so the branch was not rebased.
 - **Deviations:**
   - Decision 1a: a second approved prior-test change, two `ChatTarget` type assertions in
     `test_definitions.py`, because `targets` now holds both target kinds as the spec requires.
@@ -175,8 +232,13 @@ The owner approved the spec and the plan in plain words on 2026-10-30, after the
     Engine `world/serving.py` 492 to 500, Engine `app.py` 773 to 784, Engine
     `world/connector.py` 1768 to 1794 (the E8 helper), SDK `client.py` 1000 to 1034.
   - New test files over 450 lines: the SDK's `tests/test_classify.py` reached 651 lines in the
-    first implementation and 736 after the second review. Every test in it drives `classify`;
-    the redirect tests sit beside the existing artifact tests.
+    first implementation, 736 after the second review and 845 after the third. Every test in it
+    drives `classify`; the redirect and artifact tests sit together.
+  - Third review: finding 9 is a test only, with the filter unchanged. The Gateway's
+    backpressure code set mirrors chat's OME-1461 table instead of importing it, since the
+    classification route imports no chat module. `refuses_query` lives in
+    `world/classification.py` and is called from `rest/mounts.py`, the one place that sees the
+    raw query bytes.
   - Base: moved from `05a7a6234` to `fed613da2`, `e915d8037`, `bc96df570` and then
     `969d4e303` after the code was written (see Base above).
   - Gateway: a new `ClassifierEntry` port type instead of `ModelEntry`, since a classifier row

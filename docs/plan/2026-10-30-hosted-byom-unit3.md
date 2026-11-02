@@ -423,6 +423,33 @@ branch's own new test files.
 
 Then `git fetch origin`, a fast-forward if main moved, and the three gates again.
 
+## Phase R3: Third review fixes
+
+A third review on 2026-11-02 (spec decision 12) found ten issues; the owner chose eight for this
+PR. Each fix starts from a test that fails, in the branch's own new test files.
+
+1. **SDK artifact after an Access login.** `_artifact` sends the fetch once more after the auth
+   layer's `access_reauthenticated`, and turns every other failure into `result_unavailable`.
+   Tests: one challenge then the result, with one `/classify`; two challenges, an artifact past
+   the read limit.
+2. **SDK admission timeout.** The `admission_timeout` branch goes. Its case in
+   `test_a_refusal_before_anything_ran_is_retryable` goes; a new test pins both spellings as
+   not retryable.
+3. **SDK gone result.** `result_unavailable` at any status is the post-run `ExecutionError`.
+4. **Engine percent-escapes.** `rest/mounts.py` refuses a `/classify` query whose percent-escapes
+   are not UTF-8 as `malformed_source`, through `world.classification.refuses_query`. Test: three
+   escapes refused with no Gateway request, a valid one classified.
+5. **Gateway log level.** The `provider_queue_timeout` `503` logs at WARNING, an upstream `503`
+   at ERROR.
+6. **Gateway field names.** A lone surrogate in an unknown field name is `400 invalid_request`
+   without echoing names.
+7. **Gateway grant order.** A test pins one answer for an ungranted caller across three aliases.
+8. **Engine access log.** A test drives uvicorn's own `h11` and `httptools` protocols in process
+   and finds no query in the access record. The filter is unchanged: cutting every argument would
+   change `test_a_record_of_another_shape_or_logger_is_untouched`.
+
+Not in this PR: the publish-phase `503` (section 8) and the model ID in telemetry.
+
 ## Phase D: Close-out
 
 1. `git fetch origin`. If origin/main moved, rebase first and, where a pinned file changed on

@@ -28,6 +28,11 @@ helper is OME-1796; all three land in one PR.
   with no cost, so a run that also makes a priced chat call ends unpriced; a lone surrogate in the
   context is `malformed_source` before any Gateway request; `check-publication` refuses a
   classifier target declared as an Engine model.
+- After the third review (spec decision 12): a `/classify` query whose percent-escapes are not
+  UTF-8 is `malformed_source` before any run, instead of a paid call on U+FFFD; a test drives
+  uvicorn's own protocols and finds no query in the access record. Open, not in this PR: a
+  queue-unavailable `503` after a publish whose acknowledgement was lost may follow a stored run
+  (spec section 8).
 
 Acceptance: deterministic tests with a fake Gateway and queue and worker substitutes; one
 endpoint serves two targets cold and warm with no reconfiguration and no prior listing;

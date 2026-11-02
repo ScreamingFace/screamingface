@@ -31,6 +31,10 @@ calls the Gateway operation from OME-1794; all three land in one PR.
 - After the second review (spec decision 11): a `303` is followed only when its `Location`, as
   received, is the Engine's exact signed artifact form, so a redirect can never send the
   classification a second time.
+- After the third review (spec decision 12): an Access login on the artifact fetch sends that
+  fetch once more and never the classification, and every other failure there is
+  `result_unavailable`, not retryable; the Engine's `result_unavailable` at any status is that
+  same error; the unreachable `admission_timeout` branch is gone.
 
 Acceptance: tests with a fake Engine transport; public surface snapshot regenerated on the
 current origin/main base, keeping main's entries, and pinned by

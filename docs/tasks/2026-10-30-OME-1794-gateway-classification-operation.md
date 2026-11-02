@@ -27,6 +27,9 @@ sibling OME-1795 and the SDK helper is OME-1796; all three land in one PR.
   `400 invalid_request` before any key read or upstream request.
 - After the second review (spec decision 11): a body nested past the JSON decoder's depth is the
   malformed-body `400`, not a `500`, before any provider lookup, key read or upstream request.
+- After the third review (spec decision 12): a lone surrogate in an unknown field name is
+  `400 invalid_request`, not a `500`; the Gateway's own `503 provider_queue_timeout` logs at
+  WARNING as in chat, an upstream `503` stays ERROR; a test pins the grant before the alias.
 
 Acceptance: deterministic tests with fake upstreams; unknown, ungranted and wrong-task IDs cause
 no credential read and no upstream I/O; `run_gates.py aigateway` green. Two owner-approved prior

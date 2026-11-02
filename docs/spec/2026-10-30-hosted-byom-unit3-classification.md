@@ -140,7 +140,7 @@ current url4 encoder and httpx for the model ID `byom_<32 hex>/classifier_v1`:
 | G3 | **Two provider hooks, default empty.** One lists a provider's classifiers. One dispatches a classification. The base class answers "none" and "unsupported", so every existing plugin is unchanged. |
 | G4 | **Provider listing by capability.** `/v1/providers` keeps a provider that has chat models or classifiers. Existing providers have no classifiers, so their rows do not change. |
 | G5 | **Catalog.** `GET /v1/classifiers` lists the caller's granted classifiers, and `GET /v1/classifiers/details?model=` gives task, contract and access status (`execution_access`, as `/v1/model-parameters` computes it). Same grant gate (`VIEW`) and `private, no-store` headers as `/v1/model-parameters`, on success and on refusal. An ungranted caller gets the unknown-provider answer whatever the alias, so it cannot learn which aliases exist; a granted caller's unknown or chat alias gets `404 model_not_found`. |
-| G6 | **One route, existing ports, the chat order.** Body shape first; a body that is not JSON, one nested past the decoder's depth included, is the `400` malformed-body refusal. Then the provider prefix and registry lookup, then the `INVOKE` grant, then the target and its task, then credential resolve and authorize through `ProviderAccess`, then dispatch through `dispatch_with_budgets` with the existing overload retry. The grant comes before any alias check, as in chat (`routes/chat.py:136` before `:702`), so an ungranted caller cannot probe aliases. Refusals reuse the chat route's: an ungranted or absent provider is `400 unknown provider`; a granted caller's unknown alias or chat alias is `400 invalid_model`. No credential read and no upstream I/O happen before these checks pass. A client disconnect answers `499`, as in chat. The route imports no chat module. |
+| G6 | **One route, existing ports, the chat order.** Body shape first; a body that is not JSON, one nested past the decoder's depth included, is the `400` malformed-body refusal. Then the provider prefix and registry lookup, then the `INVOKE` grant, then the target and its task, then credential resolve and authorize through `ProviderAccess`, then dispatch through `dispatch_with_budgets` with the existing overload retry. The grant comes before any alias check, as in chat (`routes/chat.py:136` before `:702`), so an ungranted caller cannot probe aliases. Refusals reuse the chat route's: an ungranted or absent provider is `400 unknown provider`; a granted caller's unknown alias or chat alias is `400 invalid_model`. An unknown field is named in the refusal, unless a name cannot be encoded as UTF-8, which is `400 invalid_request` with no names. The Gateway's own `503 provider_queue_timeout` logs at WARNING and an upstream `503` at ERROR, as in chat. No credential read and no upstream I/O happen before these checks pass. A client disconnect answers `499`, as in chat. The route imports no chat module. |
 | G7 | **Transport.** The existing endpoint client and bounded streamed read; `200` only; no redirects. Any other status or a malformed body ends as the existing sanitized failure. An upstream 401 or 403 is returned without trying another key. |
 | G8 | **Readiness by task.** When `validation_target` is a classifier, the probe is one classification of a fixed synthetic text. It is `VALID` only when the result passes section 3.2 validation. The status table is the chat probe's. |
 | G9 | **No cache, no accounting.** The classification path never reads or writes the global cache and emits no usage or cost. |
@@ -184,17 +184,23 @@ No public SDK path calls `/classify` today. The smallest helper:
   `Location`, exactly as received, has the form the Engine's `signed_artifact_path` writes:
   `/artifacts/<hex id>?exp=<digits>&sig=<token>`. httpx resolves dot segments, so a prefix check
   would let `/artifacts/../classify?q=...` send the classification a second time; a dot, a `%`,
-  an extra slash, a scheme or a host never fits that form;
+  an extra slash, a scheme or a host never fits that form. When Access challenges that fetch and
+  the auth layer completes the login, the fetch alone is sent once more: Access stopped it at its
+  edge, and reading a stored result bills nothing;
 - raises the existing `EngineCapabilityError` for a `404` without that envelope, which is what an
   Engine without `/classify` answers, so an older Engine fails before any paid call. A `404` with
-  the envelope is the classifier-not-found answer (E6) and keeps its code;
+  the envelope is the classifier-not-found answer (E6) and keeps its code, except
+  `result_unavailable`: the run finished and its result is gone, so it is the same
+  `ExecutionError` as a failed artifact fetch;
 - recommends a retry only after a confirmed refusal before sending (section 6, decision 8): a
-  connect-phase failure, a `429`, a `503` with `Retry-After` (the Engine's runner-at-capacity and
-  queue-unavailable answers, which queue nothing) and a `503` with url4's `admission_timeout` code.
-  Every other answer, including `500`, `502`, `504` and a bare `503`, and every transport failure
-  after the request may have been sent, is not retryable, because the classification may have run
-  and been billed. After a `303` the classification has run, so a failed artifact fetch is not
-  retryable either. `EngineUnavailableError` and the other SDK calls do not change;
+  connect-phase failure, a `429` and a `503` with `Retry-After` (the Engine's runner-at-capacity and
+  queue-unavailable answers, which state that nothing was queued; see section 8 for the publish
+  case). Every other answer, including `500`, `502`, `504`, a bare `503` and url4's
+  `x.admission_timeout`, which only an expression's `;t=` guard raises, and every transport
+  failure after the request may have been sent, is not retryable, because the classification may
+  have run and been billed. After a `303` the classification has run, so no failure to read its
+  result is retryable, an Access login included. `EngineUnavailableError` and the other SDK calls
+  do not change;
 - refuses a model ID or text that cannot be encoded as UTF-8 before any request, without the text
   in the error, and turns a score that cannot become a float into `engine_contract_error`.
 
@@ -291,6 +297,7 @@ live key, a paid model or production.
 | 9 | **Empty input** (review). `""` reaches the classifier as a paid call. | **Allowed.** The contract takes a string, and a classifier may answer an empty text meaningfully. No trimming: spaces and newlines are part of the input. |
 | 10 | **Review minors.** | **Fixed in this branch:** a lone surrogate is refused before I/O at all three layers, without replacing it and without the text in the error; `check-publication` refuses a classifier declared as an Engine model; the SDK turns a score past the float range into `engine_contract_error`; and section 8 records the queued run message and `$` in expressions. |
 | 11 | **Second review** (2026-11-02). Three findings: a `303` to `/artifacts/../classify?q=...` passed the SDK's prefix check and httpx sent the classification again; a Gateway body of 10,000 nested arrays raised `RecursionError` and answered `500`; a score of `10**400` was said to escape the SDK as `OverflowError`. | **The first two are fixed in this branch:** the SDK follows only the exact signed artifact form (section 4.3), and the Gateway answers the malformed-body `400` (G6). **The third was already fixed** by decision 10, with its test since then; tests for a negative overflow and the integer scores `0` and `1` were added. |
+| 12 | **Third review** (2026-11-02). Ten findings. SDK: an Access login on the artifact fetch answered `access_reauthenticated` marked retryable after the classification ran; the `admission_timeout` branch compared with a misspelled code no `/classify` call can reach; the Engine's `404 result_unavailable` after a run became `PlanningError`. Engine: percent-escapes that are not UTF-8 became U+FFFD and were classified; the access-log filter passes any record shape but uvicorn's; the caller's model ID reaches telemetry unbounded. Gateway: its own `503 provider_queue_timeout` logged at ERROR; a lone surrogate in an unknown field name answered `500`; no test pinned the grant before the alias. Engine and SDK: a publish-phase `503` keeps `Retry-After` though the run may be stored. | **Eight are fixed in this branch** (section 4.3, G6 and plan Phase R3); the access log gains a test through uvicorn's own protocols, and the filter itself is unchanged. **Not in this PR:** the publish-phase `503`, an Engine-wide behaviour pinned by earlier tests (section 8), and the model ID in telemetry. |
 
 ## 7. Rollout order
 
@@ -325,6 +332,16 @@ any paid call.
   `503` with `Retry-After` from the Engine's own admission refusal, and marks both retryable.
   Proxies normally answer so without forwarding the request; this is an inference, not checked
   against the deployed ingress.
+- **A queue-unavailable `503` may follow a stored run.** The Engine answers a JetStream publish
+  failure with `503` and `Retry-After` and says nothing was queued
+  (`apps/screamingface-engine/src/screamingface_engine/rest/routes.py:425-438`). A publish whose
+  acknowledgement timed out may still have stored the message. A mount call names a new topic per
+  request (`rest/mounts.py`), so a retry is a second run that `Nats-Msg-Id` deduplication does
+  not catch, and the SDK marks that `503` retryable. `GET /?q=` reuses its token's topic, and the
+  SDK reads a `409` after a re-sent start as admitted (`docs/spec/2026-09-28-sdk-run-isolation.md`).
+  `stop(topic)` does not help: it writes no tombstone for a topic the App never saw scheduled.
+  Closing this changes the Engine's shared mount answer and prior tests, so it is left out of
+  this PR.
 - **The input rests in the queued run.** Access logs are redacted, but the input is not absent
   from the system: a queued run carries the whole expression, the classification text included,
   as `URL4_CLOUD_EXPRESSION` in its JetStream run message
