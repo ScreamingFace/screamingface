@@ -196,6 +196,42 @@ def test_rows_are_yielded_before_the_rest_of_the_file_is_read() -> None:
     assert stream.served == len(text)
 
 
+def test_grading_holds_only_the_selected_rows_of_a_large_board(tmp_path: Path) -> None:
+    """INVARIANT (OME-1789): the reader grading calls holds the selected rows, not the board.
+
+    The test above pins the low-level row iterator; this one pins ``read_selected_cases`` itself,
+    at its production chunk size, so either way of losing the saving fails here: going back to
+    ``json.loads`` of the whole file (peak ≈ text + every decoded row, over 40 MB here), or
+    keeping every row and selecting afterwards (peak ≈ every decoded row, over 20 MB here).
+    Streaming two selected rows peaks at ≈ 5.7 MB whatever the board size (measured flat at 10,
+    20 and 40 MB boards): a few copies of the 1 MiB read buffer plus the two rows. So the bound,
+    half the board, sits between the streaming peak and the smaller of the two regressions.
+    """
+
+    import tracemalloc
+
+    # A FigQA-shaped board in miniature: 200 Cases of ~100 KB each, about 20 MB in all.
+    row_chars: int = 100_000
+    text: str = json.dumps(
+        [{"id": i, "input": f"{i:03d}" + "y" * row_chars} for i in range(1, 201)]
+    )
+    board_chars: int = len(text)
+    (tmp_path / "cases.json").write_text(text, encoding="utf-8")
+    del text
+
+    tracemalloc.start()
+    try:
+        selected = read_selected_cases(
+            tmp_path, (150, 7), benchmark_label="Board", error_type=BoardError
+        )
+        peak: int = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+
+    assert [(case.case_id, case.input[:3]) for case in selected] == [(150, "150"), (7, "007")]
+    assert peak < board_chars // 2, f"peak {peak:,} B for a {board_chars:,}-char board"
+
+
 def test_the_reader_reports_a_non_array_document_distinctly() -> None:
     with pytest.raises(case_rows.NotAnArrayError):
         list(iter_array_rows(io.StringIO('{"id": 1}')))
