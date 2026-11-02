@@ -1,8 +1,9 @@
 # OME-1768 — disclosure-gated default analytics
 
 Status: local implementation authorized by Filip on 30 October 2026, before
-Irina/Kevin sign-off. On 2 November Filip authorized opening a draft PR and chose
-to post the Linear confirmation comment himself. No rollout approval is implied.
+Irina/Kevin sign-off. On 2 November Filip confirmed proceeding with the implementation
+and PR and chose to post the decision in Linear himself. Deployed Colab verification
+remains a rollout check.
 
 ## Behavior
 

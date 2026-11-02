@@ -13,8 +13,8 @@ finished:
 Implement OME-1768 using the choices confirmed by Filip: terminal scripts qualify,
 inline Colab notice, and a two-second first-evaluation wait. Filip explicitly
 authorized implementation before Irina/Kevin sign-off. On 2 November he authorized
-opening the PR and chose to post the Linear confirmation comment himself.
-No sign-off or rollout approval is claimed.
+opening the PR and confirmed proceeding, with the Linear decision update handled
+by him. This does not claim approval from other reviewers or deployed verification.
 
 ## Planned changes
 
@@ -41,7 +41,7 @@ Existing payloads and explicit controls remain compatible.
   tests; two existing SDK test files updated for the authorized contract reversal;
   exact test-transition manifest; spec/plan/task mirror and prior-spec amendments.
 - Commits: `b0330994b` — feat(analytics): enable SDK analytics after disclosure,
-  rebased onto `bc96df570` on 2 November for draft PR preparation. No merge or
+  rebased onto `bc96df570` on 2 November for PR preparation. No merge or
   agent-posted Linear comment.
 - Gates: both stack runners ALL GATES GREEN. SDK: lint, format, pyright,
   complete pytest suite with 97% coverage (95% floor), notebook-source check,
@@ -70,6 +70,9 @@ includes executor queue delay and never repeats once setup completes or is disab
 In-flight cross-notebook cookie ordering remains an existing limitation, documented
 in the spec; no global revocation guarantee is added.
 
-The implementation is ready for draft PR review. Ledger/Linear remain open pending
-review and landing. Filip is posting the Irina confirmation comment himself;
-no sign-off has been represented as received.
+PR: https://github.com/ScreamingFace/screamingface/pull/1633
+
+Filip confirmed proceeding and is posting the decision in Linear himself. The PR
+is ready for review; ledger/Linear remain open pending review and landing.
+Both full stack gates passed again after the 2 November rebase. No approval from
+other reviewers or deployed Colab verification has been represented as received.
