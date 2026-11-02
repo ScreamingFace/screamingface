@@ -58,3 +58,9 @@ keys are neither intercepted nor canceled. Existing tests are unchanged. Native
 browser checks supplement the small DOM harness, which does not simulate the
 browser's default Tab traversal or link activation. Public artifact and rendering
 safety rules are untouched.
+
+## Review follow-up — 2 November 2026
+
+Resolve the test-command merge conflict with OME-1761 by registering the keyboard suite as a separate explicit command/CI step. Preserve both suites without stacking PRs or changing picker behavior. Verify the combined tree and local scoreboard gates.
+
+Authorized by Filip: “please fix the issues you feel are real ones”. Run regression tests and full scoreboard gates before committing. Outcome: All scoreboard gates green, including all ten keyboard regressions. The keyboard suite now has a separate explicit command in local gates and CI, away from the shared search-test list. No application or test assertion changes in this follow-up.
