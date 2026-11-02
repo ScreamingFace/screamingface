@@ -1,9 +1,9 @@
 ---
 ticket: OME-1779
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-29
-finished:
+finished: 2026-10-30
 ---
 
 # sdk-connection-copy — the Client SDK speaks of Connections, not provider profiles
@@ -89,6 +89,7 @@ Plan: `docs/plan/2026-10-29-ome-1138-closeout.md` §2 and §3 "L8".
   - `8bf237066` fix(screamingface): reword the Model discovery docstrings and the 404 message
   - a third commit that restores the catalogue wording of `model_not_found` (its sha is in the PR
     and the close comment)
+  - merged as `1af61c8e0` (#1611)
 - **Gates:** `uv run .claude/scripts/run_gates.py screamingface --base origin/main` (the merge
   base, `a7e5d8577`) — ALL GATES GREEN: append-only (2 approved OME-1779 transitions), ruff check,
   ruff format, pyright, pytest (4949 passed, 38 skipped, coverage 97.06%, measured on the same test set before the third commit; the gate rerun after it passed the 95% floor), notebooks, build, distribution. Run with the
