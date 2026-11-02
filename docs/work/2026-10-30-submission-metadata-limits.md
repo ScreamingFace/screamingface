@@ -51,3 +51,9 @@ serialization and depth definitions. Tests prove both rejection without storage
 and exact-boundary/Unicode round trips. No authentication, export, ranking or
 stored-row behavior changes. This complements the separate OME-1658 Unicode PR;
 both metadata validators must be retained when the branches are combined.
+
+## Review follow-up — 2 November 2026
+
+Reject excessively nested metadata without recursion errors, and bound the expanded numeric JSON representation on public submissions while preserving existing baseline budgets. Keep both metadata validators when combined with OME-1658 by using separate insertion points. Verify raw HTTP nesting, positive/negative exponents, exact boundaries, and database persistence on SQLite/PostgreSQL.
+
+Authorized by Filip: “please fix the issues you feel are real ones”. Run regression tests and full scoreboard gates before committing. Outcome: 26 cross-backend review regressions pass, including exact 4096-byte PostgreSQL JSONB text storage, exponent expansion, safe deep-input errors and non-finite numbers. Original metadata/baseline tests remain green in the full gate run. Full PostgreSQL CI selection: 35 passed. All scoreboard gates green. No dependency or schema change. A route wrapper removes only unsafe metadata error inputs; OME-1658 retains responsibility for other Unicode validation errors.
