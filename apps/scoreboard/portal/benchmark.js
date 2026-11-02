@@ -431,6 +431,7 @@
           document.title = name + " — screamingface";
         }
         state.entries = (data && data.entries) || [];
+        if (window.SFExternalResults) window.SFExternalResults.render(data && data.baselines);
         if (state.entries.length === 0) {
           // The table shell renders on the zero-entry path too, so a benchmark with no
           // submissions still shows the column structure. renderSummary/renderClimb
