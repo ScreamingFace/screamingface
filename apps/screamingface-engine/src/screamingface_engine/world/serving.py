@@ -38,6 +38,10 @@ from starlette.types import Receive, Scope, Send
 
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.registry import served_routes
+from screamingface_engine.world.classification import (
+    CLASSIFICATION_UNSUPPORTED,
+    CLASSIFIER_NOT_FOUND,
+)
 from screamingface_engine.world.config import (
     DEFAULT_EVAL_PATH,
     WorldConfig,
@@ -198,6 +202,10 @@ _ENGINE_STATUS: dict[str, int] = {
     "artifact_spill_failed": 502,
     "timeout": 504,
     "identity_access_denied": 403,
+    # FEATURE (OME-1795, E4 and E6): the caller's own request, not an upstream failure, which is
+    # what a permanent Engine code would otherwise answer (`502`).
+    CLASSIFICATION_UNSUPPORTED: 400,
+    CLASSIFIER_NOT_FOUND: 404,
 }
 """The engine's own codes a mount call can end with (contracts.md C1/C2), over url4's table."""
 

@@ -12,6 +12,7 @@
       "CaseMedia",
       "CaseResult",
       "Check",
+      "Classification",
       "Client",
       "Concat",
       "Connection",
@@ -33,6 +34,7 @@
       "FixedSeedSittingWarning",
       "Fusion",
       "Judge",
+      "LabelScore",
       "Leaderboard",
       "LeaderboardBaseline",
       "LeaderboardEntry",
@@ -76,6 +78,7 @@
       "analytics",
       "benchmarks",
       "cache",
+      "classify",
       "close",
       "configure",
       "connect",
@@ -278,6 +281,12 @@
           "type": "field"
         }
       },
+      "Classification": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, model: 'str', contract: 'str', scores: 'tuple[LabelScore, ...]') -> None"
+        }
+      },
       "Client": {
         "kind": "class",
         "members": {
@@ -286,6 +295,7 @@
           "__init__": "method (self, *, engine_url: 'str' = 'https://fusion.screamingface.ai', scoreboard_url: 'str' = 'https://leaderboard.screamingface.ai', http_transport: 'httpx.BaseTransport | None' = None, scoreboard_transport: 'httpx.BaseTransport | None' = None, run_transport: 'SyncRunTransport | None' = None, save_results: 'bool' = True) -> 'None'",
           "authenticated": "property",
           "authenticating": "property",
+          "classify": "method (self, model: 'str', input: 'str') -> 'Classification'",
           "close": "method (self) -> 'None'",
           "closed": "property",
           "connect": "method (self, provider: 'str | None' = None, *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | ConnectionPanel | OAuthFlow'",
@@ -525,6 +535,12 @@
           "params": "field",
           "returns": "field",
           "rubric": "field"
+        }
+      },
+      "LabelScore": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, label: 'str', score: 'float') -> None"
         }
       },
       "Leaderboard": {
@@ -1024,6 +1040,10 @@
       "cache": {
         "kind": "module",
         "module": "screamingface.cache"
+      },
+      "classify": {
+        "kind": "function",
+        "signature": "(model: 'str', input: 'str') -> 'Classification'"
       },
       "close": {
         "kind": "function",
