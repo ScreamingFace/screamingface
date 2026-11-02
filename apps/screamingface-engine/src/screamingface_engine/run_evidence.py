@@ -21,7 +21,7 @@ import asyncio
 import logging
 import secrets
 from decimal import Decimal
-from typing import cast
+from typing import Protocol, cast
 
 from screamingface_engine.candidate_outcomes import (
     OUTCOME_STATUSES,
@@ -168,6 +168,27 @@ def _outcome_without_a_frame(task: asyncio.Task[object]) -> tuple[str, str | Non
     if error is None:
         return "unknown", "the run published no terminal frame"
     return "failed", f"{type(error).__name__}: {error}"
+
+
+class TerminalPublisher(Protocol):
+    """The slice of an events publisher a terminal writer needs."""
+
+    async def publish(self, topic: str, event: OutboundFrame) -> None: ...
+
+
+async def publish_landed(publisher: TerminalPublisher, topic: str, frame: TerminatedEvent) -> bool:
+    """Publish a terminal frame from a writer that is not the run, and say whether it landed.
+
+    FEATURE (OME-1785, E5 P1 spec R3): a writer publishes its Candidate's outcome only when its
+    own terminal frame is the one on `url4-events`. The JetStream publisher's `publish_next`
+    writes nothing after another terminal frame and says so; a publisher without it has no such
+    rule, so its frame lands.
+    """
+    publish_next = getattr(publisher, "publish_next", None)
+    if publish_next is None:
+        await publisher.publish(topic, frame)
+        return True
+    return bool(await publish_next(topic, frame))
 
 
 NO_TERMINAL_FRAME = "no_terminal_frame"

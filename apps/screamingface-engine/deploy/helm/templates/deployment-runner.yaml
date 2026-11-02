@@ -185,6 +185,11 @@ spec:
               value: {{ .Values.events.maxAgeS | quote }}
             - name: URL4_CLOUD_EVENTS_REPLICAS
               value: {{ .Values.events.replicas | quote }}
+            # INVARIANT: the same `candidateOutcomes.*` the App's ConfigMap renders (spec R11).
+            - name: URL4_CLOUD_CANDIDATE_OUTCOMES_MAX_AGE_S
+              value: {{ .Values.candidateOutcomes.maxAgeS | quote }}
+            - name: URL4_CLOUD_CANDIDATE_OUTCOMES_MAX_BYTES
+              value: {{ .Values.candidateOutcomes.maxBytes | int64 | quote }}
             - name: URL4_CLOUD_WORKER_DRAIN_GRACE_S
               value: {{ .Values.runnerPool.drainGraceS | quote }}
             - name: URL4_CLOUD_WORKER_METRICS_PORT

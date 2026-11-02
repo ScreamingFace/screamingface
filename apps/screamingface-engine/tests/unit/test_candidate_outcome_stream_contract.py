@@ -11,6 +11,8 @@ import os
 import socket
 from collections.abc import AsyncIterator, Callable
 from decimal import Decimal
+from types import SimpleNamespace
+from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -255,3 +257,94 @@ async def test_an_existing_writer_consumer_takes_this_codes_redelivery_rule() ->
     finally:
         await nc.close()
         await _delete(stream)
+
+
+@pytest.mark.skipif(not _nats_reachable(), reason=f"no NATS at {NATS_URL}")
+@pytest.mark.asyncio
+async def test_ensure_stream_with_update_applies_changed_limits() -> None:
+    """WHY: the App and the runner pool own the chart's `candidateOutcomes.*` values, so a
+    changed limit reaches a live stream at their next startup."""
+    first = _jetstream()
+    assert isinstance(first, JetStreamCandidateOutcomeStream)
+    name = first.config.name
+    await first.ensure_stream()
+    wide = CandidateOutcomesStreamConfig(name=name, max_bytes=128 * 1024**2, ack_wait_s=90.0)
+    owner = JetStreamCandidateOutcomeStream(NATS_URL, config=wide)
+    try:
+        await owner.ensure_stream(update=True)
+
+        nc = await nats.connect(NATS_URL)
+        try:
+            js = nc.jetstream()
+            info = await js.stream_info(name)
+            consumer = await js.consumer_info(name, wide.consumer)
+        finally:
+            await nc.close()
+        assert info.config.max_bytes == 128 * 1024**2
+        assert consumer.config.ack_wait == 90.0
+    finally:
+        await owner.close()
+        await _delete(first)
+
+
+@pytest.mark.asyncio
+async def test_the_in_memory_stream_accepts_an_update() -> None:
+    await InMemoryCandidateOutcomeStream().ensure_stream(update=True)
+
+
+@pytest.mark.asyncio
+async def test_a_failing_unsubscribe_never_hides_why_the_consumer_ended() -> None:
+    """WHY: a broker already gone at shutdown must not turn a cancel into a retried error."""
+
+    class _Sub:
+        async def fetch(self, batch: int, timeout: float) -> list[object]:
+            raise RuntimeError("the fetch failed")
+
+        async def unsubscribe(self) -> None:
+            raise ConnectionError("the broker is gone")
+
+    class _JetStream:
+        async def add_consumer(self, *args: object, **kwargs: object) -> None:
+            return None
+
+        async def pull_subscribe(self, *args: object, **kwargs: object) -> _Sub:
+            return _Sub()
+
+    stream = JetStreamCandidateOutcomeStream("nats://unused:4222")
+
+    async def _jetstream() -> _JetStream:
+        return _JetStream()
+
+    stream._jetstream = _jetstream  # type: ignore[assignment,method-assign]  # noqa: SLF001
+    deliveries = stream.consume()
+    with pytest.raises(RuntimeError, match="the fetch failed"):
+        await anext(deliveries)
+
+
+@pytest.mark.asyncio
+async def test_a_changed_limit_is_applied_without_touching_the_replica_count() -> None:
+    updated: list[Any] = []
+    stream = JetStreamCandidateOutcomeStream(
+        "nats://unused:4222", config=CandidateOutcomesStreamConfig(max_bytes=128 * 1024**2)
+    )
+    live = CandidateOutcomesStreamConfig().stream_config()
+    live.num_replicas = 3
+
+    class _JetStream:
+        async def stream_info(self, name: str) -> object:
+            return SimpleNamespace(config=live)
+
+        async def update_stream(self, config: Any) -> None:
+            updated.append(config)
+
+        async def add_consumer(self, name: str, config: object) -> None:
+            return None
+
+    async def _jetstream() -> _JetStream:
+        return _JetStream()
+
+    stream._jetstream = _jetstream  # type: ignore[assignment,method-assign]  # noqa: SLF001
+    await stream.ensure_stream(update=True)
+
+    [config] = updated
+    assert (config.max_bytes, config.num_replicas) == (128 * 1024**2, 3)
