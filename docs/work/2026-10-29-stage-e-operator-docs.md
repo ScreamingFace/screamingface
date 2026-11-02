@@ -3,7 +3,7 @@ ticket: OME-1780
 stack: aigateway
 status: done
 started: 2026-10-29
-finished: 2026-10-30
+finished: 2026-11-02
 ---
 
 # stage-e-operator-docs — document the Stage E rollback floor and upgrade path for operators
@@ -76,13 +76,17 @@ Docs only, no RED. Verification instead:
 ## Outcome
 
 - **Actual files:** the four planned docs, this ledger and the mirror
-  `docs/tasks/2026-10-29-OME-1780-stage-e-operator-docs.md`. No code, no test.
+  `docs/tasks/2026-10-29-OME-1780-stage-e-operator-docs.md`; in the fifth round also
+  `docs/diagrams/gateway-identity-flow.{mmd,svg,png}` and `docs/spec/2026-10-29-ome-1138-closeout.md`
+  §4.2. No code, no test.
 - **Commits:**
   - `86b30182f` `docs(aigateway): document the Stage E rollback floor and upgrade path`;
   - `16e29927d` `docs(aigateway): apply the review decisions to the Stage E operator docs`;
   - `8a3e43e0f` `docs(aigateway): name the E5c boundary by commit and fix the Google OAuth note`;
-  - `docs(aigateway): state the L4a quarantined precondition and drop the pre-L4a 409 wording`
-    (see the PR).
+  - `2b27b8a17` `docs(aigateway): state the L4a quarantined precondition and drop the pre-L4a 409
+    wording`;
+  - `docs(aigateway): stop the gateway for the L4a remediation and scope the ambiguity rule` (see
+    the PR).
 
   The first three were `8788c1be6`, `f9cb59432` and `ea5a19532` before the rebase onto
   `e915d8037`; the rebase applied cleanly.
@@ -150,6 +154,7 @@ Docs only, no RED. Verification instead:
     and third commits: ALL GATES GREEN.
   - Fourth round, after the rebase onto `e915d8037`: `uv run .claude/scripts/run_gates.py repo
     --base origin/main`: ALL GATES GREEN. The diff touches no Python and no chart.
+  - Fifth round: see that entry below.
   - No Cyrillic in the diff; every cited path exists.
 - **Review:** an independent read-only review verified every claim and raised one major and
   several minor points, all fixed before commit: 1.0.0 is not released yet (the first commit said
@@ -188,6 +193,35 @@ Docs only, no RED. Verification instead:
     `helm template` with default values renders the same at both commits except the randomly
     generated JWT secret and admin password. The text now says so and keeps the block unset for
     the E5b-era step.
+- **Fifth round, review of the fourth commit (2026-11-02):** two findings, both confirmed in code.
+  - Blocking: the remediation ran next to live pre-L4a writers. At `1ccf80a89` (and unchanged at
+    `fed613da2`) `writer_floor.claim_pair` writes back the observed state, effective reference and
+    note through `PairAuthorityStore.advance`, a compare-and-set on `generation`
+    (`UPDATE … WHERE generation = expected`, then `expected + 1`). The documented `UPDATE`s leave
+    `generation` alone, so a writer that observed `quarantined` before them still wins after them.
+    The widest window is OAuth: the start claims and keeps the published pair in
+    `PendingAuthEntry.observed_pair` (`routes/oauth_connections.py`, in memory, TTL 600 s), and the
+    callback claims it again (`routes/auth.py:651`). Lead decision: stop every pre-L4a replica
+    through Helm (`--set replicaCount=0`, then `kubectl wait --for=delete` on the gateway Pods), run
+    the count, both updates and a `DO` check in one transaction with `lock_timeout` 5 s and
+    `statement_timeout` 15 s under `psql -v ON_ERROR_STOP=1`, then upgrade to the L4a image with an
+    explicit `replicaCount`. Scaling through Helm rather than `kubectl scale` keeps the replica
+    count a release value, so the L4a upgrade sets it back without relying on how Helm merges a
+    field changed out of band. The SQL block, cut from the doc, ran on a throwaway local PostgreSQL
+    16: with 1 `quarantined` and 2 noted rows it committed and left both counts 0 with
+    `generation` unchanged; with a trigger that keeps a note, the `DO` check raised, `psql` exited
+    3 and nothing changed. The Deployment name and Pod labels come from `helm template aigw` of
+    this chart (`aigw-aigateway`; `app.kubernetes.io/instance`, `app.kubernetes.io/component:
+    gateway`). Spec §4.2 gains a dated amendment saying the same; the 2026-10-30 runs found no
+    `quarantined` row before the change, so none could be written back there.
+  - Accuracy: `gateway-identity.md` said any pair with several active Connections answers
+    `409 connection_ambiguous`. `connection_backed.resolve` at `e915d8037` serves a migrated pair
+    with an effective reference from that Connection (`_served_by_reference`); only a pair without
+    one goes through label selection, where two or more active rows are ambiguous. The prose (which
+    predates this PR on main) and the flow diagram's two `alt` branches now say so. The `.mmd`
+    source, the inline block, the SVG and the 2x PNG were updated together, rendered with Mermaid
+    CLI 12.0.0 as in the previous render, and the PNG was inspected.
+  - Gate: `uv run .claude/scripts/run_gates.py repo --base origin/main`: ALL GATES GREEN.
 - **Deviations:**
   - Spec §4.10 item 4 (the L4c `0016` floor) is not written; it lands with L4c, per the owner.
   - The spec's "`apps/aigateway/README.md:92` and its '`profile_not_found` … retained until
@@ -211,3 +245,5 @@ Docs only, no RED. Verification instead:
     §4.10 item 5.
   - `docs/spec/2026-10-29-ome-1138-closeout.md` is cited for "permanent" at the lead's request; it
     reaches main with PR #1607.
+  - Fifth round: the governing spec §4.2 is amended in this docs PR, on the lead's decision, so the
+    runbook and the spec give the same procedure.

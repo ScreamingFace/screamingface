@@ -67,13 +67,13 @@ sequenceDiagram
 
     Note over G,P: current_account() in cloudflare_headers mode:<br/>identity_from_headers() → CloudflareIdentity →<br/>Account.get_or_create(username=email)<br/>honouring is_active
     G->>G: resolve the effective credential<br/>for (account, provider)
-    alt exactly one active Connection
+    alt the marker's effective Connection, or the one active Connection
         G->>P: provider call with THAT principal's credential
         P-->>G: completion
         G-->>R: OpenAI-shaped response + usage
         R-->>E: run frames over NATS → WebSocket
         E-->>C: Result / Terminated
-    else several active Connections
+    else no effective reference, several active Connections
         G-->>R: 409 connection_ambiguous<br/>remove extra active Connections
         R-->>E: terminal error frame
         E-->>C: Error / Terminated
@@ -233,5 +233,7 @@ namespace. A caller with no credential for the requested provider authenticates 
 Connection a migrated pair names is still pending, resolution returns `409 profile_pending_auth`;
 when it has errored, `401 auth_required` with a `reauth_url`. Since L4a (`e915d8037`) a pair
 marker is `none` or `migrated`; `apps/aigateway/DEPLOYMENT.md` gives the step that settles a stored
-`quarantined` row before the upgrade. If the account/provider pair has several active Connections,
-resolution returns `409 connection_ambiguous`; callers cannot choose one with a request header.
+`quarantined` row before the upgrade. A migrated pair whose marker names an effective Connection is
+served by that Connection, whatever other active Connections exist. If a pair without an effective
+reference has several active Connections, resolution returns `409 connection_ambiguous`; callers
+cannot choose one with a request header.

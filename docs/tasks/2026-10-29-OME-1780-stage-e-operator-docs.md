@@ -26,6 +26,11 @@ precondition for an image that includes L4a: count the `quarantined` and non-nul
 rows, settle them, and recount to 0. The pre-L4a `409 credential_pair_unresolved` sentence is gone
 from `DEPLOYMENT.md` and `docs/diagrams/gateway-identity.md`.
 
+After review (2026-11-02): the remediation runs with every pre-L4a gateway replica stopped and in
+one bounded transaction, because an older gateway can write an observed `quarantined` back; spec
+§4.2 gains the same amendment. `gateway-identity.md` and its flow diagram scope
+`409 connection_ambiguous` to a pair without an effective reference.
+
 Spec: `docs/spec/2026-10-29-ome-1138-closeout.md` §4.10. Plan:
 `docs/plan/2026-10-29-ome-1138-closeout.md` §3 "L10". Ledger:
 `docs/work/2026-10-29-stage-e-operator-docs.md`.

@@ -231,22 +231,49 @@ database.
 **Before an image that includes L4a (`e915d8037`, #1614).** From L4a on, a pair marker has two
 states, `none` and `migrated`, and a stored `quarantined` row is a data error: chat answers 500 for
 that account, the `GET /v1/provider-access` listing fails for it, and the admin inventory refuses
-it. Before any replica runs such an image, take a database backup and count both kinds of
-leftover rows:
+it. Settle the leftover rows with no gateway running, in this order:
 
-```sql
-SELECT count(*) FROM provider_credential_slots WHERE migration_state = 'quarantined';
-SELECT count(*) FROM provider_credential_slots WHERE migration_note IS NOT NULL;
-```
+1. Take a database backup.
+2. Stop every gateway replica. Rerun the release's `helm upgrade` with its current image and
+   `--set replicaCount=0`, then wait until no gateway Pod is left (release and namespace `aigw`, as
+   above):
 
-If either count is above 0, settle the rows, then repeat both counts; both must be 0:
+   ```bash
+   kubectl -n aigw wait --for=delete pod \
+     -l app.kubernetes.io/instance=aigw,app.kubernetes.io/component=gateway --timeout=5m
+   ```
 
-```sql
-UPDATE provider_credential_slots SET migration_state = 'none', migration_note = NULL
-  WHERE migration_state = 'quarantined';
-UPDATE provider_credential_slots SET migration_note = NULL
-  WHERE migration_note IS NOT NULL;
-```
+   A gateway older than L4a writes a pair's marker back as it read it, fenced only by the row's
+   `generation`, which the statements below do not change. An OAuth flow started before them and
+   finished after them (its start waits in the Pod's memory for up to 10 minutes) would therefore
+   write `quarantined` back. Stopping the Pods ends those flows.
+3. Run the count, the change and the recount in one transaction, with `psql -v ON_ERROR_STOP=1`:
+
+   ```sql
+   BEGIN;
+   SET LOCAL lock_timeout = '5s';
+   SET LOCAL statement_timeout = '15s';
+   SELECT count(*) FILTER (WHERE migration_state = 'quarantined') AS quarantined,
+          count(*) FILTER (WHERE migration_note IS NOT NULL) AS noted
+     FROM provider_credential_slots;
+   UPDATE provider_credential_slots SET migration_state = 'none', migration_note = NULL
+     WHERE migration_state = 'quarantined';
+   UPDATE provider_credential_slots SET migration_note = NULL
+     WHERE migration_note IS NOT NULL;
+   DO $$
+   BEGIN
+     IF EXISTS (SELECT 1 FROM provider_credential_slots
+                WHERE migration_state = 'quarantined' OR migration_note IS NOT NULL) THEN
+       RAISE EXCEPTION 'quarantined or migration_note rows remain';
+     END IF;
+   END $$;
+   COMMIT;
+   ```
+
+   Record the first count. If any statement fails, nothing is committed; fix the cause and run the
+   transaction again.
+4. Upgrade the release to the L4a image with `--set replicaCount=<your replica count>`. Its Pods
+   are the first to take traffic again.
 
 A pair set to `none` is owned by its Connections: one active Connection serves it, two or more are
 refused as ambiguous (`409 connection_ambiguous`; the availability listing shows `error`), and with
