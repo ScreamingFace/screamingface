@@ -1,18 +1,16 @@
 """Resolve and availability read no Profile document (OME-1209, Stage E, E4a; spec §9 Q8, Q9).
 
 # FEATURE: Stage E plan §3 E4a — the pair marker alone decides how a pair resolves. An absent or
-# `none` marker resolves through the pair's Connections (the label path, chatless or ambient), a
-# `quarantined` marker fails closed with the D18 pair refusal, and a `migrated` marker serves its
-# effective Connection when it names one and the label path otherwise.
-# INVARIANT: no resolve or availability call reads the legacy Profile index; a Profile document is
-# never a credential target and never a status.
-# WHY one spy over `get` and `list`: those are the index's two reads, and the harness's own seeding
-# and observation use a fresh store, so a recorded read can only come from the code under test.
+# `none` marker resolves through the pair's Connections (the label path, chatless or ambient), and
+# a `migrated` marker serves its effective Connection when it names one and the label path
+# otherwise. Any other stored state is refused as unknown (OME-1138 close-out, L4a:
+# `test_compatibility_paths_retired.py`).
+# INVARIANT: a blob left at a pair's name address is never a credential target and never a status
+# on its own; only the marker and the pair's Connections decide.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Coroutine
 from typing import Any
 from uuid import UUID
 
@@ -23,31 +21,21 @@ from provider_access_harness import ANTHROPIC, PROVIDER
 from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import (
     MigrationState,
     PairAuthorityStore,
-    PairNotManageable,
     ResolvePolicy,
     Selector,
-    SelectorUnknown,
     TargetMissing,
     TargetPending,
     TargetReauthRequired,
 )
+from tests.unit.seed_state import SeedState
 
 DEFAULT = Selector.from_header(None)
 CHAT_COMPLETION = (
     "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion"
 )
-UNRESOLVED = {
-    "code": "credential_pair_unresolved",
-    "message": (
-        "The provider credential cannot be managed safely. Resolve its state before retrying."
-    ),
-    "provider": PROVIDER,
-}
 
 
 @pytest.fixture
@@ -57,34 +45,9 @@ def h(
     return ConnectionBackedHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
-@pytest.fixture
-def index_reads(h: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Every read of a Profile index, by method name, in order."""
-    reads: list[str] = []
-
-    def spy(name: str, real: Callable[..., Coroutine[Any, Any, Any]]) -> Any:
-        async def read(*args: Any, **kwargs: Any) -> Any:
-            reads.append(name)
-            return await real(*args, **kwargs)
-
-        return read
-
-    # WHY the class (OME-1209 E4b): the app wires no index, so a read could only come through a
-    # store built on the spot; the class sees every one.
-    for name in ("get", "list"):
-        monkeypatch.setattr(ProfileIndexStore, name, spy(name, getattr(ProfileIndexStore, name)))
-    return reads
-
-
 def _resolve(h: ConnectionBackedHarness, policy: ResolvePolicy = ResolvePolicy.DISPATCH) -> Any:
     return h.call(
         h.access.resolve, h.account_id, PROVIDER, DEFAULT, plugin=ANTHROPIC, policy=policy
-    )
-
-
-def _resolve_named(h: ConnectionBackedHarness, name: str) -> Any:
-    return h.call(
-        h.access.resolve, h.account_id, PROVIDER, Selector.from_header(name), plugin=ANTHROPIC
     )
 
 
@@ -99,7 +62,6 @@ def _mark(
             expected_generation=current.generation,
             migration_state=state,
             effective_connection_id=None if effective is None else UUID(effective),
-            migration_note="seeded by the test" if state == "quarantined" else None,
         )
 
     h.call(advance)
@@ -118,7 +80,7 @@ def _statuses(h: ConnectionBackedHarness) -> dict[str, str]:
 
 
 def test_an_unmarked_pair_resolves_its_one_active_connection_without_the_index(
-    h: ConnectionBackedHarness, index_reads: list[str]
+    h: ConnectionBackedHarness,
 ) -> None:
     connection_id = h.seed_connection(label="work")
 
@@ -126,7 +88,6 @@ def test_an_unmarked_pair_resolves_its_one_active_connection_without_the_index(
 
     assert target.kind == "stored"
     assert target.context_stamp.startswith(_stamp_of(h, connection_id))
-    assert index_reads == []
 
 
 def test_an_unmarked_pair_reads_its_marker_once_per_resolve(
@@ -171,7 +132,7 @@ def test_a_connection_target_stamps_its_id_status_and_refresh_time(
 def test_chat_dispatches_the_connection_beside_a_default_profile_document(
     h: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    h.seed_document(credential="document-tok")
+    h.seed_blob(credential="document-tok")
     h.seed_connection(label="work", credential="connection-tok")
     captured: dict[str, Any] = {}
 
@@ -205,20 +166,18 @@ def test_chat_dispatches_the_connection_beside_a_default_profile_document(
 
 
 def test_a_lone_profile_document_is_not_a_target_of_an_unmarked_pair(
-    h: ConnectionBackedHarness, index_reads: list[str]
+    h: ConnectionBackedHarness,
 ) -> None:
-    h.seed_document(credential="tok")
+    h.seed_blob(credential="tok")
 
     with pytest.raises(TargetMissing):
         _resolve(h)
 
-    assert index_reads == []
-
 
 def test_a_none_pair_resolves_its_connection_even_beside_a_profile_document(
-    h: ConnectionBackedHarness, index_reads: list[str]
+    h: ConnectionBackedHarness,
 ) -> None:
-    h.seed_document(credential="tok")
+    h.seed_blob(credential="tok")
     connection_id = h.seed_connection(label="work")
     _mark(h, "none")
 
@@ -228,72 +187,25 @@ def test_a_none_pair_resolves_its_connection_even_beside_a_profile_document(
     observed = target._observed_pair
     assert observed is not None
     assert (observed.migration_state, observed.generation) == ("none", 1)
-    assert index_reads == []
 
 
 def test_the_datasheet_answers_an_unmarked_pair_targetless_despite_a_profile_document(
-    h: ConnectionBackedHarness, index_reads: list[str]
+    h: ConnectionBackedHarness,
 ) -> None:
-    h.seed_document(credential="tok")
+    h.seed_blob(credential="tok")
 
     target = _resolve(h, ResolvePolicy.DATASHEET)
 
     assert (target.kind, target.credential_name) == ("none", None)
     assert target.context_stamp == f"acct:{h.account_id}|anon"
-    assert index_reads == []
-
-
-# --- `quarantined`: fail closed ------------------------------------------------------------------
-
-
-@pytest.mark.parametrize("policy", list(ResolvePolicy), ids=lambda policy: policy.value)
-def test_a_quarantined_pair_refuses_with_the_pair_code_and_reads_no_index(
-    h: ConnectionBackedHarness, index_reads: list[str], policy: ResolvePolicy
-) -> None:
-    h.seed_document(credential="tok")
-    h.seed_connection(label="work")
-    _mark(h, "quarantined")
-
-    with pytest.raises(PairNotManageable) as refused:
-        _resolve(h, policy)
-
-    assert (refused.value.provider, refused.value.kind) == (PROVIDER, "unresolved")
-    assert index_reads == []
-
-
-def test_chat_and_model_parameters_answer_a_quarantined_pair_with_409_unresolved(
-    h: ConnectionBackedHarness, index_reads: list[str], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    h.seed_document(credential="tok")
-    _mark(h, "quarantined")
-
-    async def never(_self: Any, _body: dict[str, Any]) -> Any:
-        raise AssertionError("a refused pair must not reach the provider")
-
-    monkeypatch.setattr(CHAT_COMPLETION, never)
-    chat = h.client.post(
-        "/v1/chat/completions",
-        json={
-            "model": "anthropic/claude-haiku-4-5",
-            "messages": [{"role": "user", "content": "hi"}],
-        },
-    )
-    parameters = h.client.get("/v1/model-parameters", params={"model": "anthropic/claude-opus-4-8"})
-
-    assert (chat.status_code, chat.json()["detail"]) == (409, UNRESOLVED)
-    assert (parameters.status_code, parameters.json()["detail"]) == (409, UNRESOLVED)
-    assert index_reads == []
 
 
 # --- `migrated`: the effective Connection when named, else the label path -----------------------
 
 
-@pytest.mark.parametrize("with_document", [False, True], ids=["no-document", "document"])
 def test_a_migrated_pair_serves_its_named_effective_connection_beside_another_row(
-    h: ConnectionBackedHarness, index_reads: list[str], with_document: bool
+    h: ConnectionBackedHarness,
 ) -> None:
-    if with_document:
-        h.seed_document(credential="tok")
     effective = h.seed_authority()
     h.seed_connection(label="extra")
 
@@ -301,56 +213,28 @@ def test_a_migrated_pair_serves_its_named_effective_connection_beside_another_ro
 
     assert target.context_stamp.startswith(_stamp_of(h, effective))
     assert target.credential_name == credential_name_for(h.account_id, "default")
-    assert index_reads == []
 
 
 def test_a_migrated_pair_with_no_effective_connection_takes_the_label_path(
-    h: ConnectionBackedHarness, index_reads: list[str]
+    h: ConnectionBackedHarness,
 ) -> None:
-    h.seed_document(credential="tok")
+    h.seed_blob(credential="tok")
     connection_id = h.seed_connection(label="work")
     _mark(h, "migrated")
 
     target = _resolve(h)
 
     assert target.context_stamp.startswith(_stamp_of(h, connection_id))
-    assert index_reads == []
-
-
-def test_a_named_selector_on_a_migrated_pair_is_refused_not_served_by_the_effective_row(
-    h: ConnectionBackedHarness, index_reads: list[str]
-) -> None:
-    h.seed_authority(label="work")
-
-    with pytest.raises(SelectorUnknown) as refused:
-        _resolve_named(h, "nope")
-
-    assert (refused.value.requested, refused.value.valid_labels) == ("nope", ("work",))
-    assert index_reads == []
-
-
-def test_a_named_selector_on_a_migrated_pair_matches_its_connection_by_label(
-    h: ConnectionBackedHarness, index_reads: list[str]
-) -> None:
-    h.seed_authority(label="work")
-    other = h.seed_connection(label="other")
-
-    target = _resolve_named(h, "other")
-
-    assert target.context_stamp.startswith(_stamp_of(h, other))
-    assert index_reads == []
 
 
 def test_a_disconnected_migrated_pair_with_no_connection_is_missing(
-    h: ConnectionBackedHarness, index_reads: list[str]
+    h: ConnectionBackedHarness,
 ) -> None:
-    h.seed_document(credential="tok")
+    h.seed_blob(credential="tok")
     _mark(h, "migrated")
 
     with pytest.raises(TargetMissing):
         _resolve(h)
-
-    assert index_reads == []
 
 
 @pytest.mark.parametrize(
@@ -374,43 +258,29 @@ def test_an_unusable_effective_connection_is_refused_beside_an_active_sibling(
         _resolve(h)
 
 
-# --- availability: the registry and the migrated markers only -----------------------------------
+# --- availability: the effective reference (label rule: its own module) ------------------------
 
 
 def test_availability_reports_no_profile_state_and_reads_no_index(
-    h: ConnectionBackedHarness, index_reads: list[str]
+    h: ConnectionBackedHarness,
 ) -> None:
-    h.seed_document(state=ProfileState.AUTHENTICATED)
+    h.seed_blob()
 
     statuses = _statuses(h)
 
     registered = {plugin.custom_llm_provider for plugin in h.client.app.state.providers.all()}
     assert set(statuses) == registered
     assert set(statuses.values()) == {"not_connected"}
-    assert index_reads == []
-
-
-@pytest.mark.parametrize("state", ["none", "quarantined"])
-def test_availability_reports_a_non_migrated_pair_as_not_connected(
-    h: ConnectionBackedHarness, index_reads: list[str], state: MigrationState
-) -> None:
-    h.seed_document(state=ProfileState.AUTHENTICATED)
-    h.seed_connection(label="work")
-    _mark(h, state)
-
-    assert _statuses(h)[PROVIDER] == "not_connected"
-    assert index_reads == []
 
 
 @pytest.mark.parametrize(
     ("state", "status"),
-    [(ProfileState.AUTHENTICATED, "connected"), (ProfileState.ERROR, "error")],
+    [(SeedState.AUTHENTICATED, "connected"), (SeedState.ERROR, "error")],
     ids=["active", "error"],
 )
 def test_availability_reports_a_migrated_pair_by_its_effective_connection(
-    h: ConnectionBackedHarness, index_reads: list[str], state: ProfileState, status: str
+    h: ConnectionBackedHarness, state: SeedState, status: str
 ) -> None:
     h.seed_authority(state=state)
 
     assert _statuses(h)[PROVIDER] == status
-    assert index_reads == []

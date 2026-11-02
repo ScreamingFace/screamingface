@@ -6,9 +6,10 @@ output and no ``usage``, and OpenRouter keeps no generation record for it (live 
 and 2026-10-27). Nothing is billed, so the attempt's covered cost is zero.
 
 INVARIANT: the proof reads only the facts that tell if OpenRouter billed the call: the refusal
-signal, no output, no ``usage`` and no non-zero money field. Every other field of the reply,
-``openrouter_metadata`` included, is ignored, so a new or changed field never makes the cost
-unknown (owner decision 2026-10-27, spec §8).
+signal, no output (``billing_facts`` lists the output fields), no ``usage``, no paid pipeline
+stage and no non-zero money field. Every other field is ignored, so a new or changed field that
+carries no output or money never makes the cost unknown (owner decision 2026-10-27, spec §8
+and §9).
 """
 
 from __future__ import annotations
@@ -16,18 +17,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from .billing_facts import reports_a_charge
-
-# WHY each is listed: any one of them carries model output, and output after a refusal starts is
-# billed (a mid-stream refusal reports its `usage.cost`).
-_EMPTY_TEXT_FIELDS = ("content", "refusal", "reasoning")
-_EMPTY_LIST_FIELDS = ("reasoning_details", "tool_calls")
-
-
-def _message_has_no_output(message: Mapping[str, Any]) -> bool:
-    return all(message.get(field) in (None, "") for field in _EMPTY_TEXT_FIELDS) and all(
-        message.get(field) in (None, []) for field in _EMPTY_LIST_FIELDS
-    )
+from .billing_facts import has_no_output, pipeline_has_paid_stage, reports_a_charge
 
 
 def proves_pre_output_refusal(
@@ -43,7 +33,6 @@ def proves_pre_output_refusal(
         # WHY: a billed call carries `usage` with its cost; an embedded error is not a refusal.
         or raw_response.get("usage") is not None
         or raw_response.get("error") is not None
-        or reports_a_charge(raw_response)
     ):
         return False
     choices = raw_response.get("choices")
@@ -53,11 +42,14 @@ def proves_pre_output_refusal(
     if not isinstance(choice, Mapping):
         return False
     message = choice.get("message")
+    # WHY this order: the cheap refusal signal first; the walks over the whole reply last.
     return (
         choice.get("finish_reason") == "content_filter"
         and choice.get("native_finish_reason") == "refusal"
         and isinstance(message, Mapping)
-        and _message_has_no_output(message)
+        and has_no_output(raw_response, message)
+        and not pipeline_has_paid_stage(raw_response)
+        and not reports_a_charge(raw_response)
     )
 
 

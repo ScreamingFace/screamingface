@@ -26,6 +26,7 @@ from screamingface.combine_evidence import CombineEvidence
 from screamingface.operation_accounting import OperationAccounting
 
 if TYPE_CHECKING:
+    from screamingface.media import CaseMedia
     from screamingface.operation import OperationInfo
     from screamingface.report_trace import TraceEntry
 
@@ -568,6 +569,17 @@ class CaseResult:
         """
 
         return _decode_candidate_envelope(self.input)
+
+    @property
+    def media(self) -> tuple[CaseMedia, ...]:
+        """Each picture and file of the Case, in its order, by type, size and sha256; none fetched.
+
+        FEATURE (OME-1271): open one with ``sf.fetch_media(item)``. Empty for a text Case.
+        """
+
+        from screamingface.media import case_media
+
+        return case_media(self.input)
 
     @property
     def display_input(self) -> str:

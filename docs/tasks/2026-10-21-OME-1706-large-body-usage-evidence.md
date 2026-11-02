@@ -1,13 +1,13 @@
 ---
 id: OME-1706
 linear_url: https://linear.app/openmined/issue/OME-1706/keep-the-exact-openrouter-cost-for-successful-responses-over-256-kib
-status: in_progress
+status: done
 type: fix
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1287
 created: 2026-10-21
-closed:
+closed: 2026-10-22
 ---
 
 # Keep the exact OpenRouter cost for successful responses over 256 KiB

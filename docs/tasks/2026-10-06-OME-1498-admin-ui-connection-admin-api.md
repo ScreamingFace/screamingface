@@ -1,15 +1,15 @@
 ---
 id: OME-1498
 linear_url: https://linear.app/openmined/issue/OME-1498/move-admin-ui-credential-management-to-the-pair-addressed-connection
-status: in_review   # Linear is the authority; OME-1497 G1 merged (#1397, #1405, #1408)
+status: done
 type: task
 priority: high
-labels: [aigateway, agentic, autonomous, blocked]
+labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 blocked_by: [OME-1497]
 blocks: [OME-1209]
 created: 2026-10-06
-closed:
+closed: 2026-10-14
 ---
 
 # Move Admin UI credential management to the pair-addressed Connection admin API
@@ -25,3 +25,6 @@ always-`null` `masked_key_hint`; dispatches the successor error codes before the
 Contract: `docs/spec/2026-10-02-provider-credential-admin-contract.md` §2–§4, §7, §8.
 Plan: `docs/plan/2026-10-02-provider-credential-admin-contract.md` (section D).
 Ledger: `docs/work/2026-10-14-ui-connection-admin.md`.
+
+Squash-merged to `main` on 2026-10-14 as `9be66ecb0` (PR #1411). Linear closed the issue Done the
+same day.

@@ -94,6 +94,50 @@ def test_an_explicit_443_is_normalized_away() -> None:
     assert config.endpoints[0].origin == ORIGIN_A
 
 
+# FEATURE: hosted BYOM Unit 1 — an operator approves HTTP or HTTPS origins by DNS name or address,
+# on any port, including a private host, a loopback server or a Docker service name.
+@pytest.mark.parametrize(
+    ("origin", "canonical"),
+    [
+        ("http://endpoint-a.byom.test", "http://endpoint-a.byom.test"),
+        ("https://endpoint-a.byom.test:8443", "https://endpoint-a.byom.test:8443"),
+        ("https://endpoint-a.byom.test:80", "https://endpoint-a.byom.test:80"),
+        ("http://endpoint-a.byom.test:443", "http://endpoint-a.byom.test:443"),
+        ("http://localhost", "http://localhost"),
+        ("http://lm-studio:1234", "http://lm-studio:1234"),
+        ("http://lm_studio:1234", "http://lm_studio:1234"),
+        ("http://192.168.1.20:1234", "http://192.168.1.20:1234"),
+        ("https://10.0.0.1", "https://10.0.0.1"),
+        ("http://127.0.0.1:65535", "http://127.0.0.1:65535"),
+        ("http://169.254.10.20:1", "http://169.254.10.20:1"),
+        ("https://[::1]", "https://[::1]"),
+        ("http://[fd00::20]:8080", "http://[fd00::20]:8080"),
+        ("http://[fe80::1]:8080", "http://[fe80::1]:8080"),
+    ],
+)
+def test_approved_origins_are_accepted(origin: str, canonical: str) -> None:
+    config = parse_remote_endpoint_config(document(endpoint(origin=origin)))
+
+    assert config.endpoints[0].origin == canonical
+
+
+@pytest.mark.parametrize(
+    ("spelled", "canonical"),
+    [
+        ("http://endpoint-a.byom.test:80", "http://endpoint-a.byom.test"),
+        ("https://endpoint-a.byom.test:443", "https://endpoint-a.byom.test"),
+        ("http://192.168.1.20:80", "http://192.168.1.20"),
+        ("https://[::1]:443", "https://[::1]"),
+    ],
+)
+def test_the_default_port_of_the_scheme_is_normalized_away(spelled: str, canonical: str) -> None:
+    # INVARIANT: one origin has one spelling, so the origin bound into a stored key compares equal
+    # however the operator wrote the default port.
+    config = parse_remote_endpoint_config(document(endpoint(origin=spelled)))
+
+    assert config.endpoints[0].origin == canonical
+
+
 def test_an_empty_grant_list_is_valid_and_grants_nobody() -> None:
     config = parse_remote_endpoint_config(document(endpoint(accounts=())))
 
@@ -160,8 +204,6 @@ def test_endpoint_ids_must_be_byom_and_32_lowercase_hex(endpoint_id: str) -> Non
 @pytest.mark.parametrize(
     "origin",
     [
-        "http://endpoint-a.byom.test",
-        "https://endpoint-a.byom.test:8443",
         "https://endpoint-a.byom.test/",
         "https://endpoint-a.byom.test/v1",
         "https://user:pw@endpoint-a.byom.test",
@@ -169,16 +211,101 @@ def test_endpoint_ids_must_be_byom_and_32_lowercase_hex(endpoint_id: str) -> Non
         "https://endpoint-a.byom.test#frag",
         "https://Endpoint-A.byom.test",
         "https://endpoint-a.byom.test.",
-        "https://10.0.0.1",
-        "https://[::1]",
-        "https://localhost",
         "https://end\tpoint-a.byom.test",
         "https://-bad.byom.test",
         "endpoint-a.byom.test",
         "https://endpoint-a.byom.test:abc",
     ],
 )
-def test_origins_must_be_canonical_https_443_hostnames(origin: str) -> None:
+def test_non_canonical_origins_are_refused(origin: str) -> None:
+    assert "endpoints.0.origin" in _refusal(document(endpoint(origin=origin)))
+
+
+@pytest.mark.parametrize(
+    "origin", ["http://0.0.0.0", "http://0.0.0.0:8080", "http://[::]", "https://[::]:8443"]
+)
+def test_an_unspecified_address_is_refused_as_a_destination(origin: str) -> None:
+    message = _refusal(document(endpoint(origin=origin)))
+
+    assert "endpoints.0.origin: Value error, must not be an unspecified address" in message
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://[::ffff:10.0.0.1]",
+        "http://[::ffff:a00:1]",
+        "http://[::FFFF:A00:1]",
+        "http://[0:0:0:0:0:ffff:a00:1]",
+        "https://[::ffff:c0a8:114]:8443",
+    ],
+)
+def test_ipv4_mapped_ipv6_is_refused_in_every_spelling(origin: str) -> None:
+    # WHY the rule is asserted: the parsed address is checked, so a hexadecimal spelling is refused
+    # for being IPv4-mapped, not merely for being a non-canonical IPv6 spelling.
+    message = _refusal(document(endpoint(origin=origin)))
+
+    assert "endpoints.0.origin: Value error, must write an IPv4 address in dotted form" in message
+
+
+@pytest.mark.parametrize(
+    "origin", ["http://[private-host]", "https://[private-host]:8443", "http://[private-host"]
+)
+def test_a_bracketed_host_that_is_no_address_is_refused_without_echo(origin: str) -> None:
+    # WHY: the URL parser's own error quotes the bracketed text, so it must not reach the refusal.
+    message = _refusal(document(endpoint(origin=origin)))
+
+    assert "endpoints.0.origin" in message
+    assert "private-host" not in message
+
+
+def test_an_ipv6_zone_is_refused() -> None:
+    message = _refusal(document(endpoint(origin="http://[fe80::1%25eth0]:8080")))
+
+    assert "endpoints.0.origin: Value error, must not carry an IPv6 zone" in message
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        # Numbers a resolver would read as an IPv4 address in another spelling.
+        "http://010.0.0.1",
+        "http://10.0.0.01",
+        "http://10.1",
+        "http://0",
+        "http://2130706433",
+        "http://0x7f000001",
+        "http://0x0",
+        "http://localhost.0x1",
+        # IPv6 outside its one canonical spelling, dotted IPv4 notation included.
+        "http://fd00::1",
+        "http://[FD00::1]",
+        "http://[fd00:0::1]",
+        "http://[::10.0.0.1]",
+        # Ports outside 1 to 65535, or spelled otherwise than in decimal.
+        "http://endpoint-a.byom.test:0",
+        "http://endpoint-a.byom.test:65536",
+        "http://endpoint-a.byom.test:080",
+        "http://endpoint-a.byom.test:",
+        "http://endpoint-a.byom.test:+80",
+        # Other schemes, or a scheme not in lower case.
+        "ftp://endpoint-a.byom.test",
+        "ws://endpoint-a.byom.test",
+        "HTTP://endpoint-a.byom.test",
+        "http:/endpoint-a.byom.test",
+        "http://",
+        # Labels a resolver would not take as written.
+        "http://_lm-studio",
+        "http://lm-studio_",
+        "http://lm..studio",
+        # Anything after the authority.
+        "http://192.168.1.20:1234/",
+        "http://192.168.1.20:1234/v1",
+        "http://user@192.168.1.20:1234",
+        "http://[::1]?x=1",
+    ],
+)
+def test_unapproved_origins_are_refused(origin: str) -> None:
     assert "endpoints.0.origin" in _refusal(document(endpoint(origin=origin)))
 
 

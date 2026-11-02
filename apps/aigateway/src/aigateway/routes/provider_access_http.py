@@ -24,7 +24,6 @@ from ..core.provider_access import (
     ProviderUnknown,
     Selector,
     SelectorAmbiguous,
-    SelectorUnknown,
     SelectorUnsupported,
     TargetMissing,
     TargetPending,
@@ -35,14 +34,14 @@ from ..core.provider_access import (
 
 
 def selector_from_request(request: Request) -> Selector:
-    """Parse every inbound selector value under the composition-root policy."""
+    """Parse every inbound selector value: any present `X-Profile` is refused (Stage D sunset)."""
     # INVARIANT: a blank first field cannot hide a named later field. ``Headers.get`` exposes only
     # one value, while Stage D requires every repeated field to be judged before route work.
     raw = next(
         (value for value in request.headers.getlist("X-Profile") if value.strip()),
         None,
     )
-    return Selector.from_header(raw, policy=request.app.state.selector_policy)
+    return Selector.from_header(raw)
 
 
 _AMBIGUOUS_MESSAGE = "Multiple active Connections exist. Remove extra Connections, then retry."
@@ -110,16 +109,6 @@ def render_refusal(exc: ProviderAccessRefusal) -> HTTPException:
                 "message": _AMBIGUOUS_MESSAGE,
             },
         )
-    if isinstance(exc, SelectorUnknown):
-        return HTTPException(
-            status_code=404,
-            detail={
-                "code": "connection_not_found",
-                "provider": exc.provider,
-                "requested_label": exc.requested,
-                "valid_labels": list(exc.valid_labels),
-            },
-        )
     if isinstance(exc, UnsupportedAuthMode):
         return HTTPException(status_code=400, detail=_unsupported_detail(exc))
     if isinstance(exc, WriteConflict):
@@ -144,8 +133,8 @@ def _management_refusal(exc: ProviderAccessRefusal) -> HTTPException | None:
             status_code=404, detail={"code": "unknown_provider", "provider": exc.provider}
         )
     if isinstance(exc, PairNotManageable):
-        # WHY the D18 body on every route (OME-1209 E4a, spec §9 Q8): chat and model parameters
-        # refuse a quarantined pair with the code the successor admin API answers for it.
+        # WHY the D18 body: a successor mutation refuses a pair of §5 row 3 (`ambiguous`) or row 11
+        # (`unresolved`) with the code the successor LIST shows for it (OME-1497, G1).
         return HTTPException(
             status_code=409, detail=pair_conflict_detail(PairConflict(exc.provider, exc.kind))
         )
@@ -173,7 +162,8 @@ def refusals_as_http() -> Iterator[None]:
 
 # --- the D18 successor scope (OME-1497, G1; contract §7) -----------------------------------------
 # INVARIANT: these rows serve ONLY the `/v1/admin/accounts/{account_id}/connections` routes; the
-# legacy rows above keep their bodies. The pair conflict is the one shared row (E4a).
+# legacy rows above keep their bodies. The pair conflict renders one body in both tables (E4a);
+# since the OME-1138 close-out (L4a) only a D18 mutation raises it.
 
 _PAIR_CONFLICT_MESSAGES = {
     "ambiguous": (

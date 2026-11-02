@@ -6,11 +6,14 @@
 # INVARIANT: an absent row reads as `none` with generation 0. `advance` is a compare-and-set on the
 # generation — the row is created only when the caller expects generation 0 and updated only
 # `WHERE generation = expected` — so a stale writer is fenced at commit time and changes nothing.
-# INVARIANT (D14): only a `migrated` pair names an effective Connection; for `none` and
-# `quarantined` the legacy Profile owns the pair, and a reference would be a second owner.
-# AIDEV-NOTE: policy-free by design — WHICH transition a pair may take (classify, quarantine,
-# roll back) is the caller's decision. Call `advance` inside the caller's `in_transaction()` so
-# the marker commits with the data it describes (card: "written in the same transaction").
+# INVARIANT (D14): only a `migrated` pair names an effective Connection. A `none` or absent marker
+# leaves the pair to its Connections (OME-1209 §9 Q8), served only as its one active row; a
+# reference there would be a second owner. The writer floor fences who changes that owner.
+# INVARIANT (OME-1138 close-out, L4a): exactly two states. Any other stored value, a retired state
+# included, is refused on every read and never read as `none`.
+# WHY policy-free: WHICH transition a pair may take is the caller's decision. Call `advance`
+# inside the caller's `in_transaction()` so the marker commits with the data it describes (card:
+# "written in the same transaction").
 """
 
 from __future__ import annotations
@@ -24,18 +27,13 @@ from tortoise.exceptions import IntegrityError
 
 from .models import ProviderCredentialSlot
 
-MigrationState = Literal["none", "migrated", "quarantined"]
-MIGRATION_STATES: frozenset[str] = frozenset({"none", "migrated", "quarantined"})
+MigrationState = Literal["none", "migrated"]
+MIGRATION_STATES: frozenset[str] = frozenset({"none", "migrated"})
 # WHY 0: what an absent row reads as; the first write creates the row at 1.
 UNMARKED_GENERATION = 0
 
-_COLUMNS = (
-    "provider",
-    "migration_state",
-    "effective_connection_id",
-    "generation",
-    "migration_note",
-)
+# WHY these four: the marker's note column is neither read nor written since L4a, and L4c drops it.
+_COLUMNS = ("provider", "migration_state", "effective_connection_id", "generation")
 
 
 @dataclass(frozen=True)
@@ -47,7 +45,6 @@ class PairAuthority:
     migration_state: MigrationState
     effective_connection_id: UUID | None
     generation: int
-    migration_note: str | None
 
 
 class PairAuthorityConflict(Exception):
@@ -92,12 +89,11 @@ def _view(account_id: str, row: dict[str, Any]) -> PairAuthority:
         migration_state=state,
         effective_connection_id=row["effective_connection_id"],
         generation=generation,
-        migration_note=row["migration_note"],
     )
 
 
 def _unmarked(account_id: str, provider: str) -> PairAuthority:
-    return PairAuthority(account_id, provider, "none", None, UNMARKED_GENERATION, None)
+    return PairAuthority(account_id, provider, "none", None, UNMARKED_GENERATION)
 
 
 class PairAuthorityStore:
@@ -166,7 +162,6 @@ class PairAuthorityStore:
         expected_generation: int,
         migration_state: MigrationState,
         effective_connection_id: UUID | None = None,
-        migration_note: str | None = None,
     ) -> PairAuthority:
         """Publish a new authority for the pair, fenced on the generation the caller observed."""
         state = _checked_state(migration_state)
@@ -175,7 +170,6 @@ class PairAuthorityStore:
         changes: dict[str, Any] = {
             "migration_state": state,
             "effective_connection_id": effective_connection_id,
-            "migration_note": migration_note,
         }
         generation = expected_generation + 1
         if expected_generation == UNMARKED_GENERATION:
@@ -200,9 +194,7 @@ class PairAuthorityStore:
             )
             if updated != 1:
                 raise PairAuthorityConflict(provider, expected_generation)
-        return PairAuthority(
-            account_id, provider, state, effective_connection_id, generation, migration_note
-        )
+        return PairAuthority(account_id, provider, state, effective_connection_id, generation)
 
 
 __all__ = [

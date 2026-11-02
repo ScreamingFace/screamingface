@@ -18,11 +18,13 @@ if TYPE_CHECKING:
 
 type _ReducerKind = Literal["answer", "selection", "projection"]
 type _ReducerName = Literal[
-    "vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter"
+    "vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter", "mean"
 ]
 # One source for each vocabulary: the Literal above is the list, the sets are derived from it.
 REDUCER_NAMES: frozenset[str] = frozenset(get_args(_ReducerName.__value__))
 REDUCER_KINDS: frozenset[str] = frozenset(get_args(_ReducerKind.__value__))
+# The two statistic reducers: sf.Median, sf.Mean and their sf.Reduce blocks share one code path.
+type _Statistic = Literal["median", "mean"]
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -171,7 +173,11 @@ class Reducer(ABC):
 _REDUCER_CLASSES: dict[str, type[Reducer]] = {}
 
 
-_MEDIAN_SELECTS: frozenset[str] = frozenset({"nearest", "value"})
+# The select ops of sf.Median and sf.Mean: the nearest member's text, or the number itself.
+_NUMERIC_SELECTS: frozenset[str] = frozenset({"nearest", "value"})
+
+# What sf.Mean tells an author who passed sf.signal("score:judge") (MN-E4).
+_MEAN_SIGNAL_USE = "a JSON field signal such as sf.signal('field:confidence')"
 
 
 def _op_name(op: str | None) -> str | None:
@@ -316,34 +322,70 @@ def _weights_type_error(label: str) -> TypeError:
     return TypeError(f"{label} must be a sequence of numbers, one per member, or an sf.signal")
 
 
+def _check_weight_count(name: str, weights: tuple[float, ...] | Signal | None, count: int) -> None:
+    """Raise ValueError when authored weights (one per member) do not match ``count`` members."""
+    if isinstance(weights, tuple) and len(weights) != count:
+        raise ValueError(f"{name} has {len(weights)} weights for {count} members")
+
+
 def _reads_judge(weights: object) -> bool:
     return isinstance(weights, Signal) and weights.key == JUDGE_SIGNAL
 
 
-def _check_judge_weights(weights: object, judge: object, label: str) -> None:
-    """The one pairing rule (8S F5): weights=sf.signal('score:judge') and a scores judge go
-    together. The Engine reads score:judge strictly, so a lone half would fail after the member
-    calls are paid. The messages never echo the rubric.
+def _refuse_min_order_judge(judge: Judge, label: str) -> None:
+    """JO-D1 (P6): a judge with order='min' is only a Fusion synthesizer.
+
+    Rank, Vote and Filter (unit 6) read the judge's scores with their own rule (Rank has its own
+    order=), so a second order would conflict. The message never echoes the rubric.
     """
 
-    if judge is not None:
-        # WHY lazy: judge.py imports this module (cycle)
-        from screamingface.judge import Judge
-
-        if not isinstance(judge, Judge):
-            raise TypeError(f"{label} judge must be an sf.Judge")
-        if judge.returns != "scores":
-            raise ValueError(
-                f"{label} judge needs sf.Judge(..., returns='scores'): "
-                "the vote reads one score per member"
-            )
-        if not _reads_judge(weights):
-            raise ValueError(f"{label} judge is read only by weights=sf.signal('score:judge')")
-    elif _reads_judge(weights):
+    if judge.order == "min":
         raise ValueError(
-            "weights=sf.signal('score:judge') needs a judge on the same reducer: "
-            "add judge=sf.Judge(..., returns='scores')"
+            f"{label} cannot use sf.Judge(..., order='min'): a judge with order='min' works only "
+            "as the Fusion synthesizer; give this judge the default order='max'"
         )
+
+
+def _check_judge_pair(
+    judge: object, reads_judge: bool, label: str, *, reader: str, read_by: str, unpaired: str
+) -> None:
+    """The one pairing rule (8S F5): a score:judge read and a scores judge go together.
+
+    The Engine reads score:judge strictly, so a lone half would fail after the member calls are
+    paid. ``reader`` names what reads the scores ("vote", "filter"). ``read_by`` names the
+    argument that reads the judge. ``unpaired`` starts the error for a read with no judge. The
+    messages never echo the rubric.
+    """
+
+    if judge is None:
+        if reads_judge:
+            raise ValueError(
+                f"{unpaired} needs a judge on the same reducer: "
+                "add judge=sf.Judge(..., returns='scores')"
+            )
+        return
+    # WHY lazy: judge.py imports this module (cycle)
+    from screamingface.judge import Judge
+
+    if not isinstance(judge, Judge):
+        raise TypeError(f"{label} judge must be an sf.Judge")
+    if judge.returns != "scores":
+        raise ValueError(
+            f"{label} judge needs sf.Judge(..., returns='scores'): "
+            f"the {reader} reads one score per member"
+        )
+    _refuse_min_order_judge(judge, label)  # P6 / JO-D1: refuses order="min"
+    if not reads_judge:
+        raise ValueError(f"{label} judge is read only by {read_by}")
+
+
+def _check_judge_weights(weights: object, judge: object, label: str) -> None:
+    """The pairing rule of a vote: weights=sf.signal('score:judge') and a scores judge."""
+
+    signal = "weights=sf.signal('score:judge')"
+    _check_judge_pair(
+        judge, _reads_judge(weights), label, reader="vote", read_by=signal, unpaired=signal
+    )
 
 
 def _vote_plan(
@@ -374,7 +416,12 @@ def _vote_plan(
 
 
 def _recovered_weights(spec: Mapping[str, object]) -> tuple[float, ...] | Signal | None:
-    """The weights of a decoded vote spec, or ValueError when they are not a Vote's."""
+    """The weights of a decoded vote, median or mean spec, else ValueError.
+
+    The error names the vote: a bad shape is the vote's "cannot rebuild" error, and an unknown
+    signal key is the Signal's own error. sf.Median and sf.Mean (``_numeric_from_spec``) and the
+    block rebuilds (``_rebuilt_block`` in blocks.py) replace it with their own error.
+    """
 
     weights = spec["weights"]
     if weights is None:
@@ -385,6 +432,7 @@ def _recovered_weights(spec: Mapping[str, object]) -> tuple[float, ...] | Signal
 
 
 def _recovered_signal(key: object) -> Signal:
+    """A decoded signal key as a Signal; the error names the vote (see ``_recovered_weights``)."""
     if not isinstance(key, str):
         raise _cannot_rebuild("vote")
     return Signal(key)
@@ -461,8 +509,7 @@ class Vote(Reducer):
         )
 
     def _check_members(self, count: int) -> None:
-        if isinstance(self.weights, tuple) and len(self.weights) != count:
-            raise ValueError(f"{self.name} has {len(self.weights)} weights for {count} members")
+        _check_weight_count(self.name, self.weights, count)
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Vote:
@@ -512,63 +559,192 @@ class Vote(Reducer):
     __hash__: ClassVar[Any] = None
 
 
+_MEDIAN_JUDGE_USE = "authored weights or another signal, such as sf.signal('field:confidence')"
+
+# sf.Median and sf.Mean share these helpers: the same options, plan, url4 rebuild and repr. Only
+# the name, the default select, the select-choices text and the score:judge advice are different.
+
+
+def _numeric_weights(
+    label: Literal["Median", "Mean"],
+    extract: str,
+    select: str,
+    weights: Sequence[float] | Signal | None,
+    *,
+    selects: str,
+    judge_use: str,
+) -> tuple[float, ...] | Signal | None:
+    """Check the options of sf.Median or sf.Mean (``label``) and return the checked weights.
+
+    ``selects`` is the select choices as the error names them. ``judge_use`` is what to use in
+    place of a score:judge weight: a Median or a Mean has no judge.
+    """
+
+    _Step(extract)
+    _Step(select)
+    if _op_name(extract) == BENCHMARK_EXTRACT:
+        raise ValueError(
+            f"sf.{label} needs the numeric normalizer, so it cannot read extract='benchmark' "
+            "(the benchmark brings its own normalizer)"
+        )
+    if _op_name(select) not in _NUMERIC_SELECTS:
+        raise ValueError(f"{label} select must be {selects}, not {select!r}")
+    checked = None if weights is None else _weights_option(weights, f"{label} weights")
+    if isinstance(checked, Signal):
+        _refuse_judge_signal(checked, label, judge_use)
+    return checked
+
+
+def _numeric_plan(
+    name: _Statistic,
+    extract: str,
+    select: str,
+    weights: tuple[float, ...] | Signal | None,
+) -> _ReducerPlan:
+    """The plan of sf.Median or sf.Mean: ``weighted_<name>`` when there are weights."""
+
+    steps = _Steps(
+        reduce=_Step(name if weights is None else f"weighted_{name}"),
+        select=_Step(select),
+        extract=_Step(extract),
+        normalize=_Step("numeric"),
+    )
+    return _ReducerPlan(name, "answer", steps, weights)
+
+
+def _numeric_from_spec[R: Reducer](cls: type[R], spec: Mapping[str, object], name: _Statistic) -> R:
+    """Rebuild sf.Median or sf.Mean (``name``) from a decoded spec, else "cannot rebuild"."""
+
+    ops = _spec_ops(spec, name)
+    extract, select = ops["extract"], ops["select"]
+    try:
+        weights = _recovered_weights(spec)
+    except ValueError as exc:
+        raise _cannot_rebuild(name) from exc
+    reduce = name if weights is None else f"weighted_{name}"
+    if (
+        extract is None
+        or select is None
+        or _op_name(ops["normalize"]) != "numeric"
+        or _op_name(ops["reduce"]) != reduce
+        or _op_name(select) not in _NUMERIC_SELECTS
+    ):
+        raise _cannot_rebuild(name)
+    return _decoded(name, cls, extract=extract, select=select, weights=weights)
+
+
+def _numeric_render(reducer: Median | Mean, head: str, show: Callable[[object], str]) -> str:
+    weights = "" if reducer.weights is None else f", weights={show(reducer.weights)}"
+    return f"{head}(extract={reducer.extract!r}, select={reducer.select!r}{weights})"
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class Median(Reducer):
-    """Median of the members' numeric answers: the nearest member's text, or the number itself."""
+    """Median of the members' numeric answers: the nearest member's text, or the number itself.
+
+    ``weights`` (one positive number per member, or ``sf.signal(key)``) makes it a weighted median:
+    a member with a missing or non-positive weight is dropped and is never the nearest pick. For a
+    JSON field answer, use ``sf.Reduce("median", extract=sf.Extract("field", path=...),
+    select=...)``.
+    """
 
     name: str
     extract: str
     select: str
+    weights: tuple[float, ...] | Signal | None
 
     def __init__(
-        self, *, extract: str = "last_number", select: str = "nearest", weights: None = None
+        self,
+        *,
+        extract: str = "last_number",
+        select: str = "nearest",
+        weights: Sequence[float] | Signal | None = None,
     ) -> None:
-        if weights is not None:
-            raise TypeError("weights apply to Vote only")
-        _Step(extract)
-        _Step(select)
-        if _op_name(extract) == BENCHMARK_EXTRACT:
-            raise ValueError(
-                "sf.Median needs the numeric normalizer, so it cannot read extract='benchmark' "
-                "(the benchmark brings its own normalizer)"
-            )
-        if _op_name(select) not in _MEDIAN_SELECTS:
-            raise ValueError(f"Median select must be 'nearest' or 'value', not {select!r}")
+        checked = _numeric_weights(
+            "Median",
+            extract,
+            select,
+            weights,
+            selects="'nearest' or 'value'",
+            judge_use=_MEDIAN_JUDGE_USE,
+        )
         object.__setattr__(self, "name", "median")
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "select", select)
+        object.__setattr__(self, "weights", checked)
 
     def _plan(self) -> _ReducerPlan:
-        steps = _Steps(
-            reduce=_Step("median"),
-            select=_Step(self.select),
-            extract=_Step(self.extract),
-            normalize=_Step("numeric"),
-        )
-        return _ReducerPlan("median", "answer", steps)
+        return _numeric_plan("median", self.extract, self.select, self.weights)
+
+    def _check_members(self, count: int) -> None:
+        _check_weight_count(self.name, self.weights, count)
 
     @classmethod
     def _from_spec(cls, spec: Mapping[str, object]) -> Median:
-        ops = _spec_ops(spec, "median")
-        extract = ops["extract"]
-        select = ops["select"]
-        if (
-            extract is None
-            or select is None
-            or _op_name(ops["normalize"]) != "numeric"
-            or _op_name(ops["reduce"]) != "median"
-            or _op_name(select) not in _MEDIAN_SELECTS
-            or spec["weights"] is not None
-        ):
-            raise _cannot_rebuild("median")
-        return cls(extract=extract, select=select)
+        return _numeric_from_spec(cls, spec, "median")
 
     def __repr__(self) -> str:
-        return f"Median(extract={self.extract!r}, select={self.select!r})"
+        return _numeric_render(self, "Median", repr)
+
+    def _python(self) -> str:
+        return _numeric_render(self, "sf.Median", _as_python)
 
     __hash__: ClassVar[Any] = None
 
 
-_REDUCER_CLASSES.update(vote=Vote, median=Median)
+@dataclass(frozen=True, slots=True, init=False)
+class Mean(Reducer):
+    """Mean of the members' numeric answers: the number itself, or the nearest member's text.
 
-__all__ = ["Median", "Reducer", "Vote"]
+    ``weights`` is one positive number per member (author order) or ``sf.signal(key)``. A member
+    with no usable weight is dropped: it is not in the mean and never the nearest member. For a
+    JSON field answer, use ``sf.Reduce("mean", extract=sf.Extract("field", path=...))``.
+    """
+
+    name: str
+    extract: str
+    select: str
+    weights: tuple[float, ...] | Signal | None
+
+    def __init__(
+        self,
+        *,
+        extract: str = "last_number",
+        select: str = "value",
+        weights: Sequence[float] | Signal | None = None,
+    ) -> None:
+        checked = _numeric_weights(
+            "Mean",
+            extract,
+            select,
+            weights,
+            selects="'value' or 'nearest'",
+            judge_use=_MEAN_SIGNAL_USE,
+        )
+        object.__setattr__(self, "name", "mean")
+        object.__setattr__(self, "extract", extract)
+        object.__setattr__(self, "select", select)
+        object.__setattr__(self, "weights", checked)
+
+    def _plan(self) -> _ReducerPlan:
+        return _numeric_plan("mean", self.extract, self.select, self.weights)
+
+    def _check_members(self, count: int) -> None:
+        _check_weight_count(self.name, self.weights, count)
+
+    @classmethod
+    def _from_spec(cls, spec: Mapping[str, object]) -> Mean:
+        return _numeric_from_spec(cls, spec, "mean")
+
+    def __repr__(self) -> str:
+        return _numeric_render(self, "Mean", repr)
+
+    def _python(self) -> str:
+        return _numeric_render(self, "sf.Mean", _as_python)
+
+    __hash__: ClassVar[Any] = None
+
+
+_REDUCER_CLASSES.update(vote=Vote, median=Median, mean=Mean)
+
+__all__ = ["Mean", "Median", "Reducer", "Vote"]

@@ -418,6 +418,7 @@ def test_restart_keeps_the_recorded_folder_unless_given_a_new_one(
     bundled.mkdir()
     other.mkdir()
     started: list[RuntimeConfig] = []
+    _stub_runtime_extra(monkeypatch)
     monkeypatch.setattr(cli, "_verify_owner", lambda _state: False)
     monkeypatch.setattr(cli, "_down", lambda _config: None)
     monkeypatch.setattr(cli, "_up", lambda config, *, foreground: started.append(config))

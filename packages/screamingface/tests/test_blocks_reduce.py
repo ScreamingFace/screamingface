@@ -24,7 +24,8 @@ from screamingface.reducer import Reducer
 LAST = sf.Extract("last_number")
 NUMERIC = sf.Extract("last_number", normalize="numeric")
 _OPS = (
-    "plurality, weighted, argmax, top_k, filter, pick_field, concat, median, judge, merge, context"
+    "plurality, weighted, argmax, top_k, filter, pick_field, concat, median, mean, judge, merge, "
+    "context"
 )
 
 
@@ -85,7 +86,7 @@ def test_reduce_rejects_mode_the_op_does_not_have() -> None:
 
 def test_reduce_rejects_unknown_op_and_foreign_options() -> None:
     with pytest.raises(ValueError, match=_OPS):
-        sf.Reduce("mean")
+        sf.Reduce("trimmed_mean")
     with pytest.raises(TypeError):
         sf.Reduce(3)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match=r"'plurality'.*'k'|'k'.*'plurality'"):

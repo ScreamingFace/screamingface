@@ -1,8 +1,10 @@
-"""The minimal chat POST to a configured endpoint.
+"""The chat POST to a configured endpoint, over one reused client per endpoint.
 
-# WHY a compatibility transport, for Unit 0 only: it never follows redirects, ignores proxy/CA
-# environment and bounds the response, but it does NOT guard DNS resolution or private addresses.
-# Unit 1 replaces it with the guarded transport before any real key is attached.
+# INVARIANT: the client never follows redirects, reads no proxy or CA setting from the
+# environment, verifies certificates and bounds the response.
+# WHY no DNS or private-address guard: the operator reviews and approves every origin before it
+# is configured. A guard is needed once untrusted origins are accepted automatically, or once
+# network isolation is a requirement of its own.
 # INVARIANT: upstream bodies and headers never cross this boundary; only the status class and a
 # Retry-After within the gateway's one bound may, so shared retry policy still works.
 # INVARIANT: the size bound counts the bytes held in memory. The request asks for `identity` and
@@ -11,7 +13,11 @@
 
 from __future__ import annotations
 
+import asyncio
+from http.client import HTTPResponse
+from http.cookiejar import Cookie, CookieJar
 from typing import Any
+from urllib.request import Request
 
 import httpx
 from fastapi import HTTPException
@@ -25,6 +31,87 @@ _MAX_RESPONSE_BYTES = 1_000_000
 # long header is wasted work before a value the bound refuses anyway.
 _MAX_RETRY_AFTER_DIGITS = 10
 _INVALID = "The remote endpoint response is invalid."
+# WHY httpx's own default bound: core admission caps concurrent calls per provider first (four by
+# default), so the pool binds only when an operator lifts that cap.
+_POOL_LIMITS = httpx.Limits(max_connections=100, max_keepalive_connections=20)
+
+
+class _NoCookies(CookieJar):
+    """A cookie jar that keeps nothing.
+
+    # WHY: every account's chats to one endpoint share one client, so a cookie the upstream set
+    # on one account's answer would ride on the next account's request. A refusing cookie policy
+    # is not enough: httpx copies the jar into a plain one before each request.
+    """
+
+    def set_cookie(self, cookie: Cookie) -> None:
+        del cookie
+
+    def extract_cookies(self, response: HTTPResponse, request: Request) -> None:
+        del response, request
+
+
+def _open_client(transport: httpx.AsyncBaseTransport | None) -> httpx.AsyncClient:
+    # INVARIANT: core.admission is the one wall-clock authority, as for the local provider.
+    return httpx.AsyncClient(
+        cookies=_NoCookies(),
+        follow_redirects=False,
+        trust_env=False,
+        timeout=None,
+        limits=_POOL_LIMITS,
+        transport=transport,
+    )
+
+
+class EndpointClient:
+    """One endpoint's HTTP client: opened on first use, reused by every chat, closed once."""
+
+    def __init__(self) -> None:
+        self._client: httpx.AsyncClient | None = None
+        self._closed = False
+        self._closing: asyncio.Future[None] | None = None
+
+    def open(self, transport: httpx.AsyncBaseTransport | None) -> httpx.AsyncClient:
+        # WHY on first use: composition does no I/O, and the client belongs to the serving loop.
+        # INVARIANT: after `aclose` no client is opened again, so a late chat cannot leak one.
+        if self._closed:
+            raise _unavailable()
+        if self._client is None:
+            self._client = _open_client(transport)
+        return self._client
+
+    def begin_close(self) -> asyncio.Future[None] | None:
+        """Start the one close and return it; None when no client was ever opened.
+
+        # WHY synchronous: shutdown starts every endpoint's close before it waits for any, so a
+        # cancelled shutdown cannot leave an endpoint unclosed.
+        """
+        self._closed = True
+        if self._client is None:
+            return None
+        # WHY one task: httpx marks the client closed before its pool finishes closing, so a
+        # cancelled close could never be retried. The task runs to its end on its own, and a
+        # repeat call waits for that same close.
+        if self._closing is None:
+            self._closing = asyncio.ensure_future(self._client.aclose())
+            self._closing.add_done_callback(_read_close_error)
+        return self._closing
+
+    async def aclose(self) -> None:
+        closing = self.begin_close()
+        if closing is not None:
+            await asyncio.shield(closing)
+
+
+def _read_close_error(closing: asyncio.Future[None]) -> None:
+    # WHY: a caller cancelled while it waits never reads the close's error, and asyncio would
+    # then print its text, which may carry the endpoint's origin. A caller still waiting gets it.
+    if not closing.cancelled():
+        closing.exception()
+
+
+def _unavailable() -> HTTPException:
+    return _error(502, "provider_unavailable", "The remote endpoint is unavailable.")
 
 
 def _error(
@@ -71,28 +158,24 @@ async def post_chat_completion(
     payload: dict[str, Any],
     *,
     api_key: str,
-    transport: httpx.AsyncBaseTransport | None,
+    client: httpx.AsyncClient,
 ) -> dict[str, Any]:
     try:
-        # INVARIANT: core.admission is the one wall-clock authority, as for the local provider.
-        async with httpx.AsyncClient(
-            follow_redirects=False, trust_env=False, timeout=None, transport=transport
-        ) as client:
-            headers = {"Authorization": f"Bearer {api_key}", "Accept-Encoding": "identity"}
-            async with client.stream("POST", url, json=payload, headers=headers) as response:
-                # INVARIANT: exactly 200, as readiness requires; another 2xx is not the contract.
-                if response.status_code != 200:
-                    raise _upstream_error(response)
-                encoding = response.headers.get("content-encoding")
-                if encoding is not None and encoding.lower() != "identity":
-                    raise _error(502, "provider_error", _INVALID)
-                completion = decode_completion(
-                    response.headers.get("content-type"), await _read_bounded(response)
-                )
-                if completion is None:
-                    raise _error(502, "provider_error", _INVALID)
-                return completion
+        headers = {"Authorization": f"Bearer {api_key}", "Accept-Encoding": "identity"}
+        async with client.stream("POST", url, json=payload, headers=headers) as response:
+            # INVARIANT: exactly 200, as readiness requires; another 2xx is not the contract.
+            if response.status_code != 200:
+                raise _upstream_error(response)
+            encoding = response.headers.get("content-encoding")
+            if encoding is not None and encoding.lower() != "identity":
+                raise _error(502, "provider_error", _INVALID)
+            completion = decode_completion(
+                response.headers.get("content-type"), await _read_bounded(response)
+            )
+            if completion is None:
+                raise _error(502, "provider_error", _INVALID)
+            return completion
     except HTTPException:
         raise
     except (TimeoutError, httpx.HTTPError):
-        raise _error(502, "provider_unavailable", "The remote endpoint is unavailable.") from None
+        raise _unavailable() from None

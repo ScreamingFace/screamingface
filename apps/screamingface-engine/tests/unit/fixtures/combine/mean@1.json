@@ -1,0 +1,21 @@
+{
+ "op": "mean@1",
+ "stage": "reduce",
+ "cases": [
+  {"name": "10 20 60", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "10", "value": "10", "status": "voted", "weight": null}, {"member": "member_2", "raw": "20", "value": "20", "status": "voted", "weight": null}, {"member": "member_3", "raw": "60", "value": "60", "status": "voted", "weight": null}]},
+   "expect": {"tally": null, "statistic": "30"}},
+  {"name": "1 1 2 rounds to 34 digits", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "1", "value": "1", "status": "voted", "weight": null}, {"member": "member_2", "raw": "1", "value": "1", "status": "voted", "weight": null}, {"member": "member_3", "raw": "2", "value": "2", "status": "voted", "weight": null}]},
+   "expect": {"tally": null, "statistic": "1.333333333333333333333333333333333"}},
+  {"name": "not_numeric member skipped", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "10", "value": "10", "status": "voted", "weight": null}, {"member": "member_2", "raw": "x", "value": null, "status": "not_numeric", "weight": null}, {"member": "member_3", "raw": "20", "value": "20", "status": "voted", "weight": null}]},
+   "expect": {"tally": null, "statistic": "15"}},
+  {"name": "weights ignored", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "10", "value": "10", "status": "voted", "weight": "1"}, {"member": "member_2", "raw": "20", "value": "20", "status": "voted", "weight": "1"}, {"member": "member_3", "raw": "60", "value": "60", "status": "voted", "weight": "2"}]},
+   "expect": {"tally": null, "statistic": "30"}},
+  {"name": "value x", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "x", "value": "x", "status": "voted", "weight": null}]},
+   "expect": {"error": "combine_spec_invalid"}}
+ ]
+}

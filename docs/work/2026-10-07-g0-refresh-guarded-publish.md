@@ -1,9 +1,9 @@
 ---
 ticket: OME-1497
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-07
-finished:
+finished: 2026-10-12
 ---
 
 # g0-refresh-guarded-publish — split OAuth refresh into a network fetch and a guarded publish (G0, part 2 of 3)
@@ -81,7 +81,9 @@ RED first (`tests/unit/core/provider_access/test_writer_floor_refresh.py`, plus 
   `test_writer_floor_refresh_reauth.py` (3), `test_writer_floor_native_compat.py` (1),
   `test_writer_floor_refresh_revision.py` (8), `test_refresh_guard_inventory.py` (3),
   `tests/integration/test_writer_floor_refresh_postgres.py` (3).
-- **Commits:** pending.
+- **Commits:** squash-merged to `main` on 2026-10-12 as `01875d23f` (#1299),
+  `feat(aigateway): publish OAuth refresh under the pair guard (G0 2/3)`. Linear closed OME-1497
+  Done on 2026-10-14, once G1 had merged.
 - **Gates:** `uv run .claude/scripts/run_gates.py aigateway --base origin/main` — ALL GATES GREEN
   (append-only, ruff check, ruff format, pyright, no-enterprise, pytest with coverage ≥ 80%); full
   suite 5257 passed, 100 skipped (gates run against the merge base, since main moved by an unrelated

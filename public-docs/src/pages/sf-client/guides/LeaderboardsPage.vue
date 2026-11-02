@@ -32,7 +32,7 @@ const configure = `sf.configure(
 const publish = `# Use the hosted stack to make a capture others can replay.
 sf.configure(engine_url="https://fusion.screamingface.ai")
 # candidate is the Model, Fusion or Pipeline you want to evaluate.
-report = sf.evaluate(candidate, benchmark="ifeval")
+report = sf.evaluate(candidate, benchmark="ifeval", capture=True)
 
 # publish one candidate
 score = sf.leaderboards.submit(
@@ -394,10 +394,11 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     </div>
 
     <p>
-      Capture is on by default. The hosted Engine makes a pinned cache of each run, so others can
-      reproduce the score. Read <code>capture_status</code> on the result before you publish: a
-      partial or missing copy cannot be reproduced.
-      <RouterLink to="/learn/caching">Reproducing a submission</RouterLink> explains why.
+      Capture is off by default. Pass <code>capture=True</code> to the run you will submit: the
+      hosted Engine then makes a pinned cache of it, so others can reproduce the score. Read
+      <code>capture_status</code> on the result before you publish: a partial or missing copy cannot
+      be reproduced. <RouterLink to="/learn/caching">Reproducing a submission</RouterLink> explains
+      why.
     </p>
 
     <p>

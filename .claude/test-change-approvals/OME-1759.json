@@ -1,0 +1,358 @@
+{
+  "issue": "OME-1759",
+  "branch": "OME-1759-e5c-retire-profile-vocabulary",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-28",
+  "scope": "The Profile-vocabulary test transitions of OME-1138 Stage E, E5c, per the owner-approved test map: suites wholly about a deleted module or tool become retirement docstrings naming their successors; surviving suites and the shared harnesses stop seeding or reading Profile documents and the index, keeping every Connection, marker, blob, response and cache assertion; tests whose only claim was about a Profile document, a stored default, the index or a retired tool are deleted with a retirement line in their module docstring; the shared test vocabulary goes neutral (SeedState, RealAppHarness, seed_blob/seed_credential, credential_state); the import, vocabulary, conflict-arm and auth-mode guards move to the modules' absence.",
+  "reason": "Stage E history cleanup, E5c: the gateway deletes profile_index, profile_models, the offline backfill and the history purge, credential_names.profile_id_for, and the Profile argument of auth_type_of. Runtime has been Connection-only since E4a/E4b and the E5b purge has removed the index rows from every environment, so no test may import those modules and a seeded document is inert.",
+  "files": {
+    "apps/aigateway/tests/integration/test_history_purge_postgres.py": {
+      "base_blob": "425a50d1d3953f1fb9f1a42b635e9ba0683fe5ef",
+      "approved_blob": "9da0f6c5da55f61eeb17598af2160a0d6db78c21"
+    },
+    "apps/aigateway/tests/integration/test_pair_admin_mutations_postgres.py": {
+      "base_blob": "c2a3ea9de111c021846664390bbe128d02e2ecfa",
+      "approved_blob": "70baf37a9a216868fb26110b7e4bedd7b0844953"
+    },
+    "apps/aigateway/tests/integration/test_provider_access_backfill_postgres.py": {
+      "base_blob": "6ee3f319d187ddeae042c458301e8bd4fc1bb3a5",
+      "approved_blob": "deae38e7c01f302c4eae33974a255652f72c02f7"
+    },
+    "apps/aigateway/tests/integration/test_provider_access_backing_postgres.py": {
+      "base_blob": "c6e8a84f6748ccedec5548e2202c801f34200908",
+      "approved_blob": "eb11daafed47ef6c3bf406677aff37e1353b5cc9"
+    },
+    "apps/aigateway/tests/unit/anthropic/test_anthropic_thinking_conflict.py": {
+      "base_blob": "1e09016ad8f25c784b2062011893f97a7ad460f6",
+      "approved_blob": "4a155ccfa52e1061d002666f385833d1063f2969"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/backfill_probes.py": {
+      "base_blob": "bc237e0785035e2b1986368320be28c4cb22980b",
+      "approved_blob": "bb536c0a6617faf8e7e049a6cee67c6e9ea21cc5"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/connection_backed_admin_probes.py": {
+      "base_blob": "77ff26da8b5375794daf24671830fabefe5786f1",
+      "approved_blob": "1b6f8b987e4b26505becf73b999078ac46739f74"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/connection_backed_harness.py": {
+      "base_blob": "46b38d054943e60bb00d35715b5df0d19e2bb3c0",
+      "approved_blob": "31fe774c1f487b4099ea116b5f9484120a878451"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/history_purge_probes.py": {
+      "base_blob": "997f28f8ff866a5417379da7b4dafac3b291dbb3",
+      "approved_blob": "ece67ef0945a7fa2e16afd33322cbea03b7a0a68"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/provider_access_fake.py": {
+      "base_blob": "72b4bed8fe29bd0f33c7013a57b0d89c6bbb5c72",
+      "approved_blob": "422ce0c622dd32b04c9d39656d0ff4f2deb94597"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/provider_access_harness.py": {
+      "base_blob": "5b0a27fdd9f13dfaf1da0f0004113306b2bda4f7",
+      "approved_blob": "46bb7ce3e4b7ee231414f84ffacf54a123954532"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_backfill_apply.py": {
+      "base_blob": "b7751346f585e5e29e6d81eeaf653e97121ae3eb",
+      "approved_blob": "72fa8e95292ac0b5be1cdda515eedd8262a0a0da"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_backfill_classify.py": {
+      "base_blob": "43a1fd49f312da3632b21172431d17728a9100cb",
+      "approved_blob": "b6b0e52146694bf4f0c3752743cbe28f9d8fe188"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_admin.py": {
+      "base_blob": "78f393890229b8312b05feea12e33014adeb1eb5",
+      "approved_blob": "310a4e0ecc1e9cf408e974e4bda00d051ed3e421"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_admin_delete_list.py": {
+      "base_blob": "c50f20a6a594bd8bab6fcc2d894872bbadf3d3e6",
+      "approved_blob": "80968640aef985cf299c6dd5f70d32aa1476c170"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_facades.py": {
+      "base_blob": "e7a64055aabf8fc871d59da3ab1a1ed17417352e",
+      "approved_blob": "a2e9bea4166657d7a0904e1ce85a8a15750fca61"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_native_routes.py": {
+      "base_blob": "d0f257db28340b75a085ab6403826ebd2e29a0e7",
+      "approved_blob": "9ff6d32cf09afab42ea8cf6cffd8a48878e30a17"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_resolve_contract.py": {
+      "base_blob": "5049647e81aa9f3df0a505f982f36d28d4dbd33f",
+      "approved_blob": "5043a3c7e3d2266d7b426507b60fc0fc42959168"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_routing.py": {
+      "base_blob": "4d052c34c578088045d5c2bff0d7d84a50ce2447",
+      "approved_blob": "5bf2aea142431feac513e06991f052e054d2c699"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_shared_addresses.py": {
+      "base_blob": "ce95150d58fa357d9a9336bf142a5f51e3e6ddf6",
+      "approved_blob": "cf0076702195562937aa67ef2b11d730eba7d08e"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_only_resolve.py": {
+      "base_blob": "d4ac05c52f2fc78edc7f25c2c455ea2db1cb44f8",
+      "approved_blob": "3fdf8b2a0b88a59370948e0d1bd147d2d0c97b29"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_history_purge.py": {
+      "base_blob": "e31baa7ee61fa06c5a9f1a2bedbf9a6d367372c5",
+      "approved_blob": "a2339093bad4cb6d9b3ee3c1b42ceee8f019c74a"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_history_purge_anonymous.py": {
+      "base_blob": "dd7b36ce3158d10113ab18034a3c724c5c261cbe",
+      "approved_blob": "8ddc89a96fea087d3d398d55735e5a0c8b4d9034"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_history_purge_journal.py": {
+      "base_blob": "583a68e364d91a15bc597d166d6e4a5c74dd85ca",
+      "approved_blob": "d30d921948ed53da02d72dcb9e67032af176f583"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_history_purge_references.py": {
+      "base_blob": "30a0a42ab952932affa3b06a39e3b6a35b741cdf",
+      "approved_blob": "f1be72704860138fa2c3ff7dbfe67ae07dc6761f"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_native_api_key_replaces_effective.py": {
+      "base_blob": "8ae734aace3244aded820ccb4efe105a2cb94df4",
+      "approved_blob": "078fd540b6532c9cabe677164986e33b8e7e0ef4"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_native_oauth_replaces_unusable_effective.py": {
+      "base_blob": "01ada4db256399ff6df26e27b35bba84b0c29d51",
+      "approved_blob": "9b371c69227ba045310c06576a3c95d5732be9d6"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_native_repair_boundaries.py": {
+      "base_blob": "8bcd549915ba5a85245366802ba734c31d4b33c9",
+      "approved_blob": "8ea6db688e4b0e69961b143089ca30e3d143d219"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_native_unlabelled_targets_effective.py": {
+      "base_blob": "7ad5b8b32181cacf816e447976a9707d3a1a3e71",
+      "approved_blob": "f6ba9f1d4eebdd848905e26e2b26f607a38408d3"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_no_auth_provider_access.py": {
+      "base_blob": "c3bfbe3b0f60fa9796213c79c4f0b6a2c6cd641b",
+      "approved_blob": "305e4926a28cb7ef7bf63f82f97e451f420f165e"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_no_profile_writer.py": {
+      "base_blob": "9929e52c1545a6b8d60db8e90d6e8db7812d470c",
+      "approved_blob": "e5175fdb5bb70ce65b2d7b9f7c05e50768f16c33"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_operational_outcome_boundaries.py": {
+      "base_blob": "e1ee632dddbb1b2cf5af68a1750872886d2b7724",
+      "approved_blob": "8705efc1c621befa64cdf9fca273eaf5892f2861"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_connection_only.py": {
+      "base_blob": "410bff86a5f28498607533c311285e6e259cb8fb",
+      "approved_blob": "5264d2c32cc6a861c82c69b261b6068e18d913cd"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_disposition.py": {
+      "base_blob": "a1bbb1608d95a0fdb9affb1a2d0c97ab6469d7bf",
+      "approved_blob": "94b0bb42649834108f1648dfc5e715189af4f7cb"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_mutations.py": {
+      "base_blob": "a1425160c3b28c259c5d2b5de52ef79ee7c7b305",
+      "approved_blob": "2d8599a2bb6925276dfe800aabb58e0e89169602"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_publication.py": {
+      "base_blob": "a93e3ef2b395ef743d24486eb3e020159bbf6a2f",
+      "approved_blob": "53731551eba21f5e35871a71d13900cd9348c6c9"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_review_fixes.py": {
+      "base_blob": "739e3e2d86c03eb3ee661a8d4752137b1a59e98e",
+      "approved_blob": "c3d9885ef1bcd7170fb2e13caa62ab2962100981"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_put_own_address.py": {
+      "base_blob": "70f22d584f84b11c3349e3b1ddbdf3b572b7ef76",
+      "approved_blob": "ca0574e3c0f3b7f455cb3971e9bf31f7514f7dff"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_authorize_contract.py": {
+      "base_blob": "a2b64f87745769b22b995d55a7b77c16909ce351",
+      "approved_blob": "8b21368b841ae09eff7eb742bf72535bf3165608"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_availability.py": {
+      "base_blob": "c721bf677a785b67a99f5d5f0d4092e95425ada4",
+      "approved_blob": "ebe9cd9ad37155d934bf3dec38888c64cb7845de"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_import_boundary.py": {
+      "base_blob": "a6dfb64768eb3e38f57b82253a9a85938c02ee78",
+      "approved_blob": "8f9b3db3230256fc492671cfa2bfa5cdd779b38a"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_port_shape.py": {
+      "base_blob": "01c5a5145c4c699e473d80f0c83ac39ad57a1d78",
+      "approved_blob": "13e80f0d9f0549642cdcc0723de92a4690308420"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_resolve_contract.py": {
+      "base_blob": "1ee5034e40248ad8befdda4383ad542b46034079",
+      "approved_blob": "4048b1d04ac12177f204d051f6d35f8ab695d83a"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_error_marks.py": {
+      "base_blob": "8ec6b8cd9f6c7e5f03152b37acaca20c4b74cf27",
+      "approved_blob": "cc7b3d4445d4e6e24b4ac872afa9c32dd1978118"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_native.py": {
+      "base_blob": "e081ece9b98a930047fac5128b82b0c1630cb4a9",
+      "approved_blob": "d8ebf7757d141de7d28d8924987e4520db13b0a5"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_refresh.py": {
+      "base_blob": "0499f171554b97ca87afc21e46df7185a34d25d6",
+      "approved_blob": "77b6e1c82a6fffa7b08f9399a55853ed4079ea8f"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_refresh_revision.py": {
+      "base_blob": "22ea83186f2096980745fa27c0f89892712305db",
+      "approved_blob": "6d2a84dd3e980bf48f0d2e8e41645a6885444afa"
+    },
+    "apps/aigateway/tests/unit/core/test_auth_applicability_contract.py": {
+      "base_blob": "cd6852f0dbd97334ab2c08942300e15d76969328",
+      "approved_blob": "090de2c46e1cdf4c6ae47c9028f18e5d9fe7e411"
+    },
+    "apps/aigateway/tests/unit/core/test_contract_source_revision_identity.py": {
+      "base_blob": "d1a41195469be33da6e82179737b27bbf79771a6",
+      "approved_blob": "b01d20ead64c2e4a502798da5650f148fd7a794a"
+    },
+    "apps/aigateway/tests/unit/core/test_neutral_credential_vocabulary.py": {
+      "base_blob": "a9375eb17a9f2f6985097b9c98511bb037660591",
+      "approved_blob": "66804bcf383c44aa690c8fd355e567c8b29d6832"
+    },
+    "apps/aigateway/tests/unit/core/test_no_auth_mode.py": {
+      "base_blob": "822c304df8950090842925112d91c2518b79f901",
+      "approved_blob": "b7d8e2dfcc521bd76d613fa55666def57ace2090"
+    },
+    "apps/aigateway/tests/unit/core/test_request_hardening.py": {
+      "base_blob": "a2e89119cd7c359177249d7a82cbae095a822e9f",
+      "approved_blob": "acb9549e505c7a993f3da9534e6db1a3ff8a6ffc"
+    },
+    "apps/aigateway/tests/unit/gemini/test_gemini_discovery_route.py": {
+      "base_blob": "72fb2871708ae9f6c859d5dd0815caf69a50fdc7",
+      "approved_blob": "6036f2b021c0b3dce4cd17d4dee486b431e3e2d4"
+    },
+    "apps/aigateway/tests/unit/gemini/test_gemini_routes.py": {
+      "base_blob": "6cb297576845275545dce1f583e28fa042b9d56c",
+      "approved_blob": "4379d598110f7de5e88d4fd9383e6d21794eef34"
+    },
+    "apps/aigateway/tests/unit/gemini/test_profileless_auth_provenance.py": {
+      "base_blob": "d8d064022fb362b241997556cd528e0f36947f82",
+      "approved_blob": "1198dfa7ccdf2904196efff64e00904e2df485c2"
+    },
+    "apps/aigateway/tests/unit/huggingface/test_huggingface_backend_route.py": {
+      "base_blob": "742d260a1f9c6d05090cc1d1677e6411c2c4b713",
+      "approved_blob": "989c668cdd607c4ea478659373790f08e2009167"
+    },
+    "apps/aigateway/tests/unit/huggingface/test_huggingface_global_cache_keys.py": {
+      "base_blob": "7fb99d8da20b4fa3e1dfcc3a27a2cb66a72d9053",
+      "approved_blob": "7df1c448d813c442d5775b19013d649d41bb8a96"
+    },
+    "apps/aigateway/tests/unit/migrated_pair_seed.py": {
+      "base_blob": "2cf0d0a85e7c091668ff1cce16f683f1d60d1e56",
+      "approved_blob": "be34082bb9ef199753959da3dbb947fd688e63dd"
+    },
+    "apps/aigateway/tests/unit/openai/test_openai_persistence.py": {
+      "base_blob": "5f57206435926ece802d36e0c42ff4a203dca2ec",
+      "approved_blob": "2638d2111dfbe06d6bcab3bf56c5465058908025"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_live_models_resolvability.py": {
+      "base_blob": "83236c242c6c0f14d0dadb5d68daf24bb218fc69",
+      "approved_blob": "d74cd0bfb1196f7ee5f11965e33d1d34cd30dc82"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_migrated_rejected_key_availability.py": {
+      "base_blob": "a373bd2f9814cedea2838a40be4d97e950b09652",
+      "approved_blob": "3b74cce51980349a8795c3ad3fa0f8691c20d43d"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_model_admission_route.py": {
+      "base_blob": "f6b57c74d08fe0501282fe0c8447527e558e5c5f",
+      "approved_blob": "fccca80c973b622e396343c5af98313e7567a615"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_catalog_route.py": {
+      "base_blob": "9062a3991039c6cb1ec0cffe639c204eb89937b3",
+      "approved_blob": "3f1c073e5e66bdd8beea98efb7142aa5574d5ff1"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_openapi_endpoint_route.py": {
+      "base_blob": "f39740968cbb8090f7af9faa33143d0f341391e1",
+      "approved_blob": "c93ee84ded5bb24d02d26085d376f39ca56237af"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_app_regressions.py": {
+      "base_blob": "a223610be645bf70a38f82f1a1e15a2027245a25",
+      "approved_blob": "09eb6d2a9d3afd8951969bf1d3c5f51e57d15365"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_history_purge_endpoints.py": {
+      "base_blob": "d9e3ae4435c6160ecf5afdd57ecd15e074685eb9",
+      "approved_blob": "7447144736771d139e0aed7d51f18a18ad290a94"
+    },
+    "apps/aigateway/tests/unit/test_api_key_routes.py": {
+      "base_blob": "980a583422af3f11eed10ddb51c31cb1f349c8f8",
+      "approved_blob": "69c3bdef33e224bfad59ad0479dc69bca2387069"
+    },
+    "apps/aigateway/tests/unit/test_api_key_validation_routes.py": {
+      "base_blob": "f3549f2f9fc432bcdb0d0ac0efe3d0d4ad2774c8",
+      "approved_blob": "46b86c93de80d97f8b1d14055ffdc83e3469fa71"
+    },
+    "apps/aigateway/tests/unit/test_chat_global_cache_effective_request.py": {
+      "base_blob": "ce17445933524636808c609e75fbb6d99ae5576d",
+      "approved_blob": "ab015e0bd8cf377311a49c02dc221b1cd35d260c"
+    },
+    "apps/aigateway/tests/unit/test_chat_global_cache_key_parity.py": {
+      "base_blob": "eb5a855cb2f0a8d00297f99702f8ce7a547abc83",
+      "approved_blob": "8c4c2e1ab29461ce68fca571742fc9b324243b65"
+    },
+    "apps/aigateway/tests/unit/test_chat_profile_default_validation.py": {
+      "base_blob": "c742d3e03c2ccc49070af1f5a15753f1ca3575ac",
+      "approved_blob": "35459b38d46e99f1fa3d75a142189f52a2012026"
+    },
+    "apps/aigateway/tests/unit/test_chat_saved_defaults_are_not_merged.py": {
+      "base_blob": "bcb159742b37c1610b24860afbf5bd4c74500f6a",
+      "approved_blob": "507f770546d11da91c62d8f51aa08db7cadb8daa"
+    },
+    "apps/aigateway/tests/unit/test_chat_split_characterization.py": {
+      "base_blob": "c35fc771c15aea0c8300fd14d61bafb626dfeae7",
+      "approved_blob": "804a7b504f022a4f38c308ac9e352fce65925590"
+    },
+    "apps/aigateway/tests/unit/test_chat_x_profile.py": {
+      "base_blob": "68b944a0025c18cf2c1290100f42c3d0f1c3db1f",
+      "approved_blob": "07b5ff3dde3b891fe6e1fa7af5b8874eaec3dfe5"
+    },
+    "apps/aigateway/tests/unit/test_migrate_profiles_cli.py": {
+      "base_blob": "534973788a105b00ef37ba04d24a5be92052ea14",
+      "approved_blob": "679a621f2042551bc78f1d0a69451cc9377512fd"
+    },
+    "apps/aigateway/tests/unit/test_model_execution_access.py": {
+      "base_blob": "49a27769a81e14bdf81eac73bc8d0f161bdd1eeb",
+      "approved_blob": "c3c7bb3fcf4540575724749ae84f0c52d5240c73"
+    },
+    "apps/aigateway/tests/unit/test_model_parameters_discovery_wiring.py": {
+      "base_blob": "b224d407194e434b2a234019c5cfbf7eb3bb0d32",
+      "approved_blob": "0d842565585685af463bdcc760f5664f11230208"
+    },
+    "apps/aigateway/tests/unit/test_model_parameters_route.py": {
+      "base_blob": "33583c82bca4dca41f8e6956dbbd340cf97671c6",
+      "approved_blob": "fe6c70cfbebdb669291b18d1201d36ba0f6f1da4"
+    },
+    "apps/aigateway/tests/unit/test_native_media_route.py": {
+      "base_blob": "7c2df3a280b8ed081e04e905a9110eaece4a9440",
+      "approved_blob": "d8f185f81f143d560b2f2f6b4a155eec2ac2c05e"
+    },
+    "apps/aigateway/tests/unit/test_profile_conflict_arms_retired.py": {
+      "base_blob": "ae0e61feb4795038e10507bb68010ef3216bb705",
+      "approved_blob": "6e12d76697042a597227ef9fe125623e4a038aa0"
+    },
+    "apps/aigateway/tests/unit/test_profile_delete_set_race.py": {
+      "base_blob": "9a001e1da061573288a4c4a5e8eddc11e88a671a",
+      "approved_blob": "38a7a4eadc0233c3eac5bb0604a41900e9df10d5"
+    },
+    "apps/aigateway/tests/unit/test_profile_index.py": {
+      "base_blob": "af4696ef6246245fa01956d05edb31b4a7044d62",
+      "approved_blob": "80515d282965eb13b86346d7676565f4e30f44e8"
+    },
+    "apps/aigateway/tests/unit/test_profile_index_legacy_payload.py": {
+      "base_blob": "81b85615c023d4fe8f3dc6384b3560b790cd6fda",
+      "approved_blob": "aaf2cd3718112946ce15e181cc5967f301894f5e"
+    },
+    "apps/aigateway/tests/unit/test_profile_index_offline_only.py": {
+      "base_blob": "0ee054a9fe0db33001b2b4c5baf20a22d9ea3f43",
+      "approved_blob": "0062dc94de1d64df723b98f753ae48b83de017d7"
+    },
+    "apps/aigateway/tests/unit/test_profile_resolution_characterisation.py": {
+      "base_blob": "d9c2c2cc44618b94d21a3ba8e82ed493bddca403",
+      "approved_blob": "cbb9762b7b7582d6d951c6940d7d593d00bafa4c"
+    },
+    "apps/aigateway/tests/unit/test_provider_access_availability_route.py": {
+      "base_blob": "933f6748cdfefd3f6f1efe3a7aea75b90131ecec",
+      "approved_blob": "25e6adb04d36cd5d0d11f3154a75c638431cd2e7"
+    },
+    "apps/aigateway/tests/unit/test_purge_profile_history_cli.py": {
+      "base_blob": "471142a247bc842bdbd50c22a9b13a1e97725aab",
+      "approved_blob": "86ec4203e86bee49b4d34b1005f474b6609fd6fa"
+    }
+  }
+}

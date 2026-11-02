@@ -1,12 +1,12 @@
 ---
 id: OME-1720
 linear_url: https://linear.app/openmined/issue/OME-1720/enforce-source-deadline-during-compressed-body-decoding
-status: in_review
+status: done
 type: bug
 priority: medium
 labels: [bug, url4-sdk, agentic, autonomous]
 created: 2026-10-22
-closed:
+closed: 2026-10-27
 ---
 
 # Enforce source deadline during compressed-body decoding
@@ -19,3 +19,5 @@ timeout and on cancellation, and caps and valid decoding are unchanged.
 
 Follow-up to `OME-1544` (PR #1521). Parent epic `OME-1529`.
 Ledger: `../work/2026-10-26-url4-guard-followups.md`.
+
+Merged in PR #1555 as `ca7738b16` on 2026-10-27.

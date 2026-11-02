@@ -192,14 +192,26 @@ def _parse(content_type: str) -> tuple[str, frozenset[str]] | None:
     ``_MAX_CONTENT_TYPE``. A ``;charset=`` inside a quoted parameter value is data, never a
     parameter name (each quoted-string is consumed whole).
     """
-    # One past the cap is enough to know it is over; nothing longer is ever scanned.
-    value = content_type.strip(_OWS)[: _MAX_CONTENT_TYPE + 1]
+    # INVARIANT: the cap is checked on the RAW length before any strip or scan (review of
+    # PR #1478), so OWS padding can neither cost work nor smuggle a value under the cap.
+    if len(content_type) > _MAX_CONTENT_TYPE:
+        return None
+    value = content_type.strip(_OWS)
     slash = _token_end(value, 0)
     end = _token_end(value, slash + 1)
-    if len(value) > _MAX_CONTENT_TYPE or slash == 0 or value[slash : slash + 1] != "/":
+    if slash == 0 or value[slash : slash + 1] != "/":
         return None
     names = None if end == slash + 1 else _parameter_names(value, end)
     return None if names is None else (value[:end].lower(), names)
+
+
+def _blank(content_type: str) -> bool:
+    """Only OWS, so no type at all — never a value over the cap.
+
+    WHY: the raw-length check comes first, so an oversized all-whitespace header is refused
+    as not one media type rather than read as "no type" (text), and is never stripped.
+    """
+    return len(content_type) <= _MAX_CONTENT_TYPE and not content_type.strip(_OWS)
 
 
 def _is_binary(media_type: str) -> bool:
@@ -223,7 +235,7 @@ def is_text_media_type(content_type: str | None) -> bool:
     produces mojibake that a model then reads silently. A text-only consumer refuses it
     with ``unsupported_content_type`` (spec C8) and a file-aware one uses ``fetch_bytes``.
     """
-    if not content_type or not content_type.strip(_OWS):
+    if not content_type or _blank(content_type):
         return True
     parsed = _parse(content_type)
     if parsed is None:
@@ -243,7 +255,7 @@ def bare_media_type(target: str, content_type: str | None) -> str | None:
     INVARIANT: the bytes path never exposes a comma-joined or malformed value; one that is
     not exactly one media type raises ``unsupported_content_type`` (permanent, spec C8).
     """
-    if not content_type or not content_type.strip(_OWS):
+    if not content_type or _blank(content_type):
         return None
     parsed = _parse(content_type)
     if parsed is None:

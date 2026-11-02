@@ -112,7 +112,7 @@ def credential_strategy_for_connection(
         plugin,
         name,
         # INVARIANT: the auth type is never caller-declared — it is the stored Connection's.
-        auth_type=auth_type_of(None, connection),
+        auth_type=auth_type_of(connection),
         credential_store=app.state.credential_store,
         http_client_factory=getattr(app.state, f"{provider}_http_factory", None),
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from typing import Any
 from screamingface_engine.benchmarks.aggregation import SelectedCase, finalize_candidate_result
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.graded_results import decode_results, encode_result
+from screamingface_engine.benchmarks.media_parking import park_cases_media
 from screamingface_engine.benchmarks.progress import ScoreCases, completed_case, grading_progress
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
@@ -76,6 +78,11 @@ class Scoring:
                 result = await self._completed_row(row, selected, index)
                 if result is not None:
                     results.append(result)
+            # FEATURE (OME-1271, PR 5): park each Case's pictures and files in the run's
+            # result store, under the sha256 its echoed placeholder carries, so a researcher
+            # can open one later. WHY a thread: the store's writer is synchronous, and this is
+            # the run's event loop.
+            await asyncio.to_thread(park_cases_media, [case.input for case in self.selected])
             finalized = finalize_candidate_result(
                 benchmark_id=self.benchmark_id,
                 benchmark_revision=self.revision,
