@@ -33,7 +33,9 @@ from aigateway.core.provider_access.types import WriteConflictKind, WriteSubject
 
 
 def _public(cls: type) -> set[str]:
-    return {name for name in vars(cls) if not name.startswith("_")}
+    # WHY `dir`, not `vars`: a caller reaches what a base or a mixin adds as surely as what the
+    # class itself defines, so the exact surface below is the one the MRO exposes.
+    return {name for name in dir(cls) if not name.startswith("_")}
 
 
 def test_the_blob_store_has_no_mutation_path() -> None:
@@ -50,6 +52,16 @@ def test_the_blob_store_has_no_mutation_path() -> None:
         "record_dispatch_outcome",
         "operational_state",
     }
+
+
+def test_the_surface_check_sees_an_inherited_member() -> None:
+    class _Mixin:
+        def update_atomically(self) -> None: ...
+
+    class _Store(_Mixin):
+        def read(self) -> None: ...
+
+    assert _public(_Store) == {"read", "update_atomically"}
 
 
 def test_a_write_conflict_is_only_ever_a_superseded_connection() -> None:

@@ -97,7 +97,11 @@ RED first, guards before GREEN:
   vocabulary test (helper missing); the dead-symbol tests (3, with `errors.py` restored);
   `test_the_blob_store_has_no_mutation_path` (`ORMStore.mutate` present). T-F5 was
   mutation-checked twice: a read through `app.state.credential_store` and, after the review, a
-  read through a fresh `ORMStore()` in `pair_inventory` both fail it.
+  read through a fresh `ORMStore()` in `pair_inventory` both fail it. After the third review: the
+  positive controls `test_the_surface_check_sees_an_inherited_member` and
+  `test_the_credential_name_scan_sees_every_binding` (6 of 8 forms missed by the `def`-only scan);
+  a mixin with a public `update_atomically` under `ORMStore`, and `credential_name_for =
+  credential_key_for` in `core/oauth/store.py`, each fail the guard.
 - **Gates:**
   - Stacked base (`run_gates.py aigateway --base origin/OME-1784-retire-quarantine-and-x-profile`,
     2026-10-30):
@@ -116,6 +120,10 @@ RED first, guards before GREEN:
   - After the rebase onto `main` at `834c3086a` (2026-11-02; `main` had changed no gateway code
     since the stacked run): `run_gates.py aigateway --base origin/main` ALL GATES GREEN, the
     append-only check passing with the same 19 approvals. `needs_postgres` lane: 67 passed.
+  - After the third review (2026-11-02, base `origin/main` `2df01be4c`, no gateway change since
+    `834c3086a`): the append-only check against `origin/main` passed with the manifest pinning all
+    51 changed prior test files; the two changed test files pass (36), with ruff, format and
+    pyright clean. No PostgreSQL test changed in that round.
 - **Review:** an independent read-only review found nothing blocking; should-fix 1-4 and minor
   1-6 were applied. A second review of PR #1642 (2026-11-02) found nothing blocking and two minor
   points, both fixed with the owner's approval, the manifest re-pinned:
@@ -124,9 +132,19 @@ RED first, guards before GREEN:
     builds an address from a name;
   - K4 now pins the seeded rows' statuses (`connected`, `connected`, `error`) before the absence
     checks, so the errored row is proven read.
+
+  A third review (2026-11-02) found two blocking points and two should-fix points, all fixed:
+  - the manifest pinned 19 of the 51 changed prior test files; it now pins all 51 (the 26
+    import-only files, T-F1, T-F11 and T-F12 added);
+  - spec §4.4 still said T-F2 removes the probe; the row is amended (2026-11-02) to say the probe
+    is live and only its `mutate` goes;
+  - the blob-store surface check read `vars(cls)` and missed inherited members; it reads `dir(cls)`;
+  - the credential-name scan saw only a `def`; it now covers every binding, import aliases
+    included.
 - **Deviations:**
-  - T-F2: `_AsyncCredentialBlobProbe` stays (used by `unit/auth/test_jwt_secret.py` and
-    `test_writer_floor_refresh.py`); only its dead `mutate` is removed.
+  - T-F2: `_AsyncCredentialBlobProbe` stays (it backs `CredentialBlobProbe.store`, used by
+    `unit/auth/test_jwt_secret.py` and `test_writer_floor_refresh.py`); only its dead `mutate` is
+    removed. Spec §4.4 is amended (2026-11-02) to match.
   - Three prior tests outside the §6 L4b row change, approved by the owner on 2026-10-30 as
     direct consequences of §4.4 k1/K1: `unit/test_credential_blob_store.py` (two `mutate` tests
     deleted, tombstone), `unit/test_credential_blob_operational_outcomes.py`

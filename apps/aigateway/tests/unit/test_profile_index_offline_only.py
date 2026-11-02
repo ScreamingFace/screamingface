@@ -86,17 +86,48 @@ def test_the_profile_vocabulary_and_its_offline_tools_are_gone(module: str) -> N
     assert importlib.util.find_spec(module) is None
 
 
+def _bound_names(tree: ast.AST) -> set[str]:
+    """Every name a module binds: a def or class, an assignment target, or an import."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            names.add(node.name)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+        elif isinstance(node, ast.alias):
+            names.add(node.asname or node.name.split(".")[0])
+    return names
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def credential_name_for(account, provider): ...",
+        "async def credential_name_for(account, provider): ...",
+        "credential_name_for = credential_key_for",
+        "credential_name_for: Callable = credential_key_for",
+        "credential_name_for = lambda account, provider: account",
+        "from aigateway.core.oauth.store import credential_key_for as credential_name_for",
+        "import aigateway.core.oauth.store as credential_name_for",
+        "from tests.credential_names import credential_name_for",
+    ],
+)
+def test_the_credential_name_scan_sees_every_binding(source: str) -> None:
+    assert "credential_name_for" in _bound_names(ast.parse(source))
+
+
 def test_no_src_module_defines_a_credential_name() -> None:
     # WHY: `profile_id_for` spelled the Profile document's id; with no document it names nothing.
     # `credential_name_for` moved to `tests/credential_names.py` in the OME-1138 close-out (L4b):
     # production never builds a blob address from a name, only from a Connection id
     # (`credential_key_for`) or a Connection's stored locator.
+    # WHY every binding, not only a `def`: an alias, a lambda or an `import ... as` brings the
+    # name back as surely (`test_the_credential_name_scan_sees_every_binding`).
     definers = {
         str(path.relative_to(_SRC))
         for path in _SRC.rglob("*.py")
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
-        and node.name in {"profile_id_for", "credential_name_for"}
+        if _bound_names(ast.parse(path.read_text(encoding="utf-8")))
+        & {"profile_id_for", "credential_name_for"}
     }
 
     assert definers == set()
