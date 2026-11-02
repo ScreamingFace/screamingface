@@ -111,9 +111,12 @@ RED first, guards before GREEN:
     - `core/test_data_uri_envelope.py::test_a_cap_sized_valid_payload_parses_in_linear_time`
   - `needs_postgres` lane: 67 passed.
   - Push: the pre-push hook diffs against the main merge base, where `OME-1784`'s branch-bound
-    approvals fail closed. The team lead chose to rebase onto `main` once #1614 merges, then re-run the
-    gate with `--base origin/main` and push.
-- **Review:** sf-code-review, no blocking findings; should-fix 1-4 and minor 1-6 applied.
+    approvals fail closed, so the push waited for #1614 to merge.
+  - After the rebase onto `main` at `834c3086a` (2026-11-02; `main` had changed no gateway code
+    since the stacked run): `run_gates.py aigateway --base origin/main` ALL GATES GREEN, the
+    append-only check passing with the same 19 approvals. `needs_postgres` lane: 67 passed.
+- **Review:** an independent read-only review found nothing blocking; should-fix 1-4 and minor
+  1-6 were applied.
 - **Deviations:**
   - T-F2: `_AsyncCredentialBlobProbe` stays (used by `unit/auth/test_jwt_secret.py` and
     `test_writer_floor_refresh.py`); only its dead `mutate` is removed.
