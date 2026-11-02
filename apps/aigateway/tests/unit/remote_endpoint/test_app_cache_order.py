@@ -3,9 +3,9 @@
 # FEATURE: hosted BYOM Unit 0 — the agreed contract keeps the global chat cache common to every
 # account and adds no pre-cache authorization. The account grant guards NEW upstream calls: it
 # is checked on a miss or a bypass, before any credential is resolved or any request is sent.
-# WHY a test-only projection: Unit 0 does not change cache policy and the instance still inherits
-# `CacheBypass`; the production projection is Unit 1 work. This file owns only the ORDER of the
-# cache stage and the grant check in the real chat route, against the real cache store.
+# WHY a test-only projection: it keeps this file on the ORDER of the cache stage and the grant
+# check in the real chat route, against the real cache store, whatever the production projection
+# (Unit 1, `test_global_cache`) keys.
 """
 
 from __future__ import annotations

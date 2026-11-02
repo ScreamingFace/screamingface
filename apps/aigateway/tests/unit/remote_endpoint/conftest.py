@@ -86,7 +86,10 @@ class Upstream:
             return httpx.Response(401, json={"error": "upstream says the key is invalid"})
         if MALFORMED in bearer:
             return httpx.Response(200, json={"object": "chat.completion", "choices": [{}]})
-        echo = f"{request.url}|{bearer}"
+        # WHY encoded: the general cache tests need a cacheable diagnostic response.
+        # Literal credential reflection is covered by
+        # test_an_answer_repeating_the_callers_key_is_served_only_to_that_caller.
+        echo = base64.b64encode(f"{request.url}|{bearer}".encode()).decode()
         # WHY a finish_reason: a finished answer declares it, and only a finished answer may be
         # stored by the shared cache.
         choice = {"index": 0, "message": {"role": "assistant", "content": echo}}
@@ -207,4 +210,4 @@ def chat(client: TestClient, account: str, provider: str, alias: str = ALIAS) ->
 
 def echo_of(response: httpx.Response) -> str:
     assert response.status_code == 200, response.text
-    return response.json()["choices"][0]["message"]["content"]
+    return base64.b64decode(response.json()["choices"][0]["message"]["content"]).decode()

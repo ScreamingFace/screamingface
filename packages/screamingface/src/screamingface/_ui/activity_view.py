@@ -8,6 +8,9 @@ from screamingface._ui.activity_groups import groups
 from screamingface._ui.activity_record import LABELS, TERMINAL
 from screamingface._ui.activity_state import ActivityLog, ActivityRow
 
+# FEATURE: open live rows mid-run (OME-1612) — row details and chevron follow the toggle's
+# `mod-active` class, which the browser sets on click, so a row opens while `sf.evaluate` holds the
+# kernel; the !important rules override the inline display Python writes once the kernel is free.
 STYLE = """<style>
 .sf-activity-console{box-sizing:border-box;height:auto;min-height:0;overflow:visible;
  margin:0;padding:4px 8px;border:1px solid var(--sf-line);
@@ -59,6 +62,11 @@ STYLE = """<style>
 .sf-candidate-row .sf-eval__table td:first-child,
 .sf-candidate-head .sf-eval__table th:first-child{padding-left:36px}
 .sf-candidate-details{border-top:1px solid var(--sf-line);position:relative}
+.sf-candidate-row>.sf-candidate-details{display:none!important}
+.sf-candidate-row:has(>.sf-candidate-summary .widget-toggle-button.mod-active)
+ >.sf-candidate-details{display:flex!important}
+.sf-candidate-row .widget-toggle-button.mod-active .fa-chevron-right{
+ transform:translateY(-50%) rotate(90deg)}
 .sf-candidate-details .widget-html{margin:0}
 .sf-candidate-details .sf-activity-console{border:0}
 .sf-candidate-row .sf-eval__table,.sf-candidate-head .sf-eval__table{min-width:820px}
@@ -369,8 +377,7 @@ def activity_html(
         )
     label = escape(candidates[candidate], quote=True)
     return (
-        STYLE
-        + f'<section class="sf-activity-console" tabindex="0" aria-label="Activity for {label}">'
+        f'<section class="sf-activity-console" tabindex="0" aria-label="Activity for {label}">'
         + _copy_control()
         + '<div class="sf-activity-content">'
         + (f"<p>Partial history: {notice}.</p>" if notice else "")

@@ -49,7 +49,7 @@ def _check_database(state: SimpleNamespace) -> Callable[[Path], None]:
 
 @pytest.fixture
 def gateway_modules(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    """Stand-ins for the four gateway modules a pull imports, recording what they were asked."""
+    """Stand-ins for the five gateway modules a pull imports, recording what they were asked."""
     state = SimpleNamespace(
         loaded=[],
         plugins_loaded=False,
@@ -94,6 +94,9 @@ def gateway_modules(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         "aigateway.core.loader": plugin_loader,
         "aigateway.core.registry": registry,
         "aigateway.core.request_cache.revisions": revisions,
+        # WHY empty: importing it registers the configured-endpoint revision; the SDK test job
+        # installs no gateway runtime.
+        "aigateway.provider_composition": ModuleType("aigateway.provider_composition"),
     }.items():
         monkeypatch.setitem(sys.modules, name, module)
     monkeypatch.setattr(local_module, "missing_runtime_modules", lambda: ())

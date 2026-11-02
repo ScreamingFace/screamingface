@@ -120,15 +120,16 @@ OME-1746). A field that carries no money, such as a BYOK flag, an error code, th
 chain, an unknown field or a value of an unexpected type, never makes the cost unknown. Two
 general rules apply to both (`openrouter_provider/billing_facts.py`): a non-zero or non-numeric
 value under any key that contains `cost` or `amount`, anywhere in the reply, keeps the cost
-unknown; and the prepared request must contain no OpenRouter plugin, OpenRouter server tool or
-file part.
+unknown; a router pipeline stage whose `type` names `plugin` or `server_tools` (as text, in any
+shape) keeps the cost unknown; and the prepared request must contain no OpenRouter plugin,
+OpenRouter server tool or file part. Neither proof raises on a value of any shape: a value such
+as `"sNaN"` is not a zero.
 
 The first (`source: openrouter.zero_completion_insurance`) is a native OpenRouter HTTP 429 with no
 output (`choices`, `output` and `content` absent or empty). Any `usage` must show no work beyond
 reading the prompt: each value outside `prompt_tokens`, `total_tokens` and
 `prompt_tokens_details` is absent, `null` or zero (a number written as text counts; a flag does
-not), and `usage` that is not an object keeps the cost unknown. A router pipeline stage of type
-`plugin` or `server_tools` keeps the cost unknown. A repeated accounting-sensitive JSON key drops
+not), and `usage` that is not an object keeps the cost unknown. A repeated accounting-sensitive JSON key drops
 the ambiguous raw body; any other repeated key keeps parseable measured evidence but marks capture
 partial and cannot support zero certification. The gateway opts in to router metadata for this
 accounting check, then removes that account-specific field before caller response and cache
@@ -141,8 +142,11 @@ The second (`source: openrouter.pre_output_refusal`, spec
 `docs/spec/2026-10-26-openrouter-pre-output-refusal-zero.md`) is a SUCCEEDED HTTP 200 attempt
 that a provider refused before any output. OpenRouter keeps no generation record for it, so
 nothing is billed. The raw body must have no `usage` and no `error`, exactly one choice with
-`finish_reason` `content_filter` and `native_finish_reason` `refusal`, and a message with no
-content, reasoning, refusal text, reasoning details or tool calls. Because the attempt succeeded,
+`finish_reason` `content_filter` and `native_finish_reason` `refusal`, and no output: the message
+fields `content`, `reasoning`, `reasoning_details`, `tool_calls`, `function_call`, `audio` and
+`images` and the top-level `output` and `content` are all empty (absent, `null`, `""`, `[]` or
+`{}`). Other message fields are ignored. Text in `refusal` is not output: Anthropic puts a policy
+notice there when it refuses before output, with no `usage` and no cost. Because the attempt succeeded,
 this zero is also its `succeeded_attempt_direct_cost`, and the cache-entry metadata keeps it for
 a later hit. A refusal that carries a `usage.cost` keeps its `reported` price. Token counts stay
 unknown.

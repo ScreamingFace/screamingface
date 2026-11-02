@@ -29,6 +29,10 @@ from screamingface_engine.world.models.registry import decode_route_id, encode_r
 
 _logger = logging.getLogger(__name__)
 
+# The details statuses the Gateway gives a model the caller may not see: 400 for an unknown
+# provider instance, 404 for an unknown model under a known one.
+_UNKNOWN_TO_CALLER = frozenset({400, 404})
+
 
 class ExecutableCatalogSource(CatalogService, Protocol):
     """The managed catalog surface preserved by the executable-world decorator."""
@@ -68,6 +72,7 @@ class ExecutableCatalog:
         local: LocalModels | None = None,
         admission_source: ModelAdmissionSource | None = None,
         on_admitted: Callable[[], None] | None = None,
+        private: frozenset[str] = frozenset(),
     ) -> None:
         self._source = source
         self._model_ids = model_ids
@@ -85,6 +90,7 @@ class ExecutableCatalog:
                 refresh_local=self.refresh_local_models,
                 admission_source=admission_source,
                 on_admitted=on_admitted,
+                private=private,
             )
         )
 
@@ -226,9 +232,11 @@ class ExecutableModelParameterSource:
         refresh_local: Callable[[Credential], Awaitable[None]] | None = None,
         admission_source: ModelAdmissionSource | None = None,
         on_admitted: Callable[[], None] | None = None,
+        private: frozenset[str] = frozenset(),
     ) -> None:
         self._source = source
         self._model_ids = model_ids
+        self._private = private
         self._admitted = admitted if admitted is not None else AdmittedModels()
         self._local = local
         self._refresh_local = refresh_local
@@ -254,6 +262,12 @@ class ExecutableModelParameterSource:
         response: ModelParameterResponse | None = None
         if real_model in self._model_ids:
             response = await self._forward(credential, model, real_model, traceparent)
+            # FEATURE (OME-1770): the Gateway refuses an ungranted caller a private target as
+            # unknown. Relaying its answer would differ from an undeclared id's, which tells any
+            # caller this Engine declares the route; the one not-installed answer does not.
+            # Public routes keep the Gateway's answer verbatim.
+            if real_model in self._private and response.status in _UNKNOWN_TO_CALLER:
+                raise ModelNotInstalled(model)
         elif self._local is not None and self._local.accepts(real_model):
             response = await self._refresh_and_forward_local(
                 credential, model, real_model, traceparent

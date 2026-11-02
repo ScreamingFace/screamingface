@@ -31,6 +31,22 @@ class TokenUsage(BaseModel):
         validation_alias="gen_ai.usage.reasoning_tokens",
         serialization_alias="gen_ai.usage.reasoning_tokens",
     )
+    # FEATURE: image/file token accounting (OME-1744). The first OPTIONAL token class on the wire:
+    # the image/document subset of `input_tokens`, never added to it.
+    # INVARIANT: `None` is "unknown" — the provider gave no breakdown — and is OMITTED from the
+    # frame, never encoded as 0. A known 0 is encoded.
+    # WHY exclude_if and not a 0 default like the classes above: those predate any way to say
+    # "unknown" and flatten it to 0; this one can say it, and omitting the key keeps every frame
+    # that never carried media byte-identical to the pre-OME-1744 encoding (precedent:
+    # `ResultData.artifact`).
+    # AIDEV-NOTE: the key name follows this model's `gen_ai.usage.*` aliases and aigateway's own
+    # `image_and_file_tokens`; OTel GenAI semconv defines no such attribute.
+    image_and_file_tokens: int | None = Field(
+        default=None,
+        validation_alias="gen_ai.usage.image_and_file_tokens",
+        serialization_alias="gen_ai.usage.image_and_file_tokens",
+        exclude_if=lambda value: value is None,
+    )
 
 
 class CostBreakdown(BaseModel):

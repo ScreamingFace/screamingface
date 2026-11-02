@@ -79,6 +79,7 @@ def test_report_usage_puts_each_argument_in_its_own_field() -> None:
         cache_creation_tokens=4,
         reasoning_tokens=5,
         cost_usd=Decimal("0.06"),
+        image_and_file_tokens=7,
     )
     values = {
         "provider": "p",
@@ -90,6 +91,7 @@ def test_report_usage_puts_each_argument_in_its_own_field() -> None:
         "cache_creation_tokens": 4,
         "reasoning_tokens": 5,
         "cost_usd": Decimal("0.06"),
+        "image_and_file_tokens": 7,
     }
     assert list(values) == _event_fields(Usage)
     [event] = recorder.events

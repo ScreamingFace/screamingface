@@ -1,9 +1,9 @@
 ---
 ticket: OME-1614
 stack: repo
-status: in_progress
+status: done
 started: 2026-10-21
-finished:
+finished: 2026-10-22
 ---
 
 # OME-1614 — public docs for pinned-cache replays and submission metadata
@@ -56,15 +56,15 @@ As on the ticket.
   replacing paper metadata without a URL clears the link. Advanced the sidebar source
   baseline because the old commit predates the documented API.
 
-## Before publication
+## Original publication plan (superseded below)
 
-Owner requested ready-for-review on 2026-10-22; the release checks remain merge prerequisites.
+Owner initially requested ready-for-review on 2026-10-22 with release checks as merge prerequisites.
 PyPI still serves SDK **0.1.6**, checked 2026-10-22. After the release
 containing #1519 (planned **0.1.7**), verify the examples against that release, including live
 replay on the staging fixture in the spec, and update the sidebar to the verified release.
 The portal instructions also require the Reproduce snippet update in **OME-1655 / PR #1522**
-(currently open and draft). Merge only after those dependencies are available. This ledger
-remains in progress because released-SDK verification is still outstanding.
+(open and draft at merge). The original plan held merge until those dependencies were available.
+The owner later authorized the docs-only merge; released-SDK verification remains outstanding as rollout work.
 
 ## Independent review (2026-10-22)
 
@@ -73,7 +73,22 @@ and scoreboard source. One P3 finding: the five reserved metadata keys enforce t
 limits in either metadata object. Clarified that rule. Also reconciled adjacent reference prose
 about author-email collisions, fresh url4 evaluations versus replay, and metadata edit logs.
 No other introduced blocking findings. The owner explicitly requested marking PR #1535 ready
-for review; this does not authorize merging or deploying it before the release checks above.
+for review; at that point, merge and deployment were not yet authorized.
 
 The independent reviewer rechecked the corrections and confirmed the finding is resolved with
 no new issue. Build, lint, all repo gates and `git diff --check` pass after the corrections.
+
+## GitHub / Linear closure (2026-10-22)
+
+Owner requested a fresh code review and merge if clean, superseding the earlier release hold.
+A new independent reviewer checked the full diff at `8567860cf` against the SDK and scoreboard
+implementation and found no actionable issues. All GitHub CI checks passed. PR #1535 merged
+as `8546bcbbd4d76edb85a5d550f2f8c8948fe40cdb`.
+
+At the owner's request, synced Linear OME-1614 to Done, attached the merged PR and filed the
+completion comment with commits, checks and deviations. E14 remains In Review. OME-1655 stays
+open and now explicitly tracks released-SDK/live docs-example verification and the sidebar
+release update. Neither the SDK release nor production replay verification is claimed complete.
+
+This closure updates only the task mirror and ledger. Validation: repository gates and
+`git diff --check`.

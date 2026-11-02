@@ -18,7 +18,7 @@ Successor coverage (the native start `POST /v1/oauth/connections` and its callba
   `tests/unit/test_oauth_connections_routes.py`;
 - a re-login at the Connection's own locator: `test_native_unlabelled_targets_effective.py`
   (`test_an_unlabelled_re_login_of_the_same_identity_refreshes_the_main_connection`);
-- unmigrated and quarantined pairs: `test_writer_floor_native.py`
-  (`test_a_native_oauth_start_and_its_callback_each_claim_and_keep_the_pair_legacy_owned`) and
-  `test_writer_floor.py` (`test_a_claim_keeps_a_quarantined_state_and_its_note`).
+- unmigrated pairs: `test_writer_floor_native.py`
+  (`test_a_native_oauth_start_and_its_callback_each_claim_and_keep_the_pair_legacy_owned`); the
+  `quarantined` state retired in the OME-1138 close-out, L4a.
 """

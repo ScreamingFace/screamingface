@@ -81,6 +81,10 @@ from screamingface_engine.benchmarks.graded_answer import (
     graded_answer,
     graded_answer_matches,
 )
+from screamingface_engine.benchmarks.shared_grading.case_rows import (
+    NotAnArrayError,
+    iter_array_rows,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,19 +276,26 @@ def read_selected_cases(
     per-benchmark aggregates).
     """
 
+    # WHY streamed (OME-1789): a picture board's cases.json is hundreds of MB; holding only the
+    # selected rows keeps aggregation memory proportional to the run, not to the board.
+    wanted: frozenset[int] = frozenset(case_ids)
+    by_id: dict[int, Mapping[str, Any]] = {}
     try:
-        decoded: object = json.loads((root / "cases.json").read_text(encoding="utf-8"))
+        with (root / "cases.json").open(encoding="utf-8") as stream:
+            for entry in iter_array_rows(stream):
+                # INVARIANT: the same filter as the full parse it replaced — object rows with a
+                # non-bool int id — and the LAST row carrying an id wins.
+                if (
+                    isinstance(entry, Mapping)
+                    and isinstance((row_id := entry.get("id")), int)
+                    and not isinstance(row_id, bool)
+                    and row_id in wanted
+                ):
+                    by_id[row_id] = entry
+    except NotAnArrayError:
+        raise error_type(f"{benchmark_label} cases must be a JSON array") from None
     except (OSError, ValueError) as exc:
         raise error_type(f"{benchmark_label} cases are unavailable: {exc}") from None
-    if not isinstance(decoded, list):
-        raise error_type(f"{benchmark_label} cases must be a JSON array")
-    by_id: dict[int, Mapping[str, Any]] = {
-        row_id: row
-        for row in decoded
-        if isinstance(row, Mapping)
-        and isinstance((row_id := row.get("id")), int)
-        and not isinstance(row_id, bool)
-    }
     selected: list[SelectedCase] = []
     for case_id in case_ids:
         row: Mapping[str, Any] | None = by_id.get(case_id)

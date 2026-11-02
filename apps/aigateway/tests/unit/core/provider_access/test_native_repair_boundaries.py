@@ -16,7 +16,6 @@ import pytest
 from connection_backed_admin_probes import (
     blob_at_connection_address,
     connection,
-    document,
     marker,
 )
 from connection_backed_harness import ConnectionBackedHarness
@@ -30,8 +29,8 @@ from aigateway.core.api_key_validation import (
 )
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.oauth.store import OAuthConnectionStore
-from aigateway.core.profile_models import ProfileState
 from aigateway.routes import auth as auth_routes
+from tests.unit.seed_state import SeedState
 
 KEY = "sk-ant-api03-e1b-boundaries-key-1111"
 
@@ -71,7 +70,7 @@ def _same_identity(monkeypatch: pytest.MonkeyPatch) -> None:
 def _live_sibling(h: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch) -> tuple[str, str]:
     """A working `default` effective row that then breaks, beside a live `sibling` of identity
     user-1. Returns (old effective id, sibling id)."""
-    h.seed_profile(state=ProfileState.AUTHENTICATED)
+    h.seed_credential(state=SeedState.AUTHENTICATED)
     old = h.migrated["default"]
     _same_identity(monkeypatch)
     use_tokens(h, "sibling-tok")
@@ -127,15 +126,12 @@ def test_a_native_repair_leaves_the_profile_document_untouched(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch, repair: Any
 ) -> None:
     h = migrated
-    h.seed_profile(state=ProfileState.AUTHENTICATED)
+    h.seed_credential(state=SeedState.AUTHENTICATED)
     old = h.migrated["default"]
-    before = document(h)
-    assert before is not None
 
     repair(h, monkeypatch)
 
     assert _effective(h) != old
-    assert document(h) == before
 
 
 def test_a_same_identity_repair_leaves_the_profile_document_untouched(
@@ -143,14 +139,12 @@ def test_a_same_identity_repair_leaves_the_profile_document_untouched(
 ) -> None:
     h = migrated
     _old, _sibling = _live_sibling(h, monkeypatch)
-    before = document(h)
 
     use_tokens(h, "new-tok")
     repair = _start(h, "work")
     assert callback(h, repair["state"]).status_code == 200
 
     assert _effective(h) == str(repair["connection_id"])
-    assert document(h) == before
 
 
 # --- the same-identity row retires; its stale failures cannot break the repair -------------------

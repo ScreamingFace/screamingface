@@ -1,9 +1,9 @@
 ---
 ticket: OME-1535
 stack: repo
-status: in_progress
+status: done
 started: 2026-10-16
-finished:
+finished: 2026-10-27
 ---
 
 # file-input-execution-spec — the file-input execution spec for the engine and gateway
@@ -183,3 +183,9 @@ with the 2026-10-16 live evidence. Docs only.
   binding to one). Cases added: a model-produced collection that turns out empty and one that turns
   out non-empty are both refused before any I/O. §4 row and §3.1 aligned. The sign-off now requires
   Kevin's approval of the exact current revision (rounds 7–10).
+- **Merged:** squash-merged as `638be5024` (#1450) on 2026-10-27; OME-1535 Done in Linear.
+  Last commit `docs(spec): require model-free reachability for attachment sources` (2026-10-27).
+- **Open post-merge acceptance (owner decision):** Kevin's url4 wire sign-off of rounds 7–10 is
+  still pending and is tracked as an open acceptance item, not a merge blocker.
+- **Companion:** url4 Part B (`OME-1597`) merged in OpenMined/screamingface-design PR 31 as
+  `784fc909f` on 2026-10-27; percent-encoding split to bug `OME-1749`.

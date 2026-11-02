@@ -5,8 +5,9 @@
 # far along each one is. The Hosted Engine moves onto it at OME-1245.
 # INVARIANT (D17, spec §3.3 op 6): rows carry `provider` and `status` ONLY — no name, id, label,
 # default, auth method, account label, locator, reauth URL, credential name or secret-derived
-# field — and the route delegates to the provider-access port: migrated API-key rows may build a
-# strategy and read blob metadata, but never credential plaintext, refresh state, or mutation.
+# field — and the route delegates to the provider-access port: the API-key row a pair's default
+# resolve would serve may build a strategy and read blob metadata, but never credential
+# plaintext, refresh state, or mutation.
 # Inbound `X-Profile` selects nothing here; nonblank values are rejected at ingress.
 """
 

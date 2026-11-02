@@ -4,8 +4,9 @@ FEATURE: per-operation evidence for a reducer Candidate (OME-1289 E4a, combine-e
 STORY: as a reader of a Case result, I see which operators ran, what each member's value was,
 how the tally came out, and which member's text won -- without the answer text copies.
 
-INVARIANT: the field order below IS the pinned wire order, every key is always present, and a
-null is written explicitly. The encoder keeps no ``sort_keys`` (the envelope never did).
+INVARIANT: the field order below IS the pinned wire order, every key is always present except
+``mean`` (written only for the ``mean`` reducer), and a null is written explicitly. The encoder
+keeps no ``sort_keys`` (the envelope never did).
 INVARIANT: this module imports pydantic and ``combine.ports`` and nothing else. ``benchmarks/
 contract.py`` imports it (unit 3), so it must never import ``benchmarks.*`` or
 ``operation_calls``.
@@ -125,6 +126,9 @@ class CombineEvidence(_EvidenceModel):
     agreement: float | None
     tie: bool
     median: str | None
+    # E4b P8: the mean of the `mean` reducer, as canonical decimal text. Optional on the wire: the
+    # key is written only when it is set, so every other evidence keeps its v1 bytes.
+    mean: str | None = Field(default=None, exclude_if=lambda value: value is None)
     presentation_order: Literal["author"] | None
     separator_collision: bool | None
     signal: SignalRecord | None

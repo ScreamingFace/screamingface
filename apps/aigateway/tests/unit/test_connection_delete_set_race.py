@@ -12,8 +12,8 @@ connection-row transition and the credential blob write/delete in ONE transactio
 consistent lock order — the ALWAYS-PRESENT connection row FIRST, the credential blob SECOND.
 Serializing on the credential row instead fails when that row is ABSENT: a missing-row delete
 takes no lock under READ COMMITTED, so it cannot serialize a concurrent INSERT, orphaning a
-credential under a revoked connection. This is the connection analogue of the profile
-delete/set-api-key race in ``test_profile_delete_set_race.py``.
+credential under a revoked connection. The profile analogue of this race retired with the
+Profile index at OME-1138 Stage E, E5c.
 
 WHY a store double: the gateway unit harness is SQLite-only and serializes whole transactions
 on one connection, so it cannot exhibit the PostgreSQL per-row interleaving this race needs. In

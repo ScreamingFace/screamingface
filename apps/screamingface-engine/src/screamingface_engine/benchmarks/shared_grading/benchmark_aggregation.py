@@ -82,6 +82,7 @@ from screamingface_engine.benchmarks.case_records import abstain_mark
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult, Failure
 from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.graded_answer import GradedAnswer
+from screamingface_engine.benchmarks.media_parking import park_cases_media
 from screamingface_engine.benchmarks.progress import completed_case, grading_progress
 from screamingface_engine.benchmarks.shared_grading.attempt_fold import fold_case_attempts
 from screamingface_engine.benchmarks.shared_grading.case_grades import (
@@ -342,6 +343,11 @@ class BenchmarkAggregation:
                         scorer,
                         failure_policy=self.failure_policy,
                     )
+            # FEATURE (OME-1271, PR 5): park each Case's pictures and files in the run's
+            # result store, under the sha256 its echoed placeholder carries, so a researcher
+            # can open one later. WHY a thread: the store's writer is synchronous, and this is
+            # the run's event loop.
+            await asyncio.to_thread(park_cases_media, [case.input for case in selected_cases])
             # Stage 5 — fold the marks into the class results.
             finalized = finalize_candidate_result(
                 benchmark_id=benchmark_id,
