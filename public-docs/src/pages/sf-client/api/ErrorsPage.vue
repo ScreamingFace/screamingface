@@ -227,6 +227,8 @@ Warning
       needs, for example the combine operators a
       <RouterLink to="/sf-client/api/reducers">reducer</RouterLink> compiles to. It is raised
       before anything is spent.
+    </p>
+
     <h2>Replay errors and verdicts</h2>
 
     <CodeBlock :code="replayError" language="python" />

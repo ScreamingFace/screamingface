@@ -497,7 +497,9 @@ replay.candidates.only.reproduction  # None: no published score to compare`
       is a new paid run. The expression is already linked to its benchmark, so do not pass
       <code>benchmark=</code> or <code>limit=</code> again. Model output can move; the recipe
       identity does not.
-    <h3>7 · Reproduce a published run</h3>
+    </p>
+
+    <h3>8 · Reproduce a published run</h3>
 
     <p>
       These examples use SDK <strong>0.1.7</strong>. Install it with
