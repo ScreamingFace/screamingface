@@ -620,7 +620,7 @@ def _home_in_eval_package(registry_name: str, name: str, module: Any) -> str | N
     """The module that defines a scorer the Task module does not bind, when it sits inside the
     eval's own package; None otherwise.
 
-    FEATURE (OME-1478): HLE's Task builds ``json_judge`` from a spec, and the factory lives in
+    FEATURE (OME-1478): HLE's Task builds ``regex_judge`` from a spec, and the factory lives in
     ``inspect_evals.hle.scorers``, which ``inspect_evals.hle.hle`` never binds by that name.
     WHY the eval's package only: a row names its own eval's code, and assembly reads a scorer
     from its source inside that package; a factory from another eval is refused as before.
