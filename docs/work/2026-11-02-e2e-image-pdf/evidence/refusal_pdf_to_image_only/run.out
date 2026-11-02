@@ -1,0 +1,5 @@
+HTTP 502 application/problem+json
+BODY {"type":"about:blank","title":"Bad Gateway","status":502,"detail":"the run failed","code":"internal_error","permanent":false,"trace_id":"b6aa55f947b1531df904b5b4ceb2edff"}
+TYPES ['ai.url4.log', 'ai.url4.span', 'ai.url4.started', 'ai.url4.terminated']
+FRAMES 8 BASE64_DATA_URIS_IN_FRAMES 0
+ai.url4.terminated {"status": "failed", "error": {"code": "provider_error", "message": "OpenRouter reported a provider error", "permanent": false}}

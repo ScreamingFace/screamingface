@@ -1,0 +1,5 @@
+HTTP 502 application/problem+json
+BODY {"type":"about:blank","title":"Bad Gateway","status":502,"detail":"the run failed","code":"internal_error","permanent":true,"trace_id":"af93bfe4505e925550e8c7c07ecc176b"}
+TYPES ['ai.url4.log', 'ai.url4.span', 'ai.url4.started', 'ai.url4.terminated']
+FRAMES 17 BASE64_DATA_URIS_IN_FRAMES 0
+ai.url4.terminated {"status": "failed", "error": {"code": "provider_error", "message": "The upstream provider returned an error (404): No endpoints found that support image input", "permanent": true}}

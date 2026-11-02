@@ -1,0 +1,40 @@
+INFO:     aigateway.core.admission gateway_call_id=call_9fdcbc42eb23976215d8f928dcb9a92f trace_id=79c2f5f3050475cc622f88a78891f7b0 provider call finished provider=openrouter limit=4 queue_wait_ms=0.068 provider_execution_ms=3088.588 outcome=success
+INFO:     127.0.0.1:62443 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_9cc15255dbba6e2463e01854b3f9b0b2 trace_id=a470fea66e8dd3c9cf729632b2d6a53f provider call finished provider=openrouter limit=4 queue_wait_ms=0.026 provider_execution_ms=6667.844 outcome=success
+INFO:     127.0.0.1:62523 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_50b43f8f9e73693e012e8d104a6c1bde trace_id=fd189762d3fdb5150b03d445e3370def provider call finished provider=openrouter limit=4 queue_wait_ms=0.019 provider_execution_ms=7206.219 outcome=success
+INFO:     127.0.0.1:62555 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_a193116b4685027f73e5dd5141afd92b trace_id=fd189762d3fdb5150b03d445e3370def provider call finished provider=openrouter limit=4 queue_wait_ms=0.012 provider_execution_ms=7428.173 outcome=success
+INFO:     127.0.0.1:62568 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_fb41e6811a00f6fe1d23a6d7788e9890 trace_id=fd189762d3fdb5150b03d445e3370def provider call finished provider=openrouter limit=4 queue_wait_ms=0.018 provider_execution_ms=4635.147 outcome=success
+INFO:     127.0.0.1:62555 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62555 - "POST /v1/chat/completions HTTP/1.1" 404 Not Found
+INFO:     aigateway.core.admission gateway_call_id=call_1611f1e016c4b76aaf99aec499ebb2bf trace_id=20c95b6397a2b2f533ba1b0d029a6e46 provider call finished provider=openrouter limit=4 queue_wait_ms=0.015 provider_execution_ms=781.231 outcome=success
+INFO:     127.0.0.1:62762 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_2c12d3b7512bb397c77f4b501182badb trace_id=20c95b6397a2b2f533ba1b0d029a6e46 provider call finished provider=openrouter limit=4 queue_wait_ms=0.010 provider_execution_ms=919.891 outcome=success
+INFO:     127.0.0.1:62767 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_c7e0fed128fefbc1ddec209a6d667036 trace_id=20c95b6397a2b2f533ba1b0d029a6e46 provider call finished provider=openrouter limit=4 queue_wait_ms=0.016 provider_execution_ms=1743.928 outcome=error
+WARNING:     aigateway.routes.chat_dispatch gateway_call_id=call_c7e0fed128fefbc1ddec209a6d667036 trace_id=20c95b6397a2b2f533ba1b0d029a6e46 dispatch failed provider=openrouter classification=bad_request status=400 type=BadRequestError account=<anon> profile=default outcome=mapped
+INFO:     127.0.0.1:62762 - "POST /v1/chat/completions HTTP/1.1" 400 Bad Request
+INFO:     aigateway.core.admission gateway_call_id=call_623ebacf0a119744dc266991f584c5b4 trace_id=a2da1d49990e0a15689dac3abf8b5159 provider call finished provider=openrouter limit=4 queue_wait_ms=0.018 provider_execution_ms=1832.970 outcome=success
+INFO:     127.0.0.1:63053 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_6afe337b0070a136c28d223b2e78ab65 trace_id=a2da1d49990e0a15689dac3abf8b5159 provider call finished provider=openrouter limit=4 queue_wait_ms=0.010 provider_execution_ms=2411.218 outcome=success
+INFO:     127.0.0.1:63060 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_353c0a3e53cf2d313f99ed1a70d91968 trace_id=a2da1d49990e0a15689dac3abf8b5159 provider call finished provider=openrouter limit=4 queue_wait_ms=0.014 provider_execution_ms=2029.959 outcome=success
+INFO:     127.0.0.1:63053 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_aa1f18dd45a66569ee3b0a5eed42ba69 trace_id=ddbce3244022e188457fdd2619f8dffd provider call finished provider=openrouter limit=4 queue_wait_ms=0.016 provider_execution_ms=1784.659 outcome=success
+INFO:     127.0.0.1:63108 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_88ca4d5d1712fbcb19228cdce397a834 trace_id=ddbce3244022e188457fdd2619f8dffd provider call finished provider=openrouter limit=4 queue_wait_ms=0.008 provider_execution_ms=2377.900 outcome=success
+INFO:     127.0.0.1:63115 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_4cd1befe5b0c4873e41b3577b735e4c5 trace_id=ddbce3244022e188457fdd2619f8dffd provider call finished provider=openrouter limit=4 queue_wait_ms=0.026 provider_execution_ms=1940.431 outcome=success
+INFO:     127.0.0.1:63108 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_3462804b6b2e645f77f113d76e83378b trace_id=b6aa55f947b1531df904b5b4ceb2edff provider call finished provider=openrouter limit=4 queue_wait_ms=0.016 provider_execution_ms=1467.458 outcome=error
+ERROR:     aigateway.routes.chat_dispatch gateway_call_id=call_3462804b6b2e645f77f113d76e83378b trace_id=b6aa55f947b1531df904b5b4ceb2edff dispatch failed provider=openrouter classification=provider_error status=502 type=HTTPException account=<anon> profile=default outcome=mapped
+INFO:     127.0.0.1:63219 - "POST /v1/chat/completions HTTP/1.1" 502 Bad Gateway
+INFO:     aigateway.core.admission gateway_call_id=call_8d7cbf29f76c5635f144bc0ef150620f trace_id=af93bfe4505e925550e8c7c07ecc176b provider call finished provider=openrouter limit=4 queue_wait_ms=0.011 provider_execution_ms=50.631 outcome=error
+WARNING:     aigateway.routes.chat_dispatch gateway_call_id=call_8d7cbf29f76c5635f144bc0ef150620f trace_id=af93bfe4505e925550e8c7c07ecc176b dispatch failed provider=openrouter classification=provider_error status=404 type=NotFoundError account=<anon> profile=default outcome=mapped
+INFO:     127.0.0.1:63234 - "POST /v1/chat/completions HTTP/1.1" 404 Not Found
+INFO:     aigateway.core.admission gateway_call_id=call_5b6d629ea014473f06270aa908513d28 trace_id=af93bfe4505e925550e8c7c07ecc176b provider call finished provider=openrouter limit=4 queue_wait_ms=0.018 provider_execution_ms=1444.367 outcome=success
+INFO:     127.0.0.1:63219 - "POST /v1/chat/completions HTTP/1.1" 200 OK
+INFO:     aigateway.core.admission gateway_call_id=call_ca279ba1c8945163bb3ca73f2d265018 trace_id=a39e8ccf7994c52843c904cb6845a2f9 provider call finished provider=openrouter limit=4 queue_wait_ms=0.026 provider_execution_ms=1413.057 outcome=success
+INFO:     127.0.0.1:63331 - "POST /v1/chat/completions HTTP/1.1" 200 OK
