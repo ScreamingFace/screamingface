@@ -22,10 +22,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
@@ -59,21 +57,11 @@ def _oauth_blob(access_token: str) -> str:
 
 
 async def _seed_default_profile(credential_blobs, account_id: str) -> None:
-    """An AUTHENTICATED Profile named `default` for anthropic, with its OAuth blob."""
+    """Anthropic's OAuth blob at the `default` name address."""
     credential_blobs.write(
         credential_service_for(credential_name_for(account_id, "default")),
         "default",
         _oauth_blob(_PROFILE_TOKEN),
-    )
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
     )
 
 
@@ -246,9 +234,8 @@ def test_a_persistent_marker_fault_at_the_resolver_read_escapes_the_route(
 def test_a_persistent_marker_fault_at_the_resolver_read_renders_a_bare_500(
     authenticated_client, monkeypatch
 ) -> None:
-    """The wire outcome of the same fault: Starlette's default server-error page, not the
-    gateway's JSON `detail` envelope and not the 503 `profile_index_conflict` mapping (that
-    handler covers only CAS-retry exhaustion, `main.py:296-307`)."""
+    """The wire outcome of the same fault: the app-wide last-resort 500 envelope
+    (`unhandled_errors.py`), not a typed provider-access refusal."""
     monkeypatch.setattr(PairAuthorityStore, "read", _always_failing_read)
 
     with _server_errors_as_responses(authenticated_client):

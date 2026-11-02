@@ -19,8 +19,9 @@ class RemoteEndpointAccess:
 
     def permits(self, operation: EndpointOperation, *, account_id: str, provider: str) -> bool:
         # WHY one rule for every operation: probing, attaching and invoking a key all reach the
-        # endpoint, and each needs a live grant. The port names the operation so a later surface
-        # (catalog visibility) can differ without changing callers.
+        # endpoint, and each needs a live grant; seeing it in the catalog needs the same grant,
+        # so a listing never offers an endpoint the caller could not use. The port names the
+        # operation so a later surface can differ without changing callers.
         del operation
         grant = self._grants.get(provider)
         if grant is None:

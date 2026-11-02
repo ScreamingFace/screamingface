@@ -241,8 +241,8 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td><code>capture</code></td>
           <td><code>bool&nbsp;|&nbsp;None</code></td>
           <td>
-            Defaults to <code>None</code>: on for fresh evaluations, off for replays.
-            <code>False</code> turns capture off. When capture is on, the engine makes a pinned
+            Defaults to <code>None</code>, which means off. <code>True</code> turns capture on for a
+            fresh evaluation; a replay never captures. When capture is on, the engine makes a pinned
             cache of each run, so the score can be reproduced later. Best effort. Read
             <code>capture_status</code> on each
             <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink>. See

@@ -1,0 +1,21 @@
+{
+ "op": "weighted_mean@1",
+ "stage": "reduce",
+ "cases": [
+  {"name": "10 20 60 weights 1 1 2", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "10", "value": "10", "status": "voted", "weight": "1"}, {"member": "member_2", "raw": "20", "value": "20", "status": "voted", "weight": "1"}, {"member": "member_3", "raw": "60", "value": "60", "status": "voted", "weight": "2"}]},
+   "expect": {"tally": null, "statistic": "37.5"}},
+  {"name": "signal weight missing is dropped", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "10", "value": "10", "status": "voted", "weight": "1", "signals": {"field:c": 1}}, {"member": "member_2", "raw": "20", "value": "20", "status": "voted", "weight": null, "signals": {"field:c": null}}, {"member": "member_3", "raw": "60", "value": "60", "status": "voted", "weight": "3", "signals": {"field:c": 3}}]},
+   "expect": {"tally": null, "statistic": "47.5"}},
+  {"name": "decimal weights 0.1 0.2", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "10", "value": "10", "status": "voted", "weight": "0.1"}, {"member": "member_2", "raw": "20", "value": "20", "status": "voted", "weight": "0.2"}]},
+   "expect": {"tally": null, "statistic": "16.66666666666666666666666666666667"}},
+  {"name": "weights null", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "10", "value": "10", "status": "voted", "weight": null}, {"member": "member_2", "raw": "20", "value": "20", "status": "voted", "weight": null}]},
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "all signal weights missing", "args": {},
+   "input": {"readings": [{"member": "member_1", "raw": "10", "value": "10", "status": "voted", "weight": null, "signals": {"field:c": null}}, {"member": "member_2", "raw": "20", "value": "20", "status": "voted", "weight": null, "signals": {"field:c": 0}}]},
+   "expect": {"abstain": "no_votes"}}
+ ]
+}

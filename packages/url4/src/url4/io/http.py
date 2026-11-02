@@ -30,6 +30,8 @@ from url4.io._guarded_transport import (
 from url4.io._source_policy import (
     SourceGuard,
     check_url,
+    has_userinfo,
+    redact_userinfo,
     redirect_limit,
     source_timeout,
     too_large,
@@ -71,8 +73,9 @@ class HttpIOLayer:
     ``guard`` (:class:`SourceGuard`; strict defaults): ``https`` only, no loopback / private /
     link-local / CGNAT / metadata address after DNS and on any redirect hop, connections
     pinned to the vetted IP (SNI and ``Host`` kept), at most ``guard.max_redirects`` hops, no
-    ``https``→``http`` downgrade, environment proxies ignored, and a ``url4://`` peer only
-    when its host is in ``guard.peer_hosts`` (empty by default: no remote-node calls).
+    ``https``→``http`` downgrade, no embedded credentials (``user:pass@`` userinfo) on any hop,
+    environment proxies ignored, and a ``url4://`` peer only when its host is in
+    ``guard.peer_hosts`` (empty by default: no remote-node calls).
     ``resolver`` replaces the system DNS lookup. Only the FIRST hop of a relative fetch against
     the operator-set ``base_url`` origin is trusted; every redirect hop, and an absolute target
     that spells that origin out, is checked. The whole owned fetch, redirects included, runs
@@ -203,24 +206,12 @@ class HttpIOLayer:
                 body = await _read_capped(response, self._guard.max_bytes)
             finally:
                 await response.aclose()
-        except httpx.HTTPStatusError as exc:
-            raise ResolutionError(
-                f"GET {url!r} failed: {exc}",
-                permanent=_permanent_status(exc.response),
-                retry_after=_retry_after(exc.response),
-            ) from exc
-        except httpx.TooManyRedirects as exc:
-            raise redirect_limit(
-                f"GET {url!r} passed the {self._guard.max_redirects}-hop redirect limit"
-            ) from exc
-        except httpx.ConnectTimeout as exc:
-            raise source_timeout(f"GET {url!r} failed: {exc}") from exc
         except (httpx.HTTPError, httpx.InvalidURL) as exc:
-            # WHY: httpx.InvalidURL is not an HTTPError subclass; catch it too so a
-            # malformed target (e.g. control chars in a reducer query) still
-            # surfaces as ResolutionError rather than a raw httpx exception.
-            raise ResolutionError(f"GET {url!r} failed: {exc}") from exc
-        return _buffered(response, body)
+            failure, cause = _failure(url, exc, self._guard.max_redirects)
+        else:
+            return _buffered(response, body)
+        # WHY raised outside the handler: the only chained error is the one _failure names.
+        raise failure from cause
 
     def _is_trusted(self, url: str) -> bool:
         try:
@@ -251,6 +242,35 @@ class HttpIOLayer:
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
+
+
+def _failure(
+    url: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int
+) -> tuple[ResolutionError, Exception | None]:
+    """The :class:`ResolutionError` a failed ``GET url`` surfaces as, and the error it chains."""
+    if isinstance(exc, httpx.InvalidURL) and has_userinfo(url):
+        # INVARIANT (PR #1605 review 1): a credentialed malformed target is reported redacted,
+        # without httpx's detail and with nothing chained — the credentials reach no message.
+        return ResolutionError(f"GET {redact_userinfo(url)!r} failed: invalid URL"), None
+    return _wrapped(url, exc, max_redirects), exc
+
+
+def _wrapped(
+    url: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int
+) -> ResolutionError:
+    message = f"GET {url!r} failed: {exc}"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return ResolutionError(
+            message,
+            permanent=_permanent_status(exc.response),
+            retry_after=_retry_after(exc.response),
+        )
+    if isinstance(exc, httpx.TooManyRedirects):
+        return redirect_limit(f"GET {url!r} passed the {max_redirects}-hop redirect limit")
+    # WHY InvalidURL too: it is not an HTTPError subclass, so a malformed target (e.g. control
+    # chars in a reducer query) still surfaces as ResolutionError, not a raw httpx exception.
+    timeout = isinstance(exc, httpx.ConnectTimeout)
+    return source_timeout(message) if timeout else ResolutionError(message)
 
 
 def _trusted_origins(base_url: str) -> frozenset[Origin]:

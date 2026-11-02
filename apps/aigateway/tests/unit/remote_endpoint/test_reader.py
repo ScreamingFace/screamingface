@@ -108,7 +108,7 @@ def test_invalid_toml_is_refused_without_echoing_content(tmp_path: Path) -> None
 
 
 def test_an_invalid_document_in_a_valid_file_is_refused_sanitized(tmp_path: Path) -> None:
-    doc = document(endpoint(origin="http://private-host.example"))
+    doc = document(endpoint(origin="ftp://private-host.example"))
 
     message = _refusal(_write(tmp_path, to_toml(doc)))
 

@@ -390,7 +390,7 @@ def _document_parameters(auth_mode: AuthType = "api_key") -> dict[str, Any]:
         canonical_id=_MODEL,
         gateway_provider="openrouter",
         auth_mode=auth_mode,
-        scope="account_profile",
+        scope="account_connection",
         context_identity="acct:test|prof:1",
         rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=auth_mode),
         observations=plugin.chat_parameter_observations(model=_MODEL, auth_type=auth_mode),

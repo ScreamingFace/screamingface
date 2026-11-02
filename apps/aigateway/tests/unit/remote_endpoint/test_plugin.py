@@ -87,7 +87,7 @@ def test_each_instance_takes_its_identity_from_its_definition() -> None:
     assert first.provider_display_name == "Lab endpoint aaaa"
     assert first.available_auth_modes() == ("api_key",)
     assert first.credential_service_provider() == ENDPOINT_A
-    assert first.register_models() == []
+    assert [entry.model_name for entry in first.register_models()] == [f"{ENDPOINT_A}/{ALIAS}"]
     assert first.supports_chat_streaming() is False
     assert first.auth_router() is None
 

@@ -25,9 +25,9 @@ from tortoise.exceptions import IntegrityError
 
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
-from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import PairAuthorityStore, Selector
 from aigateway.routes import auth as auth_routes
+from tests.unit.seed_state import SeedState
 
 CHAT_COMPLETION = (
     "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion"
@@ -39,8 +39,8 @@ def migrated(authenticated_client, credential_blobs, monkeypatch) -> ConnectionB
     return ConnectionBackedHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
-def _seed(harness: ConnectionBackedHarness, state: ProfileState) -> str:
-    harness.seed_profile(state=state)
+def _seed(harness: ConnectionBackedHarness, state: SeedState) -> str:
+    harness.seed_credential(state=state)
     return harness.migrated["default"]
 
 
@@ -102,7 +102,7 @@ def test_a_native_flow_replaces_an_unusable_effective_row(
     migrated: ConnectionBackedHarness, unusable: str
 ) -> None:
     h = migrated
-    old = _seed(h, ProfileState.AUTHENTICATED)
+    old = _seed(h, SeedState.AUTHENTICATED)
     if unusable == "error":
         h.call(OAuthConnectionStore().mark_error, connection(h, old), "rejected")
     else:
@@ -121,7 +121,7 @@ def test_a_native_flow_replaces_an_unusable_effective_row(
 
 def test_chat_reads_the_replacement_after_the_repair(migrated: ConnectionBackedHarness) -> None:
     h = migrated
-    _seed(h, ProfileState.ERROR)
+    _seed(h, SeedState.ERROR)
 
     new = _repair(h)
 
@@ -141,7 +141,7 @@ def test_a_re_login_into_another_live_connection_retires_it_for_a_fresh_row(
     # repair's own new row; the same-identity row retires with the old effective one, so a stale
     # refresh failure on it can never break the repaired pair (owner decision 2026-10-16).
     h = migrated
-    old = _seed(h, ProfileState.AUTHENTICATED)
+    old = _seed(h, SeedState.AUTHENTICATED)
 
     async def same_identity(*_args: Any, **_kwargs: Any) -> AccountIdentity:
         return AccountIdentity(sub="user-1")
@@ -173,7 +173,7 @@ def test_an_errored_api_key_effective_row_is_replaced_by_oauth(
     # WHY: a broken effective row serves nothing, whatever its type — the user who signs in with
     # OAuth wants a working pair, as the Profile facade gave them.
     h = migrated
-    h.seed_profile(state=ProfileState.ERROR, auth_type="api_key", credential="sk-ant-old")
+    h.seed_credential(state=SeedState.ERROR, auth_type="api_key", credential="sk-ant-old")
     old = h.migrated["default"]
 
     new = _repair(h)
@@ -194,7 +194,7 @@ def test_a_flow_named_like_the_effective_row_replaces_it_even_when_it_works(
     # row's label means "re-authorise THAT one", the Profile facade's re-auth by name. It is how a
     # working API key switches to OAuth without a window with no credential.
     h = migrated
-    h.seed_profile(state=ProfileState.AUTHENTICATED, auth_type=auth_type, credential="old-cred")
+    h.seed_credential(state=SeedState.AUTHENTICATED, auth_type=auth_type, credential="old-cred")
     old = h.migrated["default"]
     label = connection(h, old).label
 
@@ -213,7 +213,7 @@ def test_a_same_label_re_login_of_the_same_identity_replaces_the_effective_row(
     # WHY: the effective row itself carries the identity — it is the target, not another row of
     # the pair; its revocation frees the identity for the new row.
     h = migrated
-    old = _seed(h, ProfileState.AUTHENTICATED)
+    old = _seed(h, SeedState.AUTHENTICATED)
     row = connection(h, old)
     row.identity_sub = "user-1"
     h.call(row.save, update_fields=["identity_sub"])
@@ -233,9 +233,9 @@ def test_a_same_label_re_login_of_the_same_identity_replaces_the_effective_row(
 # --- a usable effective row stays --------------------------------------------------------------
 
 
-@pytest.mark.parametrize("usable", [ProfileState.AUTHENTICATED, ProfileState.PENDING])
+@pytest.mark.parametrize("usable", [SeedState.AUTHENTICATED, SeedState.PENDING])
 def test_a_usable_effective_row_is_not_displaced(
-    migrated: ConnectionBackedHarness, usable: ProfileState
+    migrated: ConnectionBackedHarness, usable: SeedState
 ) -> None:
     h = migrated
     old = _seed(h, usable)
@@ -253,7 +253,7 @@ def test_an_effective_row_that_breaks_after_the_start_is_not_replaced(
     # WHY: the decision is taken on the pair observed at start; a row usable then stays the
     # pair's effective row — the user can re-run the repair once it reads as errored.
     h = migrated
-    old = _seed(h, ProfileState.AUTHENTICATED)
+    old = _seed(h, SeedState.AUTHENTICATED)
     use_tokens(h, "new-tok")
     started = _start(h)
     h.call(OAuthConnectionStore().mark_error, connection(h, old), "rejected")
@@ -271,7 +271,7 @@ def test_the_first_of_two_repairs_wins_and_the_second_publishes_nothing(
     migrated: ConnectionBackedHarness,
 ) -> None:
     h = migrated
-    old = _seed(h, ProfileState.ERROR)
+    old = _seed(h, SeedState.ERROR)
     use_tokens(h, "new-tok")
     first = _start(h, label="first")
     second = _start(h, label="second")
@@ -289,7 +289,7 @@ def test_the_first_of_two_repairs_wins_and_the_second_publishes_nothing(
 
 def test_a_delete_between_start_and_callback_wins(migrated: ConnectionBackedHarness) -> None:
     h = migrated
-    old = _seed(h, ProfileState.ERROR)
+    old = _seed(h, SeedState.ERROR)
     use_tokens(h, "new-tok")
     started = _start(h)
     assert h.client.delete(f"/v1/oauth/connections/{old}").status_code == 204
@@ -307,7 +307,7 @@ def test_a_marker_move_between_start_and_callback_wins(migrated: ConnectionBacke
     # WHY: a key write (op 8) or any other authority change advances the generation; the repair
     # observed the older one and must not switch the effective row over it.
     h = migrated
-    old = _seed(h, ProfileState.ERROR)
+    old = _seed(h, SeedState.ERROR)
     use_tokens(h, "new-tok")
     started = _start(h)
     pair = marker(h)
@@ -333,7 +333,7 @@ def test_the_losing_repair_retires_its_row_and_frees_its_label(
     migrated: ConnectionBackedHarness,
 ) -> None:
     h = migrated
-    _seed(h, ProfileState.ERROR)
+    _seed(h, SeedState.ERROR)
     use_tokens(h, "new-tok")
     first = _start(h, label="first")
     second = _start(h, label="second")
@@ -352,7 +352,7 @@ def test_a_credential_store_outage_publishes_nothing(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     h = migrated
-    old = _seed(h, ProfileState.ERROR)
+    old = _seed(h, SeedState.ERROR)
     before = marker(h)
 
     async def store_down(*_args: Any, **_kwargs: Any) -> None:
@@ -373,7 +373,7 @@ def test_an_activation_conflict_publishes_nothing(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     h = migrated
-    old = _seed(h, ProfileState.ERROR)
+    old = _seed(h, SeedState.ERROR)
     before = marker(h)
 
     async def collide(*_args: Any, **_kwargs: Any) -> None:

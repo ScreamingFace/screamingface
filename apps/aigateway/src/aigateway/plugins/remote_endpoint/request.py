@@ -25,15 +25,14 @@ from .definitions import ChatTarget
 _ROLES = frozenset({"system", "user", "assistant"})
 _MESSAGE_FIELDS = frozenset({"role", "content"})
 _AUTH: tuple[AuthMode, ...] = ("api_key",)
-# WHY only max_tokens: it is the one optional field the contract names. WHY `bypass`: keying it
-# needs a real cache projection for this provider, which is Unit 1 work; until then every
-# request to a configured endpoint bypasses the shared cache.
+# WHY only max_tokens: it is the one optional field the contract names. WHY `keyed`: it changes
+# the answer, so two chats that differ only in it must not share a stored row.
 CHAT_PARAMETER_RULES: tuple[ParameterProjectionRule, ...] = (
     direct_rule(
         "max_tokens",
         auth_modes=_AUTH,
         schema=MAX_TOKENS_SCHEMA,
-        cache_behavior="bypass",
+        cache_behavior="keyed",
         projection_revision="remote-endpoint-openai-chat-basic-v1",
     ),
 )
@@ -57,8 +56,13 @@ def check_text_messages(messages: Any, *, provider: str) -> None:
     # WHY the shared check first: media and unknown typed parts get the gateway's one typed
     # refusal, `unsupported_content_part`, exactly as every other provider reports them.
     check_messages(messages, provider=provider, media_roles=frozenset(), allow_remote_images=False)
-    if not all(map(_is_text_message, messages)):
+    if not is_text_contract(messages):
         raise _unsupported_message(provider)
+
+
+def is_text_contract(messages: Any) -> bool:
+    """Whether ``messages`` is a non-empty list of text messages; never raises."""
+    return isinstance(messages, list) and bool(messages) and all(map(_is_text_message, messages))
 
 
 def _is_text_message(message: Any) -> bool:

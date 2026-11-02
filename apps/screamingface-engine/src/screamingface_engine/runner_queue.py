@@ -195,6 +195,7 @@ def _env_mapping(
     shape: job_env.RunShape = "expression",
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    world_digest: str | None = None,
 ) -> dict[str, str]:
     """The per-run env mapping a queue message carries, keyed by env name.
 
@@ -224,6 +225,10 @@ def _env_mapping(
     )
     env[job_env.IO_CONCURRENCY] = str(io_concurrency)
     env[job_env.SPEC_VERSION] = job_env.CURRENT_SPEC_VERSION
+    # Written only when stamped: local mode runs in the App's own process and has no worker to
+    # disagree with it, so it writes none, and an unstamped message is what an old worker reads.
+    if world_digest is not None:
+        env[job_env.WORLD_DIGEST] = world_digest
     # Written only for a direct run: absent means `expression`, so a default message stays
     # byte-for-byte what an old worker reads (the drained rollout keeps old workers from ever
     # seeing a `direct` one — erd.md §10).
@@ -248,6 +253,7 @@ def encode_message(
     shape: job_env.RunShape = "expression",
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    world_digest: str | None = None,
 ) -> bytes:
     """Encode a run submission as the queue message body: the per-run env mapping, JSON."""
     return json.dumps(
@@ -265,6 +271,7 @@ def encode_message(
             shape=shape,
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
+            world_digest=world_digest,
         ),
         sort_keys=True,
     ).encode("utf-8")

@@ -3,8 +3,8 @@
 # FEATURE: Stage E plan §3 E4a — the Connection-backed port is the only `ProviderAccess`; the
 # Profile-backed parent, its Profile-target authorize and refresh branches and the row-11 shadow
 # proof are deleted, so nothing on the read path can hand a Profile document back as authority.
-# INVARIANT: a quarantined pair's refusal renders the D18 pair body on every route, so chat, model
-# parameters and the successor admin API agree on one code.
+# INVARIANT: the pair refusal renders the one D18 pair body in both rendering tables, so any route
+# that receives it answers the successor admin API's code.
 # WHY a test of absence: the behaviour suites prove no read consults the index; this pins that the
 # machinery that did cannot be imported back by accident.
 """
@@ -67,7 +67,7 @@ def test_provider_access_for_fills_an_absent_slot_with_the_connection_backed_por
     assert provider_access_for(app) is access
 
 
-def test_a_quarantined_pair_renders_one_body_on_the_legacy_and_successor_routes() -> None:
+def test_an_unresolved_pair_renders_one_body_on_the_legacy_and_successor_routes() -> None:
     refusal = PairNotManageable("anthropic", "unresolved")
 
     legacy = render_refusal(refusal)

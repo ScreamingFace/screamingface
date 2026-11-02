@@ -187,7 +187,7 @@ def test_model_details_card_renders_only_real_escaped_profile_fields() -> None:
         provider="openrouter",
         upstream_id="openai/gpt-5.5",
         contract_id="pc_fixture",
-        scope="account_profile",
+        scope="account_connection",
         auth_mode="api_key",
         context_revision="ctx_fixture",
         source_revision=None,
@@ -203,7 +203,7 @@ def test_model_details_card_renders_only_real_escaped_profile_fields() -> None:
     html = cast(Any, details)._repr_html_()
 
     assert "openrouter/openai/gpt-5.5&lt;script&gt;" in html
-    assert "account_profile" in html
+    assert "account_connection" in html
     assert "api_key" in html
     assert "fresh" in html
     # WHY: the card reports only fields the object actually holds — never invented metrics.

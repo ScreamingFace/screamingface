@@ -69,7 +69,7 @@ def _arrange_account(client: TestClient, credential_blobs) -> str:
         "default",
         json.dumps(
             {
-                "access_token": "tok",
+                "access_token": "tok-oauth-fixture-0001",
                 "refresh_token": "rt",
                 "expires_at_ms": int(time.time() * 1000) + 3_600_000,
                 "token_type": "Bearer",
