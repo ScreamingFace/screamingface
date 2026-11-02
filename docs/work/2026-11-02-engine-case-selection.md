@@ -78,4 +78,7 @@ list equal to 1..N is written as the count, so every `limit=` recipe stays byte-
   `test_shared_grading_serving` and the `test_single_turn_judged_imports` helper. Each moved from
   a count to the matching ids; what they check is unchanged. Found in review: a hand-written
   recipe's huge count would have been expanded into ids before the bounds check; `parse` now
-  takes the Benchmark's size and refuses first (pinned by a test).
+  takes the Benchmark's size and refuses first (pinned by a test). Found at pre-push
+  (whole-Engine pyright): `Benchmark.build` is typed `int | CaseSelection`, because builders
+  still take the historic count; and #1629's stand-in board in `test_board_cases_route.py`
+  gained a two-line `rows` so it still matches the `BoardStore` protocol (no assertion moved).

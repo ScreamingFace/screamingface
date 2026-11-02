@@ -768,7 +768,7 @@ def _build(
     available: int,
     attempts: int = 1,
     retrieval_policy: RetrievalPolicyDeclaration | None = None,
-) -> Callable[[CaseSelection], Node]:
+) -> Callable[[int | CaseSelection], Node]:
     """The canonical one-invocation expression — one answer per Case, graded once.
 
     With ``attempts`` above 1 (OME-1458) the same execution runs once per Attempt; at 1 the

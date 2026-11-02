@@ -265,7 +265,7 @@ class Benchmark:
     description: str
     revision: str
     case_count: int
-    build: Callable[[CaseSelection], Node]
+    build: Callable[[int | CaseSelection], Node]
     # INVARIANT: `declaration` is required with NO default — a benchmark that never
     # declared its failure policy fails registration before any paid request (OME-1039).
     declaration: BenchmarkDeclaration
