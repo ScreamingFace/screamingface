@@ -35,6 +35,11 @@ router = APIRouter()
 _FIELDS = frozenset({"model", "input"})
 # The gateway's own status for a caller that left mid-call; no client ever receives it.
 _CLIENT_DISCONNECTED = 499
+# WHY (OME-1461 owner decision, the same table as chat's `chat_dispatch`, kept here because no chat
+# module is imported): a 503 is levelled by origin. The gateway's own admission shedding is
+# expected overload volume, so WARNING; an upstream 503 after retries is an outage, so ERROR.
+# INVARIANT: allowlist, fail loud; only a named gateway back-pressure code is lowered.
+_GATEWAY_BACKPRESSURE_CODES = frozenset({"provider_queue_timeout"})
 
 
 @router.post("/v1/classifications")
@@ -79,13 +84,23 @@ async def _model_and_input(request: Request) -> tuple[str, str]:
         # WHY RecursionError: a small body of deeply nested brackets exhausts the decoder's
         # depth; it is the caller's malformed body, not a server fault.
         raise HTTPException(status_code=400, detail="request body must be valid JSON") from None
-    if isinstance(body, dict) and body.keys() - _FIELDS:
+    if isinstance(body, dict) and (unknown := sorted(body.keys() - _FIELDS)):
+        if not all(_utf8(name) for name in unknown):
+            # WHY no names here: the refusal below echoes them, and a JSON `\ud800` escape in a
+            # name cannot be written into the UTF-8 answer, so it would fail as a 500.
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "invalid_request",
+                    "message": "field names must be valid Unicode text",
+                },
+            )
         # INVARIANT: a refusal names the unknown fields, never a caller value.
         raise HTTPException(
             status_code=400,
             detail={
                 "code": "unsupported_parameters",
-                "rejected": {name: "unknown" for name in sorted(body.keys() - _FIELDS)},
+                "rejected": {name: "unknown" for name in unknown},
                 "message": "a classification takes only a model and an input",
             },
         )
@@ -181,6 +196,8 @@ def _log_failure(provider: str, exc: HTTPException, error_type: str) -> None:
     code = detail.get("code") if isinstance(detail, dict) else None
     if exc.status_code == _CLIENT_DISCONNECTED:
         level = logging.INFO
+    elif exc.status_code == 503 and code in _GATEWAY_BACKPRESSURE_CODES:
+        level = logging.WARNING
     else:
         level = logging.ERROR if exc.status_code >= 500 else logging.WARNING
     logger.log(

@@ -128,6 +128,12 @@ REFUSALS: dict[str, tuple[str, Any, int, str]] = {
         400,
         "invalid_request",
     ),
+    "surrogate-field-name": (
+        ACCOUNT_A,
+        json.dumps(_body(**{f"{MARKER}\ud800": 1})).encode(),
+        400,
+        "invalid_request",
+    ),
     "no-prefix": (ACCOUNT_A, _body(model="classifier_v1"), 400, "model must be provider-prefixed"),
     "seed": (ACCOUNT_A, _body(seed=7), 400, "unsupported_parameters"),
     "top_k": (ACCOUNT_A, _body(top_k=2), 400, "unsupported_parameters"),
@@ -231,6 +237,23 @@ def test_an_ungranted_or_disabled_endpoint_is_answered_as_an_absent_one(byom: Ha
 
     assert disabled == ungranted == absent
     assert upstream.calls == []
+
+
+@pytest.mark.parametrize("alias", ["classifier_v1", "undeclared_v1", ALIAS])
+def test_an_ungranted_caller_learns_nothing_about_an_endpoint_s_aliases(
+    byom: Harness, alias: str
+) -> None:
+    """INVARIANT (spec G6): the INVOKE grant is checked before the alias, so a declared
+    classifier, an undeclared alias and a chat alias get one answer, with no key read."""
+
+    with started(byom, mixed_document()) as (client, upstream):
+        _attach(client, byom)
+        reads = key_reads(byom.monkeypatch)
+        response = classify(client, ACCOUNT_B, _body(model=f"{ENDPOINT_B}/{alias}"))
+
+    assert response.status_code == 400, response.text
+    assert response.json() == {"detail": f"unknown provider: {ENDPOINT_B}"}
+    assert (reads, upstream.calls, byom.upstream.calls) == ([], [], [])
 
 
 def test_an_explicit_selector_is_refused_before_any_key_read(byom: Harness) -> None:

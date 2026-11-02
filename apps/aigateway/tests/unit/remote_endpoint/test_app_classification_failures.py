@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
@@ -19,6 +20,7 @@ import pytest
 from fastapi import HTTPException, Request
 
 from aigateway.config import Settings
+from aigateway.routes import classifications
 from aigateway.routes.classifications import dispatch_classification
 
 from .classifier_upstream import (
@@ -194,3 +196,33 @@ async def test_a_shutdown_cancellation_still_propagates() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+# --- the record's level --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("code", "level"),
+    [("provider_queue_timeout", logging.WARNING), ("provider_error", logging.ERROR)],
+)
+async def test_only_the_gateway_s_own_queue_timeout_503_is_a_warning(
+    monkeypatch: pytest.MonkeyPatch, code: str, level: int
+) -> None:
+    """WHY (OME-1461 log-level policy, as chat): a call the Gateway shed for capacity is expected
+    overload volume, so WARNING; a classifier still answering 503 after retries is an outage and
+    stays alertable at ERROR."""
+
+    async def refuse(*_args: Any) -> dict[str, Any]:
+        raise HTTPException(503, detail={"code": code, "message": "fixed"})
+
+    monkeypatch.setattr(classifications, "dispatch_with_budgets", refuse)
+    request, _disconnect = _request()
+    with gateway_log() as records, pytest.raises(HTTPException):
+        await dispatch_classification(request, SimpleNamespace(), ENDPOINT_A, {})
+
+    expected = f"classification failed provider={ENDPOINT_A} code={code} status=503"
+    failed = [r for r in records if r.getMessage().startswith("classification failed")]
+    assert [(r.levelno, r.getMessage()) for r in failed] == [
+        (level, f"{expected} type=HTTPException")
+    ]
