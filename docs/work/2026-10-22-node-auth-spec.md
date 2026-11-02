@@ -48,3 +48,9 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
   Kevin; the draft's former Q7 (consent hooks) is outside `OME-1599`'s scope and is now a note left
   to Part C. Linear `OME-1599` had no comments listing the questions; the six are the draft's own.
   Still DRAFT; no PR.
+- **2026-11-02 resume (owner-approved):** brought the branch up to date with a normal
+  `git merge origin/main` (157 commits, no conflicts; no rebase, no force-push). §1 code facts
+  re-checked on the merged tree: `peer/server.py` deferral text, `io/http.py` `url4://`→`https://`
+  with only `Idempotency-Key`, and the `x.remote_*_unsupported` refusals all unchanged. Kevin has not
+  answered Q1–Q6 (no Linear reply), so the spec stays DRAFT and implementation does not start:
+  the six forks are open design decisions, below the 95% gate. Status remains `in_progress`.
