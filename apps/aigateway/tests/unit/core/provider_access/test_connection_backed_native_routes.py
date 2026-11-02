@@ -41,10 +41,10 @@ from aigateway.core.api_key_validation import (
     ApiKeyValidationStage,
     ApiKeyValidationState,
 )
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
 from aigateway.core.provider_access.pair_authority import PairAuthorityConflict, PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 from tests.unit.seed_state import SeedState
 
 OLD_KEY = "sk-ant-api03-migrated-old-key-1357"

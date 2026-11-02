@@ -18,7 +18,6 @@ import pytest
 from connection_backed_harness import ConnectionBackedHarness
 from provider_access_harness import ANTHROPIC, PROVIDER, RealAppHarness
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.provider_access import (
     ConnectionBackedProviderAccess,
@@ -30,6 +29,7 @@ from aigateway.core.provider_access import (
     TargetReauthRequired,
 )
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 from tests.unit.seed_state import SeedState
 
 DEFAULT = Selector.from_header(None)

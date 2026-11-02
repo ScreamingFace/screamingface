@@ -20,7 +20,7 @@ pre-credential rejection contract, a different responsibility.
 
 Scope of THIS file: the ordinary lane (miss, store, replay) and the refusals that must
 neither read nor fill a row. Siblings:
-  ``test_openai_route_global_cache_key_material.py`` — profile defaults in, identity out.
+  ``test_openai_route_global_cache_key_material.py`` — the caller's parameters in, identity out.
   ``test_openai_route_global_cache_modifier.py``     — the ambient modifier end to end.
 """
 

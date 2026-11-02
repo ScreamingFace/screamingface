@@ -22,8 +22,8 @@ import httpx
 import pytest
 from litellm.exceptions import BadRequestError, ServiceUnavailableError
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 
