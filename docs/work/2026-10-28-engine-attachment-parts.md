@@ -90,3 +90,18 @@ Built on the `OME-1543` chain; the PR opens after #1478/#1482/`OME-1543` land.
 - **Gates:** `run_gates.py screamingface-engine --base origin/main` — ALL GATES GREEN;
   `packages/url4/scripts/check_module_size.py` — all capped modules within baseline (url4
   untouched; connector.py is not on that list).
+
+### Round 3 (2026-11-02) — merge #1587 F3, e2e F2 (`fetch_bytes` through the fair-share layer)
+
+- **Merge:** `41629d9da` merges `origin/OME-1543-file-refs-carry` (F3 fix `815a6b9ad`). Its one
+  conflict is `connector.py::_raise_for_status`, resolved per the owner decision of 2026-11-02:
+  the intent branch raises `_GatewayRefusal(code=INTENT_ERROR, status=…, detail=text) from refusal`,
+  and every other answer raises `_GatewayRefusal(code=code, …)`. The OME-941 filter moved to
+  `_upstream_code()` (complexity limit). Test +1 appended to `test_unsupported_content_part_refusal.py`.
+- **F2:** `438058add` — `runner/fair_share.py` binds `fetch_bytes` only when the inner layer has
+  it (getattr, as url4's `BoundedIOLayer` does), admitted through the same gate. Tests: new
+  `tests/unit/test_fair_share_fetch_bytes.py` (4: forwarded and gated at capacity 1, permit
+  released on failure, absent without an inner port, and a gate-bound `build_executor` run whose
+  https PNG reaches the fake gateway as an `image_url` part).
+- **Gates:** `run_gates.py screamingface-engine --base origin/OME-1543-file-refs-carry` ALL GREEN
+  (both commits).
