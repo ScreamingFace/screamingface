@@ -116,6 +116,6 @@ of the runtime --data-dir. Use the SDK's `screamingface analytics status` and
 `screamingface analytics disable` commands, or set DO_NOT_TRACK=1 before launching
 Studio. The frozen runtime exposes the same `analytics` subcommand.
 
-A visible notice and controls using these shared preferences are tracked in
-[OME-1805](https://linear.app/openmined/issue/OME-1805). The packaging verification
-script remains opted out regardless of the product default.
+Studio currently has no dedicated visible analytics notice or settings control.
+This is a known limitation, with no UI follow-up planned for now. The packaging
+verification script remains opted out regardless of the product default.

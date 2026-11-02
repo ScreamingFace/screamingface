@@ -35,5 +35,6 @@ run SDK/service gates, and update the existing PR. Keep review/rollout checks op
 
 Add failing sync/async wait-error and late-reply tests, then guard the shared Colab
 wait and its async scheduling boundary. Document inherited Studio enrollment,
-file the UI follow-up, and prepare an owner-review request for Filip to post.
+record the known Studio UI gap with no follow-up planned for now, and prepare an
+owner-review request for Filip to post.
 Run SDK gates and update PR #1633; do not merge or represent approval as received.

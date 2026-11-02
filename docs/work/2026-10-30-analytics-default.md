@@ -203,3 +203,15 @@ explicit documentation; policy approval and deployed Colab smoke remain open.
 
 Final-guard commit: `fix(analytics): guard Colab setup waits`. Ready for PR review;
 no merge, deployment or owner approval is represented as completed.
+
+
+## 2 November — remove Studio follow-up
+
+Filip requested removing the follow-up and retaining only an awareness note in
+PR #1633, with no follow-up planned for now. The Linear connector has no delete
+operation, so OME-1805 was canceled, unassigned and unlinked from OME-1768. This
+supersedes the earlier follow-up plan; no Studio UI work started. Remove its task
+mirror and active links from docs, and update the PR description. Documentation
+only: verify mirror consistency and whitespace; prior code gates remain valid.
+
+Mirror-status and whitespace checks passed. No runtime or test code changed.

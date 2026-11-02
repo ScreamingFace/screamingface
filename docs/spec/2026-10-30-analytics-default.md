@@ -89,6 +89,7 @@ Studio inherits the same SDK default when its sidecar bundles this SDK version.
 A fresh eligible installation may enroll at sidecar startup; the notice goes to
 runtime logs, not a dedicated Studio UI. Startup/import emits no event. Studio
 shares the SDK preference file (independent of runtime --data-dir), so existing
-saved declines and DO_NOT_TRACK retain precedence. A visible notice and controls
-using that shared preference mechanism are tracked in OME-1805, not a new
-enrollment prerequisite in this PR. Owner policy approval remains outstanding.
+saved declines and DO_NOT_TRACK retain precedence. The lack of a dedicated visible notice and
+controls is acknowledged; no Studio UI follow-up is planned for now. Successful
+notice display is not an enrollment prerequisite. Owner policy approval remains
+outstanding.
