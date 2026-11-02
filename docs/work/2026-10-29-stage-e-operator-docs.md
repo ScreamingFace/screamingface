@@ -230,10 +230,11 @@ Docs only, no RED. Verification instead:
 - **Sixth round, review after #1637 merged (2026-11-02):** blocking for operators, confirmed. The
   runbook's upgrades named only `--set image.tag=…` and `--set replicaCount=…`. Helm's
   `Upgrade.reuseValues` (`pkg/action/upgrade.go`) copies the release's values only when the upgrade
-  passes no value at all, so such an upgrade renders from the chart defaults: it drops
+  passes no value at all, so such an upgrade renders from the chart defaults: the overrides of
   `database.existingSecret`, `auth.existingSecret`, `publicUrl`, the ingress and every other
-  override, and the pre-upgrade migration Job runs first with that configuration. The same flaw
-  sat in the upgrade path's step 1 since #1612. `DEPLOYMENT.md` now opens the procedures with
+  setting fall back to the defaults, and the pre-upgrade migration Job runs first with that
+  configuration. The same flaw sat in the upgrade path's step 1 since #1612. `DEPLOYMENT.md` now
+  opens the procedures with
   "Keep the release's values in every upgrade below": the same values files and `--set` arguments
   as the current release, only the named values changed, and `helm get values … -o yaml` to
   recover them, kept out of version control because it holds secrets given with `--set`. It also

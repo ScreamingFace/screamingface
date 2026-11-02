@@ -184,9 +184,9 @@ purged data.
 same values files and `--set` arguments as the current release, and changes only what its step
 names: the chart and `image.tag` in an upgrade, `replicaCount` when stopping. Helm reuses a
 release's values only when an upgrade passes no value flag at all, so an upgrade given just
-`--set image.tag=…` or `--set replicaCount=0` starts from the chart defaults. It drops settings
-such as `database.existingSecret`, `auth.existingSecret`, `publicUrl` and the ingress, and the
-pre-upgrade migration Job runs with that configuration first. Without the original files, save the
+`--set image.tag=…` or `--set replicaCount=0` starts from the chart defaults: settings such as
+`database.existingSecret`, `auth.existingSecret`, `publicUrl` and the ingress fall back to their
+defaults, and the pre-upgrade migration Job runs with that configuration first. Without the original files, save the
 release's values and pass them back with `-f`:
 
 ```bash
