@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 
 from screamingface_engine import job_env
 from screamingface_engine.access_log import install_access_log_filter
-from screamingface_engine.adapters.factory import build_job_runner
+from screamingface_engine.adapters.factory import build_candidate_outcome_stream, build_job_runner
 from screamingface_engine.artifacts import (
     ArtifactReader,
     ArtifactStore,
@@ -35,6 +35,7 @@ from screamingface_engine.artifacts.wiring import (
 from screamingface_engine.auth import Clock, default_clock, install_problem_handlers
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.candidate_outcomes import CandidateOutcomeStream
 from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.catalog.cache import CatalogService
 from screamingface_engine.catalog.port import ModelParameterSource
@@ -75,6 +76,7 @@ from screamingface_engine.rest import (
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.cache_entries import router as cache_entries_router
 from screamingface_engine.rest.mounts import install_mounts
+from screamingface_engine.runs.wiring import install_runs
 from screamingface_engine.schemas import customize_openapi
 from screamingface_engine.tracing.loader import load_span_sink
 from screamingface_engine.tracing.relay import SpanSink
@@ -132,6 +134,7 @@ def create_app(
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     span_sink: SpanSink | None = None,
     operators: OperatorRegistry = BUILTIN_OPERATORS,
+    outcomes: CandidateOutcomeStream | None = None,
 ) -> FastAPI:
     """Build the App instance.
 
@@ -184,7 +187,7 @@ def create_app(
     )
     # FEATURE: a run the queue gave up on must end in a named failure, not silence
     # (OME-1090).
-    _install_max_deliveries_advisor(app, settings)
+    _install_max_deliveries_advisor(app, settings, outcomes)
     if clock is not None:
         app.state.clock = clock
     _install_surfaces(app, span_sink)
@@ -627,7 +630,9 @@ def _install_unclaimed_run_warner(
     )
 
 
-def _install_max_deliveries_advisor(app: FastAPI, settings: Settings) -> None:
+def _install_max_deliveries_advisor(
+    app: FastAPI, settings: Settings, outcomes: CandidateOutcomeStream | None = None
+) -> None:
     """Wire the max-deliveries advisory subscriber: a background task that publishes a
     named terminal failure for each run the queue gave up on (OME-1090).
 
@@ -642,7 +647,9 @@ def _install_max_deliveries_advisor(app: FastAPI, settings: Settings) -> None:
         return
     from screamingface_engine.adapters.max_deliveries import MaxDeliveriesAdvisor
 
-    advisor = MaxDeliveriesAdvisor(settings.nats_url, run_queue_stream=settings.run_queue_stream)
+    advisor = MaxDeliveriesAdvisor(
+        settings.nats_url, run_queue_stream=settings.run_queue_stream, outcomes=outcomes
+    )
     app.state.max_deliveries_advisor = advisor
 
     async def _start() -> None:
@@ -790,6 +797,13 @@ def _read_world_once() -> WorldFile | None:  # pragma: no cover - env wiring (IN
         return None
 
 
+def _close_with_app(app: FastAPI, *closers: Callable[[], Awaitable[None]] | None) -> None:
+    """Run each adapter's `aclose` at shutdown, in order; a None is an adapter not built."""
+    for close in closers:
+        if close is not None:
+            app.router.on_shutdown.append(close)
+
+
 def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INFRA rule, spec §11)
     """Production entrypoint (used by `cli.py` via uvicorn's factory mode).
 
@@ -800,6 +814,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     settings = Settings()
     _require_prod_secret(settings)
     stream = build_stream_consumer(settings)
+    outcomes = build_candidate_outcome_stream(settings)
     world_file = _read_world_once()
     # Catalog first (OME-880): the job runner needs the admitted-model overlay so a
     # dynamically admitted model is routable by the very next scheduled run.
@@ -810,6 +825,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         settings,
         extra_models=None if catalog is None else (lambda: catalog.admitted_model_ids),
         world_digest=None if world_file is None else world_file.digest,
+        outcomes=outcomes,
     )
     if job_runner is None:
         logging.warning(
@@ -831,24 +847,26 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         community_cache=community_cache,
         benchmarks=BUILTIN_BENCHMARKS,
         span_sink=control_plane_span_sink(os.environ),
+        outcomes=outcomes,
     )
     # The App owns the configured limits: declare the shared events stream (and apply a
     # changed limit) before the first request, and fail startup on a config it cannot apply.
     app.router.on_startup.append(stream.declare_events_stream)
     app.router.on_shutdown.append(stream.close)
-    if job_runner is not None:
-        # The queue runner owns a control connection of its own (OME-1090). `getattr` rather
-        # than an isinstance: the factory returns the port, and the app must not import a
-        # concrete adapter.
-        aclose = getattr(job_runner, "aclose", None)
-        if aclose is not None:
-            app.router.on_shutdown.append(aclose)
-    if catalog is not None:
-        app.router.on_shutdown.append(catalog.aclose)
-    if connections is not None:
-        app.router.on_shutdown.append(connections.aclose)
-    if community_cache is not None:
-        app.router.on_shutdown.append(community_cache.aclose)
+    # FEATURE (OME-1785): first-class Runs. On with `URL4_CLOUD_DATABASE_URL`, off without it;
+    # the outcome stream is declared either way, since the App's terminal writers publish to it.
+    install_runs(app, settings, outcomes, local=False)
+    # The queue runner owns a control connection of its own (OME-1090). `getattr` rather than
+    # an isinstance: the factory returns the port, and the app must not import a concrete adapter.
+    # WHY the outcome stream last: the runner's last tombstone still publishes to it.
+    _close_with_app(
+        app,
+        getattr(job_runner, "aclose", None),
+        None if catalog is None else catalog.aclose,
+        None if connections is None else connections.aclose,
+        None if community_cache is None else community_cache.aclose,
+        outcomes.close,
+    )
     # FEATURE (uniform executor PRD 04): every declared mount is a route of its own, projected
     # into /openapi.json, and every call runs as a DIRECT run on the worker pool.
     install_mounts(

@@ -17,7 +17,7 @@ It also remains the fake the test suite runs against (re-exported by
 import asyncio
 from bisect import bisect_left
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from dataclasses import dataclass
 
 from screamingface_engine.candidate_outcomes import (
@@ -169,7 +169,7 @@ class InMemoryCandidateOutcomeStream:
         self._unacked: list[_Outcome] = []
         self._changed = asyncio.Condition()
 
-    async def ensure_stream(self) -> None:
+    async def ensure_stream(self, *, update: bool = False) -> None:
         return None
 
     async def publish(self, topic: str, outcome: CandidateOutcome) -> None:
@@ -188,7 +188,7 @@ class InMemoryCandidateOutcomeStream:
         self._ready = deque(entry for entry in self._ready if entry.published_at > cutoff)
         self._unacked = [entry for entry in self._unacked if entry.published_at > cutoff]
 
-    async def consume(self) -> AsyncIterator[OutcomeDelivery]:
+    async def consume(self) -> AsyncGenerator[OutcomeDelivery, None]:
         while True:
             entry = await self._next()
             yield OutcomeDelivery(entry.topic, entry.outcome, lambda entry=entry: self._ack(entry))

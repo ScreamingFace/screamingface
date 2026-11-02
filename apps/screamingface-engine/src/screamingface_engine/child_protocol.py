@@ -8,6 +8,10 @@ it before it runs any of the run's code.
     child → worker, control pipe:  READY {"pid": <int>, "world": "ok" | "error"}\\n
     worker → child, stdin:         {"spec_version": "2", "env": {...}, "io_concurrency": <int>}\\n
     child → worker, control pipe:  ACK\\n
+    child → worker, control pipe:  SETTLED {"status": …, "error_code": …, "cost_usd": "…"}\\n
+
+The child writes SETTLED, its Candidate outcome (OME-1785), after its run and before it exits,
+and only when its own frames reached the stream. A child that dies first sends none.
 
 WHY a control pipe and not stdout: stdout and stderr keep their role as the run's log lines,
 which the worker forwards; a protocol line mixed into them would be one stray `print` away from
@@ -20,6 +24,7 @@ the line format lives, and it may pull neither half in.
 
 import json
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 SPEC_VERSION = "2"
 """The RUN_SPEC major version (erd.md §3). A child refuses any other."""
@@ -30,6 +35,7 @@ CONTROL_FD_ENV = "URL4_CLOUD_CONTROL_FD"
 ACK = b"ACK\n"
 _READY = b"READY "
 _REFUSED = b"REFUSED "
+_SETTLED = b"SETTLED "
 
 
 class ProtocolError(ValueError):
@@ -54,6 +60,43 @@ class Ready:
 class RunSpec:
     env: dict[str, str]
     io_concurrency: int
+
+
+@dataclass(frozen=True)
+class Settled:
+    """A run's outcome as its child classified it. `cost_usd` is exact, or None."""
+
+    status: str
+    error_code: str | None
+    cost_usd: Decimal | None
+
+
+def encode_settled(settled: Settled) -> bytes:
+    cost = None if settled.cost_usd is None else str(settled.cost_usd)
+    body = {"status": settled.status, "error_code": settled.error_code, "cost_usd": cost}
+    return _SETTLED + json.dumps(body, separators=(",", ":")).encode() + b"\n"
+
+
+def decode_settled(line: bytes) -> Settled:
+    """Parse one SETTLED line. Which statuses an outcome may carry is the caller's to check."""
+    if not line.startswith(_SETTLED):
+        raise ProtocolError(f"expected a SETTLED line, got {line[:40]!r}")
+    try:
+        body = json.loads(line[len(_SETTLED) :])
+    except ValueError as exc:
+        raise ProtocolError(f"malformed SETTLED line {line[:80]!r}") from exc
+    if not isinstance(body, dict):
+        raise ProtocolError(f"malformed SETTLED line {line[:80]!r}")
+    status, code, cost = body.get("status"), body.get("error_code"), body.get("cost_usd")
+    if not isinstance(status, str) or not (code is None or isinstance(code, str)):
+        raise ProtocolError(f"malformed SETTLED line {line[:80]!r}")
+    if cost is not None and not isinstance(cost, str):
+        raise ProtocolError("a SETTLED cost travels as a decimal string")
+    try:
+        exact = None if cost is None else Decimal(cost)
+    except InvalidOperation as exc:
+        raise ProtocolError("a SETTLED cost travels as a decimal string") from exc
+    return Settled(status=status, error_code=code, cost_usd=exact)
 
 
 def encode_ready(*, pid: int, world_ok: bool) -> bytes:
@@ -129,11 +172,14 @@ __all__ = [
     "ProtocolError",
     "Ready",
     "RunSpec",
+    "Settled",
     "SpecError",
     "decode_ready",
+    "decode_settled",
     "decode_spec",
     "encode_ready",
     "encode_refused",
+    "encode_settled",
     "encode_spec",
     "refused_code",
 ]

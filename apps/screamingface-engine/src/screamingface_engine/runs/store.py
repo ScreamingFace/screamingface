@@ -21,18 +21,20 @@ Run, so a read never combines facts from two moments.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+import functools
+from collections.abc import Callable, Coroutine, Iterable
 from datetime import datetime, timedelta
-from typing import cast
+from typing import Any, Concatenate, cast
 
 from tortoise.backends.base.client import BaseDBAsyncClient
+from tortoise.context import TortoiseContext, get_current_context
 from tortoise.exceptions import IntegrityError
 from tortoise.expressions import Q, Subquery
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
 from screamingface_engine.candidate_outcomes import CandidateOutcome, stored_cost
-from screamingface_engine.runs.db import CONNECTION
+from screamingface_engine.runs.db import CONNECTION, using
 from screamingface_engine.runs.ids import new_run_id
 from screamingface_engine.runs.models import Candidate, Run
 from screamingface_engine.runs.records import (
@@ -61,6 +63,22 @@ _LIVE = ("pending", "scheduled", "running")
 _SCAN_BATCH = 200
 
 
+def _in_context[**P, R](
+    method: Callable[Concatenate[TortoiseRunStore, P], Coroutine[Any, Any, R]],
+) -> Callable[Concatenate[TortoiseRunStore, P], Coroutine[Any, Any, R]]:
+    """Run a store method's queries in the store's own Tortoise context."""
+
+    @functools.wraps(method)
+    async def in_context(store: TortoiseRunStore, *args: P.args, **kwargs: P.kwargs) -> R:
+        context = store._context
+        if context is None or get_current_context() is context:
+            return await method(store, *args, **kwargs)
+        with using(context):
+            return await method(store, *args, **kwargs)
+
+    return in_context
+
+
 class TortoiseRunStore:
     """The one `RunRegistry` implementation.
 
@@ -76,15 +94,24 @@ class TortoiseRunStore:
         lost_after: timedelta,
         outcomes_survive_restart: bool,
         started_at: datetime,
+        context: TortoiseContext | None = None,
     ) -> None:
         self._clock = clock
         self._grace = pending_grace
         self._lost_after = lost_after
         self._outcomes_survive_restart = outcomes_survive_restart
         self._started_at = started_at
+        # The Engine's own Tortoise context (`db.open_context`), or None to use the current one.
+        self._context = context
+
+    async def aclose(self) -> None:
+        """Close the store's own database connections, when it owns a context."""
+        if self._context is not None:
+            await self._context.close_connections()
 
     # --- reads -------------------------------------------------------------------------------
 
+    @_in_context
     async def get(self, owner: OwnerKey, run_id: str) -> RunRecord | None:
         return await self._one(Candidate.filter(run_id=run_id, run__owner=owner))
 
@@ -118,6 +145,7 @@ class TortoiseRunStore:
 
     # --- writes ------------------------------------------------------------------------------
 
+    @_in_context
     async def create(self, owner: OwnerKey, spec: RunSpec) -> RunRecord:
         existing = await self._by_client_key(owner, spec)
         if existing is not None:
@@ -169,6 +197,7 @@ class TortoiseRunStore:
             raise ClientKeyConflict(f"client_key {spec.client_key!r} names another evaluation")
         return record
 
+    @_in_context
     async def bind(self, owner: OwnerKey, run_id: str, candidate: int, topic: str) -> None:
         row = await self._unbound_candidate(owner, run_id, candidate, topic)
         if row is None:
@@ -212,6 +241,7 @@ class TortoiseRunStore:
             raise CandidateAlreadyStarted(f"{run_id} Candidate {candidate}")
         return row
 
+    @_in_context
     async def mark_scheduled(self, topic: str) -> None:
         row = await Candidate.get_or_none(topic=topic)
         if row is None:
@@ -226,6 +256,7 @@ class TortoiseRunStore:
             ):
                 await self._touch(row.run_id, now, conn)
 
+    @_in_context
     async def settle(self, topic: str, outcome: CandidateOutcome) -> None:
         row = await Candidate.get_or_none(topic=topic)
         if row is None:
@@ -252,6 +283,7 @@ class TortoiseRunStore:
             if won:
                 await self._touch(row.run_id, now, conn)
 
+    @_in_context
     async def cancel(self, owner: OwnerKey, run_id: str) -> RunRecord | None:
         now = self._clock()
         async with in_transaction(CONNECTION) as conn:
@@ -281,6 +313,7 @@ class TortoiseRunStore:
 
     # --- sweeps ------------------------------------------------------------------------------
 
+    @_in_context
     async def reconcile(self) -> int:
         now = self._clock()
         stale = Q(bound_at__lt=now - self._lost_after)
@@ -293,6 +326,7 @@ class TortoiseRunStore:
             state="lost", finished_at=now
         )
 
+    @_in_context
     async def expire(self, older_than: datetime) -> int:
         # WHY the Candidates first, by subquery: SQLite counts the rows a cascade deletes, so the
         # Runs' own delete is the only count both databases agree on, and it is what this call
@@ -306,6 +340,7 @@ class TortoiseRunStore:
             return await expired.using_db(conn).delete()
 
     # WHY last: a method named `list` shadows the builtin in annotations of the methods below it.
+    @_in_context
     async def list(self, owner: OwnerKey, query: RunQuery) -> RunPage:
         base = Run.filter(owner=owner)
         if query.since is not None:

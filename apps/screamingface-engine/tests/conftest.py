@@ -41,11 +41,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 
+from screamingface_engine.config import Settings
 from screamingface_engine.logs import APP_LOGGER
 from screamingface_engine.request_scope import RequestScope, request_scope
+from screamingface_engine.runs import wiring
 
 
 @pytest.fixture(autouse=True)
@@ -112,3 +115,18 @@ def _isolate_app_logger(caplog: pytest.LogCaptureFixture) -> Iterator[None]:
         yield
     finally:
         _restore_baseline(logger)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_local_run_registry(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Each test's own local Run database (OME-1785).
+
+    WHY: a local App migrates its SQLite registry at startup, by default beside the artifacts
+    dir, a temp path every xdist worker shares; two workers migrating one fresh file at once
+    would race. `tests/unit/test_run_wiring.py` asserts the production default directly.
+    """
+
+    def _per_test(settings: Settings) -> str:
+        return settings.database_url or f"sqlite://{tmp_path}/{wiring.LOCAL_DATABASE_NAME}"
+
+    monkeypatch.setattr(wiring, "local_database_url", _per_test)

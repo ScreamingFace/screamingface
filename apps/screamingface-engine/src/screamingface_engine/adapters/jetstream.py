@@ -782,6 +782,12 @@ class JetStreamPublisher(_JetStreamConnection, EventPublisher):
             return None
         return producer_sequence + self._offsets[topic]
 
+    def dropped(self, topic: str) -> bool:
+        """Whether this publisher dropped the run's frames: the subject had already ended when
+        the run's first frame went out (I-EV4). FEATURE (OME-1785): the run child sends its
+        Candidate outcome only when its own terminal frame landed, which this tells it."""
+        return topic in self._ended
+
     async def publish_next(
         self, topic: str, event: OutboundFrame, *, writer: str | None = None
     ) -> bool:

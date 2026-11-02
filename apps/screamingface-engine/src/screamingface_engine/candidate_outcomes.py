@@ -11,7 +11,8 @@ so nothing they execute holds a database connection (`.claude/scripts/check_laye
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Awaitable, Callable
+import logging
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import (
@@ -84,6 +85,8 @@ def storable_error_code(code: str | None) -> str | None:
         return code
     return UNSTORABLE_ERROR_CODE
 
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_OUTCOMES_MAX_AGE_S = 86_400.0
 """How long `url4-candidate-outcomes` keeps an unacked outcome. Reconcile's cutoff must
@@ -207,15 +210,33 @@ class CandidateOutcomeStream(Protocol):
         """Whether an unacked outcome outlives this process. Reconcile (spec R6) reads it."""
         ...
 
-    async def ensure_stream(self) -> None:
-        """Create the stream if missing (spec R11). Safe to call from every process, any time."""
+    async def ensure_stream(self, *, update: bool = False) -> None:
+        """Create the stream if missing (spec R11). Safe to call from every process, any time.
+        ``update`` also applies changed limits: the App and the runner pool pass it at startup."""
         ...
 
     async def publish(self, topic: str, outcome: CandidateOutcome) -> None: ...
 
-    def consume(self) -> AsyncIterator[OutcomeDelivery]:
+    def consume(self) -> AsyncGenerator[OutcomeDelivery, None]:
         """Deliveries in publish order, then redeliveries of those not acked in time."""
         ...
+
+
+async def publish_outcome(
+    stream: CandidateOutcomeStream | None, topic: str, outcome: CandidateOutcome
+) -> None:
+    """Publish ``outcome`` when a stream is wired; a failure is logged, never raised.
+
+    WHY never raised: the outcome is the run's record, not the run. A lost one leaves the
+    Candidate live until reconcile settles it `lost` (spec R6), while a raise here would fail a
+    terminal writer that already did its job.
+    """
+    if stream is None:
+        return
+    try:
+        await stream.publish(topic, outcome)
+    except Exception:
+        logger.exception("could not publish the candidate outcome of %s", topic)
 
 
 __all__ = [
@@ -227,4 +248,5 @@ __all__ = [
     "OutcomeStatus",
     "decode_outcome",
     "encode_outcome",
+    "publish_outcome",
 ]
