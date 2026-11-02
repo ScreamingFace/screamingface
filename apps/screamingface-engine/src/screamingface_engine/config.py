@@ -47,6 +47,12 @@ STUDIO_CORS_ORIGINS = (
 )
 
 
+# The Client's default admission budget (`packages/screamingface`, `_engine/admission.py`): how
+# long it re-sends a start the Engine refused with 503. Named here, not imported: the Engine never
+# imports the Client. `run_pending_grace_s` must exceed it (E5 P1 spec R5).
+CLIENT_ADMISSION_BUDGET_S = 900.0
+
+
 class Settings(BaseSettings):
     """Environment-backed configuration for the App: auth, NATS, job-runner backend selection,
     and model-catalog cache tuning."""
@@ -266,6 +272,23 @@ class Settings(BaseSettings):
     # the gateway it manages credentials through is the one running beside it.
     local_aigateway_base_url: str = LOCAL_AIGATEWAY_BASE_URL
 
+    # --- the Run registry (OME-1785, E5 P1) ---------------------------------------------------
+    # FEATURE: first-class Runs. The registry's database: SQLite locally, the `engine` database
+    # on the shared Postgres server hosted (spec D2). Empty means Runs are off on a hosted App.
+    # AIDEV-NOTE: credential material (it carries the password). It reaches the pod from a
+    # Secret, never a ConfigMap, and is never logged.
+    database_url: str = ""
+    # WHY 30 days (spec R7): long enough to come back to last month's runs; the hourly sweep
+    # deletes Runs created before it.
+    run_retention_s: float = Field(default=30 * 86_400.0, gt=0)
+    # WHY 1800 s (spec R5): how long a bound-but-unscheduled or unstarted Candidate still reads
+    # `running`. It must exceed the Client's admission budget, or a Client still waiting for
+    # admission would read `interrupted` (validated below).
+    run_pending_grace_s: float = 1800.0
+    # WHY 48 h (spec R6): past both `url4-candidate-outcomes` and `url4-runq`'s 24 h retention, so
+    # reconcile settles a Candidate `lost` only once no outcome can still arrive.
+    run_lost_after_s: float = Field(default=48 * 3600.0, gt=0)
+
     # --- shared events stream (uniform executor, PRD 01) --------------------------------------
     # ONE stream holds every run's frames (`url4-events`, subject `url4-cloud.<topic>`). The App
     # and the worker declare it at startup from these values and apply a changed limit; no
@@ -414,6 +437,17 @@ class Settings(BaseSettings):
         """
         if isinstance(value, str) and not value.strip():
             return job_env.DEFAULT_ARTIFACTS_DIR
+        return value
+
+    @field_validator("run_pending_grace_s")
+    @classmethod
+    def _grace_outlasts_admission(cls, value: float) -> float:
+        if value <= CLIENT_ADMISSION_BUDGET_S:
+            raise ValueError(
+                f"run_pending_grace_s={value} must exceed the Client's admission budget "
+                f"({CLIENT_ADMISSION_BUDGET_S} s), or a Client waiting for admission reads "
+                f"as interrupted"
+            )
         return value
 
     @model_validator(mode="after")

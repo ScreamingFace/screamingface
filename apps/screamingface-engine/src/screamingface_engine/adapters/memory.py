@@ -16,8 +16,11 @@ It also remains the fake the test suite runs against (re-exported by
 
 import asyncio
 from bisect import bisect_left
+from collections import deque
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 
+from screamingface_engine.candidate_outcomes import CandidateOutcome, OutcomeDelivery
 from url4.streaming.codec import decode, encode
 from url4.streaming.interfaces import EventStream, StreamNotFoundError, validate_from_sequence
 from url4.streaming.protocol import OutboundFrame
@@ -107,4 +110,85 @@ class InMemoryEventStream(EventStream):
             self._log[topic] = []
 
 
-__all__ = ["DEFAULT_MAX_FRAMES_PER_TOPIC", "InMemoryEventStream"]
+DEFAULT_OUTCOME_ACK_WAIT_S = 30.0
+"""How long an unacked outcome waits before it is delivered again, as `url4-candidate-outcomes`."""
+
+
+# WHY eq=False: two outcomes can carry the same topic and verdict (a duplicate claim), and an ack
+# must remove the one delivery it belongs to, so entries compare by identity.
+@dataclass(slots=True, eq=False)
+class _Outcome:
+    topic: str
+    outcome: CandidateOutcome
+    # While delivered and unacked: the loop time after which it is delivered again.
+    redeliver_at: float = 0.0
+
+
+class InMemoryCandidateOutcomeStream:
+    """The local-mode `CandidateOutcomeStream` (OME-1785, E5 P1 spec D4).
+
+    Same contract as the JetStream adapter: publish order, explicit acks, and redelivery of an
+    outcome not acked within `ack_wait_s`, so the App's writer runs one code path in both modes.
+
+    INVARIANT (spec R6): `survives_restart` is False. Outcomes live in this process only, so a
+    restart loses the unacked ones, and reconcile settles their Candidates as `lost`.
+    """
+
+    survives_restart = False
+
+    def __init__(self, *, ack_wait_s: float = DEFAULT_OUTCOME_ACK_WAIT_S) -> None:
+        self._ack_wait_s = ack_wait_s
+        self._ready: deque[_Outcome] = deque()
+        self._unacked: list[_Outcome] = []
+        self._changed = asyncio.Condition()
+
+    async def ensure_stream(self) -> None:
+        return None
+
+    async def publish(self, topic: str, outcome: CandidateOutcome) -> None:
+        async with self._changed:
+            self._ready.append(_Outcome(topic, outcome))
+            self._changed.notify_all()
+
+    async def consume(self) -> AsyncIterator[OutcomeDelivery]:
+        while True:
+            entry = await self._next()
+            yield OutcomeDelivery(entry.topic, entry.outcome, lambda entry=entry: self._ack(entry))
+
+    async def _next(self) -> _Outcome:
+        loop = asyncio.get_running_loop()
+        async with self._changed:
+            while True:
+                now = loop.time()
+                due = [entry for entry in self._unacked if entry.redeliver_at <= now]
+                for entry in due:
+                    self._unacked.remove(entry)
+                self._ready.extend(due)
+                if self._ready:
+                    entry = self._ready.popleft()
+                    entry.redeliver_at = now + self._ack_wait_s
+                    self._unacked.append(entry)
+                    return entry
+                await self._wait(now)
+
+    async def _wait(self, now: float) -> None:
+        """Until something is published, or the next unacked outcome falls due."""
+        deadline = min((entry.redeliver_at for entry in self._unacked), default=None)
+        timeout = None if deadline is None else max(deadline - now, 0.0)
+        try:
+            await asyncio.wait_for(self._changed.wait(), timeout)
+        except TimeoutError:
+            return
+
+    async def _ack(self, entry: _Outcome) -> None:
+        async with self._changed:
+            if entry in self._unacked:
+                self._unacked.remove(entry)
+
+
+__all__ = [
+    "DEFAULT_MAX_FRAMES_PER_TOPIC",
+    "DEFAULT_OUTCOME_ACK_WAIT_S",
+    "InMemoryCandidateOutcomeStream",
+    "InMemoryEventStream",
+]

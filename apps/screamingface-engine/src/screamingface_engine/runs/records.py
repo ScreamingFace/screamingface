@@ -29,6 +29,20 @@ _TERMINAL_CANDIDATE: frozenset[CandidateState] = frozenset(
 
 OwnerKey = NewType("OwnerKey", str)
 
+# The widths of the registry's columns (`runs/models/`). WHY checked here: Postgres refuses a value
+# too long for its column while SQLite keeps it, so the rule both databases share comes first.
+MAX_CLIENT_KEY_LENGTH = 128
+MAX_BENCHMARK_LENGTH = 255
+MAX_CLIENT_VERSION_LENGTH = 64
+MAX_CANDIDATE_NAME_LENGTH = 255
+MAX_CANDIDATES = 256
+MAX_CASE_COUNT = 2**31 - 1
+_TEXT_LIMITS = {
+    "client_key": MAX_CLIENT_KEY_LENGTH,
+    "benchmark": MAX_BENCHMARK_LENGTH,
+    "client_version": MAX_CLIENT_VERSION_LENGTH,
+}
+
 
 def owner_key(owner: str) -> OwnerKey:
     """The stored owner (spec D6): sha256 of the verified email, trimmed and casefolded.
@@ -86,23 +100,38 @@ class RunSpec:
     def __post_init__(self) -> None:
         # AIDEV-NOTE: domain rules only. Request types (a list of strings, an integer count) are
         # the route schema's to check (E8), before a RunSpec is built.
-        names = tuple(name.strip() for name in self.candidates)
-        if not names:
-            raise ValueError("a Run needs at least one Candidate")
-        if not all(names):
-            raise ValueError("a Candidate name must not be blank")
-        # WHY compared stripped: names that differ only by surrounding space read as one name.
-        if len(set(names)) != len(names):
-            raise ValueError("Candidate names must be unique within a Run")
-        if self.case_count < 0:
-            raise ValueError("case_count must not be negative")
+        names = _candidate_names(self.candidates)
+        if not 0 <= self.case_count <= MAX_CASE_COUNT:
+            raise ValueError(f"case_count must be between 0 and {MAX_CASE_COUNT}")
         # INVARIANT: what was validated is what is stored, so `client_key` compares exactly.
         object.__setattr__(self, "candidates", names)
-        for field in ("client_key", "benchmark", "client_version"):
-            value = getattr(self, field).strip()
-            if not value:
-                raise ValueError(f"{field} must not be blank")
-            object.__setattr__(self, field, value)
+        for field, limit in _TEXT_LIMITS.items():
+            object.__setattr__(self, field, _text(field, getattr(self, field), limit))
+
+
+def _candidate_names(candidates: tuple[str, ...]) -> tuple[str, ...]:
+    names = tuple(name.strip() for name in candidates)
+    if not names:
+        raise ValueError("a Run needs at least one Candidate")
+    if len(names) > MAX_CANDIDATES:
+        raise ValueError(f"a Run has at most {MAX_CANDIDATES} Candidates")
+    if not all(names):
+        raise ValueError("a Candidate name must not be blank")
+    if any(len(name) > MAX_CANDIDATE_NAME_LENGTH for name in names):
+        raise ValueError(f"a Candidate name is at most {MAX_CANDIDATE_NAME_LENGTH} characters")
+    # WHY compared stripped: names that differ only by surrounding space read as one name.
+    if len(set(names)) != len(names):
+        raise ValueError("Candidate names must be unique within a Run")
+    return names
+
+
+def _text(field: str, value: str, limit: int) -> str:
+    stripped = value.strip()
+    if not stripped:
+        raise ValueError(f"{field} must not be blank")
+    if len(stripped) > limit:
+        raise ValueError(f"{field} is at most {limit} characters")
+    return stripped
 
 
 @dataclass(frozen=True, slots=True)
