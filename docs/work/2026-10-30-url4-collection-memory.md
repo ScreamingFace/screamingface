@@ -78,3 +78,26 @@ ordering, dedup and caching unchanged.
   guard executors memoise as before. Edge: reusing ONE Executor for a second, DIFFERENT root
   that shares already-released nodes would re-resolve them (production builds one Executor
   per run; reuse with the same root still answers from the memo).
+
+## Review round 1 (2026-11-02) — Khoa, PR #1622 comment 4439174030
+
+- **Finding:** the single-pass `parse_int`/`parse_float` carriers wrapped EVERY number,
+  nested ones included, in an `int`/`float` subclass with its own `__dict__`, and small ints
+  lost Python's cached objects — number-heavy bodies grew far past main.
+- **Fix:** `collection.py` drops `_SpelledInt`/`_SpelledFloat`; `json.loads` (still one call,
+  one pass) runs with `cls=_ItemsDecoder`, which decodes a top-level array element by element
+  (`raw_decode`), takes a top-level number's spelling as its source span, and serialises (or,
+  outside the window, drops) each element as soon as it is decoded. Nested numbers are plain.
+  Non-array bodies decode exactly as `json.loads`; malformed arrays raise `JSONDecodeError`.
+- **Tests (new only):** `tests/unit/test_collection_numeric_memory.py` — peak < 1.5x body for
+  a 0-9 integer grid and a 300 x 2,000 float matrix; nested numbers are plain `int`/`float`;
+  top-level spellings (`1.0`, `1e5`, `-0`, `-0.0`, big ints, NaN/±Infinity, …) exact, also
+  windowed; malformed arrays rejected like `json.loads`, including outside the window.
+- **Bench:** `scripts/bench_collection_memory.py` gains the two numeric bodies.
+- **Measured** (tracemalloc, slice 0:2, body allocated before tracing): integer grid 2.2 MiB —
+  main 16.2 MiB, PR before 304.7 MiB, now 0.1 MiB; float matrix 6.8 MiB — main 65.7 MiB,
+  PR before 262.6 MiB, now 0.2 MiB. Base64 50 MiB body: 1.00x -> 0.02x extra peak.
+- **Deviation:** the per-element Python loop is slower on huge flat scalar arrays (1M ints:
+  main 0.14 s -> 0.45 s); dict-row bodies are on par (200k rows: 0.27 s -> 0.31 s).
+- **Gates:** `run_gates.py url4 --base origin/main` ALL GATES GREEN; `check_module_size.py`
+  within baseline; `check_suppressions.py` 5/5.

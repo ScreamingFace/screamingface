@@ -10,7 +10,9 @@ Two scenarios, both under :mod:`tracemalloc` (Python-heap bytes, not RSS):
    (trailing newline, like a file read off disk) handed to ``MapNode._items`` with
    ``;iteration.slice=0:2`` — the path a ``cases*(…)`` iteration over two rows takes. The
    body is allocated BEFORE tracing starts, so the peak is what parsing adds on top of it.
-2. ``memo``: a hand-built graph ``big -> consume -> later`` where ``later`` runs after
+2. ``numeric``: the same slice over number-heavy bodies (PR #1622 review): a 0-9 integer
+   grid (300 x 2,560) and a 300 x 2,000 float matrix — every number nested inside a row.
+3. ``memo``: a hand-built graph ``big -> consume -> later`` where ``later`` runs after
    ``big``'s only consumer finished; reports the traced bytes still alive at ``later``.
 """
 
@@ -20,6 +22,7 @@ import argparse
 import asyncio
 import gc
 import json
+import random
 import time
 import tracemalloc
 from collections.abc import Mapping
@@ -42,7 +45,20 @@ def _body(total_mb: int, rows: int = 181) -> FetchedText:
 
 
 def bench_iterate(total_mb: int) -> None:
-    body = _body(total_mb)
+    _report_iterate("iterate", _body(total_mb))
+
+
+def bench_numeric() -> None:
+    rng = random.Random(0)
+    grid = [[(row + col) % 10 for col in range(2560)] for row in range(300)]
+    matrix = [[round(rng.random(), 8) for _ in range(2000)] for _ in range(300)]
+    _report_iterate("numeric int grid", FetchedText(json.dumps(grid) + "\n", "application/json"))
+    _report_iterate(
+        "numeric float matrix", FetchedText(json.dumps(matrix) + "\n", "application/json")
+    )
+
+
+def _report_iterate(label: str, body: FetchedText) -> None:
     node = MapNode(body="$item", directives=IterationDirectives(slice=(0, 2)))
     gc.collect()
     tracemalloc.start()
@@ -53,7 +69,7 @@ def bench_iterate(total_mb: int) -> None:
     tracemalloc.stop()
     body_mb = len(body) / _MB
     print(
-        f"iterate: body {body_mb:.1f} MiB, rows kept {len(items)}, "
+        f"{label}: body {body_mb:.1f} MiB, rows kept {len(items)}, "
         f"peak added {peak / _MB:.1f} MiB ({peak / len(body):.2f}x body), {elapsed:.2f}s"
     )
 
@@ -98,6 +114,7 @@ def main() -> None:
     parser.add_argument("--mb", type=int, default=50, help="synthetic body size in MiB")
     args = parser.parse_args()
     bench_iterate(args.mb)
+    bench_numeric()
     bench_memo(args.mb)
 
 

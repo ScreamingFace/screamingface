@@ -13,8 +13,9 @@ from __future__ import annotations
 import csv
 import io
 import json
-from collections.abc import Callable, Sequence
-from typing import Any
+import re
+from collections.abc import Callable, Iterator, Sequence
+from typing import Any, cast
 
 from url4.core.errors import CollectionError
 
@@ -159,7 +160,7 @@ def _reject_json_object(text: _Text) -> None:
 
 def _declared_json(text: _Text, window: Window | None) -> list[str]:
     try:
-        data = _loads_spelled(text.for_json())
+        data = _loads_items(text.for_json(), window)
     except json.JSONDecodeError as exc:
         raise CollectionError(f"application/json collection is not valid JSON: {exc}") from exc
     if not isinstance(data, list):
@@ -167,7 +168,7 @@ def _declared_json(text: _Text, window: Window | None) -> list[str]:
             "iteration over non-array application/json is malformed "
             f"(got {type(data).__name__}; spec §5.3.7)"
         )
-    return _array_items(data, window)
+    return data
 
 
 def _declared_ndjson(body: str) -> list[str]:
@@ -216,10 +217,10 @@ def _try_json_array(text: _Text, window: Window | None) -> list[str] | None:
     if text.first != "[":
         return None
     try:
-        data = _loads_spelled(text.for_json())
+        data = _loads_items(text.for_json(), window)
     except json.JSONDecodeError:
         return None
-    return _array_items(data, window) if isinstance(data, list) else None
+    return data if isinstance(data, list) else None
 
 
 def _try_jsonl(_body: str, lines: list[str]) -> list[str] | None:
@@ -280,57 +281,83 @@ def _unique(fieldnames: Sequence[str]) -> bool:
     return len(set(fieldnames)) == len(fieldnames)
 
 
-class _SpelledInt(int):
-    """A JSON integer that remembers its source text (``-0``)."""
-
-    spelling: str
+# JSON insignificant whitespace (same set as `_JSON_WS`); `*` matches at any position.
+_WS_RUN = re.compile(r"[ \t\n\r]*")
 
 
-class _SpelledFloat(float):
-    """A JSON float / NaN / Infinity that remembers its source text (``2.50``)."""
-
-    spelling: str
-
-
-def _spelled_int(source: str) -> _SpelledInt:
-    number = _SpelledInt(source)
-    number.spelling = source
-    return number
+def _skip_ws(s: str, idx: int) -> int:
+    """The index of the first non-JSON-whitespace character at or after ``idx``."""
+    return cast("re.Match[str]", _WS_RUN.match(s, idx)).end()
 
 
-def _spelled_float(source: str) -> _SpelledFloat:
-    number = _SpelledFloat(source)
-    number.spelling = source
-    return number
+class _ItemsDecoder(json.JSONDecoder):
+    """``json.loads(..., cls=_ItemsDecoder)``: a top-level array comes back as item TEXT.
 
-
-def _loads_spelled(text: str) -> Any:
-    """``json.loads`` once, numbers carrying their source spelling.
-
-    # WHY: a top-level array element keeps its exact spelling (``2.50`` stays
-    # ``2.50``); this used to need a SECOND full parse of the body. The carriers are
-    # `int`/`float` subclasses, and `json.dumps` renders a subclass through
-    # `int.__repr__`/`float.__repr__`, so nested numbers serialise exactly as plain
-    # parsed ones did.
+    # WHY: a top-level number must keep its source spelling (``2.50``), which plain
+    # ``json.loads`` loses. Decoding the array element by element gives each element's
+    # source span, so its spelling is a slice of the body — in the same single pass, and
+    # nested numbers stay the plain ``int``/``float`` the stdlib scanner returns (a
+    # per-number carrier made a 2 MiB 0-9 integer grid peak at ~140x its size).
+    # INVARIANT: peak ≈ body + ONE parsed element + the kept rows' text: each element is
+    # serialised (or, outside the window, dropped) as soon as it is decoded.
+    A body that is not an array decodes exactly as ``json.loads`` would.
     """
-    return json.loads(
-        text, parse_int=_spelled_int, parse_float=_spelled_float, parse_constant=_spelled_float
-    )
+
+    def __init__(self, *, window: Window | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._window = window
+
+    def decode(self, s: str, _w: Callable[..., Any] = _WS_RUN.match) -> Any:
+        idx = _skip_ws(s, 0)
+        if not s.startswith("[", idx):
+            return super().decode(s, _w)
+        return _element_texts(s, self._elements(s, idx + 1), self._window)
+
+    def _elements(self, s: str, idx: int) -> Iterator[tuple[Any, int, int]]:
+        """Each top-level element with its source span; then the array must end the body."""
+        idx = _skip_ws(s, idx)
+        if s.startswith("]", idx):
+            idx += 1
+        else:
+            while True:
+                value, end = self.raw_decode(s, idx)
+                yield value, idx, end
+                idx = _skip_ws(s, end)
+                if s.startswith("]", idx):
+                    idx += 1
+                    break
+                if not s.startswith(",", idx):
+                    raise json.JSONDecodeError("Expecting ',' delimiter", s, idx)
+                idx = _skip_ws(s, idx + 1)
+        end = _skip_ws(s, idx)
+        if end != len(s):
+            raise json.JSONDecodeError("Extra data", s, end)
 
 
-def _array_items(data: list[Any], window: Window | None) -> list[str]:
-    """JSON array elements as text; a number keeps its source spelling (``2.50``).
+def _element_texts(
+    s: str, elements: Iterator[tuple[Any, int, int]], window: Window | None
+) -> list[str]:
+    """The kept elements as text, each serialised (or dropped) as soon as it is decoded."""
+    if window is not None and min(window) < 0:
+        # A negative bound needs the length: the elements stay parsed until the end.
+        held = list(elements)[window[0] : window[1]]
+        return [_element_text(value, s, lo, hi) for value, lo, hi in held]
+    keep = None if window is None else range(*window)
+    return [
+        _element_text(value, s, lo, hi)
+        for i, (value, lo, hi) in enumerate(elements)
+        if keep is None or i in keep
+    ]
 
-    Consumes ``data``: it is cut to ``window`` and converted IN PLACE, so each parsed
-    element is released as soon as its text exists and elements outside the window
-    are never serialised.
-    """
-    # INVARIANT: peak ≈ the parsed array + one serialised row, never parsed + all rows.
-    if window is not None:
-        data[:] = data[window[0] : window[1]]
-    for i, item in enumerate(data):
-        data[i] = item.spelling if _is_number(item) else _item_to_str(item)
-    return data
+
+def _element_text(value: Any, source: str, start: int, end: int) -> str:
+    """A top-level element as text; a number is its exact source span (``2.50``)."""
+    return source[start:end] if _is_number(value) else _item_to_str(value)
+
+
+def _loads_items(text: str, window: Window | None) -> Any:
+    """``json.loads`` once; a top-level array comes back as its windowed item texts."""
+    return json.loads(text, cls=_ItemsDecoder, window=window)
 
 
 def _line_item(line: str) -> str:
