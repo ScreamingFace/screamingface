@@ -87,7 +87,10 @@ Docs only, no RED. Verification instead:
   - The follow-up PR, branch `OME-1780-l4a-precondition-docs` from `969d4e303`:
     `aaeccd62a` `docs(aigateway): state the L4a quarantined precondition and drop the pre-L4a 409
     wording`, `dee09b5cb` `docs(aigateway): stop the gateway for the L4a remediation and scope the
-    ambiguity rule`, and this record.
+    ambiguity rule`, and this record. Merged as `41017c289` (#1637).
+  - A second follow-up, branch `OME-1780-helm-values-in-runbook` from `41017c289`:
+    `docs(aigateway): keep the release's Helm values in every upgrade of the Stage E runbook` (see
+    the PR).
 
   #1612 merged before the rebased branch (onto `e915d8037`) and its fourth and fifth commits were
   pushed, so those two land in the follow-up PR. The files they touch were identical at
@@ -224,6 +227,20 @@ Docs only, no RED. Verification instead:
     source, the inline block, the SVG and the 2x PNG were updated together, rendered with Mermaid
     CLI 12.0.0 as in the previous render, and the PNG was inspected.
   - Gate: `uv run .claude/scripts/run_gates.py repo --base origin/main`: ALL GATES GREEN.
+- **Sixth round, review after #1637 merged (2026-11-02):** blocking for operators, confirmed. The
+  runbook's upgrades named only `--set image.tag=…` and `--set replicaCount=…`. Helm's
+  `Upgrade.reuseValues` (`pkg/action/upgrade.go`) copies the release's values only when the upgrade
+  passes no value at all, so such an upgrade renders from the chart defaults: it drops
+  `database.existingSecret`, `auth.existingSecret`, `publicUrl`, the ingress and every other
+  override, and the pre-upgrade migration Job runs first with that configuration. The same flaw
+  sat in the upgrade path's step 1 since #1612. `DEPLOYMENT.md` now opens the procedures with
+  "Keep the release's values in every upgrade below": the same values files and `--set` arguments
+  as the current release, only the named values changed, and `helm get values … -o yaml` to
+  recover them, kept out of version control because it holds secrets given with `--set`. It also
+  says why `--reuse-values` is no substitute: `reuseValues` sets the new chart's defaults to the
+  old release's coalesced values, so a value a newer chart adds gets no default. Step 1 of the
+  upgrade path and steps 2 and 4 of the L4a procedure point to it. Flag text checked against the
+  installed Helm 4.0.5 (`helm upgrade --help`, `helm get values --help`).
 - **Deviations:**
   - Spec §4.10 item 4 (the L4c `0016` floor) is not written; it lands with L4c, per the owner.
   - The spec's "`apps/aigateway/README.md:92` and its '`profile_not_found` … retained until

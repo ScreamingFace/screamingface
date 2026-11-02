@@ -33,6 +33,9 @@ one bounded transaction, because an older gateway can write an observed `quarant
 
 #1612 merged on 2026-11-02 (`969d4e303`) with the first three commits only; the L4a precondition
 and the review fixes land in a follow-up PR from branch `OME-1780-l4a-precondition-docs`.
+That follow-up merged as `41017c289` (#1637). A second follow-up makes every `helm upgrade` in the
+runbook keep the release's values; an upgrade given only `--set` flags renders from the chart
+defaults.
 
 Spec: `docs/spec/2026-10-29-ome-1138-closeout.md` §4.10. Plan:
 `docs/plan/2026-10-29-ome-1138-closeout.md` §3 "L10". Ledger:
