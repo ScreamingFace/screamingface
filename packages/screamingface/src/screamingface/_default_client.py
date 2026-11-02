@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import Connection, OAuthFlow
     from screamingface.events import Event
+    from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
     from screamingface.report import Report
 
@@ -153,6 +154,15 @@ def close() -> None:
         pull.close_sessions()
 
 
+def fetch_media(media: CaseMedia) -> FetchedMedia:
+    """Fetch one picture or file of a Case with the process-wide Client (``Client.fetch_media``).
+
+    e.g. ``sf.fetch_media(report.candidates[0].cases[0].media[0])``.
+    """
+
+    return default_client().fetch_media(media)
+
+
 @overload
 def evaluate(
     candidates: str,
@@ -162,7 +172,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool = False,
     use_cache: bool = True,
 ) -> Report: ...
 
@@ -176,7 +186,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool = False,
     use_cache: bool = True,
 ) -> Report: ...
 
@@ -254,7 +264,7 @@ def evaluate(
         )
     # One home for these checks: the Client's (review fix, no third copy here).
     candidates = _evaluation_candidates(candidates, url4, record_reproduction)
-    capture = True if capture is None else capture
+    capture = bool(capture)
     if isinstance(candidates, str):
         if benchmark is not None:
             raise TypeError("benchmark must not be passed when evaluating a complete URL4")

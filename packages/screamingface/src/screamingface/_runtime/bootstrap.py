@@ -21,10 +21,6 @@ class BenchmarkDefinition(Protocol):
 
 # Local gateway environment defaults (OME-1001). Every entry is a setdefault: an
 # explicit operator choice always wins.
-# WHY no AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE here: the gateway documents provider
-# startup bootstrap as opt-in — the user authorizes profiles explicitly rather than
-# finding a "default" profile they never consented to. Anyone who wants it exports
-# the variable themselves.
 LOCAL_GATEWAY_DEFAULTS = {
     # The local BYOK provider plugin defaults to disabled; without it the Gateway
     # catalog contains no openrouter/* models for the Engine to project.

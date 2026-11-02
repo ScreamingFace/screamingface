@@ -1,13 +1,13 @@
 ---
 id: OME-1207
 linear_url: https://linear.app/openmined/issue/OME-1207/aigateway-move-remaining-consumers-off-direct-profiles-dependencies
-status: in_progress   # committed locally; PR not opened
+status: done
 type: task
 priority: high
 labels: [aigateway]
 parent: OME-1138
 created: 2026-09-16
-closed:
+closed: 2026-09-18
 ---
 
 # AIGateway: move remaining consumers off direct Profiles dependencies
@@ -41,3 +41,5 @@ Plan: `docs/plan/2026-09-09-OME-1138-converge-connections.md` A2 (U2).
 - Scope note: the Linear description also lists "provider availability/listing paths" and "admin
   route bodies". Both are Stage A3/A4 in the plan and are explicitly out of scope for this unit;
   `core/admin_schemas.py` keeps its `ProfileState` import because changing it would change OpenAPI.
+- 2026-09-17: squash-merged to `main` as `248b0b6de` (PR #981). Linear closed the issue Done on
+  2026-09-18.

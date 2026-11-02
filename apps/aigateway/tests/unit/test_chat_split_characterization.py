@@ -22,9 +22,7 @@ import httpx
 import pytest
 from litellm.exceptions import BadRequestError, ServiceUnavailableError
 
-from aigateway.core.credential_names import credential_name_for, profile_id_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
+from aigateway.core.credential_names import credential_name_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 
@@ -50,16 +48,6 @@ def _seed_authenticated_profile(credential_blobs, account_id: str) -> None:
 
 async def _seed_anthropic_profile(client, credential_blobs, account_id: str) -> None:
     _seed_authenticated_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
     seed_migrated_pair(client, account_id, "anthropic")
 
 

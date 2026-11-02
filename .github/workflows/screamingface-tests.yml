@@ -126,7 +126,9 @@ jobs:
 
       - name: Coverage report
         uses: orgoro/coverage@v3.3
-        if: always() && github.event_name == 'pull_request' && matrix.python-version == '3.12'
+        if: >-
+          always() && github.event_name == 'pull_request' && matrix.python-version == '3.12' &&
+          github.event.pull_request.head.repo.full_name == github.repository
         with:
           coverageFile: packages/screamingface/coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}

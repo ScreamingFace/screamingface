@@ -36,8 +36,10 @@ from screamingface_engine.combine.ports import (
     SignalOrder,
     SignalRead,
     SpecInvalid,
+    check_output_arg,
     finite_float,
     is_signal_key,
+    with_output,
 )
 
 _ORDERS = get_args(SignalOrder)
@@ -80,8 +82,11 @@ def by_signal(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
 
 
 def _check_best_holder_args(args: OpArgs) -> None:
-    if set(args) != {"order"} or args["order"] not in _ORDERS:
-        raise SpecInvalid('best_holder@1 takes exactly {"order": "max" | "min"}')
+    check_output_arg(args, "best_holder@1")
+    if set(args) - {"output"} != {"order"} or args["order"] not in _ORDERS:
+        raise SpecInvalid(
+            'best_holder@1 takes {"order": "max" | "min"} and an optional "output": <field name>'
+        )
 
 
 def best_holder(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
@@ -93,7 +98,8 @@ def best_holder(reduction: Reduction, combine_input: CombineInput, args: OpArgs,
     scores = [score for _, score in ranked]
     best = max(scores) if args["order"] == "max" else min(scores)
     holders = [member for member, score in ranked if score == best]
-    return Selection(chosen=(holders[0],), tie=len(holders) > 1)
+    selection = Selection(chosen=(holders[0],), tie=len(holders) > 1)
+    return with_output(selection, combine_input, args, "best_holder@1")
 
 
 def _check_threshold(args: OpArgs) -> None:
@@ -180,7 +186,10 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         args_schema=MappingProxyType(
             {
                 "type": "object",
-                "properties": {"order": {"enum": _ORDERS}},
+                "properties": {
+                    "order": {"enum": _ORDERS},
+                    "output": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"},
+                },
                 "required": ("order",),
                 "additionalProperties": False,
             }

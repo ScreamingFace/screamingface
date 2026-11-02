@@ -1,0 +1,15 @@
+{
+  "issue": "OME-1744",
+  "branch": "OME-1744-engine-image-token-forwarding",
+  "approver": "owner (Sergey, sergio-bershadsky, AskUserQuestion in the main session, 2026-10-27)",
+  "approved_by": "sergio-bershadsky",
+  "date": "2026-10-27",
+  "scope": "Additive only, in packages/url4/tests/unit/test_usage_parity.py::test_report_usage_puts_each_argument_in_its_own_field: image_and_file_tokens=7 is added to its report_usage call and \"image_and_file_tokens\": 7 to its values dict. No assertion changed.",
+  "reason": "OME-1744 adds the optional image_and_file_tokens field to url4.observe.Usage; additive parity update",
+  "files": {
+    "packages/url4/tests/unit/test_usage_parity.py": {
+      "base_blob": "e4eebb1b570d110a1bc3e0014374a3d77ed40fd4",
+      "approved_blob": "8886730721ab2e64644d5d9563a0fab300c45ce8"
+    }
+  }
+}

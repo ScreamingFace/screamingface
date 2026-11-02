@@ -19,12 +19,16 @@ from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import (
     Binding,
     Expression,
+    IdentityRef,
     Iteration,
     Node,
     RelExpr,
+    RemoteExpr,
+    SelfRef,
     Source,
     Url,
     VarRef,
+    walk,
 )
 from url4.core.parser import split_top_level_commas
 from url4.dag.attachment_sources import AttachmentIdentity, identity_of, non_literal_attachment
@@ -211,12 +215,49 @@ def _walk_expression(
 
 
 def _walk_rel_expr(node: RelExpr, bound: Mapping[str, Node], out: _Found, guards: _Guards) -> None:
-    # INVARIANT: a context holding a holdings ref ("@") ships verbatim to the receiving
-    # route and is never resolved caller-side (mirrors the lowering's _context_slots).
-    if node.context is not None and "@" not in node.context:
+    # INVARIANT (spec §5.6.3.1/.2): a context holding a holdings ref ships verbatim to the
+    # receiving route and is never resolved caller-side. Decided on the PARSED segments (F3):
+    # an "@" inside a URL or quoted text is not a holdings ref and must not turn the
+    # context's opted-in attachment sources into text.
+    if node.context is not None and not holds_holdings_ref(node.context):
         _walk_source_list(node.context, bound, out, guards)
     if node.intent is not None:
         _walk(node.intent, bound, False, out, guards)
+
+
+def holds_holdings_ref(text: str) -> bool:
+    """``True`` when the source-list ``text`` names ``@`` / ``@identity`` anywhere in its AST.
+
+    Nested call contexts and iteration bodies are source-lists kept as raw text by the parser,
+    so they are checked the same way. WHY a segment that does not parse counts when it holds
+    an ``@``: its meaning is unknown, and the receiving route may read it as a holdings ref —
+    the conservative reading the substring test gave every context before F3.
+    """
+    for segment in split_top_level_commas(text):
+        try:
+            parsed = grammar_parse(segment.strip()) if segment.strip() else None
+        except ParseError:
+            if "@" in segment:
+                return True
+            continue
+        if parsed is not None and any(_names_holdings(node) for node in walk(parsed)):
+            return True
+    return False
+
+
+def _names_holdings(node: Node) -> bool:
+    match node:
+        case SelfRef() | IdentityRef():
+            named = True
+        case (
+            RelExpr(context=str() as text)
+            | RemoteExpr(context=str() as text)
+            | Iteration(body=text)
+        ):
+            named = holds_holdings_ref(text)
+        case _:
+            named = False
+    return named
 
 
 def _walk_collection(items: Node, bound: Mapping[str, Node], out: _Found, guards: _Guards) -> None:

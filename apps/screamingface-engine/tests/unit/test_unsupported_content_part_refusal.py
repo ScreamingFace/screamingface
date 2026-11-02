@@ -96,3 +96,19 @@ def test_intent_error_for_copies_the_info() -> None:
     assert refusal is not None
     detail["reason"] = "changed"
     assert refusal.info == _INFO
+
+
+def test_the_intent_error_is_a_gateway_refusal_with_its_status_and_permanence() -> None:
+    """Merge of #1587 into #1588 (owner decision 2026-11-02): one `_GatewayRefusal` type for every
+    gateway non-2xx, so the intent branch keeps the status and is never read as a 400
+    "unknown provider" refusal by `refuses_provider`."""
+    from screamingface_engine.world.connector import _GatewayRefusal
+
+    with pytest.raises(_GatewayRefusal) as caught:
+        _raise_for_status(_gateway(422, _INFO))
+
+    assert caught.value.code == "intent_error"
+    assert caught.value.permanent is True
+    assert caught.value.status == 422
+    assert isinstance(caught.value.__cause__, GatewayContentPartRefusal)
+    assert caught.value.refuses_provider("codex") is False

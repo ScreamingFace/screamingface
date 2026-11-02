@@ -33,6 +33,12 @@ spec:
         # else — envFrom is read once at container start, so every Pod keeps the old value and
         # the upgrade reports success. Same guard aigateway-ui already carries.
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if include "aigateway.remoteEndpointsEnabled" . }}
+        # OME-1771: the endpoints file is read once at startup, so its supplied content revision
+        # is what rolls the pod when the file changes; see `remoteEndpoints`.
+        checksum/remote-endpoints: {{ .Values.remoteEndpoints.contentChecksum | quote }}
+        {{- end }}
+        {{- include "aigateway.guardRemoteEndpointsWiring" . }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -118,6 +124,10 @@ spec:
                   name: {{ include "aigateway.authSecretName" . }}
                   key: {{ .Values.auth.secretKeyKey }}
             {{- end }}
+            {{- if include "aigateway.remoteEndpointsEnabled" . }}
+            - name: AIGW_REMOTE_ENDPOINTS_CONFIG
+              value: {{ printf "%s/endpoints.toml" (include "aigateway.remoteEndpointsDir" .) | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -127,6 +137,26 @@ spec:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if include "aigateway.remoteEndpointsEnabled" . }}
+          volumeMounts:
+            - name: remote-endpoints
+              mountPath: {{ include "aigateway.remoteEndpointsDir" . }}
+              readOnly: true
+          {{- end }}
+      {{- if include "aigateway.remoteEndpointsEnabled" . }}
+      volumes:
+        - name: remote-endpoints
+          {{- if .Values.remoteEndpoints.existingSecret }}
+          secret:
+            secretName: {{ .Values.remoteEndpoints.existingSecret | quote }}
+          {{- else }}
+          configMap:
+            name: {{ .Values.remoteEndpoints.existingConfigMap | quote }}
+          {{- end }}
+            items:
+              - key: {{ .Values.remoteEndpoints.key | quote }}
+                path: endpoints.toml
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

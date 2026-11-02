@@ -1,7 +1,7 @@
 ---
 id: OME-1381
 linear_url: https://linear.app/openmined/issue/OME-1381/refuse-x-profile-at-engine-ingress-and-stop-producing-selector-bearing
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [screamingface-engine, agentic, autonomous]
@@ -9,7 +9,7 @@ parent: OME-1138
 related: [OME-1377]
 blocked_by: []
 created: 2026-09-25
-closed:
+closed: 2026-09-28
 ---
 
 # Refuse X-Profile at Engine ingress and stop producing selector-bearing runs
@@ -64,3 +64,5 @@ AIGateway stays on `HONOUR`. This build is the rollback floor for the later gate
   - The forwarder tests became mount tests.
   - Selector tests and the full Engine gate ran again on the new base; CI reruns on the merge
     commit.
+- 2026-09-28: squash-merged to `main` as `df6e9b92d` (PR #1082). Linear closed the issue Done the
+  same day.

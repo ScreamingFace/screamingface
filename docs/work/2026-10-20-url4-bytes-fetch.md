@@ -103,3 +103,25 @@ is a later unit; `Payload` stays `str`.
   type (only the first 1025 chars are ever scanned). Test: `tests/unit/test_io_media_type_redos.py`
   (six pathological headers incl. `'text/plain; a="' + '\\"'*50_000`, each < 100 ms; the 1 KiB
   boundary; quoted-pair and malformed-parameter cases). Gates green; `io/media.py` 100%.
+
+## Review round 3 (HupBaHa, 2026-11-02T13:58Z) — status: done
+
+- **Finding:** the 1 KiB Content-Type cap ran after `strip(_OWS)` (in `_parse` and in both public
+  helpers' blank check), so a huge OWS-padded header was scanned/copied before the bound, leading
+  OWS + `text/plain` passed, and an oversized all-whitespace header counted as absent (text).
+- **Planned:** check the RAW length first in every entry path (`_parse`, the blank check of
+  `is_text_media_type` / `bare_media_type`), then strip. Over-cap keeps its existing outcome: not
+  one media type (`is_text_media_type` False, `bare_media_type` raises `unsupported_content_type`).
+- **Tests (new file, prior tests untouched):** `tests/unit/test_io_media_type_raw_cap.py`.
+- **Outcome:** as planned. `_parse` returns `None` when `len(content_type) > _MAX_CONTENT_TYPE`
+  before stripping; the helpers' blank check is `not content_type or _blank(content_type)`, where
+  `_blank` is false for an over-cap value without stripping it. Tests (8, new file): leading-OWS,
+  trailing-OWS and all-whitespace oversized headers refused on both paths; raw length 1024 with OWS
+  padding parses, 1025 is refused though the stripped value is short; all-OWS at the cap is still
+  absent; a `str` subclass whose `strip` raises proves an over-cap header is never stripped. No prior
+  test edited.
+- **Gates:** `run_gates.py url4 --base <merge-base ca7738b16>` ALL GATES GREEN (`io/media.py` 100%);
+  `--base origin/main` fails append-only only on main's own newer test changes
+  (`test_processor_delegation.py`, `test_usage_parity.py`, two added files) that this branch does not
+  touch (branch is behind main; no rebase this round). `check_module_size.py` within baseline;
+  `check_suppressions.py` 3/3.

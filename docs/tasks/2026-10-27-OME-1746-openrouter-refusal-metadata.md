@@ -1,6 +1,6 @@
 ---
 id: OME-1746
-linear_url: https://linear.app/openmined/issue/OME-1746/accept-openrouter-router-metadata-in-the-pre-output-refusal-proof
+linear_url: https://linear.app/openmined/issue/OME-1746/base-the-openrouter-zero-proofs-on-billing-facts-not-the-reply-format
 status: in_progress
 type: fix
 priority: high
@@ -10,7 +10,7 @@ created: 2026-10-27
 closed:
 ---
 
-# Accept OpenRouter router metadata in the pre-output refusal proof
+# Base the OpenRouter zero proofs on billing facts, not the reply format
 
 The gateway sends `X-OpenRouter-Metadata: enabled` on every OpenRouter call, so each prod reply
 carries `openrouter_metadata`. The `OME-1738` proof rejected that field, so the $0 rule for a
@@ -25,3 +25,8 @@ check only billing facts, never the reply format.
 - Shared helpers in `billing_facts.py`; `docs/usage-accounting.md` and both specs updated.
 
 Related: `OME-1738`, `OME-1446`. Ledger: `docs/work/2026-10-27-openrouter-refusal-metadata.md`.
+
+Review follow-up (same issue, owner decision 2026-10-27): the `/code-review` of #1571 found three
+gaps, fixed in a second PR: no proof raises on a value of any shape; the refusal proof sees output
+in any message field; both proofs share the paid-stage rule. Ledger:
+`docs/work/2026-10-27-openrouter-zero-proof-review-fixes.md`.

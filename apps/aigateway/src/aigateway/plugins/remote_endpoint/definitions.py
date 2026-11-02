@@ -13,6 +13,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from ipaddress import IPv6Address, ip_address
 from types import MappingProxyType
 from typing import Any, Literal
 from urllib.parse import urlsplit
@@ -24,8 +25,11 @@ SCHEMA_VERSION = 1
 CHAT_CONTRACT = "openai-chat-basic-v1"
 
 _ENDPOINT_ID = re.compile(r"^byom_[0-9a-f]{32}$")
-_LABEL = r"(?!-)[a-z0-9-]{1,63}(?<!-)"
-_HOSTNAME = re.compile(rf"^(?=.{{1,253}}$){_LABEL}(?:\.{_LABEL})+$")
+_DEFAULT_PORT = {"http": 80, "https": 443}
+# WHY `_` inside a label: Docker service names use it, and a single label is a service name.
+_LABEL = r"[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?"
+_HOSTNAME = re.compile(rf"^(?=.{{1,253}}$){_LABEL}(?:\.{_LABEL})*$")
+_NUMERIC_LABEL = re.compile(r"^(?:[0-9]+|0x[0-9a-f]*)$")
 _ALIAS = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
 _SEGMENT = r"[A-Za-z0-9._~-]+"
 _REQUEST_PATH = re.compile(rf"^/(?:{_SEGMENT}(?:/{_SEGMENT})*)?$")
@@ -218,26 +222,63 @@ def _definition(endpoint: _EndpointDoc) -> EndpointDefinition:
 
 
 def _canonical_origin(value: str) -> str:
-    """`https://<dns-name>` exactly; an explicit `:443` is the one accepted spelling variant."""
-    if not _URL_TEXT.fullmatch(value) or not value.startswith("https://"):
-        raise ValueError("must be an https origin of printable ASCII")
-    parts = urlsplit(value)
+    """`http(s)://<host>[:<port>]` in its one canonical spelling; a default port is dropped."""
+    if not _URL_TEXT.fullmatch(value):
+        raise ValueError("must be an http or https origin of printable ASCII")
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        # WHY replace the parser's error: it quotes a bracketed host, i.e. the private value.
+        raise ValueError(
+            "must use a DNS name, an IPv4 address or a bracketed IPv6 address"
+        ) from None
+    if parts.scheme not in _DEFAULT_PORT or not value.startswith(f"{parts.scheme}://"):
+        raise ValueError("must be an http or https origin of printable ASCII")
     try:
         port = parts.port
     except ValueError:
-        raise ValueError("must use port 443") from None
-    if port not in (None, 443):
-        raise ValueError("must use port 443")
+        raise ValueError("must use a port from 1 to 65535") from None
+    if port == 0:
+        raise ValueError("must use a port from 1 to 65535")
     if "@" in parts.netloc or parts.path or "?" in value or "#" in value:
         raise ValueError("must not carry userinfo, path, query or fragment")
-    host = parts.hostname or ""
-    # WHY compare the netloc: `hostname` is lowercased and unbracketed, so any other spelling
-    # (upper case, an IP literal in brackets) differs from it and is refused rather than rewritten.
-    if parts.netloc not in {host, f"{host}:443"}:
-        raise ValueError("must use a canonical lowercase hostname")
-    if not _HOSTNAME.fullmatch(host) or host.rsplit(".", 1)[-1].isdigit():
-        raise ValueError("must use a fully qualified DNS hostname, not an address")
-    return f"https://{host}"
+    host = _host_spelling(parts.hostname or "")
+    # WHY compare the netloc: `hostname` and `port` parse leniently (case folded, brackets and
+    # leading zeros dropped), so any other spelling differs from the rebuilt one and is refused
+    # rather than rewritten.
+    if parts.netloc != (host if port is None else f"{host}:{port}"):
+        raise ValueError("must use a canonical lowercase host and a decimal port")
+    if port is None or port == _DEFAULT_PORT[parts.scheme]:
+        return f"{parts.scheme}://{host}"
+    return f"{parts.scheme}://{host}:{port}"
+
+
+def _host_spelling(host: str) -> str:
+    """A DNS name, a dotted IPv4 address or a bracketed IPv6 address, as an origin writes it."""
+    try:
+        address = ip_address(host)
+    except ValueError:
+        # WHY refuse a numeric last label: a resolver reads `10.1`, `2130706433` or `0x7f000001`
+        # as an IPv4 address in another spelling, so such a name is no DNS name.
+        if not _HOSTNAME.fullmatch(host) or _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1]):
+            raise ValueError(
+                "must use a DNS name, an IPv4 address or a bracketed IPv6 address"
+            ) from None
+        return host
+    if address.is_unspecified:
+        raise ValueError("must not be an unspecified address")
+    if isinstance(address, IPv6Address):
+        # WHY a format limit, not a reachability rule: IPv4-mapped IPv6 does name a host, but the
+        # prototype accepts each IPv4 host in its dotted form only. The parsed address is checked,
+        # so the hexadecimal spelling is refused as well.
+        if address.ipv4_mapped is not None:
+            raise ValueError("must write an IPv4 address in dotted form, not IPv4-mapped IPv6")
+        # WHY no zone: httpx keeps `%25<zone>` in the host as written, so the zone it would pass
+        # on is not the interface the operator named.
+        if address.scope_id is not None:
+            raise ValueError("must not carry an IPv6 zone")
+        return f"[{address}]"
+    return str(address)
 
 
 def _is_canonical_uuid(value: str) -> bool:
