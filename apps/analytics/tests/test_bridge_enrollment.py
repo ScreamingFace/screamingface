@@ -1,11 +1,13 @@
 """Automatic enrollment may never reverse a stored decline."""
 
+from http.cookies import SimpleCookie
+
 import pytest
 from test_api import Recorder
 from test_bridge import ORIGIN, accept, browser, config
 
 from analytics_service.api import create_app
-from analytics_service.bridge import CONSENT
+from analytics_service.bridge import CONSENT, IDENTITY
 
 
 async def test_enrollment_sets_preference_without_creating_identity():
@@ -13,7 +15,17 @@ async def test_enrollment_sets_preference_without_creating_identity():
         response = await client.post("/bridge/consent/enroll", json={"consent_version": "1"})
         assert response.status_code == 200
         assert response.json() == {"choice": "accepted", "consent_version": "1"}
-        assert "sf_bridge_id=;" in response.headers["set-cookie"]
+        cookies = SimpleCookie()
+        for header in response.headers.get_list("set-cookie"):
+            attributes = header.split("; ")
+            # Python 3.12/3.13 cannot parse Partitioned; verify it separately.
+            assert attributes.pop() == "Partitioned"
+            cookies.load("; ".join(attributes))
+        assert set(cookies) == {CONSENT, IDENTITY}
+        assert cookies[IDENTITY].value == ""
+        assert cookies[IDENTITY]["max-age"] == "0"
+        assert cookies[CONSENT].value == "1.accepted"
+        assert cookies[CONSENT]["max-age"] == str(config().bridge_cookie_max_age)
         assert response.headers["cache-control"] == "no-store"
         identity = await client.post("/bridge/id", json={})
         assert identity.status_code == 200

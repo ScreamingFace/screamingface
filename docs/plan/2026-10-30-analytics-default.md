@@ -21,3 +21,11 @@ best-effort notice output, and preserve every explicit opt-out. Update obsolete
 headless-off/failed-notice expectations and add subprocess coverage for redirected,
 missing and closed streams, DO_NOT_TRACK, persisted decline and process disable.
 Run the SDK gates and update the existing PR; failure recovery stays out of scope.
+
+
+## Review fixes
+
+Add failing tests for default test isolation, unexpected setup errors and responsive
+async local enrollment. Then update test bootstrap/CI, the setup exception boundary
+and local async dispatch. Strengthen existing exact-copy and cookie assertions,
+run SDK/service gates, and update the existing PR. Keep review/rollout checks open.

@@ -7,7 +7,7 @@ by/with AI agents:
 - `docs/plan/`     — implementation plans (required before implementation)
 - `docs/diagrams/` — diagram assets (SVG source + PNG)
 - `docs/tasks/`    — work-item mirrors (`YYYY-MM-DD-<name>.md`, frontmatter; Linear is authority)
-- `docs/work/`     — work ledgers (`YYYY-MM-DD-<ticket-id>-<desc>.md`, created at work start; copy `TEMPLATE.md`)
+- `docs/work/`     — work ledgers (`YYYY-MM-DD-<slug>.md`, created at work start; ticket ID in frontmatter; copy `TEMPLATE.md` and follow D8 in `.claude/sdlc.local.md`)
 
 Process: the `task-management` + `sdlc-*` skills, the cards in `.claude/`, and CLAUDE.md "AI SDLC".
 Local scratch drafts that shouldn't be committed go to `.docs/` (gitignored).

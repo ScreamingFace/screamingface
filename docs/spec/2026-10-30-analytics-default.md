@@ -61,3 +61,18 @@ first-evaluation readiness; timeout/late responses/disable; absent/accepted/decl
 and invalid cookies; browser command routing; unchanged event payloads.
 Run both Python stack gates and browser-script tests with synthetic transport only.
 Deployed Colab browser acceptance remains a rollout check.
+
+
+## Review hardening — 2 November
+
+Ordinary SDK test collection and test CI must set DO_NOT_TRACK before importing
+the SDK. Analytics tests may explicitly remove it only with isolated preferences
+and synthetic transport. Unexpected ordinary setup exceptions must not prevent
+import or evaluation; debug messages contain no exception details. Interruptions
+and cancellation still propagate. Local enrollment in async evaluation runs in a
+worker thread; Colab retains its two-second wait and generation invalidation.
+
+The local preference lock serializes persisted choices. A process-only disable
+or DO_NOT_TRACK change after the final permission check can still race with an
+already-started preference write; dispatch checks suppress subsequent tracking.
+This is not a promise to undo in-flight persistence or network requests.

@@ -104,11 +104,15 @@ def test_module_wrapper_counts_validation_and_does_not_double_emit(events, monke
     assert len(events) == 2
 
 
-def test_setup_notice_is_nonblocking_and_once_per_process(config=None):
+def test_setup_notice_matches_final_disclosure_copy():
     from screamingface._analytics import prompt
 
-    assert "sf.analytics.disable()" in prompt.NOTICE
-    assert "DO_NOT_TRACK=1" in prompt.NOTICE
+    assert prompt.NOTICE == (
+        "ScreamingFace collects anonymous usage analytics (API usage, SDK versioning, and your "
+        "local-or-hosted engine preference) to help us build a better API. It does not store "
+        "any fusion, prompts, outputs, scores, or keys. It's on by default; turn it off anytime "
+        "with `sf.analytics.disable()` (or set `DO_NOT_TRACK=1`)."
+    )
 
 
 @pytest.mark.asyncio

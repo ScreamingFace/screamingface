@@ -20,7 +20,7 @@ def test_default_setup_discloses_before_enrollment_and_id(browser, monkeypatch, 
         if command == "state":
             return {"choice": "unknown", "consent_version": "1"}
         if command == "enroll":
-            assert prompt.NOTICE in capsys.readouterr().out
+            assert capsys.readouterr().out.splitlines() == [prompt.NOTICE]
         return accepted()
 
     monkeypatch.setattr(colab, "exchange", exchange)

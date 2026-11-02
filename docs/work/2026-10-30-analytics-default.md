@@ -103,3 +103,67 @@ its previously passing full gates remain applicable.
 
 Revision commit: `feat(analytics): enable defaults in headless environments`.
 Confidence review: ready for code review; deployed Colab smoke remains a rollout check.
+
+
+## 2 November — review fixes
+
+Intent: close the actionable review findings before updating PR #1633. Filip
+explicitly authorized the fixes and strengthening existing assertions.
+
+Planned changes: SDK test bootstrap disables analytics before collection; SDK,
+engine, scoreboard, replay and paid-smoke CI lanes set DO_NOT_TRACK. Studio and
+failor have no corresponding Python test CI job in this checkout. Protect SDK
+setup from unexpected ordinary exceptions with a content-free debug message;
+retain interruption/cancellation semantics. Offload local enrollment from async
+evaluation; keep the existing bounded Colab setup and late-reply protection.
+Strengthen notice/cookie assertions, reconcile docs/README ledger naming with D8,
+and clarify that opt-out rechecks are not an atomic promise about in-flight writes.
+
+Test plan: isolated pytest subprocess with no inherited DO_NOT_TRACK, fresh and
+previously accepted homes, collection plus evaluation, and a tripwire for real
+analytics delivery. Inject unexpected setup errors and interruption; use an event
+loop handshake to prove local enrollment runs off the loop. Run full SDK/service
+gates and workflow validation. No live analytics, posting comments, merging or
+production deployment. Owner approval and deployed Colab smoke remain open.
+
+Acceptance: ordinary tests cannot enroll or send by default, analytics-specific
+tests retain mocked opt-in coverage, optional setup cannot replace product failures,
+and first local async setup leaves the event loop responsive.
+
+Additional review scope: disable analytics in Studio's sidecar verification script
+and failor's manual check/verification scripts and generated notebook. These are
+verification entry points, not production runtime defaults. Validate the Python
+bootstrap without executing live checks, check shell syntax, and regenerate/parse
+the notebook without running its live benchmark cells.
+
+
+Review-fix verification:
+- Red: seven new SDK cases failed on the prior implementation; interruption cases
+  already passed. An additional unavailable-executor case failed before its fix.
+- Focused SDK checks: 93 cases passed without DO_NOT_TRACK in the parent shell;
+  the final 12-case review regression module passes, including executor shutdown.
+- Full analytics-service gates and repository gates: ALL GATES GREEN. The repo
+  runner needed the installed SDK Python on PATH so child commands could find PyYAML.
+- Both full SDK runs passed, including the final run after the executor-shutdown fix.
+  Lint, format, type checking, full coverage gate, notebooks, build and distribution
+  checks are ALL GREEN.
+- All five changed workflow YAML files parse and every job/step inherits the opt-out;
+  engine smoke containers receive it explicitly. No engine/scoreboard application
+  code was changed, and their full application suites were not rerun locally.
+- Manual diagnostic bootstrap checks pass without running a live cluster request;
+  Studio verification shell syntax passes. The failor notebook was regenerated,
+  parsed, and checked output-free. Its builder exposed an existing lint requirement
+  for explicit subprocess check=False; that behavior-preserving fix is included.
+- Exact-copy disclosure assertions and structured cookie assertions replace weaker
+  substring checks. The test-change manifest pins the authorized fixture/assertion
+  changes; no opt-out tests were weakened.
+
+Wisdom review: default-on product policy is unchanged. Broad Exception handling is
+limited to optional setup, logs no exception details, and leaves BaseException
+interruptions intact. Local async file work runs off the event loop; Colab's existing
+bounded setup remains unchanged. No schema, dependency, event fields, retries or
+new remote diagnostics. D8 ledger naming is now consistent in docs/README. Privacy
+owner confirmation and deployed Colab smoke remain explicit outstanding checks.
+
+Review-fix commit: `fix(analytics): isolate tests and harden optional setup`.
+The revision is ready for PR review; no merge or deployment was performed.

@@ -68,6 +68,10 @@ permissions:
   checks: write
   pull-requests: write
 
+# INVARIANT: test and preparation commands never enroll runners in SDK analytics.
+env:
+  DO_NOT_TRACK: "1"
+
 jobs:
   test:
     runs-on: ubuntu-latest

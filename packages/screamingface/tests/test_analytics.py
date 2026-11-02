@@ -237,6 +237,6 @@ def test_connect_with_unavailable_stdin(
         assert panel.connections == ()
     assert analytics.status()["enabled"] is True
     assert config.exists()
-    assert prompt.NOTICE in getattr(
+    assert getattr(
         capsys.readouterr(), "out" if environment == "local_jupyter" else "err"
-    )
+    ).splitlines() == [prompt.NOTICE]

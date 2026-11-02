@@ -43,7 +43,7 @@ def test_disclosure_precedes_identity_and_is_shown_once(fresh, monkeypatch, caps
     write = LocalConsentStore._write
 
     def observed(store, state):
-        assert prompt.NOTICE in capsys.readouterr().out
+        assert capsys.readouterr().out.splitlines() == [prompt.NOTICE]
         assert not fresh.exists()
         write(store, state)
 
@@ -131,7 +131,7 @@ def test_terminal_script_uses_stderr_even_without_stdin(fresh, monkeypatch):
     monkeypatch.setattr(sys, "stdin", None)
     monkeypatch.setattr(sys, "stderr", stream)
     prompt.offer()
-    assert prompt.NOTICE in stream.getvalue()
+    assert stream.getvalue().splitlines() == [prompt.NOTICE]
     assert analytics.status()["enabled"] is True
 
 
@@ -141,10 +141,10 @@ def test_headless_enrolls_immediately_and_does_not_repeat_notice(fresh, monkeypa
     monkeypatch.setattr(sys, "stderr", stream)
     prompt.offer()
     assert analytics.status()["enabled"] is True
-    assert stream.getvalue().count(prompt.NOTICE) == 1
+    assert stream.getvalue().splitlines() == [prompt.NOTICE]
     identifier = analytics.status()["installation_id"]
     prompt.offer()
-    assert stream.getvalue().count(prompt.NOTICE) == 1
+    assert stream.getvalue().splitlines() == [prompt.NOTICE]
     assert analytics.status()["installation_id"] == identifier
 
 
@@ -180,7 +180,7 @@ class Terminal(io.StringIO):
 sys.stderr = Terminal()
 import screamingface as sf
 from screamingface._analytics.prompt import NOTICE
-assert NOTICE in sys.stderr.getvalue()
+assert sys.stderr.getvalue().splitlines() == [NOTICE]
 assert sf.analytics.status()['enabled']
 """
     subprocess.run([sys.executable, "-c", code], env=os.environ.copy(), check=True, timeout=10)
@@ -221,7 +221,7 @@ print('product output')
         timeout=10,
     )
     assert result.stdout == "product output\n"
-    assert (prompt.NOTICE in result.stderr) is (output == "redirected")
+    assert result.stderr.splitlines() == ([prompt.NOTICE] if output == "redirected" else [])
     assert LocalConsentStore(fresh).read().choice == "accepted"
 
 

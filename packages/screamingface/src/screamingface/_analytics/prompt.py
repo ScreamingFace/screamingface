@@ -1,6 +1,7 @@
 """Default-on analytics with best-effort notice; every explicit opt-out wins."""
 
 import asyncio
+import logging
 import os
 import sys
 import threading
@@ -17,6 +18,7 @@ NOTICE = (
 _shown = False
 _pid = os.getpid()
 _lock = threading.RLock()
+_LOG = logging.getLogger(__name__)
 
 
 def show_notice(environment: str) -> None:
@@ -56,9 +58,10 @@ def offer() -> None:
     try:
         with _lock:
             _offer()
-    except (OSError, ValueError, RuntimeError):
-        # WHY: missing output or preferences must never prevent import/product work.
-        return
+    except Exception:
+        # INVARIANT: optional setup cannot break import/product work. Do not log
+        # preference paths or exception details; BaseException interruptions propagate.
+        _LOG.debug("Analytics setup skipped")
 
 
 def wait_for_setup() -> None:
@@ -78,9 +81,19 @@ def before_evaluation() -> None:
 async def before_evaluation_async() -> None:
     from screamingface import analytics
 
-    offer()
-    if origin() != "colab" or analytics._disabled():
+    if analytics._disabled():
         return
+    if origin() != "colab":
+        if not _shown:
+            # WHY: preference locks and disk writes must not block the event loop.
+            try:
+                await asyncio.to_thread(offer)
+            except RuntimeError:
+                # An unavailable executor is also an optional setup failure.
+                _LOG.debug("Analytics setup skipped")
+        return
+    # Colab only queues browser work here; it never opens local preference files.
+    offer()
     from screamingface._analytics.colab import bridge
 
     if bridge().setup_pending():

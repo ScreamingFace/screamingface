@@ -1,15 +1,19 @@
 {
   "issue": "OME-1768",
   "branch": "OME-1768-analytics-default",
-  "reason": "Filip authorized default-on analytics on 2026-10-30 and extended it to every environment on 2026-11-02, including headless execution and best-effort notice output. These exact changes update obsolete off-after-notice/headless-off and enable-copy assertions; every explicit opt-out remains respected. See docs/work/2026-10-30-analytics-default.md.",
+  "reason": "Filip authorized default-on analytics on 2026-10-30 and extended it to every environment on 2026-11-02, including headless execution and best-effort notice output. These exact changes update obsolete off-after-notice/headless-off and enable-copy assertions; every explicit opt-out remains respected. See docs/work/2026-10-30-analytics-default.md. On 2026-11-02 Filip authorized the review fixes: collection-time test isolation and stronger exact disclosure/cookie assertions.",
   "files": {
     "packages/screamingface/tests/test_analytics.py": {
       "base_blob": "c3a970f83d1b2eea1aea93c4409e0a6b225531e0",
-      "approved_blob": "ed06b2a39b9092829cefcce370b69a9332c0458a"
+      "approved_blob": "152e815374ef2a3b8e506b5fd7b4312785d38750"
     },
     "packages/screamingface/tests/test_analytics_integration.py": {
       "base_blob": "7169147353f339b05217ebab8263b44bcbce5b2e",
-      "approved_blob": "d9e0b3eac8eea6f261f5ede7c0caf2370fb0212c"
+      "approved_blob": "334ae5eb936798d57a5db16bc66e2e5fd99f8330"
+    },
+    "packages/screamingface/tests/conftest.py": {
+      "base_blob": "4719f5b949fffccb8227cd2a17db7beb64c873e6",
+      "approved_blob": "1b752cfbe60260e68cd3694e86addb0e1ff9ce56"
     }
   }
 }
