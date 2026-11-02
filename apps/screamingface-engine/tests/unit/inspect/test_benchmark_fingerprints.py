@@ -90,7 +90,7 @@ _FINGERPRINTS: dict[str, str] = {
     # OME-1477 PR 2: MMMU's open-answer task, judged once the judge read inspect's question.
     "mmmu_open": "8ce88e420239ae4d",
     # OME-1478: Humanity's Last Exam, the full set with its pictures, judged by glm-5.3-flash.
-    "hle": "32c089fbfcd9c29f",
+    "hle": "d30effc2a0698079",
     "frontierscience": "826050de44778515",
     "onet_m6": "cfc5f0da9f9418bd",
     "pubmedqa": "15e20f21d0a78fd9",

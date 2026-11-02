@@ -257,6 +257,9 @@ def test_hle_is_declared_with_the_maintained_judge_in_the_grader_role() -> None:
     assert row.judge is not None
     assert row.judge.model == "openrouter/z-ai/glm-5.3-flash"
     assert row.judge.model_role == "grader"
+    # WHY: regex_judge re-asks in the same words; without redraws its 3 attempts would read
+    # the gateway's cached first reply 3 times (review finding on #1631).
+    assert row.judge.redraw_repeats is True
     assert dict(row.judge.params) == {
         "temperature": "0",
         "max_tokens": "32768",

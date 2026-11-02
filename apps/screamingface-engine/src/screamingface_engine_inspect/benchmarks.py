@@ -7003,7 +7003,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="hle",
-        published_revision="32c089fbfcd9c29f",
+        published_revision="d30effc2a0698079",
         title="Humanity's Last Exam (HLE)",
         description=(
             "2,500 expert-written questions across more than 100 subjects, from mathematics "
@@ -7395,6 +7395,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             # admits each because the wire carries the same value. web_search=false is the
             # house judges' retrieval-free grading (HealthBench's precedent).
             params=(("temperature", "0"), ("max_tokens", "32768"), ("web_search", "false")),
+            # The scorer re-asks its judge in the same words, up to max_grader_attempts=3, when
+            # a reply has no GRADE line; each re-ask after a live reply skips the gateway cache,
+            # so the three attempts are three draws, as under inspect's own eval().
+            redraw_repeats=True,
         ),
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,

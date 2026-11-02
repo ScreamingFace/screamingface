@@ -71,7 +71,8 @@ state-of-the-art run (that is OME-1672).
 
 - **Judge:** inspect_evals' maintained grading (`run_configs/default.yaml`): `regex_judge`, its
   primary judge `openrouter/z-ai/glm-5.3-flash` in the `grader` role, pinned with default.yaml's
-  stanza (`temperature=0`, `max_tokens=32768`) plus `web_search=false`. The paper-faithful
+  stanza (`temperature=0`, `max_tokens=32768`) plus `web_search=false`, and
+  `redraw_repeats=True` so its three attempts are three draws, not one cached reply. The paper-faithful
   o3-mini judge (`original.yaml`, picked 2026-10-28) is on OpenRouter only as
   `openai/o3-mini:batch`, whose live-call latency is unknown.
 - **Named deviations:** default.yaml's backup judge (`grader_2`, gemini-3.7-flash, a separate
@@ -91,7 +92,7 @@ state-of-the-art run (that is OME-1672).
   plus a new test that the HLE judge stays routable); `.claude/test-change-approvals/OME-1478.json`;
   the OME-1478 mirror. The importer and judge fixes are PR 1 of 2 (#1631).
 - **Import (2026-11-02, real Hub data at `cais/hle` `5a81a4c7`):** 2,500 Cases, Case Digest
-  `7fb3221865f1…`, published revision `32c089fbfcd9c29f`, licence mit. Pictures arrive as
+  `7fb3221865f1…`, published revision `d30effc2a0698079`, licence mit. Pictures arrive as
   `data:` URIs and are not re-encoded, so the seal does not depend on the platform's Pillow (the
   image build's replay in CI is the outside check).
 - **Baselines (read from the sources):** no human baseline (arXiv 2501.14249v12 reports none);
