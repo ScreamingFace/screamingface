@@ -1,4 +1,4 @@
-"""Keep metadata rejection bounded even when the rejected input is deeply nested."""
+"""Keep every metadata rejection serializable without echoing untrusted input."""
 
 from collections.abc import Awaitable, Callable
 
@@ -16,9 +16,9 @@ class MetadataValidationRoute(APIRoute):
                 return await handler(request)
             except RequestValidationError as exc:
                 for error in exc.errors():
-                    if error["type"] in {"metadata_too_deep", "metadata_non_finite"}:
-                        # WHY: deep trees and non-finite numbers cannot be safely echoed
-                        # as JSON. Preserve location/type/context and all other errors.
+                    if tuple(error["loc"][:2]) == ("body", "metadata"):
+                        # WHY: type/size errors can also contain deep trees or NaN.
+                        # Preserve diagnostics and unrelated field inputs, not metadata.
                         error.pop("input", None)
                 raise
 

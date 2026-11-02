@@ -117,3 +117,35 @@ async def _stored_jsonb_size() -> int | None:
         "SELECT octet_length(metadata::text) AS size FROM scores"
     )
     return row["size"]
+
+
+@pytest.mark.parametrize("number", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("shape", ["scalar", "oversized", "list"])
+def test_all_metadata_error_shapes_omit_non_finite_input(bounded_client, number, shape):
+    metadata = {
+        "scalar": number,
+        "oversized": {"x": number, "pad": "x" * 5000},
+        "list": [number],
+    }[shape]
+    response = bounded_client.post(
+        "/v1/scores",
+        content=json.dumps({**PAYLOAD, "metadata": metadata}),
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 422, response.text
+    [error] = response.json()["detail"]
+    assert error["loc"] == ["body", "metadata"]
+    assert error["type"] == ("value_error" if shape == "oversized" else "dict_type")
+    assert "input" not in error
+    assert bounded_client.portal.call(_count) == 0
+
+
+def test_metadata_sanitization_preserves_other_field_errors(bounded_client):
+    response = bounded_client.post(
+        "/v1/scores", json={**PAYLOAD, "metadata": [], "score": "not-a-score"}
+    )
+    assert response.status_code == 422, response.text
+    errors = {tuple(error["loc"]): error for error in response.json()["detail"]}
+    assert "input" not in errors[("body", "metadata")]
+    assert errors[("body", "score")]["input"] == "not-a-score"
+    assert bounded_client.portal.call(_count) == 0
