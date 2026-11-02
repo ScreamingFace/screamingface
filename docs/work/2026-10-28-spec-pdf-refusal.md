@@ -48,5 +48,5 @@ Docs only. Check that no other line of the spec still promises PDF-to-text.
   modalities), which answers HupBaHa's round-1 objection that C9 is image-only. Changed: the §1 gateway note and
   the pass-through bullet, §3 item 4, the §4 `intent_error` row, the `OME-1537` open item, and the Ollama spec's
   out-of-scope note. No ticket owns the PDF admission check yet (`OME-1548` is pictures only; `OME-1681` tracks the
-  PDF row): follow-up ticket to be filed. "No PDF-to-text in v1" and "`OME-1550` is office formats only" are kept.
+  PDF row), so it was filed as `OME-1803` under `OME-1529` (2026-11-02). "No PDF-to-text in v1" and "`OME-1550` is office formats only" are kept.
 - Deviations: none.

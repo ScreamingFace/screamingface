@@ -93,7 +93,7 @@ carries **no media type**; the media type lives on the enclosing [`ResultData.me
   before any model is paid (in a Fusion, before the other members are paid for). This keys on the published modalities, not on model names. The gateway's typed
   422 `unsupported_content_part`, reported by the engine connector as url4 `intent_error` with permanence
   kept (§4), stays as the **backstop** when admission misses; neither path is ever a silent drop. The
-  admission check is to be implemented by a follow-up ticket to be filed (`OME-1548` covers pictures only;
+  admission check is implemented by `OME-1803` (`OME-1548` covers pictures only;
   the PDF row of the per-type policy is tracked under `OME-1681`); the backstop translation is pending in
   #1588 (`OME-1545`). There is no PDF-to-text fallback in v1; `OME-1550` was narrowed to office formats.
 - Anthropic, OpenRouter and OpenAI (API key) do not call `check_messages`; their parts go through LiteLLM as sent.
@@ -489,7 +489,7 @@ future-compatible capability, not a v1 execution path:
    - **convert to text:** office formats, reusing the GDPval readers;
    - **reject:** with a typed error (§4). A blind model is refused at run admission (`intent_error`, naming the model),
      never degraded silently. Admission reads the model's published `/v1/models` `input_modalities`: `image` for a
-     picture (C9, `OME-1548`), `pdf` for a PDF (§1 gateway note; follow-up ticket to be filed). The gateway's 422
+     picture (C9, `OME-1548`), `pdf` for a PDF (§1 gateway note; `OME-1803`). The gateway's 422
      `unsupported_content_part` is the backstop (§4).
 5. **Benchmarks pin files at build time.** Assets are baked into the benchmark image ([`I/prepare.py:8`][i-prep8]),
    so a Case never depends on a run-time fetch.
