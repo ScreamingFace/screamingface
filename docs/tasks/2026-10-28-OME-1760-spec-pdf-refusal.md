@@ -14,7 +14,7 @@ closed:
 Resolves a contradiction in spec #1450 (`OME-1535`): the Ollama note promised PDF-to-text via `OME-1550`,
 while §3 item 4 says a model is never degraded silently. Owner decision 2026-11-02 (review round 2,
 superseding 2026-10-28/29): v1 refuses at engine run admission, keyed on the model's published `/v1/models`
-`input_modalities` containing `pdf` (not a model-name check); the gateway's typed refusal
+`input_modalities` containing `pdf` (not a model-name check; the admission check is pending `OME-1803`); the gateway's typed refusal
 (`unsupported_content_part` → url4 `intent_error`, pending in #1588) is the backstop. No PDF-to-text in v1,
 and `OME-1550` is narrowed to office formats.
 
