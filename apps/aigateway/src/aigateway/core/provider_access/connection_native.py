@@ -10,9 +10,10 @@
 # AIDEV-NOTE: a row that is not a migrated pair's effective row is a plain Connection — every
 # function here is a no-op for it and the route behaves exactly as before S2'b4. Nothing here
 # reads for a response; the routes keep their own HTTP vocabulary.
-# FEATURE (OME-1497, G0 writer floor §5.3): on a `none`/`quarantined` pair a native create, OAuth
-# start, key replacement or delete is an ownership change — `claim_native_write` claims the pair
-# it observed, keeping the state (no auto-promotion, D14), as the FIRST write of its transaction.
+# FEATURE (OME-1497, G0 writer floor §5.3): on a `none` or unmarked pair — owned by its Connections
+# (OME-1209 §9 Q8) — a native create, OAuth start, key replacement or delete is an ownership
+# change: `claim_native_write` claims the pair it observed, keeping the state (no
+# auto-promotion, D14), as the FIRST write of its transaction.
 # FEATURE (OME-1209, E1b, spec R6): a native OAuth flow started while a `migrated` pair's
 # effective row was unusable takes the pair over at its callback — `replace_effective` moves the
 # marker to the new row, `retire_replaced` revokes the old one. Connection side only, so the
@@ -48,7 +49,7 @@ def credential_name_of(plugin: Any, connection: OAuthConnection, *, account_id: 
 
 
 async def claim_native_write(observed: PairAuthority, *, requested: str) -> PairAuthority | None:
-    """Fence the pair a native writer observed; the published legacy-owned pair, else None.
+    """Fence the pair a native writer observed; the published Connection-owned pair, else None.
 
     Runs inside the caller's transaction as its FIRST write (marker → row → blob). A `migrated`
     pair is held without advancing its generation: this serializes a new native row with D18's

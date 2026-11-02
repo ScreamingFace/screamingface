@@ -32,8 +32,8 @@ from aigateway.core.api_key_validation import (
     ApiKeyValidationState,
 )
 from aigateway.core.oauth.store import OAuthConnectionStore
-from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import PairAuthorityStore
+from tests.unit.seed_state import SeedState
 
 KEY = "sk-ant-api03-e1b-replacement-key-1111"
 CHAT_COMPLETION = (
@@ -104,7 +104,7 @@ def test_a_new_key_replaces_a_broken_effective_oauth_row(
     migrated: ConnectionBackedHarness,
 ) -> None:
     h = migrated
-    h.seed_profile(state=ProfileState.ERROR)
+    h.seed_credential(state=SeedState.ERROR)
     old = h.migrated["default"]
 
     new = _created(h)
@@ -123,7 +123,7 @@ def test_a_key_named_like_a_working_effective_row_replaces_it(
     # WHY: the effective row's own label addresses it — how a working OAuth pair switches to an
     # API key in one step, as the Profile key write did.
     h = migrated
-    h.seed_profile(state=ProfileState.AUTHENTICATED)
+    h.seed_credential(state=SeedState.AUTHENTICATED)
     old = h.migrated["default"]
     label = connection(h, old).label
 
@@ -139,7 +139,7 @@ def test_a_key_with_another_label_leaves_a_working_effective_row(
     migrated: ConnectionBackedHarness,
 ) -> None:
     h = migrated
-    h.seed_profile(state=ProfileState.AUTHENTICATED)
+    h.seed_credential(state=SeedState.AUTHENTICATED)
     old = h.migrated["default"]
     before = marker(h)
 
@@ -154,7 +154,7 @@ def test_a_marker_move_during_the_validation_wins_and_creates_nothing(
     migrated: ConnectionBackedHarness,
 ) -> None:
     h = migrated
-    h.seed_profile(state=ProfileState.ERROR)
+    h.seed_credential(state=SeedState.ERROR)
     old = h.migrated["default"]
 
     async def move_the_marker() -> None:

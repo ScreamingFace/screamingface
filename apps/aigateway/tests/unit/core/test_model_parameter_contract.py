@@ -51,7 +51,7 @@ def _doc(
     canonical_id: str = "openrouter/google/gemini-3.6-flash",
     gateway_provider: str = "openrouter",
     auth_mode: AuthType = "api_key",
-    scope: str = "account_profile",
+    scope: str = "account_connection",
     context_identity: str = "acct:a1|prof:p1:authenticated:-",
     rules: tuple[ParameterProjectionRule, ...] = (),
     observations: tuple[ProviderParameterObservation, ...] = (),
@@ -95,7 +95,7 @@ def test_document_emits_locked_v1_envelope() -> None:
         "gateway_provider": "openrouter",
         "upstream_id": "google/gemini-3.6-flash",
     }
-    assert doc["context"]["scope"] == "account_profile"
+    assert doc["context"]["scope"] == "account_connection"
     assert doc["context"]["auth_mode"] == "api_key"
     assert doc["context"]["revision"].startswith("ctx_")
     assert doc["freshness"] == {"stale": False, "degraded": False}
@@ -401,6 +401,20 @@ def test_digests_move_when_only_the_gateway_provider_changes() -> None:
     assert _ids(a) != _ids(b)
 
 
+def test_digests_move_when_only_the_scope_changes() -> None:
+    # WHY: ``context.scope`` is published AND hashed, so renaming the scope literal
+    # (OME-1138 close-out: ``account_connection``) rotates ``contract_id`` and
+    # ``context.revision`` once. That rotation is the stated, owner-accepted cost of
+    # the rename; a scope left out of the digest would serve a renamed context under
+    # a frozen id.
+    a = _doc(scope="account_connection")
+    b = _doc(scope="relabelled")
+    assert a["context"]["scope"] != b["context"]["scope"]
+    # WHY: each id is checked on its own; a pair comparison passes if only one moved.
+    assert a["contract_id"] != b["contract_id"]
+    assert a["context"]["revision"] != b["context"]["revision"]
+
+
 def test_freshness_is_deliberately_excluded_from_the_identity() -> None:
     # WHY the one exclusion: freshness is TIME-VARYING. Folding it in would move
     # the id on essentially every request, making it useless as a cache key. The
@@ -411,7 +425,7 @@ def test_freshness_is_deliberately_excluded_from_the_identity() -> None:
             canonical_id="openrouter/google/gemini-3.6-flash",
             gateway_provider="openrouter",
             auth_mode="api_key",
-            scope="account_profile",
+            scope="account_connection",
             context_identity="acct:a1|prof:p1:authenticated:-",
             rules=(_rule("temperature"),),
             observations=(),

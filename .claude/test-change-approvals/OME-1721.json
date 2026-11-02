@@ -1,0 +1,50 @@
+{
+  "issue": "OME-1721",
+  "branch": "OME-1721-hosted-byom-unit1",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-22",
+  "scope": "Four prior remote-endpoint tests, approved as shown before any production change. test_definitions: the five origins that become valid (plain HTTP, an IPv4 address, a bracketed IPv6 address, a non-default port and a single-label name) leave the refusal list, and the test is renamed test_non_canonical_origins_are_refused. test_reader: its invalid origin becomes ftp://private-host.example, since http:// is now valid. test_plugin: register_models returns the declared model entry instead of an empty list. test_app_regressions: the configured app's provider listing is compared with the bundled app's on the bundled providers' rows only, since a granted account now also sees its endpoints. After review, approved as shown on 2026-10-23: test_provider_access_availability_route checks the pending status on the registered gemini-cli instead of the unregistered gemini, expects rows for the registered providers only, and gains test_a_pair_of_an_unregistered_provider_has_no_row. After the third review, approved as shown on 2026-10-27: the gateway_modules fixture of the SDK's test_cache_local stands in an empty aigateway.provider_composition module beside the other four, and its docstring says five. Approved as shown on 2026-10-27, docstrings only: test_app_access says a denied endpoint adds no signal at these entry points and hides it from the working catalog, not its existence, as the community cache shares endpoint IDs and answers on purpose; test_app_cache_order explains its test-only projection without the stale CacheBypass claim. After the fifth review, approved as shown on 2026-10-28: the fake upstream in the remote_endpoint conftest encodes its echo in base64 and echo_of decodes it, since an answer holding the caller's key is never stored and the general cache tests need a cacheable one; literal reflection is covered by a new test. Also approved then, on a file this branch adds: test_a_cancelled_shutdown_still_closes_every_endpoint patches the close drain bound to 0.05 s and its poll comment says the sweep gave up at its bound. After the sixth review, approved as shown on 2026-10-28: the OAuth access token in the _arrange_account fixture of test_chat_route_accounting becomes tok-oauth-fixture-0001, since the shared cache now refuses an answer holding any sealed credential however short, and tok is part of the input_tokens field name. Also approved then, on files this branch adds: test_an_answer_repeating_the_callers_key_is_served_only_to_that_caller reads the refusal through a handler on the aigateway logger instead of caplog, and test_app_shutdown starts its steps with the snapshot scheduler and cancels at that step too. Nothing else changes.",
+  "reason": "Hosted BYOM Unit 1 (owner decisions of 2026-10-22): approved HTTP, IP and port origins, a catalog filtered by the account grants, the shared chat cache and a reused client per endpoint. The owner chose on 2026-10-23 that the availability listing shows only registered providers the caller may see, so a removed endpoint's stored pair gets no row. The SDK's revisions for a cache pull now also import the composition module, which registers the configured-endpoint revision; the SDK test job has no gateway runtime to import it from. The owner decided on 2026-10-27 that the community cache lists published entries of configured endpoints to every authenticated account with no grant filter, so a promise that an ungranted tenant cannot learn of an endpoint was too broad. Each edit follows from a contract the owner changed on purpose.",
+  "files": {
+    "apps/aigateway/tests/unit/remote_endpoint/test_app_regressions.py": {
+      "base_blob": "a223610be645bf70a38f82f1a1e15a2027245a25",
+      "approved_blob": "c110aba0898c9822aaf90c92c28d166a2fdd98ef"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_definitions.py": {
+      "base_blob": "f2fccf915d8dbfba366cd5174212a28821483a45",
+      "approved_blob": "8578e02f7f112c108891dcf53adee7cfdb25f44d"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_plugin.py": {
+      "base_blob": "f5fcf7a166bbb065131045ef70d286f75e94e7a8",
+      "approved_blob": "b8a3cf6a2a48958eb8fd3e924d65634b805379ce"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_reader.py": {
+      "base_blob": "b661b3068c0415b969e9cf49f3c45bcbe6766749",
+      "approved_blob": "c98ce8754107c9642358b9ba2f424b8b80513e33"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_app_access.py": {
+      "base_blob": "ec4ca32f6a4382600279bcbeac54b32d5aa39820",
+      "approved_blob": "e9fdeb2a1023f957105a4b3a9347cf7a24844a1c"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_app_cache_order.py": {
+      "base_blob": "07858ed8ca9c7e1e8c03b0885913096dc446a491",
+      "approved_blob": "fea52994e817a46b3a1b4c5c26db1471f59495e1"
+    },
+    "apps/aigateway/tests/unit/test_provider_access_availability_route.py": {
+      "base_blob": "933f6748cdfefd3f6f1efe3a7aea75b90131ecec",
+      "approved_blob": "00caa0edef0a4fc957f6998959ec9155f84d4d27"
+    },
+    "packages/screamingface/tests/test_cache_local.py": {
+      "base_blob": "790eb27803624f5a49b2c947c650294c9ef652ea",
+      "approved_blob": "86c4be672117112623d83df6b649b0ee197f1a0c"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/conftest.py": {
+      "base_blob": "0d49eeff858c1fab9cbcff4107e4bf36292d3155",
+      "approved_blob": "f89dba3561582a34a804545c49dc5e7dae133ec0"
+    },
+    "apps/aigateway/tests/unit/usage_accounting/test_chat_route_accounting.py": {
+      "base_blob": "d71ac29eaa7f77f35ca7328023ac2cfd7e397431",
+      "approved_blob": "90b25efe40d517bb8e9dd05e271b4eb2871ca81b"
+    }
+  }
+}

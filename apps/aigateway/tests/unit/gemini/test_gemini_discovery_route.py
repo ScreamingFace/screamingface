@@ -20,7 +20,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from aigateway.core.auth_types import AuthType
-from aigateway.core.credential_names import profile_id_for
 from aigateway.core.discovery_runtime import DiscoveryRuntime
 from aigateway.core.parameter_discovery import (
     DiscoveryError,
@@ -29,8 +28,6 @@ from aigateway.core.parameter_discovery import (
     RawResponse,
 )
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _PROVIDER = "gemini-cli"
@@ -96,22 +93,9 @@ def _install_runtime(client: TestClient, discovery_client: _DiscoveryClient, clo
     )
 
 
-async def _seed_profile(
-    credential_blobs, client: TestClient, account_id: str, *, auth_type: AuthType
-) -> None:
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, _PROVIDER, "default"),
-            account_id=account_id,
-            provider=_PROVIDER,
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type=auth_type,
-        )
-    )
-    # WHY: resolve reads the pair's authority, not the document (OME-1209 E4a); an api-key
-    # target's resolve reads its blob's operational register, so that blob exists unvalidated.
+async def _seed_profile(client: TestClient, account_id: str, *, auth_type: AuthType) -> None:
+    # WHY: an api-key target's resolve reads its blob's operational register, so that blob
+    # exists unvalidated.
     seed_migrated_pair(
         client,
         account_id,
@@ -121,9 +105,9 @@ async def _seed_profile(
     )
 
 
-async def _contract(credential_blobs, client: TestClient, *, auth_type: AuthType) -> dict:
+async def _contract(client: TestClient, *, auth_type: AuthType) -> dict:
     account_id = client.get("/v1/auth/me").json()["id"]
-    await _seed_profile(credential_blobs, client, account_id, auth_type=auth_type)
+    await _seed_profile(client, account_id, auth_type=auth_type)
     resp = client.get("/v1/model-parameters", params={"model": _MODEL})
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -133,12 +117,10 @@ async def _contract(credential_blobs, client: TestClient, *, auth_type: AuthType
 
 
 @pytest.mark.asyncio
-async def test_an_api_key_read_reports_live_schema_evidence(
-    authenticated_client, credential_blobs
-) -> None:
+async def test_an_api_key_read_reports_live_schema_evidence(authenticated_client) -> None:
     _install_runtime(authenticated_client, _DiscoveryClient(), _Clock())
 
-    body = await _contract(credential_blobs, authenticated_client, auth_type="api_key")
+    body = await _contract(authenticated_client, auth_type="api_key")
 
     assert body["parameters"]["temperature"]["provider"]["source"] == "gemini:discovery"
     assert body["parameters"]["temperature"]["provider"]["stale"] is False
@@ -148,14 +130,14 @@ async def test_an_api_key_read_reports_live_schema_evidence(
 
 @pytest.mark.asyncio
 async def test_a_field_the_live_schema_dropped_is_reported_unsupported(
-    authenticated_client, credential_blobs
+    authenticated_client,
 ) -> None:
     # THE reason this unit exists: the reviewed list still names `candidateCount`,
     # and the document no longer declares it. The contract now says so instead of
     # repeating our own constant back to the caller.
     _install_runtime(authenticated_client, _DiscoveryClient(), _Clock())
 
-    body = await _contract(credential_blobs, authenticated_client, auth_type="api_key")
+    body = await _contract(authenticated_client, auth_type="api_key")
 
     assert body["parameters"]["provider_params.candidateCount"]["provider"]["support"] == (
         "unsupported"
@@ -166,27 +148,23 @@ async def test_a_field_the_live_schema_dropped_is_reported_unsupported(
 
 
 @pytest.mark.asyncio
-async def test_an_oauth_read_never_dials_the_public_document(
-    authenticated_client, credential_blobs
-) -> None:
+async def test_an_oauth_read_never_dials_the_public_document(authenticated_client) -> None:
     discovery = _DiscoveryClient()
     _install_runtime(authenticated_client, discovery, _Clock())
 
-    body = await _contract(credential_blobs, authenticated_client, auth_type="oauth")
+    body = await _contract(authenticated_client, auth_type="oauth")
 
     assert discovery.calls == []
     assert body["parameters"]["temperature"]["provider"]["source"] == "gemini:code-assist"
 
 
 @pytest.mark.asyncio
-async def test_an_oauth_read_publishes_the_never_observed_window(
-    authenticated_client, credential_blobs
-) -> None:
+async def test_an_oauth_read_publishes_the_never_observed_window(authenticated_client) -> None:
     # Not degraded — nothing failed. This upstream simply publishes no schema, and
     # its reviewed evidence is as good as it will ever be.
     _install_runtime(authenticated_client, _DiscoveryClient(), _Clock())
 
-    body = await _contract(credential_blobs, authenticated_client, auth_type="oauth")
+    body = await _contract(authenticated_client, auth_type="oauth")
 
     assert body["freshness"] == {
         "observed_at": None,
@@ -198,13 +176,13 @@ async def test_an_oauth_read_publishes_the_never_observed_window(
 
 @pytest.mark.asyncio
 async def test_public_evidence_never_leaks_into_the_code_assist_contract(
-    authenticated_client, credential_blobs
+    authenticated_client,
 ) -> None:
     # `responseMimeType` exists only in the public document. Its appearance on the
     # OAuth contract would mean we had inferred one upstream's surface from another.
     _install_runtime(authenticated_client, _DiscoveryClient(), _Clock())
 
-    body = await _contract(credential_blobs, authenticated_client, auth_type="oauth")
+    body = await _contract(authenticated_client, auth_type="oauth")
 
     assert "provider_params.responseMimeType" not in body["parameters"]
 
@@ -213,14 +191,12 @@ async def test_public_evidence_never_leaks_into_the_code_assist_contract(
 
 
 @pytest.mark.asyncio
-async def test_the_gateway_projection_is_identical_under_both_modes(
-    authenticated_client, credential_blobs
-) -> None:
+async def test_the_gateway_projection_is_identical_under_both_modes(authenticated_client) -> None:
     # Evidence axis only: Gemini's rules apply under both auth modes, so every
     # shared path must carry the same gateway decision whichever mode was read.
     _install_runtime(authenticated_client, _DiscoveryClient(), _Clock())
-    with_key = await _contract(credential_blobs, authenticated_client, auth_type="api_key")
-    with_oauth = await _contract(credential_blobs, authenticated_client, auth_type="oauth")
+    with_key = await _contract(authenticated_client, auth_type="api_key")
+    with_oauth = await _contract(authenticated_client, auth_type="oauth")
 
     shared = set(with_key["parameters"]) & set(with_oauth["parameters"])
     assert {p: with_key["parameters"][p]["gateway"] for p in shared} == {
@@ -229,13 +205,13 @@ async def test_the_gateway_projection_is_identical_under_both_modes(
 
 
 @pytest.mark.asyncio
-async def test_the_models_summary_does_not_move(authenticated_client, credential_blobs) -> None:
+async def test_the_models_summary_does_not_move(authenticated_client) -> None:
     # The inline summary is served without discovery at all; a dropped field must
     # not silently shrink it, because only a rule authorizes dispatch.
     _install_runtime(authenticated_client, _DiscoveryClient(), _Clock())
     before = {r["id"]: r for r in authenticated_client.get("/v1/models").json()["data"]}[_MODEL]
 
-    await _contract(credential_blobs, authenticated_client, auth_type="api_key")
+    await _contract(authenticated_client, auth_type="api_key")
 
     after = {r["id"]: r for r in authenticated_client.get("/v1/models").json()["data"]}[_MODEL]
     assert after["supported_parameters"] == before["supported_parameters"]
@@ -245,16 +221,14 @@ async def test_the_models_summary_does_not_move(authenticated_client, credential
 
 
 @pytest.mark.asyncio
-async def test_an_outage_degrades_to_the_reviewed_static_evidence(
-    authenticated_client, credential_blobs
-) -> None:
+async def test_an_outage_degrades_to_the_reviewed_static_evidence(authenticated_client) -> None:
     # No last-good value to fall back on: the contract must still serve, from the
     # reviewed labelled-static evidence, and say so — never a fabricated negative.
     _install_runtime(
         authenticated_client, _DiscoveryClient(error=DiscoveryError("unreachable")), _Clock()
     )
 
-    body = await _contract(credential_blobs, authenticated_client, auth_type="api_key")
+    body = await _contract(authenticated_client, auth_type="api_key")
 
     assert body["freshness"]["degraded"] is True
     assert body["parameters"]["provider_params.candidateCount"]["provider"]["support"] == (
@@ -263,14 +237,12 @@ async def test_an_outage_degrades_to_the_reviewed_static_evidence(
 
 
 @pytest.mark.asyncio
-async def test_the_stale_window_serves_the_last_good_verdict_flagged(
-    authenticated_client, credential_blobs
-) -> None:
+async def test_the_stale_window_serves_the_last_good_verdict_flagged(authenticated_client) -> None:
     # fresh read → TTL expiry → outage: the observed negative still stands, but the
     # client is told it is stale rather than being handed a silent fabrication.
     clock = _Clock()
     _install_runtime(authenticated_client, _DiscoveryClient(), clock)
-    fresh = await _contract(credential_blobs, authenticated_client, auth_type="api_key")
+    fresh = await _contract(authenticated_client, auth_type="api_key")
     assert fresh["parameters"]["provider_params.candidateCount"]["provider"]["stale"] is False
 
     runtime: DiscoveryRuntime = cast(FastAPI, authenticated_client.app).state.discovery_runtime
@@ -278,7 +250,7 @@ async def test_the_stale_window_serves_the_last_good_verdict_flagged(
     runtime._client = _DiscoveryClient(error=DiscoveryError("unreachable"))  # noqa: SLF001
     clock.advance(61.0)
 
-    stale = await _contract(credential_blobs, authenticated_client, auth_type="api_key")
+    stale = await _contract(authenticated_client, auth_type="api_key")
 
     assert stale["freshness"]["stale"] is True
     assert stale["parameters"]["provider_params.candidateCount"]["provider"]["support"] == (

@@ -93,6 +93,9 @@ OUTPUT_SETTLE_S = 0.5
 
 UNSUPPORTED_SPEC_VERSION = "unsupported_spec_version"
 """The run message's major version is unknown to this worker (erd.md §2)."""
+WORLD_CONFIG_MISMATCH = "world_config_mismatch"
+"""The App that accepted the run serves another world config than this worker (OME-1770 review).
+Retryable: the condition lasts only for the rollout window between the App and the pool."""
 
 # How long a child that ignores SIGTERM is given before the worker SIGKILLs it. The
 # child is a Python process with no SIGTERM handler, so this is a backstop for a child
@@ -305,8 +308,11 @@ class RunSupervisor:
         trim_retained: Callable[[str], Awaitable[None]] | None = None,
         resident_budget_bytes: int | None = None,
         memory_poll_s: float = MEMORY_POLL_S,
+        world_digest: str | None = None,
     ) -> None:
         self._publisher = publisher
+        # The sha256 of the world file this worker's children load; None compares nothing.
+        self._world_digest = world_digest
         # The per-run RESIDENT budget (OME-1607): None watches nothing. The address-space cap
         # (`memory_budget_bytes`, the exec wrapper's RLIMIT_AS) stays the runaway backstop.
         self._memory = RunMemoryGuard(
@@ -531,8 +537,10 @@ class RunSupervisor:
         field must not get the chance to publish a second, contradicting terminal frame for
         a run that is already over.
         """
-        return await self._settled_by_tail(msg, topic) or await self._settled_unsupported_spec(
-            msg, topic
+        return (
+            await self._settled_by_tail(msg, topic)
+            or await self._settled_unsupported_spec(msg, topic)
+            or await self._settled_world_mismatch(msg, topic)
         )
 
     async def _settled_by_tail(self, msg: ClaimedMessage, topic: str) -> bool:
@@ -574,6 +582,36 @@ class RunSupervisor:
             "failed",
             UNSUPPORTED_SPEC_VERSION,
             f"run message version {version!r} is not supported by this worker",
+            started=self._redelivered(msg),
+        )
+        await msg.ack()
+        return True
+
+    async def _settled_world_mismatch(self, msg: ClaimedMessage, topic: str) -> bool:
+        """Refuse a run the App accepted under another world config than this worker's.
+
+        INVARIANT (OME-1770 review): a run executes only under the world config of the App that
+        accepted it. The App and the pool roll as separate Deployments, so for a while a new App
+        can queue a route the old pool does not declare, or the reverse.
+
+        WHY refuse only a PROVEN difference: an unstamped message (an App from before the stamp)
+        or a worker that could not read its own file has nothing to compare, and runs as before.
+        The caller's frame names no digest; the operator's log line names both.
+        """
+        stamped = decode_message(msg.data).get(job_env.WORLD_DIGEST)
+        if stamped is None or self._world_digest is None or stamped == self._world_digest:
+            return False
+        logger.warning(
+            "world config mismatch for %s: the App stamped %s, this worker serves %s",
+            topic,
+            stamped,
+            self._world_digest,
+        )
+        await self._publish_terminal(
+            topic,
+            "failed",
+            WORLD_CONFIG_MISMATCH,
+            "this run reached a worker serving another world config revision; retry the run",
             started=self._redelivered(msg),
         )
         await msg.ack()

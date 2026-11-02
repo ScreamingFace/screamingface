@@ -17,12 +17,12 @@ from typing import Any
 import pytest
 from connection_backed_admin_probes import (
     blob_at_connection_address,
-    blob_at_profile_address,
+    blob_at_name_address,
     marker,
 )
 from connection_backed_harness import ConnectionBackedHarness
 from connection_backed_oauth_probes import access_token_of
-from provider_access_harness import ProfileBackedHarness
+from provider_access_harness import RealAppHarness
 from test_writer_floor_refresh import (
     Intrusion,
     an_ownership_claim,
@@ -40,8 +40,8 @@ from aigateway.plugins.anthropic_provider.auth import AnthropicOAuth
 
 
 @pytest.fixture
-def legacy(authenticated_client, credential_blobs, monkeypatch) -> ProfileBackedHarness:
-    return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+def legacy(authenticated_client, credential_blobs, monkeypatch) -> RealAppHarness:
+    return RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
 @pytest.fixture
@@ -138,7 +138,7 @@ def test_a_token_refresh_loses_to_a_rewrite_of_its_own_blob(legacy) -> None:
 def test_a_dispatch_refresh_loses_to_a_recreated_blob_at_its_address(migrated) -> None:
     # WHY: a recreated row starts again at revision 1, so the row id is part of the observation.
     h = migrated
-    h.seed_profile()
+    h.seed_credential()
     service = profile_service(h)
     h.blobs.write(service, "default", expired_blob())
     use_intruding_tokens(h, "fresh-tok", a_blob_recreation(h, service))
@@ -146,7 +146,7 @@ def test_a_dispatch_refresh_loses_to_a_recreated_blob_at_its_address(migrated) -
     with pytest.raises(WriteConflict):
         resolve_and_authorize(h)
 
-    assert access_token_of(blob_at_profile_address(h)) == "other"
+    assert access_token_of(blob_at_name_address(h)) == "other"
 
 
 def test_a_cached_strategy_does_not_resurrect_a_blob_deleted_before_its_refresh(legacy) -> None:

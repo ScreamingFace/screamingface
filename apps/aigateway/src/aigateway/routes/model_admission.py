@@ -26,6 +26,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.endpoint_access import EndpointOperation, accessible_plugin
 from ..core.model_capabilities import canonical_model_id
 from ..core.provider_access import (
     CredentialStoreUnavailable,
@@ -146,7 +147,11 @@ async def admit_model(request: Request, current: CurrentAccount, body: _AdmitReq
 
     model_id = body.model_id
     provider = model_id.split("/", 1)[0] if "/" in model_id else ""
-    plugin = request.app.state.providers.get(provider)
+    # INVARIANT: a provider this account may not VIEW answers as unregistered, before the
+    # known-set shortcut could tell a declared target apart.
+    plugin = accessible_plugin(
+        request.app, provider, account_id=str(current.id), operation=EndpointOperation.VIEW
+    )
     if plugin is None:
         return _answer(
             model_id,
