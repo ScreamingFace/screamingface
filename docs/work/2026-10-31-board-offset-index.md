@@ -1,7 +1,7 @@
 ---
 ticket: OME-1790
 stack: screamingface-engine
-status: done
+status: in_progress
 started: 2026-10-31
 finished: 2026-10-31
 ---
@@ -104,3 +104,16 @@ selected prefix through the index, and picture admission reads `has_pictures` fr
   - Not done here: full-image build time / image size (needs the benchmark image build), kind
     runs. No CI bundle-cache key bump: the content-hashed keys already change (D1).
   - Follow-up: move OME-1789 grading onto `board_store` after #1628 and this PR merge (D2).
+
+## Review round 2 (HupBaHa, two P2s at `f4f152a51`) — PLANNED
+
+- **P2-1 nested-object corruption.** `IndexedBoard.head` validates each SELECTED entry as
+  exactly one JSON object (parsed, a dict, an `id` equal to its 1-based position when present,
+  a `case_id` that is a string when present), plus a `,` between consecutive rows, and still
+  serves the original bytes. JSON, UTF-8 and struct failures, and a short read of either file,
+  become `benchmark_unavailable`. Cost is the selected bytes only.
+- **P2-2 writer transient.** `encode_board` builds `cases.json` with one join over
+  `[b"[", row0, b",", row1, ..., b"]"]`, dropping the extra `b",".join` board-sized copy.
+- **Tests (new only):** nested-object corruption, same-size reordered rows (wrong id), invalid
+  UTF-8 in a row, offsets truncated after opening; a tracemalloc peak regression of
+  `encode_board` against the pre-OME-1790 `json.dumps(...).encode()` path (<= 1.1x).
