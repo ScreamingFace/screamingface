@@ -65,6 +65,9 @@ so the widened walk stops at its real tag instead of including AIGateway's entir
 - **Deviations:** review found that the untagged AIGateway 0.2.1 draft gives release-please no
   release SHA, so the manifest was corrected to the published 0.2.0 boundary. The owner then
   amended the close-out contract on 2026-10-30 with remediation for nonzero quarantined/noted
-  rows and the resulting merge order. Still open after merge: confirm the regenerated #512,
-  #1386 and #1385, then edit the aigateway 1.0.0 notes so the removed purge command is not listed
-  under Features.
+  rows and the resulting merge order. After merge (2026-11-02): the regenerated #512, #1386 and
+  #1385 carry the missing entries. The aigateway 1.0.0 notes are corrected through commit
+  overrides on the merged PRs: #1573 becomes a hidden `chore`, since E5c removed the purge
+  command before any release; #1491 and #1614 carry the final breaking entries (Profile-only
+  credentials no longer resolve; a stored quarantined marker is a data error, cleared before
+  upgrading). release-please applies them on its next run.
