@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import unquote_to_bytes
 
 import httpx
 
@@ -56,13 +57,13 @@ is present; what is missing is the caller's classifier.
 """
 
 _NOT_FOUND_MESSAGE = "no classifier with this model ID is available to the caller"
-_ENVELOPE_MESSAGE = (
+MALFORMED_MESSAGE = (
     'a classification takes q=({"model": <string>, "input": <string>})!classify and no parameters'
 )
 _BAD_RESULT_MESSAGE = "aigateway returned a classification result outside its contract"
 # WHY url4's code spelled here: the caller's request is malformed, which url4 answers `400` with
 # `malformed_source`; importing url4's `ErrorCode` would put this module on the url4 allowlist.
-_MALFORMED_SOURCE = "malformed_source"
+MALFORMED_SOURCE = "malformed_source"
 _BAD_RESPONSE = "aigateway_bad_response"
 _INVALID_MODEL = "invalid_model"
 
@@ -223,12 +224,29 @@ def _label_score(item: object) -> tuple[str, int | float]:
     return label, score
 
 
+def refuses_query(path: str, raw: bytes) -> bool:
+    """Whether a call to ``path`` with the raw query ``raw`` is a `/classify` call whose
+    percent-escapes do not decode as UTF-8, refused as `malformed_source` before any run.
+
+    WHY on the raw bytes, at the App (decision 10): url4 decodes such an escape to U+FFFD, so the
+    run would read, and the classifier bill, a text the caller never sent. No later step can tell
+    a replaced character from one the caller sent.
+    """
+    if path != CLASSIFY_ROUTE:
+        return False
+    try:
+        unquote_to_bytes(raw).decode("utf-8")
+    except UnicodeDecodeError:
+        return True
+    return False
+
+
 def _unsupported(message: str) -> RunnerRequestError:
     return RunnerRequestError(message, code=CLASSIFICATION_UNSUPPORTED, permanent=True)
 
 
 def _malformed() -> RunnerRequestError:
-    return RunnerRequestError(_ENVELOPE_MESSAGE, code=_MALFORMED_SOURCE, permanent=True)
+    return RunnerRequestError(MALFORMED_MESSAGE, code=MALFORMED_SOURCE, permanent=True)
 
 
 def _not_found() -> RunnerRequestError:
@@ -245,6 +263,9 @@ __all__ = [
     "CLASSIFIER_NOT_FOUND",
     "CLASSIFY_INTENT",
     "CLASSIFY_ROUTE",
+    "MALFORMED_MESSAGE",
+    "MALFORMED_SOURCE",
     "RESULT_CONTRACT",
     "ClassificationEndpoint",
+    "refuses_query",
 ]

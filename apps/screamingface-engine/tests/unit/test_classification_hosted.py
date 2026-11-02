@@ -199,6 +199,27 @@ async def test_the_encoded_limit_admits_8182_query_bytes_and_refuses_one_more() 
     assert [json.loads(request.content)["input"] for request in gateway.requests] == [fits]
 
 
+@pytest.mark.parametrize(
+    "escape", ["%FF", "%ED%A0%80", "%C3"], ids=["not-utf8", "encoded-surrogate", "truncated"]
+)
+async def test_a_percent_escape_that_is_not_utf8_is_refused_before_any_gateway_call(
+    escape: str,
+) -> None:
+    """WHY (decision 10): url4 decodes such an escape to U+FFFD, so the classifier would be paid
+    for a text the caller never sent. A valid escape of the same text is the control."""
+    gateway = _Gateway()
+    query = _query(_FIRST, "zz-HOLE-zz")
+    assert "zz-HOLE-zz" in query
+
+    async with _engine(gateway) as (app, _):
+        refused = await _call(app, query.replace("HOLE", escape))
+        control = await _call(app, query.replace("HOLE", "%C3%A9"))
+
+    assert (refused.status_code, _error(refused)["code"]) == (400, "malformed_source")
+    assert control.status_code == 200
+    assert [json.loads(request.content)["input"] for request in gateway.requests] == ["zz-é-zz"]
+
+
 async def test_an_answer_seed_is_refused_before_any_gateway_call() -> None:
     gateway = _Gateway()
     async with _engine(gateway) as (app, _):

@@ -15,14 +15,20 @@ no other logger is touched.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Iterator
+from typing import Any
 from urllib.parse import quote
 
 import pytest
+import uvicorn
 from uvicorn.logging import AccessFormatter
+from uvicorn.protocols.http.h11_impl import H11Protocol
+from uvicorn.protocols.http.httptools_impl import HttpToolsProtocol
 from uvicorn.protocols.utils import get_path_with_query_string
+from uvicorn.server import ServerState
 
 from screamingface_engine.access_log import QueryRedactingFilter, install_access_log_filter
 from screamingface_engine.app import create_app
@@ -141,3 +147,89 @@ def test_creating_the_app_twice_installs_one_filter() -> None:
     assert not any(
         isinstance(f, QueryRedactingFilter) for f in logging.getLogger("uvicorn.error").filters
     )
+
+
+# --- uvicorn's own access call --------------------------------------------------------------------
+
+
+class _Transport(asyncio.Transport):
+    """A connection uvicorn's protocol writes to; nothing leaves the process."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.written = bytearray()
+        self.closed = False
+
+    def get_extra_info(self, name: str, default: Any = None) -> Any:
+        return {"sockname": ("127.0.0.1", 8000), "peername": ("10.0.0.1", 5000)}.get(name, default)
+
+    def write(self, data: bytes | bytearray | memoryview) -> None:
+        self.written += data
+
+    def close(self) -> None:
+        self.closed = True
+
+    def is_closing(self) -> bool:
+        return self.closed
+
+    def pause_reading(self) -> None:
+        pass
+
+    def resume_reading(self) -> None:
+        pass
+
+
+class _Recording(logging.Handler):
+    def __init__(self, records: list[logging.LogRecord]) -> None:
+        super().__init__()
+        self.records = records
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.records.append(record)
+
+
+async def _ok(_scope: Any, _receive: Any, send: Any) -> None:
+    await send({"type": "http.response.start", "status": 200, "headers": []})
+    await send({"type": "http.response.body", "body": b"ok"})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("http", [H11Protocol, HttpToolsProtocol], ids=["h11", "httptools"])
+@pytest.mark.parametrize(
+    "target",
+    ["/classify?" + quote(_DIRECT, safe="="), "/?" + _NESTED],
+    ids=["direct", "nested"],
+)
+async def test_uvicorn_s_own_access_record_reaches_the_handler_without_its_query(
+    http: type[H11Protocol | HttpToolsProtocol], target: str
+) -> None:
+    """WHY the installed protocol and not a hand-built record: the filter reads uvicorn's argument
+    shape, which `>=0.52.1` lets a release change. Driven through uvicorn's own parser and access
+    call, a changed shape fails here instead of logging the caller's text."""
+    install_access_log_filter()
+    records: list[logging.LogRecord] = []
+    logger = logging.getLogger(_ACCESS)
+    handler, level = _Recording(records), logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    config = uvicorn.Config(app=_ok, http=http, log_config=None, lifespan="off")
+    config.load()
+    protocol = http(config=config, server_state=ServerState(), app_state={})
+    transport = _Transport()
+    try:
+        protocol.connection_made(transport)
+        protocol.data_received(f"GET {target} HTTP/1.1\r\nHost: engine.test\r\n\r\n".encode())
+        for _ in range(200):
+            if records:
+                break
+            await asyncio.sleep(0.01)
+    finally:
+        protocol.connection_lost(None)
+        logger.removeHandler(handler)
+        logger.setLevel(level)
+
+    path = target.partition("?")[0]
+    assert transport.written.startswith(b"HTTP/1.1 200")
+    assert [record.getMessage() for record in records] == [
+        f'10.0.0.1:5000 - "GET {path} HTTP/1.1" 200'
+    ]
