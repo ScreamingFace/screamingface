@@ -7001,6 +7001,404 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         notebook="12_inspect_evals_benchmarks",
         inspect_evals_case_count=53,
     ),
+    BenchmarkSpec(
+        key="hle",
+        published_revision="32c089fbfcd9c29f",
+        title="Humanity's Last Exam (HLE)",
+        description=(
+            "2,500 expert-written questions across more than 100 subjects, from mathematics "
+            "and the sciences to the humanities: Humanity's Last Exam's full public set, "
+            "imported from inspect_evals. 342 questions (about 14%) come with one picture, "
+            "saved inside the Case at import, so the Candidate must read images and nothing "
+            "is fetched at run time. The eval's system prompt asks for an explanation, a "
+            "final answer (a short exact answer, or a letter for the multiple-choice "
+            "questions) and a confidence. An LLM judge, glm-5.3-flash, compares the final "
+            "answer with the reference using the eval's maintained regex_judge prompt, with "
+            "every judge call routed and metered through our gateway. Benchmark score = mean "
+            "of the judge's correct/incorrect over the cases run; a reply the judge could not "
+            "grade in three tries counts as wrong, as the CAIS leaderboard counts it, where "
+            "inspect_evals' own accuracy leaves it out. The Candidate's stated confidence "
+            "(100 when it states none) is published beside it as a second score, its mean "
+            "from 0 to 100; the eval's calibration error, standard error and unscored count "
+            "are not reproduced. Two named deviations from the eval's judging: its backup "
+            "judge (gemini-3.7-flash, a separate column) is not run, and its pin of the judge "
+            "to fp8 endpoints cannot be sent through our gateway, so OpenRouter may serve the "
+            "judge at another precision. inspect_evals runs the model with no generation "
+            "settings; this benchmark imposes none. No mid-run check surface."
+        ),
+        focus="Expert-level questions across 100+ subjects, 14% with a picture (LLM-judged)",
+        dataset_url="https://huggingface.co/datasets/cais/hle",
+        # The best lab-published score on the full set without tools is under half (0.484,
+        # below), and the questions were kept only when frontier models failed them (OME-1257).
+        difficulty="hard",
+        # A Case the judge cannot grade counts 0, the CAIS leaderboard's accounting.
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.hle.hle:hle.
+        # License: mit, the cais/hle dataset card at the pinned revision (31 MIT
+        #   precedents in this table).
+        # Benchmark Provenance (OME-1455): eval.yaml and arXiv via the importer; the
+        # baselines by hand from the sources named beside them.
+        paper_url="https://arxiv.org/abs/2501.14249",
+        authors="Phan et al., 2025",
+        citation=(
+            "@misc{phan2026humanitysexam,\n"
+            "      title={Humanity's Last Exam}, \n"
+            "      author={Long Phan and Alice Gatti and Ziwen Han and Nathaniel Li and J"
+            "osephina Hu and Hugh Zhang and Chen Bo Calvin Zhang and Mohamed Shaaban and "
+            "John Ling and Sean Shi and Michael Choi and Anish Agrawal and Arnav Chopra a"
+            "nd Adam Khoja and Ryan Kim and Richard Ren and Jason Hausenloy and Oliver Zh"
+            "ang and Mantas Mazeika and Dmitry Dodonov and Tung Nguyen and Jaeho Lee and "
+            "Daron Anderson and Mikhail Doroshenko and Alun Cennyth Stokes and Mobeen Mah"
+            "mood and Oleksandr Pokutnyi and Oleg Iskra and Jessica P. Wang and John-Clar"
+            "k Levin and Mstyslav Kazakov and Fiona Feng and Steven Y. Feng and Haoran Zh"
+            "ao and Michael Yu and Varun Gangal and Chelsea Zou and Zihan Wang and Sergue"
+            "i Popov and Robert Gerbicz and Geoff Galgon and Johannes Schmitt and Will Ye"
+            "adon and Yongki Lee and Scott Sauers and Alvaro Sanchez and Fabian Giska and"
+            " Marc Roth and S\u00f8ren Riis and Saiteja Utpala and Noah Burns and Gashaw M. Go"
+            "shu and Mohinder Maheshbhai Naiya and Chidozie Agu and Zachary Giboney and A"
+            "ntrell Cheatom and Francesco Fournier-Facio and Sarah-Jane Crowson and Lenna"
+            "rt Finke and Zerui Cheng and Jennifer Zampese and Ryan G. Hoerr and Mark Nan"
+            "dor and Hyunwoo Park and Tim Gehrunger and Jiaqi Cai and Ben McCarty and Ale"
+            "xis C Garretson and Edwin Taylor and Damien Sileo and Qiuyu Ren and Usman Qa"
+            "zi and Lianghui Li and Jungbae Nam and John B. Wydallis and Pavel Arkhipov a"
+            "nd Jack Wei Lun Shi and Aras Bacho and Chris G. Willcocks and Hangrui Cao an"
+            "d Sumeet Motwani and Emily de Oliveira Santos and Johannes Veith and Edward "
+            "Vendrow and Doru Cojoc and Kengo Zenitani and Joshua Robinson and Longke Tan"
+            "g and Yuqi Li and Joshua Vendrow and Natanael Wildner Fraga and Vladyslav Ku"
+            "chkin and Andrey Pupasov Maksimov and Pierre Marion and Denis Efremov and Ja"
+            "yson Lynch and Kaiqu Liang and Aleksandar Mikov and Andrew Gritsevskiy and J"
+            "ulien Guillod and G\u00f6zdenur Demir and Dakotah Martinez and Ben Pageler and Ke"
+            "vin Zhou and Saeed Soori and Ori Press and Henry Tang and Paolo Rissone and "
+            "Sean R. Green and Lina Br\u00fcssel and Moon Twayana and Aymeric Dieuleveut and J"
+            "oseph Marvin Imperial and Ameya Prabhu and Jinzhou Yang and Nick Crispino an"
+            "d Arun Rao and Dimitri Zvonkine and Gabriel Loiseau and Mikhail Kalinin and "
+            "Marco Lukas and Ciprian Manolescu and Nate Stambaugh and Subrata Mishra and "
+            "Tad Hogg and Carlo Bosio and Brian P Coppola and Julian Salazar and Jaehyeok"
+            " Jin and Rafael Sayous and Stefan Ivanov and Philippe Schwaller and Shaipran"
+            "esh Senthilkuma and Andres M Bran and Andres Algaba and Kelsey Van den Houte"
+            " and Lynn Van Der Sypt and Brecht F. Verbeken and David Noever and Alexei Ko"
+            "pylov and Benjamin Myklebust and Bikun Li and Lisa Schut and Evgenii Zhelton"
+            "ozhskii and Qiaochu Yuan and Derek Lim and Richard Stanley and Tong Yang and"
+            " John Maar and Julian Wykowski and Mart\u00ed Oller and Anmol Sahu and Cesare Giu"
+            "lio Ardito and Yuzheng Hu and Ariel Ghislain Kemogne Kamdoum and Alvin Jin a"
+            "nd Tobias Garcia Vilchis and Yuexuan Zu and Martin Lackner and James Koppel "
+            "and Gongbo Sun and Daniil S. Antonenko and Steffi Chern and Bingchen Zhao an"
+            "d Pierrot Arsene and Joseph M Cavanagh and Daofeng Li and Jiawei Shen and Do"
+            "nato Crisostomi and Wenjin Zhang and Ali Dehghan and Sergey Ivanov and David"
+            " Perrella and Nurdin Kaparov and Allen Zang and Ilia Sucholutsky and Arina K"
+            "harlamova and Daniil Orel and Vladislav Poritski and Shalev Ben-David and Za"
+            "chary Berger and Parker Whitfill and Michael Foster and Daniel Munro and Lin"
+            "h Ho and Shankar Sivarajan and Dan Bar Hava and Aleksey Kuchkin and David Ho"
+            "lmes and Alexandra Rodriguez-Romero and Frank Sommerhage and Anji Zhang and "
+            "Richard Moat and Keith Schneider and Zakayo Kazibwe and Don Clarke and Dae H"
+            "yun Kim and Felipe Meneguitti Dias and Sara Fish and Veit Elser and Tobias K"
+            "reiman and Victor Efren Guadarrama Vilchis and Immo Klose and Ujjwala Ananth"
+            "eswaran and Adam Zweiger and Kaivalya Rawal and Jeffery Li and Jeremy Nguyen"
+            " and Nicolas Daans and Haline Heidinger and Maksim Radionov and V\u00e1clav Rozho"
+            "\u0148 and Vincent Ginis and Christian Stum"
+            "p and Niv Cohen and Rafa\u0142 Po\u015bwiata and"
+            " Josef Tkadlec and Alan Goldfarb and Chenguang Wang and Piotr Padlewski and "
+            "Stanislaw Barzowski and Kyle Montgomery and Ryan Stendall and Jamie Tucker-F"
+            "oltz and Jack Stade and T. Ryan Rogers and Tom Goertzen and Declan Grabb and"
+            " Abhishek Shukla and Alan Givr\u00e9 and John Arnold Ambay and Archan Sen and Muh"
+            "ammad Fayez Aziz and Mark H Inlow and Hao He and Ling Zhang and Younesse Kad"
+            "dar and Ivar \u00c4ngquist and Yanxu Chen and Harrison K Wang and Kalyan Ramakris"
+            "hnan and Elliott Thornley and Antonio Terpin and Hailey Schoelkopf and Eric "
+            "Zheng and Avishy Carmi and Ethan D. L. Brown and Kelin Zhu and Max Bartolo a"
+            "nd Richard Wheeler and Martin Stehberger and Peter Bradshaw and JP Heimonen "
+            "and Kaustubh Sridhar and Ido Akov and Jennifer Sandlin and Yury Makarychev a"
+            "nd Joanna Tam and Hieu Hoang and David M. Cunningham and Vladimir Goryachev "
+            "and Demosthenes Patramanis and Michael Krause and Andrew Redenti and David A"
+            "ldous and Jesyin Lai and Shannon Coleman and Jiangnan Xu and Sangwon Lee and"
+            " Ilias Magoulas and Sandy Zhao and Ning Tang and Michael K. Cohen and Orr Pa"
+            "radise and Jan Hendrik Kirchner and Maksym Ovchynnikov and Jason O. Matos an"
+            "d Adithya Shenoy and Michael Wang and Yuzhou Nie and Anna Sztyber-Betley and"
+            " Paolo Faraboschi and Robin Riblet and Jonathan Crozier and Shiv Halasyamani"
+            " and Shreyas Verma and Prashant Joshi and Eli Meril and Ziqiao Ma and J\u00e9r\u00e9my"
+            " Andr\u00e9oletti and Raghav Singhal and Jacob Platnick and Volodymyr Nevirkovets"
+            " and Luke Basler and Alexander Ivanov and Seri Khoury and Nils Gustafsson an"
+            "d Marco Piccardo and Hamid Mostaghimi and Qijia Chen and Virendra Singh and "
+            "Tran Quoc Kh\u00e1nh and Paul Rosu and Hannah Szlyk and Zachary Brown and Himansh"
+            "u Narayan and Aline Menezes and Jonathan Roberts and William Alley and Kunya"
+            "ng Sun and Arkil Patel and Max Lamparth and Anka Reuel and Linwei Xin and Ha"
+            "nmeng Xu and Jacob Loader and Freddie Martin and Zixuan Wang and Andrea Achi"
+            "lleos and Thomas Preu and Tomek Korbak and Ida Bosio and Fereshteh Kazemi an"
+            "d Ziye Chen and Bir\u00f3 B\u00e1lint and Eve J."
+            " Y. Lo and Jiaqi Wang and Maria In\u00eas S"
+            ". Nunes and Jeremiah Milbauer and M Saiful Bari and Zihao Wang and Behzad An"
+            "sarinejad and Yewen Sun and Stephane Durand and Hossam Elgnainy and Guillaum"
+            "e Douville and Daniel Tordera and George Balabanian and Hew Wolff and Lynna "
+            "Kvistad and Hsiaoyun Milliron and Ahmad Sakor and Murat Eron and Andrew Favr"
+            "e D. O. and Shailesh Shah and Xiaoxiang Zhou and Firuz Kamalov and Sherwin A"
+            "bdoli and Tim Santens and Shaul Barkan and Allison Tee and Robin Zhang and A"
+            "lessandro Tomasiello and G. Bruno De Luca and Shi-Zhuo Looi and Vinh-Kha Le "
+            "and Noam Kolt and Jiayi Pan and Emma Rodman and Jacob Drori and Carl J Fossu"
+            "m and Niklas Muennighoff and Milind Jagota and Ronak Pradeep and Honglu Fan "
+            "and Jonathan Eicher and Michael Chen and Kushal Thaman and William Merrill a"
+            "nd Moritz Firsching and Carter Harris and Stefan Ciob\u00e2c\u0103 and Jason Gross and"
+            " Rohan Pandey and Ilya Gusev and Adam Jones and Shashank Agnihotri and Pavel"
+            " Zhelnov and Mohammadreza Mofayezi and Alexander Piperski and David K. Zhang"
+            " and Kostiantyn Dobarskyi and Roman Leventov and Ignat Soroko and Joshua Due"
+            "rsch and Vage Taamazyan and Andrew Ho and Wenjie Ma and William Held and Rui"
+            "cheng Xian and Armel Randy Zebaze and Mohanad Mohamed and Julian Noah Leser "
+            "and Michelle X Yuan and Laila Yacar and Johannes Lengler and Katarzyna Olsze"
+            "wska and Claudio Di Fratta and Edson Oliveira and Joseph W. Jackson and Andy"
+            " Zou and Muthu Chidambaram and Timothy Manik and Hector Haffenden and Dashie"
+            "ll Stander and Ali Dasouqi and Alexander Shen and Bita Golshani and David St"
+            "ap and Egor Kretov and Mikalai Uzhou and Alina Borisovna Zhidkovskaya and Ni"
+            "ck Winter and Miguel Orbegozo Rodriguez and Robert Lauff and Dustin Wehr and"
+            " Colin Tang and Zaki Hossain and Shaun Phillips and Fortuna Samuele and Fred"
+            "rik Ekstr\u00f6m and Angela Hammon and Oam Patel and Faraz Farhidi and George Med"
+            "ley and Forough Mohammadzadeh and Madellene Pe\u00f1aflor and Haile Kassahun and "
+            "Alena Friedrich and Rayner Hernandez Perez and Daniel Pyda and Taom Sakal an"
+            "d Omkar Dhamane and Ali Khajegili Mirabadi and Eric Hallman and Kenchi Okuts"
+            "u and Mike Battaglia and Mohammad Maghsoudimehrabani and Alon Amit and Dave "
+            "Hulbert and Roberto Pereira and Simon Weber and Handoko and Anton Peristyy a"
+            "nd Stephen Malina and Mustafa Mehkary and Rami Aly and Frank Reidegeld and A"
+            "nna-Katharina Dick and Cary Friday and Mukhwinder Singh and Hassan Shapouria"
+            "n and Wanyoung Kim and Mariana Costa and Hubeyb Gurdogan and Harsh Kumar and"
+            " Chiara Ceconello and Chao Zhuang and Haon Park and Micah Carroll and Andrew"
+            " R. Tawfeek and Stefan Steinerberger and Daattavya Aggarwal and Michael Kirc"
+            "hhof and Linjie Dai and Evan Kim and Johan Ferret and Jainam Shah and Yuzhou"
+            " Wang and Minghao Yan and Krzysztof Burdzy and Lixin Zhang and Antonio Franc"
+            "a and Diana T. Pham and Kang Yong Loh and Joshua Robinson and Abram Jackson "
+            "and Paolo Giordano and Philipp Petersen and Adrian Cosma and Jesus Colino an"
+            "d Colin White and Jacob Votava and Vladimir Vinnikov and Ethan Delaney and P"
+            "etr Spelda and Vit Stritecky and Syed M. Shahid and Jean-Christophe Mourrat "
+            "and Lavr Vetoshkin and Koen Sponselee and Renas Bacho and Zheng-Xin Yong and"
+            " Florencia de la Rosa and Nathan Cho and Xiuyu Li and Guillaume Malod and Or"
+            "ion Weller and Guglielmo Albani and Leon Lang and Julien Laurendeau and Dmit"
+            "ry Kazakov and Fatimah Adesanya and Julien Portier and Lawrence Hollom and V"
+            "ictor Souza and Yuchen Anna Zhou and Julien Degorre and Yi\u011fit Yal\u0131n and Gben"
+            "ga Daniel Obikoya and Rai and Filippo Bigi and M. C. Bosc\u00e1 and Oleg Shumar a"
+            "nd Kaniuar Bacho and Gabriel Recchia and Mara Popescu and Nikita Shulga and "
+            "Ngefor Mildred Tanwie and Thomas C. H. Lux and Ben Rank and Colin Ni and Mat"
+            "thew Brooks and Alesia Yakimchyk and Huanxu and Liu and Stefano Cavalleri an"
+            "d Olle H\u00e4ggstr\u00f6m and Emil Verkama and Joshua Newbould and Hans Gundlach and "
+            "Leonor Brito-Santana and Brian Amaro and Vivek Vajipey and Rynaa Grover and "
+            "Ting Wang and Yosi Kratish and Wen-Ding Li and Sivakanth Gopi and Andrea Cac"
+            "iolai and Christian Schroeder de Witt and Pablo Hern\u00e1ndez-C\u00e1mara and Emanuel"
+            "e Rodol\u00e0 and Jules Robins and Dominic Williamson and Vincent Cheng and Brad "
+            "Raynor and Hao Qi and Ben Segev and Jingxuan Fan and Sarah Martinson and Eri"
+            "k Y. Wang and Kaylie Hausknecht and Michael P. Brenner and Mao Mao and Chris"
+            "toph Demian and Peyman Kassani and Xinyu Zhang and David Avagian and Eshawn "
+            "Jessica Scipio and Alon Ragoler and Justin Tan and Blake Sims and Rebeka Ple"
+            "cnik and Aaron Kirtland and Omer Faruk Bodur and D. P. Shinde and Yan Carlos"
+            " Leyva Labrador and Zahra Adoul and Mohamed Zekry and Ali Karakoc and Tania "
+            "C. B. Santos and Samir Shamseldeen and Loukmane Karim and Anna Liakhovitskai"
+            "a and Nate Resman and Nicholas Farina and Juan Carlos Gonzalez and Gabe Maay"
+            "an and Earth Anderson and Rodrigo De Oliveira Pena and Elizabeth Kelley and "
+            "Hodjat Mariji and Rasoul Pouriamanesh and Wentao Wu and Ross Finocchio and I"
+            "smail Alarab and Joshua Cole and Danyelle Ferreira and Bryan Johnson and Moh"
+            "ammad Safdari and Liangti Dai and Siriphan Arthornthurasuk and Isaac C. McAl"
+            "ister and Alejandro Jos\u00e9 Moyano and Alexey Pronin and Jing Fan and Angel Ram"
+            "irez-Trinidad and Yana Malysheva and Daphiny Pottmaier and Omid Taheri and S"
+            "tanley Stepanic and Samuel Perry and L"
+            "uke Askew and Ra\u00fal Adri\u00e1n Huerta Rodr\u00ed"
+            "guez and Ali M. R. Minissi and Ricardo Lorena and Krishnamurthy Iyer and Ars"
+            "had Anil Fasiludeen and Ronald Clark and Josh Ducey and Matheus Piza and Maj"
+            "a Somrak and Eric Vergo and Juehang Qin and Benj\u00e1min Borb\u00e1s and Eric Chu and"
+            " Jack Lindsey and Antoine Jallon and I. M. J. McInnis and Evan Chen and Avi "
+            "Semler and Luk Gloor and Tej Shah and Marc Carauleanu and Pascal Lauer and T"
+            "ran \u0110uc Huy and Hossein Shahrtash and Emilien Duc and Lukas Lewark and Assaf"
+            " Brown and Samuel Albanie and Brian Weber and Warren S. Vaz and Pierre Clavi"
+            "er and Yiyang Fan and Gabriel Poesia Reis e Silva and Long and Lian and Marc"
+            "us Abramovitch and Xi Jiang and Sandra Mendoza and Murat Islam and Juan Gonz"
+            "alez and Vasilios Mavroudis and Justin Xu and Pawan Kumar and Laxman Prasad "
+            "Goswami and Daniel Bugas and Nasser Heydari and Ferenc Jeanplong and Thorben"
+            " Jansen and Antonella Pinto and Archimedes Apronti and Abdallah Galal and Ng"
+            " Ze-An and Ankit Singh and Tong Jiang and Joan of Arc Xavier and Kanu Priya "
+            "Agarwal and Mohammed Berkani and Gang Zhang and Zhehang Du and Benedito Alve"
+            "s de Oliveira Junior and Dmitry Malishev and Nicolas Remy and Taylor D. Hart"
+            "man and Tim Tarver and Stephen Mensah and Gautier Abou Loume and Wiktor Mora"
+            "k and Farzad Habibi and Sarah Hoback and Will Cai and Javier Gimenez and Ros"
+            "elynn Grace Montecillo and Jakub \u0141ucki and Russell Campbell and Asankhaya Sh"
+            "arma and Khalida Meer and Shreen Gul and Daniel Espinosa Gonzalez and Xavier"
+            " Alapont and Alex Hoover and Gunjan Chhablani and Freddie Vargus and Arunim "
+            "Agarwal and Yibo Jiang and Deepakkumar Patil and David Outevsky and Kevin Jo"
+            "seph Scaria and Rajat Maheshwari and Abdelkader Dendane and Priti Shukla and"
+            " Ashley Cartwright and Sergei Bogdanov"
+            " and Niels M\u00fcndler and S\u00f6ren M\u00f6ller an"
+            "d Luca Arnaboldi and Kunvar Thaman and Muhammad Rehan Siddiqi and Prajvi Sax"
+            "ena and Himanshu Gupta and Tony Fruhauff and Glen Sherman and M\u00e1ty\u00e1s Vincze "
+            "and Siranut Usawasutsakorn and Dylan Ler and Anil Radhakrishnan and Innocent"
+            " Enyekwe and Sk Md Salauddin and Jiang Muzhen and Aleksandr Maksapetyan and "
+            "Vivien Rossbach and Chris Harjadi and Mohsen Bahaloohoreh and Claire Sparrow"
+            " and Jasdeep Sidhu and Sam Ali and Song Bian and John Lai and Eric Singer an"
+            "d Justine Leon Uro and Greg Bateman and Mohamed Sayed and Ahmed Menshawy and"
+            " Darling Duclosel and Dario Bezzi and Yashaswini Jain and Ashley Aaron and M"
+            "urat Tiryakioglu and Sheeshram Siddh and Keith Krenek and Imad Ali Shah and "
+            "Jun Jin and Scott Creighton and Denis Peskoff and Zienab EL-Wasif and Ragave"
+            "ndran P V and Michael Richmond and Joseph McGowan and Tejal Patwardhan and H"
+            "ao-Yu Sun and Ting Sun and Nikola Zubi\u0107 and Samuele Sala and Stephen Ebert a"
+            "nd Jean Kaddour and Manuel Schottdorf and Dianzhuo Wang and Gerol Petruzella"
+            " and Alex Meiburg and Tilen Medved and Ali ElSheikh and S Ashwin Hebbar and "
+            "Lorenzo Vaquero and Xianjun Yang and Jason Poulos and Vil\u00e9m Zouhar and Serge"
+            "y Bogdanik and Mingfang Zhang and Jorge Sanz-Ros and David Anugraha and Yinw"
+            "ei Dai and Anh N. Nhu and Xue Wang and Ali Anil Demircali and Zhibai Jia and"
+            " Yuyin Zhou and Juncheng Wu and Mike He and Nitin Chandok and Aarush Sinha a"
+            "nd Gaoxiang Luo and Long Le and Micka\u00eb"
+            "l Noy\u00e9 and Micha\u0142 Pere\u0142kiewicz and Ioa"
+            "nnis Pantidis and Tianbo Qi and Soham Sachin Purohit and Letitia Parcalabesc"
+            "u and Thai-Hoa Nguyen and Genta Indra Winata and Edoardo M. Ponti and Hanche"
+            "n Li and Kaustubh Dhole and Jongee Park and Dario Abbondanza and Yuanli Wang"
+            " and Anupam Nayak and Diogo M. Caetano and Antonio A. W. L. Wong and Maria d"
+            "el Rio-Chanona and D\u00e1niel Kondor and Pieter Francois and Ed Chalstrey and Ja"
+            "kob Zsambok and Dan Hoyer and Jenny Reddish and Jakob Hauser and Francisco-J"
+            "avier Rodrigo-Gin\u00e9s and Suchandra Datta and Maxwell Shepherd and Thom Kamphu"
+            "is and Qizheng Zhang and Hyunjun Kim and Ruiji Sun and Jianzhu Yao and Franc"
+            "k Dernoncourt and Satyapriya Krishna and Sina Rismanchian and Bonan Pu and F"
+            "rancesco Pinto and Yingheng Wang and Kumar Shridhar and Kalon J. Overholt an"
+            "d Glib Briia and Hieu Nguyen and David and Soler Bartomeu and Tony CY Pang a"
+            "nd Adam Wecker and Yifan Xiong and Fanfei Li and Lukas S. Huber and Joshua J"
+            "aeger and Romano De Maddalena and Xing Han L\u00f9 and Yuhui Zhang and Claas Bege"
+            "r and Patrick Tser Jern Kon and Sean Li and Vivek Sanker and Ming Yin and Yi"
+            "hao Liang and Xinlu Zhang and Ankit Agrawal and Li S. Yifei and Zechen Zhang"
+            " and Mu Cai and Yasin Sonmez and Costin Cozianu and Changhao Li and Alex Sle"
+            "n and Shoubin Yu and Hyun Kyu Park and Gabriele Sarti and Marcin Bria\u0144ski an"
+            "d Alessandro Stolfo and Truong An Nguyen and Mike Zhang and Yotam Perlitz an"
+            "d Jose Hernandez-Orallo and Runjia Li and Amin Shabani and Felix Juefei-Xu a"
+            "nd Shikhar Dhingra and Orr Zohar and My Chiffon Nguyen and Alexander Pondave"
+            "n and Abdurrahim Yilmaz and Xuandong Zhao and Chuanyang Jin and Muyan Jiang "
+            "and Stefan Todoran and Xinyao Han and Jules Kreuer and Brian Rabern and Anna"
+            " Plassart and Martino Maggetti and Luther Yap and Robert Geirhos and Jonatho"
+            "n Kean and Dingsu Wang and Sina Mollaei and Chenkai Sun and Yifan Yin and Sh"
+            "iqi Wang and Rui Li and Yaowen Chang and Anjiang Wei and Alice Bizeul and Xi"
+            "aohan Wang and Alexandre Oliveira Arrais and Kushin Mukherjee and Jorge Cham"
+            "orro-Padial and Jiachen Liu and Xingyu Qu and Junyi Guan and Adam Bouyamourn"
+            " and Shuyu Wu and Martyna Plomecka and Junda Chen and Mengze Tang and Jiaqi "
+            "Deng and Shreyas Subramanian and Haocheng Xi and Haoxuan Chen and Weizhi Zha"
+            "ng and Yinuo Ren and Haoqin Tu and Sejong Kim and Yushun Chen and Sara Vera "
+            "Marjanovi\u0107 and Junwoo Ha and Grzegorz Luczyna and Jeff J. Ma and Zewen Shen "
+            "and Dawn Song and Cedegao E. Zhang and Zhun Wang and Ga\u00ebl Gendron and Yunze "
+            "Xiao and Leo Smucker and Erica Weng and Kwok Hao Lee and Zhe Ye and Stefano "
+            "Ermon and Ignacio D. Lopez-Miguel and Theo Knights and Anthony Gitter and Na"
+            "mkyu Park and Boyi Wei and Hongzheng Chen and Kunal Pai and Ahmed Elkhanany "
+            "and Han Lin and Philipp D. Siedler and Jichao Fang and Ritwik Mishra and K\u00e1r"
+            "oly Zsolnai-Feh\u00e9r and Xilin Jiang and Shadab Khan and Jun Yuan and Rishab Ku"
+            "mar Jain and Xi Lin and Mike Peterson and Zhe Wang and Aditya Malusare and M"
+            "aosen Tang and Isha Gupta and Ivan Fosin and Timothy Kang and Barbara Dworak"
+            "owska and Kazuki Matsumoto and Guangyao Zheng and Gerben Sewuster and Jorge "
+            "Pretel Villanueva and Ivan Rannev and Igor Chernyavsky and Jiale Chen and De"
+            "epayan Banik and Ben Racz and Wenchao Dong and Jianxin Wang and Laila Bashma"
+            "l and Duarte V. Gon\u00e7alves and Wei Hu and Kaushik Bar and Ondrej Bohdal and A"
+            "tharv Singh Patlan and Shehzaad Dhuliawala and Caroline Geirhos and Julien W"
+            "ist and Yuval Kansal and Bingsen Chen and Kutay Tire and Atak Talay Y\u00fccel an"
+            "d Brandon Christof and Veerupaksh Singla and Zijian Song and Sanxing Chen an"
+            "d Jiaxin Ge and Kaustubh Ponkshe and Isaac Park and Tianneng Shi and Martin "
+            "Q. Ma and Joshua Mak and Sherwin Lai and Antoine Moulin and Zhuo Cheng and Z"
+            "handa Zhu and Ziyi Zhang and Vaidehi Patil and Ketan Jha and Qiutong Men and"
+            " Jiaxuan Wu and Tianchi Zhang and Bruno Hebling Vieira and Alham Fikri Aji a"
+            "nd Jae-Won Chung and Mohammed Mahfoud and Ha Thi Hoang and Marc Sperzel and "
+            "Wei Hao and Kristof Meding and Sihan Xu and Vassilis Kostakos and Davide Man"
+            "ini and Yueying Liu and Christopher Toukmaji and Jay Paek and Eunmi Yu and A"
+            "rif Engin Demircali and Zhiyi Sun and Ivan Dewerpe and Hongsen Qin and Roman"
+            " Pflugfelder and James Bailey and Johnathan Morris and Ville Heilala and Syb"
+            "ille Rosset and Zishun Yu and Peter E. Chen and Woongyeong Yeo and Eeshaan J"
+            "ain and Ryan Yang and Sreekar Chigurupati and Julia Chernyavsky and Sai Praj"
+            "wal Reddy and Subhashini Venugopalan and Hunar Batra and Core Francisco Park"
+            " and Hieu Tran and Guilherme Maximiano and Genghan Zhang and Yizhuo Liang an"
+            "d Hu Shiyu and Rongwu Xu and Rui Pan and Siddharth Suresh and Ziqi Liu and S"
+            "amaksh Gulati and Songyang Zhang and Peter Turchin and Christopher W. Bartle"
+            "tt and Christopher R. Scotese and Phuong M. Cao and Ben Wu and Jacek Karwows"
+            "ki and Davide Scaramuzza and Aakaash Nattanmai and Gordon McKellips and Anis"
+            "h Cheraku and Asim Suhail and Ethan Luo and Marvin Deng and Jason Luo and As"
+            "hley Zhang and Kavin Jindel and Jay Paek and Kasper Halevy and Allen Baranov"
+            " and Michael Liu and Advaith Avadhanam and David Zhang and Vincent Cheng and"
+            " Brad Ma and Evan Fu and Liam Do and Joshua Lass and Hubert Yang and Surya S"
+            "unkari and Vishruth Bharath and Violet Ai and James Leung and Rishit Agrawal"
+            " and Alan Zhou and Kevin Chen and Tejas Kalpathi and Ziqi Xu and Gavin Wang "
+            "and Tyler Xiao and Erik Maung and Sam Lee and Ryan Yang and Roy Yue and Ben "
+            "Zhao and Julia Yoon and Sunny Sun and Aryan Singh and Ethan Luo and Clark Pe"
+            "ng and Tyler Osbey and Taozhi Wang and Daryl Echeazu and Hubert Yang and Tim"
+            "othy Wu and Spandan Patel and Vidhi Kulkarni and Vijaykaarti Sundarapandiyan"
+            " and Ashley Zhang and Andrew Le and Zafir Nasim and Srikar Yalam and Ritesh "
+            "Kasamsetty and Soham Samal and Hubert Yang and David Sun and Nihar Shah and "
+            "Abhijeet Saha and Alex Zhang and Leon Nguyen and Laasya Nagumalli and Kaixin"
+            " Wang and Alan Zhou and Aidan Wu and Jason Luo and Anwith Telluri and Steven"
+            " Dillmann and Zhengxiang Wang and Junyu Luo and Hugo Lunn and Artem Gazizov "
+            "and Haitz S\u00e1ez de Oc\u00e1riz Borde and Ivan Trus and Morgan Hervault and Zheyu Z"
+            "hang and Bo Chen and Yuchen Wu and Christopher J. Cordier and G\u00fcn Kaynar and"
+            " Cansin Ayvaz and Polina Avdiunina and Johannes Brust and Xingjian Diao and "
+            "K. D. Meaney and Yifan Gu and Chenyu Wang and Chenzhuo Dong and William Wrig"
+            "ht and Simon Brave and Owen Root and Jiayuan Liu and Chow Chun Lok and Tianq"
+            "in Li and Shiyi Du and Dailan He and Lufeiya Liu and Sina Jamalzadegan and A"
+            "nil Ramakrishna and Xuanqing Xu and Xin Qing and Xin Luo and Wenkai Li and S"
+            "hi Bo and Filipp Gusev and Maximos Skandalis and Desheng Ma and Chunhui Zhan"
+            "g and Haoran Qiu and Allen G Hart and Rickard Br\u00fcel Gabrielsson and Ido Akov"
+            " and Artem Lukoianov and Pengchong Hu and Siting Li and Weimin Lyu and Xingc"
+            "hen Zhao and Tianyu Yang and Weiyi Wu and Deren Lei and Robert W. Baber and "
+            "Xiangchi Yuan and Lanyi Wang and Yanjun Cui and Johannes-Rudolf David and Su"
+            "jay Potlapelly and Jeremy Kalfus and Haotian Xu and Abderrahim Bendahi and Q"
+            "iming Bao and Yingxin Jia and Jiang Gui and Jiaming Hu and Zheyuan Liu and F"
+            "urkan \u015e\u0131k and Brandon Handoko and Summer Yue and Alexandr Wang and Dan Hendr"
+            "ycks},\n"
+            "      year={2026},\n"
+            "      eprint={2501.14249},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      doi={https://doi.org/10.1038/s41586-025-09962-4},\n"
+            "      url={https://arxiv.org/abs/2501.14249}, \n"
+            "}"
+        ),
+        inspect_contributors=("SasankYadati",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/hle",
+        license="MIT",
+        # Human baseline: none. The paper (arXiv 2501.14249v12, read 2026-11-02) reports no
+        # human or expert accuracy; it only speaks of "the expert human frontier".
+        human_baseline=NotPublished(
+            reason="the HLE paper reports no human or expert accuracy on the set",
+        ),
+        # Frontier score: Google DeepMind's own Gemini 3.1 Deep Think page, its "Humanity's
+        # Last Exam (full set, text + multimodal)" row, no tools (53.4% with search and code);
+        # read 2026-11-02. The best lab-published no-tools full-set figure found; later
+        # claims seen only on aggregators were not used.
+        frontier_score=FrontierScore(
+            score=0.484,
+            model="Gemini 3.1 Deep Think",
+            source_url="https://deepmind.google/models/gemini/deep-think/",
+            as_of="2026-02",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=2500,
+        scorer="inspect_evals.hle.scorers:regex_judge",
+        # The scorer's dict value: "score" (the judge's C/I, the headline) and the Candidate's
+        # stated "confidence".
+        named_scores=("score", "confidence"),
+        scorer_kwargs={
+            "grader_role": "grader",
+            "instructions": "regex_judge_instructions",
+            "max_grader_attempts": 3,
+            "template": "regex_judge_template",
+        },
+        # The eval also reports stderr, original_accuracy, cerr (calibration error) and
+        # unscored; the Benchmark reports each named score's mean per Case only, so those are
+        # not reproduced (named in the description).
+        # NAMED DEVIATION: the eval scores the whole run with its own accuracy, which leaves
+        # out a reply the judge could not grade; this Benchmark reports the mean per-Case
+        # score (chosen at import, OME-1527), where such a Case counts 0 (failure_policy
+        # withhold). That is the CAIS leaderboard's accounting, inspect_evals'
+        # original_accuracy.
+        judge=JudgeSpec(
+            # The eval's maintained judge, default.yaml's primary "grader" (owner decision on
+            # OME-1478, 2026-11-02: the paper's o3-mini judge is on OpenRouter only as :batch).
+            # NAMED DEVIATION: default.yaml also runs a backup judge, gemini-3.7-flash, as a
+            # second column that is never averaged in; a row pins one judge, so it is not run
+            # (the eval's README: use the primary judge for a single headline number).
+            # NAMED DEVIATION: default.yaml pins the judge to OpenRouter's fp8 endpoints
+            # (provider.quantizations); our gateway sends no provider routing, so OpenRouter
+            # may serve glm-5.3-flash at another precision.
+            model="openrouter/z-ai/glm-5.3-flash",
+            model_role="grader",
+            # default.yaml's judge stanza, which the scorer asks its role with; the guard
+            # admits each because the wire carries the same value. web_search=false is the
+            # house judges' retrieval-free grading (HealthBench's precedent).
+            params=(("temperature", "0"), ("max_tokens", "32768"), ("web_search", "false")),
+        ),
+        # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
+        with_check_surface=False,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

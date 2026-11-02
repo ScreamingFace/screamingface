@@ -2119,6 +2119,35 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         #   (owner accepted on OME-1477, 2026-10-28, for MMMU as a whole).
         license="apache-2.0",
     ),
+    # hle — imported by Task replay on 2026-11-02 from
+    #   inspect_evals.hle.hle:hle.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face cais/hle
+    #     pin revision 5a81a4c7271a2a2a312b9a690f0c2fde837e4c29
+    "hle": TaskReplayCasesSpec(
+        task="inspect_evals.hle.hle:hle",
+        task_args={
+            "scorer": {
+                "scorer": "regex_judge",
+                "graders": ["grader"],
+                "args": {
+                    "template": "regex_judge_template",
+                    "instructions": "regex_judge_instructions",
+                    "max_grader_attempts": 3,
+                },
+            }
+        },
+        case_count=2500,
+        case_digest="7fb3221865f11a884c67725c198409271730424a692c4c8a0c34ec86282d135f",
+        case_set_digest="a6439340e64d020489c9a7678d24245c63c6cc834dc7d47244225991be3bf57a",
+        keep_sample_metadata=True,
+        keep_sample_input=True,
+        source_pins={
+            "cais/hle": "5a81a4c7271a2a2a312b9a690f0c2fde837e4c29",
+        },
+        needs_hf_token=True,
+        license="mit",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

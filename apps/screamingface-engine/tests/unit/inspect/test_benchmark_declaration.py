@@ -204,6 +204,9 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         "inspect-mathvista": ("withhold", "single_shot", "medium"),
         # OME-1477 PR 2: MMMU's open-answer task, the same exam pool and tier, LLM-judged.
         "inspect-mmmu_open": ("withhold", "single_shot", "medium"),
+        # OME-1478: Humanity's Last Exam, the full set with its pictures, LLM-judged; the best
+        # lab-published no-tools score is under half, so "hard".
+        "inspect-hle": ("withhold", "single_shot", "hard"),
         # OME-1269: Thai grade-12 national benchmark MCQ, the first question-filter benchmark.
         "inspect-onet_m6": ("withhold", "single_shot", "medium"),
         # OME-1269: biomedical yes/no/maybe MCQ over a given abstract (question filter).
