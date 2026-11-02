@@ -3,7 +3,8 @@
 Stage 1 - build ``/classify?q=(<context>)!classify`` and refuse it before any request when a
     value cannot be encoded as UTF-8 or the encoded path and query pass the Engine's 8 KiB limit.
 Stage 2 - one GET that states its wait and is never marked safe to replay, read with a bound.
-    A ``303`` is followed once, and only to the Engine's signed artifact path.
+    A ``303`` is followed only to the Engine's signed artifact path, and that fetch is sent once
+    more only after the auth layer finished an Access login for it.
 Stage 3 - decode the result, or raise the error the Engine's answer names.
 
 INVARIANT: a classification is a paid call, so nothing here re-sends it. The auth layer re-sends
@@ -33,6 +34,7 @@ from screamingface.errors import (
     EngineUnavailableError,
     ExecutionError,
     PlanningError,
+    ScreamingFaceError,
 )
 
 CLASSIFY_PATH = "/classify"
@@ -64,8 +66,10 @@ _NEVER_SENT: tuple[type[httpx.TransportError], ...] = (
     httpx.ConnectTimeout,
     httpx.PoolTimeout,
 )
-#: url4's code for a call its concurrency cap timed out before sending any request (`503`).
-_ADMISSION_TIMEOUT = "admission_timeout"
+#: The Engine's code for a run that finished but whose result it can no longer serve.
+_RESULT_UNAVAILABLE = "result_unavailable"
+#: The auth layer's code once it has finished an Access login for a request it will not re-send.
+_REAUTHENTICATED = "access_reauthenticated"
 _RERUN_HINT = "Classifying again runs the classifier again and may bill it again."
 
 
@@ -199,12 +203,24 @@ def _artifact(get: EngineGet, location: str) -> bytes:
 
     path: str = _artifact_path(location)
     try:
-        status, _, body = _read(get, path)
-    except httpx.HTTPError as exc:
+        status, _, body = _read_artifact(get, path)
+    except (httpx.HTTPError, ScreamingFaceError) as exc:
         raise _result_unavailable(None) from exc
     if status != 200:
         raise _result_unavailable(status)
     return body
+
+
+def _read_artifact(get: EngineGet, path: str) -> tuple[int, httpx.Headers, bytes]:
+    try:
+        return _read(get, path)
+    except AuthenticationError as exc:
+        if exc.code != _REAUTHENTICATED:
+            raise
+    # WHY once more, and only here: Access stops a challenged request at its edge, so this fetch
+    # never reached the Engine, and reading a stored result bills nothing. The login is done; the
+    # classification itself is still never sent again.
+    return _read(get, path)
 
 
 def _result_unavailable(status: int | None) -> ExecutionError:
@@ -230,19 +246,20 @@ def _outcome_unknown() -> ExecutionError:
     )
 
 
-def _nothing_ran(status: int, headers: httpx.Headers, code: str | None) -> bool:
+def _nothing_ran(status: int, headers: httpx.Headers) -> bool:
     """Whether the answer states that the classification never started.
 
-    WHY these three: a rate limiter answers `429` before the request reaches a run (a Gateway or
+    WHY these two: a rate limiter answers `429` before the request reaches a run (a Gateway or
     provider `429` inside a run reaches the caller as `502`); the Engine's run admission answers
-    `503` with `Retry-After` when its runner is at capacity or its queue is unavailable, with
-    nothing queued; url4's `admission_timeout` is a `503` sent before any request. Every other
-    `503` may come from a run that started.
+    `503` with `Retry-After` when its runner is at capacity or its queue is unavailable, and
+    states that nothing was queued. A queue-unavailable `503` after a publish whose
+    acknowledgement was lost may still have stored the run; that Engine-wide gap is open (spec
+    section 8). Every other `503` may come from a run that started, url4's
+    `x.admission_timeout` included: only an expression's `;t=` guard raises it, and `/classify`
+    runs none, so on this call it is relayed from inside a run.
     """
 
-    if status == 429:
-        return True
-    return status == 503 and ("Retry-After" in headers or code == _ADMISSION_TIMEOUT)
+    return status == 429 or (status == 503 and "Retry-After" in headers)
 
 
 def _raise_refusal(status: int, headers: httpx.Headers, body: bytes) -> NoReturn:
@@ -258,6 +275,10 @@ def _raise_refusal(status: int, headers: httpx.Headers, body: bytes) -> NoReturn
             hint="Use an SF Engine that serves /classify, or update the local Engine.",
         )
     code, message = error if error is not None else (None, f"HTTP {status}")
+    if code == _RESULT_UNAVAILABLE:
+        # WHY before the refusal statuses: the Engine answers it, as `404` too, for a run that
+        # finished and whose result it can no longer serve. The classifier ran and billed.
+        raise _result_unavailable(status)
     if status in (401, 403):
         raise AuthenticationError(
             f"The SF Engine refused the caller: {message}", code=code, status=status, permanent=True
@@ -269,7 +290,7 @@ def _raise_refusal(status: int, headers: httpx.Headers, body: bytes) -> NoReturn
             status=status,
             permanent=True,
         )
-    if _nothing_ran(status, headers, code):
+    if _nothing_ran(status, headers):
         raise ExecutionError(
             f"The SF Engine did not start the classification: {message}",
             code=code,

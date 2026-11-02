@@ -20,6 +20,7 @@ import pytest
 from url4.wire.subrequest import decode_subrequest
 
 import screamingface as sf
+from screamingface._access.auth import _CloudflareAccessAuth
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine.classification import classify_path
 from screamingface.classification import Classification, LabelScore
@@ -503,6 +504,102 @@ def test_an_artifact_fetch_that_cannot_connect_is_still_not_retryable(
     assert isinstance(error.__cause__, failure)
 
 
+_SIGNED = "/artifacts/" + "ab" * 32 + "?exp=1&sig=" + "0f" * 32
+
+
+def _behind_access(
+    monkeypatch: pytest.MonkeyPatch, artifact_answers: list[httpx.Response]
+) -> tuple[sf.Client, list[httpx.Request]]:
+    """An https Client whose `/classify` answers `303`; Access logs in without a browser."""
+
+    monkeypatch.setattr(
+        _CloudflareAccessAuth, "_authenticate_after_redirect", lambda *_args, **_kwargs: None
+    )
+    answers = iter(artifact_answers)
+    requests: list[httpx.Request] = []
+
+    def engine(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/classify":
+            return httpx.Response(303, headers={"Location": _SIGNED})
+        return next(answers)
+
+    client = sf.Client(
+        engine_url="https://engine.test",
+        scoreboard_url="https://scoreboard.test",
+        http_transport=httpx.MockTransport(engine),
+        save_results=False,
+    )
+    return client, requests
+
+
+def _challenge() -> httpx.Response:
+    return httpx.Response(403, headers={"cf-access-aud": "a" * 64})
+
+
+def test_an_access_login_during_the_artifact_fetch_still_returns_the_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """WHY: Access stops a challenged request at the edge, so the fetch never reached the Engine.
+    After the login the result is fetched once more; the classification is never sent again."""
+
+    client, requests = _behind_access(
+        monkeypatch, [_challenge(), httpx.Response(200, json=_RESULT)]
+    )
+    with client:
+        result = client.classify(_MODEL, "text")
+
+    artifact = _SIGNED.split("?")[0]
+    assert [request.url.path for request in requests] == ["/classify", artifact, artifact]
+    assert result.scores[0] == LabelScore(label="LABEL_0", score=0.4)
+    assert all(request.extensions.get(_REPLAY_SAFE, False) is False for request in requests)
+
+
+def test_a_second_access_challenge_on_the_artifact_is_not_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """INVARIANT: once the `303` arrived, no failure to read the result may advise a retry."""
+
+    client, requests = _behind_access(monkeypatch, [_challenge(), _challenge()])
+    with client, pytest.raises(ExecutionError) as caught:
+        client.classify(_MODEL, "text")
+
+    error = caught.value
+    assert [request.url.path for request in requests].count("/classify") == 1
+    assert (error.code, error.retryable) == ("result_unavailable", False)
+    assert error.hint is not None and "again" in error.hint
+
+
+def test_an_artifact_past_the_read_limit_is_a_result_that_ran() -> None:
+    def engine(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/classify":
+            return httpx.Response(303, headers={"Location": _SIGNED})
+        return httpx.Response(200, content=b"x" * (2 * 1024 * 1024 + 1))
+
+    with _client(engine, []) as client, pytest.raises(ExecutionError) as caught:
+        client.classify(_MODEL, "text")
+
+    assert (caught.value.code, caught.value.retryable) == ("result_unavailable", False)
+
+
+@pytest.mark.parametrize("status", [404, 502])
+def test_a_run_whose_result_is_gone_is_a_result_that_ran(status: int) -> None:
+    """The Engine answers `result_unavailable` for a run that finished but whose result it cannot
+    serve; the classifier ran, so this is not a refusal of the request."""
+
+    with (
+        _client(_url4_error(status, "result_unavailable"), []) as client,
+        pytest.raises(ExecutionError) as caught,
+    ):
+        client.classify(_MODEL, "text")
+
+    error = caught.value
+    assert not isinstance(error, PlanningError)
+    assert (error.code, error.status, error.retryable) == ("result_unavailable", status, False)
+    assert "ran" in error.message
+    assert error.hint is not None and "again" in error.hint
+
+
 @pytest.mark.parametrize("status", [200, 502])
 def test_a_body_past_the_read_limit_is_refused(status: int) -> None:
     """A bounded read: the client never buffers an unbounded answer."""
@@ -610,11 +707,10 @@ def test_a_server_failure_without_an_envelope_is_not_retryable() -> None:
             ),
             id="503-at-capacity",
         ),
-        pytest.param(_url4_error(503, "admission_timeout"), id="503-admission-timeout"),
     ],
 )
 def test_a_refusal_before_anything_ran_is_retryable(answer: _Handler) -> None:
-    """A rate limit, a runner at capacity and an admission timeout all refuse before any run."""
+    """A rate limit and a runner at capacity both refuse before any run."""
 
     with (
         _client(answer, []) as client,
@@ -624,6 +720,21 @@ def test_a_refusal_before_anything_ran_is_retryable(answer: _Handler) -> None:
 
     assert caught.value.retryable is True
     assert "may have run" not in caught.value.message
+
+
+@pytest.mark.parametrize("code", ["x.admission_timeout", "admission_timeout"])
+def test_an_admission_timeout_without_retry_after_may_have_run(code: str) -> None:
+    """WHY: url4 raises it only in an expression's `;t=` guard, which `/classify` never runs, so
+    on this call such a `503` is relayed from inside a run like any other."""
+
+    with (
+        _client(_url4_error(503, code), []) as client,
+        pytest.raises(ExecutionError) as caught,
+    ):
+        client.classify(_MODEL, "text")
+
+    assert caught.value.retryable is False
+    assert "may have run" in caught.value.message
 
 
 def test_a_result_too_large_for_the_engine_is_permanent() -> None:
