@@ -141,9 +141,9 @@ def _check_row(chunk: bytes, first: int, length: int, position: int) -> None:
         raise ValueError(f"entry {position} is not an object's bytes")
     if first > 0 and chunk[first - 1 : first] != b",":
         raise ValueError(f"entry {position} does not follow a ','")
-    row: object = json.loads(row_bytes)
-    if not isinstance(row, dict):
-        raise ValueError(f"entry {position} is not a JSON object")
+    # INVARIANT: bytes that start with "{", end with "}" and parse whole are one JSON object,
+    # so the parse is the dict check — a split nested object or trailing data fails here.
+    row: dict[str, object] = json.loads(row_bytes)
     # WHY id is positional but case_id only a string: the writer numbers Cases from 1 in served
     # order (capture.py), while case_id is the transport's string spelling, not bound here.
     row_id: object = row.get("id", position)

@@ -428,3 +428,13 @@ def test_encode_board_adds_no_board_sized_transient() -> None:
     new_peak = _traced_peak(lambda: encode_board(rows))
 
     assert new_peak <= old_peak * 1.1, (new_peak, old_peak)
+
+
+def test_a_cases_file_truncated_after_opening_is_the_bounded_error(tmp_path: Path) -> None:
+    root = _write(tmp_path, _TEXT_ROWS)
+    board = IndexedBoard(root)
+    (root / CASES_FILE).write_bytes((root / CASES_FILE).read_bytes()[:20])
+
+    with pytest.raises(ResolutionError) as exc:
+        board.head(4)
+    _unavailable(exc)

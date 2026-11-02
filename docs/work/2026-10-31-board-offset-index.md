@@ -1,7 +1,7 @@
 ---
 ticket: OME-1790
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-31
 finished: 2026-10-31
 ---
@@ -105,7 +105,7 @@ selected prefix through the index, and picture admission reads `has_pictures` fr
     runs. No CI bundle-cache key bump: the content-hashed keys already change (D1).
   - Follow-up: move OME-1789 grading onto `board_store` after #1628 and this PR merge (D2).
 
-## Review round 2 (HupBaHa, two P2s at `f4f152a51`) — PLANNED
+## Review round 2 (HupBaHa, two P2s at `f4f152a51`)
 
 - **P2-1 nested-object corruption.** `IndexedBoard.head` validates each SELECTED entry as
   exactly one JSON object (parsed, a dict, an `id` equal to its 1-based position when present,
@@ -117,3 +117,24 @@ selected prefix through the index, and picture admission reads `has_pictures` fr
 - **Tests (new only):** nested-object corruption, same-size reordered rows (wrong id), invalid
   UTF-8 in a row, offsets truncated after opening; a tracemalloc peak regression of
   `encode_board` against the pre-OME-1790 `json.dumps(...).encode()` path (<= 1.1x).
+
+### Outcome (review round 2)
+
+- **Files:** `board_store.py` (`_check_row`, `IndexedBoard.head`, `encode_board`) and new
+  tests appended to `tests/unit/test_board_store.py` (no prior test edited). A normal merge of
+  `origin/main` so the append-only gate compares against current main.
+- **P2-1:** each selected entry must be the writer's exact object bytes (`{`..`}`), follow a
+  `,`, parse whole as JSON (so it is one dict), carry `id` == its 1-based position when present
+  and a string `case_id` when present. The original bytes are served. JSON/UTF-8/struct errors,
+  a short offsets read and a short `cases.json` read are `benchmark_unavailable`. Cost: one
+  parse of the bytes already read for the selection.
+- **P2-2 measured** (tracemalloc, rows built before tracing, 3,200 rows, 50.1 MiB board): old
+  `json.dumps(...).encode()` 100.3 MiB; `encode_board` at `f4f152a51` 150.7 MiB (1.50x); now
+  101.1 MiB (1.01x); `cases.json` bytes identical across all three. The regression test asserts
+  <= 1.1x on a 16 MiB synthetic board. Full benchmark-image build NOT run locally.
+- **Gates:** `run_gates.py screamingface-engine --base origin/main` ALL GREEN (env synced with
+  `uv sync --dev` as CI does; with `--all-extras` pyright reports 11 errors in untouched
+  inspect tests, identically on clean `origin/main`). Inspect lane 2831 passed.
+  `board_store.py` 100% line+branch.
+- **Deviation:** `case_id` is checked as a string, not against the position: the writer spells
+  it `str(id)`, but prior tests build rows with `case_id="c1"`, so binding it would change them.
