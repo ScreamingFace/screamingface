@@ -3,7 +3,7 @@ ticket: OME-1792
 stack: url4
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-30
-finished: 2026-10-30
+finished: 2026-11-02
 ---
 
 # url4-collection-memory — cut url4's peak memory on large fetched collections
@@ -62,7 +62,7 @@ ordering, dedup and caching unchanged.
   `dag/_memo.py` (`RunMemo`), `dag/executor.py` (311 -> 306 lines, cap 312),
   `scripts/bench_collection_memory.py`, tests `tests/unit/test_collection_memory.py` (59) and
   `tests/unit/test_executor_memo_release.py` (4). `_shared.py` untouched (see Deviations).
-- **Commits:** see branch `url4-collection-memory` (perf(url4): …).
+- **Commits:** squash-merged as #1622 `06c446415` (2026-11-02, approved by HupBaHa after two review rounds; final shape: opt-in `release_finished`, on in `url4.dag.run`). Linear OME-1792 → Done.
 - **Gates:** `run_gates.py url4 --base origin/main` ALL GATES GREEN (append-only, ruff,
   format, pyright, pytest+cov >= 95); `check_module_size.py` within baseline, no cap raised;
   `check_suppressions.py` 5/5.
