@@ -1,12 +1,12 @@
 ---
 id: OME-1552
 linear_url: https://linear.app/openmined/issue/OME-1552/document-url4-file-sources-and-blob-refs-in-the-public-docs
-status: in_review
+status: done
 type: docs
 priority: medium
 labels: [blocked, url4-engine, agentic, autonomous]
 created: 2026-10-09
-closed:
+closed: 2026-11-02
 ---
 
 # OME-1552 — Document url4 file sources and blob refs in the public docs
