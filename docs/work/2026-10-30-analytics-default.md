@@ -12,8 +12,9 @@ finished:
 
 Implement OME-1768 using the choices confirmed by Filip: terminal scripts qualify,
 inline Colab notice, and a two-second first-evaluation wait. Filip explicitly
-authorized implementation before Irina/Kevin sign-off, with comment posting gated
-on his review. Local work only; no approval or rollout claim.
+authorized implementation before Irina/Kevin sign-off. On 2 November he authorized
+opening the PR and chose to post the Linear confirmation comment himself.
+No sign-off or rollout approval is claimed.
 
 ## Planned changes
 
@@ -39,7 +40,9 @@ Existing payloads and explicit controls remain compatible.
   service bridge Python/JS and README; new default-enrollment SDK/service/browser
   tests; two existing SDK test files updated for the authorized contract reversal;
   exact test-transition manifest; spec/plan/task mirror and prior-spec amendments.
-- Commits: local feature commit prepared; no push, PR, merge or Linear comment.
+- Commits: `b0330994b` — feat(analytics): enable SDK analytics after disclosure,
+  rebased onto `bc96df570` on 2 November for draft PR preparation. No merge or
+  agent-posted Linear comment.
 - Gates: both stack runners ALL GATES GREEN. SDK: lint, format, pyright,
   complete pytest suite with 97% coverage (95% floor), notebook-source check,
   build and distribution checks. Service: lock check, lint, format, pyright,
@@ -67,6 +70,6 @@ includes executor queue delay and never repeats once setup completes or is disab
 In-flight cross-notebook cookie ordering remains an existing limitation, documented
 in the spec; no global revocation guarantee is added.
 
-The implementation is ready for local review. Ledger/Linear remain open pending
-review and landing. Filip must approve the short Irina confirmation comment before
-posting; no sign-off has been represented as received.
+The implementation is ready for draft PR review. Ledger/Linear remain open pending
+review and landing. Filip is posting the Irina confirmation comment himself;
+no sign-off has been represented as received.

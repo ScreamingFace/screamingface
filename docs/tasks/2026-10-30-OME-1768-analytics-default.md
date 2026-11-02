@@ -12,6 +12,7 @@ closed:
 # Make SDK analytics on by default, disclosure-gated
 
 Linear remains the status authority. Local implementation was authorized by Filip
-before the recorded Irina/Kevin sign-off. No comment will be posted without his
-approval. Spec, plan and ledger: `2026-10-30-analytics-default.md` in their respective
+before the recorded Irina/Kevin sign-off. On 2 November he authorized a PR and
+chose to post the comment himself. Spec, plan and ledger:
+`2026-10-30-analytics-default.md` in their respective
 directories. OME-1793 tracks failure visibility separately.
