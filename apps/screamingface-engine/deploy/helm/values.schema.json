@@ -36,10 +36,22 @@
       "properties": {
         "logLevel": {
           "type": "string",
-          "enum": ["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+          "enum": [
+            "CRITICAL",
+            "ERROR",
+            "WARNING",
+            "INFO",
+            "DEBUG"
+          ],
           "description": "The level the screamingface_engine logger tree runs at (OME-942), rendered to BOTH the App and the runner pool as URL4_CLOUD_LOG_LEVEL. Constrained to the names logging.Logger.setLevel resolves: an unknown name raises inside the handler install at boot, so the pod crashloops with a traceback naming the logging module rather than the values file."
         },
-        "activityLevel": {"type": "string", "enum": ["off", "full"]},
+        "activityLevel": {
+          "type": "string",
+          "enum": [
+            "off",
+            "full"
+          ]
+        },
         "natsUrl": {
           "type": "string",
           "description": "Empty is legal: the natsUrl helper then derives it from nats.fullnameOverride, or fails the render.",
@@ -132,6 +144,48 @@
       ],
       "additionalProperties": false
     },
+    "candidateOutcomes": {
+      "type": "object",
+      "description": "The outcome stream `url4-candidate-outcomes` (E5 P1 spec R11). Rendered to BOTH the App and the runner pool, which each apply these values at startup, so both must render from the same ones.",
+      "properties": {
+        "maxAgeS": {
+          "type": "number",
+          "minimum": 1,
+          "description": "How long an unwritten outcome waits. Default 86400 (24 h). Below 172800: reconcile settles a Candidate `lost` after `run_lost_after_s` (48 h), which must outlast it.",
+          "exclusiveMaximum": 172800
+        },
+        "maxBytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The stream's size. Default 64 MiB. When full, a publish is refused rather than an older outcome dropped."
+        }
+      },
+      "required": [
+        "maxAgeS",
+        "maxBytes"
+      ],
+      "additionalProperties": false
+    },
+    "database": {
+      "type": "object",
+      "description": "The Run registry's database (E5 P1 spec D2, R9). Empty `existingSecret` keeps Runs off and renders no migrate Job.",
+      "properties": {
+        "existingSecret": {
+          "type": "string",
+          "description": "A Secret holding the `engine` database URL (DEPLOYMENT.md). Read by the App and the migrate Job only."
+        },
+        "existingSecretKey": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The key in that Secret. Default `database-url`, as aigateway and scoreboard use."
+        }
+      },
+      "required": [
+        "existingSecret",
+        "existingSecretKey"
+      ],
+      "additionalProperties": false
+    },
     "runner": {
       "type": "object",
       "properties": {
@@ -176,7 +230,10 @@
           "description": "Run slots per worker pod. MUST match `run_queue_worker_slots`. One slot is one supervised child process, so `replicas \u00d7 workerSlots` is what bounds fleet execution."
         },
         "warmChildren": {
-          "type": ["integer", "null"],
+          "type": [
+            "integer",
+            "null"
+          ],
           "minimum": 0,
           "description": "Warm children per worker pod (uniform executor PRD 03). Default 2 (sized to 4 runs in flight over 2 pods). Null leaves the app default (one per worker slot) in force. 0 spawns a child on each claim instead. The worker caps this at `workerSlots`; the render also refuses a value ABOVE `workerSlots` (see the guard in deployment-runner.yaml), so a chart operator gets a render-time error instead of a silently truncated value. Each idle warm child holds the engine and its built world (~430 MiB with the builtin benchmarks); idle children only occupy FREE slots."
         },

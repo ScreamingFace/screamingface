@@ -324,6 +324,13 @@ class Settings(BaseSettings):
     # WHY 48 h (spec R6): past both `url4-candidate-outcomes` and `url4-runq`'s 24 h retention, so
     # reconcile settles a Candidate `lost` only once no outcome can still arrive.
     run_lost_after_s: float = Field(default=48 * 3600.0, gt=0, allow_inf_nan=False)
+    # The outcome stream `url4-candidate-outcomes` (spec R11), declared by the App and the runner
+    # pool at startup from these values (`candidateOutcomes.*` in the chart). When it is full, a
+    # publish is refused rather than an older, unwritten outcome dropped.
+    candidate_outcomes_max_age_s: float = Field(
+        default=DEFAULT_OUTCOMES_MAX_AGE_S, gt=0, allow_inf_nan=False
+    )
+    candidate_outcomes_max_bytes: int = Field(default=64 * 1024**2, gt=0)
 
     # --- shared events stream (uniform executor, PRD 01) --------------------------------------
     # ONE stream holds every run's frames (`url4-events`, subject `url4-cloud.<topic>`). The App
@@ -515,7 +522,7 @@ class Settings(BaseSettings):
     def _lost_after_outlasts_retention(self) -> Self:
         """INVARIANT (spec R6): reconcile settles a Candidate `lost` only once no outcome or
         queued run can still arrive, so the window must outlast both streams' retention."""
-        retained = max(self.run_queue_max_age_s, DEFAULT_OUTCOMES_MAX_AGE_S)
+        retained = max(self.run_queue_max_age_s, self.candidate_outcomes_max_age_s)
         if self.run_lost_after_s <= retained:
             raise ValueError(
                 f"run_lost_after_s={self.run_lost_after_s} must exceed the outcome and run "
