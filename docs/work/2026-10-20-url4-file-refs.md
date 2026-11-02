@@ -229,3 +229,15 @@ text, never fetched; non-productions (`blob:/x`, `1x:…`, `a/b` digest) → `Te
   (2) namespace/algorithm compare case-sensitively (`BLOB:`/`SHA256` → `unsupported_mode`);
   (3) the relative path form `/blob/sha256/<HEX>` is unchanged (implementation-defined mapping,
   §5.4.4); (4) `.`/`..` digests stay `Text` (outside the production), as before.
+- **Review round 2026-11-02 (HupBaHa P1, #1482):** `url4://n/x/../blob/…` / `url4://n/./blob/…`
+  lowered as `WebFetchNode` and HTTPX 0.28.1 removed the dot segments, so the remote blob body
+  reached the model. Fix: `core/blob_ref.py` classifies a path as written OR normalized
+  (fixed-point percent-decode, backslash → `/`, RFC 3986 §5.2.4 dot removal, with and without
+  `//` merging) — remote: any form `/blob` or `/blob/…` → `x.remote_blob_unsupported`; local: any
+  form `/blob/sha256/<hex>` → the canonical verified path ref. The raw form stays in the set, so
+  only refusals are added. `https://…/blob` is still a web fetch (not gated by this classifier,
+  pinned by a prior test). Tests: new `tests/regressions/test_blob_ref_dot_segments.py` (56 cases,
+  real `HttpIOLayer` over a `MockTransport` that fails on any request). Gates: `run_gates.py url4
+  --base origin/OME-1538-url4-bytes-fetch` ALL GATES GREEN; `--base origin/main` fails ONLY the
+  append-only check on main's newer #1622 tests (not on this branch); vs the merge-base
+  `41017c289` ALL GATES GREEN. `check_module_size.py` within baseline (`dag/_context.py` untouched).
