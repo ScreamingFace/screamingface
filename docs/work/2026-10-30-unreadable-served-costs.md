@@ -69,3 +69,11 @@ savings; only display responses degrade. Stored values are never rewritten.
 The ticket described history as a whole-model read; main now uses a narrow model
 projection. Kept that narrow field set when moving to raw decoding. PostgreSQL NaN
 is affected too, so this is not exclusively a SQLite issue.
+
+## Review follow-up — 2 November 2026
+
+Replace driver-message regex matching with the structured PostgreSQL exception and SQLSTATE. Add explicit public-history corrupt-cost coverage and a projection/schema consistency guard. Preserve production behavior and all existing assertions except the authorized stronger error assertion.
+
+Authorized by Filip: “please fix the issues you feel are real ones”. Run regression tests and full scoreboard gates before committing. Outcome: 53 SQLite/PostgreSQL tests pass, including anonymous public history across both submitters, each corrupt money field, structured SQLSTATE checks and schema/projection parity. Full PostgreSQL CI selection: 62 passed. The CI job keeps this suite explicitly registered, away from the other pending additions. All scoreboard gates green. No production-code changes in this follow-up.
+
+CI registration is separated from the other pending PostgreSQL suites so their additions can merge without dropping tests. The exact workflow selection and all scoreboard gates pass after this adjustment.

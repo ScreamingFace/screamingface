@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from asyncpg.exceptions import InvalidTextRepresentationError
 from fastapi.testclient import TestClient
 from tortoise import Tortoise
 from tortoise.backends.base import executor
@@ -20,6 +21,8 @@ from scoreboard.config import Settings
 from scoreboard.export_private_submissions import collect_submissions, format_jsonl_bytes
 from scoreboard.main import create_app
 from scoreboard.scores.models import Benchmark
+from scoreboard.scores.schemas import LeaderboardEntry
+from scoreboard.scores.store import _OWNED_COLUMNS
 
 OWNER = "alice@example.test"
 FIELDS = ["run_cost_usd", "cache_saved_cost_usd", "cache_saved_cost_archive_usd"]
@@ -120,8 +123,10 @@ def test_bad_stored_amount_serves_unknown_without_dropping_rows(
     assert client.portal is not None
     if backend == "postgres" and bad == "not-a-number":
         # PostgreSQL refuses malformed NUMERIC text, but does store NaN (checked below).
-        with pytest.raises(OperationalError, match="invalid input syntax"):
+        with pytest.raises(OperationalError) as caught:
             client.portal.call(_corrupt, field, bad, score_id, backend)
+        assert isinstance(caught.value.__cause__, InvalidTextRepresentationError)
+        assert caught.value.__cause__.sqlstate == "22P02"
         return
     client.portal.call(_corrupt, field, bad, score_id, backend)
     before = client.portal.call(_money_snapshot)
@@ -210,3 +215,35 @@ def test_served_reads_keep_the_orm_timestamp_interpretation(
     for surface in ["mine", "history"]:
         [row] = _read(client, surface)
         assert row["submitted_at"] == "2020-01-02T03:04:05Z"
+
+
+async def _make_public() -> None:
+    await Benchmark.filter(id="cost-reads").update(visibility="public")
+
+
+@pytest.mark.parametrize("field", FIELDS)
+def test_public_history_keeps_all_owners_with_unknown_corrupt_cost(
+    cost_client: tuple[TestClient, str], field: str
+) -> None:
+    client, backend = cost_client
+    score_id = _create(client)
+    other = client.post(
+        "/v1/scores", json={**PAYLOAD, "score": 0.9}, headers={"X-User-Email": "bob@example.test"}
+    )
+    assert other.status_code == 201, other.text
+    assert client.portal is not None
+    client.portal.call(_corrupt, field, "NaN", score_id, backend)
+    client.portal.call(_make_public)
+    client.headers.pop("X-User-Email")
+    response = client.get("/v1/leaderboard/cost-reads/candidate/history")
+    assert response.status_code == 200, response.text
+    rows = response.json()["submissions"]
+    assert [row["score"] for row in rows] == [0.9, 0.7]
+    assert Decimal(rows[0]["run_cost_usd"]) == Decimal("2")
+    assert rows[1]["run_cost_usd"] is None
+
+
+def test_owned_projection_covers_every_served_field() -> None:
+    # INVARIANT: new optional DTO fields must not silently disappear from owned entries.
+    cost_inputs = {"run_cost_status", "cache_saved_cost_usd", "cache_saved_cost_archive_usd"}
+    assert set(_OWNED_COLUMNS) == set(LeaderboardEntry.model_fields) | cost_inputs
