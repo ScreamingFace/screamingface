@@ -46,10 +46,11 @@ metering, identity headers) is the connector's one implementation.
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import json
 from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager, nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Final
 
 from inspect_ai.model import (
@@ -117,6 +118,15 @@ class JudgeTransport:
     #: naming no pass is refused. False refuses a scorer's seed like any other
     #: grade-affecting setting.
     seed_per_pass: bool = False
+    #: The row's ``JudgeSpec.redraw_repeats`` (OME-1478): a judge call that repeats, in the
+    #: same Case and the same bytes, one whose reply came back live skips the gateway cache,
+    #: so the scorer's own re-ask (hle's ``max_grader_attempts``) is a new draw.
+    redraw_repeats: bool = False
+    #: Where each judge call's last reply came from, by (Case, sha256 of the call): what
+    #: ``redraw_repeats`` reads. One per transport, so one run's grading pass.
+    last_origins: dict[tuple[int | str | None, str], ReplyOrigin | None] = field(
+        default_factory=dict, compare=False, repr=False
+    )
 
 
 class JudgeReplyBlank(RuntimeError):
@@ -281,13 +291,20 @@ class _GatewayJudgeModelAPI(ModelAPI):
         )
         target: str = encode_subrequest("/" + self.model_name, context, None, params)
         _register_against_the_case(transport, "/" + self.model_name, params, context)
+        repeat: tuple[int | str | None, str] = _repeat_key(target)
+        # WHY only after a LIVE reply (spec 2026-10-16-judge-redraw-live-only): a reply that
+        # came from the cache or a frozen copy is final, so a replay grades as it was recorded.
+        redraw: bool = _fresh_draw.get() or (
+            transport.redraw_repeats and transport.last_origins.get(repeat) == "live"
+        )
         # FEATURE (spec 2026-10-16-judge-redraw-live-only): the watch learns from the connector
         # whether this reply is live or a recording (cache hit, frozen-copy replay).
         with (
             watch_reply_origin() as watch,
-            _gateway_cache_opt_out() if _fresh_draw.get() else nullcontext(),
+            _gateway_cache_opt_out() if redraw else nullcontext(),
         ):
             completion: str = await transport.fetch(target)
+        transport.last_origins[repeat] = watch.origin
         if not completion.strip():
             # A blank completion can never be a grade — refuse loudly; a scorer
             # coercing silence into a score is a silently wrong benchmark.
@@ -340,7 +357,9 @@ def _refuse_config_overrides(
     WHY a setting the pins already carry passes (OME-1478): it is not dropped, the wire sends
     it with that very value. HLE's judge asks for its role with ``temperature=0`` and
     ``max_tokens=32768`` (inspect_evals' default.yaml judge stanza); its row pins the same
-    two, so nothing the eval asked for is lost. A different value is still refused.
+    two, so neither setting is lost. A different value is still refused. AIDEV-NOTE: this
+    guard sees generation settings only; model args a scorer passes beside a role lookup
+    (hle's OpenRouter fp8 provider pin) never reach it, so the row must name such a loss.
     """
 
     # WHY model_params: it is how the connector turns the pinned params into the chat body,
@@ -393,6 +412,18 @@ def _params_with_pass_seed(
             "pass number becomes the pinned seed (OME-1527 R12)"
         )
     return (*transport.params, (ANSWER_SEED_PARAM, str(judge_pass)))
+
+
+def _repeat_key(target: str) -> tuple[int | str | None, str]:
+    """One judge call's identity for ``redraw_repeats``: its Case and the sha256 of its bytes.
+
+    WHY a digest: a judge call carries the whole prompt, and a run makes thousands; WHY the
+    Case: two Cases may send identical bytes, and the second's first ask is not a re-ask.
+    """
+
+    from screamingface_engine.grading_call_scope import current_grading_case
+
+    return current_grading_case(), hashlib.sha256(target.encode("utf-8")).hexdigest()
 
 
 def _register_against_the_case(

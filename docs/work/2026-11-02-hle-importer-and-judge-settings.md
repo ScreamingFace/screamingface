@@ -69,4 +69,15 @@ and HLE's real `regex_judge` grading one Case through the gateway judge.
   redraw, seed per pass, judged assembly, judged imports, observability, importer lanes,
   published revisions and fingerprints) plus the 3 new files; ruff, ruff format, pyright clean;
   layering OK. Full suite: pre-push hook and CI.
+- **Review fixes (review of f1f70a04, 2026-11-02):** (1) a local is a model lookup only when
+  every return of its helper is `get_model(role=...)`; a helper returning `get_model(name)`
+  would have let `grader = _judge("openai/gpt-4o")` import as judge-free (no scorer in
+  inspect_evals 0.20.0 does this, per the reviewer's 227-scorer scan). (2) HLE's three judge
+  attempts would have shrunk to one, since each re-ask sends the same bytes and the gateway cache
+  keeps the unparseable first reply: new opt-in `JudgeSpec.redraw_repeats` (identity when set)
+  makes a re-ask after a live reply skip the cache; a cached or frozen-copy reply stays final.
+  (3) A role argument the scorer reassigns stands for nothing traced. (4) Two docstrings
+  corrected (`regex_judge`, and the guard sees generation settings only, not model args such as
+  hle's fp8 pin). Pinned by `test_judge_redraws_a_repeat.py` and three new cases in
+  `test_judge_role_parameters.py`; the role-only rule mutation-checked (2 tests fail without it).
 - **Deviations:** the removed first cut above; no prior test edited.

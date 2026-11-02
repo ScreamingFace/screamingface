@@ -184,12 +184,18 @@ class JudgeSpec:
             pinned params, so N passes are N requests, never one cached reply (OME-1527
             R12). Benchmark identity when set. A pinned ``seed`` beside it is refused, and
             so is a judge call that names no pass.
+        redraw_repeats: the scorer re-asks its judge in the same words when a reply does not
+            parse (hle's ``max_grader_attempts``); a re-ask after a live reply skips the
+            gateway cache, so it is a new draw as under inspect's own ``eval()``, not the
+            stored unparseable reply. A cached or frozen-copy reply stays final. Benchmark
+            identity when set (OME-1478).
     """
 
     model: str
     params: tuple[tuple[str, str], ...] = ()
     model_role: str | None = None
     seed_per_pass: bool = False
+    redraw_repeats: bool = False
 
     def __post_init__(self) -> None:
         """Refuse a row that pins a seed AND gives each judge pass its own."""
@@ -569,6 +575,9 @@ def single_shot_benchmark(
                         # WHY conditional: no published row gives its passes seeds, so
                         # every judged revision holds (OME-1527 R12).
                         *(("judge_seed_per_pass=True",) if judge.seed_per_pass else ()),
+                        # WHY conditional (OME-1478): no published row sets it, so every
+                        # judged revision holds.
+                        *(("judge_redraw_repeats=True",) if judge.redraw_repeats else ()),
                     )
                 ),
                 # WHY conditional (OME-1527, R13): searching changes what the Candidate can
@@ -1163,6 +1172,7 @@ def _judged_aggregate(
             params=benchmark.judge.params,
             benchmark_id=benchmark.benchmark.id,
             seed_per_pass=benchmark.judge.seed_per_pass,
+            redraw_repeats=benchmark.judge.redraw_repeats,
         )
         with ExitStack() as scope:
             scope.enter_context(bound_judge_transport(transport))

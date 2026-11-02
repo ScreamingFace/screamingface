@@ -470,14 +470,16 @@ class _SourceReader:
     def _model_lookups(
         self, located: _LocatedDef, parsed: _ParsedModule | None, get_model_names: frozenset[str]
     ) -> frozenset[str]:
-        """The locals of the def that only ever hold a model lookup: every assignment to the
-        name is a ``get_model(...)`` call, or a call to a root-package helper whose every
+        """The locals of the def that only ever hold a ROLE lookup: every assignment to the
+        name is a ``get_model(role=...)`` call, or a call to a root-package helper whose every
         ``return`` is one (hle's ``grader = _resolve_grader(grader_role)``).
 
-        WHY such a local is not "a judge in a variable": the lookup it holds is a call the walk
-        reaches and sorts itself (a role, a role parameter, the model under test), so the judge
-        it names is already a finding. A helper returning anything else (a string, a lookup
-        table) keeps the local a variable, so the reader still fails closed.
+        WHY such a local is not "a judge in a variable": the role it asks for is sorted by the
+        walk itself (a literal role, a role parameter, or unknown), so the judge it names is
+        already a finding. WHY a role only: a helper returning ``get_model(name)`` hands back
+        whatever model its caller named (``_judge("openai/gpt-4o")``), and no check reads that
+        argument, so such a local stays a variable and the reader fails closed (review
+        finding on #1631). A helper returning anything else (a string, a lookup table) does too.
         """
 
         stores: dict[str, int] = {}
@@ -510,10 +512,10 @@ class _SourceReader:
         parsed: _ParsedModule | None,
         get_model_names: frozenset[str],
     ) -> bool:
-        """True for ``get_model(...)`` itself, or a root-package helper call whose every own
-        ``return`` is a ``get_model(...)`` call."""
+        """True for ``get_model(role=...)`` itself, or a root-package helper call whose every
+        own ``return`` is a ``get_model(role=...)`` call."""
 
-        if _calls_get_model(call, get_model_names):
+        if _asks_a_role(call, get_model_names):
             return True
         helper: _LocatedDef | None = self._helper(module_name, parsed, call.func)
         if helper is None or isinstance(helper.node, ast.ClassDef):
@@ -526,8 +528,7 @@ class _SourceReader:
         )
         returned: list[ast.expr | None] = [node.value for node in _own_returns(helper.node)]
         return bool(returned) and all(
-            isinstance(value, ast.Call) and _calls_get_model(value, helper_names)
-            for value in returned
+            isinstance(value, ast.Call) and _asks_a_role(value, helper_names) for value in returned
         )
 
     def first_judge_mention(self) -> str | None:
@@ -759,12 +760,21 @@ def _call_arguments(
     sharing its name.
     """
 
+    # WHY: a parameter the def assigns to (``grader_role = "grader_2"``) no longer holds what
+    # the caller passed, so it stands for nothing traced (review finding on #1631).
+    reassigned: set[str] = {
+        name.id
+        for name in ast.walk(node)
+        if isinstance(name, ast.Name) and isinstance(name.ctx, ast.Store)
+    }
     arguments: dict[int, _Arguments] = {}
     for function in ast.walk(node):
         if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         visible: _Arguments = {
-            name: _standing_for(name, function is node, is_constructor, bindings)
+            name: None
+            if name in reassigned
+            else _standing_for(name, function is node, is_constructor, bindings)
             for name in _parameter_names(function)
         }
         # WHY update in walk order: ast.walk visits an outer def before the defs inside it,
@@ -811,13 +821,15 @@ def _helper_bindings(
     return bindings
 
 
-def _calls_get_model(call: ast.Call, get_model_names: frozenset[str]) -> bool:
-    """True when the call is inspect's ``get_model``, by a bound name or as an attribute."""
+def _asks_a_role(call: ast.Call, get_model_names: frozenset[str]) -> bool:
+    """True when the call is inspect's ``get_model`` (by a bound name or as an attribute) and
+    names its judge by ``role=``, the one form whose judge the walk sorts itself."""
 
     callee: ast.expr = call.func
-    return (isinstance(callee, ast.Name) and callee.id in get_model_names) or (
+    is_get_model: bool = (isinstance(callee, ast.Name) and callee.id in get_model_names) or (
         isinstance(callee, ast.Attribute) and callee.attr == _GET_MODEL
     )
+    return is_get_model and any(keyword.arg == "role" for keyword in call.keywords)
 
 
 def _own_returns(function: ast.FunctionDef | ast.AsyncFunctionDef) -> list[ast.Return]:

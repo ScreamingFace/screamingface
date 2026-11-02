@@ -85,6 +85,27 @@ _ROLE_SCORERS: str = _IMPORT_TRAP + textwrap.dedent(
             grader = state.metadata["judge"]
             return await model_graded_qa(model=grader)(state, target)
         return score
+
+    def _judge_named(name):
+        return get_model(name)
+
+    def through_a_helper_naming_its_judge():
+        async def score(state, target):
+            grader = _judge_named("openai/gpt-4o")
+            return await model_graded_qa(model=grader)(state, target)
+        return score
+
+    def through_a_helper_given_a_judge_argument(judge="openai/gpt-4o"):
+        async def score(state, target):
+            grader = _judge_named(judge)
+            return await model_graded_qa(model=grader)(state, target)
+        return score
+
+    def reassigns_its_role(grader_role="grader"):
+        grader_role = "grader_2"
+        async def score(state, target):
+            return await get_model(role=grader_role).generate("Is it right?")
+        return score
     """
 )
 
@@ -206,3 +227,32 @@ def test_hles_real_regex_judge_reads_in_full_with_the_grader_role() -> None:
 
     assert shape.unread == ()
     assert shape.roles_given({"grader_role": "grader"}) == ("grader",)
+
+
+# ── review findings on #1631: shapes that must stay closed ──
+
+
+@pytest.mark.parametrize(
+    "constructor", ["through_a_helper_naming_its_judge", "through_a_helper_given_a_judge_argument"]
+)
+def test_a_local_from_a_helper_returning_a_named_model_stays_unread(
+    role_scorers: str, constructor: str
+) -> None:
+    """WHY: ``_judge_named`` returns ``get_model(name)``, so the judge is whatever its caller
+    named (a literal, or a scorer argument no judge check reads). Reading the local as a
+    lookup would import the scorer as judge-free, and inspect would then build gpt-4o
+    directly, outside the gateway."""
+
+    shape: JudgeShape = judge_shape(f"{role_scorers}:{constructor}")
+
+    assert shape.reaches_a_judge
+    assert shape.unread != ()
+
+
+def test_a_role_argument_the_scorer_reassigns_stays_unknown(role_scorers: str) -> None:
+    """WHY: after ``grader_role = "grader_2"`` the argument no longer holds what the row
+    passed, so the kwargs cannot give the role the scorer asks for."""
+
+    shape: JudgeShape = judge_shape(f"{role_scorers}:reassigns_its_role")
+
+    assert shape.roles_given({"grader_role": "grader"}) == (UNKNOWN_ROLE,)
