@@ -34,10 +34,17 @@ async def _unique_hash_indexes(database_url: str) -> list[dict[str, object]]:
     await Tortoise.init(config=build_tortoise_config(database_url))
     try:
         return await Tortoise.get_connection("default").execute_query_dict(
-            """SELECT indexname FROM pg_indexes
-               WHERE schemaname = current_schema() AND tablename = 'scores'
-                 AND indexdef LIKE 'CREATE UNIQUE INDEX%'
-                 AND indexdef LIKE '%(content_hash)%'"""
+            """SELECT idx.relname AS indexname
+               FROM pg_index AS i
+               JOIN pg_class AS tbl ON tbl.oid = i.indrelid
+               JOIN pg_namespace AS ns ON ns.oid = tbl.relnamespace
+               JOIN pg_class AS idx ON idx.oid = i.indexrelid
+               JOIN pg_attribute AS attr ON attr.attrelid = tbl.oid
+                 AND attr.attname = 'content_hash'
+               WHERE ns.nspname = current_schema() AND tbl.relname = 'scores'
+                 AND i.indisunique AND i.indisvalid AND i.indisready
+                 AND i.indpred IS NULL AND i.indexprs IS NULL
+                 AND i.indnkeyatts = 1 AND i.indkey[0] = attr.attnum"""
         )
     finally:
         await Tortoise.close_connections()
@@ -58,3 +65,32 @@ def test_real_postgres_migrations_create_unique_content_hash(
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert asyncio.run(_unique_hash_indexes(postgres_schema_database_url))
+
+
+async def _install_probe_index(database_url: str, definition: str) -> None:
+    await Tortoise.init(config=build_tortoise_config(database_url))
+    try:
+        connection = Tortoise.get_connection("default")
+        await connection.execute_script("CREATE TABLE scores (content_hash TEXT, other TEXT)")
+        await connection.execute_script(definition)
+    finally:
+        await Tortoise.close_connections()
+
+
+@pytest.mark.parametrize(
+    "definition,qualifies",
+    [
+        ("CREATE INDEX probe ON scores (content_hash)", False),
+        ("CREATE UNIQUE INDEX probe ON scores (content_hash) WHERE other IS NOT NULL", False),
+        ("CREATE UNIQUE INDEX probe ON scores (content_hash, other)", False),
+        ("CREATE UNIQUE INDEX probe ON scores (lower(content_hash))", False),
+        ("CREATE UNIQUE INDEX probe ON scores (content_hash)", True),
+    ],
+)
+def test_index_check_requires_global_single_column_uniqueness(
+    postgres_schema_database_url: str, definition: str, qualifies: bool
+) -> None:
+    # WHY: a partial/composite/expression index cannot enforce this deduplication contract.
+    asyncio.run(_install_probe_index(postgres_schema_database_url, definition))
+    found = asyncio.run(_unique_hash_indexes(postgres_schema_database_url))
+    assert found == ([{"indexname": "probe"}] if qualifies else [])

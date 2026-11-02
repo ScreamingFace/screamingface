@@ -62,3 +62,11 @@ the task-owned schema is dropped. The test-helper database creation was an
 additional setup failure exposed by running the previously dead tests, and is
 fixed within the same authorized scope. Reused the existing CI service instead
 of adding another job.
+
+## Review follow-up — 2 November 2026
+
+Use PostgreSQL index catalog attributes instead of matching rendered index SQL. Prove partial/non-unique indexes cannot satisfy the check; retain real migration coverage. Correct the obsolete concurrency-test comment without changing its assertions.
+
+Authorized by Filip: “please fix the issues you feel are real ones”. Run regression tests and full scoreboard gates before committing. Outcome: The old LIKE query incorrectly accepted both partial and expression indexes (two failing negative controls). The catalog query now rejects both, composite and non-unique indexes, and accepts the valid unique content_hash index. Ten focused PostgreSQL tests pass; full PostgreSQL CI selection: 19 passed. All scoreboard gates green. Only the stale comment changed in the original concurrency test; its assertions are intact.
+
+CI registration is separated from the other pending PostgreSQL suites so their additions can merge without dropping tests. The exact workflow selection and all scoreboard gates pass after this adjustment.

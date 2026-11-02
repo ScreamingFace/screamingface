@@ -6,3 +6,7 @@
 4. Run SQLite gates and PostgreSQL selection; record the exact authorized fixture
    transition without weakening old tests.
 5. Review, record outcomes, commit and open a linked PR.
+
+## Review follow-up — 2 November 2026
+
+Use PostgreSQL index catalog attributes instead of matching rendered index SQL. Prove partial/non-unique indexes cannot satisfy the check; retain real migration coverage. Correct the obsolete concurrency-test comment without changing its assertions.

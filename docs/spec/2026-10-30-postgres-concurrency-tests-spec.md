@@ -8,3 +8,7 @@ Test isolation must remain per-test; do not drop a shared database.
 
 Use the existing PostgreSQL 17 CI service. Add a real migration-chain smoke test
 and verify the unique content_hash index independently of generate_schemas.
+
+## Review follow-up — 2 November 2026
+
+Use PostgreSQL index catalog attributes instead of matching rendered index SQL. Prove partial/non-unique indexes cannot satisfy the check; retain real migration coverage. Correct the obsolete concurrency-test comment without changing its assertions.
