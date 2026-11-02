@@ -53,7 +53,7 @@ class LocalConsentStore:
         return False
 
     def enroll(self, allowed: Callable[[], bool]) -> Consent:
-        """Enable a disclosed default without overwriting a concurrent explicit choice."""
+        """Enable the default without overwriting a concurrent explicit choice."""
         self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         with self._lock():
             if not self.missing() or not allowed():

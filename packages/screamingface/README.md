@@ -1501,9 +1501,10 @@ materializes its rendered output. Automatic lifecycle discovery remains a separa
 
 ## Usage analytics
 
-Analytics is enabled by default after the SDK shows its disclosure in a terminal
-or notebook. New headless installations stay off until disclosure is possible.
-Existing opt-outs remain off. In local Python or Jupyter:
+Analytics is enabled by default in Python scripts, headless jobs and notebooks.
+The SDK makes a best-effort attempt to show its disclosure; redirected, missing
+or closed output does not prevent enrollment. Existing opt-outs remain off.
+In local Python or Jupyter:
 
 ```python
 import screamingface as sf
@@ -1518,13 +1519,15 @@ The equivalent commands are `screamingface analytics status`, `enable`, `disable
 and `reset-id`. They do not start local runtime services. `sf.analytics.enable(persist=False)`
 accepts for this process only when you do not want persistent preferences.
 `sf.analytics.disable(process_only=True)` stops this process without changing the saved choice.
-A truthy `DO_NOT_TRACK` overrides acceptance. Noninteractive use never prompts.
+A truthy `DO_NOT_TRACK` overrides acceptance, including in headless jobs.
+Set `DO_NOT_TRACK=1` before import to prevent automatic enrollment entirely.
+Noninteractive use never asks for input.
 
-Import, connection setup, and the first evaluation can show the notice, whichever
-can display it first. Terminal scripts qualify when stderr is a terminal; notices
-go to stderr so stdout remains usable for data. Local notebooks show inline text.
-The notice never asks for input and is shown at most once per process. Enrollment
-occurs only after display succeeds. Saved choices have no scheduled re-prompt.
+Import, connection setup, and the first evaluation can attempt the notice, whichever
+runs first. Python notices go to stderr, including redirected logs, so stdout
+remains usable for data. Local notebooks show inline text. The notice never asks
+for input and is attempted at most once per process when enrolling a new installation.
+Saved choices have no scheduled re-prompt.
 
 > ScreamingFace collects anonymous usage analytics (API usage, SDK versioning, and your local-or-hosted engine preference) to help us build a better API. It does not store any fusion, prompts, outputs, scores, or keys. It's on by default; turn it off anytime with `sf.analytics.disable()` (or set `DO_NOT_TRACK=1`).
 
@@ -1568,7 +1571,7 @@ is rechecked before dispatch and retry; already dispatched requests can complete
 after opt-out. There is no durable event spool.
 
 In Colab, import or first interactive use starts a consent-only browser bridge in
-a background worker. Unknown consent shows the same inline disclosure, then
+a background worker. Unknown consent attempts the same inline disclosure, then
 conditionally enables analytics without overriding a saved decline. The first
 evaluation waits up to two seconds for pending setup; asynchronous evaluations keep
 the event loop free during that wait. A timeout lets evaluation proceed untracked

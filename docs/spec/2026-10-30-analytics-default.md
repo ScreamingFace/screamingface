@@ -1,18 +1,20 @@
-# OME-1768 — disclosure-gated default analytics
+# OME-1768 — default analytics in all environments
 
 Status: local implementation authorized by Filip on 30 October 2026, before
 Irina/Kevin sign-off. On 2 November Filip confirmed proceeding with the implementation
 and PR and chose to post the decision in Linear himself. Deployed Colab verification
-remains a rollout check.
+remains a rollout check. Later on 2 November, Filip replaced the disclosure gate
+with default-on in all environments, including headless scripts, while respecting
+every explicit opt-out. The Linear description and his comment record this decision.
 
 ## Behavior
 
 Use the exact OME-1768 disclosure. At import (after package initialization),
 connection setup, and before the first evaluation, attempt disclosure once per
-process. A terminal with visible stderr qualifies, including terminal scripts;
-local Jupyter uses inline stdout. No input prompt. Missing/closed/redirected
-output or a headless new installation stays off. Successful display precedes
-identifier creation and persistence. Import creates no analytics event or session.
+process. Python uses stderr, including redirected logs; local Jupyter uses inline
+stdout. No input prompt. Headless execution and missing/closed/redirected output
+do not prevent enrollment. Attempt the notice before identity creation, but treat
+display errors as best-effort failures. Import creates no analytics event or session.
 
 Local enrollment is conditional under the existing preference lock: only a missing
 file can enroll. Accepted/declined settings retain their meaning and identity;
@@ -21,7 +23,7 @@ continues to allow the user to reverse their own decline. DO_NOT_TRACK and
 process disable are checked again before automatic persistence.
 
 Colab starts a nonblocking setup command: retrieve browser preference, show the
-same inline notebook notice only for valid unknown state, conditionally enroll,
+same best-effort inline notebook notice only for valid unknown state, conditionally enroll,
 then obtain the browser ID. A new service command/route enrolls only an absent
 preference; it preserves a saved decline and rejects malformed/stale cookies.
 Old SDKs keep their explicit opt-in flow; a new SDK against an old service stays
@@ -36,7 +38,7 @@ of operations started before enrollment, no new recovery loop.
 
 No new event fields or events. Version 1 remains the compatible preference/wire
 format; accepted/consent_granted means analytics is permitted, either by explicit
-enable or by the newly disclosed default. Do not erase or reinterpret old declines.
+enable or by the default-on policy. Do not erase or reinterpret old declines.
 This amends the old opt-in-only semantics in the analytics specs; the privacy-posture
 review remains outstanding.
 
@@ -53,8 +55,8 @@ in status(); diagnostics, retries, dashboards and failure uploads are out of sco
 
 ## Verification
 
-Test disclosure-before-identity; once-only import/run hooks; redirected and failed
-output; existing choices and invalid files; conditional enrollment races; sync/async
+Test notice-attempt-before-identity; once-only import/run hooks; headless, redirected
+and failed output enrollment; every opt-out and invalid files; conditional enrollment races; sync/async
 first-evaluation readiness; timeout/late responses/disable; absent/accepted/declined
 and invalid cookies; browser command routing; unchanged event payloads.
 Run both Python stack gates and browser-script tests with synthetic transport only.

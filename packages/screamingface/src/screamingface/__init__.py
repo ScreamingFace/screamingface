@@ -93,7 +93,7 @@ from screamingface.warnings import (
 # The installed distribution's version, resolved once at import — see `_version.py`.
 __version__ = resolve_version()
 
-# FEATURE: enrollment happens only after the disclosure can be displayed.
+# FEATURE: default-on analytics with best-effort disclosure and explicit opt-out.
 from screamingface._analytics.prompt import offer as _offer_analytics
 
 _offer_analytics()

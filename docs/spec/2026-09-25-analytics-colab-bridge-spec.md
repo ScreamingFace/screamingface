@@ -1,6 +1,6 @@
 # Colab bridge service — design proposal
 
-OME-1768 adds conditional enrollment after an inline SDK disclosure:
+OME-1768 adds conditional enrollment with a best-effort inline SDK disclosure:
 [default-enrollment amendment](2026-10-30-analytics-default.md). The explicit
 accept route and existing cookie/event checks remain compatible. The amendment
 records outstanding sign-off and does not authorize rollout.

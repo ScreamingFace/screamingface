@@ -235,6 +235,8 @@ def test_connect_with_unavailable_stdin(
         assert isinstance(panel, sf.ConnectionPanel)
         assert panel.engine == client.engine_url
         assert panel.connections == ()
-    assert analytics.status()["enabled"] is (environment == "local_jupyter")
-    assert config.exists() is (environment == "local_jupyter")
-    assert (prompt.NOTICE in capsys.readouterr().out) == (environment == "local_jupyter")
+    assert analytics.status()["enabled"] is True
+    assert config.exists()
+    assert prompt.NOTICE in getattr(
+        capsys.readouterr(), "out" if environment == "local_jupyter" else "err"
+    )

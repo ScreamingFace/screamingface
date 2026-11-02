@@ -1,11 +1,11 @@
 {
   "issue": "OME-1768",
   "branch": "OME-1768-analytics-default",
-  "reason": "Filip authorized implementing the disclosure-gated default reversal on 2026-10-30. These exact changes replace obsolete off-after-notice and enable-copy assertions with the requested enabled-after-notice and disable-copy behavior; explicit opt-out and other existing contracts are retained. See docs/work/2026-10-30-analytics-default.md.",
+  "reason": "Filip authorized default-on analytics on 2026-10-30 and extended it to every environment on 2026-11-02, including headless execution and best-effort notice output. These exact changes update obsolete off-after-notice/headless-off and enable-copy assertions; every explicit opt-out remains respected. See docs/work/2026-10-30-analytics-default.md.",
   "files": {
     "packages/screamingface/tests/test_analytics.py": {
       "base_blob": "c3a970f83d1b2eea1aea93c4409e0a6b225531e0",
-      "approved_blob": "4856acaa76c4253e98a302b2cc4fdb9d44206c05"
+      "approved_blob": "ed06b2a39b9092829cefcce370b69a9332c0458a"
     },
     "packages/screamingface/tests/test_analytics_integration.py": {
       "base_blob": "7169147353f339b05217ebab8263b44bcbce5b2e",

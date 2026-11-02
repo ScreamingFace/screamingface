@@ -6,7 +6,7 @@ started: 2026-10-30
 finished:
 ---
 
-# Disclosure-gated default analytics
+# Default analytics in all environments
 
 ## Intent
 
@@ -30,8 +30,9 @@ Run SDK and analytics gates and Node script harnesses; no production events.
 
 ## Acceptance
 
-Disclosed interactive users enroll; undisclosed users remain off; explicit disable
-wins; analytics adds at most two seconds before the first Colab evaluation.
+New installations enroll in all environments, including headless scripts; disclosure
+is best effort. Every explicit opt-out wins; analytics adds at most two seconds
+before the first Colab evaluation.
 Existing payloads and explicit controls remain compatible.
 
 ## Outcome
@@ -76,3 +77,29 @@ Filip confirmed proceeding and is posting the decision in Linear himself. The PR
 is ready for review; ledger/Linear remain open pending review and landing.
 Both full stack gates passed again after the 2 November rebase. No approval from
 other reviewers or deployed Colab verification has been represented as received.
+
+## 2 November — headless default-on revision
+
+Filip requested default-on in every environment while respecting every opt-out,
+and posted that decision in Linear. The earlier visible-disclosure gate is superseded.
+Plan: remove terminal/output availability as an enrollment condition, preserve
+DO_NOT_TRACK and explicit disable/decline, update regression tests and docs, run
+SDK gates, then update PR #1633. The Linear description was aligned to the new
+decision; Filip's comment was left unchanged.
+
+Validation of this revision: ALL SDK GATES GREEN (lint, format, type checking,
+full pytest with the 95% coverage floor, notebook checks, build and distribution). The test-first run against
+the previous policy failed 12 cases as expected (68 cases total). The new coverage
+checks headless subprocess import with redirected/missing/closed stderr, saved
+opt-outs, truthy DO_NOT_TRACK values, and suppression of queued/new events when
+DO_NOT_TRACK is set after enrollment. Tests mock the analytics sink.
+
+Review: no schema, dependency or event-format changes. Only output-related
+OSError/ValueError/RuntimeError failures are ignored when attempting the notice,
+as required by the best-effort policy; setup failure visibility stays in OME-1793.
+Existing preference locks and opt-out rechecks remain intact. Type checking passes
+without new suppressions. The service implementation is unchanged by this revision;
+its previously passing full gates remain applicable.
+
+Revision commit: `feat(analytics): enable defaults in headless environments`.
+Confidence review: ready for code review; deployed Colab smoke remains a rollout check.

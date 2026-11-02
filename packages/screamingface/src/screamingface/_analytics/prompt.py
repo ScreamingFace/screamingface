@@ -1,4 +1,4 @@
-"""Disclose the default before enrollment; headless and explicit opt-outs stay off."""
+"""Default-on analytics with best-effort notice; every explicit opt-out wins."""
 
 import asyncio
 import os
@@ -19,18 +19,14 @@ _pid = os.getpid()
 _lock = threading.RLock()
 
 
-def _visible_terminal() -> bool:
-    try:
-        return sys.stderr is not None and sys.stderr.isatty()
-    except (AttributeError, OSError, ValueError):
-        return False
-
-
 def show_notice(environment: str) -> None:
     stream = sys.stderr if environment == "python" else sys.stdout
-    if stream is None:
-        raise OSError("Disclosure output unavailable")
-    print(NOTICE, file=stream, flush=True)
+    try:
+        if stream is not None:
+            print(NOTICE, file=stream, flush=True)
+    except (OSError, ValueError, RuntimeError):
+        # WHY: redirected/closed notebook or script output is not an opt-out.
+        pass
 
 
 def _offer() -> None:
@@ -45,7 +41,7 @@ def _offer() -> None:
 
         bridge().control("setup")
         _shown = True
-    elif environment == "local_jupyter" or _visible_terminal():
+    else:
         store = LocalConsentStore(config_path())
         if not analytics._session_only and store.missing():
             show_notice(environment)

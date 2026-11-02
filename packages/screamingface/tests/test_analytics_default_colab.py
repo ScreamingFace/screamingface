@@ -1,5 +1,6 @@
-"""Disclosure-gated Colab defaults and bounded first-evaluation setup."""
+"""Default-on Colab analytics and bounded first-evaluation setup."""
 
+import sys
 import threading
 import time
 
@@ -45,22 +46,19 @@ def test_default_setup_preserves_saved_browser_choice(browser, monkeypatch, caps
     assert capsys.readouterr().out == ""
 
 
-def test_default_setup_failed_notice_never_enrolls(browser, monkeypatch):
+def test_default_setup_missing_notice_output_still_enrolls(browser, monkeypatch):
     calls = []
 
     def exchange(command, event, **kwargs):
         calls.append(command)
-        return {"choice": "unknown", "consent_version": "1"}
-
-    def unavailable(*args):
-        raise OSError("closed output")
+        return {"choice": "unknown", "consent_version": "1"} if command == "state" else accepted()
 
     monkeypatch.setattr(colab, "exchange", exchange)
-    monkeypatch.setattr(prompt, "show_notice", unavailable)
+    monkeypatch.setattr(sys, "stdout", None)
     prompt.offer()
     browser.wait_for_setup()
-    assert browser.read().choice == "unknown"
-    assert calls == ["state"]
+    assert browser.read().choice == "accepted"
+    assert calls == ["state", "enroll", "id"]
 
 
 def test_default_setup_timeout_invalidates_late_reply(browser, monkeypatch):
