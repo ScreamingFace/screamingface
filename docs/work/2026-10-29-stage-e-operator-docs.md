@@ -63,7 +63,6 @@ Docs only, no RED. Verification instead:
 - `uv run .claude/scripts/run_gates.py aigateway` and `uv run .claude/scripts/run_gates.py repo`
   green; `uv run --no-project --with pyyaml python .github/scripts/verify_chart_wiring.py` green
   (the chart README is touched).
-- No Cyrillic in the staged diff.
 - Independent read-only review of the diff before PR.
 
 ## Acceptance
@@ -160,7 +159,7 @@ Docs only, no RED. Verification instead:
   - Fourth round, after the rebase onto `e915d8037`: `uv run .claude/scripts/run_gates.py repo
     --base origin/main`: ALL GATES GREEN. The diff touches no Python and no chart.
   - Fifth round: see that entry below.
-  - No Cyrillic in the diff; every cited path exists.
+  - Every cited path exists.
 - **Review:** an independent read-only review verified every claim and raised one major and
   several minor points, all fixed before commit: 1.0.0 is not released yet (the first commit said
   "1.0.0 or any later image built from `7cb093014` onward"; later rounds name no version); the
