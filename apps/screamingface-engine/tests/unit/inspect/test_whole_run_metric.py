@@ -860,12 +860,12 @@ def _assembled(spec: BenchmarkSpec, monkeypatch: pytest.MonkeyPatch) -> Imported
 
 def test_naming_a_metric_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     # WHY aime24: a row honouring a metric must keep its Sample metadata, and aime24 does.
-    plain: str = _assembled(_spec("aime24"), monkeypatch).benchmark.revision
+    plain: str = _assembled(_spec("aime24"), monkeypatch).fingerprint
     honoured: ImportedBenchmark = _assembled(
         _spec("aime24", whole_run_metric="inspect_evals.hle.metrics:accuracy"), monkeypatch
     )
 
-    assert honoured.benchmark.revision != plain
+    assert honoured.fingerprint != plain
     assert benchmarks._whole_run_metric_pins(_spec(whole_run_metric="m:x")) == (
         "whole_run_metric=m:x",
     )
@@ -1152,10 +1152,10 @@ def test_a_headline_key_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -
     another key must never keep a revision its published scores hang off."""
 
     honoured: BenchmarkSpec = _spec("aime24", whole_run_metric="inspect_evals.hle.metrics:accuracy")
-    plain: str = _assembled(honoured, monkeypatch).benchmark.revision
+    plain: str = _assembled(honoured, monkeypatch).fingerprint
     keyed: ImportedBenchmark = _assembled(replace(honoured, whole_run_headline="f1"), monkeypatch)
 
-    assert keyed.benchmark.revision != plain
+    assert keyed.fingerprint != plain
     assert keyed.whole_run_headline == "f1"
     assert benchmarks._whole_run_metric_pins(replace(honoured, whole_run_headline="f1")) == (
         "whole_run_metric=inspect_evals.hle.metrics:accuracy",

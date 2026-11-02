@@ -13,7 +13,6 @@ from fastapi import HTTPException
 from aigateway.core.provider_access import (
     ProviderAccessRefusal,
     SelectorAmbiguous,
-    SelectorUnknown,
     SelectorUnsupported,
     TargetMissing,
     TargetPending,
@@ -65,16 +64,6 @@ _CASES: list[tuple[ProviderAccessRefusal, int, dict]] = [
         },
     ),
     (
-        SelectorUnknown("anthropic", "nope", ("work", "personal")),
-        404,
-        {
-            "code": "connection_not_found",
-            "provider": "anthropic",
-            "requested_label": "nope",
-            "valid_labels": ["work", "personal"],
-        },
-    ),
-    (
         UnsupportedAuthMode("api_key", provider="codex"),
         400,
         {"code": "api_key_not_supported", "provider": "codex"},
@@ -93,19 +82,6 @@ _CASES: list[tuple[ProviderAccessRefusal, int, dict]] = [
         WriteConflict("superseded", subject="connection"),
         409,
         {"code": "connection_conflict", "message": "Connection changed during auth-type repair"},
-    ),
-    (
-        WriteConflict("superseded", subject="profile", provider="anthropic", requested="work"),
-        409,
-        {"code": "profile_conflict", "provider": "anthropic", "profile": "work"},
-    ),
-    (
-        WriteConflict("retry_exhausted", subject="profile"),
-        503,
-        {
-            "code": "profile_index_conflict",
-            "message": "Profile metadata update conflicted. Try again.",
-        },
     ),
     (
         SelectorUnsupported(),

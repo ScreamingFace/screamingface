@@ -122,6 +122,9 @@ _FAILURE_MESSAGES: Mapping[str, str] = {
     # WHY (OME-1527): the scorer adapter names a judge that never gave a parseable verdict
     # (`judge_redraw`); without a message here that Case crashed the whole aggregate.
     "judge_reply_invalid": "the judge gave no parseable verdict for this Case after its redraws",
+    # WHY (OME-1271): the scorer adapter names a Case whose input breaks the envelope rules;
+    # without a message here that one Case would crash the whole aggregate.
+    "invalid_candidate_input": "this Case's input is not a conversation the grader can read",
     "missing_target_asset": "the baked target record for this Case is missing or invalid",
     "missing_case_row": "no evaluation row for this Case reached the aggregate",
     "case_error": "the Case pipeline collected an error instead of an evaluation",
@@ -270,6 +273,10 @@ class ImportedBenchmark:
     check_surface_route: str
     case_evaluation_route: str
     aggregate_route: str
+    #: The hash of everything that defines the Benchmark (OME-1610). An alarm, never
+    #: published: ``benchmark.revision`` is the row's hand-set ``published_revision``, and
+    #: ``tests/unit/inspect/test_benchmark_fingerprints.py`` pins this value per Benchmark.
+    fingerprint: str
     #: The benchmark's judge declaration; None for every string-match benchmark (OME-1240).
     judge: JudgeSpec | None = None
     #: The eval's grade counts the unwanted behaviour; the scorer adapter scores 1 − grade
@@ -470,7 +477,8 @@ def single_shot_benchmark(
             published ids are what submissions and the leaderboard key on, so they are never
             moved by a computed fingerprint, only by a deliberate bump (OME-1610). Never
             compared with the fingerprint (owner decision, 2026-10-15). NOT hashed into the
-            revision. None publishes the computed fingerprint.
+            revision. None publishes the computed fingerprint, for test stand-ins only: every
+            catalogue row sets it (OME-1610).
         answer_rule: how the grader reads an answer, as pinned combine operator ids (OME-1289).
             Published in the catalog; NOT hashed into the revision (like ``focus``).
 
@@ -656,6 +664,7 @@ def single_shot_benchmark(
         check_surface_route=routes["check_surface"],
         case_evaluation_route=routes["case_evaluation"],
         aggregate_route=routes["aggregate"],
+        fingerprint=fingerprint,
         judge=judge,
         inverted_grade=inverted_grade,
         verdict_grades=verdict_grades,
@@ -670,12 +679,17 @@ def single_shot_benchmark(
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept
     # the donor's key would resolve the WRONG benchmark's routes at install time —
-    # its differing pins give it a different revision, so it is refused here.
+    # its differing pins give it a different fingerprint, so it is refused here.
+    # WHY the fingerprint too (OME-1610): a copied row keeps the donor's hand-set
+    # published_revision as well, so the published ids alone would match.
     existing: ImportedBenchmark | None = _BENCHMARKS_BY_ID.get(benchmark_id)
-    if existing is not None and existing.benchmark.revision != revision:
+    if existing is not None and (
+        existing.benchmark.revision != revision or existing.fingerprint != fingerprint
+    ):
         raise ValueError(
-            f"benchmark id {benchmark_id!r} is already assembled with a different "
-            f"revision — duplicate benchmark_key?"
+            f"benchmark id {benchmark_id!r} is already assembled from different inputs "
+            f"(published {existing.benchmark.revision} vs {revision}, fingerprint "
+            f"{existing.fingerprint} vs {fingerprint}) — duplicate benchmark_key?"
         )
     _BENCHMARKS_BY_ID[benchmark_id] = imported
     return imported
@@ -840,8 +854,12 @@ def _enveloped_inputs(cases_json: str) -> str:
 
     rows: list[dict[str, Any]] = json.loads(cases_json)
     for row in rows:
-        if conversation_messages(row["input"]) is None:
-            row["input"] = conversation_input([{"role": "user", "content": row["input"]}])
+        try:
+            if conversation_messages(row["input"]) is None:
+                row["input"] = conversation_input([{"role": "user", "content": row["input"]}])
+        except ValueError as exc:
+            # WHY the id: one broken Case among hundreds must be findable (OME-1271).
+            raise ValueError(f"case {row['id']}: {exc}") from exc
     return json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
 
 

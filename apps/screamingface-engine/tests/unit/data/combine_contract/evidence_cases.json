@@ -1921,5 +1921,203 @@
     },
     "dropped": 0,
     "finish_reason": "stop"
+  },
+  "mean_weighted_value": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "mean",
+    "operators": [
+      "json_field@1",
+      "numeric@1",
+      "weighted_mean@1",
+      "value@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "10",
+        "value": "10",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.25
+        },
+        "weight": 0.25,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "99",
+        "value": "99",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.0
+        },
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_3",
+        "raw": "30",
+        "value": "30",
+        "status": "answered",
+        "reason": null,
+        "signals": {
+          "field:confidence": 0.75
+        },
+        "weight": 0.75,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": null,
+    "chosen": [],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "mean": "25",
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": {
+      "key": "field:confidence",
+      "order": null
+    },
+    "result": {
+      "member_id": null,
+      "value": "25",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "pick_output": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "pick",
+    "operators": [
+      "json_field@1",
+      "numeric@1",
+      "values@1",
+      "by_field@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "0.9",
+        "value": "0.9",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "0.6",
+        "value": "0.6",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": [
+      {
+        "field": "confidence",
+        "rule": "values",
+        "values": {
+          "member_1": "0.9",
+          "member_2": "0.6"
+        },
+        "result": null
+      }
+    ],
+    "chosen": [
+      "member_1"
+    ],
+    "built": true,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": null,
+      "value": "42",
+      "status": "answered",
+      "reason": null
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
+  },
+  "pick_output_missing": {
+    "schema": "screamingface.combine-evidence.v1",
+    "kind": "answer",
+    "reducer": "pick",
+    "operators": [
+      "json_field@1",
+      "numeric@1",
+      "values@1",
+      "by_field@1"
+    ],
+    "members": [
+      {
+        "member_id": "member_1",
+        "raw": "0.9",
+        "value": "0.9",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      },
+      {
+        "member_id": "member_2",
+        "raw": "0.6",
+        "value": "0.6",
+        "status": "answered",
+        "reason": null,
+        "signals": {},
+        "weight": null,
+        "score": null
+      }
+    ],
+    "tally": null,
+    "judge": null,
+    "fields": [
+      {
+        "field": "confidence",
+        "rule": "values",
+        "values": {
+          "member_1": "0.9",
+          "member_2": "0.6"
+        },
+        "result": null
+      }
+    ],
+    "chosen": [],
+    "built": false,
+    "agreement": null,
+    "tie": false,
+    "median": null,
+    "presentation_order": null,
+    "separator_collision": null,
+    "signal": null,
+    "result": {
+      "member_id": null,
+      "value": null,
+      "status": "abstain",
+      "reason": "output_missing"
+    },
+    "dropped": 0,
+    "finish_reason": "stop"
   }
 }

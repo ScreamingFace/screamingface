@@ -135,6 +135,23 @@ implementation run against two kinds of log source, not a copy.
   secret patterns as a backstop.
 - **Scores:** assert bands, never exact values.
 
+### 3.4.1 Deferred (not implemented by units 1–2)
+
+Units 1–2 shipped a subset of §3.1–§3.4. These items are still open; none is dropped:
+
+- **Budget guard:** neither `Target.budget_usd` nor the per-cell projected-spend abort exists.
+  The implemented `LiveTarget` has no `budget_usd`, `auth`, or `submit_allowed` field. Paid runs
+  are bounded only by the notebook's `limit` and the opt-in env gate.
+- **Lifecycle pairing:** `run scheduled` / `run terminated` are collected into
+  `trace.json` → `lifecycle`, but a scheduled line without a terminated one does **not** fail the
+  test. §3.3 step 4 ("a scheduled line pairs with a terminated line") is not yet a hard requirement.
+- **Submit guard:** there is no `submit` notebook and no `SUBMIT=1` × `submit_allowed` check.
+- **Scenario set:** only `quickstart` exists; `cached-repro`, `pipeline`, `leaderboard-read` and
+  `submit` (§3.2) are not written yet.
+- **OTLP spans:** not collected (open question in §8).
+- **Hosted / preview targets:** `preview:N` and `hosted-dev`, with their kubectl log sources and
+  Access auth, belong to unit 3 (§7). Only `replay` and `local` exist.
+
 ### 3.5 Local web UI (`screamingface workbench`)
 
 - A loopback-only server.

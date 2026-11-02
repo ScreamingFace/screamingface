@@ -134,19 +134,30 @@ def test_delete_disconnects_and_a_repeated_delete_is_also_204(client, admin_clie
 def test_a_committed_mutation_drops_only_the_pairs_pending_flows(client, admin_client) -> None:
     tenant = _tenant(admin_client)
     pending = client.app.state.pending_auth
+    # WHY a pending row (E5a, history cleanup): the drop follows the pair's captured Connection,
+    # and a native OAuth start creates its pending row before it registers the flow.
+    connection_id = uuid4()
+    _call(
+        client,
+        OAuthConnectionStore().create_pending,
+        account_id=tenant,
+        provider="anthropic",
+        label=f"conn-{connection_id}",
+        connection_id=connection_id,
+    )
 
-    def entry(provider: str) -> PendingAuthEntry:
+    def entry(provider: str, connection: str) -> PendingAuthEntry:
         return PendingAuthEntry(
             account_id=tenant,
             provider=provider,
             profile_name="default",
             code_verifier="v",
             redirect_uri="https://example.invalid/cb",
-            connection_id=f"{provider}-unrelated",
+            connection_id=connection,
         )
 
-    pending.put("this-pair", entry("anthropic"))
-    pending.put("other-pair", entry("openai"))
+    pending.put("this-pair", entry("anthropic", str(connection_id)))
+    pending.put("other-pair", entry("openai", "openai-unrelated"))
 
     assert _put(admin_client, tenant).status_code == 200
 
@@ -282,43 +293,22 @@ def test_an_ambiguous_pair_is_a_409_pair_detail(client, admin_client, operation)
     assert resp.headers["cache-control"] == NO_STORE
 
 
-@pytest.mark.parametrize(
-    ("kind", "status", "detail"),
-    [
-        (
-            "superseded",
-            409,
-            {
-                "code": "credential_publication_superseded",
-                "message": "Credential state changed. Reload before submitting another change.",
-                "provider": "anthropic",
-            },
-        ),
-        (
-            "retry_exhausted",
-            503,
-            {
-                "code": "credential_write_conflict",
-                "message": "Credential update conflicted. Try again.",
-                "provider": "anthropic",
-            },
-        ),
-    ],
-)
-@pytest.mark.parametrize("subject", ["profile", "connection"])
-def test_a_lost_write_renders_the_successor_conflict(
-    client, admin_client, monkeypatch, kind, status, detail, subject
-) -> None:
+def test_a_lost_write_renders_the_successor_conflict(client, admin_client, monkeypatch) -> None:
     tenant = _tenant(admin_client)
+    detail = {
+        "code": "credential_publication_superseded",
+        "message": "Credential state changed. Reload before submitting another change.",
+        "provider": "anthropic",
+    }
 
     async def lost(*_args: Any, **_kwargs: Any) -> Any:
-        raise WriteConflict(kind, subject=subject, provider="anthropic", requested="default")
+        raise WriteConflict("superseded", subject="connection", provider="anthropic")
 
     monkeypatch.setattr(admin_connections, "set_pair_api_key", lost)
     monkeypatch.setattr(admin_connections, "delete_pair", lost)
 
     for resp in (_put(admin_client, tenant), _delete(admin_client, tenant)):
-        assert resp.status_code == status
+        assert resp.status_code == 409
         assert resp.json() == {"detail": detail}
         assert resp.headers["cache-control"] == NO_STORE
 

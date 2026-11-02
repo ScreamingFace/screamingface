@@ -10,6 +10,7 @@ from tortoise.transactions import in_transaction
 
 from aigateway.core.auth.middleware import CurrentAccount
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
+from aigateway.core.endpoint_access import EndpointOperation, accessible_plugin
 from aigateway.core.errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.schemas import (
@@ -92,7 +93,11 @@ async def start_connection_oauth(
     request: Request,
     current: CurrentAccount,
 ) -> StartOAuthConnectionResponse:
-    plugin = request.app.state.providers.get(body.provider)
+    # WHY VIEW: a provider this account may not see must answer as unregistered here too, not
+    # with the "does not use OAuth" refusal that would confirm it is configured.
+    plugin = accessible_plugin(
+        request.app, body.provider, account_id=str(current.id), operation=EndpointOperation.VIEW
+    )
     if plugin is None:
         raise HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": body.provider}
@@ -116,8 +121,8 @@ async def start_connection_oauth(
             request, body.provider, cfg, state, body.redirect_uri
         )
     store = _store(request)
-    # FEATURE (OME-1497, G0): the start is an ownership change on a legacy-owned pair; its
-    # callback claims the pair this start published.
+    # FEATURE (OME-1497, G0): the start is an ownership change on a `none` or unmarked pair, which
+    # its Connections own; its callback claims the pair this start published.
     observed = await PairAuthorityStore().read(account_id, body.provider)
     # FEATURE (OME-1209, E1b, R6): on a migrated pair this flow may replace the effective row.
     replaces_effective = await effective_to_replace(observed, requested_label=body.label)
@@ -213,7 +218,9 @@ async def create_api_key_connection(
     chat path reads for this connection, so it is usable on a real chat call
     immediately. The key is never echoed back or logged.
     """
-    plugin = request.app.state.providers.get(body.provider)
+    plugin = accessible_plugin(
+        request.app, body.provider, account_id=str(current.id), operation=EndpointOperation.ATTACH
+    )
     if plugin is None:
         raise HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": body.provider}
@@ -325,7 +332,9 @@ async def set_connection_api_key(
             },
         )
     api_key = normalize_api_key(body.api_key)
-    plugin = request.app.state.providers.get(connection.provider)
+    plugin = accessible_plugin(
+        request.app, connection.provider, account_id=account_id, operation=EndpointOperation.ATTACH
+    )
     if plugin is None:
         raise HTTPException(
             status_code=404,
@@ -390,7 +399,7 @@ async def _replace_api_key(
                 "message": "Connection changed during API-key validation",
             },
         )
-    # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed here, after the validation.
+    # INVARIANT (OME-1497, G0): a `none` or unmarked pair is claimed here, after the validation.
     await claim_for_connection(latest_connection)
     # INVARIANT (D14, S2'b4): a migrated pair's effective row fences the pair FIRST (marker),
     # then the row, then the blob — a no-op otherwise.
@@ -459,7 +468,7 @@ async def _delete_connection(
     connection = await store.get(account_id, connection_id)
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
-    # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed FIRST (marker → row → blob).
+    # INVARIANT (OME-1497, G0): a `none` or unmarked pair is claimed FIRST (marker → row → blob).
     await claim_for_connection(connection)
     # INVARIANT (D14, S2'b4): a migrated pair's effective row retires the pair FIRST — marker
     # (effective → None) — before the row and the blob; no-op otherwise.

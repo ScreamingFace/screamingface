@@ -620,7 +620,9 @@ async def test_every_judge_less_benchmark_grades_with_no_network(
 
 #: Eight stand-in LAB-Bench rows. WHY these fields: lab_bench's row rules read the question,
 #: the ideal answer (always placed FIRST among the choices) and the distractors; suppqa also
-#: reads the paper's title and source, protocolqa the protocol.
+#: reads the paper's title and source, protocolqa the protocol, figqa the figure's bytes and
+#: tableqa each table's bytes (OME-1327). The pictures are bare file signatures: capture reads
+#: a picture's type from its first bytes, so a JPEG and a PNG start are all it needs.
 _LAB_BENCH_ROWS: list[dict[str, object]] = [
     {
         "id": f"row-{index}",
@@ -630,6 +632,8 @@ _LAB_BENCH_ROWS: list[dict[str, object]] = [
         "paper-title": "A stand-in paper",
         "source": "https://example.invalid/paper",
         "protocol": "Step 1: stand-in protocol.",
+        "figure": {"bytes": b"\xff\xd8\xff\xe0" + b"\x00" * 8},
+        "tables": [{"bytes": b"\x89PNG\r\n\x1a\n" + b"\x00" * 8}],
     }
     for index in range(1, 9)
 ]

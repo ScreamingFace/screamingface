@@ -21,10 +21,6 @@ class BenchmarkDefinition(Protocol):
 
 # Local gateway environment defaults (OME-1001). Every entry is a setdefault: an
 # explicit operator choice always wins.
-# WHY no AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE here: the gateway documents provider
-# startup bootstrap as opt-in — the user authorizes profiles explicitly rather than
-# finding a "default" profile they never consented to. Anyone who wants it exports
-# the variable themselves.
 LOCAL_GATEWAY_DEFAULTS = {
     # The local BYOK provider plugin defaults to disabled; without it the Gateway
     # catalog contains no openrouter/* models for the Engine to project.
@@ -35,6 +31,10 @@ LOCAL_GATEWAY_DEFAULTS = {
     # Engine's 600s per-call budget, and full HealthBench evals die on calls that
     # never reached OpenRouter (OME-889; long-term admission fix: OME-886).
     "AIGW_PROVIDER_MAX_CONCURRENCY_OVERRIDES": '{"openrouter": 32}',
+    # FEATURE (OME-1311): the local gateway caches by default, as hosted does. Rows pulled from
+    # the community cache (`sf.cache.pull_from_remote`) only help a local run when it does; one
+    # run opts out with `evaluate(..., use_cache=False)`, and an exported `false` still wins.
+    "AIGW_REQUEST_CACHE_ENABLED": "true",
 }
 
 

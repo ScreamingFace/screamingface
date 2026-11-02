@@ -23,7 +23,7 @@ from aigateway.core.api_key_validation import (
     ApiKeyValidationState,
 )
 from aigateway.core.oauth.identity import AccountIdentity
-from aigateway.core.profile_models import ProfileState
+from tests.unit.seed_state import SeedState
 
 KEY = "sk-ant-api03-e1b-unlabelled-key-1111"
 
@@ -65,7 +65,7 @@ def test_an_unlabelled_flow_replaces_a_working_effective_row_and_keeps_its_label
     migrated: ConnectionBackedHarness,
 ) -> None:
     h = migrated
-    h.seed_profile(state=ProfileState.AUTHENTICATED)
+    h.seed_credential(state=SeedState.AUTHENTICATED)
     old = h.migrated["default"]
 
     new = _unlabelled_oauth(h)
@@ -82,7 +82,7 @@ def test_an_unlabelled_re_login_of_the_same_identity_refreshes_the_main_connecti
     # WHY: re-signing into the main connection's own provider account must land fresh tokens on
     # the pair — not answer 200 and discard them as a duplicate.
     h = migrated
-    h.seed_profile(state=ProfileState.AUTHENTICATED)
+    h.seed_credential(state=SeedState.AUTHENTICATED)
     old = h.migrated["default"]
     row = connection(h, old)
     row.identity_sub = "user-1"
@@ -105,7 +105,7 @@ def test_an_unlabelled_flow_does_not_inherit_a_placeholder_label(
 ) -> None:
     # WHY: an errored OAuth row's label is an `error:<id>` placeholder, not a name to keep.
     h = migrated
-    h.seed_profile(state=ProfileState.ERROR)
+    h.seed_credential(state=SeedState.ERROR)
     old = h.migrated["default"]
     assert connection(h, old).label.startswith("error:")
 
@@ -119,7 +119,7 @@ def test_an_unlabelled_key_replaces_a_working_effective_row_and_keeps_its_label(
     migrated: ConnectionBackedHarness,
 ) -> None:
     h = migrated
-    h.seed_profile(state=ProfileState.AUTHENTICATED)
+    h.seed_credential(state=SeedState.AUTHENTICATED)
     old = h.migrated["default"]
 
     created = h.client.post(

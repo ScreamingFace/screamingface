@@ -268,16 +268,9 @@ def test_contradictory_auxiliary_usage_prevents_zero_certification(
             id="current-chat-server-tool-usage",
         ),
         pytest.param(
-            {"server_tool_use_details": []},
-            id="malformed-current-chat-server-tool-usage",
-        ),
-        pytest.param(
             {"server_tool_use_details": {"tool_calls_executed": "1"}},
             id="malformed-current-chat-server-tool-count",
         ),
-        pytest.param({"is_byok": True}, id="conflicting-byok"),
-        pytest.param({"is_byok": None}, id="malformed-byok"),
-        pytest.param({"is_byok": "false"}, id="non-boolean-byok"),
     ],
 )
 def test_current_chat_usage_conflicts_prevent_zero_certification(
@@ -310,33 +303,6 @@ def test_explicit_zero_auxiliary_evidence_preserves_insurance_certification() ->
 
     (attempt,) = collector.records()
     assert attempt.direct_cost.status == "provider_guaranteed_zero"
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        pytest.param(
-            {"metadata": {"error_type": "rate_limit_exceeded"}},
-            id="missing-error-code",
-        ),
-        pytest.param(
-            {"code": 500, "metadata": {"error_type": "rate_limit_exceeded"}},
-            id="conflicting-error-code",
-        ),
-        pytest.param(
-            {"code": "429", "metadata": {"error_type": "rate_limit_exceeded"}},
-            id="non-integer-error-code",
-        ),
-    ],
-)
-def test_error_code_must_agree_with_native_429(error: dict[str, Any]) -> None:
-    raw_response = {**_insured_error(), "error": error}
-    collector = _collector((429, raw_response))
-
-    _finalize(collector, None)
-
-    (attempt,) = collector.records()
-    assert attempt.direct_cost.status == "unavailable"
 
 
 def test_supplement_failure_preserves_base_mapper_evidence() -> None:

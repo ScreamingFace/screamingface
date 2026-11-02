@@ -78,8 +78,16 @@ def _number(answer: Answer) -> Decimal:
     return Decimal(answer.value)
 
 
-def _numbers(combine_input: CombineInput) -> list[tuple[str, Decimal]]:
-    return [(answer.member_id, _number(answer)) for answer in combine_input.voters]
+def _numbers(
+    combine_input: CombineInput, participants: tuple[str, ...] | None = None
+) -> list[tuple[str, Decimal]]:
+    """Each voter's number in author order; only the participants when the reduce step set them
+    (E4b P9: a member dropped for its weight is never the nearest member)."""
+    voters = combine_input.voters
+    if participants is not None:
+        kept = frozenset(participants)
+        voters = tuple(answer for answer in voters if answer.member_id in kept)
+    return [(answer.member_id, _number(answer)) for answer in voters]
 
 
 def _median(reduction: Reduction, op_id: str) -> Decimal:
@@ -89,9 +97,9 @@ def _median(reduction: Reduction, op_id: str) -> Decimal:
 
 
 def nearest(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
-    """Member whose value is nearest the median; the first at the minimum distance wins."""
+    """Member whose value is nearest the median or the mean; the first at the minimum wins."""
     centre = _median(reduction, "nearest@1")
-    voters = _numbers(combine_input)
+    voters = _numbers(combine_input, reduction.participants)
     with localcontext(DECIMAL_CONTEXT):
         distances = [abs(number - centre) for _, number in voters]
         closest = min(distances)
@@ -103,7 +111,7 @@ def nearest(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) 
 
 
 def value(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
-    """The median value itself, in canonical numeric form."""
+    """The median or the mean itself, in canonical numeric form."""
     return Selection(chosen=(), output=canonical_decimal(_median(reduction, "value@1")))
 
 

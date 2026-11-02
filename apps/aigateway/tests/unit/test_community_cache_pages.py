@@ -356,7 +356,7 @@ def _between_queries(monkeypatch: pytest.MonkeyPatch, change) -> None:
     original = community_pages._next_keys
     pending = [change]
 
-    async def next_keys(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+    async def next_keys(*args: Any, **kwargs: Any) -> tuple[list[dict[str, Any]], bool]:
         keys = await original(*args, **kwargs)
         while pending:
             await pending.pop()()
@@ -440,3 +440,117 @@ async def test_has_rows_after_says_whether_a_full_page_was_the_last(db) -> None:
         models=(),
         now=_NOW,
     )
+
+
+# --- each batch starts at its cursor in the index (dev pull at ~33 s a page) ----------------------
+
+
+async def _plan(rows: Any) -> str:
+    connection = Tortoise.get_connection("default")
+    _, plan = await connection.execute_query(f"EXPLAIN QUERY PLAN {rows.sql(params_inline=True)}")
+    return " | ".join(str(dict(step)["detail"]) for step in plan)
+
+
+@pytest.mark.asyncio
+async def test_what_follows_a_cursor_is_read_as_index_ranges_that_start_at_it(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: an OR of `updated_at > X` and `updated_at = X AND key_hash > Y` is no index range, so
+    # every batch walked the index from its start and dropped the rows before the cursor —
+    # ~1.4 s a batch 200k rows into dev's cache, where bulk restores stamped ~188k rows with one
+    # time. Each of the two parts starts at the cursor (0.48 ms and 1.28 ms there).
+    cursor = PageCursor(updated_at=_T0, key_hash="a" * 64)
+    eligible = community_pages._eligible((), _NOW)
+
+    planned: list[str] = []
+
+    async def plan(part: Any, n: int) -> list[dict[str, Any]]:
+        # The exact query `_next_keys` sends for each part.
+        planned.append(await _plan(part.order_by(*community_pages._ORDER).limit(n)))
+        return []
+
+    monkeypatch.setattr(community_pages, "_keys_in", plan)
+    await community_pages._next_keys(eligible, cursor, 100)
+
+    assert "(updated_at=? AND key_hash>?)" in planned[0]
+    assert "(updated_at>?)" in planned[1]
+
+
+@pytest.mark.asyncio
+async def test_a_tie_run_that_ends_inside_a_batch_is_finished_before_later_rows(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(community_pages, "BATCH_ROWS", 3)
+    for key in "abcde":
+        await _row(key, updated_at=_T0)
+    for key in "fg":
+        await _row(key, updated_at=_T0 + timedelta(seconds=1))
+    await _row("0", updated_at=_T0 + timedelta(seconds=2))
+
+    batches = [
+        [row["key_hash"][0] for row in batch]
+        async for batch in iter_page(after=None, limit=100, models=(), now=_NOW)
+    ]
+
+    assert batches == [["a", "b", "c"], ["d", "e", "f"], ["g", "0"]]
+
+
+@pytest.mark.asyncio
+async def test_a_row_moved_out_of_the_tie_run_between_its_two_reads_is_taken_once(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: the tie run and the later rows are separate statements; a merge restore that moves a
+    # tie-run row later between them puts it in both reads. Counted twice, the page would end a
+    # row short of its limit.
+    for key in "abc":
+        await _row(key, updated_at=_T0)
+    await _row("d", updated_at=_T0 + timedelta(seconds=1))
+    await _row("e", updated_at=_T0 + timedelta(seconds=200))
+    original = community_pages._keys_in
+    reads = [0]
+
+    async def keys_in(part: Any, n: int) -> list[dict[str, Any]]:
+        if reads[0] == 1:
+            await RequestCacheEntry.filter(key_hash="b".ljust(64, "0")).update(
+                updated_at=_T0 + timedelta(seconds=100)
+            )
+        reads[0] += 1
+        return await original(part, n)
+
+    monkeypatch.setattr(community_pages, "_keys_in", keys_in)
+    after = PageCursor(updated_at=_T0, key_hash="a".ljust(64, "0"))
+
+    page = [
+        row["key_hash"][0]
+        async for batch in iter_page(after=after, limit=4, models=(), now=_NOW)
+        for row in batch
+    ]
+
+    assert page == ["c", "d", "b", "e"]
+
+
+@pytest.mark.asyncio
+async def test_a_count_from_inside_a_tie_run_is_one_statement(
+    db, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY (spec decision 8): one count(*). Two counts scan the tie run and the later rows
+    # separately, about twice the reads on Postgres, under two snapshots.
+    for key in "abc":
+        await _row(key, updated_at=_T0)
+    await _row("d", updated_at=_T0 + timedelta(seconds=1))
+    connection = Tortoise.get_connection("default")
+    original = connection.execute_query
+    statements: list[str] = []
+
+    async def counting(query: str, *args: Any, **kwargs: Any) -> Any:
+        statements.append(query)
+        return await original(query, *args, **kwargs)
+
+    monkeypatch.setattr(connection, "execute_query", counting)
+
+    counted = await count_rows(
+        after=PageCursor(updated_at=_T0, key_hash="a".ljust(64, "0")), models=(), now=_NOW
+    )
+
+    assert counted == 3
+    assert len(statements) == 1

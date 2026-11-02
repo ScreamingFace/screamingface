@@ -164,6 +164,17 @@ client.close()`
       <li>Use an explicit Client, sync or with <code>await</code>.</li>
     </ul>
 
+    <p>
+      To replay captured answers, call <code>sf.evaluate(pinned_cache="…")</code> or
+      <code>sf.evaluate(score_id="…")</code> with no positional candidate and no
+      <code>benchmark</code>. The board supplies the recipe and seed. The returned report's single
+      result has a <code>reproduction</code> object with an <code>outcome</code> of
+      <code>exact</code> or <code>failed</code>. A partial replay with <code>limit=n</code>
+      has no verdict. See the
+      <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink>
+      for replay checks, private scores and <code>record_reproduction=False</code>.
+    </p>
+
     <h2>Main APIs</h2>
 
     <table>
@@ -178,16 +189,16 @@ client.close()`
           <td>
             <code
               >sf.evaluate(candidates, *, benchmark, limit=None, on_event=None, progress=None,
-              answer_seed=None, capture=True)</code
+              answer_seed=None, capture=None)</code
             >
           </td>
           <td>
             Runs one or more candidates against a benchmark's protocol concurrently, returning a
             single <code>sf.Report</code>. Validates everything before the first paid request.
-            Capture is on by default, so each run makes a frozen copy and a score can be
-            <RouterLink to="/learn/caching">reproduced</RouterLink> later.
-            <code>capture=False</code>
-            turns capture off.
+            Capture is off by default. With
+            <code>capture=True</code>
+            each run makes a pinned cache, so a score can be
+            <RouterLink to="/learn/caching">reproduced</RouterLink> later. A replay never captures.
           </td>
         </tr>
         <tr>

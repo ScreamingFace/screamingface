@@ -25,6 +25,23 @@ already SDK dev deps), the existing `tests/e2e/harness`.
 Notebooks pass both URLs explicitly, so they don't strictly depend on it, but the local target's
 `sf.configure` use does.
 
+> **As built (2026-10-16), superseding the task snippets below where they differ:**
+> - **Local target (Task 4):** `screamingface up` brings only the Gateway (`:9105`) and the
+>   Scoreboard (`:9106`) that the notebook uses. ifeval is served by a separate inspect-capable
+>   Engine (`harness.stack.EngineProcess`, free port, prepared ifeval assets) against that
+>   Gateway, as `just local-stack-notebooks` does. The runtime's own Engine lists only the
+>   built-in boards. Hops are `engine` (`engine.log`) and `aigateway` (`gateway`-tagged
+>   `runtime.log` lines), both required. An Engine without ifeval fails; it does not skip.
+>   `test_local_boot.py` boots this stack keylessly (gate `SCREAMINGFACE_TEST_E2E=1`).
+> - **Explicit scoreboard (Tasks 4–5):** `LiveTarget.scoreboard_url` is `str`, never `None`.
+>   Replay injects an unused loopback placeholder (`http://127.0.0.1:9`). The quickstart's
+>   `SCOREBOARD_URL` defaults to `http://127.0.0.1:9106`, and the client cell raises on an empty
+>   value instead of falling back to the SDK's hosted default.
+> - **Result validation (Task 6):** `result_check.check_result` replaces the inline
+>   `trace_ids = …` read. It requires the notebook's `workbench.required_result` keys, a list
+>   `trace_ids`, and ids that fullmatch `TRACE_ID` (32 lowercase hex). The test id is
+>   `test_notebook[<target>-<stem>]`, and junit carries `trace_ids` and `bundle` properties.
+
 ## Global Constraints
 
 - **No spend on replay:** the gateway is keyless and a cache miss is a failure (existing harness
@@ -742,9 +759,11 @@ def start_target(name: str, work_dir: Path) -> ContextManager[LiveTarget]  # ski
   - Runs `screamingface up --data-dir <work_dir>/data` via `subprocess.run([sys.executable, "-m", "screamingface._runtime.cli", "up", "--data-dir", …], check=True)`.
     Check how `tests/paid/conftest.py:219-310` boots the stack and mirror its env (`AIGW_AUTH_MODE` etc.).
     On exit it runs `down`.
-  - URLs: `http://127.0.0.1:9108`, `http://127.0.0.1:9106`
-  - Sources: `FileLogSource("runtime", <data>/runtime.log)`
-  - `required_hops=("runtime",)`
+  - URLs: `http://127.0.0.1:9108`, `http://127.0.0.1:9106`. *Superseded:* the Engine is a
+    separate `EngineProcess` on a free port (see "As built" above).
+  - Sources: `FileLogSource("runtime", <data>/runtime.log)`. *Superseded:* `engine.log` plus
+    the `gateway`-tagged lines of `runtime.log`.
+  - `required_hops=("runtime",)`. *Superseded:* `("engine", "aigateway")`.
   - `params={"RECIPE": "authored", "EXPECT_CACHED": False}`
   - The BYOK key is connected inside the notebook from `os.environ["OPENROUTER_API_KEY"]`. It is
     never passed as a parameter.
@@ -843,7 +862,7 @@ git commit -m "test(e2e): workbench replay and local targets"
 
 ```python
 ENGINE_URL = "http://127.0.0.1:9108"
-SCOREBOARD_URL = None
+SCOREBOARD_URL = None      # superseded: "http://127.0.0.1:9106", always explicit (see "As built")
 RECIPE = "authored"        # "golden" on replay: the exact recipe the ifeval tape recorded
 BENCHMARK = "ifeval"
 LIMIT = 1
@@ -867,6 +886,10 @@ client = (
 if os.environ.get("OPENROUTER_API_KEY") and RECIPE == "authored":
     client.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])  # tests/paid/conftest.py:329
 ```
+
+*Superseded:* the `else` fallback to the SDK default is gone. The cell raises
+`ValueError("SCOREBOARD_URL must be explicit")` on an empty value, then always builds
+`sf.Client(engine_url=ENGINE_URL, scoreboard_url=SCOREBOARD_URL)`.
 
 4. Recipe:
 
@@ -1098,6 +1121,10 @@ def test_notebook(path: Path, live_target, workbench_out: Path) -> None:
     assert not reasons, f"{'; '.join(reasons)} — evidence: {bundle}"
 ```
 
+*Superseded in part:* the trace ids now come from `result_check.check_result` (see "As built"),
+and a failure reason is recorded for a missing payload, a missing declared key, a non-list
+`trace_ids`, or a malformed id.
+
 Engine lifecycle lines are recorded in `trace.json` but not yet required. Rung 4a covers the
 engine trace id, and the lifecycle requirement switches on once the local-mode adapter is
 confirmed to emit both lines. This is a known, stated gap, not a placeholder; it is listed under
@@ -1105,15 +1132,26 @@ confirmed to emit both lines. This is a known, stated gap, not a placeholder; it
 
 - [ ] **Step 2: Run the replay lane locally**
 
+`ifeval` is a local-Task bundle (OME-1527), so `screamingface prepare` does not build it; the
+Engine's own preparer does, exactly as `.github/workflows/screamingface-e2e-replay.yml` runs it.
+
 ```bash
-cd packages/screamingface
-uv run --extra runtime screamingface prepare ifeval
-SCREAMINGFACE_TEST_E2E=1 SCREAMINGFACE_WORKBENCH_OUT=/tmp/wb uv run pytest tests/e2e/workbench -v -rs
+# 1. Build the ifeval bundle with the Engine's preparer (refuses a non-empty directory)
+cd apps/screamingface-engine
+uv run --extra benchmarks python -m screamingface_engine.benchmarks.prepare \
+  --root /tmp/screamingface-data/benchmark-assets --bundle ifeval
+
+# 2. Run the workbench against the replay target
+cd ../../packages/screamingface
+SCREAMINGFACE_TEST_E2E=1 \
+SCREAMINGFACE_E2E_ASSETS=/tmp/screamingface-data/benchmark-assets \
+SCREAMINGFACE_WORKBENCH_OUT=/tmp/wb \
+  uv run pytest tests/e2e/workbench -v -rs
 cat /tmp/wb/summary.md
 ```
 
 Expected:
-- `test_notebook[quickstart]` PASSES
+- `test_notebook[replay-quickstart]` PASSES (id is `test_notebook[<target>-<stem>]`)
 - `/tmp/wb/replay/quickstart/{executed.ipynb,trace.json,logs/engine.txt,logs/aigateway.txt}`
   exist
 - `trace.json` shows both hops `found: true`
@@ -1205,5 +1243,7 @@ git commit -m "ci(e2e): upload workbench evidence; add just workbench"
 
 - `pytest tests/e2e/workbench` is green on replay in CI, with the evidence artifact uploaded.
 - The local target passes once by hand with a paid key. Record its `summary.md` row in the
-  ledger.
-- PR-open filing: one `cross-unit/repo-dev-processes` leaf under the workbench epic.
+  ledger. **Open:** the keyless boot (`test_local_boot.py`) passes, but this paid run has not
+  happened.
+- PR-open filing: one `cross-unit/repo-dev-processes` leaf under the workbench epic. Unit 2
+  opens as its own PR after the unit 1 (`client-sf`) PR merges (owner decision).

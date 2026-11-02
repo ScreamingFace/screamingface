@@ -1,12 +1,12 @@
 ---
 id: OME-1634
 linear_url: https://linear.app/openmined/issue/OME-1634/codex-calls-through-the-gateway-fail-with-400-on-every-model-text-only
-status: in_progress
+status: done
 type: bug
 priority: high
 labels: [bug, aigateway, agentic]
 created: 2026-10-16
-closed:
+closed: 2026-10-21
 ---
 
 # Codex calls through the gateway fail with 400 on every model, text-only included
@@ -18,3 +18,5 @@ CLI on a **plus** account works. A plus plan is also refused for every static ca
 naming the model and the plan, plus `available_models` from the account's live list
 (`GET /backend-api/codex/models`), returned only to that account's own refusal; `/v1/models`
 serves the static seeds, swapped to the four current models (owner-approved 2026-10-17). Ledger: `../work/2026-10-16-codex-plan-unsupported.md`.
+
+- 2026-10-21: merged via #1441 as `40908acdd`; closed.

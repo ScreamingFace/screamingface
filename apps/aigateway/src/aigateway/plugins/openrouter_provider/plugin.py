@@ -83,7 +83,7 @@ from .litellm_controls import (
 )
 from .live_models import (
     LIVE_MODELS_DISCOVERY_SOURCE,
-    fetch_live_model_ids,
+    fetch_live_model_catalog,
     live_listing_entries,
     publishable_upstream_ids,
 )
@@ -226,8 +226,12 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         """
         if not (self.settings.enabled and self.settings.live_models):
             return None
-        raw_ids = await fetch_live_model_ids(client=client, limits=limits)
-        return live_listing_entries(self.settings, publishable_upstream_ids(raw_ids))
+        catalog = await fetch_live_model_catalog(client=client, limits=limits)
+        return live_listing_entries(
+            self.settings,
+            publishable_upstream_ids(catalog.ids),
+            input_modalities=catalog.input_modalities,
+        )
 
     async def admit_model(
         self,

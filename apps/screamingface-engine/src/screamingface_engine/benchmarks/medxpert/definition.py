@@ -108,7 +108,15 @@ def compute_revision(
     )
 
 
-REVISION = compute_revision()
+#: The hash of everything that defines this Benchmark (OME-1610): an alarm, never published.
+#: ``tests/unit/inspect/test_benchmark_fingerprints.py`` pins it.
+FINGERPRINT = compute_revision()
+#: The id this Benchmark publishes, hand-set (OME-1610): what submissions and the leaderboard
+#: key on. AIDEV-NOTE: the same rule as a catalogue row's ``published_revision`` — never
+#: edited to make a red fingerprint test green; it moves only on a fundamental change, after
+#: ``just engine benchmark-bump medxpert`` and with the owner's sign-off
+#: (``docs/adding-an-imported-benchmark.md``, "Changing a Benchmark's published revision").
+REVISION = "1e5a3b8a461a52f7"
 
 _ROUTES = benchmark_routes(BENCHMARK_ID, REVISION)
 ROUTE_PREFIX = _ROUTES.prefix

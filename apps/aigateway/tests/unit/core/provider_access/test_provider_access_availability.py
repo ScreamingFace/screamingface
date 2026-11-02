@@ -3,11 +3,12 @@
 # FEATURE: the caller-scoped provider availability listing, gateway-side, so the Hosted Engine can
 # stop aggregating raw Profile listings at A4.
 # INVARIANT (spec op 6): no secret read, no refresh, no mutation; rows carry provider and status
-# ONLY; `needs_reauth` is never emitted in the window.
+# ONLY.
 # INVARIANT (OME-1209, Stage E, E4a): availability reads no Profile document, so the golden
 # equivalence to the Engine's Profile-listing rule (authenticated > pending > error) retired with
-# it. A registered provider shows `not_connected` unless its pair is migrated, which reports its
-# effective Connection's status (`test_connection_only_resolve.py`).
+# it. Since the D17 fold-in (OME-1138) a provider lists by the rule its default chat resolve
+# follows: a migrated pair's effective Connection (`test_connection_only_resolve.py`), any other
+# pair its Connections by label (`test_availability_follows_resolve.py`).
 """
 
 from __future__ import annotations
@@ -17,12 +18,12 @@ from functools import partial
 from typing import Any
 
 import pytest
-from provider_access_fake import FakeHarness
+from connection_backed_harness import ConnectionBackedHarness
+from provider_access_fake import PROVIDER, FakeHarness
+from provider_access_harness import Harness
 
-from aigateway.core.credential_names import profile_id_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
-from aigateway.core.provider_access import AvailabilityRow
+from aigateway.core.provider_access import AvailabilityRow, AvailabilityStatus
+from tests.unit.seed_state import SeedState
 
 
 class _Seam:
@@ -31,27 +32,12 @@ class _Seam:
         self.app = client.app
         self.access = client.app.state.provider_access
         self.account_id: str = client.get("/v1/auth/me").json()["id"]
-        # WHY a store built here (OME-1209 E4b): the app wires no Profile index.
-        self.index = ProfileIndexStore(credential_store=client.app.state.credential_store)
         self.registered: set[str] = {
             plugin.custom_llm_provider for plugin in client.app.state.providers.all()
         }
 
     def call(self, fn: Callable[..., Coroutine[Any, Any, Any]], *args: Any, **kwargs: Any) -> Any:
         return self.client.portal.call(partial(fn, *args, **kwargs))
-
-    def seed(self, provider: str, state: str, name: str | None = None) -> None:
-        name = name or f"{state}-{sum(1 for _ in self.call(self.index.list, self.account_id))}"
-        self.call(
-            self.index.upsert,
-            Profile(
-                id=profile_id_for(self.account_id, provider, name),
-                account_id=self.account_id,
-                provider=provider,
-                name=name,
-                state=ProfileState(state),
-            ),
-        )
 
     def rows(self) -> tuple[AvailabilityRow, ...]:
         return self.call(self.access.availability, self.account_id)
@@ -63,9 +49,6 @@ def seam(authenticated_client, credential_blobs) -> _Seam:
 
 
 def test_availability_rows_carry_provider_and_status_only_sorted_by_provider(seam: _Seam) -> None:
-    seam.seed("gemini", "authenticated")
-    seam.seed("anthropic", "pending")
-
     rows = seam.rows()
 
     assert isinstance(rows, tuple)
@@ -74,18 +57,50 @@ def test_availability_rows_carry_provider_and_status_only_sorted_by_provider(sea
     assert "needs_reauth" not in {row.status for row in rows}
 
 
-# --- the fake witness agrees on the rule for providers it has rows for ----------------------
+# --- the fake witness agrees with the real backing for the default selector -------------------
 
 
-def test_the_fake_witness_applies_the_same_precedence() -> None:
-    harness = FakeHarness()
-    harness.seed_profile(name="a", state=ProfileState.ERROR)
-    harness.seed_profile(name="b", state=ProfileState.PENDING)
-    assert harness.call(harness.access.availability, harness.account_id) == (
-        AvailabilityRow("anthropic", "pending"),
-    )
+def _errored_beside_an_active_row(harness: Harness) -> None:
+    harness.seed_credential(state=SeedState.ERROR)
+    harness.seed_connection(label="work")
 
-    harness.seed_profile(name="c", state=ProfileState.AUTHENTICATED)
-    assert harness.call(harness.access.availability, harness.account_id) == (
-        AvailabilityRow("anthropic", "connected"),
-    )
+
+def _two_active_rows(harness: Harness) -> None:
+    harness.seed_connection(label="work")
+    harness.seed_connection(label="personal")
+
+
+# WHY these situations: they are the ones both witnesses can seed — a stored credential (the
+# pair's effective Connection) in each state, and plain active Connections with no marker.
+_SITUATIONS: dict[str, tuple[Callable[[Harness], Any], AvailabilityStatus]] = {
+    "authenticated": (lambda harness: harness.seed_credential(), "connected"),
+    "pending": (
+        lambda harness: harness.seed_credential(state=SeedState.PENDING, credential=None),
+        "pending",
+    ),
+    "errored": (lambda harness: harness.seed_credential(state=SeedState.ERROR), "error"),
+    "errored-beside-active": (_errored_beside_an_active_row, "error"),
+    "one-active-row": (lambda harness: harness.seed_connection(label="work"), "connected"),
+    "two-active-rows": (_two_active_rows, "error"),
+}
+
+
+def _status(harness: Harness) -> AvailabilityStatus:
+    rows = harness.call(harness.access.availability, harness.account_id)
+    return next(row.status for row in rows if row.provider == PROVIDER)
+
+
+@pytest.mark.parametrize("situation", list(_SITUATIONS))
+def test_the_fake_witness_agrees_with_the_real_backing(
+    situation: str, authenticated_client: Any, credential_blobs: Any, monkeypatch: Any
+) -> None:
+    # FEATURE: OME-1138 close-out, L4a — the fake lists by the rule the real backing follows for
+    # the default selector, the only one since the Stage D sunset; it seeds no Profile.
+    seed, expected = _SITUATIONS[situation]
+    fake = FakeHarness()
+    real = ConnectionBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+
+    seed(fake)
+    seed(real)
+
+    assert _status(fake) == _status(real) == expected

@@ -133,3 +133,34 @@ ID is not proof and cannot activate the predicate.
 - Engine-side idempotency uncertainty from OME-1220.
 - Retrospective repricing of the 2026-10-01 run without evidence applicable on that date.
 - Authenticated provider lookups inside request normalization.
+
+## Amendment 2026-10-27 (OME-1746): check billing facts, not the reply format
+
+Owner decision (2026-10-27): a zero proof checks only the facts that tell if OpenRouter billed the
+call. The format of the reply does not change the result, so the cost stays unknown only in rare
+cases. This replaces the D0 predicate. `zero_insurance.py` certifies the zero when all of these
+are true:
+
+1. The native HTTP status is 429.
+2. The prepared request has no potential auxiliary charge (no plugins, no `openrouter:*` tools, no
+   file parts).
+3. The reply has no output: `choices`, `output` and `content` are absent or empty.
+4. `usage`, when present, is an object that shows no work beyond reading the prompt: each value
+   outside `prompt_tokens`, `total_tokens` and `prompt_tokens_details` is absent, `null` or zero.
+   A number written as text (`"50"`) counts as that number; a flag or other text does not count.
+5. No money field anywhere in the reply holds a non-zero value: a value under any key that
+   contains `cost` or `amount` is absent, `null` or zero. A value that is not a number is not a
+   zero.
+6. `openrouter_metadata.pipeline`, when it is a list, has no stage of type `plugin` or
+   `server_tools`.
+
+Removed: the field allowlists, the type checks of fields that carry no money, the `error` object
+checks, the need for router metadata and an explicit pipeline, the `attempts` statuses and the BYOK
+checks. A 429 is a rejection with no output, which Zero Completion Insurance covers, and a fallback
+chain that ends in 429 has no successful attempt to bill. BYOK is part of how our account is set
+up; if we turn it on for a provider, this rule must change.
+
+Review fix 2026-10-27 (after OME-1746): rule 6 reads the stage `type` as text wherever it is (a
+string, or text inside a list or object), and the proof gives a result for any value (a value
+such as `"sNaN"` is not a zero). Rules 2, 3, 5 and 6 are shared with the pre-output refusal
+proof (`openrouter_provider/billing_facts.py`).

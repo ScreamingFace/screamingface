@@ -143,9 +143,11 @@ def _validate_access(details: ModelDetails) -> None:
             code="provider_not_connected",
             permanent=True,
             details={"model": details.id, "provider": details.provider},
+            # WHY the operator (OME-1138 L8): a hosted Engine lists provider access read-only
+            # (D15), so its Connections are made in AI Gateway by whoever runs it.
             hint=(
-                "Open sf.connect() to configure provider access, or enable the selected "
-                "provider profile on your hosted Engine, then retry."
+                "Open sf.connect() to connect the provider, or ask the operator of your hosted "
+                "Engine to connect it in AI Gateway, then retry."
             ),
         )
 
@@ -173,7 +175,7 @@ def _validate_parameter(details: ModelDetails, name: str, value: object) -> None
     door above has closed.
 
     Args:
-        details: the Model's profile-bound parameter contract, already fetched by the caller.
+        details: the Model's Connection-specific parameter contract, already fetched by the caller.
         name: the parameter's wire name, e.g. ``"seed"``.
         value: the value the run intends to send, checked against the published schema in
             stage 4 only.

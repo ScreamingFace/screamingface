@@ -12,3 +12,4 @@
 set default-list := true
 
 mod screamingface 'packages/screamingface'
+mod engine 'apps/screamingface-engine'

@@ -46,6 +46,11 @@ spec:
         # The checksum hashes the key's SOURCE — see the `artifactSigningChecksum` helper.
         checksum/artifact-signing: {{ include "screamingface-engine.artifactSigningChecksum" . }}
         {{- end }}
+        {{- if include "screamingface-engine.worldConfigEnabled" . }}
+        # OME-1770: the SAME supplied content revision as the pool's — see `worldConfig`.
+        checksum/world-config: {{ .Values.worldConfig.contentChecksum | quote }}
+        {{- end }}
+        {{- include "screamingface-engine.guardPodAnnotations" . }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -128,6 +133,9 @@ spec:
                 secretKeyRef:
                   name: {{ include "screamingface-engine.authSecretName" . }}
                   key: {{ .Values.auth.jwtSecretKey }}
+            {{- if include "screamingface-engine.worldConfigEnabled" . }}
+            {{- include "screamingface-engine.worldConfigEnv" . | nindent 12 }}
+            {{- end }}
           lifecycle:
             preStop:
               exec:
@@ -144,9 +152,15 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if include "screamingface-engine.worldConfigEnabled" . }}
+            {{- include "screamingface-engine.worldConfigMount" . | nindent 12 }}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if include "screamingface-engine.worldConfigEnabled" . }}
+        {{- include "screamingface-engine.worldConfigVolume" . | nindent 8 }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

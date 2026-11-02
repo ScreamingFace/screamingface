@@ -1,13 +1,13 @@
 ---
 id: OME-1230
 linear_url: https://linear.app/openmined/issue/OME-1230/add-the-provider-credential-admin-interface-and-reduce-the-profile
-status: in_progress   # code stage authorized by the owner on 2026-09-18 after design PR #21 merged
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-09-18
-closed:
+closed: 2026-09-21
 ---
 
 # Add the provider-credential admin interface and reduce the Profile management routes to shells
@@ -58,3 +58,5 @@ design repository (v1, draft).
   no-enterprise, full pytest 4654 passed / coverage 92.52 % green; PostgreSQL lane 6 passed; OpenAPI
   byte-identical to the branch base; append-only check RED by design (F2). Committed locally on
   the branch under the owner's commit-only authorization; push and PR await separate authorization.
+- 2026-09-21: squash-merged to `main` as `a78d58da1` (PR #992). Linear closed the issue Done the
+  same day.

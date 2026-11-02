@@ -1,9 +1,9 @@
 ---
 ticket: OME-1634
 stack: aigateway
-status: in_progress
+status: done
 started: 2026-10-16
-finished:
+finished: 2026-10-21
 ---
 
 # codex-plan-unsupported — typed Codex model refusal + live Codex model list
@@ -111,3 +111,4 @@ See `docs/plan/2026-10-16-codex-plan-unsupported.md`.
   `tests/unit/test_codex_provider.py` and `tests/unit/test_plugin_loader.py` (owner approval
   2026-10-17). `run_gates.py aigateway --base <pre-push merge-base 637594595>` → both transitions
   approved, append-only check green, ALL GATES GREEN, no `--skip-append-only`.
+- **Merged:** PR #1441 squash-merged as `40908acdd` on 2026-10-21; OME-1634 Done in Linear.

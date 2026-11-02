@@ -1,17 +1,19 @@
 """The D18 successor PUT and DELETE through the mutation bridge (OME-1497, G1; §5.1-§5.3).
 
 # FEATURE: OME-1138 D18 — an admin replaces or disconnects the ONE credential of an
-# `(account, provider)` pair. An empty or single-Connection `none` pair (rows 7, 9) is adopted at
-# mutation time: PUT publishes `migrated` with an active API-key Connection, DELETE ends the pair
-# `migrated` with a null reference. No other pair is touched and no dummy Connection is created.
+# `(account, provider)` pair. An empty or single-Connection `none` pair (rows 7, 9) — one its
+# Connections own without a marker reference — is adopted at mutation time: PUT publishes
+# `migrated` with an active API-key Connection, DELETE ends the pair `migrated` with a null
+# reference. No other pair is touched and no dummy Connection is created.
 # STORY: as an operator, I attach a key to a tenant's provider, or disconnect it, without knowing
-# whether the tenant's credential is still a legacy Profile or already a Connection.
+# whether the tenant's pair is already marked `migrated` or still served by its one Connection.
 # INVARIANT (§5.3): the pair is captured AFTER the key validation and every write is fenced on the
 # captured generation — marker → row → blob in one transaction. A stale mutation is never
 # retried on a freshly read generation; it surfaces as `WriteConflict("superseded")`.
-# INVARIANT: a refused mutation (rows 3, 4, 11; an inconsistency; a lost fence) writes nothing.
+# INVARIANT: a refused mutation (rows 3, 11; an inconsistency; a lost fence) writes nothing.
 # WHY no Profile document (OME-1209 E4b): neither mutation writes, removes or reads one; a document
-# left behind, and a blob at its address, stay until E5.
+# left behind, and a blob at its address, stay until the E5 purge. A PUT never adopts such a blob:
+# its new row takes its own address (E5a).
 """
 
 from __future__ import annotations
@@ -41,13 +43,12 @@ from .pair_admin import (
     store_reads,
 )
 from .pair_authority import UNMARKED_GENERATION, PairAuthorityConflict, PairAuthorityStore
-from .profile_admin import DEFAULT_LEGACY_NAME
 from .profile_authorize import invalidate_session
 from .types import CredentialStoreUnavailable, PairNotManageable, ProviderUnknown, WriteConflict
 
 # WHY row 11 is refused outright (OME-1209 E4a): the legacy shadow identity proof compared a
 # Profile document's credential, and no document takes part in the table any more.
-_REFUSED_ROWS: dict[int, PairConflictKind] = {3: "ambiguous", 4: "unresolved", 11: "unresolved"}
+_REFUSED_ROWS: dict[int, PairConflictKind] = {3: "ambiguous", 11: "unresolved"}
 # Rows a DELETE has nothing to remove from: a disconnected (6) or empty (7) pair.
 _NOTHING_TO_DELETE = (6, 7)
 
@@ -56,12 +57,11 @@ _NOTHING_TO_DELETE = (6, 7)
 class PairMutation:
     """What a committed mutation changed — for the response and the post-commit cleanup.
 
-    `connection_ids` is the pair's captured Connection and `profile_names` the name a PUT minted
-    its row at (§5.2): the pending OAuth flows to drop are exactly the ones naming them.
+    `connection_ids` is the pair's captured Connection: the pending OAuth flows to drop are exactly
+    the ones naming it (§5.2). A row a PUT mints is new, so no flow can name it.
     """
 
     credential: PairCredential | None
-    profile_names: tuple[str, ...] = ()
     connection_ids: tuple[str, ...] = ()
 
 
@@ -100,13 +100,10 @@ async def set_pair_api_key(
             capture.plugin,
             pair=marker,
             reuse=disposition.connection,
-            name=DEFAULT_LEGACY_NAME,
             raw_api_key=raw_api_key,
             expected_live=capture.live,
         )
-    return PairMutation(
-        connection_credential(connection), (DEFAULT_LEGACY_NAME,), _ids(disposition)
-    )
+    return PairMutation(connection_credential(connection), _ids(disposition))
 
 
 async def delete_pair(app: Any, account_id: str, provider: str) -> PairMutation:
@@ -125,7 +122,7 @@ async def delete_pair(app: Any, account_id: str, provider: str) -> PairMutation:
     for credential_name in evicted:
         invalidate_session(capture.plugin, credential_name)
         credential_strategy_cache(app).evict(credential_name)
-    return PairMutation(None, (), _ids(disposition))
+    return PairMutation(None, _ids(disposition))
 
 
 async def _delete_in_transaction(app: Any, capture: _Capture, evicted: list[str]) -> None:
@@ -164,7 +161,7 @@ def _store_writes(operation: str) -> Iterator[None]:
 
 
 async def _capture(app: Any, account_id: str, provider: str) -> _Capture:
-    """Read the pair — marker FIRST, then its Connections — and refuse rows 3, 4 and 11.
+    """Read the pair — marker FIRST, then its Connections — and refuse rows 3 and 11.
 
     # WHY marker first: a writer that moves the pair after this read advances the generation the
     # write is fenced on; candidates read before the marker could pair stale rows with a new owner.

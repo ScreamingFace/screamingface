@@ -358,3 +358,68 @@ def test_public_error_rejects_common_filesystem_paths(message: str) -> None:
     )
 
     assert diagnostic.message == "Candidate Case execution failed"
+
+
+# The 8-byte PNG signature and the sha256 of those bytes (pinned on both sides by
+# test_media_placeholder_conformance.py), sealed in a one-picture v2 Case.
+_PICTURE_CASE = (
+    '{"schema":"screamingface.candidate-input.v2","messages":[{"role":"user","content":'
+    '[{"type":"text","text":"What is shown?"},'
+    '{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgo="}}]}]}'
+)
+_PICTURE_SHA256 = "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6"
+
+
+@pytest.mark.parametrize("policy", _POLICIES)
+def test_a_picture_case_result_echoes_the_placeholder_while_the_scorer_saw_the_real_case(
+    policy: FailurePolicy,
+) -> None:
+    # FEATURE (OME-1271): the finalizer is where a Candidate result leaves the engine, so it is
+    # where a picture's base64 leaves the echoed input. INVARIANT: the scorer (grading) reads
+    # the real Case first; only the published copy carries the placeholder.
+    selected = SelectedCase(case_id=1, input=_PICTURE_CASE, metadata={})
+    scored = scored_case_result(
+        selected_case=selected,
+        output="a bar chart",
+        finish_reason="stop",
+        grade=CaseGrade(method="test", score=1.0, metrics={}, checks=[]),
+    )
+    seen_inputs: list[str] = []
+
+    def scorer(cases: Sequence[CaseResult]) -> CandidateScore:
+        seen_inputs.extend(case.input for case in cases)
+        return CandidateScore(score=1.0, metrics={})
+
+    result = finalize_candidate_result(
+        failure_policy=policy,
+        benchmark_id="benchmark",
+        benchmark_revision="revision",
+        selected_cases=[selected, SelectedCase(case_id=2, input=_PICTURE_CASE, metadata={})],
+        cases=[scored],
+        scorer=scorer,
+    )
+
+    payload = result.as_payload()
+    assert seen_inputs[0] == _PICTURE_CASE
+    # Case 2 produced no Case Result; the finalizer's own missing-Case row echoes it too.
+    for case in payload["cases"]:
+        assert "base64," not in case["input"]
+        assert f'"sha256":"{_PICTURE_SHA256}"' in case["input"]
+    assert "base64," not in result.model_dump_json(by_alias=True)
+
+
+@pytest.mark.parametrize("policy", _POLICIES)
+def test_a_text_case_result_payload_is_unchanged_by_the_picture_echo(
+    policy: FailurePolicy,
+) -> None:
+    # INVARIANT: a text Benchmark's published result is byte-identical to before OME-1271.
+    result = finalize_candidate_result(
+        failure_policy=policy,
+        benchmark_id="benchmark",
+        benchmark_revision="revision",
+        selected_cases=_selected(1, 2),
+        cases=[_scored(1)],
+        scorer=lambda cases: CandidateScore(score=1.0, metrics={}),
+    )
+
+    assert [case["input"] for case in result.as_payload()["cases"]] == ["input 1", "input 2"]

@@ -165,6 +165,165 @@ DELETE FROM request_cache_entries;
 That is a deliberate cache reset, not application-data loss. The table contains only the global
 request cache; it stores no account/profile identity.
 
+### Stage E retired the Profile storage: rollback floor and upgrade path
+
+Stage B (`OME-1208`) moved provider-credential authority from Profiles to Connections. Stage E
+(`OME-1138`) retired the Profile routes, readers and writers, deleted the Profile code, and shipped
+a one-off purge of the stored Profile rows. The paragraphs below say what follows for an operator.
+
+**Rollback floor after the purge.** E5b (`1ccf80a89`, #1573) added the offline command
+`python -m aigateway.purge_profile_history`. In every account it can prove, its `--apply` deletes
+the Profile index rows and every provider-credential blob that no Connection addresses; it skips the
+rest entirely. Once `--apply` has run against an environment's database, every image that runs
+there must include E4b (`f7e54869b`, "stop writing Profile documents", #1516). An image older than
+E4a reads Profile documents the purge deleted, and an image older than E4b writes them again. Every
+0.2.x release predates E4b. The database backup taken before `--apply` is the only way back to the
+purged data.
+
+**Keep the release's values in every upgrade below.** Each `helm upgrade` in this section passes the
+same values files and `--set` arguments as the current release, and changes only what its step
+names: the chart and `image.tag` in an upgrade, `replicaCount` when stopping. Helm reuses a
+release's values only when an upgrade passes no value flag at all, so an upgrade given just
+`--set image.tag=…` or `--set replicaCount=0` starts from the chart defaults: settings such as
+`database.existingSecret`, `auth.existingSecret`, `publicUrl` and the ingress fall back to their
+defaults, and the pre-upgrade migration Job runs with that configuration first. Without the original files, save the
+release's values and pass them back with `-f`:
+
+```bash
+helm -n aigw get values aigw -o yaml > aigw-values.yaml
+```
+
+The file holds every value given with `--set`, secrets included; keep it out of version control.
+`--reuse-values` is not a substitute: it also replaces the new chart's defaults with the old
+release's, so a value that a newer chart adds gets no default.
+
+**Upgrade path for a Helm install that still holds Profile rows.** Since E4a (`b66f94f08`, #1491) a
+Profile-only credential no longer resolves, and E5c (`7cb093014`, #1596) deleted both offline
+commands, `migrate_profiles` (the Stage B backfill) and `purge_profile_history`. No image built from
+`7cb093014` onward, including any release cut after it, can migrate or purge Profile rows.
+Such an install therefore upgrades in two steps:
+
+1. Upgrade the gateway itself, every replica, to an E5b-era image: one built from `1ccf80a89` or a
+   later commit before `7cb093014`. Use this repository's chart, `apps/aigateway/charts/aigateway`.
+   Its only change from `1ccf80a89` to `e915d8037` is the opt-in `remoteEndpoints` block
+   (`143d4bcf8`, #1606), which renders nothing while unset; leave it unset for this step. Upgrade
+   with the release's values and `--set image.tag=main-1ccf80a` (the dev build of `1ccf80a89`; dev
+   builds are tagged `main-<first 7 characters of the commit SHA>` and are built for amd64 only).
+   Its pre-upgrade Job applies the migrations. The purge's `--apply` needs E5a (`8cb1e54e0`) or
+   later on every replica, which an E5b-era image includes: an older replica's PUT on a deleted
+   account could adopt a leftover blob, and a deleted account has no row for the purge to lock.
+   Then run both commands in one of the upgraded gateway pods, dry run first, with a database
+   backup before each `--apply`:
+
+   ```bash
+   python -m aigateway.migrate_profiles --dry-run --all
+   python -m aigateway.migrate_profiles --apply --all --journal /tmp/backfill.jsonl
+   python -m aigateway.purge_profile_history --dry-run --all
+   python -m aigateway.purge_profile_history --apply --all --journal /tmp/purge.jsonl
+   ```
+
+   After each `--apply`, copy its journal out of the pod (`kubectl cp`, for example) before the pod
+   restarts, because `/tmp` does not survive a restart.
+
+   The backfill migrates each pair it can prove onto a Connection and reports every other pair as
+   `quarantined` or `none`, with a category. A pair left `none` is served from its single active
+   Connection, like any pair the backfill never touched; a user without one connects the provider
+   again through the Connection API. A `quarantined` pair must be settled before the gateway runs
+   an image that includes L4a; see "Before an image that includes L4a" below.
+
+   The backfill goes first because the purge skips, whole, any account that still has a Profile
+   document naming a blob no Connection addresses on a pair that is not migrated; it also skips an
+   account with a `quarantined` pair. The backfill exits 3 when an account lost a race with a
+   concurrent write and was rolled back; run it again. The purge exits 4 when it kept something the
+   operator must review: a skipped account (its `skipped` field names the reason), a `legacy_index`
+   of `kept_*`, or `kept_unproven_rows` above 0. Both commands exit 2 when they refuse to run
+   without the master key.
+2. Upgrade to an image built from `7cb093014` or later. Profile rows the purge did not delete are
+   inert there. If that image includes L4a (`e915d8037`), run the precondition below first.
+
+This procedure covers Helm installs only; local SQLite installs are not covered. It does not apply
+to 0.2.0 either, which kept Profiles in the operating system's credential store, not in the
+database.
+
+**Before an image that includes L4a (`e915d8037`, #1614).** From L4a on, a pair marker has two
+states, `none` and `migrated`, and a stored `quarantined` row is a data error: chat answers 500 for
+that account, the `GET /v1/provider-access` listing fails for it, and the admin inventory refuses
+it. Settle the leftover rows with no gateway running, in this order:
+
+1. Take a database backup.
+2. Stop every gateway replica. Rerun the release's `helm upgrade` with its current chart, image
+   and values, adding only `--set replicaCount=0` (see "Keep the release's values" above), then wait
+   until no gateway Pod is left (release and namespace `aigw`, as above):
+
+   ```bash
+   kubectl -n aigw wait --for=delete pod \
+     -l app.kubernetes.io/instance=aigw,app.kubernetes.io/component=gateway --timeout=5m
+   ```
+
+   A gateway older than L4a writes a pair's marker back as it read it, fenced only by the row's
+   `generation`, which the statements below do not change. An OAuth flow started before them and
+   finished after them (its start waits in the Pod's memory for up to 10 minutes) would therefore
+   write `quarantined` back. Stopping the Pods ends those flows.
+3. Run the count, the change and the recount in one transaction, with `psql -v ON_ERROR_STOP=1`:
+
+   ```sql
+   BEGIN;
+   SET LOCAL lock_timeout = '5s';
+   SET LOCAL statement_timeout = '15s';
+   SELECT count(*) FILTER (WHERE migration_state = 'quarantined') AS quarantined,
+          count(*) FILTER (WHERE migration_note IS NOT NULL) AS noted
+     FROM provider_credential_slots;
+   UPDATE provider_credential_slots SET migration_state = 'none', migration_note = NULL
+     WHERE migration_state = 'quarantined';
+   UPDATE provider_credential_slots SET migration_note = NULL
+     WHERE migration_note IS NOT NULL;
+   DO $$
+   BEGIN
+     IF EXISTS (SELECT 1 FROM provider_credential_slots
+                WHERE migration_state = 'quarantined' OR migration_note IS NOT NULL) THEN
+       RAISE EXCEPTION 'quarantined or migration_note rows remain';
+     END IF;
+   END $$;
+   COMMIT;
+   ```
+
+   Record the first count. If any statement fails, nothing is committed; fix the cause and run the
+   transaction again.
+4. Upgrade the release to the L4a image with the same values, changing `image.tag` and setting
+   `--set replicaCount=<your replica count>`. Its Pods are the first to take traffic again.
+
+A pair set to `none` is owned by its Connections: one active Connection serves it, two or more are
+refused as ambiguous (`409 connection_ambiguous`; the availability listing shows `error`), and with
+none the user connects the provider again. Profile rows the purge kept for such an account stay
+inert. Source: `docs/spec/2026-10-29-ome-1138-closeout.md` §4.2 and §4.10 item 5.
+
+**The retired Profile routes answer 410.** Since E3 (`08f534317`, #1464) the 13 Profile routes
+under `/v1/auth/profiles`, `/v1/auth/{provider}/profiles` and
+`/v1/admin/accounts/{account_id}/profiles` answer `410 Gone` with `Cache-Control: private, no-store`
+and this body:
+
+```json
+{"detail": {"code": "legacy_profile_api_retired", "message": "…", "successor": "<METHOD> <path>"}}
+```
+
+The answer is static. It needs no token, does not read the request body, touches no storage and
+writes no audit record, and the routes are gone from the OpenAPI schema. A 410 with this code means
+a client still calls the Profile API and must move to the route named in `successor`. The admin
+`PATCH /v1/admin/accounts/{account_id}/profiles/{provider}/{name}` has no successor (`null`): a
+provider pair has no name or label to edit. The retirement has "no `Deprecation`/`Sunset` window",
+and the 410 answers are permanent. The full route table is `RETIRED_ROUTES` in
+`apps/aigateway/src/aigateway/routes/legacy_profiles_retired.py`.
+
+Sources:
+
+- Rollback floor and upgrade path: `docs/spec/2026-10-21-OME-1715-e5-history-cleanup.md` lines
+  141–143 (C6), 153 and 156–160 (the purge precondition) and 216–217 (Q5); the header of the
+  deleted `purge_profile_history.py`
+  (`git show 1ccf80a89:apps/aigateway/src/aigateway/purge_profile_history.py`).
+- The 410 answer: `docs/spec/2026-10-14-OME-1209-retire-legacy-profiles.md` §3 R1 and §7 Q1;
+  `apps/aigateway/src/aigateway/routes/legacy_profiles_retired.py` for the `{"detail": {...}}`
+  envelope; `docs/spec/2026-10-29-ome-1138-closeout.md` §7 (the 410 shells are permanent).
+
 ## The Global Response Cache
 
 `config.requestCache.enabled` (env `AIGW_REQUEST_CACHE_ENABLED`) turns on **one global cache shared
@@ -266,13 +425,12 @@ decide who may ask. Review those before enabling the cache — there is no gatew
 narrows who a hit may be served to.
 
 **A caller needs no provider credential, and a hit reads no credential data at all.** A hit reads
-no provider API key and no OAuth token, makes no provider request, and does not read the caller's
-profile index: the key is built from the request body alone.
+no provider API key and no OAuth token and makes no provider request: the key is built from the
+request body alone.
 
-So a caller with no profile configured for this provider is served from cache normally, and so is
-a caller whose profile is still pending authorization or already errored, because the lookup runs
-before any credential is resolved. An unreadable profile index no longer stands the cache down;
-on a miss the same fault can still fail credential resolution, exactly as before.
+So a caller with no Connection for this provider is served from cache normally, and so is a caller
+whose Connection is still pending authorization or already errored, because the lookup runs before
+any credential is resolved.
 
 What survives is the part that matters for access control: **a principal who has never configured a
 usable provider credential is still served responses another account paid for.** Treat this as a
@@ -285,9 +443,8 @@ nothing at all. It matters most in `cloudflare_headers` mode, where an unrecogni
 The cached response is plaintext compact JSON in `response_json`. Reading it does not resolve a
 secret provider, validate an encryption canary or decrypt the response body.
 
-The caller's profile index is still a credential blob (`aigateway:index`) and remains encrypted under
-the credential master key. A hit does not read it, never reads the selected provider API key or OAuth
-token, and never dispatches to the provider.
+A hit never reads the selected provider API key or OAuth token, and never dispatches to the
+provider.
 
 ### A hit replays the first caller's credential *type*, not only their answer
 

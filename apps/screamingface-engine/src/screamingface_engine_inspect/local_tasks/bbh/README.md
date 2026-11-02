@@ -55,3 +55,10 @@ point (73.97 against 73.9). Each Case keeps its subset name, so both can be regr
 (`movie_recommendation_164`): the authors' data splits its answer "Monsters, Inc" into two
 options, so no reply can be right. The paper counts it, always wrong. inspect_evals already drops
 two `ruin_names` questions broken the same way.
+
+## Identity
+
+The fingerprint hashes everything that defines this Benchmark, the sha256 of every `.py` file in
+this package included (`task_source=…`). Editing any of it moves only the fingerprint: `tests/unit/inspect/test_benchmark_fingerprints.py`
+goes red and the Benchmark keeps publishing its hand-set `published_revision` (OME-1610).
+Whether that id moves too is the owner's call, under [Changing a Benchmark's published revision](../../../../docs/adding-an-imported-benchmark.md#changing-a-benchmarks-published-revision).

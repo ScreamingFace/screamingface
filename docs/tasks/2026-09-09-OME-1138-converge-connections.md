@@ -44,3 +44,7 @@ A1 follow-up / A2 precondition `OME-1210` (2026-09-16): final provider identity 
 Use `Connection` for the final product/API/domain resource; `provider access` only for the boundary;
 `legacy Profile` for compatibility/current backing; do not introduce `Provider Account` as a resource
 or UI/API noun. Ledger `docs/work/2026-09-16-OME-1210-provider-identity-naming.md`.
+
+Closed without landing: `OME-1324` (duplicate of `OME-1322`, 2026-09-23), `OME-1401` (canceled
+2026-09-29, the owner waived the Stage D drain proof and census) and `OME-1333` (canceled
+2026-10-06, the owner's disposition that production already matches the post-migration state).

@@ -26,6 +26,7 @@ from screamingface_engine.benchmarks.contract import (
     validate_case_id,
 )
 from screamingface_engine.benchmarks.definition import FailurePolicy
+from screamingface_engine.benchmarks.echoed_input import echoed_input
 from screamingface_engine.benchmarks.failure_classes import UPSTREAM_FALLBACK_CODE
 from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
 from screamingface_engine.error_text import public_identifier, public_message
@@ -175,6 +176,13 @@ def finalize_candidate_result(
 
     scoring_cases = policy_cases(typed_cases, failure_policy)
     scored = scorer(scoring_cases) if scoring_cases is not None else None
+    # FEATURE (OME-1271): this is where a Candidate result leaves the engine, so here each
+    # Case's echoed input loses its pictures' base64 to their placeholders.
+    # INVARIANT: after the scorer, so grading and scoring saw the real Case; a text Case's
+    # input is the same string, so its result is byte-identical.
+    typed_cases = [
+        case.model_copy(update={"input": echoed_input(case.input)}) for case in typed_cases
+    ]
     result = CandidateResult(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,

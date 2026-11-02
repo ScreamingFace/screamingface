@@ -52,7 +52,7 @@ def chat(harness: Any, completion: Any) -> httpx.Response:
 
 def test_chat_over_a_migrated_pair_sends_the_connection_credential(migrated) -> None:
     h = migrated
-    h.seed_profile()  # document + Profile-addressed blob "tok" + active Connection + marker
+    h.seed_credential()  # document + Profile-addressed blob "tok" + active Connection + marker
     captured: dict[str, Any] = {}
 
     async def completion(_self: Any, body: dict[str, Any]) -> Any:
@@ -72,7 +72,7 @@ def test_chat_over_a_migrated_pair_sends_the_connection_credential(migrated) -> 
 
 def test_a_rejected_dispatch_marks_the_connection_and_the_status_facade_agrees(migrated) -> None:
     h = migrated
-    h.seed_profile()
+    h.seed_credential()
     effective = h.migrated["default"]
 
     async def rejecting(_self: Any, _body: dict[str, Any]) -> Any:
@@ -88,14 +88,14 @@ def test_a_rejected_dispatch_marks_the_connection_and_the_status_facade_agrees(m
     assert connection(h, effective).status == "error"
     assert credential_name_for(h.account_id, "default") in h.evicted()
     # INVARIANT: op 5 marked the AUTHORITY; the facade must show that, not the mirror's old state.
-    assert h.profile_state() == "error"
+    assert h.credential_state() == "error"
 
 
 def test_migrated_api_key_401_keeps_legacy_handling_without_observing_anthropic(
     migrated,
 ) -> None:
     h = migrated
-    h.seed_profile(auth_type="api_key")
+    h.seed_credential(auth_type="api_key")
     effective = h.migrated["default"]
     calls = 0
 

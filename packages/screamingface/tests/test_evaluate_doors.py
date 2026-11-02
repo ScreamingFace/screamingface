@@ -4,7 +4,7 @@ FEATURE: OME-1613 (spec §1, Q13) — `sf.evaluate`, `Client.evaluate` and `Asyn
 take `pinned_cache=` or `score_id=` and replay a published run. `sf.reproduce` and
 `Client.reproduce` were removed: `evaluate(score_id=…)` replaces them.
 INVARIANT: S6 — a replay captures nothing, so only an explicit `capture=True` is refused; a normal
-run still captures by default (`capture` defaults to None, which means on).
+run does not capture by default (capture is opt-in with `capture=True`).
 """
 
 from __future__ import annotations
@@ -21,14 +21,14 @@ import screamingface as sf
 from screamingface import _default_client
 
 
-def test_a_normal_run_still_captures_by_default() -> None:
+def test_a_normal_run_does_not_capture_by_default() -> None:
     engine = _Replayer()
 
     with _client(engine, _Board()) as client:
         client.evaluate(REPLAY_URL4, progress=False)
 
     assert engine.candidate is not None
-    assert engine.candidate.capture is True
+    assert engine.candidate.capture is False
 
 
 def test_client_evaluate_replays_a_pinned_cache() -> None:

@@ -61,6 +61,7 @@ REGENERATE_COMMAND = f"{UPDATE_ENV_VAR}=1 uv run pytest tests/test_public_surfac
 PINNED_MODULES = (
     "screamingface",
     "screamingface.benchmarks",
+    "screamingface.cache",
     "screamingface.connections",
     "screamingface.events",
     "screamingface.leaderboards",

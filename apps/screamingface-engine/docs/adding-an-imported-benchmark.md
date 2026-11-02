@@ -227,14 +227,15 @@ not hours):
     (precedent: HealthBench's judge model and params, the `healthbench-worst30` row's `JudgeSpec`
     in `screamingface_engine_inspect/benchmarks.py`).
   - The judge model, its params, and the judge prompt (template/instructions kwargs)
-    are benchmark identity — expect the revision to move if any of them changes.
+    are benchmark identity — expect the fingerprint to move if any of them changes; the
+    published id holds unless the owner signs off a bump ([Changing a Benchmark's published revision](#changing-a-benchmarks-published-revision)).
   - If the scorer dispatches on Sample metadata (frontierscience's `format`), the
     declaration has `keep_sample_metadata=True` (automatic for an eval's own scorer;
     `--keep-sample-metadata` for a judge template that reads it) — otherwise the scorer
     grades blind. The automatic rule is a policy, not a read of the scorer's code: an eval's
     own scorer keeps ALL Sample metadata, even when it reads none (aime's worked solutions).
     The metadata stays private Grading Material, never shown to a Candidate, but it is
-    inside the Case Digest, so a change to it moves the Benchmark Revision.
+    inside the Case Digest, so a change to it moves the fingerprint.
   - The importer auto-flags inspect's builtin `model_graded_*` scorers with a
     `judge=JudgeSpec(model="TODO")` placeholder; an eval-module custom scorer that
     calls `get_model()` internally is NOT auto-flagged — the reviewer catches it here.
@@ -296,9 +297,9 @@ Four things differ from an inspect_evals import:
 - **The Task's own source is part of the revision.** For an import the marking scheme is the
   pinned `inspect-evals` package; for a local Task it is your file, so the importer's pin
   builder adds `task_source=<sha256 over the package's .py files, vendor/ included>`. Any
-  edit to the loader, the reply reader, a scorer or the vendored code moves the revision and
-  the `test_published_revisions` literal, which is the review act: a grading rule can never
-  change under a published score.
+  edit to the loader, the reply reader, a scorer or the vendored code moves the fingerprint and
+  its `test_benchmark_fingerprints` literal, which is the review act: a grading rule can never
+  change unseen under a published score. The published id holds ([Changing a Benchmark's published revision](#changing-a-benchmarks-published-revision)).
 - **The Task file opens with `# pyright: reportMissingImports=false`** and the WHY comment
   every other module in the plugin carries (copy `scorer_adapter.py`'s header). CI typechecks
   the Engine without the inspect extra, so a bare `from inspect_ai import Task` fails there
@@ -330,6 +331,86 @@ Seen on 2026-10-07; neither is a repo change.
   `sitecustomize.py` on `PYTHONPATH` that filters `socket.getaddrinfo` results to `AF_INET`;
   the replay child inherits the environment, so one shim covers both.
 
+## Changing a Benchmark's published revision
+
+**A Benchmark's published revision is hand-set, and it moves only when the Benchmark
+fundamentally changes, never as a side effect of a code change (OME-1610).** Submissions and
+the leaderboard group results by this id, so moving it hides every result recorded under the
+old one. That happened to draco-3pass in OME-1527: its scorer moved to a new file, its exam
+stayed byte-identical, and its leaderboard emptied.
+
+Every Benchmark therefore carries two ids:
+
+| | Published revision | Fingerprint |
+|---|---|---|
+| What it is | the id in the Benchmark's routes and `Benchmark.revision`; results key on it | the hash of everything that defines the Benchmark: the Case Digest, the scorer's source, the judge and its params, the pinned packages, the protocol constants |
+| Set by | hand: `published_revision=` on the row (medxpert: `REVISION` in its `definition.py`) | computed at assembly; never published |
+| Pinned in | `tests/unit/inspect/test_published_revisions.py` (medxpert: `tests/unit/test_medxpert_migration_golden.py` and the routes in `tests/fixtures/early_grade_compatibility.json`) | `tests/unit/inspect/test_benchmark_fingerprints.py` |
+| Moves when | a deliberate bump, signed off by the owner | any input changes, a pure code move included |
+
+```mermaid
+%%{init: {"flowchart": {"wrappingWidth": 440}}}%%
+flowchart TB
+  subgraph KEY["HOW TO READ — colours mean who acts, or what happens to the published id"]
+    direction LR
+    k1["🤖 automated"]
+    k2["👤 a human decides"]
+    k3["✅ the published id holds"]
+    k4["⚠️ the published id moves"]
+    k1 ~~~ k2 ~~~ k3 ~~~ k4
+  end
+  KEY ~~~ s1
+  s1["🤖 A change to the Benchmark's inputs turns its fingerprint test red<br/>e.g. paws: fingerprint 8f4e0e9c… → 992540ea…"]
+  s2["👤 Did the Case set change?<br/>a refactor, a code move, a grading fix adopted from inspect_evals or a package bump keeps the same Cases"]
+  s3["✅ Same Cases: update only the fingerprint literal<br/>e.g. paws keeps publishing 8f4e0e9c…; every result stays visible"]
+  s4["👤 Changed Cases or a new Benchmark: run the bump command and get the owner's sign-off<br/>just engine benchmark-bump worldsense"]
+  s5["⚠️ Edit the lines it prints, add a CHANGELOG line, post to the team<br/>old results stop showing; submissions under the old id are outdated"]
+  s1 -- "the developer reads the test message" --> s2
+  s2 -- "same Cases" --> s3
+  s2 -- "fundamental change" --> s4
+  s4 -- "owner signs off in the PR" --> s5
+  classDef auto fill:#1e3a8a,stroke:#4a7fd4,color:#dbeafe
+  classDef human fill:#78350f,stroke:#f5a524,color:#fef3c7
+  classDef good fill:#14532d,stroke:#30a46c,color:#dcfce7
+  classDef bad fill:#7f1d2b,stroke:#e5484d,color:#ffe8ea
+  class k1,s1 auto
+  class k2,s2,s4 human
+  class k3,s3 good
+  class k4,s5 bad
+  style KEY fill:#111827,stroke:#4b5563,color:#e5e7eb
+```
+
+**The bar for a move is a fundamental change: a changed Case set, or a new Benchmark** (owner
+decision, 2026-10-22: revisions are frozen, because people build on a Benchmark's scores across
+months). Everything else holds the id:
+
+- **Same Cases, changed code** (a refactor, a code move, a package bump): update only the
+  fingerprint literal, and say in the PR why the exam is unchanged.
+- **Same Cases, changed grading** (a fix adopted from inspect_evals): hold the id and update only
+  the fingerprint literal. OME-1701 held paws, boolq, chembench, infinite_bench_math_find, math
+  and aime24/25/26 this way.
+- **Changed Cases**: the id moves. OME-1701 moved worldsense, stereoset and onet_m6 when their
+  Case sets changed.
+
+`just engine benchmark-bump <key>` (from the repo root) prints the WARNING, both ids and every
+line to edit for both paths. It never edits a file: the move is a hand edit in a reviewed PR. A
+move ships with:
+
+1. The owner's sign-off, named in the PR body.
+2. The new id in the row's `published_revision` (medxpert: `REVISION`), in
+   `test_published_revisions.py` with a comment naming the old id and why (medxpert: its
+   migration golden and the early-grade fixture), and in `test_benchmark_fingerprints.py`.
+3. A line in the Engine's `CHANGELOG.md` naming the Benchmark, the old and new id, and why.
+4. A post to the team, so the people using the Benchmark hear it from us first.
+
+**A new Benchmark** sets `published_revision` to the fingerprint it computes on the day it is
+added (the bump command prints it) and pins both ids. `test_published_revision.py` refuses a
+catalogue row without one.
+
+**For coding agents:** never change a published revision to make a test green. A red
+fingerprint test means "say whether the Cases changed", not "move the id". If you cannot tell,
+stop and ask the owner.
+
 ## When the tool refuses
 
 Every refusal is an `ImporterError` that names the fact that stopped it. The rule
@@ -360,8 +441,8 @@ A different Case Digest ends with one of two explanations when the declaration c
   a shuffle the pins no longer reach. Check the seed and commit in the bundle's
   `provenance.json`; re-importing re-seals the new order once you accept it.
 - **"same count, different Cases: text changed"**: at least one Case's prompt or Grading Material
-  differs. Usually an inspect_evals data or prompt change; treat it as a new Benchmark Revision and
-  re-import. For lab_bench, a moved `choice_shuffle_seed` also lands here, because the options
+  differs. Usually an inspect_evals data or prompt change; treat it as a new Benchmark Revision:
+  re-import, then move the published id ([Changing a Benchmark's published revision](#changing-a-benchmarks-published-revision)). For lab_bench, a moved `choice_shuffle_seed` also lands here, because the options
   sit inside each Case's text.
 
 A count change already names both counts, so it gets no extra explanation.

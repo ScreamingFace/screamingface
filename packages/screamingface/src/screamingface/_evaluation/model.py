@@ -59,6 +59,10 @@ class Candidate:
     # a normal run, and they are never set together.
     capture: bool
     replay_frozen_copy: str | None
+    # FEATURE (OME-1311): whether the run may use the request cache. Carried like `capture`, so the
+    # run-transport protocol never widens; `False` is the caller's `use_cache=False`, sent as
+    # `Cache-Control: no-cache`. True (the Engine's own default) is a normal run.
+    use_cache: bool
 
     def __init__(self) -> NoReturn:
         raise TypeError("Candidate values are derived internally; they are not constructed")
@@ -161,6 +165,7 @@ def _compiled_candidate(
     object.__setattr__(candidate, "answer_seed", None)
     object.__setattr__(candidate, "capture", False)
     object.__setattr__(candidate, "replay_frozen_copy", None)
+    object.__setattr__(candidate, "use_cache", True)
     return candidate
 
 
@@ -204,6 +209,11 @@ def _with_answer_seed(candidate: Candidate, answer_seed: int) -> Candidate:
 def _with_capture(candidate: Candidate) -> Candidate:
     """Copy one compiled Candidate with the run's request to capture a frozen copy stamped on."""
     return _stamped(candidate, capture=True)
+
+
+def _without_cache(candidate: Candidate) -> Candidate:
+    """Copy one compiled Candidate with the run opted out of the request cache."""
+    return _stamped(candidate, use_cache=False)
 
 
 def _with_replay_frozen_copy(candidate: Candidate, frozen_copy_id: str) -> Candidate:

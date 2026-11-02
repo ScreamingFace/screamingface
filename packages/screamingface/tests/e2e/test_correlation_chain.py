@@ -39,6 +39,7 @@ from harness.cache_seeded import CacheSeededGateway
 from harness.fake_gateway import FakeGateway
 from harness.stack import EngineProcess, replay_stack
 from harness.tape import load_tape
+from harness.trace_evidence import unattributed_gateway_lines
 
 BOARD = "draco"
 CANDIDATE_MODEL = "openrouter/openai/gpt-5.5"
@@ -294,17 +295,12 @@ def test_rung3_every_gateway_log_line_carries_a_call_id(gateway_log) -> None:
     so an anonymous line THERE is exactly the regression the rung hunts, and the assertion
     keeps its full strength over that range.
     """
-    lines = [ln for ln in gateway_log["text"].splitlines() if ln.strip()]
-    assert lines, "the gateway wrote no log lines"
-
-    identified = [i for i, ln in enumerate(lines) if "gateway_call_id=" in ln]
-    assert len(identified) >= 2, (
+    assert gateway_log["text"].strip(), "the gateway wrote no log lines"
+    identified, anonymous = unattributed_gateway_lines(gateway_log["text"])
+    assert identified >= 2, (
         "fewer than two identified lines — the request window is too small for this rung to "
-        f"mean anything (found {len(identified)}); before OME-938 exactly one line carried an id"
+        f"mean anything (found {identified}); before OME-938 exactly one line carried an id"
     )
-
-    window = lines[identified[0] : identified[-1] + 1]
-    anonymous = [ln for ln in window if "gateway_call_id=" not in ln]
     assert not anonymous, (
         "these lines were emitted while a request was in flight but carry no gateway_call_id, "
         f"so they cannot be attributed to the call that produced them: {anonymous}"

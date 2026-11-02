@@ -26,6 +26,7 @@ from screamingface_engine.benchmarks.candidate_input import (
     parse_candidate_input,
 )
 from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
+from screamingface_engine.benchmarks.picture_admission import register_model_sight
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.capture_outcomes import (
     CAPTURE_FIELD,
@@ -79,6 +80,7 @@ from screamingface_engine.world.cache_readback import (
 from screamingface_engine.world.config import ModelSpec, WorldConfigError, provider_of, routes_for
 from screamingface_engine.world.errors import RunnerRequestError
 from screamingface_engine.world.fresh_judge_retry import scope_for_this_send
+from screamingface_engine.world.fusion_context import fusion_picture_messages
 from screamingface_engine.world.model_response import (
     Choice,
     parse_choice,
@@ -106,7 +108,7 @@ from screamingface_engine.world.web_tools import (
     tavily_key,
     truncate_tool_result,
 )
-from url4.core.errors import ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag import GuardRetry, current_guard_retry
 from url4.io.static import StaticIOLayer
 from url4.observe import current_log_sink, current_response_sink, current_usage_sink
@@ -414,8 +416,8 @@ class _ModelEndpoint:
     async def __call__(self, request: Request) -> str:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
         # with travel together — the call can never run one route's model under another's flags.
+        spec = self._routes[request.path]
         try:
-            spec = self._routes[request.path]
             # INVARIANT (F2): the caller's state is read HERE, per call, from the request scope —
             # never held on `self`. Two concurrent callers through this one handler each observe
             # their own scope because each runs in its own context (AC2), and a spawned model
@@ -475,11 +477,31 @@ class _ModelEndpoint:
                     retrieval_policy=retrieval_policy,
                     cache_attempt=egress.cache_attempt,
                 )
+        except _GatewayRefusal as exc:
+            # INVARIANT (OME-1770 review): the Gateway refuses an ungranted account a private
+            # target as an unknown provider. Relayed, that refusal tells the caller this Engine
+            # declares the route; url4's own answer for an undeclared route does not.
+            if spec.public_schema or not exc.refuses_provider(provider_of(spec.id)):
+                raise
+            raise _undeclared_route(request.path) from None
         except RunnerRequestError as exc:
             error = ResolutionError(str(exc), code=exc.code, permanent=exc.permanent)
             if exc.outcome is not None:
                 bind_model_outcome(error, exc.outcome)
             raise error from exc
+
+
+_NODE_NAME = "aigateway"
+"""The world node's name, which url4's undeclared-route error quotes."""
+
+
+def _undeclared_route(path: str) -> ResolutionError:
+    """url4's own error for a path the node does not declare (`url4.peer._dispatch`), verbatim."""
+    return ResolutionError(
+        f"node {_NODE_NAME!r} has no endpoint, eval path, or data route at {path!r}",
+        code=ErrorCode.ENDPOINT_NOT_FOUND,
+        permanent=True,
+    )
 
 
 _GATEWAY_CLIENTS: WeakKeyDictionary[Url4Node, httpx.AsyncClient] = WeakKeyDictionary()
@@ -555,13 +577,19 @@ async def build_aigateway_world(
     # instead of reaching HttpIOLayer. Left None, the node lazily builds HttpIOLayer and can
     # fetch any URL — which is what a token-bearing run has always been able to do.
     node = Url4Node(
-        "aigateway",
+        _NODE_NAME,
         default_processor="/" + cfg.default_model,
         outbound=None if cfg.allow_outbound else StaticIOLayer(),
     )
     for path in routes:
         node.endpoint(path)(call_model)
     _GATEWAY_CLIENTS[node] = http_client
+    register_model_sight(
+        node,
+        _GatewayModelSight(
+            http_client, {path: decode_route_id(spec.id) for path, spec in routes.items()}
+        ),
+    )
     return AigatewayWorld(
         node=node,
         _client=http_client,
@@ -627,6 +655,61 @@ def _gateway_client(node: object) -> httpx.AsyncClient | None:
     return _GATEWAY_CLIENTS.get(node) if isinstance(node, Url4Node) else None
 
 
+_MODEL_LIST_PATH = "/v1/models"
+_MODEL_LIST_UNREADABLE = (
+    "the gateway's model list could not be read, so this picture run cannot check that its "
+    "models take images; nothing was sent to a model"
+)
+
+
+class _GatewayModelSight:
+    """Read each declared model's input types from aigateway's ``/v1/models``, as the caller.
+
+    FEATURE (OME-1548): the `ModelSightReader` a picture Benchmark's Cases route asks before any
+    paid call (`benchmarks/picture_admission.py`). Read once per picture run, never cached: the
+    list is per caller, and one local node serves many callers' runs.
+
+    INVARIANT (trust): sent with the run's own identity headers, as its chat calls are, so a caller
+    is checked against the models the gateway lists for THEM.
+    """
+
+    __slots__ = ("_client", "_routes")
+
+    def __init__(self, client: httpx.AsyncClient, routes: Mapping[str, str]) -> None:
+        self._client = client
+        self._routes = routes
+
+    def model_routes(self) -> Mapping[str, str]:
+        """The world's declared model routes (``"/" + route id``), each to its gateway id."""
+        return self._routes
+
+    async def input_modalities(self) -> Mapping[str, Sequence[str]]:
+        """Each listed model's input types, keyed by gateway id; retryable when unreadable."""
+        try:
+            response = await self._client.get(_MODEL_LIST_PATH, headers=_headers(current_scope()))
+            response.raise_for_status()
+            body: object = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            # WHY retryable (owner, 2026-10-28): nothing was spent, and a later run may find the
+            # gateway answering. The error type only, never a body (the open_frozen_copy rule).
+            logger.warning("model list read failed error=%s", type(exc).__name__)
+            raise ResolutionError(
+                _MODEL_LIST_UNREADABLE, code=ErrorCode.RESOLUTION_FAILED, permanent=False
+            ) from exc
+        rows: object = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(rows, list):
+            raise ResolutionError(
+                _MODEL_LIST_UNREADABLE, code=ErrorCode.RESOLUTION_FAILED, permanent=False
+            )
+        modalities: dict[str, tuple[str, ...]] = {}
+        for row in rows:
+            model_id: object = row.get("id") if isinstance(row, dict) else None
+            listed: object = row.get("input_modalities") if isinstance(row, dict) else None
+            if isinstance(model_id, str) and isinstance(listed, list):
+                modalities[model_id] = tuple(value for value in listed if isinstance(value, str))
+        return modalities
+
+
 def _report_response(choice: Choice, cache: CacheOutcome, aigw: object = None) -> None:
     """Report how one model round trip ended — whether the gateway served it from its response
     cache, and what that hit avoided — onto the currently-resolving node's span.
@@ -675,6 +758,29 @@ def _token_count(*candidates: object) -> int:
     return 0
 
 
+_MAX_TOKEN_COUNT = 2**53 - 1
+"""The gateway's own bound on a token count (`aigateway.core.usage_modalities`)."""
+
+
+def _image_and_file_tokens(usage: object) -> int | None:
+    """The image/file subset of the prompt, as aigateway states it, or `None` for unknown.
+
+    FEATURE: image/file token accounting (OME-1744). aigateway writes it at
+    `usage.prompt_tokens_details.image_and_file_tokens` — under `usage`, NOT under `_aigw` — so this
+    reads `usage` even when `_aigw` is authoritative for every other class.
+
+    INVARIANT: anything that is not a bounded non-negative int is unknown (`None`), never 0 — unlike
+    `_token_count`, whose zero fallback predates any wire spelling of "unknown". A known 0 passes
+    through: the provider broke the input down and it held no media.
+    """
+    details = usage.get("prompt_tokens_details") if isinstance(usage, dict) else None
+    value = details.get("image_and_file_tokens") if isinstance(details, dict) else None
+    # WHY `type(...) is int`: bool is an int subclass, and `True` is not a token count.
+    if type(value) is not int or not 0 <= value <= _MAX_TOKEN_COUNT:
+        return None
+    return value
+
+
 def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
     """Report a cache hit: zero tokens consumed, and priced at zero.
 
@@ -717,6 +823,9 @@ def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
         cache_creation_tokens=0,
         reasoning_tokens=0,
         cost_usd=_hit_cost(call),
+        # WHY unknown and not the zero its siblings get (owner decision, OME-1744): the stored
+        # body's breakdown is the ORIGINAL call's, so a hit makes no claim about this class.
+        image_and_file_tokens=None,
     )
 
 
@@ -744,6 +853,11 @@ def _report_usage(
     CONTRADICTION, and this is the seam that keeps them consistent. A hit is served from the
     gateway's store, so the provider consumed nothing this request — see
     `_report_served_from_cache`.
+
+    WHY a reported 0 is not a measured zero (OME-1770): when neither `_aigw` nor `usage` states a
+    count, `_token_count` falls back to 0, because the wire's `TokenUsage` cannot say "unknown". A
+    configured endpoint may omit `usage`, so its 0 tokens mean "not stated", never "nothing spent".
+    A truthful unknown is the later accounting integration's job, not this seam's.
     """
     sink = current_usage_sink()
     if sink is None:
@@ -777,6 +891,7 @@ def _report_usage(
         # the successful request's own cost is unknown (R3), and for an older gateway's non-complete
         # status (`usd_from_aigw`).
         cost_usd=None if call is None else call.cost_usd,
+        image_and_file_tokens=_image_and_file_tokens(reported),
     )
 
 
@@ -1498,9 +1613,16 @@ def _native_messages(context: str | None) -> list[CandidateMessage] | None:
     FEATURE (OME-1678): the candidate-input envelope module owns the rules, so this connector and
     the inspect plugin read one rule. A v2 Case's pictures come back as content parts and travel
     to the gateway verbatim.
+
+    FEATURE (OME-1679): a Fusion's synthesizer context is not an envelope but holds one under
+    ``input``; on a picture Case the synthesizer gets the same pictures as the members.
     """
     try:
         messages: list[CandidateMessage] | None = parse_candidate_input(context)
+        # WHY under grading too: a Fusion context holding a picture Case must reach the refusal
+        # below, not a judge as base64 text; a text-only one still comes back None.
+        if messages is None:
+            messages = fusion_picture_messages(context)
     except CandidateInputError as exc:
         _invalid_candidate_input(str(exc))
     # INVARIANT (spec D6): a judge grades the text answer only. A picture reaching a grading call
@@ -1574,6 +1696,21 @@ def _json_or_raise(resp: httpx.Response) -> dict:
         ) from exc
 
 
+class _GatewayRefusal(ResolutionError):
+    """A non-2xx aigateway answer, with its status and the plain-text `detail` it carried."""
+
+    def __init__(
+        self, message: str, *, code: str, permanent: bool, status: int, detail: str | None
+    ) -> None:
+        super().__init__(message, code=code, permanent=permanent)
+        self.status = status
+        self.detail = detail
+
+    def refuses_provider(self, provider: str) -> bool:
+        """Whether this is the Gateway's refusal of `provider` as unknown to the caller."""
+        return self.status == 400 and self.detail == f"unknown provider: {provider}"
+
+
 def _raise_for_status(resp: httpx.Response) -> None:
     """Turn a non-2xx (or redirected) aigateway response into a `ResolutionError`.
 
@@ -1606,6 +1743,7 @@ def _raise_for_status(resp: httpx.Response) -> None:
         payload = resp.json()
     except ValueError:
         payload = None
+    text: str | None = None
     if isinstance(payload, dict):
         detail = payload.get("detail")
         if isinstance(detail, dict):
@@ -1613,8 +1751,12 @@ def _raise_for_status(resp: httpx.Response) -> None:
             if isinstance(upstream_code, str) and upstream_code not in ENGINE_RESERVED_CODES:
                 code = upstream_code
             message = detail.get("message", message)
+        elif isinstance(detail, str):
+            text = detail
     permanent = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
-    raise ResolutionError(message, code=code, permanent=permanent)
+    raise _GatewayRefusal(
+        message, code=code, permanent=permanent, status=resp.status_code, detail=text
+    )
 
 
 __all__ = [

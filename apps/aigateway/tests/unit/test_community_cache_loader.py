@@ -31,6 +31,7 @@ from aigateway.core.request_cache.sqlite_loader import (
     PageRejected,
     check_database,
     check_revisions,
+    holds,
     load_page,
 )
 from aigateway.db import build_tortoise_config
@@ -411,3 +412,23 @@ def test_an_adapter_the_hosted_side_does_not_report_is_refused() -> None:
 
     assert refused.value.reason == "revision_mismatch"
     assert "openrouter_adapter" in str(refused.value)
+
+
+# --- whether a key is loaded (PR #1446 review round 3) -------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_holds_says_whether_the_database_has_a_key(database: Path) -> None:
+    # WHY: a resumed pull checks the last key it loaded is still there; a database restored over
+    # in place keeps its inode but may have lost the pages before the cursor.
+    load_page([_row("a")], database)
+
+    assert holds(database, "a".ljust(64, "0")) is True
+    assert holds(database, "b".ljust(64, "0")) is False
+
+
+def test_holds_refuses_a_missing_database(tmp_path: Path) -> None:
+    with pytest.raises(PageRejected):
+        holds(tmp_path / "aigateway.sqlite3", "a" * 64)
+
+    assert not (tmp_path / "aigateway.sqlite3").exists()

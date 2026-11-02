@@ -47,8 +47,11 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
     </p>
 
     <p>
-      A captured run (the default) keeps a frozen copy of its model answers and web-tool results,
-      and <code>sf.reproduce(score)</code> replays a submission against that copy. The
+      A captured run (the default) keeps a pinned cache of its model answers and web-tool results,
+      and <code>sf.evaluate(pinned_cache="…")</code> replays a submission against that cache at $0.
+      The Reproduce button on a captured public row copies this snippet. The Client reads the recipe
+      and seed from the board and returns a report; its single result's
+      <code>reproduction.outcome</code> says whether the full replay is exact. The
       <RouterLink to="/learn/caching">caching page</RouterLink> explains how.
     </p>
 
@@ -61,10 +64,10 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
 
     <ul>
       <li>
-        <strong>Validation.</strong> The score is benchmark-native: the exact number the
-        benchmark's own grading produced, fractional or negative included. The board checks it is
-        a finite number and never recomputes, normalizes, or thresholds it — the benchmark is the
-        sole authority on its formula.
+        <strong>Validation.</strong> The score is benchmark-native: the exact number the benchmark's
+        own grading produced, fractional or negative included. The board checks it is a finite
+        number and never recomputes, normalizes, or thresholds it — the benchmark is the sole
+        authority on its formula.
       </li>
       <li>
         <strong>Deduplication.</strong> Each submission is hashed over its recipe identity, meaning

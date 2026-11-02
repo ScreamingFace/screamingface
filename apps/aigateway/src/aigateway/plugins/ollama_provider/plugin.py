@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from aigateway.core.content_parts import check_messages
+from aigateway.core.parameter_discovery import DiscoveryError, DiscoveryPostClient
 from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
 
-from .discovery import discover_ollama_models, resolve_ollama_host
+from .discovery import (
+    discover_ollama_models,
+    discover_ollama_show_modalities,
+    ollama_model_discovery_source,
+    resolve_ollama_host,
+)
 from .parameters import (
     OLLAMA_OBSERVATIONS,
     ollama_chat_parameter_rules,
@@ -19,6 +26,9 @@ if TYPE_CHECKING:
         ProviderParameterObservation,
         ToolCapability,
     )
+    from aigateway.core.input_modalities import InputModality
+    from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
+    from aigateway.core.plugin_base import ModelDiscoverySource
 
 _CLIENT_AUTH_HEADER_NAMES = {"authorization", "x-api-key", "proxy-authorization"}
 
@@ -31,14 +41,37 @@ class OllamaProviderPlugin(ProviderPluginBase):
     provider_display_name = "Ollama"
 
     def register_models(self) -> list[ModelEntry]:
+        # INVARIANT (OME-1537 review): seeds only — NO ``/api/show`` probe here. The
+        # seeds are text-only; modality evidence comes from the async listing source
+        # below, which the discovery kill switch silences.
         host = resolve_ollama_host()
-        return [
-            ModelEntry(
-                model_name=f"ollama/{name}",
-                litellm_params={"model": f"ollama_chat/{name}", "api_base": host},
-            )
-            for name in discover_ollama_models(host)
-        ]
+        return [_seed(host, name) for name in discover_ollama_models(host)]
+
+    def model_discovery_source(self) -> ModelDiscoverySource | None:
+        return ollama_model_discovery_source(resolve_ollama_host())
+
+    async def discover_live_models(
+        self,
+        *,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+    ) -> tuple[ModelEntry, ...] | None:
+        """The installed models, enriched with bounded ``/api/show`` evidence (OME-1537).
+
+        INVARIANT: never changes WHAT is listed — exactly the seeds, in order; only
+        ``input_modalities`` is filled. Any failed probe raises sanitized, so the
+        catalog keeps its last-good snapshot (or falls back to the text-only seeds).
+        """
+        host = resolve_ollama_host()
+        # WHY a worker thread: the tag listing is the sync, cached ``/api/tags`` call
+        # ``register_models`` shares — kept off the event loop here.
+        names = await asyncio.to_thread(discover_ollama_models, host)
+        if not names:
+            return ()
+        if not isinstance(client, DiscoveryPostClient):
+            raise DiscoveryError("unsupported_transport")
+        evidence = await discover_ollama_show_modalities(host, names, client=client, limits=limits)
+        return tuple(_seed(host, name, input_modalities=evidence.get(name)) for name in names)
 
     def conformance_models(self) -> list[ModelEntry]:
         models = self.register_models()
@@ -120,6 +153,16 @@ class OllamaProviderPlugin(ProviderPluginBase):
         # routes/chat.py resolves the provider before this rewrite; do not
         # re-derive the provider from body["model"] after this point.
         return out
+
+
+def _seed(
+    host: str, name: str, *, input_modalities: tuple[InputModality, ...] | None = None
+) -> ModelEntry:
+    return ModelEntry(
+        model_name=f"ollama/{name}",
+        litellm_params={"model": f"ollama_chat/{name}", "api_base": host},
+        input_modalities=input_modalities,
+    )
 
 
 PLUGIN = OllamaProviderPlugin()

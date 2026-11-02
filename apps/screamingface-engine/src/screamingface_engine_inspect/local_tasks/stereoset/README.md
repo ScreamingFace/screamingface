@@ -40,3 +40,10 @@ target term. The eval's bias score (`stereoset_scorer`) is left out by name, an 
 ## Licence
 
 CC-BY-SA-4.0.
+
+## Identity
+
+The fingerprint hashes everything that defines this Benchmark, the sha256 of every `.py` file in
+this package included (`task_source=…`). Editing any of it moves only the fingerprint: `tests/unit/inspect/test_benchmark_fingerprints.py`
+goes red and the Benchmark keeps publishing its hand-set `published_revision` (OME-1610).
+Whether that id moves too is the owner's call, under [Changing a Benchmark's published revision](../../../../docs/adding-an-imported-benchmark.md#changing-a-benchmarks-published-revision).

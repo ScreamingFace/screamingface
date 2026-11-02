@@ -18,7 +18,9 @@ message wording stays benchmark-owned — the shared grading code moves logic, n
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -28,11 +30,13 @@ from pydantic import ValidationError
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.contract import (
+    CANDIDATE_INPUT_V2_SCHEMA,
     CaseResult,
     Failure,
     encode_candidate_invocation,
 )
 from screamingface_engine.benchmarks.graded_answer import graded_answer_payload
+from screamingface_engine.benchmarks.media_parking import MediaParking, parking_media
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
     CaseGradeOutcome,
@@ -43,6 +47,7 @@ from screamingface_engine.benchmarks.shared_grading.case_grades import (
     read_selected_cases,
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload, TextPayload
+from url4.streaming.protocol.signals import ResultArtifact
 
 MESSAGES = {
     "missing_rubric_asset": "test: rubric asset gone",
@@ -650,3 +655,59 @@ def test_the_async_aggregate_face_runs_hooks_on_the_callers_loop() -> None:
 
     result = asyncio.run(run())
     assert result["cases"][0]["grade"]["score"] == 0.5
+
+
+def test_the_async_aggregate_face_parks_pictures_off_the_callers_loop() -> None:
+    """WHY (OME-1271, PR 5): the result store's writer is synchronous, and an S3 write can
+    wait out its 30 s timeout. Run on the caller's loop, it would freeze every other step of
+    the run meanwhile; so the aggregate parks from a worker thread, still in the run's binding.
+    """
+
+    picture_case: str = json.dumps(
+        {
+            "schema": CANDIDATE_INPUT_V2_SCHEMA,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What is the height of the tallest bar?"},
+                        # The 8-byte PNG signature, the stand-in test_media_parking.py uses.
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": "data:image/png;base64,iVBORw0KGgo="},
+                        },
+                    ],
+                }
+            ],
+        }
+    )
+    writing_threads: list[int] = []
+
+    class _ThreadRecordingWriter:
+        """A result store stand-in that notes which thread each write ran on."""
+
+        def write_bytes(self, encoded: bytes) -> ResultArtifact:
+            writing_threads.append(threading.get_ident())
+            digest: str = hashlib.sha256(encoded).hexdigest()
+            return ResultArtifact(id=digest, size_bytes=len(encoded), sha256=digest)
+
+        def write_text(self, body: str) -> ResultArtifact:
+            return self.write_bytes(body.encode("utf-8"))
+
+    path = _path(_Hook())
+
+    async def run() -> int:
+        with parking_media(MediaParking(_ThreadRecordingWriter())):
+            await path.aggregate_async(
+                json.dumps([_envelope(1, _grading(1))]),
+                benchmark_id="test-benchmark",
+                benchmark_revision="rev",
+                selected_cases=[SelectedCase(case_id=1, input=picture_case, metadata={})],
+                grading_material=lambda case_id: (5, -3),
+                scorer=mean_score,
+            )
+        return threading.get_ident()
+
+    loop_thread: int = asyncio.run(run())
+    assert len(writing_threads) == 1
+    assert writing_threads[0] != loop_thread

@@ -35,6 +35,7 @@ from screamingface._evaluation.model import (
     _validate_limit,
     _with_answer_seed,
     _with_capture,
+    _without_cache,
 )
 from screamingface._evaluation.model_parameters import (
     _SEED_PARAM,
@@ -87,6 +88,7 @@ def evaluate_sync(
     answer_seed: int | None = None,
     capture: bool = False,
     load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
 ) -> Report:
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
@@ -106,8 +108,11 @@ def evaluate_sync(
     # FEATURE (OME-1193, OME-1307): stamp the declared sitting (`answer_seed`) and the capture
     # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
     # observer and the report all see the same objects.
-    selected_candidates = _captured_candidates(
-        _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
+    selected_candidates = _cache_intent_candidates(
+        _captured_candidates(
+            _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
+        ),
+        use_cache,
     )
     catalog = load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
@@ -154,6 +159,7 @@ async def evaluate_async(
     answer_seed: int | None = None,
     capture: bool = False,
     load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
 ) -> Report:
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
@@ -172,8 +178,11 @@ async def evaluate_async(
     )
     # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
     # transport, observer and report alike.
-    selected_candidates = _captured_candidates(
-        _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
+    selected_candidates = _cache_intent_candidates(
+        _captured_candidates(
+            _seeded_candidates(tuple(evaluation.candidates), answer_seed), capture
+        ),
+        use_cache,
     )
     catalog = await load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
@@ -605,6 +614,19 @@ def _captured_candidates(
     if not capture:
         return candidates
     return tuple(_with_capture(candidate) for candidate in candidates)
+
+
+def _cache_intent_candidates(
+    candidates: tuple[Candidate, ...],
+    use_cache: bool,
+) -> tuple[Candidate, ...]:
+    """Stamp a run's opt-out of the request cache onto each compiled Candidate — identity when on.
+
+    FEATURE (OME-1311): `use_cache=False` covers every Candidate of the evaluation.
+    """
+    if use_cache:
+        return candidates
+    return tuple(_without_cache(candidate) for candidate in candidates)
 
 
 def _warn_fixed_seed_sittings(candidates: tuple[Candidate, ...]) -> None:

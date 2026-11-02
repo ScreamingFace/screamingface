@@ -23,8 +23,8 @@ class ResolvePolicy(Enum):
     """How `resolve` treats a caller with NO stored target at all.
 
     DISPATCH is chat: no target is a refusal. DATASHEET is the model-parameter contract
-    (OME-1167): the DEFAULT selector may answer without a credential — the document is a
-    lookup, not a credentialed action. A NAMED selector without a target refuses under both.
+    (OME-1167): the default selector may answer without a credential — the document is a
+    lookup, not a credentialed action. The default is the only selector since the Stage D sunset.
     """
 
     DISPATCH = "dispatch"
@@ -147,16 +147,6 @@ class SelectorAmbiguous(ProviderAccessRefusal):
         self.provider = provider
 
 
-class SelectorUnknown(ProviderAccessRefusal):
-    """A named selector matches no stored target; `valid_labels` are the ones that exist."""
-
-    def __init__(self, provider: str, requested: str, valid_labels: tuple[str, ...]) -> None:
-        super().__init__(f"no connection labelled {requested!r} for {provider}")
-        self.provider = provider
-        self.requested = requested
-        self.valid_labels = tuple(valid_labels)
-
-
 class UnsupportedAuthMode(ProviderAccessRefusal):
     """The target's auth mode is one the provider does not declare."""
 
@@ -166,12 +156,14 @@ class UnsupportedAuthMode(ProviderAccessRefusal):
         self.provider = provider
 
 
-WriteConflictKind = Literal["retry_exhausted", "superseded"]
-WriteSubject = Literal["profile", "connection"]
+# WHY one value each (E5a, history cleanup): `retry_exhausted` and the `profile` subject were
+# the Profile index's; the parameters stay so every raise site keeps naming what it means.
+WriteConflictKind = Literal["superseded"]
+WriteSubject = Literal["connection"]
 
 
 class WriteConflict(ProviderAccessRefusal):
-    """A compare-and-set on a stored row lost: retries ran out, or the row was superseded."""
+    """A compare-and-set on a stored row lost: the row was superseded."""
 
     def __init__(
         self,
@@ -189,7 +181,7 @@ class WriteConflict(ProviderAccessRefusal):
 
 
 class SelectorUnsupported(ProviderAccessRefusal):
-    """A present `X-Profile` under the REJECT_EXPLICIT policy (Stage D sunset)."""
+    """A present `X-Profile`, refused on every route since the Stage D sunset."""
 
     def __init__(self) -> None:
         # INVARIANT: the obsolete selector value never survives the boundary in an exception that
@@ -245,7 +237,7 @@ class CredentialAuthorityUnavailable(ProviderAccessRefusal):
 class PairNotManageable(ProviderAccessRefusal):
     """A pair the successor cannot address (`ambiguous`) or manage (`unresolved`).
 
-    Raised by a D18 mutation, and by resolve for a `quarantined` pair (OME-1209 E4a).
+    Raised by a D18 mutation for a pair of §5 rows 3 and 11.
     # INVARIANT: refused before any write and before the provider key check.
     """
 

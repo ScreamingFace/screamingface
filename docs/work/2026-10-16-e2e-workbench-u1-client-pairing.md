@@ -1,9 +1,9 @@
 ---
 ticket: OME-1637
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-10-16
-finished:
+finished: 2026-10-16
 ---
 
 # e2e-workbench-u1-client-pairing — explicit scoreboard pairing + Access token seeding
@@ -48,3 +48,5 @@ in any spelling still pairs; a valid env token is used without a browser login; 
   over HTTP or ws (sync + async); non-blocking — the hosted-default check normalizes the
   scheme-default port (`:443`), "proves" → "asserts", umbrella spec/ledger updated to the
   real OME-1636/OME-1637 state.
+
+- **Merged:** PR #1438, squash `637594595` on 2026-10-16 (approved by HupBaHa and IonesioJunior); OME-1637 closed with the close comment.

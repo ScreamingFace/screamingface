@@ -40,6 +40,8 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     )
     _add_data_dir(parser, default=default_data_dir())
     commands = parser.add_subparsers(dest="command", required=True)
+    analytics = commands.add_parser("analytics", help="Manage anonymous analytics consent")
+    analytics.add_argument("action", choices=("status", "enable", "disable", "reset-id"))
     up = commands.add_parser("up", help="Start the local runtime")
     _add_data_dir(up)
     up.add_argument("--foreground", action="store_true")
@@ -80,6 +82,7 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     # WHY accepted only to be refused (in _config): a clear message beats argparse's
     # "unrecognized arguments" for an option that exists on `up`.
     _add_benchmark_assets_dir(prepare)
+    _add_cache_commands(commands)
     serve = commands.add_parser("_serve", help=argparse.SUPPRESS)
     _add_data_dir(serve)
     serve.add_argument("--owner-token", required=True)
@@ -95,6 +98,24 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
         if action.dest not in {"_serve", "_scoreboard"}
     ]
     return parser
+
+
+def _add_cache_commands(commands: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    cache = commands.add_parser("cache", help="Work with the local request cache")
+    cache_commands = cache.add_subparsers(dest="cache_command", required=True)
+    pull = cache_commands.add_parser("pull", help="Pull the community cache into the local gateway")
+    _add_data_dir(pull)
+    pull.add_argument(
+        "--model",
+        action="append",
+        dest="models",
+        default=None,
+        type=_model_name,
+        help="Only this model's rows, as the hosted cache names it (repeatable)",
+    )
+    pull.add_argument(
+        "--url", default=None, type=_engine_url, help="The hosted Engine to pull from"
+    )
 
 
 def _add_data_dir(parser: argparse.ArgumentParser, *, default: Path | None = None) -> None:
@@ -120,8 +141,15 @@ def _add_port_options(parser: argparse.ArgumentParser) -> None:
         parser.add_argument(f"--{service}-port", type=int, default=None)
 
 
-def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
+def main(argv: list[str] | None = None) -> None:
     args = _parser().parse_args(argv)
+    if args.command == "analytics":
+        _analytics_control(args.action)
+    else:
+        _dispatch_runtime(args)
+
+
+def _dispatch_runtime(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912, PLR0915
     try:
         # WHY before dispatch: every command that imports runtime apps (up/serve
         # children, status, doctor, prepare) must see the live checkout code, not a
@@ -152,6 +180,8 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
                 list_benchmarks=args.list_benchmarks,
                 force=args.force,
             )
+        elif args.command == "cache":
+            raise SystemExit(_cache_pull(config, args))
         elif args.command == "_serve":
             _serve(config, args.owner_token, foreground=not args.background)
         elif args.command == "_scoreboard":
@@ -160,6 +190,56 @@ def main(argv: list[str] | None = None) -> None:  # noqa: C901, PLR0912
             run_scoreboard(config)
     except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
         raise SystemExit(f"screamingface: {exc}") from None
+
+
+def _analytics_control(action: str) -> None:
+    from screamingface import analytics
+
+    controls = {
+        "status": analytics.status,
+        "enable": analytics._enable,
+        "disable": analytics._disable,
+        "reset-id": analytics.reset_identifier,
+    }
+    print(json.dumps(controls[action]()))
+
+
+def _engine_url(value: str) -> str:
+    # WHY in the parser: `--url "$UNSET"` must not fall back to production, and a bad URL is a
+    # usage mistake, not a traceback.
+    from screamingface._client_connections import _engine_origin
+
+    try:
+        return _engine_origin(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
+def _model_name(value: str) -> str:
+    # WHY in the parser: `--model "$UNSET"` is a usage mistake, so it gets argparse's usage
+    # error, not the TypeError `sf.cache.pull_from_remote` raises for a programming one.
+    if not value:
+        raise argparse.ArgumentTypeError("a model name must not be empty")
+    return value
+
+
+def _cache_pull(config: RuntimeConfig, args: argparse.Namespace) -> int:
+    """`screamingface cache pull`: the same pull as `sf.cache.pull_from_remote`, always showing
+    progress. Exit 0 finished, 1 stopped or refused (the reason on stderr), 130 interrupted."""
+    from screamingface._cache.pull import pull_into
+    from screamingface.cache import CachePullError, _models
+
+    try:
+        pull_into(_models(args.models), url=args.url, data_dir=config.data_dir, progress=True)
+    except CachePullError as exc:
+        print(f"screamingface: {exc.message}", file=sys.stderr)
+        if exc.hint:
+            print(exc.hint, file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("screamingface: interrupted; the next pull starts over", file=sys.stderr)
+        return 130
+    return 0
 
 
 def _config(args: argparse.Namespace) -> RuntimeConfig:
@@ -214,6 +294,7 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     from screamingface._runtime.server import require_runtime_extra
 
     require_runtime_extra()
+    _require_runner_config(config)
     state = _read_state(config)
     owned = bool(state and _verify_owner(state))
     if owned:
@@ -294,6 +375,20 @@ def _require_benchmark_assets_dir(config: RuntimeConfig) -> None:
     folder = config.benchmark_assets_dir
     if folder is not None and not folder.is_dir():
         raise RuntimeError(f"benchmark assets folder not found: {folder}")
+
+
+def _require_runner_config(config: RuntimeConfig) -> None:
+    # WHY the Engine loader and not a bare tomllib parse: startup validates the whole world
+    # contract (routes, default_route, model world), so a syntactically valid file with bad
+    # world semantics must be refused HERE — before `_restart` calls `_down` on a healthy stack.
+    # PRECONDITION: callers run `require_runtime_extra()` first, so the Engine import resolves.
+    from screamingface_engine import job_env
+    from screamingface_engine.world.config import WorldConfigError, load_config
+
+    try:
+        load_config({**os.environ, job_env.RUNNER_CONFIG: str(config.runner_config)})
+    except WorldConfigError as exc:
+        raise RuntimeError(f"runner config is invalid ({config.runner_config}): {exc}") from exc
 
 
 def _refuse_other_assets(config: RuntimeConfig, state: dict[str, object] | None) -> None:
@@ -529,10 +624,15 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
             scoreboard_port=values["scoreboard"],
             engine_port=values["engine"],
             benchmark_assets_dir=assets,
+            runner_config=config.runner_config,
         )
     # WHY before `_down`: a missing or replaced folder must leave the running stack untouched,
     # not stop it and then fail to bring it back.
     _require_benchmark_assets_dir(config)
+    from screamingface._runtime.server import require_runtime_extra
+
+    require_runtime_extra()
+    _require_runner_config(config)
     _down(config)
     _up(config, foreground=foreground)
 

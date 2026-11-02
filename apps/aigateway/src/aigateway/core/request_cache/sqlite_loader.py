@@ -256,4 +256,12 @@ def load_page(rows: Sequence[Mapping[str, Any]], database: Path) -> PageLoad:
         )
 
 
-__all__ = ["PageLoad", "PageRejected", "check_database", "check_revisions", "load_page"]
+def holds(database: Path, key_hash: str) -> bool:
+    """Whether the database has a row for ``key_hash``: a resumed pull's check that the pages
+    before its cursor are still there."""
+    with closing(_connect(database)) as conn:
+        found = conn.execute(f"SELECT 1 FROM {_TABLE} WHERE key_hash = ? LIMIT 1", (key_hash,))
+        return found.fetchone() is not None
+
+
+__all__ = ["PageLoad", "PageRejected", "check_database", "check_revisions", "holds", "load_page"]

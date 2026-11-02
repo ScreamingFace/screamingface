@@ -52,6 +52,12 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     custom_llm_provider: str
     provider_display_name: str
     settings_cls: ClassVar[type[PluginSettings]] = PluginSettings
+    # FEATURE (OME-1542): the chat route refuses every remote image/file reference before the cache
+    # stage, so our process never dials a caller's URL. A provider sets this ONLY when its upstream,
+    # not the gateway, fetches `http(s)` image URLs (Codex: OpenAI does). It relaxes images only.
+    # INVARIANT: a provider that sets it keeps the base `global_cache_projection` (always a bypass),
+    # so no cache entry is ever keyed by a URL instead of the bytes behind it.
+    forwards_remote_image_urls: ClassVar[bool] = False
 
     def __init__(self, settings: TSettings | None = None) -> None:
         self.settings = settings if settings is not None else cast(TSettings, self.settings_cls())
@@ -197,6 +203,19 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         # as defense in depth). Default: identity — a provider opts in by override.
         """
         return body
+
+    def refuse_inadmissible_media(self, body: dict[str, Any]) -> None:
+        """Raise the typed 422 for media this provider can never carry (OME-1542 review 2).
+
+        # FEATURE: image and file input (OME-1529). The chat route calls this at its media
+        # boundary, next to the provider-neutral data:-only guard.
+        # INVARIANT: called BEFORE the cache stage and credential resolution, so a profile or
+        # auth error can never preempt the media 422 and a refused body never reaches the cache.
+        # WHY a hook: which slots hold text only is the provider's wire knowledge (Anthropic's
+        # top-level ``system``); core states the seam, the plugin fills it, and core never
+        # imports the plugin. Default: admit everything.
+        """
+        return None
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         """Apply provider-specific request normalization before dispatch."""
