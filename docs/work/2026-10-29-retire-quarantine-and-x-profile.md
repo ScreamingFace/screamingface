@@ -3,7 +3,7 @@ ticket: OME-1784
 stack: aigateway
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-29
-finished: 2026-11-02
+finished: 2026-10-30
 ---
 
 # retire-quarantine-and-x-profile — retire the quarantined marker state and the X-Profile compatibility path (OME-1138 close-out, L4a)

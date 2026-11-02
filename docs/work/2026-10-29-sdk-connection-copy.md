@@ -3,7 +3,7 @@ ticket: OME-1779
 stack: screamingface
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-29
-finished: 2026-11-02
+finished: 2026-10-30
 ---
 
 # sdk-connection-copy — the Client SDK speaks of Connections, not provider profiles

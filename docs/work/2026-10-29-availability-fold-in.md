@@ -3,7 +3,7 @@ ticket: OME-1778
 stack: aigateway
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-29
-finished: 2026-11-02
+finished: 2026-10-30
 ---
 
 # availability-fold-in — provider availability follows the resolver (D17 fold-in, OME-1138)

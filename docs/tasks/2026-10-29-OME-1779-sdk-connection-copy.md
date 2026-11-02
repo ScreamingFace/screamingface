@@ -27,3 +27,5 @@ decoder are unchanged.
 
 - 2026-10-29: filed, implemented, PR #1611 opened; scope extended by the owner's close-out review
   to the Model discovery docstrings.
+- 2026-10-30: squash-merged to `main` as `1af61c8e0` (PR #1611).
+- 2026-11-02: Linear closed the issue Done with the close comment.

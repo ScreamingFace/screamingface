@@ -20,3 +20,6 @@ Close-out leaf L6c of the OME-1138 epic, the Engine half of OME-1781. The Engine
 
 Spec: `docs/spec/2026-10-29-ome-1138-closeout.md` §4.6. Ledger:
 `docs/work/2026-10-29-scope-literal-account-connection.md`.
+
+- 2026-10-30: squash-merged to `main` as `6c5f5c1cb` (PR #1613).
+- 2026-11-02: Linear closed the issue Done with the close comment.

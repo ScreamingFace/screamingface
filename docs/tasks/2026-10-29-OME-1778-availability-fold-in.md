@@ -20,3 +20,5 @@ flag. Spec `docs/spec/2026-10-29-availability-fold-in.md`, plan
 `docs/plan/2026-10-29-availability-fold-in.md`.
 
 - 2026-10-29: filed, implemented, PR opened.
+- 2026-10-30: squash-merged to `main` as `fed613da2` (PR #1610).
+- 2026-11-02: Linear closed the issue Done with the close comment.

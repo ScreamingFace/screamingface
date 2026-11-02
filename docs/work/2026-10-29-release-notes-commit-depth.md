@@ -3,7 +3,7 @@ ticket: OME-1776
 stack: repo
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-29
-finished: 2026-11-02
+finished: 2026-10-30
 ---
 
 # release-notes-commit-depth — release notes cover every commit since each package's last release (OME-1138 close-out L2)
