@@ -142,8 +142,7 @@ class BoundedIOLayer:
             self.fetch_ex = partial(self._admit, inner.fetch_ex)
         if isinstance(inner, SupportsHoldings):
             self.fetch_holdings = partial(self._admit, inner.fetch_holdings)
-        # WHY getattr, not isinstance(SupportsFetchBytes): the engine may name only io.layer
-        # (test_layering); a runtime_checkable isinstance checks exactly this attribute anyway.
+        # WHY getattr, not isinstance(SupportsFetchBytes): engine imports io.layer only (layering)
         if (fetch_bytes := getattr(inner, "fetch_bytes", None)) is not None:
             self.fetch_bytes = partial(self._admit, fetch_bytes)
         if isinstance(inner, SupportsProcessorRoutes):
