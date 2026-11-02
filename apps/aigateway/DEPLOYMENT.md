@@ -187,14 +187,16 @@ commands, `migrate_profiles` (the Stage B backfill) and `purge_profile_history`.
 Such an install therefore upgrades in two steps:
 
 1. Upgrade the gateway itself, every replica, to an E5b-era image: one built from `1ccf80a89` or a
-   later commit before `7cb093014`. Use this repository's chart, `apps/aigateway/charts/aigateway`,
-   which is unchanged from `1ccf80a89` to `a7e5d8577`, with `--set image.tag=main-1ccf80a` (the dev
-   build of `1ccf80a89`; dev builds are tagged `main-<first 7 characters of the commit SHA>` and are
-   built for amd64 only). Its pre-upgrade Job applies the migrations. The purge's `--apply` needs
-   E5a (`8cb1e54e0`) or later on every replica, which an E5b-era image includes: an older replica's
-   PUT on a deleted account could adopt a leftover blob, and a deleted account has no row for the
-   purge to lock. Then run both commands in one of the upgraded gateway pods, dry run first, with a
-   database backup before each `--apply`:
+   later commit before `7cb093014`. Use this repository's chart, `apps/aigateway/charts/aigateway`.
+   Its only change from `1ccf80a89` to `e915d8037` is the opt-in `remoteEndpoints` block
+   (`143d4bcf8`, #1606), which renders nothing while unset; leave it unset for this step. Install
+   it with `--set image.tag=main-1ccf80a` (the dev build of `1ccf80a89`; dev builds are tagged
+   `main-<first 7 characters of the commit SHA>` and are built for amd64 only). Its pre-upgrade Job
+   applies the migrations. The purge's `--apply` needs E5a (`8cb1e54e0`) or later on every
+   replica, which an E5b-era image includes: an older replica's PUT on a deleted account could
+   adopt a leftover blob, and a deleted account has no row for the purge to lock. Then run both
+   commands in one of the upgraded gateway pods, dry run first, with a database backup before each
+   `--apply`:
 
    ```bash
    python -m aigateway.migrate_profiles --dry-run --all
@@ -209,8 +211,8 @@ Such an install therefore upgrades in two steps:
    The backfill migrates each pair it can prove onto a Connection and reports every other pair as
    `quarantined` or `none`, with a category. A pair left `none` is served from its single active
    Connection, like any pair the backfill never touched; a user without one connects the provider
-   again through the Connection API. A `quarantined` pair is refused with
-   `409 credential_pair_unresolved`, and a new Connection does not clear it.
+   again through the Connection API. A `quarantined` pair must be settled before the gateway runs
+   an image that includes L4a; see "Before an image that includes L4a" below.
 
    The backfill goes first because the purge skips, whole, any account that still has a Profile
    document naming a blob no Connection addresses on a pair that is not migrated; it also skips an
@@ -220,11 +222,63 @@ Such an install therefore upgrades in two steps:
    of `kept_*`, or `kept_unproven_rows` above 0. Both commands exit 2 when they refuse to run
    without the master key.
 2. Upgrade to an image built from `7cb093014` or later. Profile rows the purge did not delete are
-   inert there.
+   inert there. If that image includes L4a (`e915d8037`), run the precondition below first.
 
 This procedure covers Helm installs only; local SQLite installs are not covered. It does not apply
 to 0.2.0 either, which kept Profiles in the operating system's credential store, not in the
 database.
+
+**Before an image that includes L4a (`e915d8037`, #1614).** From L4a on, a pair marker has two
+states, `none` and `migrated`, and a stored `quarantined` row is a data error: chat answers 500 for
+that account, the `GET /v1/provider-access` listing fails for it, and the admin inventory refuses
+it. Settle the leftover rows with no gateway running, in this order:
+
+1. Take a database backup.
+2. Stop every gateway replica. Rerun the release's `helm upgrade` with its current image and
+   `--set replicaCount=0`, then wait until no gateway Pod is left (release and namespace `aigw`, as
+   above):
+
+   ```bash
+   kubectl -n aigw wait --for=delete pod \
+     -l app.kubernetes.io/instance=aigw,app.kubernetes.io/component=gateway --timeout=5m
+   ```
+
+   A gateway older than L4a writes a pair's marker back as it read it, fenced only by the row's
+   `generation`, which the statements below do not change. An OAuth flow started before them and
+   finished after them (its start waits in the Pod's memory for up to 10 minutes) would therefore
+   write `quarantined` back. Stopping the Pods ends those flows.
+3. Run the count, the change and the recount in one transaction, with `psql -v ON_ERROR_STOP=1`:
+
+   ```sql
+   BEGIN;
+   SET LOCAL lock_timeout = '5s';
+   SET LOCAL statement_timeout = '15s';
+   SELECT count(*) FILTER (WHERE migration_state = 'quarantined') AS quarantined,
+          count(*) FILTER (WHERE migration_note IS NOT NULL) AS noted
+     FROM provider_credential_slots;
+   UPDATE provider_credential_slots SET migration_state = 'none', migration_note = NULL
+     WHERE migration_state = 'quarantined';
+   UPDATE provider_credential_slots SET migration_note = NULL
+     WHERE migration_note IS NOT NULL;
+   DO $$
+   BEGIN
+     IF EXISTS (SELECT 1 FROM provider_credential_slots
+                WHERE migration_state = 'quarantined' OR migration_note IS NOT NULL) THEN
+       RAISE EXCEPTION 'quarantined or migration_note rows remain';
+     END IF;
+   END $$;
+   COMMIT;
+   ```
+
+   Record the first count. If any statement fails, nothing is committed; fix the cause and run the
+   transaction again.
+4. Upgrade the release to the L4a image with `--set replicaCount=<your replica count>`. Its Pods
+   are the first to take traffic again.
+
+A pair set to `none` is owned by its Connections: one active Connection serves it, two or more are
+refused as ambiguous (`409 connection_ambiguous`; the availability listing shows `error`), and with
+none the user connects the provider again. Profile rows the purge kept for such an account stay
+inert. Source: `docs/spec/2026-10-29-ome-1138-closeout.md` §4.2 and §4.10 item 5.
 
 **The retired Profile routes answer 410.** Since E3 (`08f534317`, #1464) the 13 Profile routes
 under `/v1/auth/profiles`, `/v1/auth/{provider}/profiles` and
