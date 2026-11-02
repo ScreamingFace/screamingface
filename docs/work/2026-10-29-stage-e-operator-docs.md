@@ -80,16 +80,18 @@ Docs only, no RED. Verification instead:
   `docs/diagrams/gateway-identity-flow.{mmd,svg,png}` and `docs/spec/2026-10-29-ome-1138-closeout.md`
   §4.2. No code, no test.
 - **Commits:**
-  - `86b30182f` `docs(aigateway): document the Stage E rollback floor and upgrade path`;
-  - `16e29927d` `docs(aigateway): apply the review decisions to the Stage E operator docs`;
-  - `8a3e43e0f` `docs(aigateway): name the E5c boundary by commit and fix the Google OAuth note`;
-  - `2b27b8a17` `docs(aigateway): state the L4a quarantined precondition and drop the pre-L4a 409
-    wording`;
-  - `docs(aigateway): stop the gateway for the L4a remediation and scope the ambiguity rule` (see
-    the PR).
+  - PR #1612, squash-merged on 2026-11-02 as `969d4e303` from its branch head `ea5a19532`:
+    `8788c1be6` `docs(aigateway): document the Stage E rollback floor and upgrade path`,
+    `f9cb59432` `docs(aigateway): apply the review decisions to the Stage E operator docs` and
+    `ea5a19532` `docs(aigateway): name the E5c boundary by commit and fix the Google OAuth note`.
+  - The follow-up PR, branch `OME-1780-l4a-precondition-docs` from `969d4e303`:
+    `aaeccd62a` `docs(aigateway): state the L4a quarantined precondition and drop the pre-L4a 409
+    wording`, `dee09b5cb` `docs(aigateway): stop the gateway for the L4a remediation and scope the
+    ambiguity rule`, and this record.
 
-  The first three were `8788c1be6`, `f9cb59432` and `ea5a19532` before the rebase onto
-  `e915d8037`; the rebase applied cleanly.
+  #1612 merged before the rebased branch (onto `e915d8037`) and its fourth and fifth commits were
+  pushed, so those two land in the follow-up PR. The files they touch were identical at
+  `969d4e303` and at the rebased third commit, so both applied without conflict.
 - **Evidence for each statement** (all at `origin/main` `a7e5d8577`):
   - SHAs: `f7e54869b` E4b (#1516), `b66f94f08` E4a (#1491, "Profile-only credentials no longer
     resolve"), `1ccf80a89` E5b (#1573), `7cb093014` E5c (#1596, deletes `migrate_profiles.py` and
