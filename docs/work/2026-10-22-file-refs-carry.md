@@ -548,3 +548,16 @@ engine gate green.
 **Gates.** `run_gates.py url4 --base origin/main` ALL GREEN (append-only green);
 `check_module_size.py` within caps; `check_suppressions.py` 3/3 baseline;
 `run_gates.py screamingface-engine --base origin/main` ALL GREEN.
+
+## Round 2026-11-02 — e2e F3 (`@` in a call context): PARTIAL
+
+**Outcome.** `815a6b9ad` — `dag/source_scan.py` decides a context's holdings pass-through on its
+parsed segments (`holds_holdings_ref`: `SelfRef` / `IdentityRef`, nested call contexts and
+iteration bodies included; an unparseable segment counts only if it holds `@`). The
+`@`-in-URL repro now fetches and attaches; real `@` / `@identity` contexts keep today's verbatim
+behaviour. Tests: new `tests/unit/test_context_holdings_scan.py` (11). Gates:
+`run_gates.py url4 --base origin/OME-1539-url4-file-refs` ALL GREEN; `check_module_size.py`
+within caps. `dag/_lowering.py:235` is unchanged (conservative raw-text fallback; the context
+text rides as the F1b text part). **Stopped:** "an unparseable segment raises" contradicts the
+pinned `test_attachments.py::test_a_prose_or_holdings_context_contributes_no_refs` and deviation
+3 above (prose and template segments contribute nothing). Awaiting an owner decision.
