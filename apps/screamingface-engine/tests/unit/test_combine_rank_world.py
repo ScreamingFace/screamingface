@@ -1,12 +1,12 @@
 """A rank Fusion runs end to end in the engine world, then a model writes (OME-1289 E4a, unit 10).
 
 FEATURE: the rank step keeps k original member texts, and the Pipeline stage after it receives that
-selection and nothing else from the panel.
+selection with the Fusion's input (E4b ans:Q7), and nothing else from the panel.
 STORY: as a researcher, I see the judge's raw scores on ``op_judge_1``, the parsed scores of all
 four members and the kept ids on ``op_synthesis_1``, and the writer gets exactly the selection JSON.
-INVARIANT defended (RK-D3): the next stage's context is the selection JSON only -- never a member
-text that was cut, and never a ``$model_N`` reference. The judge's ``binding`` param never reaches
-the gateway.
+INVARIANT defended (RK-D3): the next stage's context is the selection JSON only (the input and the
+kept texts) -- never a member text that was cut, and never a ``$model_N`` reference. The judge's
+``binding`` param never reaches the gateway.
 """
 
 from __future__ import annotations
@@ -164,8 +164,9 @@ def _assert_rank_evidence(synthesis: Any, selection: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_rank_keeps_judge_output_and_next_stage_sees_selection_only() -> None:
-    """RK-9 and RK-4 (engine half): the writer's user message is the selection JSON, exactly."""
+async def test_rank_world_writer_sees_the_input_and_the_selection() -> None:
+    """RK-9, RK-4 and SI-1 (engine half): the writer's user message is the Case input and the
+    selection JSON, exactly (E4b ans:Q7)."""
     seen: list[dict[str, Any]] = []
     expression = _pipeline(rank_spec(4, 2), judged=True)
 
@@ -173,10 +174,11 @@ async def test_rank_keeps_judge_output_and_next_stage_sees_selection_only() -> N
 
     selection = canonical_json(
         {
+            "input": "what is it?",
             "selected": [
                 {"id": "member_4", "text": _answer("provider/delta")},
                 {"id": "member_2", "text": _answer("provider/beta")},
-            ]
+            ],
         }
     )
     writer = _writer_call(seen)

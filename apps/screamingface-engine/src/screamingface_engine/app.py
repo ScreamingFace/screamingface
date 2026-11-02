@@ -72,6 +72,7 @@ from screamingface_engine.schemas import customize_openapi
 from screamingface_engine.tracing.loader import load_span_sink
 from screamingface_engine.tracing.relay import SpanSink
 from screamingface_engine.unclaimed import QueuedRuns, UnclaimedRunWarner
+from screamingface_engine.world.config import WorldConfigError, WorldFile, read_world_file
 from screamingface_engine.world.serving import derive_mount_table, engine_route_paths
 from screamingface_engine.ws import ConnectionRegistry
 from screamingface_engine.ws import router as ws_router
@@ -688,6 +689,20 @@ def build_stream_consumer(settings: Settings) -> JetStreamConsumer:
     return JetStreamConsumer(settings.nats_url, events=events_stream_config(settings))
 
 
+def _read_world_once() -> WorldFile | None:  # pragma: no cover - env wiring (INFRA rule)
+    """The App's one read of its world file, or None when it cannot be read.
+
+    INVARIANT (OME-1770 review): the catalog, the private set, the mounts, the `/healthz` digest
+    and the digest stamped on every run all come from this ONE read. A failed read leaves each
+    consumer to its own fallback: the catalog degrades and the mount derivation fails startup
+    (C7), exactly as before.
+    """
+    try:
+        return read_world_file(os.environ)
+    except WorldConfigError:
+        return None
+
+
 def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INFRA rule, spec §11)
     """Production entrypoint (used by `cli.py` via uvicorn's factory mode).
 
@@ -698,12 +713,16 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     settings = Settings()
     _require_prod_secret(settings)
     stream = build_stream_consumer(settings)
+    world_file = _read_world_once()
     # Catalog first (OME-880): the job runner needs the admitted-model overlay so a
     # dynamically admitted model is routable by the very next scheduled run.
-    catalog = build_executable_catalog_service(settings, os.environ)
+    catalog = build_executable_catalog_service(
+        settings, os.environ, world=None if world_file is None else world_file.config
+    )
     job_runner = build_job_runner(
         settings,
         extra_models=None if catalog is None else (lambda: catalog.admitted_model_ids),
+        world_digest=None if world_file is None else world_file.digest,
     )
     if job_runner is None:
         logging.warning(
@@ -747,6 +766,8 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     # into /openapi.json, and every call runs as a DIRECT run on the worker pool.
     install_mounts(
         app,
-        lambda: derive_mount_table(env=os.environ, engine_routes=engine_route_paths(app)),
+        lambda: derive_mount_table(
+            env=os.environ, engine_routes=engine_route_paths(app), world=world_file
+        ),
     )
     return app

@@ -15,7 +15,7 @@ def list() -> Sequence[ModelInfo]:
 
 
 def get(model_id: str) -> ModelDetails:
-    """Get profile-specific parameters and capabilities for one Model."""
+    """Get Connection-specific parameters and capabilities for one Model."""
 
     return default_client().models.get(model_id)
 

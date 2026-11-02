@@ -36,8 +36,9 @@ The owner chose (2026-10-21) to read only the usage fields from a larger body, n
 
 ## Outcome
 
-- **Commits:** `dd33d434b` fix(aigateway): keep exact usage evidence for large successful bodies;
-  `3ba5359be` docs(aigateway): document the usage-only read for large successful bodies.
+- **Commits:** squash-merged as `476c0cc03` (#1520) from `dd33d434b` fix(aigateway): keep exact
+  usage evidence for large successful bodies, `3ba5359be` docs(aigateway): document the usage-only
+  read for large successful bodies, and `ae84ad4ee` (the `docs/tasks` mirror and this ledger).
 - **Gates:** ruff check, ruff format --check, pyright (0 errors), check_no_enterprise, pytest with
   coverage → 6014 passed, 0 failed, 105 skipped.
 - **RED proof:** the end-to-end test fails on `origin/main` with `status: "unavailable"` and passes

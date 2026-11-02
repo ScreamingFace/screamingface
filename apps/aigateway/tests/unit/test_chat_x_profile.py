@@ -12,15 +12,14 @@ import pytest
 from litellm.exceptions import RateLimitError, ServiceUnavailableError
 
 from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
-from aigateway.core.credential_names import credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.codex_provider.auth import (
     credential_service_for as codex_credential_service_for,
 )
 from tests.unit.migrated_pair_seed import seed_migrated_pair
+from tests.unit.seed_state import SeedState
 
 _UNSUPPORTED_DETAIL = {
     "code": "x_profile_unsupported",
@@ -331,17 +330,7 @@ def test_chat_uses_oauth_connection_for_anonymous_local_mode(credential_blobs, c
 @pytest.mark.asyncio
 async def test_chat_409_when_profile_pending(credential_blobs, authenticated_client) -> None:
     account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.PENDING,
-        )
-    )
-    seed_migrated_pair(authenticated_client, account_id, "anthropic", state=ProfileState.PENDING)
+    seed_migrated_pair(authenticated_client, account_id, "anthropic", state=SeedState.PENDING)
     resp = authenticated_client.post(
         "/v1/chat/completions",
         json={
@@ -359,17 +348,6 @@ async def test_chat_removes_anthropic_reasoning_none(
 ) -> None:
     account_id = _account_id(authenticated_client)
     _seed_authenticated_profile(credential_blobs, account_id)
-
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
     seed_migrated_pair(authenticated_client, account_id, "anthropic")
     captured: dict = {}
 
@@ -407,16 +385,6 @@ async def test_chat_rejects_other_accounts_profile_selector_before_lookup(
 ) -> None:
     admin_account_id = _account_id(authenticated_client)
     _seed_authenticated_profile(credential_blobs, admin_account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(admin_account_id, "anthropic", "shared"),
-            account_id=admin_account_id,
-            provider="anthropic",
-            name="shared",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
 
     provisioned_user_factory("bob", "bob-pass1")
     login = authenticated_client.post(
@@ -452,16 +420,6 @@ async def test_chat_rejects_codex_stream_before_litellm(
 ) -> None:
     account_id = _account_id(authenticated_client)
     _seed_authenticated_codex_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "codex", "default"),
-            account_id=account_id,
-            provider="codex",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
     seed_migrated_pair(authenticated_client, account_id, "codex")
     fake_stream = AsyncMock()
 
@@ -489,16 +447,6 @@ async def test_chat_streams_through_provider_plugin_boundary(
 ) -> None:
     account_id = _account_id(authenticated_client)
     _seed_authenticated_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
     seed_migrated_pair(authenticated_client, account_id, "anthropic")
     captured: dict = {}
 
@@ -534,16 +482,6 @@ async def test_chat_overwrites_client_api_key_for_codex_oauth(
 ) -> None:
     account_id = _account_id(authenticated_client)
     _seed_authenticated_codex_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "codex", "default"),
-            account_id=account_id,
-            provider="codex",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
     seed_migrated_pair(authenticated_client, account_id, "codex")
     captured: dict = {}
 
@@ -581,16 +519,6 @@ async def test_chat_maps_codex_reasoning_effort_to_reasoning(
 ) -> None:
     account_id = _account_id(authenticated_client)
     _seed_authenticated_codex_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "codex", "default"),
-            account_id=account_id,
-            provider="codex",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
     seed_migrated_pair(authenticated_client, account_id, "codex")
     captured: dict = {}
 
@@ -627,16 +555,6 @@ async def test_chat_maps_codex_reasoning_effort_to_reasoning(
 async def test_chat_maps_litellm_rate_limit_to_429(credential_blobs, authenticated_client) -> None:
     account_id = _account_id(authenticated_client)
     _seed_authenticated_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
     seed_migrated_pair(authenticated_client, account_id, "anthropic")
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx.Response(429, headers={"retry-after": "7"}, request=request)
@@ -675,16 +593,6 @@ async def test_chat_maps_litellm_rate_limit_to_429(credential_blobs, authenticat
 
 async def _seed_anthropic_profile(client, credential_blobs, account_id: str) -> None:
     _seed_authenticated_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
     seed_migrated_pair(client, account_id, "anthropic")
 
 
@@ -829,17 +737,6 @@ async def _seed_api_key_profile(
         "default",
         json.dumps({"auth_type": "api_key", "api_key": api_key}),
     )
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, provider, "default"),
-            account_id=account_id,
-            provider=provider,
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
-    )
     seed_migrated_pair(client, account_id, provider, auth_type="api_key")
 
 
@@ -972,17 +869,6 @@ async def test_chat_api_key_auth_type_without_strategy_returns_400(
     """A target claiming api_key for a provider without API-key support must
     fail clean, never dispatch unauthenticated (audit F15)."""
     account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "codex", "default"),
-            account_id=account_id,
-            provider="codex",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
-    )
     seed_migrated_pair(authenticated_client, account_id, "codex", auth_type="api_key")
     dispatched = AsyncMock()
 

@@ -18,7 +18,10 @@ Stages, in execution order (``main``):
               by this module's readers), seals the declaration, and replays it once more as
               every build will.
     Stage 2 — the card: the one Hugging Face Case Source's dataset card gives a cleared
-              licence, else ``TODO`` for the owner (D13). Network, import side only.
+              licence, else ``TODO`` for the owner (D13). Network, import side only. A
+              dataset that looks like a bundle of other datasets (many configs, a card
+              listing several source datasets, or a per-row source column) is ``TODO`` with
+              a warning, even when the card's licence is cleared (OME-1757).
     Stage 3 — write: the declaration and the BenchmarkSpec row are inserted at their
               files' anchor comments (task_replay_rows.py), using this module's renderers.
 
@@ -1074,6 +1077,23 @@ def _is_judged_by(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
     return any(name in _JUDGE_MODEL_KWARG_NAMES for name in scorer_kwargs)
 
 
+def _grades_with_a_judge(
+    scorer: str, scorer_kwargs: Mapping[str, Any], judge_role: str | None
+) -> bool:
+    """Whether the imported row is written judged: its scorer takes a judge by name or kwarg,
+    asks for a model role, or leaves a judge parameter at its default (OME-1602, F2).
+
+    The one home for the rule: the row writer emits the TODO judge on it, and the import
+    child keeps each Case's Sample input for that judge on it (OME-1755).
+    """
+
+    return (
+        _is_judged_by(scorer, scorer_kwargs)
+        or judge_role is not None
+        or _leaves_a_judge_parameter_unpassed(scorer, scorer_kwargs)
+    )
+
+
 def _leaves_a_judge_parameter_unpassed(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
     """True when the scorer constructor takes a judge parameter the row's kwargs leave at its
     default (niah's ``judge_model``), so the scorer grades with a judge nobody pinned.
@@ -1359,6 +1379,7 @@ def _import_by_task_replay_cli(
         import_by_task_replay as replay_both_times,
     )
     from screamingface_engine_inspect.task_replay_rows import (
+        AGGREGATE_DATASET_WARNING,
         CardLicense,
         card_license_of,
         write_task_replay_rows,
@@ -1409,6 +1430,7 @@ def _import_by_task_replay_cli(
         provenance=read_provenance_facts(args.task_ref, fetch=arxiv_fetch),
         whole_run_headline=args.whole_run_headline,
         retrieval_policy=retrieval_policy,
+        aggregate_signal=card.aggregate_signal,
     )
     sources: str = "\n".join(f"  {source.as_comment()}" for source in imported.case_sources)
     print(
@@ -1421,6 +1443,11 @@ def _import_by_task_replay_cli(
         "a human decides the license and reviews the diff before merge.",
         file=sys.stderr,
     )
+    if card.aggregate_signal is not None:
+        # WHY not a refusal: the shape only hints at a bundle (OME-1757). The import still
+        # succeeds; its licence is TODO, which the licence gate refuses until a human who
+        # checked each source writes the line.
+        print(f"WARNING: {AGGREGATE_DATASET_WARNING} ({card.aggregate_signal}).", file=sys.stderr)
 
 
 def _with_nltk_data(imported: TaskReplayImport, resources: list[str]) -> TaskReplayImport:

@@ -170,7 +170,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
             The id of the pinned cache that the run opened. <code>None</code> when the run was not
-            captured (for example, <code>capture=False</code>) or the copy did not open.
+            captured (capture is off by default) or the copy did not open.
           </td>
         </tr>
         <tr>

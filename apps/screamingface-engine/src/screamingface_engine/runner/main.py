@@ -503,6 +503,7 @@ def build_executor(
             run_shape=job_env.run_shape_from_env(env),
         ),
         observers=observers,
+        media_writer=artifact_store,
     )
 
 

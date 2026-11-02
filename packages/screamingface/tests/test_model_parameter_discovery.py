@@ -56,7 +56,7 @@ def test_models_get_returns_profile_specific_details_from_the_canonical_route() 
     assert details.provider == "openrouter"
     assert details.upstream_id == "openai/gpt-5.5"
     assert details.contract_id == "pc_fixture"
-    assert details.scope == "account_profile"
+    assert details.scope == "account_connection"
     assert details.auth_mode == "api_key"
     assert details.context_revision == "ctx_fixture"
     assert details.source_revision == "openrouter-models-v1"
@@ -372,7 +372,7 @@ def test_model_details_repr_summarises_identity_and_contract_sizes() -> None:
     # mappings; the summary identifies the profile and reports contract sizes as counts.
     assert repr(details) == (
         "ModelDetails('openrouter/openai/gpt-5.5', provider='openrouter', "
-        "scope='account_profile', parameters=3, tools=1, transport=1)"
+        "scope='account_connection', parameters=3, tools=1, transport=1)"
     )
 
 
@@ -410,5 +410,5 @@ def test_model_details_repr_surfaces_a_set_freshness_flag(
     # INVARIANT: stale/degraded are mutually exclusive, so at most one flag ever appears.
     assert repr(details) == (
         "ModelDetails('openrouter/openai/gpt-5.5', provider='openrouter', "
-        f"scope='account_profile', parameters=3, tools=1, transport=1, {flag})"
+        f"scope='account_connection', parameters=3, tools=1, transport=1, {flag})"
     )

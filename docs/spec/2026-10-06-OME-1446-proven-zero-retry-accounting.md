@@ -159,3 +159,8 @@ checks, the need for router metadata and an explicit pipeline, the `attempts` st
 checks. A 429 is a rejection with no output, which Zero Completion Insurance covers, and a fallback
 chain that ends in 429 has no successful attempt to bill. BYOK is part of how our account is set
 up; if we turn it on for a provider, this rule must change.
+
+Review fix 2026-10-27 (after OME-1746): rule 6 reads the stage `type` as text wherever it is (a
+string, or text inside a list or object), and the proof gives a result for any value (a value
+such as `"sNaN"` is not a zero). Rules 2, 3, 5 and 6 are shared with the pre-output refusal
+proof (`openrouter_provider/billing_facts.py`).

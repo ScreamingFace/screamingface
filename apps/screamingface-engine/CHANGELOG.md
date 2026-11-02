@@ -3,6 +3,7 @@
 ## Unreleased
 
 * Every Benchmark now publishes a hand-set revision (`published_revision`), so a code change can no longer move the id its leaderboard results key on; each Benchmark's computed fingerprint is pinned in a test as the alarm, and `just engine benchmark-bump <key>` prints the WARNING and the lines to edit before a deliberate move (OME-1610). No published revision changes.
+* The judge on a judged imported Benchmark now reads the question inspect's own judge reads, not the eval's system message joined to it: Case Preparation keeps the Sample's input in the Grading Material where the two differ, and the grader hands it to the judge (OME-1755). Only `xstest_safe`, `xstest_unsafe` and `uccb` change (every Case): their Grading Material and Case Digest move, while their published revisions stay where they are, on the owner's call (no leaderboard scores exist on them yet). What the Candidate sees does not change.
 * Attribute collected IFEval model-call failures using the existing collected error kind from the candidate execution boundary, including Gateway-rewritten diagnostic codes. Unmarked errors and protected checker failures retain grading attribution.
 
 ## [1.5.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v1.4.0...screamingface-engine-v1.5.0) (2026-08-27)

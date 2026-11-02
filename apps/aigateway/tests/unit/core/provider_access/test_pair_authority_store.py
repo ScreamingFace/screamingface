@@ -1,15 +1,15 @@
 """The pair authority marker's store (OME-1208, Stage B S1; card v4 "Stage B Target").
 
-# FEATURE: OME-1138 Stage B — one persistent row per `(account, provider)` says which backing owns
-# the pair (`none` = legacy Profile, `migrated` = Connection, `quarantined` = legacy Profile plus a
-# report) and which Connection is effective.
+# FEATURE: OME-1138 Stage B — one persistent row per `(account, provider)` says how the pair is
+# owned (`none` or absent = by its Connections, `migrated` = by the effective Connection it names)
+# and which Connection is effective. The `quarantined` state retired in the OME-1138 close-out, L4a.
 # INVARIANT: an absent row reads as `none` with generation 0; every authority-changing write
 # advances the monotonic generation through a compare-and-set, so a stale writer — an old callback,
-# a retried backfill — is fenced at commit time and changes nothing; an effective Connection is
+# a retried request — is fenced at commit time and changes nothing; an effective Connection is
 # meaningful only for a `migrated` pair; the row carries no defaults and no secret.
-# AIDEV-NOTE: the store is deliberately policy-free. WHICH transition a pair may take (classify,
-# quarantine, roll back) is decided by the migration tool (S4) and the authority routing (S2');
-# this file pins the fence and the shape those callers rely on.
+# WHY the store is policy-free: WHICH transition a pair may take is decided by its callers (the
+# writer floor, the D18 mutations, the authority routing); this file pins the fence and the shape
+# those callers rely on.
 """
 
 from __future__ import annotations
@@ -67,7 +67,6 @@ def _legacy(account: Account, provider: str = PROVIDER) -> PairAuthority:
         migration_state="none",
         effective_connection_id=None,
         generation=0,
-        migration_note=None,
     )
 
 
@@ -103,7 +102,6 @@ async def test_the_first_advance_creates_the_row_at_generation_one(
         migration_state="migrated",
         effective_connection_id=connection.id,
         generation=1,
-        migration_note=None,
     )
     assert await store.read(str(alice.id), PROVIDER) == published
     assert await ProviderCredentialSlot.all().count() == 1
@@ -124,15 +122,9 @@ async def test_a_stale_generation_is_fenced_and_changes_nothing(
         effective_connection_id=connection.id,
     )
 
-    # A retried backfill that still believes the pair is unmarked.
+    # A stale writer that still believes the pair is unmarked.
     with pytest.raises(PairAuthorityConflict):
-        await store.advance(
-            str(alice.id),
-            PROVIDER,
-            expected_generation=0,
-            migration_state="quarantined",
-            migration_note="stale writer",
-        )
+        await store.advance(str(alice.id), PROVIDER, expected_generation=0, migration_state="none")
     # A writer that never observed the row's real generation.
     with pytest.raises(PairAuthorityConflict):
         await store.advance(str(alice.id), PROVIDER, expected_generation=7, migration_state="none")
@@ -159,37 +151,17 @@ async def test_a_stale_generation_is_fenced_and_changes_nothing(
 
 
 @pytest.mark.asyncio
-async def test_quarantine_keeps_legacy_authority_and_carries_the_report(
-    accounts: tuple[Account, Account],
-) -> None:
-    alice, _ = accounts
-    store = PairAuthorityStore()
-
-    quarantined = await store.advance(
-        str(alice.id),
-        PROVIDER,
-        expected_generation=0,
-        migration_state="quarantined",
-        migration_note="profile and connection hold different credentials",
-    )
-
-    assert quarantined.migration_state == "quarantined"
-    assert quarantined.effective_connection_id is None
-    assert quarantined.migration_note == "profile and connection hold different credentials"
-    assert await store.read(str(alice.id), PROVIDER) == quarantined
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("migration_state", "with_connection"),
-    [("none", True), ("quarantined", True), ("bogus", False)],
-    ids=["none-with-effective", "quarantined-with-effective", "unknown-state"],
+    [("none", True), ("quarantined", False), ("bogus", False)],
+    ids=["none-with-effective", "retired-state", "unknown-state"],
 )
 async def test_an_invalid_marker_is_refused_before_anything_is_written(
     accounts: tuple[Account, Account], migration_state: str, with_connection: bool
 ) -> None:
-    # INVARIANT: only a `migrated` pair names an effective Connection — for `none` and
-    # `quarantined` the legacy Profile owns the pair and a reference would be a second owner.
+    # INVARIANT: only a `migrated` pair names an effective Connection — a `none` pair is owned by
+    # its Connections and a reference would be a second owner; the retired `quarantined` state is
+    # unknown (OME-1138 close-out, L4a).
     alice, _ = accounts
     connection = await _active_connection(alice)
     store = PairAuthorityStore()
@@ -292,12 +264,8 @@ async def test_deleting_the_account_cascades_its_markers_only(
 ) -> None:
     alice, bob = accounts
     store = PairAuthorityStore()
-    await store.advance(
-        str(alice.id), PROVIDER, expected_generation=0, migration_state="quarantined"
-    )
-    kept = await store.advance(
-        str(bob.id), PROVIDER, expected_generation=0, migration_state="quarantined"
-    )
+    await store.advance(str(alice.id), PROVIDER, expected_generation=0, migration_state="none")
+    kept = await store.advance(str(bob.id), PROVIDER, expected_generation=0, migration_state="none")
 
     await Account.filter(id=alice.id).delete()
 
@@ -320,4 +288,4 @@ def test_the_marker_carries_no_defaults_and_no_secret() -> None:
         "effective_connection_id",
     }
     assert ProviderCredentialSlot._meta.db_table == "provider_credential_slots"
-    assert MIGRATION_STATES == frozenset({"none", "migrated", "quarantined"})
+    assert MIGRATION_STATES == frozenset({"none", "migrated"})

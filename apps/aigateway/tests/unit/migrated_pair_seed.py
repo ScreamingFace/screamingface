@@ -1,10 +1,10 @@
-"""Seed a migrated pair whose effective Connection sits at a Profile blob address (OME-1209 E4a).
+"""Seed a migrated pair whose effective Connection sits at a credential's name address (E4a).
 
 # FEATURE: Stage E plan §3 E4a — resolve reads no Profile document, so a test that wants "a stored
 # credential named `name` in `state`" seeds a Connection-backed authority instead: an effective
-# Connection whose locator IS the Profile blob's address, in the status the document's state maps
-# to, and a `migrated` marker naming it. Credential names, cache keys and blobs stay exactly what
-# the Profile-era test already used.
+# Connection whose locator IS the `name` address, in the status `state` maps to, and a `migrated`
+# marker naming it. Credential names, cache keys and blobs stay exactly what the Profile-era test
+# already used; since E5c (OME-1138) the state is the test-local `SeedState`.
 # WHY not "what the backfill writes" for every state: the backfill migrates only an authenticated
 # Profile-only pair this way; a pending or errored seed is an effective Connection that later
 # went pending or errored, a state the runtime reaches on its own.
@@ -26,8 +26,8 @@ from aigateway.core.auth_types import AuthType
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.core.plugin_base import credential_service_provider_for
-from aigateway.core.profile_models import ProfileState
 from aigateway.core.provider_access import PairAuthorityStore
+from tests.unit.seed_state import SeedState
 
 
 def seed_migrated_pair(
@@ -36,11 +36,11 @@ def seed_migrated_pair(
     provider: str,
     *,
     name: str = "default",
-    state: ProfileState = ProfileState.AUTHENTICATED,
+    state: SeedState = SeedState.AUTHENTICATED,
     auth_type: AuthType = "oauth",
     credential: str | None = None,
 ) -> UUID:
-    """The pair's effective Connection at the `name` Profile address; returns its id.
+    """The pair's effective Connection at the `name` address; returns its id.
 
     `credential`, when given, is written to that address (an OAuth access token or an API key).
     """
@@ -68,7 +68,7 @@ async def _seed(
     provider: str,
     *,
     name: str,
-    state: ProfileState,
+    state: SeedState,
     auth_type: AuthType,
     credential: str | None,
 ) -> UUID:
@@ -108,15 +108,15 @@ async def _seed(
 
 
 async def _move(
-    store: OAuthConnectionStore, connection: OAuthConnection, state: ProfileState, *, label: str
+    store: OAuthConnectionStore, connection: OAuthConnection, state: SeedState, *, label: str
 ) -> OAuthConnection:
-    if state is ProfileState.PENDING:
+    if state is SeedState.PENDING:
         if connection.status != "pending":
             await OAuthConnection.filter(id=connection.id).update(status="pending")
         return await store.get(connection.account_id, connection.id) or connection
     if connection.status != "active":
         connection = await store.complete(connection, label=label, identity=None)
-    if state is ProfileState.ERROR:
+    if state is SeedState.ERROR:
         # WHY via active: `mark_error` transitions only a usable row, as the read path does.
         connection = await store.mark_error(connection, "seeded error") or connection
     return connection

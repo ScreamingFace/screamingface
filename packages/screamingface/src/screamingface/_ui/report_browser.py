@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from screamingface._results.accounting import saved_accounting_context
 from screamingface._ui.case_navigation import CaseEntries, CaseNavigation
+from screamingface._ui.media_panel import MEDIA_STYLE, MediaPanel
 from screamingface._ui.notebook_host import (
     case_click_handler,
     download_in_colab,
@@ -94,6 +95,7 @@ class ReportBrowser:
         self.directory = Path("screamingface-reports") / uuid4().hex
         self.snapshot = self.directory / "report.json"
         self.notice = widgets.HTML()
+        self.media = MediaPanel(widgets, folder=self.directory, redraw=self._redraw_page)
         self._controls()
         self._assemble()
         self._render_page()
@@ -142,7 +144,7 @@ class ReportBrowser:
 
         self.widget = w.VBox(
             [
-                w.HTML(value=_BROWSER_STYLE + report_overview_html(self.report)),
+                w.HTML(value=_BROWSER_STYLE + MEDIA_STYLE + report_overview_html(self.report)),
                 *self._candidate_cards(),
                 w.HTML(value=_failures_html(self.report)),
                 self.case_box,
@@ -203,7 +205,7 @@ class ReportBrowser:
         )
         self.case_header.add_class("sf-cases-header")
         self.cases.add_class("sf-cases-body")
-        self.case_box = w.VBox([self.case_header, self.notice, self.cases])
+        self.case_box = w.VBox([self.case_header, self.notice, self.media.notice, self.cases])
         self.case_box.add_class("sf-cases-box")
 
     def _snapshot_link(self) -> str:
@@ -227,6 +229,7 @@ class ReportBrowser:
 
     def _select_case(self, event: dict) -> None:
         target = event.get("target", {}).get("id", "")
+        self.media.on_click(event)  # FEATURE (OME-1271): a picture's button; not a Case's id
         prefix = f"sf-case-{_group_key(self.report)}-"
         if self._paging or not isinstance(target, str) or not target.startswith(prefix):
             return
@@ -353,7 +356,11 @@ class ReportBrowser:
             selected=selected,
             navigation_mode="all" if self.navigation.selected == -1 else "candidate",
             click_handler=self._case_click,
+            media=self.media.page(self._case_click),
         )
+
+    def _redraw_page(self) -> None:
+        self.cases.value = self._page_html(self.page)
 
     def _page_controls(self) -> None:
         self._rendered_selection = self.navigation.selected
