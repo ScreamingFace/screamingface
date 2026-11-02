@@ -189,10 +189,10 @@ const modelsRow = `GET /v1/models
       </li>
       <li>Proxy environment variables are ignored.</li>
       <li>
-        <em>Lands with <a :href="`${GH_PR}/1605`" target="_blank" rel="noopener">#1605</a>:</em> a
+        <em>On main (<a :href="`${GH_PR}/1605`" target="_blank" rel="noopener">#1605</a>):</em> a
         URL with embedded credentials (userinfo, as in <code>https://user:pass@host/…</code>) is
-        refused before any connection. <em>On main today</em> such a URL is allowed, and its
-        credentials are sent to that host as HTTP Basic authentication.
+        refused before any DNS lookup or connection, and so is a redirect hop whose
+        <code>Location</code> carries them. The credentials are never sent.
       </li>
     </ul>
 

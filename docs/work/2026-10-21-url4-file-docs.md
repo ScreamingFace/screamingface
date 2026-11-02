@@ -108,8 +108,10 @@ Branch rebased onto `origin/main` (merge commits flattened, no content commits d
   "Specified" became "proposed"; every `x.*` row says "code proposed". Versions verified 2026-10-29:
   PyPI `url4` latest 1.4.1 (`pip index versions url4`, PyPI JSON); GitHub releases `url4-v1.5.0`,
   `url4-v1.5.1` (2026-08-27) have 0 assets and are not on PyPI; `packages/url4` version 1.5.1.
-- **Credentialed URLs:** guard list gains the userinfo refusal, marked "Lands with (PR pending)",
-  and states main allows it (owner decision 2026-10-28, separate PR).
+- **Credentialed URLs:** guard list gains the userinfo refusal (owner decision 2026-10-28, separate
+  PR). #1605 merged 2026-10-29 (squash a7e5d8577), so the item now reads "On main (#1605)": refused
+  before DNS/connection, redirect hops included; the old "main allows it, sent as Basic auth"
+  sentence is removed (PR #1586 review, 2026-11-02).
 - **Mobile tables:** both tables in a focusable `role="region"` scroll container; long source paths
   wrap. Measured at 390 px (Playwright, `vite preview`): document scrollWidth 380, regions 332 px
   wide scrolling 420 / 517 px tables, no other prose element past the viewport.
