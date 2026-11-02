@@ -150,12 +150,14 @@ def _check_publication(endpoints: str, *, print_checksum: bool = False) -> None:
     from screamingface_engine.world.publication import (
         PublicationReviewError,
         declared_targets,
+        gateway_classifier_ids,
         gateway_target_ids,
         review_endpoint_routes,
     )
 
     try:
-        targets = gateway_target_ids(Path(endpoints).read_text(encoding="utf-8"))
+        document = Path(endpoints).read_text(encoding="utf-8")
+        targets, classifiers = gateway_target_ids(document), gateway_classifier_ids(document)
         # One read: the checksum printed below is of the very bytes this review parsed.
         world_file = read_world_file(os.environ)
     except UnicodeDecodeError:
@@ -166,7 +168,7 @@ def _check_publication(endpoints: str, *, print_checksum: bool = False) -> None:
         sys.exit(2)
     world = world_file.config
     report = sys.stderr if print_checksum else sys.stdout
-    problems = review_endpoint_routes(world, targets)
+    problems = review_endpoint_routes(world, targets, classifiers=classifiers)
     for problem in problems:
         print(problem, file=report)
     print(
