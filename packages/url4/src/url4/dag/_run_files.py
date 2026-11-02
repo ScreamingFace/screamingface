@@ -20,7 +20,7 @@ from url4.dag.attachment_sources import AttachmentIdentity, not_static  # isort:
 from url4.dag._caps import CapBudget  # isort: skip
 from url4.dag._materialize import Admission, Outcomes, Prefetched, check_caps, check_static  # isort: skip
 from url4.dag._materialize import materialize  # isort: skip
-from url4.dag.source_scan import reachable_order  # isort: skip
+from url4.dag.source_scan import reachable_order, refuse_malformed  # isort: skip
 from url4.dag.attachments import (  # isort: skip
     CachedBlob,
     FileRef,
@@ -60,7 +60,8 @@ async def _run_start(
     INVARIANT (owner decision E, 2026-10-27): ONE :class:`CapBudget` sees every adding path in
     order — Case attachments, then blob refs (counted before their I/O, bytes as verified),
     then attachment-source flights — so a breach stops the remaining I/O; :func:`check_caps`
-    re-checks the final list. Order of refusals: ``x.remote_blob_unsupported``, then
+    re-checks the final list. Order of refusals: ``malformed_source`` (an unparseable
+    call-context segment beside an attachment opt-in), ``x.remote_blob_unsupported``, then
     ``x.source_not_static`` (a non-literal attachment target, or one under a model-derived
     collection; both before any I/O), then the caps and fetch failures.
     A nested ``run()`` resolves nothing: it inherits the outer list and cache verbatim.
@@ -72,6 +73,8 @@ async def _run_start(
     ast = _ast_of(target)
     scan = scan_sources(ast) if ast is not None else None
     refs = () if scan is None else scan.refs
+    if scan is not None:
+        refuse_malformed(scan)  # owner 2026-11-02: before any I/O, ahead of every refusal
     refuse_remote(refs)
     if scan is not None and scan.non_literal:  # owner decision C: before any I/O
         raise not_static(repr(scan.non_literal[0]))

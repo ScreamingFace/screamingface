@@ -108,6 +108,7 @@ class SourceScan:
     order: tuple[str | OccurrenceSlot, ...]
     occurrences: tuple[Occurrence, ...] = ()
     non_literal: tuple[str, ...] = ()  # owner decision C: refused, x.source_not_static
+    malformed: tuple[str, ...] = ()  # owner 2026-11-02: refused, malformed_source
 
 
 @dataclass
@@ -116,6 +117,7 @@ class _Found:
     order: dict[str | OccurrenceSlot, None] = field(default_factory=dict)  # an ordered set
     occurrences: list[Occurrence] = field(default_factory=list)
     non_literal: list[str] = field(default_factory=list)
+    malformed: list[str] = field(default_factory=list)
 
 
 _Guards = tuple[CollectionGuard, ...]
@@ -128,7 +130,9 @@ def scan_sources(ast: Node) -> SourceScan:
     refs = tuple(found.refs.values())
     attached = {ref.key for ref in refs if not ref.collection}
     order = tuple(key for key in found.order if isinstance(key, OccurrenceSlot) or key in attached)
-    return SourceScan(refs, order, tuple(found.occurrences), tuple(found.non_literal))
+    return SourceScan(
+        refs, order, tuple(found.occurrences), tuple(found.non_literal), tuple(found.malformed)
+    )
 
 
 def _walk(
@@ -220,7 +224,10 @@ def _walk_rel_expr(node: RelExpr, bound: Mapping[str, Node], out: _Found, guards
     # an "@" inside a URL or quoted text is not a holdings ref and must not turn the
     # context's opted-in attachment sources into text.
     if node.context is not None and not holds_holdings_ref(node.context):
-        _walk_source_list(node.context, bound, out, guards)
+        asked = len(out.occurrences) + len(out.non_literal)
+        skipped = _walk_source_list(node.context, bound, out, guards)
+        opted_in = len(out.occurrences) + len(out.non_literal) > asked
+        out.malformed.extend(s for s in skipped if opted_in or _looks_like_descriptor(s))
     if node.intent is not None:
         _walk(node.intent, bound, False, out, guards)
 
@@ -270,15 +277,47 @@ def _walk_collection(items: Node, bound: Mapping[str, Node], out: _Found, guards
     _walk(items, bound, True, out, guards)
 
 
-def _walk_source_list(text: str, bound: Mapping[str, Node], out: _Found, guards: _Guards) -> None:
+def _looks_like_descriptor(segment: str) -> bool:
+    return "src=" in segment or ";accept=" in segment
+
+
+def refuse_malformed(scan: SourceScan) -> None:
+    """Owner decision 2026-11-02 ("raise only with an opt-in"): refuse before ANY I/O.
+
+    INVARIANT: a file the caller asked for is never silently dropped. An unparseable segment
+    of a call context is recorded (:func:`_walk_rel_expr`) only when the same context carries
+    an attachment opt-in, or the segment itself looks like a descriptor (``src=`` /
+    ``;accept=``); prose alone stays prose. Permanent ``malformed_source`` — the code a bad
+    descriptor already raises (``attachment_sources.guard_policy``).
+    """
+    if scan.malformed:
+        raise ParseError(
+            f"call-context segment {scan.malformed[0]!r} does not parse beside an attachment "
+            "source (or looks like one); a requested file is never dropped silently",
+            code=ErrorCode.MALFORMED_SOURCE,
+            permanent=True,
+        )
+
+
+def _walk_source_list(
+    text: str, bound: Mapping[str, Node], out: _Found, guards: _Guards
+) -> list[str]:
+    """Walk each parsed segment; return the stripped segments that did not parse.
+
+    WHY returned, not refused here: only a call context may refuse them (an iteration body is
+    a template that may parse only after row substitution), and only on an opt-in.
+    """
+    skipped: list[str] = []
     for segment in split_top_level_commas(text):
         if not segment.strip():
             continue
         try:
             parsed = grammar_parse(segment.strip())
         except ParseError:
+            skipped.append(segment.strip())
             continue
         _walk(parsed, bound, False, out, guards)
+    return skipped
 
 
 def _bindings(sources: tuple[Node, ...]) -> dict[str, Node]:
@@ -334,6 +373,7 @@ __all__ = [
     "SourceScan",
     "collect_file_refs",
     "reachable_order",
+    "refuse_malformed",
     "refuse_remote",
     "scan_sources",
 ]
