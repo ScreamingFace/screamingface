@@ -16,8 +16,8 @@ bytes 1..9 and serves ``[{"id":1}]``.
 INVARIANT: every file is a pure function of the rows (no timestamps, no paths, fixed key order),
 so two prepares of the same pins give the same bytes and the Case Digest never moves.
 
-AIDEV-NOTE: the selection is always a prefix today (``protocol.py``: ``slice=(0, N)``), so
-:meth:`BoardStore.head` is the one read the Cases route needs. Id-keyed reads for aggregation
+AIDEV-NOTE: a selection is a prefix (:meth:`BoardStore.head`) or, since OME-1739, explicit
+Case ids (:meth:`BoardStore.rows`, one seek per selected row). Id-keyed reads for aggregation
 (OME-1789) and an input lookup for the check surface are left for those units.
 """
 
@@ -104,6 +104,19 @@ class BoardStore(Protocol):
         """
         ...
 
+    def rows(self, case_ids: Sequence[int]) -> str:
+        """The rows for ``case_ids`` (ascending, distinct) as a JSON array (OME-1739).
+
+        Worked example: ``rows((3, 17))`` reads only positions 3 and 17 and serves
+        ``[{"id":3,…},{"id":17,…}]``; ``rows((1, 2, 3))`` is byte-identical to ``head(3)``.
+
+        Raises:
+            ValueError: an id is outside ``1..case_count()``.
+            ResolutionError: ``benchmark_unavailable``; a read row's ``id`` is not its position,
+                or the index does not match its rows.
+        """
+        ...
+
 
 def _broken(detail: str) -> ResolutionError:
     return benchmark_unavailable(f"imported board cases are unavailable: {detail}")
@@ -112,6 +125,23 @@ def _broken(detail: str) -> ResolutionError:
 def _check_count(count: int, available: int) -> None:
     if not 1 <= count <= available:
         raise ValueError(f"selected {count} of {available} Cases")
+
+
+def _check_ids(case_ids: Sequence[int], available: int) -> None:
+    if not case_ids or case_ids[0] < 1 or case_ids[-1] > available:
+        raise ValueError(f"selected Cases {list(case_ids)} outside 1..{available}")
+
+
+def _positioned(row: object, case_id: int) -> None:
+    """INVARIANT (OME-1739): the row read from position ``case_id`` carries that id.
+
+    WHY: a selection names Cases by position, so a board whose rows are out of order would
+    serve one question under another's id and grade it against the wrong answer key.
+    """
+
+    if not isinstance(row, dict) or row.get("id") != case_id:
+        found: object = row.get("id") if isinstance(row, dict) else row
+        raise _broken(f"Case {case_id} is stored with id {found!r}")
 
 
 class IndexedBoard:
@@ -175,6 +205,29 @@ class IndexedBoard:
                 raise _broken(f"{OFFSETS_FILE} does not match {CASES_FILE}")
         return "[" + chunk.decode("utf-8") + "]"
 
+    def rows(self, case_ids: Sequence[int]) -> str:
+        _check_ids(case_ids, self._count)
+        if case_ids[-1] == len(case_ids):
+            return self.head(len(case_ids))  # 1..N: one contiguous read, as ``head``
+        served: list[str] = []
+        try:
+            with self._offsets.open("rb") as offsets, self._cases.open("rb") as cases:
+                for case_id in case_ids:
+                    offsets.seek((case_id - 1) * _ENTRY.size)
+                    offset, length = _ENTRY.unpack(offsets.read(_ENTRY.size))
+                    if offset < 1 or length < 2 or offset + length > self._size - 1:
+                        raise _broken(f"{OFFSETS_FILE} points outside {CASES_FILE}")
+                    cases.seek(offset)
+                    text: str = cases.read(length).decode("utf-8")
+                    try:
+                        _positioned(json.loads(text), case_id)
+                    except ValueError as exc:
+                        raise _broken(f"{OFFSETS_FILE} does not match {CASES_FILE}") from exc
+                    served.append(text)
+        except OSError as exc:
+            raise _broken(str(exc)) from exc
+        return "[" + ",".join(served) + "]"
+
     def _check_layout(self, entries: Sequence[tuple[int, int]], start: int, end: int) -> None:
         """The rows are contiguous, comma-separated, and inside the array brackets."""
 
@@ -208,6 +261,14 @@ class LegacyBoard:
         if any(not isinstance(row, dict) for row in rows[:count]):
             raise ValueError("case rows must be objects")
         return json.dumps(rows[:count], ensure_ascii=False, separators=_SEPARATORS)
+
+    def rows(self, case_ids: Sequence[int]) -> str:
+        rows: list[Any] = self._all()
+        _check_ids(case_ids, len(rows))
+        selected: list[Any] = [rows[case_id - 1] for case_id in case_ids]
+        for row, case_id in zip(selected, case_ids, strict=True):
+            _positioned(row, case_id)
+        return json.dumps(selected, ensure_ascii=False, separators=_SEPARATORS)
 
 
 def open_board(root: Path, read_legacy: Callable[[], str]) -> BoardStore:
