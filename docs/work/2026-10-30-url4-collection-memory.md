@@ -101,3 +101,27 @@ ordering, dedup and caching unchanged.
   main 0.14 s -> 0.45 s); dict-row bodies are on par (200k rows: 0.27 s -> 0.31 s).
 - **Gates:** `run_gates.py url4 --base origin/main` ALL GATES GREEN; `check_module_size.py`
   within baseline; `check_suppressions.py` 5/5.
+
+## Review round 2 (2026-11-02) — Dmitry (HupBaHa), PR #1622 blocking review
+
+- **Finding:** one public `Executor` executing a second, DIFFERENT root that shares a leaf
+  re-scheduled the leaf root 1 had released; `_resolve_counts` persists, so the debug
+  invariant raised `AssertionError` ("nodes resolved != once"). On base the leaf resolved once.
+- **Owner decision (Sergey, 2026-11-02): opt-in release; the default keeps cross-root caching.**
+- **Fix:** `Executor(ctx, *, release_finished=False)` — the default memo counts nothing and
+  caches every result for the executor's lifetime, exactly as on base. With
+  `release_finished=True` the executor is single-root: `RunMemo.bind` pins the first root and a
+  different one raises `ExecutorReuseError` (a `RuntimeError`, exported from
+  `url4.dag.executor`) before anything is scheduled; the same root is still answered from the
+  memo. `url4.dag.run` (one executor per call — the engine path `Url4Executor` -> `url4_run`)
+  turns release on, so #1622's saving holds there; spawned/guard executors are unchanged
+  (prevalidated, never released). The engine needed no change.
+- **Tests (new only):** `tests/unit/test_executor_release_opt_in.py` — Dmitry's two-root probe
+  on the default Executor (leaf resolves once, both results right); default keeps results;
+  releasing drops them; releasing re-answers its own root; a second root raises
+  `ExecutorReuseError` before any work (also on the prevalidated path); `run()` builds a
+  releasing Executor. Existing `test_executor_memo_release.py` / memory tests unchanged, green.
+- **Measured:** `bench_collection_memory.py --mb 20` memo stage: 0.0 MiB alive after the
+  consumer (saving kept via `run()`).
+- **Gates:** `run_gates.py url4 --base origin/main` ALL GATES GREEN; `check_module_size.py`
+  within baseline (`executor.py` 309/312, `_run.py` 262/271, `_context.py` untouched).

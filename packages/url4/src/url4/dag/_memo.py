@@ -18,6 +18,15 @@ one is spent no further call can come, so the entry (and the result it pins) is 
 #   executor still answers its root from the memo.
 # INVARIANT: only a SUCCESSFUL consumption spends a count; a failed or cancelled task stays
 #   memoised, so a failed run's state is what it always was.
+
+# WHY opt-in (PR #1622 review, owner decision 2026-11-02): a public ``Executor`` reused for a
+#   second, DIFFERENT root that shares a node relied on the memo answering it again; release
+#   would re-resolve it. So ``RunMemo(release=False)`` (the default) counts nothing and caches
+#   every result for the executor's lifetime, exactly as before. ``url4.dag.run`` builds one
+#   executor per call and turns release on — that is where the memory saving applies.
+# INVARIANT: a releasing memo is single-root. ``bind`` pins the first root; a different root
+#   raises :class:`ExecutorReuseError` before anything is scheduled, so a released node can
+#   never be asked for again. The same root again is answered from the memo (never released).
 """
 
 from __future__ import annotations
@@ -28,15 +37,35 @@ from collections.abc import Callable
 from url4.dag.node import DagNode, Payload
 
 
+class ExecutorReuseError(RuntimeError):
+    """A releasing :class:`~url4.dag.executor.Executor` was asked to execute a second root."""
+
+
 class RunMemo:
     """``id(node) -> (task, node)``; the node reference pins the id while the entry lives."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, release: bool = False) -> None:
         self._entries: dict[int, tuple[asyncio.Task, DagNode]] = {}
         self._pending: dict[int, int] = {}
+        self._release = release
+        self._root: DagNode | None = None
+
+    def bind(self, root: DagNode) -> None:
+        """Pin a releasing memo to its first root; refuse any other (see module INVARIANT)."""
+        if not self._release:
+            return
+        if self._root is None:
+            self._root = root
+        elif self._root is not root:
+            raise ExecutorReuseError(
+                "a release_finished Executor is single-root: it already executed another "
+                "root and may have released nodes this one shares — build a new Executor"
+            )
 
     def count(self, root: DagNode) -> None:
         """Count every node's consumer edges over ``deps`` (held subtrees run elsewhere)."""
+        if not self._release:
+            return  # nothing is ever spent, so every result stays cached
         # WHY ``deps``, not ``node_children``: a held subtree (a guard's) executes on its
         # own Executor with its own memo, so its nodes are never ``_run`` here.
         pending: dict[int, int] = {}

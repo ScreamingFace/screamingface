@@ -29,7 +29,7 @@ import asyncio
 
 from url4.core.context import Context
 from url4.core.errors import CycleError
-from url4.dag._memo import RunMemo
+from url4.dag._memo import ExecutorReuseError, RunMemo
 from url4.observe import (
     NodeFinished,
     NodeStarted,
@@ -76,10 +76,12 @@ def check_acyclic(root: DagNode) -> None:
 class Executor:
     """Executes one graph run against a per-run :class:`ExecutionContext`."""
 
-    def __init__(self, ctx: ExecutionContext) -> None:
+    def __init__(self, ctx: ExecutionContext, *, release_finished: bool = False) -> None:
         self._ctx = ctx
-        # id -> (task, node), each entry dropped once its counted consumers have it (_memo.py)
-        self._memo = RunMemo()
+        # id -> (task, node). Default: cached for the executor's life, across roots. With
+        # ``release_finished`` an entry drops once its counted consumers have it, and the
+        # executor is single-root (ExecutorReuseError otherwise) — WHY/INVARIANT: _memo.py.
+        self._memo = RunMemo(release=release_finished)
         self._tg: asyncio.TaskGroup | None = None
         # Debug-only guard for the resolve-once invariant documented in ``_run``:
         # id -> how many times that node's evaluation task ran. Not allocated, and
@@ -113,6 +115,7 @@ class Executor:
         # same memoized graph re-executed once per row / per lazy consumer skips
         # the redundant O(V+E) DFS N times — which would otherwise dwarf the
         # compile it took to get here for large collections.
+        self._memo.bind(root)  # before any work: a releasing executor refuses a second root
         if not _prevalidated:
             check_acyclic(root)
             # WHY only here: counting is another O(V+E) walk, exactly what `_prevalidated`
@@ -303,4 +306,4 @@ def _wire_spawn(ctx: ExecutionContext, registry: LoweringRegistry | None) -> Non
     ctx._execute_node_hook = execute_node_hook
 
 
-__all__ = ["Executor", "check_acyclic"]
+__all__ = ["Executor", "ExecutorReuseError", "check_acyclic"]
