@@ -1,6 +1,6 @@
 """Rolling optional telemetry; never a source of scores or execution decisions."""
 
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from dataclasses import dataclass, replace
 
 from screamingface._ui.activity_record import (
@@ -38,6 +38,14 @@ class ActivityLog:
         # WHY: indexes come from the finite Evaluation, never incoming event IDs.
         self.suppressed: dict[int, dict[str, int]] = {}
         self.bridge_loss: dict[int, int] = {}
+        self._changes: Counter[int] = Counter()
+
+    def revision(self, candidate: int) -> tuple[int, ...]:
+        """Changes whenever anything one Candidate's activity view shows may have changed."""
+        # INVARIANT: the Candidate's count rises when a record is stored, its suppression or loss
+        # count rises, or it ends; the log-wide counters cover evictions and rejected records.
+        # Nothing changes for an event that stores nothing.
+        return self._changes[candidate], self.invalid, self.unsupported, self.truncated, self.gaps
 
     @property
     def retained(self) -> int:
@@ -62,7 +70,9 @@ class ActivityLog:
         attrs = event.attributes
         if attrs.get("sf.telemetry.loss.scope") == "engine_bridge_logs":
             count = int(number(attrs.get("sf.telemetry.loss.dropped_total")))
-            self.bridge_loss[candidate] = max(self.bridge_loss.get(candidate, 0), count)
+            if count > self.bridge_loss.get(candidate, 0):
+                self.bridge_loss[candidate] = count
+                self._changes[candidate] += 1
 
     def _activity(self, candidate: int, event: Log) -> None:
         if len(event.run_id.encode()) > 128:
@@ -77,7 +87,9 @@ class ActivityLog:
             raise ValueError("incomplete suppression snapshot")
         snapshot = self.suppressed.setdefault(candidate, {})
         for reason, count in counts.items():
-            snapshot[reason] = max(snapshot.get(reason, 0), count)
+            if count > snapshot.get(reason, 0):
+                snapshot[reason] = count
+                self._changes[candidate] += 1
         key = candidate, event.run_id, record.id
         previous = self._latest.get(key)
         if previous and (record.revision <= previous.revision or previous.state in TERMINAL):
@@ -107,6 +119,7 @@ class ActivityLog:
 
     def _retain(self, key: tuple[int, str, str], record: ActivityRecord) -> None:
         self._history[(*key, record.revision)] = record
+        self._changes[key[0]] += 1
         self._latest[key] = record
         self._first_observed.setdefault(key, record.observed_at_ms)
         self._bytes += record.size + len(key[1].encode())
@@ -127,7 +140,9 @@ class ActivityLog:
             self.truncated = min(MAX_INTEGER, self.truncated + 1)
 
     def end(self, candidate: int) -> None:
-        self._ended.add(candidate)
+        if candidate not in self._ended:
+            self._ended.add(candidate)
+            self._changes[candidate] += 1
 
     def history(self) -> list[ActivityRow]:
         """Accepted transitions in receive order, within the existing rolling bounds."""

@@ -24,7 +24,6 @@ from ..core.provider_access import (
     ProviderUnknown,
     Selector,
     SelectorAmbiguous,
-    SelectorUnknown,
     SelectorUnsupported,
     TargetMissing,
     TargetPending,
@@ -35,20 +34,19 @@ from ..core.provider_access import (
 
 
 def selector_from_request(request: Request) -> Selector:
-    """Parse every inbound selector value under the composition-root policy."""
+    """Parse every inbound selector value: any present `X-Profile` is refused (Stage D sunset)."""
     # INVARIANT: a blank first field cannot hide a named later field. ``Headers.get`` exposes only
     # one value, while Stage D requires every repeated field to be judged before route work.
     raw = next(
         (value for value in request.headers.getlist("X-Profile") if value.strip()),
         None,
     )
-    return Selector.from_header(raw, policy=request.app.state.selector_policy)
+    return Selector.from_header(raw)
 
 
 _AMBIGUOUS_MESSAGE = "Multiple active Connections exist. Remove extra Connections, then retry."
 _UNSUPPORTED_SELECTOR_MESSAGE = "X-Profile is no longer supported; omit the header."
 _CONNECTION_CONFLICT_MESSAGE = "Connection changed during auth-type repair"
-_INDEX_CONFLICT_MESSAGE = "Profile metadata update conflicted. Try again."
 
 
 def _reauth_detail(exc: TargetReauthRequired) -> dict[str, Any]:
@@ -75,21 +73,12 @@ def _unsupported_detail(exc: UnsupportedAuthMode) -> dict[str, Any]:
     return detail
 
 
-def _write_conflict(exc: WriteConflict) -> HTTPException:
-    if exc.kind == "retry_exhausted":
-        # `main.py::_profile_index_conflict` — the CAS on the index blob ran out of retries.
-        return HTTPException(
-            status_code=503,
-            detail={"code": "profile_index_conflict", "message": _INDEX_CONFLICT_MESSAGE},
-        )
-    if exc.subject == "connection":
-        return HTTPException(
-            status_code=409,
-            detail={"code": "connection_conflict", "message": _CONNECTION_CONFLICT_MESSAGE},
-        )
+def _write_conflict(_exc: WriteConflict) -> HTTPException:
+    # WHY one row (E5a, history cleanup): the Profile-index rows (503 `profile_index_conflict`,
+    # 409 `profile_conflict`) lost their last emitter when E4b ended the Profile writes.
     return HTTPException(
         status_code=409,
-        detail={"code": "profile_conflict", "provider": exc.provider, "profile": exc.requested},
+        detail={"code": "connection_conflict", "message": _CONNECTION_CONFLICT_MESSAGE},
     )
 
 
@@ -120,16 +109,6 @@ def render_refusal(exc: ProviderAccessRefusal) -> HTTPException:
                 "message": _AMBIGUOUS_MESSAGE,
             },
         )
-    if isinstance(exc, SelectorUnknown):
-        return HTTPException(
-            status_code=404,
-            detail={
-                "code": "connection_not_found",
-                "provider": exc.provider,
-                "requested_label": exc.requested,
-                "valid_labels": list(exc.valid_labels),
-            },
-        )
     if isinstance(exc, UnsupportedAuthMode):
         return HTTPException(status_code=400, detail=_unsupported_detail(exc))
     if isinstance(exc, WriteConflict):
@@ -141,17 +120,23 @@ def render_refusal(exc: ProviderAccessRefusal) -> HTTPException:
 
 
 def _management_refusal(exc: ProviderAccessRefusal) -> HTTPException | None:
-    """The rows added after A1's read table: the Stage D selector sunset and the A3 admin rows."""
+    """The rows added after A1's read table: the Stage D selector sunset, the A3 admin rows and
+    the pair the successor cannot manage."""
     if isinstance(exc, SelectorUnsupported):
         return HTTPException(
             status_code=400,
             detail={"code": "x_profile_unsupported", "message": _UNSUPPORTED_SELECTOR_MESSAGE},
         )
     if isinstance(exc, ProviderUnknown):
-        # `routes/auth.py::upsert_api_key_profile` :1264-1266 at 248b0b6d (the PUT shape; the
-        # delete shell's provider-less shape is `render_legacy_delete_refusal`).
+        # The PUT shape of the retired Profile route (`upsert_api_key_profile` at 248b0b6d).
         return HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": exc.provider}
+        )
+    if isinstance(exc, PairNotManageable):
+        # WHY the D18 body: a successor mutation refuses a pair of §5 row 3 (`ambiguous`) or row 11
+        # (`unresolved`) with the code the successor LIST shows for it (OME-1497, G1).
+        return HTTPException(
+            status_code=409, detail=pair_conflict_detail(PairConflict(exc.provider, exc.kind))
         )
     if isinstance(exc, CredentialStoreUnavailable):
         # `routes/credential_persistence.py::persist_credentials_or_503` at 248b0b6d.
@@ -166,21 +151,6 @@ def _management_refusal(exc: ProviderAccessRefusal) -> HTTPException | None:
     return None
 
 
-def render_legacy_delete_refusal(exc: ProviderAccessRefusal) -> HTTPException:
-    """The delete shell's own rows (F3, owner 2026-09-18): today's provider-less 404 bodies.
-
-    # COMPATIBILITY (window-only, retired with the shells at Stage E / OME-1209):
-    # `routes/auth.py::delete_profile_for_account` :1380 and :1384 at 248b0b6d raised
-    # `{"code": "unknown_provider"}` and `{"code": "profile_not_found"}` with NO provider or name
-    # field, unlike every other row. Every other refusal renders through the shared table.
-    """
-    if isinstance(exc, ProviderUnknown):
-        return HTTPException(status_code=404, detail={"code": "unknown_provider"})
-    if isinstance(exc, TargetMissing):
-        return HTTPException(status_code=404, detail={"code": "profile_not_found"})
-    return render_refusal(exc)
-
-
 @contextmanager
 def refusals_as_http() -> Iterator[None]:
     """Render any refusal raised inside the block as its `HTTPException`, chaining the cause."""
@@ -190,18 +160,10 @@ def refusals_as_http() -> Iterator[None]:
         raise render_refusal(exc) from exc
 
 
-@contextmanager
-def legacy_delete_refusals_as_http() -> Iterator[None]:
-    """`refusals_as_http`, rendering through the delete shell's rows (F3)."""
-    try:
-        yield
-    except ProviderAccessRefusal as exc:
-        raise render_legacy_delete_refusal(exc) from exc
-
-
 # --- the D18 successor scope (OME-1497, G1; contract §7) -----------------------------------------
 # INVARIANT: these rows serve ONLY the `/v1/admin/accounts/{account_id}/connections` routes; the
-# legacy rows above keep their bodies, and a successor refusal never reaches `render_refusal`.
+# legacy rows above keep their bodies. The pair conflict renders one body in both tables (E4a);
+# since the OME-1138 close-out (L4a) only a D18 mutation raises it.
 
 _PAIR_CONFLICT_MESSAGES = {
     "ambiguous": (
@@ -214,7 +176,6 @@ _PAIR_CONFLICT_MESSAGES = {
     ),
 }
 _STORE_READ_MESSAGE = "Credential store is temporarily unavailable. Try again."
-_WRITE_CONFLICT_MESSAGE = "Credential update conflicted. Try again."
 _SUPERSEDED_MESSAGE = "Credential state changed. Reload before submitting another change."
 _AUTHORITY_MESSAGE = "Credential state is temporarily unavailable. Retry later."
 
@@ -241,30 +202,17 @@ def render_successor_refusal(exc: ProviderAccessRefusal) -> HTTPException:
                 "provider": exc.provider,
             },
         )
-    if isinstance(exc, PairNotManageable):
-        return HTTPException(
-            status_code=409, detail=pair_conflict_detail(PairConflict(exc.provider, exc.kind))
-        )
     if isinstance(exc, WriteConflict):
         return _successor_write_conflict(exc)
     return render_refusal(exc)
 
 
 def _successor_write_conflict(exc: WriteConflict) -> HTTPException:
-    """Both legacy subjects collapse to one superseded 409 (§7); retry exhaustion stays a 503.
+    """A lost write is the superseded 409 (§7): the client reloads, never retries.
 
-    # WHY no subject split: the successor has no Profile or Connection vocabulary — a client only
-    # needs to know whether to retry (503) or reload (409). A superseded 409 is never retried.
+    # WHY no 503 `credential_write_conflict` any more (E5a, history cleanup): it rendered a
+    # Profile-index CAS that ran out of retries, and no request path runs one since E4b.
     """
-    if exc.kind == "retry_exhausted":
-        return HTTPException(
-            status_code=503,
-            detail={
-                "code": "credential_write_conflict",
-                "message": _WRITE_CONFLICT_MESSAGE,
-                "provider": exc.provider,
-            },
-        )
     return HTTPException(
         status_code=409,
         detail={

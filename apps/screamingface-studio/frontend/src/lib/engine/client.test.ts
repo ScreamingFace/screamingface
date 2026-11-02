@@ -203,3 +203,58 @@ describe("createEngineClient", () => {
     expect(JSON.stringify(error)).not.toContain(KEY);
   });
 });
+
+describe("createEngineClient.listBenchmarks", () => {
+  const benchmark = {
+    object: "benchmark",
+    id: "ifeval",
+    title: "IFEval",
+    description: "Verifiable instruction following.",
+    revision: "r1",
+    case_count: 541,
+    origin: "inspect_evals",
+    focus: "Instruction following",
+    difficulty: "standard",
+    interaction: "single_shot",
+    failure_policy: "withhold",
+    href: "/v1/benchmarks/ifeval",
+  };
+
+  it("lists the Engine's installed benchmarks", async () => {
+    const { fetch, calls } = fakeFetch(() =>
+      json({ object: "list", data: [benchmark] }),
+    );
+
+    await expect(createEngineClient(BASE, fetch).listBenchmarks()).resolves.toEqual([
+      benchmark,
+    ]);
+    expect(calls[0].url).toBe(`${BASE}/v1/benchmarks`);
+    expect(calls[0].init.method).toBe("GET");
+    expect(calls[0].init.cache).toBe("no-store");
+  });
+
+  it("maps a problem+json answer to an EngineError kind", async () => {
+    const { fetch } = fakeFetch(() => problem(503, "catalog is loading"));
+    const error = await createEngineClient(BASE, fetch)
+      .listBenchmarks()
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(EngineError);
+    expect(error).toMatchObject({
+      kind: "unavailable",
+      status: 503,
+      detail: "catalog is loading",
+    });
+  });
+
+  it("reports a network failure as unreachable", async () => {
+    const { fetch } = fakeFetch(() => {
+      throw new TypeError("Failed to fetch");
+    });
+    const error = await createEngineClient(BASE, fetch)
+      .listBenchmarks()
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ kind: "unreachable" });
+  });
+});

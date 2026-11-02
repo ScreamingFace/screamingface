@@ -123,4 +123,12 @@ def replay_in_process_over_rows(
 STAND_IN_METADATA: dict[str, dict[str, object]] = {
     "musique": {"supporting_idx": [3, 11]},
     "ifeval": {"instruction_id_list": ["punctuation:no_comma"], "kwargs": [{}]},
+    # OME-1602: chembench's scorer picks its multiple-choice or numeric rule by task_type.
+    "chembench": {"task_type": "multiple_choice_grade", "subset_name": "organic_chemistry"},
+    # OME-1696: bbh's solver and scorer pick their rule by dataset_type, its metric groups by
+    # dataset_name.
+    "bbh": {"dataset_type": "MULTIPLE_CHOICE", "dataset_name": "date_understanding"},
+    # OME-1479: mathvista's solver and scorer pick the letter or the free-form rule by
+    # question_type; the stand-in Cases are multiple choice.
+    "mathvista": {"question_type": "multi_choice", "answer_type": "text"},
 }

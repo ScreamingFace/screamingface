@@ -9,6 +9,10 @@ from pathlib import Path
 # it, `screamingface status` and default-client discovery (detect.py) read it.
 STATE_FILENAME = "runtime.json"
 
+# INVARIANT: the one name for the local gateway's database — the runtime starts the gateway on
+# it, and `sf.cache.pull_from_remote` loads into it.
+GATEWAY_DATABASE_NAME = "aigateway.sqlite3"
+
 # INVARIANT: the Engine's own name for its spill folder (`screamingface_engine.job_env.
 # ARTIFACTS_DIR`), spelled here so this module stays importable without the runtime extra.
 # `tests/test_runtime_artifacts_dir.py` pins the two names equal.
@@ -29,10 +33,18 @@ class RuntimeConfig:
     gateway_port: int = 9105
     scoreboard_port: int = 9106
     engine_port: int = 9108
+    # FEATURE (spec D10): a separate, possibly read-only datasets folder — Studio points it at
+    # the bundle inside the signed app. None keeps the datasets under the data directory.
+    benchmark_assets_dir: Path | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_dir", self.data_dir.expanduser().resolve())
-        selected = self.runner_config or bundled_runner_config()
+        if self.benchmark_assets_dir is not None:
+            resolved = self.benchmark_assets_dir.expanduser().resolve()
+            object.__setattr__(self, "benchmark_assets_dir", resolved)
+        selected = self.runner_config or Path(
+            os.getenv("URL4_RUNNER_CONFIG") or bundled_runner_config()
+        )
         object.__setattr__(self, "runner_config", selected.expanduser().resolve())
         ports = (self.gateway_port, self.scoreboard_port, self.engine_port)
         if any(isinstance(port, bool) or not 1 <= port <= 65535 for port in ports):
@@ -50,7 +62,7 @@ class RuntimeConfig:
 
     @property
     def gateway_database_url(self) -> str:
-        return f"sqlite://{self.data_dir / 'aigateway.sqlite3'}"
+        return f"sqlite://{self.data_dir / GATEWAY_DATABASE_NAME}"
 
     @property
     def scoreboard_database_url(self) -> str:
@@ -58,6 +70,10 @@ class RuntimeConfig:
 
     @property
     def assets_dir(self) -> Path:
+        # INVARIANT: only the datasets move with the override; state, logs and databases
+        # stay under data_dir.
+        if self.benchmark_assets_dir is not None:
+            return self.benchmark_assets_dir
         return self.data_dir / "benchmark-assets"
 
     @property

@@ -3,22 +3,28 @@
 from __future__ import annotations
 
 import os
+import sys
 from threading import Lock
 from typing import TYPE_CHECKING, Literal, overload
 from urllib.parse import urlsplit
 
+from screamingface._analytics.tracking import tracked
 from screamingface._client_connections import _engine_origin
-from screamingface.client import DEFAULT_ENGINE_URL, DEFAULT_SCOREBOARD_URL, Client
+from screamingface.client import (
+    DEFAULT_ENGINE_URL,
+    DEFAULT_SCOREBOARD_URL,
+    Client,
+    _evaluation_candidates,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from uuid import UUID
 
-    from screamingface._reproduction import Reproduction
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.connections import Connection, OAuthFlow
     from screamingface.events import Event
-    from screamingface.leaderboard import LeaderboardScore
+    from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
     from screamingface.report import Report
 
@@ -132,7 +138,8 @@ def configure(
 
 
 def close() -> None:
-    """Close and forget the process-wide Client, if it has been created."""
+    """Close and forget the process-wide Client, if it has been created, and the community-cache
+    pull's own sign-in sessions."""
 
     global _client
     with _lock:
@@ -140,6 +147,20 @@ def close() -> None:
         _client = None
     if previous is not None:
         previous.close()
+    # WHY from sys.modules: a process that never pulled has no pull sessions, and importing the
+    # pull module just to find that out would load it for nothing.
+    pull = sys.modules.get("screamingface._cache.pull")
+    if pull is not None:
+        pull.close_sessions()
+
+
+def fetch_media(media: CaseMedia) -> FetchedMedia:
+    """Fetch one picture or file of a Case with the process-wide Client (``Client.fetch_media``).
+
+    e.g. ``sf.fetch_media(report.candidates[0].cases[0].media[0])``.
+    """
+
+    return default_client().fetch_media(media)
 
 
 @overload
@@ -151,7 +172,8 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool = False,
+    use_cache: bool = True,
 ) -> Report: ...
 
 
@@ -164,19 +186,56 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool = False,
+    use_cache: bool = True,
 ) -> Report: ...
 
 
+@overload
 def evaluate(
-    candidates: Recipe | Sequence[Recipe] | str,
+    *,
+    pinned_cache: str,
+    score_id: UUID | str | None = None,
+    url4: str | None = None,
+    answer_seed: int | None = None,
+    record_reproduction: bool = True,
+    limit: int | None = None,
+    capture: Literal[False] | None = None,
+    on_event: Callable[[Event], None] | None = None,
+    progress: bool | None = None,
+) -> Report: ...
+
+
+@overload
+def evaluate(
+    *,
+    score_id: UUID | str,
+    pinned_cache: str | None = None,
+    url4: str | None = None,
+    answer_seed: int | None = None,
+    record_reproduction: bool = True,
+    limit: int | None = None,
+    capture: Literal[False] | None = None,
+    on_event: Callable[[Event], None] | None = None,
+    progress: bool | None = None,
+) -> Report: ...
+
+
+@tracked("evaluation")
+def evaluate(
+    candidates: Recipe | Sequence[Recipe] | str | None = None,
     *,
     benchmark: str | None = None,
     limit: int | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool | None = None,
+    pinned_cache: str | None = None,
+    score_id: UUID | str | None = None,
+    url4: str | None = None,
+    record_reproduction: bool = True,
+    use_cache: bool = True,
 ) -> Report:
     """Evaluate Recipes or a complete URL4 through the lazy default Client.
 
@@ -188,6 +247,24 @@ def evaluate(
     """
 
     client = default_client()
+    if pinned_cache is not None or score_id is not None:
+        # The Client checks the replay options; this door passes everything through.
+        return client._evaluate_replay(
+            candidates=candidates,
+            benchmark=benchmark,
+            limit=limit,
+            capture=capture,
+            pinned_cache=pinned_cache,
+            score_id=score_id,
+            url4=url4,
+            answer_seed=answer_seed,
+            record_reproduction=record_reproduction,
+            on_event=on_event,
+            progress=progress,
+        )
+    # One home for these checks: the Client's (review fix, no third copy here).
+    candidates = _evaluation_candidates(candidates, url4, record_reproduction)
+    capture = bool(capture)
     if isinstance(candidates, str):
         if benchmark is not None:
             raise TypeError("benchmark must not be passed when evaluating a complete URL4")
@@ -199,6 +276,7 @@ def evaluate(
             progress=progress,
             answer_seed=answer_seed,
             capture=capture,
+            use_cache=use_cache,
         )
     if benchmark is None:
         raise TypeError("benchmark is required when evaluating Recipes")
@@ -210,13 +288,8 @@ def evaluate(
         progress=progress,
         answer_seed=answer_seed,
         capture=capture,
+        use_cache=use_cache,
     )
-
-
-def reproduce(score: LeaderboardScore | UUID | str, *, record: bool = True) -> Reproduction:
-    """Reproduce a submitted score from its frozen copy through the lazy default Client."""
-
-    return default_client().reproduce(score, record=record)
 
 
 @overload
@@ -257,8 +330,10 @@ def connect(
     if provider is None:
         if api_key is not None or method is not None:
             raise TypeError("provider is required when api_key or method is supplied")
+        from screamingface._analytics.prompt import offer
         from screamingface._ui.connections import ConnectionPanel
 
+        offer()
         return ConnectionPanel(default_client())
     client = default_client()
     if api_key is not None:
@@ -280,4 +355,4 @@ def disconnect(provider: str) -> Connection:
     return default_client().disconnect(provider)
 
 
-__all__ = ["close", "configure", "connect", "disconnect", "evaluate", "reproduce"]
+__all__ = ["close", "configure", "connect", "disconnect", "evaluate"]

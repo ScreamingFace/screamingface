@@ -119,6 +119,21 @@ def identity_for_forwarding(identity: Mapping[str, str]) -> dict[str, str]:
     }
 
 
+def upstream_headers(identity: Mapping[str, str], traceparent: str | None) -> dict[str, str]:
+    """The headers for one caller-scoped gateway request: verified identity, then trace context.
+
+    INVARIANT: the Engine-owned headers are written LAST. ``identity`` is built from inbound
+    request headers, and although the mesh guarantees the identity header itself is not forged,
+    nothing guarantees the mapping holds ONLY that key — so a caller cannot displace this
+    request's own trace by sending their own. A caller adding headers of its own writes them
+    after this, for the same reason.
+    """
+    headers = identity_for_forwarding(identity)
+    if traceparent is not None:
+        headers["traceparent"] = traceparent
+    return headers
+
+
 CACHE_PARTICIPATE = "URL4_CLOUD_CACHE_PARTICIPATE"
 """Whether this run may participate in the gateway's response cache — `"true"` / `"false"`.
 
@@ -189,6 +204,12 @@ major version with a ``failed`` terminal frame, code ``unsupported_spec_version`
 
 CURRENT_SPEC_VERSION = "2"
 SUPPORTED_SPEC_MAJORS = frozenset({"1", "2"})
+WORLD_DIGEST = "URL4_CLOUD_WORLD_DIGEST"
+"""The sha256 of the world config file the App that accepted the run serves (OME-1770 review).
+
+Written only by an App that knows it. A worker whose own world file has another digest refuses the
+run with a ``failed`` terminal frame, code ``world_config_mismatch``, rather than run it under a
+revision the App never served; absent, the run proceeds as before."""
 RECLAIM_OWNER = "URL4_CLOUD_RECLAIM_OWNER"
 """Who reclaims a finished run's subject: absent (the run process itself, after its grace — a
 standalone `run`) or ``worker`` (the supervising worker, per process — the worker pool).
@@ -613,6 +634,7 @@ WRITTEN_BY_APP = frozenset(
         IO_CONCURRENCY,
         RUN_SHAPE,
         SPEC_VERSION,
+        WORLD_DIGEST,
         *IDENTITY_HEADER_ENV.values(),
     }
 )
@@ -698,4 +720,5 @@ __all__ = [
     "identity_for_forwarding",
     "identity_to_env",
     "number_from_env",
+    "upstream_headers",
 ]

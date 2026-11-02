@@ -18,6 +18,7 @@ def test_progress_drops_large_payloads_without_mutating_authoritative_result():
         result,
         lambda cases: CandidateScore(score=0.5, metrics={}),
         lambda body, attributes=None, *, severity="INFO": None,
+        failure_policy="coverage_declare",
     )
     retained = progress.cases[result.case_id]
     assert retained.input != result.input
@@ -38,6 +39,7 @@ def test_progress_drops_large_payloads_without_mutating_authoritative_result():
         result,
         lambda cases: CandidateScore(score=0.5, metrics={}),
         lambda body, attributes=None, *, severity="INFO": None,
+        failure_policy="coverage_declare",
     )
     assert progress.revision == 1
 

@@ -21,6 +21,7 @@ from screamingface._evaluation.model import (
     _with_answer_seed,
     _with_capture,
     _with_replay_frozen_copy,
+    _without_cache,
 )
 from screamingface._evaluation.operators import Stage, _OperatorCatalog
 from screamingface._evaluation.results import report_from_url4_outcome
@@ -51,6 +52,7 @@ def evaluate_url4_sync(
     capture: bool = False,
     replay_frozen_copy: str | None = None,
     load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
 ) -> Report:
     """Execute one already-linked evaluation expression unchanged."""
 
@@ -74,6 +76,7 @@ def evaluate_url4_sync(
         candidate = _with_capture(candidate)
     if replay_frozen_copy is not None:
         candidate = _with_replay_frozen_copy(candidate, replay_frozen_copy)
+    candidate = _cache_intent(candidate, use_cache)
     observer = _sync_event_observer(
         on_event,
         progress,
@@ -93,6 +96,11 @@ def evaluate_url4_sync(
     return report
 
 
+def _cache_intent(candidate: Candidate, use_cache: bool) -> Candidate:
+    """The Candidate opted out of the request cache, or unchanged (OME-1311)."""
+    return candidate if use_cache else _without_cache(candidate)
+
+
 async def evaluate_url4_async(
     transport: AsyncRunTransport,
     url4: str,
@@ -102,6 +110,7 @@ async def evaluate_url4_async(
     capture: bool = False,
     replay_frozen_copy: str | None = None,
     load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
 ) -> Report:
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
@@ -124,6 +133,7 @@ async def evaluate_url4_async(
         candidate = _with_capture(candidate)
     if replay_frozen_copy is not None:
         candidate = _with_replay_frozen_copy(candidate, replay_frozen_copy)
+    candidate = _cache_intent(candidate, use_cache)
     observer = _async_event_observer(
         on_event,
         progress,

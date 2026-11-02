@@ -12,6 +12,7 @@ from typing import Any
 
 import pytest
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import (
     DuplicateParameterRuleError,
     ParameterProjectionRule,
@@ -24,7 +25,6 @@ from aigateway.core.model_capabilities import (
     parameter_contract_url,
 )
 from aigateway.core.plugin_base import ModelEntry, PluginSettings, ProviderPluginBase
-from aigateway.core.profile_models import AuthType
 
 
 def _rule(

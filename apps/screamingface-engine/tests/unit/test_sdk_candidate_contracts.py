@@ -10,7 +10,8 @@ STORY: as a researcher, the engine enforces what the SDK wrote:
 - ``sf.Vote(weights=sf.signal("cost_usd"))``: each member is weighed by the cost of its own model
   calls, and a cached rerun ends the vote the same way, with the same weights.
 - ``sf.Filter(where=sf.signal("field:confidence") >= 0.6)``: only the members that pass reach the
-  writer after it, and the report shows every member's pass mark (1.0 or 0.0).
+  writer after it, with the Case input (E4b ans:Q7), and the report shows every member's pass mark
+  (1.0 or 0.0).
 - ``sf.Vote(weights=sf.signal("score:judge"), judge=sf.Judge(..., returns="scores"))``: the vote
   follows the judge's scores, not the head count (two members agree on 12, the judge trusts the one
   that says 7, and 7 wins).
@@ -152,7 +153,7 @@ async def test_signal_reduce_replays_identically_from_cache() -> None:
 
 
 @pytest.mark.asyncio
-async def test_sdk_filter_pipeline_runs_and_the_writer_sees_only_the_kept_members() -> None:
+async def test_filter_pipeline_writer_sees_the_input_and_kept_members() -> None:
     seen: list[dict[str, Any]] = []
 
     record = await run_candidate(_FILTER, _FILTER_MODELS, "miss", on_request=seen.append)
@@ -164,13 +165,15 @@ async def test_sdk_filter_pipeline_runs_and_the_writer_sees_only_the_kept_member
     assert len(seen) == 5
     writer = next(call for call in seen if call["model"] == "prov/writer")
     envelope = writer["messages"][-1]["content"]
-    # the envelope shape: exactly the kept members' original texts, in author order
+    # the envelope shape: the Case input, then exactly the kept members' original texts, in
+    # author order (E4b ans:Q7)
     assert envelope == json.dumps(
         {
+            "input": "what is 2 + 2?",
             "selected": [
                 {"id": "member_1", "text": _FILTER_REPLIES["prov/alpha"]},
                 {"id": "member_3", "text": _FILTER_REPLIES["prov/gamma"]},
-            ]
+            ],
         },
         separators=(",", ":"),
     )

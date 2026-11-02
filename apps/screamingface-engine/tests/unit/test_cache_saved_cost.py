@@ -290,15 +290,15 @@ def test_every_saved_cost_provenance_literal_declares_the_same_members() -> None
     assert counter == wire
 
 
-# ── the retry withdrawal: a hit that followed a transport retry is never priced ─────────────────
+# ── a hit that followed a transport retry claims its saving like any hit (OME-1687) ────────────
 
 
-def test_a_hit_after_a_transport_retry_is_not_priced() -> None:
-    """A retried attempt may already have been billed, so its cache hit proves no saving.
+def test_a_hit_after_a_transport_retry_claims_its_saving() -> None:
+    """OME-1687 (owner-approved flip of the OME-1220 rule): a retried hit claims its saving.
 
-    Attempt 1 can be processed and billed by the provider with its response lost in transit;
-    attempt 2 then hits the row attempt 1 wrote. Reporting the reference cost as a SAVING would
-    claim the cache avoided money that was in fact just spent.
+    The leaderboard's reproduction cost is spend plus saving. In a perfect world, where every model
+    answers on the first attempt, the hit replaces the original call, whose cost the reference
+    holds.
     """
     payload = _aigw(
         direct_cost={
@@ -310,13 +310,14 @@ def test_a_hit_after_a_transport_retry_is_not_priced() -> None:
     )
     retried = CacheOutcome(status="hit", reason=None, key="ab12", age_s=3, retried=True)
 
-    # The price IS present in the block — this is a withdrawal, not an absence of evidence.
     assert avoided_usd_from_aigw(payload) == AvoidedCost(usd=Decimal("9.99"), provenance="reported")
-    assert avoided_usd_for_outcome(payload, retried) == AvoidedCost()
+    assert avoided_usd_for_outcome(payload, retried) == AvoidedCost(
+        usd=Decimal("9.99"), provenance="reported"
+    )
 
 
 def test_a_hit_with_no_retry_is_still_priced() -> None:
-    """The withdrawal is narrow: an ordinary hit keeps reporting what it avoided."""
+    """An ordinary hit keeps reporting what it avoided, the same as a retried one."""
     payload = _aigw(
         direct_cost={
             "status": "reported",
@@ -332,17 +333,17 @@ def test_a_hit_with_no_retry_is_still_priced() -> None:
     )
 
 
-def test_a_withdrawn_price_lands_in_the_unpriced_bucket_and_no_total() -> None:
-    """The hit is not erased — it is counted without a price, which is the honest report."""
+def test_a_retried_hit_saving_lands_in_the_priced_total() -> None:
+    """OME-1687 (owner-approved flip): a retried hit is a priced hit, so its saving is summed."""
     counters = RunCacheCounters()
     counters.record("hit", None)
-    withdrawn = avoided_usd_for_outcome(
+    saved = avoided_usd_for_outcome(
         _aigw(direct_cost={"status": "reported", "amount": "1", "unit": OPENROUTER_CREDIT_UNIT}),
         CacheOutcome(status="hit", reason=None, key=None, age_s=None, retried=True),
     )
-    counters.record_saved_cost(withdrawn.usd, withdrawn.provenance)
+    counters.record_saved_cost(saved.usd, saved.provenance)
 
     assert counters.hits == 1
-    assert counters.unpriced_hits == 1
-    assert counters.saved_cost_usd is None
+    assert counters.unpriced_hits == 0
+    assert counters.saved_cost_usd == Decimal("1")
     assert counters.saved_cost_archive_usd is None

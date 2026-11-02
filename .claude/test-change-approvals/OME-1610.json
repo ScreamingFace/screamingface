@@ -1,0 +1,46 @@
+{
+  "issue": "OME-1610",
+  "branch": "OME-1610-pr1-hand-set-published-revision",
+  "approver": "owner (approved in the OME-1610 session, 2026-10-22)",
+  "date": "2026-10-22",
+  "scope": "OME-1610's edits to prior tests, against main. test_benchmark_fingerprints.py: the pinned fingerprints grow from OME-1701's held rows to every Benchmark (no existing literal changes); the parametrised test is renamed test_the_fingerprint_follows_the_exam_not_the_published_id and reads the fingerprint the assembled Benchmark now carries instead of re-assembling the row with its id unset, because every row now hand-sets its id; its failure message says never to move published_revision to make it green; the module docstring drops its 'today it pins the rows OME-1701 holds' note; and a coverage test asks for a pin per Benchmark. test_published_revision.py: the allow-list test (the exact set of rows that hand-set an id) becomes test_every_catalogue_row_sets_its_published_revision, because every row now hand-sets one; a copied-row test is added and one stand-in docstring says only stand-ins leave the id unset. test_published_revisions.py: the 26 rows not yet frozen join at the id main serves; no literal changes. test_letter_list_key_imports.py, test_local_task_gdpval.py, test_nltk_data_at_image_build.py, test_retrieval_policy_on_row.py, test_scorer_draft_feedback.py, test_whole_run_metric.py: 7 identity tests read .fingerprint instead of .benchmark.revision, because the hash they assert moves is now the fingerprint (the published id is hand-set and holds by design); no assertion is weakened.",
+  "reason": "OME-1610 makes every Benchmark's published revision hand-set; tests that pinned which rows hand-set one, or that read the computed hash through the published id, follow the hash to its new home. No published id moves.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "ca1129979c5e44e317627d74ec0e73a0d3cbc1b2",
+      "approved_blob": "27583a55d9e3d74508401ae51fdf1210ed0119ec"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_letter_list_key_imports.py": {
+      "base_blob": "1e7def83df8bedbbc49dae99f15ff7fc5cdb3365",
+      "approved_blob": "a67f4676141433f73d19418c036bbf5c7e6d9b26"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_local_task_gdpval.py": {
+      "base_blob": "06c93e0623ce4161be0dc20c3bb9d5a917f23f8b",
+      "approved_blob": "e2c797f1a58ef72b9fd75fa4c4d589ded7244c04"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_nltk_data_at_image_build.py": {
+      "base_blob": "a116f430caab67db1d7417296e5b3c6450eca825",
+      "approved_blob": "7a907e53ba128fd9907b56582a4d68c16e2bd2ef"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revision.py": {
+      "base_blob": "3975d0b5b71cb5c7fc9eb9684633ce0382aea5fd",
+      "approved_blob": "450c4f4367437b7525588569e9aa621a143cf3e1"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "6b2ad31d6498d320ffe51620e9e30b355126c1ff",
+      "approved_blob": "4d1426ba148e5aa993128255f6e0d463ffbc3f1b"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_retrieval_policy_on_row.py": {
+      "base_blob": "e6ea6e35ce698a34da61a8ca80e1c564ff5ad8e2",
+      "approved_blob": "941ed439ae8638665fbd0f7f9af68bb444c116c2"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_scorer_draft_feedback.py": {
+      "base_blob": "2f1ecb69d6d6cb963b78db6dbc91dc802d93eb9e",
+      "approved_blob": "2e9660864511c5d91e83621aa9f034cd97cd0438"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
+      "base_blob": "309cbc9734abf765f977bb9760efea5f3e1ac088",
+      "approved_blob": "d5ec78006460f843dac6f3b79fe2e11d05f9b130"
+    }
+  }
+}

@@ -16,8 +16,8 @@ from typing import TYPE_CHECKING, Any
 from ._ports import CredentialStrategy
 
 if TYPE_CHECKING:
+    from ..auth_types import AuthType
     from ..credential_blob.store import CredentialBlobStore
-    from ..profile_models import AuthType
 
 _CREDENTIAL_SERVICE_PROVIDER_ALIASES = {"gemini-cli": "gemini"}
 

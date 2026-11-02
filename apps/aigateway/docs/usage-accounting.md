@@ -61,7 +61,13 @@ streaming accounting later must not buffer the complete stream or delay its firs
           "redirect_hop_count": 0,
           "failure_code": null
         }
-      ]
+      ],
+      "succeeded_attempt_usage": {
+        "status": "complete",
+        "source": "provider_raw_response",
+        "input": {"total": 10, "uncached": 10, "cache_read": 0, "cache_write": 0, "cache_write_by_ttl": []},
+        "output": {"total": 5, "reasoning": null}
+      }
     },
     "request_economics": {
       "schema": "aigw.request_economics",
@@ -69,7 +75,8 @@ streaming accounting later must not buffer the complete stream or delay its firs
       "direct_cost_status": "complete",
       "known_direct_cost_subtotals": [
         {"amount": "0.001", "unit": "openrouter_credits", "source": "openrouter.usage.cost"}
-      ]
+      ],
+      "succeeded_attempt_direct_cost": {"status": "reported", "amount": "0.001", "unit": "openrouter_credits", "source": "openrouter.usage.cost"}
     }
   }
 }
@@ -105,22 +112,47 @@ direct_cost_status == complete
 in the current request.
 
 `provider_guaranteed_zero` is an exact zero backed by a provider billing guarantee rather than a
-reported usage amount. AIGateway currently emits it only for a native OpenRouter HTTP 429 whose raw
-integer `error.code` agrees, complete error metadata proves zero-completion insurance applies,
-router `is_byok` is exactly `false`, and any present usage-level `is_byok` is also exactly `false`.
-The prepared request must contain no OpenRouter plugin, OpenRouter server tool or file part. Router
-metadata must explicitly contain a pipeline with no potentially billable or unknown stage; any
-present stage cost must be exact zero, and any attempt-chain status must be the integer 429.
-Generated output-token evidence, contradictory server-tool usage or nonzero/malformed cost details
-keep the cost unknown, and so does any usage field outside the known chat usage shape (token
-counts and their details, `is_byok`, `cost_details`, server-tool usage) — including a null `cost`
-or a cost field found anywhere but `cost_details`. A repeated accounting-sensitive JSON key drops
+reported usage amount. AIGateway emits it in exactly two OpenRouter cases, each marked by its
+`source`.
+
+Both proofs read only billing facts, never the reply format (owner decision 2026-10-27,
+OME-1746). A field that carries no money, such as a BYOK flag, an error code, the router attempt
+chain, an unknown field or a value of an unexpected type, never makes the cost unknown. Two
+general rules apply to both (`openrouter_provider/billing_facts.py`): a non-zero or non-numeric
+value under any key that contains `cost` or `amount`, anywhere in the reply, keeps the cost
+unknown; a router pipeline stage whose `type` names `plugin` or `server_tools` (as text, in any
+shape) keeps the cost unknown; and the prepared request must contain no OpenRouter plugin,
+OpenRouter server tool or file part. Neither proof raises on a value of any shape: a value such
+as `"sNaN"` is not a zero.
+
+The first (`source: openrouter.zero_completion_insurance`) is a native OpenRouter HTTP 429 with no
+output (`choices`, `output` and `content` absent or empty). Any `usage` must show no work beyond
+reading the prompt: each value outside `prompt_tokens`, `total_tokens` and
+`prompt_tokens_details` is absent, `null` or zero (a number written as text counts; a flag does
+not), and `usage` that is not an object keeps the cost unknown. A repeated accounting-sensitive JSON key drops
 the ambiguous raw body; any other repeated key keeps parseable measured evidence but marks capture
-partial and cannot support zero certification. The gateway opts in to router metadata for this accounting check,
-then removes that account-specific field before caller response and cache serialization. It does not
-synthesize zero token counts. Guaranteed-zero attempts count as covered when reported retry costs
-are present, but are never added to `known_direct_cost_subtotals`; a request containing only
-guaranteed-zero attempts remains `direct_cost_status=partial` with no subtotal.
+partial and cannot support zero certification. The gateway opts in to router metadata for this
+accounting check, then removes that account-specific field before caller response and cache
+serialization. It does not synthesize zero token counts. Guaranteed-zero attempts count as covered
+when reported retry costs are present, but are never added to `known_direct_cost_subtotals`; a
+request containing only guaranteed-zero attempts remains `direct_cost_status=partial` with no
+subtotal.
+
+The second (`source: openrouter.pre_output_refusal`, spec
+`docs/spec/2026-10-26-openrouter-pre-output-refusal-zero.md`) is a SUCCEEDED HTTP 200 attempt
+that a provider refused before any output. OpenRouter keeps no generation record for it, so
+nothing is billed. The raw body must have no `usage` and no `error`, exactly one choice with
+`finish_reason` `content_filter` and `native_finish_reason` `refusal`, and no output: the message
+fields `content`, `reasoning`, `reasoning_details`, `tool_calls`, `function_call`, `audio` and
+`images` and the top-level `output` and `content` are all empty (absent, `null`, `""`, `[]` or
+`{}`). Other message fields are ignored. Text in `refusal` is not output: Anthropic puts a policy
+notice there when it refuses before output, with no `usage` and no cost. Because the attempt succeeded,
+this zero is also its `succeeded_attempt_direct_cost`, and the cache-entry metadata keeps it for
+a later hit. A refusal that carries a `usage.cost` keeps its `reported` price. Token counts stay
+unknown.
+
+BYOK is part of how the OpenRouter account is set up, not of one reply. If BYOK is turned on for
+a provider, both proofs must change.
 
 An attempt carrying `provider_guaranteed_zero` uses the explicit wire marker
 `aigw.provider_attempt.v2`; all pre-existing direct-cost statuses retain
@@ -133,6 +165,37 @@ time from the raw provider response, before any conversion. The block keeps its 
 status. One status is `archive_matched`: the amount comes from a real logged call of the same kind
 and model, not from this row's own call. `archive_matched` money is never added to `reported`
 money.
+
+## Cost of intelligence and actual spend
+
+The metadata answers two different questions. Use the correct fields for each one.
+
+**Cost of intelligence: what one answer of this model costs.** This view assumes that each model
+answers on the first attempt. A retry is an infrastructure event, so it does not change this
+value (OME-1686).
+
+- `request_economics.succeeded_attempt_direct_cost` is the `direct_cost` of the successful
+  attempt. It has the same shape as `attempts[].direct_cost`.
+- `usage_accounting.succeeded_attempt_usage` is the `usage` of the same attempt. It has the same
+  shape as `attempts[].usage`.
+
+**Actual spend: what this request cost.** Use `attempts[]`, `direct_cost_status` and
+`known_direct_cost_subtotals`, with the completeness rule in "Status rules". These fields include
+the failed attempts.
+
+Rules for the two successful-attempt keys:
+
+- One selection gives both keys: the attempt with `outcome == "succeeded"` and the highest
+  `sequence`. Two successful attempts are not expected; the rule makes the choice deterministic.
+- The gateway selects from all observed attempts, not only the rendered ones. Truncation at 64
+  attempts and the 64 KiB size bound never remove or change the two keys.
+- Both keys are `null` when no attempt succeeded: a cache hit, a frozen-copy replay, a failed
+  request, an unsupported provider, or no dispatch.
+- A non-`null` key can have an unknown status (for example `direct_cost.status = "unavailable"`).
+  This means that the successful attempt itself has no known cost or token count. It is not a
+  retry effect, and it is never zero.
+- The gateway does not force `null` on an error body. Consumers must not read `_aigw` from a
+  failed response to price a call.
 
 ## Money and precision
 
@@ -182,7 +245,11 @@ truthful to say about cost. A write-time block changes that premise, so adopting
 provider is now defensible — but doing so re-opens the corresponding decision and must be argued
 there, not here. Both stay at `None` until then.
 
-Full raw JSON evidence is parsed only when decoded content is at most 256 KiB. Accounting metadata is
+Full raw JSON evidence is parsed only when decoded content is at most 256 KiB. A successful (2xx)
+body over that size but at most 8 MiB, such as a long reasoning answer, is parsed the same lossless
+way, and only its `id`, `model` and `usage` fields are kept. So its exact provider cost is still
+reported, not LiteLLM's converted float. An error body never gets this larger read, because the
+OpenRouter zero-insurance proof reads every money field of a 429. Accounting metadata is
 also bounded: at most 64 rendered attempts and 64 KiB for the complete `_aigw` object. Bounds degrade
 to explicit partial/unavailable states instead of failing an otherwise successful provider response.
 

@@ -31,10 +31,12 @@ from ..chat_parameters import (
     overlay_tool_capabilities,
     stream_transport_capability,
 )
+from ..input_modalities import TEXT_ONLY
 from ._ports import ModelEntry, PluginSettings
 from ._provider import ProviderPluginCore
 
 if TYPE_CHECKING:
+    from ..auth_types import AuthMode
     from ..chat_parameters import (
         ParameterProjectionRule,
         ProviderDiscoverySnapshot,
@@ -43,7 +45,6 @@ if TYPE_CHECKING:
         TransportCapability,
     )
     from ..parameter_discovery import DiscoveryHttpClient, DiscoveryLimits, DiscoverySourceRef
-    from ..profile_models import AuthMode
 
 
 @dataclass(frozen=True)
@@ -316,6 +317,22 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         """
         return None
 
+    def configure_discovery(self, *, enabled: bool) -> None:
+        """Receive the deployment's discovery kill switch (``AIGW_DISCOVERY_ENABLED``).
+
+        For a provider whose discovery dials OUTSIDE the injected runtime — a credentialed,
+        per-account read the shared runtime cannot carry (Codex, OME-1634). ``create_app``
+        calls this on every registered plugin with the setting, so
+        ``AIGW_DISCOVERY_ENABLED=false`` still audits to zero discovery egress of any kind.
+
+        INVARIANT: with ``enabled=False`` the provider opens no discovery connection at all
+        and reports its discovered data as unknown — never as an error.
+
+        Default: no-op — a provider whose discovery only uses the injected runtime is
+        already silenced by its absence.
+        """
+        del enabled
+
     def chat_transport_capabilities(
         self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[TransportCapability, ...]:
@@ -335,6 +352,21 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         """
         return (stream_transport_capability(gateway_enabled=self.supports_chat_streaming()),)
 
+    def model_input_modalities(self, entry: ModelEntry) -> tuple[str, ...]:
+        """Which inputs this model takes, for the ``/v1/models`` row (OME-1537).
+
+        Default: the entry's discovered evidence when a listing carried it, else
+        ``("text",)``. A provider with a reviewed per-model/family table overrides
+        this; a provider with catalogue evidence attaches it to the entry instead.
+
+        INVARIANT: unknown is text-only — never vision. Core normalizes whatever this
+        returns onto the closed vocabulary, so an override cannot publish a word
+        outside it or drop ``text``.
+        """
+        if entry.input_modalities is not None:
+            return entry.input_modalities
+        return TEXT_ONLY
+
     def available_auth_modes(self) -> tuple[AuthMode, ...]:
         """Auth modes a client could use with this provider (profile-independent).
 
@@ -350,8 +382,8 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         # could never advertise a parameter until it had a mode of its own to
         # prove them under.
         # INVARIANT: "none" is derived HERE, from the provider's own declaration —
-        # never from an absent profile. A provider that merely permits a
-        # profile-less request (``allows_chatless_profile``) still declares real
+        # never from an absent credential. A provider that merely permits a
+        # credential-less request (``allows_chatless_credential``) still declares real
         # credential types and keeps them.
         """
         modes: list[AuthMode] = []

@@ -81,8 +81,9 @@ def test_metadata_migration_applies_to_a_populated_database(tmp_path: Path) -> N
     connection.commit()
     connection.close()
 
-    # 2. Apply 0019 on top of the populated table.
-    after = _migrate(url)
+    # 2. Apply 0019 on top of the populated table. Pinned to 0019 (owner-approved, OME-1596): this
+    #    asserts what 0019 adds, and 0021's metadata columns have their own test.
+    after = _migrate(url, "0019_score_metadata")
     assert after.returncode == 0, after.stderr
 
     # 3. Both columns are nullable and the old row reads NULL ("no paper", "never edited"), and

@@ -44,6 +44,12 @@ _STATUS_BY_CODE: dict[str, int] = {
     # No request was sent: the node's own concurrency cap ran the deadline out, so the
     # node is the one that is (temporarily) unavailable — not an upstream failure.
     ErrorCode.ADMISSION_TIMEOUT: 503,
+    # The url4 HTTP source guard (spec F1b §4, proposed statuses): a refused destination or
+    # redirect chain is the request's fault (422), an oversize body is 413, a deadline 504.
+    ErrorCode.SOURCE_DESTINATION_BLOCKED: 422,
+    ErrorCode.SOURCE_REDIRECT_LIMIT: 422,
+    ErrorCode.SOURCE_TOO_LARGE: 413,
+    ErrorCode.SOURCE_TIMEOUT: 504,
     # url4 2.0 code pointers (contracts C8). A caller applying Spec C §13.2.1 to the
     # status recovers the class: 501 is exactly `unsupported_mode`; `intent_error` has
     # no §13.2.1 row, so 422 keeps it permanent (500 would read as transient) and the

@@ -94,7 +94,8 @@ RED first, in this order:
   `test_chat_route_accounting.py`.
   Docs — this ledger, `docs/tasks/2026-09-16-OME-1207-move-consumers-off-profiles.md`,
   and the A2 status rows in the OME-1138 plan.
-- **Commits:** `AIGateway: move consumers onto provider access` (`Refs: OME-1207`). Not pushed.
+- **Commits:** `AIGateway: move consumers onto provider access` (`Refs: OME-1207`), squash-merged
+  to `main` on 2026-09-17 as `248b0b6de` (#981). Linear closed OME-1207 Done on 2026-09-18.
 - **Gates:** `run_gates.py aigateway --base 0c0abfcf` — **NOT a clean pass. The append-only check
   is RED by design** (see Deviations 1); the owner accepted that deviation for OME-1207 only, and
   it was not waived, silenced, or worked around. The remaining five gates are green: ruff, ruff

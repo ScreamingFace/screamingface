@@ -303,7 +303,25 @@
     };
   }
 
+  // The pinned cache a row offers for replay, or null. A row offers one only when the server
+  // named it (a fully captured public run) AND the page's switch is on; anything that is not a
+  // non-empty string is treated as absent, never rendered.
+  function reproduceCache(entry, switchOn) {
+    var value = entry && entry.pinned_cache;
+    if (switchOn !== true || typeof value !== "string" || value === "") return null;
+    return value;
+  }
+
+  // The Python the Reproduce button copies. JSON.stringify quotes the id as a string literal
+  // Python reads the same way, so an id can never break out of the call.
+  function reproduceSnippet(pinnedCache) {
+    return "import screamingface as sf\nresult = sf.evaluate(pinned_cache=" +
+      JSON.stringify(pinnedCache) + ")";
+  }
+
   return {
+    reproduceCache: reproduceCache,
+    reproduceSnippet: reproduceSnippet,
     isReproducible: isReproducible,
     isParetoMarked: isParetoMarked,
     costNumber: costNumber,

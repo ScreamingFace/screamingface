@@ -75,6 +75,7 @@ from screamingface_engine.runner.fair_share import FairShareGate
 from screamingface_engine.world.config import config_file_digest, load_config
 from screamingface_engine.world.factory import SharedWorld, direct_mount_paths
 from screamingface_engine.world.models.registry import LOCAL_MODEL_PROVIDERS
+from screamingface_engine.world.publication import private_mount_paths
 from screamingface_engine.world.serving import (
     MountTable,
     NodeMountRoute,
@@ -403,6 +404,7 @@ def _install_local_node(
             # issued THROUGH the eval path is still seeded. Closing that would mean the eval path
             # stops evaluating arbitrary expressions, which is the whole point of `serve --local`.
             direct = direct_mount_paths(world)
+            private = private_mount_paths(resolved_config)
             # FEATURE (uniform executor PRD 04, MC-D13): the MOUNTS go through the SAME route
             # code as the deployed App — a direct run on this process's in-process runner,
             # against this shared node — and appear in `/openapi.json`. The node's ASGI surface
@@ -410,7 +412,11 @@ def _install_local_node(
             register_mounts(
                 app,
                 MountTable(
-                    mounts=tuple(m for m in mount_descriptors(world) if m.path in direct),
+                    mounts=tuple(
+                        m
+                        for m in mount_descriptors(world, private_paths=private)
+                        if m.path in direct
+                    ),
                     config_digest=config_file_digest(run_env),
                 ),
                 require_identity=False,

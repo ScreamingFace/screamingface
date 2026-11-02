@@ -155,7 +155,8 @@ def test_an_unpinned_source_says_the_digest_is_the_only_pin() -> None:
     rows: TaskReplayRows = render_task_replay_rows("mgsm_en", _imported(sources=(source,)), "TODO")
 
     assert (
-        "    #     pin unpinned (no upstream hash: the Case Digest is the only pin)\n" in rows.cases
+        "    #     pin unpinned (no inspect_evals hash: the Case Digest is the only pin)\n"
+        in rows.cases
     )
 
 
@@ -420,7 +421,7 @@ def test_excluded_ids_are_written_with_a_reason_left_for_review() -> None:
     )
 
     assert (
-        "        # NAMED DEVIATION — TODO(review): say why upstream's Samples\n"
+        "        # NAMED DEVIATION — TODO(review): say why inspect_evals' Samples\n"
         "        # below are left out.\n"
         "        excluded_sample_ids=(\n"
         '            "stages_full:14",\n'
@@ -586,3 +587,84 @@ def test_a_row_without_nltk_data_writes_no_nltk_line() -> None:
     rows: TaskReplayRows = render_task_replay_rows("agieval_lsat_ar", _imported(), "TODO")
 
     assert "nltk_" not in rows.cases
+
+
+# --- OME-1602 F6: several-letter keys and multiple_correct ------------------------------------
+
+
+def test_a_row_whose_keys_name_several_letters_says_so_in_its_row() -> None:
+    """The several-letter keys are inside the seal, so the row carries the opt-in the image
+    build prepares under; without it Case Preparation would refuse those Cases."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "stereoset", _imported(letter_list_key=True), "TODO"
+    )
+
+    assert "        letter_list_key=True,\n" in rows.cases
+    assert _declared(rows)["stereoset"].letter_list_key is True
+
+
+def test_a_multiple_correct_task_writes_multiple_correct_on_its_row() -> None:
+    rows: TaskReplayRows = render_task_replay_rows(
+        "cyse4_malware_analysis",
+        _imported(facts=_facts(multiple_correct=True)),
+        "TODO",
+    )
+
+    assert "        multiple_correct=True,\n" in rows.benchmark
+
+
+def test_a_one_letter_task_writes_neither_line() -> None:
+    """Absence stays absence: a default row's text, and so every existing row, is unchanged."""
+
+    rows: TaskReplayRows = render_task_replay_rows("agieval_lsat_ar", _imported(), "TODO")
+
+    assert "letter_list_key" not in rows.cases
+    assert "multiple_correct" not in rows.benchmark
+
+
+def test_a_moved_headline_is_flagged_even_with_one_scorer_left() -> None:
+    """[judged, exact] imports with the judge dropped and exact as the new headline; with one
+    scorer left the row writes no Named Scores, and the reviewer is still asked to confirm."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "stand_in",
+        _imported(
+            facts=_facts(
+                mcq=False,
+                scorer="inspect_ai.scorer:exact",
+                dropped_scorers=("asks_the_grader",),
+                headline_differs=True,
+            )
+        ),
+        "TODO",
+    )
+
+    assert "# TODO(review): the Headline Score is the one scorer kept, not inspect_evals'" in (
+        rows.benchmark
+    )
+
+
+# --- OME-1602 PR 6: a function the eval passes its scorer ------------------------------------
+
+
+def test_a_function_scorer_argument_is_written_by_reference_in_its_own_field() -> None:
+    """The reference rides its own field, never scorer_kwargs, where a string means itself."""
+
+    rows: TaskReplayRows = render_task_replay_rows(
+        "drop",
+        _imported(
+            facts=_facts(
+                mcq=False,
+                scorer="inspect_ai.scorer:f1",
+                scorer_function_kwargs={"answer_fn": "inspect_evals.drop.drop:extract_answer"},
+            )
+        ),
+        "TODO",
+    )
+
+    assert (
+        '        scorer_function_kwargs={"answer_fn": "inspect_evals.drop.drop:extract_answer"},\n'
+        in rows.benchmark
+    )
+    assert "scorer_kwargs=" not in rows.benchmark

@@ -10,20 +10,16 @@ from typing import Any
 
 from provider_access_harness import PROVIDER
 
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
 )
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
 from aigateway.core.provider_access import (
     PairAuthorityStore,
     Selector,
+    delete_pair,
+    set_pair_api_key,
 )
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
@@ -32,32 +28,25 @@ MASKED = f"API key ····{KEY[-4:]}"
 DEFAULT = Selector.from_header(None)
 
 
-def admin_of(harness: Any) -> Any:
-    return harness.client.app.state.provider_credential_admin
+async def _accept_key() -> None:
+    return None
 
 
-def set_api_key(harness: Any, name: str | None = "default", key: str = KEY, **kwargs: Any) -> Any:
+def put_pair_key(harness: Any, key: str = KEY) -> Any:
+    """The surviving pair-level key write (D18) — what an intruder key write is since E3."""
     return harness.call(
-        admin_of(harness).set_api_key,
+        set_pair_api_key,
+        harness.client.app,
         harness.account_id,
         PROVIDER,
-        raw_api_key=key,
-        legacy_name=name,
-        **kwargs,
+        key,
+        validate=_accept_key,
     )
 
 
-def delete(harness: Any, name: str = "default") -> None:
-    harness.call(admin_of(harness).delete, harness.account_id, PROVIDER, legacy_name=name)
-
-
-def list_summaries(harness: Any, provider: str | None = None) -> Any:
-    return harness.call(admin_of(harness).list, harness.account_id, provider)
-
-
-def document(harness: Any, name: str = "default") -> Profile | None:
-    index = ProfileIndexStore(credential_store=harness.blobs.store)
-    return harness.call(index.get, harness.account_id, PROVIDER, name)
+def delete(harness: Any) -> None:
+    """The surviving pair-level delete (D18): the pair ends with no credential."""
+    harness.call(delete_pair, harness.client.app, harness.account_id, PROVIDER)
 
 
 def connection(harness: Any, connection_id: str) -> Any:
@@ -72,7 +61,7 @@ def marker(harness: Any) -> Any:
     return harness.call(PairAuthorityStore().read, harness.account_id, PROVIDER)
 
 
-def blob_at_profile_address(harness: Any, name: str = "default") -> str | None:
+def blob_at_name_address(harness: Any, name: str = "default") -> str | None:
     service = credential_service_for(credential_name_for(harness.account_id, name))
     return harness.blobs.read(service, "default")
 
@@ -82,31 +71,15 @@ def blob_at_connection_address(harness: Any, connection_id: str) -> str | None:
     return harness.blobs.read(service, "default")
 
 
-def seed_legacy_provider(harness: Any, provider: str, name: str = "default") -> Profile:
-    profile = Profile(
-        id=profile_id_for(harness.account_id, provider, name),
-        account_id=harness.account_id,
-        provider=provider,
-        name=name,
-        state=ProfileState.AUTHENTICATED,
-    )
-    harness.call(ProfileIndexStore(credential_store=harness.blobs.store).upsert, profile)
-    return profile
-
-
 __all__ = [
     "DEFAULT",
     "KEY",
     "MASKED",
-    "admin_of",
     "blob_at_connection_address",
-    "blob_at_profile_address",
+    "blob_at_name_address",
     "connection",
     "connections",
     "delete",
-    "document",
-    "list_summaries",
     "marker",
-    "seed_legacy_provider",
-    "set_api_key",
+    "put_pair_key",
 ]

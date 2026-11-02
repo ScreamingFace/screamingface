@@ -47,7 +47,6 @@ def test_replay_never_resolves_credentials_or_calls_a_provider(
     account has no connection at all — so a replay that tried any of them could not succeed.
     """
     from aigateway.core.provider_access.connection_backed import ConnectionBackedProviderAccess
-    from aigateway.core.provider_access.profile_backed import ProfileBackedProviderAccess
 
     forbidden: list[str] = []
 
@@ -58,9 +57,10 @@ def test_replay_never_resolves_credentials_or_calls_a_provider(
 
         return _record
 
-    for cls in (ProfileBackedProviderAccess, ConnectionBackedProviderAccess):
-        for method in ("resolve", "authorize"):
-            monkeypatch.setattr(cls, method, _spy(f"{cls.__name__}.{method}"))
+    for method in ("resolve", "authorize"):
+        monkeypatch.setattr(
+            ConnectionBackedProviderAccess, method, _spy(f"ConnectionBackedProviderAccess.{method}")
+        )
     monkeypatch.setattr(
         "aigateway.routes.chat_dispatch._dispatch_with_backpressure", _spy("dispatch")
     )

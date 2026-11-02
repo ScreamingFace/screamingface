@@ -11,6 +11,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import (
     CacheBehavior,
     DuplicateParameterRuleError,
@@ -28,7 +29,6 @@ from aigateway.core.chat_parameters import (
     stream_transport_capability,
     supported_tool_types,
 )
-from aigateway.core.profile_models import AuthType
 
 
 def _rule(

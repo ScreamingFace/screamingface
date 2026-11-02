@@ -43,8 +43,16 @@ sf.evaluate(entry.url4)  # or run it again as a new run, benchmark included`
     <p>
       Published model numbers usually originate with the party that benefits from them, and are
       reported rather than demonstrated. The board is organized around the opposite arrangement: a
-      verified rank is a claim the hosted engine has run itself, and that you can run again from its
-      url4.
+      rank is a claim someone else has already reproduced, and that you can reproduce again.
+    </p>
+
+    <p>
+      A captured run (the default) keeps a pinned cache of its model answers and web-tool results,
+      and <code>sf.evaluate(pinned_cache="…")</code> replays a submission against that cache at $0.
+      The Reproduce button on a captured public row copies this snippet. The Client reads the recipe
+      and seed from the board and returns a report; its single result's
+      <code>reproduction.outcome</code> says whether the full replay is exact. The
+      <RouterLink to="/learn/caching">caching page</RouterLink> explains how.
     </p>
 
     <h2>How a rank happens</h2>

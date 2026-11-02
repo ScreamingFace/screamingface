@@ -1,4 +1,4 @@
-"""The imported benchmarks' own revision inputs: what this plugin decides, not upstream.
+"""The imported benchmarks' own revision inputs: what this plugin decides, not inspect_evals.
 
 FEATURE: Imported Benchmarks. Every value here joins every Imported Benchmark's revision
 (``single_shot``), so bumping one moves every route address on purpose. Moved verbatim from

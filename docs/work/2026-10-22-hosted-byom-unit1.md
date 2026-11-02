@@ -1,0 +1,407 @@
+---
+ticket: OME-1721
+stack: aigateway
+status: done   # planned | in_progress | done | blocked
+started: 2026-10-22
+finished: 2026-10-29
+---
+
+# hosted-byom-unit1 — remote endpoints: chat catalog, shared cache, approved origins
+
+## Intent
+
+Second slice of hosted bring-your-own-model endpoints in the AI Gateway, on top of Unit 0
+(`ca31b88ef`, `bdf5746a4`, OME-1712). It turns the compatibility proof into the common chat
+plumbing: approved HTTP, IP and port origins besides HTTPS with DNS on 443; a catalog and model
+details filtered by the static account grants, with the remaining metadata, admission and
+availability surfaces closed to ungranted accounts; the shared response cache for the eligible
+chat subset through the existing pure projection contract, with and without `max_tokens`; and a
+bounded, reused HTTP client. Engine, classification, UI, Helm, hot reload, Taxonomy, a custom
+DNS or private-address guard and local NATS stay out of scope. Decisions come from the
+owner-held planning pack, kept local by the owner's instruction (not copied into
+`docs/spec`/`docs/plan`). One PR for the whole unit, by the owner's choice.
+
+Owner decisions (2026-10-22):
+
+- The cache projection is body-only. Origin, request path and upstream model never enter key
+  material. A canonical model ID is an immutable semantic binding; retargeting needs a new
+  identity, and allowing a retarget of an old ID would be a separate cache-contract change.
+  A cache hit does not check a changed definition. The live path keeps the origin-bound key
+  check, so a key validated on an old origin is never sent to a new one. A new upstream model
+  under the same alias still breaks the immutable-identity contract.
+- `enabled = false` is the operator kill switch: `participates_in_global_cache` returns False,
+  and a miss or bypass is still refused before upstream I/O. The hook ignores account grants and
+  key state; projection and keys do not depend on `enabled`.
+- Origins: HTTP and HTTPS; FQDN and single-label DNS names, including Docker service names;
+  canonical IPv4; IPv6 in brackets; private and loopback addresses; ports 1 to 65535.
+- Prior-test edits are shown to the owner before any production code changes. Approved as
+  shown: `test_definitions` drops the five now-valid origins from its refusal list and is renamed
+  `test_non_canonical_origins_are_refused`; `test_reader` uses `ftp://` for its invalid origin;
+  `test_plugin` expects the declared model entry; `test_app_regressions` compares the bundled
+  providers' rows only. Pinned in a test-change approval file once the issue is filed.
+- The participation hook requires both: the endpoint is enabled, and the requested alias is a
+  declared chat target of this provider. A removed alias's rows are never served. It still reads
+  no grant and no key.
+- Still refused as origins: unspecified addresses (`0.0.0.0`, `::`), as unsuitable destinations;
+  IPv4-mapped IPv6 in any spelling, hexadecimal included, checked on the parsed address, as a
+  chosen format limit of the prototype rather than a claim that it names no host; an IPv6 zone,
+  which httpx keeps percent-encoded in the host and so would not reach the intended interface.
+  Link-local addresses stay allowed while only the operator writes the config.
+- A future UI does not change this trust model by itself: while a user only proposes an origin
+  and the operator reviews and approves it before activation, approval stays manual. A stronger
+  address guard becomes necessary when untrusted addresses are accepted automatically, or when
+  network isolation is a separate requirement.
+
+## Planned changes
+
+- `plugins/remote_endpoint/definitions.py`: the origin rules above; the default port per scheme
+  is dropped, so equal origins compare equal in the credential blob.
+- `core/endpoint_access.py` and `plugins/remote_endpoint/policy.py`: a `VIEW` operation.
+- `plugins/remote_endpoint/plugin.py`: `register_models()` returns the declared chat targets;
+  `global_cache_projection`, `participates_in_global_cache` and
+  `cache_reference_from_cached_response`; the endpoint's `enabled` flag from composition.
+- New `plugins/remote_endpoint/global_cache.py`: the body-only projection.
+- `plugins/remote_endpoint/request.py`: `max_tokens` keyed instead of bypassed.
+- `plugins/remote_endpoint/transport.py`, `provider_composition.py`, `main.py`: one reused HTTP
+  client per endpoint, created on first use and closed at application shutdown. Each instance
+  owns its client; `close_remote_endpoints(registry)` in the composition module closes them, so
+  `compose_providers` keeps returning the access policy and `test_composition` stays unchanged.
+  The pool is bounded at httpx's own default (100 connections, 20 kept alive); core admission
+  still caps concurrent calls per provider first (4 by default).
+- Routes `models`, `providers`, `model_parameters`, `model_admission`,
+  `provider_access_availability`, `oauth_connections`: a `VIEW` check before a remote endpoint is
+  listed, described or admitted, answering as each route answers an unknown provider; the two
+  listings become `private, no-store` with `Vary: Authorization`.
+- Added after the third review: `packages/screamingface/src/screamingface/_cache/local.py`. The
+  revisions a community-cache pull compares also import the composition module, so they name
+  the configured-endpoint adapter as the local gateway's keys do. Nothing is configured, read or
+  started. This lands in a second package, so at PR-open it gets its own leaf under the epic.
+
+## Test plan
+
+- Origins: every newly accepted form, canonical comparison (`http://h` equals `http://h:80`),
+  refused forms (`0.0.0.0`, `::`, IPv4 inside IPv6, port 0 and 65536, leading-zero IPv4, other
+  schemes); an LM Studio-like `http://<ip>:<port>` fake with a real bearer token in readiness and
+  dispatch; an HTTPS origin keeps certificate verification on.
+- Catalog: a granted account sees its endpoints in `/v1/models`, `/v1/providers` and
+  availability and gets the model contract; an ungranted account and a disabled endpoint get the
+  route's unknown-provider answer with no upstream I/O; admission never adds a remote endpoint to
+  the shared admitted list.
+- Cache: account A misses and account B, granted or not, hits with one upstream call; with and
+  without `max_tokens`, a changed value changes the key; two endpoints with the same upstream model
+  never share a row; a disabled endpoint neither serves nor stores; the projection is pure,
+  deterministic and does not mutate the body.
+- Cache across config changes, each across a restart on the same stores:
+  - participation needs an enabled endpoint and a declared chat alias of this provider;
+  - fill the cache, remove the alias: the request bypasses the cache and is refused with no
+    upstream call;
+  - fill the cache, disable the endpoint: the stored answer is not served and the model is not
+    called;
+  - enable the same unchanged endpoint again: the stored row is served again;
+  - an account without a grant still gets a hit for an enabled, declared target.
+- Transport: concurrent calls reuse one client per endpoint; shutdown closes it; a call after
+  close is a safe 502.
+- SDK pull, in a fresh process with no user environment: the local revisions name
+  `remote_endpoint_adapter` at the adapter's value, a hosted page keyed under another revision
+  of it is refused with `revision_mismatch`, and collecting them never imports the app.
+
+## Acceptance
+
+- The tests above pass through the real handlers against fake HTTP; Unit 0 tests stay green,
+  with only the owner-approved prior-test edits.
+- All aigateway card gates green.
+
+## Outcome (fill at the end — required before COMMIT)
+
+- **Actual files:** as planned, plus `global_cache.py` (new) and five new test files:
+  `test_http_origins`, `test_app_catalog`, `test_global_cache`, `test_app_shared_cache`,
+  `test_endpoint_client`. Prior tests changed only as approved: `test_definitions`,
+  `test_reader`, `test_plugin`, `test_app_regressions`. After the reviews: `test_cache_revision`
+  (new) in the gateway; in the SDK, `_cache/local.py`, the new `test_cache_local_revisions` and
+  the approved fixture edit in `test_cache_local`.
+- **Tickets:** OME-1721 for the gateway. The SDK change is its own leaf, OME-1758, filed under
+  OME-1306 at PR-open on 2026-10-28 with the owner's confirmation; mirror
+  `docs/tasks/2026-10-28-OME-1758-sdk-endpoint-cache-revision.md`.
+- **Commits** (rebased again onto `27364bbf3` on 2026-10-27; every patch carried over unchanged,
+  so the SHAs in this ledger are the rebased ones and the earlier runs below apply to them):
+  - `2d70bdb8a` feat(aigateway): accept approved http and https origins by name or address
+  - `ae3c35926` feat(aigateway): show each configured endpoint only to its granted accounts
+  - `12299b5ec` feat(aigateway): share cached chats to configured endpoints across accounts
+  - `ca401f7ea` feat(aigateway): reuse one bounded HTTP client per configured endpoint
+  - `884916f3b` fix(aigateway): share no cookie and close every endpoint client at shutdown
+  - `f01f3aeb3` fix(aigateway): list only registered providers the caller may see
+  - `83a92b020` fix(aigateway): close every endpoint client even when shutdown is cancelled
+  - `5ff4949aa` fix(aigateway): report the remote endpoint cache revision in every export
+  - `41fa50df6` fix(screamingface): compare the configured endpoint revision on a cache pull
+  - `9ffbb7a0b` docs(aigateway): scope endpoint privacy to the working catalog
+  - `a244a9ecf` fix(aigateway): keep an answer holding the caller's key out of the shared cache
+  - `0ea1d35b7` fix(aigateway): drain endpoint closes through a cancelled shutdown
+  - `268d25edb` fix(aigateway): match every sealed credential in the decoded answer before
+    storing it
+  - `ec46846b1` fix(aigateway): close usage accounting after a cancelled scheduler stop
+  - `239727627` fix(aigateway): match a credential repeated as a JSON number before storing it
+- **Merge:** squash-merged to main on 2026-10-29 as `559630247` (#1590) from branch head
+  `5016e0fc8`, which also carried the ledger commits `fd26ae5e6`, `a8f10d43c` and `5016e0fc8`.
+  The PR checks on that head: 18 passed, 4 skipped. OME-1721 and OME-1758 closed the same day.
+- **Gates:** on the tree committed as `239727627`, `run_gates.py aigateway --base 27364bbf3` is
+  green with 7530 tests collected, 453 in `tests/unit/remote_endpoint`. On the tree committed
+  as `ec46846b1`, the same gates were
+  green with 7524 tests collected, 452 in `tests/unit/remote_endpoint`; the append-only check
+  accepts the approved `test_chat_route_accounting.py` transition. The run before the fixture
+  edit failed those 12 tests and passed the other 7400. The SDK is untouched by the fifth and
+  sixth reviews. After `0ea1d35b7`, the same gates were green with 7510
+  tests collected, 449 in `tests/unit/remote_endpoint`; the append-only check accepts the
+  approved conftest transition. Earlier: after the
+  rebase onto `27364bbf3`, both stacks are green with `--base 27364bbf3`
+  and synced to its lockfiles: the gateway's run with 7504 tests collected, 443 in
+  `tests/unit/remote_endpoint`, and the SDK's with 4939, where `test_cache_local_revisions`
+  runs rather than skips. Main had added one test to that folder,
+  `test_history_purge_endpoints`; no file changed on both sides. On 2026-10-28,
+  `AIGW_TEST_PG=1 uv run pytest -m needs_postgres` from `apps/aigateway`: 72 passed. With the
+  local `pg_dump` 15 the five snapshot upload tests fail against the PostgreSQL 16 container;
+  with `pg_dump` 16 on `PATH` they pass. Before that,
+  `run_gates.py aigateway --base 482460344` after the first rebase: ruff check, ruff format,
+  pyright, `check_no_enterprise`, pytest with coverage at least 80% and the append-only check:
+  all green; 7355 tests collected, 433 in `tests/unit/remote_endpoint`. After `83a92b020` the
+  full run is green again with 7359 and 437, and after `5ff4949aa` with 7363 and 441. The
+  first run for `5ff4949aa` failed once on the login timing test
+  `test_unknown_user_timing_close_to_wrong_password`, which compares bcrypt medians by wall
+  clock and lies outside this branch; it passed three times alone and in the full rerun. After
+  `41fa50df6` both stacks are green against `482460344`: the gateway's run again, with the
+  approval file grown, and `run_gates.py screamingface`, which runs the append-only check with
+  the approved fixture edit, ruff, pyright, pytest with coverage at least 95%, the notebooks,
+  the build and the distribution check, with 4706 tests collected. Its first run stopped at
+  pyright on notebook widgets in files this branch does not touch, as the local venv lacked
+  the notebook extra CI installs; synced with the notebook and runtime extras it is green. After
+  `9ffbb7a0b` the gateway's run is green again with 7364 and 442. With
+  `.claude/test-change-approvals/OME-1721.json` in place the append-only check accepts exactly
+  the five approved test transitions in the gateway and the one in the SDK. The two docstrings
+  approved on 2026-10-27 lie outside the ranges it protects; the approval file pins them anyway.
+  Earlier runs against `fade16614` were green at each part (6912 and 426 tests) and after the
+  first review fixes (6920 and 433).
+- **Review fixes (2026-10-23),** after an external review of the four feature commits:
+  - The shared client kept upstream cookies, so a cookie set on one account's answer rode on the
+    next account's request. The client now uses a cookie jar that keeps nothing. A refusing
+    cookie policy does not work: httpx copies the jar into a plain one before each request.
+  - Shutdown stopped at the first endpoint whose close failed, and a cancelled close could not
+    be repeated. Each endpoint now closes on its own and a failure is logged without its text;
+    the close runs as one shielded task that a repeat call waits for.
+  - `/v1/provider-access` read every stored pair before the route filtered the rows, and still
+    listed the pair of a provider no longer registered. By the owner's choice the listing shows
+    only registered providers the caller may see: the connection-backed port skips any other
+    pair before its Connection or credential state is read, and the route is back to its form
+    on main. The stored pair is kept. The Hosted Engine already drops availability rows outside
+    the provider catalogue (OME-1245), so its users see no change.
+  - One more prior test changed, shown to the owner and approved on 2026-10-23, and pinned in
+    the approval file: `test_provider_access_availability_route` checks `pending` on the
+    registered `gemini-cli` instead of the unregistered `gemini`, and gains a test that an
+    unregistered provider's pair has no row.
+  - Open, awaiting the owner: a 401 or a 405 on `/v1/models` and `/v1/providers` is answered
+    before the handler and carries no private-cache headers. Its body holds no account data.
+    Decided by the owner on 2026-10-29: these answers hold no account-specific data and take no
+    part in the shared LLM response cache, so the missing private-cache headers are accepted as
+    a Unit 1 limit.
+- **Second review (2026-10-27),** on the rebased branch: the three fixes above hold.
+  - An account without a grant can learn a configured endpoint's ID and alias through the
+    shared cache. `GET /v1/cache/entries` lists every account's cached rows with their
+    provider, model, stored answer and metadata. With the cache on, a refused chat reports a
+    cache `miss` where an unknown provider reports `bypass`, because the lookup runs for every
+    account before the grant check. Both match the governing decisions: the product owner
+    confirmed in PR #1433 on 2026-10-21 that every gateway cache row, metadata included, is
+    community data open to every signed-in account; the hosted BYOM design serves a hit to a
+    caller who guessed the model ID, adds no per-account partition, private-cache mode or
+    pre-cache grant gate, and keeps the community-cache policy. What is wrong is the wording:
+    the Unit 0 and Unit 1 comments promise that a tenant cannot learn which endpoints are
+    configured. Open, awaiting the owner's approval of the reworded comments, one of them in a
+    prior test file, and of a cache-on refusal test and a cache-listing test. Decided and done
+    on 2026-10-27, below.
+  - Rows pulled into a local gateway would be served to a local endpoint that reuses a hosted
+    ID with another upstream. The design already forbids retargeting a stable ID.
+  - The media guard from main (OME-1542) runs before the grant check: a remote image URL sent
+    to an ungranted endpoint gets a 422 naming the provider, where an unknown provider gets a
+    400. A caller who guesses the ID learns it from the cache status anyway.
+  - Fixed in `83a92b020`: shutdown starts every close before waiting for any, so a cancelled
+    shutdown leaves no endpoint open, and a close error nobody reads is marked read, so
+    asyncio never prints its text. Two new tests failed before the change.
+  - Fixed in `83a92b020`: a new availability test traps the hidden pair's Connection read; it
+    fails when the skip is moved below that read, which the earlier test missed.
+- **Third review (2026-10-27),** an external review of `4d25190d4`: one finding, fixed in
+  `5ff4949aa`.
+  - The endpoint's adapter revision was part of every cache key but was never registered, so
+    the community pages, the snapshot manifests and the importer's comparison never named it.
+    Rows keyed under another revision of this adapter would load cleanly and never hit; no wrong
+    hit was possible, as the revision is in the hash. The module now registers one revision for
+    every configured endpoint, `remote_endpoint_adapter`, as the OpenRouter adapter does. Four
+    new tests failed before the change: the gateway reports the revision its keys embed, a cache
+    page holding an endpoint row names it, a snapshot manifest names it, and a page keyed under
+    another revision is refused.
+  - Rollout: a snapshot import compares only the names its manifest declares. A manifest from a
+    gateway without this change still loads; a new manifest sent to an older gateway is refused
+    with `revision_mismatch` unless forced, so the importing gateway upgrades first.
+  - Only composition imports the module; the bundled plugin loader does not. The SDK's local
+    pull check builds its revision set from that loader alone, so it neither requires nor checks
+    this name: a pull from an older hosted gateway is not refused, and a change of this revision
+    is not caught on pull. The SDK comment that every hosted row is an OpenRouter row is now out
+    of date. Both were first left for a separate unit, then fixed here after the fourth review.
+  - Already on main and out of scope: the Anthropic, Hugging Face and OpenAI adapters also put
+    a revision into their keys without registering it.
+  - Open, awaiting the owner: this review calls cache metadata public by accepted decision. The
+    hosted BYOM design leaves metadata visibility to the endpoint access policy and keeps it
+    apart from the shared replay of results, so the second review's "match the governing
+    decisions" holds for the cache hit but is not settled for the listing. The comment cleanup
+    waits on that choice. Decided on 2026-10-27, below.
+- **Fourth review (2026-10-27),** of `167537c7d`: the export half holds; the pull half was still
+  open, fixed in `41fa50df6`.
+  - A pull compared revisions built by the bundled plugin loader alone, so a hosted page keyed
+    under another configured-endpoint revision loaded as rows for a provider the process
+    lacked. The local gateway imports composition on every start, so its keys embed that
+    revision. The pull now imports the composition module too; it reads no config and starts
+    nothing. A new test collects the revisions in a fresh process with only `PATH` and an empty
+    `HOME`; two of its three checks failed before the change. It runs where the runtime extra
+    is installed, as in the local gates, and skips in the SDK test job, which installs none.
+  - Prior test changed, shown and approved on 2026-10-27 and pinned in the approval file: the
+    stand-in fixture of `test_cache_local` gains an empty composition module. Run with `fastapi`
+    blocked, as in the SDK test job, the fixture from main fails twice against the fix and the
+    approved one passes.
+  - Rollout: an SDK with this change refuses every pull from a hosted gateway that does not yet
+    report `remote_endpoint_adapter`, since a revision only the local side reports is refused.
+    The hosted gateway with `5ff4949aa` must deploy before an SDK release carries `41fa50df6`.
+    The refusal's hint, to upgrade screamingface, does not fit that case.
+  - Left as is: the precondition at `test_cache_revision.py:46` checks only that a status code
+    is present, not that it is 200.
+- **Owner decision (2026-10-27), community-cache listing:** closes the listing item of the second
+  and third reviews; fixed in `9ffbb7a0b`.
+  - Contract: `/v1/cache/entries` gives every authenticated account the eligible rows of a
+    configured endpoint, with their provider and model IDs, alias, stored response and cache
+    metadata, and no VIEW filter. The catalog of available endpoints stays filtered by grants.
+    A new upstream call on a miss needs the grant and a key; an eligible hit needs neither,
+    under the other cache rules. The listing code does not change.
+  - Comments reworded in `core/endpoint_access.py`, `routes/chat.py` and
+    `routes/cache_entries.py`, and the STORY of this unit's `test_app_catalog.py`: the catalog
+    routes and upstream entry points answer a denied endpoint as an absent one and add no
+    signal of their own; grants do not make identifiers in published cache entries
+    confidential. The old promise that an ungranted tenant cannot learn of an endpoint is gone.
+  - Prior tests changed, docstrings only, shown and approved on 2026-10-27 and pinned in the
+    approval file: `test_app_access` and `test_app_cache_order`. The latter also drops the stale
+    `CacheBypass` claim.
+  - The cache-on refusal was already pinned by Unit 0's
+    `test_an_ungranted_account_gets_a_hit_but_no_new_upstream_call`, which asserts the reported
+    `miss`; no new test for it.
+  - New test in `test_app_shared_cache.py`: an account without the grant finds the endpoint's
+    published row in the listing, with its provider, model, response and cache fields, and not
+    in `/v1/models`; no upstream call. It passed at once, as it pins current behavior. A
+    listing that dropped `byom_` rows made it fail; that mutation was reverted.
+  - Found: a BYOM row's `metadata_json` is null today. The accounting block comes from usage
+    accounting records, and an endpoint call writes none; the design defers that integration.
+    The test checks that the field is present, not its content.
+  - The design text for this contract is prepared at version 7 in a branch of the design
+    repository and not committed.
+- **Fifth review (2026-10-28),** of `4663dd61d`: two findings, both fixed.
+  - High, fixed in `a244a9ecf`: an endpoint answer that repeated the caller's key was stored in
+    the shared cache, so an ungranted account without a key got the key on a hit and in
+    `/v1/cache/entries`. The store now refuses a response holding a credential value sealed
+    into the call's dispatch body, for every provider, and logs the refusal by provider and key
+    prefix only. The caller still gets its live answer, with `X-AIGW-Cache-Write: not_stored`.
+  - New test in `test_app_shared_cache.py`, with a transport that repeats the raw Bearer: the
+    owner gets the key, the other account gets a refusal without it, the listing has no row and
+    no key, the log has no key, and the upstream is called once. Before the fix the write was
+    `stored` and the other account got a hit.
+  - Prior test changed, shown and approved on 2026-10-28 with the owner's comment text and
+    pinned in the approval file: the `remote_endpoint` conftest's fake upstream encodes its echo
+    in base64 and `echo_of` decodes it. Without it six cache tests fail against the fix, since
+    their answers held the key; every comparison already went through `echo_of`.
+  - Medium, fixed in `0ea1d35b7`: a cancelled shutdown stopped waiting for the endpoint closes,
+    so a loop that ended next cancelled them unfinished. `close_remote_endpoints` now keeps
+    waiting through any number of cancellations, up to 5 s in all, then raises the
+    cancellation. A close still running at the bound is logged by provider and left running.
+    The lifespan cleanup runs in nested `finally` blocks, so a cancellation at the usage
+    accounting, endpoint or loopback step skips none of the steps after it.
+  - New tests: the reviewer's schedule, cancelled twice, where the loop ends right after the
+    sweep: both closes finish, where before both stayed unfinished. A close that never ends
+    holds the sweep only to the bound. In the new `test_app_shutdown.py`, a cancellation at
+    each of three steps still runs all five in order; before, every later step was skipped.
+  - Prior test changed, approved as shown on 2026-10-28: on this branch's
+    `test_a_cancelled_shutdown_still_closes_every_endpoint`, the bound is patched to 0.05 s and
+    the poll comment says the sweep gave up at its bound. Its assertions are unchanged; it now
+    pins the give-up path. Production keeps 5 s.
+  - Left as is: a teardown that cancels the close task itself, as `asyncio.run` does to every
+    task once its main coroutine ends, still stops that close. The drain only keeps the
+    shutdown from ending before the closes.
+- **Sixth review (2026-10-28),** of the local commits through `fd26ae5e6`: three findings, all
+  fixed.
+  - High: the shared cache guard could still be bypassed two ways. It reused
+    `credential_values`, which drops a credential under eight characters, and it searched the
+    serialized JSON, where `"` and `\` are escaped. A key holding either was stored: the
+    reviewer's `sk-secret-"quoted"-0001` came back `stored` and another account got it on a hit.
+    The new `core/request_cache/credential_guard.py` takes every non-empty sealed credential
+    with no floor, through the new `sealed_values` that `credential_values` now also reads, and
+    walks the decoded answer's strings and mapping keys before any serialization. A body whose
+    credentials cannot be read counts as holding one.
+  - Contradiction shown to the owner: every key route refuses a key under eight characters
+    after stripping (`normalize_api_key`, used by the admin connection and OAuth routes), so the
+    short-key bypass is not reachable through them today. The floor is removed from the guard
+    anyway, so a credential sealed from any other source counts. The short key is covered by
+    the guard's unit tests; the app test uses the quoted and backslash keys.
+  - New tests: `test_request_cache_credential_guard.py` covers a three-character key, keys with
+    `"` and `\`, a key used as a field name, nested lists and tuples, padding, credential
+    headers and their Bearer token, a header that is not a credential, bodies with no
+    credential, and an unreadable body. In `test_app_shared_cache.py`, an endpoint repeats a key
+    holding `"` or `\`: the owner gets it, the write is `not_stored`, the other account gets no
+    answer, the listing has no row, and the upstream is called once. Against the old guard,
+    restored for the check, both cases fail with the write `stored`. Mutation checks: keeping
+    the floor, skipping mapping keys, skipping tuples, or failing open each fails a guard test.
+  - Medium: a cancellation during the snapshot scheduler's stop skipped the usage accounting
+    close, since both sat in one `try`. The scheduler stop now has its own `finally`.
+    `test_app_shutdown.py` starts its step list with the scheduler, through a stand-in, and adds
+    it as a cancellation case. Against the old lifespan that case fails and the other three
+    pass.
+  - Testing gap: the first regression read `caplog`, which stays empty once the app turns off
+    propagation on its logger, so it passed or failed by test order. It now attaches its own
+    handler to the `aigateway` logger, as `test_dispatch_failure_records.py` does, and passes
+    alone and in its folder.
+  - Prior tests changed, shown and approved on 2026-10-28, two in files this branch adds: the
+    log capture in `test_an_answer_repeating_the_callers_key_is_served_only_to_that_caller`,
+    and the scheduler step and case in `test_app_shutdown.py`.
+  - Second contradiction, found by the gates: with no floor, the OAuth token `tok` in the
+    `_arrange_account` fixture of `test_chat_route_accounting.py` is part of the `input_tokens`
+    field name, so the guard refused every write there and 12 cache tests failed in that file
+    and in `test_succeeded_attempt_cost_route.py`, which shares the fixture. No source path
+    seals a short placeholder key. Approved as shown on 2026-10-28 and pinned in the approval
+    file: the fixture token becomes `tok-oauth-fixture-0001`; no assertion changes.
+- **Seventh review (2026-10-28),** of the local commits through `a8f10d43c`: one finding, fixed.
+  - High: the guard walked strings, mapping keys and containers but skipped numbers, so a key of
+    digits such as `12345678`, which the admin route accepts, repeated as the JSON number
+    `12345678` was stored and served to an ungranted account on a hit and in
+    `/v1/cache/entries`. The serialized check before the sixth review caught it. The walk still
+    matches strings decoded, and now matches every other leaf, a number, a boolean or null, in
+    its JSON text, which is what the replay sends. No length floor comes back. A key split
+    across leaves or encoded is out of scope, as before.
+  - New tests: guard unit cases for that key repeated as an integer, a float, a longer integer
+    and an integer field name, and an answer with numbers, a boolean and null that do not hold
+    it. In `test_app_shared_cache.py`, an endpoint repeats that key as a number: the owner gets
+    it, the write is `not_stored`, the other account gets no answer and no hit, no listed row
+    holds the key, and the upstream is called once. Before the fix the four guard cases failed
+    and the app test failed with the write `stored`; the reviewer's probe passes on the fix
+    in both its string and number cases. No prior test changes.
+- **Deviations:**
+  - A removed alias is never served from the cache, but the two refusals differ: on a bypass the
+    route resolves the caller's key before `prepare_chat_body`, so an account holding a key gets
+    `invalid_model` and an account without one gets the no-key refusal. No upstream call either
+    way; the test asserts both.
+  - DNS labels accept `_`, read from "including Docker service names".
+  - A bracketed host that is not an address (`http://[private-host]`) used to put the host
+    text in the config refusal through the URL parser's message; the parse is now wrapped and the
+    refusal echoes nothing. The same echo existed in Unit 0 for HTTPS origins.
+  - The `max_tokens` rule keeps `projection_revision`: its wire mapping is unchanged, and no row
+    was ever stored for this provider.
+  - The pool bound is httpx's own default (100 connections, 20 kept alive); core admission caps
+    concurrent calls per provider first.
+  - Fixed on 2026-10-27 with the owner's approval: the docstring of `test_app_cache_order.py` no
+    longer says the instance inherits `CacheBypass`; it explains the test-only projection.
+  - Known limit: a chat already in flight when shutdown closes its endpoint client gets httpx's
+    closed-client error as a 500. The server drains in-flight requests before the lifespan
+    shutdown runs, so this window is not handled in code. `aigateway` starts uvicorn with no
+    graceful-shutdown timeout, so the window opens on a forced exit only. Accepted by the owner
+    on 2026-10-29 as a Unit 1 limit: on a forced shutdown an active request can fail. The error
+    does not prove that the upstream did not run the request, and nothing guarantees against a
+    second run or a second charge when the client retries.

@@ -10,6 +10,12 @@ from openai import AsyncOpenAI, Omit
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.cache_ports import CacheBypass
+from aigateway.core.input_modalities import (
+    TEXT_IMAGE_PDF,
+    TEXT_ONLY,
+    InputModality,
+    declared_family_modalities,
+)
 from aigateway.core.plugin_base import CredentialStrategy, ModelEntry, ProviderPluginBase
 from aigateway.core.request_hardening import strip_dispatch_controls
 from aigateway.core.standard_parameters import direct_parameter_observations
@@ -25,12 +31,12 @@ from .runtime_guard import (
 from .settings import OFFICIAL_API_BASE, OpenAIPluginSettings, is_route_valid_model_id
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
-    from aigateway.core.profile_models import AuthMode
     from aigateway.plugins.taxonomy.types import CacheReference
 
 
@@ -77,6 +83,19 @@ def _unsafe_environment_error() -> HTTPException:
     return error
 
 
+# OME-1537: OpenAI documents image and PDF (``file`` part) input for these families.
+# Older families (gpt-3.5, o1-mini) are not declared and report text-only.
+_INPUT_MODALITY_FAMILIES: tuple[tuple[str, tuple[InputModality, ...]], ...] = (
+    ("gpt-5", TEXT_IMAGE_PDF),
+    ("gpt-4.1", TEXT_IMAGE_PDF),
+    ("gpt-4o", TEXT_IMAGE_PDF),
+    # WHY first: o3-mini is text-only, and the first matching prefix wins.
+    ("o3-mini", TEXT_ONLY),
+    ("o3", TEXT_IMAGE_PDF),
+    ("o4", TEXT_IMAGE_PDF),
+)
+
+
 class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
     custom_llm_provider = "openai"
     provider_display_name = "OpenAI"
@@ -88,6 +107,12 @@ class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
             for model in self.settings.default_models
         ]
 
+    def model_input_modalities(self, entry: ModelEntry) -> tuple[str, ...]:
+        # OME-1537: declared family table; a model outside it is unknown -> text-only.
+        return declared_family_modalities(
+            entry.model_name.removeprefix("openai/"), _INPUT_MODALITY_FAMILIES
+        )
+
     def supports_api_key(self) -> bool:
         return True
 
@@ -96,19 +121,19 @@ class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
 
     def api_key_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
     ) -> CredentialStrategy:
         return ApiKeyStrategy(
-            profile_name,
-            service=_credential_service_for(profile_name),
+            credential_name,
+            service=_credential_service_for(credential_name),
             account="default",
             header_builder=lambda api_key: {"Authorization": f"Bearer {api_key}"},
             credential_store=credential_store,
         )
 
-    def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
+    def should_mark_credential_error_on_dispatch_status(self, status_code: int) -> bool:
         return status_code == 401
 
     def api_key_validator(self) -> ApiKeyValidator:

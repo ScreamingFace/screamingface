@@ -129,15 +129,19 @@ def test_the_check_row_records_the_committed_and_expected_letters(tmp_path: Path
     assert result["cases"][1]["grade"]["checks"][0]["outcome"] == "MET"
 
 
-def test_a_case_with_no_row_becomes_a_visible_failure_not_a_zero(tmp_path: Path) -> None:
-    """A Case that never ran has NOT been measured — score None, not 0.0."""
+def test_a_case_with_no_row_becomes_a_visible_failure_with_no_grade_that_counts_zero(
+    tmp_path: Path,
+) -> None:
+    """A Case that never ran has NOT been measured — its Case grade is None, not 0.0 — but
+    medxpert declares ``withhold`` (OME-1642), so the mean counts it as 0 over both selected
+    Cases: (1 + 0) / 2. ``scored_cases`` stays the graded count."""
 
     result = _aggregate(_root(tmp_path), _rows((1, "C")))
 
     second = result["cases"][1]
     assert second["grade"]["score"] is None
     assert second["failures"][0]["code"] == "missing_case_row"
-    assert result["score"] == 1.0
+    assert result["score"] == 0.5
     assert result["metrics"]["scored_cases"] == 1
 
 

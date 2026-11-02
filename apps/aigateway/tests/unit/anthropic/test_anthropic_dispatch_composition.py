@@ -23,8 +23,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.parameter_projection import classify_and_project_chat_parameters
-from aigateway.core.profile_models import AuthType
 from aigateway.core.request_hardening import strip_dispatch_controls
 from aigateway.plugins.anthropic_provider.chat_handler import chat_completion
 from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin

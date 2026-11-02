@@ -6,13 +6,13 @@ from typing import Any
 
 import pytest
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import (
     ProviderDiscoverySnapshot,
     ProviderParameterObservation,
     ProviderToolObservation,
 )
 from aigateway.core.model_parameter_contract import build_model_parameter_document
-from aigateway.core.profile_models import AuthMode
 from tests.unit.core.test_provider_contract_conformance import (
     _document,
     _iter_models,
@@ -38,7 +38,7 @@ def _served_document(
         canonical_id=canonical,
         gateway_provider=plugin.custom_llm_provider,
         auth_mode=auth_mode,
-        scope="account_profile",
+        scope="account_connection",
         context_identity="acct:conformance|prof:1",
         rules=plugin.chat_parameter_rules(model=canonical, auth_type=auth_mode),
         observations=observations,

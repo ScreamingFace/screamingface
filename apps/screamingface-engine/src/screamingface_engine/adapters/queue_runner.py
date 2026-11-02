@@ -207,6 +207,9 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # `capability_lifetime_s` (16.3h), which let a finished run hold a slot for most of a
         # day. Generous against the longest legitimate run, so it never fires in normal use.
         reservation_lease_s: float = DEFAULT_RESERVATION_LEASE_S,
+        # FEATURE (OME-1770 review): the digest of the world config this App serves, stamped on
+        # every run so a worker serving another revision refuses it instead of running it.
+        world_digest: str | None = None,
     ) -> None:
         self._queue = queue
         self._publisher = publisher
@@ -219,6 +222,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # while the app runs, and a model admitted a second ago must reach the very next
         # run — the same rule as the inprocess adapter's `_extra_models`.
         self._extra_models = extra_models
+        self._world_digest = world_digest
         self._reservation_lease_s = reservation_lease_s
         self._depth_ceiling = depth_ceiling
         self._caller_inflight_cap = caller_inflight_cap
@@ -320,6 +324,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 shape=shape,
                 capture=capture,
                 replay_frozen_copy=replay_frozen_copy,
+                world_digest=self._world_digest,
             )
             await self._queue.publish(message, identity=identity)
             # AFTER the publish: a line claiming a run was scheduled when the publish then

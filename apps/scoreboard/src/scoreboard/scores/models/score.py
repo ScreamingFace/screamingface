@@ -53,6 +53,18 @@ class BaseScore(BaseScoreboardModel):
     # `_ENRICHING_FIELDS`, so a change never splits dedup and never dates the frontier.
     # NULL means "no paper". The scoreboard does not check that the link is real.
     paper_url = fields.TextField(null=True)
+    # FEATURE: OME-1596 — open metadata about the authors and the paper, edited like `authors`.
+    # `authors_metadata` is keyed by an author's email as it appears in `authors`:
+    # {"ana@uni.edu": {"full_name": "Ana Silva", "institution": "MIT"}}. `paper_metadata` holds
+    # every paper key EXCEPT `url`, which lives in `paper_url` above (one column, one validator,
+    # one edit-log pair); a read puts it back into the object.
+    #
+    # INVARIANT: display-only, like `authors` and `paper_url`: not in `_content_hash`, not in
+    # `_ENRICHING_FIELDS`. NULL means "never sent", which a read excludes, so the private export's
+    # bytes do not change for a row without metadata. Stored with full email keys; the public
+    # serializer masks them (`scores/schemas.py`).
+    authors_metadata = fields.JSONField(null=True)
+    paper_metadata = fields.JSONField(null=True)
     # FEATURE: OME-1307 — when `authors` or `paper_url` last changed after creation (a PATCH or a
     # same-owner resubmit). NULL means "never edited". Only a change sets it; a request that
     # changes nothing leaves it alone.
@@ -199,6 +211,12 @@ class BaseScore(BaseScoreboardModel):
 class Score(BaseScore):
     class Meta:
         table = "scores"
+        # INVARIANT (OME-1596): one frozen copy names at most one score, so the pinned cache lookup
+        # answers with exactly one row and two concurrent claims cannot both win. NULL may repeat.
+        # WHY `unique_together` and not `unique=True` on the field: the migration then adds an
+        # index (SQLite) or a constraint (PostgreSQL). Altering the field instead makes Tortoise
+        # REBUILD `scores` on SQLite, which drops it under the tables whose foreign keys point here.
+        unique_together = (("frozen_copy_id",),)
         indexes = (
             ("benchmark_id", "score"),
             ("benchmark_id", "spec_id", "submitted_at"),

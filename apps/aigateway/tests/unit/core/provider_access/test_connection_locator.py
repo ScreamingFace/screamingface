@@ -24,13 +24,14 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from aigateway.core.auth_types import AuthType
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
     credential_locator_for,
 )
-from aigateway.core.profile_models import AuthType, credential_name_for
 from aigateway.core.provider_access.connection_locator import (
     credential_name_from_locator,
     credential_strategy_for_connection,

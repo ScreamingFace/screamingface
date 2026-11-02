@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { useEnsembleStore } from "@/lib/ensemble-store";
 import { useModelStore, useProviders } from "@/lib/model-store";
 import { providerPresentation } from "@/lib/provider-presentation";
-import { describeRecipeKind } from "@/lib/recipe";
+import { collectSolos, describeRecipeKind, parseRecipe } from "@/lib/recipe";
 
 const LEGACY_STRATEGY_LABEL = {
   majority_vote: "Majority Vote",
@@ -45,11 +45,9 @@ export default function EnsemblesPage() {
   const ensembles = useEnsembleStore((state) => state.ensembles);
 
   function importRecipe() {
-    const match = importValue.trim().match(/^url4:\/\/([^?]+)\?(.*)$/);
-    if (!match) {
-      setImportError(
-        "Not a valid url4 — expected url4://name?models=…&reduce=…",
-      );
+    const parsed = parseRecipe(importValue);
+    if (!parsed.ok) {
+      setImportError(parsed.error);
       return;
     }
 
@@ -60,11 +58,10 @@ export default function EnsemblesPage() {
       return;
     }
     const knownModelIds = new Set(catalog.map((model) => model.id));
-    const params = new URLSearchParams(match[2]);
-    const models = (params.get("models") ?? "")
-      .split(/[+\s]+/)
-      .filter(Boolean);
-    const unknown = models.filter((model) => !knownModelIds.has(model));
+    const models = collectSolos(parsed.root)
+      .map((solo) => solo.model?.id)
+      .filter((id): id is string => Boolean(id));
+    const unknown = [...new Set(models.filter((model) => !knownModelIds.has(model)))];
 
     if (models.length === 0) {
       setImportError("No models found in that url4.");
@@ -148,7 +145,7 @@ export default function EnsemblesPage() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") importRecipe();
                 }}
-                placeholder="url4://my-recipe?models=anthropic/claude-opus-5+codex/gpt-5&reduce=majority_vote"
+                placeholder="Paste a recipe copied with Share url4"
                 className="h-9 rounded-lg font-mono text-xs"
               />
               <Button size="sm" onClick={importRecipe}>

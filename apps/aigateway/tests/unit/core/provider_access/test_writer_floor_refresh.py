@@ -6,6 +6,9 @@
 # INVARIANT: refresh is not an ownership change — it never advances the generation, and a refresh
 # whose credential moved during its network window writes nothing, marks nothing errored and answers
 # the existing superseded conflict (409 `profile_conflict` / `connection_conflict`).
+# WHY no Profile refresh route here: OME-1209 Stage E3 retired `POST …/profiles/{name}/refresh`
+# (410). Its race tests retired with it; their invariants stand on the dispatch and native twins
+# below, which refresh the Connection a pair resolves to (OME-1209, Stage E, E4a).
 """
 
 from __future__ import annotations
@@ -20,26 +23,26 @@ import httpx
 import pytest
 from connection_backed_admin_probes import (
     KEY,
-    admin_of,
     blob_at_connection_address,
-    blob_at_profile_address,
+    blob_at_name_address,
     connection,
-    document,
     marker,
 )
 from connection_backed_harness import ConnectionBackedHarness
-from connection_backed_oauth_probes import access_token_of, callback, start, use_tokens
-from provider_access_harness import ANTHROPIC, PROVIDER, ProfileBackedHarness
+from connection_backed_oauth_probes import access_token_of, callback, use_tokens
+from provider_access_harness import ANTHROPIC, PROVIDER, RealAppHarness
 
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.errors import AuthError, RefreshSuperseded
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import credential_key_for
-from aigateway.core.profile_models import ProfileState, credential_name_for
 from aigateway.core.provider_access import (
     PairAuthorityStore,
     ResolvePolicy,
     Selector,
     WriteConflict,
+    delete_pair,
+    set_pair_api_key,
 )
 from aigateway.core.provider_access.refresh_guard import (
     ConnectionRefreshOwner,
@@ -52,8 +55,8 @@ Intrusion = Callable[[], Awaitable[Any]]
 
 
 @pytest.fixture
-def legacy(authenticated_client, credential_blobs, monkeypatch) -> ProfileBackedHarness:
-    return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+def legacy(authenticated_client, credential_blobs, monkeypatch) -> RealAppHarness:
+    return RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
 @pytest.fixture
@@ -109,18 +112,24 @@ def an_ownership_claim(h: Any) -> Intrusion:
     return intrude
 
 
+async def _accept_key() -> None:
+    return None
+
+
 def a_key_replacement(h: Any) -> Intrusion:
+    """The D18 admin PUT of a new key — the surviving key write since OME-1209 E3b."""
+
     async def intrude() -> None:
-        await admin_of(h).set_api_key(
-            h.account_id, PROVIDER, raw_api_key=KEY, legacy_name="default"
-        )
+        await set_pair_api_key(h.client.app, h.account_id, PROVIDER, KEY, validate=_accept_key)
 
     return intrude
 
 
 def a_delete(h: Any) -> Intrusion:
+    """The D18 admin DELETE of the pair's credential."""
+
     async def intrude() -> None:
-        await admin_of(h).delete(h.account_id, PROVIDER, legacy_name="default")
+        await delete_pair(h.client.app, h.account_id, PROVIDER)
 
     return intrude
 
@@ -165,43 +174,19 @@ def test_a_lost_refresh_is_not_an_auth_error() -> None:
     assert not issubclass(RefreshSuperseded, AuthError)
 
 
-# --- the legacy Profile refresh route ----------------------------------------------------------
+# --- a `none` pair's Connection, refreshed at dispatch ------------------------------------------
 
 
-def test_a_legacy_refresh_that_lost_the_pair_to_a_key_replacement_keeps_the_new_key(
-    legacy,
-) -> None:
+def test_a_dispatch_refresh_of_a_marked_none_pair_publishes_without_moving_it(legacy) -> None:
     h = legacy
-    h.seed_profile()
-    use_intruding_tokens(h, "fresh-tok", a_key_replacement(h))
-
-    resp = h.client.post(f"/v1/auth/{PROVIDER}/profiles/default/refresh")
-
-    assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"] == {
-        "code": "profile_conflict",
-        "provider": PROVIDER,
-        "profile": "default",
-    }
-    blob = blob_at_profile_address(h)
-    assert blob is not None and json.loads(blob)["api_key"] == KEY
-    doc = document(h)
-    assert doc is not None
-    assert (doc.auth_type, doc.state) == ("api_key", ProfileState.AUTHENTICATED)
-    # INVARIANT: only the key replacement moved the pair; the refresh did not.
-    assert marker(h).generation == 1
-
-
-def test_a_legacy_refresh_of_a_marked_pair_publishes_without_moving_it(legacy) -> None:
-    h = legacy
-    h.seed_profile()
+    connection_id = h.seed_connection(label="work")
     h.call(an_ownership_claim(h))
+    h.blobs.write(connection_service(h, connection_id), "default", expired_blob())
     use_intruding_tokens(h, "fresh-tok", nothing())
 
-    resp = h.client.post(f"/v1/auth/{PROVIDER}/profiles/default/refresh")
+    resolve_and_authorize(h)
 
-    assert resp.status_code == 200, resp.text
-    assert access_token_of(blob_at_profile_address(h)) == "fresh-tok"
+    assert access_token_of(blob_at_connection_address(h, connection_id)) == "fresh-tok"
     pair = marker(h)
     assert (pair.migration_state, pair.generation) == ("none", 1)
 
@@ -272,20 +257,18 @@ def test_a_cached_strategy_refreshes_again_after_an_unrelated_generation_change(
 # --- dispatch (authorize-triggered refresh) ----------------------------------------------------
 
 
-def test_a_dispatch_refresh_on_a_profile_that_lost_the_pair_keeps_the_new_key(legacy) -> None:
-    h = legacy
-    h.seed_profile()
+def test_a_dispatch_refresh_on_a_profile_that_lost_the_pair_keeps_the_new_key(migrated) -> None:
+    h = migrated
+    h.seed_credential()
     h.blobs.write(profile_service(h), "default", expired_blob())
     use_intruding_tokens(h, "fresh-tok", a_key_replacement(h))
 
     with pytest.raises(WriteConflict) as lost:
         resolve_and_authorize(h)
 
-    assert (lost.value.kind, lost.value.subject) == ("superseded", "profile")
-    blob = blob_at_profile_address(h)
+    assert (lost.value.kind, lost.value.subject) == ("superseded", "connection")
+    blob = blob_at_name_address(h)
     assert blob is not None and json.loads(blob)["api_key"] == KEY
-    doc = document(h)
-    assert doc is not None and doc.state is ProfileState.AUTHENTICATED
     assert credential_name_for(h.account_id, "default") in h.evicted()
 
 
@@ -293,7 +276,7 @@ def test_a_dispatch_refresh_on_a_migrated_pair_deleted_in_its_window_resurrects_
     migrated,
 ) -> None:
     h = migrated
-    h.seed_profile()
+    h.seed_credential()
     effective = h.migrated["default"]
     h.blobs.write(profile_service(h), "default", expired_blob())
     use_intruding_tokens(h, "fresh-tok", a_delete(h))
@@ -302,43 +285,35 @@ def test_a_dispatch_refresh_on_a_migrated_pair_deleted_in_its_window_resurrects_
         resolve_and_authorize(h)
 
     assert lost.value.kind == "superseded"
-    assert blob_at_profile_address(h) is None
+    assert blob_at_name_address(h) is None
     assert connection(h, effective).status == "revoked"
 
 
-# --- the migrated facade refresh ---------------------------------------------------------------
-
-
-def test_a_facade_refresh_whose_window_saw_the_pair_deleted_writes_no_blob(migrated) -> None:
-    h = migrated
-    h.seed_profile()
-    use_intruding_tokens(h, "fresh-tok", a_delete(h))
-
-    resp = h.client.post(f"/v1/auth/{PROVIDER}/profiles/default/refresh")
-
-    assert resp.status_code == 409, resp.text
-    # INVARIANT (H-1, now at the first persistence): the delete removed the blob; the refresh
-    # must not write the old credential's tokens back.
-    assert blob_at_profile_address(h) is None
+# --- a re-auth in flight ---------------------------------------------------------------------
 
 
 def test_a_reauth_in_flight_survives_an_ordinary_refresh(migrated) -> None:
     # INVARIANT (§5.3): refresh never advances, so a callback holding the generation its start
     # captured still completes after a refresh published in between.
     h = migrated
-    h.seed_profile()
-    started = start(h)
-    assert started.status_code in (200, 201), started.text
+    h.seed_credential()
+    # WHY the effective row's own label: a native flow named like it re-authenticates the pair.
+    started = h.client.post(
+        "/v1/oauth/connections", json={"provider": PROVIDER, "label": "default"}
+    )
+    assert started.status_code == 201, started.text
+    state, connection_id = started.json()["state"], started.json()["connection_id"]
     before = marker(h).generation
     use_tokens(h, "refreshed")
-    assert h.client.post(f"/v1/auth/{PROVIDER}/profiles/default/refresh").status_code == 200
+    effective = h.migrated["default"]
+    assert h.client.post(f"/v1/oauth/connections/{effective}/refresh").status_code == 200
     assert marker(h).generation == before
     use_tokens(h, "reauthed")
 
-    resp = callback(h, started.json()["state"])
+    resp = callback(h, state)
 
     assert resp.status_code < 400, resp.text
-    assert access_token_of(blob_at_profile_address(h)) == "reauthed"
+    assert access_token_of(blob_at_connection_address(h, connection_id)) == "reauthed"
 
 
 # --- a strategy outside the app ---------------------------------------------------------------
@@ -363,19 +338,6 @@ def test_an_unbound_strategy_still_writes_its_refresh(legacy) -> None:
 
 
 # --- the owner left its address during the window ---------------------------------------------
-
-
-def test_a_legacy_refresh_whose_window_saw_the_profile_deleted_writes_no_blob(legacy) -> None:
-    h = legacy
-    h.seed_profile()
-    use_intruding_tokens(h, "fresh-tok", a_delete(h))
-
-    resp = h.client.post(f"/v1/auth/{PROVIDER}/profiles/default/refresh")
-
-    assert resp.status_code == 409, resp.text
-    assert resp.json()["detail"]["code"] == "profile_conflict"
-    assert blob_at_profile_address(h) is None
-    assert document(h) is None
 
 
 def test_a_native_refresh_whose_row_was_revoked_in_its_window_writes_nothing(legacy) -> None:
@@ -413,25 +375,9 @@ def test_a_guarded_publication_refuses_a_capture_it_did_not_take(legacy) -> None
 # --- a marked pair: the path every pair takes once a G0 writer touched it ----------------------
 
 
-def test_a_legacy_refresh_of_a_marked_pair_loses_to_a_key_replacement(legacy) -> None:
-    # INVARIANT: on a marked pair the key replacement rewrites this blob, so its revision is the
-    # fence — without it the refresh would write the old credential's tokens over the new key.
-    h = legacy
-    h.seed_profile()
-    h.call(an_ownership_claim(h))
-    use_intruding_tokens(h, "fresh-tok", a_key_replacement(h))
-
-    resp = h.client.post(f"/v1/auth/{PROVIDER}/profiles/default/refresh")
-
-    assert resp.status_code == 409, resp.text
-    blob = blob_at_profile_address(h)
-    assert blob is not None and json.loads(blob)["api_key"] == KEY
-    assert marker(h).generation == 2
-
-
-def test_a_dispatch_refresh_of_a_marked_pair_loses_to_a_key_replacement(legacy) -> None:
-    h = legacy
-    h.seed_profile()
+def test_a_dispatch_refresh_of_a_marked_pair_loses_to_a_key_replacement(migrated) -> None:
+    h = migrated
+    h.seed_credential()
     h.call(an_ownership_claim(h))
     h.blobs.write(profile_service(h), "default", expired_blob())
     use_intruding_tokens(h, "fresh-tok", a_key_replacement(h))
@@ -439,7 +385,7 @@ def test_a_dispatch_refresh_of_a_marked_pair_loses_to_a_key_replacement(legacy) 
     with pytest.raises(WriteConflict):
         resolve_and_authorize(h)
 
-    blob = blob_at_profile_address(h)
+    blob = blob_at_name_address(h)
     assert blob is not None and json.loads(blob)["api_key"] == KEY
 
 
@@ -449,7 +395,7 @@ def test_a_token_refresh_of_a_revoked_non_effective_row_on_a_migrated_pair_write
     # WHY this shape: deleting a non-effective row of a migrated pair does not move the marker,
     # so the owner row lock is the only fence on the marked branch.
     h = migrated
-    h.seed_profile()
+    h.seed_credential()
     connection_id = h.seed_connection(label="work")
     h.blobs.write(connection_service(h, connection_id), "default", expired_blob())
     before = marker(h).generation
@@ -470,12 +416,14 @@ def test_a_token_refresh_of_a_revoked_non_effective_row_on_a_migrated_pair_write
 
 
 def test_a_key_replacement_right_after_a_refresh_publication_is_not_reverted(
-    legacy, monkeypatch: pytest.MonkeyPatch
+    migrated, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # INVARIANT (§5.3): tokens and `last_refreshed_at` publish in one transaction; nothing after it
-    # rewrites the document from the snapshot read before the fetch.
-    h = legacy
-    h.seed_profile()
+    # rewrites the credential from the snapshot read before the fetch.
+    h = migrated
+    h.seed_credential()
+    effective = h.migrated["default"]
+    h.blobs.write(profile_service(h), "default", expired_blob())
     use_tokens(h, "fresh-tok")
     real_publish = GuardedRefreshPublication.publish
 
@@ -485,23 +433,24 @@ def test_a_key_replacement_right_after_a_refresh_publication_is_not_reverted(
 
     monkeypatch.setattr(GuardedRefreshPublication, "publish", publish_then_replace)
 
-    resp = h.client.post(f"/v1/auth/{PROVIDER}/profiles/default/refresh")
+    resolve_and_authorize(h)
 
-    assert resp.status_code == 200, resp.text
-    doc = document(h)
-    assert doc is not None and doc.auth_type == "api_key"
-    blob = blob_at_profile_address(h)
+    # WHY the Connection (OME-1209 E4b): the key replacement mirrors no document any more.
+    assert connection(h, effective).auth_type == "api_key"
+    blob = blob_at_name_address(h)
     assert blob is not None and json.loads(blob)["api_key"] == KEY
 
 
-def test_a_dispatch_refresh_stamps_the_profile_in_its_publication(legacy) -> None:
-    h = legacy
-    h.seed_profile()
+def test_a_dispatch_refresh_stamps_the_connection_in_its_publication(migrated) -> None:
+    h = migrated
+    h.seed_credential()
+    effective = h.migrated["default"]
     h.blobs.write(profile_service(h), "default", expired_blob())
     use_tokens(h, "fresh-tok")
+    before = connection(h, effective).last_refreshed_at
 
     resolve_and_authorize(h)
 
-    doc = document(h)
-    assert doc is not None and doc.last_refreshed_at is not None
-    assert access_token_of(blob_at_profile_address(h)) == "fresh-tok"
+    after = connection(h, effective).last_refreshed_at
+    assert after is not None and (before is None or after > before)
+    assert access_token_of(blob_at_name_address(h)) == "fresh-tok"

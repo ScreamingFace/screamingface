@@ -117,6 +117,14 @@ TAGS: list[dict[str, str]] = [
             "Connect provider credentials through the ScreamingFace Engine. " + _ERROR_DIALECT_NOTE
         ),
     },
+    {
+        "name": "Community cache",
+        "description": (
+            "Page through the community request cache (OME-1311): AI Gateway's NDJSON pages, "
+            "proxied unchanged for a signed-in local engine to load into its own gateway. "
+            + _ERROR_DIALECT_NOTE
+        ),
+    },
 ]
 
 

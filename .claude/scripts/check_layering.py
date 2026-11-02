@@ -74,6 +74,10 @@ CONTROL_PLANE = {
     "auth",
     "catalog",
     "cli",
+    # WHY named (OME-1311): the community-cache proxy is a serving-process adapter over the
+    # gateway; left unlisted it would be a shared leaf a Runner Job could import, and could
+    # not reuse `connections.port.Caller`.
+    "community_cache",
     "connections",
     "config",
     "local",

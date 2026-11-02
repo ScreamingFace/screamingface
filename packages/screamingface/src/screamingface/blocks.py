@@ -10,6 +10,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -18,6 +19,9 @@ from screamingface._regex_rule import check_regex
 from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal, _Comparison
 from screamingface.reducer import (
     _MAX_REDUCER_MEMBERS,
+    _MEAN_SIGNAL_USE,
+    _MEDIAN_JUDGE_USE,
+    _NUMERIC_SELECTS,
     BENCHMARK_EXTRACT,
     Reducer,
     _check_judge_weights,
@@ -25,6 +29,8 @@ from screamingface.reducer import (
     _ModelSignal,
     _recovered_weights,
     _ReducerPlan,
+    _refuse_judge_signal,
+    _Statistic,
     _Step,
     _Steps,
     _vote_plan,
@@ -223,7 +229,11 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
             named="sf.Vote(weights=...)",
         ),
         "argmax": _OpRow(
-            "pick", ("select",), ("by_signal",), ("order",), named="sf.Pick(by_signal=...)"
+            "pick",
+            ("select",),
+            ("by_signal",),
+            ("order", "output"),
+            named="sf.Pick(by_signal=...)",
         ),
         "top_k": _OpRow(
             "rank",
@@ -233,18 +243,23 @@ _OPS: Mapping[str, _OpRow] = MappingProxyType(
             one_of=("by", "by_field", "by_signal"),
             named="sf.Rank",
         ),
-        "filter": _OpRow("filter", ("select",), ("where",), ("extract",), named="sf.Filter"),
+        "filter": _OpRow(
+            "filter", ("select",), ("where",), ("extract", "judge"), named="sf.Filter"
+        ),
         "pick_field": _OpRow(
             "pick",
             ("select",),
             ("field",),
-            ("normalize", "order", "equals"),
+            ("normalize", "order", "equals", "output"),
             one_of=("order", "equals"),
             named="sf.Pick(field)",
         ),
         "concat": _OpRow("concat", ("compute",), (), ("separator", "label"), named="sf.Concat"),
-        "median": _OpRow("median", ("select", "compute"), ("extract",), named="sf.Median"),
-        "judge": _OpRow("judge", ("select",), ("judge",), ("rubric",), named="sf.Judge"),
+        "median": _OpRow(
+            "median", ("select", "compute"), ("extract",), ("weights",), named="sf.Median"
+        ),
+        "mean": _OpRow("mean", ("compute", "select"), ("extract",), ("weights",), named="sf.Mean"),
+        "judge": _OpRow("judge", ("select",), ("judge",), ("rubric", "order"), named="sf.Judge"),
         "merge": _OpRow("merge", ("compute",), ("fields",), named="sf.Merge"),
         "context": _OpRow("context", ("compute",), (), named="the Fusion recipe rewrite"),
     }
@@ -376,6 +391,12 @@ def _check_label(op: str, value: object) -> bool:
     return value
 
 
+def _check_output(op: str, value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"sf.Reduce({op!r}) option 'output' must be text")
+    return value
+
+
 # option -> (op, value) -> canonical value
 _CHECKS: Mapping[str, Callable[[str, object], object]] = MappingProxyType(
     {
@@ -395,6 +416,7 @@ _CHECKS: Mapping[str, Callable[[str, object], object]] = MappingProxyType(
         "by": _check_by,
         "judge": _check_judge,
         "rubric": _check_rubric,
+        "output": _check_output,
     }
 )
 
@@ -402,7 +424,12 @@ _CHECKS: Mapping[str, Callable[[str, object], object]] = MappingProxyType(
 @dataclass(frozen=True, slots=True, init=False, eq=False)
 class Reduce(Reducer):
     """One reduce block in the Fusion synthesizer slot; compiles to the same combine call as its
-    named form (block-api ans:Q1). select returns original member text; compute builds a value."""
+    named form (block-api ans:Q1). select returns original member text; compute builds a value.
+
+    A median or a mean block also takes ``select="nearest" | "value"``, the word of sf.Median and
+    sf.Mean, in place of ``mode``: "nearest" is mode "select" and "value" is mode "compute". The
+    block keeps only the mode, so both spellings are one block, with one repr and one url4.
+    """
 
     name: str
     op: str
@@ -415,6 +442,7 @@ class Reduce(Reducer):
         row = _OPS.get(op)
         if row is None:
             raise ValueError(f"unknown sf.Reduce op {op!r}; the v1 ops are {', '.join(_OPS)}")
+        mode, options = _numeric_select(op, mode, options)
         selected_mode = _resolve_mode(op, row, mode)
         _check_option_names(op, row, options)
         checked = {
@@ -483,7 +511,7 @@ class Reduce(Reducer):
         weights = self.options.get("weights")
         if isinstance(weights, tuple) and len(weights) != count:
             raise ValueError(
-                f"sf.Reduce('weighted') has {len(weights)} weights for {count} members"
+                f"sf.Reduce({self.op!r}) has {len(weights)} weights for {count} members"
             )
 
     @classmethod
@@ -511,7 +539,8 @@ def _check_option_names(op: str, row: _OpRow, options: Mapping[str, object]) -> 
     allowed = (*row.required, *row.optional)
     for name in options:
         if name not in allowed:
-            takes = ", ".join(allowed) if allowed else "no options"
+            named = (*allowed, "select") if op in _SELECT_CHOICES else allowed
+            takes = ", ".join(named) if named else "no options"
             raise ValueError(f"sf.Reduce({op!r}) does not take option {name!r}; it takes {takes}")
     for name in row.required:
         if name not in options:
@@ -520,17 +549,52 @@ def _check_option_names(op: str, row: _OpRow, options: Mapping[str, object]) -> 
         raise ValueError(f"sf.Reduce({op!r}) needs exactly one of {', '.join(row.one_of)}")
 
 
-def _median_extract(extract: object) -> Extract:
-    """F19: a median reads numbers, so its normalizer is numeric (D-6) and never the benchmark's."""
+# op -> its select words as an error names them, the default first (the sf.Median / sf.Mean order)
+_SELECT_CHOICES: Mapping[str, str] = MappingProxyType(
+    {"median": "'nearest' or 'value'", "mean": "'value' or 'nearest'"}
+)
 
+
+def _numeric_select(
+    op: str, mode: ReduceMode | None, options: dict[str, object]
+) -> tuple[ReduceMode | None, dict[str, object]]:
+    """The mode and the other options of a block that may give ``select=`` (E4b P11).
+
+    A median or a mean block takes ``select="nearest" | "value"``, the word of sf.Median and
+    sf.Mean, as a second name for ``mode``. The block keeps only the mode, so the url4, the
+    evidence and the repr do not change. A short name only: blocks never pin a version (D-13).
+    """
+
+    choices = _SELECT_CHOICES.get(op)
+    if choices is None or "select" not in options:
+        return mode, options
+    rest = dict(options)
+    select = rest.pop("select")
+    if mode is not None:
+        raise ValueError(f"sf.Reduce({op!r}) takes mode or select, not both")
+    if not isinstance(select, str) or select not in _NUMERIC_MODES:
+        raise ValueError(f"sf.Reduce({op!r}) option 'select' must be {choices}, not {select!r}")
+    return _NUMERIC_MODES[select], rest
+
+
+def _numeric_extract(extract: object, op: str) -> Extract:
+    """F19: a median or a mean reads numbers, so its normalizer is numeric (D-6) and never the
+    benchmark's."""
     assert isinstance(extract, Extract)
     if extract.rule == "benchmark" or extract.normalize not in (None, "numeric"):
-        raise ValueError("sf.Reduce('median') needs a numeric Extract that is not 'benchmark'")
+        raise ValueError(f"sf.Reduce({op!r}) needs a numeric Extract that is not 'benchmark'")
     return Extract(extract.rule, normalize="numeric", **extract.args)
 
 
-def _canonical_median(checked: dict[str, object]) -> None:
-    checked["extract"] = _median_extract(checked["extract"])
+# A median and a mean block differ only in their name and in the advice text that refuses a
+# score:judge weight: one code path builds and rebuilds both.
+
+
+def _canonical_statistic(checked: dict[str, object], statistic: _Statistic, use: str) -> None:
+    checked["extract"] = _numeric_extract(checked["extract"], statistic)
+    weights = checked.get("weights")
+    if isinstance(weights, Signal):
+        _refuse_judge_signal(weights, f"sf.Reduce({statistic!r})", use)
 
 
 def _canonical_weighted(checked: dict[str, object]) -> None:
@@ -539,7 +603,11 @@ def _canonical_weighted(checked: dict[str, object]) -> None:
 
 # op -> the in-place canonicalization of its checked options (BK#4: one canonical block per op)
 _CANONICAL: Mapping[str, Callable[[dict[str, object]], None]] = MappingProxyType(
-    {"median": _canonical_median, "weighted": _canonical_weighted}
+    {
+        "median": partial(_canonical_statistic, statistic="median", use=_MEDIAN_JUDGE_USE),
+        "weighted": _canonical_weighted,
+        "mean": partial(_canonical_statistic, statistic="mean", use=_MEAN_SIGNAL_USE),
+    }
 )
 
 
@@ -585,15 +653,16 @@ def _weighted_plan(block: Reduce) -> _ReducerPlan:
     return _vote_plan(extract, normalize, weights, benchmark_rule=benchmark, judge=judge)
 
 
-def _median_plan(block: Reduce) -> _ReducerPlan:
+def _statistic_plan(block: Reduce, statistic: _Statistic) -> _ReducerPlan:
     extract, _ = _extract_of(block)._steps()
+    weights = cast("tuple[float, ...] | Signal | None", block.options.get("weights"))
     steps = _Steps(
         extract=extract,
         normalize=_Step("numeric"),
-        reduce=_Step("median"),
-        select=_Step("nearest" if block.mode == "select" else "value"),
+        reduce=_Step(statistic if weights is None else f"weighted_{statistic}"),
+        select=_Step("value" if block.mode == "compute" else "nearest"),
     )
-    return _ReducerPlan("median", "answer", steps)
+    return _ReducerPlan(statistic, "answer", steps, weights)
 
 
 def _extract_of(block: Reduce) -> Extract:
@@ -603,7 +672,12 @@ def _extract_of(block: Reduce) -> Extract:
 
 
 _PLANS: Mapping[str, Callable[[Reduce], _ReducerPlan]] = MappingProxyType(
-    {"plurality": _plurality_plan, "weighted": _weighted_plan, "median": _median_plan}
+    {
+        "plurality": _plurality_plan,
+        "weighted": _weighted_plan,
+        "median": partial(_statistic_plan, statistic="median"),
+        "mean": partial(_statistic_plan, statistic="mean"),
+    }
 )
 
 # engine op name -> Extract rule (benchmark has no engine op)
@@ -659,23 +733,33 @@ def _rebuild_vote(spec: Mapping[str, object], *, judge: Judge | None = None) -> 
     raise ValueError("a vote shape this SDK version cannot rebuild")
 
 
-_MEDIAN_MODES: Mapping[str, ReduceMode] = MappingProxyType(
+# The select op of a median or a mean block -> its sf.Reduce mode.
+_NUMERIC_MODES: Mapping[str, ReduceMode] = MappingProxyType(
     {"nearest": "select", "value": "compute"}
 )
+# INVARIANT: the block select words are the select words of sf.Median and sf.Mean (one vocabulary).
+assert frozenset(_NUMERIC_MODES) == _NUMERIC_SELECTS
 
 
-def _rebuild_median(spec: Mapping[str, object]) -> Reduce:
+def _rebuild_statistic(spec: Mapping[str, object], statistic: _Statistic) -> Reduce:
     _no_args(spec["reduce"])
     _no_args(spec["select"])
-    numeric = spec["weights"] is None and _normalize_from_spec(spec) == "numeric"
-    if not numeric or _op_name(spec["reduce"]) != "median":
-        raise ValueError("a median shape this SDK version cannot rebuild")
+    weights = _recovered_weights(spec)  # the one recovery rule; a refusal is a ValueError
+    reduce = statistic if weights is None else f"weighted_{statistic}"
+    if _normalize_from_spec(spec) != "numeric" or _op_name(spec["reduce"]) != reduce:
+        raise ValueError(f"a {statistic} shape this SDK version cannot rebuild")
     extract = _extract_from_spec(spec, "numeric")
-    return Reduce("median", mode=_MEDIAN_MODES[_op_name(spec["select"])], extract=extract)
+    options: dict[str, Any] = {} if weights is None else {"weights": weights}
+    mode = _NUMERIC_MODES[_op_name(spec["select"])]
+    return Reduce(statistic, mode=mode, extract=extract, **options)
 
 
 _REBUILD: Mapping[str, Callable[[Mapping[str, object]], Reduce]] = MappingProxyType(
-    {"vote": _rebuild_vote, "median": _rebuild_median}
+    {
+        "vote": _rebuild_vote,
+        "median": partial(_rebuild_statistic, statistic="median"),
+        "mean": partial(_rebuild_statistic, statistic="mean"),
+    }
 )
 
 

@@ -25,6 +25,11 @@ class BoundedJsonResponse:
     status_code: int
     payload: Any | None
     retry_after_seconds: int | None
+    # WHY the raw response too: a provider whose dispatch holds a response to stricter rules than
+    # `payload` reflects (media type, strict finite JSON, structure bounds) can apply the SAME
+    # decoder to what readiness received. Both stay within the 64 KiB bound above.
+    content_type: str | None = None
+    body: bytes = b""
 
 
 def bounded_retry_after_seconds(value: int) -> int | None:
@@ -141,13 +146,23 @@ class ValidationHttpSession:
 
                     payload: Any | None = None
                     if body:
-                        payload = json.loads(body)
+                        try:
+                            payload = json.loads(body)
+                        except (ValueError, RecursionError):
+                            # WHY only a success re-raises: an error body that is not JSON (a
+                            # plaintext 429, an HTML 401) carries no evidence either way, so it
+                            # reaches the classifier as an empty body does, with its status and
+                            # Retry-After intact. A success that is not JSON is a broken answer.
+                            if response.is_success:
+                                raise ApiKeyValidationTransportError from None
                     return BoundedJsonResponse(
                         status_code=response.status_code,
                         payload=payload,
                         retry_after_seconds=_retry_after_seconds(
                             response.headers.get("retry-after")
                         ),
+                        content_type=response.headers.get("content-type"),
+                        body=bytes(body),
                     )
         except ApiKeyValidationTransportError:
             raise

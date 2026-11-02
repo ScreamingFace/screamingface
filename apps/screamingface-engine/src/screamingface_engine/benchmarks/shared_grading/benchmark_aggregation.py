@@ -80,7 +80,9 @@ from screamingface_engine.benchmarks.aggregation import (
 )
 from screamingface_engine.benchmarks.case_records import abstain_mark
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult, Failure
+from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.graded_answer import GradedAnswer
+from screamingface_engine.benchmarks.media_parking import park_cases_media
 from screamingface_engine.benchmarks.progress import completed_case, grading_progress
 from screamingface_engine.benchmarks.shared_grading.attempt_fold import fold_case_attempts
 from screamingface_engine.benchmarks.shared_grading.case_grades import (
@@ -122,6 +124,9 @@ class GradeRequest:
         row: the benchmark-decoded evaluation envelope — the judge's work is inside it.
         material: the benchmark's grading material for this Case (rubric points today;
             a label or verifier command for later grading modes). Opaque to the shared grading code.
+        finish_reason: why the Candidate's model stopped, in the provider's own word
+            (``"stop"``; ``"length"`` when the token limit cut the reply off), or ``None``
+            when unknown. A grade may read it: a cut-off reply never gave its final answer.
     """
 
     case_id: CaseId
@@ -129,6 +134,9 @@ class GradeRequest:
     answer: CasePayload | None
     row: Mapping[str, Any]
     material: object
+    # WHY defaulted: only the inspect scorer adapter reads it; every other hook, and every
+    # request built by hand, keeps its shape.
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,6 +214,10 @@ class BenchmarkAggregation:
             there would contradict its own message.
         inverted_grade: the Benchmark's Case scores are already 1 − its eval's grade
             (OME-1400). Stamped onto the run result so a replayed report can show it.
+        failure_policy: the Benchmark's declared policy (OME-1642), required and
+            keyword-only: it decides whether a Case that never got a numeric grade counts 0 in
+            the score (``withhold``) or leaves it (``coverage_declare``). A default here would
+            let a hand-built Benchmark pick a score denominator nobody declared.
     """
 
     reader: CaseGradeReader
@@ -226,6 +238,7 @@ class BenchmarkAggregation:
     # row, so marking side by side would buy it nothing. A Benchmark whose hook calls a
     # judge sets `CASE_GRADING_CONCURRENCY`.
     case_grading_concurrency: int = 1
+    failure_policy: FailurePolicy = field(kw_only=True)
 
     def aggregate(
         self,
@@ -302,7 +315,9 @@ class BenchmarkAggregation:
         published, in roll-call order.
         """
 
-        with grading_progress(benchmark_id, benchmark_revision, scorer):
+        with grading_progress(
+            benchmark_id, benchmark_revision, scorer, failure_policy=self.failure_policy
+        ):
             case_results: list[CaseResult] = []
             marking: Callable[..., AsyncGenerator[CaseResult]] = (
                 self.iter_case_results
@@ -321,7 +336,18 @@ class BenchmarkAggregation:
                 async for result in stream:
                     case_results.append(result)
                     # INVARIANT: publish only after canonical grading; observing never regrades.
-                    completed_case(benchmark_id, benchmark_revision, result, scorer)
+                    completed_case(
+                        benchmark_id,
+                        benchmark_revision,
+                        result,
+                        scorer,
+                        failure_policy=self.failure_policy,
+                    )
+            # FEATURE (OME-1271, PR 5): park each Case's pictures and files in the run's
+            # result store, under the sha256 its echoed placeholder carries, so a researcher
+            # can open one later. WHY a thread: the store's writer is synchronous, and this is
+            # the run's event loop.
+            await asyncio.to_thread(park_cases_media, [case.input for case in selected_cases])
             # Stage 5 — fold the marks into the class results.
             finalized = finalize_candidate_result(
                 benchmark_id=benchmark_id,
@@ -329,12 +355,19 @@ class BenchmarkAggregation:
                 selected_cases=list(selected_cases),
                 cases=case_results,
                 scorer=scorer,
+                failure_policy=self.failure_policy,
                 inverted_grade=self.inverted_grade,
             )
             observed = {case.case_id for case in case_results}
             for case in finalized.cases:
                 if case.case_id not in observed:
-                    completed_case(benchmark_id, benchmark_revision, case, scorer)
+                    completed_case(
+                        benchmark_id,
+                        benchmark_revision,
+                        case,
+                        scorer,
+                        failure_policy=self.failure_policy,
+                    )
             return finalized.as_payload()
 
     async def iter_case_results(
@@ -499,19 +532,17 @@ class BenchmarkAggregation:
         if result is None:
             # Stage 4 — the hook: the one per-benchmark call, data in, grade out.
             assert row is not None and material is not None
+            fields: CandidateFields = _candidate_fields(row)
             outcome: CaseGradeOutcome = await self.grade_case(
                 GradeRequest(
                     case_id=selected_case.case_id,
                     input=TextPayload(text=selected_case.input),
                     # A refusal or empty answer carries no output payload; its text
                     # rides on the assembled result, not through the hook.
-                    answer=(
-                        TextPayload(text=output)
-                        if (output := _candidate_fields(row).output) is not None
-                        else None
-                    ),
+                    answer=None if fields.output is None else TextPayload(text=fields.output),
                     row=row,
                     material=material,
+                    finish_reason=fields.finish_reason,
                 )
             )
             result = self._graded_result(selected_case, row, outcome, extra_metadata)

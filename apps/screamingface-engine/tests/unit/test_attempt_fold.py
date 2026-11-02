@@ -308,6 +308,7 @@ def _aggregate(rows: list[object], expected: list[str]) -> dict[str, Any]:
     """Run the shared marking room over one Case's Attempts row, scoring the mean."""
 
     aggregation = BenchmarkAggregation(
+        failure_policy="withhold",
         reader=CaseGradeReader(
             benchmark_label="Test", error_type=ValueError, decode_case_grade=_decode
         ),

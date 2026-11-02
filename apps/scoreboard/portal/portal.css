@@ -295,11 +295,17 @@ table .btn { white-space: nowrap; }
   margin: 0 0 var(--space-6);
 }
 
-/* ---- responsive ------------------------------------------------------ */
-@media (max-width: 639px) {
-  /* sf:// deep-links are not useful on narrow screens; collapse the column. */
-  .col-run { display: none; }
+/* ---- Run column: Reproduce stacked under Copy ------------------------- */
+/* Two copy actions in one cell, one above the other, left-aligned like the single button. */
+.run-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
 }
+
+/* WHY: Copy and Reproduce remain useful on mobile. Keep the Run column in the existing
+   horizontally scrollable table at every width, including for keyboard navigation. */
 
 /* ---- Weights line in the Backends cell --------------------------------- */
 /* The SFDS .status recipe at full tone WITHOUT its .on state: .on is success green, and green

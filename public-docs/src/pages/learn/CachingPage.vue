@@ -66,6 +66,278 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       up the community's hits, and that is the real trade against the local path's independence.
     </p>
 
+    <h2>Reproducing a submission</h2>
+
+    <p>
+      A cache saves money, but it is not a record. Its rules can change between releases, and a
+      model can be retired. So a run can make a <strong>pinned cache</strong> of itself. A frozen
+      copy keeps every model answer and every web-tool result of the run. It is separate from the
+      cache. It does not use the cache's keys or rules, and it is kept forever.
+    </p>
+
+    <p>
+      <code>sf.evaluate(..., capture=True)</code> makes a pinned cache of the run. Capture is off by
+      default. A leaderboard submission keeps the copy id and the capture status.
+      <code>sf.evaluate(pinned_cache="…")</code> reads the published score's
+      <RouterLink to="/learn/url4">url4</RouterLink> and answer seed from the board and replays the
+      captured answers. A replay never captures; explicit <code>capture=True</code> is an error. The
+      <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
+      calls and the outcomes.
+    </p>
+
+    <p>
+      An optional <code>url4=</code> must be the same parsed recipe as the published one. An
+      explicit <code>answer_seed=</code> must match the stored seed; <code>0</code> is a seed, and a
+      seedless capture replays without one. Use <code>score_id=</code> to replay a private score you
+      submitted, logging in when asked. A capture with no public score needs its original
+      <code>url4</code> and seed, and returns no verdict.
+    </p>
+
+    <p>
+      To inspect the first few cases, pass <code>limit=n</code> with a published score, where
+      <code>0 &lt; n &lt; published case count</code>. A partial replay is never judged or recorded:
+      <code>reproduction</code> is <code>None</code>. The Engine must still be able to rebuild the
+      published recipe and a compatible subset; otherwise the Client raises
+      <code>PlanningError</code> with code <code>partial_replay_unavailable</code>. This is
+      different from a partial capture, which cannot be reproduced.
+    </p>
+
+    <h3>Make a pinned cache</h3>
+
+    <p>
+      When capture is on (<code>capture=True</code>), the Engine opens a pinned cache in the
+      <RouterLink to="/learn/ai-gateway">AI gateway</RouterLink> when the run starts. The gateway
+      stores each model answer. It stores the answer that the caller got, whether the answer came
+      from the cache or from a live call. Model calls of the benchmark's judges are stored too. The
+      Engine stores each web-search and web-fetch result as the tool returned it, before the Engine
+      cuts it to length. When the run ends, the Engine seals the copy. A sealed copy cannot change.
+    </p>
+
+    <p>
+      An <code>exact</code> replay shows that the copy is internally consistent: its stored answers
+      give the stored score. The copy keeps each web-tool result as the run reported it. An
+      <code>exact</code> replay does not prove that those results are the true web results.
+    </p>
+
+    <p>
+      Capture adds no call to a provider, so a captured run costs the same as a normal run. It is
+      best effort. If the gateway cannot store something, the run still goes on and still returns
+      its result. The copy is then <code>partial</code>.
+    </p>
+
+    <p>
+      Keep one thing in mind. The copy id is part of a published score. Any authenticated gateway
+      account that has the id and sends the exact request can read the stored answer. On a private
+      board, only the submitter of a score can read it, so no one else gets its copy id. Capture is
+      off by default. Pass <code>capture=True</code> only to a run whose answers you want to share.
+    </p>
+
+    <h3>Local runs</h3>
+
+    <p>
+      The local runtime starts a real AI gateway with its own SQLite database. A capture on the
+      local runtime is always <code>partial</code>, with the reason <code>local</code>. Its copy
+      lives only in that local gateway. A local capture is never reproducible on a board. To upload
+      a local copy to the hosted gateway is a planned follow-up.
+    </p>
+
+    <h3>Complete and partial</h3>
+
+    <p>
+      A captured run has a <code>capture_status</code> and, when the copy opened, a
+      <code>pinned_cache</code>. The status is <code>complete</code> only when the copy opened, the
+      copy sealed, every model call and every web-tool result is stored, and the run did not use the
+      local runtime. In all other cases it is <code>partial</code>. A partial score is not replayed:
+      the Client raises <code>ReproductionError</code> with code <code>not_reproducible</code> and
+      starts no run. Its <code>.reproduction.reason</code> is <code>partial</code>.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Why it is partial</th>
+          <th>What happened</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Open</td>
+          <td>
+            The Engine could not open the copy when the run started. The run went on without capture
+            and has no copy id.
+          </td>
+        </tr>
+        <tr>
+          <td>Seal</td>
+          <td>
+            The gateway did not confirm the seal at the end of the run. A run that is cancelled is
+            never sealed. A copy that is not sealed cannot be replayed.
+          </td>
+        </tr>
+        <tr>
+          <td>Failed</td>
+          <td>
+            The gateway could not store a model answer or a web-tool result. For example, one entry
+            was larger than the gateway's limit for one entry.
+          </td>
+        </tr>
+        <tr>
+          <td>Refused</td>
+          <td>
+            The gateway did not take a call into the copy. It never stores a streaming call. It also
+            refuses a call when the copy is unknown, is not open, or belongs to another account.
+          </td>
+        </tr>
+        <tr>
+          <td>Missing</td>
+          <td>
+            The gateway did not say whether it stored a call. An older gateway, from before frozen
+            copies, does this. So does a gateway that refused the call before it checked the copy,
+            for example because the request body was not valid.
+          </td>
+        </tr>
+        <tr>
+          <td>Error</td>
+          <td>
+            A model call or a web tool ended with no answer to store, for example after a time-out
+            or a cancel, and no later call with the same request was stored. A later call with the
+            same request that was stored removes this reason.
+          </td>
+        </tr>
+        <tr>
+          <td>Ambiguous</td>
+          <td>
+            The copy can hold an answer that the model did not use. This is the case when the Engine
+            sent a call again because of a <code>max-age</code> bound, or when it retried a call
+            after a transport error. The Engine cannot tell which answer is the right one.
+          </td>
+        </tr>
+        <tr>
+          <td>Local</td>
+          <td>
+            The run used the local runtime. Its copy lives only in the local gateway, so a board
+            cannot replay it.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      A model call that ends with an error from the provider is stored with that error. It does not
+      make the run partial. A replay gives the same error, so the case fails in the same way as in
+      the original run.
+    </p>
+
+    <p>
+      A run that is not captured has no <code>capture_status</code> (<code>None</code>), and no
+      pinned cache id. A run is not captured when you do not pass <code>capture=True</code>, or when
+      the Engine did not capture it. <code>None</code> means unknown, not partial. If capture is on
+      and the Engine did not capture the run (an older Engine), the Client emits an
+      <code>EvaluationWarning</code>, and the result keeps <code>None</code>. A score from a
+      leaderboard that predates pinned caches has no status too. The Client raises
+      <code>ReproductionError</code> with code <code>not_reproducible</code> and
+      <code>.reproduction.reason == "unknown"</code>. It does the same for a score with no pinned
+      cache id or no benchmark revision.
+    </p>
+
+    <h3>Replay from the copy</h3>
+
+    <p>
+      <code>sf.evaluate(pinned_cache="…")</code> asks the Engine to run the score's url4 and answer
+      seed against the pinned cache. The Engine must confirm that it runs in replay mode. In a
+      confirmed replay, every model call goes to the copy, and so does every web-tool read. The copy
+      answers each call with the answer that it stored for the same call. A call matches a stored
+      answer when it has the same case, the same Attempt of that case, the same request, and the
+      same position among identical calls in that case. In each case and Attempt, the first
+      identical call gets the first stored answer, the second gets the second, and so on. Nothing
+      calls a provider, and nothing calls the web-search service. A confirmed replay costs
+      <strong>$0</strong>.
+    </p>
+
+    <p>
+      A replay does not depend on the cache or on the models of today. It works after a model is
+      retired, after a provider plugin is removed, and after the cache rules change. A request that
+      the copy cannot answer fails its case. The replay never buys the answer.
+    </p>
+
+    <p>
+      A replay is <code>exact</code> when it gives the stored score and case count on the same
+      benchmark revision. When the score has a case digest, the replay must also give the same
+      digest. The digest covers each case of the run: its id, its status and its score. A case with
+      no grade has no score.
+    </p>
+
+    <p>
+      If the Engine does not confirm replay mode when the run starts, it may run the url4 as a
+      normal, paid run. So the Client stops the run and raises <code>ReproductionError</code> with
+      code <code>replay_unsupported</code>. If that stop fails, an
+      <code>EvaluationWarning</code> says that the run may still be running and spending. An Engine
+      can also confirm the start and then finish a run whose summary does not name the copy. That
+      run is already over, and it may have paid providers. The Client reports it with the same
+      exception too, rather than returning a replay report.
+    </p>
+
+    <h3>When a replay fails</h3>
+
+    <p>
+      A full published replay returns a <code>Report</code>. Its single
+      <code>CandidateResult.reproduction</code> holds the verdict: read <code>.outcome</code> for
+      <code>exact</code> or <code>failed</code>, and <code>.reason</code> for a failure. A replay
+      can fail even when its aggregate score matches:
+    </p>
+
+    <ul>
+      <li>
+        <strong>An older engine</strong> may not know replay. The Client raises
+        <code>ReproductionError</code> with code <code>replay_unsupported</code>;
+        <code>exc.reproduction</code> carries the failure.
+      </li>
+      <li>
+        <strong>A copy that is not available.</strong> The copy is unknown, or it is not sealed (for
+        example, the Engine stopped during the original run), or the gateway is older and has no
+        pinned caches. A web-tool lookup or a model call that the gateway does not answer, because
+        of a transport failure or an error other than not found, is the same. Cases fail, and the
+        replay is reported as <code>frozen_copy_unavailable</code>.
+      </li>
+      <li>
+        <strong>A changed engine or SDK</strong> may build a request in another way. The copy has no
+        answer for that request, and the case fails with <code>frozen_copy_miss</code>.
+        <code>missed_cases</code> lists these cases.
+      </li>
+      <li>
+        <strong>Different web tools.</strong> A run that had no web tools (it had no web-search
+        connection) can differ from a replay on an Engine that offers them. The requests then
+        differ, and the case misses the copy.
+      </li>
+      <li>
+        <strong>Same request, different answers.</strong> With sampling, or with the cache off, the
+        same request can get different answers. Each case and Attempt keeps its own answers, in the
+        order that the calls were created. One limit remains: the judge calls for different Attempts
+        of one case share their answers. A replay can swap two identical judge calls that run at the
+        same time, and then the score can differ (<code>score_differs</code>).
+      </li>
+      <li>
+        <strong>Different case results.</strong> The score and the case count match, but the case
+        digest does not. The Client reports <code>cases_differ</code>.
+      </li>
+      <li>
+        <strong>A changed benchmark</strong> grades a different exam, so the numbers cannot be
+        compared. The Client reports <code>benchmark_revision_changed</code>.
+      </li>
+    </ul>
+
+    <p>
+      A replay call can fail before the copy answers it, for example when every transport attempt
+      fails. That call fails its case with <code>frozen_copy_unavailable</code>. The Engine does not
+      send it again as a new call, because a new call would read the next stored answer, which
+      belongs to another call. A <code>frozen_copy_miss</code> is not sent again either.
+    </p>
+
+    <p>
+      A failed replay is not recorded. It is not proof against the score, because of the known
+      limits above. It is not a confirmation either.
+    </p>
+
     <h2>Where the compute comes from</h2>
 
     <p>

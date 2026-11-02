@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, SecretStr
 
-from .profile_models import AuthType
+from .auth_types import AuthType
 
 
 class AdminConnectionOut(BaseModel):

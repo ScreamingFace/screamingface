@@ -36,12 +36,12 @@ from __future__ import annotations
 
 from typing import Any
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ParameterSchema,
     ToolCapability,
 )
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.request_cache.global_eligibility import BYPASS_DECLARED
 from aigateway.core.request_cache.global_keys import (
     CacheBypass,

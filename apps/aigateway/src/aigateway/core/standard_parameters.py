@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from .auth_types import AuthMode
 from .chat_parameters import (
     CacheBehavior,
     ParameterProjectionRule,
@@ -22,7 +23,6 @@ from .chat_parameters import (
     ToolCapability,
     supported_tool_types,
 )
-from .profile_models import AuthMode
 
 # Bounded schemas for the standard OpenAI-compatible optional fields the gateway
 # forwards; ranges follow the OpenAI Chat Completions contract.

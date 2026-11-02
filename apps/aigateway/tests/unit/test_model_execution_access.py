@@ -4,8 +4,9 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import AuthType, Profile, ProfileState, profile_id_for
+from aigateway.core.auth_types import AuthType
+from tests.unit.migrated_pair_seed import seed_migrated_pair
+from tests.unit.seed_state import SeedState
 
 _MODEL = "anthropic/claude-opus-4-8"
 _GEMINI = "gemini-cli/gemini-2.5-flash"
@@ -20,7 +21,7 @@ def no_execution(authenticated_client, monkeypatch):
     # INVARIANT: discovery must never inject/refresh credentials or run inference.
     import litellm
 
-    from aigateway.core.provider_access import ProfileBackedProviderAccess
+    from aigateway.core.provider_access import ConnectionBackedProviderAccess
 
     # WHY: public schema discovery is independent of access configuration.
     monkeypatch.setattr(authenticated_client.app.state, "discovery_runtime", None)
@@ -28,7 +29,7 @@ def no_execution(authenticated_client, monkeypatch):
     # can hand a credential to a request. The datasheet route resolves a target and reads its
     # auth mode; it must never take the next step.
     inject = AsyncMock(side_effect=AssertionError("discovery injected credentials"))
-    monkeypatch.setattr(ProfileBackedProviderAccess, "authorize", inject)
+    monkeypatch.setattr(ConnectionBackedProviderAccess, "authorize", inject)
     monkeypatch.setattr(
         litellm, "acompletion", AsyncMock(side_effect=AssertionError("discovery ran inference"))
     )
@@ -73,23 +74,23 @@ def test_profileless_environment_access_is_live_and_secret_free(
 
 
 async def _profile(
-    credential_blobs,
+    client,
     account_id,
     *,
     name="default",
     auth_type: AuthType = "api_key",
-    state=ProfileState.AUTHENTICATED,
+    state=SeedState.AUTHENTICATED,
 ):
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", name),
-            account_id=account_id,
-            provider="anthropic",
-            name=name,
-            state=state,
-            auth_type=auth_type,
-        )
+    # WHY: an api-key target's resolve reads its blob's operational register, so that blob
+    # exists unvalidated.
+    seed_migrated_pair(
+        client,
+        account_id,
+        "anthropic",
+        name=name,
+        state=state,
+        auth_type=auth_type,
+        credential="sk-ant-api03-never-validated" if auth_type == "api_key" else None,
     )
 
 
@@ -100,16 +101,19 @@ async def test_stored_target_is_configured_without_credential_validation(
 ):
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
     _assert_access(_details(authenticated_client), "missing")
-    await _profile(credential_blobs, account_id, auth_type=auth_type)
-    # WHY: a profile record is configuration, not proof that its secret is valid.
+    await _profile(authenticated_client, account_id, auth_type=auth_type)
+    # WHY: a stored target is configuration, not proof that its secret is valid.
     response = _details(authenticated_client)
     _assert_access(response, "configured")
     assert account_id not in response.text
 
 
 @pytest.mark.asyncio
-async def test_other_account_profile_does_not_grant_access(authenticated_client, credential_blobs):
-    await _profile(credential_blobs, "different-account")
+async def test_other_account_connection_does_not_grant_access(
+    authenticated_client, credential_blobs, provisioned_user_factory
+):
+    other = provisioned_user_factory("different-account")["id"]
+    await _profile(authenticated_client, other)
     _assert_access(_details(authenticated_client), "missing")
 
 
@@ -117,15 +121,15 @@ async def test_other_account_profile_does_not_grant_access(authenticated_client,
 @pytest.mark.parametrize(
     ("state", "status", "code"),
     [
-        (ProfileState.PENDING, 409, "profile_pending_auth"),
-        (ProfileState.ERROR, 401, "auth_required"),
+        (SeedState.PENDING, 409, "profile_pending_auth"),
+        (SeedState.ERROR, 401, "auth_required"),
     ],
 )
 async def test_profile_failures_remain_typed(
     authenticated_client, credential_blobs, state, status, code
 ):
     account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    await _profile(credential_blobs, account_id, state=state)
+    await _profile(authenticated_client, account_id, state=state)
     response = _details(authenticated_client)
     assert response.status_code == status
     assert response.json()["detail"]["code"] == code
@@ -194,12 +198,12 @@ def test_active_connection_ambiguity_and_explicit_selector_rejection(authenticat
 def test_access_only_changes_preserve_parameter_contract_identity(
     authenticated_client, monkeypatch, env_name
 ):
-    from aigateway.core.provider_access import profile_backed
+    from aigateway.core.provider_access import connection_backed
 
     # WHY: real Gemini key changes can also select a different auth mode. Hold
     # that independent digest input fixed to isolate the access-only contract.
     # OME-1207: pinned at the port's op 3 (`contract_auth_mode`), where the route now reads it.
-    monkeypatch.setattr(profile_backed, "contract_auth_mode", Mock(return_value="api_key"))
+    monkeypatch.setattr(connection_backed, "contract_auth_mode", Mock(return_value="api_key"))
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     missing = _details(authenticated_client, _GEMINI)

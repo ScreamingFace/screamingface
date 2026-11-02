@@ -21,15 +21,15 @@ from ..core.discovery_runtime import (
     auth_scoped,
     static_discovery_outcome,
 )
+from ..core.endpoint_access import EndpointOperation, accessible_plugin
 from ..core.model_capabilities import canonical_model_id
 from ..core.model_parameter_contract import build_model_parameter_document
 from ..core.provider_access import ResolvePolicy, provider_access_for
-from ..core.registry import ProviderRegistry
 from .provider_access_http import refusals_as_http, selector_from_request
 
 if TYPE_CHECKING:
+    from ..core.auth_types import AuthMode
     from ..core.plugin_base import ProviderPluginBase
-    from ..core.profile_models import AuthMode
 
 router = APIRouter()
 
@@ -87,8 +87,11 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     if not provider:
         raise HTTPException(status_code=400, detail="model must be provider-prefixed")
 
-    registry: ProviderRegistry = request.app.state.providers
-    plugin = registry.get(provider)
+    # INVARIANT: a provider this account may not VIEW (an ungranted or disabled endpoint) gets the
+    # unregistered answer, before the model lookup could tell the two apart.
+    plugin = accessible_plugin(
+        request.app, provider, account_id=account_id, operation=EndpointOperation.VIEW
+    )
     if plugin is None:
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
 
@@ -155,7 +158,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         canonical_id=model,
         gateway_provider=provider,
         auth_mode=auth_mode,
-        scope="account_profile",
+        scope="account_connection",
         context_identity=target.context_stamp,
         rules=plugin.chat_parameter_rules(model=model, auth_type=auth_mode),
         observations=observations,
@@ -171,11 +174,12 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     # FEATURE: evaluation access preflight (OME-1195).
     # INVARIANT: configuration is separate from the datasheet's auth-mode binding.
     # A keyless datasheet still exists; only chat's resolved target or an allowed
-    # profileless mode establishes configuration. Never inject/validate secrets here.
+    # credentialless mode establishes configuration. Never inject/validate secrets here.
     configured: bool = target.kind == "stored"
-    if not configured and plugin.allows_chatless_profile():
+    if not configured and plugin.allows_chatless_credential():
         configured = (
-            plugin.profileless_auth_mode() is not None or plugin.available_auth_modes() == ("none",)
+            plugin.credentialless_auth_mode() is not None
+            or plugin.available_auth_modes() == ("none",)
         )
     document["context"]["execution_access"] = "configured" if configured else "missing"
     return document

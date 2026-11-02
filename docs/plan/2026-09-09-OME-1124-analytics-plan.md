@@ -19,6 +19,18 @@ Scoreboard database aggregates, website instrumentation and identity linking are
 
 Never implement apps/analytics inside the SDK issue as an untracked second landing. Shared schemas can be a versioned HTTP contract; do not introduce a new shared package until needed. Engine internals and public website are not changed by this plan. A new service requires CODEOWNERS, toolchain/lockfile, CI, release lane, dependabot entry and deployment registration per repository routing rules.
 
+### Local implementation authorization — 25 September 2026
+
+Owner authorized the local SDK slice in conversation after confirming anonymous
+dev ingestion and edge configuration. Work begins at origin/main `1c22a64a` in
+`codex/local-sdk-analytics`. Use the existing local/remote classification for
+BYOK/hosted, as explicitly confirmed by the owner; no extra mode setting or Engine
+change. Compose local consent storage and a background sink at the SDK boundary.
+The initial destination remains the verified dev analytics service. A text-only,
+nonblocking choice notice appears at explicit interactive connection setup; users
+choose through the Python controls. Colab, identity linking, production rollout
+and PR creation are not authorized by this implementation unit.
+
 ## 2. SDK foundation (after OME-1152) — meaningful TDD slices
 
 Invoke sdlc-python before any Python code. Use a worktree per approved implementation unit from current origin/main; recheck source drift. Preserve existing tests and add behavior tests rather than assertions mirroring implementation.
@@ -65,7 +77,7 @@ In the test PostHog destination, prove:
 - Failed-only, cancelled-only, dropped and session-only cases are shown accurately; no unknown terminal event fabricated.
 - Anonymous capture has no person association, no identify/alias, no geographic or raw-request enrichment. Gateway retries preserve all PostHog dedup keys; duplicate events are eventually merged, not immediately unique.
 - SDK submission-success events describe observed attempts and temporal funnel sequence, not new database rows or proven causal attribution. Authoritative database aggregate work is deferred.
-- 90-day raw-event retention and deletion can be exercised; any longer-lived aggregates have no browser/installation/session IDs. Dashboard access is restricted.
+- Disclosures accurately describe PostHog-managed retention without a fixed deletion deadline; any longer-lived aggregates have no browser/installation/session IDs. Dashboard access is restricted.
 
 Browser matrix on owned HTTPS origin: Chrome/Safari normal profiles, reload, full quit/relaunch, second notebook/new runtime, opt-out/re-enable, lost/stale consent, browser cookie expiry, blocked cookies, private mode and network outage. Record supported/degraded/unsupported outcomes; do not treat private-mode new IDs as persistence bugs. Multi-day retention needs elapsed real time and a consented scheduled follow-up, not a changed system clock claim. Local matrix: CLI+Jupyter same user, different config/user, fresh virtualenv, concurrent processes, readonly home and remote persistent/ephemeral per-user storage.
 
@@ -76,3 +88,24 @@ For SDK implementation run the screamingface card gates from repository root: `u
 This documentation-only design receives path/reference checks and git diff --check; running the product suite would not validate an unimplemented design. Each implementation unit later needs its own work ledger, tests/gates, conventional commit with Refs, PR and green CI. Do not close OME-1124 when this design is complete; delivery acceptance remains unchecked.
 
 First end-to-end milestone: explicit opt-in -> evaluation start and classified finish -> schema-validated test PostHog event -> second session recognises the same permitted ID -> opt-out blocks further events. Roll out local SDK first if Colab's nonblocking integration remains unresolved; do not add identity linking to solve continuity gaps.
+
+
+## 20 October endpoint configuration amendment
+
+Add a shared, validated, process-cached analytics origin resolver. Route native /v1/events and browser /bridge/consent through it. Document explicit dev/staging overrides and verify destination consistency, invalid configuration, and no runtime destination changes.
+
+
+### Approved explicit Colab opt-in confirmation — 20 October 2026
+
+`sf.analytics.enable()` waits at most three seconds, including worker queue delay,
+for browser consent and a usable ID. It prints a clear enabled/unavailable message
+and returns None so notebooks do not display internal state. Detailed state is
+available through `sf.analytics.status()`; CLI controls retain JSON output. Timeout invalidates the pending
+acceptance so late replies cannot enable local tracking. Automatic setup, event
+delivery, and local opt-out remain nonblocking; browser decline persistence is
+still asynchronous. Verification must cover immediate evaluation readiness,
+unavailable storage, timeout/late replies and concurrent opt-out.
+
+Public `disable()` also returns None and prints confirmation that local tracking
+has stopped. A pending browser save is explicitly labelled as pending; details
+remain in status(). CLI disable retains its JSON status output.

@@ -19,10 +19,11 @@ Three consequences of that, all load-bearing:
 
 WHY the timing is better than `OME-1130` assumed: the ticket says durations must come from
 envelope publish times and warns they carry publish latency. They do not. `SpanData` carries its
-own `start`/`end`, captured in the runner when the observation event arrives
-(`executor.py:358`, `datetime.now(UTC)`), so a duration is the node's own, not a publish
-artifact. It is still observation time rather than exact `resolve` boundaries — but the
-publish-latency caveat the ticket asks to be written down does not apply.
+own `start`/`end`, captured in the runner when the observation event arrives (`executor.py`
+`_RunState`: `start` is a `datetime.now(UTC)` anchor and the duration is `time.monotonic()`, so a
+host clock step cannot invert a span), so a duration is the node's own, not a publish artifact.
+It is still observation time rather than exact `resolve` boundaries — but the publish-latency
+caveat the ticket asks to be written down does not apply.
 """
 
 from __future__ import annotations

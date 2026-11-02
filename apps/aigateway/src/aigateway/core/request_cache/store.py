@@ -138,6 +138,42 @@ async def record_hit_metadata(entry_id: uuid.UUID, when: datetime) -> None:
     )
 
 
+def _reject_non_finite(value: str) -> None:
+    raise ValueError(f"non-finite JSON constant: {value}")
+
+
+def _parse_finite_decimal(value: str) -> Decimal:
+    try:
+        parsed = Decimal(value)
+        binary_value = float(parsed)
+    except (InvalidOperation, OverflowError, ValueError) as exc:
+        raise ValueError(f"invalid JSON number: {value}") from exc
+    if not parsed.is_finite() or not math.isfinite(binary_value):
+        raise ValueError(f"non-finite JSON number: {value}")
+    return parsed
+
+
+def decode_cached_response(response_json: str) -> dict[str, Any]:
+    """The cached response a lookup serves; ``ValueError`` / ``TypeError`` when it cannot be.
+
+    INVARIANT: the one decoder for a stored ``response_json`` — a lookup serves exactly what this
+    accepts, and the community-cache loader admits only rows this accepts (OME-1311), so a
+    pulled row can never sit in the local cache as a key no lookup can serve.
+    """
+    response = json.loads(
+        response_json,
+        parse_constant=_reject_non_finite,
+        # Keep persisted fractional JSON exact while validating the cached row. Accounting does
+        # not certify cached money because this row cannot prove raw-provider provenance; the
+        # response boundary restores Decimal carriers to floats so cached JSON numbers keep their
+        # prior wire shape.
+        parse_float=_parse_finite_decimal,
+    )
+    if not isinstance(response, dict):
+        raise ValueError("cached payload is not a JSON object")
+    return response
+
+
 class TortoiseRequestCacheStore:
     """Tortoise-backed implementation of the shared exact-request cache."""
 
@@ -208,31 +244,8 @@ class TortoiseRequestCacheStore:
             if metadata is None:
                 self._warn_unreadable_metadata(key_hash, len(row.metadata_json))
 
-        def reject_non_finite(value: str) -> None:
-            raise ValueError(f"non-finite JSON constant: {value}")
-
-        def parse_finite_decimal(value: str) -> Decimal:
-            try:
-                parsed = Decimal(value)
-                binary_value = float(parsed)
-            except (InvalidOperation, OverflowError, ValueError) as exc:
-                raise ValueError(f"invalid JSON number: {value}") from exc
-            if not parsed.is_finite() or not math.isfinite(binary_value):
-                raise ValueError(f"non-finite JSON number: {value}")
-            return parsed
-
         try:
-            response = json.loads(
-                row.response_json,
-                parse_constant=reject_non_finite,
-                # Keep persisted fractional JSON exact while validating the cached row.
-                # Accounting does not certify cached money because this row cannot prove
-                # raw-provider provenance; the response boundary restores Decimal carriers
-                # to floats so cached JSON numbers keep their prior wire shape.
-                parse_float=parse_finite_decimal,
-            )
-            if not isinstance(response, dict):
-                raise ValueError("cached payload is not a JSON object")
+            response = decode_cached_response(row.response_json)
         except (ValueError, TypeError) as exc:
             logger.warning(
                 "request cache entry %s… could not be decoded (%s); refusing to serve it and "

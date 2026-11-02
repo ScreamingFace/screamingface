@@ -15,13 +15,18 @@ client = sf.Client()
 [(b.id, b.display_name) for b in client.leaderboards.list()][:3]`
 const listRunOut = `[('arc_agi_2', 'ARC-AGI-2'), ('contracteval', 'ContractEval'), ('draco', 'DRACO')]`
 
-const submit = `report = client.evaluate(recipe, benchmark="ifeval", limit=1)
-client.leaderboards.submit(
+const submit = `report = client.evaluate(recipe, benchmark="ifeval")
+score = client.leaderboards.submit(
     report.candidates.only,
     authors=["alice@example.com", "bob@example.org"],
-    paper_url="https://arxiv.org/abs/2601.00001",
+    authors_metadata={"alice@example.com": {"full_name": "Alice Smith"}},
+    paper_metadata={"title": "Our ensemble", "url": "https://arxiv.org/abs/2601.00001"},
 )`
 
+const reproduce = `replay = client.evaluate(score_id=score.id)
+result = replay.candidates.only
+if result.reproduction is not None:
+    print(result.reproduction.outcome, result.reproduction.reason, result.reproduction.recorded)`
 </script>
 
 <template>
@@ -36,13 +41,14 @@ client.leaderboards.submit(
       <code>Leaderboard</code> itself, alongside <code>LeaderboardInfo</code> for a board's
       identity, <code>LeaderboardEntry</code> for a ranked row, <code>LeaderboardBaseline</code> for
       a published number to measure against, and <code>LeaderboardScore</code> for the full record a
-      submission creates. <code>ScoreMetadataEvent</code> is one row of a score's edit log.
+      submission creates. <code>ScoreMetadataEvent</code> is one row of a score's edit log, and
+      <code>Reproduction</code> is the verdict attached to a replayed <code>CandidateResult</code>.
     </p>
 
     <Note>
-      These are the only values that do not come from the engine. They come from the leaderboard, a
-      separate service set by <code>scoreboard_url</code> on a
-      <RouterLink to="/sf-client/api/clients">Client</RouterLink>.
+      Leaderboard values come from a separate service set by <code>scoreboard_url</code> on a
+      <RouterLink to="/sf-client/api/clients">Client</RouterLink>. The SDK creates
+      <code>Reproduction</code> by comparing a replayed result with the published score.
     </Note>
 
     <div class="not-prose">
@@ -174,8 +180,9 @@ client.leaderboards.submit(
           <td><code>Url4</code></td>
           <td>
             The expression that produced it. Pass it to
-            <RouterLink to="/sf-client/api/clients">evaluate()</RouterLink> to run the recipe
-            again.
+            <RouterLink to="/sf-client/api/clients">evaluate()</RouterLink> for a fresh run that may
+            incur provider costs. To replay the captured answers, use
+            <code>evaluate(pinned_cache=...)</code> or <code>evaluate(score_id=...)</code>.
           </td>
         </tr>
         <tr>
@@ -186,7 +193,10 @@ client.leaderboards.submit(
         <tr>
           <td><code>authors</code></td>
           <td><code>tuple[str, ...]&nbsp;|&nbsp;None</code></td>
-          <td>The ordered credit line, with email domains removed by the public leaderboard.</td>
+          <td>
+            The ordered public credit line. Email domains are normally omitted; full addresses
+            distinguish authors whose local parts collide.
+          </td>
         </tr>
         <tr>
           <td><code>verified_by_screamingface</code></td>
@@ -333,8 +343,9 @@ client.leaderboards.submit(
           <td><code>authors</code></td>
           <td><code>tuple[str, ...]&nbsp;|&nbsp;None</code></td>
           <td>
-            The ordered, privacy-trimmed credit line. This is separate from
-            <code>submitted_by</code>, which records who sent the result.
+            The ordered public credit line, using local parts unless full addresses are needed to
+            distinguish authors. This is separate from <code>submitted_by</code>, which records who
+            sent the result.
           </td>
         </tr>
         <tr>
@@ -353,18 +364,35 @@ client.leaderboards.submit(
           <td>The link to the paper that reports the result, when one was set.</td>
         </tr>
         <tr>
-          <td><code>metadata_updated_at</code></td>
-          <td><code>datetime&nbsp;|&nbsp;None</code></td>
+          <td><code>authors_metadata</code></td>
+          <td><code>Mapping[str, Mapping[str, object]]&nbsp;|&nbsp;None</code></td>
           <td>
-            When the authors or the paper link last changed. <code>None</code> if never. The portal
-            shows it as "Metadata edited &lt;date&gt;" next to the paper link.
+            Immutable metadata for each author, keyed by their public author identifier. Usually the
+            email's local part; full addresses disambiguate matching local parts. Submit and edit
+            use full email addresses instead.
           </td>
         </tr>
         <tr>
-          <td><code>frozen_copy_id</code></td>
+          <td><code>paper_metadata</code></td>
+          <td><code>Mapping[str, object]&nbsp;|&nbsp;None</code></td>
+          <td>
+            Immutable paper metadata, with <code>url</code> filled from <code>paper_url</code>.
+            <code>None</code> when no object is stored; <code>{}</code> is an empty object.
+          </td>
+        </tr>
+        <tr>
+          <td><code>metadata_updated_at</code></td>
+          <td><code>datetime&nbsp;|&nbsp;None</code></td>
+          <td>
+            When the authors, paper link or metadata last changed. <code>None</code> if never. The
+            portal shows it as "Metadata edited &lt;date&gt;" next to the paper link.
+          </td>
+        </tr>
+        <tr>
+          <td><code>pinned_cache</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
-            The id of the frozen copy that the run made. <code>None</code> when the run was not
+            The id of the pinned cache that the run made. <code>None</code> when the run was not
             captured.
           </td>
         </tr>
@@ -372,8 +400,9 @@ client.leaderboards.submit(
           <td><code>capture_status</code></td>
           <td><code>"complete"&nbsp;|&nbsp;"partial"&nbsp;|&nbsp;None</code></td>
           <td>
-            Whether the frozen copy holds the whole run. A local capture is always
-            <code>"partial"</code>. <code>None</code> means unknown.
+            Whether the pinned cache holds the whole run. <code>"partial"</code> scores cannot be
+            replayed. A local capture is always <code>"partial"</code>. <code>None</code> means
+            unknown.
           </td>
         </tr>
         <tr>
@@ -413,9 +442,9 @@ client.leaderboards.submit(
 
     <p>
       One row of a score's edit log, returned by <code>metadata_events(score_id)</code>. Each change
-      to the authors or the paper link writes one row. The log can hold author emails that were
-      removed on purpose, so it is not public: only the submitter and the board's operators can read
-      it.
+      to the authors, paper link or metadata writes one row. The log can hold author emails that
+      were removed on purpose, so it is not public: only the submitter and the board's operators can
+      read it.
     </p>
 
     <table>
@@ -457,5 +486,188 @@ client.leaderboards.submit(
         </tr>
       </tbody>
     </table>
+
+    <h2>Reproduction</h2>
+
+    <p>
+      The verdict on <code>report.candidates.only.reproduction</code> after
+      <code>client.evaluate(pinned_cache=…)</code> or <code>client.evaluate(score_id=…)</code>. The
+      same calls work with <code>AsyncClient</code> (awaited) and module-level
+      <code>sf.evaluate</code>. A partial replay or a capture without a public score has
+      <code>reproduction=None</code>. A partial or unknown published capture, or an Engine that does
+      not acknowledge replay, raises <code>ReproductionError</code>; its
+      <code>.reproduction</code> carries the verdict. The
+      <RouterLink to="/learn/caching">caching page</RouterLink> explains how a pinned cache is made
+      and replayed.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="3" :code="reproduce" />
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>outcome</code></td>
+          <td><code>"exact"&nbsp;|&nbsp;"failed"&nbsp;|&nbsp;"not_reproducible"</code></td>
+          <td>
+            <code>"exact"</code>: the replay gave the stored score and case count on the same
+            benchmark revision, and the same case digest when the score has one.
+            <code>"failed"</code>: it ran, or tried to, and did not match.
+            <code>"not_reproducible"</code>: the score has no complete pinned cache, so no run
+            started; this outcome is carried by <code>ReproductionError</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>reason</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            Why the outcome is not exact. <code>None</code> when it is exact. See the table below.
+          </td>
+        </tr>
+        <tr>
+          <td><code>missed_cases</code></td>
+          <td><code>tuple[int&nbsp;|&nbsp;str, ...]</code></td>
+          <td>
+            The ids of cases the pinned cache could not answer. Filled only when
+            <code>reason</code> is <code>"frozen_copy_miss"</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>recorded</code></td>
+          <td><code>bool</code></td>
+          <td>Whether the board stored this exact reproduction.</td>
+        </tr>
+        <tr>
+          <td><code>record_error</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            Why an exact replay could not be recorded. The outcome stays <code>"exact"</code>.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      The Client checks a replay in this order and reports the first problem. A score that is not
+      reproducible starts no run, so its reason comes before any replay. A missing or unavailable
+      copy is checked before a failed run, because a run that missed the copy has nothing to
+      compare.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th><code>outcome</code></th>
+          <th><code>reason</code></th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>not_reproducible</code></td>
+          <td><code>partial</code></td>
+          <td>
+            The score is <code>capture_status="partial"</code>. A local capture also gets this
+            reason: the board does not store the partial reasons, so the reason is never
+            <code>local</code>. No run starts.
+          </td>
+        </tr>
+        <tr>
+          <td><code>not_reproducible</code></td>
+          <td><code>unknown</code></td>
+          <td>
+            The score has no <code>capture_status</code>, no <code>pinned_cache</code> or no
+            benchmark revision. No run starts.
+          </td>
+        </tr>
+        <tr>
+          <td><code>failed</code></td>
+          <td><code>replay_unsupported</code></td>
+          <td>
+            The Engine did not confirm replay mode. When the Engine did not echo the replay at the
+            start, the Client stopped the run. If the stop failed, an
+            <code>EvaluationWarning</code> says the run may still be running and spending. An Engine
+            can also confirm the start and then finish a run whose summary does not name the copy.
+            That run is already over and may have called providers. The Client does not report it as
+            a replay.
+          </td>
+        </tr>
+        <tr>
+          <td><code>failed</code></td>
+          <td><code>frozen_copy_miss</code></td>
+          <td>
+            The copy had no answer for some calls. <code>missed_cases</code> lists their cases. The
+            replay bought nothing.
+          </td>
+        </tr>
+        <tr>
+          <td><code>failed</code></td>
+          <td><code>frozen_copy_unavailable</code></td>
+          <td>
+            The copy is unknown or not sealed, or the gateway has no pinned caches (an older
+            gateway), or the gateway did not serve a model call or a web-tool lookup of the replay.
+            The cases fail, and the run finishes.
+          </td>
+        </tr>
+        <tr>
+          <td><code>failed</code></td>
+          <td><code>run_failed</code></td>
+          <td>The replayed run itself failed, and the cause is not a missing copy.</td>
+        </tr>
+        <tr>
+          <td><code>failed</code></td>
+          <td><code>benchmark_revision_changed</code></td>
+          <td>
+            The benchmark is now a different revision, so the numbers cannot be compared. A changed
+            benchmark can also show as <code>frozen_copy_miss</code>, which is checked first.
+          </td>
+        </tr>
+        <tr>
+          <td><code>failed</code></td>
+          <td><code>score_differs</code></td>
+          <td>The score or the case count is not the stored one. The comparison is exact.</td>
+        </tr>
+        <tr>
+          <td><code>failed</code></td>
+          <td><code>cases_differ</code></td>
+          <td>
+            The score and the case count match, the score has a <code>case_digest</code>, and the
+            replay's digest is not the stored one.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      Only an <code>"exact"</code> full replay is recorded, and only when
+      <code>record_reproduction=True</code> (the default). A failed record never changes the
+      outcome.
+    </p>
+
+    <p>
+      Pass <code>score_id</code> as a <code>UUID</code> or string, not a
+      <code>LeaderboardScore</code>. Bad argument types raise <code>TypeError</code>; conflicting
+      ids, recipes or seeds raise <code>ValueError</code>. The Client reads the published score
+      first, and that read raises
+      <RouterLink to="/sf-client/api/errors"><code>LeaderboardError</code></RouterLink> if it fails.
+      <code>replay_unsupported</code> becomes <code>ReproductionError</code>; other
+      <code>ExecutionError</code> instances propagate. When the Client cannot stop a run that the
+      Engine did not confirm as a replay, it emits an <code>EvaluationWarning</code>. The
+      <RouterLink to="/learn/caching">caching page</RouterLink> explains what makes a score
+      <code>"partial"</code>.
+    </p>
+
+    <p>
+      A leaderboard call that cannot be completed safely raises
+      <RouterLink to="/sf-client/api/errors">LeaderboardError</RouterLink>.
+    </p>
   </DocLayout>
 </template>

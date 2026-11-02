@@ -30,6 +30,7 @@ from typing import Any
 
 import pytest
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import (
     GATEWAY_OWNED_FIELDS,
     CacheBehavior,
@@ -37,7 +38,6 @@ from aigateway.core.chat_parameters import (
     ParameterSchema,
 )
 from aigateway.core.parameter_projection import WRAPPER_KEY
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.request_cache.global_keys import (
     BYPASS_DECLARED,
     EXCLUDED_TRANSPORT_FIELDS,
@@ -492,6 +492,13 @@ def test_a_dotted_top_level_key_bypasses() -> None:
     # top-level key spelled that way is malformed addressing — never a silent
     # second door into a keyed parameter.
     assert _reason(_body(**{"provider_params.top_k": 3})) == "unknown_parameter"
+
+
+@pytest.mark.parametrize("path", ["reasoning.max_tokens", "unknown.path", "x.y"])
+def test_an_unknown_direct_dotted_parameter_bypasses(path: str) -> None:
+    # INVARIANT: cache eligibility runs before dispatch classification. A dotted path without a
+    # rule must bypass, or a hit could answer 200 for a request whose miss path returns 400.
+    assert _reason(_body(**{path: "value"})) == "unknown_parameter"
 
 
 def test_a_provider_rule_set_that_cannot_be_normalized_bypasses() -> None:

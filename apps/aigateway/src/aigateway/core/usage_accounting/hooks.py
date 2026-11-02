@@ -53,6 +53,16 @@ _EVENT_STREAM = "text/event-stream"
 
 MAX_RAW_EVIDENCE_BYTES = 256 * 1024
 
+# WHY a second, larger cap: a long reasoning answer is easily over 256 KiB, and dropping its
+# raw body forces the mapper onto LiteLLM's converted usage, whose cost is a lossy float and
+# therefore unpriced. A successful body up to this size is still parsed losslessly, but only
+# the fields below are retained, so what is held for the request stays small.
+MAX_USAGE_EVIDENCE_BYTES = 8 * 1024 * 1024
+
+# Every raw field a provider mapper reads from a SUCCESSFUL body. Error bodies are never
+# projected: the OpenRouter zero-insurance proof inspects every field of a 429.
+_USAGE_EVIDENCE_FIELDS = ("id", "model", "usage")
+
 
 def _reject_non_finite(value: str) -> None:
     raise ValueError(f"non-finite JSON constant: {value}")
@@ -105,9 +115,11 @@ _ACCOUNTING_SENSITIVE_KEYS = frozenset(
 
 def _bounded_json_with_duplicates(
     payload: bytes,
+    *,
+    limit: int = MAX_RAW_EVIDENCE_BYTES,
 ) -> tuple[dict[str, Any] | None, frozenset[str]]:
     """Parse bounded JSON and return every repeated object-key name."""
-    if len(payload) > MAX_RAW_EVIDENCE_BYTES:
+    if len(payload) > limit:
         return None, frozenset({"*"})
     duplicate_keys: set[str] = set()
 
@@ -140,11 +152,11 @@ def _duplicate_can_change_accounting(key: str) -> bool:
     )
 
 
-def _declared_body_exceeds_limit(value: str) -> bool:
+def _declared_body_exceeds_limit(value: str, limit: int) -> bool:
     """Compare a decimal Content-Length without constructing an unbounded integer."""
     normalized = value.lstrip("0") or "0"
-    limit = str(MAX_RAW_EVIDENCE_BYTES)
-    return len(normalized) > len(limit) or (len(normalized) == len(limit) and normalized > limit)
+    bound = str(limit)
+    return len(normalized) > len(bound) or (len(normalized) == len(bound) and normalized > bound)
 
 
 def _mark_incomplete(collector: AccountingSignalTarget | None) -> None:
@@ -178,18 +190,30 @@ async def _read_body(response: httpx.Response) -> tuple[dict[str, Any] | None, b
     what makes ``latency_ms`` a completed-body measurement instead of time-to-headers,
     and it yields the RAW provider body that §3.5 requires mappers to prefer over
     LiteLLM's zero-filled ``Usage``.
+
+    A successful body over ``MAX_RAW_EVIDENCE_BYTES`` (but within
+    ``MAX_USAGE_EVIDENCE_BYTES``) yields only its ``_USAGE_EVIDENCE_FIELDS``.
     """
     if _EVENT_STREAM in response.headers.get("content-type", ""):
         return None, False, False
+    limit = MAX_USAGE_EVIDENCE_BYTES if response.is_success else MAX_RAW_EVIDENCE_BYTES
     declared = response.headers.get("content-length")
-    if declared is not None and declared.isdigit() and _declared_body_exceeds_limit(declared):
+    if (
+        declared is not None
+        and declared.isdigit()
+        and _declared_body_exceeds_limit(declared, limit)
+    ):
         # Refuse before reading, not after: the cap is a memory bound, and a bound
         # enforced only once the bytes are already resident is not a bound.
         return None, False, False
     await response.aread()
-    raw_evidence, duplicate_keys = _bounded_json_with_duplicates(response.content)
+    raw_evidence, duplicate_keys = _bounded_json_with_duplicates(response.content, limit=limit)
     if any(_duplicate_can_change_accounting(key) for key in duplicate_keys):
         raw_evidence = None
+    if raw_evidence is not None and len(response.content) > MAX_RAW_EVIDENCE_BYTES:
+        raw_evidence = {
+            key: raw_evidence[key] for key in _USAGE_EVIDENCE_FIELDS if key in raw_evidence
+        }
     return raw_evidence, True, not duplicate_keys
 
 

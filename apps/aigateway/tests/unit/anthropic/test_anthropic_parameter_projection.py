@@ -14,12 +14,12 @@ import litellm
 import pytest
 from litellm.llms.anthropic.chat.transformation import AnthropicConfig
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import inline_supported_parameters
 from aigateway.core.parameter_projection import (
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
-from aigateway.core.profile_models import AuthType
 from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
 
 

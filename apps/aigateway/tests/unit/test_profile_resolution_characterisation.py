@@ -3,9 +3,9 @@
 # FEATURE: OME-1138 adapter-first convergence. Stage A1 relocates the resolver cluster in
 # `routes/chat_credentials.py` behind the provider-access port. These tests pin behaviours the
 # resolver has TODAY but that no other test asserts, so the relocation has a parity net.
-# AIDEV-NOTE: this module records LEGACY behaviour exactly; it does not judge or fix it. Two of
+# INVARIANT: this module records LEGACY behaviour exactly; it does not judge or fix it. Two of
 # the pinned behaviours are known risks (the shadow Connection that stays reachable after a
-# Profile delete; the unhandled index fault) — changing them is a separate, later decision
+# Profile delete; the unhandled resolver-read fault) — changing them is a separate, later decision
 # (spec `docs/spec/2026-09-09-OME-1138-converge-connections.md` §8 D14 and §10). A test here
 # going red after A1 means the boundary changed behaviour, never that the behaviour was wrong.
 """
@@ -17,21 +17,14 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import partial
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
-import httpx
 import pytest
 
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
+from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 _CHAT = "/v1/chat/completions"
@@ -64,21 +57,11 @@ def _oauth_blob(access_token: str) -> str:
 
 
 async def _seed_default_profile(credential_blobs, account_id: str) -> None:
-    """An AUTHENTICATED Profile named `default` for anthropic, with its OAuth blob."""
+    """Anthropic's OAuth blob at the `default` name address."""
     credential_blobs.write(
         credential_service_for(credential_name_for(account_id, "default")),
         "default",
         _oauth_blob(_PROFILE_TOKEN),
-    )
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
     )
 
 
@@ -109,31 +92,6 @@ def _active_connection(client, credential_blobs, account_id: str, *, label: str,
     return connection
 
 
-def _capturing(captured: dict):
-    async def fake_chat_completion(_self, body):
-        captured.update(body)
-        return SimpleNamespace(
-            model_dump=lambda: {"id": "x", "choices": [{"message": {"content": "ok"}}]}
-        )
-
-    return fake_chat_completion
-
-
-def _mock_token_factory():
-    transport = httpx.MockTransport(
-        lambda req: httpx.Response(
-            200,
-            json={
-                "access_token": "new-tok",
-                "refresh_token": "new-rt",
-                "expires_in": 3600,
-                "token_type": "Bearer",
-            },
-        )
-    )
-    return lambda: httpx.AsyncClient(transport=transport, timeout=httpx.Timeout(5.0))
-
-
 @contextmanager
 def _server_errors_as_responses(client) -> Iterator[None]:
     transport = getattr(client, "_transport")
@@ -145,45 +103,15 @@ def _server_errors_as_responses(client) -> Iterator[None]:
         transport.raise_server_exceptions = previous
 
 
-def _anthropic_connections(client) -> list[dict]:
-    listing = client.get("/v1/oauth/connections")
-    assert listing.status_code == 200
-    return [row for row in listing.json()["connections"] if row["provider"] == "anthropic"]
-
-
 _UNSUPPORTED_DETAIL = {
     "code": "x_profile_unsupported",
     "message": "X-Profile is no longer supported; omit the header.",
 }
 
 
-# --- 1. a selector-less Profile `default` beats an active Connection ------------------------
-
-
-def test_profile_named_default_wins_over_an_active_connection(
-    credential_blobs, authenticated_client
-) -> None:
-    """# INVARIANT (legacy, pinned): the resolver reads the Profile index FIRST and consults
-    Connections only when no Profile matches (`chat_credentials.py:224-225`). With both an
-    authenticated Profile `default` and an active Connection for the same account and
-    provider, chat dispatches with the PROFILE's credential and never reads the Connection's.
-    """
-    account_id = _account_id(authenticated_client)
-    authenticated_client.portal.call(partial(_seed_default_profile, credential_blobs, account_id))
-    _active_connection(
-        authenticated_client,
-        credential_blobs,
-        account_id,
-        label="work-anthropic",
-        token="connection-tok",
-    )
-
-    captured: dict = {}
-    with patch(_ANTHROPIC_CHAT, _capturing(captured)):
-        resp = authenticated_client.post(_CHAT, json=_body())
-
-    assert resp.status_code == 200
-    assert captured["api_key"] == _PROFILE_TOKEN
+# --- 1. a selector-less Profile `default` beside an active Connection -----------------------
+# WHY: the "Profile beats Connection" pin retired at OME-1209 Stage E4a. Resolve reads no Profile
+# document, so the Connection answers (`test_connection_only_resolve.py`); only the control stays.
 
 
 def test_literal_default_x_profile_is_rejected_without_dispatch(
@@ -269,81 +197,29 @@ def test_a_named_x_profile_header_is_rejected_without_dispatch(
 
 
 # --- 3. the shadow Connection outlives the Profile that created it ---------------------------
+# WHY: retired at OME-1209 Stage E3. The pin needed a Profile-only delete, and the Profile DELETE
+# route answers 410 since then (`test_legacy_profile_routes_retired.py`), so no live route can
+# delete a Profile while leaving its shadow Connection behind.
 
 
-def test_shadow_connection_stays_reachable_after_the_profile_is_deleted(
-    credential_blobs, authenticated_client
-) -> None:
-    """# INVARIANT (legacy, pinned — spec §8 D14): completing a Profile OAuth flow also records
-    an `OAuthConnection` (`auth.py:957-1021`, label falls back to the profile name because the
-    anthropic plugin extracts no identity). `DELETE /v1/auth/{provider}/profiles/{name}`
-    removes the index row and the Profile credential only (`auth.py:1371-1401`); the Connection
-    row and ITS credential survive, and the `default` selector reaches them through the
-    label-match fallback (`chat_credentials.py:170-212`). Documents current behaviour and its
-    risk; the fix is a later decision.
-    """
-    client = authenticated_client
-    account_id = _account_id(client)
-    client.app.state.anthropic_http_factory = _mock_token_factory()
-
-    start = client.post("/v1/auth/anthropic/profiles", json={"name": "default"})
-    assert start.status_code == 201
-    state = start.json()["state"]
-    auth_header = client.headers.pop("Authorization")
-    try:
-        callback = client.get(
-            "/v1/auth/anthropic/callback",
-            params={"code": "auth-code-1", "state": state},
-            follow_redirects=False,
-        )
-    finally:
-        client.headers["Authorization"] = auth_header
-    assert callback.status_code == 200
-    assert client.get("/v1/auth/anthropic/profiles/default").json()["state"] == "authenticated"
-
-    (shadow,) = _anthropic_connections(client)
-    assert shadow["status"] == "active"
-    assert shadow["label"] == "default"
-
-    assert client.delete("/v1/auth/anthropic/profiles/default").status_code == 204
-    assert client.get("/v1/auth/anthropic/profiles/default").status_code == 404
-    assert (
-        credential_blobs.read(
-            credential_service_for(credential_name_for(account_id, "default")), "default"
-        )
-        is None
-    )
-
-    (survivor,) = _anthropic_connections(client)
-    assert survivor["id"] == shadow["id"]
-    assert survivor["status"] == "active"
-
-    captured: dict = {}
-    with patch(_ANTHROPIC_CHAT, _capturing(captured)):
-        resp = client.post(_CHAT, json=_body())
-
-    assert resp.status_code == 200
-    assert captured["api_key"] == "new-tok"
+# --- 4. a persistent marker fault at the resolver read is UNHANDLED --------------------------
 
 
-# --- 4. a persistent index fault at the resolver read is UNHANDLED ---------------------------
+async def _always_failing_read(*_args, **_kwargs):
+    raise RuntimeError("the pair marker row could not be decoded")
 
 
-async def _always_failing_get(*_args, **_kwargs):
-    raise RuntimeError("the profile index blob could not be decoded")
-
-
-def test_a_persistent_index_fault_at_the_resolver_read_escapes_the_route(
+def test_a_persistent_marker_fault_at_the_resolver_read_escapes_the_route(
     authenticated_client, monkeypatch
 ) -> None:
-    """# INVARIANT (legacy, pinned — spec §10): the resolver's index read
-    (`chat_credentials.py:224`) sits BEFORE the dispatch exception boundary and has no handler
+    """# INVARIANT (legacy, pinned — spec §10): the resolver's first read, the pair marker
+    (OME-1209 Stage E4a), sits BEFORE the dispatch exception boundary and has no handler
     of its own, so a store fault that persists past the pre-cache read (which swallows it and
     bypasses the cache) escapes the route as the raw exception. Nothing is dispatched.
-    The instance seam is patched because that is exactly what the resolver calls
-    (`request.app.state.profile_index`).
+    The class seam is patched because the port reads the marker through its own
+    `PairAuthorityStore` instance.
     """
-    monkeypatch.setattr(authenticated_client.app.state.profile_index, "get", _always_failing_get)
+    monkeypatch.setattr(PairAuthorityStore, "read", _always_failing_read)
     dispatched = AsyncMock()
 
     with (
@@ -355,13 +231,12 @@ def test_a_persistent_index_fault_at_the_resolver_read_escapes_the_route(
     dispatched.assert_not_called()
 
 
-def test_a_persistent_index_fault_at_the_resolver_read_renders_a_bare_500(
+def test_a_persistent_marker_fault_at_the_resolver_read_renders_a_bare_500(
     authenticated_client, monkeypatch
 ) -> None:
-    """The wire outcome of the same fault: Starlette's default server-error page, not the
-    gateway's JSON `detail` envelope and not the 503 `profile_index_conflict` mapping (that
-    handler covers only CAS-retry exhaustion, `main.py:296-307`)."""
-    monkeypatch.setattr(authenticated_client.app.state.profile_index, "get", _always_failing_get)
+    """The wire outcome of the same fault: the app-wide last-resort 500 envelope
+    (`unhandled_errors.py`), not a typed provider-access refusal."""
+    monkeypatch.setattr(PairAuthorityStore, "read", _always_failing_read)
 
     with _server_errors_as_responses(authenticated_client):
         resp = authenticated_client.post(_CHAT, json=_body())

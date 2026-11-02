@@ -252,7 +252,13 @@ async def test_a_direct_hit_on_a_benchmark_endpoint_gets_the_engines_404(
     # asset eagerly (see test_benchmark_asset_isolation.py).
     with caplog.at_level(logging.INFO):
         app = create_local_app(
-            Settings(jwt_secret="s" * 32),
+            # WHY the gateway is named: unnamed, the local App falls back to the loopback
+            # default (127.0.0.1:9105). If a developer's own gateway there lists a local model
+            # (`ollama/...`), the run behind /corpus admits it, so by design it builds its own
+            # world instead of the shared one, and that build logs the shelf line a second
+            # time: the count below then fails on that machine only. `.test` never resolves,
+            # so the test stays offline wherever it runs.
+            Settings(jwt_secret="s" * 32, aigateway_base_url="http://aigateway.test"),
             env={
                 job_env.RUNNER_CONFIG: _config_file(tmp_path, config),
                 BENCHMARK_ASSETS_ENV: str(assets),

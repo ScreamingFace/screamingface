@@ -266,13 +266,12 @@ decide who may ask. Review those before enabling the cache — there is no gatew
 narrows who a hit may be served to.
 
 **A caller needs no provider credential, and a hit reads no credential data at all.** A hit reads
-no provider API key and no OAuth token, makes no provider request, and does not read the caller's
-profile index: the key is built from the request body alone.
+no provider API key and no OAuth token and makes no provider request: the key is built from the
+request body alone.
 
-So a caller with no profile configured for this provider is served from cache normally, and so is
-a caller whose profile is still pending authorization or already errored, because the lookup runs
-before any credential is resolved. An unreadable profile index no longer stands the cache down;
-on a miss the same fault can still fail credential resolution, exactly as before.
+So a caller with no Connection for this provider is served from cache normally, and so is a caller
+whose Connection is still pending authorization or already errored, because the lookup runs before
+any credential is resolved.
 
 What survives is the part that matters for access control: **a principal who has never configured a
 usable provider credential is still served responses another account paid for.** Treat this as a
@@ -285,9 +284,8 @@ nothing at all. It matters most in `cloudflare_headers` mode, where an unrecogni
 The cached response is plaintext compact JSON in `response_json`. Reading it does not resolve a
 secret provider, validate an encryption canary or decrypt the response body.
 
-The caller's profile index is still a credential blob (`aigateway:index`) and remains encrypted under
-the credential master key. A hit does not read it, never reads the selected provider API key or OAuth
-token, and never dispatches to the provider.
+A hit never reads the selected provider API key or OAuth token, and never dispatches to the
+provider.
 
 ### A hit replays the first caller's credential *type*, not only their answer
 
@@ -458,6 +456,43 @@ run had no hits of that provenance.
 
 Neither total changes `cost_usd`. A hit still counts as `0` spend in the run cost. **Neither
 total is submitted to the leaderboard.**
+
+## The Community Cache Download (OME-1311)
+
+`GET /v1/cache/entries` lets a local engine pull the global cache into its own SQLite gateway,
+one page at a time. Spec: `docs/spec/2026-10-15-community-cache.md`.
+
+**Who can call it.** Any authenticated account — not only admins — and never an anonymous
+caller (401). The exception is `AIGW_AUTH_MODE=disabled`, which is loopback-only: there every
+caller is the anonymous account and may read. The gateway has no public ingress, so in prod the route is reachable only once the
+Engine proxies it. There is no feature flag and no setting.
+
+**What crosses.** Rows of `request_cache_entries` only, minus `provider = 'tavily'` rows (their
+keys hash the caller's account id) and expired rows. Each row carries the key and prompt hashes,
+provider, model, the stored response text, its size, `created_at`, `updated_at`, `expires_at`
+and `metadata_json`. `id`, `hit_count` and `last_hit_at` never leave.
+
+**Shape.** NDJSON: a header line (`schema`, `revisions`, and `remaining` when the caller sends
+`count=true`), one line per row, a trailer line carrying `next`. Query parameters: `after` (the
+previous trailer's cursor), `limit` (1–5,000, default 5,000), `model` (repeatable, exact match on
+the stored model name), `count`. Gzip'd when the client accepts it. Pages run in
+`(updated_at, key_hash)` order on migration `0015`'s index, so a row written during a pull is
+normally reached by the same pull. Two exceptions come with the next pull instead: a write that
+commits after the pull's cursor has passed its `updated_at`, and every row of a *replace*
+restore, which keeps the archive's `updated_at` (a merge restore stamps the restore time).
+
+**Cost.** Each page is read in batches of at most 100 rows and at most 8 MB of responses (a
+size-only query picks the rows, then a second reads exactly those rows), and written to the
+response as it goes: memory per request is ~24 MB at most whatever the page size, and no
+connection or transaction is held between batches. `next` is null exactly when no eligible row follows the
+last key the page scanned (one `exists()` look-ahead per page). On 2026-10-15 prod data (~596k rows),
+an unfiltered pull was ~120 pages and ~400–500 MB gzip'd; gzip is the largest gateway cost
+(~57 ms per 1,000 rows). `count=true` runs one `count(*)` over the rows after the cursor.
+
+**The write-order invariant.** `updated_at` must change only when a row's content is written (a
+live insert or a snapshot restore), never on a hit. A hit that moved it would send that row to
+the end of the order, and every pull would re-send it. `test_a_cache_hit_leaves_updated_at_alone`
+pins this.
 
 ## The Tavily Retrieval Cache (OME-1043/OME-1044)
 

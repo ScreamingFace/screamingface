@@ -150,6 +150,17 @@ def _require_https(origin: str, url: str | httpx.URL) -> None:
         )
 
 
+def _challenged_path(url: httpx.URL) -> str:
+    """The path Access just challenged, as encoded on the wire and without the caller's query.
+
+    INVARIANT: the browser login returns to this path (OME-1649). Access challenged it for this
+    audience and its rules apply to every method, so the browser's GET to it runs through the
+    same application. The query stays out: it is the caller's, not the login's.
+    """
+
+    return url.raw_path.partition(b"?")[0].decode("ascii")
+
+
 def _access_discovery_error(origin: str) -> AuthenticationError:
     return AuthenticationError(
         f"Could not reach {origin} to discover Cloudflare Access authentication",
@@ -362,7 +373,12 @@ class _CloudflareAccessAuth(_ClientAuth):
             return
         _require_https(self._origin, request.url)
         response.read()
-        self._authenticate_after_redirect(audience, authorization, _DEFAULT_LOGIN_TIMEOUT)
+        self._authenticate_after_redirect(
+            audience,
+            authorization,
+            _DEFAULT_LOGIN_TIMEOUT,
+            _challenged_path(request.url),
+        )
         _require_replay_safe(request, response)
         self._set_access_token(request)
         yield request
@@ -384,6 +400,7 @@ class _CloudflareAccessAuth(_ClientAuth):
             audience,
             authorization,
             _DEFAULT_LOGIN_TIMEOUT,
+            _challenged_path(request.url),
         )
         _require_replay_safe(request, response)
         self._set_access_token(request)
@@ -418,10 +435,11 @@ class _CloudflareAccessAuth(_ClientAuth):
         audience: str,
         authorization: _RequestAuthorization,
         timeout: float,
+        redirect_path: str,
     ) -> None:
         if self._adopt_cached_challenge(audience, authorization):
             return
-        self._login_after_challenge(audience, timeout)
+        self._login_after_challenge(audience, timeout, redirect_path)
 
     def _adopt_cached_challenge(
         self,
@@ -449,16 +467,18 @@ class _CloudflareAccessAuth(_ClientAuth):
                 self._generation += 1
             return False
 
-    def _login_after_challenge(self, audience: str, timeout: float) -> None:
+    def _login_after_challenge(self, audience: str, timeout: float, redirect_path: str) -> None:
         attempt, owner = self._begin_login()
         if attempt is None:
             return
         if not owner:
+            # WHY waiting is enough: a concurrent challenge of this audience owns the login,
+            # and any path that audience challenged is inside its application.
             self._await_login(attempt, timeout)
             return
         error: BaseException | None = None
         try:
-            self._interactive_login(audience, timeout, attempt)
+            self._interactive_login(audience, timeout, attempt, redirect_path=redirect_path)
         except BaseException as exc:
             error = exc
             raise
@@ -538,11 +558,18 @@ class _CloudflareAccessAuth(_ClientAuth):
         audience: str,
         timeout: float,
         attempt: _LoginAttempt,
+        *,
+        redirect_path: str | None = None,
     ) -> None:
         _raise_if_cancelled(attempt.cancel)
         private_key = PrivateKey.generate()
         public_key = _base64url_padded(bytes(private_key.public_key))
-        authorization_url = _access_authorization_url(self._origin, audience, public_key)
+        authorization_url = _access_authorization_url(
+            self._origin,
+            audience,
+            public_key,
+            redirect_path=redirect_path,
+        )
         with self._lock:
             _raise_if_cancelled(attempt.cancel)
             self._require_open()

@@ -4,9 +4,9 @@
 # parameters, admission and dispatch-failure marking onto `core/provider_access`; this test is
 # what keeps them there, and what stops a NEW module from reaching around the port.
 # INVARIANT: outside the owners listed in `_OWNERS`, no module under `src/aigateway/` imports
-# `Profile`, `ProfileState`, `ProfileIndexStore` or `OAuthConnection`. Everything else those
-# legacy modules export — `AuthMode`, `AuthType`, `ProfileDefaults`, `credential_name_for` — is
-# core vocabulary the port itself re-exports, so it is deliberately NOT banned.
+# `OAuthConnection`, nor any Profile name OME-1138 Stage E, E5c deleted (`Profile`, `ProfileState`,
+# `ProfileIndexStore`) should one come back. The credential vocabulary — `AuthMode`, `AuthType`,
+# `credential_name_for` — lives in `core/auth_types.py` and `core/credential_names.py`.
 # AIDEV-NOTE: this checks the SOURCE, not runtime behaviour. A module that imports the row lazily
 # inside a function is still a direct dependency, and the AST walk sees it.
 """
@@ -30,29 +30,18 @@ _BANNED = frozenset({"Profile", "ProfileState", "ProfileIndexStore", "OAuthConne
 # WHY an allow-list keyed by path, with a reason each: every entry is a promise about WHEN it
 # goes away, so the boundary cannot quietly widen. Paths are relative to `src/aigateway/`.
 _OWNERS: dict[str, str] = {
-    # The boundary itself and the legacy modules it adapts — these ARE the compatibility window.
+    # The boundary itself and the Connection row it reads.
     "core/provider_access/": "the port and its Profile-backed implementation; Stage B swaps it",
-    "core/profile_models.py": "the legacy row and its value types",
-    "core/profile_index.py": "the legacy index store",
     "core/oauth/": "the Connection row, its store and the OAuth flows",
     # Management surfaces reduced to shells at A3 and retired at Stage E (OME-1209).
-    "routes/auth.py": "legacy Profile management routes; shells at A3, retired at Stage E",
     "routes/admin.py": "tenant admin listing; moves onto the admin port at A3",
     "routes/oauth_connections.py": "Connection-native management routes; owner of that row",
     "core/admin_schemas.py": (
         "the legacy admin listing's WIRE schema — `AdminProfileOut.state` is `ProfileState`, so "
         "changing it would change OpenAPI; moves onto the admin port at A3 with `routes/admin.py`"
     ),
-    # Wiring and bootstrap: they CONSTRUCT the store, they do not resolve credentials with it.
-    "main.py": "builds `app.state.profile_index` at startup; moves with the backing at Stage B",
-    "core/plugin_base/": "the provider contract's own type surface",
-    "plugins/anthropic_provider/bootstrap.py": (
-        "seeds a Profile for the bundled Anthropic credential; migrates with the backing at Stage B"
-    ),
-    "plugins/anthropic_provider/plugin.py": (
-        "calls its own bootstrap with an injected index store; same removal point as the "
-        "bootstrap above"
-    ),
+    # WHY no wiring or bootstrap owner (OME-1209 E4b): `main.py`, `core/plugin_base/`, the
+    # Anthropic plugin and `routes/auth.py` no longer name the store or the row.
     "migrations/": "schema history — the rows as they were when each migration ran",
 }
 
@@ -128,3 +117,33 @@ def test_every_owner_exemption_names_a_real_file_and_a_reason() -> None:
     for owner, reason in _OWNERS.items():
         assert reason.strip(), f"{owner} is exempted without a reason"
         assert (_SRC / owner).exists(), f"{owner} no longer exists — drop its exemption"
+
+
+def _imports_profile_models(path: Path) -> bool:
+    """True when this module imports `profile_models` itself, however it spells the import."""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module.split(".")[-1] == "profile_models" or any(
+                alias.name == "profile_models" for alias in node.names
+            ):
+                return True
+        elif isinstance(node, ast.Import) and any(
+            alias.name.endswith(".profile_models") for alias in node.names
+        ):
+            return True
+    return False
+
+
+def test_no_module_outside_the_documented_owners_imports_profile_models() -> None:
+    """# INVARIANT (OME-1209 E2a): `profile_models` holds only the legacy Profile row. The
+    credential vocabulary lives in `core/auth_types.py` and `core/credential_names.py`, so a
+    module that is not a Profile owner has no reason to import the row's module at all."""
+    offenders = sorted(
+        str(path.relative_to(_SRC))
+        for path in _modules()
+        if not _is_owner(str(path.relative_to(_SRC))) and _imports_profile_models(path)
+    )
+
+    assert offenders == []

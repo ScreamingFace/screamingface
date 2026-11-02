@@ -29,7 +29,7 @@ from starlette.requests import Request
 from screamingface_engine.connections.aigateway import AigatewayConnections
 from screamingface_engine.connections.port import Caller
 from screamingface_engine.request_scope import RequestScope, request_scope
-from screamingface_engine.rest.connections import _caller
+from screamingface_engine.rest.gateway_route import caller_from_request
 from screamingface_engine.runner.executor import BridgeOverflowError, Url4Executor, _Bridge
 from screamingface_engine.trace_scope import (
     _node_span,
@@ -46,7 +46,7 @@ from url4.streaming.protocol import SpanData
 
 
 def _fake_request(headers: dict[str, str]) -> Request:
-    """A real Starlette Request, so `_caller` is exercised through its actual signature."""
+    """A real Starlette Request, so `caller_from_request` runs through its actual signature."""
     return Request(
         {
             "type": "http",
@@ -364,7 +364,7 @@ def test_the_rest_edge_drops_a_malformed_inbound_traceparent() -> None:
     """
     request = _fake_request({"traceparent": "not-a-traceparent", "X-User-Email": "a@b.c"})
 
-    caller = _caller(request)
+    caller = caller_from_request(request)
 
     assert caller.traceparent is None
     assert caller.identity == {"X-User-Email": "a@b.c"}
@@ -374,7 +374,7 @@ def test_the_rest_edge_carries_a_valid_inbound_traceparent_through() -> None:
     """A stated selector is refused before this edge can build a `Caller`."""
     inbound = "00-" + "9" * 32 + "-" + "8" * 16 + "-01"
 
-    caller = _caller(_fake_request({"traceparent": inbound}))
+    caller = caller_from_request(_fake_request({"traceparent": inbound}))
 
     assert caller.traceparent == inbound
 

@@ -1,12 +1,12 @@
 ---
 id: OME-1577
 linear_url: https://linear.app/openmined/issue/OME-1577/record-the-e14-design-review-decisions-q22-q30-and-the-stack-fix-plan
-status: in_progress
+status: done
 type: docs
 priority: high
 labels: [repo-dev-processes, agentic, autonomous]
 created: 2026-10-12
-closed:
+closed: 2026-10-20
 ---
 
 # Record the E14 design review decisions (Q22–Q30) and the stack fix plan

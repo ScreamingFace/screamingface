@@ -159,4 +159,4 @@ def test_provider_projects_for_the_global_cache_and_contributes_no_accounting_st
 def test_only_401_marks_the_selected_credential_invalid(
     status_code: int, marks_error: bool
 ) -> None:
-    assert PLUGIN.should_mark_profile_error_on_dispatch_status(status_code) is marks_error
+    assert PLUGIN.should_mark_credential_error_on_dispatch_status(status_code) is marks_error

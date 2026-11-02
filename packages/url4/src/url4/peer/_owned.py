@@ -10,6 +10,7 @@ lazy accessor, the close, and the async-context exit.
 
 from __future__ import annotations
 
+from url4.io.close_once import CloseOnce
 from url4.io.layer import IOLayer, SupportsClose
 
 
@@ -24,8 +25,9 @@ class _OwnedIO:
 
     :meth:`outbound` returns the injected layer when one was given, else creates
     (once) and returns the owned adapter. :meth:`aclose` closes ONLY the owned
-    adapter — an injected layer is the caller's to manage — and is idempotent,
-    because the reference is dropped before the close is awaited. Closing is
+    adapter — an injected layer is the caller's to manage — and is idempotent:
+    the close runs once, and a concurrent or retried call (even after a cancelled
+    one) awaits that same close (:class:`~url4.io.close_once.CloseOnce`). Closing is
     final for the owned adapter: after :meth:`aclose`, :meth:`outbound` raises
     instead of creating a new one.
     """
@@ -34,6 +36,7 @@ class _OwnedIO:
         self._injected = injected
         self._owned: IOLayer | None = None
         self._closed = False
+        self._closer = CloseOnce()
 
     def outbound(self) -> IOLayer:
         """The injected adapter, else the owned one created on first use."""
@@ -50,9 +53,16 @@ class _OwnedIO:
     async def aclose(self) -> None:
         """Close the owned adapter if one exists; leave an injected layer alone."""
         self._closed = True
-        owned, self._owned = self._owned, None
-        if isinstance(owned, SupportsClose):
-            await owned.aclose()
+        # INVARIANT (PR #1555 review 4): dropped only after its close ends, so a retry of a
+        # cancelled Client/Url4Node shutdown still reports the adapter's close failure.
+        await self._closer.run(self._close_owned)
+
+    async def _close_owned(self) -> None:
+        try:
+            if isinstance(self._owned, SupportsClose):
+                await self._owned.aclose()
+        finally:
+            self._owned = None
 
     async def __aenter__(self) -> _OwnedIO:
         return self

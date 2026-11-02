@@ -90,7 +90,7 @@ def test_shuffle_without_a_seed_gets_the_declared_seed() -> None:
     assert forced["shuffle"] is True
 
 
-def test_a_seeded_upstream_shuffle_keeps_its_seed() -> None:
+def test_a_seeded_inspect_evals_shuffle_keeps_its_seed() -> None:
     """mmlu passes seed=42 itself: inspect's own order, untouched."""
 
     pins: FetchPins = FetchPins(source_pins=None, shuffle_seed=1234)

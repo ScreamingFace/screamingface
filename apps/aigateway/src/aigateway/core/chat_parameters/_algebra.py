@@ -19,7 +19,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from ..profile_models import AuthMode
+from ..auth_types import AuthMode
 from ._types import (
     _DISABLED_AUTH_MODE_REASON,
     _DISABLED_UNPROJECTED_REASON,

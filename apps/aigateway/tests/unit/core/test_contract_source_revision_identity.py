@@ -26,6 +26,7 @@ from typing import Any, cast
 
 import pytest
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ProviderDiscoverySnapshot,
@@ -40,7 +41,6 @@ from aigateway.core.parameter_discovery import (
     RawResponse,
 )
 from aigateway.core.parameter_discovery_cache import CacheLimits, ObservationCache
-from aigateway.core.profile_models import AuthType
 
 _REF = DiscoverySourceRef(source="probe:models", revision="probe:reading-1")
 _MODEL = "probe/model-a"
@@ -78,7 +78,7 @@ def _document(*, source_revision: str | None) -> dict[str, Any]:
         canonical_id="probe/model-a",
         gateway_provider="probe",
         auth_mode=auth_mode,
-        scope="account_profile",
+        scope="account_connection",
         context_identity="acct:a1|prof:p1:authenticated:-",
         rules=(_rule(),),
         observations=(_observation(),),
@@ -326,11 +326,8 @@ class _FixedDocuments(DiscoveryHttpClient):
         )
 
 
-async def _openrouter_contract(client: Any, credential_blobs: Any) -> dict[str, Any]:
+async def _openrouter_contract(client: Any) -> dict[str, Any]:
     from fastapi import FastAPI
-
-    from aigateway.core.profile_index import ProfileIndexStore
-    from aigateway.core.profile_models import Profile, ProfileState, profile_id_for
 
     app = cast(FastAPI, client.app)
     app.state.discovery_runtime = DiscoveryRuntime(
@@ -340,17 +337,6 @@ async def _openrouter_contract(client: Any, credential_blobs: Any) -> dict[str, 
         ),
         limits=DiscoveryLimits(),
     )
-    account_id = client.get("/v1/auth/me").json()["id"]
-    await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
-        Profile(
-            id=profile_id_for(account_id, "openrouter", "default"),
-            account_id=account_id,
-            provider="openrouter",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
-    )
     resp = client.get("/v1/model-parameters", params={"model": _OR_MODEL})
     assert resp.status_code == 200, resp.text
     return resp.json()
@@ -358,11 +344,11 @@ async def _openrouter_contract(client: Any, credential_blobs: Any) -> dict[str, 
 
 @pytest.mark.asyncio
 async def test_the_route_publishes_the_providers_own_declared_revision(
-    openrouter_enabled, authenticated_client, credential_blobs
+    openrouter_enabled, authenticated_client
 ) -> None:
     from aigateway.plugins.openrouter_provider.discovery import SNAPSHOT_SOURCE_REVISION
 
-    body = await _openrouter_contract(authenticated_client, credential_blobs)
+    body = await _openrouter_contract(authenticated_client)
 
     # the real provider constant, through the real route — not a composer argument.
     assert body["context"]["source_revision"] == SNAPSHOT_SOURCE_REVISION
@@ -370,22 +356,8 @@ async def test_the_route_publishes_the_providers_own_declared_revision(
 
 @pytest.mark.asyncio
 async def test_the_route_publishes_null_for_a_provider_with_no_dynamic_source(
-    authenticated_client, credential_blobs
+    authenticated_client,
 ) -> None:
-    from aigateway.core.profile_index import ProfileIndexStore
-    from aigateway.core.profile_models import Profile, ProfileState, profile_id_for
-
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    await ProfileIndexStore(credential_store=credential_blobs.store).upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
-    )
     body = authenticated_client.get(
         "/v1/model-parameters", params={"model": _ANTHROPIC_MODEL}
     ).json()
@@ -405,7 +377,7 @@ def test_openrouter_declares_the_revision_its_snapshot_stamps() -> None:
     A plugin names its revision twice — in the ref it declares BEFORE the fetch, and
     in the snapshot its discovery module returns. Bumping one without the other would
     otherwise surface as an unexplained permanently-degraded contract, since every
-    refresh would be refused. AIDEV-NOTE: Gemini and HuggingFace assert the same
+    refresh would be refused. WHY: Gemini and HuggingFace assert the same
     pairing at their own snapshot sites (``snapshot.source_revision == <constant>``);
     this pins the provider whose revision moved in OME-647.
     """

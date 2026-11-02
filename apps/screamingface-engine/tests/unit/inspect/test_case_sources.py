@@ -260,7 +260,8 @@ def test_uninstall_puts_every_primitive_back(
 
 def test_the_comment_says_when_the_digest_is_the_only_pin() -> None:
     assert CaseSource("url", "https://x/y.jsonl", "unpinned").as_comment() == (
-        "url https://x/y.jsonl · pin unpinned (no upstream hash: the Case Digest is the only pin)"
+        "url https://x/y.jsonl · pin unpinned "
+        "(no inspect_evals hash: the Case Digest is the only pin)"
     )
     assert CaseSource("hugging-face", "bigbio/med_qa", "revision " + "d" * 40).as_comment() == (
         f"hugging-face bigbio/med_qa · pin revision {'d' * 40}"

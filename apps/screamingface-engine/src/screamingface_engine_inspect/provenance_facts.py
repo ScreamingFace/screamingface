@@ -71,7 +71,7 @@ class EvalMetadata:
     package: str
     paper_url: str | None
     inspect_contributors: tuple[str, ...]
-    upstream_case_count: int | None
+    inspect_evals_case_count: int | None
     #: (score, source URL) on the task's own headline metric, when the file ships one.
     human_baseline: tuple[float, str] | None
     #: inspect files the eval under its Safeguards group: the row gets a content-warning
@@ -119,7 +119,7 @@ def read_eval_metadata(task_ref: str, *, root: Path | None = None) -> EvalMetada
         package=package,
         paper_url=str(paper) if isinstance(paper, str) and paper.strip() else None,
         inspect_contributors=tuple(str(name) for name in contributors if isinstance(name, str)),
-        upstream_case_count=int(samples) if isinstance(samples, int) else None,
+        inspect_evals_case_count=int(samples) if isinstance(samples, int) else None,
         human_baseline=_baseline_of(task),
         safeguards=document.get("group") == "Safeguards",
     )
@@ -392,9 +392,9 @@ def _score_lines(metadata: EvalMetadata | None) -> list[str]:
 def _size_lines(metadata: EvalMetadata | None) -> list[str]:
     """inspect's declared size, for the conformance cross-check (spec §3.1)."""
 
-    if metadata is None or metadata.upstream_case_count is None:
+    if metadata is None or metadata.inspect_evals_case_count is None:
         return []
-    return [f"        upstream_case_count={metadata.upstream_case_count},"]
+    return [f"        inspect_evals_case_count={metadata.inspect_evals_case_count},"]
 
 
 #: The longest string literal one generated citation line may hold, so the rendered line

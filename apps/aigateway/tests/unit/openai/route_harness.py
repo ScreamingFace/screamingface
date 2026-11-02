@@ -127,11 +127,17 @@ def dispatching(client: TestClient, dispatch: Any):
     return patch.object(plugin, "chat_completion", new=dispatch)
 
 
-def seed_profile(client: TestClient, *, name: str = "default") -> None:
-    """Give the caller a dispatchable direct-OpenAI profile (no writer takes defaults, D2)."""
+def seed_profile(client: TestClient) -> None:
+    """Give the caller a dispatchable direct-OpenAI key (no writer takes defaults, D2).
+
+    # WHY the native create: the Profile api-key route answers 410 since OME-1209 Stage E3, and
+    # these suites only need a dispatchable key, not a particular backing.
+    """
     cast(Any, client.app).state.api_key_validation_service = ValidValidationService()
-    created = client.put(f"/v1/auth/openai/profiles/{name}/api-key", json={"api_key": KEY})
-    assert created.status_code == 200, created.text
+    created = client.post(
+        "/v1/oauth/connections/api-key", json={"provider": "openai", "api_key": KEY}
+    )
+    assert created.status_code == 201, created.text
 
 
 def body(

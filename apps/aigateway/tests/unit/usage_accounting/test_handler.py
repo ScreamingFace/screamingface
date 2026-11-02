@@ -28,6 +28,7 @@ from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 
 from aigateway.core.usage_accounting.hooks import (
     MAX_RAW_EVIDENCE_BYTES,
+    MAX_USAGE_EVIDENCE_BYTES,
     AccountingAsyncHTTPHandler,
     build_accounting_handler,
 )
@@ -598,7 +599,7 @@ class TestBoundedEvidence:
     async def test_an_oversized_body_is_not_retained_and_latency_is_null(
         self, transport_spy: dict[str, Any]
     ) -> None:
-        big = {"pad": "x" * (MAX_RAW_EVIDENCE_BYTES + 1024)}
+        big = {"pad": "x" * (MAX_USAGE_EVIDENCE_BYTES + 1024)}
         transport_spy["handler"] = lambda _r: _json_response(big)
         handler = AccountingAsyncHTTPHandler()
         collector = _collector()
@@ -608,6 +609,74 @@ class TestBoundedEvidence:
         (record,) = collector.records()
         assert collector.open_records()[0][1] is None
         assert record.latency_ms is None, "unread body must not report time-to-headers"
+        assert collector.status() == "partial"
+        await handler.close()
+
+    @pytest.mark.asyncio
+    async def test_a_large_successful_body_keeps_only_its_exact_usage_evidence(
+        self, transport_spy: dict[str, Any]
+    ) -> None:
+        # A long reasoning answer is over the full-evidence cap. Its usage must still be
+        # read losslessly, or OpenRouter's cost falls back to LiteLLM's float and is lost.
+        content = "x" * (MAX_RAW_EVIDENCE_BYTES + 1024)
+        payload = (
+            b'{"id":"gen-1","model":"m","choices":[{"message":{"content":"'
+            + content.encode()
+            + b'"}}],"usage":{"prompt_tokens":3,"completion_tokens":5,"cost":0.0012}}'
+        )
+        transport_spy["handler"] = lambda _r: httpx.Response(
+            200, content=payload, headers={"content-type": "application/json"}
+        )
+        handler = AccountingAsyncHTTPHandler()
+        collector = _collector()
+        with bound_collector(collector):
+            collector.begin_dispatch()
+            await handler.post(url=_URL, json={"model": "m"})
+        (record,) = collector.records()
+        assert collector.open_records()[0][1] == {
+            "id": "gen-1",
+            "model": "m",
+            "usage": {"prompt_tokens": 3, "completion_tokens": 5, "cost": Decimal("0.0012")},
+        }
+        assert record.latency_ms is not None
+        assert collector.status() == "complete"
+        await handler.close()
+
+    @pytest.mark.asyncio
+    async def test_a_large_body_with_a_duplicate_usage_key_yields_no_evidence(
+        self, transport_spy: dict[str, Any]
+    ) -> None:
+        pad = b"x" * (MAX_RAW_EVIDENCE_BYTES + 1024)
+        payload = b'{"pad":"' + pad + b'","usage":{"cost":1},"usage":{"cost":0}}'
+        transport_spy["handler"] = lambda _r: httpx.Response(
+            200, content=payload, headers={"content-type": "application/json"}
+        )
+        handler = AccountingAsyncHTTPHandler()
+        collector = _collector()
+        with bound_collector(collector):
+            collector.begin_dispatch()
+            await handler.post(url=_URL, json={"model": "m"})
+        assert collector.open_records()[0][1] is None
+        assert collector.status() == "partial"
+        await handler.close()
+
+    @pytest.mark.asyncio
+    async def test_a_large_error_body_keeps_the_full_evidence_cap(
+        self, transport_spy: dict[str, Any]
+    ) -> None:
+        # Error evidence is read whole (zero-insurance proof inspects every field), so an
+        # error body never earns the larger usage-only read.
+        big = {"pad": "x" * (MAX_RAW_EVIDENCE_BYTES + 1024), "usage": {"cost": 0}}
+        transport_spy["handler"] = lambda _r: _json_response(big, status=429)
+        handler = AccountingAsyncHTTPHandler()
+        collector = _collector()
+        with bound_collector(collector):
+            collector.begin_dispatch()
+            with pytest.raises(httpx.HTTPStatusError):
+                await handler.post(url=_URL, json={"model": "m"})
+        (record,) = collector.records()
+        assert collector.open_records()[0][1] is None
+        assert record.latency_ms is None
         assert collector.status() == "partial"
         await handler.close()
 

@@ -27,13 +27,13 @@ from typing import Any
 import pytest
 
 import aigateway.plugins as plugin_packages
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import normalize_rules
 from aigateway.core.loader import load_plugins
 from aigateway.core.model_capabilities import canonical_model_id, model_row
 from aigateway.core.model_parameter_contract import build_model_parameter_document
 from aigateway.core.parameter_projection import GATEWAY_OWNED_FIELDS, wrapper_path_conflicts
 from aigateway.core.plugin_base import PluginSettings
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.registry import ProviderRegistry
 from aigateway.core.request_cache.global_keys import STRUCTURALLY_EXCLUDED_FIELDS
 
@@ -108,7 +108,7 @@ def _document(plugin: Any, canonical: str, auth_mode: AuthMode) -> dict[str, Any
         canonical_id=canonical,
         gateway_provider=plugin.custom_llm_provider,
         auth_mode=auth_mode,
-        scope="account_profile",
+        scope="account_connection",
         context_identity="acct:conformance|prof:1",
         rules=plugin.chat_parameter_rules(model=canonical, auth_type=auth_mode),
         observations=plugin.chat_parameter_observations(model=canonical, auth_type=auth_mode),

@@ -6,8 +6,8 @@ from typing import Any
 
 import pytest
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.parameter_projection import IncompatibleParametersError
-from aigateway.core.profile_models import AuthMode
 from aigateway.plugins.anthropic_provider.thinking import raise_on_thinking_conflict
 
 _MANUAL = "anthropic/claude-sonnet-4-5"

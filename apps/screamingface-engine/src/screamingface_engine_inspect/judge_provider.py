@@ -32,7 +32,9 @@ Stages, in execution order (see :meth:`_GatewayJudgeModelAPI.generate`):
               calls route ``/x/y`` — no second mapping to drift. Inside
               :func:`fresh_judge_draw` (a redraw), the fetch runs under a request
               scope that opts out of the gateway's exact-request cache.
-    Stage 4 — return the completion text as inspect's ``ModelOutput``. Errors
+    Stage 4 — return the completion text as inspect's ``ModelOutput``, with the reply's
+              origin (live, cache, replay) in its metadata under
+              :data:`REPLY_ORIGIN_KEY`, as the connector recorded it. Errors
               propagate: the scorer adapter's Stage-3 catch turns them into the Case's
               named ``scorer_error``, never an aborted aggregate.
 
@@ -68,6 +70,7 @@ from inspect_ai.tool import ToolChoice, ToolInfo
 from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
 from screamingface_engine.request_scope import RequestScope, current_scope, request_scope
 from screamingface_engine.world.fresh_judge_retry import without_gateway_cache
+from screamingface_engine.world.reply_origin import ReplyOrigin, watch_reply_origin
 from screamingface_engine.world.request_parameters import ANSWER_SEED_PARAM
 from url4.wire.subrequest import encode_subrequest
 
@@ -76,6 +79,11 @@ JudgeFetch = Callable[[str], Awaitable[str]]
 
 #: inspect's provider-registry key: scorer model strings spell ``screamingface/<route>``.
 PROVIDER_NAME = "screamingface"
+
+#: The ``ModelOutput.metadata`` key carrying where the judge's reply came from: ``"live"``,
+#: ``"cache"``, ``"replay"``, or ``None`` when the connector reported nothing. The redraw
+#: helper reads it: a recorded reply is never redrawn (spec 2026-10-16-judge-redraw-live-only).
+REPLY_ORIGIN_KEY: Final = "screamingface_reply_origin"
 
 #: Chat roles the candidate input envelope admits — the connector's own closed set
 #: minus "developer", which inspect's message types never produce.
@@ -118,7 +126,14 @@ class JudgeReplyBlank(RuntimeError):
     and asks again (judges do send blanks: DRACO's reply format names ``empty`` as a
     rejection reason); every other provider error still propagates on the first ask. A
     ``RuntimeError`` so existing catches still see it.
+
+    ``origin`` says where the blank came from (:data:`REPLY_ORIGIN_KEY`); a recorded blank
+    is final, like any recorded reply.
     """
+
+    def __init__(self, message: str, *, origin: ReplyOrigin | None = None) -> None:
+        super().__init__(message)
+        self.origin: ReplyOrigin | None = origin
 
 
 _transport: contextvars.ContextVar[JudgeTransport | None] = contextvars.ContextVar(
@@ -266,16 +281,24 @@ class _GatewayJudgeModelAPI(ModelAPI):
         )
         target: str = encode_subrequest("/" + self.model_name, context, None, params)
         _register_against_the_case(transport, "/" + self.model_name, params, context)
-        with _gateway_cache_opt_out() if _fresh_draw.get() else nullcontext():
+        # FEATURE (spec 2026-10-16-judge-redraw-live-only): the watch learns from the connector
+        # whether this reply is live or a recording (cache hit, frozen-copy replay).
+        with (
+            watch_reply_origin() as watch,
+            _gateway_cache_opt_out() if _fresh_draw.get() else nullcontext(),
+        ):
             completion: str = await transport.fetch(target)
         if not completion.strip():
             # A blank completion can never be a grade — refuse loudly; a scorer
             # coercing silence into a score is a silently wrong benchmark.
             raise JudgeReplyBlank(
-                f"the gateway judge at {self.model_name!r} returned an empty reply"
+                f"the gateway judge at {self.model_name!r} returned an empty reply",
+                origin=watch.origin,
             )
-        # Stage 4 — their output form, the text verbatim.
-        return ModelOutput.from_content(model=self.model_name, content=completion)
+        # Stage 4 — their output form, the text verbatim, with the reply's origin beside it.
+        output: ModelOutput = ModelOutput.from_content(model=self.model_name, content=completion)
+        output.metadata = {REPLY_ORIGIN_KEY: watch.origin}
+        return output
 
 
 #: GenerateConfig fields that change DELIVERY, never the grade — the only ones an
@@ -414,6 +437,7 @@ __all__ = [
     "PROVIDER_NAME",
     "JudgeFetch",
     "JudgeReplyBlank",
+    "REPLY_ORIGIN_KEY",
     "JudgeTransport",
     "judge_filling_model_role",
     "bound_judge_transport",

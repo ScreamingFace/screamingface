@@ -1,0 +1,22 @@
+{
+  "issue": "OME-1631",
+  "branch": "OME-1631-community-cache",
+  "approver": "owner",
+  "date": "2026-10-16",
+  "scope": "Only the migration-target argument of three index-set tests (0010 SQLite, 0010 Postgres, 0011 SQLite x2): each now migrates to its own migration instead of the latest head. Every assertion is unchanged.",
+  "reason": "Migration 0015 adds an index on request_cache_entries, so tests that migrated to head and compared the exact index set left by 0010/0011 picked it up. Owner approved pinning each test to the migration it is named for in this chat on 2026-10-16 (option A), which keeps them checking exactly what 0010/0011 produce and immune to later index migrations.",
+  "files": {
+    "apps/aigateway/tests/unit/test_migration_0010_simplify_request_cache.py": {
+      "base_blob": "e0c5e133468e533047ba7b09c6013256e071358e",
+      "approved_blob": "f850c54109e399c54ae19b6b8a56d9a2b2e12f80"
+    },
+    "apps/aigateway/tests/unit/test_migration_0011_cache_entry_metadata.py": {
+      "base_blob": "ef4bee339e2ebc0668659051e2302ebaab6ba737",
+      "approved_blob": "9609907789596fa24f9b926dc74136f948a67a2d"
+    },
+    "apps/aigateway/tests/integration/test_global_cache_store_postgres.py": {
+      "base_blob": "cacfd33c149a5dd2c4d413c210f1461c6acc2f2b",
+      "approved_blob": "aadff8cddf2da3c55a09ec5ef459238cc281d8a9"
+    }
+  }
+}

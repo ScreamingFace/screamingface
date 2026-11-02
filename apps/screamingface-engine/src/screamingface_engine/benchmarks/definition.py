@@ -32,8 +32,9 @@ type DraftFeedbackCost = Literal["free", "paid"]
 # missing) does to the published score. Picture a benchmark of 157 questions where 33 answer
 # sheets got lost in the mail:
 #   "withhold"         — the lost sheets count against the candidate: score = earned / all
-#                        157. Coverage always reads 100%; failures are silently priced in,
-#                        so an infra outage makes the model look WORSE.
+#                        157, each lost sheet a 0. Coverage still reads "graded 124 of 157"
+#                        (OME-1642), so the outage stays visible beside the score; an infra
+#                        outage makes the model look WORSE.
 #   "coverage_declare" — the lost sheets are excluded and the report says so: score =
 #                        earned / the 124 actually graded, published next to a visible
 #                        "scored 124 of 157" coverage figure. An outage makes the score
@@ -147,9 +148,10 @@ class BenchmarkDeclaration:
     benchmark, a reader can see how a failed paper counts. Three axes today:
 
     ``failure_policy`` — what a Case that never got a valid grade does to the published
-    score. ``withhold``: the case counts against the candidate (all-or-nothing).
+    score. ``withhold``: the case counts 0 and every selected case stays in the denominator.
     ``coverage_declare``: the case is excluded from the score and the report's coverage
-    figure drops, so a reader sees "scored 124 of 157".
+    figure drops, so a reader sees "scored 124 of 157". Under both policies coverage stays
+    "graded / selected" (OME-1642).
 
     ``interaction`` — how the Candidate is exercised. ``single_shot`` and ``multi_turn``
     today; any other value is refused by name before any paid request.
@@ -288,6 +290,14 @@ class Benchmark:
     # INVARIANT: published only when true, so every other Benchmark's catalogue entry and
     # resource stay byte-identical.
     inverted_grade: bool = False
+    # FEATURE: Unlisted Benchmark (OME-1714) — off the catalogue index, still served by id.
+    # Like an unlisted video: `GET /v1/benchmarks` skips it, so the SDK listing and the
+    # Scoreboard seed never see it; `GET /v1/benchmarks/{id}` and a run by id keep working.
+    # INVARIANT: never on the wire and never in `revision` — the mark is a listing decision,
+    # not catalogue data, so every listed entry stays byte-identical and no Score moves.
+    # WHY declared here in code, not in deployment configuration: a fresh deploy cannot expose
+    # the row by forgetting a setting. Product's request names the rows (OME-1714).
+    unlisted: bool = False
     # FEATURE: Benchmark Provenance, Human Baseline, Frontier Score (OME-1455). The facts on
     # the exam's cover sheet: who wrote it, who brought it here, where the original code and
     # data live, may you use it, how humans and the best published model scored, and which

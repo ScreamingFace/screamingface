@@ -33,8 +33,9 @@ with the gold `is_supporting` idx.
 ## Scoring
 
 Three scorers, three Named Scores, computed by the paper's own code copied verbatim into
-`vendor/` (StonyBrookNLP/musique@922ac98f; each file's docstring links to its upstream blob at
-that commit, and `test_local_task_musique_vendor.py` pins each file's upstream code sha256):
+`vendor/` (StonyBrookNLP/musique@922ac98f; each file's docstring links to the authors' file at
+that commit, and `test_local_task_musique_vendor.py` pins the sha256 of the authors' code in each
+file):
 
 | Named Score | What it is | Headline? |
 |---|---|---|
@@ -60,10 +61,10 @@ of candidate spans.
 
 ## Identity
 
-The Benchmark revision hashes the Case Digest, the Task reference, the Hub pin **and the
-sha256 of every `.py` file in this package** (`task_source=…`). Editing `musique.py` or
-anything under `vendor/` is a new Benchmark: update the literal in
-`tests/unit/inspect/test_published_revisions.py` and say why in the PR.
+The fingerprint hashes the Case Digest, the Task reference, the Hub pin **and the
+sha256 of every `.py` file in this package** (`task_source=…`). Editing any of them moves only the fingerprint: `tests/unit/inspect/test_benchmark_fingerprints.py`
+goes red and the Benchmark keeps publishing its hand-set `published_revision` (OME-1610).
+Whether that id moves too is the owner's call, under [Changing a Benchmark's published revision](../../../../docs/adding-an-imported-benchmark.md#changing-a-benchmarks-published-revision).
 
 ## Running it locally
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from typing import Any
 from screamingface_engine.benchmarks.aggregation import SelectedCase, finalize_candidate_result
 from screamingface_engine.benchmarks.contract import CaseResult
 from screamingface_engine.benchmarks.graded_results import decode_results, encode_result
+from screamingface_engine.benchmarks.media_parking import park_cases_media
 from screamingface_engine.benchmarks.progress import ScoreCases, completed_case, grading_progress
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
@@ -48,11 +50,22 @@ class Scoring:
         )
         if result is None:
             raise ValueError("completed execution must produce a Case result")
-        completed_case(self.benchmark_id, self.revision, result, self.scorer)
+        completed_case(
+            self.benchmark_id,
+            self.revision,
+            result,
+            self.scorer,
+            failure_policy=self.path.failure_policy,
+        )
         return encode_result(result, benchmark_id=self.benchmark_id, revision=self.revision)
 
     async def finish(self, raw: str) -> dict[str, Any]:
-        with grading_progress(self.benchmark_id, self.revision, self.scorer):
+        with grading_progress(
+            self.benchmark_id,
+            self.revision,
+            self.scorer,
+            failure_policy=self.path.failure_policy,
+        ):
             rows = json.loads(raw)
             if not isinstance(rows, list) or len(rows) > len(self.selected):
                 raise ValueError("graded results must be an array within the selected Case count")
@@ -65,17 +78,29 @@ class Scoring:
                 result = await self._completed_row(row, selected, index)
                 if result is not None:
                     results.append(result)
+            # FEATURE (OME-1271, PR 5): park each Case's pictures and files in the run's
+            # result store, under the sha256 its echoed placeholder carries, so a researcher
+            # can open one later. WHY a thread: the store's writer is synchronous, and this is
+            # the run's event loop.
+            await asyncio.to_thread(park_cases_media, [case.input for case in self.selected])
             finalized = finalize_candidate_result(
                 benchmark_id=self.benchmark_id,
                 benchmark_revision=self.revision,
                 selected_cases=self.selected,
                 cases=results,
                 scorer=self.scorer,
+                failure_policy=self.path.failure_policy,
             )
             observed = {case.case_id for case in results}
             for case in finalized.cases:
                 if case.case_id not in observed:
-                    completed_case(self.benchmark_id, self.revision, case, self.scorer)
+                    completed_case(
+                        self.benchmark_id,
+                        self.revision,
+                        case,
+                        self.scorer,
+                        failure_policy=self.path.failure_policy,
+                    )
             return finalized.as_payload()
 
     async def _completed_row(self, row, selected, index) -> CaseResult | None:
@@ -97,7 +122,13 @@ class Scoring:
             if result is not None:
                 # WHY: these terminal failures had no early grade to publish.
                 # The run observer deduplicates retries of the same canonical result.
-                completed_case(self.benchmark_id, self.revision, result, self.scorer)
+                completed_case(
+                    self.benchmark_id,
+                    self.revision,
+                    result,
+                    self.scorer,
+                    failure_policy=self.path.failure_policy,
+                )
             return result
         result = decode_results(
             json.dumps([row]),

@@ -87,7 +87,7 @@ def test_benchmark_identity_and_mcq_declaration() -> None:
     benchmark = MMLU_BENCHMARK.benchmark
     assert benchmark.id == "inspect-mmlu"
     assert benchmark.declaration.as_block() == {
-        "failure_policy": "coverage_declare",
+        "failure_policy": "withhold",
         "interaction": "single_shot",
         # OME-1257: broad knowledge with headroom, no expert-frontier stakes.
         "difficulty": "medium",

@@ -9,13 +9,20 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState, credential_name_for, profile_id_for
+from aigateway.core.credential_names import credential_name_for
+from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.plugins.gemini_provider.auth import credential_service_for
+from tests.unit.migrated_pair_seed import seed_migrated_pair
+from tests.unit.seed_state import SeedState
 
 
 def _account_id(client) -> str:
     return client.get("/v1/auth/me").json()["id"]
+
+
+def _connection_status(client, account_id: str, connection_id) -> str | None:
+    connection = client.portal.call(OAuthConnectionStore().get, account_id, connection_id)
+    return None if connection is None else connection.status
 
 
 def _seed_authenticated_gemini_profile(credential_blobs, account_id: str, **extra) -> None:
@@ -110,16 +117,7 @@ async def test_gemini_authenticated_profile_uses_oauth_not_env_key_or_client_key
     monkeypatch.setenv("GEMINI_API_KEY", "env-key")
     account_id = _account_id(authenticated_client)
     _seed_authenticated_gemini_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "gemini-cli", "default"),
-            account_id=account_id,
-            provider="gemini-cli",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
+    seed_migrated_pair(authenticated_client, account_id, "gemini-cli")
     captured: dict = {}
 
     async def fake_chat_completion(_self, body):
@@ -160,16 +158,7 @@ async def test_gemini_refresh_error_marks_profile_error(
         account_id,
         expires_at_ms=int((time.time() - 60) * 1000),
     )
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "gemini-cli", "default"),
-            account_id=account_id,
-            provider="gemini-cli",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
+    connection_id = seed_migrated_pair(authenticated_client, account_id, "gemini-cli")
 
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(401, json={"error": "invalid_grant"})
@@ -192,9 +181,8 @@ async def test_gemini_refresh_error_marks_profile_error(
 
     assert resp.status_code == 401
     assert resp.json()["detail"]["code"] == "auth_required"
-    saved = await idx.get(account_id, "gemini-cli", "default")
-    assert saved is not None
-    assert saved.state == ProfileState.ERROR
+    # WHY the Connection: the pair's effective Connection is the authority a refusal marks.
+    assert _connection_status(authenticated_client, account_id, connection_id) == "error"
 
 
 @pytest.mark.asyncio
@@ -206,16 +194,7 @@ async def test_gemini_dispatch_401_marks_profile_error_and_reauth_url(
     account_id = _account_id(authenticated_client)
     credential_name = credential_name_for(account_id, "default")
     _seed_authenticated_gemini_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "gemini-cli", "default"),
-            account_id=account_id,
-            provider="gemini-cli",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
+    connection_id = seed_migrated_pair(authenticated_client, account_id, "gemini-cli")
     invalidated: list[str] = []
 
     async def fake_chat_completion(_self, _body):
@@ -233,7 +212,7 @@ async def test_gemini_dispatch_401_marks_profile_error_and_reauth_url(
             fake_chat_completion,
         ),
         patch(
-            "aigateway.plugins.gemini_provider.plugin.GeminiProviderPlugin.invalidate_profile_session",
+            "aigateway.plugins.gemini_provider.plugin.GeminiProviderPlugin.invalidate_credential_session",
             fake_invalidate,
         ),
     ):
@@ -251,26 +230,14 @@ async def test_gemini_dispatch_401_marks_profile_error_and_reauth_url(
     assert detail["message"] == "Gemini Code Assist rejected token"
     assert detail["reauth_url"] == "/v1/oauth/connections"
     assert invalidated == [credential_name]
-    saved = await idx.get(account_id, "gemini-cli", "default")
-    assert saved is not None
-    assert saved.state == ProfileState.ERROR
+    # WHY the Connection: as for a refresh failure, a dispatch 401 marks the effective Connection.
+    assert _connection_status(authenticated_client, account_id, connection_id) == "error"
 
 
 @pytest.mark.asyncio
-async def test_error_profile_is_rejected_before_dispatch(
-    credential_blobs, authenticated_client
-) -> None:
+async def test_error_profile_is_rejected_before_dispatch(authenticated_client) -> None:
     account_id = _account_id(authenticated_client)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "gemini-cli", "default"),
-            account_id=account_id,
-            provider="gemini-cli",
-            name="default",
-            state=ProfileState.ERROR,
-        )
-    )
+    seed_migrated_pair(authenticated_client, account_id, "gemini-cli", state=SeedState.ERROR)
     fake_chat = AsyncMock()
 
     with patch(
@@ -290,116 +257,3 @@ async def test_error_profile_is_rejected_before_dispatch(
     assert detail["code"] == "auth_required"
     assert detail["reauth_url"] == "/v1/oauth/connections"
     fake_chat.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_gemini_manual_refresh_error_marks_profile_error(
-    monkeypatch, credential_blobs, authenticated_client
-) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    account_id = _account_id(authenticated_client)
-    _seed_authenticated_gemini_profile(
-        credential_blobs,
-        account_id,
-        expires_at_ms=int((time.time() + 3600) * 1000),
-    )
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "gemini-cli", "default"),
-            account_id=account_id,
-            provider="gemini-cli",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
-
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, json={"error": "invalid_grant"})
-
-    invalidated: list[str] = []
-
-    def fake_invalidate(_self, profile_name: str) -> None:
-        invalidated.append(profile_name)
-
-    setattr(
-        authenticated_client.app.state,
-        "gemini-cli_http_factory",
-        lambda: httpx.AsyncClient(
-            transport=httpx.MockTransport(handler), timeout=httpx.Timeout(5.0)
-        ),
-    )
-
-    with patch(
-        "aigateway.plugins.gemini_provider.plugin.GeminiProviderPlugin.invalidate_profile_session",
-        fake_invalidate,
-    ):
-        resp = authenticated_client.post("/v1/auth/gemini-cli/profiles/default/refresh")
-
-    assert resp.status_code == 401
-    detail = resp.json()["detail"]
-    assert detail["code"] == "auth_required"
-    assert detail["reauth_url"] == "/v1/oauth/connections"
-    saved = await idx.get(account_id, "gemini-cli", "default")
-    assert saved is not None
-    assert saved.state == ProfileState.ERROR
-    assert invalidated == [credential_name_for(account_id, "default")]
-
-
-@pytest.mark.asyncio
-async def test_gemini_manual_refresh_success_restores_error_profile(
-    monkeypatch, credential_blobs, authenticated_client
-) -> None:
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    account_id = _account_id(authenticated_client)
-    _seed_authenticated_gemini_profile(
-        credential_blobs,
-        account_id,
-        expires_at_ms=int((time.time() + 3600) * 1000),
-    )
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "gemini-cli", "default"),
-            account_id=account_id,
-            provider="gemini-cli",
-            name="default",
-            state=ProfileState.ERROR,
-        )
-    )
-
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={"access_token": "ya29.refreshed", "expires_in": 3600, "token_type": "Bearer"},
-        )
-
-    invalidated: list[str] = []
-
-    def fake_invalidate(_self, profile_name: str) -> None:
-        invalidated.append(profile_name)
-
-    setattr(
-        authenticated_client.app.state,
-        "gemini-cli_http_factory",
-        lambda: httpx.AsyncClient(
-            transport=httpx.MockTransport(handler), timeout=httpx.Timeout(5.0)
-        ),
-    )
-
-    with patch(
-        "aigateway.plugins.gemini_provider.plugin.GeminiProviderPlugin.invalidate_profile_session",
-        fake_invalidate,
-    ):
-        resp = authenticated_client.post("/v1/auth/gemini-cli/profiles/default/refresh")
-
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["state"] == "authenticated"
-    assert body["last_refreshed_at"] is not None
-    saved = await idx.get(account_id, "gemini-cli", "default")
-    assert saved is not None
-    assert saved.state == ProfileState.AUTHENTICATED
-    assert invalidated == [credential_name_for(account_id, "default")]

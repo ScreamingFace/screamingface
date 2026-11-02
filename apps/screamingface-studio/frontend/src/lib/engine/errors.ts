@@ -19,6 +19,8 @@ export class EngineError extends Error {
   readonly kind: EngineErrorKind;
   readonly status?: number;
   readonly detail: string;
+  // The Engine's own problem detail, when it sent one (`detail` falls back to a generic text).
+  readonly engineDetail?: string;
 
   constructor(kind: EngineErrorKind, detail?: string, status?: number) {
     const text = detail?.trim() || GENERIC_DETAIL[kind];
@@ -27,6 +29,7 @@ export class EngineError extends Error {
     this.kind = kind;
     this.status = status;
     this.detail = text;
+    this.engineDetail = detail?.trim() || undefined;
   }
 }
 
@@ -40,4 +43,8 @@ export function kindForStatus(status: number): EngineErrorKind {
 
 export function isEngineError(value: unknown): value is EngineError {
   return value instanceof EngineError;
+}
+
+export function asEngineError(error: unknown): EngineError {
+  return isEngineError(error) ? error : new EngineError("unknown");
 }

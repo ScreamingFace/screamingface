@@ -17,19 +17,14 @@ from unittest.mock import patch
 import pytest
 from litellm.litellm_core_utils import initialize_dynamic_callback_params
 
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.request_hardening import (
     DISPATCH_CONTROL_FIELDS,
     chat_body_shape_error,
     strip_dispatch_controls,
 )
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 # The D6 control plane: the implementation plan's verbatim list plus the SEC-1
 # review extension (azure/text_completion/atext_completion mode-flip flags).
@@ -318,18 +313,9 @@ def _seed_authenticated_profile(credential_blobs, account_id: str) -> None:
     )
 
 
-async def _seed_anthropic_profile(credential_blobs, account_id: str) -> None:
+async def _seed_anthropic_profile(client, credential_blobs, account_id: str) -> None:
     _seed_authenticated_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
+    seed_migrated_pair(client, account_id, "anthropic")
 
 
 def test_chat_malformed_json_returns_400_not_500(authenticated_client) -> None:
@@ -368,7 +354,7 @@ async def test_chat_strips_litellm_controls_for_every_provider(
     dispatch (anthropic here), while the gateway's own injected credential
     replaces the caller's api_key."""
     account_id = _account_id(authenticated_client)
-    await _seed_anthropic_profile(credential_blobs, account_id)
+    await _seed_anthropic_profile(authenticated_client, credential_blobs, account_id)
 
     captured: dict = {}
 

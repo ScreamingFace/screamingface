@@ -48,6 +48,7 @@ from screamingface_engine.benchmarks.definition import (
     BenchmarkOrigin,
     DifficultyTier,
     DraftFeedbackOffer,
+    FailurePolicy,
     candidate,
 )
 from screamingface_engine.benchmarks.deployment import (
@@ -60,6 +61,7 @@ from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
 from screamingface_engine.benchmarks.grading_endpoints import (
+    CandidateAnswer,
     async_aggregate_endpoint,
     attempt_records_endpoint,
     candidate_answer,
@@ -120,6 +122,9 @@ _FAILURE_MESSAGES: Mapping[str, str] = {
     # WHY (OME-1527): the scorer adapter names a judge that never gave a parseable verdict
     # (`judge_redraw`); without a message here that Case crashed the whole aggregate.
     "judge_reply_invalid": "the judge gave no parseable verdict for this Case after its redraws",
+    # WHY (OME-1271): the scorer adapter names a Case whose input breaks the envelope rules;
+    # without a message here that one Case would crash the whole aggregate.
+    "invalid_candidate_input": "this Case's input is not a conversation the grader can read",
     "missing_target_asset": "the baked target record for this Case is missing or invalid",
     "missing_case_row": "no evaluation row for this Case reached the aggregate",
     "case_error": "the Case pipeline collected an error instead of an evaluation",
@@ -268,6 +273,10 @@ class ImportedBenchmark:
     check_surface_route: str
     case_evaluation_route: str
     aggregate_route: str
+    #: The hash of everything that defines the Benchmark (OME-1610). An alarm, never
+    #: published: ``benchmark.revision`` is the row's hand-set ``published_revision``, and
+    #: ``tests/unit/inspect/test_benchmark_fingerprints.py`` pins this value per Benchmark.
+    fingerprint: str
     #: The benchmark's judge declaration; None for every string-match benchmark (OME-1240).
     judge: JudgeSpec | None = None
     #: The eval's grade counts the unwanted behaviour; the scorer adapter scores 1 − grade
@@ -347,6 +356,7 @@ class ImportedBenchmark:
             # marking Cases side by side shortens the run's tail; a judge-free scorer
             # finishes at once and keeps serial marking.
             case_grading_concurrency=CASE_GRADING_CONCURRENCY if self.judge is not None else 1,
+            failure_policy=self.benchmark.declaration.failure_policy,
         )
 
 
@@ -372,9 +382,11 @@ def single_shot_benchmark(
     install: Callable[[Url4Node, Path], None],
     with_check_surface: bool,
     difficulty: DifficultyTier,
+    failure_policy: FailurePolicy,
     multiple_correct: bool = False,
     judge: JudgeSpec | None = None,
     inverted_grade: bool = False,
+    unlisted: bool = False,
     verdict_grades: Mapping[str, float] | None = None,
     extra_scorer_factories: Sequence[Callable[[], Any]] = (),
     named_scores: Sequence[str] = (),
@@ -407,6 +419,8 @@ def single_shot_benchmark(
         title, description, focus, dataset_url: leaderboard display fields (OME-904).
         difficulty: the catalogue's hand-assigned easy→hard tier, authored on the
             BenchmarkSpec row (OME-1257).
+        failure_policy: what a Case that never got a valid grade does to the score, authored
+            on the BenchmarkSpec row (OME-1642); passed into the declaration verbatim.
         case_count: rows in the pinned split — the benchmark's declared benchmark size.
         revision_pins: every dataset fact that participates in benchmark identity.
         scorer_factory: zero-arg callable returning the imported eval's scorer.
@@ -422,11 +436,13 @@ def single_shot_benchmark(
         inverted_grade: the eval's grade counts the unwanted behaviour (a should-refuse
             safety benchmark); passed to the scorer adapter, which scores 1 − grade. The
             caller carries it into ``revision_pins`` (OME-1400).
+        unlisted: off the catalogue index, still served by id (OME-1714); passed to the
+            Benchmark unchanged and NOT a revision pin — the listing changes, the run does not.
         verdict_grades: the judge's verdict word → grade map for a judge that answers
             in words (coconot); passed to the scorer adapter, which then grades by it
             instead of inspect's letters. The caller carries it into ``revision_pins``
             (OME-1371).
-        extra_scorer_factories: the Task's other scorers as lazy factories, in upstream
+        extra_scorer_factories: the Task's other scorers as lazy factories, in inspect_evals'
             order; the adapter grades each Case once per scorer (OME-1268). The caller
             carries them into ``revision_pins``.
         named_scores: the keys of the Case's Named Scores, headline first (OME-1268);
@@ -461,7 +477,8 @@ def single_shot_benchmark(
             published ids are what submissions and the leaderboard key on, so they are never
             moved by a computed fingerprint, only by a deliberate bump (OME-1610). Never
             compared with the fingerprint (owner decision, 2026-10-15). NOT hashed into the
-            revision. None publishes the computed fingerprint.
+            revision. None publishes the computed fingerprint, for test stand-ins only: every
+            catalogue row sets it (OME-1610).
         answer_rule: how the grader reads an answer, as pinned combine operator ids (OME-1289).
             Published in the catalog; NOT hashed into the revision (like ``focus``).
 
@@ -491,6 +508,19 @@ def single_shot_benchmark(
         raise ValueError(
             f"{benchmark_id}: scorer_draft_feedback needs a Draft Feedback offer "
             "(with_check_surface=True)"
+        )
+    if failure_policy == "withhold" and (whole_run_metric_factory is not None or inverted_grade):
+        # WHY (OME-1642): a whole-run metric is not a mean of Case grades (F1 score, per-task
+        # accuracy), and on a refusal-measuring row the failed Case is the behaviour the
+        # Benchmark rewards, so "a failed Case counts 0" has no meaning for either until each
+        # has its own rule. Whole-run-metric rows (spec §5, group F) and inverted-grade rows
+        # (group E) stay coverage_declare. The message names the cause that fired.
+        cause = (
+            "a whole-run metric" if whole_run_metric_factory is not None else "an inverted grade"
+        )
+        raise ValueError(
+            f"{benchmark_id}: failure_policy withhold cannot score {cause} — "
+            "the row needs its own failure rule first (OME-1642)"
         )
     if (
         judge is not None
@@ -550,6 +580,10 @@ def single_shot_benchmark(
                 # WHY conditional (OME-1527, R9): what the Candidate is told mid-run is
                 # identity; unset adds nothing, so no published revision moves.
                 *(("draft_feedback=scorer",) if scorer_draft_feedback else ()),
+                # WHY conditional (OME-1642): the denominator is Benchmark identity — a withhold
+                # score is a different number from the same answers, so old and new scores never
+                # share a board; coverage_declare adds nothing, so no such revision moves.
+                *(("failure_policy=withhold",) if failure_policy == "withhold" else ()),
             )
         ).encode()
     ).hexdigest()[:16]
@@ -582,6 +616,10 @@ def single_shot_benchmark(
         # FEATURE: the researcher-visible refusal-rate mark (OME-1400) — the same flag the
         # scorer adapter flips on, published so report.json can show it.
         inverted_grade=inverted_grade,
+        # FEATURE: Unlisted Benchmark (OME-1714) — a listing decision threaded through verbatim.
+        # WHY not a revision pin: the mark changes what the catalogue shows, never what a run
+        # does, so a Benchmark taken off the index keeps its published revision.
+        unlisted=unlisted,
         build=_build(routes, case_count, attempts, retrieval_policy),
         install=install,
         focus=focus,
@@ -591,10 +629,9 @@ def single_shot_benchmark(
         answer_rule=answer_rule,
         **provenance,
         declaration=BenchmarkDeclaration(
-            # WHY "coverage_declare": imported benchmarks reduce through the shared
-            # finalize_candidate_result, which scores the gradeable subset and
-            # publishes coverage — the declaration matches the code (OME-1039).
-            failure_policy="coverage_declare",
+            # WHY the row's own policy, threaded through verbatim (OME-1642): the cover sheet
+            # names the rule the row declares, never a default (OME-1039).
+            failure_policy=failure_policy,
             interaction="single_shot",
             # The tier is authored on the BenchmarkSpec row (the imported benchmark's one
             # authoring site) and threaded through verbatim (OME-1257).
@@ -627,6 +664,7 @@ def single_shot_benchmark(
         check_surface_route=routes["check_surface"],
         case_evaluation_route=routes["case_evaluation"],
         aggregate_route=routes["aggregate"],
+        fingerprint=fingerprint,
         judge=judge,
         inverted_grade=inverted_grade,
         verdict_grades=verdict_grades,
@@ -641,12 +679,17 @@ def single_shot_benchmark(
     # WHY revision-compared, not presence-compared: re-assembling the identical
     # benchmark is harmless (tests do it), but a copy-pasted benchmark module that kept
     # the donor's key would resolve the WRONG benchmark's routes at install time —
-    # its differing pins give it a different revision, so it is refused here.
+    # its differing pins give it a different fingerprint, so it is refused here.
+    # WHY the fingerprint too (OME-1610): a copied row keeps the donor's hand-set
+    # published_revision as well, so the published ids alone would match.
     existing: ImportedBenchmark | None = _BENCHMARKS_BY_ID.get(benchmark_id)
-    if existing is not None and existing.benchmark.revision != revision:
+    if existing is not None and (
+        existing.benchmark.revision != revision or existing.fingerprint != fingerprint
+    ):
         raise ValueError(
-            f"benchmark id {benchmark_id!r} is already assembled with a different "
-            f"revision — duplicate benchmark_key?"
+            f"benchmark id {benchmark_id!r} is already assembled from different inputs "
+            f"(published {existing.benchmark.revision} vs {revision}, fingerprint "
+            f"{existing.fingerprint} vs {fingerprint}) — duplicate benchmark_key?"
         )
     _BENCHMARKS_BY_ID[benchmark_id] = imported
     return imported
@@ -811,8 +854,12 @@ def _enveloped_inputs(cases_json: str) -> str:
 
     rows: list[dict[str, Any]] = json.loads(cases_json)
     for row in rows:
-        if conversation_messages(row["input"]) is None:
-            row["input"] = conversation_input([{"role": "user", "content": row["input"]}])
+        try:
+            if conversation_messages(row["input"]) is None:
+                row["input"] = conversation_input([{"role": "user", "content": row["input"]}])
+        except ValueError as exc:
+            # WHY the id: one broken Case among hundreds must be findable (OME-1271).
+            raise ValueError(f"case {row['id']}: {exc}") from exc
     return json.dumps(rows, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -934,7 +981,8 @@ def check_surface_verdict(
         # INVARIANT: failure wording is this plugin's published voice — refuse
         # here, or the scorer adapter's internal TypeError vocabulary reaches the candidate.
         raise ValueError(_FAILURE_MESSAGES["missing_target_asset"])
-    answer: str = candidate_answer(invocation).text
+    candidate: CandidateAnswer = candidate_answer(invocation)
+    answer: str = candidate.text
     outcome: CaseGradeOutcome = _run_sync(
         benchmark.aggregation().grade_case(
             GradeRequest(
@@ -943,6 +991,9 @@ def check_surface_verdict(
                 answer=TextPayload(text=answer),
                 row={},
                 material=material,
+                # WHY: a draft cut off by the token limit is marked as the final grade would
+                # mark it, so the mid-run feedback never passes what the grade would fail.
+                finish_reason=candidate.finish_reason,
             )
         )
     )
@@ -1184,16 +1235,23 @@ def _case_by_input(root: Path, prompt: str) -> int:
 
 
 def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
-    """Mean score over the graded Cases — the imported single-shot reduction.
+    """Mean score over the Cases the scorer is given — the imported single-shot reduction.
 
-    With Named Scores (OME-1268) every column is averaged over the SAME graded Cases as the
-    headline, so all columns share Coverage's denominator (the adapter never half-grades a
+    FEATURE (OME-1642): under ``coverage_declare`` the finalizer hands this only the graded
+    Cases, so the mean is over graded Cases exactly as before. Under ``withhold`` it hands
+    every selected Case, and a Case with no numeric grade adds 0 to the headline and to every
+    Named Score column — the denominator is the number of Cases given. ``scored_cases``,
+    ``correct`` and the verdict counts stay over the graded Cases.
+
+    With Named Scores (OME-1268) every column is averaged over the SAME Cases as the
+    headline, so all columns share one denominator (the adapter never half-grades a
     Case; a column one graded Case could not fill is published as unknown, never over
-    fewer Cases). Worked example, 2 graded Cases: f1 1.0 and 0.334, exact 1.0 and 0.0 →
-    score 0.667, scores f1 0.667, exact 0.5.
+    fewer Cases). Worked example, 2 graded Cases under ``coverage_declare``: f1 1.0 and 0.334,
+    exact 1.0 and 0.0 → score 0.667, scores f1 0.667, exact 0.5. Under ``withhold``, with a
+    third Case that failed: score 0.4447, scores f1 0.4447, exact 0.3333.
 
     A judging scorer's verdict counts (``verdicts_expected`` / ``accepted`` / ``rejected``,
-    OME-1527 row 18b) are added up over the same graded Cases, so the Report can warn when
+    OME-1527 row 18b) are added up over the graded Cases, so the Report can warn when
     grading did not fully land; a row whose scorer writes none publishes none.
     """
 
@@ -1204,13 +1262,13 @@ def _accuracy(cases: Sequence[CaseResult]) -> CandidateScore:
     if not values:  # pragma: no cover - a Benchmark always selects one Case
         raise AssertionError("an imported board's scorer requires at least one scored Case")
     return CandidateScore(
-        score=round(sum(values) / len(values), 4),
+        score=round(sum(values) / len(cases), 4),
         metrics={
             "correct": sum(1 for value in values if value >= 1.0),
             "scored_cases": len(values),
             **run_verdict_counts(grade.metrics for grade in graded),
         },
-        scores=_column_means(graded),
+        scores=_column_means(graded, len(cases)),
     )
 
 
@@ -1225,8 +1283,10 @@ def _whole_run_tally(
     turns the marks into one headline. :func:`_accuracy` adds and divides; this hands the
     graded Cases' own inspect Scores to the eval's metric instead. Stages, in execution order:
 
-    Stage 1 — the graded Cases only (the finalizer passes exactly those; a failed Case
-              never reaches a metric, as with the mean). Each one's Score was filed by the
+    Stage 1 — the graded Cases only. The finalizer passes exactly those because the
+              withhold guard in ``single_shot`` (OME-1642) keeps every whole-run row on
+              ``coverage_declare``, so a failed Case never reaches a metric, as with the
+              ``coverage_declare`` mean. Each one's Score was filed by the
               scorer adapter in ``kept`` under its Case id, already reduced the way inspect
               reduces a Sample before any metric runs. For a Case asked several times
               (Attempts), that is the Task's own any-of-N reducer over its Attempt Scores.
@@ -1492,9 +1552,10 @@ def _is_headline(value: object) -> bool:
     )
 
 
-def _column_means(graded: Sequence[CaseGrade]) -> dict[str, float | None]:
-    """Each Named Score column's mean over the graded Cases, in the headline-first order
-    the first Case declares; empty when the Benchmark has no Named Scores."""
+def _column_means(graded: Sequence[CaseGrade], case_count: int) -> dict[str, float | None]:
+    """Each Named Score column's sum over the graded Cases divided by ``case_count``, the Cases
+    the scorer was given (the ungraded ones add 0), in the headline-first order the first
+    graded Case declares; empty when the Benchmark has no Named Scores."""
 
     names: tuple[str, ...] = tuple(graded[0].scores) if graded else ()
     means: dict[str, float | None] = {}
@@ -1502,9 +1563,11 @@ def _column_means(graded: Sequence[CaseGrade]) -> dict[str, float | None]:
         column: list[float | None] = [grade.scores.get(name) for grade in graded]
         # INVARIANT: every column shares the headline's denominator. A column one graded
         # Case could not fill (a None value) has no honest mean over those Cases, so it is
-        # published as unknown — never as a mean over fewer Cases, never as 0.0.
+        # published as unknown — never as a mean over fewer Cases, never as 0.0. A Case
+        # with no grade at all (`withhold`, OME-1642) is a failed Case, not an unfilled
+        # column: it adds 0.0 to every column, as it does to the headline.
         filled: list[float] = [float(value) for value in column if value is not None]
-        means[name] = round(sum(filled) / len(filled), 4) if len(filled) == len(column) else None
+        means[name] = round(sum(filled) / case_count, 4) if len(filled) == len(column) else None
     return means
 
 

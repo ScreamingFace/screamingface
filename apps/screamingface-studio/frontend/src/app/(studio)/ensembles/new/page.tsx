@@ -43,6 +43,12 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  WEB_SEARCH_UNAVAILABLE,
+  benchmarkBlurb,
+  benchmarkPresentation,
+} from "@/lib/benchmark-presentation";
+import { useBenchmarkStore } from "@/lib/benchmark-store";
+import {
   type ModelParam,
   type SavedEnsemble,
   type SavedModel,
@@ -62,6 +68,7 @@ import {
   type FusionNode,
   type PipelineNode,
   type RecipeKind,
+  type RecipeIssue,
   type RecipeNode,
   type SoloNode,
   collectSolos,
@@ -71,7 +78,10 @@ import {
   describeRecipe,
   fusionFromSlots,
   memberSolos,
-  recipeToUrl4,
+  parseRecipe,
+  recipeName,
+  renderRecipe,
+  resolveModels,
   rootSynthesizerSolo,
 } from "@/lib/recipe";
 import { cn } from "@/lib/utils";
@@ -105,7 +115,8 @@ const PARAM_CATALOG: {
   { key: "presence_penalty", label: "presence_penalty", kind: "number", min: -2, max: 2, step: 0.1 },
   { key: "reasoning_effort", label: "reasoning_effort", kind: "select", options: ["low", "medium", "high"] },
   { key: "seed", label: "seed", kind: "int" },
-  { key: "stop", label: "stop", kind: "text", placeholder: "e.g. \\n\\n" },
+  // url4 carries a parameter value only as letters, digits and . - _ : / (see recipe.ts).
+  { key: "stop", label: "stop", kind: "text", placeholder: "e.g. END (letters, digits, . - _ : /)" },
 ];
 
 function defaultParamValue(
@@ -115,39 +126,6 @@ function defaultParamValue(
   if (entry.kind === "text") return "";
   return String(entry.min ?? 0);
 }
-
-const benchmarks = [
-  {
-    id: "gpqa",
-    name: "GPQA Diamond",
-    domain: "Science",
-    questions: 448,
-  },
-  {
-    id: "mmlu",
-    name: "MMLU Pro",
-    domain: "Multi-domain",
-    questions: 12000,
-  },
-  {
-    id: "heval",
-    name: "HumanEval+",
-    domain: "Coding",
-    questions: 164,
-  },
-  {
-    id: "arc",
-    name: "ARC-Challenge",
-    domain: "Reasoning",
-    questions: 1172,
-  },
-  {
-    id: "math",
-    name: "MATH-500",
-    domain: "Math",
-    questions: 500,
-  },
-];
 
 function ProviderDot({ provider }: { provider: string }) {
   return (
@@ -399,28 +377,6 @@ function ParamEditor({
       )}
     </div>
   );
-}
-
-function parseRecipe(raw: string, catalog: Model[]) {
-  const match = raw.match(/^url4:\/\/([^?]+)\?(.*)$/);
-  if (!match) return null;
-  const params = new URLSearchParams(match[2]);
-  const ids = (params.get("models") ?? "").split(/[+\s]+/).filter(Boolean);
-  const unknown = ids.filter((id) => !catalog.some((model) => model.id === id));
-  const slots = ids
-    .map((id) => catalog.find((model) => model.id === id))
-    .filter((model): model is Model => Boolean(model))
-    .map((model) => ({
-      id: createUuid(),
-      model,
-      systemPrompt: "",
-      weight: 0.5,
-    }));
-  return {
-    name: decodeURIComponent(match[1]).replace(/\s+/g, "-").toLowerCase(),
-    slots,
-    unknown,
-  };
 }
 
 function scoreForModel(modelId: string) {
@@ -1048,6 +1004,7 @@ function RunsPanel({
   slots,
   judge,
   runs,
+  issues,
   onComplete,
   onPublish,
   ensembleName,
@@ -1056,6 +1013,8 @@ function RunsPanel({
   slots: Slot[];
   judge: Slot | null;
   runs: SavedRun[];
+  // What keeps the recipe from compiling; a run is not offered until it is empty.
+  issues: RecipeIssue[];
   onComplete: (run: SavedRun) => void;
   onPublish: (run: SavedRun) => void;
   ensembleName: string;
@@ -1064,10 +1023,13 @@ function RunsPanel({
   const [mode, setMode] = useState<"history" | "new" | "detail">(
     runs.length > 0 ? "history" : "new",
   );
-  const [benchmarkId, setBenchmarkId] = useState("gpqa");
-  const [sampleSize, setSampleSize] = useState(100);
+  const [benchmarkId, setBenchmarkId] = useState<string | null>(null);
+  const [sampleSize, setSampleSize] = useState(50);
   const [full, setFull] = useState(false);
   const [custom, setCustom] = useState(false);
+  // What the Custom box shows while it holds no number, so a cleared box stays empty instead
+  // of snapping to 1. `null` means "show the size the run would use".
+  const [customDraft, setCustomDraft] = useState<string | null>(null);
   const [useCache, setUseCache] = useState(true);
   const [saveCache, setSaveCache] = useState(true);
   const [compute, setCompute] = useState<"om" | "own">("om");
@@ -1081,17 +1043,31 @@ function RunsPanel({
   >("idle");
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const intervalRef = useRef<number | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [customBenchmarks, setCustomBenchmarks] = useState<
-    typeof benchmarks
-  >([]);
   const omConnected = useOpenMinedStore((state) => state.connected);
   const effectiveCompute = omConnected ? compute : "own";
-  const allBenchmarks = [...benchmarks, ...customBenchmarks];
-  const benchmark =
-    allBenchmarks.find((item) => item.id === benchmarkId) ?? benchmarks[0];
+  const benchmarkStatus = useBenchmarkStore((state) => state.status);
+  const benchmarks = useBenchmarkStore((state) => state.benchmarks);
+  const benchmarkError = useBenchmarkStore((state) => state.error);
+  const refreshBenchmarks = useBenchmarkStore((state) => state.refresh);
+  const benchmark = benchmarks.find((item) => item.id === benchmarkId) ?? null;
+  // Listed but not runnable: the local runtime has no web-search key (plan U3).
+  const runnable =
+    benchmark !== null &&
+    benchmark.case_count > 0 &&
+    !benchmarkPresentation(benchmark.id).needsWebSearch;
+  // A preset larger than the benchmark runs every case, so it shows as Full.
+  const wholeBenchmark =
+    full || (benchmark !== null && !custom && sampleSize > benchmark.case_count);
+  // The size this run would use: never more cases than the benchmark has.
+  const selectedSize = benchmark
+    ? wholeBenchmark
+      ? benchmark.case_count
+      : Math.min(sampleSize, benchmark.case_count)
+    : sampleSize;
   const selectedRun =
     runs.find((run) => run.id === selectedRunId) ?? runs[0] ?? null;
+  // A cleared Custom box has no size yet; Run waits rather than using one the user can't see.
+  const customEmpty = custom && !full && customDraft !== null;
 
   useEffect(
     () => () => {
@@ -1099,6 +1075,12 @@ function RunsPanel({
     },
     [],
   );
+
+  // Every mount asks the Engine again: the store outlives this panel, and a restarted runtime
+  // may have different benchmarks. A loaded list stays on screen while it refreshes.
+  useEffect(() => {
+    void refreshBenchmarks();
+  }, [refreshBenchmarks]);
 
   function cancelRun() {
     if (intervalRef.current) window.clearInterval(intervalRef.current);
@@ -1110,7 +1092,7 @@ function RunsPanel({
   }
 
   function startRun() {
-    if (slots.length === 0) return;
+    if (slots.length === 0 || !benchmark || !runnable || customEmpty) return;
     setRunning(true);
     setProgress(0);
     setJudgeStatus("idle");
@@ -1170,9 +1152,9 @@ function RunsPanel({
         const run: SavedRun = {
           id: createUuid(),
           benchmarkId: benchmark.id,
-          benchmarkName: benchmark.name,
-          sampleSize: full ? benchmark.questions : sampleSize,
-          full,
+          benchmarkName: benchmark.title,
+          sampleSize: selectedSize,
+          full: wholeBenchmark,
           useCache,
           saveCache,
           compute: effectiveCompute,
@@ -1190,27 +1172,6 @@ function RunsPanel({
     }, 110);
   }
 
-  function uploadDataset(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const rows = String(reader.result ?? "")
-        .split(/\r?\n/)
-        .filter((row) => row.trim().length > 0);
-      const custom = {
-        id: `custom-${createUuid()}`,
-        name: file.name,
-        domain: "Custom",
-        questions: Math.max(1, rows.length),
-      };
-      setCustomBenchmarks((current) => [...current, custom]);
-      setBenchmarkId(custom.id);
-    };
-    reader.readAsText(file);
-    event.target.value = "";
-  }
-
   if (mode === "history") {
     return (
       <div className="h-full overflow-y-auto px-5 py-6 sm:px-8">
@@ -1224,7 +1185,7 @@ function RunsPanel({
             </div>
             <Button
               size="sm"
-              disabled={slots.length === 0}
+              disabled={slots.length === 0 || issues.length > 0}
               onClick={() => setMode("new")}
             >
               <Play className="size-3.5" />
@@ -1332,59 +1293,103 @@ function RunsPanel({
         <div className="grid gap-8 md:grid-cols-2">
           <section>
             <p className="mb-3 text-xs text-muted-foreground">Benchmark</p>
-            <div className="flex flex-col gap-1.5">
+            {benchmarks.length === 0 ? (
+              benchmarkStatus === "error" ? (
+                <div
+                  role="alert"
+                  className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed px-3 py-2.5 text-xs text-destructive"
+                >
+                  Couldn&apos;t load benchmarks: {benchmarkError?.detail}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 rounded-lg"
+                    onClick={() => void refreshBenchmarks()}
+                  >
+                    Retry
+                  </Button>
+                </div>
+              ) : (
+                // One live region for both states, so the empty result is announced when it
+                // replaces "Loading…" rather than appearing silently in a new node.
+                <p
+                  role="status"
+                  className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground"
+                >
+                  {benchmarkStatus === "ready" ? (
+                    "The Engine has no benchmarks installed."
+                  ) : (
+                    <>
+                      <LoaderCircle className="size-3.5 animate-spin" />
+                      Loading benchmarks…
+                    </>
+                  )}
+                </p>
+              )
+            ) : (
               <RadioGroup
-                value={benchmarkId}
+                value={benchmarkId ?? ""}
                 disabled={running}
                 onValueChange={setBenchmarkId}
                 aria-label="Benchmark"
                 className="gap-1.5"
               >
-                {allBenchmarks.map((item) => (
-                  <label
-                    key={item.id}
-                    htmlFor={`benchmark-${item.id}`}
-                    className={cn(
-                      "flex cursor-pointer items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                      running && "cursor-not-allowed opacity-50",
-                      benchmarkId === item.id
-                        ? "border-primary/50 bg-primary/5"
-                        : "hover:bg-muted/20",
-                    )}
-                  >
-                    <span className="flex min-w-0 items-center gap-2">
-                      <RadioGroupItem
-                        id={`benchmark-${item.id}`}
-                        value={item.id}
-                      />
-                      <span className="truncate text-xs">{item.name}</span>
-                      <Badge variant="secondary" className="font-mono text-xs">
-                        {item.domain}
-                      </Badge>
-                    </span>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {item.questions.toLocaleString()}q
-                    </span>
-                  </label>
-                ))}
+                {benchmarks.map((item) => {
+                  const webSearch = benchmarkPresentation(item.id).needsWebSearch;
+                  const unavailable = running || webSearch || item.case_count === 0;
+                  return (
+                    <label
+                      key={item.id}
+                      htmlFor={`benchmark-${item.id}`}
+                      className={cn(
+                        "flex items-start justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                        unavailable
+                          ? "cursor-not-allowed opacity-50"
+                          : "cursor-pointer",
+                        benchmarkId === item.id
+                          ? "border-primary/50 bg-primary/5"
+                          : !unavailable && "hover:bg-muted/20",
+                      )}
+                    >
+                      <span className="flex min-w-0 items-start gap-2">
+                        <RadioGroupItem
+                          id={`benchmark-${item.id}`}
+                          value={item.id}
+                          disabled={webSearch || item.case_count === 0}
+                          aria-label={item.title}
+                          aria-describedby={`benchmark-${item.id}-about`}
+                          className="mt-0.5"
+                        />
+                        <span className="min-w-0">
+                          <span className="block truncate text-xs">{item.title}</span>
+                          <span
+                            id={`benchmark-${item.id}-about`}
+                            className="mt-0.5 block text-xs text-muted-foreground"
+                          >
+                            <span className="block truncate">
+                              {benchmarkBlurb(item)}
+                            </span>{" "}
+                            {webSearch && (
+                              <span className="mt-0.5 block">
+                                {WEB_SEARCH_UNAVAILABLE}
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                      </span>
+                      <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                        {item.case_count.toLocaleString()} cases
+                      </span>
+                    </label>
+                  );
+                })}
               </RadioGroup>
-              <button
-                type="button"
-                disabled={running}
-                className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-                onClick={() => fileRef.current?.click()}
-              >
-                <Upload className="size-3.5" />
-                Upload custom dataset
-              </button>
-              <input
-                ref={fileRef}
-                type="file"
-                accept=".csv,.jsonl,.json,.txt,text/plain"
-                className="hidden"
-                onChange={uploadDataset}
-              />
-            </div>
+            )}
+            {benchmarkStatus === "error" && benchmarks.length > 0 && (
+              <p role="status" className="mt-2 text-xs text-destructive">
+                Couldn&apos;t refresh benchmarks: {benchmarkError?.detail}
+              </p>
+            )}
           </section>
 
           <div className="flex flex-col gap-6">
@@ -1392,7 +1397,10 @@ function RunsPanel({
               <p className="mb-3 text-xs text-muted-foreground">Sample Size</p>
               <div className="flex flex-wrap gap-2">
                 {[1, 50, 100].map((size) => {
-                  const active = !full && !custom && sampleSize === size;
+                  const tooLarge =
+                    benchmark !== null && size > benchmark.case_count;
+                  const active =
+                    !wholeBenchmark && !custom && sampleSize === size;
                   return (
                     <Button
                       key={size}
@@ -1400,7 +1408,7 @@ function RunsPanel({
                       size="sm"
                       aria-pressed={active}
                       variant={active ? "default" : "outline"}
-                      disabled={running}
+                      disabled={running || tooLarge}
                       className="font-mono"
                       onClick={() => {
                         setSampleSize(size);
@@ -1415,8 +1423,8 @@ function RunsPanel({
                 <Button
                   type="button"
                   size="sm"
-                  aria-pressed={!full && custom}
-                  variant={!full && custom ? "default" : "outline"}
+                  aria-pressed={!wholeBenchmark && custom}
+                  variant={!wholeBenchmark && custom ? "default" : "outline"}
                   disabled={running}
                   className="font-mono"
                   onClick={() => {
@@ -1429,8 +1437,8 @@ function RunsPanel({
                 <Button
                   type="button"
                   size="sm"
-                  aria-pressed={full}
-                  variant={full ? "default" : "outline"}
+                  aria-pressed={wholeBenchmark}
+                  variant={wholeBenchmark ? "default" : "outline"}
                   disabled={running}
                   className="font-mono"
                   onClick={() => {
@@ -1441,27 +1449,37 @@ function RunsPanel({
                   Full
                 </Button>
               </div>
-              {!full && custom && (
+              {!wholeBenchmark && custom && (
                 <div className="mt-3 flex items-center gap-2">
                   <Input
                     type="number"
                     min={1}
+                    max={benchmark?.case_count}
                     inputMode="numeric"
-                    value={sampleSize}
+                    value={customDraft ?? selectedSize}
                     disabled={running}
                     aria-label="Custom sample size"
                     className="h-8 w-28 font-mono"
                     onChange={(event) => {
                       const next = Number.parseInt(event.target.value, 10);
-                      setSampleSize(Number.isNaN(next) ? 1 : Math.max(1, next));
+                      if (Number.isNaN(next)) {
+                        setCustomDraft(event.target.value);
+                        return;
+                      }
+                      const most = benchmark?.case_count ?? Number.POSITIVE_INFINITY;
+                      setSampleSize(Math.min(most, Math.max(1, next)));
+                      // A number shows the size the run will use, re-clamped whenever the
+                      // benchmark changes; the draft only holds text that is not a number.
+                      setCustomDraft(null);
                     }}
+                    onBlur={() => setCustomDraft(null)}
                   />
-                  <span className="text-xs text-muted-foreground">questions</span>
+                  <span className="text-xs text-muted-foreground">cases</span>
                 </div>
               )}
-              {full && (
+              {wholeBenchmark && benchmark && (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Full benchmark — {benchmark.questions.toLocaleString()} questions.
+                  Full benchmark — {benchmark.case_count.toLocaleString()} cases.
                 </p>
               )}
             </section>
@@ -1577,9 +1595,19 @@ function RunsPanel({
         </div>
 
         <div className="mt-8">
+          {issues.length > 0 && !running && (
+            <div role="alert" className="mb-3 text-xs text-destructive">
+              <p>Fix the recipe before running:</p>
+              <ul className="mt-1 list-disc pl-4">
+                {issues.map((issue, index) => (
+                  <li key={`${issue.nodeId}-${issue.key}-${index}`}>{issue.message}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {!running ? (
             <Button
-              disabled={slots.length === 0}
+              disabled={slots.length === 0 || !runnable || customEmpty || issues.length > 0}
               className="rounded-xl"
               onClick={startRun}
             >
@@ -1588,7 +1616,7 @@ function RunsPanel({
             </Button>
           ) : (
             (() => {
-              const totalQuestions = full ? benchmark.questions : sampleSize;
+              const totalQuestions = selectedSize;
               const answeredQuestions = Math.min(
                 totalQuestions,
                 Math.round((progress / 100) * totalQuestions),
@@ -1598,7 +1626,7 @@ function RunsPanel({
               <div className="flex items-center gap-3">
                 <LoaderCircle className="size-4 animate-spin text-primary" />
                 <p className="min-w-0 flex-1 truncate text-sm">
-                  Running {benchmark.name} · {full ? "Full" : `${sampleSize}q`} · {effectiveCompute === "om" ? "OM compute" : "own compute"}
+                  Running {benchmark?.title} · {wholeBenchmark ? "Full" : `${selectedSize}q`} · {effectiveCompute === "om" ? "OM compute" : "own compute"}
                 </p>
                 <span className="font-mono text-xs text-muted-foreground">
                   {answeredQuestions.toLocaleString()} / {totalQuestions.toLocaleString()} questions
@@ -2234,6 +2262,7 @@ function EnsembleComposer() {
   // model. A retry that succeeds re-runs the import.
   const catalogReady = catalogLoad === "ready";
   const [droppedModels, setDroppedModels] = useState<string[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
   const [loadedEnsembleId, setLoadedEnsembleId] = useState<string | null>(null);
   const recipeWaiting =
     Boolean(importedRecipe) && !requestedId && loadedEnsembleId !== ensembleId;
@@ -2275,9 +2304,11 @@ function EnsembleComposer() {
         const view = providers.find((provider) => provider.id === model.owned_by);
         return toSavedModel(model, view?.name);
       });
-    const parsed = importedRecipe ? parseRecipe(importedRecipe, catalog) : null;
+    const parsedRecipe = importedRecipe && !saved ? parseRecipe(importedRecipe) : null;
+    const parsed = parsedRecipe?.ok ? resolveModels(parsedRecipe.root, catalog) : null;
     const frame = window.requestAnimationFrame(() => {
-      setDroppedModels(!saved && parsed ? parsed.unknown : []);
+      setDroppedModels(parsed ? parsed.unknown : []);
+      setImportError(parsedRecipe && !parsedRecipe.ok ? parsedRecipe.error : null);
       if (saved) {
         const savedRunHistory = saved.runHistory ?? [];
         const nextRoot =
@@ -2294,8 +2325,8 @@ function EnsembleComposer() {
           JSON.stringify(buildDraft(ensembleId, saved.name, nextRoot, savedRunHistory)),
         );
       } else if (parsed) {
-        const nextRoot = fusionFromSlots(parsed.slots, null);
-        setName(parsed.name);
+        const nextRoot = parsed.root;
+        setName(recipeName(nextRoot));
         setRoot(nextRoot);
         addLibraryModels(
           collectSolos(nextRoot)
@@ -2331,7 +2362,7 @@ function EnsembleComposer() {
 
   const slots = useMemo(() => deriveSlots(root), [root]);
   const judge = useMemo(() => deriveJudge(root), [root]);
-  const recipe = useMemo(() => recipeToUrl4(root), [root]);
+  const rendered = useMemo(() => renderRecipe(root), [root]);
   const draft = useMemo<SavedEnsemble>(
     () => buildDraft(ensembleId, name, root, runHistory),
     [ensembleId, name, root, runHistory],
@@ -2408,7 +2439,8 @@ function EnsembleComposer() {
   }
 
   async function copyRecipe() {
-    await navigator.clipboard.writeText(recipe);
+    if (!rendered.ok) return;
+    await navigator.clipboard.writeText(rendered.url4);
     setCopied(true);
     window.setTimeout(() => setCopied(false), 1800);
   }
@@ -2488,7 +2520,12 @@ function EnsembleComposer() {
               )}
               {savedFlash ? "Saved" : "Save"}
             </Button>
-            <Button variant="outline" size="sm" onClick={copyRecipe}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyRecipe}
+              disabled={!rendered.ok}
+            >
               {copied ? (
                 <Check className="size-3.5 text-accent" />
               ) : (
@@ -2515,6 +2552,11 @@ function EnsembleComposer() {
               Retry
             </Button>
           </div>
+        )}
+        {importError && (
+          <p role="alert" className="mt-3 text-xs text-destructive">
+            {importError}
+          </p>
         )}
         {droppedModels.length > 0 && (
           <p role="status" className="mt-3 text-xs text-destructive">
@@ -2646,18 +2688,27 @@ function EnsembleComposer() {
                 url4 preview
               </p>
               <div className="rounded-lg border bg-card p-2">
-                <code className="block break-all font-mono text-[11px] text-primary/90">
-                  {recipe}
-                </code>
+                {rendered.ok ? (
+                  <code className="block break-all font-mono text-[11px] text-primary/90">
+                    {rendered.url4}
+                  </code>
+                ) : (
+                  <ul role="alert" className="space-y-1 text-[11px] text-destructive">
+                    {rendered.issues.map((issue, index) => (
+                      <li key={`${issue.nodeId}-${issue.key}-${index}`}>{issue.message}</li>
+                    ))}
+                  </ul>
+                )}
               </div>
               <p className="mt-1.5 text-[11px] text-muted-foreground">
-                Structural preview — the engine emits the canonical url4 at run time.
+                The exact url4 the ScreamingFace SDK compiles for this recipe.
               </p>
             </div>
 
             <div>
               <Button
                 className="w-full rounded-xl"
+                disabled={!rendered.ok}
                 onClick={() => setTab("runs")}
               >
                 Next: Run
@@ -2674,6 +2725,7 @@ function EnsembleComposer() {
           slots={slots}
           judge={judge}
           runs={runHistory}
+          issues={rendered.ok ? [] : rendered.issues}
           ensembleName={name}
           onComplete={completeRun}
           onPublish={publishRun}

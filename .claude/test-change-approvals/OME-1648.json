@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1648",
+  "branch": "OME-1648-contracteval-run-memory-budget",
+  "approver": "owner (in the OME-1648 session)",
+  "date": "2026-10-19",
+  "scope": "test_the_per_slot_charge_is_each_run_s_resident_budget_and_sets_its_backstop pins the chart's default per-slot budget: 1024 MiB resident / 2 GiB backstop -> 2560 MiB / 5 GiB. One new test appended (the ContractEval floor).",
+  "reason": "OME-1648 raises runnerPool.perRunCharge.memoryLimitMi from 1024 to 2560 because every ContractEval run parses its whole 192 MiB case file (1,828 MiB measured peak in kind); the new default is owner-approved, 4 slots kept.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_chart_render_runner_memory.py": {
+      "base_blob": "37ab7fd9d01cd31117698dc75f6e83941079c368",
+      "approved_blob": "4f8311de091fb15866a6e1d015c444672bb6b68a"
+    }
+  }
+}

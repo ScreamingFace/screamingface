@@ -299,3 +299,95 @@ def test_reasoning_effort_is_advertised_in_the_summary() -> None:
     rules = plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key")
     summary = set(inline_supported_parameters(rules, available_auth_modes=("api_key",)))
     assert "reasoning_effort" in summary
+
+
+# --- OME-1656: OpenRouter's object-form reasoning effort -------------------------------
+
+
+@pytest.mark.parametrize("effort", ["max", "xhigh", "high", "medium", "low", "minimal", "none"])
+def test_object_reasoning_effort_projects_to_nested_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client, effort: str
+) -> None:
+    # STORY: some OpenRouter models accept only `reasoning.effort`, while URL4 model params are
+    # scalar. The existing dotted parameter spelling bridges those contracts without raw objects.
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"reasoning.effort": effort})
+    assert resp.status_code == 200, resp.text
+    assert captured["reasoning"] == {"effort": effort}
+    assert "reasoning.effort" not in captured
+
+
+@pytest.mark.parametrize("effort", ["default", "banana", 3, True])
+def test_object_reasoning_effort_outside_openrouter_enum_rejects_before_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client, effort: object
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(authenticated_client, {"reasoning.effort": effort})
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"]["rejected"] == {"reasoning.effort": "malformed"}
+    assert captured == {}
+
+
+def test_two_reasoning_effort_spellings_are_refused_before_dispatch(
+    enabled_openrouter, credential_blobs, authenticated_client
+) -> None:
+    _create_connection(authenticated_client)
+    captured: dict = {}
+    with patch("litellm.acompletion", _fake_acompletion(captured)):
+        resp = _post_chat(
+            authenticated_client,
+            {"reasoning_effort": "high", "reasoning.effort": "high"},
+        )
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == {
+        "code": "incompatible_parameters",
+        "provider": "openrouter",
+        "conflict": ["reasoning.effort", "reasoning_effort"],
+        "message": "reasoning_effort_spellings_conflict",
+    }
+    assert captured == {}
+
+
+@pytest.mark.parametrize(
+    "upstream",
+    [
+        "google/gemini-4-argon",
+        "qwen/qwen3.8-max-prime",
+        "z-ai/glm-5.3-prime",
+        "mistralai/mistral-large-4-0",
+    ],
+)
+@pytest.mark.parametrize("effort", ["max", "xhigh", "high", "medium", "low", "minimal", "none"])
+def test_object_reasoning_effort_survives_installed_litellm_openrouter_transform(
+    upstream: str, effort: str
+) -> None:
+    # FINAL-TRANSFORM PROOF: all four ticket models reject `reasoning_effort` and require the
+    # nested OpenRouter object. The pinned LiteLLM must preserve every documented value verbatim.
+    from litellm.llms.openrouter.chat.transformation import OpenrouterConfig
+    from litellm.utils import get_optional_params
+
+    optional = get_optional_params(
+        model=upstream,
+        custom_llm_provider="openrouter",
+        reasoning={"effort": effort},
+    )
+    assert optional.get("reasoning") == {"effort": effort}
+    wire = OpenrouterConfig().transform_request(
+        model=upstream,
+        messages=[{"role": "user", "content": "hi"}],
+        optional_params=dict(optional),
+        litellm_params={},
+        headers={},
+    )
+    assert wire.get("reasoning") == {"effort": effort}
+
+
+def test_object_reasoning_effort_is_advertised_in_the_summary() -> None:
+    plugin = OpenRouterProviderPlugin(OpenRouterPluginSettings(enabled=True))
+    rules = plugin.chat_parameter_rules(model=_MODEL, auth_type="api_key")
+    summary = set(inline_supported_parameters(rules, available_auth_modes=("api_key",)))
+    assert "reasoning.effort" in summary

@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from ..api_key_validation import ApiKeyValidationStage, ApiKeyValidationState
-from ..profile_models import AuthType
+from ..auth_types import AuthType
 from .identity import AccountIdentity
 
 OAuthConnectionStatus = Literal["pending", "active", "expired", "revoked", "error"]

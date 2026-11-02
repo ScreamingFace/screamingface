@@ -1,0 +1,118 @@
+{
+  "issue": "OME-1784",
+  "branch": "OME-1784-retire-quarantine-and-x-profile",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-29",
+  "scope": "The prior tests spec section 6 lists for L4a: the selector, resolve-contract, routing, operational-boundary and availability tests, the fake, the quarantined / migration_note suites (pair authority store, the five writer-floor modules, connection-only resolve, pair admin disposition / mutations / review fixes, the OAuth flow, profile reader removed, error mark inventory), the PostgreSQL backing test, the OpenRouter availability test, the offline-only Profile index test and the Anthropic bootstrap docstring. Tests that pinned quarantined, named selection, SelectorPolicy, D18 row 4 or the bootstrap warning are deleted or re-expressed for the two-state marker and the default selector; the fake witness test becomes test_the_fake_witness_agrees_with_the_real_backing; test_operational_outcome_boundaries.py gains a moved-marker dispatch case. Plus four files outside the section 6 list, approved by the owner on 2026-10-29: test_provider_access_http.py (the SelectorUnknown import and its 404 row removed), test_pair_admin_connection_only.py (a five-field PairAuthority and its comment), tests/unit/test_bootstrap.py (a comment naming the renamed absence check), and test_connection_backed_resolve_contract.py under option C1 (the two twins deleted, NOT_REIMPORTED shrunk to the fake-only witness, the docstring refreshed).",
+  "reason": "OME-1138 close-out L4a (spec section 4.2): the quarantined marker state, the X-Profile compatibility path (SelectorPolicy, HONOUR, named selection, SelectorUnknown), D18 row 4, the AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE warning and every migration_note read and write are retired, so the tests that pinned them are deleted or re-expressed. The fake now models a stored credential as the pair's effective Connection, as the real harness seeds it. The owner approved the four files outside the section 6 list on 2026-10-29 as direct consequences of spec section 4.2 that section 6 did not list; option C1 moves the deleted twins' assertions into the resolve contract, which runs on both witnesses (the fake and the real backing).",
+  "files": {
+    "apps/aigateway/tests/unit/core/provider_access/provider_access_fake.py": {
+      "base_blob": "422ce0c622dd32b04c9d39656d0ff4f2deb94597",
+      "approved_blob": "20294eda1b8711ff1d5096e8fd23b6d4da461000"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_oauth_flow.py": {
+      "base_blob": "a024cdbacd3db76c3e08d633bba488f9a3e8dc56",
+      "approved_blob": "2604bfbd4e931cb635a58d0b299997603e6bd22c"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_resolve_contract.py": {
+      "base_blob": "5043a3c7e3d2266d7b426507b60fc0fc42959168",
+      "approved_blob": "c7fa756276027ace0b953b3ec8115ee94bcef08f"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_backed_routing.py": {
+      "base_blob": "5bf2aea142431feac513e06991f052e054d2c699",
+      "approved_blob": "c3cd843f2c52e37dfe550efe194523039c4a709d"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_only_resolve.py": {
+      "base_blob": "98989ef8b9f56ffdd9e8770212e8d4161a9b1fac",
+      "approved_blob": "00f182fadfea1d85ce1ec0f730015958d42e10ca"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_error_mark_inventory.py": {
+      "base_blob": "1facad1c6dfdc5e6615b9241f1051a001161c7a9",
+      "approved_blob": "60849f02163a86d84e8c0e09372edf721f27f6f0"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_operational_outcome_boundaries.py": {
+      "base_blob": "8705efc1c621befa64cdf9fca273eaf5892f2861",
+      "approved_blob": "19e6a8fb10d078ca3f3edc3d50e2f281e9b9a8c6"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_connection_only.py": {
+      "base_blob": "5264d2c32cc6a861c82c69b261b6068e18d913cd",
+      "approved_blob": "bf36fe7126f3e3e06ba4050c2359b956477b3152"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_disposition.py": {
+      "base_blob": "94b0bb42649834108f1648dfc5e715189af4f7cb",
+      "approved_blob": "5164303180795cd89fa96d782f5959435c4a3df7"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_mutations.py": {
+      "base_blob": "2d8599a2bb6925276dfe800aabb58e0e89169602",
+      "approved_blob": "47c59814f1f9f06086bff66115b29704e6f0f701"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_review_fixes.py": {
+      "base_blob": "c3d9885ef1bcd7170fb2e13caa62ab2962100981",
+      "approved_blob": "92d30b80d7baa972bacab59acd7798fdbe85cb9b"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_authority_store.py": {
+      "base_blob": "461682faab74979ee4be516f60313fffe06c4827",
+      "approved_blob": "43aaebb1bee2b478872382c52225e0609dcbe292"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_profile_reader_removed.py": {
+      "base_blob": "96948fbebb59015c73863dc25b24a1bd66dd2edc",
+      "approved_blob": "5b04e4def4782c4c45639613d53e1316de45434a"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_availability.py": {
+      "base_blob": "28c327fffa3ad0656248caf879351f1007fc689e",
+      "approved_blob": "33742efa7ba94416673761c43e60ec3be5666571"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_http.py": {
+      "base_blob": "7f5d2ccd5fdb82a8716348c87e3e8ba88e1cf1d6",
+      "approved_blob": "7461fdcc9e8cc7e9f79066c029a64f11b3defe9c"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_resolve_contract.py": {
+      "base_blob": "4048b1d04ac12177f204d051f6d35f8ab695d83a",
+      "approved_blob": "96459ce4ea6a3b014b8e34624d769eadec1dbba5"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_provider_access_selector.py": {
+      "base_blob": "b429939e03d82a6d7111fad00b3e75e7490fe352",
+      "approved_blob": "07b8996398ab8092e219c4337070357b1b50de97"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor.py": {
+      "base_blob": "262ded4b233ddbe9d3f34fe0248b63cb02bacde0",
+      "approved_blob": "cbf38f780e98d94991a2fc7ae1c654694a003a33"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_bootstrap.py": {
+      "base_blob": "2f17914aaa7fda27de83d3d308095575b2b8f44f",
+      "approved_blob": "2283637fb1c506cc8e793c1eb1284a319eb4875b"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_error_marks.py": {
+      "base_blob": "cc7b3d4445d4e6e24b4ac872afa9c32dd1978118",
+      "approved_blob": "79848a548979d4ab1b7ac6427fd924b1f136f64b"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_legacy_oauth.py": {
+      "base_blob": "678df65ac161d1650f588b69a02f7b4592cffb81",
+      "approved_blob": "337d5105c7975652f16a5730282adfcdc645ed44"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_writer_floor_native.py": {
+      "base_blob": "d8ebf7757d141de7d28d8924987e4520db13b0a5",
+      "approved_blob": "be60026ece36d87cf5fb60be7372c47bd7591cfa"
+    },
+    "apps/aigateway/tests/integration/test_provider_access_backing_postgres.py": {
+      "base_blob": "eb11daafed47ef6c3bf406677aff37e1353b5cc9",
+      "approved_blob": "5d8a447c41373ae11e0a4ac446ec752d44151e58"
+    },
+    "apps/aigateway/tests/unit/anthropic/test_bootstrap.py": {
+      "base_blob": "a191638b91444123b629c8f24a024fd3b23ea51f",
+      "approved_blob": "b0276e19b2749a2d93eae5d727d8328b860578db"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_migrated_rejected_key_availability.py": {
+      "base_blob": "3b74cce51980349a8795c3ad3fa0f8691c20d43d",
+      "approved_blob": "d8b3380b2c57d92462b49f250cd5b62d3e92b4eb"
+    },
+    "apps/aigateway/tests/unit/test_bootstrap.py": {
+      "base_blob": "0c8bce99ec4825e34dcd3fe24ed1ca6c9a1f25cf",
+      "approved_blob": "f506604c1ce8e0923c45c154b3b0fcee9496d7f1"
+    },
+    "apps/aigateway/tests/unit/test_profile_index_offline_only.py": {
+      "base_blob": "0062dc94de1d64df723b98f753ae48b83de017d7",
+      "approved_blob": "afa196ef653ebf4a70c6f96f0af5d126dc274015"
+    }
+  }
+}

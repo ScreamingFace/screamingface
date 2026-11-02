@@ -173,7 +173,7 @@ def test_one_bad_leaf_refuses_the_whole_request(
 # resolved target into provider credential headers. Chat reaches it through
 # `provider_access_for(app)`, so patching the implementation's method covers every call site
 # a refused request could take, and cannot be bypassed by a future route-level rename.
-_CREDENTIAL_SEAM = "aigateway.core.provider_access.ProfileBackedProviderAccess.authorize"
+_CREDENTIAL_SEAM = "aigateway.core.provider_access.ConnectionBackedProviderAccess.authorize"
 
 
 def _credential_tripwire(_self, _target, **_kwargs):

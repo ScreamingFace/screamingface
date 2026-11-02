@@ -43,11 +43,11 @@ def test_models_and_detail_publish_the_same_minimal_contract(authenticated_clien
     assert all(row["supported_tools"] == [] for row in openai_models)
 
     authenticated_client.app.state.api_key_validation_service = _ValidValidationService()
-    created = authenticated_client.put(
-        "/v1/auth/openai/profiles/default/api-key",
-        json={"api_key": _KEY},
+    created = authenticated_client.post(
+        "/v1/oauth/connections/api-key",
+        json={"provider": "openai", "api_key": _KEY},
     )
-    assert created.status_code == 200, created.text
+    assert created.status_code == 201, created.text
 
     detail = authenticated_client.get(
         "/v1/model-parameters",
@@ -100,11 +100,11 @@ def test_rejected_request_never_reads_openai_credential(
     expected_code: str,
 ) -> None:
     authenticated_client.app.state.api_key_validation_service = _ValidValidationService()
-    created = authenticated_client.put(
-        "/v1/auth/openai/profiles/default/api-key",
-        json={"api_key": _KEY},
+    created = authenticated_client.post(
+        "/v1/oauth/connections/api-key",
+        json={"provider": "openai", "api_key": _KEY},
     )
-    assert created.status_code == 200, created.text
+    assert created.status_code == 201, created.text
 
     credential_store = authenticated_client.app.state.credential_store
     real_read = credential_store.read

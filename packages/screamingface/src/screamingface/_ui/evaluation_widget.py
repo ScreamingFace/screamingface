@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -18,6 +19,8 @@ from screamingface._ui.evaluation_view import _evaluation_fragments
 from screamingface._ui.style import NO_MATH_CLASSES
 from screamingface.events import Event, Log
 from screamingface.report import CandidateResult, Report
+
+_logger = logging.getLogger(__name__)
 
 
 class _NotebookEvaluationView:
@@ -198,7 +201,7 @@ class _NotebookEvaluationView:
             now_ms = time.time() * 1000
             row.stage = stage_status(self._activity, index, now_ms=now_ms)
             row.active_cases = active_cases(self._activity, index, now_ms=now_ms)
-            view.refresh(row, elapsed)
+            view.refresh(row, elapsed, final=self._progress.finished)
 
     def _tick_loop(self) -> None:
         while not self._done.is_set():
@@ -214,6 +217,8 @@ class _NotebookEvaluationView:
                         break
                     self._refresh()
             except Exception:
+                # WHY: the ticker is a daemon thread with no caller to raise to; leave a trace.
+                _logger.debug("live progress ticker stopped: a row failed to render", exc_info=True)
                 break
 
     def _show(self) -> None:

@@ -44,12 +44,12 @@ the classifier's earlier refusal is the better error and costs no credential rea
 
 from __future__ import annotations
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ProviderParameterObservation,
     ToolCapability,
 )
-from aigateway.core.profile_models import AuthMode
 from aigateway.core.standard_parameters import (
     MAX_TOKENS_SCHEMA,
     REASONING_EFFORT_SCHEMA,

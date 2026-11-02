@@ -1,12 +1,12 @@
 ---
 id: OME-1499
 linear_url: https://linear.app/openmined/issue/OME-1499/enable-local-models-in-fusion-and-benchmark-runs
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: []
 created: 2026-10-14
-closed:
+closed: 2026-10-17
 ---
 
 # Enable local models in Fusion and benchmark runs
@@ -21,3 +21,5 @@ implementation includes cold-start refresh, vLLM compatibility, bounded response
 byte-safe route identity projection, and a real process E2E. Spec:
 `../spec/2026-10-16-OME-1499-local-model-fusion.md`. Plan:
 `../plan/2026-10-16-OME-1499-local-model-fusion.md`.
+
+Shipped in #1448 (squash-merged as `cddc9f59d` on 2026-10-16).

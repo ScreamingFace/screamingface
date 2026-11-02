@@ -34,6 +34,7 @@ def _benchmark(
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="easy",
+        failure_policy="coverage_declare",
     )
 
 
@@ -61,6 +62,7 @@ def test_revision_is_deterministic_and_pin_sensitive() -> None:
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="easy",
+        failure_policy="coverage_declare",
     )
     assert other.benchmark.revision != _benchmark().benchmark.revision
 
@@ -119,6 +121,7 @@ def test_origin_defaults_to_inspect_evals_and_a_local_task_declares_screamingfac
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="easy",
+        failure_policy="coverage_declare",
         origin="screamingface",
     )
     assert local.benchmark.origin == "screamingface"

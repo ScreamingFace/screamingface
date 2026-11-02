@@ -266,7 +266,9 @@ def test_protocol_rejects_an_impossible_case_selection() -> None:
         # inspect Task; their expressions are pinned by their published revisions and e2e
         # goldens. MedXpertQA, the last hand-built Benchmark, keeps the table from going empty
         # (an empty parametrize would skip this test silently).
-        (MEDXPERT, "1551a09b0c2385a7a7fb4ed9fad2734f540ee83660cb660fae2bf71a2bbe08b8"),
+        # Moved once (OME-1642): medxpert declares withhold, so its revision — in every route —
+        # moved with it.
+        (MEDXPERT, "25fc7f56169d3a10670e8d3bc73c66d51e9ac1d586f447b9e035d6d4de441952"),
     ),
 )
 def test_canonical_benchmark_url4_is_pinned_byte_for_byte(

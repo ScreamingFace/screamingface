@@ -24,6 +24,7 @@ The renderer half hands facts straight to the row renderer, no child.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import textwrap
@@ -280,7 +281,7 @@ def test_a_grouped_metric_block_after_the_headline_is_noted_in_words(fake_eval: 
 
 def test_an_extra_scorer_created_with_arguments_is_refused(fake_eval: str) -> None:
     # Stack review on #1250: `match(numeric=True)` beside f1 was written as `match()` — the
-    # row would pin the wrong configuration as faithful ("1,889" grades C upstream, I here).
+    # row would pin the wrong configuration as faithful ("1,889" grades C in inspect_evals, I here).
     with pytest.raises(TaskReplayError, match=r"extra scorer match .*numeric.*True"):
         replay_for_import(f"{fake_eval}:extra_with_kwargs", None)
 
@@ -401,6 +402,22 @@ def extract_answer(completion: str) -> str:
     return completion.strip()
 
 
+def replaced_reader(completion: str) -> str:
+    """What this module's name ``replaced_reader`` holds now."""
+
+    return completion.upper()
+
+
+def _replaced_reader(completion: str) -> str:
+    """A stand-in for a function whose module name was later rebound: it calls itself
+    ``replaced_reader`` (set below), but importing that name gives back the function above."""
+
+    return completion
+
+
+_replaced_reader.__name__ = _replaced_reader.__qualname__ = "replaced_reader"
+
+
 @scorer(metrics=[accuracy()])
 def keyed(answer_fn: Callable[[str], str] | None = None) -> Scorer:
     """A stand-in for drop's scorer, which takes the function that pulls out the answer."""
@@ -429,14 +446,64 @@ def _built_with_recorder(made: Callable[[], Scorer]) -> Task:
 
 
 def test_a_function_scorer_argument_is_refused_because_inspect_logs_only_its_name() -> None:
-    """drop's shape: inspect logs answer_fn=extract_answer as the string 'extract_answer',
-    so the row would rebuild the scorer with a string where the eval passed a function."""
+    """inspect logs a function as its name, so a row would rebuild the scorer with a string.
+    Since PR 6 a module-level function is named by reference instead (next test); a lambda
+    has no name an import can find, so it is still refused."""
+
+    task: Task = _built_with_recorder(lambda: keyed(lambda completion: completion.strip()))
+
+    with pytest.raises(
+        ImporterError, match=r"keyed is created with answer_fn='<lambda>'.*function"
+    ):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+def test_a_module_level_function_argument_is_named_by_reference_not_by_its_logged_name() -> None:
+    """drop's shape (OME-1602 PR 6): answer_fn=extract_answer becomes a reference the grader
+    imports, and the logged string 'extract_answer' never reaches the literal kwargs, where it
+    would rebuild the scorer with a string."""
 
     task: Task = _built_with_recorder(lambda: keyed(extract_answer))
 
+    facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
+
+    assert facts.scorer_function_kwargs == {"answer_fn": f"{__name__}:extract_answer"}
+    assert "answer_fn" not in facts.scorer_kwargs
+
+
+def test_a_function_defined_inside_another_is_refused() -> None:
+    """A nested function's qualified name holds ``<locals>``: no import reaches it."""
+
+    def nested(completion: str) -> str:
+        return completion
+
+    task: Task = _built_with_recorder(lambda: keyed(nested))
+
+    with pytest.raises(ImporterError, match=r"answer_fn='nested'"):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+def test_a_function_from_outside_the_evals_package_is_refused_at_import() -> None:
+    """The importer refuses the row assembly would refuse, by the same rule, so no row is
+    written that only fails later (review finding on OME-1602 PR 6). The stand-in Task lives
+    in this module, so its package is this module; textwrap is not inside it."""
+
+    task: Task = _built_with_recorder(lambda: keyed(textwrap.dedent))
+
     with pytest.raises(
-        ImporterError, match=r"keyed is created with answer_fn='extract_answer'.*function"
+        ImporterError, match=r"answer_fn=textwrap:dedent, which points outside the eval's own"
     ):
+        _scorer_facts(task, sys.modules[__name__])
+
+
+def test_a_function_whose_name_now_points_elsewhere_is_refused() -> None:
+    """Importing the logged name would give back a different function, so the row could not
+    rebuild the same argument: ``_replaced_reader`` calls itself ``replaced_reader``, but that
+    module name holds another function."""
+
+    task: Task = _built_with_recorder(lambda: keyed(_replaced_reader))
+
+    with pytest.raises(ImporterError, match=r"answer_fn='replaced_reader'"):
         _scorer_facts(task, sys.modules[__name__])
 
 
@@ -485,7 +552,8 @@ GUARDED_EVAL: str = textwrap.dedent(
 
     @task
     def function_argument() -> Task:
-        return _task(keyed(extract_answer))
+        # A lambda: no module-level name the row could write (OME-1602 PR 6 names the rest).
+        return _task(keyed(lambda completion: completion.strip()))
 
     @scorer(metrics=[accuracy()])
     def asks_the_grader():
@@ -516,9 +584,11 @@ def guarded_eval(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
 def test_the_import_child_records_scorer_arguments_so_a_function_argument_is_refused(
     guarded_eval: str,
 ) -> None:
-    """Without the recorder in the child, the function would import as its logged name."""
+    """Without the recorder in the child, the function would import as its logged name. Since
+    PR 6 a module-level function is named by reference, so the stand-in passes a lambda, the
+    shape that still has no name a row could write."""
 
-    with pytest.raises(TaskReplayError, match=r"answer_fn='extract_answer'"):
+    with pytest.raises(TaskReplayError, match=r"answer_fn='<lambda>'"):
         replay_for_import(f"{guarded_eval}:function_argument", None)
 
 
@@ -645,7 +715,9 @@ def test_a_role_judged_scorer_beside_an_exact_one_is_dropped_by_name() -> None:
 
     facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
 
-    assert (facts.named_scores, facts.dropped_scorers) == (("exact",), ("asks_the_grader",))
+    # One scorer kept grades like a single-scorer row: no lone Named Score (OME-1602 PR 5,
+    # owner-approved change; a lone name tells the grader to expect a dict).
+    assert (facts.named_scores, facts.dropped_scorers) == ((), ("asks_the_grader",))
 
 
 def test_the_import_child_carries_the_grader_role_back(guarded_eval: str) -> None:
@@ -779,7 +851,9 @@ def test_an_extra_scorer_judging_with_its_default_judge_is_dropped_by_name() -> 
 
     facts: ScorerFacts = _scorer_facts(task, sys.modules[__name__])
 
-    assert (facts.named_scores, facts.dropped_scorers) == (("exact",), ("judged_by_default",))
+    # One scorer kept grades like a single-scorer row: no lone Named Score (OME-1602 PR 5,
+    # owner-approved change; a lone name tells the grader to expect a dict).
+    assert (facts.named_scores, facts.dropped_scorers) == ((), ("judged_by_default",))
 
 
 def test_a_role_held_in_a_variable_is_refused_because_no_row_can_name_it() -> None:
@@ -855,3 +929,68 @@ def test_a_judge_parameter_left_at_its_default_renders_the_todo_judge() -> None:
     rows: TaskReplayRows = _rows(_facts(scorer=f"{__name__}:judged_by_default", scorer_kwargs={}))
 
     assert 'judge=JudgeSpec(model="TODO"),' in rows.benchmark
+
+
+# --- OME-1602: an extra scorer the importing agent leaves out by name ---
+
+
+def _stereoset_task() -> Any:
+    """stereoset's two scorers on a stand-in dataset, as its real Task declares them."""
+
+    from inspect_ai import Task
+    from inspect_ai.dataset import MemoryDataset, Sample
+
+    stereoset_module = importlib.import_module("inspect_evals.stereoset.stereoset")
+
+    return Task(
+        dataset=MemoryDataset([Sample(input="q", target=["A"], choices=["x", "y", "z"])]),
+        scorer=[stereoset_module.multiple_choice_scorer(), stereoset_module.stereoset_scorer()],
+    )
+
+
+def test_an_extra_scorer_dropped_by_name_is_a_named_deviation_on_the_row() -> None:
+    """stereoset's bias score runs a whole-run metric no Named Score column can carry, so the
+    import refuses it as an extra scorer; the owner chose to leave it out by name instead
+    (OME-1602), and the row then shows the drop."""
+
+    stereoset_module = importlib.import_module("inspect_evals.stereoset.stereoset")
+
+    with pytest.raises(ImporterError, match="stereotype_score"):
+        _scorer_facts(_stereoset_task(), stereoset_module)
+
+    facts: ScorerFacts = _scorer_facts(
+        _stereoset_task(), stereoset_module, drop_scorers=("stereoset_scorer",)
+    )
+
+    # One scorer left grades like a single-scorer row: no lone Named Score, which would tell
+    # the grader to expect a dict and fail every Case on the scorer's plain "C".
+    assert facts.named_scores == ()
+    assert facts.scorer == "inspect_evals.stereoset.stereoset:multiple_choice_scorer"
+    assert facts.dropped_scorers == ("stereoset_scorer",)
+
+
+@pytest.mark.parametrize(
+    ("name", "reason"),
+    [("multiple_choice_scorer", "headline scorer"), ("bias_scorer", "declares no scorer")],
+)
+def test_the_headline_or_an_unknown_name_cannot_be_dropped(name: str, reason: str) -> None:
+    """Dropping the headline would grade by something else under the eval's name; a name the
+    Task does not declare is a typo that would otherwise drop nothing silently."""
+
+    stereoset_module = importlib.import_module("inspect_evals.stereoset.stereoset")
+
+    with pytest.raises(ImporterError, match=reason):
+        _scorer_facts(_stereoset_task(), stereoset_module, drop_scorers=(name,))
+
+
+def test_a_scorer_already_dropped_as_judged_cannot_be_dropped_again_by_name() -> None:
+    """A --drop-scorer that names a scorer the import already left out would read as a
+    decision with no effect; it is refused so the flag always means what it says."""
+
+    task: Task = Task(
+        dataset=MemoryDataset([Sample(input="q", target="a")]),
+        scorer=[asks_the_grader(), exact()],
+    )
+
+    with pytest.raises(ImporterError, match="already left out"):
+        _scorer_facts(task, sys.modules[__name__], drop_scorers=("asks_the_grader",))

@@ -30,6 +30,7 @@ function fakeClient(statuses: Array<ConnectionStatus | EngineError>) {
     })),
     disconnect: vi.fn(async () => row("not_connected")),
     listModels: vi.fn(),
+    listBenchmarks: vi.fn(),
     health: vi.fn(),
   };
   return client;

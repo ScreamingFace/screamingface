@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1647",
+  "branch": "OME-1647-move-credential-vocabulary-out-of-profile-models",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-18",
+  "scope": "Import lines only. test_auth_applicability_contract.py::_anthropic_contract and test_contract_source_revision_identity.py::_openrouter_contract and ::test_the_route_publishes_null_for_a_provider_with_no_dynamic_source each split one lazy `from aigateway.core.profile_models import Profile, ProfileState, profile_id_for` into the same import without profile_id_for plus `from aigateway.core.credential_names import profile_id_for`. Module-level AuthType imports in both files move to aigateway.core.auth_types. No assertion, input or expected value changes.",
+  "reason": "OME-1647 moves profile_id_for, credential_name_for, AuthType and AuthMode out of profile_models into core/credential_names.py and core/auth_types.py. These three imports sit inside functions, so the append-only check counts the import-line edit as a change to the function body. Owner approved on 2026-10-18.",
+  "files": {
+    "apps/aigateway/tests/unit/core/test_auth_applicability_contract.py": {
+      "base_blob": "393b9ceddd5a4bfa5764c10651997ce014bd7c30",
+      "approved_blob": "9ff2572d70902578c65edc5638f3c8684da538f3"
+    },
+    "apps/aigateway/tests/unit/core/test_contract_source_revision_identity.py": {
+      "base_blob": "9186354a242ddc845e3288c60488794bfc606007",
+      "approved_blob": "d1a41195469be33da6e82179737b27bbf79771a6"
+    }
+  }
+}

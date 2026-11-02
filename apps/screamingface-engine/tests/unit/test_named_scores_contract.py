@@ -26,7 +26,11 @@ from screamingface_engine.benchmarks.aggregation import (
     finalize_candidate_result,
 )
 from screamingface_engine.benchmarks.contract import CandidateResult, CaseGrade, CaseResult
-from screamingface_engine.benchmarks.definition import INVERTED_GRADE_KEY, SCORES_KEY
+from screamingface_engine.benchmarks.definition import (
+    INVERTED_GRADE_KEY,
+    SCORES_KEY,
+    FailurePolicy,
+)
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
     CaseGradeOutcome,
@@ -192,6 +196,7 @@ def test_finalize_carries_the_scorers_named_scores_onto_the_result() -> None:
         return CandidateScore(score=0.3335, metrics={}, scores={"f1": 0.3335, "exact": 0.0})
 
     result = finalize_candidate_result(
+        failure_policy="withhold",
         benchmark_id="inspect-squad",
         benchmark_revision="rev",
         selected_cases=[
@@ -210,6 +215,7 @@ def test_finalize_leaves_scores_absent_for_a_single_scorer_benchmark() -> None:
         return CandidateScore(score=0.667, metrics={})
 
     result = finalize_candidate_result(
+        failure_policy="withhold",
         benchmark_id="inspect-gsm8k",
         benchmark_revision="rev",
         selected_cases=[SelectedCase(case_id=1, input="q1", metadata={})],
@@ -233,6 +239,7 @@ class _Hook:
 
 def _aggregation(outcome: CaseGradeOutcome, named_scores: tuple[str, ...]) -> BenchmarkAggregation:
     return BenchmarkAggregation(
+        failure_policy="withhold",
         reader=CaseGradeReader(
             benchmark_label="Test", error_type=ValueError, decode_case_grade=_decode
         ),
@@ -321,15 +328,30 @@ def _selected_cases(count: int) -> list[SelectedCase]:
     return [SelectedCase(case_id=n, input=f"q{n}", metadata={}) for n in range(1, count + 1)]
 
 
-def test_the_real_reducer_averages_every_column_over_the_graded_cases_only() -> None:
+@pytest.mark.parametrize(
+    ("policy", "score", "scores"),
+    [
+        # squad's real row (OME-1642): the failed Case adds 0 to every column and to the headline.
+        ("withhold", 0.4447, {"f1": 0.4447, "exact": 0.3333}),
+        # The rows that keep the graded-only rule: the failed Case leaves every column.
+        ("coverage_declare", 0.667, {"f1": 0.667, "exact": 0.5}),
+    ],
+)
+def test_the_real_reducer_averages_every_column_over_the_cases_the_policy_counts(
+    policy: FailurePolicy, score: float, scores: dict[str, float]
+) -> None:
     """Keelan's review finding #3 on #1249: the finalizer test above supplies precomputed
     columns, so an empty reducer passed. This runs the imported single-shot reducer itself:
-    2 graded Cases (f1 1.0 / exact 1.0, f1 0.334 / exact 0.0) and 1 failed Case → the
-    headline is mean(f1) = 0.667, exact 0.5, coverage 2/3, scores[headline] == score."""
+    2 graded Cases (f1 1.0 / exact 1.0, f1 0.334 / exact 0.0) and 1 failed Case. Under
+    `withhold` (squad's declared policy) the failed Case counts 0, so every column and the
+    headline divide by 3: f1 0.4447, exact 0.3333. Under `coverage_declare` they divide by the
+    2 graded Cases: f1 0.667, exact 0.5. Either way scores[headline] == score and coverage is
+    2/3."""
 
     from screamingface_engine_inspect.single_shot import _accuracy
 
     result = finalize_candidate_result(
+        failure_policy=policy,
         benchmark_id="inspect-squad",
         benchmark_revision="rev",
         selected_cases=_selected_cases(3),
@@ -340,8 +362,8 @@ def test_the_real_reducer_averages_every_column_over_the_graded_cases_only() -> 
         ],
         scorer=_accuracy,
     )
-    assert result.score == 0.667
-    assert result.scores == {"f1": 0.667, "exact": 0.5}
+    assert result.score == score
+    assert result.scores == scores
     assert result.scores["f1"] == result.score
     assert result.coverage == 0.6667  # 2 of 3 selected Cases carry a grade, rounded as published
     assert result.metrics["scored_cases"] == 2
@@ -354,6 +376,7 @@ def test_the_real_reducer_publishes_a_column_one_graded_case_could_not_fill_as_u
     from screamingface_engine_inspect.single_shot import _accuracy
 
     result = finalize_candidate_result(
+        failure_policy="withhold",
         benchmark_id="inspect-squad",
         benchmark_revision="rev",
         selected_cases=_selected_cases(2),

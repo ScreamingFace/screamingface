@@ -2,17 +2,19 @@
 
 # FEATURE: PR #1029 review — a Profile-facade OAuth start on a migrated pair RETIRES the `error`
 # row it supersedes (D-R1-1). That retirement is a row write, so it must come AFTER the marker,
-# like every other authority writer (marker → index → connection row → blob).
+# like every other authority writer (marker → connection row → blob since OME-1209 E4b).
 # INVARIANT (D14): whoever holds the marker row decides; the other writer re-evaluates its
 # `WHERE generation = <stale>` to zero rows and answers 409. Revoking the row BEFORE the marker
 # would invert the order against a native key replacement (marker, then row) and deadlock.
 # AIDEV-NOTE: fixtures and helpers are bound from the S2'c module; run with `AIGW_TEST_PG=1`.
+# WHY only the shared-blob deletes remain: the key-replacement-vs-OAuth-start race retired at
+# OME-1209 Stage E3 — its only legacy actor, `POST /v1/auth/{provider}/profiles`, answers 410
+# before any I/O, so no shipped writer can take that side of the marker any more.
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -25,8 +27,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from tortoise import connections
 
+from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
-from aigateway.core.profile_models import credential_name_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.routes import oauth_connections as oauth_routes
 
@@ -38,54 +40,6 @@ pg_client = backing.pg_client
 PROVIDER = backing.PROVIDER
 OLD_KEY = "sk-ant-api03-postgres-rejected-key-1111"
 NEW_KEY = "sk-ant-api03-postgres-replacement-key-2222"
-
-
-async def _mark_error(account_id: str, connection_id: UUID) -> None:
-    store = OAuthConnectionStore()
-    row = await store.get(account_id, connection_id)
-    assert row is not None and await store.mark_error(row, "rejected") is not None
-
-
-def test_a_key_replacement_holding_the_marker_makes_the_oauth_start_lose_on_postgres(
-    pg_client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    account_id = backing._account_id(pg_client)
-    name = backing._fresh_name()
-    effective = backing._seed(
-        pg_client, account_id, name, auth_type="api_key", blob=backing._api_key_blob(OLD_KEY)
-    )
-    backing._call(pg_client, _mark_error, account_id, effective)
-    assert backing._connection(pg_client, account_id, effective).label == name  # api_key keeps it
-    generation = backing._marker(pg_client, account_id).generation
-    hold = backing._MarkerHold(monkeypatch, holds=lambda i, _kw: i == 0)
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        setting = executor.submit(
-            pg_client.put,
-            f"/v1/oauth/connections/{effective}/api-key",
-            json={"api_key": NEW_KEY},
-        )
-        assert hold.held.wait(20), "the key replacement never advanced the marker"
-        starting = executor.submit(
-            pg_client.post, f"/v1/auth/{PROVIDER}/profiles", json={"name": name}
-        )
-        assert hold.attempted.wait(20), "the OAuth start never reached its marker advance"
-        hold.release.set()
-        set_result = setting.result(timeout=30)
-        started = starting.result(timeout=30)
-
-    assert set_result.status_code == 200, set_result.text
-    assert started.status_code == 409, started.text
-    assert started.json()["detail"]["code"] == "connection_conflict"
-    # The loser's whole transaction rolled back: the errored row was NOT retired, no new row.
-    row = backing._connection(pg_client, account_id, effective)
-    assert (row.status, row.auth_type, row.label) == ("active", "api_key", name)
-    rows = backing._call(pg_client, OAuthConnectionStore().list, account_id, provider=PROVIDER)
-    assert [r.id for r in rows] == [effective]
-    pair = backing._marker(pg_client, account_id)
-    assert (pair.effective_connection_id, pair.generation) == (effective, generation + 1)
-    blob = backing._profile_blob(pg_client, account_id, name)
-    assert blob is not None and json.loads(blob)["api_key"] == NEW_KEY
 
 
 async def _two_rows_at_one_address(app: FastAPI, account_id: str, name: str) -> tuple[UUID, UUID]:
@@ -135,17 +89,17 @@ def test_two_concurrent_deletes_of_rows_sharing_a_blob_leave_no_orphan_on_postgr
     real = oauth_routes.credential_has_other_owner
     calls = {"n": 0}
 
-    async def check(app: Any, connection: Any) -> bool:
+    async def check(connection: Any) -> bool:
         calls["n"] += 1
         if calls["n"] == 1:
             # The first delete has decided while the other row was still live — and holds its txn.
-            result = await real(app, connection)
+            result = await real(connection)
             held.set()
             if not await asyncio.to_thread(release.wait, 20):
                 raise TimeoutError("the first delete was never released")
             return result
         attempted.set()
-        return await real(app, connection)
+        return await real(connection)
 
     monkeypatch.setattr(oauth_routes, "credential_has_other_owner", check)
 

@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1753",
+  "branch": "OME-1753-openrouter-refusal-notice-zero",
+  "approver": "IonesioJunior (owner)",
+  "date": "2026-10-27",
+  "scope": "One deletion only: the `refusal-text` case is removed from test_a_shape_that_is_not_an_exact_pre_output_refusal_stays_unknown in test_openrouter_pre_output_refusal.py. The same input (a refusal sentence in `message.refusal`, no usage) is asserted certified in test_openrouter_pre_output_refusal_notice.py, which also asserts that a refusal notice with usage, output, a paid stage or a cost stays unknown. No other edit.",
+  "reason": "Owner decision 2026-10-27, after the prod cache backfill: Anthropic puts a policy notice in `message.refusal` when it refuses before output, with no usage and no cost, so OpenRouter does not bill it. Text in `refusal` is not output. Spec: docs/spec/2026-10-26-openrouter-pre-output-refusal-zero.md section 10.",
+  "files": {
+    "apps/aigateway/tests/unit/usage_accounting/test_openrouter_pre_output_refusal.py": {
+      "base_blob": "30ab549975d82b92ddc859559a1f582c5612972a",
+      "approved_blob": "7a3f4f313534a177a9d15b3f28fdde80065aeff3"
+    }
+  }
+}

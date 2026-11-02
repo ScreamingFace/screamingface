@@ -33,15 +33,23 @@ const evaluateSig = `sf.evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool | None = None,
 ) -> Report`
 
+const replay = `# Replace either placeholder with an id from the leaderboard.
+replay = sf.evaluate(pinned_cache="<pinned-cache-id>")
+# Or replay by score id, including a private score you submitted:
+replay = sf.evaluate(score_id="<score-id>")
+
+reproduction = replay.candidates.only.reproduction
+if reproduction is not None:
+    print(reproduction.outcome)`
 </script>
 
 <template>
   <DocLayout
     title="Modules"
-    description="The six modules and five functions you can call on sf directly."
+    description="The modules and functions you can call on sf directly."
     :navigation="navigation"
     :version="version"
   >
@@ -232,8 +240,8 @@ const evaluateSig = `sf.evaluate(
     <h2>Top-level functions</h2>
 
     <p>
-      These five act on the shared Client. They exist so a script or notebook never has to build one
-      explicitly.
+      These functions act on the shared Client. They exist so a script or notebook never has to
+      build one explicitly.
     </p>
 
     <h3>evaluate()</h3>
@@ -241,10 +249,23 @@ const evaluateSig = `sf.evaluate(
     <CodeBlock :code="evaluateSig" language="python" />
 
     <p>
-      The one call that spends money. Identical to
-      <code>Client.evaluate()</code>, including running a url4 string again. Its parameters are
+      Runs a fresh evaluation, which may spend money, or replays captured answers at $0. Identical
+      to <code>Client.evaluate()</code>, including evaluating a url4 string. Its parameters are
       documented on the <RouterLink to="/sf-client/api/clients">Clients</RouterLink> page. That
       includes <code>answer_seed</code> and <code>capture</code>.
+    </p>
+
+    <CodeBlock :code="replay" language="python" />
+
+    <p>
+      The keyword forms <code>sf.evaluate(pinned_cache=…)</code> and
+      <code>sf.evaluate(score_id=…)</code> take no positional candidate or <code>benchmark</code>.
+      They accept <code>url4</code>, <code>answer_seed</code>, <code>limit</code> and
+      <code>record_reproduction</code> under the same rules as
+      <RouterLink to="/sf-client/api/clients">Client.evaluate()</RouterLink>. A full published
+      replay has a verdict on its result; partial replays and unsubmitted captures have
+      <code>reproduction=None</code>. See the
+      <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink>.
     </p>
 
     <h3>configure()</h3>

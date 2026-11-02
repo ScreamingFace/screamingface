@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import pytest
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.chat_parameters import (
     ParameterProjectionRule,
     ParameterSchema,
@@ -33,7 +34,6 @@ from aigateway.core.parameter_projection import (
     classify_and_project_chat_parameters,
     wrapper_path_conflicts,
 )
-from aigateway.core.profile_models import AuthType
 
 _INT = ParameterSchema(type="integer", minimum=1)
 _NUM = ParameterSchema(type="number", minimum=0, maximum=2)

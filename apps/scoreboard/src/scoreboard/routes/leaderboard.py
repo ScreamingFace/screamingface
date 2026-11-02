@@ -5,7 +5,7 @@ from typing import Annotated, cast
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from scoreboard.classification.openness import EntryVerdict
 from scoreboard.routes.dependencies import (
@@ -32,6 +32,7 @@ from scoreboard.scores.schemas import (
     LeaderboardEntry,
     RunCostUsd,
     ScoreSchema,
+    SpecHistoryRow,
     SubmittedBy,
 )
 from scoreboard.scores.store import ScoreStore, benchmark_to_schema
@@ -108,6 +109,19 @@ class RankedLeaderboardEntry(BaseModel):
     # AIDEV-NOTE: this is NOT a verification claim. It says what the entry declares, not that
     # anyone re-ran it (OME-1146, OME-1319); the portal renders it without success green.
     openness: EntryVerdict
+
+    # FEATURE: OME-1596 — the pinned cache (frozen copy) a researcher replays this row from, with
+    # `sf.evaluate(pinned_cache=...)`. The portal's Reproduce button copies exactly that.
+    #
+    # INVARIANT: set only when the row's `capture_status` is `complete` (a `partial` copy cannot
+    # answer every call of a replay); null otherwise. Computed per request in the same snapshot as
+    # the rows, like `on_pareto_frontier`, and absent from `LeaderboardEntry`, so private
+    # `my_submissions` and the staff export never carry it.
+    #
+    # WHY excluded when null rather than served as `null`: a row with nothing to replay then reads
+    # exactly as it did before the field existed (the public board's row shape is pinned), and a
+    # client reads "absent" and "null" the same way: no Reproduce.
+    pinned_cache: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class LeaderboardResponse(BaseModel):
@@ -188,16 +202,18 @@ def _ranked_entry(
     *,
     on_pareto_frontier: bool,
     openness: EntryVerdict,
+    pinned_cache: str | None = None,
 ) -> RankedLeaderboardEntry:
     return RankedLeaderboardEntry(
         rank=rank,
         on_pareto_frontier=on_pareto_frontier,
         openness=openness,
+        pinned_cache=pinned_cache,
         **entry.model_dump(),
     )
 
 
-def _history_submission(score: ScoreSchema) -> HistorySubmission:
+def _history_submission(score: SpecHistoryRow | ScoreSchema) -> HistorySubmission:
     return HistorySubmission(
         id=score.id,
         benchmark_revision=score.benchmark_revision,
@@ -358,6 +374,10 @@ async def get_leaderboard(
         members = await store.frontier_member_models(
             [row.source_id for row in rows], connection=snapshot
         )
+        # OME-1596: the page's pinned caches, bounded by the page and read in the same snapshot.
+        pinned_caches = await store.pinned_caches_for_score_ids(
+            [row.source_id for row in rows], connection=snapshot
+        )
     # The response describes the revision its rows were filtered by.
     benchmark = benchmark.model_copy(update={"revision": revision, "case_count": case_count})
     if await turned_private(benchmark_id):
@@ -394,6 +414,7 @@ async def get_leaderboard(
                 # A row the verdict read did not return (deleted between the reads) is
                 # unidentified, never guessed, exactly as the card treats it.
                 openness=verdicts.get(row.source_id, ("unidentified", ()))[0],
+                pinned_cache=pinned_caches.get(row.source_id),
             )
             for index, row in enumerate(rows, start=1)
         ],

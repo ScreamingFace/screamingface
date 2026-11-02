@@ -175,6 +175,18 @@ def test_an_answer_key_that_names_no_option_is_refused() -> None:
         captured_case_records(task, _spec())
 
 
+@pytest.mark.parametrize("target", ["BC", "AB", "ABCD"])
+def test_a_run_of_letters_is_not_one_option(target: str) -> None:
+    # WHY: the key was checked as a substring of the letters "ABCD", so "BC" passed as one
+    # option, while inspect's choice() reads it as two letters, B and C; on a one-answer
+    # question every such Case would score 0 without any error.
+    sample = Sample(input="Which?", choices=["w", "x", "y", "z"], target=target)
+    task = Task(dataset=MemoryDataset([sample]))
+
+    with pytest.raises(PrepareError, match="neither a letter within 4 choices nor"):
+        captured_case_records(task, _spec())
+
+
 def test_kept_metadata_rides_the_grading_material() -> None:
     sample = Sample(input="Which port serves HTTPS?", target="443", metadata={"domain": "web"})
     task = Task(dataset=MemoryDataset([sample]))
@@ -479,8 +491,8 @@ def test_a_solver_that_builds_its_own_model_is_refused_in_the_child(own_model_ev
 # ── a Named Deviation: Samples the declaration leaves out (spec R18) ─────────
 
 #: Three Samples, the middle one with nothing to ask: the shape of sad_stages_full, whose
-#: upstream records 15, 59 and 103 have an empty body. A stand-in for that eval's data, not its
-#: prompt; it proves which Samples become Cases, not how sad renders them.
+#: records 15, 59 and 103 in the authors' dataset have an empty body. A stand-in for that eval's
+#: data, not its prompt; it proves which Samples become Cases, not how sad renders them.
 GAP_SAMPLES: list[Sample] = [
     Sample(input="First question?", target="A", id="q:0"),
     Sample(input="", target="B", id="q:1"),

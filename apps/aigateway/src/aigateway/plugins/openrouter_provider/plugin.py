@@ -83,7 +83,7 @@ from .litellm_controls import (
 )
 from .live_models import (
     LIVE_MODELS_DISCOVERY_SOURCE,
-    fetch_live_model_ids,
+    fetch_live_model_catalog,
     live_listing_entries,
     publishable_upstream_ids,
 )
@@ -120,6 +120,7 @@ from .web_search import (
 )
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderDiscoverySnapshot,
@@ -128,7 +129,6 @@ if TYPE_CHECKING:
     )
     from aigateway.core.credential_blob.store import CredentialBlobStore
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from aigateway.core.profile_models import AuthMode
 
 
 def _credential_service_for(profile_name: str) -> str:
@@ -226,8 +226,12 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         """
         if not (self.settings.enabled and self.settings.live_models):
             return None
-        raw_ids = await fetch_live_model_ids(client=client, limits=limits)
-        return live_listing_entries(self.settings, publishable_upstream_ids(raw_ids))
+        catalog = await fetch_live_model_catalog(client=client, limits=limits)
+        return live_listing_entries(
+            self.settings,
+            publishable_upstream_ids(catalog.ids),
+            input_modalities=catalog.input_modalities,
+        )
 
     async def admit_model(
         self,
@@ -259,7 +263,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
 
     def api_key_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
     ) -> CredentialStrategy | None:
@@ -269,8 +273,8 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             # credentials, without any provider branch in core.
             return None
         return ApiKeyStrategy(
-            profile_name,
-            service=_credential_service_for(profile_name),
+            credential_name,
+            service=_credential_service_for(credential_name),
             account="default",
             header_builder=lambda api_key: {"Authorization": f"Bearer {api_key}"},
             credential_store=credential_store,
@@ -281,7 +285,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             return None
         return OpenRouterApiKeyValidator(settings=self.settings)
 
-    def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
+    def should_mark_credential_error_on_dispatch_status(self, status_code: int) -> bool:
         # D9: only 401 proves the stored key is bad. 402 (credits), 403
         # (policy), 408/429/5xx (transient) must not invalidate a valid key.
         return status_code == 401
@@ -315,6 +319,14 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             raise IncompatibleParametersError(
                 ("logprobs", "top_logprobs"),
                 reason="top_logprobs_requires_logprobs_true",
+            )
+        reasoning = body.get("reasoning")
+        if "reasoning_effort" in body and isinstance(reasoning, Mapping) and "effort" in reasoning:
+            # INVARIANT: OpenRouter accepts two effort spellings, but one request never sends both;
+            # provider precedence is not a stable substitute for an explicit caller choice.
+            raise IncompatibleParametersError(
+                ("reasoning_effort", "reasoning.effort"),
+                reason="reasoning_effort_spellings_conflict",
             )
         if WEB_SEARCH_EXCLUDED_DOMAINS_PARAM in body and body.get(WEB_SEARCH_PARAM) is not True:
             raise IncompatibleParametersError(
@@ -362,6 +374,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                     "n",
                     "logprobs",
                     "top_logprobs",
+                    "reasoning.effort",
                     "web_search",
                     "web_search_excluded_domains",
                 ),

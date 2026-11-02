@@ -1,14 +1,14 @@
 ---
 id: OME-1245
 linear_url: https://linear.app/openmined/issue/OME-1245/move-the-hosted-engine-listing-onto-the-availability-successor
-status: in_progress   # code stage started 2026-09-21 after OME-1244 merged
+status: done
 type: task
 priority: high
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1138
 blocked_by: [OME-1244]
 created: 2026-09-21
-closed:
+closed: 2026-09-22
 ---
 
 # Move the Hosted Engine listing onto the availability successor
@@ -47,3 +47,5 @@ Plan: `docs/plan/2026-09-09-OME-1138-converge-connections.md` §2 U4e, §3 A4.
   GREEN vs `2da45896` (append-only skipped for that one re-expressed path only); full suite
   3283 passed / 16 skipped / 93.54%. **Gate:** Needs Owner — authorization to stage, commit,
   push and open the PR.
+- 2026-09-22: squash-merged to `main` as `54fa86739` (PR #1007). Linear closed the issue Done the
+  same day.

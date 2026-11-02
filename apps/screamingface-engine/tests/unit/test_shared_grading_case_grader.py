@@ -86,6 +86,7 @@ async def _hook(request: GradeRequest) -> CaseGradeOutcome:
 
 
 PATH = BenchmarkAggregation(
+    failure_policy="withhold",
     reader=CaseGradeReader(
         benchmark_label="TestBoard",
         error_type=BenchmarkError,

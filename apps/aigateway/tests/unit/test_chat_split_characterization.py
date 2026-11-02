@@ -22,14 +22,9 @@ import httpx
 import pytest
 from litellm.exceptions import BadRequestError, ServiceUnavailableError
 
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import (
-    Profile,
-    ProfileState,
-    credential_name_for,
-    profile_id_for,
-)
+from aigateway.core.credential_names import credential_name_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 
 def _account_id(client) -> str:
@@ -51,18 +46,9 @@ def _seed_authenticated_profile(credential_blobs, account_id: str) -> None:
     )
 
 
-async def _seed_anthropic_profile(credential_blobs, account_id: str) -> None:
+async def _seed_anthropic_profile(client, credential_blobs, account_id: str) -> None:
     _seed_authenticated_profile(credential_blobs, account_id)
-    idx = ProfileIndexStore(credential_store=credential_blobs.store)
-    await idx.upsert(
-        Profile(
-            id=profile_id_for(account_id, "anthropic", "default"),
-            account_id=account_id,
-            provider="anthropic",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-        )
-    )
+    seed_migrated_pair(client, account_id, "anthropic")
 
 
 # --- request-shape validation (raised before any credential resolution) ---
@@ -128,7 +114,7 @@ async def test_chat_persistent_service_unavailable_maps_provider_unavailable(
 ) -> None:
     """A 503 that survives every retry surfaces as provider_unavailable."""
     account_id = _account_id(authenticated_client)
-    await _seed_anthropic_profile(credential_blobs, account_id)
+    await _seed_anthropic_profile(authenticated_client, credential_blobs, account_id)
 
     request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
     response = httpx.Response(503, request=request)
@@ -169,7 +155,7 @@ async def test_chat_bad_request_error_maps_bad_request_without_retry(
 ) -> None:
     """A provider 400 is terminal: mapped to bad_request and never retried."""
     account_id = _account_id(authenticated_client)
-    await _seed_anthropic_profile(credential_blobs, account_id)
+    await _seed_anthropic_profile(authenticated_client, credential_blobs, account_id)
 
     calls = {"n": 0}
 
@@ -218,7 +204,7 @@ async def test_chat_success_dumps_model_and_sets_bypass_headers(
     """Responses with model_dump are serialized via it; with the request cache
     disabled (default) every response carries bypass/disabled cache headers."""
     account_id = _account_id(authenticated_client)
-    await _seed_anthropic_profile(credential_blobs, account_id)
+    await _seed_anthropic_profile(authenticated_client, credential_blobs, account_id)
 
     payload = {"id": "resp-1", "choices": [{"message": {"content": "ok"}}]}
 
@@ -252,7 +238,7 @@ async def test_chat_success_passes_plain_dict_response_through(
 ) -> None:
     """Provider responses without model_dump are returned verbatim."""
     account_id = _account_id(authenticated_client)
-    await _seed_anthropic_profile(credential_blobs, account_id)
+    await _seed_anthropic_profile(authenticated_client, credential_blobs, account_id)
 
     payload = {"id": "raw-1", "choices": [{"message": {"content": "raw"}}]}
 

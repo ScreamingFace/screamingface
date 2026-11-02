@@ -78,7 +78,7 @@ def test_streaming_enabled_by_default() -> None:
 def test_marks_credential_error_on_401_only(status: int, marks: bool) -> None:
     # 401 => bad/missing token (invalidate). 403 is ambiguous (model access vs token),
     # so it must NOT nuke the stored credential.
-    assert PLUGIN.should_mark_profile_error_on_dispatch_status(status) is marks
+    assert PLUGIN.should_mark_credential_error_on_dispatch_status(status) is marks
 
 
 def test_api_key_strategy_shape() -> None:

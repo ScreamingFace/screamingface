@@ -1,15 +1,11 @@
-"""The ``/v1/admin`` surface — operator management of tenants and their provider API keys.
+"""The ``/v1/admin`` surface — operator management of tenants.
 
 WHY this exists: `OME-684` made every caller who clears Cloudflare Access an ordinary `Account`,
 but nothing provisions credentials for one. A new caller therefore authenticates successfully and
-immediately gets `404 profile_not_found`. This is the operator-managed answer to that gap — an
-allowlisted administrator attaches a static provider key so the tenant's first request finds a
-profile.
-
-Scope, deliberately: **API keys only.** aigateway's OAuth profile and connection endpoints are
-untouched and not mirrored here. An OAuth profile reaches AUTHENTICATED only through an interactive
-consent the tenant themselves must give, so an "admin creates it" flow would either be a lie or
-would bind the admin's own provider identity to someone else's account.
+immediately gets `404 profile_not_found`. The operator-managed answer to that gap — an allowlisted
+administrator attaching a static provider key — lives in `admin_connections` (D18); the per-name
+Profile routes that used to live here were retired at Stage E (OME-1209, E3) and now answer 410
+from `legacy_profiles_retired`.
 
 Every route is guarded by :data:`CurrentAdmin`, which does NOT create an account — see
 :mod:`aigateway.core.auth.admin`.
@@ -19,10 +15,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Coroutine
-from typing import Annotated, Any
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from starlette.responses import Response
@@ -31,23 +27,16 @@ from tortoise.expressions import Q
 from ..core.admin_schemas import (
     AdminAccountList,
     AdminAccountOut,
-    AdminProfileList,
-    AdminProfileOut,
     CreateAdminAccountRequest,
     PatchAdminAccountRequest,
-    PatchAdminProfileRequest,
-    SetAdminApiKeyRequest,
 )
-from ..core.auth.admin import AdminPrincipal, CurrentAdmin
+from ..core.auth.admin import CurrentAdmin
 from ..core.auth.cloudflare_identity import (
     HEADER_USER_EMAIL,
     CloudflareIdentity,
     account_for_identity,
 )
 from ..core.auth.models import Account
-from ..core.provider_access import facade_target, patch_facade, provider_credential_admin_for
-from .auth import delete_profile_for_account, upsert_api_key_profile
-from .saved_defaults_refusal import refuse_saved_defaults
 
 logger = logging.getLogger(__name__)
 
@@ -135,20 +124,6 @@ def describe_admin_security(schema: dict[str, Any]) -> dict[str, Any]:
 def _note_actor(request: Request, admin: CurrentAdmin) -> None:
     """Name the actor for the audit line. Called first in every handler."""
     request.state.admin_actor = admin.username
-
-
-async def _admin_refusing_saved_defaults(request: Request, admin: CurrentAdmin) -> AdminPrincipal:
-    """The authenticated admin, with a `defaults`-carrying body refused (OME-1323, D2).
-
-    WHY it names the actor itself: the refusal runs before the body is validated and so before
-    the handler, and the audit line must still say who was refused.
-    """
-    _note_actor(request, admin)
-    await refuse_saved_defaults(request)
-    return admin
-
-
-AdminRefusingSavedDefaults = Annotated[AdminPrincipal, Depends(_admin_refusing_saved_defaults)]
 
 
 async def _require_account(account_id: UUID) -> Account:
@@ -246,112 +221,3 @@ async def patch_account(
     if changed:
         await account.save(update_fields=changed)
     return AdminAccountOut.model_validate(account)
-
-
-# --- profiles ---------------------------------------------------------------------------------
-
-
-@router.get("/accounts/{account_id}/profiles", response_model=AdminProfileList)
-async def list_account_profiles(
-    request: Request, admin: CurrentAdmin, account_id: UUID
-) -> AdminProfileList:
-    """List one tenant's credential profiles.
-
-    No new store code was needed: `ProfileIndexStore.list` has always taken the account as an
-    argument — the tenant-facing route simply always passes the caller's own id. Cross-account
-    access is a different argument, not a different store.
-    """
-    # WHY: the docstring above is published verbatim as the OpenAPI operation description, so it
-    # stays byte-identical to the pre-OME-1230 text; the A3 shape is documented here instead.
-    # FEATURE: OME-1230 Stage A3 — this is a shell over `ProviderCredentialAdmin.list`; the DTO is
-    # built from the summary's window-only projection so the JSON stays byte-identical. PATCH below
-    # stays a direct index owner (A3 does not move metadata edits).
-    _note_actor(request, admin)
-    await _require_account(account_id)
-    summaries = await provider_credential_admin_for(request.app).list(str(account_id))
-    return AdminProfileList(
-        profiles=[AdminProfileOut.model_validate(s.legacy_projection) for s in summaries]
-    )
-
-
-@router.patch("/accounts/{account_id}/profiles/{provider}/{name}", response_model=AdminProfileOut)
-async def patch_account_profile(
-    request: Request,
-    # INVARIANT (OME-1323, D2): a `defaults` member is refused by this dependency, after
-    # authentication and before the body is validated or anything is read or written.
-    admin: AdminRefusingSavedDefaults,
-    account_id: UUID,
-    provider: str,
-    name: str,
-    body: PatchAdminProfileRequest,
-) -> AdminProfileOut:
-    _note_actor(request, admin)
-    await _require_account(account_id)
-    # FEATURE (OME-1208 S2'b3): the same facade as the tenant PATCH — metadata on the document,
-    # a migrated pair's state rendered from its effective Connection.
-    target = await facade_target(
-        request.app, account_id=str(account_id), provider=provider, name=name
-    )
-    if target is None:
-        raise HTTPException(
-            status_code=404,
-            detail={"code": "profile_not_found", "provider": provider, "name": name},
-        )
-    updated = await patch_facade(request.app, target, account_label=body.account_label)
-    return AdminProfileOut.model_validate(updated, from_attributes=True)
-
-
-@router.put(
-    "/accounts/{account_id}/profiles/{provider}/{name}/api-key",
-    response_model=AdminProfileOut,
-)
-async def set_account_api_key(
-    request: Request,
-    # INVARIANT (OME-1323, D2): a `defaults` member is refused by this dependency, after
-    # authentication and before the body or the key is validated.
-    admin: AdminRefusingSavedDefaults,
-    account_id: UUID,
-    provider: str,
-    name: str,
-    body: SetAdminApiKeyRequest,
-) -> AdminProfileOut:
-    """Attach or replace a tenant's provider API key. This is the point of the whole console.
-
-    Delegates to `upsert_api_key_profile`, the SAME implementation the tenant-facing route uses.
-    That function carries the OME-307 transaction-ordering invariants (index CAS first, credential
-    write second, rollback as the sole atomicity mechanism); a second copy written for this path
-    would be a second place for them to rot.
-
-    The raw key is never echoed back — the response carries only the masked `account_label`.
-    """
-    _note_actor(request, admin)
-    await _require_account(account_id)
-    profile = await upsert_api_key_profile(
-        request,
-        provider=provider,
-        name=name,
-        account_id=str(account_id),
-        raw_api_key=body.api_key,
-    )
-    return AdminProfileOut.model_validate(profile)
-
-
-@router.delete("/accounts/{account_id}/profiles/{provider}/{name}", status_code=204)
-async def delete_account_profile(
-    request: Request,
-    admin: CurrentAdmin,
-    account_id: UUID,
-    provider: str,
-    name: str,
-) -> None:
-    """Remove a tenant's profile and its stored credential.
-
-    Delegates to the same implementation as the tenant-facing delete, which publishes the index
-    removal and the credential deletion in one transaction so a committed delete never leaves an
-    orphaned blob.
-    """
-    _note_actor(request, admin)
-    await _require_account(account_id)
-    await delete_profile_for_account(
-        request, provider=provider, name=name, account_id=str(account_id)
-    )

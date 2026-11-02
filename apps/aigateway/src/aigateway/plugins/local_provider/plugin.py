@@ -13,12 +13,12 @@ from .settings import LocalPluginSettings
 from .transport import post_chat_completion
 
 if TYPE_CHECKING:
+    from aigateway.core.auth_types import AuthMode
     from aigateway.core.chat_parameters import (
         ParameterProjectionRule,
         ProviderParameterObservation,
     )
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from aigateway.core.profile_models import AuthMode
 
 
 LOCAL_MODEL_SOURCE = ModelDiscoverySource(
@@ -70,7 +70,7 @@ class LocalProviderPlugin(ProviderPluginBase[LocalPluginSettings]):
             return None
         return await discover_local_models(self.settings, client=client, limits=limits)
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return True
 
     def supports_chat_streaming(self) -> bool:

@@ -102,6 +102,38 @@ degrade — it is denied at the CNI, and the symptom is a connect timeout in the
 in this gateway's logs, because the packet never arrives. Drop it only if you do not deploy the
 console.
 
+## Configured endpoints (hosted BYOM)
+
+Off by default. The gateway reads its configured-endpoints TOML once at startup from
+`AIGW_REMOTE_ENDPOINTS_CONFIG`, and refuses to start on an unusable file. The chart mounts that
+file read-only from one ConfigMap or Secret you already created; it never renders the file, so
+endpoint URLs and grants stay out of values and Git. Prefer a Secret.
+
+```bash
+kubectl create secret generic aigw-endpoints --from-file=endpoints.toml=./endpoints.toml
+helm upgrade aigw apps/aigateway/charts/aigateway --reuse-values \
+  --set remoteEndpoints.existingSecret=aigw-endpoints \
+  --set-string remoteEndpoints.key=endpoints.toml \
+  --set-string remoteEndpoints.contentChecksum="$(shasum -a 256 endpoints.toml | cut -d' ' -f1)"
+```
+
+`contentChecksum` is required with a source. The chart cannot read the object, so this supplied
+content revision is what rolls the pod when the file changes. `key` names the file inside the
+source (default `endpoints.toml`). Set it explicitly on the first upgrade that adds
+`remoteEndpoints`: `--reuse-values` keeps the previous release's values, which have no
+`remoteEndpoints` block and so no default. The render refuses both sources at once, an empty
+`key`, a checksum without a source, and a missing or malformed checksum.
+
+The render also refuses two overrides that would bypass this wiring: a `podAnnotations` key
+`checksum/remote-endpoints`, which would replace the supplied revision so a changed file rolls
+nothing, and, while a source is set, an `extraEnv` entry `AIGW_REMOTE_ENDPOINTS_CONFIG`, which
+would point the gateway at another file than the one mounted. Without a source, `extraEnv` may
+still name the file.
+
+Every target in this file is private. When it changes, rerun the Engine's publication review
+before the Engine upgrade (`screamingface-engine admin check-publication`, see the Engine
+chart's README), so the Engine declares no target of it in its shared schema.
+
 ## Production
 
 `values-prod.yaml` expects externally managed Secrets and production ingress settings:

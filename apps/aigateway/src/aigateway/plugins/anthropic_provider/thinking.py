@@ -35,9 +35,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from aigateway.core.auth_types import AuthMode
 from aigateway.core.model_parameter_contract import upstream_model_id
 from aigateway.core.parameter_projection import IncompatibleParametersError
-from aigateway.core.profile_models import AuthMode
 
 # The registered models the installed transform still maps to a manual thinking
 # BUDGET. Everything else Anthropic registers is adaptive.

@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1778",
+  "branch": "OME-1778-availability-fold-in",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-29",
+  "scope": "One parametrize change: test_availability_reports_a_non_migrated_pair_as_not_connected keeps only its quarantined case; the none case is dropped. The section header above the availability tests is reworded to say the label rule lives in its own module. No other edits to that test or file.",
+  "reason": "OME-1138 D17 fold-in (owner decision 2026-10-29): provider availability follows the rule chat resolves by, so a none pair with an active Connection now lists that Connection's status, not not_connected. The none case of the old test pinned the retired rule; test_availability_follows_resolve.py pins the new one over every marker. A quarantined pair still lists not_connected.",
+  "files": {
+    "apps/aigateway/tests/unit/core/provider_access/test_connection_only_resolve.py": {
+      "base_blob": "3fdf8b2a0b88a59370948e0d1bd147d2d0c97b29",
+      "approved_blob": "98989ef8b9f56ffdd9e8770212e8d4161a9b1fac"
+    }
+  }
+}

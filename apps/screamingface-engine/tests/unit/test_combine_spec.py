@@ -218,7 +218,9 @@ _LEGAL_STAGES: dict[str, dict[str, Any]] = {
 }
 
 
-@pytest.mark.parametrize("reducer", [name for name in _LEGAL_STAGES if name != "vote"])
+@pytest.mark.parametrize(
+    "reducer", [name for name in _LEGAL_STAGES if name not in ("vote", "median")]
+)
 def test_only_the_vote_reducer_takes_weights(reducer: str) -> None:
     legal = vote_spec(2, reducer=reducer, **_LEGAL_STAGES[reducer])
     assert parse_spec(_dump(legal)).reducer == reducer  # the spec is legal without weights
@@ -343,11 +345,11 @@ def test_weights_accept_a_signal_ref_and_reject_unknown_keys() -> None:
             parse_spec(_dump(vote_spec(2, weights=weights)))
         for leaked in ("logprob_mean", "a..b"):
             assert leaked not in str(caught.value)
-    median = vote_spec(
+    pick = vote_spec(
         3,
-        reducer="median",
+        reducer="pick",
         normalize={"op": "numeric@1", "args": {}},
         weights={"signal": "cost_usd"},
     )
     with pytest.raises(SpecInvalid, match="weights"):
-        parse_spec(_dump(median))
+        parse_spec(_dump(pick))

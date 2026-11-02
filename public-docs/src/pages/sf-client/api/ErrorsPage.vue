@@ -28,8 +28,18 @@ const warn = `import warnings
 
 with warnings.catch_warnings():
     warnings.simplefilter("error", sf.EvaluationWarning)
-    # a run made with limit= is a partial submission, which warns
-    sf.leaderboards.submit(report.candidates.only)`
+    report = sf.evaluate(recipe, benchmark="draco", limit=1)`
+
+const replayError = `import screamingface as sf
+
+try:
+    replay = sf.evaluate(pinned_cache="<pinned-cache-id>")
+except sf.ReproductionError as exc:
+    print(exc.code, exc.reproduction.outcome, exc.reproduction.reason)
+else:
+    reproduction = replay.candidates.only.reproduction
+    if reproduction is not None:
+        print(reproduction.outcome, reproduction.reason)`
 </script>
 
 <template>
@@ -63,7 +73,8 @@ with warnings.catch_warnings():
     ├── ExecutionError
     ├── LeaderboardError
     ├── PlanningError
-    └── ProviderConnectionError
+    ├── ProviderConnectionError
+    └── ReproductionError
 
 Warning
 └── UserWarning
@@ -120,6 +131,14 @@ Warning
           </td>
         </tr>
         <tr>
+          <td><code>ReproductionError</code></td>
+          <td>
+            A published capture cannot be replayed, or the Engine did not confirm replay mode.
+            <code>.reproduction</code> carries the refusal or failure verdict. No report is
+            returned.
+          </td>
+        </tr>
+        <tr>
           <td><code>LeaderboardError</code></td>
           <td>
             A <RouterLink to="/sf-client/api/leaderboards">leaderboard</RouterLink> operation could
@@ -141,8 +160,8 @@ Warning
     <h2>What an error carries</h2>
 
     <p>
-      The six subclasses share a diagnostic shape, so you can branch on a stable value rather than
-      on message text.
+      The subclasses share a diagnostic shape, so you can branch on a stable value rather than on
+      message text.
     </p>
 
     <table>
@@ -208,14 +227,66 @@ Warning
       needs, for example the combine operators a
       <RouterLink to="/sf-client/api/reducers">reducer</RouterLink> compiles to. It is raised
       before anything is spent.
+    <h2>Replay errors and verdicts</h2>
+
+    <CodeBlock :code="replayError" language="python" />
+    <table>
+      <thead>
+        <tr>
+          <th>Exception and code</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ReproductionError: not_reproducible</code></td>
+          <td>
+            No run starts. <code>exc.reproduction.outcome</code> is <code>"not_reproducible"</code>;
+            its reason is <code>"partial"</code> or <code>"unknown"</code> for a missing capture
+            status, pinned cache id or benchmark revision.
+          </td>
+        </tr>
+        <tr>
+          <td><code>ReproductionError: replay_unsupported</code></td>
+          <td>
+            The Engine did not confirm replay mode. <code>exc.reproduction.outcome</code> is
+            <code>"failed"</code> and its reason is <code>"replay_unsupported"</code>. The Client
+            tries to stop an unacknowledged run; if that stop fails, it also emits an
+            <code>EvaluationWarning</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>PlanningError: partial_replay_unavailable</code></td>
+          <td>
+            The Engine cannot rebuild the published recipe and a compatible subset for
+            <code>limit=n</code>. No run starts; use a full replay.
+          </td>
+        </tr>
+        <tr>
+          <td><code>LeaderboardError: invalid_leaderboard</code></td>
+          <td>
+            The board returned a malformed response, including a score id that differs from the
+            requested one. No replay starts.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      A completed replay that differs from the published score returns
+      <code>result.reproduction.outcome == "failed"</code>. Read <code>.reason</code> and
+      <code>.missed_cases</code>; this verdict does not itself raise an exception. Partial replays
+      and captures with no public score return <code>reproduction=None</code>. Wrong seed, recipe or
+      id combinations raise <code>ValueError</code> before execution. Other service and execution
+      errors still propagate.
     </p>
 
     <h2>Warnings</h2>
 
     <p>
-      A warning means the run <em>completed</em>. It produced a report you can read, but something
-      about its quality needs attention. <code>EvaluationWarning</code> is the one the Client emits,
-      and it subclasses <code>UserWarning</code>, so it appears in normal warning output and
+      A warning usually accompanies a completed run whose quality needs attention. Replay can also
+      warn when every case misses an unsubmitted capture, or when an unacknowledged run could not be
+      stopped. <code>EvaluationWarning</code> is the one the Client emits, and it subclasses
+      <code>UserWarning</code>, so it appears in normal warning output and
       <code>warnings.simplefilter</code> controls it.
     </p>
 
@@ -255,8 +326,8 @@ Warning
     </table>
 
     <Note>
-      A warning does not invalidate a report. It means the score is less well supported than the
-      same benchmark would normally give. Promote it to an error if that matters to you.
+      Read the warning alongside the report or exception. Promote warnings to errors if your
+      workflow must stop on these caveats.
     </Note>
 
     <div class="not-prose">

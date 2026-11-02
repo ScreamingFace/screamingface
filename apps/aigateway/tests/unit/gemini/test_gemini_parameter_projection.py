@@ -29,11 +29,11 @@ from __future__ import annotations
 
 import pytest
 
+from aigateway.core.auth_types import AuthType
 from aigateway.core.parameter_projection import (
     UnsupportedParametersError,
     classify_and_project_chat_parameters,
 )
-from aigateway.core.profile_models import AuthType
 from aigateway.plugins.gemini_provider.message_adapter import build_generate_content_body
 from aigateway.plugins.gemini_provider.plugin import GeminiProviderPlugin
 

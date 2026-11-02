@@ -26,6 +26,7 @@ from .chat_parameters import (
     normalize_rules,
     supported_tool_types,
 )
+from .input_modalities import normalize_input_modalities
 
 if TYPE_CHECKING:
     from .plugin_base import ModelEntry, ProviderPluginBase
@@ -76,4 +77,6 @@ def model_row(plugin: ProviderPluginBase, entry: ModelEntry) -> dict[str, Any]:
         "supported_tools": list(supported_tool_types(tools)),
         "unsupported_parameter_behavior": UNSUPPORTED_PARAMETER_BEHAVIOR,
         "parameter_contract_url": parameter_contract_url(canonical_id),
+        # OME-1537: the plugin owns the evidence; core owns the vocabulary.
+        "input_modalities": list(normalize_input_modalities(plugin.model_input_modalities(entry))),
     }

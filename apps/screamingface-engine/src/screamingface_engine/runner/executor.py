@@ -18,7 +18,7 @@ import time
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, cast
 
@@ -29,6 +29,7 @@ from screamingface_engine.artifacts import (
     allowed_result_bytes,
     decide_result_delivery,
 )
+from screamingface_engine.benchmarks.picture_admission import run_expression_scope
 from screamingface_engine.benchmarks.registry import served_routes
 from screamingface_engine.capture_outcomes import CaptureTally, capture_outcomes
 from screamingface_engine.job_env import RunShape
@@ -277,6 +278,9 @@ def _token_usage(usage: _SpanUsage) -> TokenUsage:
         cache_read_tokens=usage.cache_read_tokens or 0,
         cache_creation_tokens=usage.cache_creation_tokens or 0,
         reasoning_tokens=usage.reasoning_tokens or 0,
+        # INVARIANT (OME-1744): NOT flattened like the classes above — the wire spells "unknown"
+        # for this one by omitting the key, so `None` must reach it as `None`.
+        image_and_file_tokens=usage.image_and_file_tokens,
     )
 
 
@@ -301,6 +305,8 @@ class _SpanUsage:
     cache_creation_tokens: int | None
     reasoning_tokens: int | None
     cost_usd: Decimal | None
+    # FEATURE: image/file token accounting (OME-1744). A subset of `input_tokens`, never added.
+    image_and_file_tokens: int | None = None
 
 
 @dataclass
@@ -310,7 +316,15 @@ class _SpanState:
 
     kind: str
     detail: str
+    # WHY two readings of one moment: `start` is the wall-clock ANCHOR the wire publishes, and
+    # `start_monotonic` is what `_finish` measures the duration from. CLOCK_REALTIME is not
+    # monotonic — on the kind-on-Colima stack lima-guestagent's `SyncTime` steps the guest clock
+    # back about 211 ms every 10 s — and most spans last about 2 us (both events drain from the
+    # bridge in one batch), so a SECOND wall reading at the finish published `end` before `start`
+    # and the SDK refused the whole run over it.
+    # INVARIANT: `end = start + monotonic elapsed`, so `end >= start` holds by construction.
     start: datetime
+    start_monotonic: float
     parent_span_id: str | None
     usage: _SpanUsage | None = field(default=None)
     # INVARIANT: a LIST, accumulated — one span can make several model calls (the web-tools loop
@@ -382,6 +396,15 @@ class _RunState:
         self._sum_cache_read = 0
         self._sum_cache_creation = 0
         self._sum_reasoning = 0
+        # WHY this class POISONS at run level, unlike the three above (owner decision, OME-1744):
+        # the OME-869 rule exists because a poisoned int publishes ZERO, a false claim. This class
+        # is optional on the wire — `None` is published as an omitted key — so poisoning finally
+        # says what it means, exactly as the AIDEV-NOTE above anticipates. A run total that
+        # silently skipped an unknown call would present a partial media count as the whole.
+        # INVARIANT: `None` until the first call; latches unknown on the first unknown call and
+        # never unlatches (the `_subtree_cost` / `_subtree_unpriced` pattern below).
+        self._sum_image_and_file: int | None = None
+        self._image_and_file_unknown = False
         self._providers_models: set[tuple[str, str]] = set()
         # `None` until the first priced call: a run that made no model call at all stays unpriced,
         # which is the shape it published before cost reporting existed.
@@ -402,7 +425,11 @@ class _RunState:
             self.root_span_id = event.root_span_id
         elif isinstance(event, NodeStarted):
             self.spans[event.span_id] = _SpanState(
-                event.node_kind, event.detail, datetime.now(UTC), event.parent_span_id
+                event.node_kind,
+                event.detail,
+                datetime.now(UTC),
+                time.monotonic(),
+                event.parent_span_id,
             )
         elif isinstance(event, Log):
             # The engine attributes each log line to the span that emitted it; carry that through
@@ -483,6 +510,10 @@ class _RunState:
         self._sum_cache_read += event.cache_read_tokens or 0
         self._sum_cache_creation += event.cache_creation_tokens or 0
         self._sum_reasoning += event.reasoning_tokens or 0
+        if event.image_and_file_tokens is None:
+            self._image_and_file_unknown = True
+        else:
+            self._sum_image_and_file = (self._sum_image_and_file or 0) + event.image_and_file_tokens
         self._providers_models.add((event.provider, event.model))
         # INVARIANT: the run total latches UNPRICED on the first call it cannot price, and never
         # unlatches. A grand total that silently omits a step while presenting itself as a total is
@@ -518,6 +549,7 @@ class _RunState:
                 cache_creation_tokens=event.cache_creation_tokens,
                 reasoning_tokens=event.reasoning_tokens,
                 cost_usd=event.cost_usd,
+                image_and_file_tokens=event.image_and_file_tokens,
             )
             return
         span.usage = _SpanUsage(
@@ -534,12 +566,18 @@ class _RunState:
             ),
             reasoning_tokens=accumulate(prior.reasoning_tokens, event.reasoning_tokens),
             cost_usd=accumulate(prior.cost_usd, event.cost_usd),
+            image_and_file_tokens=accumulate(
+                prior.image_and_file_tokens, event.image_and_file_tokens
+            ),
         )
 
     def _finish(self, event: NodeFinished) -> list[Traced]:
+        finished_monotonic = time.monotonic()
         span = self.spans.pop(event.span_id, None)
         if span is None:
-            span = _SpanState("", "", datetime.now(UTC), None)
+            # No start was recorded, so no duration is known: the span opens and closes at the
+            # same reading, `end == start`.
+            span = _SpanState("", "", datetime.now(UTC), finished_monotonic, None)
         kind, detail, start, usage, parent_span_id = (
             span.kind,
             span.detail,
@@ -576,7 +614,9 @@ class _RunState:
             cache_saved_cost_usd=span.saved_cost.saved_cost_usd,
             cache_saved_cost_archive_usd=span.saved_cost.saved_cost_archive_usd,
             start=start,
-            end=datetime.now(UTC),
+            # Never a second wall reading — see `_SpanState.start_monotonic`. The `max` only guards
+            # a clock that misbehaves; a monotonic clock never runs backwards.
+            end=start + timedelta(seconds=max(0.0, finished_monotonic - span.start_monotonic)),
             status="ok" if event.status == "ok" else "error",
         )
         frames: list[Traced] = [
@@ -676,6 +716,9 @@ class _RunState:
                 cache_read_tokens=self._sum_cache_read,
                 cache_creation_tokens=self._sum_cache_creation,
                 reasoning_tokens=self._sum_reasoning,
+                image_and_file_tokens=(
+                    None if self._image_and_file_unknown else self._sum_image_and_file
+                ),
             ),
             cost=CostBreakdown(total_usd=total or Decimal("0")),
         )
@@ -1090,17 +1133,20 @@ class Url4Executor(Executor):
         run (PRD 04). Either way the observation events reach `bridge`."""
         if self._run_shape == "direct":
             return await self._dispatch_direct(url4, trace, bridge)
-        if trace is not None:
-            body = await url4_run(
-                url4,
-                self._io,
-                observer=bridge,
-                trace_id=trace.trace_id,
-                root_span_id=trace.root_span_id,
-                **self._run_kwargs,
-            )
-        else:
-            body = await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+        # FEATURE (OME-1548): a picture Benchmark's Cases route reads the linked Candidate from
+        # the run's own url4, to refuse a model that can't see pictures before any paid call.
+        with run_expression_scope(url4):
+            if trace is not None:
+                body = await url4_run(
+                    url4,
+                    self._io,
+                    observer=bridge,
+                    trace_id=trace.trace_id,
+                    root_span_id=trace.root_span_id,
+                    **self._run_kwargs,
+                )
+            else:
+                body = await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
         return _EvalResult(body)
 
     async def _dispatch_direct(

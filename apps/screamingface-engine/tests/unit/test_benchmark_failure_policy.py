@@ -20,6 +20,7 @@ from screamingface_engine.benchmarks.contract import (
     Failure,
     encode_candidate_invocation,
 )
+from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.grading_endpoints import candidate_answer
 
 
@@ -116,7 +117,7 @@ def test_refusal_retains_a_missing_grade_when_later_grading_fails() -> None:
     assert [item.code for item in case.failures] == ["provider_refusal", "judge_unavailable"]
 
 
-def test_partial_candidate_scores_only_gradeable_cases_and_declares_coverage() -> None:
+def test_coverage_declare_scores_only_gradeable_cases_and_declares_coverage() -> None:
     observed: list[int | str] = []
 
     def scorer(cases: Sequence[CaseResult]) -> CandidateScore:
@@ -124,6 +125,7 @@ def test_partial_candidate_scores_only_gradeable_cases_and_declares_coverage() -
         return CandidateScore(score=0.25, metrics={"pass_rate": 0.25})
 
     result = finalize_candidate_result(
+        failure_policy="coverage_declare",
         benchmark_id="benchmark",
         benchmark_revision="revision",
         selected_cases=_selected(1, 2, 3),
@@ -138,8 +140,12 @@ def test_partial_candidate_scores_only_gradeable_cases_and_declares_coverage() -
     assert [case.case_id for case in result.cases] == [1, 2, 3]
 
 
-def test_no_gradeable_cases_publish_the_explicit_zero_coverage_shape() -> None:
+@pytest.mark.parametrize("policy", ["coverage_declare", "withhold"])
+def test_no_gradeable_cases_publish_the_explicit_zero_coverage_shape(
+    policy: FailurePolicy,
+) -> None:
     result = finalize_candidate_result(
+        failure_policy=policy,
         benchmark_id="benchmark",
         benchmark_revision="revision",
         selected_cases=_selected(1),

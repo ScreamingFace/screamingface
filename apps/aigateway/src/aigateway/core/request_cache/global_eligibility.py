@@ -324,11 +324,10 @@ def _classify(
             if outcome is not None:
                 return outcome
             continue
-        if "." in key:
-            # OME-704: the wrapper OBJECT is the only addressing form for a native
-            # field. A top-level key spelled ``provider_params.top_k`` matches a
-            # rule's request_path textually, so it must be refused BEFORE the
-            # lookup or it would become a second, unvalidated door into the key.
+        if key.startswith(_WRAPPER_PREFIX):
+            # OME-704: the wrapper OBJECT is the only addressing form for a native field. A
+            # top-level ``provider_params.*`` key must be refused before lookup. Other dotted
+            # names are valid direct paths (OME-1656) and still require an explicit rule below.
             return CacheBypass(BYPASS_UNKNOWN_PARAMETER)
         accepted = _accept(key, value, enabled, provider_modes)
         if isinstance(accepted, CacheBypass):
