@@ -3,7 +3,7 @@ ticket: OME-1781, OME-1782, OME-1783   # gateway, SDK fixtures, Engine fixture; 
 stack: aigateway, screamingface, screamingface-engine
 status: done
 started: 2026-10-29
-finished: 2026-10-29
+finished: 2026-10-30
 ---
 
 # scope-literal-account-connection — rename the model-parameter contract scope to account_connection
@@ -81,7 +81,7 @@ three sub-issues, one per landing.
   `BREAKING CHANGE:` footer; added on top because the first commit was already pushed). The PR
   title is `refactor(aigateway)!: rename the contract scope to account_connection`, so the squash
   commit keeps the breaking marker. PR #1613; merge after #1607, which lands the close-out spec
-  and plan this ledger cites.
+  and plan this ledger cites. Merged as `6c5f5c1cb` on 2026-10-30.
 - **Gates:** `run_gates.py <stack> --base origin/main`, each ALL GATES GREEN with the append-only
   check passing on the OME-1781 approvals:
   - `aigateway`: ruff, format, pyright, no-enterprise, pytest cov>=80 (full suite on this code:

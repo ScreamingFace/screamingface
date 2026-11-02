@@ -40,9 +40,9 @@ from uuid import uuid4
 import pytest
 
 from aigateway.core.auth_types import AuthType
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _PLUGIN = "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin"

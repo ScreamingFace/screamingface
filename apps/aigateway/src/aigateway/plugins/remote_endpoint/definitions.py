@@ -15,14 +15,27 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from ipaddress import IPv6Address, ip_address
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    Tag,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 SCHEMA_VERSION = 1
 CHAT_CONTRACT = "openai-chat-basic-v1"
+CLASSIFICATION_TASK = "text-classification"
+CLASSIFICATION_CONTRACT = "hf-text-classification-v1"
+_TASKS = ("chat", CLASSIFICATION_TASK)
+_UNKNOWN_TASK = "unknown-task"
 
 _ENDPOINT_ID = re.compile(r"^byom_[0-9a-f]{32}$")
 _DEFAULT_PORT = {"http": 80, "https": 443}
@@ -51,6 +64,16 @@ class ChatTarget:
 
 
 @dataclass(frozen=True, slots=True)
+class ClassificationTarget:
+    alias: str
+    request_path: str
+    response_envelope: Literal["flat", "single-batch"]
+    score_semantics: Literal["bounded-score"] = "bounded-score"
+    task: Literal["text-classification"] = CLASSIFICATION_TASK
+    contract: Literal["hf-text-classification-v1"] = CLASSIFICATION_CONTRACT
+
+
+@dataclass(frozen=True, slots=True)
 class EndpointDefinition:
     """What an instance needs to call its endpoint — and deliberately nothing about who may."""
 
@@ -58,12 +81,20 @@ class EndpointDefinition:
     display_name: str
     origin: str
     validation_target: str
-    targets: tuple[ChatTarget, ...]
+    targets: tuple[ChatTarget | ClassificationTarget, ...]
 
-    def target(self, alias: str) -> ChatTarget | None:
+    def target(self, alias: str) -> ChatTarget | ClassificationTarget | None:
         return next((target for target in self.targets if target.alias == alias), None)
 
-    def model_id(self, target: ChatTarget) -> str:
+    @property
+    def chat_targets(self) -> tuple[ChatTarget, ...]:
+        return tuple(target for target in self.targets if isinstance(target, ChatTarget))
+
+    @property
+    def classifier_targets(self) -> tuple[ClassificationTarget, ...]:
+        return tuple(target for target in self.targets if isinstance(target, ClassificationTarget))
+
+    def model_id(self, target: ChatTarget | ClassificationTarget) -> str:
         return f"{self.id}/{target.alias}"
 
 
@@ -85,12 +116,9 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
 
-class _ChatTargetDoc(_Strict):
+class _TargetDoc(_Strict):
     alias: str
-    task: Literal["chat"]
-    contract: Literal["openai-chat-basic-v1"]
     request_path: str
-    upstream_model: str
 
     @field_validator("alias")
     @classmethod
@@ -109,12 +137,50 @@ class _ChatTargetDoc(_Strict):
             raise ValueError("must be a fixed absolute path of unreserved characters")
         return value
 
+
+class _ChatTargetDoc(_TargetDoc):
+    task: Literal["chat"]
+    contract: Literal["openai-chat-basic-v1"]
+    upstream_model: str
+
     @field_validator("upstream_model")
     @classmethod
     def _upstream_model(cls, value: str) -> str:
         if not _UPSTREAM_MODEL.fullmatch(value):
             raise ValueError("must be 1-256 printable ASCII characters without spaces")
         return value
+
+
+class _ClassificationTargetDoc(_TargetDoc):
+    task: Literal["text-classification"]
+    contract: Literal["hf-text-classification-v1"]
+    response_envelope: Literal["flat", "single-batch"]
+    score_semantics: Literal["bounded-score"]
+
+
+class _TaskProbe(BaseModel):
+    # WHY a probe of its own: an unknown task is refused once, at `task`, by a rule that lists the
+    # known tasks, before either kind judges fields that would mean nothing for it.
+    model_config = ConfigDict(extra="ignore", strict=True, frozen=True)
+
+    task: Literal["chat", "text-classification"]
+
+
+def _target_kind(value: Any) -> str:
+    task = value.get("task") if isinstance(value, Mapping) else None
+    return task if isinstance(task, str) and task in _TASKS else _UNKNOWN_TASK
+
+
+if TYPE_CHECKING:
+    # WHY: the probe never validates, so a parsed target is always one of the two kinds.
+    _AnyTargetDoc = _ChatTargetDoc | _ClassificationTargetDoc
+else:
+    _AnyTargetDoc = Annotated[
+        Annotated[_ChatTargetDoc, Tag("chat")]
+        | Annotated[_ClassificationTargetDoc, Tag(CLASSIFICATION_TASK)]
+        | Annotated[_TaskProbe, Tag(_UNKNOWN_TASK)],
+        Discriminator(_target_kind),
+    ]
 
 
 class _EndpointDoc(_Strict):
@@ -124,7 +190,7 @@ class _EndpointDoc(_Strict):
     origin: str
     allowed_account_ids: list[str]
     validation_target: str
-    targets: list[_ChatTargetDoc] = Field(min_length=1)
+    targets: list[_AnyTargetDoc] = Field(min_length=1)
 
     @field_validator("id")
     @classmethod
@@ -210,14 +276,22 @@ def _definition(endpoint: _EndpointDoc) -> EndpointDefinition:
         display_name=endpoint.display_name,
         origin=endpoint.origin,
         validation_target=endpoint.validation_target,
-        targets=tuple(
-            ChatTarget(
-                alias=target.alias,
-                request_path=target.request_path,
-                upstream_model=target.upstream_model,
-            )
-            for target in endpoint.targets
-        ),
+        targets=tuple(_target(target) for target in endpoint.targets),
+    )
+
+
+def _target(target: _AnyTargetDoc) -> ChatTarget | ClassificationTarget:
+    if isinstance(target, _ChatTargetDoc):
+        return ChatTarget(
+            alias=target.alias,
+            request_path=target.request_path,
+            upstream_model=target.upstream_model,
+        )
+    return ClassificationTarget(
+        alias=target.alias,
+        request_path=target.request_path,
+        response_envelope=target.response_envelope,
+        score_semantics=target.score_semantics,
     )
 
 
@@ -288,9 +362,23 @@ def _is_canonical_uuid(value: str) -> bool:
         return False
 
 
+def _location(loc: tuple[int | str, ...]) -> str:
+    # WHY drop the kind: the tagged union inserts the kind it chose right after a target's index.
+    # That is the parser's choice, not a place in the operator's document.
+    kinds = {*_TASKS, _UNKNOWN_TASK}
+    parts = [
+        part
+        for i, part in enumerate(loc)
+        if not (
+            i >= 2 and loc[i - 2] == "targets" and isinstance(loc[i - 1], int) and part in kinds
+        )
+    ]
+    return ".".join(str(part) for part in parts) or "<document>"
+
+
 def _sanitized(exc: ValidationError) -> str:
     problems = [
-        f"{'.'.join(str(part) for part in error['loc']) or '<document>'}: {error['msg']}"
+        f"{_location(error['loc'])}: {error['msg']}"
         for error in exc.errors(include_url=False, include_input=False, include_context=False)
     ]
     return "remote endpoint config is invalid: " + "; ".join(problems)

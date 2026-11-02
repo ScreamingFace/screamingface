@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from screamingface._ui.connections import ConnectionPanel
+    from screamingface.classification import Classification
     from screamingface.connections import Connection, OAuthFlow
     from screamingface.events import Event
     from screamingface.media import CaseMedia, FetchedMedia
@@ -161,6 +162,15 @@ def fetch_media(media: CaseMedia) -> FetchedMedia:
     """
 
     return default_client().fetch_media(media)
+
+
+def classify(model: str, input: str) -> Classification:
+    """Classify one text with the process-wide Client (``Client.classify``).
+
+    e.g. ``sf.classify("byom_<id>/classifier_v1", "Great service")``.
+    """
+
+    return default_client().classify(model, input)
 
 
 @overload

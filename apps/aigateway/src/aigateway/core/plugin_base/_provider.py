@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from ..api_key_validation import ApiKeyValidator
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
 from ._ports import (
+    ClassifierEntry,
     CredentialStrategy,
     ModelAdmission,
     ModelEntry,
@@ -65,6 +66,14 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     @abstractmethod
     def register_models(self) -> list[ModelEntry]:
         """Return the model_list entries this plugin contributes."""
+
+    def register_classifiers(self) -> list[ClassifierEntry]:
+        """Return the text classifiers this plugin serves; none by default.
+
+        FEATURE: hosted BYOM Unit 3. INVARIANT: a classifier is never a chat model, so no entry
+        here is also in ``register_models``; only ``classify`` dispatches it.
+        """
+        return []
 
     async def admit_model(
         self,
@@ -375,6 +384,15 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         stream: Any = await litellm.acompletion(**body)
         async for chunk in stream:
             yield chunk
+
+    async def classify(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Dispatch one text classification of a model from ``register_classifiers``.
+
+        Default: unsupported. The route admits only a listed classifier, so a plugin without
+        classifiers is never asked.
+        """
+        del body
+        raise NotImplementedError("this provider serves no classifiers")
 
     def auth_router(self):
         """Provider-specific auth routes.

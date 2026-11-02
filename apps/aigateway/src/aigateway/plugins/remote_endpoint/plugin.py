@@ -3,7 +3,7 @@
 # FEATURE: hosted BYOM — every approved endpoint is served by this one class; its definition alone
 # decides the provider ID, origin, targets and where its keys are stored.
 # STORY: as an operator, I attach a tenant's key for an approved endpoint with the existing admin
-# API; the tenant's chat calls reach only that endpoint with only that key.
+# API; the tenant's chat and classification calls reach only that endpoint with only that key.
 # INVARIANT: no branch on a specific endpoint ID; two instances differ only by their definitions.
 # INVARIANT: the key namespace is the INSTANCE ID (`aigateway:<id>:<name>`), matching what the
 # Connection admin publication mints for `credential_service_provider()`, so pairs never share a
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+from functools import partial
 from typing import Any
 
 import httpx
@@ -25,13 +26,14 @@ from aigateway.core.auth_types import AuthMode
 from aigateway.core.cache_ports import CacheBypass
 from aigateway.core.chat_parameters import ParameterProjectionRule
 from aigateway.core.credential_blob import CredentialBlobStore
-from aigateway.core.plugin_base import ModelEntry, ProviderPluginBase
+from aigateway.core.plugin_base import ClassifierEntry, ModelEntry, ProviderPluginBase
 
+from .classification import classification_request, classification_result, decode_scores
 from .credential import OriginBoundApiKeyStrategy
-from .definitions import ChatTarget, EndpointDefinition
+from .definitions import ChatTarget, ClassificationTarget, EndpointDefinition
 from .global_cache import project_global_cache_request
 from .request import chat_parameter_rules, chat_request, check_text_messages
-from .transport import EndpointClient, post_chat_completion
+from .transport import EndpointClient, post_chat_completion, post_json
 from .validation import RemoteEndpointReadiness
 
 _CHAT_FIELDS = ("model", "messages", "max_tokens")
@@ -58,12 +60,25 @@ class RemoteEndpointPlugin(ProviderPluginBase):
         self._client = EndpointClient()
 
     def register_models(self) -> list[ModelEntry]:
-        # WHY every declared target: the catalog routes show an instance only to the accounts
+        # WHY every declared chat target: the catalog routes show an instance only to the accounts
         # its grant names (`EndpointOperation.VIEW`), so the rows reach nobody else.
         # INVARIANT: an entry carries the canonical model ID only; the origin, request path and
         # upstream model stay in the definition.
-        model_ids = [self._definition.model_id(target) for target in self._definition.targets]
+        # INVARIANT: chat stays chat; a classifier is never a chat model (`register_classifiers`).
+        definition = self._definition
+        model_ids = [definition.model_id(target) for target in definition.chat_targets]
         return [ModelEntry(model_name=mid, litellm_params={"model": mid}) for mid in model_ids]
+
+    def register_classifiers(self) -> list[ClassifierEntry]:
+        # WHY every declared classifier: the grant (`VIEW`, `INVOKE`) gates both kinds alike.
+        # INVARIANT: an entry names the task and contract only; origin and path stay here.
+        definition = self._definition
+        return [
+            ClassifierEntry(
+                model_name=definition.model_id(target), task=target.task, contract=target.contract
+            )
+            for target in definition.classifier_targets
+        ]
 
     def supports_api_key(self) -> bool:
         return True
@@ -99,7 +114,7 @@ class RemoteEndpointPlugin(ProviderPluginBase):
         # INVARIANT: the target and the text contract are checked BEFORE the route authorizes, so
         # an unknown alias or a message outside the contract costs no credential read and no
         # upstream I/O. Caller transport/auth fields are dropped here.
-        self._target_for(body.get("model"))
+        self._target_for(body.get("model"), ChatTarget)
         check_text_messages(body.get("messages"), provider=self.custom_llm_provider)
         return {key: body[key] for key in _CHAT_FIELDS if key in body}
 
@@ -113,7 +128,7 @@ class RemoteEndpointPlugin(ProviderPluginBase):
         # WHY a declared alias: a removed alias must not keep answering from the rows it left.
         # INVARIANT: no grant and no key is read here; False suppresses the lookup and the store
         # and leaves every row as it was, so re-enabling the same endpoint serves them again.
-        return self._enabled and self._declared(model) is not None
+        return self._enabled and self._declared(model, ChatTarget) is not None
 
     def cache_reference_from_cached_response(self, cached_response: Mapping[str, Any]) -> None:
         # WHY explicit: the hit path asks every provider for usage evidence in a stored answer,
@@ -121,17 +136,8 @@ class RemoteEndpointPlugin(ProviderPluginBase):
         del cached_response
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:
-        target = self._target_for(body.get("model"))
-        api_key = body.get("api_key")
-        if not isinstance(api_key, str) or not api_key:
-            # WHY refuse rather than send unauthenticated: there is no ambient-token fallback.
-            raise HTTPException(
-                status_code=503,
-                detail={
-                    "code": "provider_unavailable",
-                    "message": "No credential was resolved for this endpoint.",
-                },
-            )
+        target = self._target_for(body.get("model"), ChatTarget)
+        api_key = _resolved_key(body)
         return await post_chat_completion(
             self._definition.origin + target.request_path,
             chat_request(target, body.get("messages"), max_tokens=body.get("max_tokens")),
@@ -139,18 +145,35 @@ class RemoteEndpointPlugin(ProviderPluginBase):
             client=self._client.open(self._transport),
         )
 
+    async def classify(self, body: dict[str, Any]) -> dict[str, Any]:
+        target = self._target_for(body.get("model"), ClassificationTarget)
+        api_key = _resolved_key(body)
+        scores = await post_json(
+            self._definition.origin + target.request_path,
+            classification_request(body["input"]),
+            api_key=api_key,
+            client=self._client.open(self._transport),
+            decode=partial(decode_scores, envelope=target.response_envelope),
+        )
+        return classification_result(self._definition.model_id(target), scores)
+
     def begin_close(self) -> asyncio.Future[None] | None:
         """Start closing this endpoint's client; a chat after this gets a 502 and opens none."""
         return self._client.begin_close()
 
-    def _declared(self, model: object) -> ChatTarget | None:
+    def _declared[T: ChatTarget | ClassificationTarget](
+        self, model: object, kind: type[T]
+    ) -> T | None:
+        # INVARIANT: a target answers only for its own kind, so a classifier is never a chat
+        # model and a chat model is never a classifier.
         prefix = f"{self.custom_llm_provider}/"
         if isinstance(model, str) and model.startswith(prefix):
-            return self._definition.target(model.removeprefix(prefix))
+            target = self._definition.target(model.removeprefix(prefix))
+            return target if isinstance(target, kind) else None
         return None
 
-    def _target_for(self, model: object) -> ChatTarget:
-        target = self._declared(model)
+    def _target_for[T: ChatTarget | ClassificationTarget](self, model: object, kind: type[T]) -> T:
+        target = self._declared(model, kind)
         if target is None:
             raise HTTPException(
                 status_code=400,
@@ -160,3 +183,17 @@ class RemoteEndpointPlugin(ProviderPluginBase):
                 },
             )
         return target
+
+
+def _resolved_key(body: dict[str, Any]) -> str:
+    api_key = body.get("api_key")
+    if not isinstance(api_key, str) or not api_key:
+        # WHY refuse rather than send unauthenticated: there is no ambient-token fallback.
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "provider_unavailable",
+                "message": "No credential was resolved for this endpoint.",
+            },
+        )
+    return api_key
