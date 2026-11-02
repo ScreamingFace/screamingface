@@ -41,6 +41,7 @@ from litellm.exceptions import (
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.auth_types import AuthMode
+from ..core.content_parts import check_input_modalities
 from ..core.credential_blob import DispatchObservation
 from ..core.endpoint_access import EndpointOperation, permits
 from ..core.frozen_copy.headers import (
@@ -60,6 +61,7 @@ from ..core.frozen_copy.store import (
     log_capture_failure,
 )
 from ..core.media_intake import refuse_remote_media
+from ..core.model_capabilities import routed_model_modality_evidence
 from ..core.parameter_projection import (
     IncompatibleParametersError,
     UnsupportedParametersError,
@@ -461,6 +463,18 @@ def _admit_media(
         )
         # The provider's own slot rules (Anthropic's top-level `system`), at the same boundary.
         plugin.refuse_inadmissible_media(body)
+        # OME-1807: the modality backstop — a part the routed model is PUBLISHED not to take is
+        # refused here, before a paid upstream call. Unknown passes (owner decision A).
+        check_input_modalities(
+            body.get("messages") or [],
+            provider=provider,
+            modalities=routed_model_modality_evidence(
+                plugin,
+                str(body.get("model", "")),
+                catalog=getattr(request.app.state, "model_catalog", None),
+                admitted=getattr(request.app.state, "admitted_models", {}),
+            ),
+        )
     except HTTPException:
         if not streaming:
             begin_accounting(request, plugin=plugin, provider=provider, model=body.get("model", ""))

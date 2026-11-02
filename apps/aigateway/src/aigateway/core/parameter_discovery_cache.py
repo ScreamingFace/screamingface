@@ -236,6 +236,21 @@ class ObservationCache:
         finally:
             self._leave(key)
 
+    def peek(self, key: str, *, revision: str) -> Any | None:
+        """The last-good value for ``key`` without refreshing, or ``None`` (OME-1807).
+
+        # INVARIANT: a pure read — no refresh, no single-flight entry, no LRU touch, no failure
+        # record. A caller on a hot path (chat) can never cause a dial through it.
+        # WHY the stale window bounds it: that is the oldest value ``get_or_refresh`` would
+        # ever serve; past it the evidence is gone, and ``None`` (unknown) is the honest answer.
+        """
+        entry = self._entries.get(key)
+        if entry is None or entry.revision != revision:
+            return None
+        if self._clock.now() - entry.stored_at > self._limits.ttl_s + self._limits.stale_ttl_s:
+            return None
+        return entry.value
+
     def _enter(self, key: str) -> _InFlight:
         # AIDEV-NOTE: _enter/_leave are deliberately SYNCHRONOUS. With no await
         # between the lookup and the counter change, the event loop cannot interleave
