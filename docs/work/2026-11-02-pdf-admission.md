@@ -57,3 +57,4 @@ list lacks the modality).
   `/v1/models` fails the run as retryable with nothing spent; an unlisted model lacks `pdf`)
   instead of choosing a new one. Same scope as pictures: Runner runs only, Candidate models only
   (graders are text-only, spec D6). One refusal names every gap when a file needs both types.
+- Owner decisions (Sergey, 2026-11-02): when `/v1/models` can't be read, a PDF run fails closed the same way a picture run does; the PR opens before spec #1597 merges, with that dependency stated in the PR body.
