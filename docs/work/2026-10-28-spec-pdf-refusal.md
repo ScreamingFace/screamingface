@@ -47,7 +47,8 @@ check exists on `main`.
 - Summary (final): the spec's §1 gateway findings, §3 item 4 and §4 (`intent_error` and
   `unsupported_content_part` rows) state the final rule above; §1 separates the normative v1 rule from
   current-`main` behaviour. The Ollama spec's out-of-scope note no longer hands PDF-to-text to `OME-1550`.
-- Implementation status: nothing of the rule is on `main` yet. Admission check: `OME-1803` (Backlog). Backstop
+- Implementation status: picture admission is on `main` (#1584, `OME-1548`); the PDF admission check is
+  `OME-1803` (In Progress). Backstop
   translation: #1588 (`OME-1545`, draft). On `main` today only Ollama and configured remote endpoints refuse a
   PDF, with the raw gateway 422.
 - *Superseded (round 0, 2026-10-28):* "Changed one sentence in the gateway findings; §3 item 4 and §4
@@ -72,12 +73,13 @@ check exists on `main`.
   PDF row), so it was filed as `OME-1803` under `OME-1529` (2026-11-02). "No PDF-to-text in v1" and "`OME-1550` is office formats only" are kept.
 - Review round 3 (HupBaHa, 2026-11-02T15:14Z): the spec said the engine "refuses the run at admission" and
   that the check "is implemented by `OME-1803`", but `OME-1803` is Backlog and no admission code has landed.
-  Verified against `main` (`834c3086a`): no engine modality read or admission check (pictures included); the
+  Verified against `main` (`834c3086a`): no PDF admission check (picture admission, #1584, is on `main`); the
   gateway refuses PDFs only for Ollama (`allow_files=False`) and configured remote endpoints (text-only
   contract); #1588 is still a draft. Changed: §1 now has a normative "v1 rule" bullet and a separate "Current
   `main`" bullet; §3 item 4 and the §4 rows mark the admission check and the translation as pending; the
   resolved `OME-1537` item moved from "Still open" to "Resolved since this snapshot"; "the list the engine
-  already reads for pictures" became "the list picture admission is to read"; the Ollama spec and the task
+  already reads for pictures" was briefly reworded as "is to read" in error and restored (picture admission
+  landed in #1584 on 2026-10-29); the Ollama spec and the task
   mirror say the admission check is pending. This ledger's Intent and summary now lead with the final rule;
   superseded lines are marked, not deleted. PR body and title updated.
 - Deviations: none.
