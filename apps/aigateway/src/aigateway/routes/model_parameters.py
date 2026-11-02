@@ -30,6 +30,7 @@ from .provider_access_http import refusals_as_http, selector_from_request
 if TYPE_CHECKING:
     from ..core.auth_types import AuthMode
     from ..core.plugin_base import ProviderPluginBase
+    from ..core.provider_access import CredentialTarget
 
 router = APIRouter()
 
@@ -171,7 +172,14 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         source_revision=discovered.snapshot.source_revision if discovered.snapshot else None,
     )
 
-    # FEATURE: evaluation access preflight (OME-1195).
+    document["context"]["execution_access"] = execution_access(target, plugin)
+    return document
+
+
+def execution_access(target: CredentialTarget, plugin: ProviderPluginBase[Any]) -> str:
+    """``configured`` when the account can run the provider now, else ``missing``."""
+    # FEATURE: evaluation access preflight (OME-1195); `/v1/classifiers/details` reads the same
+    # rule, so a classifier and a chat model of one provider never disagree on access.
     # INVARIANT: configuration is separate from the datasheet's auth-mode binding.
     # A keyless datasheet still exists; only chat's resolved target or an allowed
     # credentialless mode establishes configuration. Never inject/validate secrets here.
@@ -181,8 +189,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
             plugin.credentialless_auth_mode() is not None
             or plugin.available_auth_modes() == ("none",)
         )
-    document["context"]["execution_access"] = "configured" if configured else "missing"
-    return document
+    return "configured" if configured else "missing"
 
 
 async def _live_catalog_ids(request: Request, plugin: ProviderPluginBase[Any]) -> frozenset[str]:
