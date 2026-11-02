@@ -1,12 +1,13 @@
 ---
 id: OME-1789
 linear_url: https://linear.app/openmined/issue/OME-1789/grading-reads-only-the-selected-cases-not-all-of-casesjson
-status: in_progress
+status: done
 type: improvement
 priority: medium
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1314
 created: 2026-10-30
+closed: 2026-11-02
 ---
 
 # Grading reads only the selected Cases, not all of cases.json
