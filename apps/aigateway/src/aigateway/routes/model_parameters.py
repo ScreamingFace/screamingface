@@ -74,7 +74,8 @@ _PRIVATE_CACHE_HEADERS: dict[str, str] = {
 
 
 async def _contract_document(request: Request, *, account_id: str, model: str) -> dict[str, Any]:
-    """Resolve provider + profile and compose the contract, or raise ``HTTPException``.
+    """Resolve the provider and its credential target, then compose the contract, or raise
+    ``HTTPException``.
 
     Split from the route handler so the handler is purely the HTTP policy boundary
     (see ``_PRIVATE_CACHE_HEADERS``): every exit below — including the ones raised
@@ -95,7 +96,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
     if plugin is None:
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
 
-    # Canonical-id lookup BEFORE any profile work: reject unknown/cross-provider
+    # Canonical-id lookup BEFORE credential resolution: reject unknown/cross-provider
     # ids (an id owned by another plugin is simply not in this plugin's set).
     # Seeded and admitted ids resolve OFFLINE; the live catalog is consulted
     # lazily, only to rescue a would-be 404 (OME-972).
@@ -116,13 +117,14 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
                 detail={"code": "model_not_found", "provider": provider, "model": model},
             )
 
-    # The SAME port call chat makes (same 409/401 on a pending/errored target, same 404 on an
-    # explicitly NAMED missing one) so summary, detail and dispatch agree on context. The one
-    # divergence (OME-1167) is the policy: DATASHEET admits a target-less DEFAULT selector —
-    # the contract is a datasheet lookup, not a credentialed action.
-    # INVARIANT (OME-1207): `ResolvePolicy.DATASHEET` carries the old `profile_name == "default"`
-    # condition itself — the port admits the absence ONLY for the default selector, so a named
-    # selector still 404s and the two spellings agree by construction.
+    # The SAME port call chat makes (same 409/401 on a pending/errored target) so summary,
+    # detail and dispatch agree on context. The one divergence (OME-1167) is the policy:
+    # DATASHEET admits a target-less DEFAULT selector — the contract is a datasheet lookup, not a
+    # credentialed action.
+    # INVARIANT (OME-1207): `ResolvePolicy.DATASHEET` carries the default-selector condition
+    # itself — the port admits the absence ONLY for the default selector. Since the Stage D sunset
+    # (OME-1138 close-out, L4a) `selector_from_request` above refuses any nonblank `X-Profile`, so
+    # the default is the only selector that reaches the port.
     access = provider_access_for(request.app)
     with refusals_as_http():
         target = await access.resolve(
@@ -130,7 +132,7 @@ async def _contract_document(request: Request, *, account_id: str, model: str) -
         )
         auth_mode = access.contract_auth_mode(target, plugin)
 
-    # Observed LAST: a request that fails profile resolution must not have spent a
+    # Observed LAST: a request that fails credential resolution must not have spent a
     # fetch on a contract it will never serve. (The lazy catalog consult above is
     # the one earlier read, and only a would-be 404 pays for it.)
     discovered = await _discovery_outcome(request, plugin, model=model, auth_mode=auth_mode)

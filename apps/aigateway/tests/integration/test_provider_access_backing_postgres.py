@@ -3,9 +3,9 @@
 # FEATURE: Stage B Target — on PostgreSQL (READ COMMITTED) the pair marker's compare-and-set is a
 # ROW-LOCK fence: two authority writers on one migrated pair never both commit; the loser's whole
 # transaction rolls back and it answers 409. SQLite's single writer cannot show this.
-# INVARIANT (D14): one write owner per owned pair — the native routes and the legacy op 8 both
-# advance the SAME marker row first, so whoever holds that row lock decides, and the other
-# re-evaluates its `WHERE generation = <stale>` to zero rows.
+# INVARIANT (D14): one write owner per owned pair — the native Connection routes and the D18 admin
+# PUT/DELETE all lock the SAME marker row first, so whoever holds that row lock decides, and the
+# other then finds the generation it observed stale.
 # WHY each test resets the pair: the lane's fixtures are bound from
 # `test_lifecycle_postgres_races.py` (one container per module, migrated to head by the tortoise
 # CLI — a broken 0012 fails at fixture time), so the admin account is shared by every test; each
@@ -31,12 +31,12 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from aigateway.core.auth_types import AuthType
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.core.provider_access.models import ProviderCredentialSlot
 from aigateway.core.provider_access.pair_authority import PairAuthorityConflict, PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 
 pytestmark = pytest.mark.needs_postgres
 

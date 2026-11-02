@@ -2,12 +2,11 @@
 
 Credentials come from ONE place: the ``core.provider_access`` port (OME-1207, A2 of
 OME-1138). This route resolves a ``CredentialTarget``, derives the auth mode and authorizes
-through that port; it never touches a legacy Profile row, a Connection row or the profile
-index. Its typed refusals become HTTP through the single edge table in
-``provider_access_http``.
+through that port; it never reads a Connection row or a pair marker itself. Its typed refusals
+become HTTP through the single edge table in ``provider_access_http``.
 
 INVARIANT (OME-1323, D2): request parameters are the caller's. The route reads no stored
-Profile defaults and merges nothing into the body — system instructions arrive as
+defaults and merges nothing into the body — system instructions arrive as
 system-role messages — so the cache key and the dispatch both describe exactly what the
 caller sent.
 
@@ -570,14 +569,13 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # and no OAuth connection has been resolved at this point, and a hit returns
     # without resolving any of them. That is what lets one stored response serve every
     # caller who sends the identical request — including one whose provider is not
-    # connected, or whose profile is PENDING or ERRORED.
+    # connected, or whose Connection is pending or errored.
     #
     # OME-1323 (D2) retired the OME-305 §57 pre-cache read of stored Profile defaults: the
-    # key covers the caller's hardened body and nothing else, so no profile index is read
-    # here and a hit decrypts nothing at all.
-    # AIDEV-NOTE: availability change — an unreadable profile index no longer forces a
-    # cache bypass, since nothing here reads it. It can still fail credential resolution
-    # on a miss (Stage 2).
+    # key covers the caller's hardened body and nothing else, so no Connection, pair marker
+    # or credential is read here and a hit decrypts nothing at all.
+    # WHY: an unreadable Connection or marker store therefore never forces a cache bypass.
+    # It can still fail credential resolution on a miss (Stage 2).
     # INVARIANT: this ONE body feeds both the key and the dispatch, so the two cannot
     # describe different requests.
     account_id = str(current.id)
