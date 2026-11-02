@@ -128,6 +128,24 @@
       </table>
     </div>
 
+    <!-- WHY separate: external ranking is undecided; these citations do not affect ranks. -->
+    <section id="external-results" class="external-results" aria-labelledby="external-results-title" hidden>
+      <h2 id="external-results-title">External results</h2>
+      <p class="meta">Published elsewhere. Not ranked here. Scores use this board’s units; evaluation methods may differ.</p>
+      <div class="table-wrap" tabindex="0" role="region" aria-label="External results, scrollable">
+        <table aria-label="External results">
+          <thead><tr>
+            <th scope="col">Model</th>
+            <th scope="col" class="num">Score</th>
+            <th scope="col">Imported</th>
+            <th scope="col">Source</th>
+            <th scope="col">Comparison notes</th>
+          </tr></thead>
+          <tbody id="external-results-body"></tbody>
+        </table>
+      </div>
+    </section>
+
     <div data-subscribe="all" data-section="subscribe"></div>
 
     <div class="foot" data-section="footer">
@@ -142,6 +160,7 @@
   <script src="leaderboard-logic.js" defer></script>
   <script src="pareto-chart.js" defer></script>
   <script src="main.js" defer></script>
+  <script src="external-results.js" defer></script>
   <script src="benchmark.js" defer></script>
   <script src="subscribe.js" defer></script>
   <script src="theme.js" defer></script>
