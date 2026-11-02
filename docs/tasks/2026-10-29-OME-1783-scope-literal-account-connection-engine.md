@@ -1,13 +1,13 @@
 ---
 id: OME-1783
 linear_url: https://linear.app/openmined/issue/OME-1783/rename-the-model-parameter-contract-scope-to-account-connection-engine
-status: in_progress
+status: done
 type: task
 priority: low
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-29
-closed:
+closed: 2026-11-02
 ---
 
 # Rename the model-parameter contract scope to account_connection (Engine fixture)

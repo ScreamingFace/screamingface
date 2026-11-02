@@ -1,9 +1,9 @@
 ---
 ticket: OME-1784
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-29
-finished:
+finished: 2026-11-02
 ---
 
 # retire-quarantine-and-x-profile — retire the quarantined marker state and the X-Profile compatibility path (OME-1138 close-out, L4a)
@@ -148,7 +148,8 @@ owner approved all four; they join the manifest at PR-open.
   `docs/tasks/2026-10-29-OME-1784-retire-quarantine-and-x-profile.md`. No migration: the
   autodetector proposes only the pinned "Alter field account on OAuthConnection", the same as on
   the L1 tip.
-- **Commits:** pending: `refactor(aigateway): retire the quarantined state and the X-Profile compatibility path`.
+- **Commits:** `e915d8037` `refactor(aigateway): retire the quarantined state and the X-Profile
+  compatibility path` (#1614).
 - **Gates:** `run_gates.py aigateway --base OME-1778-availability-fold-in`: ALL GATES GREEN
   (append-only with the 21 flagged files approved by the OME-1784 manifest, ruff check, ruff
   format, pyright, check_no_enterprise, pytest with coverage ≥80; 7430 tests collected).

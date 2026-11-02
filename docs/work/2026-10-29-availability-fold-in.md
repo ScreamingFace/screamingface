@@ -1,9 +1,9 @@
 ---
 ticket: OME-1778
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-29
-finished:
+finished: 2026-11-02
 ---
 
 # availability-fold-in — provider availability follows the resolver (D17 fold-in, OME-1138)
@@ -63,7 +63,8 @@ an ambiguous pair lists `error`, and there is no runtime flag.
   emitted in the window.
   At PR-open: the manifest `.claude/test-change-approvals/OME-1778.json` and the mirror
   `docs/tasks/2026-10-29-OME-1778-availability-fold-in.md`.
-- **Commits:** pending: `feat(aigateway): list provider availability by the rule chat resolves by`.
+- **Commits:** `fed613da2` `feat(aigateway): list provider availability by the rule chat resolves by`
+  (#1610).
 - **Gates:** `run_gates.py aigateway --skip-append-only`: ALL GATES GREEN (ruff check, ruff
   format, pyright, check_no_enterprise, pytest with coverage ≥80; 7416 tests collected). The
   append-only check against `origin/main` flags only

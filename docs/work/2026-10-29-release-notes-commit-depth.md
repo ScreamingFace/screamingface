@@ -1,9 +1,9 @@
 ---
 ticket: OME-1776
 stack: repo
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-29
-finished:
+finished: 2026-11-02
 ---
 
 # release-notes-commit-depth — release notes cover every commit since each package's last release (OME-1138 close-out L2)
@@ -55,7 +55,8 @@ so the widened walk stops at its real tag instead of including AIGateway's entir
   since each last release`; `81255a177` `fix(release): anchor aigateway history at v0.2.0`;
   `82765a6cf` `docs(spec): add the quarantined-row remediation to the close-out precondition`;
   `aca136b6c` `docs(plan): name the server error a stored quarantined row causes after L4a`.
-  The final follow-up corrects the cross-leaf L10 ordering and this ledger's Outcome.
+  The final follow-up corrects the cross-leaf L10 ordering and this ledger's Outcome. Merged
+  as `f76cacf85` (#1607).
 - **Gates:** `run_gates.py repo --base origin/main`: ALL GATES GREEN (append-only,
   test_run_gates, test_check_mirror_status, test_pre_push, check_loop_parity,
   check_mirror_status). `verify_chart_wiring.py`: 121/121 checks passed. The config parses and

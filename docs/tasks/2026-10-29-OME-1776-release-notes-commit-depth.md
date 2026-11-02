@@ -1,12 +1,13 @@
 ---
 id: OME-1776
 linear_url: https://linear.app/openmined/issue/OME-1776/release-notes-cover-every-commit-since-each-packages-last-release
-status: in_review
+status: done
 type: task
 priority: urgent
 labels: [repo-dev-processes, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-29
+closed: 2026-11-02
 ---
 
 # Release notes cover every commit since each package's last release

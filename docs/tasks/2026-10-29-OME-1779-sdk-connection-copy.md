@@ -1,12 +1,13 @@
 ---
 id: OME-1779
 linear_url: https://linear.app/openmined/issue/OME-1779/speak-of-connections-not-provider-profiles-in-the-sdks-messages
-status: in_review
+status: done
 type: task
 priority: medium
 labels: [client-sf, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-29
+closed: 2026-11-02
 ---
 
 # Speak of Connections, not provider profiles, in the SDK's messages
