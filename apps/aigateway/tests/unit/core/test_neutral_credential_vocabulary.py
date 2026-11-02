@@ -5,7 +5,8 @@
 # those to the module E5c deletes.
 # INVARIANT: each name has one home outside the retired Profile module. `credential_name_for`
 # moved to the test helper `tests/credential_names.py` in the OME-1138 close-out (L4b): production
-# addresses stored blobs through each Connection's stored locator, so only tests compute a name.
+# never builds a blob address from a name, only from a Connection id (`credential_key_for`) or a
+# Connection's stored locator, so only tests spell one from a name.
 
 Retired at OME-1138 Stage E, E5c: `test_the_profile_module_keeps_only_the_profile_row` and
 `test_the_profile_module_exposes_no_neutral_vocabulary` — the Profile module is deleted, so there is

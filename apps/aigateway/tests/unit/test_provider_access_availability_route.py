@@ -275,6 +275,11 @@ def test_body_carries_no_name_id_label_default_auth_method_or_locator(edge: _Edg
 
     body = edge.get().json()
 
+    # WHY: an absence below proves nothing unless the listing read all three seeded rows, the
+    # errored one included, so their statuses are pinned first (K4).
+    seeded = {"anthropic": "connected", "openai": "connected", "codex": "error"}
+    assert {p: s for p, s in edge.statuses(body).items() if p in seeded} == seeded
+
     # Structural: the only keys are the three the contract names, and the only leaf values are
     # provider names and statuses — so no id, name, label, default, auth method or URL can hide.
     assert set(body) == {"providers"}

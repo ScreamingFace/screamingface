@@ -3,7 +3,7 @@
   "branch": "OME-1798-dead-code-and-test-debt",
   "approver": "Dmitry Stebukov (owner)",
   "date": "2026-10-30",
-  "scope": "The prior tests spec section 6 lists for L4b (approved by the owner on 2026-10-29): the importers of credential_name_for (import line only; 30 files import tests.credential_names, 26 change only that line), test_neutral_credential_vocabulary.py, test_profile_conflict_arms_retired.py (the mutate call scan re-expressed as test_the_blob_store_has_no_mutation_path, the two conflict-class tests retired with a tombstone), test_provider_access_import_boundary.py, and every section 4.4 test-debt file: T-F1, T-F2 (tests/conftest.py: only the probe's dead mutate is removed, the probe stays), T-F3 (openai route_harness and the three openrouter _post_chat helpers), T-F5 (test_pair_admin_disposition.py: a class-level read spy with a positive control), T-F8/K6 (tests/unit/conftest.py), T-F9, T-F10, T-F11, T-F12 (including the openai suite comment in test_openai_keyed_max_tokens.py::test_equal_effective_ceilings_share_one_entry), T-F13 (test_profile_index_offline_only.py, with a tombstone for test_only_the_neutral_credential_name_remains), K4 and critic-3. Plus three files outside the section 6 list, approved by the owner on 2026-10-30: test_credential_blob_store.py (the two mutate tests deleted, tombstone), test_credential_blob_operational_outcomes.py (test_credential_mutation_resets_the_operational_register deleted, tombstone) and test_availability_follows_resolve.py (mutate dropped from the forbidden-method tuple). No other assertion, input or expected value changes.",
+  "scope": "The prior tests spec section 6 lists for L4b (approved by the owner on 2026-10-29): the importers of credential_name_for (import line only; 30 files import tests.credential_names, 26 change only that line), test_neutral_credential_vocabulary.py, test_profile_conflict_arms_retired.py (the mutate call scan re-expressed as test_the_blob_store_has_no_mutation_path, the two conflict-class tests retired with a tombstone), test_provider_access_import_boundary.py, and every section 4.4 test-debt file: T-F1, T-F2 (tests/conftest.py: only the probe's dead mutate is removed, the probe stays), T-F3 (openai route_harness and the three openrouter _post_chat helpers), T-F5 (test_pair_admin_disposition.py: a class-level read spy with a positive control), T-F8/K6 (tests/unit/conftest.py), T-F9, T-F10, T-F11, T-F12 (including the openai suite comment in test_openai_keyed_max_tokens.py::test_equal_effective_ceilings_share_one_entry), T-F13 (test_profile_index_offline_only.py, with a tombstone for test_only_the_neutral_credential_name_remains), K4 (the seeded rows' statuses are pinned, then each forbidden value is found in storage before its absence from the body is asserted) and critic-3. In test_provider_access_availability_route.py, \"mutate\" also leaves the method tuple of test_route_reads_no_secret_builds_no_strategy_and_writes_nothing, forced by the removal of ORMStore.mutate. Plus three files outside the section 6 list, approved by the owner on 2026-10-30: test_credential_blob_store.py (the two mutate tests deleted, tombstone), test_credential_blob_operational_outcomes.py (test_credential_mutation_resets_the_operational_register deleted, tombstone) and test_availability_follows_resolve.py (mutate dropped from the forbidden-method tuple). No other assertion, input or expected value changes. Re-pinned on 2026-11-02 with the owner's approval after review: the credential-name comments in test_profile_index_offline_only.py and test_neutral_credential_vocabulary.py corrected, and the K4 status pin added.",
   "reason": "OME-1138 close-out L4b (spec section 4.4): ProfileNotFoundError, ProfilePendingAuthError, PairAuthorityStore.providers, ORMStore.mutate with CredentialBlobMutationConflict, and core/credential_names.py are removed, credential_name_for moves to a test helper, the guards that passed vacuously are made non-vacuous, and the section 4.4 test debt is cleared. The owner approved the three files outside the section 6 list on 2026-10-30 as direct consequences of spec section 4.4 k1/K1 (removing ORMStore.mutate) that section 6 did not list.",
   "files": {
     "apps/aigateway/tests/conftest.py": {
@@ -36,7 +36,7 @@
     },
     "apps/aigateway/tests/unit/core/test_neutral_credential_vocabulary.py": {
       "base_blob": "66804bcf383c44aa690c8fd355e567c8b29d6832",
-      "approved_blob": "cb474bf17f3d91f47caa1eac4b2139b7656b5322"
+      "approved_blob": "a08bcb99f03a4bd314f7b156a85bfdc2bb680ffd"
     },
     "apps/aigateway/tests/unit/openai/route_harness.py": {
       "base_blob": "c558650ed86650d3a717707e6fb3c88e9eb324ea",
@@ -76,11 +76,11 @@
     },
     "apps/aigateway/tests/unit/test_profile_index_offline_only.py": {
       "base_blob": "afa196ef653ebf4a70c6f96f0af5d126dc274015",
-      "approved_blob": "31c382d9bd580e598fe48604f4ad8712ef85e727"
+      "approved_blob": "340d81765360e93eac981b8cc76b12452063b668"
     },
     "apps/aigateway/tests/unit/test_provider_access_availability_route.py": {
       "base_blob": "6d1ef49bb1e5f6387afafccfb3636a5baccdcd1b",
-      "approved_blob": "57c80fd9f69bbe8d710722cbcff86682c63633a2"
+      "approved_blob": "76377229f63314da5e217ee5742cb728f07b1c6d"
     }
   }
 }

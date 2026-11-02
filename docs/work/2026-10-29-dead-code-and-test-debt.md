@@ -88,8 +88,9 @@ RED first, guards before GREEN:
   - tests (52): the new helper `tests/credential_names.py`; 30 files import it, 26 of which
     change only the import line; the guards; the §4.4 test-debt sites; the three owner-approved
     off-manifest edits below.
-- **Commits:** one, `refactor(aigateway): remove Profile-era dead code and clear the close-out
-  test debt` (sha in the PR).
+- **Commits:** `c1cb9a78b` `refactor(aigateway): remove Profile-era dead code and clear the
+  close-out test debt`, then a ledger note and the second review's fixes. The squash merge lands
+  them as one commit.
 - **RED seen:** the import-boundary owner check (on `routes/admin.py`, `core/admin_schemas.py`,
   `migrations/`); `_RETIRED_MODULES` (`credential_names` still importable); the AST guard (found
   `core/credential_names.py`); K4 (identifying values absent from the stored rows); the
@@ -116,7 +117,13 @@ RED first, guards before GREEN:
     since the stacked run): `run_gates.py aigateway --base origin/main` ALL GATES GREEN, the
     append-only check passing with the same 19 approvals. `needs_postgres` lane: 67 passed.
 - **Review:** an independent read-only review found nothing blocking; should-fix 1-4 and minor
-  1-6 were applied.
+  1-6 were applied. A second review of PR #1642 (2026-11-02) found nothing blocking and two minor
+  points, both fixed with the owner's approval, the manifest re-pinned:
+  - three comments said production never computes a credential name; it derives a new
+    Connection's address from its id (`credential_key_for`), so they now say production never
+    builds an address from a name;
+  - K4 now pins the seeded rows' statuses (`connected`, `connected`, `error`) before the absence
+    checks, so the errored row is proven read.
 - **Deviations:**
   - T-F2: `_AsyncCredentialBlobProbe` stays (used by `unit/auth/test_jwt_secret.py` and
     `test_writer_floor_refresh.py`); only its dead `mutate` is removed.

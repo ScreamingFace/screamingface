@@ -89,7 +89,8 @@ def test_the_profile_vocabulary_and_its_offline_tools_are_gone(module: str) -> N
 def test_no_src_module_defines_a_credential_name() -> None:
     # WHY: `profile_id_for` spelled the Profile document's id; with no document it names nothing.
     # `credential_name_for` moved to `tests/credential_names.py` in the OME-1138 close-out (L4b):
-    # production reads each Connection's stored locator and never computes a name.
+    # production never builds a blob address from a name, only from a Connection id
+    # (`credential_key_for`) or a Connection's stored locator.
     definers = {
         str(path.relative_to(_SRC))
         for path in _SRC.rglob("*.py")
