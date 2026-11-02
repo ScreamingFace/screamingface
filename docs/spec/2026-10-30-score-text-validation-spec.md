@@ -21,3 +21,7 @@ Review follow-up: verify rejected input structurally after strict UTF-8 decoding
 An invalid Unicode field name is reported by Pydantic at the body root with the
 name itself as input; invalid values in score/unknown fields echo the supplied
 object. A matching escape elsewhere in the response is insufficient evidence.
+
+## Second review follow-up — 2 November 2026
+
+Prevent non-finite floats echoed in any validation error input from causing JSONResponse to return 500. Remove only inputs containing non-finite numbers, using bounded-stack iterative inspection; preserve finite inputs and Unicode escape behavior. Cover score/integer/unknown-field errors, nested NaN/Infinity, and combined Unicode/non-finite errors on both databases. Do not broadly catch unrelated ValueError failures.

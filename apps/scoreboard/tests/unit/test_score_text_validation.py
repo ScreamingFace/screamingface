@@ -197,3 +197,48 @@ def test_normal_validation_response_matches_fastapi_default() -> None:
     assert response.status_code == expected.status_code == 422
     assert response.content == expected.content
     assert response.headers["content-type"] == expected.headers["content-type"]
+
+
+@pytest.mark.parametrize("number", [float("nan"), float("inf"), float("-inf")])
+@pytest.mark.parametrize("field", ["score", "total_questions", "unknown"])
+def test_non_finite_error_inputs_are_omitted_without_writes(
+    text_client: TestClient, number: float, field: str
+) -> None:
+    value = {"nested": [number]} if field == "unknown" else number
+    response = _send(text_client, "POST", "/v1/scores", {**PAYLOAD, field: value})
+    assert response.status_code == 422, response.text
+    [error] = json.loads(response.content.decode("utf-8"))["detail"]
+    assert error["loc"] == ["body", field]
+    assert "input" not in error
+    assert text_client.portal is not None
+    assert text_client.portal.call(_snapshot) == ([], 0)
+
+
+def test_non_finite_errors_preserve_finite_and_surrogate_error_inputs(
+    text_client: TestClient,
+) -> None:
+    response = _send(
+        text_client,
+        "POST",
+        "/v1/scores",
+        {
+            **PAYLOAD,
+            "unknown": {"nested": [float("nan")]},
+            "other": {"nested": [0.75, True, None]},
+            "score": "bad",
+            "paper_url": 2.0,
+            "authors": "\ud800",
+        },
+    )
+    assert response.status_code == 422, response.text
+    errors = {
+        tuple(error["loc"]): error
+        for error in json.loads(response.content.decode("utf-8"))["detail"]
+    }
+    assert "input" not in errors[("body", "unknown")]
+    assert errors[("body", "score")]["input"] == "bad"
+    assert errors[("body", "paper_url")]["input"] == 2.0
+    assert errors[("body", "other")]["input"] == {"nested": [0.75, True, None]}
+    assert errors[("body", "authors")]["input"] == "\ud800"
+    assert text_client.portal is not None
+    assert text_client.portal.call(_snapshot) == ([], 0)

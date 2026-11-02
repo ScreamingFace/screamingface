@@ -86,3 +86,9 @@ A temporary mutation replaced the error input while preserving an unrelated
 surrogate escape: the old substring assertion still passed, and all six targeted
 cases failed on the new input comparison as expected. All scoreboard gates passed
 (lint, formatting, type checks, Python tests/coverage, and portal tests).
+
+## Second review follow-up — 2 November 2026
+
+Prevent non-finite floats echoed in any validation error input from causing JSONResponse to return 500. Remove only inputs containing non-finite numbers, using bounded-stack iterative inspection; preserve finite inputs and Unicode escape behavior. Cover score/integer/unknown-field errors, nested NaN/Infinity, and combined Unicode/non-finite errors on both databases. Do not broadly catch unrelated ValueError failures.
+
+Authorized by Filip: “Check these reviews and fix if you see fit”. Capture failing regressions first, then run focused SQLite/PostgreSQL tests, scoreboard gates and combined-branch verification. Outcome: 20 new cross-backend cases failed before the fix. All 95 text/error regressions pass on SQLite/PostgreSQL; the complete PostgreSQL CI selection passes (104 tests). Full scoreboard gates green. The mixed-error control proves ordinary strings, finite numbers, nested finite values and lone-surrogate inputs survive unchanged while the non-finite input is omitted. No broad exception catch, schema change or dependency change.

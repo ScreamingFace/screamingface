@@ -12,3 +12,7 @@ Spec: `docs/spec/2026-10-30-score-text-validation-spec.md`.
 
 Review follow-up: strengthen the existing error-echo assertion, prove it detects
 lost input with an isolated mutation, run both backends and gates, and update PR #1620.
+
+## Second review follow-up — 2 November 2026
+
+Prevent non-finite floats echoed in any validation error input from causing JSONResponse to return 500. Remove only inputs containing non-finite numbers, using bounded-stack iterative inspection; preserve finite inputs and Unicode escape behavior. Cover score/integer/unknown-field errors, nested NaN/Infinity, and combined Unicode/non-finite errors on both databases. Do not broadly catch unrelated ValueError failures.
