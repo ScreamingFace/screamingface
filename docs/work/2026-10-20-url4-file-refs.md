@@ -229,3 +229,57 @@ text, never fetched; non-productions (`blob:/x`, `1x:…`, `a/b` digest) → `Te
   (2) namespace/algorithm compare case-sensitively (`BLOB:`/`SHA256` → `unsupported_mode`);
   (3) the relative path form `/blob/sha256/<HEX>` is unchanged (implementation-defined mapping,
   §5.4.4); (4) `.`/`..` digests stay `Text` (outside the production), as before.
+- **Review round 2026-11-02 (HupBaHa P1, #1482):** `url4://n/x/../blob/…` / `url4://n/./blob/…`
+  lowered as `WebFetchNode` and HTTPX 0.28.1 removed the dot segments, so the remote blob body
+  reached the model. Fix: `core/blob_ref.py` classifies a path as written OR normalized
+  (fixed-point percent-decode, backslash → `/`, RFC 3986 §5.2.4 dot removal, with and without
+  `//` merging) — remote: any form `/blob` or `/blob/…` → `x.remote_blob_unsupported`; local: any
+  form `/blob/sha256/<hex>` → the canonical verified path ref. The raw form stays in the set, so
+  only refusals are added. `https://…/blob` is still a web fetch (not gated by this classifier,
+  pinned by a prior test). Tests: new `tests/regressions/test_blob_ref_dot_segments.py` (56 cases,
+  real `HttpIOLayer` over a `MockTransport` that fails on any request). Gates: `run_gates.py url4
+  --base origin/OME-1538-url4-bytes-fetch` ALL GATES GREEN; `--base origin/main` fails ONLY the
+  append-only check on main's newer #1622 tests (not on this branch); vs the merge-base
+  `41017c289` ALL GATES GREEN. `check_module_size.py` within baseline (`dag/_context.py` untouched).
+
+## Amendment 2026-11-02 — Gap A: `url4://` processors are remote-node calls (owner-approved, Sergey)
+
+**Intent.** Our own read-only probe (not the reviewer) found that a fan-out reduce whose
+processor is a `url4://` URI calls another node with no `check_remote_node`: the caller's
+`?processor=url4://…` (`peer/_dispatch.py`), a node's `default_processor="url4://…"`, and an
+expression that computes one all reached `ctx.io.fetch(..., relative=False)` from
+`FanoutReduceNode.resolve`. With a populated peer allowlist that was 1 DNS lookup + a `GET` to the
+peer; with an empty one it failed `x.source_destination_blocked` (wrong code, one defence layer).
+Spec #1450 F1b: every `url4://` remote-node call in a node context fails
+`x.remote_node_unsupported`, permanent, before any DNS or connection.
+
+**Planned changes.**
+- `dag/processor.py` — `resolve_processor_target` calls `check_remote_node(authority, path)` when
+  the resolved base (after Form-3 reclassification) is `url4://` (scheme case-insensitive).
+  `ctx.processor` has no other consumer, so this covers every `processor=` path.
+- Tests (new file only): `tests/regressions/test_remote_processor_refusal.py`.
+- `dag/_context.py` untouched (455/455).
+
+**Test plan.** Through a real `Url4Node` + `HttpIOLayer` (recorded resolver + mocked inner
+transport), empty and populated allowlist: caller `?processor=url4://…`, `default_processor=url4://…`,
+an expression-computed `url4://` processor → `x.remote_node_unsupported`, permanent, 0 DNS, 0
+requests. Controls: a local route processor and the default local processor still reduce; bare
+`run()` with a `url4://` processor is not a node context and still dispatches.
+
+**Outcome (amendment 2026-11-02).**
+- **Actual files:** `dag/processor.py` (`_check_remote_processor`, called from
+  `resolve_processor_target` on the `uri` form after Form-3 reclassification; 123 → 141 lines);
+  new `tests/regressions/test_remote_processor_refusal.py` (19 cases). `dag/_context.py`
+  untouched (455/455). No prior test changed.
+- **Non-reduce `processor=` path:** `ctx.processor` has no consumer other than
+  `FanoutReduceNode` → `resolve_processor_target`, and a `processor=` param on a remote expression
+  is already behind `RemoteFetchNode`'s check, so the one check covers every path. An `https://`
+  processor is not a remote-node call; it stays with the transport guard.
+- **Gates:** `run_gates.py url4 --base origin/OME-1538-url4-bytes-fetch` ALL GATES GREEN (2525
+  passed, 17 xfailed); `run_gates.py screamingface-engine --base origin/OME-1538-url4-bytes-fetch`
+  ALL GATES GREEN; `check_module_size.py` within baseline; `check_suppressions.py` 3/3. The
+  original probe now reports `x.remote_node_unsupported`, permanent, 0 DNS, 0 requests for both
+  Gap A forms in all three io modes.
+- **Deviations:** (1) the scheme compares case-insensitively (`URL4://` refused too); (2) a
+  `url4://<own name>/…` processor is refused as well, matching remote expressions; (3) bare
+  `run()` with a `url4://` processor still dispatches (not a node context, per F1b).
