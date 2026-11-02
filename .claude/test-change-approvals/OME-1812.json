@@ -1,0 +1,86 @@
+{
+  "issue": "OME-1812",
+  "branch": "OME-1812-neutral-vocabulary-rename",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-02",
+  "scope": "The prior tests spec section 6 lists for L5 (approved by the owner on 2026-10-29): every test that names a renamed symbol. The strategy constructors in the anthropic, antigravity, codex and gemini auth tests take credential_name; test_codex_provider.py and gemini/test_gemini_provider.py read strategy.credential_name; the PendingAuthEntry constructors in test_pending_auth.py, test_admin_connections_mutation_routes.py, test_auth_routes.py, test_pair_put_own_address.py and test_pair_admin_mutations.py pass fallback_label, and test_pending_auth.py reads it; test_availability_follows_resolve.py and test_provider_access_availability_route.py import connection_authorize, and test_refresh_guard_inventory.py names its module path; test_admission_accounting.py, usage_accounting/test_openrouter_proven_zero_route.py and test_dispatch_failure_records_handler_error.py drop the retired selector-name argument. The three RED files (test_neutral_credential_vocabulary.py, test_dispatch_failure_records_handler_error.py, openrouter/test_model_admission_route.py) are pinned too, so every prior test file the branch changes is pinned byte-exact (19). No assertion, input or expected value changes.",
+  "reason": "OME-1138 close-out L5 (spec section 4.5): the runtime names a credential's address credential_name, the pending OAuth entry's label fallback_label, and the authorize module connection_authorize; the always-default selector name is no longer threaded through chat or logged as profile=. A prior test that names one of those symbols changes with it.",
+  "files": {
+    "apps/aigateway/tests/unit/anthropic/test_anthropic_auth.py": {
+      "base_blob": "8471e5a42f8fbed953268c7e189ba02825513c00",
+      "approved_blob": "0b332dac743c3632317e19855352caac1c1684c6"
+    },
+    "apps/aigateway/tests/unit/antigravity/test_antigravity_auth.py": {
+      "base_blob": "2b13d66cb07d4abf15daedce51099f16cdcb042e",
+      "approved_blob": "4327fc08b01c9823c7a357fe017fbfb9e4639ce3"
+    },
+    "apps/aigateway/tests/unit/codex/test_codex_auth.py": {
+      "base_blob": "5cc85f31b257017f6502ab0298bc976c7fa6f493",
+      "approved_blob": "10e30124caaeb4afc15a2bb59a953d0d628de4c4"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_availability_follows_resolve.py": {
+      "base_blob": "6fbec484394c4d4b4b291f182e55d7adcaa59923",
+      "approved_blob": "c532775a34ea5d4366c6b2a2782aa05aa4c571ae"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_admin_mutations.py": {
+      "base_blob": "47c59814f1f9f06086bff66115b29704e6f0f701",
+      "approved_blob": "f8bbb7e07c91c38a9aa9aa19ed8d6772980e50fe"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_pair_put_own_address.py": {
+      "base_blob": "ca0574e3c0f3b7f455cb3971e9bf31f7514f7dff",
+      "approved_blob": "972e91f0bb219606317750b58edcf4c62bdb0cc4"
+    },
+    "apps/aigateway/tests/unit/core/provider_access/test_refresh_guard_inventory.py": {
+      "base_blob": "291c4329e10da1a7d4b73c5b2d34981b7830698b",
+      "approved_blob": "b2dd8f6719054d84bcd8b2abba3f4a2cee19c399"
+    },
+    "apps/aigateway/tests/unit/core/test_neutral_credential_vocabulary.py": {
+      "base_blob": "a08bcb99f03a4bd314f7b156a85bfdc2bb680ffd",
+      "approved_blob": "49cf693c9cabf58849cda40968c07abebbce28cf"
+    },
+    "apps/aigateway/tests/unit/gemini/test_gemini_auth.py": {
+      "base_blob": "4af9f889064afa1729daf909a09c3f2f631fc4b9",
+      "approved_blob": "0bda2941ca090ed2a4df42937436dbb44e12d8b3"
+    },
+    "apps/aigateway/tests/unit/gemini/test_gemini_provider.py": {
+      "base_blob": "3e02c85f143af3fba9562469232531e3e35b2122",
+      "approved_blob": "34dcc8f810fba4e444a2ebdfc3feac917d5a323e"
+    },
+    "apps/aigateway/tests/unit/openrouter/test_model_admission_route.py": {
+      "base_blob": "fccca80c973b622e396343c5af98313e7567a615",
+      "approved_blob": "07c33f40c22a115426a24427431fc158a7e9daee"
+    },
+    "apps/aigateway/tests/unit/test_admin_connections_mutation_routes.py": {
+      "base_blob": "2b5f0a6b3cd11cdcfd0ea0986b682d317c19dd19",
+      "approved_blob": "0dfb36276b14d9c89e3b91823e58bab6031d3df3"
+    },
+    "apps/aigateway/tests/unit/test_admission_accounting.py": {
+      "base_blob": "730ec308076fd0b157f93453595d12abe1242aa0",
+      "approved_blob": "cd77d781d2a76c044775a3e9ac3b003c39cebdab"
+    },
+    "apps/aigateway/tests/unit/test_auth_routes.py": {
+      "base_blob": "0f1828fc55acf9acb1d2efae0e5aeeb3aa8829cf",
+      "approved_blob": "c9acaa969cd792b94b2a65a4e88b561eaa6d666f"
+    },
+    "apps/aigateway/tests/unit/test_codex_provider.py": {
+      "base_blob": "7c7b9e1de1c0e270f3fcfe11cc9c924e5ccc2203",
+      "approved_blob": "9ce47038ec2656552343b28c452598e0b1801b93"
+    },
+    "apps/aigateway/tests/unit/test_dispatch_failure_records_handler_error.py": {
+      "base_blob": "2ca8c919b77df6181a675fd06d7c614c5ef3e32c",
+      "approved_blob": "3b4e8263d1fb2a80340d7b5ce69284f83764c4d8"
+    },
+    "apps/aigateway/tests/unit/test_pending_auth.py": {
+      "base_blob": "b56bcf4b2995393d8d2b0e27a061ed7bc34ebf91",
+      "approved_blob": "262c7f14f8f0d22209b0caca9bdde6b77f9a2f2e"
+    },
+    "apps/aigateway/tests/unit/test_provider_access_availability_route.py": {
+      "base_blob": "76377229f63314da5e217ee5742cb728f07b1c6d",
+      "approved_blob": "c266e1e3e60101b6947cc0970d0b42770a8667dc"
+    },
+    "apps/aigateway/tests/unit/usage_accounting/test_openrouter_proven_zero_route.py": {
+      "base_blob": "6853719efdfa8c2f42bb9b0c58357debe209e75f",
+      "approved_blob": "70dda211e3ca88de2bc719b528d6f004b09823bd"
+    }
+  }
+}

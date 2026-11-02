@@ -123,14 +123,12 @@ async def _credential_verdict(
     except TargetReauthRequired:
         return False, (
             "auth_required",
-            f"the {provider} profile {selector.name!r} must be reconnected — "
-            "reauthorize it, then retry",
+            f"the {provider} connection must be reconnected — reauthorize it, then retry",
         )
     except TargetPending:
         return False, (
             "profile_pending_auth",
-            f"the {provider} profile {selector.name!r} is still connecting — "
-            "finish the connection, then retry",
+            f"the {provider} connection is still connecting — finish the connection, then retry",
         )
     except CredentialStoreUnavailable:
         # INVARIANT: an unavailable authority is not evidence that the credential is absent.

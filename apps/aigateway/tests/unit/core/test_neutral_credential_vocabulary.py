@@ -18,8 +18,13 @@ no row left to keep and no legacy spelling left to reach; successor:
 
 from __future__ import annotations
 
-from typing import get_args
+import ast
+import importlib.util
+import inspect
+from pathlib import Path
+from typing import TypeGuard, get_args
 
+import aigateway
 from aigateway.core import auth_types
 from aigateway.core.oauth.store import credential_locator_for
 from tests.credential_names import credential_name_for
@@ -39,3 +44,39 @@ def test_the_locators_keep_their_exact_shapes() -> None:
         "service": f"aigateway:anthropic:{credential_name_for('acct', 'default')}",
         "account": "default",
     }
+
+
+_SRC = Path(inspect.getfile(aigateway)).resolve().parent
+
+
+def _named_profile_name(
+    node: ast.AST,
+) -> TypeGuard[ast.Name | ast.Attribute | ast.arg | ast.keyword]:
+    if isinstance(node, ast.Name):
+        return node.id == "profile_name"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "profile_name"
+    if isinstance(node, ast.arg | ast.keyword):
+        return node.arg == "profile_name"
+    return False
+
+
+def test_no_src_module_names_a_profile_name() -> None:
+    # WHY (OME-1138 close-out, L5): a credential's address is a credential name and the chat
+    # selector is always `default`, so `profile_name` names nothing a reader can find.
+    # WHY `migrations/` is exempt: an applied migration is history and keeps the column names of
+    # its time.
+    sites = {
+        f"{path.relative_to(_SRC)}:{node.lineno}"
+        for path in _SRC.rglob("*.py")
+        if path.relative_to(_SRC).parts[0] != "migrations"
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if _named_profile_name(node)
+    }
+
+    assert sites == set()
+
+
+def test_the_authorize_module_carries_the_connection_name() -> None:
+    assert importlib.util.find_spec("aigateway.core.provider_access.profile_authorize") is None
+    assert importlib.util.find_spec("aigateway.core.provider_access.connection_authorize")

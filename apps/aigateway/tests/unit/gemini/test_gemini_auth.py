@@ -78,7 +78,7 @@ def test_auth_module_does_not_read_gemini_cli_oauth_file() -> None:
 
 @pytest.mark.asyncio
 async def test_missing_credential_raises() -> None:
-    strategy = GeminiOAuth(profile_name="default", credential_store=_FakeStore(payload=None))
+    strategy = GeminiOAuth(credential_name="default", credential_store=_FakeStore(payload=None))
 
     with pytest.raises(CredentialNotFoundError):
         await strategy.get_authorization_header()
@@ -87,7 +87,7 @@ async def test_missing_credential_raises() -> None:
 @pytest.mark.asyncio
 async def test_fresh_credential_yields_code_assist_headers() -> None:
     strategy = GeminiOAuth(
-        profile_name="acct:default",
+        credential_name="acct:default",
         credential_store=_FakeStore(payload=json.dumps(_creds())),
     )
 
@@ -118,7 +118,7 @@ async def test_expired_credential_refreshes_and_preserves_refresh_token() -> Non
 
     store = _FakeStore(payload=json.dumps(expired))
     strategy = GeminiOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=store,
         http_client_factory=_http_factory(httpx.MockTransport(handler)),
     )
@@ -155,7 +155,7 @@ async def test_gemini_refresh_normalizes_fresh_expiry_from_expires_in_over_stale
 
     store = _FakeStore(payload=json.dumps(expired))
     strategy = GeminiOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=store,
         http_client_factory=_http_factory(httpx.MockTransport(handler)),
     )
@@ -175,7 +175,7 @@ async def test_refresh_401_raises_auth_error() -> None:
         return httpx.Response(401, json={"error": "invalid_grant"})
 
     strategy = GeminiOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=_FakeStore(payload=json.dumps(expired)),
         http_client_factory=_http_factory(httpx.MockTransport(handler)),
     )

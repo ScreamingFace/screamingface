@@ -119,7 +119,6 @@ def test_the_terminal_record_level_follows_the_ome_1461_policy(
         provider="anthropic",
         error_type=None,
         account_id="acct",
-        profile_name="default",
     )
 
     records = [r for r in captured.records if r.getMessage().startswith("dispatch failed ")]
@@ -150,9 +149,23 @@ def test_a_503_is_levelled_by_its_origin_not_its_status(
         provider="anthropic",
         error_type=None,
         account_id="acct",
-        profile_name="default",
     )
 
     records = [r for r in captured.records if r.getMessage().startswith("dispatch failed ")]
     assert len(records) == 1
     assert records[0].levelno == level
+
+
+def test_the_terminal_record_names_no_profile(captured) -> None:  # noqa: F811
+    # WHY (OME-1138 close-out, L5, Q6): the selector is always `default` since L4a, so the
+    # `profile=` field carried a constant; the account and provider already identify the call.
+    log_dispatch_failure(
+        HTTPException(status_code=502, detail={"code": "x", "message": "y"}),
+        provider="anthropic",
+        error_type=None,
+        account_id="acct",
+    )
+
+    message = _only_failure(captured).getMessage()
+    assert "account=acct" in message
+    assert "profile" not in message
