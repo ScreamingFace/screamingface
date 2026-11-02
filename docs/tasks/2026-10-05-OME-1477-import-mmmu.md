@@ -1,13 +1,13 @@
 ---
 id: OME-1477
 linear_url: https://linear.app/openmined/issue/OME-1477/import-mmmu
-status: in_progress
+status: done
 type: feature
 priority: medium
 labels: [screamingface-engine, agentic]
 parent: OME-1457
 created: 2026-10-05
-closed:
+closed: 2026-10-30
 ---
 
 # Import MMMU
@@ -28,3 +28,9 @@ state-of-the-art run is OME-1671.
   original question, so the judge's question gains the template line. Owner decision
   2026-10-28: ship multiple choice first (PR 1 of 2), and `mmmu_open` once the judge fix
   (OME-1755) lands, judged by gpt-5.4. The ticket stays open until then.
+- 2026-10-30: `mmmu_open` ships as PR 2 of 2, judged by gpt-5.4 through the gateway, now
+  that the judge reads the Sample's own question (OME-1755). Re-imported inside the
+  linux/amd64 Engine image at the same pin: 53 Cases, Case Digest `3078a742…`, every Case
+  keeping its question for the judge; no Case was refused (none is picture-only, none drops
+  earlier turns). Licence apache-2.0 as for PR 1, tier `medium`, policy `withhold`, frontier
+  score not published (no source scores the open questions alone). This closes the ticket.
