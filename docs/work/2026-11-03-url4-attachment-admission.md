@@ -1,9 +1,9 @@
 ---
 ticket: OME-1809
 stack: screamingface-engine
-status: blocked
+status: done
 started: 2026-11-03
-finished:
+finished: 2026-11-03
 ---
 
 # url4-attachment-admission — refuse a url4 run's attachments for models that can't read them
@@ -62,13 +62,17 @@ Owner decisions (2026-11-03): **A + i**.
   per attachment-carrying call from its existing world-level fields, because
   `test_the_model_handlers_slots_are_exactly_the_world_level_allowlist` pins the slot set (U1-H1).
 - **Commits:** 1459c47cd — feat(engine): refuse a url4 run's attachments for models that can't
-  read them; 20afd53a9 — merge of the moved `origin/OME-1545-engine-attachment-parts` (27da3e11f).
-- **Gates:** ruff, format, pyright, layering green; pytest 6718 passed, 1 failed:
-  `test_fair_share_fetch_bytes.py::test_a_gate_bound_run_with_an_https_attachment_reaches_the_model`.
-  Its mock gateway answers `/v1/models` with a chat completion, so the new admission reads the
-  list as unreadable and fails closed (the owner's 2026-10-28 rule). The fix is a test change —
-  the mock lists `MODEL` with `["text", "image"]` — which needs an owner-approved
-  `.claude/test-change-approvals/OME-1809.json`. BLOCKED on that approval; not self-approved.
+  read them; 20afd53a9 — merge of the moved `origin/OME-1545-engine-attachment-parts` (27da3e11f);
+  9ebb54f25 — test(engine): the fair-share attachment run's mock gateway publishes its model's
+  modalities (owner-approved test change, `.claude/test-change-approvals/OME-1809.json`).
+- **Gates:** `run_gates.py screamingface-engine --base origin/OME-1545-engine-attachment-parts`:
+  ALL GATES GREEN (approved OME-1809 transition, append-only, ruff, format, pyright, layering,
+  pytest 6719 passed / 159 skipped, coverage >= 80%).
+- **Test change (owner-approved 2026-11-03):** `test_fair_share_fetch_bytes.py::
+  test_a_gate_bound_run_with_an_https_attachment_reaches_the_model` — its `gateway()` mock
+  answered `/v1/models` with a chat completion, so the admission read the list as unreadable and
+  failed closed (owner rule 2026-10-28). The mock now lists `MODEL` with `["text", "image"]`;
+  nothing else in the test changed.
 - **Deviations:** probes showed url4 forbids `$` in an expression path (`/m/$x(..)!..` is a
   ParseError) and a templated bare data read of a model route fails (`needs q=`), so a templated
   route cannot reach a model in-process today; the "templated route" test pins that the walk names
