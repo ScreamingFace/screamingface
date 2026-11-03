@@ -194,7 +194,8 @@ test("external-only board uses normal ranked table cells and source instead of c
   assert.equal(link.attrs.href, BASELINE.source_url);
   assert.equal(link.attrs.rel, "noopener noreferrer");
   assert.equal(link.attrs.target, "_blank");
-  assert.equal(link.attrs["aria-label"], "View source for GPT-4o");
+  assert.equal(link.textContent, "Original result ↗");
+  assert.equal(link.attrs["aria-label"], "Original result for GPT-4o (opens in a new tab)");
   assert.equal(nodes(first).filter((n) => n.tag === "button").length, 0);
   assert.equal(page.ids["leaderboard-status"].hidden, true);
   assert.equal(page.ids["summary-best"].textContent, "0.932");
