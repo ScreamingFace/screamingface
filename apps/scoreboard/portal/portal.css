@@ -310,7 +310,7 @@ table .btn { white-space: nowrap; }
 .hero-title--index { font-size: clamp(1.6rem, 4vw, 2.4rem); }
 /* Footnote tying the frontier figure's `accuracy*` label to the illustrative disclaimer — the
    same small mono as the subscribe fine print, set italic with a little breathing room. */
-.fine-print { font-family: var(--f-mono); font-size: var(--text-micro); font-style: italic; color: var(--ink-3); margin: var(--space-9) 0 var(--space-5); }
+.fine-print { font-family: var(--f-mono); font-size: var(--text-micro); font-style: italic; color: var(--ink-3); margin: var(--space-6) 0 0; }
 .frontier { margin: 0; width: 100%; border: 0; background: transparent; }
 .frontier svg { display: block; width: 100%; height: auto; }
 /* Academic / LaTeX-ish lettering: italic serif axis titles and series labels, small serif ticks.
