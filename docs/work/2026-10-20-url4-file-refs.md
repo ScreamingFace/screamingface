@@ -326,3 +326,37 @@ or any chained cause/context; host and path still visible; code/permanent unchan
   `response`, traceback) whose text carries shown URLs — the cause type and status are unchanged;
   (2) the invalid-credentialed-URL message now also hides the query (was `redact_userinfo`,
   userinfo only); a malformed authority `urlsplit` refuses shows `<unparseable url>`.
+
+## Amendment 2026-11-03 — per-request byte hook on the bytes path (push security review)
+
+**Finding ("resource-cap-defeat", push security review of #1587).** A run's attachment flights
+(#1587) fetch concurrently, each bounded only by the source guard's 20 MiB per-response cap; the
+8,000,000-byte per-run cap was charged after a body had fully downloaded, so one run could hold
+about 20 × 20 MiB first. Owner decision (Sergey, 2026-11-03): **one shared live budget**, drawn
+as bytes arrive. The io-layer half lands here (the lowest PR owning `fetch_bytes` that is not
+#1478); #1587 adds the budget and wires it.
+
+**Change.**
+- `io/layer.py` — `FetchRequest.max_bytes: int | None` and `FetchRequest.on_chunk:
+  Callable[[int], None] | None`, both `compare=False` (not part of a request's identity / replay key).
+- `io/_guarded_transport.py` — `FetchState` carries both; `_CappedStream` tells `on_chunk` each
+  decoded piece of EVERY hop's body (httpx reads a redirect body itself) before checking the
+  decoded cap, which is the stricter of the guard's and the request's; the raw count keeps the guard cap.
+- `io/http.py` — `fetch_bytes` passes the request as `bound`; `_read_capped` applies the stricter
+  limit and, for an injected client only (no guarded transport), calls `on_chunk` — each byte is
+  reported exactly once.
+- `io/media.py` — `read_whole(request, body)` for adapters that do not stream: `on_chunk(len)`
+  then the `max_bytes` check; used by the text-adapter fallback of `fetch_bytes` and by
+  `io/static.py`. Forwarders (`BoundedIOLayer`, peer `_bytes`, engine `FairShareIOLayer`) pass the
+  request through unchanged.
+
+**Tests (append-only, new file).** `tests/unit/test_io_fetch_byte_hook.py` (11): a 20 MiB body
+aborted by `on_chunk` within one 64 KiB chunk of 8,000,000 bytes (counting mock transport, guarded
+and injected-client paths); each decoded byte reported once and streamed (>1 call); stricter
+`max_bytes` wins / looser leaves the 20 MiB cap / exact size passes; static and text-fallback
+check after the read; a redirect hop's 5 MiB body is stopped by the hook at ~1 MiB; the hook does
+not change request equality or hash.
+
+**Gates.** `run_gates.py url4 --base origin/OME-1538-url4-bytes-fetch` ALL GATES GREEN;
+`check_module_size.py` within baseline (`io/layer.py` 202/204); `check_suppressions.py` 3/3;
+hygiene ratchets green; `io/http.py` 448 lines.

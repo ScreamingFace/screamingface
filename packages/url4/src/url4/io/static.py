@@ -17,7 +17,7 @@ from url4.core.code import CodeCall, CodeHandler, invoke_mounted
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.url_display import display_url
 from url4.io.layer import FetchRequest, FetchResult
-from url4.io.media import FetchedBytes, require_text
+from url4.io.media import FetchedBytes, read_whole, require_text
 from url4.wire.subrequest import decode_subrequest, extract_expression_params
 
 RouteHandler = Callable[[str, str], str | Awaitable[str]]
@@ -75,7 +75,9 @@ class StaticIOLayer:
             )
         body = await self._lookup(request.target)
         raw = body.encode("utf-8") if isinstance(body, str) else body
-        return FetchedBytes(raw, media_type=self._media_types.get(request.target))
+        return FetchedBytes(
+            read_whole(request, raw), media_type=self._media_types.get(request.target)
+        )
 
     async def _lookup(self, target: str) -> str | bytes:
         # Routes accept the full canonical form "/path?[params&]q=…" (spec
