@@ -1,8 +1,12 @@
 {
   "issue": "OME-1768",
   "branch": "OME-1768-analytics-default",
-  "reason": "Filip authorized default-on analytics on 2026-10-30 and extended it to every environment on 2026-11-02, including headless execution and best-effort notice output. These exact changes update obsolete off-after-notice/headless-off and enable-copy assertions; every explicit opt-out remains respected. See docs/work/2026-10-30-analytics-default.md. On 2026-11-02 Filip authorized the review fixes: collection-time test isolation and stronger exact disclosure/cookie assertions.",
+  "reason": "Filip authorized default-on analytics on 2026-10-30 and extended it to every environment on 2026-11-02, including headless execution and best-effort notice output. These exact changes update obsolete off-after-notice/headless-off and enable-copy assertions; every explicit opt-out remains respected. See docs/work/2026-10-30-analytics-default.md. On 2026-11-02 Filip authorized the review fixes: collection-time test isolation and stronger exact disclosure/cookie assertions. On 2026-11-03 Filip authorized both reaccept race fixes; test_bridge.py now checks ID cookie attributes at creation and verifies later reads preserve the ID without rewriting its cookie.",
   "files": {
+    "apps/analytics/tests/test_bridge.py": {
+      "base_blob": "0c70829e9445bb44971b9ec4bed4322fc5d7e6b1",
+      "approved_blob": "384deb9469d5daadb8ccf923242fd0cb839816a5"
+    },
     "packages/screamingface/tests/test_analytics.py": {
       "base_blob": "c3a970f83d1b2eea1aea93c4409e0a6b225531e0",
       "approved_blob": "152e815374ef2a3b8e506b5fd7b4312785d38750"

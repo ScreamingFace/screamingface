@@ -3,7 +3,7 @@
 OME-1768 adds conditional enrollment with a best-effort inline SDK disclosure:
 [default-enrollment amendment](2026-10-30-analytics-default.md). The explicit
 accept route and existing cookie/event checks remain compatible. The amendment
-records outstanding sign-off and does not authorize rollout.
+records approval status and does not itself authorize rollout.
 
 Status: owner approved browser-mediated delivery on 25 September 2026.
 Parent: 2026-09-09-OME-1124-analytics-spec.md. Landing: apps/analytics only.
@@ -53,7 +53,11 @@ when the store is unavailable. A process-local dictionary is insufficient.
 
 ## Proposed expiry and acceptance
 
-Use a renewable 180-day cookie lifetime, retaining the same ID while valid. This is
+Use a 180-day cookie lifetime by default, retaining the same ID while valid.
+OME-1768 makes existing-ID reads leave the ID cookie untouched so delayed reads
+cannot resurrect an ID discarded by a newer decision. ID lifetime now runs from
+creation; consent lifetime still renews. First-time ID creation can still race
+across frames and apply in browser response order. This is
 separate from PostHog-managed event retention (revised by the owner on 20 October 2026) and does not guarantee the
 browser retains cookies that long. Browser acceptance must cover notebook/runtime
 replacement, full browser restart, blocked storage, two active notebooks, consent

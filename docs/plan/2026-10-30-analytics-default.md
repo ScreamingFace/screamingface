@@ -47,3 +47,12 @@ late enrollment and identity refresh cannot restore permission, while explicit
 accept can. Add fork regressions and reset the process-local setup guard on PID
 change. Document the full-service-upgrade requirement; run both stack gates and
 browser tests. Owner sign-off and deployed browser acceptance remain open.
+
+## Reaccept review
+
+Add failing tests for old ID/enrollment responses delivered after explicit
+reaccept. Stop rewriting an existing ID and remove ID deletion from automatic
+enrollment. Verify event delivery uses the replacement ID and rejects the old
+one. Update cookie-expiry assertions/documentation and run service gates.
+Record Irina's sync approval as confirmed by Filip on 3 November; update Linear
+and the PR without representing an unrecorded Kevin approval.

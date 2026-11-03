@@ -17,6 +17,11 @@ with the PR and chose to post the decision himself. Spec, plan and ledger:
 `2026-10-30-analytics-default.md` in their respective
 directories. OME-1793 tracks failure visibility separately.
 
+On 3 November Filip confirmed that Irina approved in that day's sync. Kevin's
+co-sign has not been recorded here. PR #1633 also addresses late existing-ID reads
+and automatic enrollment responses after explicit reaccept; see the work ledger
+for regression tests and validation. Deployed Colab smoke remains outstanding.
+
 Latest decision (2 November): headless, terminal and notebook environments all
 default on. Notice visibility is not an enrollment gate. Saved declines,
 process disable and DO_NOT_TRACK always win. The two-second Colab setup wait remains.

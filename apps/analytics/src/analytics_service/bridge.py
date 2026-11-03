@@ -169,9 +169,12 @@ class Bridge:
             return response
         if choice(request) != "accepted":
             raise AdmissionRejected(403, "consent_required")
-        value = identity(request) or str(uuid4())
+        existing = identity(request)
+        value = existing or str(uuid4())
         response = JSONResponse({**state(request), "persistent_id": value, "id_scope": "browser"})
-        cookie(response, IDENTITY, value, self.settings.bridge_cookie_max_age)
+        # INVARIANT: a delayed read cannot restore an ID discarded by a later decline.
+        if existing is None:
+            cookie(response, IDENTITY, value, self.settings.bridge_cookie_max_age)
         cookie(response, CONSENT, "1.accepted", self.settings.bridge_cookie_max_age)
         return response
 
@@ -207,7 +210,7 @@ class Bridge:
             return JSONResponse(state(request))
         response = JSONResponse({"choice": "accepted", "consent_version": "1"})
         cookie(response, CONSENT, "1.accepted", self.settings.bridge_cookie_max_age)
-        cookie(response, IDENTITY, "", 0)
+        # INVARIANT: automatic enrollment cannot delete a later explicit acceptance's ID.
         return response
 
 

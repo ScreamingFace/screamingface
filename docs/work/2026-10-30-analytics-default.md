@@ -258,3 +258,34 @@ security attributes remain; explicit accept can still restore permission.
 Requests already dispatched and concurrent explicit choices retain their stated
 limitations. Both fixes are ready for review; owner approval and live Colab
 acceptance remain unverified. No merge, deployment, new ticket or comment posted.
+
+## 3 November — preserve identity after explicit reaccept
+
+Filip authorized fixing both findings in Dmitry's latest review and updating
+Linear. He also confirmed that Irina approved in today's sync; record this as
+Filip's report of that approval, without inventing a Kevin co-sign.
+
+Reproduce delayed ID reads and enrollment replies arriving after decline followed
+by explicit accept/new ID. Existing-ID reads must not rewrite that ID cookie;
+automatic enrollment must not delete an ID. Test that the new identity remains
+usable and the old identity remains rejected across independent service instances.
+Keep first ID creation and explicit decline/reaccept behavior; update the previous
+renewal test to check attributes on creation and no ID cookie on subsequent reads.
+This makes ID retention bounded from creation rather than extended by every read.
+Document that compatibility change and the remaining concurrent first-issuance
+and explicit-action ordering limits; no new generation identifiers or server store.
+Run service gates and browser tests, update the existing PR and Linear description.
+
+Validation: all three new tests failed before the fix (old ID restored, new ID
+deleted, and ID read rewriting its cookie). All 43 focused service tests now pass.
+Full service gates pass: lock, lint, format, type checking, full tests with branch
+coverage and build. Repository gates, 61 SDK Colab regressions and the 12-test
+browser harness pass. SDK production code is unchanged. The approved-test manifest
+records the revised creation-versus-read cookie assertion in test_bridge.py.
+
+Review: only ID-cookie mutations change; event fields, consent flags, response
+schema and explicit controls remain unchanged. New-ID creation still writes its
+cookie and can race with other first-time creation; this known limit is documented,
+not claimed fixed by the two reported reaccept regressions. No new ticket or
+generation/identity field was introduced. Irina's reported approval is recorded
+separately from the unrecorded Kevin co-sign and pending deployed Colab smoke.

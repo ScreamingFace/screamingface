@@ -7,7 +7,7 @@ from test_api import Recorder
 from test_bridge import ORIGIN, accept, browser, config
 
 from analytics_service.api import create_app
-from analytics_service.bridge import CONSENT, IDENTITY
+from analytics_service.bridge import CONSENT
 
 
 async def test_enrollment_sets_preference_without_creating_identity():
@@ -21,9 +21,7 @@ async def test_enrollment_sets_preference_without_creating_identity():
             # Python 3.12/3.13 cannot parse Partitioned; verify it separately.
             assert attributes.pop() == "Partitioned"
             cookies.load("; ".join(attributes))
-        assert set(cookies) == {CONSENT, IDENTITY}
-        assert cookies[IDENTITY].value == ""
-        assert cookies[IDENTITY]["max-age"] == "0"
+        assert set(cookies) == {CONSENT}
         assert cookies[CONSENT].value == "1.accepted"
         assert cookies[CONSENT]["max-age"] == str(config().bridge_cookie_max_age)
         assert response.headers["cache-control"] == "no-store"

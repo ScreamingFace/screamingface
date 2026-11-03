@@ -7,6 +7,9 @@ remains a rollout check. Later on 2 November, Filip replaced the disclosure gate
 with default-on in all environments, including headless scripts, while respecting
 every explicit opt-out. The Linear description and his comment record this decision.
 
+Approval update, 3 November: Filip confirmed that Irina approved in today's sync.
+This records his confirmation; no Kevin co-sign has been recorded here.
+
 ## Behavior
 
 Use the exact OME-1768 disclosure. At import (after package initialization),
@@ -40,7 +43,8 @@ No new event fields or events. Version 1 remains the compatible preference/wire
 format; accepted/consent_granted means analytics is permitted, either by explicit
 enable or by the default-on policy. Do not erase or reinterpret old declines.
 This amends the old opt-in-only semantics in the analytics specs; the privacy-posture
-review remains outstanding.
+review now includes Irina's sync approval as confirmed by Filip; Kevin's co-sign
+has not been recorded.
 
 Explicit decline also sets a separate non-identifying opt-out cookie at /bridge.
 It takes precedence over consent/identity cookies and is cleared only by explicit
@@ -54,6 +58,16 @@ generations protect disable/timeout races within the process.
 
 The notice/setup guard is process-local: after a fork, reset it with the lock so
 the child's fresh Colab bridge can initialize. Inherited opt-outs still take precedence.
+
+Existing-ID reads do not rewrite the ID cookie, and automatic enrollment never
+writes or deletes it. Their late replies therefore cannot restore a discarded ID
+or delete an ID created after explicit reaccept. IDs expire at the configured age
+from creation (180 days by default), rather than renewing on reads; consent still
+renews. A later ID request under accepted consent can create a replacement.
+This is not cross-frame serialization of first-time ID creation: concurrent
+requests that both mint fresh IDs can still apply in browser response order,
+including across a reaccept. They cannot restore an already-used old ID through
+an existing-ID read. Explicit-action response ordering also remains unchanged.
 
 ## Scope boundary
 
@@ -99,5 +113,5 @@ runtime logs, not a dedicated Studio UI. Startup/import emits no event. Studio
 shares the SDK preference file (independent of runtime --data-dir), so existing
 saved declines and DO_NOT_TRACK retain precedence. The lack of a dedicated visible notice and
 controls is acknowledged; no Studio UI follow-up is planned for now. Successful
-notice display is not an enrollment prerequisite. Owner policy approval remains
-outstanding.
+notice display is not an enrollment prerequisite. Irina's sync approval was
+confirmed by Filip on 3 November; Kevin's co-sign has not been recorded.

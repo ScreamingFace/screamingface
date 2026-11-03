@@ -116,8 +116,9 @@ logging, and apply edge rate/body limits. No new PostHog key or database is requ
   or `declined`. Choice has no unique value. Decline expires ID in the same response;
   fresh consent also expires any orphan/stale ID. Repeated acceptance preserves ID.
 - `POST /bridge/id`: empty JSON object; accepted cookie required. Returns
-  `choice`, `consent_version`, `id_scope:browser`, `persistent_id`. Renews both
-  cookies without rotating a valid ID.
+  `choice`, `consent_version`, `id_scope:browser`, `persistent_id`. Renews consent.
+  Returns a valid existing ID without rewriting its cookie; creates an ID only
+  if missing or invalid. ID lifetime runs from creation, not the latest read.
 - `POST /bridge/id/revoke`: empty JSON object; declined cookie required; idempotent
   ID expiry. Normal decline already expires ID, so no second request is necessary.
 - `POST /bridge/id/events`: the existing four-event envelope. Requires accepted
@@ -136,6 +137,8 @@ of PostHog-managed event retention; browser eviction may end continuity earlier.
 The non-identifying `__Secure-sf_bridge_optout=1` flag takes precedence over the
 legacy consent cookie. Explicit decline sets it with the same configured lifetime;
 only explicit accept clears it. Enrollment and identity refresh never write it.
+Enrollment never writes or deletes the ID cookie. A delayed enrollment or an
+existing-ID read cannot delete or restore an ID after explicit reaccept.
 
 The parent waits for iframe load and sends `postMessage` to the exact service origin:
 `{version:1,nonce:<16–128 ASCII letters/digits/_/->,command:<command>}`. Commands are
@@ -162,6 +165,11 @@ accept/decline responses are applied in browser order. This is not globally inst
 revocation. No capability or product credential is copied into a Python runtime.
 The anonymous `/v1/events` endpoint still trusts explicit client consent affirmation;
 this system cannot prove human consent from a modified client.
+Concurrent first-time ID requests can still mint different fresh IDs whose
+cookies apply in response order, including across reaccept. This can invalidate
+another frame's cached ID; it is not the old-ID restoration fixed by making
+existing-ID reads leave the ID cookie untouched. Explicit-action races also
+retain browser response ordering.
 
 Automated tests cover synthetic cookie jars, two independent replicas, stale-ID
 rejection, request validation and the actual shipped script's message boundary.
