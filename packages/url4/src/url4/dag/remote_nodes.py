@@ -13,8 +13,10 @@ once (:func:`allow_one_remote_hop`). Without a policy (bare ``url4.run()``) noth
 WHY a ContextVar: the policy belongs to one evaluation, not to the shared node or to the grammar;
 every task the run spawns copies the context, and the one :class:`_Policy` object is shared by
 reference, so a used hop stays used across the whole run.
-AIDEV-NOTE: deliberately not exported from ``url4`` / ``url4.dag``: it is no user option. It is
-lifted when a node-to-node authentication spec exists.
+AIDEV-NOTE: only :func:`refuse_remote_nodes` is exported (``url4.dag``, OME-1811), for a host that
+runs ``url4.dag.run`` itself as a node (the engine), so its runs refuse as ``Url4Node.evaluate``
+does. It can only tighten. Allowing a remote node is still no user option: ``allow_one_remote_hop``
+and ``check_remote_node`` stay private until a node-to-node authentication spec exists.
 """
 
 from __future__ import annotations
