@@ -29,6 +29,7 @@ import asyncio
 
 from url4.core.context import Context
 from url4.core.errors import CycleError
+from url4.dag._memo import ExecutorReuseError, RunMemo
 from url4.observe import (
     NodeFinished,
     NodeStarted,
@@ -75,10 +76,12 @@ def check_acyclic(root: DagNode) -> None:
 class Executor:
     """Executes one graph run against a per-run :class:`ExecutionContext`."""
 
-    def __init__(self, ctx: ExecutionContext) -> None:
+    def __init__(self, ctx: ExecutionContext, *, release_finished: bool = False) -> None:
         self._ctx = ctx
-        # id -> (task, node); the node reference pins the id for the run's lifetime
-        self._memo: dict[int, tuple[asyncio.Task, DagNode]] = {}
+        # id -> (task, node). Default: cached for the executor's life, across roots. With
+        # ``release_finished`` an entry drops once its counted consumers have it, and the
+        # executor is single-root (ExecutorReuseError otherwise) — WHY/INVARIANT: _memo.py.
+        self._memo = RunMemo(release=release_finished)
         self._tg: asyncio.TaskGroup | None = None
         # Debug-only guard for the resolve-once invariant documented in ``_run``:
         # id -> how many times that node's evaluation task ran. Not allocated, and
@@ -112,8 +115,12 @@ class Executor:
         # same memoized graph re-executed once per row / per lazy consumer skips
         # the redundant O(V+E) DFS N times — which would otherwise dwarf the
         # compile it took to get here for large collections.
+        self._memo.bind(root)  # before any work: a releasing executor refuses a second root
         if not _prevalidated:
             check_acyclic(root)
+            # WHY only here: counting is another O(V+E) walk, exactly what `_prevalidated`
+            # exists to skip per row; an uncounted run memoises as it always did.
+            self._memo.count(root)
         try:
             async with asyncio.TaskGroup() as tg:
                 self._tg = tg
@@ -131,26 +138,17 @@ class Executor:
         return result
 
     async def _run(self, node: DagNode, parent_span_id: str | None) -> Payload:
-        assert self._tg is not None
-        # INVARIANT: check-then-act on ``_memo`` is safe ONLY because there is no
-        # ``await`` between the ``.get()`` and the store below: ``create_task`` schedules
-        # without yielding, so on this single-threaded loop the whole block is an
-        # atomic critical section. Two parents of a diamond dependency can both
-        # call ``_run(shared_child)`` "concurrently", but never interleave here.
-        # This is what keeps diamond deps resolving exactly once
-        # (test_diamond_binding_resolved_once). Do not insert an ``await`` (a log
-        # call, a metric, anything) between the check and the assignment — doing
-        # so would let a second caller schedule a duplicate task before the first
-        # one lands in ``_memo``, silently resolving a shared node twice.
+        tg = self._tg
+        assert tg is not None
+        # INVARIANT: resolve-once — the ``_memo`` check-then-act has no ``await`` between
+        # its check and its store; see :meth:`RunMemo.resolve` before touching it.
         # `parent_span_id` is a plain value threaded through only for the FIRST
         # caller to reach a given node (the one that creates its task) — a
         # diamond's second caller has no effect on it, which is exactly right:
         # the shared node observes exactly one NodeStarted/NodeFinished pair.
-        memoized = self._memo.get(id(node))
-        if memoized is None:
-            task = self._tg.create_task(self._eval(node, parent_span_id))
-            self._memo[id(node)] = memoized = (task, node)
-        return await memoized[0]
+        return await self._memo.resolve(
+            node, lambda: tg.create_task(self._eval(node, parent_span_id))
+        )
 
     def _check_resolve_counts(self) -> None:
         """Assert the resolve-once invariant documented in ``_run`` (debug only).
@@ -308,4 +306,4 @@ def _wire_spawn(ctx: ExecutionContext, registry: LoweringRegistry | None) -> Non
     ctx._execute_node_hook = execute_node_hook
 
 
-__all__ = ["Executor", "check_acyclic"]
+__all__ = ["Executor", "ExecutorReuseError", "check_acyclic"]

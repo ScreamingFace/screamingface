@@ -1,3 +1,10 @@
+"""The credential blob's operational register: what resets it and what an observation may record.
+
+Retired at OME-1138 close-out, L4b: `test_credential_mutation_resets_the_operational_register` —
+`ORMStore.mutate` is removed, so `write` is the only way a stored credential is replaced; successor:
+`test_credential_write_resets_the_operational_register`.
+"""
+
 from __future__ import annotations
 
 SERVICE = "aigateway:openrouter:test-key"
@@ -79,26 +86,6 @@ def test_credential_blob_probe_replacement_mirrors_the_runtime_store(
     credential_blobs.write(SERVICE, ACCOUNT, "replacement")
     after = client.portal.call(store.operational_state, SERVICE, ACCOUNT)
 
-    assert after is not None
-    assert after.credential_revision == before.credential_revision + 1
-    assert after.next_dispatch_sequence == 0
-    assert after.last_outcome_sequence == 0
-    assert after.outcome is None
-
-
-def test_credential_mutation_resets_the_operational_register(client) -> None:
-    store = _store(client)
-    client.portal.call(store.write, SERVICE, ACCOUNT, "first")
-    observation = client.portal.call(store.begin_dispatch, SERVICE, ACCOUNT)
-    assert observation is not None
-    assert client.portal.call(store.record_dispatch_outcome, observation, "needs_reauth")
-    before = client.portal.call(store.operational_state, SERVICE, ACCOUNT)
-    assert before is not None
-
-    client.portal.call(store.mutate, SERVICE, ACCOUNT, lambda value: f"{value}-rotated")
-    after = client.portal.call(store.operational_state, SERVICE, ACCOUNT)
-
-    assert client.portal.call(store.read, SERVICE, ACCOUNT) == "first-rotated"
     assert after is not None
     assert after.credential_revision == before.credential_revision + 1
     assert after.next_dispatch_sequence == 0

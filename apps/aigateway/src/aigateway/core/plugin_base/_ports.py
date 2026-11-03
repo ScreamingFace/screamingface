@@ -41,6 +41,24 @@ class ModelEntry:
     input_modalities: tuple[str, ...] | None = field(default=None, compare=False)
 
 
+# FEATURE: hosted BYOM Unit 3 — the one result contract every classification answers with.
+CLASSIFICATION_RESULT_CONTRACT = "classification-scores-v1"
+
+
+@dataclass(frozen=True)
+class ClassifierEntry:
+    """One text classifier a provider serves; never a chat model.
+
+    ``model_name`` is the canonical ``<provider>/<alias>`` ID. ``task`` and ``contract`` name what
+    the classifier is asked and how its upstream answers, so a catalog can describe it without
+    reading the provider's own definitions.
+    """
+
+    model_name: str
+    task: str
+    contract: str
+
+
 @dataclass(frozen=True)
 class ModelAdmission:
     """Outcome of a dynamic model-admission attempt (OME-879).

@@ -58,7 +58,8 @@ board. No per-Case storage (OME-1790); the Cases route (OME-1675) is untouched.
     rows, rows larger than a chunk, numbers cut at every chunk edge, 40 seeded random arrays,
     13 malformed documents, non-array documents, undecodable bytes, and the streaming
     invariant — the first row is yielded after < 3 rows' worth of text is read)
-- **Commits:** see git log of `OME-1789-grading-selected-cases`.
+- **Commits:** squash-merged as #1628 `2f69e234e` (2026-11-02, merged by khoaguin), including Khoa's
+  memory regression test `321871f26`. Linear OME-1789 → Done.
 - **Gates:** `run_gates.py screamingface-engine --base origin/main` — ALL GATES GREEN
   (append-only, ruff, format, pyright, layering, pytest 6229 passed / 157 skipped, cov >= 80;
   `case_rows.py` 100% line+branch). `packages/url4/scripts/check_module_size.py`: all capped

@@ -23,6 +23,7 @@ from screamingface._engine.identity import engine_headers
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from contextlib import AbstractContextManager
     from uuid import UUID
 
     import httpx
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
     from screamingface._engine.connections import AsyncConnections, Connections
     from screamingface._scoreboard.leaderboards import AsyncLeaderboards, Leaderboards
     from screamingface._ui.connections import ConnectionPanel
+    from screamingface.classification import Classification
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
     from screamingface.events import Event
     from screamingface.media import CaseMedia, FetchedMedia
@@ -477,9 +479,41 @@ class Client:
         data: bytes = fetch_media_bytes(self._http, media, lambda: _mint_sync(self._http))
         return FetchedMedia(media=media, data=data)
 
+    def classify(self, model: str, input: str) -> Classification:
+        """Classify one text with a configured classifier model, through this engine.
+
+        FEATURE (OME-1796): the engine asks the AI Gateway, which calls the classifier with your
+        own Connection. e.g. ``client.classify("byom_<id>/classifier_v1", "Great service")``
+        returns its labels and scores in the classifier's order. An input whose encoded request
+        passes the engine's 8 KiB limit is refused before any call.
+
+        Raises:
+            PlanningError: the request is too long, a value holds a character UTF-8 cannot
+                encode, or the engine refused it (for example an unknown classifier,
+                ``classifier_not_found``).
+            EngineCapabilityError: this engine does not serve ``/classify``.
+            ExecutionError: the call did not finish. ``retryable`` is True only when nothing
+                ran; once the classifier may have run, classifying again may bill it again.
+            AuthenticationError: the engine refused the caller.
+            EngineUnavailableError: the engine could not be reached.
+        """
+
+        from screamingface._engine.classification import classify
+
+        self._require_open()
+        return classify(self._engine_get, self._engine_url, model, input)
+
     def _require_open(self) -> None:
         if self._closed:
             raise RuntimeError("ScreamingFace Client is closed")
+
+    def _engine_get(
+        self, path: str, *, headers: Mapping[str, str], timeout: httpx.Timeout
+    ) -> AbstractContextManager[httpx.Response]:
+        # WHY no replay-safe mark, unlike `_http_get`: the auth layer re-sends a marked request
+        # after an Access re-login, and this seam carries paid calls that must never run twice.
+        self._require_open()
+        return self._http.stream("GET", path, headers=headers, timeout=timeout)
 
     def _http_get(self, path: str) -> httpx.Response:
         self._require_open()
