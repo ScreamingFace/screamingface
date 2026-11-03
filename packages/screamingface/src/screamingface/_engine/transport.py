@@ -10,8 +10,9 @@ import random
 import ssl
 import time
 from asyncio import Event as _AsyncEvent
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from dataclasses import replace as _dataclass_replace
 from pathlib import Path
 from threading import Event as _ThreadEvent
@@ -43,9 +44,16 @@ from screamingface._core.retry import (
     RetryingTransport,
 )
 from screamingface._core.wire import _REPLAY_SAFE
+from screamingface._engine import runs as _runs
 from screamingface._engine.admission import _ADMISSION_BUDGET_S, _AdmissionWait
 from screamingface._engine.identity import engine_headers
 from screamingface._engine.reconnect import _RecoveryWindow
+from screamingface._engine.run_binding import (
+    START_REFUSALS,
+    RunBindings,
+    new_client_key,
+    run_request,
+)
 from screamingface._engine.run_lifecycle import _Lifecycle, _LifecycleStep
 from screamingface._engine.trace import TraceContext, new_trace_context
 from screamingface._evaluation.model import Candidate
@@ -145,6 +153,8 @@ class Url4CloudTransport:
 
             show_recoverable_results(self._result_store, engine_url)
         self._result_contexts = {}
+        # FEATURE (OME-1785): the Run each Candidate belongs to (spec R1, R2, R8).
+        self._runs = RunBindings()
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
@@ -195,7 +205,12 @@ class Url4CloudTransport:
         from screamingface._results.lifecycle import evaluation_path
 
         if self._result_store is not None:
-            contexts = prepare(self._result_store, evaluation, candidates)
+            contexts = prepare(
+                self._result_store,
+                evaluation,
+                candidates,
+                report_id=self._runs.report_id(candidates[0]) if candidates else None,
+            )
             self._result_contexts.update(
                 {id(candidate): (candidate, contexts[id(candidate)]) for candidate in candidates}
             )
@@ -208,6 +223,7 @@ class Url4CloudTransport:
     def finish_results(self, candidates) -> None:
         for candidate in candidates:
             self._result_contexts.pop(id(candidate), None)
+        self._runs.forget(tuple(candidates))
 
     @property
     def _aborted(self) -> bool:
@@ -220,12 +236,32 @@ class Url4CloudTransport:
         else:
             self._abort.clear()
 
+    def open_run(
+        self, benchmark: str, case_count: int, candidates: tuple[Candidate, ...]
+    ) -> str | None:
+        """Register the evaluation as a Run, after preflight and before any token (spec R1).
+
+        Returns the Run's id, or None with one notice when the Engine did not register it (D7).
+        """
+        client_key = new_client_key()
+        result = _runs.create_sync(
+            _runs.marked_request(self._http),
+            run_request(client_key, benchmark, case_count, candidates),
+        )
+        return self._runs.register(client_key, result, candidates)
+
     def run(self, candidate: Candidate, on_event: SyncEventCallback | None) -> _RunOutcome:
         try:
             return self._run(candidate, on_event)
+        except KeyboardInterrupt:
+            # WHY here too: a one-Candidate or raw-URL4 evaluate is stopped by the interrupt
+            # itself and never sweeps, yet a deliberate stop must read `canceled` (spec R8).
+            self._cancel_runs(self._runs.to_cancel((candidate,)))
+            raise
         finally:
             # INVARIANT: admission failure and owner abort retire membership too.
             self._result_contexts.pop(id(candidate), None)
+            self._runs.forget((candidate,))
 
     def _run(
         self,
@@ -235,6 +271,7 @@ class Url4CloudTransport:
         # INVARIANT (OME-967): the trace exists BEFORE the first outbound call. Minting the
         # capability is that first call, so a mint failure is already joinable.
         trace = new_trace_context()
+        self._runs.refuse_if_canceled(candidate)
         minted = [_mint_sync(self._http, trace=trace)]
         with self._active_lock:
             self._end_finished_abort()
@@ -360,8 +397,10 @@ class Url4CloudTransport:
                 admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
                 on_event=on_event,
                 wait=self._abort.wait,
+                run_headers=self._runs.headers(candidate),
             )
         except ExecutionError as exc:
+            self._runs.note_refusal(candidate, exc)
             if exc.code == "replay_unsupported" and not self._stop_own_run(token):
                 raise _still_running(exc) from exc
             raise
@@ -515,6 +554,26 @@ class Url4CloudTransport:
         if errors:
             raise ExceptionGroup("Could not stop every active SF Engine Run", errors)
 
+    def abort_evaluation(self, candidates: tuple[Candidate, ...]) -> None:
+        """`cancel_active`, and cancel the Runs of ``candidates`` (spec R8). Only theirs: another
+        evaluation on this Client keeps its Run."""
+        # WHY before the stops: from here a queued Candidate of these Runs refuses to start.
+        run_ids = self._runs.to_cancel(candidates)
+        try:
+            self.cancel_active()
+        finally:
+            # WHY after the stops: a slow Engine must never delay stopping paid work.
+            self._cancel_runs(run_ids)
+
+    def _cancel_runs(self, run_ids: tuple[str, ...]) -> None:
+        """Cancel the aborted Runs on the Engine, best-effort (spec R8): a failure here changes
+        nothing else about the abort."""
+        for run_id in run_ids:
+            with suppress(Exception):
+                _runs.cancel_sync(
+                    _runs.marked_request(self._http, timeout=_STOP_TIMEOUT_SECONDS), run_id
+                )
+
     def _settled(self, step: _LifecycleStep, minted: list[str]) -> _RunOutcome | None:
         """The Run's outcome if this step completed it — its capabilities retired first."""
         if step.outcome is not None:
@@ -593,6 +652,8 @@ class AsyncUrl4CloudTransport:
 
             show_recoverable_results(self._result_store, engine_url)
         self._result_contexts = {}
+        # FEATURE (OME-1785): the Run each Candidate belongs to (spec R1, R2, R8).
+        self._runs = RunBindings()
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
@@ -638,7 +699,12 @@ class AsyncUrl4CloudTransport:
         from screamingface._results.lifecycle import evaluation_path
 
         if self._result_store is not None:
-            contexts = prepare(self._result_store, evaluation, candidates)
+            contexts = prepare(
+                self._result_store,
+                evaluation,
+                candidates,
+                report_id=self._runs.report_id(candidates[0]) if candidates else None,
+            )
             self._result_contexts.update(
                 {id(candidate): (candidate, contexts[id(candidate)]) for candidate in candidates}
             )
@@ -651,6 +717,7 @@ class AsyncUrl4CloudTransport:
     def finish_results(self, candidates) -> None:
         for candidate in candidates:
             self._result_contexts.pop(id(candidate), None)
+        self._runs.forget(tuple(candidates))
 
     @property
     def _aborted(self) -> bool:
@@ -694,11 +761,27 @@ class AsyncUrl4CloudTransport:
         if errors:
             raise ExceptionGroup("Could not stop every active SF Engine Run", errors)
 
+    async def open_run(
+        self, benchmark: str, case_count: int, candidates: tuple[Candidate, ...]
+    ) -> str | None:
+        """Async twin of the sync `open_run`."""
+        client_key = new_client_key()
+        result = await _runs.create_async(
+            _runs.marked_async_request(self._http),
+            run_request(client_key, benchmark, case_count, candidates),
+        )
+        return self._runs.register(client_key, result, candidates)
+
     async def run(self, candidate: Candidate, on_event: AsyncEventCallback | None) -> _RunOutcome:
         try:
             return await self._run(candidate, on_event)
+        except asyncio.CancelledError:
+            # WHY: see the sync twin; each Run is canceled once however many tasks unwind.
+            await self._cancel_runs(self._runs.to_cancel((candidate,)))
+            raise
         finally:
             self._result_contexts.pop(id(candidate), None)
+            self._runs.forget((candidate,))
 
     async def _run(
         self,
@@ -707,6 +790,7 @@ class AsyncUrl4CloudTransport:
     ) -> _RunOutcome:
         # INVARIANT (OME-967): see the sync twin — the trace precedes the first call.
         trace = new_trace_context()
+        self._runs.refuse_if_canceled(candidate)
         minted = [await _mint_async(self._http, trace=trace)]
         self._end_finished_abort()
         self._active_tokens.add(minted[0])
@@ -762,8 +846,10 @@ class AsyncUrl4CloudTransport:
                 admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
                 on_event=on_event,
                 wait=self._wait_unless_aborted,
+                run_headers=self._runs.headers(candidate),
             )
         except ExecutionError as exc:
+            self._runs.note_refusal(candidate, exc)
             if exc.code == "replay_unsupported" and not await self._stop_own_run(token):
                 raise _still_running(exc) from exc
             raise
@@ -904,6 +990,22 @@ class AsyncUrl4CloudTransport:
             _logger.warning("Stopping the SF Engine Run also failed: %s", stop_error)
             return False
         return True
+
+    async def abort_evaluation(self, candidates: tuple[Candidate, ...]) -> None:
+        """Async twin of the sync `abort_evaluation`."""
+        run_ids = self._runs.to_cancel(candidates)
+        try:
+            await self.cancel_active()
+        finally:
+            await self._cancel_runs(run_ids)
+
+    async def _cancel_runs(self, run_ids: tuple[str, ...]) -> None:
+        """Async twin of the sync `_cancel_runs`."""
+        for run_id in run_ids:
+            with suppress(Exception):
+                await _runs.cancel_async(
+                    _runs.marked_async_request(self._http, timeout=_STOP_TIMEOUT_SECONDS), run_id
+                )
 
     def _settled(self, step: _LifecycleStep, minted: list[str]) -> _RunOutcome | None:
         """The Run's outcome if this step completed it — its capabilities retired first."""
@@ -1067,6 +1169,7 @@ def _start_sync(
     admission: _AdmissionWait | None = None,
     on_event: object = None,
     wait: Callable[[float], bool] | None = None,
+    run_headers: Mapping[str, str] | None = None,
 ) -> None:
     """Start the Run; while the Engine has no free capacity (503), wait and send it again.
 
@@ -1089,6 +1192,7 @@ def _start_sync(
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
             use_cache=use_cache,
+            run_headers=run_headers,
         )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
@@ -1110,6 +1214,7 @@ def _send_start_sync(
     capture: bool = False,
     replay_frozen_copy: str | None = None,
     use_cache: bool = True,
+    run_headers: Mapping[str, str] | None = None,
 ) -> httpx.Response:
     """One start request, re-sent only while the WebSocket attach is still registering."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -1126,6 +1231,7 @@ def _send_start_sync(
                     **_answer_seed_header(answer_seed),
                     **_frozen_copy_headers(capture, replay_frozen_copy),
                     **_cache_headers(use_cache),
+                    **(run_headers or {}),
                 },
             )
         except httpx.HTTPError as exc:
@@ -1188,10 +1294,30 @@ def _finish_start(
     whose ack was lost). Raising here would drop the capability unstopped and leave a paid
     Run with no reader; the WebSocket is already attached to its topic, so read it instead.
     """
+    _refuse_run_start(response, trace_id)
     if not (admission.attempts and response.status_code == 409):
         _accepted(response, trace_id=trace_id)
     if admission.attempts:
         _notify_connection(on_event, "admitted")
+
+
+def _refuse_run_start(response: httpx.Response, trace_id: str | None) -> None:
+    """Raise the Engine's refusal of a start under a Run (spec R2), with its own code.
+
+    INVARIANT: checked before the re-send rule above, so a `409 run_canceled` after a re-send
+    is never read as this start's own earlier attempt.
+    """
+    code = _runs.problem_code(response)
+    if code in START_REFUSALS:
+        detail, _code, problem = _problem_parts(response)
+        raise ExecutionError(
+            f"SF Engine refused the Run's start: {detail}",
+            code=code,
+            status=response.status_code,
+            permanent=True,
+            details=problem,
+            trace_id=trace_id,
+        )
 
 
 def _new_admission(budget_s: float, base_delay_s: float) -> _AdmissionWait:
@@ -1316,6 +1442,7 @@ async def _start_async(
     admission: _AdmissionWait | None = None,
     on_event: object = None,
     wait: Callable[[float], Awaitable[bool]] | None = None,
+    run_headers: Mapping[str, str] | None = None,
 ) -> None:
     """Async twin of `_start_sync` — the same capacity wait (OME-1066)."""
     admission = admission or _new_admission(_ADMISSION_BUDGET_S, _RECONNECT_BASE_DELAY_S)
@@ -1331,6 +1458,7 @@ async def _start_async(
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
             use_cache=use_cache,
+            run_headers=run_headers,
         )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
@@ -1352,6 +1480,7 @@ async def _send_start_async(
     capture: bool = False,
     replay_frozen_copy: str | None = None,
     use_cache: bool = True,
+    run_headers: Mapping[str, str] | None = None,
 ) -> httpx.Response:
     """Async twin of `_send_start_sync`."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -1368,6 +1497,7 @@ async def _send_start_async(
                     **_answer_seed_header(answer_seed),
                     **_frozen_copy_headers(capture, replay_frozen_copy),
                     **_cache_headers(use_cache),
+                    **(run_headers or {}),
                 },
             )
         except httpx.HTTPError as exc:

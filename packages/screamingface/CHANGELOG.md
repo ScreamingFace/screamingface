@@ -94,6 +94,13 @@
 
   **Requires an SF Engine with the narrow step** for a narrow step before a reducer.
 
+### Deprecations
+
+* **screamingface:** `CandidateResult.run_id` is renamed `attempt_id` (`OME-1785`), the same
+  value: the Candidate's own attempt, which is not the evaluation's Run. `run_id` and the
+  `run_id=` constructor keyword still work, with a `DeprecationWarning`, and will be removed in a
+  later release. Exported reports keep the `run_id` key.
+
 ### Fixes
 
 * Two SDK messages drop the retired Profile wording (`OME-1779`). The `provider_not_connected` hint now says to connect the provider with `sf.connect()`, or to ask the operator of a hosted Engine to connect it in AI Gateway. A `model_not_found` error now reads `Model '<id>' is not in AI Gateway's catalogue`. The Model discovery docstrings call `ModelDetails` Connection-specific. Error codes are unchanged, and so are the messages for `profile_not_found`, `profile_pending_auth` and `auth_required`.
@@ -113,6 +120,15 @@
 * Stream complete report JSON exports through atomic, fsynced replacement while preserving report.v1 bytes, symlinks and existing permissions. Returning `to_json()` still allocates its full string.
 
 ### Features
+
+* **screamingface:** every `evaluate` is recorded on the Engine as a Run (`OME-1785`), and
+  `Report.run_id` names it. The new `sf.runs` lists, reopens, waits on and cancels your Runs from
+  any notebook or machine: `sf.runs.list()`, `sf.runs.get(run_id)` and their async twins, which
+  return `sf.Run`, with `sf.CandidateRun` and `sf.RunProgress`. Each start names its Run, a
+  cancel from another notebook stops the Candidates not yet started, and Ctrl-C cancels the Run.
+  An Engine that does not record Runs runs every `evaluate` as before, with one
+  `EvaluationWarning`, and `Report.run_id` is `None`. The local Engine of `screamingface up`
+  keeps its Runs in `engine.sqlite3` in the data directory.
 
 * **screamingface:** show the combine steps in the report (E4b part 4). The Case pane has a Combine section for every reducer step, with the step facts and one row per member (status and reason, value, weight, score, rank, each signal, chosen). Each Candidate card has a summary per reducer step: how often each member was chosen and excluded, and the mean of each declared signal with its count. Numbers show 4 significant digits, the exact value on hover, and a missing value is an em dash with its reason. `report.export()` adds a `trace` key to each Case with a combine step (the `report.trace_dict()` entries); the schema stays `report.v1`. No new Python API. No Engine change.
 

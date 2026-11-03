@@ -310,9 +310,17 @@ def _build_apps(config: RuntimeConfig) -> tuple[object, object | None, dict[str,
     from screamingface_engine.local import create_local_app
 
     artifacts_dir = str(config.effective_artifacts_dir(os.environ))
+    # FEATURE (OME-1785): the Engine's Run registry in the data dir, beside the gateway's
+    # database, wherever the spills go. WHY guarded: this Client ships before or after the
+    # bundled Engine gains the setting (E5 P1 plan), and an older Engine refuses an unknown one.
+    database: dict[str, str] = (
+        {"database_url": config.engine_database_url}
+        if "database_url" in getattr(EngineSettings, "model_fields", {})
+        else {}
+    )
     engine = create_local_app(
         settings=EngineSettings(
-            aigateway_base_url=config.services["gateway"], artifacts_dir=artifacts_dir
+            aigateway_base_url=config.services["gateway"], artifacts_dir=artifacts_dir, **database
         ),
         env=_run_environment(config, os.environ),
     )

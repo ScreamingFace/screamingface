@@ -1530,7 +1530,7 @@ report.benchmark
 report.case_count
 report.candidates[0]
 report.candidates["frontier-pair"]
-report.candidates["frontier-pair"].run_id
+report.candidates["frontier-pair"].attempt_id
 report.candidates["frontier-pair"].url4
 report.candidates["frontier-pair"].operations
 report.candidates.only
@@ -1971,6 +1971,41 @@ streaming Cases and cache that context beside a saved Case index on first use. W
 disclosures reuse the cache without decoding Cases; missing, stale or malformed caches
 rebuild, and a read-only cache location still returns derived values. Per-Case HTML still
 materializes its rendered output. Automatic lifecycle discovery remains a separate follow-up.
+
+## Your runs
+
+Every `evaluate` is recorded on the Engine as a Run, and `report.run_id` names it. Runs are
+kept for 30 days and are listed from any notebook or machine signed in as you, so you can
+follow or stop an evaluation from somewhere else.
+
+```python
+import screamingface as sf
+
+report = sf.evaluate(candidates, benchmark="gsm8k")
+run = sf.runs.get(report.run_id)
+run.state  # "running", "complete", "partial", "errored", "canceled" or "interrupted"
+run.cost_usd  # the sum of the costs known so far
+run.progress()  # RunProgress(done=..., total=..., cost_usd=...)
+run.wait(timeout=600).report()  # the saved results, on the machine that ran it
+run.cancel()  # stops every Candidate still running, and the ones not started yet
+
+recent = sf.runs.list(state="complete", limit=10)
+# In async code: await sf.runs.get_async(...), await sf.runs.list_async(...)
+```
+
+A `Run` is a snapshot: `refresh()`, `progress()` and `wait()` read the Engine again. An unknown
+id, or another person's, raises `KeyError`. `run.report()` reads the results saved on this
+machine (`sf.reports`); on another machine it raises `ExecutionError("results_not_local")`, and
+while the Run is running, `ExecutionError("run_not_finished")`. Stopping an `evaluate` with
+Ctrl-C cancels its Run, so it reads `canceled`.
+
+An Engine that does not record Runs (an older one, or one with Runs off) runs every `evaluate`
+exactly as before, with one `EvaluationWarning`, and `report.run_id` is `None`; `sf.runs`
+raises `ExecutionError("runs_unavailable")` there.
+
+Each Candidate's own attempt on the Engine is `CandidateResult.attempt_id`. Its old name,
+`CandidateResult.run_id`, still works and warns with `DeprecationWarning`; exported reports keep
+the `run_id` key.
 
 ## Usage analytics
 

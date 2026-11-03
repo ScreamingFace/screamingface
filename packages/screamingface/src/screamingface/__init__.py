@@ -9,6 +9,7 @@ from screamingface import (
     leaderboards,
     models,
     reports,
+    runs,
 )
 from screamingface._default_client import (
     classify,
@@ -99,6 +100,7 @@ from screamingface.report import (
     Report,
     Usage,
 )
+from screamingface.runs import CandidateRun, Run, RunProgress
 from screamingface.signal_sources import Consistency, Entropy, Logprob, Sum, Verbalized
 from screamingface.url4 import Url4
 from screamingface.warnings import (
@@ -121,6 +123,7 @@ __all__ = [
     "analytics",
     "__version__",
     "reports",
+    "runs",
     "Answer",
     "ArgMax",
     "ArgMin",
@@ -132,6 +135,7 @@ __all__ = [
     "CaseMedia",
     "CaseResult",
     "CandidateResult",
+    "CandidateRun",
     "Check",
     "Classification",
     "classify",
@@ -204,6 +208,8 @@ __all__ = [
     "Report",
     "Reproduction",
     "ReproductionOutcome",
+    "Run",
+    "RunProgress",
     "ScoreMetadataEvent",
     "ScreamingFaceError",
     "SelfCorrective",

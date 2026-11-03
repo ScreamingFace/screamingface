@@ -110,7 +110,7 @@ def _spec_payload(report: Report, selected: CandidateResult) -> dict[str, Any]:
             "source_schema": "screamingface.report.v1",
             "one_way_export": True,
             "benchmark_revision": report.benchmark.revision,
-            "run_id": selected.run_id,
+            "run_id": selected.attempt_id,
             "recipe_kind": selected.kind,
             "recipe_url4": str(selected.url4),
             "answer_seed": selected.answer_seed,
