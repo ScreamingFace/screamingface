@@ -27,7 +27,7 @@ from screamingface._core.ports import (
 from screamingface._environment import SDK_PACKAGE_ROOT
 from screamingface._evaluation.benchmark import _BenchmarkResource
 from screamingface._evaluation.candidate import recipes_need_operators
-from screamingface._evaluation.case_selection import graded_positions, selected_cases
+from screamingface._evaluation.case_selection import selected_cases
 from screamingface._evaluation.completion import completion_callback
 from screamingface._evaluation.model import (
     Candidate,
@@ -50,7 +50,6 @@ from screamingface._evaluation.outcome import (
     raise_candidates_failed,
     settle,
 )
-from screamingface._report_primitives import CaseId
 from screamingface.discovery import ModelDetails, ModelInfo
 from screamingface.events import Event
 from screamingface.recipe import Recipe
@@ -144,7 +143,9 @@ def evaluate_sync(
         )
         try:
             outcomes = _settled_sync(transport, evaluation, selected_candidates, observer)
-            report = _selected_roll_call(evaluation, completed_report(evaluation, outcomes))
+            # OME-1739 F6 (the roll-call check) runs per Candidate inside the decode, so a
+            # mismatch is a named Candidate failure and never reaches a Partial Report.
+            report = completed_report(evaluation, outcomes)
         except BaseException as exc:
             _abort_event_observer(observer, exc)
             raise
@@ -216,36 +217,13 @@ async def evaluate_async(
         )
         try:
             outcomes = await _settled_async(transport, evaluation, selected_candidates, observer)
-            report = _selected_roll_call(evaluation, completed_report(evaluation, outcomes))
+            # OME-1739 F6: see the sync twin; the check lives in the per-Candidate decode.
+            report = completed_report(evaluation, outcomes)
         except BaseException as exc:
             _abort_event_observer(observer, exc)
             raise
         _conclude_evaluation(observer, report, capture)
         return report
-
-
-def _selected_roll_call(evaluation: _Evaluation, report: Report) -> Report:
-    """Refuse a Report whose graded Cases are not the Case ids the run asked for (OME-1739, F6).
-
-    INVARIANT: no score is reported for a Case set nobody asked for. The echo check refused a
-    recipe for other Cases before the run; this checks what the Engine actually graded.
-    """
-
-    from screamingface.errors import PlanningError
-
-    requested: tuple[int, ...] | None = evaluation.selected_cases
-    if requested is None:
-        return report
-    for candidate in report.candidates:
-        graded: list[CaseId] = [case.case_id for case in candidate.cases]
-        if graded_positions(graded) != requested:
-            raise PlanningError(
-                f"The SF Engine graded Cases {graded} for Candidate {candidate.name!r}, "
-                f"not the requested {list(requested)}; no score is reported",
-                code="engine_contract_error",
-                permanent=True,
-            )
-    return report
 
 
 def _operators_sync(

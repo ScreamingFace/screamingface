@@ -63,8 +63,21 @@ on the Report with a fingerprint a paper can cite, and a refused leaderboard sub
   names the Engine, while the Engine's own "Unknown benchmark" 404 keeps `unknown_benchmark`.
   The 1,000-id cap is bound to the Engine's `MAX_SELECTED_CASE_IDS` by a source-parsing
   conformance test (a 1,001 mutation fails it). 393 passed in the same files plus the new one.
+- **Review round 2 (#1653, Sergey + HupBaHa):** the roll-call check moved from the finished
+  Report into the per-Candidate decode (`_evaluation/results.py`, beside the "wrong number of
+  Cases" check) as an `ExecutionError` `engine_contract_error`; a Candidate graded on other
+  Cases is now a named Candidate failure and never reaches `error.partial_report` (Sergey's
+  two-Candidate repro is the new `test_a_wrong_roll_call_is_not_reported_through_a_partial_report`;
+  async twin added). The no-route 404 is an `EngineCapabilityError` with `details` and `hint`.
+  The SDK CI workflow now lists the Engine's `benchmarks/selection.py` so an Engine-only cap
+  bump runs the conformance test. Docs: README (`cases=`, replay refusal), `sf.evaluate`
+  docstring, cap comment corrected (three copies of the list, ~23 KiB at 1,000 ids), fingerprint
+  docstring says to cite with Benchmark id and revision. Not done, by choice: `numpy.int64` ids
+  (a researcher converts with `int()`; revisit if asked), binding the "Unknown benchmark" title
+  string, splitting the ticket per app (small cross-landing work stays one ticket).
 - **Deviations:** partial replay with `cases=` (architecture box 9 on the ticket) is refused
   with a plain error instead of built; the researcher's flow does not need it and it keeps the
-  PR small. `selected_cases` is derived from the roll call, sorted, so a full run listed out of
+  PR small. **Owner decision (Sergey, 2026-11-03, #1653 review): approved dropping it for v1;**
+  recorded on the ticket and in the mirror. `selected_cases` is derived from the roll call, sorted, so a full run listed out of
   order still reads as a full run. Owner verify after merge: deploy the Engine (#1636) before
   releasing this SDK, since an SDK `cases=` run against an Engine without the route is refused.

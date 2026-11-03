@@ -256,6 +256,10 @@ def evaluate(
     uses, so an option missing here is an option the notebook audience cannot reach at all
     (OME-1227: `answer_seed` shipped on the Client and stayed unreachable from `sf.evaluate`).
     Validation stays with the Client, which refuses a bad seed before any token is minted.
+
+    `cases=[3, 17, 42]` runs only those Case ids (a Case's position in the Benchmark, 1 to N)
+    instead of `limit=`'s first N; see `Client.evaluate`. Refused with a complete URL4 and
+    with a replay (`pinned_cache=` / `score_id=`).
     """
 
     client = default_client()

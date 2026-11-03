@@ -20,7 +20,7 @@ from test_replay_partial import CASE_COUNT, _benchmark_url4
 from test_reproduce import _AsyncReplayer, _Replayer
 
 import screamingface as sf
-from screamingface.errors import PlanningError
+from screamingface.errors import ExecutionError, PlanningError
 
 SELECTED: list[int] = [3, 17, 42]
 INSTALLED: int = 50
@@ -262,13 +262,55 @@ def test_an_out_of_range_id_is_the_engines_422_before_any_run() -> None:
 
 
 def test_a_graded_roll_call_other_than_the_selection_is_refused() -> None:
-    """F6: no score is reported for a Case set nobody asked for."""
+    """F6: no score is reported for a Case set nobody asked for.
+
+    WHY a per-Candidate failure (review on #1653): the check runs while each result body is
+    decoded, so the mismatch is `candidates_failed` naming the Candidate with
+    `engine_contract_error`, and it is an ExecutionError because the money is already spent.
+    """
 
     with _client(_SelectionEngine(), _graded(3, 17, 18)) as client:
-        with pytest.raises(PlanningError, match=r"graded Cases \[3, 17, 18\]") as raised:
+        with pytest.raises(ExecutionError) as raised:
             client.evaluate(MODEL, benchmark="draco", cases=SELECTED, progress=False)
 
-    assert raised.value.code == "engine_contract_error"
+    assert raised.value.code == "candidates_failed"
+    assert raised.value.details == {"failed": {"opus": "engine_contract_error"}}
+    # INVARIANT: the Partial Report holds no Candidate that graded other Cases.
+    assert raised.value.partial_report is None
+    cause: BaseException | None = raised.value.__cause__
+    assert isinstance(cause, ExecutionError)
+    assert "graded Cases [3, 17, 18]" in str(cause) and "[3, 17, 42]" in str(cause)
+
+
+class _LostSecond(_Replayer):
+    """The replay fake whose run for the Candidate named `two` is lost mid-flight."""
+
+    def run(self, candidate: Any, on_event: object) -> Any:
+        if candidate.name == "two":
+            raise ExecutionError("lost", code="websocket_disconnected")
+        return super().run(candidate, on_event)
+
+
+def test_a_wrong_roll_call_is_not_reported_through_a_partial_report() -> None:
+    """F6 beside a failed sibling (review on #1653): the roll call is checked per Candidate.
+
+    WHY: `candidates_failed` carries a Partial Report of the Candidates that succeeded. If the
+    check ran on the finished Report only, a Candidate graded on Cases 3, 17, 18 would reach the
+    caller inside that Partial Report, scored, with no `engine_contract_error` anywhere.
+    """
+
+    one = sf.Model("provider/opus", prompt="Answer.", name="one")
+    two = sf.Model("provider/opus", prompt="Answer.", name="two")
+
+    with _client(_SelectionEngine(), _LostSecond(cases=((3, None), (17, None), (18, None)))) as c:
+        with pytest.raises(ExecutionError) as raised:
+            c.evaluate([one, two], benchmark="draco", cases=SELECTED, progress=False)
+
+    assert raised.value.code == "candidates_failed"
+    assert raised.value.details == {
+        "failed": {"one": "engine_contract_error", "two": "websocket_disconnected"}
+    }
+    assert raised.value.partial_report is None
 
 
 def test_a_selected_run_cannot_be_submitted_to_the_leaderboard() -> None:
@@ -302,6 +344,25 @@ async def test_the_async_client_runs_the_same_selection() -> None:
 
     assert catalog.requests == [("POST", "/v1/benchmarks/draco/selection", {"cases": SELECTED})]
     assert report.selected_cases == (3, 17, 42)
+
+
+@pytest.mark.asyncio
+async def test_the_async_client_refuses_a_graded_roll_call_other_than_the_selection() -> None:
+    """F6, async twin (review on #1653): the per-Candidate check is shared by both doors."""
+
+    async with sf.AsyncClient(
+        engine_url="https://engine.example",
+        http_transport=httpx.MockTransport(_SelectionEngine()),
+        scoreboard_url="https://scoreboard.example",
+        scoreboard_transport=httpx.MockTransport(_no_scoreboard),
+        run_transport=_AsyncReplayer(cases=((3, None), (17, None), (18, None))),  # type: ignore[arg-type]
+    ) as client:
+        with pytest.raises(ExecutionError) as raised:
+            await client.evaluate(MODEL, benchmark="draco", cases=SELECTED, progress=False)
+
+    assert raised.value.code == "candidates_failed"
+    assert raised.value.details == {"failed": {"opus": "engine_contract_error"}}
+    assert raised.value.partial_report is None
 
 
 def test_the_default_client_passes_cases_through(monkeypatch: pytest.MonkeyPatch) -> None:

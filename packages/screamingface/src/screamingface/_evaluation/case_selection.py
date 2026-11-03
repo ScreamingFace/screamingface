@@ -22,8 +22,10 @@ from typing import cast
 from screamingface._report_primitives import CaseId
 
 # WHY 1,000: the SDK starts a run with the whole recipe in the URL, and the hosted edge answers
-# normally only up to about 32 KiB of URL. Two URL-encoded copies of a 2,000-id list are about
-# 26 KiB, so 1,000 leaves room for the rest of the recipe (owner-approved limit on OME-1739).
+# normally only up to about 32 KiB of URL. The id list rides the recipe up to three times (the
+# Cases, aggregate and early-result intents; MedXpert carries all three), and 1,000 ids
+# URL-encode to roughly 23 KiB of Benchmark recipe before any Candidate is added, so the cap
+# leaves room for the rest (owner-approved limit on OME-1739; measured in review).
 # INVARIANT: a copy of the Engine's `MAX_SELECTED_CASE_IDS`
 # (apps/screamingface-engine/src/screamingface_engine/benchmarks/selection.py), the source of
 # truth; tests/unit/test_case_selection_cap_conformance.py fails when the two differ.
@@ -107,7 +109,12 @@ def selection_of(case_ids: Sequence[CaseId]) -> tuple[int, ...] | None:
 
 
 def selection_fingerprint(case_ids: Sequence[int]) -> str:
-    """`sha256:` of the sorted ids joined by commas, e.g. `3,17,42`, for a paper to cite."""
+    """`sha256:` of the sorted ids joined by commas, e.g. `3,17,42`, for a paper to cite.
+
+    WHY ids only: the Benchmark is not in the hash, so cite it together with the Benchmark id
+    and revision (`report.benchmark.id`, `report.benchmark.revision`); the same fingerprint on
+    two Benchmarks names two different Case sets.
+    """
 
     text: str = ",".join(str(case_id) for case_id in sorted(case_ids))
     return "sha256:" + hashlib.sha256(text.encode("ascii")).hexdigest()

@@ -12,7 +12,7 @@ from screamingface._evaluation.benchmark import (
     _BenchmarkResource,
     _decode_benchmark_resource,
 )
-from screamingface.errors import EngineUnavailableError, PlanningError
+from screamingface.errors import EngineCapabilityError, EngineUnavailableError, PlanningError
 
 
 class BenchmarkResources:
@@ -146,13 +146,18 @@ def _success(response: httpx.Response, *, selecting: bool = False) -> None:
     if selecting and response.status_code == 404 and not _unknown_benchmark(response):
         # WHY (review on #1653): an Engine older than OME-1739 has no `/selection` route, so its
         # router answers a plain 404. Reading that as "not installed" sends the researcher to
-        # the Benchmark id when the fix is a newer Engine.
-        raise PlanningError(
-            "This SF Engine cannot run a fixed list of Case ids (it has no Case selection "
-            "route, so it is older than OME-1739); upgrade the Engine, or run with limit=",
+        # the Benchmark id when the fix is a newer Engine. The capability error is the same
+        # shape the operator catalog raises for a missing route, so callers match one class.
+        raise EngineCapabilityError(
+            "This SF Engine cannot run a fixed list of Case ids: it has no Case selection route",
             code="engine_cannot_select_cases",
             status=404,
             permanent=True,
+            details={"path": str(response.request.url.path), "method": "POST"},
+            hint=(
+                "Use an SF Engine that serves POST /v1/benchmarks/{id}/selection, "
+                "or run with limit=."
+            ),
         )
     detail = _problem_detail(response)
     if response.status_code == 404:
