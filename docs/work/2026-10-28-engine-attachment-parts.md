@@ -105,3 +105,20 @@ Built on the `OME-1543` chain; the PR opens after #1478/#1482/`OME-1543` land.
   https PNG reaches the fake gateway as an `image_url` part).
 - **Gates:** `run_gates.py screamingface-engine --base origin/OME-1543-file-refs-carry` ALL GREEN
   (both commits).
+
+## Amendment 2026-11-03 — shared live byte budget reaches local mode (push security review)
+
+**Finding ("resource-cap-defeat").** A run's concurrent attachment flights could download and hold
+about 20 × 20 MiB before the 8,000,000-byte per-run cap refused it. Fixed below this PR: #1482 adds
+`FetchRequest.max_bytes` / `on_chunk` to the bytes path; #1587 makes the cap one live budget the
+flights draw from as bytes arrive. Both merged here normally.
+
+**This PR.** No source change: `FairShareIOLayer.fetch_bytes` already forwards the request object
+unchanged, so the hook reaches the reading transport. New append-only test
+`apps/screamingface-engine/tests/unit/test_fair_share_byte_budget.py` (2): the request passes
+through by identity; 20 × 1 MiB attachments through `FairShareIOLayer(HttpIOLayer)` are refused
+`attachments_too_large` with bytes read ≤ 8,000,000 + 20 × 65,536 and no model call.
+
+**Gates.** `run_gates.py screamingface-engine --base origin/OME-1543-file-refs-carry` and
+`run_gates.py url4 --base origin/OME-1543-file-refs-carry` ALL GATES GREEN; `check_module_size.py`
+within baseline (`dag/_context.py` 455/455); `check_suppressions.py` 3/3; private-import ratchet green.
