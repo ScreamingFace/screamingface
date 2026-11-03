@@ -104,7 +104,7 @@
         <span class="pareto-mark" aria-hidden="true"></span>
         <span>on the Pareto frontier: no submission has an equal-or-higher score at an equal-or-lower cost, with one strict improvement</span>
       </span>
-      <span class="legend-item">gold row = highest score</span>
+      <span id="legend-highest" class="legend-item">gold row = highest score</span>
     </p>
 
     <!-- The Cost column pushes this table's min-content past the container at intermediate
@@ -127,24 +127,6 @@
         <tbody id="leaderboard-body"></tbody>
       </table>
     </div>
-
-    <!-- WHY separate: external ranking is undecided; these citations do not affect ranks. -->
-    <section id="external-results" class="external-results" aria-labelledby="external-results-title" hidden>
-      <h2 id="external-results-title">External results</h2>
-      <p class="meta">Published elsewhere. Not ranked here. Scores use this board’s units; evaluation methods may differ.</p>
-      <div class="table-wrap" tabindex="0" role="region" aria-label="External results, scrollable">
-        <table aria-label="External results">
-          <thead><tr>
-            <th scope="col">Model</th>
-            <th scope="col" class="num">Score</th>
-            <th scope="col">Imported</th>
-            <th scope="col">Source</th>
-            <th scope="col">Comparison notes</th>
-          </tr></thead>
-          <tbody id="external-results-body"></tbody>
-        </table>
-      </div>
-    </section>
 
     <div data-subscribe="all" data-section="subscribe"></div>
 

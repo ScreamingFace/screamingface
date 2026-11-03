@@ -54,3 +54,10 @@ reproducible, without ranks or recipes. Existing pages without baselines unchang
 - No Linear writes; existing epic is the tracking item. No production data or
   shared deployment changes in this PR. Existing dev rows were imported separately.
 - Commit: `feat(scoreboard): display external results with source attribution`.
+
+## Superseded presentation
+
+The 2026-11-03 owner decision replaces this separate/unranked view with shared table
+sorting and normal rank numbers. See `docs/work/2026-11-03-OME-1309-shared-table.md`.
+The original screenshot files are retained locally but removed from the PR tree;
+review captures are not shipped on main.

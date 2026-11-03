@@ -1,11 +1,11 @@
 /* ScreamingFace Leaderboard Portal — benchmark (top-N) page.
  *
  * Reads ?id=<benchmark_id>, fetches /v1/leaderboard/{id}, and renders a
- * client-side sortable table. Default sort is score DESC. The Rank column
- * always shows the backend-provided rank (best-per-spec), even when the user
- * sorts by another column — we only reorder rows for display, never recompute
- * the backend's best-per-spec selection (which breaks score ties by newest
- * submission).
+ * client-side sortable table. Default sort is score DESC. Community top-N results
+ * and imported baselines are merged before selecting the displayed top N. Ranks
+ * describe that score ordering and stay fixed when another column is sorted.
+ * The backend still selects the best submission per spec; imported references
+ * supply no recipe and do not participate in cost-based frontier claims.
  */
 (function (P) {
   "use strict";
@@ -40,7 +40,7 @@
     { key: "__run", label: "Run Locally", sort: null, cls: "col-run" },
   ];
 
-  var state = { entries: [], benchmarkId: null, sortKey: "score", sortDir: "desc" };
+  var state = { entries: [], rows: [], benchmarkId: null, sortKey: "score", sortDir: "desc" };
 
   // The Reproduce button's switch, on since the SDK release whose `evaluate(pinned_cache=...)` runs
   // the copied snippet. WHY a constant and not a server setting: the page cannot read server
@@ -70,8 +70,8 @@
 
   function sortedEntries() {
     var col = COLUMNS.filter(function (c) { return c.key === state.sortKey; })[0];
-    if (!col || !col.sort) return state.entries.slice();
-    var copy = state.entries.slice();
+    if (!col || !col.sort) return state.rows.slice();
+    var copy = state.rows.slice();
     copy.sort(function (a, b) { return compare(a, b, state.sortKey, col.sort, state.sortDir); });
     return copy;
   }
@@ -223,9 +223,14 @@
 
   function renderBody(bodyNode) {
     P.clear(bodyNode);
-    var barMax = bestScore(state.entries);
-    var barMin = lowestScore(state.entries);
+    var barMax = bestScore(state.rows);
+    var barMin = lowestScore(state.rows);
     sortedEntries().forEach(function (entry) {
+      if (entry.external) {
+        bodyNode.appendChild(window.SFExternalResults.renderRow(entry,
+          renderScoreCell(entry.score, barMin, barMax)));
+        return;
+      }
       var tr = document.createElement("tr");
       // Gold marks the row with the highest score on screen, not a reproduction claim. The
       // accessible text below uses the same precise wording rather than promising verification.
@@ -330,7 +335,7 @@
         var row = P.el("div", "row");
         row.appendChild(P.el("span", "lbl", entry.spec_id));
         var track = P.el("span", "track");
-        var fill = P.el("span", "fill " + (entry.score === best ? "sota" : "base"));
+        var fill = P.el("span", "fill " + (entry.score === best && !entry.external ? "sota" : "base"));
         fill.style.width = L.barWidth(entry.score, floor, best).toFixed(1).replace(/\.0$/, "") + "%";
         track.appendChild(fill);
         row.appendChild(track);
@@ -431,14 +436,18 @@
           document.title = name + " — screamingface";
         }
         state.entries = (data && data.entries) || [];
-        if (window.SFExternalResults) window.SFExternalResults.render(data && data.baselines);
-        if (state.entries.length === 0) {
+        state.rows = window.SFExternalResults
+          ? window.SFExternalResults.selectRows(state.entries, data && data.baselines, 50)
+          : state.entries;
+        // Cost-based comparisons still require recorded runs, not imported reference numbers.
+        state.entries = state.rows.filter(function (row) { return !row.external; });
+        if (state.rows.length === 0) {
           // The table shell renders on the zero-entry path too, so a benchmark with no
           // submissions still shows the column structure. renderSummary/renderClimb
           // hide themselves when passed an empty list, so the reader gets the
           // column headers plus the empty-state line and nothing misleading.
-          renderSummary(state.entries);
-          renderClimb(state.entries);
+          renderSummary(state.rows);
+          renderClimb(state.rows);
           renderHead(document.getElementById("leaderboard-head"));
           P.clear(document.getElementById("leaderboard-body"));
           P.showEmpty(statusNode, "No submissions yet. Be the first.");
@@ -448,8 +457,8 @@
           renderParetoChart(state.entries);
           return;
         }
-        renderSummary(state.entries);
-        renderClimb(state.entries);
+        renderSummary(state.rows);
+        renderClimb(state.rows);
         renderHead(document.getElementById("leaderboard-head"));
         renderBody(document.getElementById("leaderboard-body"));
         P.setStatus(statusNode, null);
@@ -459,7 +468,11 @@
         // marked — and a key for a symbol that appears nowhere reads as 'no submission
         // here is good value', which is the opposite of what the gate is saying.
         legendPareto.hidden = !state.entries.some(L.isParetoMarked);
-        legend.hidden = false;
+        legend.hidden = state.entries.length === 0;
+        var leaderKey = document.getElementById("legend-highest");
+        if (leaderKey) leaderKey.hidden = !state.entries.some(function (row) {
+          return row.score === bestScore(state.rows);
+        });
         // Last, after the table is visible: the chart can only ever add to the page.
         renderParetoChart(state.entries);
       },
