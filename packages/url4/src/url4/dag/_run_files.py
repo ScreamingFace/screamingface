@@ -77,7 +77,7 @@ async def _run_start(
         refuse_malformed(scan)  # owner 2026-11-02: before any I/O, ahead of every refusal
     refuse_remote(refs)
     if scan is not None and scan.non_literal:  # owner decision C: before any I/O
-        raise not_static(repr(scan.non_literal[0]))
+        raise not_static(scan.non_literal[0])
     occurrences = () if scan is None else scan.occurrences
     check_static(occurrences)
     budget = CapBudget(case)

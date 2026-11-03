@@ -49,6 +49,7 @@ from url4.core.nodes import (
     Url,
     VarRef,
 )
+from url4.core.url_display import display_url
 from url4.io.layer import FetchRequest, FetchResult, fetch_result
 
 from url4.dag.attachment import Attachment  # isort: skip
@@ -86,7 +87,7 @@ def check_static(occurrences: Sequence[Occurrence]) -> None:
     """``x.source_not_static`` for an occurrence under a model-derived collection — no I/O."""
     for identity, guards in occurrences:
         if any(_kind(guard.items, guard.bound) == _MODEL for guard in guards):
-            raise not_static(repr(identity.url))
+            raise not_static(identity.url)
 
 
 async def materialize(
@@ -218,7 +219,8 @@ async def _fetched_rows(
         pending.append(_final(exc))
         return False
     if leaf.result is None:  # resolve returns only after it stored the result
-        raise RuntimeError(f"collection admission for {request.target!r} stored nothing")
+        shown = display_url(request.target)
+        raise RuntimeError(f"collection admission for {shown!r} stored nothing")
     pending.append(leaf.result)
     return _parsed(leaf.result.body, leaf.result.media_type, guard)
 
@@ -280,12 +282,12 @@ async def _flight(
         if isinstance(outcome, SourceFailure):
             ctx.log(
                 "WARN",
-                f"optional attachment source {identity.url!r} omitted",
+                f"optional attachment source {display_url(identity.url)!r} omitted",
                 attributes={"code": outcome.code},
             )
             return ResolutionError(outcome.message, code=outcome.code, permanent=True)
     if leaf.fetched is None:  # resolve returns only after it stored the attachment
-        raise RuntimeError(f"attachment flight for {identity.url!r} stored nothing")
+        raise RuntimeError(f"attachment flight for {display_url(identity.url)!r} stored nothing")
     budget.charge(identity, len(leaf.fetched.body))
     return leaf.fetched
 
@@ -309,7 +311,8 @@ class _AttachmentFetchNode:
             # WHY unsupported_mode, not unsupported_content_type: the io lacks a capability (as
             # a code pointer on an io without SupportsCode does); no body's type was ever seen.
             raise ResolutionError(
-                f"attachment source {identity.url!r} needs a binary-safe io layer (fetch_bytes)",
+                f"attachment source {display_url(identity.url)!r} needs a binary-safe io layer "
+                "(fetch_bytes)",
                 code=ErrorCode.UNSUPPORTED_MODE,
                 permanent=True,
             )
