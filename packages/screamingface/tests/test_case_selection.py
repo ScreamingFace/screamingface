@@ -53,6 +53,10 @@ class _SelectionEngine:
     def _selection(self, cases: list[int]) -> httpx.Response:
         """The selection route: the 422 or 404 it is told to give, else the resource."""
 
+        if self.status == 404:
+            # WHY this body: an Engine older than #1636 has no `/selection` route, so FastAPI's
+            # router answers its own plain 404, not the Engine's "Unknown benchmark" problem.
+            return httpx.Response(404, json={"detail": "Not Found"})
         if self.status != 200:
             return httpx.Response(
                 self.status,
@@ -194,8 +198,38 @@ def test_an_engine_without_the_selection_route_is_refused_before_any_run() -> No
     with _client(catalog, run) as client, pytest.raises(PlanningError) as raised:
         client.evaluate(MODEL, benchmark="draco", cases=SELECTED, progress=False)
 
-    assert raised.value.code == "unknown_benchmark"
+    # WHY the Engine, not the Benchmark: "not installed" sent the researcher to check the
+    # Benchmark id when the fix is a newer Engine (review on #1653).
+    assert raised.value.code == "engine_cannot_select_cases"
+    assert "SF Engine cannot run a fixed list of Case ids" in str(raised.value)
+    assert "not installed" not in str(raised.value)
     assert run.called is False
+
+
+def test_an_unknown_benchmark_on_a_selecting_engine_still_reads_unknown() -> None:
+    """The Engine's own 404 problem ("Unknown benchmark") keeps today's code and wording."""
+
+    def engine(request: httpx.Request) -> httpx.Response:
+        if request.url.path.startswith("/v1/benchmarks/draco"):
+            return httpx.Response(
+                404,
+                json={"title": "Unknown benchmark", "detail": "no Benchmark is installed"},
+            )
+        return _engine(request)
+
+    with (
+        sf.Client(
+            engine_url="https://engine.example",
+            http_transport=httpx.MockTransport(engine),
+            scoreboard_url="https://scoreboard.example",
+            scoreboard_transport=httpx.MockTransport(_no_scoreboard),
+            run_transport=_ForbiddenTransport(),  # type: ignore[arg-type]
+        ) as client,
+        pytest.raises(PlanningError) as raised,
+    ):
+        client.evaluate(MODEL, benchmark="draco", cases=SELECTED, progress=False)
+
+    assert raised.value.code == "unknown_benchmark"
 
 
 @pytest.mark.parametrize("echo", ["missing", "other"])

@@ -58,6 +58,11 @@ on the Report with a fingerprint a paper can cite, and a refused leaderboard sub
   and pyright clean on the 11 touched files. A mutation that let any echo through failed
   `test_a_resource_that_does_not_echo_the_selection_is_refused_before_any_run[other]`.
   The full gate (coverage floor, notebooks, build) is CI's.
+- **Review round 1 (#1653):** an Engine older than OME-1739 answers the selection POST with the
+  router's bare 404, which read as "Benchmark not installed"; now `engine_cannot_select_cases`
+  names the Engine, while the Engine's own "Unknown benchmark" 404 keeps `unknown_benchmark`.
+  The 1,000-id cap is bound to the Engine's `MAX_SELECTED_CASE_IDS` by a source-parsing
+  conformance test (a 1,001 mutation fails it). 393 passed in the same files plus the new one.
 - **Deviations:** partial replay with `cases=` (architecture box 9 on the ticket) is refused
   with a plain error instead of built; the researcher's flow does not need it and it keeps the
   PR small. `selected_cases` is derived from the roll call, sorted, so a full run listed out of

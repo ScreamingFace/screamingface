@@ -49,7 +49,7 @@ class BenchmarkResources:
                 "Could not reach the SF Engine Benchmark catalog",
                 engine_url=_engine_url(self._http),
             ) from exc
-        _success(response)
+        _success(response, selecting=cases is not None)
         return _decode_benchmark_resource(
             _json(response),
             requested_id=benchmark,
@@ -92,7 +92,7 @@ class AsyncBenchmarkResources:
                 "Could not reach the SF Engine Benchmark catalog",
                 engine_url=_engine_url(self._http),
             ) from exc
-        _success(response)
+        _success(response, selecting=cases is not None)
         return _decode_benchmark_resource(
             _json(response),
             requested_id=benchmark,
@@ -140,9 +140,20 @@ def _json(response: httpx.Response) -> object:
         ) from exc
 
 
-def _success(response: httpx.Response) -> None:
+def _success(response: httpx.Response, *, selecting: bool = False) -> None:
     if response.is_success:
         return
+    if selecting and response.status_code == 404 and not _unknown_benchmark(response):
+        # WHY (review on #1653): an Engine older than OME-1739 has no `/selection` route, so its
+        # router answers a plain 404. Reading that as "not installed" sends the researcher to
+        # the Benchmark id when the fix is a newer Engine.
+        raise PlanningError(
+            "This SF Engine cannot run a fixed list of Case ids (it has no Case selection "
+            "route, so it is older than OME-1739); upgrade the Engine, or run with limit=",
+            code="engine_cannot_select_cases",
+            status=404,
+            permanent=True,
+        )
     detail = _problem_detail(response)
     if response.status_code == 404:
         message = "The requested Benchmark is not installed on this Engine"
@@ -161,6 +172,18 @@ def _success(response: httpx.Response) -> None:
         status=response.status_code,
         permanent=response.status_code < 500,
     )
+
+
+def _unknown_benchmark(response: httpx.Response) -> bool:
+    """Whether a 404 is the Engine's own "Unknown benchmark" problem, not a missing route."""
+
+    try:
+        payload: object = response.json()
+    except ValueError:
+        return False
+    # WHY the title: the Engine's catalog routes answer an unknown id with an RFC 9457 problem
+    # titled "Unknown benchmark"; a route the Engine lacks gets the router's bare 404 instead.
+    return isinstance(payload, dict) and payload.get("title") == "Unknown benchmark"
 
 
 def _problem_detail(response: httpx.Response) -> str | None:

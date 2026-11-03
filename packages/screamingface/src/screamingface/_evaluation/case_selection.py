@@ -24,6 +24,9 @@ from screamingface._report_primitives import CaseId
 # WHY 1,000: the SDK starts a run with the whole recipe in the URL, and the hosted edge answers
 # normally only up to about 32 KiB of URL. Two URL-encoded copies of a 2,000-id list are about
 # 26 KiB, so 1,000 leaves room for the rest of the recipe (owner-approved limit on OME-1739).
+# INVARIANT: a copy of the Engine's `MAX_SELECTED_CASE_IDS`
+# (apps/screamingface-engine/src/screamingface_engine/benchmarks/selection.py), the source of
+# truth; tests/unit/test_case_selection_cap_conformance.py fails when the two differ.
 MAX_SELECTED_CASES = 1_000
 
 
