@@ -35,6 +35,7 @@ import copy
 import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 
 from url4.core.errors import CollectionError, ErrorCode, ResolutionError, Url4Error
 from url4.core.nodes import (
@@ -269,9 +270,11 @@ async def _flight(
     """One binary-safe fetch of ``identity`` under its own guard policy (F1b one flight).
 
     INVARIANT: the bytes are charged to ``budget`` OUTSIDE the guard — a cap breach is the
-    run's refusal, never a source failure an ``;optional`` guard could swallow or retry.
+    run's refusal, never a source failure an ``;optional`` guard could swallow or retry. The
+    live draw happens inside it (as bytes arrive), so a breach an ``;optional`` guard swallowed
+    is re-raised here (:meth:`CapBudget.raise_if_refused`); permanent, so never retried.
     """
-    leaf = _AttachmentFetchNode(identity)
+    leaf = _AttachmentFetchNode(identity, budget)
     if not (identity.optional or identity.timeout is not None or identity.retries):
         await leaf.resolve({}, ctx)
     else:
@@ -280,6 +283,7 @@ async def _flight(
         )
         outcome = await guard.resolve({}, ctx)
         if isinstance(outcome, SourceFailure):
+            budget.raise_if_refused()
             ctx.log(
                 "WARN",
                 f"optional attachment source {display_url(identity.url)!r} omitted",
@@ -301,6 +305,7 @@ class _AttachmentFetchNode:
     """
 
     identity: AttachmentIdentity
+    budget: CapBudget
     deps: Mapping[str, DagNode] = field(default_factory=dict)
     fetched: Attachment | None = None
 
@@ -316,9 +321,24 @@ class _AttachmentFetchNode:
                 code=ErrorCode.UNSUPPORTED_MODE,
                 permanent=True,
             )
-        request = FetchRequest(identity.url, relative=False, kind="http", accept=identity.accept)
-        got = await fetch(request)
-        media_type = classify(identity, got.media_type)
+        # WHY release first: a retried attempt reads its body again from the start.
+        self.budget.release(identity)
+        request = FetchRequest(
+            identity.url,
+            relative=False,
+            kind="http",
+            accept=identity.accept,
+            max_bytes=self.budget.remaining(),
+            on_chunk=partial(self.budget.charge_bytes, identity),
+        )
+        try:
+            got = await fetch(request)
+            media_type = classify(identity, got.media_type)
+        except BaseException:
+            # INVARIANT: a failed (or cancelled) attempt gives its live bytes back at once —
+            # before a sibling flight draws again — so a failed source consumes no budget.
+            self.budget.release(identity)
+            raise
         body: bytes = got.body
         digest = f"sha256:{hashlib.sha256(body).hexdigest()}"
         self.fetched = Attachment(digest, media_type, body)

@@ -616,3 +616,45 @@ redirect limit) and `io/media.py` (`{target!r} has Content-Type…`) still inter
 URL; an omitted optional source's `ResolutionError(outcome.message)` can carry them. Follow-up.
 (3) `source_scan.refuse_malformed` echoes a malformed call-context segment and
 `refuse_remote` a `url4://` blob ref — text/refs, not fetched URLs; unchanged.
+
+## Amendment 2026-11-03 — shared live byte budget (push security review "resource-cap-defeat")
+
+**Finding.** `materialize` runs every attachment flight concurrently (`gather_or_cancel`, up to
+20); each `fetch_bytes` was bounded only by the guard's 20 MiB per-response cap, and
+`CapBudget.charge` ran only after a body had fully landed, so one run could download and hold about
+20 × 20 MiB before the 8,000,000-byte cap refused it. Owner decision (Sergey, 2026-11-03): **one
+shared live budget**.
+
+**Change.** io half in #1482 (`FetchRequest.max_bytes` / `on_chunk`, honoured by the guarded
+transport per decoded piece of every hop, an injected client's read, and non-streaming adapters
+after the read), merged here normally. This PR:
+- `dag/_caps.py` — `CapBudget` gains `charge_bytes(key, n)` (live draw, refuses once settled +
+  in-flight bytes pass the cap), `release(key)` (give-back), `remaining()` (cap − SETTLED bytes,
+  the flight's `max_bytes`), `raise_if_refused()`; one `threading.RLock`; refusal is sticky (every
+  later draw is refused). `charge` still counts once per key and now settles the key's live bytes;
+  `check_caps` stays the authoritative final check.
+- `dag/_materialize.py` — each attempt of `_AttachmentFetchNode` releases first (a retry starts
+  over), sends `max_bytes=budget.remaining()` and `on_chunk=partial(budget.charge_bytes, identity)`,
+  and releases at once on any failure or cancellation (before a sibling draws again).
+  `_flight` re-raises a refusal an `;optional` guard swallowed (`raise_if_refused`).
+- `ARCHITECTURE.md` — one sentence on the live budget.
+
+**Design notes.** `max_bytes` uses settled bytes only: in-flight bytes may be refunded, so a
+ceiling counting them could raise `x.source_too_large` (a source failure) for a body the run has
+room for; the live total is enforced chunk by chunk. A redirect hop's body draws from the budget
+too (httpx holds it) — conservative.
+
+**Tests (append-only, new file).** `tests/unit/test_attachment_live_budget.py` (11): 20 concurrent
+1 MiB flights via `HttpIOLayer` + counting mock transport refused `attachments_too_large`
+(permanent), bytes read 9,175,040 ≤ 8,000,000 + 20 × 65,536 = 9,310,720 (before the fix:
+20,971,520), 0 of 20 bodies read to the end, all closed, no model call; a single 20 MiB body
+refused after 8,060,928 bytes (before: 20,971,520); 4,000,000 + 4,000,000 passes, 4,000,000 +
+4,000,001 fails; a 9 MB `;optional` breach still refuses the run; a transient mid-body failure
+gives its bytes back before `;retry=1`; an `;optional` source that streamed 7 MB then failed
+consumes no budget (5 MB required source then lands); `max_bytes` = cap − Case bytes; budget unit
+tests (settle once per key, exact boundary, release, sticky refusal). Existing cap tests
+(rounds 7/8) unedited and green.
+
+**Gates.** `run_gates.py url4 --base origin/OME-1539-url4-file-refs` ALL GATES GREEN;
+`check_module_size.py` within baseline (`dag/_context.py` untouched at 455/455);
+`check_suppressions.py` 3/3; hygiene ratchets green.

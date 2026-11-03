@@ -164,6 +164,7 @@ class HttpIOLayer:
             accept=request.accept,
             read=_raw_body,
             typed=True,
+            bound=request,
         )
         return FetchedBytes(body, media_type=_media_type(request.target, response))
 
@@ -179,6 +180,7 @@ class HttpIOLayer:
         read: Callable[[httpx.Response], T],
         accept: str | None = None,
         typed: bool = False,
+        bound: FetchRequest | None = None,
     ) -> tuple[httpx.Response, T]:
         """The response and ``read(response)``, both produced within the fetch's deadline.
 
@@ -210,6 +212,7 @@ class HttpIOLayer:
                     relative=relative,
                     deadline=deadline,
                     typed=typed,
+                    bound=bound,
                 )
         except TimeoutError as exc:
             raise source_timeout(late) from exc
@@ -232,6 +235,7 @@ class HttpIOLayer:
         relative: bool,
         deadline: float | None,
         typed: bool = False,
+        bound: FetchRequest | None = None,
     ) -> httpx.Response:
         client = self._get_client()
         guarded = client is self._owned
@@ -241,7 +245,16 @@ class HttpIOLayer:
         try:
             if guarded and not trusted:
                 check_url(url, self._guard, peer=peer)
-            state = FetchState(peer=peer, trusted_first_hop=trusted, deadline=deadline)
+            # WHY bound: a bytes request's own ceiling and live hook (FetchRequest.max_bytes).
+            cap, on_chunk = (None, None) if bound is None else (bound.max_bytes, bound.on_chunk)
+            limit = self._guard.max_bytes if cap is None else min(self._guard.max_bytes, cap)
+            state = FetchState(
+                peer=peer,
+                trusted_first_hop=trusted,
+                deadline=deadline,
+                max_bytes=limit,
+                on_chunk=on_chunk,
+            )
             extensions = {FETCH_STATE: state} if guarded else None
             request = client.build_request("GET", url, headers=headers, extensions=extensions)
             response = await client.send(request, stream=True)
@@ -249,7 +262,9 @@ class HttpIOLayer:
             mark_answered(url)
             try:
                 response.raise_for_status()
-                body = await _read_capped(response, self._guard.max_bytes)
+                # INVARIANT: on_chunk is told each byte once — by the guarded transport (which sees
+                # every hop's body), else here for an injected client.
+                body = await _read_capped(response, limit, None if guarded else on_chunk)
             finally:
                 await response.aclose()
         except (httpx.HTTPError, httpx.InvalidURL) as exc:
@@ -343,13 +358,18 @@ def _trusted_origins(base_url: str) -> frozenset[Origin]:
         return frozenset()
 
 
-async def _read_capped(response: httpx.Response, limit: int) -> bytes:
+async def _read_capped(
+    response: httpx.Response, limit: int, on_chunk: Callable[[int], None] | None = None
+) -> bytes:
     """The decoded body, read chunk by chunk and abandoned as soon as it passes ``limit``.
 
-    INVARIANT: never holds more than ``limit`` bytes — the check runs before each append.
+    INVARIANT: never holds more than ``limit`` bytes — the check runs before each append, after
+    ``on_chunk`` (the caller's live budget) was told the chunk's size.
     """
     body = bytearray()
     async for chunk in response.aiter_bytes():
+        if on_chunk is not None:
+            on_chunk(len(chunk))
         if len(body) + len(chunk) > limit:
             raise too_large(limit)
         body += chunk
