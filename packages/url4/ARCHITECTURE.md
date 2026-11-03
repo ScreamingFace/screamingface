@@ -158,7 +158,9 @@ extra (`url4[streaming]`) because it is pydantic models.
   reads it. Every other `http(s)://` source is a text source: lazy as before and
   never attached, whatever its body. The caps (20 entries, 8,000,000 bytes over the
   whole list) are charged on every adding path while the list is built
-  (`dag/_caps.py`); nothing adds after the run starts.
+  (`dag/_caps.py`); nothing adds after the run starts. The byte cap is one live
+  budget the concurrent flights draw from as bytes arrive (`FetchRequest.on_chunk`),
+  so a breach stops every read within about one chunk per flight.
 - **The engine names no transport at module scope.** `HttpIOLayer` is imported
   lazily in `dag/_run.py`.
 
