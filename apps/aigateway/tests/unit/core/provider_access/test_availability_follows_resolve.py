@@ -35,7 +35,7 @@ from aigateway.core.provider_access import (
     TargetPending,
     TargetReauthRequired,
 )
-from aigateway.core.provider_access import profile_authorize as authorize_module
+from aigateway.core.provider_access import connection_authorize as authorize_module
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 DEFAULT = Selector.from_header(None)
@@ -255,7 +255,7 @@ def test_the_listing_reads_no_secret_writes_nothing_and_lists_connections_once(
     ):
         monkeypatch.setattr(OAuthConnectionStore, name, forbidden(name))
     monkeypatch.setattr(PairAuthorityStore, "advance", forbidden("advance"))
-    for name in ("read", "write", "mutate", "delete", "begin_dispatch", "record_dispatch_outcome"):
+    for name in ("read", "write", "delete", "begin_dispatch", "record_dispatch_outcome"):
         monkeypatch.setattr(store, name, forbidden(name))
     monkeypatch.setattr(authorize_module, "credential_strategy_from", no_strategy)
 

@@ -7,10 +7,9 @@ no projection existed; a keyed rule on a provider with no projection is unobserv
 STORY: as a benchmark operator I re-run a suite that pins a token ceiling and the second
 run is served from stored rows — while a run with a DIFFERENT ceiling is not.
 
-INVARIANT under test: the effective ceiling is part of the key. Equal effective values
-share one row (explicit or profile-defaulted — the body-wins merge runs before the cache
-stage, OME-305 ruling 57); different values, a different model, or no ceiling at all never
-collide. This is the precondition for ``chat_cache_stage._is_a_whole_answer`` storing a
+INVARIANT under test: the caller's ceiling is part of the key. Equal ceilings share one row;
+different values, a different model, or no ceiling at all never collide. This is the
+precondition for ``chat_cache_stage._is_a_whole_answer`` storing a
 ``finish_reason: "length"`` response: with ``bypass``, a caller asking for 4000 tokens
 would be served the answer that stopped at 20.
 
@@ -100,9 +99,8 @@ def test_a_request_carrying_max_tokens_is_now_keyed_rather_than_bypassed(
 
 
 def test_equal_effective_ceilings_share_one_entry(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The body-wins profile-default merge runs BEFORE the cache stage, so by the time a
-    # plan is built there is no difference between "the caller sent 64" and "the profile
-    # defaulted to 64". One upstream call, one row.
+    # The key holds the caller's ceiling, so two requests that send the same ceiling plan
+    # the same key. One upstream call, one row.
     _safe_runtime(monkeypatch)
 
     assert _planned_key(_body(_SEEDED, max_tokens=64)) == _planned_key(
