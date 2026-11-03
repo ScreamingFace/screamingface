@@ -9,7 +9,8 @@ compiled by their owning node at resolve time, not upfront.
 
 Public surface: :func:`compile_expression` / :class:`Graph` (compiler),
 :func:`run` / :class:`Executor` / :class:`ExecutionContext` (execution), the
-built-in node classes, and :class:`LoweringRegistry` for extension.
+built-in node classes, :class:`LoweringRegistry` for extension, and
+:func:`refuse_remote_nodes` for a host that evaluates as a node without a ``Url4Node``.
 
 The execution-time value semantics the nodes call (collection parsing, ``$``
 substitution) live in :mod:`url4.dag.semantics`. See ``ARCHITECTURE.md`` for the
@@ -56,6 +57,7 @@ from url4.dag.nodes import (
     WebFetchNode,
     current_guard_retry,
 )
+from url4.dag.remote_nodes import refuse_remote_nodes
 
 __all__ = [
     "DEFAULT_MAP_CONCURRENCY",
@@ -95,5 +97,6 @@ __all__ = [
     "current_guard_retry",
     "default_process",
     "default_registry",
+    "refuse_remote_nodes",
     "run",
 ]
