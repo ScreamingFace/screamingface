@@ -7,6 +7,13 @@ scorers reach a judge another way, so a kwargs-only check sees an unjudged row:
 * simpleqa's scorer never takes a model; inside it calls ``get_model(role="grader")``.
 * niah's takes ``judge_model``, nobody passes it, and it grades with the default.
 * infinite_bench's math scorer calls ``get_model()``, which is the model under test.
+* hle's takes the role as an argument, ``regex_judge(grader_role="grader")``, hands it to a
+  helper, ``_resolve_grader(role)``, which asks ``get_model(role=role)``, and keeps the judge
+  it returns in a local. At the pinned inspect_evals 0.20.0:
+  https://github.com/UKGovernmentBEIS/inspect_evals/blob/v0.20.0/src/inspect_evals/hle/scorers.py#L81-L96
+  (the helper) and
+  https://github.com/UKGovernmentBEIS/inspect_evals/blob/v0.20.0/src/inspect_evals/hle/scorers.py#L167-L188
+  (the scorer).
 
 Think of it as reading the examiner's job description instead of hiring the examiner: this
 module reads the scorer constructor's SOURCE and never imports it, because Benchmark
