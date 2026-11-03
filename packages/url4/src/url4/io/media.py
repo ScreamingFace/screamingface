@@ -214,6 +214,17 @@ def _blank(content_type: str) -> bool:
     return len(content_type) <= _MAX_CONTENT_TYPE and not content_type.strip(_OWS)
 
 
+def _shown(content_type: str | None) -> str:
+    """``content_type`` for an error message: its repr within the cap, its length over it.
+
+    INVARIANT: an over-cap header is never repr'd, scanned or copied into a diagnostic
+    (review of PR #1478), so a hostile 1 MB header yields a short, bounded message.
+    """
+    if content_type is not None and len(content_type) > _MAX_CONTENT_TYPE:
+        return f"<{len(content_type)} characters, over the {_MAX_CONTENT_TYPE} cap>"
+    return repr(content_type)
+
+
 def _is_binary(media_type: str) -> bool:
     return (
         media_type.split("/", 1)[0] != "application"
@@ -260,7 +271,8 @@ def bare_media_type(target: str, content_type: str | None) -> str | None:
     parsed = _parse(content_type)
     if parsed is None:
         raise ResolutionError(
-            f"{target!r} has Content-Type {content_type!r}, which is not one valid media type",
+            f"{target!r} has Content-Type {_shown(content_type)}, "
+            "which is not one valid media type",
             code=ErrorCode.UNSUPPORTED_CONTENT_TYPE,
             permanent=True,
         )
@@ -276,7 +288,7 @@ def require_text(target: str, content_type: str | None) -> None:
     """
     if not is_text_media_type(content_type):
         raise ResolutionError(
-            f"{target!r} is {content_type!r}, which is not text; fetch it as bytes",
+            f"{target!r} is {_shown(content_type)}, which is not text; fetch it as bytes",
             code=ErrorCode.UNSUPPORTED_CONTENT_TYPE,
             permanent=True,
         )
