@@ -9,9 +9,9 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.plugins.gemini_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 from tests.unit.seed_state import SeedState
 

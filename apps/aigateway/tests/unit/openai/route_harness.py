@@ -2,13 +2,9 @@
 
 WHY a module rather than a copy per suite: three cohesive suites drive the SAME app, the
 same in-memory store and the same dispatch double — the ordinary miss/store/replay lane
-and its refusals, the key-material proofs (profile defaults in, identity out), and the
-ambient modifier end to end. They are only comparable while they arrange the world
+and its refusals, the key-material proofs (the caller's parameters in, identity out), and
+the ambient modifier end to end. They are only comparable while they arrange the world
 identically; three copies of a recording store would drift.
-
-INVARIANT: the store double records READS as well as rows. "Did not store" and "never
-looked" are different failures, and a bypass must do neither — only the read log can tell
-a bypass apart from a miss that stored nothing.
 """
 
 from __future__ import annotations
@@ -52,9 +48,9 @@ class ValidValidationService:
 class Store:
     """The frozen store contract in memory, recording every read and write.
 
-    WHY the reads are recorded and not just the rows: "did not store" and "never
-    looked" are different failures. A bypass must do NEITHER, and only the read log
-    can tell a bypass apart from a miss that stored nothing.
+    INVARIANT: the store double records READS as well as rows. "Did not store" and "never
+    looked" are different failures, and a bypass must do NEITHER — only the read log can tell
+    a bypass apart from a miss that stored nothing.
     """
 
     def __init__(self) -> None:
@@ -151,13 +147,8 @@ def body(
     return body
 
 
-def post(client: TestClient, body: dict[str, Any], *, profile: str | None = None):
-    headers = {"X-Profile": profile} if profile is not None else {}
-    return client.post(CHAT_PATH, json=body, headers=headers)
-
-
-def system_contents(body: dict[str, Any]) -> list[str]:
-    return [m["content"] for m in body.get("messages", []) if m.get("role") == "system"]
+def post(client: TestClient, body: dict[str, Any]):
+    return client.post(CHAT_PATH, json=body)
 
 
 def listed_models(client: TestClient) -> set[str]:

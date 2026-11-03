@@ -191,3 +191,22 @@ def _value(value: Any) -> str:
     if isinstance(value, list):
         return "[" + ", ".join(_value(item) for item in value) + "]"
     raise TypeError(f"unsupported fixture value type: {type(value).__name__}")
+
+
+# FEATURE: hosted BYOM Unit 3 — a classifier is a target of the same endpoint document, with its
+# own required fields and none of a chat target's.
+CLASSIFIER_ALIAS = "classifier_v1"
+CLASSIFIER_PATH = "/models/classifier"
+
+
+def classifier_target(**overrides: Any) -> dict[str, Any]:
+    target: dict[str, Any] = {
+        "alias": CLASSIFIER_ALIAS,
+        "task": "text-classification",
+        "contract": "hf-text-classification-v1",
+        "request_path": CLASSIFIER_PATH,
+        "response_envelope": "single-batch",
+        "score_semantics": "bounded-score",
+    }
+    target.update(overrides)
+    return target

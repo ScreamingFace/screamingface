@@ -14,6 +14,7 @@ from typing import Any
 import pytest
 
 from aigateway.plugins.remote_endpoint.definitions import (
+    ChatTarget,
     EndpointGrant,
     RemoteEndpointConfigError,
     parse_remote_endpoint_config,
@@ -57,12 +58,14 @@ def test_two_endpoints_become_ordered_definitions_with_canonical_targets() -> No
     assert (first.origin, second.origin) == (ORIGIN_A, ORIGIN_B)
     assert first.validation_target == ALIAS
     (target,) = first.targets
+    assert isinstance(target, ChatTarget)
     assert (target.alias, target.task, target.contract) == (ALIAS, "chat", "openai-chat-basic-v1")
     assert (target.request_path, target.upstream_model) == (CHAT_PATH, UPSTREAM_MODEL)
     assert first.model_id(target) == f"{ENDPOINT_A}/{ALIAS}"
     assert first.target(ALIAS) is target
     assert first.target("absent") is None
     # INVARIANT: the same upstream model name on both endpoints is legal and stays distinct by ID.
+    assert isinstance(second.targets[0], ChatTarget)
     assert second.targets[0].upstream_model == UPSTREAM_MODEL
 
 
@@ -356,7 +359,7 @@ def test_a_chat_target_requires_an_upstream_model() -> None:
 @pytest.mark.parametrize(
     "overrides, location",
     [
-        ({"task": "text-classification"}, "task"),
+        ({"task": "embeddings"}, "task"),
         ({"contract": "openai-chat-full-v1"}, "contract"),
     ],
 )

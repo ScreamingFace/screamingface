@@ -169,7 +169,7 @@ request cache; it stores no account/profile identity.
 
 Stage B (`OME-1208`) moved provider-credential authority from Profiles to Connections. Stage E
 (`OME-1138`) retired the Profile routes, readers and writers, deleted the Profile code, and shipped
-a one-off purge of the stored Profile rows. Three things follow for an operator.
+a one-off purge of the stored Profile rows. The paragraphs below say what follows for an operator.
 
 **Rollback floor after the purge.** E5b (`1ccf80a89`, #1573) added the offline command
 `python -m aigateway.purge_profile_history`. In every account it can prove, its `--apply` deletes
@@ -180,6 +180,23 @@ E4a reads Profile documents the purge deleted, and an image older than E4b write
 0.2.x release predates E4b. The database backup taken before `--apply` is the only way back to the
 purged data.
 
+**Keep the release's values in every upgrade below.** Each `helm upgrade` in this section passes the
+same values files and `--set` arguments as the current release, and changes only what its step
+names: the chart and `image.tag` in an upgrade, `replicaCount` when stopping. Helm reuses a
+release's values only when an upgrade passes no value flag at all, so an upgrade given just
+`--set image.tag=…` or `--set replicaCount=0` starts from the chart defaults: settings such as
+`database.existingSecret`, `auth.existingSecret`, `publicUrl` and the ingress fall back to their
+defaults, and the pre-upgrade migration Job runs with that configuration first. Without the original files, save the
+release's values and pass them back with `-f`:
+
+```bash
+helm -n aigw get values aigw -o yaml > aigw-values.yaml
+```
+
+The file holds every value given with `--set`, secrets included; keep it out of version control.
+`--reuse-values` is not a substitute: it also replaces the new chart's defaults with the old
+release's, so a value that a newer chart adds gets no default.
+
 **Upgrade path for a Helm install that still holds Profile rows.** Since E4a (`b66f94f08`, #1491) a
 Profile-only credential no longer resolves, and E5c (`7cb093014`, #1596) deleted both offline
 commands, `migrate_profiles` (the Stage B backfill) and `purge_profile_history`. No image built from
@@ -189,14 +206,14 @@ Such an install therefore upgrades in two steps:
 1. Upgrade the gateway itself, every replica, to an E5b-era image: one built from `1ccf80a89` or a
    later commit before `7cb093014`. Use this repository's chart, `apps/aigateway/charts/aigateway`.
    Its only change from `1ccf80a89` to `e915d8037` is the opt-in `remoteEndpoints` block
-   (`143d4bcf8`, #1606), which renders nothing while unset; leave it unset for this step. Install
-   it with `--set image.tag=main-1ccf80a` (the dev build of `1ccf80a89`; dev builds are tagged
-   `main-<first 7 characters of the commit SHA>` and are built for amd64 only). Its pre-upgrade Job
-   applies the migrations. The purge's `--apply` needs E5a (`8cb1e54e0`) or later on every
-   replica, which an E5b-era image includes: an older replica's PUT on a deleted account could
-   adopt a leftover blob, and a deleted account has no row for the purge to lock. Then run both
-   commands in one of the upgraded gateway pods, dry run first, with a database backup before each
-   `--apply`:
+   (`143d4bcf8`, #1606), which renders nothing while unset; leave it unset for this step. Upgrade
+   with the release's values and `--set image.tag=main-1ccf80a` (the dev build of `1ccf80a89`; dev
+   builds are tagged `main-<first 7 characters of the commit SHA>` and are built for amd64 only).
+   Its pre-upgrade Job applies the migrations. The purge's `--apply` needs E5a (`8cb1e54e0`) or
+   later on every replica, which an E5b-era image includes: an older replica's PUT on a deleted
+   account could adopt a leftover blob, and a deleted account has no row for the purge to lock.
+   Then run both commands in one of the upgraded gateway pods, dry run first, with a database
+   backup before each `--apply`:
 
    ```bash
    python -m aigateway.migrate_profiles --dry-run --all
@@ -234,9 +251,9 @@ that account, the `GET /v1/provider-access` listing fails for it, and the admin 
 it. Settle the leftover rows with no gateway running, in this order:
 
 1. Take a database backup.
-2. Stop every gateway replica. Rerun the release's `helm upgrade` with its current image and
-   `--set replicaCount=0`, then wait until no gateway Pod is left (release and namespace `aigw`, as
-   above):
+2. Stop every gateway replica. Rerun the release's `helm upgrade` with its current chart, image
+   and values, adding only `--set replicaCount=0` (see "Keep the release's values" above), then wait
+   until no gateway Pod is left (release and namespace `aigw`, as above):
 
    ```bash
    kubectl -n aigw wait --for=delete pod \
@@ -272,8 +289,8 @@ it. Settle the leftover rows with no gateway running, in this order:
 
    Record the first count. If any statement fails, nothing is committed; fix the cause and run the
    transaction again.
-4. Upgrade the release to the L4a image with `--set replicaCount=<your replica count>`. Its Pods
-   are the first to take traffic again.
+4. Upgrade the release to the L4a image with the same values, changing `image.tag` and setting
+   `--set replicaCount=<your replica count>`. Its Pods are the first to take traffic again.
 
 A pair set to `none` is owned by its Connections: one active Connection serves it, two or more are
 refused as ambiguous (`409 connection_ambiguous`; the availability listing shows `error`), and with
