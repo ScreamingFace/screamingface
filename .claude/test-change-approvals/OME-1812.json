@@ -3,7 +3,7 @@
   "branch": "OME-1812-neutral-vocabulary-rename",
   "approver": "Dmitry Stebukov (owner)",
   "date": "2026-11-02",
-  "scope": "The prior tests spec section 6 lists for L5 (approved by the owner on 2026-10-29): every test that names a renamed symbol. The strategy constructors in the anthropic, antigravity, codex and gemini auth tests take credential_name; test_codex_provider.py and gemini/test_gemini_provider.py read strategy.credential_name; the PendingAuthEntry constructors in test_pending_auth.py, test_admin_connections_mutation_routes.py, test_auth_routes.py, test_pair_put_own_address.py and test_pair_admin_mutations.py pass fallback_label, and test_pending_auth.py reads it; test_availability_follows_resolve.py and test_provider_access_availability_route.py import connection_authorize, and test_refresh_guard_inventory.py names its module path; test_admission_accounting.py, usage_accounting/test_openrouter_proven_zero_route.py and test_dispatch_failure_records_handler_error.py drop the retired selector-name argument. The three RED files (test_neutral_credential_vocabulary.py, test_dispatch_failure_records_handler_error.py, openrouter/test_model_admission_route.py) are pinned too, so every prior test file the branch changes is pinned byte-exact (19). No assertion, input or expected value changes.",
+  "scope": "The prior tests spec section 6 lists for L5 (approved by the owner on 2026-10-29): every test that names a renamed symbol. The strategy constructors in the anthropic, antigravity, codex and gemini auth tests take credential_name; test_codex_provider.py and gemini/test_gemini_provider.py read strategy.credential_name; the PendingAuthEntry constructors in test_pending_auth.py, test_admin_connections_mutation_routes.py, test_auth_routes.py, test_pair_put_own_address.py and test_pair_admin_mutations.py pass fallback_label, and test_pending_auth.py reads it; test_availability_follows_resolve.py and test_provider_access_availability_route.py import connection_authorize, and test_refresh_guard_inventory.py names its module path; test_admission_accounting.py, usage_accounting/test_openrouter_proven_zero_route.py and test_dispatch_failure_records_handler_error.py drop the retired selector-name argument. No semantic input value or existing expected literal is changed or weakened; symbol, module and keyword names follow the approved rename. The files that carry new coverage are pinned too: test_neutral_credential_vocabulary.py (the identifier scan with a positive control per spelling), test_dispatch_failure_records_handler_error.py (both dispatch log lines without profile=), openrouter/test_model_admission_route.py (the connection wording of both refusals) and test_api_key_strategy.py (the exact help text, appended after review on 2026-11-03). Every test file the branch changes is pinned byte-exact (20).",
   "reason": "OME-1138 close-out L5 (spec section 4.5): the runtime names a credential's address credential_name, the pending OAuth entry's label fallback_label, and the authorize module connection_authorize; the always-default selector name is no longer threaded through chat or logged as profile=. A prior test that names one of those symbols changes with it.",
   "files": {
     "apps/aigateway/tests/unit/anthropic/test_anthropic_auth.py": {
@@ -36,7 +36,7 @@
     },
     "apps/aigateway/tests/unit/core/test_neutral_credential_vocabulary.py": {
       "base_blob": "a08bcb99f03a4bd314f7b156a85bfdc2bb680ffd",
-      "approved_blob": "49cf693c9cabf58849cda40968c07abebbce28cf"
+      "approved_blob": "d6ffca7124ffb60dcd8c665c3ffb877cddfbe7d1"
     },
     "apps/aigateway/tests/unit/gemini/test_gemini_auth.py": {
       "base_blob": "4af9f889064afa1729daf909a09c3f2f631fc4b9",
@@ -58,6 +58,10 @@
       "base_blob": "730ec308076fd0b157f93453595d12abe1242aa0",
       "approved_blob": "cd77d781d2a76c044775a3e9ac3b003c39cebdab"
     },
+    "apps/aigateway/tests/unit/test_api_key_strategy.py": {
+      "base_blob": "802c1e4e540de16204b37c858ab1c7b9936df07b",
+      "approved_blob": "45cebf35c622ef4f6394090fae4cba65100eaa5f"
+    },
     "apps/aigateway/tests/unit/test_auth_routes.py": {
       "base_blob": "0f1828fc55acf9acb1d2efae0e5aeeb3aa8829cf",
       "approved_blob": "c9acaa969cd792b94b2a65a4e88b561eaa6d666f"
@@ -68,7 +72,7 @@
     },
     "apps/aigateway/tests/unit/test_dispatch_failure_records_handler_error.py": {
       "base_blob": "2ca8c919b77df6181a675fd06d7c614c5ef3e32c",
-      "approved_blob": "3b4e8263d1fb2a80340d7b5ce69284f83764c4d8"
+      "approved_blob": "c67b2d665adfb3dcfb9531b64ce93264072ae6cd"
     },
     "apps/aigateway/tests/unit/test_pending_auth.py": {
       "base_blob": "b56bcf4b2995393d8d2b0e27a061ed7bc34ebf91",

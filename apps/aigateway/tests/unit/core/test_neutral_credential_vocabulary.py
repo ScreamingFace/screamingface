@@ -21,8 +21,11 @@ from __future__ import annotations
 import ast
 import importlib.util
 import inspect
+from collections.abc import Iterator
 from pathlib import Path
-from typing import TypeGuard, get_args
+from typing import get_args
+
+import pytest
 
 import aigateway
 from aigateway.core import auth_types
@@ -49,16 +52,64 @@ def test_the_locators_keep_their_exact_shapes() -> None:
 _SRC = Path(inspect.getfile(aigateway)).resolve().parent
 
 
-def _named_profile_name(
-    node: ast.AST,
-) -> TypeGuard[ast.Name | ast.Attribute | ast.arg | ast.keyword]:
-    if isinstance(node, ast.Name):
-        return node.id == "profile_name"
-    if isinstance(node, ast.Attribute):
-        return node.attr == "profile_name"
-    if isinstance(node, ast.arg | ast.keyword):
-        return node.arg == "profile_name"
-    return False
+# WHY these fields: they are every place the AST keeps an identifier — a name read or bound, an
+# attribute, a parameter or keyword, a def, class, `except … as` or match capture, an import, its
+# module or its alias, and a `global`/`nonlocal` name. A dotted import path is split into its parts.
+_IDENTIFIER_FIELDS = ("id", "attr", "arg", "name", "asname", "module", "names", "rest", "kwd_attrs")
+
+
+def _spellings(value: object) -> list[str]:
+    # WHY a list too: `global`/`nonlocal` names and a class pattern's keywords are lists of strings.
+    items = value if isinstance(value, list) else [value]
+    return [item for item in items if isinstance(item, str)]
+
+
+def _identifiers(tree: ast.AST) -> Iterator[tuple[str, int]]:
+    """Every identifier a module spells, with its line; strings and comments are not identifiers."""
+    for node in ast.walk(tree):
+        line = getattr(node, "lineno", 0)
+        for field in _IDENTIFIER_FIELDS:
+            for spelled in _spellings(getattr(node, field, None)):
+                yield from ((part, line) for part in spelled.split("."))
+
+
+def _profile_name_lines(source: str) -> list[int]:
+    return [line for name, line in _identifiers(ast.parse(source)) if name == "profile_name"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "profile_name",
+        "profile_name = value",
+        "value.profile_name",
+        "def f(profile_name): ...",
+        "f(profile_name=value)",
+        "def profile_name(): ...",
+        "async def profile_name(): ...",
+        "class profile_name: ...",
+        "import profile_name",
+        "import module.profile_name",
+        "from profile_name import value",
+        "from module import value as profile_name",
+        "global profile_name",
+        "try:\n    pass\nexcept E as profile_name:\n    pass",
+        "match value:\n    case profile_name:\n        pass",
+        "match value:\n    case [*profile_name]:\n        pass",
+        "match value:\n    case {**profile_name}:\n        pass",
+        "match value:\n    case C(profile_name=x):\n        pass",
+    ],
+)
+def test_the_identifier_scan_sees_every_spelling(source: str) -> None:
+    # WHY: a positive control per form, so the src guard below cannot pass because the scan misses
+    # a way of naming `profile_name`.
+    assert _profile_name_lines(source)
+
+
+def test_the_identifier_scan_ignores_text() -> None:
+    # WHY: a string or a comment is not an identifier; the dropped `profile=` log fields are
+    # pinned by the dispatch log tests, not by this scan.
+    assert _profile_name_lines('label = "profile_name"  # profile_name\n') == []
 
 
 def test_no_src_module_names_a_profile_name() -> None:
@@ -67,11 +118,11 @@ def test_no_src_module_names_a_profile_name() -> None:
     # WHY `migrations/` is exempt: an applied migration is history and keeps the column names of
     # its time.
     sites = {
-        f"{path.relative_to(_SRC)}:{node.lineno}"
+        f"{path.relative_to(_SRC)}:{line}"
         for path in _SRC.rglob("*.py")
         if path.relative_to(_SRC).parts[0] != "migrations"
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if _named_profile_name(node)
+        for name, line in _identifiers(ast.parse(path.read_text(encoding="utf-8")))
+        if name == "profile_name"
     }
 
     assert sites == set()

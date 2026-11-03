@@ -73,7 +73,7 @@ RED first:
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files (47 under `apps/aigateway`, plus this ledger, the mirror and the manifest):**
+- **Actual files (48 under `apps/aigateway`, plus this ledger, the mirror and the manifest):**
   - src (28): the planned sites. `profile_authorize.py` moved to `connection_authorize.py` with
     its six importers; the strategies, the plugins' `auth.py` and `plugin.py`, `_resolvers.py`
     and `remote_endpoint/credential.py` say `credential_name`; `pending_auth.py`, `routes/auth.py`
@@ -81,10 +81,12 @@ RED first:
     `routes/chat_dispatch.py` drop the constant thread and the `profile=` field;
     `routes/model_admission.py` and `core/api_key_strategy.py` carry the new wording. Docstrings
     in `api_key_strategy.py` and `oauth_base.py` say "connection" where they said "profile".
-  - tests (19): the three RED files, one of which also drops the retired argument from two prior
-    calls, and 16 prior files that name a renamed symbol (spec §6 L5 row). Each changed line is
-    an import, a module path, a keyword, an attribute read or a dropped argument; no expected
-    value changes. All 19 are pinned in the manifest.
+  - tests (20): the three RED files, one of which also drops the retired argument from two prior
+    calls; 16 prior files that name a renamed symbol (spec §6 L5 row); and
+    `test_api_key_strategy.py`, which gains the help-text pin after review. In the 16, each
+    changed line is an import, a module path, a keyword, an attribute read or a dropped argument;
+    no semantic input value or existing expected literal changes. All 20 are pinned in the
+    manifest.
 - **Commits:** `refactor(aigateway): name credentials and connections in the runtime vocabulary`.
 - **RED seen:** the AST guard listed every `profile_name` site in src; `find_spec` found
   `profile_authorize` and no `connection_authorize`; `log_dispatch_failure` raised `TypeError`
@@ -96,7 +98,23 @@ RED first:
 - **Deviations:**
   - The spec scopes the message change to the two admission refusals and the `ApiKeyStrategy`
     help text, so the plugins' own errors still say "profile" ("No tokens for <provider>
-    profile …", "Refresh token rejected for profile …"), as does the `x-aigw-gemini-profile`
-    header, which is wire. Two of those literals were split to fit the line limit, text
+    profile …", "Refresh token rejected for profile …"), as do the `X-AIGW-Gemini-Profile` and
+    `X-AIGW-Antigravity-Profile` headers, which are wire. Two of those literals were split to fit the line limit, text
     unchanged.
   - The admission refusals no longer name the selector: it is always `default` since L4a.
+- **Review (2026-11-03):** a review of PR #1652 found three should-fix points and three minor
+  ones, all fixed:
+  - the src guard scanned names, attributes, parameters and keywords only; it now scans every
+    identifier the AST keeps, with a positive control per spelling (13 of the 18 forms were
+    missed before: `def`, `class`, imports and aliases, `global`, `except … as`, match captures);
+  - the `ApiKeyStrategy` help text is pinned exactly (`test_api_key_strategy.py`);
+  - the success-observation error line is pinned without `profile=`, through a failing
+    `record_dispatch_outcome`;
+  - the manifest scope says what changes: names follow the rename, no semantic input or expected
+    literal changes;
+  - both retained wire headers are named;
+  - the priority is Low, as the close-out spec's leaf table sets it (Linear and the mirror).
+
+  Reverting the help text, or restoring `profile=` in the success line, fails the new tests.
+  After the fixes, `run_gates.py aigateway --base origin/main` passed every gate, the append-only
+  check with all 20 files pinned. No PostgreSQL test changed in this round.

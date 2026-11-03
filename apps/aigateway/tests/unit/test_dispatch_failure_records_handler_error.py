@@ -12,12 +12,15 @@ logged "dispatch failure handling error" AND "dispatch failed" — two ERROR rec
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 
 from aigateway.call_context import record_call_id
+from aigateway.routes import chat_dispatch
 from aigateway.routes.chat_dispatch import log_dispatch_failure
 
 from .test_dispatch_failure_records import (  # noqa: F401 — fixtures shared with OME-968's suite
@@ -169,3 +172,30 @@ def test_the_terminal_record_names_no_profile(captured) -> None:  # noqa: F811
     message = _only_failure(captured).getMessage()
     assert "account=acct" in message
     assert "profile" not in message
+
+
+@pytest.mark.asyncio
+async def test_a_failed_success_observation_names_no_profile(
+    captured,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # WHY (OME-1138 close-out, L5, Q6): the success-observation error line dropped `profile=` with
+    # the terminal record; the provider and the account still identify the call.
+    class _RaisingAccess:
+        async def record_dispatch_outcome(self, *_args: object, **_kwargs: object) -> None:
+            raise RuntimeError(PROVIDER_TEXT)
+
+    monkeypatch.setattr(chat_dispatch, "operational_access_for", lambda _app: _RaisingAccess())
+
+    await chat_dispatch._record_dispatch_success(
+        cast(Request, SimpleNamespace(app=None)),
+        plugin=None,
+        provider="anthropic",
+        account_id="acct",
+        target=cast(Any, object()),
+        observation=cast(Any, object()),
+    )
+
+    assert _only_failure(captured).getMessage() == (
+        "dispatch success observation error type=RuntimeError provider=anthropic account=acct"
+    )
