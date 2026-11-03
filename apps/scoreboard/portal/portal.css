@@ -264,6 +264,10 @@ table .btn { white-space: nowrap; }
 .landing .eyebrow { color: var(--gain-text-low); }
 .landing a:not([class]) { color: var(--info-text-low); }
 .landing a:not([class]):hover { color: var(--info-text-high); }
+/* Lead copy runs a notch smaller on the marketing pages (the hero subtitle). Scoped as a token
+   override on `.landing` — tokens.css is generated (never hand-edited), and this keeps the board,
+   spec and data leads at the brand default. */
+.landing { --text-lead: 18px; }
 
 /* ---- about page ------------------------------------------------------ */
 /* Sections under a gold .section-label, prose at a readable measure, with the Thesis "needs to"
