@@ -145,11 +145,15 @@ class TortoiseRunStore:
 
     # --- writes ------------------------------------------------------------------------------
 
-    @_in_context
     async def create(self, owner: OwnerKey, spec: RunSpec) -> RunRecord:
+        record, _ = await self.register(owner, spec)
+        return record
+
+    @_in_context
+    async def register(self, owner: OwnerKey, spec: RunSpec) -> tuple[RunRecord, bool]:
         existing = await self._by_client_key(owner, spec)
         if existing is not None:
-            return existing
+            return existing, False
         now = self._clock()
         run_id = new_run_id()
         try:
@@ -177,10 +181,10 @@ class TortoiseRunStore:
             raced = await self._by_client_key(owner, spec)
             if raced is None:
                 raise
-            return raced
+            return raced, False
         created = await self.get(owner, run_id)
         assert created is not None
-        return created
+        return created, True
 
     async def _by_client_key(self, owner: OwnerKey, spec: RunSpec) -> RunRecord | None:
         record = await self._one(
@@ -242,10 +246,10 @@ class TortoiseRunStore:
         return row
 
     @_in_context
-    async def mark_scheduled(self, topic: str) -> None:
+    async def mark_scheduled(self, topic: str) -> bool:
         row = await Candidate.get_or_none(topic=topic)
         if row is None:
-            return
+            return True
         now = self._clock()
         async with in_transaction(CONNECTION) as conn:
             await _lock_run(row.run_id, conn)
@@ -255,6 +259,10 @@ class TortoiseRunStore:
                 .update(state="scheduled")
             ):
                 await self._touch(row.run_id, now, conn)
+                return True
+        # WHY the cancel flag and not the state: a re-sent start finds the Candidate already
+        # `scheduled`, and a fast run may have settled it; only a cancel stopped it before this.
+        return not await Run.filter(id=row.run_id, canceled=True).exists()
 
     @_in_context
     async def settle(self, topic: str, outcome: CandidateOutcome) -> None:

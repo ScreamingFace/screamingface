@@ -113,6 +113,10 @@ All routes resolve the owner (D6) and answer RFC 9457 `Problem`s, as the existin
 - **404s.** Only `POST /runs` falls back silently (D7). On every other route, a 404 whose Problem
   type is `run_not_found` means the id is unknown or foreign. Any other 404 (an older Engine, or
   Runs off) means this Engine does not serve Runs.
+- **Problem codes.** `run_not_found`, `run_canceled` and `candidate_already_started` are the
+  Problem's `code`, as for every other Engine code. A hosted `/runs*` call without identity
+  answers 401 `identity_required`. An `X-SF-Run-Candidate` that is not an index of the run's
+  `candidates` answers 400 `malformed_header`, before anything is scheduled.
 - **`RunRecord`** is `{id, state, created_at, finished_at, benchmark, case_count, candidates:
   [{name, state, attempt_id?, started_at?, finished_at?, cost_usd?, error_code?}]}`. It never
   carries the owner.
@@ -122,10 +126,11 @@ All routes resolve the owner (D6) and answer RFC 9457 `Problem`s, as the existin
 ```python
 class RunRegistry(Protocol):            # implemented once, with Tortoise
     async def create(self, owner: OwnerKey, spec: RunSpec) -> RunRecord: ...
+    async def register(self, owner: OwnerKey, spec: RunSpec) -> tuple[RunRecord, bool]: ...  # created?
     async def get(self, owner: OwnerKey, run_id: str) -> RunRecord | None: ...
     async def list(self, owner: OwnerKey, query: RunQuery) -> RunPage: ...
     async def bind(self, owner: OwnerKey, run_id: str, candidate: int, topic: str) -> None: ...
-    async def mark_scheduled(self, topic: str) -> None: ...
+    async def mark_scheduled(self, topic: str) -> bool: ...                 # False: a cancel won
     async def settle(self, topic: str, outcome: CandidateOutcome) -> None: ...
     async def cancel(self, owner: OwnerKey, run_id: str) -> RunRecord | None: ...
     async def reconcile(self) -> int: ...                                    # R6
@@ -163,6 +168,9 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
   - A bind leaves the Candidate `pending`. It becomes `scheduled` (`mark_scheduled`) only once
     scheduling succeeds, so a start that is refused, or that the Client gives up on, leaves it
     `pending` and the R5 grace applies.
+  - A cancel that lands between the bind and `mark_scheduled` has already stopped the
+    Candidate, so `mark_scheduled` returns False: the start stops the topic it just scheduled and
+    answers 409 `run_canceled`.
   - Binding the same `(run, candidate, topic)` again succeeds and changes nothing, so the
     Client's re-sent start after a 503 still schedules.
   - A different topic for a bound Candidate, or a topic bound elsewhere, gets 409
@@ -227,7 +235,7 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
     window (`since`, at most the 30-day retention), derives their states, filters, and pages.
     That is a few hundred or thousand rows per owner. A stored, indexed state column is a later
     migration if one owner ever holds far more, backfilled with the same pure function.
-- **R6. Reconcile** runs at App start and hourly. **It only ever writes `lost`**; a terminal
+- **R6. Reconcile** runs at App start and hourly (`run_sweep_interval_s`, default 3600 s). **It only ever writes `lost`**; a terminal
   state and a cost come only from a real outcome.
   - **A stream that survives a restart** (JetStream). A Candidate still live
     `run_lost_after_s` (default 48 h; the chart caps `candidateOutcomes.maxAgeS` below it) after

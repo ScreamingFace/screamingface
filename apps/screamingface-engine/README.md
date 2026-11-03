@@ -433,6 +433,34 @@ no model provider and no Tavily, and it costs nothing. Epic: OME-1307. Design:
 > A worker that predates the env ignores it, and the run goes on as a normal, **paid** run. The
 > start-response echo comes from the App and cannot show this. The `capture.replay` attribute can.
 
+## Runs — `/runs`
+
+A Run is the Engine's record of one evaluation: its Candidates, each one's state, cost and error
+code, and the Run's state derived from them on every read (OME-1785).
+
+```text
+POST   /runs        {client_key, benchmark, case_count, candidates, client_version} → 201, or 200
+GET    /runs        ?state=&since=&limit=50&cursor= → {runs, next_cursor}, newest first
+GET    /runs/{id}
+DELETE /runs/{id}   → 202, or 204 when every Candidate is already terminal
+```
+
+- **Owner.** Hosted, the verified `X-User-Email` (401 without it); local mode, `local`. Another
+  owner's id answers `404` with `code: run_not_found`, exactly as an unknown one.
+- **Idempotent create.** A repeated `client_key` returns the caller's existing Run with `200`.
+- **Binding a start.** `GET /?q=` with `X-SF-Run: <id>` and `X-SF-Run-Candidate: <index>` binds
+  the run to that Candidate before anything is scheduled. A canceled Run answers `409
+  run_canceled`; a Candidate already started under another topic, `409
+  candidate_already_started`. Without the headers a start is unchanged, and a bind that fails on
+  the database is logged and the start runs unbound.
+- **Cancel** is sticky: it stops every live Candidate through the `DELETE /` path and refuses later
+  starts.
+- **Sweeps.** At start and every `URL4_CLOUD_RUN_SWEEP_INTERVAL_S` (1 h), the App settles as
+  `lost` a Candidate whose outcome can no longer arrive, and deletes Runs older than
+  `URL4_CLOUD_RUN_RETENTION_S` (30 days).
+- **Runs off.** A hosted App without `URL4_CLOUD_DATABASE_URL` answers `/runs` with a plain 404
+  and runs every start unbound; `DEPLOYMENT.md` has the runbook to turn Runs on.
+
 ## Provider connections — `/v1/connections`
 
 The ScreamingFace Client connects provider credentials through the Engine:

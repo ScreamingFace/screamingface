@@ -1,6 +1,7 @@
 """Turning Runs on in an App (OME-1785, E5 P1 spec D2, R4, R9, R11).
 
-FEATURE: first-class Runs. `install_runs` opens the registry at startup and runs its one writer:
+FEATURE: first-class Runs. `install_runs` opens the registry at startup and runs its one writer
+and its sweeps (reconcile and retention, spec R6, R7):
 - local mode: a SQLite file beside the artifacts dir, migrated at start;
 - hosted: `URL4_CLOUD_DATABASE_URL`, migrated by the chart's Job before the App starts. With no
   URL the App runs with Runs off, as before this feature; a SQLite URL refuses to start.
@@ -27,6 +28,7 @@ from screamingface_engine.config import Settings
 from screamingface_engine.runs import db
 from screamingface_engine.runs.consumer import DEFAULT_RETRY_S, OutcomeWriter
 from screamingface_engine.runs.store import TortoiseRunStore
+from screamingface_engine.runs.sweeps import RunSweeper
 
 logger = logging.getLogger(__name__)
 
@@ -170,14 +172,23 @@ class _RunsLifecycle:
         )
         self._app.state.run_registry = store
         writer = OutcomeWriter(self._outcomes, store, retry_s=self._writer_retry_s)
-        self._app.state.outcome_writer_task = asyncio.get_running_loop().create_task(writer.run())
+        loop = asyncio.get_running_loop()
+        self._app.state.outcome_writer_task = loop.create_task(writer.run())
+        sweeper = RunSweeper(
+            store, retention=timedelta(seconds=self._settings.run_retention_s), clock=_utc_now
+        )
+        self._app.state.run_sweep_task = loop.create_task(
+            sweeper.run(interval_s=self._settings.run_sweep_interval_s)
+        )
 
     async def stop(self) -> None:
-        task = self._app.state.outcome_writer_task
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
+        for name in ("run_sweep_task", "outcome_writer_task"):
+            task = getattr(self._app.state, name)
+            setattr(self._app.state, name, None)
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
         store = self._app.state.run_registry
         if store is not None:
             self._app.state.run_registry = None
@@ -194,10 +205,14 @@ def install_runs(
 ) -> None:
     """Open the registry and start its writer with the App, and close both with it.
 
-    `app.state.run_registry` is the store, or None while Runs are off.
+    `app.state.run_registry` is the store, or None while Runs are off; `/runs` (`rest.runs`)
+    reads it per request.
     """
     app.state.run_registry = None
     app.state.outcome_writer_task = None
+    app.state.run_sweep_task = None
+    # Spec D6: a hosted Run belongs to the verified `X-User-Email`; local mode is single-user.
+    app.state.runs_require_identity = not local
     url = local_database_url(settings) if local else settings.database_url
     if not local and url.startswith("sqlite"):
         raise RunsConfigError(
