@@ -1,7 +1,7 @@
 ---
 ticket: OME-1811
 stack: python
-status: blocked
+status: done
 started: 2026-11-03
 finished:
 ---
@@ -57,3 +57,4 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   private-import ratchet): a recording outbound wrapper plus a fail-closed resolver instead of
   mocking `url4.io._guarded_transport`. RED verified: with the executor change reverted, 12/12
   engine refusal cases fail.
+- Owner approved the url4.dag EXPORTS ratchet 38 -> 39 (2026-11-03); recorded in .claude/test-change-approvals/OME-1811.json. Merged the moved #1588 base (redaction fix) normally; url4 and engine gates green.
