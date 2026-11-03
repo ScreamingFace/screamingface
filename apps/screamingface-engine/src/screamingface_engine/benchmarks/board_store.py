@@ -139,6 +139,10 @@ def _check_count(count: int, available: int) -> None:
 def _check_ids(case_ids: Sequence[int], available: int) -> None:
     if not case_ids or case_ids[0] < 1 or case_ids[-1] > available:
         raise ValueError(f"selected Cases {list(case_ids)} outside 1..{available}")
+    # WHY (review on #1636): the 1..N shortcut below reads ``case_ids[-1] == len(case_ids)``,
+    # which ``(2, 2)`` satisfies; only an ascending, distinct list may take it.
+    if any(later <= earlier for earlier, later in zip(case_ids, case_ids[1:], strict=False)):
+        raise ValueError(f"selected Cases {list(case_ids)} are not ascending and distinct")
 
 
 def _positioned(row: object, case_id: int) -> None:
@@ -148,8 +152,10 @@ def _positioned(row: object, case_id: int) -> None:
     serve one question under another's id and grade it against the wrong answer key.
     """
 
-    if not isinstance(row, dict) or row.get("id") != case_id:
-        found: object = row.get("id") if isinstance(row, dict) else row
+    found: object = row.get("id") if isinstance(row, dict) else row
+    # WHY type() not isinstance: a JSON true is a Python bool, and ``True == 1`` would let a
+    # ``{"id": true}`` row pass as Case 1.
+    if not isinstance(row, dict) or type(found) is not int or found != case_id:
         raise _broken(f"Case {case_id} is stored with id {found!r}")
 
 
@@ -253,22 +259,34 @@ class IndexedBoard:
         if case_ids[-1] == len(case_ids):
             return self.head(len(case_ids))  # 1..N: one contiguous read, as ``head``
         served: list[str] = []
+        # INVARIANT (review on #1636): the explicit-id read gives ``head()``'s guarantees: exact
+        # entry and row reads, the row framed as a whole array element, one object whose ``id``
+        # is its position, and every corruption mapped to ``benchmark_unavailable``.
         try:
             with self._offsets.open("rb") as offsets, self._cases.open("rb") as cases:
                 for case_id in case_ids:
                     offsets.seek((case_id - 1) * _ENTRY.size)
-                    offset, length = _ENTRY.unpack(offsets.read(_ENTRY.size))
+                    entry: bytes = offsets.read(_ENTRY.size)
+                    if len(entry) != _ENTRY.size:
+                        raise _broken(f"{OFFSETS_FILE} holds no entry for Case {case_id}")
+                    offset, length = _ENTRY.unpack(entry)
                     if offset < 1 or length < 2 or offset + length > self._size - 1:
                         raise _broken(f"{OFFSETS_FILE} points outside {CASES_FILE}")
-                    cases.seek(offset)
-                    text: str = cases.read(length).decode("utf-8")
-                    try:
-                        _positioned(json.loads(text), case_id)
-                    except ValueError as exc:
-                        raise _broken(f"{OFFSETS_FILE} does not match {CASES_FILE}") from exc
-                    served.append(text)
-        except OSError as exc:
-            raise _broken(str(exc)) from exc
+                    # WHY one byte each side: an entry aimed at a nested object inside another
+                    # row parses as an object with a plausible id; only its neighbours ("[" or
+                    # "," before, "," or "]" after) prove it is a top-level array element.
+                    cases.seek(offset - 1)
+                    framed: bytes = cases.read(length + 2)
+                    if len(framed) != length + 2:
+                        raise _broken(f"{CASES_FILE} is shorter than its index")
+                    if framed[:1] not in (b"[", b",") or framed[-1:] not in (b",", b"]"):
+                        raise ValueError(f"entry {case_id} is not a whole array element")
+                    row_bytes: bytes = framed[1:-1]
+                    _check_row(row_bytes, 0, length, case_id)
+                    served.append(row_bytes.decode("utf-8"))
+        # WHY ValueError: json.JSONDecodeError and UnicodeDecodeError are both ValueErrors.
+        except (OSError, struct.error, ValueError) as exc:
+            raise _broken(f"{OFFSETS_FILE} does not match {CASES_FILE} ({exc})") from exc
         return "[" + ",".join(served) + "]"
 
     def _check_layout(self, entries: Sequence[tuple[int, int]], start: int, end: int) -> None:

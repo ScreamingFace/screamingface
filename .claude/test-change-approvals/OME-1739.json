@@ -1,0 +1,30 @@
+{
+  "issue": "OME-1739",
+  "branch": "OME-1739-pr1-engine-case-selection",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-11-03",
+  "scope": "The adapter contract of OME-1739 PR 1: the aggregate and early-result adapters now receive the Case-id tuple of the selection instead of a bare count, so one assertion in each of five existing tests changes from a count to the matching id tuple (for example 2 becomes (1, 2)). Every test keeps its name, setup and intent; no assertion is weakened or removed.",
+  "reason": "Owner review of #1636 on 2026-11-03: 'As owner, I approve all 5. Each is a mechanical change from a count to an id tuple, and each test keeps its intent.' The manifest pins the base blobs at the merge-base a91ef670 and the approved blobs at the branch head.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_single_turn_judged_imports.py": {
+      "base_blob": "1dc22088ff0504f65412347093c2fbdba11ae901",
+      "approved_blob": "7a10a47c288dc9bee7c7e18c5153e8512e9d21b1"
+    },
+    "apps/screamingface-engine/tests/unit/test_async_aggregate_endpoint.py": {
+      "base_blob": "4abab8f76cdd4638a5ed9fab4b16f163510c5c81",
+      "approved_blob": "c0360f84f205eef740f8bd32a5701629251439e2"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_evaluation.py": {
+      "base_blob": "707c46c10ed1190d948d7cf7b05bdd4804f8f35f",
+      "approved_blob": "5c7ee6bc9f10018302ec6737e9cac986d50b563b"
+    },
+    "apps/screamingface-engine/tests/unit/test_early_grade_safety.py": {
+      "base_blob": "f94ba2d45b3fd3e14ce61f80284861b9469fb222",
+      "approved_blob": "24494c9b65ebc45050782ec23f61ba31b865cbf7"
+    },
+    "apps/screamingface-engine/tests/unit/test_shared_grading_serving.py": {
+      "base_blob": "6cfec1ed1b42ca66a8ae7db035dc525fd88ef686",
+      "approved_blob": "723081d38ac97e184a5099258ea988f3e475ae9b"
+    }
+  }
+}

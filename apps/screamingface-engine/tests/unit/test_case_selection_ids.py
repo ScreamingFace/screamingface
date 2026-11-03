@@ -162,3 +162,24 @@ def test_resource_echoes_the_selected_ids_only_for_an_id_list() -> None:
     assert prefix["url4"] == limited["url4"]
     with pytest.raises(ValueError):
         MEDXPERT.resource(3, cases=CaseSelection.of([3]))
+
+
+def test_error_detail_stays_bounded_for_a_huge_or_very_repeated_list() -> None:
+    """WHY (review on #1636): a 200,000-id body once produced a 1.5 MB 422 detail.
+
+    INVARIANT: the cap is checked before duplicates are listed, and any id list in a message
+    shows at most ten ids.
+    """
+
+    with pytest.raises(ValueError) as over_cap:
+        CaseSelection.of([1, 1] * 100_000)
+    assert "at most 1000" in str(over_cap.value)
+    assert len(str(over_cap.value)) < 200
+
+    with pytest.raises(ValueError) as repeated:
+        CaseSelection.of([*range(1, 21), *range(1, 21)])
+    assert "repeated: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, … (20 in all)" in str(repeated.value)
+
+    with pytest.raises(ValueError) as above:
+        CaseSelection.of(range(1, 31)).require_within(10)
+    assert "11, 12, 13, 14, 15, 16, 17, 18, 19, 20, … (20 in all) out of range" in str(above.value)
