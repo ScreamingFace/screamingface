@@ -22,7 +22,6 @@ from uuid import UUID, uuid4
 
 from aigateway.core.auth_types import AuthMode, AuthType
 from aigateway.core.credential_blob import DispatchObservation, OperationalOutcome
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
 from aigateway.core.provider_access import (
     Authorization,
@@ -39,6 +38,7 @@ from aigateway.core.provider_access import (
     contract_auth_mode,
     reauth_url_for,
 )
+from tests.credential_names import credential_name_for
 from tests.unit.seed_state import SeedState
 
 PROVIDER = "anthropic"

@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import json
 from typing import Any, cast, get_args
+from uuid import UUID
 
 import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 import aigateway.main as main_module
+from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.provider_access import (
     AvailabilityRow,
     AvailabilityStatus,
@@ -54,9 +56,20 @@ class _Edge:
             plugin.custom_llm_provider for plugin in self.app.state.providers.all()
         }
 
-    def seed_pair(self, provider: str, state: str, **fields: Any) -> None:
+    def seed_pair(self, provider: str, state: str, **fields: Any) -> UUID:
         """A migrated pair whose effective Connection is in `state` — what availability reads."""
-        seed_migrated_pair(self.client, self.account_id, provider, state=SeedState(state), **fields)
+        return seed_migrated_pair(
+            self.client, self.account_id, provider, state=SeedState(state), **fields
+        )
+
+    def set_identity(self, connection_id: UUID, **identity: Any) -> None:
+        """Store an OAuth identity on a seeded Connection, as a completed callback does."""
+
+        async def update() -> None:
+            await OAuthConnection.filter(id=connection_id).update(**identity)
+
+        assert self.client.portal is not None
+        self.client.portal.call(update)
 
     def get(self, headers: dict[str, str] | None = None) -> Any:
         response = self.client.get(ROUTE, headers=headers)
@@ -69,6 +82,15 @@ class _Edge:
 
     def statuses(self, body: dict[str, Any]) -> dict[str, str]:
         return {row["provider"]: row["status"] for row in body["providers"]}
+
+    def stored_connections(self) -> str:
+        """Every stored field of the caller's Connections, as text — what a leak could copy."""
+
+        async def rows() -> list[dict[str, Any]]:
+            return await OAuthConnection.filter(account_id=self.account_id).values()
+
+        assert self.client.portal is not None
+        return json.dumps(self.client.portal.call(rows), default=str)
 
 
 class _RecordingPort:
@@ -232,7 +254,7 @@ def test_route_reads_no_secret_builds_no_strategy_and_writes_nothing(
 
     monkeypatch.setattr(store, "read", _spy_read)
     monkeypatch.setattr(authorize_module, "credential_strategy_from", _no_strategy)
-    for name in ("write", "mutate", "delete"):
+    for name in ("write", "delete"):
         monkeypatch.setattr(store, name, _no_write)
 
     statuses = edge.statuses(edge.get().json())
@@ -242,7 +264,21 @@ def test_route_reads_no_secret_builds_no_strategy_and_writes_nothing(
 
 
 def test_body_carries_no_name_id_label_default_auth_method_or_locator(edge: _Edge) -> None:
+    oauth = edge.seed_pair("anthropic", "authenticated", name="work-oauth")
+    edge.set_identity(
+        oauth, identity_email="alice@example.com", identity_raw={"scope": "user:inference"}
+    )
+    key = edge.seed_pair(
+        "openai", "authenticated", name="team-key", auth_type="api_key", credential="sk-team-0001"
+    )
+    broken = edge.seed_pair("codex", "error", name="broken-oauth")
+
     body = edge.get().json()
+
+    # WHY: an absence below proves nothing unless the listing read all three seeded rows, the
+    # errored one included, so their statuses are pinned first (K4).
+    seeded = {"anthropic": "connected", "openai": "connected", "codex": "error"}
+    assert {p: s for p, s in edge.statuses(body).items() if p in seeded} == seeded
 
     # Structural: the only keys are the three the contract names, and the only leaf values are
     # provider names and statuses — so no id, name, label, default, auth method or URL can hide.
@@ -251,24 +287,28 @@ def test_body_carries_no_name_id_label_default_auth_method_or_locator(edge: _Edg
     leaves = {value for row in body["providers"] for value in row.values()}
     assert all(isinstance(leaf, str) for leaf in leaves)
     assert leaves <= edge.registered | STATUSES
-    # Explicit: none of these identifying values leaks in any form.
+    # Explicit: none of the seeded identifying values leaks in any form.
+    # WHY each is first found in the stored rows: a value the listing could never have read
+    # proves nothing by its absence (K4). The Profile defaults this list once named (model,
+    # system prompt, `max_tokens`, temperature) left with OME-1323 (D2); nothing stores them.
     text = json.dumps(body)
+    stored = edge.stored_connections()
     for forbidden in (
         edge.account_id,
+        str(oauth),
         "work-oauth",
         "alice@example.com",
         "user:inference",
-        "claude-x",
-        "be terse",
-        "99",
+        str(key),
         "team-key",
         "api_key",
-        "gpt-x",
-        "0.25",
+        str(broken),
         "broken-oauth",
-        "/v1/auth/",
-        "reauth_url",
     ):
+        assert forbidden in stored, forbidden
+        assert forbidden not in text, forbidden
+    # The errored row's reauth refusal is computed, never stored: absent here all the same.
+    for forbidden in ("/v1/auth/", "reauth_url"):
         assert forbidden not in text, forbidden
 
 

@@ -183,7 +183,10 @@ async def run(
         with bind_run_files(
             start.slots, start.cache, manifest=start.manifest, prefetched=start.prefetched
         ):
-            result = await Executor(run_ctx).execute(_to_node(target, registry))
+            # WHY release on: one executor per call, one root — the opt-in's single-root rule holds.
+            result = await Executor(run_ctx, release_finished=True).execute(
+                _to_node(target, registry)
+            )
     except BaseException as exc:
         status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
         _finish_observation(obs, status)

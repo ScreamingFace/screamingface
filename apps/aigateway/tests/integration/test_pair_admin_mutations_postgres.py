@@ -23,7 +23,6 @@ import pytest
 import test_provider_access_backing_postgres as backing
 from fastapi.testclient import TestClient
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.core.provider_access import (
     PairAuthorityStore,
@@ -32,6 +31,7 @@ from aigateway.core.provider_access import (
     set_pair_api_key,
 )
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 
 pytestmark = pytest.mark.needs_postgres
 
@@ -129,9 +129,8 @@ def _fresh_pair(client: TestClient) -> str:
     account_id = backing._account_id(client)
     app = backing._app(client)
     backing._call(client, backing._reset_pair, app, account_id)
-    # WHY: the shared reset keeps blobs, and the bridge's default address is reused across tests.
-    default = credential_locator_for(PROVIDER, account_id, "default")
-    backing._call(client, app.state.credential_store.delete, default["service"], default["account"])
+    # WHY no blob reset: the shared reset keeps blobs, but since E5a the bridge mints each
+    # Connection at its own address and every seed takes a fresh name, so no address is reused.
     return account_id
 
 

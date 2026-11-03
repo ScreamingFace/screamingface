@@ -13,7 +13,7 @@ INVARIANT (conservative subset): the inline ``/v1/models`` summary is the cross-
 INTERSECTION of the rule set — a subset of any single auth mode's enabled detail, NOT
 an exact copy. An api-key-only field is enabled in the api-key detail yet absent from
 the summary; that asymmetry is intentional (never overclaim an auth-specific field
-profile-independently), so the summary must never be "reconciled" to equal the detail.
+caller-independently), so the summary must never be "reconciled" to equal the detail.
 """
 
 from __future__ import annotations

@@ -23,7 +23,6 @@ from provider_access_harness import (
     Harness,
 )
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
 from aigateway.core.provider_access import (
     CredentialTarget,
@@ -34,6 +33,7 @@ from aigateway.core.provider_access import (
     TargetPending,
     TargetReauthRequired,
 )
+from tests.credential_names import credential_name_for
 from tests.unit.seed_state import SeedState
 
 DEFAULT = Selector.from_header(None)

@@ -281,7 +281,7 @@ class ParameterContractEntry(BaseModel):
         # say WHICH credential would enable it, so "not available under this auth
         # mode" is a dead end for the client. Empty tuple == no gateway rule at all.
         # No new exposure: ``context.auth_mode`` already names the reading mode in
-        # this same profile-bound document, and these are gateway-authored policy
+        # this same caller-bound document, and these are gateway-authored policy
         # values, never account or credential material.
         gateway["applicable_auth_modes"] = list(self.applicable_auth_modes)
         return {
