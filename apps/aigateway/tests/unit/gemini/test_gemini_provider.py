@@ -57,7 +57,7 @@ def test_gemini_provider_creates_gemini_oauth_strategy() -> None:
     strategy = plugin.oauth_strategy_for("default")
 
     assert isinstance(strategy, GeminiOAuth)
-    assert strategy.profile_name == "default"
+    assert strategy.credential_name == "default"
 
 
 def test_prepare_chat_body_strips_caller_supplied_auth_headers() -> None:

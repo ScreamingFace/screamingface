@@ -452,7 +452,7 @@ async def _seed_pending_flow(
         PendingAuthEntry(
             account_id=account_id,
             provider=provider,
-            profile_name=name,
+            fallback_label=name,
             code_verifier="verifier",
             redirect_uri="http://localhost:1455/callback",
             connection_id=str(connection_id),
@@ -548,7 +548,7 @@ def test_connection_label_uses_plugin_account_label_fallback() -> None:
     pending = PendingAuthEntry(
         account_id="account-1",
         provider="generic",
-        profile_name="fallback-profile",
+        fallback_label="fallback-profile",
         code_verifier="verifier",
         redirect_uri="http://localhost/callback",
         connection_id="connection-1",
