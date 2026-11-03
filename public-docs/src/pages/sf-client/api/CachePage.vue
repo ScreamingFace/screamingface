@@ -29,11 +29,20 @@ screamingface cache pull --url https://fusion.screamingface.ai --data-dir ~/.scr
 
 <template>
   <DocLayout
-    title="Cache"
-    description="The local request cache, and the call that loads the hosted community cache into it."
+    title="Shared cache"
+    description="Use the shared cache from the hosted engine when running locally."
     :navigation="navigation"
     :version="version"
   >
+    <p>
+      Whether you run on a hosted or a local engine, your cache accumulates, and you can reuse it on
+      any run to lower that run's cost. On the hosted engine the cache is shared: you benefit from
+      everyone else's runs and they benefit from yours, so the whole community pushes fusion
+      research further at lower cost. Calls the cache cannot key are not shared. A call that is not
+      in the cache is billed to the provider account that runs it. If you run your own local engine
+      and want the shared cache, download it with the <code>sf.cache</code> module.
+    </p>
+
     <p>
       The gateway of a local engine stores each model response, keyed by the exact request, and
       serves a repeat of that request from the store.

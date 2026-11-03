@@ -360,9 +360,9 @@ const asyncOut = `(108, 'http://127.0.0.1:9108')`
       <code>connect(provider, api_key=...)</code> stores a provider credential on the engine and
       returns the resulting <code>Connection</code>. <code>connect()</code> with no arguments
       returns a <code>ConnectionPanel</code> instead. <code>disconnect(provider)</code> removes the
-      credential and is safe to call repeatedly.
-      <code>connect(provider, method="oauth")</code> returns an <code>OAuthFlow</code> for providers
-      that offer OAuth.
+      credential and is safe to call repeatedly on a local engine. A hosted engine raises
+      <code>ProviderConnectionError</code>. <code>connect(provider, method="oauth")</code> returns
+      an <code>OAuthFlow</code> for providers that offer OAuth.
     </p>
 
     <p>

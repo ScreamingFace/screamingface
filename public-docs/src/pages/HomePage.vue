@@ -44,9 +44,10 @@ const GITHUB = 'https://github.com/ScreamingFace'
         <span class="hero__title-2">Reproduce every run from one line.</span>
       </h1>
       <p class="lead">
-        ScreamingFace is an open toolkit for composing model <em>fusions</em>: several models
-        answering together, graded against a real benchmark. Every run reproduces from a single
-        line, on your own keys.
+        ScreamingFace is an open toolkit for composing model <em>fusions</em>: any multi-model
+        orchestration graded as one against a real benchmark. Every fusion can be expressed as a
+        single line. Calls already in the shared cache re-run for free; all other calls run on your
+        own keys.
       </p>
 
       <div class="actions">
@@ -89,7 +90,8 @@ const GITHUB = 'https://github.com/ScreamingFace'
         <div class="def">
           <dt><code>fusion</code></dt>
           <dd>
-            A composed AI system built from many models: the artifact you build, run, and share.
+            A composed AI system built from many heterogeneous models &mdash; an ensemble, a router,
+            a routed ensemble, a cascade, or any multi-model artifact you compose, run, and share.
           </dd>
         </div>
         <div class="def">

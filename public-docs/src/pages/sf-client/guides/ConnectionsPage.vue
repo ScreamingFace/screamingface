@@ -183,9 +183,12 @@ const panelProviders: Provider[] = [
         <p>
           Logging in is not enough to run an evaluation. The OpenMined team grants hosted access:
           reach out to them. Until your account has access, every provider shows as unavailable and
-          an evaluation is refused with <code>provider_not_connected</code>. A hosted engine takes
-          no keys of its own, so <code>connect(provider, api_key=…)</code> and
-          <code>disconnect(provider)</code> raise <code>ProviderConnectionError</code> with the code
+          an evaluation is refused with <code>provider_not_connected</code>. On a local engine you
+          use the providers the engine advertises, with the keys you hold yourself. On a hosted
+          engine you use only the compute that has been subsidised for you, through a grant call or
+          a direct allocation. A hosted engine takes no keys of its own, so
+          <code>connect(provider, api_key=…)</code> and <code>disconnect(provider)</code> raise
+          <code>ProviderConnectionError</code> with the code
           <code>connection_method_unsupported</code>. The rest of this guide, from step 2, describes
           a local engine.
         </p>

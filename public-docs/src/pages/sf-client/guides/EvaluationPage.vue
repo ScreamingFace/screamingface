@@ -378,8 +378,9 @@ client.close()`
       configuration. <code>ExecutionError</code> means it reached the engine and ended without a
       valid report. <code>EngineUnavailableError</code> means the engine was not reachable at all.
       <code>ReproductionError</code> means a replay could not start. A benchmark the engine does not
-      publish raises <code>PlanningError</code>: a local engine serves only <code>medxpert</code>.
-      Each carries a stable <code>code</code> and a <code>hint</code>.
+      publish raises <code>PlanningError</code>: a local engine started with
+      <code>screamingface up</code> serves only <code>medxpert</code>. Each carries a stable
+      <code>code</code> and a <code>hint</code>.
     </p>
 
     <h2>Links</h2>

@@ -152,9 +152,10 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
     </table>
 
     <Note>
-      <code>medxpert</code>, the benchmark a local engine serves, does not support mid-run checking:
-      a corrective candidate on it raises <code>PlanningError</code>. Run corrective candidates on a
-      hosted benchmark that advertises a check, such as <code>ifeval</code>.
+      <code>medxpert</code>, the benchmark a local engine started with
+      <code>screamingface up</code> serves, does not support mid-run checking: a corrective
+      candidate on it raises <code>PlanningError</code>. Run corrective candidates on a hosted
+      benchmark that advertises a check, such as <code>ifeval</code>.
     </Note>
 
     <Note>

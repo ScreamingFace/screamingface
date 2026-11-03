@@ -161,11 +161,13 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
         <p>
           <strong>Prepare the benchmark you will run:</strong> The engine reads datasets from disk
           rather than downloading them mid-run, so a run cannot silently use a different revision.
-          <code>medxpert</code> is the one benchmark a local engine serves (2,450 questions), so
+          <code>medxpert</code> is the one benchmark a local engine started with
+          <code>screamingface up</code> serves (2,450 questions), so
           <code>screamingface prepare medxpert</code>, or <code>--all</code>, runs once.
           <code>screamingface prepare --list</code> shows each benchmark as <code>prepared</code> or
           <code>missing</code>. DRACO, IFEval and the other leaderboard benchmarks run on the hosted
-          engine.
+          engine, or locally from a repository checkout with
+          <code>just local-stack-notebooks</code>.
         </p>
 
         <CodeBlock :code="prepare" language="bash" />

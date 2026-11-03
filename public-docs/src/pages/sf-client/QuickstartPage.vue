@@ -419,8 +419,9 @@ report.failures    # what failed, and why`
       Benchmarks live on the engine, not in the Client. Fetching one returns its identity and the
       protocol revision it is pinned to, so you can see what you are about to be graded against
       before spending anything. This call is free. It needs an engine that serves the benchmark: the
-      hosted engine serves <code>draco-3pass</code>, and a local engine serves only
-      <code>medxpert</code>.
+      hosted engine serves <code>draco-3pass</code>, and a local engine started with
+      <code>screamingface up</code> serves only <code>medxpert</code>. A repository checkout can
+      serve the others locally with <code>just local-stack-notebooks</code>.
     </p>
 
     <div class="not-prose">
@@ -463,7 +464,10 @@ report.failures    # what failed, and why`
       <NbCell :count="6" :code="evaluate" />
     </div>
 
-    <p>On a local engine, use <code>medxpert</code>, which a local engine serves:</p>
+    <p>
+      On a local engine started with <code>screamingface up</code>, use <code>medxpert</code>, the
+      benchmark it serves:
+    </p>
 
     <div class="not-prose">
       <NbCell :count="7" :code="evaluateLocal" />

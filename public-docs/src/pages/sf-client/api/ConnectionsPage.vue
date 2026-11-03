@@ -31,6 +31,8 @@ panel.connections`
       <code>connect(provider, api_key=…)</code> and <code>disconnect(provider)</code> raise
       <code>ProviderConnectionError</code> with the code <code>connection_method_unsupported</code>,
       and <code>list()</code> reports the providers the OpenMined team has enabled for your account.
+      A hosted engine can list <code>api_key</code> in <code>auth_methods</code> for a provider and
+      still refuse <code>connect(provider, api_key=…)</code>: observed for <code>openrouter</code>.
       On a local engine <code>login()</code> raises <code>AuthenticationError</code>.
     </p>
 

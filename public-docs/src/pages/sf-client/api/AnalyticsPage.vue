@@ -50,7 +50,7 @@ const doNotTrackOut = `Couldn't enable analytics; tracking remains off.
 <template>
   <DocLayout
     title="Analytics"
-    description="Opt-in usage analytics: what they are, the four calls that control them, and what turns them off."
+    description="Analytics controls for opting in and out, and what it collects."
     :navigation="navigation"
     :version="version"
   >

@@ -29,11 +29,11 @@ const health = `screamingface status`
     <p>
       The engine is the runtime that runs
       <RouterLink to="/learn/url4">url4</RouterLink> expressions. The
-      <RouterLink to="/sf-client">Client</RouterLink> never calls a model provider itself. It hands
-      a url4 expression to an engine. The engine does the work: schedules the graph, reaches the
-      providers, and streams back usage and the result. Because it sits between you and the
-      providers, it is also the system's <strong>trust boundary</strong>, the one place that holds
-      your credentials and does the grading.
+      <RouterLink to="/sf-client">Client</RouterLink> hands a url4 expression to an engine. The
+      engine does the work: schedules the graph, reaches the providers, and streams back usage and
+      the result. Because it sits between you and the providers, it is also the system's
+      <strong>trust boundary</strong>, the one place that holds your credentials and does the
+      grading.
     </p>
 
     <p>
@@ -124,9 +124,11 @@ const health = `screamingface status`
       A local engine starts with the request cache on, and cache entries do not expire.
       <code>use_cache=False</code> on <code>sf.evaluate</code> opts one evaluation out, and
       <RouterLink to="/sf-client/api/cache"><code>sf.cache.pull_from_remote()</code></RouterLink>
-      loads the hosted community cache into it. A local engine serves the benchmarks you prepared,
-      and <code>screamingface prepare</code> accepts one: <code>medxpert</code>. Every other
-      benchmark, DRACO included, runs on the hosted engine.
+      loads the hosted community cache into it. A local engine started with
+      <code>screamingface up</code> serves <code>medxpert</code>, and
+      <code>screamingface prepare</code> accepts one: <code>medxpert</code>. The hosted engine
+      serves the other benchmarks, DRACO included. A repository checkout can serve them locally with
+      <code>just local-stack-notebooks</code>.
     </p>
 
     <p>

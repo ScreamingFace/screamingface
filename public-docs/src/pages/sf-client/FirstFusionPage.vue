@@ -43,9 +43,9 @@ const readOut = `0.6667`
     :version="version"
   >
     <p>
-      A fusion is a few models answering together, combined into one answer. In this tutorial you
-      build one, run it on a handful of benchmark cases, and read its score. It takes a few lines
-      and a couple of minutes.
+      A fusion is a composed system of different models, working as one. In this tutorial you build
+      one, run it on a handful of benchmark cases, and read its score. It takes a few lines and a
+      couple of minutes.
     </p>
 
     <Note>
@@ -99,7 +99,8 @@ const readOut = `0.6667`
     <p>
       Give <code>sf.Fusion</code> two model routes and a synthesizer. The two members answer the
       same question in parallel; the synthesizer reads both drafts and writes the single answer that
-      gets graded. Here the first model doubles as the synthesizer — a fine way to start.
+      gets graded. This is the most accessible kind of fusion, but it can expand into routed
+      ensembles, sequential orchestration with cascades and gates, and more.
     </p>
 
     <div class="not-prose">
@@ -139,8 +140,10 @@ const readOut = `0.6667`
     </Tabs>
 
     <Note>
-      A local engine serves only <code>medxpert</code>; the hosted engine adds <code>ifeval</code>,
-      <code>draco</code> (deep research) and more. List everything available with
+      A local engine started with <code>screamingface up</code> serves <code>medxpert</code>; the
+      hosted engine serves <code>ifeval</code>, <code>draco</code> (deep research) and more. To
+      serve the other benchmarks locally, run <code>just local-stack-notebooks</code> from
+      <code>packages/screamingface/</code> in a repository checkout. List what an engine serves with
       <code>sf.benchmarks.list()</code>, and see
       <RouterLink to="/sf-client/guides/benchmarks">Choose a benchmark</RouterLink> for how to pick
       one.

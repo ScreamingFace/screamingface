@@ -46,8 +46,9 @@ const listRunOut = `[('medxpert', 2450)]`
       A <code>Benchmark</code> is the engine's record of one benchmark, carrying its identity, its
       size, and what it measures. <code>client.benchmarks.get(id)</code> returns a single benchmark
       and <code>client.benchmarks.list()</code> returns every benchmark the engine offers. The list
-      depends on the engine: a local engine serves one benchmark, <code>medxpert</code> (2,450
-      cases), and the hosted engine lists 85.
+      depends on the engine: a local engine started with <code>screamingface up</code> serves one
+      benchmark, <code>medxpert</code> (2,450 cases), and the hosted engine lists 85. A repository
+      checkout can serve the others locally with <code>just local-stack-notebooks</code>.
     </p>
 
     <div class="not-prose">

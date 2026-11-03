@@ -36,37 +36,38 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
 <template>
   <DocLayout
     title="Overview"
-    description="Open infrastructure for composing and measuring model fusions, and the smallest end-to-end run."
+    description="Open infrastructure for composing, measuring and sharing model fusions."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      ScreamingFace is open, Python-first infrastructure for composing model ensembles (it calls
-      them
-      <strong>fusions</strong>) and measuring them under grading you do not control. It is built
-      around one approach: advancing capability by composition, combining existing models rather
-      than training new ones. You assemble a fusion from providers you hold keys for, evaluate it
-      against a research benchmark, and read back its score next to its cost.
+      ScreamingFace is an open-source, Python-first toolkit for composing model
+      <strong>fusions</strong> (ensembles, routed ensembles, cascades, etc.) and measuring them as a
+      single system with uniform grading. It is built around one goal: advancing capability by
+      composition, combining existing models rather than training new ones. You assemble a fusion
+      from providers you hold keys for, evaluate it against a research benchmark, and read back its
+      score next to its cost.
     </p>
 
     <p>
-      A fusion can score higher than any single model within it. A reproduction of the
-      <strong>DRACO</strong> deep-research benchmark put the best fusion at
-      <strong>68.6%</strong> against <strong>60.2%</strong> for the best single model (<a
+      A fusion of models can outscore every model inside it. In a reproduction of the
+      <strong>DRACO</strong> deep-research benchmark, the best fusion reached
+      <strong>68.6%</strong>, while the best single model managed <strong>60.2%</strong> (<a
         href="https://andrewtrask.substack.com/p/6-weeks-ago-frontier-ai-labs-lost"
         target="_blank"
         rel="noopener"
         >published results</a
-      >), an effect that recurs across the ensemble literature, for instance in
+      >). This isn't a one-off. The same pattern shows up throughout the ensemble literature, for
+      example in
       <a href="https://openreview.net/forum?id=XSIYfTm2h7" target="_blank" rel="noopener"
         ><em>Beyond Leaderboards: Tokenomics of Agentic Small Language Model Ensembles</em></a
       >
-      (Skurikhin et al., Los Alamos). The effect itself is not new. What the Client adds is the
-      infrastructure around it: held-out grading, a reproducible record of every run, and cost
-      reported next to accuracy.
+      (Skurikhin et al., Los Alamos). The SF Client and SF Leaderboard make that easy to show and
+      transparent: a uniform way to grade and compare such systems, fully reproducible and trackable
+      across the cost&ndash;quality Pareto frontier.
     </p>
 
-    <h2>What the Client provides</h2>
+    <h2>What the Client and Leaderboard provide</h2>
 
     <ul>
       <li>
@@ -78,21 +79,19 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
         <strong>A reproducible artifact for every run:</strong> Each evaluation compiles to one
         <RouterLink to="/learn/url4">url4</RouterLink> expression recording the models, their
         parameters, and the benchmark revision that was used. Anyone holding it can run the same
-        evaluation. A run stores its model answers as a pinned cache unless you pass
-        <code>capture=False</code>, and <code>sf.evaluate(pinned_cache=...)</code> replays it from
-        those answers.
+        evaluation.
       </li>
       <li>
         <strong>Your own providers (local engine):</strong> You connect the API keys you already
         have, and calls are billed to your own accounts rather than resold to you.
       </li>
       <li>
-        <strong>Caching:</strong> With the <RouterLink to="/learn/caching">cache</RouterLink> on, a
-        model call that was made before is served from the cache. Calls are matched by route, prompt
-        and parameters, so comparing many fusion candidates over one benchmark is billed only for
-        the calls that have not been made before. A model shared between two candidates runs once,
-        and swapping a single member re-uses what the others already produced. A local engine starts
-        with the cache on, and <code>evaluate(..., use_cache=False)</code> opts one run out.
+        <strong>Lower cost through shared caching:</strong> With the
+        <RouterLink to="/learn/caching">cache</RouterLink> on, a model call that was made before is
+        served from the cache. Calls are matched by route, prompt and parameters, so comparing many
+        fusion candidates over one benchmark is billed only for the calls that have not been made
+        before. A model shared between two candidates runs once, and swapping a single member
+        re-uses what the others already produced.
       </li>
       <li>
         <strong>Cost reported alongside accuracy:</strong> Tokens, spend, and duration stream while
@@ -109,7 +108,7 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
     <h2>How it works</h2>
 
     <p>
-      The Client never calls a model provider itself. It compiles your recipe into one
+      The Client compiles your fusion into one
       <strong>url4</strong> expression and hands that to an
       <RouterLink to="/learn/engine">engine</RouterLink>, which holds the credentials and the
       benchmark answer keys and does the grading.
@@ -133,10 +132,10 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
     <figure class="not-prose diagram">
       <img
         :src="localDiagram(isDark)"
-        alt="Local request flow: the Client compiles your recipe into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
+        alt="Local request flow: the Client compiles your fusion into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
       />
       <figcaption>
-        <strong>The local flow.</strong> The Client compiles your recipe into one url4 expression
+        <strong>The local flow.</strong> The Client compiles your fusion into one url4 expression
         and hands it to an engine on your own machine; the engine fans model calls out through the
         gateway to the providers you hold keys for, then streams scores and cost back.
       </figcaption>
@@ -171,10 +170,10 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
     <h2>The smallest example</h2>
 
     <p>
-      This runs on a hosted engine, which needs an account with access. On a local engine, point
-      <code>engine_url</code> at <code>http://127.0.0.1:9108</code>, point
-      <code>scoreboard_url</code> at <code>http://127.0.0.1:9106</code> and use
-      <code>benchmark="medxpert"</code>, which a local engine serves.
+      This runs on a hosted engine, which requires permission. You can run the same thing by
+      pointing the SF Client at a local engine (<RouterLink to="/sf-client/installation"
+        >more here</RouterLink
+      >).
     </p>
 
     <div class="not-prose">
