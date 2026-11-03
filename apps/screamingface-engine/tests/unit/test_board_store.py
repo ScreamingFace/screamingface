@@ -104,10 +104,10 @@ def test_board_json_records_count_pictures_and_cases_size() -> None:
     assert json.loads(files.board) == {
         "schema": BOARD_SCHEMA,
         "case_count": 2,
-        "has_pictures": True,
         "cases_bytes": len(files.cases),
+        "modalities": ["image"],
     }
-    assert json.loads(encode_board(_TEXT_ROWS).board)["has_pictures"] is False
+    assert json.loads(encode_board(_TEXT_ROWS).board)["modalities"] == []
 
 
 def test_the_files_are_a_pure_function_of_the_rows() -> None:
@@ -128,7 +128,7 @@ def test_head_equals_the_legacy_slice(tmp_path: Path, count: int) -> None:
     expected = json.dumps(_TEXT_ROWS[:count], ensure_ascii=False, separators=(",", ":"))
     assert board.head(count) == expected
     assert board.case_count() == 4
-    assert board.has_pictures() is False
+    assert "image" not in board.modalities()
 
 
 def test_head_out_of_range_is_refused(tmp_path: Path) -> None:
@@ -145,7 +145,7 @@ def test_a_picture_board_says_so_without_reading_the_rows(tmp_path: Path) -> Non
     # WHY overwrite the rows with text of the same size: the flag must come from board.json.
     (root / CASES_FILE).write_bytes(b" " * (root / CASES_FILE).stat().st_size)
 
-    assert board.has_pictures() is True
+    assert "image" in board.modalities()
 
 
 def _unavailable(exc: pytest.ExceptionInfo[ResolutionError]) -> None:
@@ -230,7 +230,7 @@ def test_legacy_store_serves_the_same_rows_and_scans_for_pictures() -> None:
 
     assert board.case_count() == 3
     assert board.head(2) == json.dumps(rows[:2], ensure_ascii=False, separators=(",", ":"))
-    assert board.has_pictures() is cases_need_pictures(rows) is True
+    assert ("image" in board.modalities()) is cases_need_pictures(rows) is True
 
 
 @pytest.mark.parametrize(

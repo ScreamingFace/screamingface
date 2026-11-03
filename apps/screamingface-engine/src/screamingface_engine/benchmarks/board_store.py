@@ -3,7 +3,10 @@
 FEATURE (OME-1790, spec Option B): a 330 MB board used to be read and parsed whole for a 2-Case
 run. The bundle now carries three files, written in this order:
 
-1. ``board.json`` — ``{"schema", "case_count", "has_pictures", "cases_bytes"}``.
+1. ``board.json`` — ``{"schema", "case_count", "cases_bytes", "modalities"}`` (schema
+   ``screamingface.board.v2``). ``modalities`` is the sorted list of non-text input types any
+   Case needs, in the gateway's ``input_modalities`` vocabulary (``image``, ``pdf``); ``text``
+   is never listed, so ``[]`` is a text-only board (OME-1803).
 2. ``cases.offsets`` — 16 bytes per Case, in served order: the row's byte offset inside
    ``cases.json`` and its byte length, both little-endian uint64.
 3. ``cases.json`` — unchanged, byte for byte, and still the bundle's completion marker
@@ -12,6 +15,11 @@ run. The bundle now carries three files, written in this order:
 Worked example: rows ``{"id":1}`` and ``{"id":2}`` make ``cases.json`` ``[{"id":1},{"id":2}]``
 (19 bytes) and ``cases.offsets`` the entries ``(1, 8)`` and ``(10, 8)``. Selecting 1 Case reads
 bytes 1..9 and serves ``[{"id":1}]``.
+
+FEATURE (OME-1803, owner 2026-11-03): v2 replaced v1's ``has_pictures`` flag, which could not
+carry the PDF decision. A v1 board (or one with no ``board.json``) is read the legacy way, with
+one logged scan of ``cases.json`` for its modalities; v1's flag is never trusted for PDFs. Any
+other schema fails closed as ``benchmark_unavailable``.
 
 INVARIANT: every file is a pure function of the rows (no timestamps, no paths, fixed key order),
 so two prepares of the same pins give the same bytes and the Case Digest never moves.
@@ -31,7 +39,7 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable
-from screamingface_engine.benchmarks.picture_admission import cases_need_pictures
+from screamingface_engine.benchmarks.picture_admission import cases_need_modalities
 from url4.core.errors import ResolutionError
 
 logger = logging.getLogger(__name__)
@@ -39,7 +47,9 @@ logger = logging.getLogger(__name__)
 BOARD_FILE = "board.json"
 OFFSETS_FILE = "cases.offsets"
 CASES_FILE = "cases.json"
-BOARD_SCHEMA = "screamingface.board.v1"
+BOARD_SCHEMA = "screamingface.board.v2"
+BOARD_SCHEMA_V1 = "screamingface.board.v1"
+"""The OME-1790 record (``has_pictures``), read only through the legacy full scan."""
 
 _ENTRY = struct.Struct("<QQ")
 _SEPARATORS = (",", ":")
@@ -83,10 +93,10 @@ def encode_board(rows: Sequence[Mapping[str, Any]]) -> BoardFiles:
         {
             "schema": BOARD_SCHEMA,
             "case_count": len(entries),
-            # WHY over the rows as written: an envelope board wraps plain-text inputs only,
-            # and a wrapped plain prompt never carries a picture, so the flag is the same.
-            "has_pictures": cases_need_pictures(rows),
             "cases_bytes": len(cases),
+            # WHY over the rows as written: an envelope board wraps plain-text inputs only,
+            # and a wrapped plain prompt never carries a picture or a PDF, so the set is the same.
+            "modalities": sorted(cases_need_modalities(rows)),
         },
         separators=_SEPARATORS,
     ).encode("utf-8")
@@ -100,8 +110,8 @@ class BoardStore(Protocol):
         """How many Cases the board holds."""
         ...
 
-    def has_pictures(self) -> bool:
-        """Whether any Case hands the Candidate a picture (spec: a picture anywhere)."""
+    def modalities(self) -> frozenset[str]:
+        """The non-text input types any Case hands the Candidate (spec: anywhere in the board)."""
         ...
 
     def head(self, count: int) -> str:
@@ -168,11 +178,17 @@ class IndexedBoard:
         if not isinstance(meta, dict) or meta.get("schema") != BOARD_SCHEMA:
             raise _broken(f"{BOARD_FILE} is not a {BOARD_SCHEMA} record")
         count: object = meta.get("case_count")
-        pictures: object = meta.get("has_pictures")
+        modalities: object = meta.get("modalities")
         expected_size: object = meta.get("cases_bytes")
         # WHY type() not isinstance: a JSON true is a Python bool, which isinstance counts as int.
-        if type(count) is not int or type(expected_size) is not int or type(pictures) is not bool:
+        if type(count) is not int or type(expected_size) is not int:
             raise _broken(f"{BOARD_FILE} fields have the wrong types")
+        # INVARIANT: a missing or malformed set fails closed; reading it as "text only" would
+        # admit a blind model to a picture or PDF board.
+        if not isinstance(modalities, list) or not all(
+            isinstance(modality, str) for modality in modalities
+        ):
+            raise _broken(f"{BOARD_FILE} modalities is not a list of strings")
         # INVARIANT: a cases.json rewritten after its index was built is never read through it.
         if cases_size != expected_size:
             raise _broken(
@@ -182,14 +198,14 @@ class IndexedBoard:
         if offsets_size != count * _ENTRY.size:
             raise _broken(f"{OFFSETS_FILE} does not hold {count} entries")
         self._count: int = count
-        self._pictures: bool = pictures
+        self._modalities: frozenset[str] = frozenset(modalities)
         self._size: int = cases_size
 
     def case_count(self) -> int:
         return self._count
 
-    def has_pictures(self) -> bool:
-        return self._pictures
+    def modalities(self) -> frozenset[str]:
+        return self._modalities
 
     def head(self, count: int) -> str:
         _check_count(count, self._count)
@@ -233,6 +249,7 @@ class LegacyBoard:
 
     def __init__(self, text: str) -> None:
         self._rows: object = json.loads(text)
+        self._modalities: frozenset[str] | None = None
 
     def _all(self) -> list[Any]:
         if not isinstance(self._rows, list):
@@ -242,8 +259,14 @@ class LegacyBoard:
     def case_count(self) -> int:
         return len(self._all())
 
-    def has_pictures(self) -> bool:
-        return cases_need_pictures([row for row in self._all() if isinstance(row, dict)])
+    def modalities(self) -> frozenset[str]:
+        # WHY cached: the scan parses every Case's envelope; the route asks once per run, and a
+        # second ask must not pay for it again.
+        if self._modalities is None:
+            self._modalities = cases_need_modalities(
+                [row for row in self._all() if isinstance(row, dict)]
+            )
+        return self._modalities
 
     def head(self, count: int) -> str:
         rows: list[Any] = self._all()
@@ -253,15 +276,40 @@ class LegacyBoard:
         return json.dumps(rows[:count], ensure_ascii=False, separators=_SEPARATORS)
 
 
+def _schema_of(path: Path) -> object:
+    """The ``schema`` field of ``board.json``, or ``None`` when it cannot be read as an object.
+
+    WHY ``None`` and no error here: an unreadable record goes on to :class:`IndexedBoard`, which
+    names the fault as the bounded ``benchmark_unavailable``.
+    """
+
+    try:
+        meta: object = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return None
+    return meta.get("schema") if isinstance(meta, dict) else None
+
+
 def open_board(root: Path, read_legacy: Callable[[], str]) -> BoardStore:
-    """The indexed store when the bundle has ``board.json``, else the logged full read.
+    """The indexed store for a v2 ``board.json``, else (v1, or none) the logged full read.
 
     WHY a fallback, not a refusal (owner, OME-1790 Q4): local and CI caches hold bundles
     prepared before the index existed; they keep working, only without the saving.
     """
 
     if (root / BOARD_FILE).is_file():
-        return IndexedBoard(root)
+        if _schema_of(root / BOARD_FILE) != BOARD_SCHEMA_V1:
+            # WHY: v2 is served through the index; anything else is refused there, fail closed.
+            return IndexedBoard(root)
+        logger.warning(
+            "imported board %s has a %s %s with no modalities; reading the whole %s to find "
+            "them (re-prepare to index it)",
+            root.name,
+            BOARD_SCHEMA_V1,
+            BOARD_FILE,
+            CASES_FILE,
+        )
+        return LegacyBoard(read_legacy())
     logger.warning(
         "imported board %s has no %s/%s; reading the whole %s (re-prepare to index it)",
         root.name,
@@ -275,6 +323,7 @@ def open_board(root: Path, read_legacy: Callable[[], str]) -> BoardStore:
 __all__ = [
     "BOARD_FILE",
     "BOARD_SCHEMA",
+    "BOARD_SCHEMA_V1",
     "CASES_FILE",
     "OFFSETS_FILE",
     "BoardFiles",

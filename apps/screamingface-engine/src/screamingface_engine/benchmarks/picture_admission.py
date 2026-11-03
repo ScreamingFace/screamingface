@@ -65,9 +65,15 @@ IMAGE_MODALITY = "image"
 PDF_MODALITY = "pdf"
 """The input type a PDF needs, in the same vocabulary."""
 
-_IMAGE_PART = "image_url"
-_PART_MODALITIES: Mapping[str, str] = {_IMAGE_PART: IMAGE_MODALITY, "file": PDF_MODALITY}
-"""Each media part type a Case can carry (`candidate_input.py`), to the input type it needs."""
+PART_MODALITIES: Mapping[str, str] = {"image_url": IMAGE_MODALITY, "file": PDF_MODALITY}
+"""Each media part type a Case can carry (`candidate_input.py`), to the input type it needs.
+
+INVARIANT (OME-1803, owner 2026-11-03): this is the ONE table. The build-time scan that writes
+``board.json``'s ``modalities`` (`board_store.encode_board`) and the rows path below both read
+it through :func:`cases_need_modalities`, so a new media format is one row here. A ``file`` part
+is always a PDF (`candidate_input.py` refuses any other mime); Office formats become text
+before a Case is written (OME-1550), so they are never a modality.
+"""
 
 
 class ModelSightReader(Protocol):
@@ -141,9 +147,9 @@ def cases_need_modalities(rows: Sequence[Mapping[str, object]]) -> frozenset[str
             content: object = message["content"]
             if isinstance(content, list):
                 needed.update(
-                    _PART_MODALITIES[part["type"]]
+                    PART_MODALITIES[part["type"]]
                     for part in content
-                    if part["type"] in _PART_MODALITIES
+                    if part["type"] in PART_MODALITIES
                 )
     return frozenset(needed)
 
@@ -208,31 +214,58 @@ async def refuse_blind_models(node: Url4Node, rows: Sequence[Mapping[str, object
     # Stage 1 first, so a run with nothing to check never scans the rows.
     if _RUN_EXPRESSION.get() is None or _READERS.get(node) is None:
         return
-    await _refuse(node, cases_need_modalities(rows))
+    await refuse_blind_candidate(node, needs=cases_need_modalities(rows))
 
 
-async def refuse_blind_candidate(node: Url4Node, *, needs_pictures: bool) -> None:
-    """Stages 1-4 with stage 2 already answered: ``needs_pictures`` is the Benchmark's flag.
+_REFUSALS: Mapping[str, tuple[str, str]] = {
+    IMAGE_MODALITY: (
+        "picture run refused text_only_models=%s",
+        "This Benchmark's Cases carry pictures, and these models cannot take images: "
+        "{names}. The gateway reports them as text-only; a model it knows nothing about "
+        "counts as text-only too.",
+    ),
+    PDF_MODALITY: (
+        "pdf run refused models_without_pdf=%s",
+        "This Benchmark's Cases carry PDFs, and these models cannot take PDFs: {names}. The "
+        "gateway does not list pdf among their input types; a model it knows nothing about "
+        "cannot take PDFs either.",
+    ),
+}
+"""Each modality's log line and refusal sentence; the picture sentence is OME-1548's, verbatim."""
 
-    FEATURE (OME-1790): an Imported Board records ``has_pictures`` in ``board.json`` at build
-    time, so its Cases route admits a run without reading any row.
+
+def _refusal(modality: str, names: str) -> str:
+    log_line, sentence = _REFUSALS.get(
+        modality,
+        (
+            f"{modality} run refused models_without_{modality}=%s",
+            f"This Benchmark's Cases need {modality} input, and these models do not list "
+            f"{modality} among their input types: {{names}}.",
+        ),
+    )
+    logger.info(log_line, names)
+    return sentence.format(names=names)
+
+
+async def refuse_blind_candidate(node: Url4Node, *, needs: frozenset[str]) -> None:
+    """Stages 1-4 with stage 2 already answered: ``needs`` is the Benchmark's modality set.
+
+    FEATURE (OME-1790, OME-1803): an Imported Board records its ``modalities`` in
+    ``board.json`` at build time (schema v2), so its Cases route admits a run without reading
+    any row.
 
     Raises:
-        ResolutionError: ``intent_error`` (permanent), naming each model; or the reader's own
-            retryable error when the model list cannot be read.
+        ResolutionError: ``intent_error`` (permanent), naming each model and what it lacks; or
+            the reader's own retryable error when the model list cannot be read.
     """
 
-    await _refuse(node, frozenset({IMAGE_MODALITY}) if needs_pictures else frozenset())
-
-
-async def _refuse(node: Url4Node, needed: frozenset[str]) -> None:
     # Stage 1 — only a Runner run binds its url4, and only a gateway node has a reader.
     url4: str | None = _RUN_EXPRESSION.get()
     reader: ModelSightReader | None = _READERS.get(node)
     if url4 is None or reader is None:
         return
     # Stage 2 — a text Benchmark stops here, before any gateway call.
-    if not needed:
+    if not needs:
         return
     # Stage 3 — the Candidate's models.
     model_ids: Mapping[str, str] = reader.model_routes()
@@ -242,27 +275,18 @@ async def _refuse(node: Url4Node, needed: frozenset[str]) -> None:
     # Stage 4 — one read of the model list, then one refusal naming every gap.
     listed: Mapping[str, Sequence[str]] = await reader.input_modalities()
     candidates: list[str] = [model_ids[route] for route in routes]
-    reasons: list[str] = []
-    if IMAGE_MODALITY in needed and (blind := models_lacking(candidates, listed, IMAGE_MODALITY)):
-        logger.info("picture run refused text_only_models=%s", ", ".join(blind))
-        reasons.append(
-            "This Benchmark's Cases carry pictures, and these models cannot take images: "
-            f"{', '.join(blind)}. The gateway reports them as text-only; a model it knows "
-            "nothing about counts as text-only too."
-        )
-    if PDF_MODALITY in needed and (pdfless := models_lacking(candidates, listed, PDF_MODALITY)):
-        logger.info("pdf run refused models_without_pdf=%s", ", ".join(pdfless))
-        reasons.append(
-            "This Benchmark's Cases carry PDFs, and these models cannot take PDFs: "
-            f"{', '.join(pdfless)}. The gateway does not list pdf among their input types; a "
-            "model it knows nothing about cannot take PDFs either."
-        )
+    reasons: list[str] = [
+        _refusal(modality, ", ".join(lacking))
+        for modality in sorted(needs)
+        if (lacking := models_lacking(candidates, listed, modality))
+    ]
     if reasons:
         raise ResolutionError(" ".join(reasons), code=ErrorCode.INTENT_ERROR, permanent=True)
 
 
 __all__ = [
     "IMAGE_MODALITY",
+    "PART_MODALITIES",
     "PDF_MODALITY",
     "ModelSightReader",
     "candidate_model_routes",

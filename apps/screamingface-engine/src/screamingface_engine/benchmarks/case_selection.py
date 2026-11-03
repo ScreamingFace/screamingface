@@ -81,7 +81,7 @@ def board_cases_handler(
     """
 
     @observe_phase(ActivityKind.CASE_LOADING)
-    def load(intent: str) -> tuple[str, bool]:
+    def load(intent: str) -> tuple[str, frozenset[str]]:
         try:
             board: BoardStore = open_board()
             count = int(intent)
@@ -95,18 +95,18 @@ def board_cases_handler(
         # WHY outside the try: a broken Case's envelope names its id (OME-1271); it is not a
         # selection error and must not be reworded as one.
         served: str = selected if serve is None else serve(selected)
-        return served, board.has_pictures()
+        return served, board.modalities()
 
     def cases(request: Request) -> str | Awaitable[str]:
-        served, needs_pictures = load(request.intent)
+        served, needs = load(request.intent)
         if node is not None:
-            return _admitted_by_flag(node, needs_pictures, served)
+            return _admitted_by_modalities(node, needs, served)
         return served
 
     return cases
 
 
-async def _admitted_by_flag(node: Url4Node, needs_pictures: bool, served: str) -> str:
-    """Serve the selected rows once the Candidate may see this board's pictures."""
-    await refuse_blind_candidate(node, needs_pictures=needs_pictures)
+async def _admitted_by_modalities(node: Url4Node, needs: frozenset[str], served: str) -> str:
+    """Serve the selected rows once the Candidate can take this board's pictures and PDFs."""
+    await refuse_blind_candidate(node, needs=needs)
     return served

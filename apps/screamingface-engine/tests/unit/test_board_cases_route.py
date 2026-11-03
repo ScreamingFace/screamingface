@@ -123,8 +123,8 @@ class _Flagged:
     def case_count(self) -> int:
         return 1
 
-    def has_pictures(self) -> bool:
-        return self.pictures
+    def modalities(self) -> frozenset[str]:
+        return frozenset({"image"}) if self.pictures else frozenset()
 
     def head(self, count: int) -> str:
         return '[{"id":1,"input":"text"}]'
@@ -137,8 +137,8 @@ async def _awaited(value: Awaitable[str]) -> str:
 def test_admission_takes_the_boards_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[bool] = []
 
-    async def spy(node: Url4Node, *, needs_pictures: bool) -> None:
-        calls.append(needs_pictures)
+    async def spy(node: Url4Node, *, needs: frozenset[str]) -> None:
+        calls.append("image" in needs)
 
     monkeypatch.setattr(case_selection, "refuse_blind_candidate", spy)
     node = Url4Node()
@@ -184,7 +184,11 @@ def _admit(model_route: str, *, needs_pictures: bool, reader: _Reader) -> None:
     node = Url4Node()
     register_model_sight(node, reader)
     with run_expression_scope(_run_url4(model_route)):
-        asyncio.run(refuse_blind_candidate(node, needs_pictures=needs_pictures))
+        asyncio.run(
+            refuse_blind_candidate(
+                node, needs=frozenset({"image"}) if needs_pictures else frozenset()
+            )
+        )
 
 
 def test_a_picture_board_refuses_a_blind_model_by_name() -> None:
@@ -218,7 +222,7 @@ def test_without_a_bound_run_nothing_is_checked() -> None:
     reader = _Reader({})
     register_model_sight(node, reader)
 
-    asyncio.run(refuse_blind_candidate(node, needs_pictures=True))
+    asyncio.run(refuse_blind_candidate(node, needs=frozenset({"image"})))
 
     assert reader.reads == 0
 

@@ -21,6 +21,9 @@ stays byte-for-byte the same and stays the completion marker.
 - The Cases route reads only the selected rows through the index; envelope boards wrap only
   those rows.
 - Picture admission reads `has_pictures` from `board.json` instead of scanning every row.
+  *(Amended by OME-1803, 2026-11-03: `board.json` is now schema `screamingface.board.v2`,
+  `{"schema", "case_count", "cases_bytes", "modalities"}`; admission reads the `modalities`
+  set, and a v1 board falls back to the full read with a warning.)*
 - A bundle with no index (old local/CI cache) falls back to the full read and logs a warning;
   a stale index is a bounded "cases are unavailable" error, never wrong rows.
 
