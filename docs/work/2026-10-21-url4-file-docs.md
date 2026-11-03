@@ -1,9 +1,9 @@
 ---
 ticket: OME-1552
 stack: repo
-status: in_progress   # docs drafted; PR waits for spec #1450 and Sergey's confirmation
+status: done
 started: 2026-10-21
-finished:
+finished: 2026-11-02
 ---
 
 # url4-file-docs — document url4 file sources and blob refs in the public docs
@@ -41,7 +41,8 @@ Learn page there.
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned, plus the routes table row in `public-docs/CLAUDE.md`.
-- **Commits:** see branch `url4-file-docs`.
+- **Commits:** squash-merged as #1586 `dded9461c` (2026-11-02, approved by HupBaHa after three review rounds).
+  Linear OME-1552 → Done.
 - **Gates:** `run_gates.py repo`: ALL GATES GREEN (append-only check included). `public-docs`: `npm run build` and `type-check` clean, prettier/oxlint/eslint clean on touched files. Examples verified by running them on `origin/OME-1539-url4-file-refs` and (`data:` / C7 parse claims) on `origin/main`.
 - **Deviations:**
   - The orchestrating task asked to document "data: at Case ingress" and "size caps". Neither
