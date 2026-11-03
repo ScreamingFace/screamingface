@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Literal
+from urllib.parse import unquote
 
 from url4.core.errors import RenderError
 from url4.core.nodes import BlobRef, Node, RelUrl, Text, Url
@@ -38,7 +39,7 @@ _HEX = r"[0-9a-fA-F]{64}"
 _PATH_RE = re.compile(rf"/blob/sha256/({_HEX})", re.ASCII)
 # INVARIANT (fail closed, D1): ANY authority (userinfo, port, empty) and anything after
 # ``/blob`` (another algorithm, a query) is a remote blob ref — never a plain web fetch.
-_REMOTE_RE = re.compile(r"(?i:url4)://([^/?#]*)/blob(?:[/?#].*)?", re.ASCII | re.DOTALL)
+_REMOTE_RE = re.compile(r"(?i:url4)://([^/?#]*)([^?#]*)(?:[?#].*)?", re.ASCII | re.DOTALL)
 
 
 def bare_value(token: str) -> Text | BlobRef:
@@ -78,17 +79,59 @@ class BlobAddress:
 def address_of(node: Node) -> BlobAddress | None:
     """The file-ref address of a value node, or ``None`` when it is not a file ref.
 
-    INVARIANT: only the exact shapes above. Any other ``RelUrl`` / ``Url`` returns
-    ``None`` and lowers exactly as before this unit.
+    INVARIANT: only the shapes above, matched on the path as written OR normalized
+    (:func:`_path_forms`). Any other ``RelUrl`` / ``Url`` returns ``None`` and lowers exactly
+    as before this unit.
     """
     address = None
     if isinstance(node, BlobRef):
         address = token_address(node.value)
-    elif isinstance(node, RelUrl) and (m := _PATH_RE.fullmatch(node.value)):
-        address = BlobAddress(node.value, "path", m.group(1).lower())
+    elif isinstance(node, RelUrl) and (digest := _local_digest(node.value)):
+        address = BlobAddress(node.value, "path", digest)
     elif isinstance(node, Url) and (m := _REMOTE_RE.fullmatch(node.value)):
-        address = BlobAddress(node.value, "remote", None, m.group(1))
+        if any(p == "/blob" or p.startswith("/blob/") for p in _path_forms(m.group(2))):
+            address = BlobAddress(node.value, "remote", None, m.group(1))
     return address
+
+
+def _local_digest(path: str) -> str | None:
+    matches = (_PATH_RE.fullmatch(form) for form in _path_forms(path))
+    return next((m.group(1).lower() for m in matches if m), None)
+
+
+def _path_forms(path: str) -> tuple[str, ...]:
+    """``path`` as written and as each normalization a transport or server may apply.
+
+    INVARIANT (fail closed, PR #1482 review): a path is a blob ref when ANY form is. HTTPX
+    removes dot segments (RFC 3986 §5.2.4) before sending, and a server may also decode
+    percent-escapes (``%2e``), read a backslash as ``/`` or merge ``//``; classifying only
+    the raw text let ``url4://n/x/../blob/…`` reach the wire as a web fetch. The raw form
+    stays in the set, so normalizing can only ADD refusals.
+    """
+    decoded = path
+    while (step := unquote(decoded)) != decoded:  # WHY to a fixed point: %252e → %2e → .
+        decoded = step  # terminates: every change shortens the string
+    decoded = decoded.replace("\\", "/")
+    merged = re.sub("/{2,}", "/", decoded)
+    return (path, _remove_dot_segments(decoded), _remove_dot_segments(merged))
+
+
+def _remove_dot_segments(path: str) -> str:
+    """RFC 3986 §5.2.4 for an absolute path (url4 data paths always start with ``/``)."""
+    if not path.startswith("/"):
+        return path
+    out: list[str] = []
+    segments = path.split("/")[1:]
+    for index, segment in enumerate(segments):
+        last = index == len(segments) - 1
+        if segment in (".", ".."):
+            if segment == ".." and out:
+                out.pop()
+            if last:
+                out.append("")  # WHY: ``/a/..`` is ``/``, a directory, per the RFC
+        else:
+            out.append(segment)
+    return "/" + "/".join(out)
 
 
 def token_address(token: str) -> BlobAddress:

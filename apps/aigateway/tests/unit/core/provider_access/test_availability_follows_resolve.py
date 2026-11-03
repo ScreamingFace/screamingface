@@ -255,7 +255,7 @@ def test_the_listing_reads_no_secret_writes_nothing_and_lists_connections_once(
     ):
         monkeypatch.setattr(OAuthConnectionStore, name, forbidden(name))
     monkeypatch.setattr(PairAuthorityStore, "advance", forbidden("advance"))
-    for name in ("read", "write", "mutate", "delete", "begin_dispatch", "record_dispatch_outcome"):
+    for name in ("read", "write", "delete", "begin_dispatch", "record_dispatch_outcome"):
         monkeypatch.setattr(store, name, forbidden(name))
     monkeypatch.setattr(authorize_module, "credential_strategy_from", no_strategy)
 

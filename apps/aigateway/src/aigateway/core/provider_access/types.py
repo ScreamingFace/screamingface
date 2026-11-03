@@ -1,7 +1,7 @@
 """Value types and typed refusals of the provider-access port (OME-1200, spec §3.2).
 
-# FEATURE: OME-1138 adapter-first convergence — routes stop reading Profile/Connection rows and
-# ask ONE port for a credential target instead.
+# FEATURE: OME-1138 adapter-first convergence — chat, model parameters, admission and
+# dispatch-failure marking read no Connection row; they ask ONE port for a credential target.
 # INVARIANT: nothing here names an HTTP status or a wire code. A refusal is a typed OUTCOME of
 # the read interface; the ONE table that turns it into a response lives at the HTTP edge
 # (`routes/provider_access_http.py`). Implementations raise these and never choose codes.
@@ -190,7 +190,8 @@ class SelectorUnsupported(ProviderAccessRefusal):
 
 
 class ProviderUnknown(ProviderAccessRefusal):
-    """No registered provider carries this id (admin ops 8–9; A3)."""
+    """No registered provider carries this id, or none the account may attach (the D18 admin PUT
+    and DELETE; OME-1497)."""
 
     def __init__(self, provider: str) -> None:
         super().__init__(f"unknown provider {provider!r}")

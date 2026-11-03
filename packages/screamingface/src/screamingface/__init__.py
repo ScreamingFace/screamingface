@@ -11,6 +11,7 @@ from screamingface import (
     reports,
 )
 from screamingface._default_client import (
+    classify,
     close,
     configure,
     connect,
@@ -25,6 +26,7 @@ from screamingface._ui.connections import ConnectionPanel
 from screamingface._version import resolve_version
 from screamingface.answer import Answer
 from screamingface.blocks import Extract, Reduce, matches
+from screamingface.classification import Classification, LabelScore
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
@@ -107,6 +109,8 @@ __all__ = [
     "CaseResult",
     "CandidateResult",
     "Check",
+    "Classification",
+    "classify",
     "Client",
     "Concat",
     "Connection",
@@ -137,6 +141,7 @@ __all__ = [
     "FixedSeedSittingWarning",
     "Fusion",
     "Judge",
+    "LabelScore",
     "Leaderboard",
     "LeaderboardBaseline",
     "LeaderboardEntry",

@@ -548,3 +548,32 @@ engine gate green.
 **Gates.** `run_gates.py url4 --base origin/main` ALL GREEN (append-only green);
 `check_module_size.py` within caps; `check_suppressions.py` 3/3 baseline;
 `run_gates.py screamingface-engine --base origin/main` ALL GREEN.
+
+## Round 2026-11-02 — e2e F3 (`@` in a call context): DONE
+
+**Outcome.** `815a6b9ad` — `dag/source_scan.py` decides a context's holdings pass-through on its
+parsed segments (`holds_holdings_ref`: `SelfRef` / `IdentityRef`, nested call contexts and
+iteration bodies included; an unparseable segment counts only if it holds `@`). The
+`@`-in-URL repro now fetches and attaches; real `@` / `@identity` contexts keep today's verbatim
+behaviour. Tests: new `tests/unit/test_context_holdings_scan.py` (11). Gates:
+`run_gates.py url4 --base origin/OME-1539-url4-file-refs` ALL GREEN; `check_module_size.py`
+within caps. `dag/_lowering.py:235` is unchanged (conservative raw-text fallback; the context
+text rides as the F1b text part). **Stopped:** "an unparseable segment raises" contradicts the
+pinned `test_attachments.py::test_a_prose_or_holdings_context_contributes_no_refs` and deviation
+3 above (prose and template segments contribute nothing). Awaiting an owner decision.
+
+**Owner decision (Sergey, 2026-11-02): "raise only with an opt-in".** `e2770a162` — the source
+scan records an unparseable call-context segment (`SourceScan.malformed`) only when (a) the same
+context carries an attachment opt-in (a parsed `src=…;accept=<attachment type>`, literal or
+not), or (b) the segment itself contains `src=` / `;accept=`; `_run_files._run_start` refuses it
+via `source_scan.refuse_malformed` with permanent `malformed_source` (the code
+`attachment_sources.guard_policy` already raises for a bad descriptor; no new code) BEFORE any
+I/O, first among the run-start refusals. No extra parse: the existing per-segment parse returns
+its failures. Prose alone stays prose (pinned `test_a_prose_or_holdings_context_contributes_no_refs`
+unedited); holdings contexts and iteration bodies (templates, deviation 3) record nothing.
+`test_context_holdings_scan.py::test_an_unparseable_segment_without_an_at_sign_does_not_hide_the_others`
+still holds unedited — it asserts the scan's occurrences; the refusal fires at run start.
+Tests: new `tests/unit/test_context_malformed_segment.py` (14; MockTransport + resolver fail on
+any request). Merged `origin/OME-1539-url4-file-refs` (02907ccfc, #1482) normally. Gates:
+`run_gates.py url4 --base origin/OME-1539-url4-file-refs` ALL GREEN (2735 passed, 17 xfailed);
+`check_module_size.py` within caps (`dag/_context.py` untouched at 455; `source_scan.py` 379).

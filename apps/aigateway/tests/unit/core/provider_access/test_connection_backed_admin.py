@@ -27,13 +27,13 @@ from connection_backed_admin_probes import (
 from connection_backed_harness import ConnectionBackedHarness
 from provider_access_harness import PROVIDER
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.core.provider_access import (
     CredentialStoreUnavailable,
     PairAuthorityStore,
     WriteConflict,
 )
+from tests.credential_names import credential_name_for
 from tests.unit.seed_state import SeedState
 
 

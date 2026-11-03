@@ -21,8 +21,8 @@ response is sent, so the ASGI server still logs its own traceback on `uvicorn.er
 it was considered (OME-939, owner-approved only if clean) and NOT done: the only way is a
 non-re-raising catch-all inside the app, which would also swallow exceptions the test client is
 pinned to surface (`test_profile_resolution_characterisation.py::
-test_a_persistent_index_fault_at_the_resolver_read_escapes_the_route`), i.e. it changes a second
-prior contract. Narrowing that traceback belongs with the later split-posture phase.
+test_a_persistent_marker_fault_at_the_resolver_read_escapes_the_route`), i.e. it changes a
+second prior contract. Narrowing that traceback belongs with the later split-posture phase.
 """
 
 from __future__ import annotations

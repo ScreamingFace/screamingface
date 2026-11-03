@@ -10,9 +10,9 @@ enables it, in LiteLLM 1.97.0) I keep serving traffic; caching resumes, against 
 already stored, the moment I unset the variable.
 
 INVARIANT under test, through the real app and the real store: the enabled flag causes
-neither a read nor a write and PRESERVES the existing row; a request carrying a ceiling —
-explicit or profile-defaulted — is refused; a request without one is served live and
-uncached. The unit-level verdicts behind this live in ``test_openai_runtime_modifier.py``.
+neither a read nor a write and PRESERVES the existing row; a request carrying the caller's
+ceiling is refused; a request without one is served live and uncached. The unit-level
+verdicts behind this live in ``test_openai_runtime_modifier.py``.
 """
 
 from __future__ import annotations
