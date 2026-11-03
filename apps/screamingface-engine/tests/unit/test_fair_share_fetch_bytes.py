@@ -148,6 +148,10 @@ async def test_a_gate_bound_run_with_an_https_attachment_reaches_the_model(
 
     def gateway(request: httpx.Request) -> httpx.Response:
         posts.append(request)
+        if request.url.path.endswith("/v1/models"):
+            return httpx.Response(
+                200, json={"data": [{"id": MODEL, "input_modalities": ["text", "image"]}]}
+            )
         return httpx.Response(200, json=_completion(request))
 
     gate = FairShareGate(4)

@@ -1,0 +1,15 @@
+{
+  "issue": "OME-1809",
+  "branch": "OME-1809-url4-attachment-admission",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-11-03",
+  "scope": "one test, its gateway() mock only: test_fair_share_fetch_bytes.py::test_a_gate_bound_run_with_an_https_attachment_reaches_the_model answers /v1/models with {\"data\":[{\"id\": MODEL, \"input_modalities\":[\"text\",\"image\"]}]}; no other test line changes",
+  "reason": "owner decision 2026-11-03: url4 attachment admission fails closed on an unreadable /v1/models (owner decision 2026-10-28); the mock must publish the model's modalities",
+  "note": "Pinned against the branch base origin/OME-1545-engine-attachment-parts (27da3e11f).",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_fair_share_fetch_bytes.py": {
+      "base_blob": "e7a07c1f7aeb4cd3d5c9e5b56c5a68eda8fa6643",
+      "approved_blob": "8981544840f8a5a0a09e647722c16d1a957cac11"
+    }
+  }
+}
