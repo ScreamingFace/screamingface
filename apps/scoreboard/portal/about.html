@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>screamingface — about the leaderboard</title>
+  <title>screamingface · about the leaderboard</title>
   <meta name="description" content="What the ScreamingFace leaderboard is, how it works, how to contribute, and who builds it.">
   <!-- Link previews (Slack, X, LinkedIn, iMessage): crawlers need absolute URLs. -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="ScreamingFace">
-  <meta property="og:title" content="screamingface — about the leaderboard">
+  <meta property="og:title" content="screamingface · about the leaderboard">
   <meta property="og:description" content="What the ScreamingFace leaderboard is, how it works, how to contribute, and who builds it.">
   <meta property="og:url" content="https://leaderboard.screamingface.ai/about.html">
   <meta property="og:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
@@ -16,7 +16,7 @@
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="The ScreamingFace mark above the wordmark ScreamingFace.ai, on black.">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="screamingface — about the leaderboard">
+  <meta name="twitter:title" content="screamingface · about the leaderboard">
   <meta name="twitter:description" content="What the ScreamingFace leaderboard is, how it works, how to contribute, and who builds it.">
   <meta name="twitter:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
@@ -46,46 +46,52 @@
     <button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
   </div>
 
-  <div class="wrap wide landing">
+  <div class="wrap landing">
     <header class="masthead hero" data-section="hero">
       <div class="eyebrow">ScreamingFace · About</div>
-      <h1 class="hero-title">A verified map of the quality–cost frontier.</h1>
-      <p class="lead hero-lead">For a given cost, what's the best accuracy anyone can reach, and which combination of models gets there?</p>
+      <h1 class="hero-title hero-title--oneline">The leaderboard for fusions.</h1>
+      <p class="lead hero-lead">Fusions are more capable than any other AI system in the world, both in absolute terms and capability/price. Now you can see it.</p>
     </header>
 
-    <section class="about-section" data-section="thesis">
-      <h2 class="section-label">Thesis</h2>
-      <p>The best answer to a hard question will come from several models working together: one routes it, a few attempt it, one checks the work. Intelligence built this way has the properties of good engineering: every contribution is visible, any part can be swapped, and parts can come from anywhere, open-weight or closed. Capability that comes from many places is harder to capture, easier to check and improve.</p>
-      <p>The evidence is already here. At the same cost, compositions beat the best single model: cascades that match frontier accuracy at a fraction of the price, mixtures of open models that outscore closed ones, routers that keep the quality and cut the bill. But each method lives in its own code, on its own benchmark, against last year's models. Reproducing one means paying the inference bill again; comparing two means rebuilding both.</p>
-      <p>A growing community is pushing this work forward. For it to compound, it needs to:</p>
-      <ul class="about-bullets">
-        <li>make the best recipe at each budget public knowledge;</li>
-        <li>trust a result only when a stranger can rerun it and the error bars agree;</li>
-        <li>pay the expensive part of the work once, for everyone;</li>
-        <li>let the people who use the map be the ones who draw it.</li>
-      </ul>
+    <section class="about-section about-evidence" data-section="evidence">
+      <div class="about-evidence__text">
+        <p>Research already shows multi-model compositions (routed ensembles, cascades, councils, multi-agent systems) show increased capabilities at the same cost.</p>
+      <p>But each result lives in its own code, on its own benchmark, against last year's models, and testing against today's frontier means paying the full inference bill before seeing a single number.</p>
+      <p>The ScreamingFace leaderboards centralize this prior work, enabling researchers to test it against today's frontier, move the frontier forward, while allowing everyone to see and reproduce them at no cost.</p>
+      </div>
     </section>
 
-    <section class="about-section" data-section="how-it-works">
-      <h2 class="section-label">How it works</h2>
-      <p>screamingface is an open-source toolkit that makes exploring compositions cheap and community-driven. Ensembles, routers and cascades are written in one shared language and published so the next person starts where the last one finished.</p>
-      <p>Every row on the board is a recipe, one <a class="mono" href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> line that holds the whole run: the models and their versions, the prompts, the seeds, the benchmark and its revision, the full cost. Calls are pinned and runs feed a shared cache, so replaying a published row is free and building on one costs only the calls that are new, reducing the cost of exploring new compositions.</p>
-      <p class="about-links"><a class="btn--link" href="https://docs.screamingface.ai/" target="_blank" rel="noopener">Read the docs →</a></p>
+    <section class="about-section" data-section="how-a-result">
+      <h2 class="section-label">How a result gets on a leaderboard</h2>
+      <p>Every fusion entry comes with its code, in a single <a class="mono" href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> line that contains all the details of the run. Each call in the recipe is pinned to an exact model version, prompt, and seed.</p>
+      <p>A result appears only after it can be independently rerun on the hosted engine and registered on the shared cache. Replaying a published row costs nothing, and starting from someone else's recipe means you pay only for what you change.</p>
+    </section>
+
+    <section class="about-section" data-section="how-to-read">
+      <h2 class="section-label">How to read the leaderboards</h2>
+      <p>Each leaderboard plots every fusion and every solo model by score and run cost, and the frontier is the edge of that plot, revealing the best accuracy anyone has reached at each budget. Fusions and the strongest solo models sit on the same board, so you can see exactly how each fusion compares.</p>
+      <p>A fusion depends on its member models, but not on any single one. If a developer reprices or retires a model, the board shows which replacements come closest and what each one costs.</p>
+    </section>
+
+    <section class="about-section" data-section="how-the-map">
+      <h2 class="section-label">How the map gets drawn</h2>
+      <p>Each leaderboard covers one benchmark. Put together, they form the first verified map of the quality–cost frontier, showing where combinations of models beat the best single model and where they don't yet. Verified means a result only appears on the leaderboard after it has been run on the shared engine with full cached results and confirmed reproducibility, so anyone can re-run and obtain the same results.</p>
     </section>
 
     <section class="about-section" data-section="contribute">
       <h2 class="section-label">Contribute</h2>
-      <p>Anyone can submit. Compose a method using <a href="https://docs.screamingface.ai/" target="_blank" rel="noopener">screamingface</a>, compile it to a <a class="mono" href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> recipe, and publish it. Code and recipes are open under Apache-2.0, and you keep authorship.</p>
+      <p>Anyone can compose a fusion using the Client, compile it to a <a class="mono" href="https://docs.screamingface.ai/learn/url4" target="_blank" rel="noopener">url4</a> recipe, score it against a benchmark of your choice, and publish it on its corresponding leaderboard. Code and recipes are open under Apache-2.0.</p>
       <p class="about-links">
-        <a class="btn--link" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Get started →</a>
+        <a class="btn--link" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Start fusing →</a>
         <a class="btn--link" href="index.html">Browse leaderboards →</a>
-        <a class="btn--link" href="https://openmined.org/research/grants/" target="_blank" rel="noopener">Research grant: Ensembles &amp; Routing →</a>
+        <a class="btn--link" href="https://openmined.org/research/grants/" target="_blank" rel="noopener">Get paid to try →</a>
       </p>
     </section>
 
     <section class="about-section" data-section="who-builds-this">
       <h2 class="section-label">Who builds this</h2>
-      <p>ScreamingFace is built in the open by a community of researchers and engineers, with the support of <a href="https://openmined.org" target="_blank" rel="noopener">OpenMined</a>, a non-profit foundation that has spent nearly a decade building open-source infrastructure for AI.</p>
+      <p>ScreamingFace is built in the open by a community of researchers and engineers, with the support of <a href="https://openmined.org" target="_blank" rel="noopener">OpenMined</a>.</p>
+      <p class="about-links"><a class="btn--link" href="https://screamingface.ai" target="_blank" rel="noopener">Learn more at screamingface.ai →</a></p>
     </section>
 
     <div data-subscribe="all" data-section="subscribe"></div>
