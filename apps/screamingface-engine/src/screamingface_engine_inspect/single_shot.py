@@ -33,9 +33,10 @@ from typing import Any, Unpack
 
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.aggregation import CandidateScore
+from screamingface_engine.benchmarks.board_store import CASES_FILE, BoardStore, open_board
 from screamingface_engine.benchmarks.case_context import case_scope
 from screamingface_engine.benchmarks.case_records import abstain_mark, answer_abstain_mark
-from screamingface_engine.benchmarks.case_selection import install_cases
+from screamingface_engine.benchmarks.case_selection import install_board_cases
 from screamingface_engine.benchmarks.contract import (
     CANDIDATE_RESULT_SCHEMA,
     CaseGrade,
@@ -184,12 +185,18 @@ class JudgeSpec:
             pinned params, so N passes are N requests, never one cached reply (OME-1527
             R12). Benchmark identity when set. A pinned ``seed`` beside it is refused, and
             so is a judge call that names no pass.
+        redraw_repeats: the scorer re-asks its judge in the same words when a reply does not
+            parse (hle's ``max_grader_attempts``); a re-ask after a live reply skips the
+            gateway cache, so it is a new draw as under inspect's own ``eval()``, not the
+            stored unparseable reply. A cached or frozen-copy reply stays final. Benchmark
+            identity when set (OME-1478).
     """
 
     model: str
     params: tuple[tuple[str, str], ...] = ()
     model_role: str | None = None
     seed_per_pass: bool = False
+    redraw_repeats: bool = False
 
     def __post_init__(self) -> None:
         """Refuse a row that pins a seed AND gives each judge pass its own."""
@@ -569,6 +576,9 @@ def single_shot_benchmark(
                         # WHY conditional: no published row gives its passes seeds, so
                         # every judged revision holds (OME-1527 R12).
                         *(("judge_seed_per_pass=True",) if judge.seed_per_pass else ()),
+                        # WHY conditional (OME-1478): no published row sets it, so every
+                        # judged revision holds.
+                        *(("judge_redraw_repeats=True",) if judge.redraw_repeats else ()),
                     )
                 ),
                 # WHY conditional (OME-1527, R13): searching changes what the Candidate can
@@ -718,7 +728,12 @@ def install_imported_benchmark(node: Url4Node, assets: Path, benchmark_id: str) 
         "case_evaluation": benchmark.case_evaluation_route,
         "aggregate": benchmark.aggregate_route,
     }
-    install_cases(node, routes["cases"], _cases(root, envelope=benchmark.candidate_input_envelope))
+    install_board_cases(
+        node,
+        routes["cases"],
+        _board(root),
+        serve=_enveloped_inputs if benchmark.candidate_input_envelope else None,
+    )
     installed = frozenset(node.processor_routes())
     endpoints: list[tuple[str, Callable[[Request], str | Awaitable[str]]]] = [
         (routes["check"], _check(root)),
@@ -823,21 +838,42 @@ def _cases(root: Path, *, envelope: bool = False) -> Callable[[], str]:
 
     @observe_phase(ActivityKind.CASE_LOADING)
     def cases() -> str:
-        try:
-            text: str = (root / "cases.json").read_text(encoding="utf-8")
-        except OSError as exc:
-            # A gated benchmark skipped at image build (PR builds without the Hugging Face
-            # token) leaves a marker saying so — name that instead of a bare IO error.
-            skipped: Path = root / SKIPPED_MARKER
-            if skipped.is_file():
-                raise _unavailable(
-                    "this image was built without this board's questions: "
-                    + skipped.read_text(encoding="utf-8").strip()
-                ) from exc
-            raise _unavailable(f"imported board cases are unavailable: {exc}") from exc
+        text: str = _cases_text(root)
         return _enveloped_inputs(text) if envelope else text
 
     return cases
+
+
+def _board(root: Path) -> Callable[[], BoardStore]:
+    """The imported Cases route's opener: the board's index, else the logged full read.
+
+    FEATURE (OME-1790): the route reads only the selected rows; ``board_cases_handler`` owns
+    the CASE_LOADING phase, so this opener is not observed on its own.
+    """
+
+    def board() -> BoardStore:
+        # WHY no index check here: a skipped or missing bundle has no board.json either, so
+        # it reaches the full read, which names why the questions are missing.
+        return open_board(root, lambda: _cases_text(root))
+
+    return board
+
+
+def _cases_text(root: Path) -> str:
+    """The whole ``cases.json``, or the bounded error naming why it is not there."""
+
+    try:
+        return (root / CASES_FILE).read_text(encoding="utf-8")
+    except OSError as exc:
+        # A gated benchmark skipped at image build (PR builds without the Hugging Face
+        # token) leaves a marker saying so — name that instead of a bare IO error.
+        skipped: Path = root / SKIPPED_MARKER
+        if skipped.is_file():
+            raise _unavailable(
+                "this image was built without this board's questions: "
+                + skipped.read_text(encoding="utf-8").strip()
+            ) from exc
+        raise _unavailable(f"imported board cases are unavailable: {exc}") from exc
 
 
 def _enveloped_inputs(cases_json: str) -> str:
@@ -1163,6 +1199,7 @@ def _judged_aggregate(
             params=benchmark.judge.params,
             benchmark_id=benchmark.benchmark.id,
             seed_per_pass=benchmark.judge.seed_per_pass,
+            redraw_repeats=benchmark.judge.redraw_repeats,
         )
         with ExitStack() as scope:
             scope.enter_context(bound_judge_transport(transport))

@@ -80,8 +80,8 @@ class BaseOAuthStrategy(CredentialStrategy):
     refresh_window_seconds: int = 60
     _store: CredentialBlobStore
 
-    def __init__(self, profile_name: str) -> None:
-        self.profile_name = profile_name
+    def __init__(self, credential_name: str) -> None:
+        self.credential_name = credential_name
         self._cached: dict | None = None
         # WHY beside `_cached`: the observation of the stored credential `_cached` came from; a
         # refresh publishes only while the store still holds exactly that credential. It is
@@ -190,11 +190,11 @@ class BaseOAuthStrategy(CredentialStrategy):
 
     @abstractmethod
     def credential_service(self) -> str:
-        """Credential blob `service` string for this profile's tokens."""
+        """Credential blob `service` string for this connection's tokens."""
 
     @abstractmethod
     def credential_account(self) -> str:
-        """Credential blob `account` string for this profile's tokens."""
+        """Credential blob `account` string for this connection's tokens."""
 
     @abstractmethod
     async def _write_to_store(self, creds: dict[str, Any]) -> None:

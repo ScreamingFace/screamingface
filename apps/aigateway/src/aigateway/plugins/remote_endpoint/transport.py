@@ -1,4 +1,4 @@
-"""The chat POST to a configured endpoint, over one reused client per endpoint.
+"""The JSON POST to a configured endpoint, over one reused client per endpoint.
 
 # INVARIANT: the client never follows redirects, reads no proxy or CA setting from the
 # environment, verifies certificates and bounds the response.
@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from http.client import HTTPResponse
 from http.cookiejar import Cookie, CookieJar
 from typing import Any
@@ -160,6 +161,18 @@ async def post_chat_completion(
     api_key: str,
     client: httpx.AsyncClient,
 ) -> dict[str, Any]:
+    return await post_json(url, payload, api_key=api_key, client=client, decode=decode_completion)
+
+
+async def post_json[T](
+    url: str,
+    payload: dict[str, Any],
+    *,
+    api_key: str,
+    client: httpx.AsyncClient,
+    decode: Callable[[str | None, bytes], T | None],
+) -> T:
+    """POST ``payload`` with the key; ``decode`` returns None for an answer outside its contract."""
     try:
         headers = {"Authorization": f"Bearer {api_key}", "Accept-Encoding": "identity"}
         async with client.stream("POST", url, json=payload, headers=headers) as response:
@@ -169,12 +182,10 @@ async def post_chat_completion(
             encoding = response.headers.get("content-encoding")
             if encoding is not None and encoding.lower() != "identity":
                 raise _error(502, "provider_error", _INVALID)
-            completion = decode_completion(
-                response.headers.get("content-type"), await _read_bounded(response)
-            )
-            if completion is None:
+            decoded = decode(response.headers.get("content-type"), await _read_bounded(response))
+            if decoded is None:
                 raise _error(502, "provider_error", _INVALID)
-            return completion
+            return decoded
     except HTTPException:
         raise
     except (TimeoutError, httpx.HTTPError):

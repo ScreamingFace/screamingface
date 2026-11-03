@@ -598,7 +598,7 @@ def test_pending_cleanup_pops_only_the_pairs_captured_connections() -> None:
         return PendingAuthEntry(
             account_id="acct",
             provider=provider,
-            profile_name=profile,
+            fallback_label=profile,
             code_verifier="v",
             redirect_uri="https://example.invalid/cb",
             connection_id=connection,

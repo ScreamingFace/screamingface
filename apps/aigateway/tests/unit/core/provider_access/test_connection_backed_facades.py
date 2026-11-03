@@ -22,8 +22,8 @@ from connection_backed_harness import ConnectionBackedHarness
 from litellm.exceptions import AuthenticationError
 from provider_access_harness import PROVIDER
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 
 CHAT_COMPLETION = (
     "aigateway.plugins.anthropic_provider.plugin.AnthropicProviderPlugin.chat_completion"

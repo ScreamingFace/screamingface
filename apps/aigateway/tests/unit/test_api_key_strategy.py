@@ -147,3 +147,16 @@ async def test_delete_removes_blob() -> None:
     assert store.data == {}
     with pytest.raises(CredentialNotFoundError):
         await strategy.get_authorization_header()
+
+
+@pytest.mark.asyncio
+async def test_a_missing_key_points_the_user_at_the_connection() -> None:
+    # WHY (OME-1138 close-out, L5, RT-05): a key is set on a Connection; the Profile is retired.
+    strategy, _ = _strategy()
+
+    with pytest.raises(CredentialNotFoundError) as raised:
+        await strategy.get_authorization_header()
+
+    assert str(raised.value) == (
+        "No API key stored for 'acct:default'. Set or replace the key for this connection."
+    )

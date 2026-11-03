@@ -18,7 +18,6 @@ import pytest
 from connection_backed_harness import ConnectionBackedHarness
 from provider_access_harness import ANTHROPIC, PROVIDER
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.core.provider_access import (
@@ -30,6 +29,7 @@ from aigateway.core.provider_access import (
     TargetPending,
     TargetReauthRequired,
 )
+from tests.credential_names import credential_name_for
 from tests.unit.seed_state import SeedState
 
 DEFAULT = Selector.from_header(None)

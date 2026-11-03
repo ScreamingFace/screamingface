@@ -117,7 +117,7 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy:
         return AnthropicOAuth(
-            profile_name=credential_name,
+            credential_name=credential_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
             settings=self.settings,

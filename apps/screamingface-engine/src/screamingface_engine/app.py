@@ -19,6 +19,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from screamingface_engine import job_env
+from screamingface_engine.access_log import install_access_log_filter
 from screamingface_engine.adapters.factory import build_job_runner
 from screamingface_engine.artifacts import (
     ArtifactReader,
@@ -152,7 +153,7 @@ def create_app(
     # this one installs exactly one, and a process that builds two Apps does not double every
     # line. FIRST statement in the builder, because a failure while building `Settings` below
     # is precisely the failure whose log line the operator needs.
-    configure_logging()
+    _configure_logs()
     settings = settings or Settings()
     app = FastAPI(title="screamingface-engine", version="0.1.0", docs_url=None, redoc_url=None)
     app.state.settings = settings
@@ -190,6 +191,16 @@ def create_app(
         app.state.clock = clock
     _install_surfaces(app, span_sink)
     return app
+
+
+def _configure_logs() -> None:
+    """The App process's logging: the App's own handler, then the access-log redaction.
+
+    WHY a helper: `create_app` sits at the statement limit.
+    """
+    configure_logging()
+    # FEATURE (OME-1795, E10): no request query reaches an access line, from any start path.
+    install_access_log_filter()
 
 
 control_plane_span_sink = load_span_sink

@@ -895,6 +895,32 @@ def _report_usage(
     )
 
 
+def _report_unpriced_call(provider: str, model: str) -> None:
+    """Report one dispatched Gateway call whose cost the Engine cannot know.
+
+    FEATURE: hosted BYOM, Unit 3 (spec E8 as amended, OME-1795). A classification answer carries
+    no price, and a call that reports nothing is simply absent from the run total, so a run that
+    also made a priced chat call would publish a priced total without it. This one record latches
+    the total unpriced (`executor._RunState._fold_usage`).
+
+    INVARIANT: aggregate honesty only, not Taxonomy accounting: no price and no token measurement.
+    WHY the two zero counts: the sink requires them and the wire's `TokenUsage` cannot say
+    "unknown" (OME-1770, as in `_report_usage`), so they are not measured values. The optional
+    token classes are left unset.
+    """
+    sink = current_usage_sink()
+    if sink is None:
+        return
+    sink(
+        provider=provider,
+        model=model,
+        input_tokens=0,
+        output_tokens=0,
+        cost_usd=None,
+        image_and_file_tokens=None,
+    )
+
+
 async def _post_completion(
     http_client: httpx.AsyncClient,
     *,
@@ -1594,6 +1620,13 @@ def _frozen_tool_results(
 
 
 def _messages(context: str | None, intent: str | None) -> list[dict[str, Any]]:
+    if not context and intent:
+        # FIX (OME-1808): a default-route reduce with no attachments has an empty context, and
+        # `system=<intent>` + `user=""` is a 400 on Anthropic ("at least one message is
+        # required": the system message is lifted out and the empty turn dropped). The intent is
+        # then the only content, so it travels as the one user turn. A non-empty context keeps
+        # today's bytes exactly; the request identity hashes context and intent, not messages.
+        return [{"role": "user", "content": intent}]
     messages: list[dict[str, Any]] = []
     if intent:
         messages.append({"role": "system", "content": intent})
