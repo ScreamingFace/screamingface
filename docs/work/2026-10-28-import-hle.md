@@ -107,3 +107,7 @@ state-of-the-art run (that is OME-1672).
 - **Deviations:** the judge change above.
 - **Owner-verify:** a paid 2-Case HLE run on dev (one text Case, one picture Case) through the
   notebook, reading the judge's reply and the run's peak memory against the 2,560 MiB budget.
+  The run is `18_picture_benchmarks` section 5's HLE cell (added 2026-11-03): `limit=2` is one
+  picture Case then one text Case in HLE's dataset order. First on the local stack (needs
+  `HF_TOKEN` before `just local-stack-notebooks`, the dataset is gated), then on dev once the
+  deployment carrying this row is up.
