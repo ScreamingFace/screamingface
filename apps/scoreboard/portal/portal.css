@@ -689,12 +689,9 @@ td.col-open { white-space: nowrap; }
 .catalog-scored { display: flex; align-items: center; gap: var(--space-2); padding-block: var(--space-3); }
 .catalog-count { flex-basis: 100%; margin: 0; }
 
-/* WHY: neutral, source-backed references; never win or verified styling. */
-.external-results { margin-top: var(--space-7); }
-.external-result td { color: var(--ink-2); vertical-align: top; }
-.external-result__model { min-width: 14rem; overflow-wrap: anywhere; }
-.external-result__label { display: block; font-size: var(--text-micro); margin-top: var(--space-1); }
-.external-result__note { min-width: 16rem; max-width: 28rem; white-space: normal; overflow-wrap: anywhere; }
+/* WHY: imported rows use the ordinary grid with neutral text, never a win highlight. */
+.external-result td { color: var(--ink-2); }
+.external-result .score-fill { background: var(--ink-2); }
 .external-result__source { color: var(--ink-2); text-decoration: underline; white-space: nowrap; }
 .external-result__source:hover { color: var(--ink); }
 .external-result__source:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }

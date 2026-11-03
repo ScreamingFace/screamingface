@@ -1,20 +1,24 @@
-# E20: display imported external results
+# E20: external results in the leaderboard
 
-Approved scope: show the two imported dev SAT-English records through the existing
-baseline API. This is a first UI increment, not completion of the epic.
+Owner revision, 2026-11-03: imported results belong in the regular table, share
+sorting and normal rank numbers, and are distinguished visually by gray styling.
+Remove the separate section, explanatory paragraph, repeated external labels and
+comparison-note column. Source replaces the recipe action. Non-reproducibility
+and comparison notes remain accessible through hover and screen-reader text.
 
-Use a separate, unranked “External results” table below community submissions on
-the same benchmark page. Each gray row shows model, native score, “External · Not
-reproducible”, import date, source link, and a text comparison note when supplied.
-No recipe action, rank, win styling, cost invention, or inclusion in summaries and
-charts. Preserve the existing empty community-table state when only baselines exist.
+Merge the community top 50 and valid imported baselines, sort by descending score,
+then take the combined top 50 and assign ordinal ranks. On equal scores keep the
+existing community order and place community rows before external rows; external
+ties retain API order. Limiting after the merge is necessary: assigning ranks to
+all external rows below the fetched community page would omit unseen competitors.
+Header sorting changes display order, never the score-based ranks.
 
-Render source text through DOM text nodes and validate external URLs with the
-existing HTTP(S) allowlist. Missing source/date/note stays explicitly unknown;
-never infer model version, coverage, or compatibility. Render finite native scores,
-including zero and negative values. Do not relabel arbitrary scores as percentages.
+Summaries and table score tracks describe the displayed rows. Cost-based frontier
+claims and replay actions remain community-only. The cost/score chart remains
+community-only; score-only bars include external results in gray. External rows do not invent cost, authors, providers or run dates;
+show unknown fields as dashes and the import date in a titled date cell.
 
-Hide the external section for absent/empty data and load errors. No new API,
-migration, dependencies, benchmark-specific hardcoding, import history, editing UI,
-source-health checks, or ranking policy. History and final ranking/comparability
-policy remain separate E20 work. Linear changes require the user's prior approval.
+Preserve native scores, safe text rendering and structural absolute HTTP(S) URL
+validation. No new backend/API, migration, dependencies or production import.
+This accepts shared ranking for this increment; import history, source health and
+broader comparability policy remain E20 work. Linear writes still require approval.

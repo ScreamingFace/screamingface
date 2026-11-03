@@ -12,8 +12,8 @@ closed:
 
 Linear remains authoritative; read on 2026-11-02. This PR implements the first
 external-row display using existing imported baselines. It does not close E20:
-manual editing/history, refresh/source-health handling, and the final ranking and
-comparability decisions remain open. No Linear writes were authorized.
+manual editing/history, refresh/source-health handling and broader comparability
+policy remain open. On 2026-11-03 the owner chose a shared table and normal ranks. No Linear writes were authorized.
 
 See `docs/spec/2026-11-02-OME-1309-external-rows.md` and
 `docs/work/2026-11-02-OME-1309-external-rows.md`.

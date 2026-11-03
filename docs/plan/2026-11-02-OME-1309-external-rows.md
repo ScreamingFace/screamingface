@@ -1,13 +1,11 @@
-# E20 external-row UI plan
+# E20 shared-table revision plan
 
-1. Add DOM behavior tests for the real page: external-only and mixed boards,
-   missing data, native scores, safe URLs/text, source/date/caveats, and isolation
-   from ranked rows, summary, sorting, copy buttons and charts. Confirm failure.
-2. Add an external-results renderer and hidden semantic table in benchmark.html;
-   call it from the existing leaderboard response. Use neutral design tokens.
-3. Register the new Node test explicitly in CI and the local scoreboard gate.
-4. Run scoreboard gates and visually check light/dark and narrow layouts using
-   the captured dev API response. Review the diff, commit, and open a PR as FilipBolt.
-
-The user authorized proceeding with the PR. No merge or shared deployment is part
-of this step. The existing dev data import needs no code PR of its own.
+1. Update the PR's new tests for the user-approved shared table and ranks; use
+   exact cell/attribute assertions and timezone-aware expected dates. Add top-50,
+   tie, alternate-sort, empty, invalid-row and safe-link checks. Confirm RED.
+2. Normalize external rows, merge and limit with community rows, and render in the
+   same table with gray styling and source actions. Remove the separate section.
+3. Run the full scoreboard gates and tests in four timezones. Visually inspect
+   light/dark/mobile and mixed results using captured dev data.
+4. Remove superseded committed screenshots. Update PR description to the final
+   implementation, commit and push as FilipBolt. Do not merge or deploy.

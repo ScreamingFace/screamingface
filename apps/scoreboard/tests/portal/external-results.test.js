@@ -62,7 +62,8 @@ function makeNode(tag) {
     removeAttribute(name) {
       delete this.attrs[name];
     },
-    addEventListener() {},
+    listeners: {},
+    addEventListener(name, callback) { this.listeners[name] = callback; },
     querySelector() {
       return null;
     },
@@ -87,8 +88,7 @@ function entry(spec_id, score, cost, frontier) {
   };
 }
 
-// Renders benchmark.html's script against `entries` with the given chart module, and returns the
-// fake page nodes once the page has settled.
+// Render the real page scripts and wait for the API promises to settle.
 async function renderBoard(entries, baselines, fail = false) {
   const ids = {};
   const charts = [];
@@ -103,7 +103,6 @@ async function renderBoard(entries, baselines, fail = false) {
   const crumbNav = makeNode("nav");
   crumbNav.previousElementSibling = makeNode("span");
   crumbNav.appendChild(byId("crumb-benchmark"));
-  byId("external-results").hidden = true;
   byId("leaderboard-wrap").hidden = true;
   byId("pareto-chart-section").hidden = true;
 
@@ -150,12 +149,12 @@ async function renderBoard(entries, baselines, fail = false) {
   context.self = context;
   vm.createContext(context);
   for (const file of ["leaderboard-logic.js", "main.js", "external-results.js", "benchmark.js"]) {
-    if (!fs.existsSync(path.join(PORTAL, file))) continue;
     vm.runInContext(fs.readFileSync(path.join(PORTAL, file), "utf8"), context, { filename: file });
   }
   await new Promise((resolve) => setTimeout(resolve, 25));
   return { ids, charts, context };
 }
+
 
 
 const BASELINE = {
@@ -164,91 +163,118 @@ const BASELINE = {
   metadata: { comparison_note: "Same questions; different prompts and answer extraction." },
 };
 const nodes = (root) => [root, ...(root.children || []).flatMap(nodes)];
-const text = (root) => nodes(root).map((n) => n.textContent || "").join(" ");
-const rows = (page) => page.ids["external-results-body"].children;
+const rows = (page) => page.ids["leaderboard-body"].children;
+const cell = (row, index) => row.children[index];
+const modelName = (row) => cell(row, 2).children[0].textContent;
 
-test("external-only board displays source-backed rows without ranked results", async () => {
+function sortBy(page, label) {
+  const button = nodes(page.ids["leaderboard-head"]).find((n) =>
+    n.tag === "button" && n.children[0].textContent === label + " ");
+  button.listeners.click();
+}
+
+test("external-only board uses normal ranked table cells and source instead of copy", async () => {
   const page = await renderBoard([], [BASELINE, { ...BASELINE, model_name: "GPT-3.5", score: 0.704 }]);
-  assert.equal(page.ids["external-results"].hidden, false);
   assert.equal(rows(page).length, 2);
-  assert.match(text(rows(page)[0]), /GPT-4o/);
-  assert.match(text(rows(page)[0]), /0\.932/);
-  assert.match(text(rows(page)[0]), /External · Not reproducible/);
-  assert.match(text(rows(page)[0]), /Nov 2, 2026/);
-  assert.match(text(rows(page)[0]), /Same questions; different prompts/);
-  const links = nodes(rows(page)[0]).filter((n) => n.tag === "a");
-  assert.equal(links.length, 1);
-  assert.equal(links[0].attrs.href, BASELINE.source_url);
-  assert.match(links[0].attrs.rel, /noopener/);
-  assert.equal(nodes(rows(page)[0]).filter((n) => n.tag === "button").length, 0);
-  assert.equal(page.ids["leaderboard-body"].children.length, 0);
-  assert.equal(page.ids["leaderboard-summary"].hidden, true);
+  const first = rows(page)[0];
+  assert.equal(first.children.length, 9);
+  assert.equal(first.className, "external-result");
+  assert.equal(cell(first, 0).textContent, "1");
+  assert.equal(cell(rows(page)[1], 0).textContent, "2");
+  assert.equal(modelName(first), "GPT-4o");
+  assert.equal(cell(first, 5).children[0].children[0].textContent, "0.932");
+  assert.equal(cell(first, 2).children[1].className, "sr-only");
+  assert.equal(cell(first, 2).children[1].textContent, "External result; not reproducible.");
+  assert.equal(cell(first, 2).title, "External result; not reproducible. " + BASELINE.metadata.comparison_note);
+  assert.equal(cell(first, 7).textContent, page.context.ScorePortal.formatDate(BASELINE.imported_at));
+  assert.equal(cell(first, 7).title, "Imported on " + BASELINE.imported_at);
+  for (const index of [3, 4, 6]) assert.equal(cell(first, index).textContent, "—");
+  const link = cell(first, 8).children[0];
+  assert.equal(link.tag, "a");
+  assert.equal(link.attrs.href, BASELINE.source_url);
+  assert.equal(link.attrs.rel, "noopener noreferrer");
+  assert.equal(link.attrs.target, "_blank");
+  assert.equal(link.attrs["aria-label"], "View source for GPT-4o");
+  assert.equal(nodes(first).filter((n) => n.tag === "button").length, 0);
+  assert.equal(page.ids["leaderboard-status"].hidden, true);
+  assert.equal(page.ids["summary-best"].textContent, "0.932");
+  assert.equal(page.ids["summary-specs"].textContent, "2");
   assert.equal(page.charts.at(-1).length, 0);
 });
 
-test("higher external score does not change ranked rows, best score or charts", async () => {
-  const ranked = entry("measured", 0.5, "1.000000", true);
-  const page = await renderBoard([ranked], [BASELINE]);
-  assert.equal(rows(page).length, 1);
-  assert.equal(page.ids["leaderboard-body"].children.length, 1);
-  assert.equal(page.ids["summary-best"].textContent, "0.5");
-  assert.equal(page.ids["summary-specs"].textContent, "1");
+test("mixed rows share score-based ranks while cost charts contain only community runs", async () => {
+  const measured = entry("measured", 0.8, "1.000000", true);
+  const page = await renderBoard([measured], [BASELINE, { ...BASELINE, model_name: "GPT-3.5", score: 0.704 }]);
+  assert.deepEqual(rows(page).map(modelName), ["GPT-4o", "measured", "GPT-3.5"]);
+  assert.deepEqual(rows(page).map((r) => cell(r, 0).textContent), ["1", "2", "3"]);
+  assert.equal(rows(page)[0].className, "external-result");
+  assert.equal(rows(page)[1].className, "");
+  assert.equal(page.ids["summary-best"].textContent, "0.932");
+  assert.equal(page.ids["summary-specs"].textContent, "3");
   assert.equal(page.charts.at(-1).length, 1);
   assert.equal(page.charts.at(-1)[0].spec_id, "measured");
-  assert.equal(rows(page)[0].className, "external-result");
-  assert.ok(!nodes(rows(page)[0]).some((n) => /sota|pareto-mark|copy/.test(n.className || "")));
+  assert.equal(measured.rank, 1, "API data must not be mutated");
+  sortBy(page, "Score");
+  assert.deepEqual(rows(page).map(modelName), ["GPT-3.5", "measured", "GPT-4o"]);
+  assert.deepEqual(rows(page).map((r) => cell(r, 0).textContent), ["3", "2", "1"]);
+  sortBy(page, "Submission");
+  assert.deepEqual(rows(page).map(modelName), ["GPT-3.5", "GPT-4o", "measured"]);
+  sortBy(page, "Rank");
+  assert.deepEqual(rows(page).map(modelName), ["GPT-4o", "measured", "GPT-3.5"]);
+  sortBy(page, "Cost");
+  assert.equal(modelName(rows(page)[0]), "measured", "unknown external costs do not sort as zero");
+});
+
+test("combined top 50 excludes low external scores whose global rank is not known", async () => {
+  const measured = Array.from({ length: 50 }, (_, i) => entry("run-" + i, 100 - i, "1.000000", false));
+  const page = await renderBoard(measured, [{ ...BASELINE, score: 101 }, { ...BASELINE, model_name: "low", score: -1 }]);
+  assert.equal(rows(page).length, 50);
+  assert.equal(modelName(rows(page)[0]), "GPT-4o");
+  assert.equal(modelName(rows(page)[49]), "run-48");
+  assert.equal(cell(rows(page)[49], 0).textContent, "50");
+  assert.ok(!rows(page).some((r) => modelName(r) === "low"));
+});
+
+test("equal scores keep community order before external rows", async () => {
+  const page = await renderBoard([entry("first", 1, null, false), entry("second", 1, null, false)], [{ ...BASELINE, score: 1 }]);
+  assert.deepEqual(rows(page).map(modelName), ["first", "second", "GPT-4o"]);
+  assert.deepEqual(rows(page).map((r) => cell(r, 0).textContent), ["1", "2", "3"]);
 });
 
 for (const baselines of [undefined, null, [], {}]) {
-  test("missing/empty/non-list baselines leave the external section hidden: " + JSON.stringify(baselines), async () => {
+  test("missing/empty/non-list baselines preserve the ordinary empty board: " + JSON.stringify(baselines), async () => {
     const page = await renderBoard([], baselines);
-    assert.equal(page.ids["external-results"].hidden, true);
+    assert.equal(rows(page).length, 0);
+    assert.equal(page.ids["leaderboard-summary"].hidden, true);
   });
 }
 
-test("failed leaderboard request leaves external results hidden", async () => {
+test("failed leaderboard request does not render external rows", async () => {
   const page = await renderBoard([], [BASELINE], true);
-  assert.equal(page.ids["external-results"].hidden, true);
+  assert.equal(page.ids["leaderboard-wrap"].hidden, true);
 });
 
-test("source text is inert and unsafe or missing URLs never become links", async () => {
+test("unsafe sources and markup stay inert in their exact cells", async () => {
   for (const url of ["javascript:alert(1)", "data:text/html,bad", "/relative", "https://", null]) {
-    const page = await renderBoard([], [{ ...BASELINE, source_url: url, model_name: "<img onerror=alert(1)>", metadata: { comparison_note: "<script>bad()</script>" } }]);
-    assert.match(text(rows(page)[0]), /<img onerror=alert\(1\)>/);
-    assert.match(text(rows(page)[0]), /<script>bad\(\)<\/script>/);
-    assert.ok(!nodes(rows(page)[0]).some((n) => ["a", "img", "script"].includes(n.tag)));
-    assert.match(text(rows(page)[0]), /Source unavailable/);
+    const model = "<img onerror=alert(1)>";
+    const note = "<script>bad()</script>";
+    const page = await renderBoard([], [{ ...BASELINE, source_url: url, model_name: model, metadata: { comparison_note: note } }]);
+    const row = rows(page)[0];
+    assert.equal(modelName(row), model);
+    assert.equal(cell(row, 2).title, "External result; not reproducible. " + note);
+    assert.ok(!nodes(row).some((n) => ["a", "img", "script"].includes(n.tag)));
+    assert.equal(cell(row, 8).textContent, "—");
   }
 });
 
-test("unknown details stay unknown and finite native scores are not percentages", async () => {
+test("unknown fields stay unknown and finite scores keep their native scale", async () => {
   const page = await renderBoard([], [0, -0.25, 12].map((score) => ({ ...BASELINE, score, imported_at: null, metadata: null })));
-  assert.equal(rows(page).length, 3);
-  assert.deepEqual(rows(page).map((r) => r.children[1].textContent), ["0", "-0.25", "12"]);
-  assert.match(text(rows(page)[0]), /Evaluation details not provided/);
-  assert.match(text(rows(page)[0]), /—/);
+  assert.deepEqual(rows(page).map((r) => cell(r, 5).children[0].children[0].textContent), ["12", "0", "-0.25"]);
+  assert.equal(cell(rows(page)[0], 7).textContent, "—");
+  assert.equal(cell(rows(page)[0], 2).title, "External result; not reproducible.");
 });
 
-test("malformed rows are skipped without hiding valid external or community results", async () => {
-  const page = await renderBoard([entry("valid", 1, null, false)], [null, {}, { ...BASELINE, score: "0.9" }, { ...BASELINE, model_name: null }, BASELINE]);
-  assert.equal(rows(page).length, 1);
-  assert.equal(page.ids["leaderboard-body"].children.length, 1);
-});
-
-test("a repeat render clears old external rows and hides an empty section", async () => {
-  const page = await renderBoard([], [BASELINE]);
-  page.context.SFExternalResults.render([BASELINE]);
-  assert.equal(rows(page).length, 1);
-  page.context.SFExternalResults.render([]);
-  assert.equal(rows(page).length, 0);
-  assert.equal(page.ids["external-results"].hidden, true);
-});
-
-test("page supplies a labelled scrollable table and loads renderer before benchmark", () => {
-  const html = fs.readFileSync(path.join(PORTAL, "benchmark.html"), "utf8");
-  assert.match(html, /id="external-results"[^>]*hidden/);
-  assert.match(html, /aria-label="External results, scrollable"/);
-  assert.match(html, /<table aria-label="External results">/);
-  assert.ok(html.indexOf('src="external-results.js"') < html.indexOf('src="benchmark.js"'));
-  assert.ok(html.includes('src="external-results.js"'));
+test("malformed rows do not hide valid rows", async () => {
+  const page = await renderBoard([entry("valid", 1, null, false)], [null, {}, { ...BASELINE, score: "0.9" }, { ...BASELINE, model_name: null }, { ...BASELINE, model_name: "  " }, BASELINE]);
+  assert.deepEqual(rows(page).map(modelName), ["valid", "GPT-4o"]);
 });
