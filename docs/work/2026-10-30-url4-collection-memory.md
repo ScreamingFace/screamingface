@@ -75,9 +75,12 @@ ordering, dedup and caching unchanged.
   buffer, so dropping the copy means changing the payload contract (media type off the
   string). The copy is transient (the adapter's `FetchResult.body` dies when `_fetch`
   returns). Memo release applies to counted (non-prevalidated) runs only; spawned per-row and
-  guard executors memoise as before. Edge: reusing ONE Executor for a second, DIFFERENT root
-  that shares already-released nodes would re-resolve them (production builds one Executor
-  per run; reuse with the same root still answers from the memo).
+  guard executors memoise as before. ~~Edge: reusing ONE Executor for a second, DIFFERENT root
+  that shares already-released nodes would re-resolve them.~~ **Superseded (review round 2,
+  2026-11-02, owner decision "opt-in release"):** the default `Executor` keeps cross-root
+  caching; `release_finished=True` is single-root and refuses a different root with
+  `ExecutorReuseError` before any work; `url4.dag.run` opts in. This is the merged #1622
+  contract.
 
 ## Review round 1 (2026-11-02) — Khoa, PR #1622 comment 4439174030
 

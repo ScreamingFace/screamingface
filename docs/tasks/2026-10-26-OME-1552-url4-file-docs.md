@@ -4,7 +4,7 @@ linear_url: https://linear.app/openmined/issue/OME-1552/document-url4-file-sourc
 status: done
 type: docs
 priority: medium
-labels: [blocked, url4-engine, agentic, autonomous]
+labels: [url4-engine, agentic, autonomous]
 created: 2026-10-09
 closed: 2026-11-02
 ---
