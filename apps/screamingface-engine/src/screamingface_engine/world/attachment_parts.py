@@ -43,6 +43,7 @@ from screamingface_engine.benchmarks.candidate_input import (
     ImagePart,
     ImageUrl,
 )
+from screamingface_engine.benchmarks.url4_attachment_admission import IMAGE_PART, part_type_for
 
 _SHA256_PREFIX = "sha256:"
 SOURCE_NOT_FOUND = "source_not_found"
@@ -145,7 +146,8 @@ def place_on_last_user_message(
 
 def _part(attachment: AttachmentRef, body: bytes) -> ContentPart:
     url = canonical_data_uri(attachment.media_type, body)
-    if url.startswith("data:image/"):
+    # WHY the shared rule: the url4 admission (OME-1809) checks a model against the part it is sent.
+    if part_type_for(attachment.media_type) == IMAGE_PART:
         image: ImageUrl = {"url": url}
         if attachment.detail is not None:
             image["detail"] = attachment.detail

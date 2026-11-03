@@ -28,6 +28,7 @@ from screamingface_engine.benchmarks.candidate_input import (
 )
 from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
 from screamingface_engine.benchmarks.picture_admission import register_model_sight
+from screamingface_engine.benchmarks.url4_attachment_admission import admit_attachments
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.capture_outcomes import (
     CAPTURE_FIELD,
@@ -467,6 +468,18 @@ class _ModelEndpoint:
             # FEATURE (OME-1545, spec F2/F3): the run's url4 files, read and verified before the
             # request is formed; empty for a text-only call, which then stays byte-identical.
             parts = await _attachment_parts(request)
+            # FEATURE (OME-1809, spec #1450 C9): a model that can't read the run's files is
+            # refused by name before this request is sent; the run's first call admits the whole
+            # run, so a blind member is refused before any member is billed. WHY built per call
+            # from world-level fields, not held: the handler's slots are the world-level allowlist
+            # (U1-H1), and the reader holds nothing a later call could see.
+            if request.attachments:
+                await admit_attachments(
+                    _GatewayModelSight(self._http_client, _model_ids(self._routes)),
+                    request.path,
+                    request.attachments,
+                    default_route=_default_route(self._cfg),
+                )
             # WHY: the identity is the REQUEST's path and params (pre-policy), because
             # OME-843 attribution matches them against the candidate expression's own
             # source text — the policy-applied set may differ from what was written.
@@ -591,18 +604,13 @@ async def build_aigateway_world(
     # fetch any URL — which is what a token-bearing run has always been able to do.
     node = Url4Node(
         _NODE_NAME,
-        default_processor="/" + cfg.default_model,
+        default_processor=_default_route(cfg),
         outbound=None if cfg.allow_outbound else StaticIOLayer(),
     )
     for path in routes:
         node.endpoint(path)(call_model)
     _GATEWAY_CLIENTS[node] = http_client
-    register_model_sight(
-        node,
-        _GatewayModelSight(
-            http_client, {path: decode_route_id(spec.id) for path, spec in routes.items()}
-        ),
-    )
+    register_model_sight(node, _GatewayModelSight(http_client, _model_ids(routes)))
     return AigatewayWorld(
         node=node,
         _client=http_client,
@@ -664,14 +672,24 @@ async def seal_frozen_copy(node: object, copy_id: str) -> bool:
     return isinstance(body, dict) and body.get("status") == "sealed"
 
 
+def _default_route(cfg: AigatewayConfig) -> str:
+    """The node's reduce route: its ``default_processor``, which every fan-out reduce fetches."""
+    return "/" + cfg.default_model
+
+
+def _model_ids(routes: Mapping[str, ModelSpec]) -> dict[str, str]:
+    """Each declared model route, to the id the gateway's model list spells it with."""
+    return {path: decode_route_id(spec.id) for path, spec in routes.items()}
+
+
 def _gateway_client(node: object) -> httpx.AsyncClient | None:
     return _GATEWAY_CLIENTS.get(node) if isinstance(node, Url4Node) else None
 
 
 _MODEL_LIST_PATH = "/v1/models"
 _MODEL_LIST_UNREADABLE = (
-    "the gateway's model list could not be read, so this picture run cannot check that its "
-    "models take images; nothing was sent to a model"
+    "the gateway's model list could not be read, so this run cannot check that its models "
+    "take its pictures or PDFs; nothing was sent to a model"
 )
 
 

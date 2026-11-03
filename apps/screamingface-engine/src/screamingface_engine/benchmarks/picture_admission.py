@@ -57,6 +57,18 @@ logger = logging.getLogger(__name__)
 IMAGE_MODALITY = "image"
 """The input type a picture needs, in the gateway's closed vocabulary (OME-1537)."""
 
+PDF_MODALITY = "pdf"
+"""The input type a PDF needs, in the same vocabulary."""
+
+PART_MODALITIES: Mapping[str, str] = {"image_url": IMAGE_MODALITY, "file": PDF_MODALITY}
+"""Each media part type a model call can carry, to the input type it needs.
+
+AIDEV-NOTE (OME-1809): #1645 (OME-1803) defines this same table, under the same name, here. This
+branch predates it, so it carries an identical copy; when #1645 merges the two collapse into ONE
+table, which the url4 attachment admission (`url4_attachment_admission.py`) keeps reading. A
+``file`` part is always a PDF to a model: every other file type is the gateway's to refuse by name.
+"""
+
 _IMAGE_PART = "image_url"
 
 
@@ -102,6 +114,12 @@ def run_expression_scope(url4: str) -> Iterator[None]:
         yield
     finally:
         _RUN_EXPRESSION.reset(token)
+
+
+def current_run_expression() -> str | None:
+    """The url4 of the Runner run in progress, or ``None`` outside one (stage 1's own test)."""
+
+    return _RUN_EXPRESSION.get()
 
 
 def cases_need_pictures(rows: Sequence[Mapping[str, object]]) -> bool:
@@ -232,9 +250,12 @@ async def refuse_blind_candidate(node: Url4Node, *, needs_pictures: bool) -> Non
 
 __all__ = [
     "IMAGE_MODALITY",
+    "PART_MODALITIES",
+    "PDF_MODALITY",
     "ModelSightReader",
     "candidate_model_routes",
     "cases_need_pictures",
+    "current_run_expression",
     "refuse_blind_candidate",
     "refuse_blind_models",
     "register_model_sight",
