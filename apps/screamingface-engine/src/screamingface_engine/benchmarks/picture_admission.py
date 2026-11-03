@@ -198,21 +198,40 @@ def models_lacking(
 
 
 async def refuse_blind_models(node: Url4Node, rows: Sequence[Mapping[str, object]]) -> None:
-    """Stages 1-4: fail the run when a picture or PDF Benchmark's Candidate has a model that
-    can't take them.
+    """Stages 1-4 over the Cases themselves: a picture or PDF anywhere in ``rows`` is a need.
 
     Raises:
         ResolutionError: ``intent_error`` (permanent), naming each model; or the reader's own
             retryable error when the model list cannot be read.
     """
 
+    # Stage 1 first, so a run with nothing to check never scans the rows.
+    if _RUN_EXPRESSION.get() is None or _READERS.get(node) is None:
+        return
+    await _refuse(node, cases_need_modalities(rows))
+
+
+async def refuse_blind_candidate(node: Url4Node, *, needs_pictures: bool) -> None:
+    """Stages 1-4 with stage 2 already answered: ``needs_pictures`` is the Benchmark's flag.
+
+    FEATURE (OME-1790): an Imported Board records ``has_pictures`` in ``board.json`` at build
+    time, so its Cases route admits a run without reading any row.
+
+    Raises:
+        ResolutionError: ``intent_error`` (permanent), naming each model; or the reader's own
+            retryable error when the model list cannot be read.
+    """
+
+    await _refuse(node, frozenset({IMAGE_MODALITY}) if needs_pictures else frozenset())
+
+
+async def _refuse(node: Url4Node, needed: frozenset[str]) -> None:
     # Stage 1 — only a Runner run binds its url4, and only a gateway node has a reader.
     url4: str | None = _RUN_EXPRESSION.get()
     reader: ModelSightReader | None = _READERS.get(node)
     if url4 is None or reader is None:
         return
     # Stage 2 — a text Benchmark stops here, before any gateway call.
-    needed: frozenset[str] = cases_need_modalities(rows)
     if not needed:
         return
     # Stage 3 — the Candidate's models.
@@ -250,6 +269,7 @@ __all__ = [
     "cases_need_modalities",
     "cases_need_pictures",
     "models_lacking",
+    "refuse_blind_candidate",
     "refuse_blind_models",
     "register_model_sight",
     "run_expression_scope",

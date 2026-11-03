@@ -1,13 +1,13 @@
 ---
 id: OME-1780
 linear_url: https://linear.app/openmined/issue/OME-1780/document-the-stage-e-rollback-floor-and-upgrade-path-for-operators
-status: in_review
+status: done
 type: task
 priority: medium
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-29
-closed:
+closed: 2026-11-02
 ---
 
 # Document the Stage E rollback floor and upgrade path for operators
@@ -40,3 +40,6 @@ defaults.
 Spec: `docs/spec/2026-10-29-ome-1138-closeout.md` §4.10. Plan:
 `docs/plan/2026-10-29-ome-1138-closeout.md` §3 "L10". Ledger:
 `docs/work/2026-10-29-stage-e-operator-docs.md`.
+
+- 2026-11-02: merged in three PRs: `969d4e303` (#1612), `41017c289` (#1637) and `834c3086a`
+  (#1641). Linear closed the issue Done the same day with the close comment.

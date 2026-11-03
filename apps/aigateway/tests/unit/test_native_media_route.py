@@ -20,8 +20,8 @@ from unittest.mock import patch
 
 import pytest
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.plugins.codex_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _MODEL = "codex/gpt-5.4-mini"

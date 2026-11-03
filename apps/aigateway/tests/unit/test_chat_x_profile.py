@@ -12,12 +12,12 @@ import pytest
 from litellm.exceptions import RateLimitError, ServiceUnavailableError
 
 from aigateway.core.auth.middleware import ANONYMOUS_ACCOUNT_ID
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.codex_provider.auth import (
     credential_service_for as codex_credential_service_for,
 )
+from tests.credential_names import credential_name_for
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 from tests.unit.seed_state import SeedState
 

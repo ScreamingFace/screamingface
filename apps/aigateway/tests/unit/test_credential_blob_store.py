@@ -1,3 +1,12 @@
+"""`ORMStore`: the encrypted round trip, its decryption refusals, and delete.
+
+Retired at OME-1138 close-out, L4b: `test_orm_store_mutate_can_delete_existing_blob` and
+`test_orm_store_mutate_delete_missing_blob_is_noop` — `ORMStore.mutate` is removed with its last
+caller, the offline Profile index; successors: `test_orm_store_round_trip` (deleting a stored
+blob), `test_orm_store_delete_is_idempotent` (deleting a missing one), and the retired-arms guard
+`test_the_blob_store_has_no_mutation_path`.
+"""
+
 from __future__ import annotations
 
 import pytest
@@ -139,20 +148,3 @@ async def test_orm_store_wrong_key_error_names_affected_credential(
 async def test_orm_store_delete_is_idempotent(credential_blobs, orm_store) -> None:
     await orm_store.delete("missing", "account")
     assert credential_blobs.read("missing", "account") is None
-
-
-@pytest.mark.asyncio
-async def test_orm_store_mutate_can_delete_existing_blob(credential_blobs, orm_store) -> None:
-    await orm_store.write("service", "account", "secret")
-
-    await orm_store.mutate("service", "account", lambda current: None)
-
-    assert await orm_store.read("service", "account") is None
-    assert credential_blobs.read_raw("service", "account") is None
-
-
-@pytest.mark.asyncio
-async def test_orm_store_mutate_delete_missing_blob_is_noop(credential_blobs, orm_store) -> None:
-    await orm_store.mutate("service", "account", lambda current: None)
-
-    assert await orm_store.read("service", "account") is None
