@@ -21,6 +21,7 @@ from typing import Protocol, runtime_checkable
 
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.url_display import display_url
+from url4.io._source_policy import too_large
 from url4.io.layer import FetchRequest, IOLayer, fetch_result
 
 
@@ -52,7 +53,20 @@ async def fetch_bytes(io: IOLayer, request: FetchRequest) -> FetchedBytes:
     if isinstance(io, SupportsFetchBytes):
         return await io.fetch_bytes(request)
     result = await fetch_result(io, request)
-    return FetchedBytes(result.body.encode("utf-8"), result.media_type)
+    return FetchedBytes(read_whole(request, result.body.encode("utf-8")), result.media_type)
+
+
+def read_whole(request: FetchRequest, body: bytes) -> bytes:
+    """``body``, checked against ``request``'s byte hook by an adapter that does not stream.
+
+    WHY ``on_chunk`` first: the caller's own refusal (a run's shared budget) outranks this
+    request's ``x.source_too_large``, exactly as on the streaming path.
+    """
+    if request.on_chunk is not None:
+        request.on_chunk(len(body))
+    if request.max_bytes is not None and len(body) > request.max_bytes:
+        raise too_large(request.max_bytes)
+    return body
 
 
 # Application types whose body is text even without a charset parameter.
@@ -290,5 +304,6 @@ __all__ = [
     "bare_media_type",
     "fetch_bytes",
     "is_text_media_type",
+    "read_whole",
     "require_text",
 ]
