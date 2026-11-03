@@ -577,3 +577,42 @@ Tests: new `tests/unit/test_context_malformed_segment.py` (14; MockTransport + r
 any request). Merged `origin/OME-1539-url4-file-refs` (02907ccfc, #1482) normally. Gates:
 `run_gates.py url4 --base origin/OME-1539-url4-file-refs` ALL GREEN (2735 passed, 17 xfailed);
 `check_module_size.py` within caps (`dag/_context.py` untouched at 455; `source_scan.py` 379).
+
+## Round 2026-11-03 — security review: redact attachment URL query strings in logs and errors: DONE
+
+**Intent.** A push security review flagged `dag/_materialize.py` writing the full attachment URL
+into the run log (`optional attachment source … omitted`) and an internal `RuntimeError`. A
+signed URL's query (`X-Amz-Signature`, `token`, `sig`) would leak. Text-only fix; no behaviour
+change.
+
+**Planned.** One display helper `display_url(raw)` (scheme, userinfo redacted to `***`, host,
+port, path; query → `?<redacted>`, fragment → `#<redacted>`; never raises, malformed →
+fixed placeholder) in `url4/core/url_display.py` — NOT next to `redact_userinfo` in `io/_source_policy.py`,
+because `test_layering` forbids `dag` importing `url4.io` beyond `io.layer`/`io.idempotency`.
+Apply at every PR-added site that interpolates an attachment/source URL into a log line or an
+exception: `_materialize.py` (check_static, collection-admission RuntimeError, WARN log,
+flight RuntimeError, fetch_bytes UNSUPPORTED_MODE), `attachment_sources.py` (classify,
+guard-value ParseError), `nodes/web_attach.py` (not_static), `_run_files.py` (not_static of a
+non-literal target), `peer/_bytes.py` (`no_bytes_port`). No existing test pins a URL in any of
+these messages (grepped).
+
+**Test plan.** New `tests/unit/test_attachment_url_redaction.py`: helper table (signed URL,
+fragment, userinfo, plain URL, relative path, malformed inputs never raise); per site a signed
+URL whose token never appears in the WARN log events/attributes, the raised error text, or
+`caplog`, while scheme/host/path still show.
+
+**Outcome.** `url4/core/url_display.py` (`display_url`, `UNPARSEABLE`; public module name
+because `test_hygiene_ratchets` caps private cross-layer imports). Sites changed:
+`_materialize.py` (WARN log, both `stored nothing` RuntimeErrors, fetch_bytes
+UNSUPPORTED_MODE), `attachment_sources.py` (`classify`, guard-value ParseError via `_shown`,
+`not_static` now takes the raw target and redacts it itself), callers `_materialize.check_static`,
+`nodes/web_attach.py`, `_run_files.py`, and `peer/_bytes.no_bytes_port`. New
+`tests/unit/test_attachment_url_redaction.py` (23). No prior test edited. Gates:
+`run_gates.py url4 --base origin/OME-1539-url4-file-refs` ALL GREEN; `check_module_size.py`
+within baseline (`dag/_context.py` untouched at 455).
+**Deviations / not changed.** (1) Helper lives in `core`, not `io/_source_policy.py` (layering).
+(2) Out of this PR's diff and left as-is: `io/http.py` (`GET {url!r} failed…`, deadline,
+redirect limit) and `io/media.py` (`{target!r} has Content-Type…`) still interpolate the full
+URL; an omitted optional source's `ResolutionError(outcome.message)` can carry them. Follow-up.
+(3) `source_scan.refuse_malformed` echoes a malformed call-context segment and
+`refuse_remote` a `url4://` blob ref — text/refs, not fetched URLs; unchanged.

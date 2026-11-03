@@ -19,6 +19,7 @@ from inspect import isawaitable
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.url_display import display_url
 from url4.io.layer import FetchRequest
 from url4.io.media import FetchedBytes, SupportsFetchBytes
 from url4.peer._dispatch import data_route, dispatch_result
@@ -83,7 +84,8 @@ def no_bytes_port(target: str) -> ResolutionError:
     without ``SupportsCode`` does; no body was seen, so its type was never unsupported.
     """
     return ResolutionError(
-        f"{target!r} needs a binary-safe io layer (fetch_bytes); this one has a text port only",
+        f"{display_url(target)!r} needs a binary-safe io layer (fetch_bytes); this one has a text "
+        "port only",
         code=ErrorCode.UNSUPPORTED_MODE,
         permanent=True,
     )
