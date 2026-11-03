@@ -6,7 +6,7 @@
 # (then it must bind `guard_refresh`) or only persists/deletes (then it is listed below).
 # AIDEV-NOTE: plugins and `core/plugin_base` are the factory layer itself and are not scanned. A
 # dispatch target with no stored backing is ambient (no blob anyone owns), which is why
-# `profile_authorize._guarded` passes it through.
+# `connection_authorize._guarded` passes it through.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ REFRESHING = frozenset(
     {
         "core.oauth.token_service:OAuthConnectionTokenService.get_token",
         "core.provider_access.connection_authority:_strategy_for",
-        "core.provider_access.profile_authorize:_strategy_for",
+        "core.provider_access.connection_authorize:_strategy_for",
         "routes.oauth_connections:refresh_connection",
     }
 )

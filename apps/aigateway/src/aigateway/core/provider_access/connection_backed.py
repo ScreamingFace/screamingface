@@ -40,9 +40,9 @@ from .connection_authority import (
     record_dispatch_outcome_migrated,
     require_operational_access_migrated,
 )
+from .connection_authorize import authorize, oauth_connection_store, record_dispatch_failure
 from .pair_authority import PairAuthority, PairAuthorityStore
 from .ports import ProviderAccess, ProviderOperationalAccess
-from .profile_authorize import authorize, oauth_connection_store, record_dispatch_failure
 from .selector import Selector
 from .targets import connection_target, targetless
 from .types import (

@@ -139,7 +139,7 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy:
         return AntigravityOAuth(
-            profile_name=credential_name,
+            credential_name=credential_name,
             client_secret=self._client_secret(),
             client_id=self.settings.client_id,
             token_url=self.settings.token_url,

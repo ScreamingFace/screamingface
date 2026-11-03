@@ -43,8 +43,8 @@ if TYPE_CHECKING:
 _OBSERVATION_SOURCE = "openai:locked-runtime"
 
 
-def _credential_service_for(profile_name: str) -> str:
-    return f"aigateway:openai:{profile_name}"
+def _credential_service_for(credential_name: str) -> str:
+    return f"aigateway:openai:{credential_name}"
 
 
 def _openai_http_client() -> httpx.AsyncClient:

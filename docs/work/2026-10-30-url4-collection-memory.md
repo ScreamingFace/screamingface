@@ -3,7 +3,7 @@ ticket: OME-1792
 stack: url4
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-30
-finished: 2026-10-30
+finished: 2026-11-02
 ---
 
 # url4-collection-memory — cut url4's peak memory on large fetched collections
@@ -62,7 +62,7 @@ ordering, dedup and caching unchanged.
   `dag/_memo.py` (`RunMemo`), `dag/executor.py` (311 -> 306 lines, cap 312),
   `scripts/bench_collection_memory.py`, tests `tests/unit/test_collection_memory.py` (59) and
   `tests/unit/test_executor_memo_release.py` (4). `_shared.py` untouched (see Deviations).
-- **Commits:** see branch `url4-collection-memory` (perf(url4): …).
+- **Commits:** squash-merged as #1622 `06c446415` (2026-11-02, approved by HupBaHa after two review rounds; final shape: opt-in `release_finished`, on in `url4.dag.run`). Linear OME-1792 → Done.
 - **Gates:** `run_gates.py url4 --base origin/main` ALL GATES GREEN (append-only, ruff,
   format, pyright, pytest+cov >= 95); `check_module_size.py` within baseline, no cap raised;
   `check_suppressions.py` 5/5.
@@ -75,9 +75,12 @@ ordering, dedup and caching unchanged.
   buffer, so dropping the copy means changing the payload contract (media type off the
   string). The copy is transient (the adapter's `FetchResult.body` dies when `_fetch`
   returns). Memo release applies to counted (non-prevalidated) runs only; spawned per-row and
-  guard executors memoise as before. Edge: reusing ONE Executor for a second, DIFFERENT root
-  that shares already-released nodes would re-resolve them (production builds one Executor
-  per run; reuse with the same root still answers from the memo).
+  guard executors memoise as before. ~~Edge: reusing ONE Executor for a second, DIFFERENT root
+  that shares already-released nodes would re-resolve them.~~ **Superseded (review round 2,
+  2026-11-02, owner decision "opt-in release"):** the default `Executor` keeps cross-root
+  caching; `release_finished=True` is single-root and refuses a different root with
+  `ExecutorReuseError` before any work; `url4.dag.run` opts in. This is the merged #1622
+  contract.
 
 ## Review round 1 (2026-11-02) — Khoa, PR #1622 comment 4439174030
 

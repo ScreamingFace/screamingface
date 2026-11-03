@@ -149,7 +149,7 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy:
         return GeminiOAuth(
-            profile_name=credential_name,
+            credential_name=credential_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
         )

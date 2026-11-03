@@ -5,7 +5,7 @@ from aigateway.core.pending_auth import PendingAuthEntry, PendingAuthTable
 ENTRY = PendingAuthEntry(
     account_id="account-1",
     provider="anthropic",
-    profile_name="work",
+    fallback_label="work",
     code_verifier="v",
     redirect_uri="http://localhost:9105/callback",
     connection_id="connection-1",
@@ -19,7 +19,7 @@ def test_pending_table_round_trip() -> None:
     assert entry is not None
     assert entry.account_id == "account-1"
     assert entry.provider == "anthropic"
-    assert entry.profile_name == "work"
+    assert entry.fallback_label == "work"
     assert entry.connection_id == "connection-1"
     assert entry.code_verifier == "v"
     assert entry.redirect_uri == "http://localhost:9105/callback"

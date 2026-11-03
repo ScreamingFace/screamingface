@@ -174,7 +174,7 @@ async def start_connection_oauth(
         PendingAuthEntry(
             account_id=account_id,
             provider=body.provider,
-            profile_name=label,
+            fallback_label=label,
             code_verifier=code_verifier,
             redirect_uri=redirect_uri,
             connection_id=str(connection_id),

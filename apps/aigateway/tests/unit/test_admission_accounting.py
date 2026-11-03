@@ -58,7 +58,6 @@ async def test_timeout_preserves_accounting_classification(kind):
             body={"model": "fake"},
             accounting=session,
             account_id="fake",
-            profile_name="fake",
             target=CredentialTarget(
                 kind="stored",
                 auth_type="api_key",

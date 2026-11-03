@@ -11,8 +11,8 @@ from typing import Any
 from ..oauth.models import OAuthConnection
 from ..plugin_base import credential_service_provider_for
 from .auth_mode import auth_type_of, credentialless_auth_mode
+from .connection_authorize import reauth_url_for
 from .connection_locator import credential_name_from_locator
-from .profile_authorize import reauth_url_for
 from .types import CredentialTarget, TargetKind
 
 
