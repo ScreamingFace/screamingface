@@ -825,6 +825,226 @@ check(
     + (f" — {_selector_mismatches}" if _selector_mismatches else ""),
 )
 
+# --- OME-1540 (#1603 review): the run blob store is a SEPARATE store ------------------------
+# Owner decision 2026-11-03: a full blob store must fail uploads and never result delivery. With
+# `artifactStorage.backend: s3` + the bundled Garage, the chart therefore renders a SECOND Garage
+# for blobs — its own StatefulSet, PVC, Service, bucket and key pair. Everything below asserts the
+# two resolve to different stores BY DEFAULT, from the rendered output.
+print("\nscreamingface-engine chart: blob store isolation (OME-1540)")
+_ENGINE_ARGS = ("--set-string", "config.natsUrl=nats://nats.example:4222")
+check(
+    find_named(engine_chart, "ConfigMap", ENGINE_FULLNAME)["data"].get(
+        "URL4_CLOUD_BLOB_STORE"
+    )
+    == "filesystem"
+    and not [
+        d
+        for d in engine_chart
+        if d.get("kind") == "StatefulSet"
+        and d["metadata"]["name"].endswith("-garage-blobs")
+    ],
+    "a default (filesystem) install renders a filesystem blob store and no blob Garage",
+)
+engine_s3 = render(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    *_ENGINE_ARGS,
+    "--set",
+    "artifactStorage.backend=s3",
+    "--set",
+    "garage.enabled=true",
+)
+results_sts = find_named(engine_s3, "StatefulSet", f"{ENGINE_FULLNAME}-garage")
+blobs_sts = find_named(engine_s3, "StatefulSet", f"{ENGINE_FULLNAME}-garage-blobs")
+
+
+def _pvc_template(sts: dict) -> tuple[str, str]:
+    (claim,) = sts["spec"]["volumeClaimTemplates"]
+    return claim["metadata"]["name"], claim["spec"]["resources"]["requests"]["storage"]
+
+
+def _garage_container(sts: dict) -> dict:
+    return sts["spec"]["template"]["spec"]["containers"][0]
+
+
+def _garage_env(sts: dict) -> dict[str, dict]:
+    return {e["name"]: e for e in _garage_container(sts)["env"]}
+
+
+check(
+    results_sts["metadata"]["name"] != blobs_sts["metadata"]["name"]
+    and _pvc_template(results_sts)[1] == "10Gi"
+    and _pvc_template(blobs_sts)[1] == "5Gi",
+    "s3 + bundled Garage renders TWO StatefulSets, each with its OWN volumeClaimTemplate "
+    "(results 10Gi from garage.persistence, blobs 5Gi from blobs.storage.garage.persistence)",
+)
+_component = "app.kubernetes.io/component"
+results_pods = results_sts["spec"]["template"]["metadata"]["labels"]
+blobs_pods = blobs_sts["spec"]["template"]["metadata"]["labels"]
+check(
+    results_pods.get(_component) == "garage"
+    and blobs_pods.get(_component) == "garage-blobs",
+    "the two Garages carry distinct component labels (garage / garage-blobs)",
+)
+results_svc = find_named(engine_s3, "Service", f"{ENGINE_FULLNAME}-garage")
+blobs_svc = find_named(engine_s3, "Service", f"{ENGINE_FULLNAME}-garage-blobs")
+check(
+    _selects(results_svc["spec"]["selector"], results_pods)
+    and not _selects(results_svc["spec"]["selector"], blobs_pods)
+    and _selects(blobs_svc["spec"]["selector"], blobs_pods)
+    and not _selects(blobs_svc["spec"]["selector"], results_pods),
+    "each Garage Service selects ONLY its own Garage's pods",
+)
+for _cm_name in (ENGINE_FULLNAME, f"{ENGINE_FULLNAME}-runner-env"):
+    _data = find_named(engine_s3, "ConfigMap", _cm_name)["data"]
+    check(
+        _data.get("URL4_CLOUD_BLOB_STORE") == "s3"
+        and _data.get("URL4_CLOUD_BLOB_S3_ENDPOINT_URL")
+        == f"http://{ENGINE_FULLNAME}-garage-blobs:3900"
+        and _data.get("URL4_CLOUD_ARTIFACT_S3_ENDPOINT_URL")
+        == f"http://{ENGINE_FULLNAME}-garage:3900"
+        and _data.get("URL4_CLOUD_BLOB_S3_BUCKET")
+        != _data.get("URL4_CLOUD_ARTIFACT_S3_BUCKET"),
+        f"{_cm_name}: blobs and results resolve to different endpoints and buckets",
+    )
+    check(
+        "URL4_CLOUD_BLOB_S3_SECRET_KEY" not in _data
+        and "URL4_CLOUD_BLOB_S3_ACCESS_KEY" not in _data,
+        f"{_cm_name}: the blob key pair is not in a ConfigMap",
+    )
+_blob_secret = f"{ENGINE_FULLNAME}-blob-storage"
+_artifact_secret = f"{ENGINE_FULLNAME}-artifact-storage"
+check(
+    set(find_named(engine_s3, "Secret", _blob_secret)["stringData"])
+    == {
+        "URL4_CLOUD_BLOB_S3_ACCESS_KEY",
+        "URL4_CLOUD_BLOB_S3_SECRET_KEY",
+        "GARAGE_RPC_SECRET",
+    },
+    "the blob Secret carries the blob key pair (its own names) and the blob Garage's RPC secret",
+)
+# #1603 security review: the blob Garage's RPC secret is random, from its Secret — never a
+# `derivePassword` over the release name and a constant master, which anyone can recompute.
+_blob_toml = find_named(engine_s3, "ConfigMap", f"{ENGINE_FULLNAME}-garage-blobs")[
+    "data"
+]["garage.toml"]
+check(
+    not any(line.strip().startswith("rpc_secret") for line in _blob_toml.splitlines())
+    and _garage_env(blobs_sts)["GARAGE_RPC_SECRET"]["valueFrom"]["secretKeyRef"]
+    == {"name": _blob_secret, "key": "GARAGE_RPC_SECRET"},
+    "the blob Garage config holds no rpc_secret constant; Garage reads GARAGE_RPC_SECRET from "
+    "the blob Secret",
+)
+
+
+def _blob_rpc_secret(release: str) -> str:
+    docs = render(
+        ENGINE_CHART,
+        release,
+        *_ENGINE_ARGS,
+        "--set",
+        "artifactStorage.backend=s3",
+        "--set",
+        "garage.enabled=true",
+    )
+    secret = next(
+        d
+        for d in docs
+        if d.get("kind") == "Secret" and d["metadata"]["name"].endswith("-blob-storage")
+    )
+    return secret["stringData"]["GARAGE_RPC_SECRET"]
+
+
+_rpc_a, _rpc_b = _blob_rpc_secret("release-a"), _blob_rpc_secret("release-b")
+check(
+    _rpc_a != _rpc_b
+    and all(
+        len(v) == 64 and all(c in "0123456789abcdef" for c in v)
+        for v in (_rpc_a, _rpc_b)
+    ),
+    "two releases never share a blob Garage RPC secret, and each is 32 bytes of hex",
+)
+for _deployment_name in (ENGINE_FULLNAME, f"{ENGINE_FULLNAME}-runner"):
+    _container = find_named(engine_s3, "Deployment", _deployment_name)["spec"][
+        "template"
+    ]["spec"]["containers"][0]
+    _env_from = {
+        ref["secretRef"]["name"] for ref in _container["envFrom"] if "secretRef" in ref
+    }
+    _named = {
+        e["name"]: e["valueFrom"]["secretKeyRef"]
+        for e in _container.get("env", [])
+        if "secretKeyRef" in e.get("valueFrom", {})
+    }
+    check(
+        _artifact_secret in _env_from
+        and _named.get("URL4_CLOUD_BLOB_S3_ACCESS_KEY")
+        == {"name": _blob_secret, "key": "URL4_CLOUD_BLOB_S3_ACCESS_KEY"}
+        and _named.get("URL4_CLOUD_BLOB_S3_SECRET_KEY")
+        == {"name": _blob_secret, "key": "URL4_CLOUD_BLOB_S3_SECRET_KEY"},
+        f"{_deployment_name} reads the artifact Secret and the blob key pair",
+    )
+    check(
+        _blob_secret not in _env_from and "GARAGE_RPC_SECRET" not in _named,
+        f"{_deployment_name} never receives the blob Garage's RPC secret (no envFrom of the "
+        "blob Secret)",
+    )
+_blob_env = _garage_env(blobs_sts)
+check(
+    _blob_env["GARAGE_DEFAULT_ACCESS_KEY"]["valueFrom"]["secretKeyRef"]
+    == {"name": _blob_secret, "key": "URL4_CLOUD_BLOB_S3_ACCESS_KEY"}
+    and _blob_env["GARAGE_DEFAULT_SECRET_KEY"]["valueFrom"]["secretKeyRef"]
+    == {"name": _blob_secret, "key": "URL4_CLOUD_BLOB_S3_SECRET_KEY"}
+    and _blob_env["GARAGE_DEFAULT_BUCKET"]["value"]
+    == find_named(engine_s3, "ConfigMap", ENGINE_FULLNAME)["data"][
+        "URL4_CLOUD_BLOB_S3_BUCKET"
+    ],
+    "the blob Garage adopts the blob key pair and creates the bucket the engine reads",
+)
+check(
+    all(
+        _garage_container(results_sts)[field] == _garage_container(blobs_sts)[field]
+        for field in ("image", "command", "args", "securityContext", "ports")
+    ),
+    "the blob Garage runs the same image, self-configuration flags, ports and security context "
+    "as the results Garage (garage-blobs.yaml is a parallel template; see its AIDEV-NOTE)",
+)
+engine_s3_external = render(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    *_ENGINE_ARGS,
+    "--set",
+    "artifactStorage.backend=s3",
+    "--set",
+    "garage.enabled=true",
+    "--set",
+    "blobs.storage.s3.endpointUrl=https://blobs.example",
+)
+check(
+    not [
+        d
+        for d in engine_s3_external
+        if d.get("kind") in {"StatefulSet", "Service"}
+        and d["metadata"]["name"].endswith("-garage-blobs")
+    ]
+    and find_named(engine_s3_external, "ConfigMap", ENGINE_FULLNAME)["data"][
+        "URL4_CLOUD_BLOB_S3_ENDPOINT_URL"
+    ]
+    == "https://blobs.example",
+    "an operator's own blob endpoint replaces the bundled blob Garage",
+)
+check(
+    render_fails(
+        ENGINE_CHART,
+        ENGINE_RELEASE,
+        *_ENGINE_ARGS,
+        "--set",
+        "blobs.storage.backend=gcs",
+    )
+    is not None,
+    "an unknown blob backend is refused at render time",
+)
+
 print("\nreport-intake chart")
 # THE DEFAULT INSTALL IS SAFE AND NOT USEFUL, deliberately: `authMode: disabled` is loopback-only
 # and no edge is rendered. That is what keeps a bare `helm template` green on a clean checkout —

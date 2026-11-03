@@ -26,14 +26,8 @@ from screamingface_engine.artifacts import (
     ArtifactStore,
     S3ArtifactStore,
 )
-from screamingface_engine.artifacts.blobs import (
-    BlobObjects,
-    BlobPolicy,
-    BlobStore,
-    FilesystemBlobObjects,
-    S3BlobObjects,
-)
-from screamingface_engine.artifacts.wiring import s3_config_from_values
+from screamingface_engine.artifacts.blobs import BlobPolicy, BlobStore
+from screamingface_engine.artifacts.wiring import blob_objects_from_values, s3_config_from_values
 from screamingface_engine.auth import Clock, default_clock, install_problem_handlers
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
@@ -349,13 +343,13 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
 
 
 def _install_storage(app: FastAPI, settings: Settings) -> None:
-    """The result spill store, the run blob store over the same backend, and their TTL sweep."""
+    """The result spill store, the run blob store on its own backend, and their TTL sweep."""
     # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
     # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
     # (OME-929).
     app.state.artifact_store = _build_artifact_reader(settings)
-    # FEATURE: the run blob store (OME-1540) — same backend and root as the artifacts above.
-    app.state.blob_store = _build_blob_store(app.state.artifact_store, settings)
+    # FEATURE: the run blob store (OME-1540) — on its own backend (#1603 review).
+    app.state.blob_store = _build_blob_store(settings)
     # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
     # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
     # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
@@ -368,17 +362,24 @@ def _install_storage(app: FastAPI, settings: Settings) -> None:
     _install_artifact_sweeper(app, app.state.artifact_store, settings)
 
 
-def _build_blob_store(artifacts: ArtifactReader, settings: Settings) -> BlobStore:
-    """The run blob store over the artifact backend: S3 bucket or the artifacts directory.
+def _build_blob_store(settings: Settings) -> BlobStore:
+    """The run blob store on ITS OWN backend (#1603 review, owner decision 2026-11-03).
 
-    WHY the same backend (owner decision 2026-10-28, Q4a): the Runner already reaches it, and
-    `_build_artifact_reader` has already refused the deployments where it could not.
+    WHY through `blob_objects_from_values`: the Runner resolves its blob store with the same
+    function from the same `job_env` names, so the two halves read one store.
+
+    INVARIANT: `runner="queue"` with a filesystem blob store is refused, for the reason
+    `_build_artifact_reader` refuses filesystem artifacts — the Runner reading a blob runs in
+    another pod, whose disk does not hold this App's uploads. (Follow mode inherits that
+    refusal from the artifact store itself.)
     """
-    objects: BlobObjects = (
-        S3BlobObjects(artifacts)
-        if isinstance(artifacts, S3ArtifactStore)
-        else FilesystemBlobObjects(Path(settings.artifacts_dir))
-    )
+    if settings.runner == "queue" and settings.blob_store == "filesystem":
+        raise ValueError(
+            f"runner='{settings.runner}' reads blobs from a worker pod that cannot see this "
+            f"App's disk. Set {job_env.BLOB_STORE}=s3 and the {job_env.BLOB_S3_BUCKET} "
+            f"settings, or use runner='none' for a single-process deployment."
+        )
+    objects = blob_objects_from_values(_blob_values(settings))
     policy = BlobPolicy(
         max_bytes=settings.blob_max_bytes,
         media_types=frozenset(t.strip().lower() for t in settings.blob_media_types),
@@ -386,6 +387,26 @@ def _build_blob_store(artifacts: ArtifactReader, settings: Settings) -> BlobStor
         verify_signature=True,
     )
     return BlobStore(objects, policy)
+
+
+def _blob_values(settings: Settings) -> dict[str, str]:
+    """`Settings` rendered into the env-named shape the shared wiring reads."""
+    return {
+        job_env.BLOB_STORE: settings.blob_store or "",
+        job_env.BLOBS_DIR: settings.blobs_dir,
+        job_env.BLOB_S3_ENDPOINT_URL: settings.blob_s3_endpoint_url,
+        job_env.BLOB_S3_BUCKET: settings.blob_s3_bucket,
+        job_env.BLOB_S3_REGION: settings.blob_s3_region,
+        job_env.BLOB_S3_ACCESS_KEY: settings.blob_s3_access_key,
+        job_env.BLOB_S3_SECRET_KEY: settings.blob_s3_secret_key,
+        job_env.ARTIFACT_STORE: settings.artifact_store,
+        job_env.ARTIFACTS_DIR: settings.artifacts_dir,
+        job_env.ARTIFACT_S3_ENDPOINT_URL: settings.artifact_s3_endpoint_url,
+        job_env.ARTIFACT_S3_BUCKET: settings.artifact_s3_bucket,
+        job_env.ARTIFACT_S3_REGION: settings.artifact_s3_region,
+        job_env.ARTIFACT_S3_ACCESS_KEY: settings.artifact_s3_access_key,
+        job_env.ARTIFACT_S3_SECRET_KEY: settings.artifact_s3_secret_key,
+    }
 
 
 async def _sweep_blobs(app: FastAPI, ttl_seconds: float) -> None:

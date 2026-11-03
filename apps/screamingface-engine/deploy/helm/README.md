@@ -382,19 +382,21 @@ Objects expire by **bucket lifecycle rule**, not by the App's sweeper — which 
 mode, because listing objects would need query-string signing beyond what the adapter's signer
 supports. **A bucket with no lifecycle rule never expires artifacts.**
 
-The same bucket also holds the **run blob store** (OME-1540): files a client uploads over
-`PUT /blob/sha256/<hex>` live under the `blobs/` key prefix (`blobs/<tenant>/<run>/<hex>` plus a
-`.json` metadata object beside each). In `s3` mode the App never deletes them either, so the
-lifecycle rule must cover **both** the result parcels at the bucket root **and** `blobs/` — a
-rule scoped to a prefix that leaves `blobs/` out keeps every upload forever. The simplest rule
-is one with no prefix filter, expiring after the artifact TTL (`URL4_CLOUD_ARTIFACT_TTL_S`,
-default 48 h — rounded up to whole days, as lifecycle rules count in days):
+The **run blob store** (OME-1540) has its own store — see [Blob storage](#blob-storage-ome-1540)
+— and in `s3` mode its bucket needs **its own** lifecycle rule: the App never deletes blobs
+there either. Blobs live under `blobs/<tenant>/<run>/<hex>` (plus a `.json` metadata object
+beside each). Without a rule on the blob bucket every upload stays until the blob volume fills,
+and from then on every upload is refused with a 503.
+
+One rule with no prefix filter, expiring after the artifact TTL (`URL4_CLOUD_ARTIFACT_TTL_S`,
+default 48 h, rounded up to whole days because lifecycle rules count in days), serves both
+buckets — apply it to the results bucket and to the blob bucket:
 
 ```json
 {
   "Rules": [
     {
-      "ID": "expire-artifacts-and-blobs",
+      "ID": "expire-after-artifact-ttl",
       "Status": "Enabled",
       "Filter": { "Prefix": "" },
       "Expiration": { "Days": 2 }
@@ -403,11 +405,13 @@ default 48 h — rounded up to whole days, as lifecycle rules count in days):
 }
 ```
 
-Save it as `lifecycle.json` and apply it with any S3 client, e.g.
+Save it as `lifecycle.json` and apply it with any S3 client, once per bucket, e.g.
 `aws s3api put-bucket-lifecycle-configuration --endpoint-url <endpoint> --bucket <bucket>
---lifecycle-configuration file://lifecycle.json`. If your store needs per-prefix rules, add a
-second rule with `"Prefix": "blobs/"`. Check that your store supports lifecycle expiry at all
-before relying on it; without it, `blobs/` and the parcels grow until removed by hand.
+--lifecycle-configuration file://lifecycle.json`. With the bundled stores that is the results
+Garage (`<fullname>-garage`, bucket `artifactStorage.s3.bucket`) and the blob Garage
+(`<fullname>-garage-blobs`, bucket `blobs.storage.s3.bucket`), each with its own key pair from
+its own Secret. Check that your store supports lifecycle expiry before relying on it; without
+it, objects grow until removed by hand.
 
 ### Using storage you already run
 
@@ -419,6 +423,53 @@ That works with Garage, MinIO, SeaweedFS, Ceph RGW and Cloudflare R2. AWS S3 pro
 path-style in favour of virtual-hosted-style (`bucket.s3.region.amazonaws.com`), so pointing this
 at real AWS S3 may fail — and it fails as a signing/404 error that looks like a credential
 problem. Azure Blob is **not** S3-compatible at all and would need a new adapter behind the port.
+
+## Blob storage (OME-1540)
+
+Files a client uploads over `PUT /blob/sha256/<hex>` for its run's model calls are kept in a
+store **separate from the artifact store** (owner decision 2026-11-03, #1603 review). Upload
+volume is driven by clients — on a self-hosted engine with Access off, by anyone who can mint
+a token — so sharing one store would let uploads fill the space a paid run needs to park its
+result. Separated, **a full blob store fails uploads (503 with `Retry-After`) and never result
+delivery.**
+
+```yaml
+blobs:
+  storage:
+    backend: ""        # "" = the same KIND as artifactStorage.backend, never the same store
+    filesystemDir: ""  # filesystem mode; empty = <tmp>/screamingface-engine/blobs
+    s3:
+      endpointUrl: ""  # empty = the chart's second bundled Garage, below
+      bucket: screamingface-blobs
+      existingSecret: ""
+    garage:
+      persistence:
+        size: 5Gi      # the blob quota
+```
+
+With `artifactStorage.backend: s3` and nothing else set, the chart renders **two** Garages:
+`<fullname>-garage` for results and `<fullname>-garage-blobs` for blobs, each a single-node
+StatefulSet with **its own volume** (`garage.persistence.size` and
+`blobs.storage.garage.persistence.size`) and **its own key pair** (`<fullname>-artifact-storage`
+and `<fullname>-blob-storage`, generated and adopted on first boot exactly as described above).
+The blob Garage's cluster RPC secret is
+**random** (`GARAGE_RPC_SECRET` in `<fullname>-blob-storage`, kept across upgrades by `lookup`),
+not derived from the release name, and only the Garage pod receives it: the App and the runner
+pool read the blob key pair by named `secretKeyRef`, not `envFrom`. With
+`blobs.storage.s3.existingSecret`, that Secret must carry `GARAGE_RPC_SECRET` as well.
+Set `blobs.storage.s3.endpointUrl` to use storage you already run; no blob Garage is rendered
+then. Use a bucket, ideally a volume or quota, distinct from the results store's, or the
+isolation is lost.
+
+**Network policy.** The blob Garage's pods carry `app.kubernetes.io/component: garage-blobs`, not
+`garage` (a shared value would put them behind the results Garage's Service). A platform
+NetworkPolicy that admits App/runner ↔ Garage traffic by `component: garage` must also admit
+`component: garage-blobs` on port 3900 (S3; and 3901, RPC, if your policy lists it), or every
+blob request times out and uploads answer 503.
+
+**Filesystem mode** is single-process only, like the artifact store: with `config.runner: queue`
+the App refuses to start on a filesystem blob store, because the runner pool cannot read the
+App's disk.
 
 ## Workload hardening
 

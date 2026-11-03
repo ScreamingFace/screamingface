@@ -142,6 +142,23 @@ class Settings(BaseSettings):
             "application/pdf",
         ]
     )
+    # FEATURE: the run blob store's OWN storage (#1603 review, owner decision 2026-11-03) — a
+    # client filling it fails uploads and never touches result delivery. Every field reads the
+    # `job_env.BLOB_*` name (`URL4_CLOUD_` + field name), so the App and the Runner resolve one
+    # store through `artifacts.wiring.blob_objects_from_values`.
+    #
+    # WHY `None` = follow the artifact store (the `blobs/` prefix of its directory or bucket): the
+    # layout the store shipped with and a bare local process still gets. The chart always sets
+    # it, so a deployment always gets a separate store.
+    # INVARIANT: an explicit "s3" never borrows the artifact bucket or credentials.
+    blob_store: ArtifactStoreBackend | None = None
+    blobs_dir: str = ""
+    blob_s3_endpoint_url: str = ""
+    blob_s3_bucket: str = ""
+    blob_s3_region: str = job_env.DEFAULT_ARTIFACT_S3_REGION
+    blob_s3_access_key: str = ""
+    # AIDEV-NOTE: credential material — Secret only, never logged, never in a ConfigMap.
+    blob_s3_secret_key: str = ""
     # FEATURE: tie a run's lifetime to its audience (OME-890).
     #
     # WHY 120s: a run whose last WebSocket subscriber disconnects gets this long to get one back
@@ -395,6 +412,12 @@ class Settings(BaseSettings):
     # exit codes) on this port. The chart exposes it on the runner pool Deployment. 0 disables
     # the endpoint.
     worker_metrics_port: int = Field(default=9109, ge=0)
+
+    @field_validator("blob_store", mode="before")
+    @classmethod
+    def _empty_blob_store_follows_the_artifact_store(cls, value: object) -> object:
+        # WHY: an env var rendered empty means "not set", not an invalid backend name.
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("blob_media_types")
     @classmethod

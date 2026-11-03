@@ -127,6 +127,9 @@ spec:
                 name: {{ include "screamingface-engine.tracingSecretName" . }}
             {{- end }}
           env:
+            # The blob store's key pair (OME-1540; #1603 review), by NAMED key rather than envFrom:
+            # the blob Secret also holds the blob Garage's RPC secret, which must reach Garage only.
+            {{- include "screamingface-engine.blobCredentialEnv" . | nindent 12 }}
             # HS256 topic-capability signing secret (spec §4). Never logged.
             - name: URL4_CLOUD_JWT_SECRET
               valueFrom:

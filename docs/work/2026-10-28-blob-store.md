@@ -82,7 +82,7 @@ refs resolve as a direct tenant + run store read (spec
 
 ## Review round 1 — Khoa's 5 inline comments on #1603 (2026-11-02), owner decisions 2026-11-03
 
-status: blocked (items 2-5 done; item 1 stopped on a design fork, see Outcome)
+status: done (items 2-5 in 5b23a101a; item 1 after the owner chose option A, see below)
 
 - **Planned:**
   1. `rest/blobs.py:107` total upload limit → a separate blob storage backend (`blobs.storage`
@@ -130,3 +130,44 @@ status: blocked (items 2-5 done; item 1 stopped on a design fork, see Outcome)
   chart deliberately has no bootstrap hook, so a separate blob bucket cannot be created by the
   chart as it stands, and a second bucket on the same Garage volume does not isolate capacity
   anyway. Options reported to the owner; nothing for item 1 is committed.
+
+### Review round 1, item 1: separate blob storage (owner decision 2026-11-03, option A)
+
+status: done (unblocked by owner decisions Q1(a) / Q2(a), 2026-11-03)
+
+- **Built:** `job_env.BLOB_*` names;
+  `Settings.blob_store` / `blobs_dir` / `blob_s3_*`; `artifacts.wiring.blob_objects_from_values`
+  (both halves) + `blob_s3_config_from_values` (never borrows the artifact settings); App refuses
+  `runner=queue` with a filesystem blob store; chart `blobs.storage` values + schema, a second
+  bundled Garage (`garage-blobs.yaml`, own PVC 5Gi, own `<fullname>-blob-storage` Secret, component
+  `garage-blobs`), blob keys in both ConfigMaps, the blob Secret on both workloads; README
+  "Blob storage" section and per-bucket lifecycle text; verifier block (15 new checks).
+- **Tests:** `test_blob_storage_isolation.py` (21), `test_blob_storage_chart_contract.py`.
+  Written after the code in this item (TDD order deviation).
+- **Stopped on:**
+  - `test_catalog_wiring.py::test_no_setting_holds_an_aigateway_credential` pins the set of
+    secret-shaped `Settings` fields; `blob_s3_access_key` / `blob_s3_secret_key` must be added
+    to it with a reviewed rationale.
+  - `test_chart_render_garage_selector.py` (2 tests) assumes ONE Garage (`next(... "garage" in
+    name)`; every "garage" Service must select that Garage's pods); with two Garages it picks
+    the blob one.
+- **Kept as-is (follow mode):** with `URL4_CLOUD_BLOB_STORE` unset the blob store follows the
+  artifact directory/bucket, because `test_blob_routes.py::test_the_artifact_startup_sweep_also_
+  ages_out_blobs` and `test_blob_wiring.py` pin that location. The chart always sets it.
+- **Unblocked (owner, 2026-11-03):** Q1(a) — `test_catalog_wiring.py` pinned set gains
+  `blob_s3_access_key` / `blob_s3_secret_key` with a reviewed rationale; Q2(a) —
+  `test_chart_render_garage_selector.py` picks the results Garage by exact name and asserts each
+  Garage Service selects only its own pods. Both recorded in
+  `.claude/test-change-approvals/OME-1540.json` (approver Sergey Bershadsky, base/approved blobs).
+- **Security review fix:** the blob Garage's `rpc_secret` is a random 64-hex value in
+  `<fullname>-blob-storage` (`GARAGE_RPC_SECRET`, reused across upgrades by `lookup`), fed to
+  Garage by env (supported since Garage v0.8.2, per the Garage configuration reference); its
+  config carries no derived constant. The App and the pool now read the blob key pair by named
+  `secretKeyRef`, so the RPC secret reaches the Garage pod only. Verifier checks: no `rpc_secret`
+  line in the blob Garage config, two releases get different RPC secrets.
+  Residual (not changed, owner to decide): the results `garage.yaml` still derives its
+  `rpc_secret` with `derivePassword` from the release name and a constant master.
+- **Deploy prerequisite:** the hosted platform NetworkPolicies (outside this repo) must admit
+  `component: garage-blobs` on 3900 (and 3901 if listed) — in the PR body.
+- **Gates:** `run_gates.py screamingface-engine --base origin/main` ALL GREEN (two approved
+  test transitions), `helm lint` green, `verify_chart_wiring.py` 140/140.

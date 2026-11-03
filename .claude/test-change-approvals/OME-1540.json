@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1540",
+  "branch": "OME-1540-blob-store",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-11-03",
+  "scope": "Two prior engine tests amended for the separate run blob store (#1603 review comment 1, owner decision option A). (1) test_catalog_wiring.py::test_no_setting_holds_an_aigateway_credential: the pinned set of secret-shaped Settings fields gains blob_s3_access_key and blob_s3_secret_key, with a reviewed rationale comment mirroring artifact_s3_*; the four existing entries and the assertion message are unchanged. (2) test_chart_render_garage_selector.py: test_the_app_service_does_not_select_garage_pods and test_the_garage_selector_is_the_app_identity_plus_the_garage_component pick the results Garage StatefulSet and Service by EXACT name (url4-cloud-url4-cloud-garage) instead of the first object with 'garage' in its name; the first test also asserts that no App Service selects the blob Garage's pods and that each Garage Service selects only its own Garage's pods. Every prior assertion about the results Garage is kept; test_the_app_service_selects_only_the_control_plane_pods is unchanged.",
+  "reason": "Owner decision (Sergey, 2026-11-03, Q1(a) and Q2(a)): blobs get their own S3 store, so the App must hold a second, separate S3 credential (a Secret value read by named secretKeyRef; a leak grants read/write on the blob bucket only), which the credential tripwire requires to be listed with a rationale; and the chart now renders a second bundled Garage (<fullname>-garage-blobs, component garage-blobs) whose objects also contain 'garage' in their names, so the selector tests' first-match lookups would pick the blob Garage. The tests now name the store they check and cover the second one.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_catalog_wiring.py": {
+      "base_blob": "d1f3dd564fe97fb5163e6ba3f625df99a110ef44",
+      "approved_blob": "837869af8f3cb208acad29602dccdf41ec0fad37"
+    },
+    "apps/screamingface-engine/tests/unit/test_chart_render_garage_selector.py": {
+      "base_blob": "98102152266199a9a9d37cf31134931394bb60a3",
+      "approved_blob": "2024c053e6011dff219a51338c635a5a72aeaa92"
+    }
+  }
+}

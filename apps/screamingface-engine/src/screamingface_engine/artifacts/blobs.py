@@ -6,9 +6,12 @@ STORY: as a url4 client I upload a picture under my run's capability token, get 
 `blob:sha256/<hex>`, and every model call in that run can read it — and no other run can.
 
 Layout: one data object and one metadata object per blob, both below
-`blobs/<tenant>/<run>/<hex>` in the same filesystem directory or S3 bucket the result artifacts
-use. Result parcels sit FLAT at that root under 64-hex names, so the two never collide, and the
-artifact sweep (which only matches flat 64-hex names) never touches a blob.
+`blobs/<tenant>/<run>/<hex>` in the blob store's OWN directory or bucket (#1603 review, owner
+decision 2026-11-03; `artifacts.wiring.blob_objects_from_values`), so a full blob store fails
+uploads and never result delivery. With `URL4_CLOUD_BLOB_STORE` unset the store follows the
+artifact directory or bucket instead; result parcels sit FLAT at that root under 64-hex names,
+so the two never collide, and the artifact sweep (which only matches flat 64-hex names) never
+touches a blob.
 
 INVARIANT (F3 authorization): a digest is NOT a bearer capability. Every key carries the
 (tenant, run) scope, so a read from any other scope finds nothing — the same `None` a digest
@@ -184,7 +187,7 @@ class BlobObjects(Protocol):
 
 
 class FilesystemBlobObjects:
-    """Blob objects as files below `<root>/blobs/` — `root` is the artifacts directory."""
+    """Blob objects as files below `<root>/blobs/` — `root` is the blob directory."""
 
     def __init__(self, root: Path) -> None:
         self._root = root
@@ -227,7 +230,7 @@ class FilesystemBlobObjects:
 
 
 class S3BlobObjects:
-    """Blob objects in the artifact bucket, below the `blobs/` key prefix."""
+    """Blob objects in the blob bucket, below the `blobs/` key prefix."""
 
     def __init__(self, store: S3ArtifactStore) -> None:
         self._store = store
