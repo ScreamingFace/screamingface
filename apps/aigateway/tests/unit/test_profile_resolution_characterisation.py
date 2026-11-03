@@ -22,10 +22,10 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 
 _CHAT = "/v1/chat/completions"
 _ANTHROPIC_CHAT = (

@@ -43,8 +43,8 @@ if TYPE_CHECKING:
 _OBSERVATION_SOURCE = "openai:locked-runtime"
 
 
-def _credential_service_for(profile_name: str) -> str:
-    return f"aigateway:openai:{profile_name}"
+def _credential_service_for(credential_name: str) -> str:
+    return f"aigateway:openai:{credential_name}"
 
 
 def _openai_http_client() -> httpx.AsyncClient:
@@ -210,8 +210,8 @@ class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
         # OME-884 cycle 2: the PRECISE half of the modifier asymmetry — see
         # ``runtime_guard.modifier_refuses_dispatch``. What matters HERE is the position:
         # both refusals precede API-key removal, client construction and ``acompletion``,
-        # so a refused request does no upstream work and builds no client. The effective
-        # body is what gets inspected, so a profile-defaulted ceiling counts.
+        # so a refused request does no upstream work and builds no client. The body inspected
+        # is the one dispatched, so any ceiling it carries counts.
         if modifier_refuses_dispatch(litellm, body.get("max_tokens")):
             raise _unsafe_environment_error()
 

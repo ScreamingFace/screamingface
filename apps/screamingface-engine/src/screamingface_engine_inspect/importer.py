@@ -435,8 +435,11 @@ def _unseen_judge_role(name: str, params: Mapping[str, Any], shape: JudgeShape) 
             "grades differently by the Candidate's name, so Candidates would not be graded "
             "alike. Add the row by hand (OME-1602)"
         )
-    unread: list[str] = [where for role, where in shape.roles if role == UNKNOWN_ROLE]
-    if unread:
+    # WHY given by the kwargs (OME-1478): hle asks for the role its own ``grader_role``
+    # argument holds, and the kwargs this row is written with fill that argument.
+    given: tuple[str, ...] = shape.roles_given(params)
+    if UNKNOWN_ROLE in given:
+        unread: list[str] = [where for role, where in shape.roles if role == UNKNOWN_ROLE]
         raise ImporterError(
             f"scorer {name} asks for a model role held in a variable (get_model(role=...) in "
             f"{unread[0]}), so no row can name the judge that fills it. Add the row by hand "
@@ -447,7 +450,7 @@ def _unseen_judge_role(name: str, params: Mapping[str, Any], shape: JudgeShape) 
             f"scorer {name} could not be read in full ({shape.unread[0]}), so the importer "
             "cannot tell whether it reaches a judge. Add the row by hand (OME-1602)"
         )
-    roles: list[str] = [role for role, _ in shape.roles]
+    roles: list[str] = list(given)
     if len(roles) > 1 or (roles and roles[0] != _GRADER_ROLE):
         raise ImporterError(
             f"scorer {name} asks for the model role(s) {', '.join(map(repr, roles))}; a row "
@@ -602,12 +605,43 @@ def _resolve_scorer(scorer: Any, module: Any) -> tuple[str, dict[str, Any], str]
     elif hasattr(module, name):
         reference = f"{module.__name__}:{name}"
     else:
-        raise ImporterError(
-            f"cannot resolve scorer {registry_name!r} to an importable constructor — "
-            "add the row by hand with the eval's own scorer reference"
-        )
+        home: str | None = _home_in_eval_package(registry_name, name, module)
+        if home is None:
+            raise ImporterError(
+                f"cannot resolve scorer {registry_name!r} to an importable constructor — "
+                "add the row by hand with the eval's own scorer reference"
+            )
+        reference = f"{home}:{name}"
     _refuse_foreign_functions(name, reference, module, scorer)
     return reference, params, name
+
+
+def _home_in_eval_package(registry_name: str, name: str, module: Any) -> str | None:
+    """The module that defines a scorer the Task module does not bind, when it sits inside the
+    eval's own package; None otherwise.
+
+    FEATURE (OME-1478): HLE's Task builds ``regex_judge`` from a spec, and the factory lives in
+    ``inspect_evals.hle.scorers``, which ``inspect_evals.hle.hle`` never binds by that name.
+    WHY the eval's package only: a row names its own eval's code, and assembly reads a scorer
+    from its source inside that package; a factory from another eval is refused as before.
+    WHY the factory's own module: it is where ``module:name`` imports the same object back,
+    which is checked, so the row never names a re-export that could drift.
+    """
+
+    import importlib
+
+    from inspect_ai._util.registry import registry_lookup
+
+    factory: Any = registry_lookup("scorer", registry_name)
+    home: str | None = getattr(factory, "__module__", None)
+    # WHY the module itself when it has a __path__: a Task in a package's __init__ IS the
+    # eval's package; its parent would be every eval (``inspect_evals``).
+    package: str = (
+        module.__name__ if hasattr(module, "__path__") else module.__name__.rpartition(".")[0]
+    )
+    if home is None or not package or not home.startswith(f"{package}."):
+        return None
+    return home if getattr(importlib.import_module(home), name, None) is factory else None
 
 
 def _refuse_foreign_functions(name: str, reference: str, module: Any, scorer: Any) -> None:

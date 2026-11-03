@@ -23,13 +23,13 @@ from uuid import uuid4
 from provider_access_fake import PROVIDER, FakeHarness, FakeProviderAccess
 
 from aigateway.core.auth_types import AuthType
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
 from aigateway.core.errors import AuthError
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.core.provider_access import ProviderAccess
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.anthropic_provider.plugin import PLUGIN as ANTHROPIC
+from tests.credential_names import credential_name_for
 from tests.unit.seed_state import SeedState
 
 

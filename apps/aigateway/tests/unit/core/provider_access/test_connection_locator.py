@@ -25,7 +25,6 @@ from uuid import UUID, uuid4
 import pytest
 
 from aigateway.core.auth_types import AuthType
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
@@ -37,6 +36,7 @@ from aigateway.core.provider_access.connection_locator import (
     credential_strategy_for_connection,
 )
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 
 PROVIDER = "anthropic"
 ACCOUNT = "11111111-1111-1111-1111-111111111111"

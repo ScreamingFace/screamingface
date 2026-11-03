@@ -14,38 +14,12 @@ surface, pinned by `test_admin_connections_mutation_routes.py` and
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from ipaddress import ip_network
 
 from fastapi.testclient import TestClient
 
-from aigateway.core.api_key_validation import (
-    ApiKeyValidationResult,
-    ApiKeyValidationStage,
-    ApiKeyValidationState,
-)
-
 ADMIN = "admin@openmined.org"
 POD_NETWORK = ip_network("10.0.0.0/8")
-
-
-@dataclass
-class _StubValidationService:
-    """Accept any key without calling the provider.
-
-    Deliberately NOT the `_legacy_api_key_validation_success` autouse fixture in conftest: that one
-    is gated on an explicit allowlist of "frozen pre-OME-307 modules", and adding this module to it
-    would violate the invariant that comment states. Swapping
-    `app.state.api_key_validation_service` is what post-OME-307 tests do.
-
-    Validation itself is already pinned by `test_profile_api_key_validation.py`; what this module
-    is about is which ACCOUNT the write lands on.
-    """
-
-    result: ApiKeyValidationResult
-
-    async def validate(self, _plugin, _provider: str, _api_key: str) -> ApiKeyValidationResult:
-        return self.result
 
 
 def _admin(client) -> TestClient:
@@ -53,12 +27,6 @@ def _admin(client) -> TestClient:
     client.app.state.settings.auth_mode = "cloudflare_headers"
     client.app.state.settings.allowed_networks = (POD_NETWORK,)
     client.app.state.settings.admin_emails = frozenset({ADMIN})
-    client.app.state.api_key_validation_service = _StubValidationService(
-        ApiKeyValidationResult(
-            state=ApiKeyValidationState.VALID,
-            stage=ApiKeyValidationStage.READINESS,
-        )
-    )
     return TestClient(client.app, client=("10.1.2.3", 50000))
 
 

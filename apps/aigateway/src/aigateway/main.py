@@ -59,6 +59,8 @@ from .routes import (
     auth_session,
     cache_entries,
     chat,
+    classifications,
+    classifiers,
     frozen_copies,
     health,
     legacy_profiles_retired,
@@ -477,6 +479,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(model_parameters.router)
     app.include_router(tavily_retrieval_cache.router)
     app.include_router(chat.router)
+    # FEATURE: hosted BYOM Unit 3 — classifier inference and its catalog.
+    app.include_router(classifications.router)
+    app.include_router(classifiers.router)
     app.include_router(frozen_copies.router)
 
     logger.info("aigateway ready (port=%d, providers=%d)", settings.port, len(registry.all()))

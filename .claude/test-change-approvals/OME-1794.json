@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1794",
+  "branch": "OME-1794-hosted-byom-unit3",
+  "approver": "owner",
+  "date": "2026-10-30",
+  "scope": "Hosted BYOM Unit 3, Gateway leaf. Two changes in apps/aigateway/tests/unit/remote_endpoint/test_definitions.py. (1) test_unsupported_tasks_and_contracts_are_refused changes one parameter value: its unsupported task 'text-classification' becomes 'embeddings', because 'text-classification' is now a supported target kind. The test name, the location and the assertion stay. (2) test_two_endpoints_become_ordered_definitions_with_canonical_targets gains two assertions, isinstance(target, ChatTarget) and isinstance(second.targets[0], ChatTarget), each before the existing read of upstream_model, plus the ChatTarget import they need. EndpointDefinition.targets now holds chat and classification targets as the spec requires, and only a chat target has upstream_model. Every prior assertion stays unchanged. No other prior test changes.",
+  "reason": "Owner approved both pinned test edits in chat on 2026-10-30 (spec docs/spec/2026-10-30-hosted-byom-unit3-classification.md, section 6, decisions 1 and 1a), for the Unit 3 branch filed as OME-1794 under epic OME-1306.",
+  "files": {
+    "apps/aigateway/tests/unit/remote_endpoint/test_definitions.py": {
+      "base_blob": "8578e02f7f112c108891dcf53adee7cfdb25f44d",
+      "approved_blob": "0818bf178bd66644728880deeae1e265ff761c19"
+    }
+  }
+}

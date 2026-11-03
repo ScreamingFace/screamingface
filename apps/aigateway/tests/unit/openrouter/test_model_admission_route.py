@@ -438,3 +438,28 @@ def test_the_insert_time_guard_is_idempotent_and_capped(
     assert _store_admission(admitted, "openrouter/a/b", object()) is True
     assert _store_admission(admitted, "openrouter/c/d", object()) is False
     assert len(admitted) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("state", "message"),
+    [
+        (
+            SeedState.ERROR,
+            "the openrouter connection must be reconnected — reauthorize it, then retry",
+        ),
+        (
+            SeedState.PENDING,
+            "the openrouter connection is still connecting — finish the connection, then retry",
+        ),
+    ],
+)
+async def test_a_relayed_refusal_names_the_connection(
+    openrouter_enabled, authenticated_client, state: SeedState, message: str
+) -> None:
+    # WHY (OME-1138 close-out, L5, RT-05): the user holds a Connection, and the selector name was
+    # always `default`, so the refusal names the provider's connection and nothing else.
+    _install_runtime(authenticated_client, _RoutingClient({MODELS_URL: _CATALOG}))
+    await _credential(authenticated_client, state=state)
+
+    assert _admit(authenticated_client, _TARGET)["message"] == message

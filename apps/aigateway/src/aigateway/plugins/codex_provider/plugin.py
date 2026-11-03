@@ -117,7 +117,7 @@ class CodexProviderPlugin(ProviderPluginBase):
         http_client_factory: Any | None = None,
     ) -> OAuthStrategy:
         return CodexOAuth(
-            profile_name=credential_name,
+            credential_name=credential_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
         )

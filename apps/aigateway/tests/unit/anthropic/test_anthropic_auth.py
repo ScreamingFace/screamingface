@@ -74,7 +74,7 @@ async def test_credential_service_uses_aigateway_namespace() -> None:
 @pytest.mark.asyncio
 async def test_missing_credential_raises() -> None:
     strat = AnthropicOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=_FakeStore(payload=None),
         settings=_settings(),
     )
@@ -85,7 +85,7 @@ async def test_missing_credential_raises() -> None:
 @pytest.mark.asyncio
 async def test_malformed_json_raises_auth_error() -> None:
     strat = AnthropicOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=_FakeStore(payload="{not json"),
         settings=_settings(),
     )
@@ -96,7 +96,7 @@ async def test_malformed_json_raises_auth_error() -> None:
 @pytest.mark.asyncio
 async def test_missing_required_field_raises() -> None:
     strat = AnthropicOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=_FakeStore(payload=json.dumps({"access_token": "t"})),
         settings=_settings(),
     )
@@ -108,7 +108,7 @@ async def test_missing_required_field_raises() -> None:
 async def test_fresh_credential_yields_three_headers() -> None:
     creds = _fresh_creds()
     strat = AnthropicOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=_FakeStore(payload=_wrap(creds)),
         settings=_settings(),
     )
@@ -140,7 +140,7 @@ async def test_expired_credential_triggers_refresh() -> None:
     store = _FakeStore(payload=_wrap(expired))
     settings = _settings()
     strat = AnthropicOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=store,
         http_client_factory=_http_factory(httpx.MockTransport(handler)),
         settings=settings,
@@ -186,7 +186,7 @@ async def test_refresh_uses_injected_settings() -> None:
     )
     store = _FakeStore(payload=_wrap(expired))
     strat = AnthropicOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=store,
         http_client_factory=_http_factory(httpx.MockTransport(handler)),
         settings=settings,
@@ -211,7 +211,7 @@ async def test_refresh_endpoint_401_raises() -> None:
         return httpx.Response(401, json={"error": "invalid_grant"})
 
     strat = AnthropicOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=_FakeStore(payload=_wrap(expired)),
         http_client_factory=_http_factory(httpx.MockTransport(handler)),
         settings=_settings(),
@@ -264,7 +264,7 @@ async def test_exchange_authorization_code_uses_injected_settings() -> None:
 async def test_invalidate_drops_cache() -> None:
     creds = _fresh_creds()
     strat = AnthropicOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=_FakeStore(payload=_wrap(creds)),
         settings=_settings(),
     )
@@ -279,7 +279,7 @@ async def test_persist_credentials_persists_and_caches() -> None:
     """persist_credentials() writes to store + populates cache after OAuth callback."""
     store = _FakeStore(payload=None)
     strat = AnthropicOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=store,
         settings=_settings(),
     )
@@ -296,6 +296,8 @@ async def test_persist_credentials_persists_and_caches() -> None:
 @pytest.mark.asyncio
 async def test_credential_service_constant() -> None:
     """Don't change the persisted credential blob namespace."""
-    strat = AnthropicOAuth(profile_name="work", credential_store=_FakeStore(), settings=_settings())
+    strat = AnthropicOAuth(
+        credential_name="work", credential_store=_FakeStore(), settings=_settings()
+    )
     assert strat.credential_service() == "aigateway:anthropic:work"
     assert strat.credential_account() == "default"

@@ -17,13 +17,13 @@ from unittest.mock import patch
 import pytest
 from litellm.litellm_core_utils import initialize_dynamic_callback_params
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.request_hardening import (
     DISPATCH_CONTROL_FIELDS,
     chat_body_shape_error,
     strip_dispatch_controls,
 )
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
+from tests.credential_names import credential_name_for
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 # The D6 control plane: the implementation plan's verbatim list plus the SEC-1

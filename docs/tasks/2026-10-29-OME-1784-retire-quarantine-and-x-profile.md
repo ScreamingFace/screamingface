@@ -1,12 +1,13 @@
 ---
 id: OME-1784
 linear_url: https://linear.app/openmined/issue/OME-1784/retire-the-quarantined-marker-state-and-the-x-profile-compatibility
-status: in_review
+status: done
 type: task
 priority: medium
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-29
+closed: 2026-11-02
 ---
 
 # Retire the quarantined marker state and the X-Profile compatibility path (L4a)
@@ -23,3 +24,5 @@ count of `quarantined` and non-null `migration_note` rows is 0 in dev, stage and
 - 2026-10-29: filed, implemented, PR opened.
 - 2026-10-30: census done in dev, stage and prod: 0 `quarantined` rows; the `migration_note` rows
   (dev 26, stage 0, prod 6) cleared and recounted to 0. Rebased onto `main` after #1610.
+- 2026-10-30: squash-merged to `main` as `e915d8037` (PR #1614).
+- 2026-11-02: Linear closed the issue Done with the close comment.

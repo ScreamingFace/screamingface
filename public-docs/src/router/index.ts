@@ -184,6 +184,11 @@ const router = createRouter({
       component: () => import('@/pages/learn/Url4SdkPage.vue'),
     },
     {
+      path: '/learn/url4-files',
+      name: 'learn-url4-files',
+      component: () => import('@/pages/learn/Url4FilesPage.vue'),
+    },
+    {
       path: '/learn/caching',
       name: 'learn-caching',
       component: () => import('@/pages/learn/CachingPage.vue'),

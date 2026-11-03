@@ -93,9 +93,9 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         never creates or enables one.
 
         ``auth_type=None`` requests every rule the provider owns for the model
-        and is used SOLELY to derive the conservative profile-independent
+        and is used SOLELY to derive the conservative caller-independent
         summary; it must never be read as permission for every auth mode. A
-        concrete auth mode filters rules for the profile-bound detailed
+        concrete auth mode filters rules for the caller-bound detailed
         contract and for dispatch.
         """
         return ()
@@ -368,7 +368,7 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         return TEXT_ONLY
 
     def available_auth_modes(self) -> tuple[AuthMode, ...]:
-        """Auth modes a client could use with this provider (profile-independent).
+        """Auth modes a client could use with this provider (caller-independent).
 
         Drives the conservative summary intersection on ``/v1/models``. Derived
         from declared capability: api-key iff ``supports_api_key()``, oauth iff

@@ -85,6 +85,7 @@ There is no automated test setup in this project.
 | `/learn/url4`                             | `src/pages/learn/Url4Page.vue`                    |
 | `/learn/engine`                           | `src/pages/learn/EnginePage.vue`                  |
 | `/learn/url4-sdk`                         | `src/pages/learn/Url4SdkPage.vue`                 |
+| `/learn/url4-files`                       | `src/pages/learn/Url4FilesPage.vue`               |
 | `/learn/caching`                          | `src/pages/learn/CachingPage.vue`                 |
 | `/learn/ai-gateway`                       | `src/pages/learn/GatewayPage.vue`                 |
 | `/learn/leaderboard`                      | `src/pages/learn/LeaderboardPage.vue`             |

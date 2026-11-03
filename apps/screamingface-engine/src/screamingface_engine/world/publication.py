@@ -10,8 +10,9 @@ INVARIANT: privacy comes only from the declaration. Nothing here reads a provide
 configured-endpoint id declared without the flag is public, and the review below is what catches it.
 
 WHY the review reads the Gateway's file: every configured target there is private, because the
-Gateway grants it to named accounts, and neither process holds both files. Only `endpoints[].id`
-and `targets[].alias` are read, and a refusal never quotes the file, which also holds origins.
+Gateway grants it to named accounts, and neither process holds both files. Only `endpoints[].id`,
+`targets[].alias` and `targets[].task` are read, and a refusal never quotes the file, which also
+holds origins.
 """
 
 from __future__ import annotations
@@ -21,6 +22,10 @@ from collections.abc import Collection, Mapping
 
 from screamingface_engine.world.config import WorldConfig, routes_for
 from screamingface_engine.world.models.registry import decode_route_id
+
+# WHY spelled here: the Gateway's task name for a classifier target. The Engine imports
+# nothing from the Gateway; its endpoints file is the only Gateway document this review reads.
+_CLASSIFICATION_TASK = "text-classification"
 
 
 class PublicationReviewError(ValueError):
@@ -52,6 +57,17 @@ def private_model_ids(config: WorldConfig) -> frozenset[str]:
 
 def gateway_target_ids(document: str) -> frozenset[str]:
     """Every `<endpoint-id>/<alias>` the Gateway's endpoints file configures, enabled or not."""
+    return frozenset(_gateway_targets(document))
+
+
+def gateway_classifier_ids(document: str) -> frozenset[str]:
+    """The configured targets that are classifiers; each runs through `/classify` alone."""
+    targets = _gateway_targets(document)
+    return frozenset(tid for tid, task in targets.items() if task == _CLASSIFICATION_TASK)
+
+
+def _gateway_targets(document: str) -> dict[str, object]:
+    """Each `<endpoint-id>/<alias>` with its declared `task`, unchecked beyond the read."""
     try:
         parsed = tomllib.loads(document)
     except tomllib.TOMLDecodeError:
@@ -59,7 +75,7 @@ def gateway_target_ids(document: str) -> frozenset[str]:
     endpoints = parsed.get("endpoints", [])
     if not isinstance(endpoints, list):
         raise PublicationReviewError("`endpoints` must be an array of tables")
-    ids: set[str] = set()
+    tasks: dict[str, object] = {}
     for position, endpoint in enumerate(endpoints, start=1):
         if not isinstance(endpoint, Mapping):
             raise PublicationReviewError(f"endpoint #{position} is not a table")
@@ -67,8 +83,9 @@ def gateway_target_ids(document: str) -> frozenset[str]:
         if not isinstance(targets, list) or not all(isinstance(t, Mapping) for t in targets):
             raise PublicationReviewError(f"endpoint #{position} has no array of target tables")
         endpoint_id = _text(endpoint, "id", position)
-        ids.update(f"{endpoint_id}/{_text(target, 'alias', position)}" for target in targets)
-    return frozenset(ids)
+        for target in targets:
+            tasks[f"{endpoint_id}/{_text(target, 'alias', position)}"] = target.get("task")
+    return tasks
 
 
 def declared_targets(config: WorldConfig, targets: Collection[str]) -> frozenset[str]:
@@ -79,11 +96,17 @@ def declared_targets(config: WorldConfig, targets: Collection[str]) -> frozenset
     return frozenset(decode_route_id(model.id) for model in section.models) & frozenset(targets)
 
 
-def review_endpoint_routes(config: WorldConfig, targets: Collection[str]) -> tuple[str, ...]:
+def review_endpoint_routes(
+    config: WorldConfig, targets: Collection[str], *, classifiers: Collection[str] = ()
+) -> tuple[str, ...]:
     """One problem per unsafe declaration of a Gateway configured target, or none.
 
     A target the world does not declare is not a problem: it cannot run through this Engine, so
     there is nothing to publish.
+
+    FEATURE (OME-1795, hosted BYOM Unit 3): a declared classifier is one problem whatever its
+    flags. It runs through `/classify` with its ID in the request, so an Engine model entry for
+    it is a chat route the Gateway refuses on every call; the fix is to remove the entry.
     """
     section = config.aigateway
     if section is None:
@@ -91,7 +114,14 @@ def review_endpoint_routes(config: WorldConfig, targets: Collection[str]) -> tup
     declared = declared_targets(config, targets)
     problems: list[str] = []
     for model in sorted(section.models, key=lambda item: item.id):
-        if decode_route_id(model.id) not in declared:
+        target = decode_route_id(model.id)
+        if target not in declared:
+            continue
+        if target in classifiers:
+            problems.append(
+                f"{model.id}: a classifier target needs no Engine model entry; it runs through "
+                "/classify, and as a model every call would be refused"
+            )
             continue
         if model.public_schema:
             problems.append(
@@ -116,6 +146,7 @@ def _text(table: Mapping[str, object], key: str, position: int) -> str:
 __all__ = [
     "PublicationReviewError",
     "declared_targets",
+    "gateway_classifier_ids",
     "gateway_target_ids",
     "private_model_ids",
     "private_mount_paths",

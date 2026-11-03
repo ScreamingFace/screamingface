@@ -4,8 +4,9 @@ FEATURE: effective model-capability contract. This package owns the immutable
 value objects and the *pure* derivations that turn a provider-local rule set
 into the two client-facing projections:
 
-- the conservative, profile-independent inline ``/v1/models`` summary, and
-- the overlaid, profile-bound detailed ``/v1/model-parameters`` entries.
+- the conservative, caller-independent inline ``/v1/models`` summary, and
+- the overlaid detailed ``/v1/model-parameters`` entries, bound to the caller's credential
+  target.
 
 INVARIANT: provider *observation* (raw support) and gateway *rule* (what the
 gateway validates and forwards) are separate concerns. Only a gateway rule

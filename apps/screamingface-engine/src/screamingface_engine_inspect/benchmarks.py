@@ -7501,7 +7501,9 @@ def _check_scorer_asks_only_the_bound_role(spec: BenchmarkSpec, role: str) -> No
     """
 
     shape: JudgeShape = _read_scorer_shape(spec, spec.scorer)
-    others: list[str] = [asked for asked, _ in shape.roles if asked != role]
+    # WHY the row's kwargs (OME-1478): a role asked through a scorer argument (hle's
+    # ``grader_role``) is the one those kwargs give; one they cannot give stays unknown.
+    others: list[str] = [asked for asked in shape.roles_given(spec.scorer_kwargs) if asked != role]
     if others or shape.model_under_test or shape.unread:
         found: str = (
             f"the role(s) {', '.join(map(repr, others))}"

@@ -59,18 +59,6 @@ class _AsyncCredentialBlobProbe:
     async def delete(self, service: str, account: str) -> None:
         self._probe.delete(service, account)
 
-    async def mutate(
-        self,
-        service: str,
-        account: str,
-        mutator: Callable[[str | None], str | None],
-    ) -> None:
-        next_value = mutator(self._probe.read(service, account))
-        if next_value is None:
-            self._probe.delete(service, account)
-        else:
-            self._probe.write(service, account, next_value)
-
 
 class CredentialBlobProbe:
     def __init__(self, db_path: Path) -> None:
