@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.url_display import display_url
 from url4.io.layer import FetchRequest, IOLayer, fetch_result
 
 
@@ -260,7 +261,8 @@ def bare_media_type(target: str, content_type: str | None) -> str | None:
     parsed = _parse(content_type)
     if parsed is None:
         raise ResolutionError(
-            f"{target!r} has Content-Type {content_type!r}, which is not one valid media type",
+            f"{display_url(target)!r} has Content-Type {content_type!r}, "
+            "which is not one valid media type",
             code=ErrorCode.UNSUPPORTED_CONTENT_TYPE,
             permanent=True,
         )
@@ -276,7 +278,7 @@ def require_text(target: str, content_type: str | None) -> None:
     """
     if not is_text_media_type(content_type):
         raise ResolutionError(
-            f"{target!r} is {content_type!r}, which is not text; fetch it as bytes",
+            f"{display_url(target)!r} is {content_type!r}, which is not text; fetch it as bytes",
             code=ErrorCode.UNSUPPORTED_CONTENT_TYPE,
             permanent=True,
         )
