@@ -42,10 +42,18 @@ enable or by the default-on policy. Do not erase or reinterpret old declines.
 This amends the old opt-in-only semantics in the analytics specs; the privacy-posture
 review remains outstanding.
 
-Cookie-only storage retains the existing cross-notebook in-flight response ordering
-limitation. Conditional enrollment observes decline on the current request, but is
-not global atomic revocation of requests already in flight. Local kernel generations
-and fresh permission checks protect disable/timeout races within the process.
+Explicit decline also sets a separate non-identifying opt-out cookie at /bridge.
+It takes precedence over consent/identity cookies and is cleared only by explicit
+accept. Automatic enrollment and identity refresh never change it, so their late
+responses cannot reverse a completed decline across notebooks or service replicas.
+Unrecognized opt-out values remain untracked. Upgrade every service replica before
+SDK rollout; old replicas do not enforce this flag. Cookies may expire or be evicted.
+Requests dispatched before decline can still complete, and concurrent explicit
+accept/decline responses remain ordered by browser application. Local kernel
+generations protect disable/timeout races within the process.
+
+The notice/setup guard is process-local: after a fork, reset it with the lock so
+the child's fresh Colab bridge can initialize. Inherited opt-outs still take precedence.
 
 ## Scope boundary
 

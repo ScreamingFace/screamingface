@@ -52,9 +52,11 @@ def _offer() -> None:
 
 
 def offer() -> None:
-    global _pid, _lock
+    global _pid, _lock, _shown
     if _pid != os.getpid():
         _pid, _lock = os.getpid(), threading.RLock()
+        # WHY: the child gets a fresh Colab bridge and needs its own setup attempt.
+        _shown = False
     try:
         with _lock:
             _offer()

@@ -215,3 +215,46 @@ mirror and active links from docs, and update the PR description. Documentation
 only: verify mirror consistency and whitespace; prior code gates remain valid.
 
 Mirror-status and whitespace checks passed. No runtime or test code changed.
+
+## 3 November — Dmitry's response-ordering and fork review
+
+Filip requested fixing Dmitry's PR review findings. Reproduce late automatic
+enrollment and identity-refresh responses arriving after a completed decline,
+using two independent service instances and a shared synthetic cookie jar.
+Add a separate non-identifying opt-out cookie: explicit decline sets it, only
+explicit accept clears it, and automatic/background responses never touch it.
+All service permission checks must honor it. Deploy all service replicas before
+the SDK; mixed old/new replicas cannot provide the new ordering guarantee.
+
+Reset the process-local notice/setup guard together with its lock after a fork.
+Test first-child evaluation in sync/async Colab paths and preserved browser,
+environment and process opt-outs. No new identity, events, retries or server store.
+Run RED regressions, both Python stack gates and the browser harness, then update
+the existing PR. Acceptance: late automatic responses cannot reverse a stored
+decline; forked Colab setup runs once per process and respects opt-outs.
+
+Linear was checked again: owner policy/copy sign-off and deployed Colab smoke
+remain outstanding. No new ticket, review comment, merge or deployment is planned.
+
+Validation: RED reproduced six service failures (including both reversed-response
+cases) and six fork/setup failures; four inherited opt-out cases already passed.
+After the fixes, all 40 focused service and 61 focused Colab tests pass. Full
+analytics and SDK gates are ALL GREEN, including coverage, notebook checks and
+build/distribution checks. Service coverage is 99%, with complete coverage of the
+changed bridge module. The 12-test SDK browser harness and repository gates pass.
+No existing tests were edited or weakened.
+
+The first SDK append-only check used the newly advanced origin/main and counted
+unrelated upstream test additions as deletions. Verified those paths were added
+on main, then reran all gates against the actual PR merge base
+bc96df570b17b5db17726b6c169f7780d334b138. The new response-delay helper also needed
+an explicit optional-path type annotation; type checking passes after that fix.
+
+Review: the opt-out marker is a constant preference, not another identity, and
+works across independent replicas without server state or browser-script locks.
+Automatic enrollment is separate from explicit acceptance so it cannot erase
+the marker. Invalid marker values stay untracked. Existing cookie lifetime and
+security attributes remain; explicit accept can still restore permission.
+Requests already dispatched and concurrent explicit choices retain their stated
+limitations. Both fixes are ready for review; owner approval and live Colab
+acceptance remain unverified. No merge, deployment, new ticket or comment posted.

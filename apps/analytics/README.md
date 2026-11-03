@@ -130,9 +130,12 @@ Mutations require the configured same-origin Origin header and, when present,
 at 1 KiB with a 1.5-second deadline. They have a separate admission budget using the
 same configured limits so event delivery being disabled does not prevent opt-out.
 All successful/handled-error bridge responses have no-store/no-referrer/nosniff.
-The consent cookie is scoped to `/bridge`; the ID to `/bridge/id`. Both are Secure,
+The consent and opt-out cookies are scoped to `/bridge`; the ID to `/bridge/id`. All are Secure,
 HttpOnly, SameSite=None, Partitioned and host-only. Cookie retention is independent
 of PostHog-managed event retention; browser eviction may end continuity earlier.
+The non-identifying `__Secure-sf_bridge_optout=1` flag takes precedence over the
+legacy consent cookie. Explicit decline sets it with the same configured lifetime;
+only explicit accept clears it. Enrollment and identity refresh never write it.
 
 The parent waits for iframe load and sends `postMessage` to the exact service origin:
 `{version:1,nonce:<16–128 ASCII letters/digits/_/->,command:<command>}`. Commands are
@@ -152,8 +155,10 @@ state on failure, and never block evaluation on iframe or kernel initialization.
 
 Other active notebooks send the browser's current shared partition cookies on each
 batch. After a decline response updates the cookie jar, subsequent requests are
-rejected by any replica. Requests already sent may complete; concurrent cookie
-responses are applied in browser order. This is not globally instantaneous
+rejected by any upgraded replica, even if an older enrollment or identity-refresh
+response arrives afterward. The separate opt-out flag prevents those responses
+from restoring permission. Requests already sent may complete; concurrent explicit
+accept/decline responses are applied in browser order. This is not globally instantaneous
 revocation. No capability or product credential is copied into a Python runtime.
 The anonymous `/v1/events` endpoint still trusts explicit client consent affirmation;
 this system cannot prove human consent from a modified client.
@@ -208,12 +213,14 @@ for evidence and remaining Chrome/Safari end-to-end acceptance.
 The SDK enables analytics by default while making a best-effort disclosure attempt,
 including in headless environments. Every explicit opt-out is preserved. The additive
 `enroll` browser command posts `{"consent_version":"1"}` to
-`/bridge/consent/enroll`. It accepts only when the consent cookie is absent.
+`/bridge/consent/enroll`. It accepts only when both consent and opt-out cookies are absent.
 Existing accepted/declined or unrecognized cookies are preserved; no identity
 is minted by enrollment. The SDK requests an ID separately after confirmed acceptance.
 Explicit `accept` remains the only command that can reverse a stored decline.
 
-Deploy this route before the new SDK. Older SDKs retain their explicit opt-in flow;
+Upgrade every service replica before the new SDK. Old replicas do not enforce the
+opt-out flag, so mixed deployments cannot guarantee the response-order protection.
+Older SDKs retain their explicit opt-in flow;
 new SDKs against older services stay off if enrollment is unavailable. The version-1
 wire shape is unchanged: accepted/consent_granted now permits explicit enable or a
 default-on policy. Existing opt-outs are not migrated to acceptance.

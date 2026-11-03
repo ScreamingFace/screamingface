@@ -21,12 +21,16 @@ from analytics_service.ingestion import AdmissionRejected, Ingestion
 from analytics_service.settings import Settings
 
 CONSENT = "__Secure-sf_bridge_consent"
+OPTOUT = "__Secure-sf_bridge_optout"
 IDENTITY = "__Secure-sf_bridge_id"
 UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
 Handler = Callable[[Request, Ingestion, Callable[[object], object] | None], Awaitable[JSONResponse]]
 
 
 def choice(request: Request) -> str:
+    # INVARIANT: late automatic responses cannot clear an explicit opt-out.
+    if OPTOUT in request.cookies:
+        return "declined" if request.cookies[OPTOUT] == "1" else "unknown"
     value = request.cookies.get(CONSENT, "")
     return value[2:] if value in ("1.accepted", "1.declined") else "unknown"
 
@@ -39,7 +43,7 @@ def identity(request: Request) -> str | None:
 def cookie(response: Response, name: str, value: str, age: int) -> None:
     # WHY: explicit serialization works on supported Python 3.12/3.13, whose
     # stdlib cookie helpers do not yet accept the Partitioned attribute.
-    path = "/bridge" if name == CONSENT else "/bridge/id"
+    path = "/bridge/id" if name == IDENTITY else "/bridge"
     response.headers.append(
         "set-cookie",
         f"{name}={value}; Path={path}; Max-Age={age}; Secure; HttpOnly; SameSite=None; Partitioned",
@@ -181,6 +185,15 @@ class Bridge:
             raise InvalidPayload("invalid_choice")
         response = JSONResponse(data)
         cookie(response, CONSENT, f"1.{data['choice']}", self.settings.bridge_cookie_max_age)
+        declined = data["choice"] == "declined"
+        # WHY: only explicit decisions write this separate flag. A stale enrollment
+        # or ID refresh can overwrite CONSENT, but cannot restore permission.
+        cookie(
+            response,
+            OPTOUT,
+            "1" if declined else "",
+            self.settings.bridge_cookie_max_age if declined else 0,
+        )
         if data["choice"] == "declined" or previous != "accepted":
             cookie(response, IDENTITY, "", 0)
         return response
@@ -190,9 +203,12 @@ class Bridge:
             raise InvalidPayload("invalid_choice")
         # INVARIANT: a disclosed default never overrides an existing browser choice,
         # including an unrecognized/stale cookie. Only explicit accept may do that.
-        if CONSENT in request.cookies:
+        if CONSENT in request.cookies or OPTOUT in request.cookies:
             return JSONResponse(state(request))
-        return self.set_consent({"choice": "accepted", "consent_version": "1"}, "unknown")
+        response = JSONResponse({"choice": "accepted", "consent_version": "1"})
+        cookie(response, CONSENT, "1.accepted", self.settings.bridge_cookie_max_age)
+        cookie(response, IDENTITY, "", 0)
+        return response
 
 
 def install_bridge(app: FastAPI, settings: Settings, ingestion: Ingestion, events: Handler) -> None:

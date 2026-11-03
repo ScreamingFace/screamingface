@@ -14,7 +14,10 @@ Consent-only iframe/state requests may run before consent. They do not create an
 analytics identifier or send PostHog events. Explicit acceptance stores a
 low-cardinality versioned choice. A separate identity request then reads or creates
 an opaque UUID in an HttpOnly, Secure, SameSite=None, Partitioned, host-only cookie.
-Decline stores the choice and expires the ID. No identity association or login.
+Decline stores the choice and expires the ID. OME-1768 also stores a non-identifying
+opt-out flag, authoritative over the consent cookie and cleared only by explicit
+accept. Automatic enrollment and identity refresh never write that flag.
+No identity association or login.
 Browser storage loss is unknown consent, not implied acceptance.
 
 Retain the parent spec's five bridge routes. Every response is no-store and
@@ -30,10 +33,12 @@ the active iframe, which dispatches through a same-origin bridge endpoint. That
 endpoint checks current consent cookies for every batch and binds browser identity
 to its own ID cookie, rather than trusting an ID supplied by the runtime. Cookies
 are restricted to bridge paths; existing local SDK /v1/events remains cookie-free.
-The consent and ID cookies share the browser's Colab partition, so later browser
-requests from another notebook observe the changed choice. Requests already sent
-before the decline response may complete. Concurrent enable/disable is ordered by
-browser cookie response application, not promised globally instantaneous.
+The consent, opt-out and ID cookies share the browser's Colab partition, so later
+browser requests from another notebook observe the changed choice. Late automatic
+enrollment/identity responses cannot reverse the separate saved opt-out. All service
+replicas must be upgraded to enforce it before SDK rollout. Requests already sent
+before the decline response may complete. Concurrent explicit enable/disable is
+ordered by browser cookie response application, not promised globally instantaneous.
 
 The owner selected this approach. This avoids a new server database and a long-lived consent capability copied into
 a Python runtime. It changes the parent's proposed capability-based revocation

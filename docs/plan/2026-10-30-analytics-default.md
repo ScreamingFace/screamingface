@@ -38,3 +38,12 @@ wait and its async scheduling boundary. Document inherited Studio enrollment,
 record the known Studio UI gap with no follow-up planned for now, and prepare an
 owner-review request for Filip to post.
 Run SDK gates and update PR #1633; do not merge or represent approval as received.
+
+## Dmitry review — 3 November
+
+Add response-reordering tests across independent replicas with a shared browser
+jar, then protect declined state with an explicit-only opt-out cookie. Verify
+late enrollment and identity refresh cannot restore permission, while explicit
+accept can. Add fork regressions and reset the process-local setup guard on PID
+change. Document the full-service-upgrade requirement; run both stack gates and
+browser tests. Owner sign-off and deployed browser acceptance remain open.
