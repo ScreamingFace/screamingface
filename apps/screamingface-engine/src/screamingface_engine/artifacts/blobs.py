@@ -60,6 +60,25 @@ ATTACHMENT_MEDIA_TYPES = frozenset(
 # single blob can usefully exceed what a whole run may carry (owner decision 2026-10-28, Q4a).
 DEFAULT_BLOB_MAX_BYTES = 8_000_000
 
+# FEATURE: #1603 review (Khoa, 2026-11-02; owner decision 2026-11-03) — the store checks the
+# file's first bytes against its declared type at ingest, so a stored blob is what its label says.
+# Each entry: (offset, magic) pairs that must ALL match.
+#
+# INVARIANT: keys == ATTACHMENT_MEDIA_TYPES (pinned by a test). A type added to the attachment set
+# needs an explicit decision here; a type WITHOUT a reliable signature (e.g. a plain-text format)
+# must not be added to this table with a weak one — it would need its own WHY and a different
+# check, because a label that cannot be verified is exactly what this table exists to refuse.
+# WHY `%PDF-` at offset 0 only: Acrobat tolerates junk in the first 1024 bytes, but a strict
+# check refuses nothing a conforming writer emits, and a looser one widens what passes as PDF.
+# WHY WebP needs two parts: `RIFF` alone is also AVI and WAV; bytes 8-12 name the form type.
+MEDIA_TYPE_SIGNATURES: dict[str, tuple[tuple[tuple[int, bytes], ...], ...]] = {
+    "application/pdf": (((0, b"%PDF-"),),),
+    "image/png": (((0, b"\x89PNG\r\n\x1a\n"),),),
+    "image/jpeg": (((0, b"\xff\xd8\xff"),),),
+    "image/gif": (((0, b"GIF87a"),), ((0, b"GIF89a"),)),
+    "image/webp": (((0, b"RIFF"), (8, b"WEBP")),),
+}
+
 _HEX = re.compile(r"^[0-9a-f]{64}$")
 _RUN = re.compile(r"^[A-Za-z0-9]{1,128}$")
 _ANONYMOUS = "anonymous"
@@ -90,6 +109,15 @@ class BlobTooLarge(BlobError):
 
 class BlobUnsupportedMediaType(BlobError):
     code = BLOB_UNSUPPORTED_MEDIA_TYPE
+
+
+class BlobContentMismatch(BlobUnsupportedMediaType):
+    """The bytes do not open with the signature of the media type they are declared as.
+
+    WHY the same code as an unaccepted type (no new wire code): to the client both mean "these
+    bytes are not a file of a type this store keeps"; the `detail` says which, and the new
+    `x.*` codes already await url4 wire sign-off (see BLOB_TOO_LARGE above).
+    """
 
 
 @dataclass(frozen=True)
@@ -139,6 +167,10 @@ class BlobPolicy:
 
     max_bytes: int = DEFAULT_BLOB_MAX_BYTES
     media_types: frozenset[str] = field(default=ATTACHMENT_MEDIA_TYPES)
+    # WHY off by default and ON in the App (`app._build_blob_store`): the App is the only
+    # ingest path (uploads, and OME-1543's write-through); the Runner only reads. A store built
+    # bare keeps the original label-trusting behaviour its first tests pinned.
+    verify_signature: bool = False
 
 
 class BlobObjects(Protocol):
@@ -209,7 +241,8 @@ class S3BlobObjects:
     def sweep(self, ttl_seconds: float, *, now: float | None = None) -> int:
         """Always 0 — expiry is the bucket's lifecycle rule, exactly as for result artifacts.
 
-        AIDEV-NOTE: the operator's lifecycle rule must cover the `blobs/` prefix too.
+        AIDEV-NOTE: the operator's lifecycle rule must cover the `blobs/` prefix too — the Helm
+        README's "Expiry" section documents it with an example rule (#1603 review).
         """
         return 0
 
@@ -235,10 +268,13 @@ class BlobStore:
             BlobDigestMismatch: `body` does not hash to `sha256` (or `sha256` is malformed).
             BlobTooLarge: `body` exceeds the policy cap.
             BlobUnsupportedMediaType: the bare media type is not on the allowlist.
+            BlobContentMismatch: with `verify_signature`, the bytes are not that type.
         """
         bare = _bare_media_type(media_type)
         if bare not in self._policy.media_types:
             raise BlobUnsupportedMediaType(f"media type {bare!r} is not accepted for blobs")
+        if self._policy.verify_signature and not _has_signature(bare, body):
+            raise BlobContentMismatch(f"the bytes are not a {bare!r} file")
         if len(body) > self._policy.max_bytes:
             raise BlobTooLarge(
                 f"blob of {len(body)} bytes exceeds the {self._policy.max_bytes}-byte cap"
@@ -322,6 +358,14 @@ class ScopedBlobReader:
         return None if found is None else found[1]
 
 
+def _has_signature(media_type: str, body: bytes) -> bool:
+    """Whether `body` opens with one of `media_type`'s signatures (absent type → False)."""
+    return any(
+        all(body[at : at + len(magic)] == magic for at, magic in alternative)
+        for alternative in MEDIA_TYPE_SIGNATURES.get(media_type, ())
+    )
+
+
 def _bare_media_type(media_type: str) -> str:
     """Spec F3 canonical spelling: lowercased, parameters dropped."""
     return media_type.split(";", 1)[0].strip().lower()
@@ -334,7 +378,9 @@ __all__ = [
     "BLOB_TOO_LARGE",
     "BLOB_UNSUPPORTED_MEDIA_TYPE",
     "DEFAULT_BLOB_MAX_BYTES",
+    "MEDIA_TYPE_SIGNATURES",
     "SOURCE_NOT_FOUND",
+    "BlobContentMismatch",
     "BlobDigestMismatch",
     "BlobError",
     "BlobObjects",

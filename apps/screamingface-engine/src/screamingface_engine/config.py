@@ -8,6 +8,7 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env, runner_queue, subjects
+from screamingface_engine.artifacts.blobs import ATTACHMENT_MEDIA_TYPES
 
 RunnerBackend = Literal["none", "queue"]
 ArtifactStoreBackend = Literal["filesystem", "s3"]
@@ -394,6 +395,25 @@ class Settings(BaseSettings):
     # exit codes) on this port. The chart exposes it on the runner pool Deployment. 0 disables
     # the endpoint.
     worker_metrics_port: int = Field(default=9109, ge=0)
+
+    @field_validator("blob_media_types")
+    @classmethod
+    def _blob_media_types_are_attachment_types(cls, value: list[str]) -> list[str]:
+        """Refuse any type outside `ATTACHMENT_MEDIA_TYPES` (#1603 review, owner 2026-11-03).
+
+        INVARIANT: the setting can only NARROW the five attachment types. `text/html` or
+        `image/svg+xml` would have the engine serve uploaded script from its own origin, and
+        every type here has a magic-byte signature the store verifies at ingest.
+        """
+        normalized = [t.strip().lower() for t in value]
+        unknown = [t for t in normalized if t not in ATTACHMENT_MEDIA_TYPES]
+        if unknown:
+            raise ValueError(
+                f"blob_media_types may only list attachment types "
+                f"({', '.join(sorted(ATTACHMENT_MEDIA_TYPES))}); refused: "
+                + ", ".join(repr(t) for t in unknown)
+            )
+        return normalized
 
     @field_validator("run_queue_stream")
     @classmethod

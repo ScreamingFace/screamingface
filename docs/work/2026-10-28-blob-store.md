@@ -79,3 +79,54 @@ refs resolve as a direct tenant + run store read (spec
     `AttachmentPartError`, so its integration must map this one too.
   - Residuals: upload is capped per blob, not per run (the per-run 20-file / 8,000,000-byte
     caps are `OME-1543`'s); S3 retention depends on the bucket lifecycle rule covering `blobs/`.
+
+## Review round 1 — Khoa's 5 inline comments on #1603 (2026-11-02), owner decisions 2026-11-03
+
+status: blocked (items 2-5 done; item 1 stopped on a design fork, see Outcome)
+
+- **Planned:**
+  1. `rest/blobs.py:107` total upload limit → a separate blob storage backend (`blobs.storage`
+     config + chart). See Outcome for whether it landed.
+  2. `rest/blobs.py:117` storage failures → 503 problem+json with `Retry-After`
+     (`S3StorageError`, `OSError`) on both PUT and GET.
+  3. `artifacts/blobs.py:209` → the Helm README Expiry section names `blobs/` with a
+     lifecycle-rule example.
+  4. `config.py:135` → `blob_media_types` must be a subset of `ATTACHMENT_MEDIA_TYPES`, refused
+     at config load.
+  5. `rest/blobs.py:157` → `Cache-Control: private, no-store` on blob responses; magic-byte
+     check at ingest (App policy), mismatch → 415 `x.blob_unsupported_media_type`.
+- **Test plan:** new file `tests/unit/test_blob_review_hardening.py` only (prior tests
+  append-only): 503 + Retry-After for `S3StorageError` and `OSError` on PUT and GET; config
+  refusal for `text/html` / `image/svg+xml`, case-normalized subset accepted; Cache-Control on
+  200 and on problems; signature match accepted and mismatch refused for all five types; the
+  signature table covers exactly `ATTACHMENT_MEDIA_TYPES`.
+
+### Outcome (review round 1)
+
+- **Done:** items 2, 3, 4, 5.
+  - `rest/blobs.py`: `S3StorageError` / `OSError` on PUT or GET → 503 problem+json,
+    `Retry-After: 5` (`BLOB_STORAGE_RETRY_AFTER_S`, same WHY as the run queue's broker-down
+    value), `permanent: false`, backend message never echoed, a WARNING log naming only the
+    operation and the exception type. Every GET answer carries `Cache-Control: private,
+    no-store`.
+  - `artifacts/blobs.py`: `MEDIA_TYPE_SIGNATURES` (PDF, PNG, JPEG, GIF87a/89a, WebP RIFF+WEBP)
+    and `BlobPolicy.verify_signature`; a mismatch raises `BlobContentMismatch`, a subclass of
+    `BlobUnsupportedMediaType` → 415 `x.blob_unsupported_media_type` (no new wire code).
+    `app._build_blob_store` turns verification on. All five attachment types have a reliable
+    signature; the table's keys are pinned to `ATTACHMENT_MEDIA_TYPES` by a test, and the WHY
+    anchor says a type without one needs its own decision.
+  - `config.py`: `blob_media_types` validator — subset of `ATTACHMENT_MEDIA_TYPES`, normalized,
+    error names the refused types and the allowed set.
+  - Helm `README.md` Expiry: `blobs/` documented with a lifecycle-rule example.
+- **Tests:** new `tests/unit/test_blob_review_hardening.py` (40 tests); no prior test touched.
+- **Gates:** `run_gates.py screamingface-engine --base origin/main` ALL GREEN; `helm lint` +
+  `verify_chart_wiring.py` (121/121) green.
+- **Deviations:** `verify_signature` defaults to False on `BlobPolicy` (the App sets True)
+  because a prior store test re-ingests PNG bytes labelled `image/jpeg` and a wiring test uses
+  a short non-PNG body; default-on would have changed prior tests.
+- **Stopped — item 1 (separate blob storage backend):** the port is not the fork
+  (`BlobObjects` already is the blob port, with filesystem and S3 adapters); the S3/chart
+  provisioning is. The bundled Garage creates exactly one bucket (`--default-bucket`) and the
+  chart deliberately has no bootstrap hook, so a separate blob bucket cannot be created by the
+  chart as it stands, and a second bucket on the same Garage volume does not isolate capacity
+  anyway. Options reported to the owner; nothing for item 1 is committed.

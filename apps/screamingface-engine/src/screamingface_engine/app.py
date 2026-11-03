@@ -382,6 +382,8 @@ def _build_blob_store(artifacts: ArtifactReader, settings: Settings) -> BlobStor
     policy = BlobPolicy(
         max_bytes=settings.blob_max_bytes,
         media_types=frozenset(t.strip().lower() for t in settings.blob_media_types),
+        # FEATURE: #1603 review — every blob the App keeps opens with its type's signature.
+        verify_signature=True,
     )
     return BlobStore(objects, policy)
 

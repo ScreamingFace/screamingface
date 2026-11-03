@@ -18,6 +18,7 @@ the limit rather than after it has been buffered whole.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Path, Request, Response
@@ -26,6 +27,7 @@ from fastapi.responses import JSONResponse
 from screamingface_engine import job_env
 from screamingface_engine.artifacts.blobs import (
     SOURCE_NOT_FOUND,
+    BlobContentMismatch,
     BlobDigestMismatch,
     BlobError,
     BlobScope,
@@ -34,8 +36,11 @@ from screamingface_engine.artifacts.blobs import (
     BlobUnsupportedMediaType,
     StoredBlob,
 )
+from screamingface_engine.artifacts.s3 import S3StorageError
 from screamingface_engine.auth.dependencies import VerifiedClaims
 from screamingface_engine.auth.problem import ProblemException
+
+_logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -46,7 +51,19 @@ _INGEST_STATUS: dict[type[BlobError], int] = {
     BlobDigestMismatch: 422,
     BlobTooLarge: 413,
     BlobUnsupportedMediaType: 415,
+    BlobContentMismatch: 415,
 }
+# FEATURE: #1603 review (Khoa, 2026-11-02). WHY `private, no-store`: the scope rides a header
+# (`URL4-Capability`), not the URL, so a shared cache keying on the URL alone could hand one
+# run's file to another caller. Sent on every GET answer — a 404 says what a run does not hold.
+_NO_STORE = {"Cache-Control": "private, no-store"}
+# WHY 5 s, the run queue's broker-down value (`rest.routes.QUEUE_UNAVAILABLE_RETRY_AFTER_S`): an
+# unreachable endpoint is a reconnect in flight, and a full disk is an operator action away —
+# there is no estimate to derive a better number from, and 1 s spends retries inside the outage.
+BLOB_STORAGE_RETRY_AFTER_S = 5
+# The failures that mean "the store is sick", not "this blob is wrong": the S3 adapter's typed
+# error, and any OS-level failure of the filesystem backend (ENOSPC, EACCES, EIO, ...).
+_STORAGE_FAILURES = (S3StorageError, OSError)
 
 
 def _scope(request: Request, claims: dict[str, object]) -> BlobScope:
@@ -70,9 +87,29 @@ def _ticket(blob: StoredBlob) -> dict[str, Any]:
     }
 
 
-def _problem(exc: BlobError, status: int) -> ProblemException:
+def _problem(
+    exc: BlobError, status: int, headers: dict[str, str] | None = None
+) -> ProblemException:
     return ProblemException(
-        status=status, title="Blob refused", detail=str(exc), code=exc.code, permanent=True
+        status=status,
+        title="Blob refused",
+        detail=str(exc),
+        headers=headers,
+        code=exc.code,
+        permanent=True,
+    )
+
+
+def _unavailable(exc: Exception, op: str) -> ProblemException:
+    # INVARIANT: the client never sees the backend's message (it can name paths or endpoints),
+    # and the log never carries the bytes, the email or the run id (a bearer secret).
+    _logger.warning("blob storage unavailable during %s: %s", op, type(exc).__name__)
+    return ProblemException(
+        status=503,
+        title="Service Unavailable",
+        detail="blob storage is temporarily unavailable; retry",
+        headers={"Retry-After": str(BLOB_STORAGE_RETRY_AFTER_S), **_NO_STORE},
+        permanent=False,
     )
 
 
@@ -100,7 +137,9 @@ async def _capped_body(request: Request, max_bytes: int) -> bytes:
         "ref to name in a url4 expression (``blob:sha256/<hex>`` or ``/blob/sha256/<hex>``): "
         "``201`` when stored, ``200`` when this run already held it. ``422`` "
         "``x.blob_digest_mismatch`` when the bytes do not hash to the path digest, ``413`` "
-        "``x.blob_too_large``, ``415`` ``x.blob_unsupported_media_type``."
+        "``x.blob_too_large``, ``415`` ``x.blob_unsupported_media_type`` (also when the bytes "
+        "do not open with the declared type's signature), ``503`` with ``Retry-After`` when "
+        "blob storage is unavailable."
     ),
     status_code=201,
 )
@@ -116,6 +155,8 @@ async def put_blob(
         )
     except BlobError as exc:
         raise _problem(exc, _INGEST_STATUS[type(exc)]) from exc
+    except _STORAGE_FAILURES as exc:
+        raise _unavailable(exc, "upload") from exc
     return JSONResponse(_ticket(blob), status_code=201 if created else 200)
 
 
@@ -127,7 +168,8 @@ async def put_blob(
         "The verified bytes of a blob this run holds, with its media type. ``404`` "
         "``source_not_found`` for a digest this run does not hold — including one held by "
         "another run or tenant. ``500`` ``x.blob_digest_mismatch`` when the stored bytes no "
-        "longer match their digest (store corruption)."
+        "longer match their digest (store corruption). ``503`` with ``Retry-After`` when blob "
+        "storage is unavailable. Every answer is ``Cache-Control: private, no-store``."
     ),
     response_model=None,
     response_class=Response,
@@ -139,12 +181,15 @@ async def get_blob(
     try:
         found = await asyncio.to_thread(_store(request).read, scope, digest)
     except BlobError as exc:
-        raise _problem(exc, 500) from exc
+        raise _problem(exc, 500, _NO_STORE) from exc
+    except _STORAGE_FAILURES as exc:
+        raise _unavailable(exc, "fetch") from exc
     if found is None:
         raise ProblemException(
             status=404,
             title="Unknown blob",
             detail="this run holds no blob under that digest",
+            headers=_NO_STORE,
             code=SOURCE_NOT_FOUND,
             permanent=True,
         )
@@ -154,7 +199,7 @@ async def get_blob(
         media_type=blob.media_type,
         # WHY nosniff: these are user-supplied bytes served back from the engine's origin; a
         # browser must render them as their declared type, never sniff them into HTML.
-        headers={"X-Content-Type-Options": "nosniff"},
+        headers={"X-Content-Type-Options": "nosniff", **_NO_STORE},
     )
 
 

@@ -382,6 +382,33 @@ Objects expire by **bucket lifecycle rule**, not by the App's sweeper — which 
 mode, because listing objects would need query-string signing beyond what the adapter's signer
 supports. **A bucket with no lifecycle rule never expires artifacts.**
 
+The same bucket also holds the **run blob store** (OME-1540): files a client uploads over
+`PUT /blob/sha256/<hex>` live under the `blobs/` key prefix (`blobs/<tenant>/<run>/<hex>` plus a
+`.json` metadata object beside each). In `s3` mode the App never deletes them either, so the
+lifecycle rule must cover **both** the result parcels at the bucket root **and** `blobs/` — a
+rule scoped to a prefix that leaves `blobs/` out keeps every upload forever. The simplest rule
+is one with no prefix filter, expiring after the artifact TTL (`URL4_CLOUD_ARTIFACT_TTL_S`,
+default 48 h — rounded up to whole days, as lifecycle rules count in days):
+
+```json
+{
+  "Rules": [
+    {
+      "ID": "expire-artifacts-and-blobs",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "Expiration": { "Days": 2 }
+    }
+  ]
+}
+```
+
+Save it as `lifecycle.json` and apply it with any S3 client, e.g.
+`aws s3api put-bucket-lifecycle-configuration --endpoint-url <endpoint> --bucket <bucket>
+--lifecycle-configuration file://lifecycle.json`. If your store needs per-prefix rules, add a
+second rule with `"Prefix": "blobs/"`. Check that your store supports lifecycle expiry at all
+before relying on it; without it, `blobs/` and the parcels grow until removed by hand.
+
 ### Using storage you already run
 
 Set `artifactStorage.s3.endpointUrl` (plus `accessKey`/`secretKey` or `existingSecret`) and leave
