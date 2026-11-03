@@ -1,10 +1,11 @@
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 import pytest
 from _fakes import RecordingJobRunner
-from fastapi import FastAPI, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from screamingface_engine.app import create_app
@@ -71,6 +72,22 @@ def _attach(from_sequence: int | None) -> dict[str, Any]:
         id="att", source="/client", subject="t", data=AttachData(from_sequence=from_sequence)
     )
     return event.model_dump(mode="json", by_alias=True)
+
+
+def _nack(ws: Any, *, heartbeats_allowed: int = 20) -> dict[str, Any]:
+    """The next frame that is not a heartbeat: the bridge's reply to a bad inbound frame.
+
+    WHY: the bridge writes replies and heartbeats through one queue, and a heartbeat goes out
+    whenever that queue has sat idle for `ws_heartbeat_s`. At 50 ms a slow CI runner can tick
+    before the inbound task has queued the nack, so the nack is the first NON-heartbeat frame,
+    not the first frame (this flaked on #1631's CI, 2026-11-03). Bounded so a bridge that never
+    answers still fails instead of reading heartbeats forever.
+    """
+    for _ in range(heartbeats_allowed + 1):
+        frame: dict[str, Any] = ws.receive_json()
+        if frame["type"] != "ai.url4.heartbeat":
+            return frame
+    raise AssertionError(f"no reply, only heartbeats, after {heartbeats_allowed} heartbeats")
 
 
 def _stop() -> dict[str, Any]:
@@ -195,8 +212,8 @@ def test_ws_malformed_inbound_frames_nacked_stream_survives() -> None:
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             ws.send_text("this is not json {{{")
             ws.send_json({"type": "ai.url4.bogus", "id": "x", "source": "/c"})
-            first = ws.receive_json()
-            second = ws.receive_json()
+            first = _nack(ws)
+            second = _nack(ws)
             beat = ws.receive_json()
     assert first["type"] == "ai.url4.error" and first["data"]["code"] == "invalid_frame"
     assert second["type"] == "ai.url4.error" and second["data"]["code"] == "invalid_frame"
@@ -210,7 +227,7 @@ def test_ws_unparseable_frame_yields_invalid_frame_nack_and_survives() -> None:
     with TestClient(app) as client:
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             ws.send_text("{not json")
-            nack = ws.receive_json()
+            nack = _nack(ws)
             beat = ws.receive_json()
     assert nack["type"] == "ai.url4.error"
     assert nack["data"]["code"] == "invalid_frame"
@@ -226,10 +243,37 @@ def test_ws_stop_without_runner_yields_unsupported_nack() -> None:
     with TestClient(app) as client:
         with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
             ws.send_json(_stop())
-            nack = ws.receive_json()
+            nack = _nack(ws)
     assert nack["type"] == "ai.url4.error"
     assert nack["data"]["code"] == "unsupported"
     assert nack["data"]["ref_id"] == "stp"
+
+
+def test_a_nack_behind_a_heartbeat_is_still_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    """INVARIANT: the nack tests assert the reply, never the heartbeat's place in the stream.
+
+    WHY: this is the ordering a slow CI runner produced on #1631 (2026-11-03): the socket hands
+    the bridge the bad frame only after the 50 ms heartbeat has gone out, so the first frame
+    back is a heartbeat. The nack must still be found, and still be the same nack.
+    """
+    topic = "ws-nack-after-heartbeat"
+    stream = InMemoryEventStream()
+    app = _make_app(stream=stream, ws_heartbeat_s=0.05)
+    original_receive_text = WebSocket.receive_text
+
+    async def receive_text_after_the_heartbeat(self: WebSocket) -> str:
+        await asyncio.sleep(0.12)
+        return await original_receive_text(self)
+
+    monkeypatch.setattr(WebSocket, "receive_text", receive_text_after_the_heartbeat)
+    with TestClient(app) as client:
+        with client.websocket_connect(f"/ws?ticket={_token(topic)}") as ws:
+            ws.send_text("{not json")
+            first = ws.receive_json()
+            nack = _nack(ws)
+    assert first["type"] == "ai.url4.heartbeat"
+    assert nack["type"] == "ai.url4.error"
+    assert nack["data"]["code"] == "invalid_frame"
 
 
 def test_ws_invalid_ticket_is_rejected() -> None:
