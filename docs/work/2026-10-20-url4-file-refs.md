@@ -283,3 +283,46 @@ requests. Controls: a local route processor and the default local processor stil
 - **Deviations:** (1) the scheme compares case-insensitively (`URL4://` refused too); (2) a
   `url4://<own name>/…` processor is refused as well, matching remote expressions; (3) bare
   `run()` with a `url4://` processor still dispatches (not a node context, per F1b).
+
+## Amendment 2026-11-03 — redact URL query strings in source error messages (push security review)
+
+**Origin.** The push security review of #1587 (not the reviewer) found that the url4 base IO
+layers put the FULL source URL — query, fragment and userinfo included — into error text. When an
+optional source is omitted, that `ResolutionError(outcome.message)` can reach a log. Owner
+decision (Sergey, 2026-11-03): fix in #1482, not #1478.
+
+**Planned changes.**
+- `core/url_display.py` — moved DOWN from #1587 byte for byte (`display_url`, `UNPARSEABLE`), so
+  #1587 merges it as identical content.
+- `io/http.py` — every `GET {url!r} …` message (failed, total deadline, redirect limit, invalid
+  credentialed URL) shows `display_url(url)`; an `httpx.HTTPStatusError`'s text (which embeds the
+  request URL and any `Location`) is rebuilt with shown URLs, in the message AND as the chained
+  cause (same type, same `request`/`response`, redacted text).
+- `io/media.py`, `io/static.py` — the target in `unsupported_content_type` / `no fetch mapping`
+  messages goes through `display_url`.
+- No behaviour change: codes, `permanent`, `retry_after`, cause types unchanged; text only.
+
+**Test plan (append-only, new files).** `tests/unit/test_url_display.py` — the helper tables from
+#1587's `test_attachment_url_redaction.py`. `tests/unit/test_source_error_url_redaction.py` — a
+signed URL (userinfo + query + fragment) through each changed error path (HTTP 4xx/5xx, 3xx with
+`Location`, connect error, redirect limit, total deadline, malformed credentialed URL, media
+`require_text` / `bare_media_type`, static `no fetch mapping`): no secret in message, repr, notes
+or any chained cause/context; host and path still visible; code/permanent unchanged.
+
+**Outcome (amendment 2026-11-03).**
+- **Actual files:** new `core/url_display.py` (byte-identical to `origin/OME-1543-file-refs-carry`);
+  new `io/_redacted_status.py` (`redacted_status_error`, kept out of `http.py` to hold it under
+  450 lines: 428); `io/http.py` (`_failure` shows `display_url(url)` in the failed / redirect-limit
+  / invalid-credentialed-URL messages, rebuilds an `HTTPStatusError` before quoting and chaining
+  it; the total-deadline message); `io/media.py` (`bare_media_type`, `require_text`);
+  `io/static.py` (both `no fetch mapping` messages; the `_lookup` miss is now a membership test so
+  no `KeyError` context carries the raw target). New tests: `tests/unit/test_url_display.py` (13,
+  #1587's helper tables) and `tests/unit/test_source_error_url_redaction.py` (19). No prior test
+  changed; no exact-message test pinned a full URL.
+- **Gates:** `run_gates.py url4 --base origin/OME-1538-url4-bytes-fetch` and `--base origin/main`
+  ALL GATES GREEN (2656 passed, 17 xfailed); `check_module_size.py` within baseline;
+  `check_suppressions.py` 3/3; hygiene / private-import / layering ratchets green.
+- **Deviations:** (1) the chained `HTTPStatusError` is a new instance (same type, `request`,
+  `response`, traceback) whose text carries shown URLs — the cause type and status are unchanged;
+  (2) the invalid-credentialed-URL message now also hides the query (was `redact_userinfo`,
+  userinfo only); a malformed authority `urlsplit` refuses shows `<unparseable url>`.
