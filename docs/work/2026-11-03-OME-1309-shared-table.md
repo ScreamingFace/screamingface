@@ -58,3 +58,14 @@ Existing community-only behavior and provenance remain intact. No Linear writes.
   unknown run fields remain dashes. Gray styling retains legible theme tokens.
 - Follow-up to PR #1644. No Linear writes, shared deployment or production changes.
 - Commit: `feat(scoreboard): integrate external results into ranked table`.
+
+## Link wording follow-up
+
+Owner selected “Original result” for external-row actions. Update visible and
+accessible labels together; retain the existing “Run Locally” column heading and
+Copy/Reproduce actions. Verify the existing exact-label assertion and scoreboard
+gates before pushing the follow-up to the same PR.
+
+Validation: the old wording failed the updated assertion; all 12 portal cases and
+all scoreboard gates pass after the change. Any PR preview should show a mixed
+board with both recorded and external rows, per the owner's follow-up instruction.

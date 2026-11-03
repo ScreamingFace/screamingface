@@ -41,10 +41,10 @@
       td.textContent = P.EM_DASH;
       return td;
     }
-    var link = P.link("external-result__source", href, "View source");
+    var link = P.link("external-result__source", href, "Original result ↗");
     link.setAttribute("target", "_blank");
     link.setAttribute("rel", "noopener noreferrer");
-    link.setAttribute("aria-label", "View source for " + row.spec_id);
+    link.setAttribute("aria-label", "Original result for " + row.spec_id + " (opens in a new tab)");
     td.appendChild(link);
     return td;
   }

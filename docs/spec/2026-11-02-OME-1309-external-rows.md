@@ -3,7 +3,7 @@
 Owner revision, 2026-11-03: imported results belong in the regular table, share
 sorting and normal rank numbers, and are distinguished visually by gray styling.
 Remove the separate section, explanatory paragraph, repeated external labels and
-comparison-note column. Source replaces the recipe action. Non-reproducibility
+comparison-note column. “Original result ↗” replaces the recipe action in the existing “Run Locally” column. Non-reproducibility
 and comparison notes remain accessible through hover and screen-reader text.
 
 Merge the community top 50 and valid imported baselines, sort by descending score,
