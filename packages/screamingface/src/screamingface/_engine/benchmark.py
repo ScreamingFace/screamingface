@@ -25,13 +25,24 @@ class BenchmarkResources:
         self,
         benchmark: str,
         limit: int | None,
+        cases: tuple[int, ...] | None = None,
     ) -> _BenchmarkResource:
         benchmark_id = _benchmark_id(benchmark)
         try:
-            response = self._http.get(
-                f"/v1/benchmarks/{quote(benchmark_id, safe='')}",
-                params=_query(limit),
-                extensions={_REPLAY_SAFE: True},
+            response = (
+                self._http.get(
+                    _path(benchmark_id),
+                    params=_query(limit),
+                    extensions={_REPLAY_SAFE: True},
+                )
+                if cases is None
+                else self._http.post(
+                    f"{_path(benchmark_id)}/selection",
+                    json={"cases": list(cases)},
+                    # WHY replay-safe despite the POST: the route only reads the catalog and
+                    # builds a recipe; it starts no Run and spends nothing.
+                    extensions={_REPLAY_SAFE: True},
+                )
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
@@ -43,6 +54,7 @@ class BenchmarkResources:
             _json(response),
             requested_id=benchmark,
             requested_limit=limit,
+            requested_cases=cases,
         )
 
 
@@ -56,13 +68,24 @@ class AsyncBenchmarkResources:
         self,
         benchmark: str,
         limit: int | None,
+        cases: tuple[int, ...] | None = None,
     ) -> _BenchmarkResource:
         benchmark_id = _benchmark_id(benchmark)
         try:
-            response = await self._http.get(
-                f"/v1/benchmarks/{quote(benchmark_id, safe='')}",
-                params=_query(limit),
-                extensions={_REPLAY_SAFE: True},
+            response = (
+                await self._http.get(
+                    _path(benchmark_id),
+                    params=_query(limit),
+                    extensions={_REPLAY_SAFE: True},
+                )
+                if cases is None
+                else await self._http.post(
+                    f"{_path(benchmark_id)}/selection",
+                    json={"cases": list(cases)},
+                    # WHY replay-safe despite the POST: the route only reads the catalog and
+                    # builds a recipe; it starts no Run and spends nothing.
+                    extensions={_REPLAY_SAFE: True},
+                )
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
@@ -74,7 +97,18 @@ class AsyncBenchmarkResources:
             _json(response),
             requested_id=benchmark,
             requested_limit=limit,
+            requested_cases=cases,
         )
+
+
+def _path(benchmark_id: str) -> str:
+    """The catalog path of one Benchmark; `/selection` below it takes a Case-id list (OME-1739).
+
+    WHY a POST body for the list: a 40-id list stays readable and out of access logs, and the
+    selection route answers with a resource that echoes the ids it selected.
+    """
+
+    return f"/v1/benchmarks/{quote(benchmark_id, safe='')}"
 
 
 def _query(limit: int | None) -> dict[str, int]:

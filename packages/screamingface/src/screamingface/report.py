@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 
 from screamingface._case_views import case_trace
 from screamingface._client_provenance import client_version as _client_version
+from screamingface._evaluation.case_selection import selection_fingerprint, selection_of
 from screamingface._evaluation.model import _canonical_url4
 from screamingface._immutable_json import freeze_mapping, thaw_mapping
 from screamingface._named_values import _NamedValues
@@ -486,6 +487,16 @@ class CandidateResult:
         return sum(case.abstained for case in self.cases)
 
     @property
+    def selected_cases(self) -> tuple[int, ...] | None:
+        """The Case ids a `cases=` run graded, ascending; None for a full or `limit=` run.
+
+        FEATURE (OME-1739): derived from the roll call, so a run rebuilt from its result body (a
+        replay, a saved report) names its selection too, and still can't be submitted.
+        """
+
+        return selection_of([case.case_id for case in self.cases])
+
+    @property
     def metrics(self) -> Mapping[str, object]:
         return MappingProxyType(dict(self._metric_items))
 
@@ -607,6 +618,21 @@ class Report:
         }
         for attribute, value in values.items():
             object.__setattr__(self, attribute, value)
+
+    @property
+    def selected_cases(self) -> tuple[int, ...] | None:
+        """The Case ids a `cases=` run scored, ascending; None for a full or `limit=` run."""
+
+        # INVARIANT: every Candidate graded the same Cases (the runner refuses a Report whose roll
+        # call differs from the request), so the first Candidate speaks for the Report.
+        return self.candidates[0].selected_cases
+
+    @property
+    def selection_fingerprint(self) -> str | None:
+        """`sha256:` of the sorted selected ids (e.g. of `3,17,42`), for a paper to cite."""
+
+        selected: tuple[int, ...] | None = self.selected_cases
+        return None if selected is None else selection_fingerprint(selected)
 
     @property
     def started_at(self) -> datetime:

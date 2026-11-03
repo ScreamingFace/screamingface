@@ -27,6 +27,7 @@ from screamingface._core.ports import (
 from screamingface._environment import SDK_PACKAGE_ROOT
 from screamingface._evaluation.benchmark import _BenchmarkResource
 from screamingface._evaluation.candidate import recipes_need_operators
+from screamingface._evaluation.case_selection import graded_positions, selected_cases
 from screamingface._evaluation.completion import completion_callback
 from screamingface._evaluation.model import (
     Candidate,
@@ -49,6 +50,7 @@ from screamingface._evaluation.outcome import (
     raise_candidates_failed,
     settle,
 )
+from screamingface._report_primitives import CaseId
 from screamingface.discovery import ModelDetails, ModelInfo
 from screamingface.events import Event
 from screamingface.recipe import Recipe
@@ -65,8 +67,10 @@ type _SyncModelLoading = Callable[[], _ModelCatalog]
 type _AsyncModelLoading = Callable[[], Awaitable[_ModelCatalog]]
 type _SyncModelDetailsLoading = Callable[[str], ModelDetails]
 type _AsyncModelDetailsLoading = Callable[[str], Awaitable[ModelDetails]]
-type _SyncBenchmarkLoading = Callable[[str, int | None], _BenchmarkResource]
-type _AsyncBenchmarkLoading = Callable[[str, int | None], Awaitable[_BenchmarkResource]]
+type _SyncBenchmarkLoading = Callable[[str, int | None, tuple[int, ...] | None], _BenchmarkResource]
+type _AsyncBenchmarkLoading = Callable[
+    [str, int | None, tuple[int, ...] | None], Awaitable[_BenchmarkResource]
+]
 type _SyncOperatorLoading = Callable[[], _OperatorCatalog]
 type _AsyncOperatorLoading = Callable[[], Awaitable[_OperatorCatalog]]
 
@@ -89,6 +93,7 @@ def evaluate_sync(
     capture: bool = False,
     load_operators: _SyncOperatorLoading | None = None,
     use_cache: bool = True,
+    cases: object = None,
 ) -> Report:
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
@@ -98,7 +103,8 @@ def evaluate_sync(
 
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
-    resource = load_benchmark(benchmark, limit)
+    # FEATURE (OME-1739): a bad Case-id list fails here, before the Engine is asked anything.
+    resource = load_benchmark(benchmark, limit, selected_cases(cases, limit))
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     # extract="benchmark" resolves inside compile_evaluation from resource.answer_rule, before any
     # spend (GP-1).
@@ -138,7 +144,7 @@ def evaluate_sync(
         )
         try:
             outcomes = _settled_sync(transport, evaluation, selected_candidates, observer)
-            report = completed_report(evaluation, outcomes)
+            report = _selected_roll_call(evaluation, completed_report(evaluation, outcomes))
         except BaseException as exc:
             _abort_event_observer(observer, exc)
             raise
@@ -160,6 +166,7 @@ async def evaluate_async(
     capture: bool = False,
     load_operators: _AsyncOperatorLoading | None = None,
     use_cache: bool = True,
+    cases: object = None,
 ) -> Report:
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
@@ -169,7 +176,8 @@ async def evaluate_async(
 
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
-    resource = await load_benchmark(benchmark, limit)
+    # FEATURE (OME-1739): see the sync twin.
+    resource = await load_benchmark(benchmark, limit, selected_cases(cases, limit))
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     # extract="benchmark" resolves inside compile_evaluation from resource.answer_rule, before any
     # spend (GP-1).
@@ -208,12 +216,36 @@ async def evaluate_async(
         )
         try:
             outcomes = await _settled_async(transport, evaluation, selected_candidates, observer)
-            report = completed_report(evaluation, outcomes)
+            report = _selected_roll_call(evaluation, completed_report(evaluation, outcomes))
         except BaseException as exc:
             _abort_event_observer(observer, exc)
             raise
         _conclude_evaluation(observer, report, capture)
         return report
+
+
+def _selected_roll_call(evaluation: _Evaluation, report: Report) -> Report:
+    """Refuse a Report whose graded Cases are not the Case ids the run asked for (OME-1739, F6).
+
+    INVARIANT: no score is reported for a Case set nobody asked for. The echo check refused a
+    recipe for other Cases before the run; this checks what the Engine actually graded.
+    """
+
+    from screamingface.errors import PlanningError
+
+    requested: tuple[int, ...] | None = evaluation.selected_cases
+    if requested is None:
+        return report
+    for candidate in report.candidates:
+        graded: list[CaseId] = [case.case_id for case in candidate.cases]
+        if graded_positions(graded) != requested:
+            raise PlanningError(
+                f"The SF Engine graded Cases {graded} for Candidate {candidate.name!r}, "
+                f"not the requested {list(requested)}; no score is reported",
+                code="engine_contract_error",
+                permanent=True,
+            )
+    return report
 
 
 def _operators_sync(
