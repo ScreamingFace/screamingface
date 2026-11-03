@@ -128,7 +128,8 @@ def _management_refusal(exc: ProviderAccessRefusal) -> HTTPException | None:
             detail={"code": "x_profile_unsupported", "message": _UNSUPPORTED_SELECTOR_MESSAGE},
         )
     if isinstance(exc, ProviderUnknown):
-        # The PUT shape of the retired Profile route (`upsert_api_key_profile` at 248b0b6d).
+        # WHY this body: the D18 admin PUT and DELETE keep the 404 the retired Profile PUT
+        # answered (`upsert_api_key_profile` at 248b0b6d).
         return HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": exc.provider}
         )

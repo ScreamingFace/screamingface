@@ -21,7 +21,6 @@ import pytest
 from litellm.exceptions import AuthenticationError
 
 from aigateway.core.credential_blob.model import CredentialBlob
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
@@ -31,6 +30,7 @@ from aigateway.core.oauth.store import (
 from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
+from tests.credential_names import credential_name_for
 
 PROVIDER = "openrouter"
 KEY = "sk-or-v1-ome-1389-profile-key"

@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1813",
+  "branch": "OME-1813-ws-nack-tests-tolerate-heartbeat",
+  "approver": "Khoa Nguyen (owner request, 2026-11-03)",
+  "date": "2026-11-03",
+  "scope": "In test_ws.py, the three nack tests (test_ws_malformed_inbound_frames_nacked_stream_survives, test_ws_unparseable_frame_yields_invalid_frame_nack_and_survives, test_ws_stop_without_runner_yields_unsupported_nack) read their nack through a new helper _nack(ws) that returns the first frame that is not a heartbeat, bounded at 20 heartbeats, instead of asserting the nack is the very first frame. Every assertion on the nack and on the trailing heartbeat is unchanged. One new test (test_a_nack_behind_a_heartbeat_is_still_found) and two imports are added; nothing else in the file changes.",
+  "reason": "The bridge sends heartbeats and nacks through one writer queue, and a heartbeat goes out whenever the queue has been idle for ws_heartbeat_s (50 ms in these tests). On a slow CI runner the heartbeat lands before the inbound task has queued the nack, so the first frame is ai.url4.heartbeat and the test fails although the bridge did its job (PR #1631, job 125711669203, 2026-11-03; green on the rerun of the same commit). The tests now assert the contract the bridge keeps (a nack arrives, the stream survives) rather than the heartbeat's timing; a bridge that never answers still fails on the bound.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_ws.py": {
+      "base_blob": "f0bc75449ed9ed4515a8d83bee8c976650cfc5d0",
+      "approved_blob": "16def81f25b4ddfabde53afb871b980fa9fd1129"
+    }
+  }
+}

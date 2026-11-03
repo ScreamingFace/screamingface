@@ -14,9 +14,9 @@ from aigateway.core.api_key_validation import (
     ApiKeyValidationStage,
     ApiKeyValidationState,
 )
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
 from aigateway.plugins.openai_provider.plugin import PLUGIN
+from tests.credential_names import credential_name_for
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 
 _OLD_KEY = "sk-openai-synthetic-old-key-1234"
