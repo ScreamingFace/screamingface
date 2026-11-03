@@ -194,3 +194,9 @@ def test_a_run_query_needs_an_aware_datetime_since(since: object) -> None:
 )
 def test_one_email_in_different_unicode_forms_is_one_owner(one: str, other: str) -> None:
     assert owner_key(one) == owner_key(other)
+
+
+def test_a_fold_that_decomposes_is_still_one_owner() -> None:
+    # WHY: casefold can turn a composed character into a decomposed sequence, so the folded text
+    # is normalised again; otherwise these two forms of one email would own two sets of Runs.
+    assert owner_key("ΐ@x.org") == owner_key("Ϊ́@x.org")

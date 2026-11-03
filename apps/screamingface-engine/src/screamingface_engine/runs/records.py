@@ -38,8 +38,11 @@ def owner_key(owner: str) -> OwnerKey:
     `local`, which normalises to itself.
     """
     # WHY NFC and casefold, not lower(): one email can arrive in composed or decomposed Unicode,
-    # and `lower()` misses folds such as "ß" == "SS".
-    normalised = unicodedata.normalize("NFC", owner.strip()).casefold()
+    # and `lower()` misses folds such as "ß" == "SS". NFC again after the fold, because folding
+    # can itself decompose a character ("ΐ").
+    normalised = unicodedata.normalize(
+        "NFC", unicodedata.normalize("NFC", owner.strip()).casefold()
+    )
     if not normalised:
         raise ValueError("a Run owner must not be blank")
     return OwnerKey(hashlib.sha256(normalised.encode()).hexdigest())
