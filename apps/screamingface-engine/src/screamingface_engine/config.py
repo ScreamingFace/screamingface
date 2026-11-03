@@ -324,6 +324,8 @@ class Settings(BaseSettings):
     # WHY 48 h (spec R6): past both `url4-candidate-outcomes` and `url4-runq`'s 24 h retention, so
     # reconcile settles a Candidate `lost` only once no outcome can still arrive.
     run_lost_after_s: float = Field(default=48 * 3600.0, gt=0, allow_inf_nan=False)
+    # How often the App sweeps the registry (spec R6, R7), after the sweep it runs at start.
+    run_sweep_interval_s: float = Field(default=3600.0, gt=0, allow_inf_nan=False)
     # The outcome stream `url4-candidate-outcomes` (spec R11), declared by the App and the runner
     # pool at startup from these values (`candidateOutcomes.*` in the chart). When it is full, a
     # publish is refused rather than an older, unwritten outcome dropped.

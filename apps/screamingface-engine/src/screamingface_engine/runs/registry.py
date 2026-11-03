@@ -48,6 +48,11 @@ class RunRegistry(Protocol):
         """
         ...
 
+    async def register(self, owner: OwnerKey, spec: RunSpec) -> tuple[RunRecord, bool]:
+        """`create`, and whether this call created the Run (`POST /runs` 201) or found it
+        (200)."""
+        ...
+
     async def get(self, owner: OwnerKey, run_id: str) -> RunRecord | None: ...
 
     async def list(self, owner: OwnerKey, query: RunQuery) -> RunPage:
@@ -65,8 +70,12 @@ class RunRegistry(Protocol):
         """
         ...
 
-    async def mark_scheduled(self, topic: str) -> None:
-        """The bound Candidate's start was scheduled: `pending` becomes `scheduled`."""
+    async def mark_scheduled(self, topic: str) -> bool:
+        """The bound Candidate's start was scheduled: `pending` becomes `scheduled`.
+
+        Returns whether the start stands: False only when a cancel stopped the Candidate first,
+        so the start route stops what it just scheduled (spec D12).
+        """
         ...
 
     async def settle(self, topic: str, outcome: CandidateOutcome) -> None:

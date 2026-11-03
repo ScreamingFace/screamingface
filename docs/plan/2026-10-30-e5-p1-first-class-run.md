@@ -213,8 +213,8 @@ Tests:
 
 ### E7. Sweeps: reconcile and retention
 
-- New `runs/sweeps.py`, wired in `app.py` beside the artifact sweeper (`:156-170`) and in
-  `local.py`, at start and hourly:
+- New `runs/sweeps.py`, started by `install_runs` (the call `app.py` and `local.py` both make),
+  at start and every `run_sweep_interval_s` (1 h):
   - reconcile (spec R6), with the outcome stream's `survives_restart`;
   - expire (spec R7).
 
@@ -231,9 +231,13 @@ Tests:
 
 - New `rest/runs.py`:
   - `POST /runs`, `GET /runs`, `GET /runs/{id}` and `DELETE /runs/{id}` (spec §4.1).
-  - The owner is resolved through `require_identity` (`rest/mounts.py:116-129`).
+  - The owner is resolved by the same local/hosted switch as the mounts' `require_identity`
+    (`rest/mounts.py`), set by `install_runs`.
   - An unknown or foreign id answers 404 `run_not_found`.
-  - `DELETE` stops every live topic through the existing stop path.
+  - `DELETE` stops every live topic through the existing stop path, moved to `rest/stopping.py`
+    so `rest/routes.py` and `rest/runs.py` share it.
+  - `POST /runs` answers 201 or 200 from the port's `register`, which also says whether it
+    created the Run.
 - `rest/routes.py` start: reads `X-SF-Run` and `X-SF-Run-Candidate` (an index), binds before
   scheduling and calls `mark_scheduled` after (spec R2). `mark_scheduled` reports whether it
   applied, so a start that lost to a cancel aborts. A bind that fails on the database is logged,

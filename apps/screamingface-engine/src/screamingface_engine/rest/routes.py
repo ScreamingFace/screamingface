@@ -51,8 +51,10 @@ from screamingface_engine.request_scope import (
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
+from screamingface_engine.rest.runs import bind_start
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from screamingface_engine.rest.sessions import RunSessions
+from screamingface_engine.rest.stopping import QUEUE_UNAVAILABLE_RETRY_AFTER_S, stop_topic
 from screamingface_engine.runner_queue import RunQueueUnavailable
 from screamingface_engine.tracing.accept import AcceptSpan
 from screamingface_engine.world.models.registry import decode_route_id
@@ -68,13 +70,6 @@ from url4.streaming.trace import parse_traceparent, valid_traceparent
 router = APIRouter()
 
 _logger = logging.getLogger(__name__)
-
-# WHY 5 and not the capacity path's constant 1: an unreachable broker is a reconnect or a
-# failover in flight, which takes seconds — a client told to retry in 1 s spends its retries
-# inside the outage. There is no drain estimate to derive a better value from.
-# INVARIANT: every "broker down" 503 (unreadable queue tail, unavailable queue at schedule time)
-# uses THIS value; the capacity 503 keeps its drain estimate.
-QUEUE_UNAVAILABLE_RETRY_AFTER_S = 5
 
 _TERMINAL_PROBLEM: dict[str, tuple[int, str, str]] = {
     "failed": (502, "Bad Gateway", "the run failed"),
@@ -295,6 +290,13 @@ async def _refuse_existing(deps: _Deps, topic: str) -> None:
         ) from None
     if already_exists:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists")
+
+
+async def _claim_topic(deps: _Deps, request: Request, topic: str) -> Callable[[], Awaitable[None]]:
+    """Refuse a topic already used, then bind it to its Run's Candidate before anything is
+    scheduled (OME-1785, E5 P1 spec R2). Returns the bound start's step after scheduling."""
+    await _refuse_existing(deps, topic)
+    return await bind_start(request, topic)
 
 
 def _named_dynamic_models(url4: str) -> tuple[str, ...]:
@@ -708,9 +710,17 @@ _START_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     400: _problem(
         "The url4 expression query parameter `q` is required, or the request states the "
-        "unsupported `X-Profile` header (`code: x_profile_unsupported`)."
+        "unsupported `X-Profile` header (`code: x_profile_unsupported`), or `X-SF-Run-Candidate` "
+        "is not an index of the Run's Candidates (`code: malformed_header`)."
     ),
-    409: _problem("A run already exists for this topic (single-shot)."),
+    404: _problem(
+        "The `X-SF-Run` Run is unknown or not the caller's (`code: run_not_found`, OME-1785)."
+    ),
+    409: _problem(
+        "A run already exists for this topic (single-shot); or, under `X-SF-Run`, the Run was "
+        "canceled (`code: run_canceled`) or the Candidate already started under another topic "
+        "(`code: candidate_already_started`)."
+    ),
     428: _problem("Attach a WebSocket to the topic before starting the run."),
     502: _problem("The run failed."),
     504: _problem("The run exceeded its 16 h deadline."),
@@ -858,7 +868,7 @@ async def start_run(
             if len(request.headers.getlist("User-Agent")) == 1
             else None
         )
-        await _refuse_existing(deps, topic)
+        on_scheduled = await _claim_topic(deps, request, topic)
 
         async def schedule() -> None:
             await _schedule(
@@ -876,9 +886,10 @@ async def start_run(
                 replay_frozen_copy=replay_frozen_copy,
             )
             # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
-            # hold is not accept latency, and counting it would hide the queue-wait gap.
-            if accept is not None:
-                accept.scheduled()
+            # hold is not accept latency, and counting it would hide the queue-wait gap. So it
+            # also ends before a bound start's registry write.
+            _enqueued(accept)
+            await on_scheduled()
 
         if pref.respond_async:
             await schedule()
@@ -905,6 +916,12 @@ def _open_accept(request: Request, traceparent: str | None, topic: str) -> Accep
     if sink is None:
         return None
     return AcceptSpan.open(sink, traceparent, topic=topic)
+
+
+def _enqueued(accept: AcceptSpan | None) -> None:
+    """End the accept span as scheduled, when one is open."""
+    if accept is not None:
+        accept.scheduled()
 
 
 @contextmanager
@@ -946,24 +963,5 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
             detail="the capability token is not authorized for that topic",
         )
     _logger.info("run stop requested topic=%s", sub)
-    try:
-        await deps.job_runner.stop(sub)
-    except QueueReadError:
-        # V-2: an unreadable tail used to make `stop()` a SILENT no-op, and this handler
-        # fell through to deleting the stream of a possibly-live run while answering 204.
-        # The raise keeps the state unchanged and the answer honest: 503, retryable, and
-        # the stream deletion below does not run.
-        raise ProblemException(
-            status=503,
-            title="Service Unavailable",
-            detail="the run queue could not be read; retry",
-            headers={"Retry-After": str(QUEUE_UNAVAILABLE_RETRY_AFTER_S)},
-        ) from None
-    # WHY delete_stream and not purge: this is the run's terminal teardown, and `delete_stream`
-    # purges the subject on the shared events stream while KEEPING the terminal frame — the
-    # evidence a run ended (the queue's dedupe gate, the runner's own admission bookkeeping, and
-    # a repeated `DELETE /` all read that frame). Plain `purge` drops it too, and an empty
-    # subject reads exactly like a run still queued — there is no per-run stream object left to
-    # tell the two apart in a shared stream (erd.md §5).
-    await deps.stream.delete_stream(sub)
+    await stop_topic(deps.job_runner, deps.stream, sub)
     return Response(status_code=204)

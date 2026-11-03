@@ -180,3 +180,34 @@ def test_runs_leave_another_tortoise_app_in_the_process_alone(tmp_path: Path) ->
         assert client.portal is not None
         client.portal.call(the_neighbour_answers)
         client.portal.call(Tortoise.close_connections)
+
+
+def test_a_local_restart_sweeps_the_last_processs_candidates_lost(tmp_path: Path) -> None:
+    """Spec R6 at App start: the in-memory outcome stream died with the last process."""
+    settings = Settings(database_url=f"sqlite://{tmp_path}/engine.sqlite3")
+    owner = owner_key("local")
+
+    first = FastAPI()
+    install_runs(first, settings, _CountingStream(), local=True)
+    with TestClient(first) as client:
+        assert client.portal is not None
+        store = first.state.run_registry
+        run = client.portal.call(store.create, owner, RunSpec("k", "b", 1, ("alpha",), "1.0"))
+        client.portal.call(store.bind, owner, run.id, 0, "topic-1")
+
+    second = FastAPI()
+    install_runs(second, settings, _CountingStream(), local=True)
+    with TestClient(second) as client:
+        assert client.portal is not None
+        store = second.state.run_registry
+
+        async def swept_lost() -> None:
+            for _ in range(200):
+                record = await store.get(owner, run.id)
+                if record is not None and record.candidates[0].state == "lost":
+                    return
+                await asyncio.sleep(0.01)
+            raise AssertionError("the start sweep never settled the Candidate")
+
+        client.portal.call(swept_lost)
+    assert second.state.run_sweep_task is None
