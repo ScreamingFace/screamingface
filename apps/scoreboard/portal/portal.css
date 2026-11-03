@@ -308,8 +308,9 @@ table .btn { white-space: nowrap; }
    gained at every budget, with sample runs plotted as points. No box, no title — just the two
    labelled axes (accuracy, cost). Inline currentColor SVG, so it needs no vendored asset. */
 .hero-title--index { font-size: clamp(1.6rem, 4vw, 2.4rem); }
-/* Footnote tying the frontier figure's `accuracy*` label to the illustrative disclaimer. */
-.fine-print { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-3); margin: var(--space-7) 0 0; }
+/* Footnote tying the frontier figure's `accuracy*` label to the illustrative disclaimer — the
+   same small mono as the subscribe fine print, set italic with a little breathing room. */
+.fine-print { font-family: var(--f-mono); font-size: var(--text-micro); font-style: italic; color: var(--ink-3); margin: var(--space-9) 0 var(--space-5); }
 .frontier { margin: 0; width: 100%; border: 0; background: transparent; }
 .frontier svg { display: block; width: 100%; height: auto; }
 /* Academic / LaTeX-ish lettering: italic serif axis titles and series labels, small serif ticks.
