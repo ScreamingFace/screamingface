@@ -61,19 +61,28 @@ def encode_board(rows: Sequence[Mapping[str, Any]]) -> BoardFiles:
     with these separators is exactly ``"[" + ",".join(rows) + "]"``.
     """
 
-    serialised: list[bytes] = [
-        json.dumps(row, ensure_ascii=False, separators=_SEPARATORS).encode("utf-8") for row in rows
-    ]
+    # WHY one join over ["[", row0, ",", row1, ..., "]"]: the rows plus the final bytes is the
+    # same 2x-board peak as the pre-OME-1790 ``json.dumps(...).encode()``. A ``b",".join`` and
+    # then ``b"[" + ... + b"]"`` held a third board-sized copy at image build (review, P2).
+    pieces: list[bytes] = [b"["]
     entries: list[bytes] = []
     position: int = 1  # WHY 1: the opening "[".
-    for row in serialised:
-        entries.append(_ENTRY.pack(position, len(row)))
-        position += len(row) + 1  # the row, then its "," (or the closing "]").
-    cases: bytes = b"[" + b",".join(serialised) + b"]"
+    for row in rows:
+        encoded: bytes = json.dumps(row, ensure_ascii=False, separators=_SEPARATORS).encode("utf-8")
+        entries.append(_ENTRY.pack(position, len(encoded)))
+        position += len(encoded) + 1  # the row, then its "," (or the closing "]").
+        pieces.append(encoded)
+        pieces.append(b",")
+    if entries:
+        pieces[-1] = b"]"  # the last row's "," becomes the closing "]".
+    else:
+        pieces.append(b"]")  # an empty board is "[]".
+    cases: bytes = b"".join(pieces)
+    del pieces
     board: bytes = json.dumps(
         {
             "schema": BOARD_SCHEMA,
-            "case_count": len(serialised),
+            "case_count": len(entries),
             # WHY over the rows as written: an envelope board wraps plain-text inputs only,
             # and a wrapped plain prompt never carries a picture, so the flag is the same.
             "has_pictures": cases_need_pictures(rows),
@@ -144,6 +153,36 @@ def _positioned(row: object, case_id: int) -> None:
         raise _broken(f"Case {case_id} is stored with id {found!r}")
 
 
+def _check_row(chunk: bytes, first: int, length: int, position: int) -> None:
+    """The entry at ``chunk[first:first + length]`` is exactly one JSON object, Case ``position``.
+
+    INVARIANT (review round 2, P2): an index paired with other rows — shifted, reordered, or
+    splitting a nested object such as ``{"parts":[{},{}]}`` — fails here, never serves bytes
+    that are not the selected rows. Cost: one parse of the selected bytes only, never the board.
+
+    Raises:
+        ValueError: the bytes are not one object at this position (the caller bounds it).
+    """
+
+    row_bytes: bytes = chunk[first : first + length]
+    # WHY the brace check beside the parse: json.loads accepts surrounding whitespace, and a
+    # served row must be the writer's exact bytes, not merely an equal object.
+    if length < 2 or row_bytes[:1] != b"{" or row_bytes[-1:] != b"}":
+        raise ValueError(f"entry {position} is not an object's bytes")
+    if first > 0 and chunk[first - 1 : first] != b",":
+        raise ValueError(f"entry {position} does not follow a ','")
+    # INVARIANT: bytes that start with "{", end with "}" and parse whole are one JSON object,
+    # so the parse is the dict check — a split nested object or trailing data fails here.
+    row: dict[str, object] = json.loads(row_bytes)
+    # WHY id is positional but case_id only a string: the writer numbers Cases from 1 in served
+    # order (capture.py), while case_id is the transport's string spelling, not bound here.
+    row_id: object = row.get("id", position)
+    if type(row_id) is not int or row_id != position:
+        raise ValueError(f"entry {position} holds Case {row_id!r}")
+    if "case_id" in row and not isinstance(row["case_id"], str):
+        raise ValueError(f"entry {position} has a non-string case_id")
+
+
 class IndexedBoard:
     """A board with ``board.json`` and ``cases.offsets``: reads only the selected bytes."""
 
@@ -189,21 +228,25 @@ class IndexedBoard:
                 entries: list[tuple[int, int]] = list(
                     _ENTRY.iter_unpack(handle.read(count * _ENTRY.size))
                 )
+            if len(entries) != count:
+                raise _broken(f"{OFFSETS_FILE} holds fewer than {count} entries")
             start: int = entries[0][0]
             end: int = entries[-1][0] + entries[-1][1]
             self._check_layout(entries, start, end)
             with self._cases.open("rb") as handle:
                 handle.seek(start)
                 chunk: bytes = handle.read(end - start)
-        except OSError as exc:
-            raise _broken(str(exc)) from exc
-        # INVARIANT: each row starts with "{" and ends with "}" where the index says it does,
-        # so an index paired with other rows fails here instead of serving shifted rows.
-        for offset, length in entries:
-            first, last = offset - start, offset - start + length - 1
-            if length < 2 or chunk[first : first + 1] != b"{" or chunk[last : last + 1] != b"}":
-                raise _broken(f"{OFFSETS_FILE} does not match {CASES_FILE}")
-        return "[" + chunk.decode("utf-8") + "]"
+            if len(chunk) != end - start:
+                raise _broken(f"{CASES_FILE} is shorter than its index")
+            for position, (offset, length) in enumerate(entries, start=1):
+                _check_row(chunk, offset - start, length, position)
+            text: str = chunk.decode("utf-8")
+        # WHY ValueError: json.JSONDecodeError and UnicodeDecodeError are both ValueErrors.
+        except (OSError, struct.error, ValueError) as exc:
+            raise _broken(f"{OFFSETS_FILE} does not match {CASES_FILE} ({exc})") from exc
+        # INVARIANT: "[" + one object per entry joined by "," + "]" — a JSON array of exactly
+        # the selected rows, served as the original bytes (never re-serialised).
+        return "[" + text + "]"
 
     def rows(self, case_ids: Sequence[int]) -> str:
         _check_ids(case_ids, self._count)

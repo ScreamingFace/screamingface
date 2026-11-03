@@ -61,6 +61,11 @@ from screamingface_engine.rest.routes import (
 )
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER
 from screamingface_engine.runner_queue import RunQueueUnavailable
+from screamingface_engine.world.classification import (
+    MALFORMED_MESSAGE,
+    MALFORMED_SOURCE,
+    refuses_query,
+)
 from screamingface_engine.world.serving import MountDescriptor, MountTable, mount_http_status
 from screamingface_engine.world.wire import url4_error_body
 from url4.streaming.protocol import ResultEvent, TerminatedEvent
@@ -323,6 +328,8 @@ def _validated(
     # Measured on the RAW bytes: a decoded-then-re-encoded query counts a byte >= 0x80 twice.
     if len(mount.path.encode()) + 1 + len(raw) > job_env.MAX_DIRECT_TARGET_BYTES:
         raise _Refused(_envelope(414, "uri_too_long", "the path and query exceed 8 KiB"))
+    if refuses_query(mount.path, raw):
+        raise _Refused(_envelope(400, MALFORMED_SOURCE, MALFORMED_MESSAGE))
     query = raw.decode("latin-1")
     target = f"{mount.path}?{query}" if query else mount.path
     return (dict(identity) if identity else None), seed, target

@@ -20,6 +20,8 @@ single ``plugin_base`` module. Import from here, never from a half.
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass, GlobalCacheProjection
 from ._contract import ModelDiscoverySource, ProviderPluginBase
 from ._ports import (
+    CLASSIFICATION_RESULT_CONTRACT,
+    ClassifierEntry,
     CredentialStrategy,
     ModelAdmission,
     ModelEntry,
@@ -42,8 +44,10 @@ from ._resolvers import credential_service_provider_for, credential_strategy_fro
 # the request-cache internals depend on it without a cycle. This is a re-export, not
 # a second definition.
 __all__ = [
+    "CLASSIFICATION_RESULT_CONTRACT",
     "PROJECTION_BYPASS_REASON",
     "CacheBypass",
+    "ClassifierEntry",
     "CredentialStrategy",
     "GlobalCacheProjection",
     "ModelAdmission",

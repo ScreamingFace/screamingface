@@ -304,3 +304,137 @@ def test_a_cases_file_removed_after_opening_is_the_bounded_error(tmp_path: Path)
     with pytest.raises(ResolutionError) as exc:
         board.head(1)
     _unavailable(exc)
+
+
+# ── review round 2 (OME-1790, HupBaHa P2s): every selected row is one JSON object ──
+
+
+def test_offsets_that_split_a_nested_object_are_refused(tmp_path: Path) -> None:
+    """Two contiguous entries inside ``{"parts":[{},{}]}`` pass the brace and order checks.
+
+    WHY: the first entry ends at the inner ``{}``'s ``}`` and the second is the ``{}`` after the
+    comma, so the served array would be ``[{"id":1,...,"input":{"parts":[{},{}]`` — malformed.
+    """
+
+    rows: list[dict[str, Any]] = [
+        {"id": 1, "case_id": "1", "input": {"parts": [{}, {}]}},
+        {"id": 2, "case_id": "2", "input": "plain"},
+    ]
+    root = _write(tmp_path, rows)
+    cases = (root / CASES_FILE).read_bytes()
+    inner = cases.index(b"[{},{}]")
+    first_end = inner + len(b"[{}")  # one past the first inner "}"
+    _rewrite_offsets(root, [(1, first_end - 1), (first_end + 1, 2)])
+
+    with pytest.raises(ResolutionError) as exc:
+        IndexedBoard(root).head(2)
+    _unavailable(exc)
+
+
+def test_a_same_size_cases_file_with_rows_in_another_order_is_refused(tmp_path: Path) -> None:
+    """Every row parses, but the row at position 1 is Case 2: never serve it as Case 1."""
+
+    root = _write(tmp_path, _rows("same", "size"))
+    swapped = encode_board(list(reversed(_rows("same", "size"))))
+    assert len(swapped.cases) == (root / CASES_FILE).stat().st_size
+    (root / CASES_FILE).write_bytes(swapped.cases)
+
+    with pytest.raises(ResolutionError) as exc:
+        IndexedBoard(root).head(1)
+    _unavailable(exc)
+
+
+def test_a_row_with_invalid_utf8_is_the_bounded_error(tmp_path: Path) -> None:
+    root = _write(tmp_path, _rows("abc", "def"))
+    cases = (root / CASES_FILE).read_bytes()
+    (root / CASES_FILE).write_bytes(cases.replace(b"abc", b"a\xffc"))
+
+    with pytest.raises(ResolutionError) as exc:
+        IndexedBoard(root).head(1)
+    _unavailable(exc)
+
+
+@pytest.mark.parametrize("kept", [8, 16], ids=["partial entry", "one whole entry of two"])
+def test_offsets_truncated_after_opening_are_the_bounded_error(tmp_path: Path, kept: int) -> None:
+    root = _write(tmp_path, _TEXT_ROWS)
+    board = IndexedBoard(root)
+    (root / OFFSETS_FILE).write_bytes((root / OFFSETS_FILE).read_bytes()[:kept])
+
+    with pytest.raises(ResolutionError) as exc:
+        board.head(2)
+    _unavailable(exc)
+
+
+def test_rows_not_separated_by_a_comma_are_refused(tmp_path: Path) -> None:
+    root = _write(tmp_path, _rows("x", "y"))
+    cases = (root / CASES_FILE).read_bytes()
+    (root / CASES_FILE).write_bytes(cases.replace(b"},{", b"} {"))
+
+    with pytest.raises(ResolutionError) as exc:
+        IndexedBoard(root).head(2)
+    _unavailable(exc)
+
+
+@pytest.mark.parametrize(
+    "row",
+    [{"id": True, "case_id": "1"}, {"id": 1, "case_id": 1}],
+    ids=["bool id", "non-string case_id"],
+)
+def test_a_row_whose_ids_break_the_format_is_refused(tmp_path: Path, row: dict[str, Any]) -> None:
+    root = _write(tmp_path, [row])
+
+    with pytest.raises(ResolutionError) as exc:
+        IndexedBoard(root).head(1)
+    _unavailable(exc)
+
+
+def test_rows_without_ids_are_served_as_written(tmp_path: Path) -> None:
+    """The id checks bind only a row that carries one; the served bytes stay the originals."""
+
+    rows: list[dict[str, Any]] = [{"input": "a"}, {"input": {"parts": [{}, {}]}}]
+    board = IndexedBoard(_write(tmp_path, rows))
+
+    assert board.head(2) == _legacy_bytes(rows).decode("utf-8")
+
+
+def _traced_peak(build: Any) -> int:
+    import gc
+    import tracemalloc
+
+    gc.collect()
+    tracemalloc.start()
+    try:
+        result = build()
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    del result
+    return peak
+
+
+def test_encode_board_adds_no_board_sized_transient() -> None:
+    """The writer's peak stays within ~1.1x the pre-OME-1790 ``json.dumps(...).encode()``.
+
+    INVARIANT: building the index never costs another full-board copy at image build — the
+    330 MB FigQA bundle must not need a third board-sized buffer beside the prepared rows.
+    WHY rows built before tracing: both paths start from the same prepared rows, so only the
+    serialisation's own allocations are compared.
+    """
+
+    rows: list[dict[str, Any]] = _rows(*[f"q{index} " + "x" * 8192 for index in range(2048)])
+    old_peak = _traced_peak(
+        lambda: json.dumps(rows, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    )
+    new_peak = _traced_peak(lambda: encode_board(rows))
+
+    assert new_peak <= old_peak * 1.1, (new_peak, old_peak)
+
+
+def test_a_cases_file_truncated_after_opening_is_the_bounded_error(tmp_path: Path) -> None:
+    root = _write(tmp_path, _TEXT_ROWS)
+    board = IndexedBoard(root)
+    (root / CASES_FILE).write_bytes((root / CASES_FILE).read_bytes()[:20])
+
+    with pytest.raises(ResolutionError) as exc:
+        board.head(4)
+    _unavailable(exc)
