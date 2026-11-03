@@ -158,8 +158,8 @@ def test_about_lead_copy() -> None:
     lead = _page("about.html").one("p", "hero-lead")
 
     assert lead.text() == (
-        "What's the best accuracy anyone can reach at a price point they can afford, and "
-        "which combination of models gets them there?"
+        "Fusions are more capable than any other AI system in the world, both in "
+        "absolute terms and capability/price. Now you can see it."
     )
 
 
@@ -184,28 +184,6 @@ def test_about_contribute_links() -> None:
     assert by_text["Start fusing →"] == _FIRST_FUSION
     assert by_text["Browse leaderboards →"] == "index.html"
     assert by_text["Get paid to try →"] == _GRANT_HREF
-
-
-_ARXIV = "https://arxiv.org/abs/"
-
-
-def test_about_papers_carousel_cites_arxiv() -> None:
-    strip = _page("about.html").one("div", "papers")
-    # Keyboard-scrollable and named for assistive tech, like the portal's other scroll strips.
-    assert strip.attrs.get("tabindex") == "0"
-    assert strip.attrs.get("aria-label")
-
-    cards = strip.find("div", "paper-card")
-    assert len(cards) == 11, f"expected 11 paper cards, got {len(cards)}"
-    for card in cards:
-        # Each card is just the paper's first-page image, linking to the paper on arXiv.
-        link = card.one("a", "paper-card__link")
-        href = link.attrs.get("href", "")
-        assert href.startswith(_ARXIV), f"paper image must link to arXiv, got {href!r}"
-        _assert_new_tab(link)
-        # The image carries the paper's identity in its alt text (no visible title/abstract).
-        thumb = link.one("img", "paper-card__thumb")
-        assert thumb.attrs.get("alt")
 
 
 def test_about_openmined_links_to_openmined() -> None:
@@ -269,7 +247,7 @@ def test_history_page_says_submission_in_its_visible_copy() -> None:
     doc = _page("spec.html")
     description = [m for m in doc.find("meta") if m.attrs.get("name") == "description"]
 
-    assert doc.one("title").text() == "screamingface — submission history"
+    assert doc.one("title").text() == "screamingface · submission history"
     assert len(description) == 1
     assert description[0].attrs.get("content") == (
         "Run history for a screamingface benchmark submission, with scores and a local rerun link."

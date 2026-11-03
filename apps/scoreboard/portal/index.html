@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>screamingface — benchmark receipts</title>
+  <title>screamingface · benchmark receipts</title>
   <meta name="description" content="Public screamingface benchmark results with scores, providers, and local rerun links.">
   <!-- Link previews (Slack, X, LinkedIn, iMessage): crawlers need absolute URLs. -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="ScreamingFace">
-  <meta property="og:title" content="screamingface — benchmark receipts">
+  <meta property="og:title" content="screamingface · benchmark receipts">
   <meta property="og:description" content="Public screamingface benchmark results with scores, providers, and local rerun links.">
   <meta property="og:url" content="https://leaderboard.screamingface.ai/">
   <meta property="og:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
@@ -16,7 +16,7 @@
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="The ScreamingFace mark above the wordmark ScreamingFace.ai, on black.">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="screamingface — benchmark receipts">
+  <meta name="twitter:title" content="screamingface · benchmark receipts">
   <meta name="twitter:description" content="Public screamingface benchmark results with scores, providers, and local rerun links.">
   <meta name="twitter:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
@@ -50,49 +50,52 @@
       <div>
         <header class="masthead hero" data-section="hero">
           <div class="eyebrow">ScreamingFace · open leaderboard</div>
-          <h1 class="hero-title hero-title--index">The leaderboard for fusions &amp; routers.</h1>
-          <p class="lead hero-lead">The first verified map of the quality–cost frontier for composed AI systems: the core of sovereign, pro-human AI.</p>
+          <h1 class="hero-title hero-title--index" aria-label="The leaderboard for fusions.">The leaderboard for fusi<img class="o-mark" src="assets/mark/sf-mark-128.png" alt="" aria-hidden="true">ns.</h1>
+          <p class="lead hero-lead">The first verified map of the quality–cost frontier for multi-model systems: ensembles, routers, cascades, mixture-of-agents, and more.</p>
         </header>
         <div class="hero-cta" data-section="hero">
           <a class="btn--primary" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Get started with ScreamingFace →</a>
           <a class="btn" href="#subscribe-site-band">Subscribe for updates</a>
         </div>
       </div>
-      <div class="colab" aria-label="A Colab notebook: load a copied url4 and reproduce its score">
-        <div class="colab__cell">
-          <div class="colab__in">
-            <span class="colab__run" aria-hidden="true">▶</span>
-            <pre class="colab__code"><span class="tok-c"># Copy url4 of any row</span>
-<span class="tok-k">import</span> screamingface <span class="tok-k">as</span> sf
-candidate = sf.load(url4)
-print(candidate)</pre>
-          </div>
-          <div class="colab__out">
-            <span class="colab__tag" aria-hidden="true">[1]</span>
-            <div class="frepr">
-              <span class="frepr__name">Fusion</span>
-              <table class="frepr__t">
-                <tr><td>model</td><td>claude-opus-4.8</td></tr>
-                <tr><td>model</td><td>gemini-3-pro</td></tr>
-                <tr><td>synthesizer</td><td>gpt-5.5</td></tr>
-              </table>
-            </div>
-          </div>
-        </div>
-        <div class="colab__cell">
-          <div class="colab__in">
-            <span class="colab__run" aria-hidden="true">▶</span>
-            <pre class="colab__code">sf.evaluate(candidate)</pre>
-          </div>
-          <div class="colab__out">
-            <span class="colab__tag" aria-hidden="true">[2]</span>
-            <table class="colab__result">
-              <tr><td>score</td><td>cost</td><td>cache</td></tr>
-              <tr><td>0.734</td><td>$0</td><td>100/100</td></tr>
-            </table>
-          </div>
-        </div>
-      </div>
+      <figure class="frontier" aria-label="The quality-cost frontier: fusions sit above single models at every budget">
+        <svg viewBox="0 0 300 190" width="100%" role="img" aria-label="Accuracy versus cost — the fusion frontier sits above the single-model frontier at every budget">
+          <!-- axes -->
+          <line x1="44" y1="16" x2="44" y2="150" stroke="var(--line-2)" stroke-width="1.2"/>
+          <line x1="44" y1="150" x2="292" y2="150" stroke="var(--line-2)" stroke-width="1.2"/>
+          <!-- band between the two frontiers -->
+          <path d="M58,124 C82,96 112,76 150,66 S222,52 288,46 L288,69 C222,76 180,82 150,92 C112,106 82,118 58,140 Z" fill="var(--gold-9)" opacity="0.18"/>
+          <!-- single-model frontier -->
+          <path d="M58,140 C82,118 112,106 150,92 C180,82 222,76 288,69" fill="none" stroke="var(--ink-3)" stroke-width="1.8"/>
+          <!-- fusion frontier -->
+          <path d="M58,124 C82,96 112,76 150,66 C188,58 222,52 288,46" fill="none" stroke="var(--gold-11)" stroke-width="2.4"/>
+          <!-- single-model points -->
+          <g fill="var(--ink-3)" opacity="0.5">
+            <circle cx="72" cy="132" r="3"/><circle cx="100" cy="112" r="3"/><circle cx="130" cy="100" r="3"/>
+            <circle cx="150" cy="104" r="3"/><circle cx="188" cy="84" r="3"/><circle cx="232" cy="74" r="3"/><circle cx="118" cy="114" r="3"/>
+          </g>
+          <!-- fusion points -->
+          <g fill="var(--gold-11)">
+            <circle cx="80" cy="100" r="3.4"/><circle cx="118" cy="78" r="3.4"/><circle cx="162" cy="63" r="3.4"/><circle cx="216" cy="54" r="3.4"/><circle cx="264" cy="48" r="3.4"/>
+          </g>
+          <!-- ticks -->
+          <g stroke="var(--line-2)" stroke-width="1">
+            <line x1="40" y1="120" x2="44" y2="120"/><line x1="40" y1="84" x2="44" y2="84"/><line x1="40" y1="48" x2="44" y2="48"/>
+            <line x1="96" y1="150" x2="96" y2="154"/><line x1="168" y1="150" x2="168" y2="154"/><line x1="240" y1="150" x2="240" y2="154"/>
+          </g>
+          <g class="tk" text-anchor="end">
+            <text x="37" y="123">.6</text><text x="37" y="87">.7</text><text x="37" y="51">.8</text>
+          </g>
+          <g class="tk" text-anchor="middle">
+            <text x="96" y="163">$.1</text><text x="168" y="163">$.4</text><text x="240" y="163">$.8</text>
+          </g>
+          <!-- axis titles + series labels (italic serif, LaTeX-ish) -->
+          <text class="ax" fill="var(--ink-2)" transform="rotate(-90 15 86)" x="15" y="86" text-anchor="middle">accuracy</text>
+          <text class="ax" fill="var(--ink-2)" x="168" y="180" text-anchor="middle">cost (USD)</text>
+          <text class="sl" fill="var(--gold-11)" x="236" y="38">fusions</text>
+          <text class="sl" fill="var(--ink-3)" x="150" y="128">single models</text>
+        </svg>
+      </figure>
     </div>
 
     <section id="benchmarks" class="benchmarks-section" data-section="catalogue">

@@ -137,9 +137,9 @@ def test_parameter_pages_declare_no_og_url_that_drops_the_shared_item(tmp_path: 
 def test_about_page_is_public_structured_and_linked(tmp_path: Path) -> None:
     """A public About page with its sections, and linked from the rail on every page.
 
-    Its sections walk from the evidence (a carousel of papers where combinations of models beat
-    single ones) through how a result gets on a board, how to read it, how the map is drawn, how
-    to contribute, and who builds it — the home for the composition / reproducibility / openness
+    Its sections walk from the evidence (prior work where combinations of models beat single
+    ones) through how a result gets on a board, how to read it, how the map is drawn, how to
+    contribute, and who builds it — the home for the composition / reproducibility / openness
     framing that would otherwise be scattered.
     """
     with TestClient(create_app(_settings(tmp_path))) as client:

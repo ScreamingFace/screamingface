@@ -6,55 +6,57 @@ started: 2026-10-20
 finished:
 ---
 
-# leaderboard-copy-and-papers-carousel — landing + about refresh (Colab landing, papers carousel)
+# leaderboard-copy-and-papers-carousel — landing + about refresh (frontier figure)
 
 ## Intent
 
 Refresh the public leaderboard launch surfaces. The landing (`index.html`) is reframed around
-the category ("fusions & routers" / "composed AI systems") and the mission ("the core of
-sovereign, pro-human AI"), with a compact top band — hero + CTA beside a **Colab-style
-notebook** that loads a copied url4 (`sf.load` → a `Fusion(...)` ensemble repr) and reproduces
-its score (`sf.evaluate` → score/cost/cache) — above the live Browse grid so the grid clears
-the fold. The About page is rewritten to explain how a result gets on a board / how to read it /
-how the map is drawn, with an inline **papers carousel** (the most-cited ensemble/router/
-multi-agent results, as first-page arXiv thumbnails) proving "combinations beat single models".
-Unblocks the OME-1595 about-page "citation" item; filed as its own leaf under epic OME-1282.
+the category ("fusions" / "multi-model systems") and leads with the thesis as a figure: a compact
+top band pairs the hero + CTA with an academic-style **quality–cost frontier chart** (the fusion
+frontier above the single-model frontier, the gold band between them the accuracy gained, with
+sample runs plotted as points), above the live Browse grid so the grid clears the fold. The About
+page is rewritten to explain how a result gets on a leaderboard / how to read it / how the map is
+drawn. Unblocks the OME-1595 about-page "citation" item; filed as its own leaf under epic OME-1282.
 
 ## Changed files
 
-- `apps/scoreboard/portal/index.html` — Layout A: hero + CTA | Colab notebook (`.colab`), then
-  the live Browse grid. Title "The leaderboard for fusions & routers." (no o-mark); subtitle
-  "…for composed AI systems: the core of sovereign, pro-human AI." (house style: colon).
-- `apps/scoreboard/portal/about.html` — rewrite into evidence + papers carousel, "How a result
-  gets on a leaderboard", "How to read the leaderboards", "How the map gets drawn", "Contribute",
-  "Who builds this"; short same-length rule under the subtitle + each section header.
-- `apps/scoreboard/portal/portal.css` — `.colab`/`.frepr` notebook CSS, `.la-top` band, the
-  `.papers` inline carousel + `.paper-card` thumbnails, `.about-evidence` layout; removed the dead
-  legend CSS (`.defs-lead`, `.hero-defs`, `.kv .dt-repro`, `.about-evidence__head`).
-- `apps/scoreboard/portal/papers.js` — about carousel: one paper at a time, auto-switch every 3s,
-  pause on hover/focus, reduced-motion aware.
-- `apps/scoreboard/portal/assets/papers/*.jpg` — 11 vendored arXiv first-page thumbnails.
+- `apps/scoreboard/portal/index.html` — hero + CTA beside a borderless `<figure class="frontier">`
+  SVG (fusion/single-model frontier lines, gold band, plotted points, italic-serif axes), then the
+  live Browse grid. Title "The leaderboard for fusi[😱]ns." (the vendored mark set as the o, with an
+  `aria-label`); subtitle "…for multi-model systems: ensembles, routers, cascades, mixture-of-agents,
+  and more."
+- `apps/scoreboard/portal/about.html` — rewrite (no carousel): new hero + evidence copy, a centered
+  reading column, "How a result gets on a leaderboard", "How to read the leaderboards", "How the map
+  gets drawn", "Contribute", "Who builds this"; short same-length rule under subtitle + each header.
+- `apps/scoreboard/portal/portal.css` — `.frontier` figure CSS (borderless, serif axis/label
+  lettering) + `.la-top` band; removed the interim `.colab`/`.frepr` notebook, `.features`/`.feature`
+  panel, `.papers`/`.paper-card` carousel, and dead legend CSS.
+- `apps/scoreboard/portal/{benchmark,data,spec}.html` — em-dash → middot in the `<title>` /
+  link-preview metadata (house style; applied site-wide for consistent previews).
 - `apps/scoreboard/tests/unit/test_portal_launch_copy.py`, `test_portal_static.py` — re-pin the
-  About copy/structure to the new text, add carousel assertions, drop the obsolete hero-mark test.
+  About copy/structure and the submission-history title to the new text; drop the carousel and
+  hero-mark assertions.
 
 ## Test plan
 
 - About lead / recipe / contribute sentences re-pinned, still dash-free (house rule); url4 stays a
-  plain docs link; carousel = 11 arXiv thumbnails, each image-only link, new-tab, with alt text.
+  plain docs link.
 - Grant banner + rail invariants unchanged on every page; `data-section="catalogue"` preserved.
+- Page `<title>` previews carry the middot, not an em-dash.
 
 ## Acceptance
 
 - `run_gates.py scoreboard` green (ruff, format, pyright, pytest ≥80%, node portal suite).
-- Landing renders Layout A + Colab + live grid; About renders the rewrite + the thumbnail carousel;
-  both light and dark.
+- Landing renders the hero + frontier figure + live grid; About renders the rewrite; both themes.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as listed above (design evolved from a terminal receipt to the Colab notebook
-  during live iteration with Irina; three throwaway layout previews explored then deleted).
-- **Commits:** <sha — message>
+- **Actual files:** as listed above. Design evolved during live iteration with Irina: the landing
+  passed through a terminal receipt → Colab notebook → features panel before landing on the frontier
+  figure; the About papers carousel (11 vendored arXiv thumbnails) was explored then dropped. All
+  interim scratch (previews, carousel assets, papers.js) removed.
+- **Commits:** <sha — message> (squash-merge of PR #1497).
 - **Gates:** run_gates.py scoreboard — ALL GATES GREEN (append-only vs HEAD ✓; ruff/format/pyright ✓;
-  pytest 1442 passed, 91.6% cov; node portal suite ✓). CI (scoreboard-tests.yml) runs the raw gates.
-- **Deviations:** landing uses a Colab notebook (not the terminal first explored); about evidence
-  copy lightly edited by Irina post-rewrite (tests re-pinned to match).
+  pytest ≥80% cov; node portal suite ✓). CI (scoreboard-tests.yml) runs the raw gates.
+- **Deviations:** the chart serif is a system fallback (Georgia/Times) proposing the Computer-Modern
+  feel — a small type-law exception to reconcile with the brand serif in a follow-up.
