@@ -1,7 +1,7 @@
 ---
 ticket: OME-1809
 stack: screamingface-engine
-status: in_progress
+status: blocked
 started: 2026-11-03
 finished:
 ---
@@ -57,7 +57,22 @@ Owner decisions (2026-11-03): **A + i**.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus `world/connector.py` helpers `_default_route` / `_model_ids`.
+  `runner/executor.py` untouched. The handler gains NO slots: it builds the `_GatewayModelSight`
+  per attachment-carrying call from its existing world-level fields, because
+  `test_the_model_handlers_slots_are_exactly_the_world_level_allowlist` pins the slot set (U1-H1).
+- **Commits:** 1459c47cd — feat(engine): refuse a url4 run's attachments for models that can't
+  read them; 20afd53a9 — merge of the moved `origin/OME-1545-engine-attachment-parts` (27da3e11f).
+- **Gates:** ruff, format, pyright, layering green; pytest 6718 passed, 1 failed:
+  `test_fair_share_fetch_bytes.py::test_a_gate_bound_run_with_an_https_attachment_reaches_the_model`.
+  Its mock gateway answers `/v1/models` with a chat completion, so the new admission reads the
+  list as unreadable and fails closed (the owner's 2026-10-28 rule). The fix is a test change —
+  the mock lists `MODEL` with `["text", "image"]` — which needs an owner-approved
+  `.claude/test-change-approvals/OME-1809.json`. BLOCKED on that approval; not self-approved.
+- **Deviations:** probes showed url4 forbids `$` in an expression path (`/m/$x(..)!..` is a
+  ParseError) and a templated bare data read of a model route fails (`needs q=`), so a templated
+  route cannot reach a model in-process today; the "templated route" test pins that the walk names
+  nothing for one, and the per-call guard is proven with a computed (Form-3) run processor. Eval-path
+  `processor=` contexts are resolved caller-side (their reduce uses the run's processor); a literal
+  `processor=` route is still counted, conservatively. The unreadable-list message is no longer
+  picture-only ("pictures or PDFs").
