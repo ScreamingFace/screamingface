@@ -75,6 +75,7 @@ from pathlib import Path
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import SelectedCase
+from screamingface_engine.benchmarks.board_store import BOARD_FILE, IndexedBoard, open_board
 from screamingface_engine.benchmarks.graded_answer import (
     GradedAnswer,
     case_attempts,
@@ -274,7 +275,76 @@ def read_selected_cases(
     The same benchmark-varying bits as `CaseGradeReader` are injected — the label for error
     wording and the benchmark's own error class (OME-1097 moved this reader in from the
     per-benchmark aggregates).
+
+    Raises:
+        `error_type`: ``cases.json`` is unreadable, or a selected Case has no public input.
+        ResolutionError: ``benchmark_unavailable``; the board's offset index does not match
+            its rows (the same bounded error the Cases route raises for it).
     """
+
+    board: IndexedBoard | None = _indexed_board(root)
+    by_id: Mapping[int, Mapping[str, Any]] = (
+        _streamed_rows(root, case_ids, benchmark_label=benchmark_label, error_type=error_type)
+        if board is None
+        else board.rows(case_ids)
+    )
+    selected: list[SelectedCase] = []
+    for case_id in case_ids:
+        row: Mapping[str, Any] | None = by_id.get(case_id)
+        # INVARIANT: the streamed reader only files rows whose int id is the Case's; the index
+        # also admits a row with no id at its position, so the same filter applies here.
+        row_id: object = row.get("id") if row is not None else None
+        input_value: object = (
+            row.get("input")
+            if row is not None and type(row_id) is int and row_id == case_id
+            else None
+        )
+        if not isinstance(input_value, str) or not input_value.strip():
+            raise error_type(f"{benchmark_label} Case {case_id} has no public input")
+        selected.append(SelectedCase(case_id=case_id, input=input_value, metadata={}))
+    return selected
+
+
+class _NoIndex(Exception):
+    """``open_board`` chose its full read: the board has no index grading can seek through."""
+
+
+def _no_index() -> str:
+    raise _NoIndex
+
+
+def _indexed_board(root: Path) -> IndexedBoard | None:
+    """The board's offset index, or ``None`` when grading must stream ``cases.json``.
+
+    FEATURE (grading-board-store): an indexed board is read in O(selected Cases) — one entry
+    and one row per Case — instead of streaming the whole file (OME-1789's saving was memory
+    only; the I/O and the parse were still O(board)).
+
+    WHY through ``open_board`` with a refusing fallback: ``open_board`` alone decides which
+    ``board.json`` records are served through the index (a v1/v2 schema split is in flight),
+    so grading never duplicates that decision; when it picks its whole-file read, grading
+    streams instead of letting it hold the board in memory.
+    WHY the ``board.json`` check first: benchmarks with no imported board (MedXpertQA) never
+    have one, and must not log ``open_board``'s "re-prepare to index it" warning per run.
+    """
+
+    if not (root / BOARD_FILE).is_file():
+        return None
+    try:
+        board: object = open_board(root, _no_index)
+    except _NoIndex:
+        return None
+    return board if isinstance(board, IndexedBoard) else None
+
+
+def _streamed_rows(
+    root: Path,
+    case_ids: tuple[int, ...],
+    *,
+    benchmark_label: str,
+    error_type: type[Exception],
+) -> dict[int, Mapping[str, Any]]:
+    """The selected rows of an index-less board, streamed from ``cases.json`` (OME-1789)."""
 
     # WHY streamed (OME-1789): a picture board's cases.json is hundreds of MB; holding only the
     # selected rows keeps aggregation memory proportional to the run, not to the board.
@@ -296,14 +366,7 @@ def read_selected_cases(
         raise error_type(f"{benchmark_label} cases must be a JSON array") from None
     except (OSError, ValueError) as exc:
         raise error_type(f"{benchmark_label} cases are unavailable: {exc}") from None
-    selected: list[SelectedCase] = []
-    for case_id in case_ids:
-        row: Mapping[str, Any] | None = by_id.get(case_id)
-        input_value: object = row.get("input") if isinstance(row, Mapping) else None
-        if not isinstance(input_value, str) or not input_value.strip():
-            raise error_type(f"{benchmark_label} Case {case_id} has no public input")
-        selected.append(SelectedCase(case_id=case_id, input=input_value, metadata={}))
-    return selected
+    return by_id
 
 
 __all__ = ["CaseGradeIndex", "CaseGradeReader", "read_selected_cases"]

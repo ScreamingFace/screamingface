@@ -17,8 +17,9 @@ INVARIANT: every file is a pure function of the rows (no timestamps, no paths, f
 so two prepares of the same pins give the same bytes and the Case Digest never moves.
 
 AIDEV-NOTE: the selection is always a prefix today (``protocol.py``: ``slice=(0, N)``), so
-:meth:`BoardStore.head` is the one read the Cases route needs. Id-keyed reads for aggregation
-(OME-1789) and an input lookup for the check surface are left for those units.
+:meth:`BoardStore.head` is the one read the Cases route needs. Aggregation reads by id through
+:meth:`IndexedBoard.rows` (grading-board-store); an input lookup for the check surface is left
+for that unit.
 """
 
 from __future__ import annotations
@@ -26,9 +27,9 @@ from __future__ import annotations
 import json
 import logging
 import struct
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol
+from typing import Any, BinaryIO, NamedTuple, Protocol
 
 from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable
 from screamingface_engine.benchmarks.picture_admission import cases_need_pictures
@@ -123,7 +124,7 @@ def _check_count(count: int, available: int) -> None:
         raise ValueError(f"selected {count} of {available} Cases")
 
 
-def _check_row(chunk: bytes, first: int, length: int, position: int) -> None:
+def _check_row(chunk: bytes, first: int, length: int, position: int) -> dict[str, object]:
     """The entry at ``chunk[first:first + length]`` is exactly one JSON object, Case ``position``.
 
     INVARIANT (review round 2, P2): an index paired with other rows — shifted, reordered, or
@@ -151,6 +152,7 @@ def _check_row(chunk: bytes, first: int, length: int, position: int) -> None:
         raise ValueError(f"entry {position} holds Case {row_id!r}")
     if "case_id" in row and not isinstance(row["case_id"], str):
         raise ValueError(f"entry {position} has a non-string case_id")
+    return row
 
 
 class IndexedBoard:
@@ -217,6 +219,53 @@ class IndexedBoard:
         # INVARIANT: "[" + one object per entry joined by "," + "]" — a JSON array of exactly
         # the selected rows, served as the original bytes (never re-serialised).
         return "[" + text + "]"
+
+    def rows(self, case_ids: Iterable[int]) -> dict[int, dict[str, object]]:
+        """The rows of the given Case ids, one offset entry and one row's bytes per id.
+
+        FEATURE (grading-board-store): aggregation's selection need not be a prefix (Cases 181,
+        7, 90), so it seeks to each row instead of reading ``head``. Ids outside
+        ``1..case_count()`` are left out; the caller decides what a missing Case means.
+
+        INVARIANT: each row is checked like ``head`` checks it — bounded by the array, between
+        its "[" or "," and its "," or "]", one object holding Case ``id`` — so an index that no
+        longer matches its rows never serves another Case's bytes. Only the selected entries
+        are checked: the cost stays O(selected), never O(board).
+
+        Raises:
+            ResolutionError: ``benchmark_unavailable``; a selected entry does not match its row.
+        """
+
+        # WHY sorted: one forward pass over both files, and a duplicate id is read once.
+        wanted: list[int] = sorted({i for i in case_ids if 1 <= i <= self._count})
+        found: dict[int, dict[str, object]] = {}
+        try:
+            with self._offsets.open("rb") as offsets, self._cases.open("rb") as cases:
+                for case_id in wanted:
+                    offsets.seek((case_id - 1) * _ENTRY.size)
+                    offset, length = _ENTRY.unpack(offsets.read(_ENTRY.size))
+                    found[case_id] = self._read_row(cases, case_id, offset, length)
+        # WHY ValueError: json.JSONDecodeError and UnicodeDecodeError are both ValueErrors.
+        except (OSError, struct.error, ValueError) as exc:
+            raise _broken(f"{OFFSETS_FILE} does not match {CASES_FILE} ({exc})") from exc
+        return found
+
+    def _read_row(
+        self, cases: BinaryIO, case_id: int, offset: int, length: int
+    ) -> dict[str, object]:
+        """One row's bytes with the byte on each side, checked as Case ``case_id``."""
+
+        if offset < 1 or offset + length > self._size - 1:
+            raise ValueError(f"entry {case_id} points outside {CASES_FILE}")
+        cases.seek(offset - 1)
+        framed: bytes = cases.read(length + 2)
+        if len(framed) != length + 2:
+            raise ValueError(f"{CASES_FILE} is shorter than its index")
+        opener: bytes = b"[" if case_id == 1 else b","
+        closer: bytes = b"]" if case_id == self._count else b","
+        if framed[:1] != opener or framed[-1:] != closer:
+            raise ValueError(f"entry {case_id} is not framed by {opener!r} and {closer!r}")
+        return _check_row(framed[1:-1], 0, length, case_id)
 
     def _check_layout(self, entries: Sequence[tuple[int, int]], start: int, end: int) -> None:
         """The rows are contiguous, comma-separated, and inside the array brackets."""
