@@ -208,7 +208,8 @@ _DECLARED: dict[str, Callable[[str], list[str]]] = {
     "text/plain": lambda body: _lines(body),
 }
 # The media types a collection parses by declaration — the text a collection can be (C8).
-DECLARED_MEDIA_TYPES = frozenset(_DECLARED)
+# `application/json` is listed explicitly: it is declared, only dispatched outside `_DECLARED`.
+DECLARED_MEDIA_TYPES = frozenset({*_DECLARED, "application/json"})
 
 
 def _lines(body: str) -> list[str]:
