@@ -17,6 +17,7 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.url_display import display_url
 from url4.io._guarded_transport import (
     FETCH_STATE,
     FetchState,
@@ -28,11 +29,11 @@ from url4.io._guarded_transport import (
     past,
     system_resolver,
 )
+from url4.io._redacted_status import redacted_status_error
 from url4.io._source_policy import (
     SourceGuard,
     check_url,
     has_userinfo,
-    redact_userinfo,
     redirect_limit,
     source_timeout,
     too_large,
@@ -199,7 +200,7 @@ class HttpIOLayer:
         total = self._guard.total_timeout if self._client is None else None
         # INVARIANT (OME-1720): ONE absolute deadline per fetch, carried to every hop's body.
         deadline = None if total is None else deadline_in(total)
-        late = f"GET {url!r} passed the {self._guard.total_timeout}s total deadline"
+        late = f"GET {display_url(url)!r} passed the {self._guard.total_timeout}s total deadline"
         try:
             async with asyncio.timeout(total):
                 response = await self._send(
@@ -292,18 +293,29 @@ class HttpIOLayer:
 def _failure(
     url: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int, *, typed: bool
 ) -> tuple[ResolutionError, Exception | None]:
-    """The :class:`ResolutionError` a failed ``GET url`` surfaces as, and the error it chains."""
+    """The :class:`ResolutionError` a failed ``GET url`` surfaces as, and the error it chains.
+
+    INVARIANT (push security review, #1482): the message, and the chained error's text, show
+    ``url`` through :func:`display_url` — a signed source's userinfo, query and fragment reach
+    no log line when an optional source is omitted. Codes and cause types are unchanged.
+    """
+    shown = display_url(url)
     if isinstance(exc, httpx.InvalidURL) and has_userinfo(url):
         # INVARIANT (PR #1605 review 1): a credentialed malformed target is reported redacted,
         # without httpx's detail and with nothing chained — the credentials reach no message.
-        return ResolutionError(f"GET {redact_userinfo(url)!r} failed: invalid URL"), None
-    return _wrapped(url, exc, max_redirects, typed=typed), exc
+        return ResolutionError(f"GET {shown!r} failed: invalid URL"), None
+    if isinstance(exc, httpx.HTTPStatusError):
+        exc = redacted_status_error(exc)
+    # AIDEV-NOTE: of httpx's own errors only HTTPStatusError puts a URL in its text; InvalidURL
+    # names a host or port at most (the credentialed case is handled above), and the guarded
+    # transport's errors name the host.
+    return _wrapped(shown, exc, max_redirects, typed=typed), exc
 
 
 def _wrapped(
-    url: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int, *, typed: bool
+    shown: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int, *, typed: bool
 ) -> ResolutionError:
-    message = f"GET {url!r} failed: {exc}"
+    message = f"GET {shown!r} failed: {exc}"
     if isinstance(exc, httpx.HTTPStatusError):
         return ResolutionError(
             message,
@@ -315,7 +327,7 @@ def _wrapped(
             retry_after=_retry_after(exc.response),
         )
     if isinstance(exc, httpx.TooManyRedirects):
-        return redirect_limit(f"GET {url!r} passed the {max_redirects}-hop redirect limit")
+        return redirect_limit(f"GET {shown!r} passed the {max_redirects}-hop redirect limit")
     # WHY InvalidURL too: it is not an HTTPError subclass, so a malformed target (e.g. control
     # chars in a reducer query) still surfaces as ResolutionError, not a raw httpx exception.
     timeout = isinstance(exc, httpx.ConnectTimeout)

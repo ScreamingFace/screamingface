@@ -15,6 +15,7 @@ from inspect import isawaitable
 
 from url4.core.code import CodeCall, CodeHandler, invoke_mounted
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.url_display import display_url
 from url4.io.layer import FetchRequest, FetchResult
 from url4.io.media import FetchedBytes, require_text
 from url4.wire.subrequest import decode_subrequest, extract_expression_params
@@ -68,7 +69,7 @@ class StaticIOLayer:
         if request.target not in self._fetch and "?" not in request.target:
             # C5: the bytes path names a missing source; the text path keeps its old error.
             raise ResolutionError(
-                f"no fetch mapping for {request.target!r}",
+                f"no fetch mapping for {display_url(request.target)!r}",
                 code=ErrorCode.SOURCE_NOT_FOUND,
                 permanent=True,
             )
@@ -87,10 +88,11 @@ class StaticIOLayer:
                 context, intent = decode_subrequest(q)
                 result = self._routes[path](context, intent)
                 return await result if isawaitable(result) else result
-        try:
-            return self._fetch[target]
-        except KeyError:
-            raise ResolutionError(f"no fetch mapping for {target!r}") from None
+        if target not in self._fetch:
+            # WHY no try/except: a KeyError context would carry the raw target (push security
+            # review, #1482), even suppressed.
+            raise ResolutionError(f"no fetch mapping for {display_url(target)!r}")
+        return self._fetch[target]
 
     def processor_routes(self) -> list[str]:
         """The declared route paths a `processor=` id may name (§27.3)."""
