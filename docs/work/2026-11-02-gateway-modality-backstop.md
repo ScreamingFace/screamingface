@@ -82,3 +82,7 @@ modalities lack the part's modality (`image_url` -> `image`, `file` -> `pdf`). E
 - **Deviations:** behaviour change for OpenAI `o3-mini`: an image is now refused at the gateway
   (its table declares text-only). The backstop only fires while a snapshot is cached (within
   ttl + stale window, 65 min for OpenRouter); a cold catalog passes by design.
+
+## Owner ruling (2026-11-03, HupBaHa review on #1651)
+
+Unknown modalities are admitted at the gateway: the gateway refuses only on published evidence. The `["text"]` that `/v1/models` publishes for an unknown model (OME-1537) is a listing default, not admission evidence. Engine admission (#1584, OME-1803/#1645, OME-1809) is the strict, fail-closed check and treats unlisted as text-only. The divergence for unknown models is intentional. It is recorded on Linear OME-1807, and the `acme/no-architecture` route test pins it.

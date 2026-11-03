@@ -362,6 +362,12 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         INVARIANT: unknown is text-only — never vision. Core normalizes whatever this
         returns onto the closed vocabulary, so an override cannot publish a word
         outside it or drop ``text``.
+
+        WHY the gateway backstop doesn't refuse on this: for an unknown model the
+        ``("text",)`` here is a listing default, not admission evidence (owner ruling
+        2026-11-03, OME-1807). Engine admission reads this list and is the strict,
+        fail-closed check; the gateway refuses only on
+        ``model_input_modality_evidence``.
         """
         evidence = self.model_input_modality_evidence(entry)
         return evidence if evidence is not None else TEXT_ONLY
