@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from url4.core._annotations import checked_retries, checked_timeout
 from url4.core.errors import ErrorCode, ParseError, ResolutionError
 from url4.core.nodes import RelUrl, Source, Url, VarRef
+from url4.core.url_display import display_url
 
 ATTACHMENT_TYPES = frozenset(
     {"image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"}
@@ -80,7 +81,7 @@ def _annotation_number(raw: str | None, key: str, cast: Callable, check: Callabl
         value = cast(raw)
     except ValueError:
         value = None
-    where = node.name or node.value
+    where = node.name or _shown(node.value)
     try:
         if value is None:
             raise ValueError(f"must be {'an integer' if cast is int else 'a number'}")
@@ -131,8 +132,8 @@ def classify(identity: AttachmentIdentity, content_type: str | None) -> str:
     if identity.accept in ATTACHMENT_TYPES and media_type == identity.accept:
         return identity.accept
     raise ResolutionError(
-        f"attachment source {identity.url!r} (;accept={identity.accept}) returned "
-        f"Content-Type {content_type!r}, which is not an accepted attachment type",
+        f"attachment source {display_url(identity.url)!r} (;accept={identity.accept}) "
+        f"returned Content-Type {content_type!r}, which is not an accepted attachment type",
         code=ErrorCode.UNSUPPORTED_CONTENT_TYPE,
         permanent=True,
     )
@@ -151,13 +152,21 @@ def _bare_type(content_type: str | None) -> str | None:
     return bare or None
 
 
-def not_static(where: str) -> ResolutionError:
+def _shown(value: object) -> object:
+    """A descriptor value for an error message: a URL or path through :func:`display_url`."""
+    return display_url(value.value) if isinstance(value, Url | RelUrl) else value
+
+
+def not_static(target: str) -> ResolutionError:
     """``x.source_not_static`` (permanent): an attachment target that is not a literal URL
-    known before the first model call (a variable, or a source a model output gates)."""
+    known before the first model call (a variable, or a source a model output gates).
+
+    INVARIANT: ``target`` is the raw URL or template; only its :func:`display_url` form (no
+    query, fragment or userinfo) reaches the message, which runs logs and spans carry."""
     return ResolutionError(
-        f"attachment source {where} is not static: v1 attachment sources need a literal URL "
-        "reachable without a model output, so it cannot be materialized before the first "
-        "model call",
+        f"attachment source {display_url(target)!r} is not static: v1 attachment sources need "
+        "a literal URL reachable without a model output, so it cannot be materialized before "
+        "the first model call",
         code=ErrorCode.SOURCE_NOT_STATIC,
         permanent=True,
     )

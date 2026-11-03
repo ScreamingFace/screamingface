@@ -32,7 +32,7 @@ def materialized_attachment(identity: AttachmentIdentity) -> str | None:
         return None
     outcome = files.manifest.get(identity)
     if outcome is None:
-        raise not_static(repr(identity.url))
+        raise not_static(identity.url)
     if isinstance(outcome, Attachment):
         return identity.url
     raise ResolutionError(str(outcome), code=outcome.code, permanent=True)
