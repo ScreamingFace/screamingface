@@ -152,3 +152,37 @@ def test_a_refused_selection_logs_no_memory_line(caplog: pytest.LogCaptureFixtur
     ):
         cases_handler(lambda: "[]")(Request("/cases", "", "1", {}))
     assert _lines(caplog) == []
+
+
+# --- wiring: an Imported Board's Cases route ---------------------------------------------
+
+
+def test_the_board_cases_route_logs_memory_with_the_selected_count_and_no_content(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    """FigQA and every Imported Board load Cases through `board_cases_handler`, not `/cases`."""
+    from test_board_cases_route import _board
+
+    from screamingface_engine.benchmarks.case_selection import board_cases_handler
+
+    board = _board(tmp_path)
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        board_cases_handler(lambda: board)(Request("/cases", "", "2", {}))
+    (line,) = _lines(caplog)
+    assert line.startswith("process memory point=cases_loaded rss_mib=")
+    assert " peak_rss_mib=" in line
+    assert line.endswith(" cases=2")
+    assert "question" not in caplog.text
+
+
+def test_a_refused_board_selection_logs_no_memory_line(
+    caplog: pytest.LogCaptureFixture, tmp_path: Path
+) -> None:
+    from test_board_cases_route import _board
+
+    from screamingface_engine.benchmarks.case_selection import board_cases_handler
+
+    board = _board(tmp_path)
+    with caplog.at_level(logging.INFO, logger=LOGGER), pytest.raises(ResolutionError):
+        board_cases_handler(lambda: board)(Request("/cases", "", "99", {}))
+    assert _lines(caplog) == []

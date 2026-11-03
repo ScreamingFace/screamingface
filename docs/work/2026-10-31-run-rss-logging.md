@@ -55,3 +55,11 @@ Diagnostics only: standard library, no prompt or Case content in any line.
   (out of scope). macOS "fallback" is `rss_mib=unknown` (stdlib has no current-RSS call
   there); peak works on both (ru_maxrss unit normalised). Measures this process only, not
   the process tree the worker budgets.
+- **2026-11-03 PR prep:** merged `origin/main` (normal merge; one import-only conflict in
+  `case_selection.py`, resolved as the union). Main had since added `board_cases_handler`
+  (OME-1790), the route Imported Boards — FigQA included — load Cases through, so
+  `cases_loaded` would never have fired for FigQA; added the same line there (selected count
+  only) plus 2 appended tests in `test_process_memory.py`. Checked #1622/#1628/#1629: they
+  reduce memory, none logs process RSS (`worker.memory_watch` samples the tree, unchanged), so
+  no duplication. Gates re-run: `run_gates.py screamingface-engine --base origin/main` — ALL
+  GATES GREEN.
