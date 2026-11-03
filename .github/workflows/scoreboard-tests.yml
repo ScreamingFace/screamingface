@@ -73,6 +73,9 @@ jobs:
             --cov-fail-under=80 \
             -v
 
+      - name: Run benchmark picker keyboard tests
+        run: node --test tests/portal/benchmark-picker-keyboard.test.js
+
       # The portal's pure logic (which row may be presented as SOTA, ordering, bar
       # scaling), under Node's built-in runner. No package.json, no vitest, no
       # lockfile, no dependabot ecosystem — Node is the whole harness.

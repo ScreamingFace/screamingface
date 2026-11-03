@@ -52,6 +52,7 @@ stacks:
       - uv run ruff format --check
       - uv run pyright
       - uv run pytest --cov=scoreboard --cov-fail-under=80 -q
+      - node --test tests/portal/benchmark-picker-keyboard.test.js
       # The portal's pure logic, under Node's built-in runner — no package.json, no
       # vitest, no lockfile. NAMED EXPLICITLY, never a glob: measured on Node 24,
       # `node --test tests/portal/` fails (it resolves the directory as a module),
