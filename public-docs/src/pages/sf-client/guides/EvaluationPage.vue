@@ -33,8 +33,8 @@ sf.evaluate(
 )`
 
 const usage = `report.usage`
-const usageOut = `Usage(input_tokens=3628, output_tokens=874, cache_read_tokens=0,
-      cache_creation_tokens=0, reasoning_tokens=0, cost_usd=Decimal('0.007998'))`
+const usageOut = `Usage(input_tokens=6218, output_tokens=2813, cache_read_tokens=0,
+      cache_creation_tokens=0, reasoning_tokens=0, cost_usd=Decimal('0.020283'))`
 
 const watch = `def observe(event: sf.Event) -> None:
     print(event.kind)
@@ -303,7 +303,7 @@ client.close()`
 
     <p>
       <code>cost_usd</code> is the cost the provider reported, for example
-      <code>Decimal('0.007998')</code>. Any field is <code>None</code> if even one candidate run
+      <code>Decimal('0.020283')</code>. Any field is <code>None</code> if even one candidate run
       failed to report it, rather than being silently summed as a partial total.
     </p>
 

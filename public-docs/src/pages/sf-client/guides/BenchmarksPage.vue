@@ -23,7 +23,7 @@ const missingOut = `PlanningError: Benchmark 'ifeval' is not installed on this E
 const hosted = `hosted = sf.Client(engine_url="https://fusion.screamingface.ai")
 benchmarks = hosted.benchmarks.list()
 len(benchmarks), [b.id for b in benchmarks if b.id.startswith("draco")]`
-const hostedOut = `(85, ['draco', 'draco-3pass'])`
+const hostedOut = `(89, ['draco', 'draco-3pass'])`
 </script>
 
 <template>
@@ -50,7 +50,7 @@ const hostedOut = `(85, ['draco', 'draco-3pass'])`
     <blockquote>
       <strong>What you can list depends on the engine.</strong> A local engine started with
       <code>screamingface up</code> serves one benchmark, <code>medxpert</code>. The hosted engine
-      serves 85, including DRACO and IFEval. A repository checkout can serve the others locally with
+      serves 89, including DRACO and IFEval. A repository checkout can serve the others locally with
       <code>just local-stack-notebooks</code>. If there's a benchmark you'd want to run first,
       <a href="https://github.com/ScreamingFace/screamingface/issues" target="_blank" rel="noopener"
         >we'd love to hear it</a
@@ -133,7 +133,7 @@ const hostedOut = `(85, ['draco', 'draco-3pass'])`
       <NbCell :count="2" :code="missing"><NbTextOut :text="missingOut" /></NbCell>
     </div>
 
-    <p>The hosted engine needs an account the OpenMined team grants. It publishes 85 benchmarks:</p>
+    <p>The hosted engine needs an account the OpenMined team grants. It publishes 89 benchmarks:</p>
 
     <div class="not-prose">
       <NbCell :count="3" :code="hosted"><NbTextOut :text="hostedOut" /></NbCell>
@@ -143,12 +143,12 @@ const hostedOut = `(85, ['draco', 'draco-3pass'])`
       Benchmarks differ in what grading costs. <strong>MedXpert</strong> is 2,450 expert-level
       medical multiple-choice questions graded by exact match against the published key, so its
       grading is <strong>free</strong> and only the answers cost anything. <strong>IFEval</strong>
-      is 541 instruction-following prompts checked by a deterministic verifier, also free to grade.
+      is 541 instruction-following prompts checked by a deterministic verifier, so no judge model is
+      called.
       <strong>HealthBench</strong> is rubric-graded by a judge model: the professional exam is 525
       conversations, and <code>healthbench-worst30</code> is the 157 hardest of them. On the hosted
       engine, <strong>DRACO</strong> is 100 deep-research tasks graded by a judge model that judges
-      every answer five times for <code>draco</code> and three times for <code>draco-3pass</code>:
-      the grading itself is the expensive part.
+      every answer five times for <code>draco</code> and three times for <code>draco-3pass</code>.
     </p>
 
     <h3>2 · Read the identity card</h3>

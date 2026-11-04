@@ -16,7 +16,7 @@ sf.configure(
 )
 boards = sf.leaderboards.list()
 len(boards), [b.id for b in boards][:6]`
-const listingOut = `(87, ['air_bench', 'arc_agi_2', 'bbh', 'contracteval', 'draco', 'draco-3pass'])`
+const listingOut = `(91, ['air_bench', 'arc_agi_2', 'bbh', 'contracteval', 'draco', 'draco-3pass'])`
 
 const getOne = `board = sf.leaderboards.get("draco-3pass", top=5)
 board`
@@ -68,7 +68,7 @@ score = sf.leaderboards.submit(result, authors=["alice@example.com"])
 result.capture_status, score.verified_by_screamingface`
 const localPublishOut = `('partial', True)`
 
-const fetchScore = `score = sf.leaderboards.get_score("9a133646-178b-47a7-a12d-236e1b8de1e5")
+const fetchScore = `score = sf.leaderboards.get_score(score.id)
 score.score, score.authors, score.verified_by_screamingface`
 const fetchScoreOut = `(0.0, ('alice',), True)`
 
@@ -384,7 +384,7 @@ replay.candidates.only.reproduction  # None: no published score to compare`
       <tbody>
         <tr>
           <td>Paper object or one author's object</td>
-          <td>20 keys; key names are 1–64 characters</td>
+          <td>20 keys; key names are 1 to 64 characters</td>
         </tr>
         <tr>
           <td><code>authors_metadata</code></td>
@@ -461,8 +461,8 @@ replay.candidates.only.reproduction  # None: no published score to compare`
 
     <p>
       The score is benchmark-native: the Client submits <code>CandidateResult.score</code> exactly
-      as the benchmark's own grading produced it — fractional for DRACO's weighted rubrics, negative
-      for HealthBench worst-30 — and never derives a replacement from case grades, normalizes, or
+      as the benchmark's own grading produced it (fractional for DRACO's weighted rubrics, negative
+      for HealthBench worst-30), and never derives a replacement from case grades, normalizes, or
       bounds it. The only universal requirements are that a score exists and is a finite number;
       unscored or non-finite results are rejected before HTTP.
     </p>

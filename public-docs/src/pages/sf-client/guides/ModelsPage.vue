@@ -33,7 +33,7 @@ ModelInfo('anthropic/claude-opus-4-5', provider='anthropic', parameters=5, tools
 ModelInfo('anthropic/claude-fable-5', provider='anthropic', parameters=5, tools=1)
 ModelInfo('anthropic/claude-sonnet-5', provider='anthropic', parameters=5, tools=1)
 ModelInfo('anthropic/claude-sonnet-4-6', provider='anthropic', parameters=7, tools=1)
-…   # 108 entries across 6 providers on a local engine`
+…   # 109 entries across 6 providers on a local engine`
 
 const details = `gpt = sf.models.get("openrouter/openai/gpt-5.5")
 gpt.parameters["temperature"].enabled, sorted(gpt.tools)`
@@ -175,16 +175,16 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     <p>
       Two things to note. The catalogue spans <strong>every provider the engine knows</strong>, not
       only the ones you have connected: a route you have no credential for will fail at evaluation,
-      not here. The hosted engine lists more routes than a local one (114 against 108). And ID
+      not here. The hosted engine lists more routes than a local one (112 against 109). And ID
       shapes differ per provider: <code>anthropic/claude-opus-4-8</code> against
       <code>openrouter/anthropic/claude-opus-4.8</code>. Copy the <code>id</code> rather than
       retyping it.
     </p>
 
     <blockquote>
-      <strong>The catalogue is fixed for now.</strong> The engine does not yet discover models
-      automatically, so only the routes listed here can be used to build fusions. A model missing
-      from the list can't be added from the Client. Automatic discovery is work in progress.
+      <strong>The catalogue is fixed.</strong> The engine does not discover models automatically, so
+      only the routes listed here can be used to build fusions, and a model missing from the list
+      can't be added from the Client.
     </blockquote>
 
     <h3>5 · Check that a route accepts your policy</h3>
@@ -216,8 +216,8 @@ const inspectOut = `('number', 0.0, 2.0, True)`
 
     <p>
       Each value is an <code>sf.ModelParameter</code>. Its <code>schema</code> gives the type and
-      the bounds the gateway enforces — a numeric <code>minimum</code>/<code>maximum</code>, an
-      <code>enum</code> of allowed values, a <code>max_length</code>, and so on — while
+      the bounds the gateway enforces (a numeric <code>minimum</code>/<code>maximum</code>, an
+      <code>enum</code> of allowed values, a <code>max_length</code>), while
       <code>enabled</code> says whether the gateway currently honours it. Reading the schema tells
       you a value's legal range before you set it in <code>params</code>.
     </p>

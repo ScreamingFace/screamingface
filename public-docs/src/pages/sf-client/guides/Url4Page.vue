@@ -43,8 +43,8 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
     <p>
       Every candidate result carries a
       <RouterLink to="/learn/url4"><code>url4</code></RouterLink> string: the complete plan
-      <RouterLink to="/learn/engine">the engine</RouterLink> actually ran — your candidate, the
-      benchmark's routes, retry prompts, and protocol revision — written as a single line of text
+      <RouterLink to="/learn/engine">the engine</RouterLink> actually ran (your candidate, the
+      benchmark's routes, retry prompts, and protocol revision), written as a single line of text
       you can read, diff, and share.
     </p>
 

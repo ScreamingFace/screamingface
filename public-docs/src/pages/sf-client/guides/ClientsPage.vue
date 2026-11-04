@@ -358,7 +358,7 @@ client = sf.Client(
         >
       </li>
       <li>
-        <RouterLink to="/sf-client/guides/connections">Connections</RouterLink> — logging in and
+        <RouterLink to="/sf-client/guides/connections">Connections</RouterLink>: logging in and
         connecting a provider through whichever Client you chose
       </li>
       <li>
