@@ -17,7 +17,7 @@ const pypiRuntime = `pip install "screamingface[runtime,notebook]"`
 
 const verify = `import screamingface as sf
 
-len(sf.__all__)   # 84`
+len(sf.__all__)   # 92`
 
 const point = `import screamingface as sf
 
@@ -234,8 +234,8 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
         <code>screamingface down</code> is enough.
       </p>
       <p>
-        If the occupant is something you would rather not kill, you do not have to free the port —
-        move the stack instead. Every port is overridable, either as a flag on <code>up</code> and
+        If the occupant is something you would rather not kill, you do not have to free the port.
+        Move the stack instead. Every port is overridable, either as a flag on <code>up</code> and
         <code>restart</code>, or as an environment variable:
       </p>
       <CodeBlock :code="ports" language="bash" />
@@ -246,7 +246,7 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
       </p>
       <p>
         One caveat worth knowing: the environment variables are read by <code>up</code>,
-        <code>restart</code>, <code>status</code> and <code>doctor</code> only —
+        <code>restart</code>, <code>status</code> and <code>doctor</code> only;
         <code>down</code> and <code>logs</code> ignore them. That is harmless in practice, because
         those two work from the runtime state recorded in your data directory rather than from a
         port, so they stop and tail whatever <code>up</code> started, on whichever ports it used.

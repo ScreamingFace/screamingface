@@ -213,7 +213,7 @@ const loadLocalOut = `('MedXpertQA', '1e5a3b8a461a52f7', 2450)`
 
 const scoresLocal = `{c.name: c.score for c in report.candidates}`
 
-const scoresLocalOut = `{'claude-opus-4.8': 0.0, 'gpt-5.5': 1.0, 'gemini-3.1-pro-preview': 1.0, 'frontier-trio': 1.0}`
+const scoresLocalOut = `{'claude-opus-4.8': 0.0, 'gpt-5.5': 1.0, 'gemini-3.1-pro-preview': 1.0, 'frontier-trio': 0.0}`
 
 const checkReport = `report.ok          # False if any candidate or member failed
 report.failures    # what failed, and why`
@@ -282,8 +282,8 @@ report.failures    # what failed, and why`
     <p>
       <strong>If the engine isn't reachable</strong>, the first call that needs it will raise
       <code>EngineUnavailableError</code>. You can check a local one beforehand with
-      <code>curl http://127.0.0.1:9108/healthz</code>. Remote engines must use HTTPS, because
-      provider credentials will not travel over plain HTTP outside loopback.
+      <code>curl http://127.0.0.1:9108/healthz</code>. Provider connection calls require HTTPS
+      outside loopback.
     </p>
 
     <h2>2 · Connect a provider</h2>
@@ -360,8 +360,8 @@ report.failures    # what failed, and why`
     <p>
       The flow expires eventually, so <code>flow.wait()</code> will raise an error instead of
       blocking forever. <code>flow.expired</code> tells you if that's happened, and
-      <code>flow.cancel()</code> abandons the attempt. Connection calls won't work over plain HTTP
-      unless the engine is on loopback, since remote engines must use HTTPS.
+      <code>flow.cancel()</code> abandons the attempt. Connection calls require HTTPS unless the
+      engine is on loopback.
     </p>
 
     <h2>3 · Compose the candidates</h2>
@@ -397,10 +397,7 @@ report.failures    # what failed, and why`
     <p>
       With the cache on, a model call that was made before is served from the cache instead of being
       paid for again. Calls are matched by route, prompt and parameters, not by model object, so
-      <strong>a model call runs once however many candidates use it</strong>: here
-      <code>opus</code>, <code>gpt</code> and <code>gemini</code> answer once and
-      <code>frontier_trio</code> reuses those answers. Runs get cheaper the more candidates share
-      models. Cache entries do not expire.
+      <strong>an identical call is served from the cache</strong>. Cache entries do not expire.
     </p>
 
     <p>
@@ -448,8 +445,8 @@ report.failures    # what failed, and why`
     <p>
       <code>draco-3pass</code> runs the same 100-case dataset and rubric as the canonical
       <code>draco</code> board, judging each answer three times instead of five. Passing
-      <code>limit=1</code> pins this tutorial to a single case, and the full 100-case run costs
-      about a hundred times as much per candidate.
+      <code>limit=1</code> pins this tutorial to a single case. The <code>medxpert</code> run below
+      cost $0.26 for the four candidates.
     </p>
 
     <h2>5 · Evaluate</h2>
@@ -483,10 +480,10 @@ report.failures    # what failed, and why`
 
     <blockquote>
       <strong>This step costs money.</strong> Each candidate answers the case once. On DRACO a judge
-      model then grades each answer three or five times, so most of the cost is judging;
-      <code>medxpert</code> has no judge. Read <code>report.usage.cost_usd</code> after a run before
-      you scale it up. <code>draco-3pass</code> at all 100 cases, or the five-pass
-      <code>draco</code>, costs far more than one case.
+      model then grades each answer three or five times; <code>medxpert</code> has no judge. Read
+      <code>report.usage.cost_usd</code> after a run before you scale it up.
+      <code>draco-3pass</code> at all 100 cases, or the five-pass <code>draco</code>, costs far more
+      than one case.
     </blockquote>
 
     <p>
@@ -499,8 +496,8 @@ report.failures    # what failed, and why`
     <CodeBlock :code="checkReport" language="python" />
 
     <p>
-      With the cache on, re-running after a failure is free for the work that already succeeded, so
-      you only pay for new, uncached calls.
+      With the cache on, a repeated call that already succeeded is served from the cache. A call
+      whose input changed, such as the second turn of a <code>medxpert</code> case, is paid again.
     </p>
 
     <h2>6 · Read the study</h2>
@@ -520,7 +517,7 @@ report.failures    # what failed, and why`
     <ul>
       <li>
         <strong>Score</strong>: The candidate's benchmark score. On DRACO a case is judged against a
-        fixed set of criteria, so values land on a coarse grid instead of anywhere in 0–100%. On
+        fixed set of criteria, so values land on a coarse grid instead of anywhere in 0 to 100%. On
         <code>medxpert</code> the score is the fraction of cases answered correctly.
       </li>
       <li>

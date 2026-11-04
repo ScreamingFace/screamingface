@@ -69,7 +69,8 @@ const readOut = `0.6667`
     <Tabs :labels="['Hosted engine', 'Your own engine']">
       <template #tab-0>
         <p>
-          The hosted engine comes with shared OpenRouter credits, so there is no key to paste. Call
+          The hosted engine runs on compute the OpenMined team allocates to your account, so there
+          is no key to paste. Call
           <code>sf.connect()</code> to open the connection panel. It shows a Log in button; log in
           through your browser. For an account with access the panel then lists OpenRouter as
           connected. For an account without access every provider shows as unavailable, and an
@@ -154,8 +155,9 @@ const readOut = `0.6667`
     <p>
       The run comes back as a <RouterLink to="/sf-client/api/reports">Report</RouterLink>. You gave
       it one candidate, so <code>report.candidates.only</code> is your fusion, and its
-      <code>score</code> is the fraction of cases it got right — higher is better. On
-      <code>medxpert</code> with <code>limit=3</code> the fusion answered two of three correctly:
+      <code>score</code> is the fraction of cases it got right, and higher is better. On
+      <code>medxpert</code> with <code>limit=3</code> the fusion answered two of three correctly.
+      The run cost $0.17, read from <code>report.usage.cost_usd</code>:
     </p>
 
     <div class="not-prose">
@@ -163,7 +165,7 @@ const readOut = `0.6667`
     </div>
 
     <p>
-      That is a whole evaluation: compose, run, read. Nothing here was mocked — the same three steps
+      That is a whole evaluation: compose, run, read. Nothing here was mocked. The same three steps
       scale from three cases to a full benchmark.
     </p>
 
@@ -190,20 +192,19 @@ const readOut = `0.6667`
 
     <ul>
       <li>
-        <strong><RouterLink to="/sf-client/guides/fusions">Compose a candidate</RouterLink></strong>
-        — weights, judges, and nesting fusions inside fusions.
+        <strong><RouterLink to="/sf-client/guides/fusions">Compose a candidate</RouterLink></strong
+        >: weights, judges, and nesting fusions inside fusions.
       </li>
       <li>
         <strong
           ><RouterLink to="/sf-client/reproduce-draco"
             >Reproduce DRACO state-of-the-art</RouterLink
           ></strong
-        >
-        — put a fusion up against its solo models on a real board.
+        >: put a fusion up against its solo models on a real board.
       </li>
       <li>
-        <strong><RouterLink to="/sf-client/api/fusions">Fusion reference</RouterLink></strong> —
-        every field and argument, in full.
+        <strong><RouterLink to="/sf-client/api/fusions">Fusion reference</RouterLink></strong
+        >: every field and argument, in full.
       </li>
     </ul>
   </DocLayout>

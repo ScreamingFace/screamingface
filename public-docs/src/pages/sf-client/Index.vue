@@ -64,7 +64,7 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
       >
       (Skurikhin et al., Los Alamos). The SF Client and SF Leaderboard make that easy to show and
       transparent: a uniform way to grade and compare such systems, fully reproducible and trackable
-      across the cost&ndash;quality Pareto frontier.
+      across the cost-quality Pareto frontier.
     </p>
 
     <h2>What the Client and Leaderboard provide</h2>
@@ -90,8 +90,8 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
         <RouterLink to="/learn/caching">cache</RouterLink> on, a model call that was made before is
         served from the cache. Calls are matched by route, prompt and parameters, so comparing many
         fusion candidates over one benchmark is billed only for the calls that have not been made
-        before. A model shared between two candidates runs once, and swapping a single member
-        re-uses what the others already produced.
+        before. An identical call from another candidate is served from the cache, and swapping one
+        member re-uses the member calls that did not change.
       </li>
       <li>
         <strong>Cost reported alongside accuracy:</strong> Tokens, spend, and duration stream while
@@ -101,7 +101,7 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
       <li>
         <strong>Reusable recipes:</strong> Recipes published to the leaderboard can be imported,
         modified, and re-run, and on a hosted engine the cache is shared across the community, so
-        repeating someone else's run usually costs a fraction of the original.
+        calls already in the shared cache cost nothing to repeat.
       </li>
     </ul>
 
@@ -162,7 +162,8 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
     </ul>
 
     <p>
-      The code you write is identical either way and only the engine URL differs, so the decision is
+      The code you write is the same either way. Only the <code>configure</code> call (the engine
+      and leaderboard URLs) and the benchmarks the engine serves differ, so the decision is
       reversible. The <RouterLink to="/sf-client/installation">Installation</RouterLink> guide
       covers both.
     </p>
