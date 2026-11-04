@@ -166,8 +166,15 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
           <code>screamingface prepare medxpert</code>, or <code>--all</code>, runs once.
           <code>screamingface prepare --list</code> shows each benchmark as <code>prepared</code> or
           <code>missing</code>. DRACO, IFEval and the other leaderboard benchmarks run on the hosted
-          engine, or locally from a repository checkout with
-          <code>just local-stack-notebooks</code>.
+          engine, or locally from a repository checkout: run
+          <code>just local-stack-notebooks</code> from <code>packages/screamingface/</code> (<a
+            href="https://github.com/casey/just"
+            target="_blank"
+            rel="noopener"
+            >just</a
+          >
+          is the command runner). The pip package does not install <code>inspect-ai</code>, which
+          those benchmarks need, so <code>screamingface up</code> lists <code>medxpert</code> only.
         </p>
 
         <CodeBlock :code="prepare" language="bash" />

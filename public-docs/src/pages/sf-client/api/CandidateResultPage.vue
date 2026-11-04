@@ -524,8 +524,8 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-
     <p>
       The local engine started with <code>screamingface up</code> serves no benchmark with pictures.
       The example below ran on the 0.1.10 engine from a repository checkout, started with
-      <code>just local-stack-notebooks</code>. It serves <code>inspect-lab_bench_figqa</code>, whose
-      cases each carry one picture.
+      <code>just local-stack-notebooks</code> from <code>packages/screamingface/</code>. It serves
+      <code>inspect-lab_bench_figqa</code>, whose cases each carry one picture.
     </p>
 
     <CodeBlock :code="mediaCode" language="python" />

@@ -50,8 +50,9 @@ const hostedOut = `(89, ['draco', 'draco-3pass'])`
     <blockquote>
       <strong>What you can list depends on the engine.</strong> A local engine started with
       <code>screamingface up</code> serves one benchmark, <code>medxpert</code>. The hosted engine
-      serves 89, including DRACO and IFEval. A repository checkout can serve the others locally with
-      <code>just local-stack-notebooks</code>. If there's a benchmark you'd want to run first,
+      serves 89, including DRACO and IFEval. A repository checkout can serve the others locally: run
+      <code>just local-stack-notebooks</code> from <code>packages/screamingface/</code>. If there's
+      a benchmark you'd want to run first,
       <a href="https://github.com/ScreamingFace/screamingface/issues" target="_blank" rel="noopener"
         >we'd love to hear it</a
       >.

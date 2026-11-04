@@ -127,8 +127,8 @@ const health = `screamingface status`
       loads the hosted community cache into it. A local engine started with
       <code>screamingface up</code> serves <code>medxpert</code>, and
       <code>screamingface prepare</code> accepts one: <code>medxpert</code>. The hosted engine
-      serves the other benchmarks, DRACO included. A repository checkout can serve them locally with
-      <code>just local-stack-notebooks</code>.
+      serves the other benchmarks, DRACO included. A repository checkout can serve them locally: run
+      <code>just local-stack-notebooks</code> from <code>packages/screamingface/</code>.
     </p>
 
     <p>

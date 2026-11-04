@@ -48,7 +48,8 @@ const listRunOut = `[('medxpert', 2450)]`
       and <code>client.benchmarks.list()</code> returns every benchmark the engine offers. The list
       depends on the engine: a local engine started with <code>screamingface up</code> serves one
       benchmark, <code>medxpert</code> (2,450 cases), and the hosted engine lists 89. A repository
-      checkout can serve the others locally with <code>just local-stack-notebooks</code>.
+      checkout can serve the others locally: run <code>just local-stack-notebooks</code> from
+      <code>packages/screamingface/</code>.
     </p>
 
     <div class="not-prose">

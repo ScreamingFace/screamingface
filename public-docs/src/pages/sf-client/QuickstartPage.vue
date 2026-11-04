@@ -487,7 +487,8 @@ report.failures    # what failed, and why`
       before spending anything. This call is free. It needs an engine that serves the benchmark: the
       hosted engine serves <code>draco-3pass</code>, and a local engine started with
       <code>screamingface up</code> serves only <code>medxpert</code>. A repository checkout can
-      serve the others locally with <code>just local-stack-notebooks</code>.
+      serve the others locally: run <code>just local-stack-notebooks</code> from
+      <code>packages/screamingface/</code>.
     </p>
 
     <div class="not-prose">
