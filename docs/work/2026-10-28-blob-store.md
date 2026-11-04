@@ -238,3 +238,39 @@ status: done (item 1 unblocked by owner approval 2026-11-04)
   the startup-sweep test needed no edit), `test_blob_wiring.py` `_env` + the s3 selection test
   (asserts the separate blob bucket), the verifier's external-endpoint render
   (`existingSecret`).
+
+## Review round 3 — HupBaHa CHANGES_REQUESTED on head 9b2dbadec (2026-11-04)
+
+- **Intent:** close the two blockers and the low-risk follow-ups. Status: DONE.
+- **Planned changes:** (1) `artifacts/s3.py` — every error body on a streamed path (sync
+  `get_object_at_most`, async `_stream`) reads at most a 512-byte diagnostic prefix;
+  (2) `BlobStore.ingest` — a stored record that disagrees with the verified upload (size, type,
+  or the signature of its recorded type) is corrupt and rewritten, `created=False`;
+  (3) Helm — whitespace-only inline blob S3 keys fail the render (`trim`), verifier check;
+  (4) split `artifacts/blobs.py` (589 lines) into focused modules, `blobs` re-exports every
+  name; (5) Garage `If-None-Match` — documented limitation, no code.
+- **Test plan:** append-only tests in a new `test_blob_review_round3.py`: lazy 1 MB HTTP 500 with
+  `max_bytes=100` pulls ≤ prefix + one chunk (sync and async); PDF bytes under a closed
+  `image/png` sidecar healed by a valid `application/pdf` re-upload; verifier check for blank
+  keys. No prior test changes.
+- **Acceptance:** engine gates green vs origin/main, helm lint, verifier green.
+
+### Outcome (review round 3)
+
+- **Merged origin/main** (ecb21ce4a, `feat(url4): resolve blob file refs`), no conflicts.
+- **Items 1-2 — c3140bc42.** `s3.py`: `get_object_at_most` and `_stream` read a 512-byte
+  error prefix (`iter_bytes`/`aiter_bytes`, first chunk only), decode `errors="replace"`,
+  close; `_stream`'s error now carries the 200-char detail too. Not changed: `_request`
+  (HEAD/PUT/DELETE, non-streamed `client.request`) still buffers the whole error body before
+  `text[:200]`. `blobs.py`: `_existing` keeps a record only if the bytes carry its recorded
+  type's signature (with `verify_signature`); a corrupt record is rewritten, `created=False`
+  (also for an unparseable sidecar, which used to return `created=True`).
+- **Item 3 — 33579f98d.** `secret-blob-storage.yaml` trims the inline keys; verifier 145/145.
+- **Item 4 — 89f099168.** `blob_schema.py` 216, `blob_objects.py` 195, `blobs.py` 287 lines.
+- **Item 5:** no code — the Garage `If-None-Match` limitation stays documented.
+- **Tests:** `test_blob_review_round3.py` (12 cases, written first, RED confirmed). No prior test
+  changed.
+- **Gates:** `run_gates.py screamingface-engine --base origin/main` ALL GREEN; helm lint OK.
+- **Deviation:** item 2 is checked by signature, not by equality with the new label: equality
+  would break `test_a_repeat_upload_keeps_the_first_media_type` (label-trusting store, no
+  signature check). With `verify_signature` (the App) the two are the same test.
