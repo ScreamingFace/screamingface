@@ -455,8 +455,9 @@ class InProcessJobRunner(IdentityAwareJobRunner):
 
         INVARIANT: called once per built sink, from the run's `finally`, so the close runs
         exactly once. Nothing ever cancels this task: the run's cancel stops at the shield, and
-        `aclose()` awaits it rather than cancelling it — so a close queued behind a saturated
-        default executor still runs once a worker frees.
+        `aclose()` awaits a shielded view of it, so cancelling `aclose()` stops at its shield
+        too — a close queued behind a saturated default executor still runs once a worker frees.
+        The done callback therefore removes the task only once it has actually finished.
         """
         close = asyncio.get_running_loop().create_task(asyncio.to_thread(relay.shutdown))
         self._sink_closes.add(close)
@@ -489,8 +490,10 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         during shutdown sees the run end rather than the socket simply going quiet.
 
         INVARIANT: returns only after every span-sink close has FINISHED — including closes a
-        cancelled run started and stopped waiting for. Those are awaited, never cancelled: a
-        close still queued on the default executor would otherwise never run.
+        cancelled run started and stopped waiting for. Those are awaited through shields, never
+        cancelled — not even when this `aclose()` itself is cancelled: a close still queued on
+        the default executor would otherwise never run, and the done callback would drop it
+        from `_sink_closes` before any other `aclose()` could wait for it.
         """
         pending = [task for task in self._tasks.values() if not task.done()]
         for task in pending:
@@ -501,7 +504,11 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # Read AFTER the runs are gathered: a run cancelled above starts its close on the way out.
         closes = list(self._sink_closes)
         if closes:
-            await asyncio.gather(*closes, return_exceptions=True)
+            # WHY shielded views: gather cancels its children when its caller is cancelled
+            # (`return_exceptions` does not stop that). Cancelling this `aclose()` must stop
+            # only its own wait — the runner-owned close stays queued/running and tracked, so a
+            # concurrent or repeated `aclose()` still waits for the real completion.
+            await asyncio.gather(*(asyncio.shield(c) for c in closes), return_exceptions=True)
 
 
 __all__ = [

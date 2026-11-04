@@ -187,3 +187,122 @@ async def test_aclose_waits_for_a_close_that_is_already_running(cancel: str) -> 
 
     assert sink.close_calls == 1
     assert await runner.status(TOPIC) == "succeeded"
+
+
+# --- OME-1747 review round 3: a cancelled `aclose()` must not reach the runner-owned close ---
+#
+# `aclose()` used to gather the close tasks themselves. Cancelling `aclose()` cancelled them
+# (despite `return_exceptions=True`), the done callback dropped them from the runner, and a
+# queued `relay.shutdown` never ran; a repeated or concurrent `aclose()` then had nothing left
+# to wait for. INVARIANT pinned here: caller cancellation stops only that caller's wait.
+
+
+async def _cancelled(task: asyncio.Task[None]) -> None:
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def _until_closed(sink: _CountingSink) -> None:
+    async with asyncio.timeout(BOUND_S):
+        while sink.close_calls == 0:
+            await asyncio.sleep(0.01)
+
+
+async def _until_closing(sink: _CountingSink) -> None:
+    async with asyncio.timeout(BOUND_S):
+        while not sink.closing.is_set():
+            await asyncio.sleep(0.01)
+
+
+async def test_cancelled_aclose_still_lets_a_queued_close_run_exactly_once(
+    busy_default_executor: threading.Event,
+) -> None:
+    stream = InMemoryEventStream()
+    sink = _CountingSink()
+    runner = _runner(stream, sink)
+
+    await runner.schedule(TOPIC, "x", 30)
+    await _terminated(stream)
+    await _settle()
+    closing = asyncio.create_task(runner.aclose())
+    await _settle()
+    await _cancelled(closing)
+    assert sink.close_calls == 0  # still queued behind the occupied worker
+
+    busy_default_executor.set()
+    # No further aclose(): the runner-owned close runs on its own once a worker frees.
+    await _until_closed(sink)
+
+    await asyncio.wait_for(runner.aclose(), BOUND_S)
+    assert sink.close_calls == 1
+
+
+async def test_cancelled_aclose_leaves_a_running_close_owed_to_the_next_aclose() -> None:
+    stream = InMemoryEventStream()
+    sink = _CountingSink(hold=True)
+    runner = _runner(stream, sink)
+
+    await runner.schedule(TOPIC, "x", 30)
+    await _terminated(stream)
+    await _until_closing(sink)
+    closing = asyncio.create_task(runner.aclose())
+    await _settle()
+    await _cancelled(closing)
+
+    again = asyncio.create_task(runner.aclose())
+    await _settle()
+    # INVARIANT: the running close is still tracked, so the next aclose() waits for it.
+    assert not again.done()
+    assert sink.close_calls == 0
+
+    sink.release.set()
+    await asyncio.wait_for(again, BOUND_S)
+    assert sink.close_calls == 1
+
+
+async def test_cancelling_one_of_two_concurrent_acloses_does_not_release_the_other(
+    busy_default_executor: threading.Event,
+) -> None:
+    stream = InMemoryEventStream()
+    sink = _CountingSink()
+    runner = _runner(stream, sink)
+
+    await runner.schedule(TOPIC, "x", 30)
+    await _terminated(stream)
+    await _settle()
+    first = asyncio.create_task(runner.aclose())
+    second = asyncio.create_task(runner.aclose())
+    await _settle()
+    await _cancelled(first)
+    await _settle()
+    assert not second.done()
+    assert sink.close_calls == 0
+
+    busy_default_executor.set()
+    await asyncio.wait_for(second, BOUND_S)
+    assert sink.close_calls == 1
+
+
+async def test_repeated_aclose_after_a_cancelled_one_waits_for_the_queued_close(
+    busy_default_executor: threading.Event,
+) -> None:
+    stream = InMemoryEventStream()
+    sink = _CountingSink()
+    runner = _runner(stream, sink)
+
+    await runner.schedule(TOPIC, "x", 30)
+    await _terminated(stream)
+    await _settle()
+    closing = asyncio.create_task(runner.aclose())
+    await _settle()
+    await _cancelled(closing)
+
+    again = asyncio.create_task(runner.aclose())
+    await _settle()
+    assert not again.done()
+    assert sink.close_calls == 0
+
+    busy_default_executor.set()
+    await asyncio.wait_for(again, BOUND_S)
+    assert sink.close_calls == 1
