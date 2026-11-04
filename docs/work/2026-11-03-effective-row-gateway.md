@@ -89,7 +89,8 @@ RED first:
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files (11 under `apps/aigateway`, plus this ledger):**
+- **Actual files (11 under `apps/aigateway`, plus this ledger and the task mirror
+  `docs/tasks/2026-11-03-OME-1819-effective-row-gateway.md`):**
   - src (7): the new `core/provider_access/effective_connection.py` (`effective_connection_ids`,
     `flagged_connections`, `no_auth_providers`, `served_by_reference`, `visible_providers`) and
     its two exports in `__init__.py`; `connection_backed.py` (availability on the rule,
@@ -100,7 +101,8 @@ RED first:
   - tests (4, all new): `test_effective_connection.py` (64 cases),
     `test_oauth_connections_effective.py` (17), `test_native_replaces_an_expired_effective.py`
     (2), and the PG `test_oauth_connections_effective_postgres.py` (2). No prior test changed.
-- **Commits:** one, `feat(aigateway): mark the Connection chat uses in the Connection listing`.
+- **Commits:** `ef802a6bb` `feat(aigateway): mark the Connection chat uses in the Connection
+  listing`, then a records fix to this ledger; the PR squash-merges them as one.
 - **RED seen:** the rule's module did not exist; every listing test failed on the missing
   `effective` key, the schema test on the missing list row, the unknown-marker test with no
   `PairAuthorityDataError`; both `expired` cases kept the old effective row. After review: a
@@ -124,6 +126,9 @@ RED first:
   - A reference to a row that is not listed still names it in the rule: availability lists
     `not_connected` (such a row is `revoked`, which lists the same; the read by id it kept before
     is dropped), the listing flags nothing.
+  - The spec and plan PR (#1658) keeps its branch `local-engine-effective-row` rather than an
+    `OME-1819-` name: a branch named for the issue would let that PR's merge close OME-1819
+    before the code lands. It refs OME-1819 in its body; the code PR's branch carries the id.
   - The two listings are fenced by the pair generations, as `pair_inventory` fences its reads:
     one re-read, then 503 `credential_store_unavailable` (the legacy row of
     `routes/provider_access_http.py`). Spec §2 and plan §2 carry the sentence.
