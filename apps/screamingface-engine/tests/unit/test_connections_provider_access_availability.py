@@ -303,14 +303,20 @@ async def test_hosted_mutations_are_rejected_before_gateway_io(operation: str) -
 
 
 async def test_an_explicitly_mutable_adapter_keeps_the_local_listing_and_its_mutations() -> None:
-    # INVARIANT (A4 acceptance): Local Engine behaviour is unchanged — it lists and manages the
-    # caller's rows under `/v1/oauth/connections*` and never reads the availability successor.
-    def handler(request: httpx.Request) -> httpx.Response:
+    # INVARIANT (A4 acceptance, amended by OME-1138 L7b): the Local Engine lists and manages the
+    # caller's rows under `/v1/oauth/connections*`, and takes every status from the availability
+    # successor, read after its writes — Local and Hosted show one answer.
+    listed: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
         if request.url.path == PROVIDERS_PATH:
             return httpx.Response(200, json=_providers(_provider("openrouter", "OpenRouter")))
+        if request.url.path == AVAILABILITY_PATH:
+            return httpx.Response(200, json={"providers": listed})
         assert request.url.path.startswith(LOCAL_ROWS_PATH), request.url.path
         if request.method == "GET":
             return httpx.Response(200, json={"connections": []})
+        listed.append({"provider": "openrouter", "status": "connected"})
         return httpx.Response(
             201,
             json={
@@ -333,9 +339,11 @@ async def test_an_explicitly_mutable_adapter_keeps_the_local_listing_and_its_mut
     assert [request.url.path for request in seen] == [
         PROVIDERS_PATH,
         LOCAL_ROWS_PATH,
+        AVAILABILITY_PATH,
         PROVIDERS_PATH,
         LOCAL_ROWS_PATH,
         f"{LOCAL_ROWS_PATH}/api-key",
+        AVAILABILITY_PATH,
     ]
 
 

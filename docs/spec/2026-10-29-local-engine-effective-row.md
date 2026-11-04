@@ -230,7 +230,7 @@ No `E` with two or more `active` rows is the legitimate conflict case below.
 |---|---|---|---|
 | `E` active, API key | `PUT …/{E}/api-key` (replace in place) | `ConnectionAlreadyConnected` | `DELETE …/{E}` |
 | `E` active, OAuth | `ConnectionAlreadyConnected` | `ConnectionAlreadyConnected` | `DELETE …/{E}` |
-| `E` `error`, `expired` or `revoked` (the last two only as a migrated reference) | API-key `E` in `error`: `PUT` in place. Otherwise (OAuth `E`, or API-key `E` in `revoked`): `POST …/api-key` with label `screamingface`; the gateway replaces an unusable effective row (`effective_to_replace`, `core/provider_access/connection_native.py:95-114`; `expired` added by L7a, §2) | `POST` start with label `screamingface`; the callback replaces `E` | `DELETE …/{E}` |
+| `E` `error`, `expired` or `revoked` (the last two only as a migrated reference) | API-key `E` in `error`: `PUT` in place. Otherwise (OAuth `E`, or API-key `E` in `revoked`): stale-row repair, then `POST …/api-key` with label `screamingface`; the gateway replaces an unusable effective row (`effective_to_replace`, `core/provider_access/connection_native.py:95-114`; `expired` added by L7a, §2). An `active` row other than `E` labelled `screamingface`: `ConnectionConflict` | stale-row repair, then `POST` start with label `screamingface`; the callback replaces `E`. An `active` row other than `E` labelled `screamingface`: `ConnectionConflict` | `DELETE …/{E}` |
 | `E` `pending` (a migrated reference; usable under R6, §2) | `ConnectionConflict`: the user finishes or removes that sign-in in the gateway | `ConnectionConflict` | `DELETE …/{E}` |
 | no `E`, `A` ≥ 2 | `ConnectionConflict` | `ConnectionConflict` | `ConnectionConflict` |
 | no `E`, `A` = 0 | own `error` API-key row: `PUT` in place. Otherwise stale-row repair, then `POST …/api-key` with label `screamingface` | stale-row repair, then `POST` start with label `screamingface` | stale-row repair only; idempotent when there is nothing to remove |
@@ -263,12 +263,22 @@ row in `error`, which keeps its label so it can be re-keyed in place (`OAuthConn
 - otherwise the Engine first deletes the provider's non-active rows labelled `screamingface`
   (its own, serving nothing), then creates.
 
+With an unusable `E` that a labelled create replaces (owner, 2026-11-04), the Engine first deletes
+the provider's non-active rows labelled `screamingface` other than `E`, then creates or starts. A
+pre-L7b Engine created such a row beside a migrated `E` whenever no row held the label; once `E`
+is unusable it would block every replacing create with `label_conflict`, because the gateway
+exempts only `E`'s own label (`routes/oauth_connections.py:136-152,263-272`). An `active` row
+other than `E` holding the label is never removed, since it may serve the user elsewhere:
+`connect` and `start_oauth` refuse with `ConnectionConflict` before any write and before the key
+leaves, and disconnecting `E` makes that row the effective one.
+
 Rows under any other label belong to the user and are never deleted by the Engine: the Local
 Engine does not own the user's OAuth, `error` or `pending` rows. A 409 `label_conflict` that still
 occurs (a concurrent create) maps to `ConnectionConflict`.
 
 **Accepted limitation.** A non-active row the user named `screamingface` cannot be told apart from
-an Engine row: the label is the only mark of one. With no `E`, such a row meets one of two fates.
+an Engine row: the label is the only mark of one. With no `E`, such a row meets one of two fates;
+beside an unusable `E`, the second.
 
 - `connect` re-keys an `error` API-key row of that label in place: the user's row turns `active`
   with the key the Engine was given, and keeps its label.

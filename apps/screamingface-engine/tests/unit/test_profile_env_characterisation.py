@@ -84,8 +84,14 @@ class _FakeQueue:
 # The Local listing refuses when more than one managed row exists, whatever its status.
 
 
-def _adapter(rows: list[dict[str, object]]) -> AigatewayConnections:
+def _adapter(
+    rows: list[dict[str, object]], *, listed: str = "not_connected"
+) -> AigatewayConnections:
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/provider-access":
+            # OME-1138 L7b: the Local status is the one the gateway lists, never the row's.
+            access = [{"provider": "openrouter", "status": listed}]
+            return httpx.Response(200, json={"providers": access})
         if request.url.path == "/v1/providers":
             return httpx.Response(
                 200,
@@ -135,7 +141,8 @@ _ROW_B = "00000000-0000-0000-0000-000000000002"
 async def test_one_active_and_one_other_managed_row_of_any_status_is_a_conflict(
     other_status: str,
 ) -> None:
-    """# INVARIANT (legacy, pinned): `_select` (`connections/aigateway.py:251-257`) counts every
+    """# INVARIANT (legacy, pinned): the label rule (`_selection`, `connections/aigateway_rows.py`;
+    since OME-1138 L7b only the fallback for a gateway listing no `effective` flag) counts every
     managed-label row for the provider regardless of `status`; two of them refuse with
     `ConnectionConflict` (409 at the REST edge). The gateway's default listing already hides
     revoked rows (`OAuthConnectionStore.list` excludes them), so in practice the rule reads
@@ -157,8 +164,9 @@ async def test_two_non_active_managed_rows_are_a_conflict_too() -> None:
 
 async def test_a_single_non_active_managed_row_is_not_a_conflict() -> None:
     """Control: one managed row, whatever its status, is selected rather than refused."""
-    adapter = _adapter([_managed_row(_ROW_A, "pending")])
+    adapter = _adapter([_managed_row(_ROW_A, "pending")], listed="pending")
 
     (connection,) = await adapter.list(Caller())
 
     assert connection.status == "pending"
+    assert connection.auth_method == "api_key"
