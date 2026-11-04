@@ -141,3 +141,75 @@ def test_ids_that_are_not_ascending_and_distinct_are_refused(tmp_path: Path, kin
         board.rows((2, 2))
     with pytest.raises(ValueError):
         board.rows((3, 2))
+
+
+def _tampered(
+    tmp_path: Path, rows: list[dict[str, Any]], entries: dict[int, tuple[int, int]]
+) -> IndexedBoard:
+    """A board whose ``cases.json`` is untouched but whose offsets entries are rewritten.
+
+    ``entries`` maps a Case position to the ``(offset, length)`` it should point at.
+    """
+
+    _write(tmp_path, rows)
+    offsets: bytearray = bytearray((tmp_path / OFFSETS_FILE).read_bytes())
+    for position, (offset, length) in entries.items():
+        offsets[(position - 1) * 16 : position * 16] = _ENTRY.pack(offset, length)
+    (tmp_path / OFFSETS_FILE).write_bytes(bytes(offsets))
+    return IndexedBoard(tmp_path)
+
+
+def _fake() -> bytes:
+    return json.dumps({"id": 3, "input": "FAKE"}, separators=(",", ":")).encode()
+
+
+def test_an_object_inside_a_nested_array_is_never_a_top_level_case(tmp_path: Path) -> None:
+    """Review on #1636 (round 2): a delimiter byte cannot prove nesting depth.
+
+    WHY: inside ``"nested":[{"id":3,"input":"FAKE"}]`` the inner object is preceded by ``[``
+    and followed by ``]``, exactly like a top-level element, so a neighbour-byte check served
+    FAKE as Case 3. Only a walk from Case 1 proves which tiles are the array's own elements.
+    """
+
+    rows: list[dict[str, Any]] = [dict(row) for row in _ROWS]
+    rows[1] = {"id": 2, "nested": [{"id": 3, "input": "FAKE"}]}
+    _write(tmp_path, rows)
+    cases: bytes = (tmp_path / CASES_FILE).read_bytes()
+    board = _tampered(tmp_path, rows, {3: (cases.index(_fake()), len(_fake()))})
+
+    error = _unavailable(board, (3, 4))
+
+    assert "FAKE" not in str(error)
+
+
+def test_a_tampered_chain_around_the_selected_tile_is_still_refused(tmp_path: Path) -> None:
+    """The pushed-out variant: entries 2, 3 and 4 are rewritten so the chain stays contiguous
+    with one-byte gaps and every malformed tile lands on an UNSELECTED position.
+
+    WHY: a check of only the selected tile and its neighbouring entries passes here (entry 3
+    is FAKE, framed by ``,`` on both sides, and entries 2 and 4 are never read for
+    ``rows((3,))``). INVARIANT: every tile from Case 1 to the largest selected id is proven a
+    whole object at its position, so tile 2 (``{"id":2,"nested":[{"id":9}``) fails the walk.
+    """
+
+    rows: list[dict[str, Any]] = [dict(row) for row in _ROWS]
+    rows[1] = {"id": 2, "nested": [{"id": 9}, {"id": 3, "input": "FAKE"}, {"id": 10}]}
+    _write(tmp_path, rows)
+    cases: bytes = (tmp_path / CASES_FILE).read_bytes()
+    offsets: bytes = (tmp_path / OFFSETS_FILE).read_bytes()
+    offset2, _ = _ENTRY.unpack(offsets[16:32])
+    offset4, length4 = _ENTRY.unpack(offsets[48:64])
+    fake_at: int = cases.index(_fake())
+    board = _tampered(
+        tmp_path,
+        rows,
+        {
+            2: (offset2, fake_at - 1 - offset2),
+            3: (fake_at, len(_fake())),
+            4: (fake_at + len(_fake()) + 1, offset4 + length4 - (fake_at + len(_fake()) + 1)),
+        },
+    )
+
+    error = _unavailable(board, (3,))
+
+    assert "FAKE" not in str(error)
