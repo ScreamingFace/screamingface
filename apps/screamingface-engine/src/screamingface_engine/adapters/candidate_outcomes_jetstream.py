@@ -36,6 +36,7 @@ from nats.js.errors import APIError, NotFoundError
 from screamingface_engine.adapters.jetstream import STREAM_NAME_IN_USE_ERR_CODE
 from screamingface_engine.candidate_outcomes import (
     DEFAULT_OUTCOMES_MAX_AGE_S,
+    MAX_OUTCOME_BYTES,
     CandidateOutcome,
     OutcomeDelivery,
     decode_outcome,
@@ -82,6 +83,7 @@ class CandidateOutcomesStreamConfig:
             # WHY `NEW`: a full stream refuses the publish, which the runner sees, instead of
             # silently dropping the oldest outcomes that are not written yet.
             discard=DiscardPolicy.NEW,
+            max_msg_size=MAX_OUTCOME_BYTES,
             num_replicas=self.replicas,
         )
 
@@ -98,8 +100,41 @@ class CandidateOutcomesStreamConfig:
 # The fields startup applies to a live stream; `retention`, `storage` and `subjects` are fixed.
 # WHY not `num_replicas`: no setting configures it, so an operator's own replica count is left
 # alone.
-_MUTABLE_FIELDS = ("max_age", "max_bytes", "discard")
+_MUTABLE_FIELDS = ("max_age", "max_bytes", "discard", "max_msg_size")
+# The limits a caller without `update` may find widened but never narrowed: below this code's, an
+# outcome could expire or be refused before it is written (spec R4, R6).
+_FLOOR_FIELDS = ("max_age", "max_bytes", "max_msg_size")
 _IMMUTABLE_FIELDS = ("retention", "storage", "subjects")
+
+
+def _check_live_stream(
+    name: str, current: StreamConfig, wanted: StreamConfig, *, update: bool
+) -> None:
+    """Refuse a live stream this code cannot keep outcomes on (spec R4, R6, R11)."""
+    # WHY `discard` only without `update`: startup applies it (`_MUTABLE_FIELDS`); any other
+    # caller refuses a stream that would drop outcomes not yet written.
+    checked = _IMMUTABLE_FIELDS if update else (*_IMMUTABLE_FIELDS, "discard")
+    for field in checked:
+        if getattr(current, field) != getattr(wanted, field):
+            raise CandidateOutcomesStreamConfigError(
+                f"stream {name!r}: `{field}` is {getattr(current, field)}, "
+                f"expected {getattr(wanted, field)}; outcomes would not be kept until written"
+            )
+    if update:
+        return
+    for field in _FLOOR_FIELDS:
+        if _narrower(getattr(current, field), getattr(wanted, field)):
+            raise CandidateOutcomesStreamConfigError(
+                f"stream {name!r}: `{field}` is {getattr(current, field)}, below this "
+                f"Engine's {getattr(wanted, field)}; outcomes could be lost before they are written"
+            )
+
+
+def _narrower(current: float | None, wanted: float | None) -> bool:
+    """Whether a live limit is below this code's. JetStream reads 0 or -1 as unlimited."""
+    if current is None or current <= 0:
+        return False
+    return wanted is not None and wanted > 0 and current < wanted
 
 
 class CandidateOutcomesStreamConfigError(RuntimeError):
@@ -154,15 +189,7 @@ class JetStreamCandidateOutcomeStream:
                 if exc.err_code != STREAM_NAME_IN_USE_ERR_CODE:
                     raise
                 current = (await js.stream_info(self.config.name)).config
-        # WHY `discard` only without `update`: startup applies it (`_MUTABLE_FIELDS`); any other
-        # caller refuses a stream that would drop outcomes not yet written.
-        checked = _IMMUTABLE_FIELDS if update else (*_IMMUTABLE_FIELDS, "discard")
-        for field in checked:
-            if getattr(current, field) != getattr(wanted, field):
-                raise CandidateOutcomesStreamConfigError(
-                    f"stream {self.config.name!r}: `{field}` is {getattr(current, field)}, "
-                    f"expected {getattr(wanted, field)}; outcomes would not be kept until written"
-                )
+        _check_live_stream(self.config.name, current, wanted, update=update)
         if not update:
             return
         if any(getattr(current, field) != getattr(wanted, field) for field in _MUTABLE_FIELDS):

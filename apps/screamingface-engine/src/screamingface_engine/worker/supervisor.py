@@ -1335,7 +1335,9 @@ class RunSupervisor:
             return None
         try:
             status = cast(OutcomeStatus, settled.status)
-            return CandidateOutcome(status, settled.error_code, settled.cost_usd)
+            return CandidateOutcome(
+                status, settled.error_code, settled.cost_usd, settled.finished_at
+            )
         except ValueError as exc:
             logger.warning("the child of %s reported an outcome no run can have: %r", topic, exc)
             return None
