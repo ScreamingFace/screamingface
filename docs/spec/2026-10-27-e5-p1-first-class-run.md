@@ -423,6 +423,11 @@ P1b works against an Engine without `/runs` (D7), so the landings can ship in ei
   lifecycle (D9). The namespace is `sf.runs`. The outcome stream is `url4-candidate-outcomes`,
   behind a port with a JetStream adapter and an in-memory adapter, with no mode branch (D4).
   Delivery is five PRs, one sub-issue each under `OME-1785`.
+- **2026-11-02, Tauquir (spec owner), while building the store (#1634).** The registry's store,
+  models, `db.py` and migrations live in `runs/`, laid out like an aigateway feature, not in an
+  `adapters/run_registry_tortoise` module. Writes are compare-and-set on state, not on a
+  `revision` column: every write is one `UPDATE … WHERE` guarded on the state it expects, so the
+  row count says which writer won (§4.2).
 - **2026-11-05, Tauquir (spec owner), on the #1634 review.** The owner key (D6) lowercases ASCII
   only, after NFC. Unicode case folding maps `ß` to `ss`, `ﬁ` to `fi` and `ſ` to `s`, which gives
   two different verified addresses one owner, and the key is the only check on every Run read
