@@ -1,13 +1,13 @@
 ---
 id: OME-1620
 linear_url: https://linear.app/openmined/issue/OME-1620/draco-and-draco-3pass-are-not-installed-by-the-pip-runtime
-status: in_progress
+status: done
 type: bug
 priority: high
 labels: [bug, client-sf, human, deferred]
 parent: none
 created: 2026-10-15
-closed:
+closed: 2026-11-04
 ---
 
 # The local Engine serves every Benchmark, not medxpert alone
