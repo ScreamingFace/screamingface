@@ -285,8 +285,8 @@ if reproduction is not None:
     <CodeBlock :code="evaluateSig" language="python" />
 
     <p>
-      Runs a fresh evaluation, which may spend money, or replays captured answers at $0. Identical
-      to <code>Client.evaluate()</code>, including evaluating a url4 string. Its parameters are
+      Runs a fresh evaluation, which may spend money, or replays captured answers. Identical to
+      <code>Client.evaluate()</code>, including evaluating a url4 string. Its parameters are
       documented on the <RouterLink to="/sf-client/api/clients">Clients</RouterLink> page. That
       includes <code>answer_seed</code>, <code>capture</code> and <code>use_cache</code>.
     </p>

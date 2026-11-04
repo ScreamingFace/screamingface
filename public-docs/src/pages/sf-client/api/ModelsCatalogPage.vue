@@ -16,7 +16,7 @@ client.models.list()[0]`
 const modelsRunOut = `ModelInfo('anthropic/claude-opus-5', provider='anthropic', parameters=5, tools=1)`
 
 const detailsRun = `client.models.get("anthropic/claude-opus-5")`
-const detailsRunOut = `ModelDetails('anthropic/claude-opus-5', provider='anthropic', scope='account_profile', parameters=5, tools=1, transport=1)`
+const detailsRunOut = `ModelDetails('anthropic/claude-opus-5', provider='anthropic', scope='account_connection', parameters=5, tools=1, transport=1)`
 
 const modelSig = `sf.Model(
     model: str,
@@ -43,7 +43,7 @@ const modelSig = `sf.Model(
     <h2 id="model">Model</h2>
 
     <p>
-      A <code>Model</code> is a single model route answering on its own — the simplest recipe, and
+      A <code>Model</code> is a single model route answering on its own: the simplest recipe, and
       the building block every <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink> and
       <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink> is made of. See the
       <RouterLink to="/sf-client/guides/models">Models guide</RouterLink> for help picking a route.
@@ -257,9 +257,9 @@ const modelSig = `sf.Model(
           <td><code>scope</code></td>
           <td><code>str</code></td>
           <td>
-            Which profile this was built for. <code>'account_profile'</code> means the route as your
-            account's credential sees it, built from that profile's auth mode, rather than the route
-            in general.
+            Which connection this was built for. <code>'account_connection'</code> means the route
+            as your account's connection sees it, built from that connection's auth mode, rather
+            than the route in general.
           </td>
         </tr>
         <tr>

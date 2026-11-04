@@ -165,7 +165,7 @@ if result.reproduction is not None:
           <td><code>score</code></td>
           <td><code>float</code></td>
           <td>
-            The benchmark-native score it is ranked by — exactly what the benchmark's grading
+            The benchmark-native score it is ranked by: exactly what the benchmark's grading
             produced, fractional or negative included.
           </td>
         </tr>
@@ -322,7 +322,7 @@ if result.reproduction is not None:
           <td><code>total_questions</code> · <code>correct_questions</code></td>
           <td><code>int</code> / <code>int&nbsp;|&nbsp;None</code></td>
           <td>
-            How many cases ran, and — only for binary-graded benchmarks — how many were correct.
+            How many cases ran, and, only for binary-graded benchmarks, how many were correct.
           </td>
         </tr>
         <tr>

@@ -73,13 +73,13 @@ async def main():
         return len(models), client.engine_url
 
 asyncio.run(main())   # in a notebook: await main()`
-const asyncOut = `(108, 'http://127.0.0.1:9108')`
+const asyncOut = `(109, 'http://127.0.0.1:9108')`
 </script>
 
 <template>
   <DocLayout
     title="Clients"
-    description="Client and AsyncClient — how you reach an engine."
+    description="Client and AsyncClient: how you reach an engine."
     :navigation="navigation"
     :version="version"
   >
@@ -87,8 +87,8 @@ const asyncOut = `(108, 'http://127.0.0.1:9108')`
       A <code>Client</code> is the connection to one engine, and the object that every other page in
       this reference depends on: recipes are passed to it, and benchmarks and reports come back from
       it. This page covers <code>Client</code> itself and <code>AsyncClient</code> for the same
-      interface over <code>await</code>. The connection values it returns — <code>Connection</code>,
-      the OAuth flows, and <code>ConnectionPanel</code> — are documented under
+      interface over <code>await</code>. The connection values it returns (<code>Connection</code>,
+      the OAuth flows, and <code>ConnectionPanel</code>) are documented under
       <RouterLink to="/sf-client/api/connections">Connections</RouterLink>.
     </p>
 
@@ -339,11 +339,10 @@ const asyncOut = `(108, 'http://127.0.0.1:9108')`
       for a full replay.
     </p>
     <p>
-      A confirmed replay makes no provider or web-search call and costs $0. Only an exact full
-      replay records a reproduction, unless <code>record_reproduction=False</code>. A public score
-      needs leaderboard authentication only for recording; a private score may need it before
-      replay. Engine authentication is separate. Replay never captures, and explicit
-      <code>capture=True</code> is an error.
+      Only an exact full replay records a reproduction, unless
+      <code>record_reproduction=False</code>. A public score needs leaderboard authentication only
+      for recording; a private score may need it before replay. Engine authentication is separate.
+      Replay never captures, and explicit <code>capture=True</code> is an error.
     </p>
     <p>
       A partial or unknown published capture raises

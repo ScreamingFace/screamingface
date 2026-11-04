@@ -19,7 +19,7 @@ panel.connections`
     :version="version"
   >
     <p>
-      The values the connections API hands back — from <code>sf.connections</code> /
+      The values the connections API hands back, from <code>sf.connections</code> /
       <code>client.connections</code> and
       <RouterLink to="/sf-client/api/modules">sf.connect() / sf.disconnect()</RouterLink>. For the
       walkthrough, see the

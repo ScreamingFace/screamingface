@@ -24,7 +24,7 @@ report`
 const runItOut = `Report(benchmark='medxpert', candidates=['gemini-3.5-flash-lite'], ok=True)`
 
 const summary = `report.ok, report.case_count, report.duration_ms`
-const summaryOut = `(True, 1, 244)`
+const summaryOut = `(True, 1, 7187)`
 
 const only = `candidate = report.candidates.only
 candidate.name, candidate.kind, candidate.score, candidate.coverage`
@@ -69,7 +69,7 @@ const benchOut = `BenchmarkInfo(id='medxpert', revision='1e5a3b8a461a52f7', case
       <svg
         viewBox="0 0 720 348"
         role="img"
-        aria-label="A Report holds one BenchmarkInfo and many CandidateResult values. Each CandidateResult holds many OperationInfo (the plan DAG), many CaseResult (per-case grades), a Usage, its url4 expression, and — for a fusion — many MemberResult values."
+        aria-label="A Report holds one BenchmarkInfo and many CandidateResult values. Each CandidateResult holds many OperationInfo (the plan DAG), many CaseResult (per-case grades), a Usage, its url4 expression, and, for a fusion, many MemberResult values."
         style="width: 100%; height: auto; font-family: var(--f-mono)"
       >
         <defs>

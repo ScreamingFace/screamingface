@@ -555,8 +555,8 @@ replay.candidates.only.reproduction  # None: no published score to compare`
       Choose <strong>Reproduce</strong> under Copy on a captured public leaderboard row to copy a
       snippet using <code>sf.evaluate(pinned_cache="…")</code>. Replace the placeholder below with
       that row's pinned cache id. The Client reads the original recipe and answer seed from the
-      board, then asks the Engine to use only the captured answers. A confirmed replay costs
-      <strong>$0</strong>; a missing answer fails its case without a provider or web-search call.
+      board, then asks the Engine to use only the captured answers. A missing answer in the pinned
+      cache fails its case.
     </p>
 
     <p>
