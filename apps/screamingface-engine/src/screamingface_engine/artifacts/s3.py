@@ -50,6 +50,14 @@ _STREAM_CHUNK_BYTES = 64 * 1024
 _DEFAULT_TIMEOUT_S = 30.0
 
 
+class S3ObjectTooLarge(Exception):
+    """An object holds more bytes than the caller's cap: the store's CONTENT is wrong.
+
+    INVARIANT: not an `S3StorageError` — a sick store is retryable (503), an object past its
+    cap is permanent corruption, and the blob store renders the two differently.
+    """
+
+
 class S3StorageError(RuntimeError):
     """The object store could not serve a request.
 
@@ -172,23 +180,90 @@ class S3ArtifactStore:
         """
         self._request("PUT", key, payload_sha256=hashlib.sha256(data).hexdigest(), content=data)
 
-    def get_object(self, key: str) -> bytes | None:
-        """The whole object under `key`, or None when absent. For small, capped objects only."""
-        response = self._request("GET", key, allow_missing=True)
-        return None if response is None else response.content
+    def put_object_if_absent(self, key: str, data: bytes) -> bool:
+        """Create `key` only if no object holds it yet; True when this call created it.
+
+        FEATURE: #1603 review round 2 (owner decision 2026-11-04, item 5) — the blob store's
+        first metadata write, so two racing first uploads cannot both report "created".
+
+        WHY `If-None-Match: *`: the S3 conditional write (AWS S3 since 2024-08; MinIO and most
+        S3-compatibles); a 412 means another writer got there first. The header is SIGNED (it is
+        in the dict the signature is computed from), so it cannot be stripped in transit.
+
+        AIDEV-NOTE: Garage v2.3.0 (the bundled store) IGNORES the condition — probed 2026-11-04:
+        a second conditional PUT on an existing key returned 200 and overwrote it. On Garage
+        the caller's prior existence check is the only guard, so two uploads racing inside the
+        same few milliseconds can both see `True`. Harmless for the blob store (the data is
+        content-addressed and verified on read; the sidecar is rewritten with the same shape),
+        but it is NOT the exactly-once guarantee a conforming S3 gives.
+        """
+        digest = hashlib.sha256(data).hexdigest()
+        response = self._request(
+            "PUT",
+            key,
+            payload_sha256=digest,
+            content=data,
+            extra_headers={"If-None-Match": "*"},
+            allow_precondition_failed=True,
+        )
+        return response is not None
+
+    def get_object_at_most(self, key: str, max_bytes: int) -> bytes | None:
+        """The object under `key`, read as a STREAM that stops past `max_bytes`; None when absent.
+
+        FEATURE: #1603 review round 2 (owner decision 2026-11-04, item 2) — a corrupt or hostile
+        object can never be materialised whole: at most `max_bytes + 1` bytes (plus one network
+        chunk) are pulled before refusing.
+
+        Raises:
+            S3ObjectTooLarge: the object holds more than `max_bytes` bytes.
+            S3StorageError: the store could not serve the request.
+        """
+        headers = self._signed_headers("GET", key, payload_sha256=EMPTY_PAYLOAD_SHA256)
+        url = f"{self._config.endpoint_url.rstrip('/')}{self._url_path(key)}"
+        try:
+            with self._client_factory() as client, client.stream("GET", url, headers=headers) as r:
+                if r.status_code == 404:
+                    return None
+                if r.status_code >= 400:
+                    r.read()
+                    raise S3StorageError(
+                        f"object storage refused GET {key} with {r.status_code}: {r.text[:200]}"
+                    )
+                declared = r.headers.get("content-length", "")
+                if declared.isdigit() and int(declared) > max_bytes:
+                    raise S3ObjectTooLarge(f"{key} holds {declared} bytes; the cap is {max_bytes}")
+                chunks: list[bytes] = []
+                size = 0
+                for chunk in r.iter_bytes(_STREAM_CHUNK_BYTES):
+                    size += len(chunk)
+                    if size > max_bytes:
+                        raise S3ObjectTooLarge(f"{key} holds more than {max_bytes} bytes")
+                    chunks.append(chunk)
+                return b"".join(chunks)
+        except httpx.HTTPError as exc:
+            raise S3StorageError(f"GET {key} could not reach object storage: {exc}") from exc
 
     # --- one signed request --------------------------------------------------------------
 
     def _url_path(self, key: str) -> str:
         return f"/{self._config.bucket}/{key}"
 
-    def _signed_headers(self, method: str, key: str, *, payload_sha256: str) -> dict[str, str]:
+    def _signed_headers(
+        self,
+        method: str,
+        key: str,
+        *,
+        payload_sha256: str,
+        extra_headers: dict[str, str] | None = None,
+    ) -> dict[str, str]:
         host = httpx.URL(self._config.endpoint_url).netloc.decode("ascii")
         now = datetime.now(UTC)
         headers = {
             "Host": host,
             "X-Amz-Content-Sha256": payload_sha256,
             "X-Amz-Date": now.strftime("%Y%m%dT%H%M%SZ"),
+            **(extra_headers or {}),
         }
         # INVARIANT: the Authorization is computed from THIS dict, and the same dict is what
         # gets sent — so the SignedHeaders list and the wire headers cannot drift apart.
@@ -211,9 +286,14 @@ class S3ArtifactStore:
         payload_sha256: str = EMPTY_PAYLOAD_SHA256,
         content: bytes | None = None,
         allow_missing: bool = False,
+        extra_headers: dict[str, str] | None = None,
+        allow_precondition_failed: bool = False,
     ) -> httpx.Response | None:
-        """One signed round trip. `None` only when `allow_missing` and the object is absent."""
-        headers = self._signed_headers(method, key, payload_sha256=payload_sha256)
+        """One signed round trip. `None` only when `allow_missing` and the object is absent, or
+        when `allow_precondition_failed` and the store answered 412."""
+        headers = self._signed_headers(
+            method, key, payload_sha256=payload_sha256, extra_headers=extra_headers
+        )
         url = f"{self._config.endpoint_url.rstrip('/')}{self._url_path(key)}"
         try:
             with self._client_factory() as client:
@@ -223,6 +303,8 @@ class S3ArtifactStore:
             # boundary would surface as an unhandled exception mid-run.
             raise S3StorageError(f"{method} {key} could not reach object storage: {exc}") from exc
         if allow_missing and response.status_code == 404:
+            return None
+        if allow_precondition_failed and response.status_code == 412:
             return None
         if response.status_code >= 400:
             # AIDEV-NOTE: the body is the store's own error XML, not ours; it names the real
@@ -257,4 +339,4 @@ class S3ArtifactStore:
             raise S3StorageError(f"GET {key} could not reach object storage: {exc}") from exc
 
 
-__all__ = ["S3ArtifactStore", "S3Config", "S3StorageError"]
+__all__ = ["S3ArtifactStore", "S3Config", "S3ObjectTooLarge", "S3StorageError"]

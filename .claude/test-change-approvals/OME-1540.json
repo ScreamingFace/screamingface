@@ -13,6 +13,36 @@
     "apps/screamingface-engine/tests/unit/test_chart_render_garage_selector.py": {
       "base_blob": "98102152266199a9a9d37cf31134931394bb60a3",
       "approved_blob": "2024c053e6011dff219a51338c635a5a72aeaa92"
+    },
+    "apps/screamingface-engine/tests/unit/test_blob_routes.py": {
+      "base_blob": "f96aae91209c4061d5634cd16c511baba2777559",
+      "approved_blob": "396f27d396008dfa381ff74857917cf5d1a115f5"
+    },
+    "apps/screamingface-engine/tests/unit/test_blob_review_hardening.py": {
+      "base_blob": "ca6a62a67deb2cfa0fd3002545f8ce784f85eb44",
+      "approved_blob": "0621faa131944157cf508308d639c9c70aaaf7a4"
+    },
+    "apps/screamingface-engine/tests/unit/test_blob_wiring.py": {
+      "base_blob": "efdaeb97562a964b1b1358920724fbf8a61520a0",
+      "approved_blob": "12ce935978c7c0faf999f1195a03a610e6e5fd04"
+    },
+    ".github/scripts/verify_chart_wiring.py": {
+      "base_blob": "8f4fadf13a9c7b42a36c7a9efdc621d22323d162",
+      "approved_blob": "efc769ca8beec92e8a233d4f92946383538af674"
     }
-  }
+  },
+  "amendments": [
+    {
+      "approver": "Sergey Bershadsky (owner)",
+      "date": "2026-11-04",
+      "scope": "#1603 review round 2, item 1 (unset blob store fails closed: typed 503 from the blob routes, typed BlobStoreNotConfigured from the Runner's blob_reader_from_env). (1) test_blob_routes.py and test_blob_review_hardening.py: the _app fixtures add blob_store='filesystem' and blobs_dir=<tmp>/artifacts (the same tmp directory, so test_corrupted_stored_bytes_are_500_digest_mismatch and test_the_artifact_startup_sweep_also_ages_out_blobs, whose paths already sit below blobs_dir, needed no edit); no assertion changed. (2) test_blob_wiring.py: _env adds BLOB_STORE=filesystem and BLOBS_DIR (covers test_the_filesystem_store_reads_what_the_app_wrote and test_the_reader_is_scoped_to_this_run); test_s3_selection_builds_the_s3_backend adds the BLOB_S3_* settings and asserts the separately configured blob bucket instead of the follow-the-artifact-bucket behaviour. (3) .github/scripts/verify_chart_wiring.py (not under tests/, recorded for the audit trail): the existing check 'an operator's own blob endpoint replaces the bundled blob Garage' renders with --set blobs.storage.s3.existingSecret=blob-credentials; its assertion is unchanged. Base blobs are this branch's pre-change head 8f47715c9.",
+      "reason": "Owner decision (Sergey, 2026-11-04): with no independently configured blob store, blob upload and fetch are off \u2014 follow mode (the artifact directory/bucket) is removed, so tests that relied on it must configure a blob store; and an external blob endpoint without credentials now fails render (item 4), so the verifier's external-endpoint render must supply an existingSecret.",
+      "files": [
+        "apps/screamingface-engine/tests/unit/test_blob_routes.py",
+        "apps/screamingface-engine/tests/unit/test_blob_review_hardening.py",
+        "apps/screamingface-engine/tests/unit/test_blob_wiring.py",
+        ".github/scripts/verify_chart_wiring.py"
+      ]
+    }
+  ]
 }

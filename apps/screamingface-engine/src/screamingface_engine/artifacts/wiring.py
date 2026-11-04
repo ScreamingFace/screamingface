@@ -50,6 +50,17 @@ def result_writer_from_env(env: Mapping[str, str]) -> ArtifactWriter:
     return FilesystemArtifactStore(Path(artifacts_dir))
 
 
+class BlobStoreNotConfigured(LookupError):
+    """No blob store of its own is configured, so blob upload and fetch are OFF.
+
+    FEATURE: #1603 review round 2 (owner decision 2026-11-04, item 1) — fail closed. The App
+    answers its blob routes with a 503 problem; the Runner refuses to build a blob reader.
+
+    WHY not a fallback onto the artifact store: unauthenticated token minting plus per-file caps
+    could then fill the paid-results capacity — the exact failure the separate store prevents.
+    """
+
+
 def blob_objects_from_values(values: Mapping[str, str]) -> BlobObjects:
     """The run blob store's backend, from env-named values — ONE decision for both halves.
 
@@ -60,32 +71,28 @@ def blob_objects_from_values(values: Mapping[str, str]) -> BlobObjects:
         values: env-var name → value, using the `job_env.BLOB_*` / `job_env.ARTIFACT_*` names.
             The Runner passes its env; the App renders its `Settings` into this shape.
 
-    `BLOB_STORE` unset → FOLLOW the artifact store (the `blobs/` prefix of the artifact directory
-    or bucket). WHY kept: it is the layout the store shipped with and the one a bare local
-    process gets; the chart always states `BLOB_STORE`, so no deployment lands here.
+    `BLOB_STORE` unset → `BlobStoreNotConfigured` (fail closed; the chart always states it).
     `BLOB_STORE=filesystem` → `BLOBS_DIR` (default `DEFAULT_BLOBS_DIR`, a sibling of the
     artifact default). `BLOB_STORE=s3` → the `BLOB_S3_*` settings, all required.
 
+    INVARIANT: never the artifact directory or bucket — no value here is read from the
+    `ARTIFACT_*` names.
+
     Raises:
+        BlobStoreNotConfigured: `BLOB_STORE` is unset or empty.
         ValueError: an unknown backend, or an incomplete S3 configuration (naming what is empty).
     """
     selected = (values.get(job_env.BLOB_STORE) or "").strip()
     if not selected:
-        return _objects_following_the_artifact_store(values)
+        raise BlobStoreNotConfigured(
+            f"no blob store is configured: set {job_env.BLOB_STORE} to 'filesystem' or 's3' "
+            "(blob upload and fetch are off until then)"
+        )
     if selected == "s3":
         return S3BlobObjects(S3ArtifactStore(blob_s3_config_from_values(values)))
     if selected != "filesystem":
         raise ValueError(f"{job_env.BLOB_STORE} must be 'filesystem' or 's3', not {selected!r}")
     return FilesystemBlobObjects(Path(values.get(job_env.BLOBS_DIR) or job_env.DEFAULT_BLOBS_DIR))
-
-
-def _objects_following_the_artifact_store(values: Mapping[str, str]) -> BlobObjects:
-    """`BLOB_STORE` unset: the `blobs/` prefix of the artifact directory or bucket."""
-    if (values.get(job_env.ARTIFACT_STORE) or "filesystem").strip() == "s3":
-        return S3BlobObjects(S3ArtifactStore(s3_config_from_values(values)))
-    return FilesystemBlobObjects(
-        Path(values.get(job_env.ARTIFACTS_DIR) or job_env.DEFAULT_ARTIFACTS_DIR)
-    )
 
 
 def blob_store_from_env(env: Mapping[str, str]) -> BlobStore:
@@ -111,7 +118,11 @@ def blob_scope_from_env(env: Mapping[str, str]) -> BlobScope:
 
 
 def blob_reader_from_env(env: Mapping[str, str]) -> ScopedBlobReader:
-    """The `BlobReader` (OME-1545 port) the Runner binds for its model calls."""
+    """The `BlobReader` (OME-1545 port) the Runner binds for its model calls.
+
+    Raises:
+        BlobStoreNotConfigured: the run's env names no blob store (fail closed, item 1).
+    """
     return ScopedBlobReader(blob_store_from_env(env), blob_scope_from_env(env))
 
 
@@ -201,6 +212,7 @@ def _s3_config(values: Mapping[str, str], names: _S3Names, what: str, fallback: 
 
 
 __all__ = [
+    "BlobStoreNotConfigured",
     "blob_objects_from_values",
     "blob_reader_from_env",
     "blob_s3_config_from_values",

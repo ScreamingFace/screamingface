@@ -147,9 +147,9 @@ class Settings(BaseSettings):
     # `job_env.BLOB_*` name (`URL4_CLOUD_` + field name), so the App and the Runner resolve one
     # store through `artifacts.wiring.blob_objects_from_values`.
     #
-    # WHY `None` = follow the artifact store (the `blobs/` prefix of its directory or bucket): the
-    # layout the store shipped with and a bare local process still gets. The chart always sets
-    # it, so a deployment always gets a separate store.
+    # INVARIANT (#1603 review round 2, owner decision 2026-11-04): `None` = NO blob store — blob
+    # upload and fetch are off (the App's blob routes answer 503). Never the artifact store. The
+    # chart always sets it.
     # INVARIANT: an explicit "s3" never borrows the artifact bucket or credentials.
     blob_store: ArtifactStoreBackend | None = None
     blobs_dir: str = ""
@@ -415,7 +415,7 @@ class Settings(BaseSettings):
 
     @field_validator("blob_store", mode="before")
     @classmethod
-    def _empty_blob_store_follows_the_artifact_store(cls, value: object) -> object:
+    def _empty_blob_store_is_unset(cls, value: object) -> object:
         # WHY: an env var rendered empty means "not set", not an invalid backend name.
         return None if isinstance(value, str) and not value.strip() else value
 

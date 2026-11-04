@@ -23,6 +23,7 @@ from screamingface_engine.artifacts.blobs import (
 )
 from screamingface_engine.artifacts.wiring import (
     blob_reader_from_env,
+    blob_s3_config_from_values,
     blob_scope_from_env,
     blob_store_from_env,
 )
@@ -33,7 +34,14 @@ TOPIC = "T" * 64
 
 
 def _env(tmp_path: Path, email: str | None = "alice@example.org") -> dict[str, str]:
-    env = {job_env.TOPIC: TOPIC, job_env.ARTIFACTS_DIR: str(tmp_path / "artifacts")}
+    # #1603 review round 2 (owner 2026-11-04): no blob store of its own → no reader at all, so
+    # the run's env names one explicitly.
+    env = {
+        job_env.TOPIC: TOPIC,
+        job_env.ARTIFACTS_DIR: str(tmp_path / "artifacts"),
+        job_env.BLOB_STORE: "filesystem",
+        job_env.BLOBS_DIR: str(tmp_path / "artifacts"),
+    }
     env.update(job_env.identity_to_env({"X-User-Email": email} if email else {}))
     return env
 
@@ -68,8 +76,15 @@ def test_s3_selection_builds_the_s3_backend(tmp_path: Path) -> None:
         job_env.ARTIFACT_S3_BUCKET: "artifacts",
         job_env.ARTIFACT_S3_ACCESS_KEY: "GKtest",
         job_env.ARTIFACT_S3_SECRET_KEY: "testsecret",
+        job_env.BLOB_STORE: "s3",
+        job_env.BLOB_S3_ENDPOINT_URL: "http://garage-blobs.svc:3900",
+        job_env.BLOB_S3_BUCKET: "blobs",
+        job_env.BLOB_S3_ACCESS_KEY: "GKblobs",
+        job_env.BLOB_S3_SECRET_KEY: "blobsecret",
     }
     assert isinstance(blob_store_from_env(env).objects, S3BlobObjects)
+    # INVARIANT: the separately configured blob bucket, never the artifact one.
+    assert blob_s3_config_from_values(env).bucket == "blobs"
 
 
 @pytest.mark.asyncio

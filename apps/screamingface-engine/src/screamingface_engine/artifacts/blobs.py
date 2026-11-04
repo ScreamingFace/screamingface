@@ -8,10 +8,9 @@ STORY: as a url4 client I upload a picture under my run's capability token, get 
 Layout: one data object and one metadata object per blob, both below
 `blobs/<tenant>/<run>/<hex>` in the blob store's OWN directory or bucket (#1603 review, owner
 decision 2026-11-03; `artifacts.wiring.blob_objects_from_values`), so a full blob store fails
-uploads and never result delivery. With `URL4_CLOUD_BLOB_STORE` unset the store follows the
-artifact directory or bucket instead; result parcels sit FLAT at that root under 64-hex names,
-so the two never collide, and the artifact sweep (which only matches flat 64-hex names) never
-touches a blob.
+uploads and never result delivery. With `URL4_CLOUD_BLOB_STORE` unset there is NO blob store
+(fail closed, #1603 review round 2). Even a store sharing a root with result parcels could not
+collide: parcels sit FLAT under 64-hex names, and the artifact sweep only matches those.
 
 INVARIANT (F3 authorization): a digest is NOT a bearer capability. Every key carries the
 (tenant, run) scope, so a read from any other scope finds nothing — the same `None` a digest
@@ -40,9 +39,9 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol
+from typing import Literal, Protocol, runtime_checkable
 
-from screamingface_engine.artifacts.s3 import S3ArtifactStore
+from screamingface_engine.artifacts.s3 import S3ArtifactStore, S3ObjectTooLarge
 
 _logger = logging.getLogger(__name__)
 
@@ -62,6 +61,12 @@ ATTACHMENT_MEDIA_TYPES = frozenset(
 # WHY 8,000,000: the spec's per-run aggregate attachment cap (§4 `x.attachments_too_large`); no
 # single blob can usefully exceed what a whole run may carry (owner decision 2026-10-28, Q4a).
 DEFAULT_BLOB_MAX_BYTES = 8_000_000
+# WHY 1024: a valid sidecar is `{"media_type": ..., "size_bytes": ...}` — under 100 bytes for every
+# accepted type. A cap of its own keeps a hostile sidecar from costing the blob's 8 MB budget
+# (#1603 review round 2, owner decision 2026-11-04, item 2).
+SIDECAR_MAX_BYTES = 1024
+# INVARIANT: the closed sidecar schema (item 3) — exactly these keys, nothing else.
+_SIDECAR_KEYS = frozenset({"media_type", "size_bytes"})
 
 # FEATURE: #1603 review (Khoa, 2026-11-02; owner decision 2026-11-03) — the store checks the
 # file's first bytes against its declared type at ingest, so a stored blob is what its label says.
@@ -104,6 +109,24 @@ class BlobDigestMismatch(BlobError):
     def __init__(self, sha256: str, *, at: Literal["ingest", "read"]) -> None:
         super().__init__(f"blob bytes do not hash to sha256:{sha256} ({at})")
         self.at = at
+
+
+class BlobCorrupted(BlobDigestMismatch):
+    """A stored blob the store will not serve: its metadata or its bytes break the contract.
+
+    FEATURE: #1603 review round 2 (owner decision 2026-11-04, items 2 and 3) — an object past
+    the read cap, a sidecar outside the closed schema, a recorded size or type that does not
+    match the bytes, or (with `verify_signature`) bytes that are not their recorded type.
+
+    WHY a subclass of the read-side `BlobDigestMismatch` and its code, not a new one: to the
+    client it is the same fact — "the store's copy is not the file you uploaded" — permanent,
+    and the two new `x.*` codes already await url4 wire sign-off; `detail` says which.
+    """
+
+    def __init__(self, sha256: str, reason: str) -> None:
+        BlobError.__init__(self, f"stored blob sha256:{sha256} is corrupt: {reason}")
+        self.at = "read"
+        self.reason = reason
 
 
 class BlobTooLarge(BlobError):
@@ -186,6 +209,63 @@ class BlobObjects(Protocol):
     def sweep(self, ttl_seconds: float, *, now: float | None = None) -> int: ...
 
 
+@runtime_checkable
+class BoundedBlobObjects(BlobObjects, Protocol):
+    """A backend that reads with a cap and creates exclusively — both shipped backends are.
+
+    FEATURE: #1603 review round 2 (owner decision 2026-11-04, items 2 and 5).
+
+    WHY a second protocol rather than widening `BlobObjects`: `BlobObjects` is the public port a
+    backend may implement with put/get alone; `BlobStore` adapts such a backend
+    (`_UnboundedObjects`) instead of refusing it.
+    """
+
+    def get_at_most(self, key: str, max_bytes: int) -> bytes | None:
+        """The object, or None when absent. Raises `BlobCorrupted` past `max_bytes`."""
+        ...
+
+    def create(self, key: str, data: bytes) -> bool:
+        """Write `key` only if absent; True when THIS call created it."""
+        ...
+
+
+class _UnboundedObjects:
+    """A put/get-only backend seen through `BoundedBlobObjects`.
+
+    AIDEV-NOTE: the cap is enforced AFTER the backend has returned the whole object, and the
+    create is check-then-put — neither is the memory bound nor the atomicity the two real
+    backends give. Only a third-party (or test) backend lands here.
+    """
+
+    def __init__(self, inner: BlobObjects) -> None:
+        self._inner = inner
+
+    def put(self, key: str, data: bytes) -> None:
+        self._inner.put(key, data)
+
+    def get(self, key: str) -> bytes | None:
+        return self._inner.get(key)
+
+    def sweep(self, ttl_seconds: float, *, now: float | None = None) -> int:
+        return self._inner.sweep(ttl_seconds, now=now)
+
+    def get_at_most(self, key: str, max_bytes: int) -> bytes | None:
+        found = self._inner.get(key)
+        if found is not None and len(found) > max_bytes:
+            raise _too_large(key, max_bytes)
+        return found
+
+    def create(self, key: str, data: bytes) -> bool:
+        if self._inner.get(key) is not None:
+            return False
+        self._inner.put(key, data)
+        return True
+
+
+def _too_large(key: str, max_bytes: int) -> BlobCorrupted:
+    return BlobCorrupted(key.rsplit("/", 1)[-1], f"object exceeds the {max_bytes}-byte read cap")
+
+
 class FilesystemBlobObjects:
     """Blob objects as files below `<root>/blobs/` — `root` is the blob directory."""
 
@@ -202,10 +282,37 @@ class FilesystemBlobObjects:
         os.replace(tmp, final)
 
     def get(self, key: str) -> bytes | None:
+        """The object, capped at the default blob size (see `get_at_most`)."""
+        return self.get_at_most(key, DEFAULT_BLOB_MAX_BYTES)
+
+    def get_at_most(self, key: str, max_bytes: int) -> bytes | None:
+        # INVARIANT: never more than `max_bytes + 1` bytes leave the disk (item 2).
         try:
-            return (self._root / key).read_bytes()
+            with (self._root / key).open("rb") as handle:
+                data = handle.read(max_bytes + 1)
         except FileNotFoundError:
             return None
+        if len(data) > max_bytes:
+            raise _too_large(key, max_bytes)
+        return data
+
+    def create(self, key: str, data: bytes) -> bool:
+        """Create `key` exclusively; False when it already exists (item 5).
+
+        WHY tmp + `os.link`: `link` fails with EEXIST if the name is taken and is atomic, so the
+        name appears complete or not at all — never a half-written sidecar a reader could parse.
+        """
+        final = self._root / key
+        final.parent.mkdir(parents=True, exist_ok=True)
+        tmp = final.parent / f".{final.name}.{uuid.uuid4().hex}.tmp"
+        tmp.write_bytes(data)
+        try:
+            os.link(tmp, final)
+        except FileExistsError:
+            return False
+        finally:
+            tmp.unlink(missing_ok=True)
+        return True
 
     def sweep(self, ttl_seconds: float, *, now: float | None = None) -> int:
         """Delete blob files (and `.tmp` leftovers) older than `ttl_seconds`, by mtime.
@@ -239,7 +346,20 @@ class S3BlobObjects:
         self._store.put_object(key, data)
 
     def get(self, key: str) -> bytes | None:
-        return self._store.get_object(key)
+        """The object, capped at the default blob size (see `get_at_most`)."""
+        return self.get_at_most(key, DEFAULT_BLOB_MAX_BYTES)
+
+    def get_at_most(self, key: str, max_bytes: int) -> bytes | None:
+        # INVARIANT: a streamed read that stops past the cap — never `response.content` (item 2).
+        try:
+            return self._store.get_object_at_most(key, max_bytes)
+        except S3ObjectTooLarge:
+            raise _too_large(key, max_bytes) from None
+
+    def create(self, key: str, data: bytes) -> bool:
+        # AIDEV-NOTE: atomic on a conforming S3; Garage ignores the condition (see
+        # `S3ArtifactStore.put_object_if_absent`), where `BlobStore`'s prior read is the guard.
+        return self._store.put_object_if_absent(key, data)
 
     def sweep(self, ttl_seconds: float, *, now: float | None = None) -> int:
         """Always 0 — expiry is the bucket's lifecycle rule, exactly as for result artifacts.
@@ -255,6 +375,9 @@ class BlobStore:
 
     def __init__(self, objects: BlobObjects, policy: BlobPolicy | None = None) -> None:
         self._objects = objects
+        self._backend: BoundedBlobObjects = (
+            objects if isinstance(objects, BoundedBlobObjects) else _UnboundedObjects(objects)
+        )
         self._policy = policy or BlobPolicy()
 
     @property
@@ -267,12 +390,40 @@ class BlobStore:
     ) -> tuple[StoredBlob, bool]:
         """Keep `body` under `sha256` in `scope`; `(blob, created)`. Idempotent per scope.
 
+        INVARIANT (#1603 review round 2, item 5): of any number of racing first uploads, exactly
+        one returns `created=True` — the metadata's first write is create-exclusive (on Garage,
+        which ignores S3 conditional writes, see `S3ArtifactStore.put_object_if_absent`).
+
         Raises:
             BlobDigestMismatch: `body` does not hash to `sha256` (or `sha256` is malformed).
             BlobTooLarge: `body` exceeds the policy cap.
             BlobUnsupportedMediaType: the bare media type is not on the allowlist.
             BlobContentMismatch: with `verify_signature`, the bytes are not that type.
         """
+        bare = self._admit(sha256, media_type, body)
+        key = f"{scope.key_prefix}/{sha256}"
+        existing, corrupt = self._existing(key, len(body))
+        # WHY first-write-wins on the media type: a ref already handed out must not change type
+        # under its holder. The data is rewritten anyway: it heals a corrupt copy and restarts
+        # the TTL clock.
+        # INVARIANT: data before metadata — a blob is readable only once both exist, so a crash
+        # between the two leaves an unreadable orphan for the sweep, never a half-blob.
+        self._backend.put(key, body)
+        if existing is not None:
+            # A repeat upload: rewrite the record too, so its TTL clock restarts with the data's.
+            self._backend.put(f"{key}.json", _sidecar(existing))
+            return existing, False
+        blob = StoredBlob(sha256=sha256, size_bytes=len(body), media_type=bare)
+        if corrupt:
+            self._backend.put(f"{key}.json", _sidecar(blob))
+        elif not self._backend.create(f"{key}.json", _sidecar(blob)):
+            # Another upload of these bytes created the record between our check and our write.
+            return self._meta(key, len(body)) or blob, False
+        _logger.info("blob ingested digest=sha256:%s size=%d", sha256, len(body))
+        return blob, True
+
+    def _admit(self, sha256: str, media_type: str, body: bytes) -> str:
+        """The bare media type of an upload the policy accepts, or the refusal `ingest` names."""
         bare = _bare_media_type(media_type)
         if bare not in self._policy.media_types:
             raise BlobUnsupportedMediaType(f"media type {bare!r} is not accepted for blobs")
@@ -285,35 +436,39 @@ class BlobStore:
         if _HEX.fullmatch(sha256) is None or hashlib.sha256(body).hexdigest() != sha256:
             named = sha256 if _HEX.fullmatch(sha256) else "<malformed>"
             raise BlobDigestMismatch(named, at="ingest")
-        key = f"{scope.key_prefix}/{sha256}"
-        existing = self._meta(key)
-        # WHY first-write-wins on the media type: a ref already handed out must not change type
-        # under its holder. The data is rewritten anyway: it heals a corrupt copy and restarts
-        # the TTL clock.
-        blob = existing or StoredBlob(sha256=sha256, size_bytes=len(body), media_type=bare)
-        # INVARIANT: data before metadata — a blob is readable only once both exist, so a crash
-        # between the two leaves an unreadable orphan for the sweep, never a half-blob.
-        self._objects.put(key, body)
-        self._objects.put(
-            f"{key}.json",
-            json.dumps({"media_type": blob.media_type, "size_bytes": blob.size_bytes}).encode(),
-        )
-        _logger.info("blob ingested digest=sha256:%s size=%d", sha256, len(body))
-        return blob, existing is None
+        return bare
+
+    def _existing(self, key: str, size_bytes: int) -> tuple[StoredBlob | None, bool]:
+        """`(record, corrupt)` of what the scope already holds under `key`."""
+        try:
+            return self._meta(key, size_bytes), False
+        except BlobCorrupted as exc:
+            # WHY heal: the upload's bytes were just verified (digest, cap, type, signature), so
+            # a fresh record over a corrupt one restores the blob instead of leaving it
+            # unreadable until the TTL sweep.
+            _logger.warning("blob sidecar corrupt, rewriting it: %s", exc.reason)
+            return None, True
 
     def read(self, scope: BlobScope, sha256: str) -> tuple[StoredBlob, bytes] | None:
         """The verified blob and its bytes, or None when absent, out of scope or malformed.
 
+        INVARIANT (#1603 review round 2, items 2-3): nothing is served unless the sidecar is the
+        closed schema, the bytes fit the cap, their length is the recorded size, they hash to
+        the digest and — with `verify_signature` — open with the recorded type's signature.
+
         Raises:
             BlobDigestMismatch: the stored bytes no longer hash to `sha256` (store corruption).
+            BlobCorrupted: the sidecar or the bytes break the contract above (store corruption).
         """
         if _HEX.fullmatch(sha256) is None:
             return None
         key = f"{scope.key_prefix}/{sha256}"
         blob = self._meta(key)
-        body = None if blob is None else self._objects.get(key)
+        body = None if blob is None else self._backend.get_at_most(key, self._policy.max_bytes)
         if blob is None or body is None:
             return None
+        if len(body) != blob.size_bytes:
+            raise self._corrupt(sha256, f"holds {len(body)} bytes, recorded {blob.size_bytes}")
         if hashlib.sha256(body).hexdigest() != sha256:
             _logger.error(
                 "blob store corruption: stored bytes do not hash to digest=sha256:%s size=%d",
@@ -321,22 +476,53 @@ class BlobStore:
                 len(body),
             )
             raise BlobDigestMismatch(sha256, at="read")
+        if self._policy.verify_signature and not _has_signature(blob.media_type, body):
+            raise self._corrupt(sha256, f"the bytes are not a {blob.media_type!r} file")
         return blob, body
 
     def sweep(self, ttl_seconds: float, *, now: float | None = None) -> int:
         """Reclaim blobs older than `ttl_seconds` (the artifact TTL — owner decision Q4a)."""
         return self._objects.sweep(ttl_seconds, now=now)
 
-    def _meta(self, key: str) -> StoredBlob | None:
-        raw = self._objects.get(f"{key}.json")
+    def _meta(self, key: str, size_bytes: int | None = None) -> StoredBlob | None:
+        """The sidecar under `key`, validated against the CLOSED schema; None when absent.
+
+        `size_bytes`, when given, must equal the recorded size (the ingest path knows it before
+        reading the data back; the read path checks it against the bytes instead).
+
+        Raises:
+            BlobCorrupted: past `SIDECAR_MAX_BYTES`, not JSON, not exactly the two keys, a size
+                that is not a non-negative int within the cap, or a type outside the policy.
+        """
+        sha256 = key.rsplit("/", 1)[-1]
+        raw = self._backend.get_at_most(f"{key}.json", SIDECAR_MAX_BYTES)
         if raw is None:
             return None
-        meta = json.loads(raw)
-        return StoredBlob(
-            sha256=key.rsplit("/", 1)[-1],
-            size_bytes=int(meta["size_bytes"]),
-            media_type=str(meta["media_type"]),
-        )
+        try:
+            meta = json.loads(raw)
+        except ValueError:  # JSONDecodeError and UnicodeDecodeError are both ValueErrors
+            raise self._corrupt(sha256, "metadata is not valid JSON") from None
+        if not isinstance(meta, dict) or set(meta) != _SIDECAR_KEYS:
+            raise self._corrupt(sha256, "metadata is not the closed sidecar schema")
+        size, media = meta["size_bytes"], meta["media_type"]
+        # WHY `type(...) is int`: `bool` is an `int` subclass, and `true` is not a size.
+        if type(size) is not int or not 0 <= size <= self._policy.max_bytes:
+            raise self._corrupt(sha256, "recorded size is not a size within the cap")
+        if size_bytes is not None and size != size_bytes:
+            raise self._corrupt(sha256, f"recorded size {size} is not {size_bytes}")
+        if not isinstance(media, str) or media not in self._policy.media_types:
+            raise self._corrupt(sha256, "recorded media type is not an accepted type")
+        return StoredBlob(sha256=sha256, size_bytes=size, media_type=media)
+
+    @staticmethod
+    def _corrupt(sha256: str, reason: str) -> BlobCorrupted:
+        # INVARIANT: logs carry the digest and the reason, never the bytes or the scope.
+        _logger.error("blob store corruption: digest=sha256:%s %s", sha256, reason)
+        return BlobCorrupted(sha256, reason)
+
+
+def _sidecar(blob: StoredBlob) -> bytes:
+    return json.dumps({"media_type": blob.media_type, "size_bytes": blob.size_bytes}).encode()
 
 
 class ScopedBlobReader:
@@ -383,7 +569,9 @@ __all__ = [
     "DEFAULT_BLOB_MAX_BYTES",
     "MEDIA_TYPE_SIGNATURES",
     "SOURCE_NOT_FOUND",
+    "SIDECAR_MAX_BYTES",
     "BlobContentMismatch",
+    "BlobCorrupted",
     "BlobDigestMismatch",
     "BlobError",
     "BlobObjects",
@@ -392,6 +580,7 @@ __all__ = [
     "BlobStore",
     "BlobTooLarge",
     "BlobUnsupportedMediaType",
+    "BoundedBlobObjects",
     "FilesystemBlobObjects",
     "S3BlobObjects",
     "ScopedBlobReader",

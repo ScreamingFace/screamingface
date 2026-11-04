@@ -27,7 +27,11 @@ from screamingface_engine.artifacts import (
     S3ArtifactStore,
 )
 from screamingface_engine.artifacts.blobs import BlobPolicy, BlobStore
-from screamingface_engine.artifacts.wiring import blob_objects_from_values, s3_config_from_values
+from screamingface_engine.artifacts.wiring import (
+    BlobStoreNotConfigured,
+    blob_objects_from_values,
+    s3_config_from_values,
+)
 from screamingface_engine.auth import Clock, default_clock, install_problem_handlers
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
@@ -362,7 +366,7 @@ def _install_storage(app: FastAPI, settings: Settings) -> None:
     _install_artifact_sweeper(app, app.state.artifact_store, settings)
 
 
-def _build_blob_store(settings: Settings) -> BlobStore:
+def _build_blob_store(settings: Settings) -> BlobStore | None:
     """The run blob store on ITS OWN backend (#1603 review, owner decision 2026-11-03).
 
     WHY through `blob_objects_from_values`: the Runner resolves its blob store with the same
@@ -370,8 +374,11 @@ def _build_blob_store(settings: Settings) -> BlobStore:
 
     INVARIANT: `runner="queue"` with a filesystem blob store is refused, for the reason
     `_build_artifact_reader` refuses filesystem artifacts — the Runner reading a blob runs in
-    another pod, whose disk does not hold this App's uploads. (Follow mode inherits that
-    refusal from the artifact store itself.)
+    another pod, whose disk does not hold this App's uploads.
+
+    INVARIANT (#1603 review round 2, owner decision 2026-11-04): no blob store of its own →
+    None, and the blob routes answer 503 (`rest.blobs._store`) — the engine's shape for an
+    unconfigured optional dependency (the catalog, the community cache). Never the artifact store.
     """
     if settings.runner == "queue" and settings.blob_store == "filesystem":
         raise ValueError(
@@ -379,7 +386,11 @@ def _build_blob_store(settings: Settings) -> BlobStore:
             f"App's disk. Set {job_env.BLOB_STORE}=s3 and the {job_env.BLOB_S3_BUCKET} "
             f"settings, or use runner='none' for a single-process deployment."
         )
-    objects = blob_objects_from_values(_blob_values(settings))
+    try:
+        objects = blob_objects_from_values(_blob_values(settings))
+    except BlobStoreNotConfigured as exc:
+        _logger.warning("run blob store disabled: %s", exc)
+        return None
     policy = BlobPolicy(
         max_bytes=settings.blob_max_bytes,
         media_types=frozenset(t.strip().lower() for t in settings.blob_media_types),

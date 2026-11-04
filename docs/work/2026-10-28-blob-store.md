@@ -171,3 +171,70 @@ status: done (unblocked by owner decisions Q1(a) / Q2(a), 2026-11-03)
   `component: garage-blobs` on 3900 (and 3901 if listed) — in the PR body.
 - **Gates:** `run_gates.py screamingface-engine --base origin/main` ALL GREEN (two approved
   test transitions), `helm lint` green, `verify_chart_wiring.py` 140/140.
+
+## Review round 2 — HupBaHa CHANGES_REQUESTED on head 8f47715c9 (owner decisions 2026-11-04)
+
+status: done (item 1 unblocked by owner approval 2026-11-04)
+
+- **Intent:** close the three storage/security blockers, the two deployment blockers and the
+  concurrent-first-upload race from Dmitry's review.
+- **Owner decisions (Sergey, 2026-11-04):** (1) unset blob store → fail closed, follow mode
+  removed; (2) backend reads bounded at `max_bytes + 1`, S3 streamed, a small sidecar cap;
+  (3) closed sidecar schema → permanent typed corruption with `private, no-store`; (4) Helm:
+  external S3 with no credentials and no `existingSecret` fails render, App gets
+  `checksum/blob-secret`; (5) atomic first write so exactly one request returns 201.
+- **Planned changes:** `artifacts/blobs.py` (bounded reads, closed sidecar, atomic create,
+  `BlobCorrupted`), `artifacts/s3.py` (streamed capped GET, conditional PUT),
+  `artifacts/wiring.py` (no follow mode), `app.py`, Helm `deployment.yaml`, `_helpers.tpl` /
+  `secret-blob-storage.yaml`, `verify_chart_wiring.py`.
+- **Test plan:** new `tests/unit/test_blob_review_round2.py` — oversize data / sidecar on both
+  backends is typed corruption; S3 read never calls `.content` past the cap; sidecar with
+  extra key, wrong type, wrong size, `text/html`, truncated JSON → 500 `x.blob_digest_mismatch`
+  + `private, no-store`; signature checked on read; two concurrent first uploads → one 201;
+  S3 PUT of the sidecar carries `If-None-Match: *` and a 412 means "already held".
+- **Acceptance:** all of the above green; gates, `helm lint`, chart verifier green.
+
+### Outcome (review round 2) — BLOCKED on item 1
+
+- **Built (uncommitted, gates green vs merge-base 107de3281):** items 2, 3, 5 in
+  `artifacts/blobs.py` (`BoundedBlobObjects` port with `get_at_most` / `create`,
+  `_UnboundedObjects` adapter for put/get-only backends, `BlobCorrupted(BlobDigestMismatch)`,
+  `SIDECAR_MAX_BYTES = 1024`, closed sidecar schema, size + signature checked on read, corrupt
+  sidecar healed by a verified re-upload, create-exclusive first record) and `artifacts/s3.py`
+  (`get_object_at_most` streamed + capped, `put_object_if_absent` with signed
+  `If-None-Match: *`, `S3ObjectTooLarge`; the unbounded `get_object` removed); `rest/blobs.py`
+  maps ingest-side corruption to 500. Item 4: render fails for an external blob endpoint
+  without `existingSecret` or a full key pair; App pod carries `checksum/blob-secret`.
+  Tests: `test_blob_review_round2.py` (45 cases); verifier +4 checks (144/144).
+- **Garage probe (2026-11-04, dxflrs/garage:v2.3.0 in docker):** a conditional
+  `If-None-Match: *` PUT on an existing key answered 200 and overwrote — Garage ignores the
+  condition. Documented in `S3ArtifactStore.put_object_if_absent` and the Helm README.
+- **Stopped on item 1 (fail closed):** removing follow mode changes prior tests.
+  Startup failure breaks every `create_app` test without a blob store (hundreds). A typed 503
+  breaks 24 cases in 3 files: `test_blob_routes.py` (12, fixture `_app` sets no blob store; one,
+  `test_the_artifact_startup_sweep_also_ages_out_blobs`, pins blobs under `artifacts_dir`),
+  `test_blob_review_hardening.py` (7, same fixture), `test_blob_wiring.py` (3, env has no
+  `BLOB_STORE`; `test_s3_selection_builds_the_s3_backend` asserts the follow-the-artifact-bucket
+  behaviour itself).
+- **Also flag:** the verifier's existing check "an operator's own blob endpoint replaces the
+  bundled blob Garage" now renders with `existingSecret` set (its assertion unchanged), because
+  the item-4 fail refuses its old credential-less input.
+- **Main moved** (33 commits, none touching this branch's files); `run_gates --base origin/main`
+  reports main's own test changes until merged.
+
+### Review round 2, item 1: fail closed (owner approval 2026-11-04)
+
+- **Decision:** typed 503 from the blob routes — the engine's shape for an unconfigured optional
+  dependency (`rest.catalog`, `rest.cache_entries`); startup failure would have broken every
+  App built without a blob store. `artifacts.wiring.blob_objects_from_values` raises
+  `BlobStoreNotConfigured` when `URL4_CLOUD_BLOB_STORE` is unset/blank (follow mode deleted);
+  `create_app` logs it and leaves `app.state.blob_store = None`; `rest.blobs._store` answers
+  503 problem, `permanent: true`, no `Retry-After`, `private, no-store`; the Runner's
+  `blob_reader_from_env` raises `BlobStoreNotConfigured`.
+- **Tests:** 9 new cases in `test_blob_review_round2.py` (written after the code — TDD order
+  deviation). Approved prior-test changes recorded in
+  `.claude/test-change-approvals/OME-1540.json` `amendments[0]`: the two `_app` fixtures
+  (`blobs_dir` = the same tmp dir, so `test_corrupted_stored_bytes_are_500_digest_mismatch` and
+  the startup-sweep test needed no edit), `test_blob_wiring.py` `_env` + the s3 selection test
+  (asserts the separate blob bucket), the verifier's external-endpoint render
+  (`existingSecret`).

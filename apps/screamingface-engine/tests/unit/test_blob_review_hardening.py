@@ -74,6 +74,12 @@ def _app(tmp_path: Path, **overrides: object) -> FastAPI:
             "jwt_secret": SECRET,
             "iat_window_s": WINDOW_S,
             "artifacts_dir": str(tmp_path / "artifacts"),
+            # #1603 review round 2 (owner 2026-11-04): an unset blob store is OFF (503), so the
+            # route tests configure one. WHY the same tmp directory: these tests pin route
+            # behaviour and the on-disk layout below it; store separation is pinned in
+            # test_blob_storage_isolation.py.
+            "blob_store": "filesystem",
+            "blobs_dir": str(tmp_path / "artifacts"),
             **overrides,
         }
     )
