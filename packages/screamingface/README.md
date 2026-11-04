@@ -161,7 +161,8 @@ replayed_report = sf.evaluate(score.url4)
 `Url4.to_python()` is local and no-spend: it returns a `str` of Python source, not live objects —
 the `sf.Model`, `sf.Fusion`, `sf.Pipeline`, `sf.CorrectiveLoop`, or `sf.SelfCorrective` written
 back out as editable code, plus the recovered Benchmark call. Raw URL4 evaluation does not accept
-`benchmark=` or `limit=` because either would imply recompiling an already-complete expression.
+`benchmark=`, `limit=` or `cases=` because any of them would imply recompiling an
+already-complete expression.
 Replay starts a new, potentially paid Run; identical URL4 does not guarantee identical model
 output.
 
@@ -180,6 +181,17 @@ Benchmark IDs are flat, complete identities. Bounded development runs use `limit
 the named protocol: `benchmark="draco", limit=1` still uses canonical DRACO's full rubric and five
 Judge passes. The non-canonical HealthBench challenge is therefore named independently as
 `healthbench-worst30`, rather than presented as a canonical HealthBench variant.
+
+A run can also name a fixed list of Case ids instead of the first N: `sf.evaluate(model,
+benchmark="lab_bench_seqqa", cases=[3, 17, 42])`, where a Case id is the Case's position in the
+Benchmark, 1 to N. This is for a development set and a held-out set that are scattered rather
+than a prefix. The SDK posts the list to the Engine and refuses before any model call unless the
+Engine echoes exactly that list back, so an Engine without the selection route never runs and
+bills the whole Benchmark. `report.selected_cases` names the Cases scored, ascending, and
+`report.selection_fingerprint` is the `sha256:` of the sorted ids, to cite together with the
+Benchmark id and revision. A selected run can't be submitted to the leaderboard, `cases=` and
+`limit=` can't be combined, at most 1,000 ids are accepted, and a list equal to Cases 1 to N is
+the same run as `limit=N`.
 
 ### Candidate policy
 
@@ -1403,6 +1415,8 @@ login is asked for only then) unless `record_reproduction=False`.
 - `url4=` is optional; when passed it must be the same parsed recipe as the published one. A passed
   `answer_seed` must equal the captured run's; a run captured without a seed replays without one.
 - `limit=n` replays only the first n cases, for debugging. It is never judged or recorded.
+  `cases=` is refused on a replay: a replay runs the published Case set or its first n, never a
+  different list.
 - A capture that was never submitted replays with `url4=` (and `answer_seed=` if it had one) and
   has no verdict.
 - A replay that cannot start (a partial capture, or an Engine that does not replay) raises
