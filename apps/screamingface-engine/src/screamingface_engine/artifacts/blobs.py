@@ -402,21 +402,22 @@ class BlobStore:
         """
         bare = self._admit(sha256, media_type, body)
         key = f"{scope.key_prefix}/{sha256}"
-        existing, corrupt = self._existing(key, len(body))
+        existing, corrupt = self._existing(key, body)
         # WHY first-write-wins on the media type: a ref already handed out must not change type
         # under its holder. The data is rewritten anyway: it heals a corrupt copy and restarts
         # the TTL clock.
         # INVARIANT: data before metadata — a blob is readable only once both exist, so a crash
         # between the two leaves an unreadable orphan for the sweep, never a half-blob.
         self._backend.put(key, body)
-        if existing is not None:
-            # A repeat upload: rewrite the record too, so its TTL clock restarts with the data's.
-            self._backend.put(f"{key}.json", _sidecar(existing))
-            return existing, False
         blob = StoredBlob(sha256=sha256, size_bytes=len(body), media_type=bare)
-        if corrupt:
-            self._backend.put(f"{key}.json", _sidecar(blob))
-        elif not self._backend.create(f"{key}.json", _sidecar(blob)):
+        if existing is not None or corrupt:
+            # A repeat upload rewrites the record too, so its TTL clock restarts with the data's.
+            # A corrupt record is replaced by the verified upload's — corruption recovery, which
+            # repairs a blob the scope already held, so created=False (#1603 round 3, item 2).
+            kept = existing if existing is not None else blob
+            self._backend.put(f"{key}.json", _sidecar(kept))
+            return kept, False
+        if not self._backend.create(f"{key}.json", _sidecar(blob)):
             # Another upload of these bytes created the record between our check and our write.
             return self._meta(key, len(body)) or blob, False
         _logger.info("blob ingested digest=sha256:%s size=%d", sha256, len(body))
@@ -438,16 +439,38 @@ class BlobStore:
             raise BlobDigestMismatch(named, at="ingest")
         return bare
 
-    def _existing(self, key: str, size_bytes: int) -> tuple[StoredBlob | None, bool]:
-        """`(record, corrupt)` of what the scope already holds under `key`."""
+    def _existing(self, key: str, body: bytes) -> tuple[StoredBlob | None, bool]:
+        """`(record, corrupt)` of what the scope already holds under `key`.
+
+        INVARIANT (#1603 review round 3, item 2): a record is kept only when it agrees with the
+        upload just verified — its size, and with `verify_signature` the signature of its
+        recorded type. Anything else is corrupt, exactly as `read` would find it.
+        WHY the recorded type's SIGNATURE rather than equality with the new label: with
+        `verify_signature` the two are the same test (the upload passed its own type's
+        signature, and the five signatures are disjoint); without it, the store trusts labels
+        and keeps first-write-wins (`test_a_repeat_upload_keeps_the_first_media_type`).
+        """
         try:
-            return self._meta(key, size_bytes), False
+            found = self._meta(key, len(body))
         except BlobCorrupted as exc:
             # WHY heal: the upload's bytes were just verified (digest, cap, type, signature), so
             # a fresh record over a corrupt one restores the blob instead of leaving it
             # unreadable until the TTL sweep.
             _logger.warning("blob sidecar corrupt, rewriting it: %s", exc.reason)
             return None, True
+        if (
+            found is not None
+            and self._policy.verify_signature
+            and not _has_signature(found.media_type, body)
+        ):
+            _logger.warning(
+                "blob sidecar corrupt, rewriting it: digest=sha256:%s recorded type %r is not "
+                "the verified bytes' type",
+                found.sha256,
+                found.media_type,
+            )
+            return None, True
+        return found, False
 
     def read(self, scope: BlobScope, sha256: str) -> tuple[StoredBlob, bytes] | None:
         """The verified blob and its bytes, or None when absent, out of scope or malformed.

@@ -48,6 +48,10 @@ from url4.streaming.protocol.signals import ResultArtifact
 _ARTIFACT_ID = re.compile(r"^[0-9a-f]{64}$")
 _STREAM_CHUNK_BYTES = 64 * 1024
 _DEFAULT_TIMEOUT_S = 30.0
+# WHY 512: enough for the store's error XML to name its cause (`<Code>SlowDown</Code>`), and a
+# fixed cost however large a hostile store or proxy makes the body (#1603 review round 3).
+_ERROR_PREFIX_BYTES = 512
+_ERROR_DETAIL_CHARS = 200
 
 
 class S3ObjectTooLarge(Exception):
@@ -226,9 +230,14 @@ class S3ArtifactStore:
                 if r.status_code == 404:
                     return None
                 if r.status_code >= 400:
-                    r.read()
+                    # INVARIANT: a bounded prefix, never `r.read()` — the cap holds on errors too.
+                    prefix = b""
+                    for prefix in r.iter_bytes(_ERROR_PREFIX_BYTES):
+                        break
+                    r.close()
                     raise S3StorageError(
-                        f"object storage refused GET {key} with {r.status_code}: {r.text[:200]}"
+                        f"object storage refused GET {key} with {r.status_code}: "
+                        f"{_error_detail(prefix)}"
                     )
                 declared = r.headers.get("content-length", "")
                 if declared.isdigit() and int(declared) > max_bytes:
@@ -329,14 +338,25 @@ class S3ArtifactStore:
             async with self._async_client_factory() as client:
                 async with client.stream("GET", url, headers=headers) as response:
                     if response.status_code >= 400:
-                        await response.aread()
+                        # INVARIANT: a bounded prefix, never `aread()` (#1603 review round 3).
+                        prefix = b""
+                        async for prefix in response.aiter_bytes(_ERROR_PREFIX_BYTES):
+                            break
+                        await response.aclose()
                         raise S3StorageError(
-                            f"object storage refused GET {key} with {response.status_code}"
+                            f"object storage refused GET {key} with {response.status_code}: "
+                            f"{_error_detail(prefix)}"
                         )
                     async for chunk in response.aiter_bytes(_STREAM_CHUNK_BYTES):
                         yield chunk
         except httpx.HTTPError as exc:
             raise S3StorageError(f"GET {key} could not reach object storage: {exc}") from exc
+
+
+def _error_detail(prefix: bytes) -> str:
+    """The store's error text from a bounded body prefix; bad UTF-8 never raises."""
+    text = prefix[:_ERROR_PREFIX_BYTES].decode("utf-8", errors="replace")
+    return text[:_ERROR_DETAIL_CHARS]
 
 
 __all__ = ["S3ArtifactStore", "S3Config", "S3ObjectTooLarge", "S3StorageError"]
