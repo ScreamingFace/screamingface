@@ -17,7 +17,7 @@ const pipelineSig = `sf.Pipeline(
 )`
 
 const pipelineExample = `pipeline = sf.Pipeline(
-    ["openrouter/deepseek/deepseek-v4-pro", "openrouter/z-ai/glm-5.2"],
+    ["openrouter/deepseek/deepseek-v4-flash", "openrouter/z-ai/glm-5.2"],
 )
 report = sf.evaluate(pipeline, benchmark="medxpert", limit=1)`
 </script>
@@ -80,7 +80,7 @@ report = sf.evaluate(pipeline, benchmark="medxpert", limit=1)`
     </Note>
 
     <p>
-      Any recipe also has <code>.then(stage)</code>, which appends a stage and returns a Pipeline —
+      Any recipe also has <code>.then(stage)</code>, which appends a stage and returns a Pipeline;
       see <RouterLink to="/sf-client/api/recipes">Recipe</RouterLink>.
     </p>
 

@@ -24,7 +24,7 @@ print(line.to_python())`
     :version="version"
   >
     <p>
-      A <code>Url4</code> is the complete expression a candidate executed — you get it as
+      A <code>Url4</code> is the complete expression a candidate executed: you get it as
       <code>candidate.url4</code> and on every
       <RouterLink to="/sf-client/api/leaderboards">leaderboard entry</RouterLink>. It subclasses
       <code>str</code>, so every string operation works and it compares and serializes as its own
@@ -33,7 +33,7 @@ print(line.to_python())`
     </p>
 
     <Note>
-      Two things share the name. The lowercase <code>url4</code> is the protocol — a text grammar
+      Two things share the name. The lowercase <code>url4</code> is the protocol, a text grammar
       covered on the <RouterLink to="/learn/url4">url4 concept page</RouterLink>. <code>Url4</code>
       here is the Python value the Client hands back. The
       <RouterLink to="/sf-client/guides/reproduce-and-share"
@@ -66,7 +66,7 @@ print(line.to_python())`
 
     <p>
       You rarely build one by hand; when you do, <code>sf.Url4(value: str)</code> wraps a string.
-      Because it is a <code>str</code>, it prints, slices, and stores like any string —
+      Because it is a <code>str</code>, it prints, slices, and stores like any string;
       <code>to_python()</code> is the one extra affordance.
     </p>
 

@@ -19,7 +19,7 @@ const fusionSig = `sf.Fusion(
 )`
 
 const fusionExample = `fusion = sf.Fusion(
-    ["openrouter/deepseek/deepseek-v4-pro", "openrouter/z-ai/glm-5.2"],
+    ["openrouter/deepseek/deepseek-v4-flash", "openrouter/z-ai/glm-5.2"],
     synthesizer="openrouter/moonshotai/kimi-k3",
 )
 report = sf.evaluate(fusion, benchmark="medxpert", limit=1)`
