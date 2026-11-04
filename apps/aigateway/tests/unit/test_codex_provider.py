@@ -45,7 +45,7 @@ def test_codex_provider_creates_codex_oauth_strategy() -> None:
     strategy = plugin.oauth_strategy_for("default")
 
     assert isinstance(strategy, CodexOAuth)
-    assert strategy.profile_name == "default"
+    assert strategy.credential_name == "default"
 
 
 def test_models_route_includes_codex_models(authenticated_client) -> None:

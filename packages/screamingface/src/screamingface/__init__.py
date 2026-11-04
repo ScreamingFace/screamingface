@@ -11,11 +11,13 @@ from screamingface import (
     reports,
 )
 from screamingface._default_client import (
+    classify,
     close,
     configure,
     connect,
     disconnect,
     evaluate,
+    fetch_media,
 )
 from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._samples import samples
@@ -24,6 +26,7 @@ from screamingface._ui.connections import ConnectionPanel
 from screamingface._version import resolve_version
 from screamingface.answer import Answer
 from screamingface.blocks import Extract, Reduce, matches
+from screamingface.classification import Classification, LabelScore
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
@@ -42,6 +45,7 @@ from screamingface.errors import (
     EngineUnavailableError,
     ExecutionError,
     LeaderboardError,
+    MediaUnavailableError,
     PlanningError,
     ProviderConnectionError,
     ReproductionError,
@@ -60,11 +64,12 @@ from screamingface.leaderboard import (
     LeaderboardScore,
     ScoreMetadataEvent,
 )
+from screamingface.media import CaseMedia, FetchedMedia
 from screamingface.model import Model
 from screamingface.operation import OperationInfo
 from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
-from screamingface.reducer import Median, Vote
+from screamingface.reducer import Mean, Median, Vote
 from screamingface.report import (
     CandidateResult,
     CaseGrade,
@@ -90,6 +95,12 @@ from screamingface.warnings import (
 # The installed distribution's version, resolved once at import — see `_version.py`.
 __version__ = resolve_version()
 
+# FEATURE: default-on analytics with best-effort disclosure and explicit opt-out.
+from screamingface._analytics.prompt import offer as _offer_analytics
+
+_offer_analytics()
+del _offer_analytics
+
 __all__ = [
     "analytics",
     "__version__",
@@ -100,9 +111,12 @@ __all__ = [
     "Benchmark",
     "BenchmarkInfo",
     "CaseGrade",
+    "CaseMedia",
     "CaseResult",
     "CandidateResult",
     "Check",
+    "Classification",
+    "classify",
     "Client",
     "Concat",
     "Connection",
@@ -124,13 +138,16 @@ __all__ = [
     "Extract",
     "EvaluationWarning",
     "evaluate",
+    "fetch_media",
     "samples",
     "Failure",
+    "FetchedMedia",
     "FieldRule",
     "Filter",
     "FixedSeedSittingWarning",
     "Fusion",
     "Judge",
+    "LabelScore",
     "Leaderboard",
     "LeaderboardBaseline",
     "LeaderboardEntry",
@@ -139,7 +156,9 @@ __all__ = [
     "LeaderboardRankingNotice",
     "LeaderboardScore",
     "matches",
+    "MediaUnavailableError",
     "MemberResult",
+    "Mean",
     "Median",
     "Merge",
     "Model",

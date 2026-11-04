@@ -1,8 +1,8 @@
 ---
 ticket: OME-1138
-status: draft   # adapter-first revision; D2 REMOVE retained; execution approval remains separate
+status: implemented   # Stages A-E merged, the last (E5c, #1596) on 2026-10-29; the close-out leaves of the 2026-10-29 review are tracked separately, so OME-1138 stays open
 created: 2026-09-09
-updated: 2026-10-05
+updated: 2026-10-29
 base: 17048f5d9794dc39401352cc049dc1b17a54f7c0
 catalog: screamingface-design 679aa8f (branch OME-1178-add-the-aigateway-metamodel, PR #18); generator inputs 802bed9a
 revises: 2026-09-10 revision (Connection-first ordering; its verified content is retained below)
@@ -159,7 +159,12 @@ URL, authorization, dispatch failure), `profile_defaults.py` (legacy-defaults re
    mutation. The Profile-backed implementation reproduces the Engine aggregation exactly
    (authenticated > pending > error; Connection-only accounts show `not_connected`; `needs_reauth`
    never emitted in the window), proven by golden-equivalence tests at A3; folding Connections in
-   is a later flagged behaviour change.
+   is a later flagged behaviour change. Folded in on 2026-10-29
+   (`docs/spec/2026-10-29-availability-fold-in.md`): a pair its marker's effective reference does
+   not serve lists by the default resolve's label rule, and an ambiguous pair lists `error`. A
+   `quarantined` pair and a provider declaring only the `none` auth mode still list
+   `not_connected`. The change ships without a runtime flag; rolling back the image restores the
+   old listing.
 
 `ProviderCredentialAdmin` (mutations, `app.state.provider_credential_admin`):
 

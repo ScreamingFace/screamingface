@@ -114,6 +114,17 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1327: the two LAB-Bench picture subsets, imported once a Case could carry a picture.
     "lab_bench_figqa": "7376109d25378310",
     "lab_bench_tableqa": "9990079555f06a35",
+    # OME-1477: MMMU's multiple-choice task, the first picture Benchmark from a whole exam.
+    "mmmu_multiple_choice": "5b008891134ef4c1",
+    # OME-1479: MathVista, maths over pictures, the last of the four picture Benchmarks.
+    "mathvista": "ca4cd0f692d18f0e",
+    # OME-1477 PR 2: MMMU's open-answer task, judged once the judge read inspect's question.
+    "mmmu_open": "8ce88e420239ae4d",
+    # OME-1478: Humanity's Last Exam, the full set with its pictures, judged by glm-5.3-flash.
+    "hle": "d30effc2a0698079",
+    # OME-1733: LABBench2 FigQA2 and TableQA2 image, a local Task judged by Sonnet 4.5.
+    "labbench2_figqa2_img": "770667413b4b1e51",
+    "labbench2_tableqa2_img": "742c148e87b15f69",
     "frontierscience": "826050de44778515",
     "pubmedqa": "15e20f21d0a78fd9",
     "xstest_unsafe": "fad9dd3ebabd84a5",

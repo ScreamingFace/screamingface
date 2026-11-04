@@ -10,6 +10,7 @@ from typing import Literal, cast
 
 from screamingface._catalogue_vocabulary import INVERTED_GRADE_KEY, SCORES_KEY
 from screamingface._core.ports import _RunOutcome
+from screamingface._evaluation.case_selection import graded_positions
 from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface._evaluation.model import Candidate, _compiled_evaluation, _Evaluation
 from screamingface._evaluation.operation_accounting import decode_operation_accounting
@@ -41,7 +42,7 @@ from screamingface.warnings import EvaluationWarning
 
 
 def _warn_if_not_captured(report: Report) -> None:
-    """Tell the caller of a capturing run (the default) about each uncaptured Candidate.
+    """Tell the caller of a capturing run (`capture=True`) about each uncaptured Candidate.
 
     FEATURE (OME-1307): an Engine that ignores `X-Capture` runs the Candidate normally, and its
     summary has no `capture.status`. The result keeps `frozen_copy_id` and `capture_status` as
@@ -317,9 +318,36 @@ def _candidate_components(
     cases = _cases(_required(value, "cases", "Candidate result"))
     if len(cases) != evaluation.case_count:
         raise ExecutionError("SF Engine Candidate result has the wrong number of Cases")
+    _selected_roll_call(cases, evaluation.selected_cases, candidate)
     failures = _failures(_required(value, "failures", "Candidate result"), "Candidate failures")
     scores = _wire_scores(value.get(SCORES_KEY), "Candidate")
     return score, coverage, metrics, cases, failures, scores
+
+
+def _selected_roll_call(
+    cases: Sequence[CaseResult], requested: tuple[int, ...] | None, candidate: Candidate
+) -> None:
+    """Refuse a Candidate whose graded Cases are not the Case ids the run asked for (OME-1739, F6).
+
+    INVARIANT: no score is reported for a Case set nobody asked for. The echo check refused a
+    recipe for other Cases before the run; this checks what the Engine actually graded.
+    WHY per Candidate, not on the finished Report (review on #1653): a sibling's failure raises
+    `candidates_failed` with a Partial Report of the Candidates that decoded, so a check that
+    ran only on the finished Report would let a Candidate graded on other Cases reach the caller
+    inside that Partial Report. Here the mismatch is a decode failure of this Candidate alone.
+    WHY ExecutionError: the money is spent by the time a result body exists.
+    """
+
+    if requested is None:
+        return
+    graded: list[CaseId] = [case.case_id for case in cases]
+    if graded_positions(graded) != requested:
+        raise ExecutionError(
+            f"The SF Engine graded Cases {graded} for Candidate {candidate.name!r}, "
+            f"not the requested {list(requested)}; no score is reported",
+            code="engine_contract_error",
+            permanent=True,
+        )
 
 
 def _wire_scores(value: object, label: str) -> dict[str, float | None]:

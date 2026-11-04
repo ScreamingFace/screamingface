@@ -2,12 +2,11 @@
 
 Credentials come from ONE place: the ``core.provider_access`` port (OME-1207, A2 of
 OME-1138). This route resolves a ``CredentialTarget``, derives the auth mode and authorizes
-through that port; it never touches a legacy Profile row, a Connection row or the profile
-index. Its typed refusals become HTTP through the single edge table in
-``provider_access_http``.
+through that port; it never reads a Connection row or a pair marker itself. Its typed refusals
+become HTTP through the single edge table in ``provider_access_http``.
 
 INVARIANT (OME-1323, D2): request parameters are the caller's. The route reads no stored
-Profile defaults and merges nothing into the body — system instructions arrive as
+defaults and merges nothing into the body — system instructions arrive as
 system-role messages — so the cache key and the dispatch both describe exactly what the
 caller sent.
 
@@ -42,6 +41,7 @@ from litellm.exceptions import (
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.auth_types import AuthMode
+from ..core.content_parts import check_input_modalities
 from ..core.credential_blob import DispatchObservation
 from ..core.endpoint_access import EndpointOperation, permits
 from ..core.frozen_copy.headers import (
@@ -61,6 +61,7 @@ from ..core.frozen_copy.store import (
     log_capture_failure,
 )
 from ..core.media_intake import refuse_remote_media
+from ..core.model_capabilities import routed_model_modality_evidence
 from ..core.parameter_projection import (
     IncompatibleParametersError,
     UnsupportedParametersError,
@@ -130,7 +131,8 @@ async def _resolve_credential_target(
     # INVARIANT (hosted BYOM): this runs only on a cache miss or bypass, which needs a NEW
     # upstream call, so the endpoint grant is checked here, before any credential is resolved.
     # A hit is served earlier to every account: the shared cache has no grant gate. A denial
-    # answers exactly as an unknown provider.
+    # answers with the unknown-provider refusal; with the cache on, a denied miss still reports
+    # `miss`, since the lookup ran first, and published cache entries name the endpoint anyway.
     """
     if not permits(app, provider, account_id=account_id, operation=EndpointOperation.INVOKE):
         raise HTTPException(status_code=400, detail=f"unknown provider: {provider}")
@@ -166,7 +168,6 @@ async def _dispatch_and_finalize_accounting(
     body: dict[str, Any],
     accounting: Any,
     account_id: str,
-    profile_name: str,
     target: CredentialTarget,
     observation: DispatchObservation | None = None,
 ) -> Any:
@@ -196,7 +197,6 @@ async def _dispatch_and_finalize_accounting(
             plugin=plugin,
             provider=provider,
             account_id=account_id,
-            profile_name=profile_name,
             target=target,
             observation=observation,
         ) from None
@@ -224,7 +224,6 @@ async def _dispatch_and_finalize_accounting(
             plugin=plugin,
             provider=provider,
             account_id=account_id,
-            profile_name=profile_name,
             target=target,
             observation=observation,
             error_type=type(exc).__name__,
@@ -251,7 +250,6 @@ async def _dispatch_and_finalize_accounting(
             plugin=plugin,
             provider=provider,
             account_id=account_id,
-            profile_name=profile_name,
             target=target,
             observation=observation,
             error_type=error_type,
@@ -270,7 +268,6 @@ async def _dispatch_and_finalize_accounting(
         plugin=plugin,
         provider=provider,
         account_id=account_id,
-        profile_name=profile_name,
         target=target,
         observation=observation,
     )
@@ -461,6 +458,18 @@ def _admit_media(
         )
         # The provider's own slot rules (Anthropic's top-level `system`), at the same boundary.
         plugin.refuse_inadmissible_media(body)
+        # OME-1807: the modality backstop — a part the routed model is PUBLISHED not to take is
+        # refused here, before a paid upstream call. Unknown passes (owner decision A).
+        check_input_modalities(
+            body.get("messages") or [],
+            provider=provider,
+            modalities=routed_model_modality_evidence(
+                plugin,
+                str(body.get("model", "")),
+                catalog=getattr(request.app.state, "model_catalog", None),
+                admitted=getattr(request.app.state, "admitted_models", {}),
+            ),
+        )
     except HTTPException:
         if not streaming:
             begin_accounting(request, plugin=plugin, provider=provider, model=body.get("model", ""))
@@ -569,14 +578,13 @@ async def chat_completions(request: Request, response: Response, current: Curren
     # and no OAuth connection has been resolved at this point, and a hit returns
     # without resolving any of them. That is what lets one stored response serve every
     # caller who sends the identical request — including one whose provider is not
-    # connected, or whose profile is PENDING or ERRORED.
+    # connected, or whose Connection is pending or errored.
     #
     # OME-1323 (D2) retired the OME-305 §57 pre-cache read of stored Profile defaults: the
-    # key covers the caller's hardened body and nothing else, so no profile index is read
-    # here and a hit decrypts nothing at all.
-    # AIDEV-NOTE: availability change — an unreadable profile index no longer forces a
-    # cache bypass, since nothing here reads it. It can still fail credential resolution
-    # on a miss (Stage 2).
+    # key covers the caller's hardened body and nothing else, so no Connection, pair marker
+    # or credential is read here and a hit decrypts nothing at all.
+    # WHY: an unreadable Connection or marker store therefore never forces a cache bypass.
+    # It can still fail credential resolution on a miss (Stage 2).
     # INVARIANT: this ONE body feeds both the key and the dispatch, so the two cannot
     # describe different requests.
     account_id = str(current.id)
@@ -746,7 +754,6 @@ async def chat_completions(request: Request, response: Response, current: Curren
             body=body,
             accounting=accounting,
             account_id=account_id,
-            profile_name=selector.name,
             target=target,
             observation=observation,
         )
@@ -762,7 +769,11 @@ async def chat_completions(request: Request, response: Response, current: Curren
         write_status = None
         if cache_outcome.should_store:
             write_status = await store_global_response(
-                request, outcome=cache_outcome, result=result, accounting=accounting
+                request,
+                outcome=cache_outcome,
+                result=result,
+                dispatch_body=body,
+                accounting=accounting,
             )
         set_global_cache_headers(response, cache_outcome, write_status=write_status)
         # OME-303 INVARIANT (§6): metadata is attached to a COPY, and STRICTLY AFTER the

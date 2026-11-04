@@ -26,6 +26,7 @@ from aigateway.core.oauth.schemas import (
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
+    list_row_from_connection,
     response_from_connection,
 )
 from aigateway.core.oauth.token_service import (
@@ -43,6 +44,7 @@ from aigateway.core.provider_access import (
     credential_has_other_owner,
     credential_name_of,
     effective_to_replace,
+    flagged_connections,
     guard_refresh,
     lock_lower_addressers,
     replaced_label,
@@ -70,10 +72,17 @@ async def list_connections(
     provider: str | None = None,
     status: str | None = None,
 ) -> OAuthConnectionListResponse:
-    store = _store(request)
-    connections = await store.list(str(current.id), provider=provider, status=status)
+    # FEATURE: OME-1138 close-out, L7a — each row says whether it is the one chat uses; the rule
+    # and the filters live in the core (`flagged_connections`).
+    with refusals_as_http():
+        listed = await flagged_connections(
+            request.app, str(current.id), provider=provider, status=status
+        )
     return OAuthConnectionListResponse(
-        connections=[response_from_connection(connection) for connection in connections]
+        connections=[
+            list_row_from_connection(connection, effective=effective)
+            for connection, effective in listed
+        ]
     )
 
 
@@ -93,7 +102,11 @@ async def start_connection_oauth(
     request: Request,
     current: CurrentAccount,
 ) -> StartOAuthConnectionResponse:
-    plugin = request.app.state.providers.get(body.provider)
+    # WHY VIEW: a provider this account may not see must answer as unregistered here too, not
+    # with the "does not use OAuth" refusal that would confirm it is configured.
+    plugin = accessible_plugin(
+        request.app, body.provider, account_id=str(current.id), operation=EndpointOperation.VIEW
+    )
     if plugin is None:
         raise HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": body.provider}
@@ -117,8 +130,8 @@ async def start_connection_oauth(
             request, body.provider, cfg, state, body.redirect_uri
         )
     store = _store(request)
-    # FEATURE (OME-1497, G0): the start is an ownership change on a legacy-owned pair; its
-    # callback claims the pair this start published.
+    # FEATURE (OME-1497, G0): the start is an ownership change on a `none` or unmarked pair, which
+    # its Connections own; its callback claims the pair this start published.
     observed = await PairAuthorityStore().read(account_id, body.provider)
     # FEATURE (OME-1209, E1b, R6): on a migrated pair this flow may replace the effective row.
     replaces_effective = await effective_to_replace(observed, requested_label=body.label)
@@ -170,7 +183,7 @@ async def start_connection_oauth(
         PendingAuthEntry(
             account_id=account_id,
             provider=body.provider,
-            profile_name=label,
+            fallback_label=label,
             code_verifier=code_verifier,
             redirect_uri=redirect_uri,
             connection_id=str(connection_id),
@@ -395,7 +408,7 @@ async def _replace_api_key(
                 "message": "Connection changed during API-key validation",
             },
         )
-    # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed here, after the validation.
+    # INVARIANT (OME-1497, G0): a `none` or unmarked pair is claimed here, after the validation.
     await claim_for_connection(latest_connection)
     # INVARIANT (D14, S2'b4): a migrated pair's effective row fences the pair FIRST (marker),
     # then the row, then the blob — a no-op otherwise.
@@ -464,7 +477,7 @@ async def _delete_connection(
     connection = await store.get(account_id, connection_id)
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
-    # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed FIRST (marker → row → blob).
+    # INVARIANT (OME-1497, G0): a `none` or unmarked pair is claimed FIRST (marker → row → blob).
     await claim_for_connection(connection)
     # INVARIANT (D14, S2'b4): a migrated pair's effective row retires the pair FIRST — marker
     # (effective → None) — before the row and the blob; no-op otherwise.

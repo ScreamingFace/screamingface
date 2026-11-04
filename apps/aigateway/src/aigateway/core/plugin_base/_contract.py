@@ -93,9 +93,9 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         never creates or enables one.
 
         ``auth_type=None`` requests every rule the provider owns for the model
-        and is used SOLELY to derive the conservative profile-independent
+        and is used SOLELY to derive the conservative caller-independent
         summary; it must never be read as permission for every auth mode. A
-        concrete auth mode filters rules for the profile-bound detailed
+        concrete auth mode filters rules for the caller-bound detailed
         contract and for dispatch.
         """
         return ()
@@ -362,13 +362,30 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         INVARIANT: unknown is text-only — never vision. Core normalizes whatever this
         returns onto the closed vocabulary, so an override cannot publish a word
         outside it or drop ``text``.
+
+        WHY the gateway backstop doesn't refuse on this: for an unknown model the
+        ``("text",)`` here is a listing default, not admission evidence (owner ruling
+        2026-11-03, OME-1807). Engine admission reads this list and is the strict,
+        fail-closed check; the gateway refuses only on
+        ``model_input_modality_evidence``.
         """
-        if entry.input_modalities is not None:
-            return entry.input_modalities
-        return TEXT_ONLY
+        evidence = self.model_input_modality_evidence(entry)
+        return evidence if evidence is not None else TEXT_ONLY
+
+    def model_input_modality_evidence(self, entry: ModelEntry) -> tuple[str, ...] | None:
+        """The inputs this model is PUBLISHED to take, or ``None`` when nothing is known.
+
+        FEATURE: the chat modality backstop (OME-1807) refuses a media part only on this
+        evidence; ``None`` admits the request as before (owner decision, 2026-11-02).
+        ``model_input_modalities`` publishes the same answer with unknown as text-only.
+
+        Default: the entry's discovered evidence (a catalogue field). A provider with a
+        reviewed per-family table overrides this and returns ``None`` outside the table.
+        """
+        return entry.input_modalities
 
     def available_auth_modes(self) -> tuple[AuthMode, ...]:
-        """Auth modes a client could use with this provider (profile-independent).
+        """Auth modes a client could use with this provider (caller-independent).
 
         Drives the conservative summary intersection on ``/v1/models``. Derived
         from declared capability: api-key iff ``supports_api_key()``, oauth iff

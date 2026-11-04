@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 class PendingAuthEntry:
     account_id: str
     provider: str
-    profile_name: str
+    fallback_label: str
     code_verifier: str
     redirect_uri: str
     # INVARIANT (OME-1209 E3b): every pending flow is a native Connection flow — the start

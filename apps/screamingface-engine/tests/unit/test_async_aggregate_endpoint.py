@@ -26,7 +26,7 @@ async def test_async_aggregate_awaits_in_callers_task():
     endpoint = async_aggregate_endpoint(
         label="Example", available_case_count=2, aggregate=aggregate
     )
-    assert json.loads(await endpoint(_request())) == {"rows": [{"case_id": 1}], "count": 2}
+    assert json.loads(await endpoint(_request())) == {"rows": [{"case_id": 1}], "count": [1, 2]}
 
 
 @pytest.mark.asyncio

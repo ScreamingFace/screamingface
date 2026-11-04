@@ -6,8 +6,6 @@
 # Stage E, E4a deleted the Profile-backed one without touching a route.
 # INVARIANT (hexagonal): core defines the port; nothing in this package imports a route or a
 # plugin. THIS module is the public surface — import from here, never from a half.
-# WHY the backfill is not re-exported (OME-1209 E4b): it reads the legacy Profile index, which is
-# offline-only until E5, so importing the app must not load it; the CLI imports its modules.
 """
 
 from __future__ import annotations
@@ -21,6 +19,12 @@ from .auth_mode import (
     contract_auth_mode,
     credentialless_auth_mode,
     provider_name_of,
+)
+from .connection_authorize import (
+    apply_authorization,
+    invalidate_session,
+    oauth_connection_store,
+    reauth_url_for,
 )
 from .connection_backed import (
     ConnectionBackedProviderAccess,
@@ -42,6 +46,7 @@ from .connection_native import (
     retire_replaced,
     take_over_effective,
 )
+from .effective_connection import effective_connection_ids, flagged_connections
 from .pair_admin import (
     CredentialState,
     PairConflict,
@@ -61,14 +66,8 @@ from .pair_authority import (
     PairAuthorityStore,
 )
 from .ports import ProviderAccess, ProviderOperationalAccess
-from .profile_authorize import (
-    apply_authorization,
-    invalidate_session,
-    oauth_connection_store,
-    reauth_url_for,
-)
 from .refresh_guard import ConnectionRefreshOwner, guard_refresh
-from .selector import DEFAULT_SELECTOR_NAME, Selector, SelectorPolicy
+from .selector import DEFAULT_SELECTOR_NAME, Selector
 from .targets import context_stamp
 from .types import (
     Authorization,
@@ -83,7 +82,6 @@ from .types import (
     ProviderUnknown,
     ResolvePolicy,
     SelectorAmbiguous,
-    SelectorUnknown,
     SelectorUnsupported,
     TargetKind,
     TargetMissing,
@@ -124,8 +122,6 @@ __all__ = [
     "ResolvePolicy",
     "Selector",
     "SelectorAmbiguous",
-    "SelectorPolicy",
-    "SelectorUnknown",
     "SelectorUnsupported",
     "TargetKind",
     "TargetMissing",
@@ -152,8 +148,10 @@ __all__ = [
     "lock_lower_addressers",
     "credential_name_of",
     "effective_pair_of",
+    "effective_connection_ids",
     "effective_to_replace",
     "fences_writer",
+    "flagged_connections",
     "guard_refresh",
     "invalidate_session",
     "oauth_connection_store",

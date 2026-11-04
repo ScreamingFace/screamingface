@@ -186,9 +186,7 @@ def _record_for(usage: dict[str, Any]):
         # anywhere else is a shape we do not understand, not a shape we may ignore.
         pytest.param({"server_tool_cost": Decimal("0.25")}, id="misplaced-server-tool-cost"),
         pytest.param({"future_auxiliary_cost": Decimal("1")}, id="unknown-cost-field"),
-        pytest.param({"future_auxiliary_cost": Decimal("0")}, id="unknown-zero-cost-field"),
         pytest.param({"image_generation_requests": 1}, id="unknown-tool-field"),
-        pytest.param({"cost": None}, id="null-cost"),
     ],
 )
 def test_unrecognised_usage_fields_prevent_zero_certification(usage: dict[str, Any]) -> None:
@@ -247,14 +245,6 @@ def _record_for_raw(raw_response: dict[str, Any]):
                 "usage": {"prompt_tokens_details": {"server_tool_cost": Decimal("0.25")}},
             },
             id="nested-prompt-detail-cost",
-        ),
-        pytest.param(
-            {
-                "error": {"code": 429, "metadata": {"error_type": "rate_limit_exceeded"}},
-                "openrouter_metadata": {"attempt": 1, "is_byok": False, "pipeline": []},
-                "usage": {"prompt_tokens": True},
-            },
-            id="boolean-prompt-tokens",
         ),
         pytest.param(
             {

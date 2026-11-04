@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from provider_access_harness import PROVIDER, ProfileBackedHarness
+from provider_access_harness import PROVIDER, RealAppHarness
 
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
@@ -28,16 +28,16 @@ UNKNOWN = "gone-plugin"
 
 
 @pytest.fixture
-def harness(authenticated_client, credential_blobs, monkeypatch) -> ProfileBackedHarness:
-    return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+def harness(authenticated_client, credential_blobs, monkeypatch) -> RealAppHarness:
+    return RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
-def _inventory(harness: ProfileBackedHarness) -> PairInventory:
+def _inventory(harness: RealAppHarness) -> PairInventory:
     return harness.call(pair_inventory, harness.client.app, harness.account_id)
 
 
 def _mark(
-    harness: ProfileBackedHarness,
+    harness: RealAppHarness,
     provider: str,
     state: MigrationState,
     *,
@@ -57,7 +57,7 @@ def _mark(
 
 
 def _unknown_connection(
-    harness: ProfileBackedHarness,
+    harness: RealAppHarness,
     *,
     locator: dict[str, str] | None = None,
 ) -> str:
@@ -75,11 +75,22 @@ def _unknown_connection(
 
 
 def test_an_unknown_quarantined_pair_is_never_hidden_as_empty(harness) -> None:
-    _mark(harness, UNKNOWN, "quarantined")
+    # WHY a raw row: no writer publishes the retired `quarantined` state since the OME-1138
+    # close-out (L4a); an install may still hold one, and it is refused, never listed as empty.
+    async def plant() -> None:
+        await ProviderCredentialSlot.create(
+            account_id=UUID(harness.account_id),
+            provider=UNKNOWN,
+            generation=1,
+            migration_state="quarantined",
+        )
 
-    assert _inventory(harness) == PairInventory(
-        credentials=(), conflicts=(PairConflict(UNKNOWN, "unresolved"),)
-    )
+    harness.call(plant)
+
+    with pytest.raises(CredentialAuthorityUnavailable) as refused:
+        _inventory(harness)
+
+    assert refused.value.provider == UNKNOWN
 
 
 def test_an_unknown_migrated_pair_with_a_dangling_reference_is_unavailable(harness) -> None:

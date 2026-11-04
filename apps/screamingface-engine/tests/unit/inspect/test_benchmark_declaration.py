@@ -195,6 +195,22 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # OME-1327: the two LAB-Bench picture subsets; the best models now pass 0.83 to 0.89.
         "inspect-lab_bench_figqa": ("withhold", "single_shot", "medium"),
         "inspect-lab_bench_tableqa": ("withhold", "single_shot", "medium"),
+        # OME-1477: MMMU's multiple-choice task, college exams with pictures; the best
+        # lab-reported scores sit inside the human-expert range, so not hard.
+        "inspect-mmmu_multiple_choice": ("withhold", "single_shot", "medium"),
+        # OME-1479: MathVista, maths over pictures; the best lab-reported score, 0.903, makes
+        # the catalogue say "saturated", but the field (0.80 to 0.90) and the strict exact-match
+        # grading keep the tier "medium".
+        "inspect-mathvista": ("withhold", "single_shot", "medium"),
+        # OME-1477 PR 2: MMMU's open-answer task, the same exam pool and tier, LLM-judged.
+        "inspect-mmmu_open": ("withhold", "single_shot", "medium"),
+        # OME-1478: Humanity's Last Exam, the full set with its pictures, LLM-judged; the best
+        # lab-published no-tools score is under half, so "hard".
+        "inspect-hle": ("withhold", "single_shot", "hard"),
+        # OME-1733: LABBench2 FigQA2 image, a local Task, LLM-judged; the best no-tools score in
+        # the paper is 0.614, so "hard". TableQA2 image reads at 0.94 there, so "easy".
+        "labbench2_figqa2_img": ("withhold", "single_shot", "hard"),
+        "labbench2_tableqa2_img": ("withhold", "single_shot", "easy"),
         # OME-1269: Thai grade-12 national benchmark MCQ, the first question-filter benchmark.
         "inspect-onet_m6": ("withhold", "single_shot", "medium"),
         # OME-1269: biomedical yes/no/maybe MCQ over a given abstract (question filter).

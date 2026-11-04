@@ -64,9 +64,10 @@ def build_global_cache_plan(
 ) -> GlobalCacheDecision:
     """The global cache plan for a hardened caller request.
 
-    ``body`` is the request after JSON shape validation, dispatch-control stripping,
-    cache-control removal and the body-wins profile-default merge, and before auth-mode
-    resolution, the auth-specific classifier, ``prepare_chat_body`` and credential injection.
+    ``body`` is the request after JSON shape validation, dispatch-control stripping and
+    cache-control removal (no stored default is merged into it; OME-1323, D2), and before
+    auth-mode resolution, the auth-specific classifier, ``prepare_chat_body`` and credential
+    injection.
 
     WHY the operator gate is checked FIRST: when the cache is off, nothing about
     the request can change the answer, and reporting the caller's opt-out or an

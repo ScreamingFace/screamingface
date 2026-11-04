@@ -23,6 +23,7 @@ from screamingface._engine.identity import engine_headers
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
+    from contextlib import AbstractContextManager
     from uuid import UUID
 
     import httpx
@@ -32,8 +33,10 @@ if TYPE_CHECKING:
     from screamingface._engine.connections import AsyncConnections, Connections
     from screamingface._scoreboard.leaderboards import AsyncLeaderboards, Leaderboards
     from screamingface._ui.connections import ConnectionPanel
+    from screamingface.classification import Classification
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
     from screamingface.events import Event
+    from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
 from screamingface._evaluation.model import _answer_seed_value
 from screamingface.report import Report
@@ -222,7 +225,7 @@ class Client:
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -233,10 +236,11 @@ class Client:
         *,
         benchmark: str,
         limit: int | None = None,
+        cases: Sequence[int] | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -277,6 +281,7 @@ class Client:
         *,
         benchmark: str | None = None,
         limit: int | None = None,
+        cases: Sequence[int] | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
@@ -294,14 +299,19 @@ class Client:
         `CandidateResult.reproduction`. An exact replay is recorded on the Scoreboard unless
         `record_reproduction=False`. A replay that cannot start raises `sf.ReproductionError`.
 
-        `capture` is on by default: the Engine stores every model and web-tool result of each run
-        in a pinned cache (`CandidateResult.pinned_cache`), so the score can be reproduced later.
-        `capture=False` turns it off. An Engine that did not capture a run is reported with an
-        `EvaluationWarning`.
+        `capture` is off by default. `capture=True` makes the Engine store every model and
+        web-tool result of each run in a pinned cache (`CandidateResult.pinned_cache`), so the
+        score can be reproduced later. An Engine that did not capture a run it was asked to
+        capture is reported with an `EvaluationWarning`.
 
         `use_cache` is on by default: every model call may be answered from the request cache.
         `use_cache=False` opts this evaluation out (the calls are made fresh, and the report shows
         them as cache `bypass` / `opted_out`).
+
+        `cases=[3, 17, 42]` runs only those Case ids (a Case's position in the Benchmark, 1 to N)
+        instead of `limit=`'s first N, e.g. a development or held-out set. The Report names them in
+        `selected_cases` and `selection_fingerprint`; such a run can't be submitted to the
+        leaderboard. At most 1,000 ids.
         """
 
         from screamingface._evaluation.runner import evaluate_sync
@@ -313,6 +323,7 @@ class Client:
                 candidates=candidates,
                 benchmark=benchmark,
                 limit=limit,
+                cases=cases,
                 capture=capture,
                 pinned_cache=pinned_cache,
                 score_id=score_id,
@@ -323,13 +334,13 @@ class Client:
                 progress=progress,
             )
         candidates = _evaluation_candidates(candidates, url4, record_reproduction)
-        capture = True if capture is None else capture
+        capture = bool(capture)
         # FEATURE (OME-1193): validate the declared sitting at the door — a bad seed must
         # fail before any token is minted or run scheduled.
         selected_seed = _answer_seed_value(answer_seed)
         _use_cache_value(use_cache)
         if isinstance(candidates, str):
-            _raw_url4_options(benchmark, limit)
+            _raw_url4_options(benchmark, limit, cases)
             return evaluate_url4_sync(
                 self._transport,
                 candidates,
@@ -356,6 +367,7 @@ class Client:
             capture=capture,
             use_cache=use_cache,
             load_operators=self._operator_catalog.load,
+            cases=cases,
         )
 
     def _evaluate_replay(
@@ -365,6 +377,7 @@ class Client:
         benchmark: str | None,
         limit: int | None,
         capture: bool | None,
+        cases: object = None,
         pinned_cache: str | None,
         score_id: UUID | str | None,
         url4: str | None,
@@ -376,7 +389,7 @@ class Client:
         from screamingface._replay import replay_sync
 
         self._require_open()
-        _replay_options(candidates, benchmark, capture)
+        _replay_options(candidates, benchmark, capture, cases)
         return replay_sync(
             self,
             pinned_cache=pinned_cache,
@@ -455,9 +468,62 @@ class Client:
     ) -> None:
         self.close()
 
+    def fetch_media(self, media: CaseMedia) -> FetchedMedia:
+        """Fetch one picture or file of a Case from this engine, checked against its placeholder.
+
+        FEATURE (OME-1271): ``case.media`` lists a Case's pictures and files without fetching
+        them; this opens one. A local engine drops parked pictures after a while (48 hours by
+        default). e.g. ``client.fetch_media(case.media[0])`` shows the figure inline in
+        Jupyter, and ``.save("figures/")`` writes it.
+
+        Raises:
+            MediaUnavailableError: the engine no longer holds it, or sent other bytes.
+            EngineUnavailableError: the engine could not be reached.
+        """
+
+        from screamingface._engine.media import fetch_media_bytes
+        from screamingface._engine.transport import _mint_sync
+        from screamingface.media import FetchedMedia
+
+        self._require_open()
+        data: bytes = fetch_media_bytes(self._http, media, lambda: _mint_sync(self._http))
+        return FetchedMedia(media=media, data=data)
+
+    def classify(self, model: str, input: str) -> Classification:
+        """Classify one text with a configured classifier model, through this engine.
+
+        FEATURE (OME-1796): the engine asks the AI Gateway, which calls the classifier with your
+        own Connection. e.g. ``client.classify("byom_<id>/classifier_v1", "Great service")``
+        returns its labels and scores in the classifier's order. An input whose encoded request
+        passes the engine's 8 KiB limit is refused before any call.
+
+        Raises:
+            PlanningError: the request is too long, a value holds a character UTF-8 cannot
+                encode, or the engine refused it (for example an unknown classifier,
+                ``classifier_not_found``).
+            EngineCapabilityError: this engine does not serve ``/classify``.
+            ExecutionError: the call did not finish. ``retryable`` is True only when nothing
+                ran; once the classifier may have run, classifying again may bill it again.
+            AuthenticationError: the engine refused the caller.
+            EngineUnavailableError: the engine could not be reached.
+        """
+
+        from screamingface._engine.classification import classify
+
+        self._require_open()
+        return classify(self._engine_get, self._engine_url, model, input)
+
     def _require_open(self) -> None:
         if self._closed:
             raise RuntimeError("ScreamingFace Client is closed")
+
+    def _engine_get(
+        self, path: str, *, headers: Mapping[str, str], timeout: httpx.Timeout
+    ) -> AbstractContextManager[httpx.Response]:
+        # WHY no replay-safe mark, unlike `_http_get`: the auth layer re-sends a marked request
+        # after an Access re-login, and this seam carries paid calls that must never run twice.
+        self._require_open()
+        return self._http.stream("GET", path, headers=headers, timeout=timeout)
 
     def _http_get(self, path: str) -> httpx.Response:
         self._require_open()
@@ -680,7 +746,7 @@ class AsyncClient:
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -691,10 +757,11 @@ class AsyncClient:
         *,
         benchmark: str,
         limit: int | None = None,
+        cases: Sequence[int] | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
-        capture: bool = True,
+        capture: bool = False,
         use_cache: bool = True,
     ) -> Report: ...
 
@@ -735,6 +802,7 @@ class AsyncClient:
         *,
         benchmark: str | None = None,
         limit: int | None = None,
+        cases: Sequence[int] | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
@@ -747,14 +815,19 @@ class AsyncClient:
     ) -> Report:
         """Asynchronously evaluate Recipes, replay a complete URL4, or replay a pinned cache.
 
-        `capture` is on by default: the Engine stores every model and web-tool result of each run
-        in a pinned cache (`CandidateResult.pinned_cache`), so the score can be reproduced later.
-        `capture=False` turns it off. An Engine that did not capture a run is reported with an
-        `EvaluationWarning`.
+        `capture` is off by default. `capture=True` makes the Engine store every model and
+        web-tool result of each run in a pinned cache (`CandidateResult.pinned_cache`), so the
+        score can be reproduced later. An Engine that did not capture a run it was asked to
+        capture is reported with an `EvaluationWarning`.
 
         `use_cache` is on by default: every model call may be answered from the request cache.
         `use_cache=False` opts this evaluation out (the calls are made fresh, and the report shows
         them as cache `bypass` / `opted_out`).
+
+        `cases=[3, 17, 42]` runs only those Case ids (a Case's position in the Benchmark, 1 to N)
+        instead of `limit=`'s first N, e.g. a development or held-out set. The Report names them in
+        `selected_cases` and `selection_fingerprint`; such a run can't be submitted to the
+        leaderboard. At most 1,000 ids.
         """
 
         from screamingface._evaluation.runner import evaluate_async
@@ -766,6 +839,7 @@ class AsyncClient:
                 candidates=candidates,
                 benchmark=benchmark,
                 limit=limit,
+                cases=cases,
                 capture=capture,
                 pinned_cache=pinned_cache,
                 score_id=score_id,
@@ -776,12 +850,12 @@ class AsyncClient:
                 progress=progress,
             )
         candidates = _evaluation_candidates(candidates, url4, record_reproduction)
-        capture = True if capture is None else capture
+        capture = bool(capture)
         # FEATURE (OME-1193): see the sync twin — validate at the door.
         selected_seed = _answer_seed_value(answer_seed)
         _use_cache_value(use_cache)
         if isinstance(candidates, str):
-            _raw_url4_options(benchmark, limit)
+            _raw_url4_options(benchmark, limit, cases)
             return await evaluate_url4_async(
                 self._transport,
                 candidates,
@@ -808,6 +882,7 @@ class AsyncClient:
             capture=capture,
             use_cache=use_cache,
             load_operators=self._operator_catalog.load,
+            cases=cases,
         )
 
     async def _evaluate_replay(
@@ -817,6 +892,7 @@ class AsyncClient:
         benchmark: str | None,
         limit: int | None,
         capture: bool | None,
+        cases: object = None,
         pinned_cache: str | None,
         score_id: UUID | str | None,
         url4: str | None,
@@ -828,7 +904,7 @@ class AsyncClient:
         from screamingface._replay import replay_async
 
         self._require_open()
-        _replay_options(candidates, benchmark, capture)
+        _replay_options(candidates, benchmark, capture, cases)
         return await replay_async(
             self,
             pinned_cache=pinned_cache,
@@ -935,9 +1011,15 @@ def _use_cache_value(use_cache: object) -> None:
         raise TypeError("use_cache must be True or False")
 
 
-def _replay_options(candidates: object, benchmark: str | None, capture: bool | None) -> None:
+def _replay_options(
+    candidates: object, benchmark: str | None, capture: bool | None, cases: object = None
+) -> None:
     """A replay is one complete published run (spec §1): nothing else selects what runs."""
 
+    # WHY refused, not ignored (OME-1739): a replay runs the published Case set or its first N
+    # (`limit=`); silently replaying other Cases than the list named would be a wrong answer.
+    if cases is not None:
+        raise TypeError("cases= is not supported when replaying; replay the run, or use limit=")
     if candidates is not None:
         raise TypeError("candidates must not be passed with pinned_cache= or score_id=")
     if benchmark is not None:
@@ -959,11 +1041,13 @@ def _evaluation_candidates(
     return candidates
 
 
-def _raw_url4_options(benchmark: str | None, limit: int | None) -> None:
+def _raw_url4_options(benchmark: str | None, limit: int | None, cases: object = None) -> None:
     if benchmark is not None:
         raise TypeError("benchmark must not be passed when evaluating a complete URL4")
     if limit is not None:
         raise TypeError("limit must not be passed when evaluating a complete URL4")
+    if cases is not None:
+        raise TypeError("cases must not be passed when evaluating a complete URL4")
 
 
 def _engine_access_discovery_error(origin: str) -> BaseException:

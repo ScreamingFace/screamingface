@@ -1,12 +1,13 @@
 ---
 id: OME-1712
 linear_url: https://linear.app/openmined/issue/OME-1712/serve-configured-remote-chat-endpoints-as-gateway-providers
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1306
 created: 2026-10-22
+closed: 2026-10-22
 ---
 
 # Serve configured remote chat endpoints as gateway providers

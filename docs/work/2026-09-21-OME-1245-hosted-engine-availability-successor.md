@@ -1,9 +1,9 @@
 ---
 ticket: OME-1245
 stack: screamingface-engine
-status: in_progress   # gates green 2026-09-21; commit/PR await owner authorization
+status: done
 started: 2026-09-21
-finished:
+finished: 2026-09-22
 ---
 
 # OME-1245 — Move the Hosted Engine listing onto the availability successor
@@ -137,9 +137,9 @@ RED first, all in `tests/unit/test_connections_provider_access_availability.py`:
   `tests/unit/test_connections_provider_access_availability.py` (359 lines, 28 test items).
   Whole `src` diff: 46 insertions, 84 deletions. No dependency change; no gateway, SDK or public
   DTO change.
-- **Commits:** none yet — staging, commit, push and PR await owner authorization. Proposed
-  subject `feat(screamingface-engine): read provider-access availability for hosted listings`,
-  body `Refs: OME-1245`.
+- **Commits:** squash-merged to `main` on 2026-09-22 as `54fa86739` (#1007),
+  `feat(screamingface-engine): read provider-access availability for hosted listings`. Linear
+  closed OME-1245 Done the same day.
 - **Gates:** `uv run .claude/scripts/run_gates.py screamingface-engine --base 2da45896
   --skip-append-only` → **ALL GATES GREEN** (`ruff check` ✓, `ruff format --check` ✓, `pyright`
   0 errors ✓, `check_layering.py` "LAYERING OK" ✓, `pytest --cov … --cov-fail-under=80` ✓).

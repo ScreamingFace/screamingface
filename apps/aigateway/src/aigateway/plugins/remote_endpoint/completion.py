@@ -32,17 +32,26 @@ _MAX_TOKEN_COUNT = 2**53 - 1
 
 def decode_completion(content_type: str | None, body: bytes) -> dict[str, Any] | None:
     """The completion carried by a 200 response, or None when the response breaks the contract."""
-    if (content_type or "").split(";", 1)[0].strip().lower() != "application/json":
-        return None
     try:
-        value = json.loads(body, parse_constant=_reject_non_finite)
-        assert_bounded_json(
-            value, max_depth=_MAX_JSON_DEPTH, max_nodes=_MAX_JSON_NODES, require_finite=True
-        )
-        _require_utf8_strings(value)
+        value = strict_json(content_type, body)
     except (ValueError, RecursionError):
         return None
     return value if _is_chat_completion(value) else None
+
+
+def strict_json(content_type: str | None, body: bytes) -> Any:
+    """The strict, finite, bounded JSON value of a 200 response; ValueError when it is none.
+
+    # INVARIANT: every configured-endpoint contract reads its answer through this one check.
+    """
+    if (content_type or "").split(";", 1)[0].strip().lower() != "application/json":
+        raise ValueError("not a JSON media type")
+    value = json.loads(body, parse_constant=_reject_non_finite)
+    assert_bounded_json(
+        value, max_depth=_MAX_JSON_DEPTH, max_nodes=_MAX_JSON_NODES, require_finite=True
+    )
+    _require_utf8_strings(value)
+    return value
 
 
 def _require_utf8_strings(value: Any) -> None:

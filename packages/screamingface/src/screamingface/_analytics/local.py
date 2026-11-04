@@ -5,6 +5,7 @@ import os
 import stat
 import tempfile
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -42,6 +43,24 @@ def _decode_choice(value: dict) -> Consent:
 class LocalConsentStore:
     def __init__(self, path: Path) -> None:
         self.path = path
+
+    def missing(self) -> bool:
+        # INVARIANT: damaged, inaccessible and symlinked preferences are not new users.
+        try:
+            self.path.lstat()
+        except FileNotFoundError:
+            return True
+        return False
+
+    def enroll(self, allowed: Callable[[], bool]) -> Consent:
+        """Enable the default without overwriting a concurrent explicit choice."""
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with self._lock():
+            if not self.missing() or not allowed():
+                return self.read()
+            state = Consent("accepted", str(uuid4()))
+            self._write(state)
+            return state
 
     def read(self) -> Consent:
         # INVARIANT: readers see the old or new complete document, never a partial write.

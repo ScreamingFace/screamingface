@@ -18,7 +18,10 @@ Stages, in execution order (``main``):
               by this module's readers), seals the declaration, and replays it once more as
               every build will.
     Stage 2 — the card: the one Hugging Face Case Source's dataset card gives a cleared
-              licence, else ``TODO`` for the owner (D13). Network, import side only.
+              licence, else ``TODO`` for the owner (D13). Network, import side only. A
+              dataset that looks like a bundle of other datasets (many configs, a card
+              listing several source datasets, or a per-row source column) is ``TODO`` with
+              a warning, even when the card's licence is cleared (OME-1757).
     Stage 3 — write: the declaration and the BenchmarkSpec row are inserted at their
               files' anchor comments (task_replay_rows.py), using this module's renderers.
 
@@ -432,8 +435,11 @@ def _unseen_judge_role(name: str, params: Mapping[str, Any], shape: JudgeShape) 
             "grades differently by the Candidate's name, so Candidates would not be graded "
             "alike. Add the row by hand (OME-1602)"
         )
-    unread: list[str] = [where for role, where in shape.roles if role == UNKNOWN_ROLE]
-    if unread:
+    # WHY given by the kwargs (OME-1478): hle asks for the role its own ``grader_role``
+    # argument holds, and the kwargs this row is written with fill that argument.
+    given: tuple[str, ...] = shape.roles_given(params)
+    if UNKNOWN_ROLE in given:
+        unread: list[str] = [where for role, where in shape.roles if role == UNKNOWN_ROLE]
         raise ImporterError(
             f"scorer {name} asks for a model role held in a variable (get_model(role=...) in "
             f"{unread[0]}), so no row can name the judge that fills it. Add the row by hand "
@@ -444,7 +450,7 @@ def _unseen_judge_role(name: str, params: Mapping[str, Any], shape: JudgeShape) 
             f"scorer {name} could not be read in full ({shape.unread[0]}), so the importer "
             "cannot tell whether it reaches a judge. Add the row by hand (OME-1602)"
         )
-    roles: list[str] = [role for role, _ in shape.roles]
+    roles: list[str] = list(given)
     if len(roles) > 1 or (roles and roles[0] != _GRADER_ROLE):
         raise ImporterError(
             f"scorer {name} asks for the model role(s) {', '.join(map(repr, roles))}; a row "
@@ -599,12 +605,43 @@ def _resolve_scorer(scorer: Any, module: Any) -> tuple[str, dict[str, Any], str]
     elif hasattr(module, name):
         reference = f"{module.__name__}:{name}"
     else:
-        raise ImporterError(
-            f"cannot resolve scorer {registry_name!r} to an importable constructor — "
-            "add the row by hand with the eval's own scorer reference"
-        )
+        home: str | None = _home_in_eval_package(registry_name, name, module)
+        if home is None:
+            raise ImporterError(
+                f"cannot resolve scorer {registry_name!r} to an importable constructor — "
+                "add the row by hand with the eval's own scorer reference"
+            )
+        reference = f"{home}:{name}"
     _refuse_foreign_functions(name, reference, module, scorer)
     return reference, params, name
+
+
+def _home_in_eval_package(registry_name: str, name: str, module: Any) -> str | None:
+    """The module that defines a scorer the Task module does not bind, when it sits inside the
+    eval's own package; None otherwise.
+
+    FEATURE (OME-1478): HLE's Task builds ``regex_judge`` from a spec, and the factory lives in
+    ``inspect_evals.hle.scorers``, which ``inspect_evals.hle.hle`` never binds by that name.
+    WHY the eval's package only: a row names its own eval's code, and assembly reads a scorer
+    from its source inside that package; a factory from another eval is refused as before.
+    WHY the factory's own module: it is where ``module:name`` imports the same object back,
+    which is checked, so the row never names a re-export that could drift.
+    """
+
+    import importlib
+
+    from inspect_ai._util.registry import registry_lookup
+
+    factory: Any = registry_lookup("scorer", registry_name)
+    home: str | None = getattr(factory, "__module__", None)
+    # WHY the module itself when it has a __path__: a Task in a package's __init__ IS the
+    # eval's package; its parent would be every eval (``inspect_evals``).
+    package: str = (
+        module.__name__ if hasattr(module, "__path__") else module.__name__.rpartition(".")[0]
+    )
+    if home is None or not package or not home.startswith(f"{package}."):
+        return None
+    return home if getattr(importlib.import_module(home), name, None) is factory else None
 
 
 def _refuse_foreign_functions(name: str, reference: str, module: Any, scorer: Any) -> None:
@@ -1074,6 +1111,23 @@ def _is_judged_by(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
     return any(name in _JUDGE_MODEL_KWARG_NAMES for name in scorer_kwargs)
 
 
+def _grades_with_a_judge(
+    scorer: str, scorer_kwargs: Mapping[str, Any], judge_role: str | None
+) -> bool:
+    """Whether the imported row is written judged: its scorer takes a judge by name or kwarg,
+    asks for a model role, or leaves a judge parameter at its default (OME-1602, F2).
+
+    The one home for the rule: the row writer emits the TODO judge on it, and the import
+    child keeps each Case's Sample input for that judge on it (OME-1755).
+    """
+
+    return (
+        _is_judged_by(scorer, scorer_kwargs)
+        or judge_role is not None
+        or _leaves_a_judge_parameter_unpassed(scorer, scorer_kwargs)
+    )
+
+
 def _leaves_a_judge_parameter_unpassed(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
     """True when the scorer constructor takes a judge parameter the row's kwargs leave at its
     default (niah's ``judge_model``), so the scorer grades with a judge nobody pinned.
@@ -1359,6 +1413,7 @@ def _import_by_task_replay_cli(
         import_by_task_replay as replay_both_times,
     )
     from screamingface_engine_inspect.task_replay_rows import (
+        AGGREGATE_DATASET_WARNING,
         CardLicense,
         card_license_of,
         write_task_replay_rows,
@@ -1409,6 +1464,7 @@ def _import_by_task_replay_cli(
         provenance=read_provenance_facts(args.task_ref, fetch=arxiv_fetch),
         whole_run_headline=args.whole_run_headline,
         retrieval_policy=retrieval_policy,
+        aggregate_signal=card.aggregate_signal,
     )
     sources: str = "\n".join(f"  {source.as_comment()}" for source in imported.case_sources)
     print(
@@ -1421,6 +1477,11 @@ def _import_by_task_replay_cli(
         "a human decides the license and reviews the diff before merge.",
         file=sys.stderr,
     )
+    if card.aggregate_signal is not None:
+        # WHY not a refusal: the shape only hints at a bundle (OME-1757). The import still
+        # succeeds; its licence is TODO, which the licence gate refuses until a human who
+        # checked each source writes the line.
+        print(f"WARNING: {AGGREGATE_DATASET_WARNING} ({card.aggregate_signal}).", file=sys.stderr)
 
 
 def _with_nltk_data(imported: TaskReplayImport, resources: list[str]) -> TaskReplayImport:

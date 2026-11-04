@@ -36,7 +36,6 @@ Canonical-form choices (each reparses to the identical AST):
 from __future__ import annotations
 
 from collections.abc import Callable
-from math import isfinite
 
 from url4.core import _render_guards as guard
 from url4.core._annotations import is_source_level_key
@@ -50,15 +49,17 @@ from url4.core._call_head import PATH_RE
 from url4.core._lexical import (
     _IDENT_RE,
     _IDENTITY_NAME_RE,
-    _NUMBER_RE,
     _SCHEME_RE,
-    _STRUCT_KEY_RE,
-    _STRUCT_TOKEN_RE,
 )
+from url4.core._render_values import quote as _quote
+from url4.core._render_values import render_budget_value as _render_budget_value
+from url4.core._render_values import render_weight as _render_weight
 from url4.core._scan import balanced_body, find_top_level, skip_quoted
+from url4.core.blob_ref import render_blob_ref
 from url4.core.errors import ParseError, RenderError
 from url4.core.nodes import (
     Binding,
+    BlobRef,
     Expression,
     IdentityRef,
     Iteration,
@@ -237,7 +238,8 @@ def _render_source(node: Node) -> str:
     if isinstance(node, Source):
         return _render_descriptor(node)
     value, tail = _source_value_and_tail(node)
-    return value + tail
+    # WHY src=: a bare `blob:` source is not value-shaped, `(blob:…)!x` is C7's ParseError.
+    return ("src=" if isinstance(node, BlobRef) else "") + value + tail
 
 
 def _render_binding(node: Binding) -> str:
@@ -370,10 +372,6 @@ def _render_value(node: Node) -> str:
             raise RenderError(f"{type(node).__name__} is not valid in a value position")
         raise TypeError(f"cannot render {type(node).__name__}")
     return renderer(node)
-
-
-def _quote(content: str) -> str:
-    return "'" + content.replace("\\", "\\\\").replace("'", "\\'") + "'"
 
 
 def _render_url(node: Url) -> str:
@@ -594,74 +592,11 @@ def _render_directives(d: IterationDirectives) -> str:
     return "".join(parts)
 
 
-# --- structured annotation values (weights / budgets) -------------------------------------
-
-
-def _render_weight(weight: float | dict) -> str:
-    if isinstance(weight, dict):
-        return _render_struct_annotation(weight, nested=False)
-    return _format_number(weight)
-
-
-def _render_budget_value(value: str | dict | int | float) -> str:
-    if isinstance(value, dict):
-        return _render_struct_annotation(value, nested=False)
-    if isinstance(value, (int, float)):
-        return _format_number(value)
-    guard.check_token(value, "budget value", extra_allowed="._-")
-    return value
-
-
-def _render_struct_annotation(entries: dict, *, nested: bool) -> str:
-    if not entries:
-        raise RenderError("structured annotation value cannot be empty")
-    return (
-        "("
-        + ",".join(f"{_struct_key(k)}:{_struct_val(v, nested=nested)}" for k, v in entries.items())
-        + ")"
-    )
-
-
-def _struct_key(key: object) -> str:
-    if not isinstance(key, str) or not _STRUCT_KEY_RE.fullmatch(key):
-        raise RenderError(f"invalid structured annotation key {key!r}")
-    return key
-
-
-def _struct_val(value: object, *, nested: bool) -> str:
-    if isinstance(value, dict):
-        if nested:
-            # §24.4.6 — at most scope → domain → scalar.
-            raise RenderError("structured annotation nested deeper than two levels")
-        result = _render_struct_annotation(value, nested=True)
-    elif isinstance(value, (int, float)) and not isinstance(value, bool):
-        result = _format_number(value)
-    elif isinstance(value, str):
-        # a number-shaped string must quote — bare it would reparse as float
-        bare_ok = _STRUCT_TOKEN_RE.fullmatch(value) and not _NUMBER_RE.fullmatch(value)
-        result = value if bare_ok else _quote(value)
-    else:
-        raise RenderError(f"invalid structured annotation value {value!r}")
-    return result
-
-
-def _format_number(value: float | int) -> str:
-    if isinstance(value, bool) or value < 0 or not isfinite(value):
-        raise RenderError(f"number {value!r} is outside the grammar's unsigned decimal form")
-    if isinstance(value, int):
-        return str(value)
-    text = repr(value)
-    if not _NUMBER_RE.fullmatch(text):
-        text = f"{value:.12f}".rstrip("0").rstrip(".") or "0"
-    if not _NUMBER_RE.fullmatch(text) or float(text) != value:
-        raise RenderError(f"number {value!r} cannot be written as an unsigned decimal")
-    return text
-
-
 _VALUE_RENDERERS: dict[type, Callable] = {
     Text: lambda n: _quote(n.value),
     Url: _render_url,
     RelUrl: _render_relurl,
+    BlobRef: render_blob_ref,
     VarRef: _render_varref,
     SelfRef: lambda _n: "@",
     IdentityRef: _render_identity,

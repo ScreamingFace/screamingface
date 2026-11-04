@@ -87,7 +87,7 @@ def test_credential_service_uses_aigateway_namespace() -> None:
 
 @pytest.mark.asyncio
 async def test_missing_credential_raises() -> None:
-    strategy = CodexOAuth(profile_name="default", credential_store=_FakeStore(payload=None))
+    strategy = CodexOAuth(credential_name="default", credential_store=_FakeStore(payload=None))
 
     with pytest.raises(CredentialNotFoundError):
         await strategy.get_authorization_header()
@@ -96,7 +96,7 @@ async def test_missing_credential_raises() -> None:
 @pytest.mark.asyncio
 async def test_fresh_credential_yields_codex_headers() -> None:
     strategy = CodexOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=_FakeStore(payload=json.dumps(_creds())),
     )
 
@@ -116,7 +116,7 @@ async def test_unknown_expiry_does_not_force_refresh_loop() -> None:
         return httpx.Response(200, json={})
 
     strategy = CodexOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=_FakeStore(
             payload=json.dumps(
                 _creds(
@@ -155,7 +155,7 @@ async def test_expired_credential_refreshes_with_scope_and_preserves_refresh_tok
 
     store = _FakeStore(payload=json.dumps(expired))
     strategy = CodexOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=store,
         http_client_factory=_http_factory(httpx.MockTransport(handler)),
     )
@@ -182,7 +182,7 @@ async def test_refresh_http_error_raises_auth_error() -> None:
         return httpx.Response(401, json={"error": "invalid_grant"})
 
     strategy = CodexOAuth(
-        profile_name="default",
+        credential_name="default",
         credential_store=_FakeStore(payload=json.dumps(expired)),
         http_client_factory=_http_factory(httpx.MockTransport(handler)),
     )

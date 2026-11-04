@@ -204,6 +204,12 @@ major version with a ``failed`` terminal frame, code ``unsupported_spec_version`
 
 CURRENT_SPEC_VERSION = "2"
 SUPPORTED_SPEC_MAJORS = frozenset({"1", "2"})
+WORLD_DIGEST = "URL4_CLOUD_WORLD_DIGEST"
+"""The sha256 of the world config file the App that accepted the run serves (OME-1770 review).
+
+Written only by an App that knows it. A worker whose own world file has another digest refuses the
+run with a ``failed`` terminal frame, code ``world_config_mismatch``, rather than run it under a
+revision the App never served; absent, the run proceeds as before."""
 RECLAIM_OWNER = "URL4_CLOUD_RECLAIM_OWNER"
 """Who reclaims a finished run's subject: absent (the run process itself, after its grace — a
 standalone `run`) or ``worker`` (the supervising worker, per process — the worker pool).
@@ -628,6 +634,7 @@ WRITTEN_BY_APP = frozenset(
         IO_CONCURRENCY,
         RUN_SHAPE,
         SPEC_VERSION,
+        WORLD_DIGEST,
         *IDENTITY_HEADER_ENV.values(),
     }
 )

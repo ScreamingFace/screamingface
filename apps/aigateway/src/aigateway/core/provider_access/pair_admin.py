@@ -95,7 +95,10 @@ def classify_pair(
     *,
     credential_provider: str | None,
 ) -> PairDisposition:
-    """The first matching §5 row for one pair (rows 2-7, 9 and 11; row 1 is the caller's read).
+    """The first matching §5 row for one pair (rows 2, 3, 5-7, 9, 11; row 1 is the caller's read).
+
+    # WHY no row 4 (OME-1138 close-out, L4a): it served a marker state no writer produces since
+    # E5c, and the store now refuses that state on read, before any row is matched.
 
     `connections` are the pair's non-revoked rows; `credential_provider` is None for a provider
     no plugin serves, which LIST renders as an explicit unresolved result.
@@ -108,8 +111,6 @@ def classify_pair(
         _require_known(connection, provider, locator_provider, marker.account_id)
     if len(connections) > 1:
         return PairDisposition(3, marker)
-    if marker.migration_state == "quarantined":
-        return PairDisposition(4, marker)
     connection = connections[0] if connections else None
     if marker.migration_state == "migrated":
         migrated = _migrated(marker, connection)
@@ -119,7 +120,7 @@ def classify_pair(
     if connection is None:
         return PairDisposition(7, marker)
     if credential_provider is None:
-        # WHY after rows 2-4 and migrated validation: an unknown plugin cannot make an
+        # WHY after rows 2-3 and migrated validation: an unknown plugin cannot make an
         # inconsistency disappear. Only a structurally valid candidate becomes unresolved.
         return PairDisposition(11, marker, connection=connection)
     return PairDisposition(9, marker, connection=connection)
@@ -172,7 +173,7 @@ def listing(disposition: PairDisposition) -> PairCredential | PairConflict | Non
     provider = disposition.marker.provider
     if disposition.row == 3:
         return PairConflict(provider, "ambiguous")
-    if disposition.row in (4, 11):
+    if disposition.row == 11:
         return PairConflict(provider, "unresolved")
     if disposition.row in (5, 9) and disposition.connection is not None:
         return connection_credential(disposition.connection)

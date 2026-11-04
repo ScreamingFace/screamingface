@@ -1,7 +1,7 @@
 """Value types and typed refusals of the provider-access port (OME-1200, spec §3.2).
 
-# FEATURE: OME-1138 adapter-first convergence — routes stop reading Profile/Connection rows and
-# ask ONE port for a credential target instead.
+# FEATURE: OME-1138 adapter-first convergence — chat, model parameters, admission and
+# dispatch-failure marking read no Connection row; they ask ONE port for a credential target.
 # INVARIANT: nothing here names an HTTP status or a wire code. A refusal is a typed OUTCOME of
 # the read interface; the ONE table that turns it into a response lives at the HTTP edge
 # (`routes/provider_access_http.py`). Implementations raise these and never choose codes.
@@ -23,8 +23,8 @@ class ResolvePolicy(Enum):
     """How `resolve` treats a caller with NO stored target at all.
 
     DISPATCH is chat: no target is a refusal. DATASHEET is the model-parameter contract
-    (OME-1167): the DEFAULT selector may answer without a credential — the document is a
-    lookup, not a credentialed action. A NAMED selector without a target refuses under both.
+    (OME-1167): the default selector may answer without a credential — the document is a
+    lookup, not a credentialed action. The default is the only selector since the Stage D sunset.
     """
 
     DISPATCH = "dispatch"
@@ -147,16 +147,6 @@ class SelectorAmbiguous(ProviderAccessRefusal):
         self.provider = provider
 
 
-class SelectorUnknown(ProviderAccessRefusal):
-    """A named selector matches no stored target; `valid_labels` are the ones that exist."""
-
-    def __init__(self, provider: str, requested: str, valid_labels: tuple[str, ...]) -> None:
-        super().__init__(f"no connection labelled {requested!r} for {provider}")
-        self.provider = provider
-        self.requested = requested
-        self.valid_labels = tuple(valid_labels)
-
-
 class UnsupportedAuthMode(ProviderAccessRefusal):
     """The target's auth mode is one the provider does not declare."""
 
@@ -191,7 +181,7 @@ class WriteConflict(ProviderAccessRefusal):
 
 
 class SelectorUnsupported(ProviderAccessRefusal):
-    """A present `X-Profile` under the REJECT_EXPLICIT policy (Stage D sunset)."""
+    """A present `X-Profile`, refused on every route since the Stage D sunset."""
 
     def __init__(self) -> None:
         # INVARIANT: the obsolete selector value never survives the boundary in an exception that
@@ -200,7 +190,8 @@ class SelectorUnsupported(ProviderAccessRefusal):
 
 
 class ProviderUnknown(ProviderAccessRefusal):
-    """No registered provider carries this id (admin ops 8–9; A3)."""
+    """No registered provider carries this id, or none the account may attach (the D18 admin PUT
+    and DELETE; OME-1497)."""
 
     def __init__(self, provider: str) -> None:
         super().__init__(f"unknown provider {provider!r}")
@@ -247,7 +238,7 @@ class CredentialAuthorityUnavailable(ProviderAccessRefusal):
 class PairNotManageable(ProviderAccessRefusal):
     """A pair the successor cannot address (`ambiguous`) or manage (`unresolved`).
 
-    Raised by a D18 mutation, and by resolve for a `quarantined` pair (OME-1209 E4a).
+    Raised by a D18 mutation for a pair of §5 rows 3 and 11.
     # INVARIANT: refused before any write and before the provider key check.
     """
 

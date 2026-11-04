@@ -19,7 +19,7 @@ from screamingface._report_primitives import _optional_number
 ANSWER_SCHEMA = "screamingface.answer.v1"
 type AnswerStatus = Literal["answered", "abstain", "fail"]
 type MemberStatus = Literal["answered", "fail"]
-type AbstainReason = Literal["no_votes", "cut_not_met"]
+type AbstainReason = Literal["no_votes", "cut_not_met", "output_missing"]
 type AnswerReason = Literal[
     "empty",
     "not_numeric",
@@ -31,6 +31,7 @@ type AnswerReason = Literal[
     "missing",
     "no_votes",
     "cut_not_met",
+    "output_missing",
 ]
 type SignalOrder = Literal["max", "min"]
 

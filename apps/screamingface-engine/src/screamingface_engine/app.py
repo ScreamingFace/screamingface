@@ -19,6 +19,7 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from screamingface_engine import job_env
+from screamingface_engine.access_log import install_access_log_filter
 from screamingface_engine.adapters.factory import build_job_runner
 from screamingface_engine.artifacts import (
     ArtifactReader,
@@ -72,6 +73,7 @@ from screamingface_engine.schemas import customize_openapi
 from screamingface_engine.tracing.loader import load_span_sink
 from screamingface_engine.tracing.relay import SpanSink
 from screamingface_engine.unclaimed import QueuedRuns, UnclaimedRunWarner
+from screamingface_engine.world.config import WorldConfigError, WorldFile, read_world_file
 from screamingface_engine.world.serving import derive_mount_table, engine_route_paths
 from screamingface_engine.ws import ConnectionRegistry
 from screamingface_engine.ws import router as ws_router
@@ -142,7 +144,7 @@ def create_app(
     # this one installs exactly one, and a process that builds two Apps does not double every
     # line. FIRST statement in the builder, because a failure while building `Settings` below
     # is precisely the failure whose log line the operator needs.
-    configure_logging()
+    _configure_logs()
     settings = settings or Settings()
     app = FastAPI(title="screamingface-engine", version="0.1.0", docs_url=None, redoc_url=None)
     app.state.settings = settings
@@ -193,6 +195,16 @@ def create_app(
         app.state.clock = clock
     _install_surfaces(app, span_sink)
     return app
+
+
+def _configure_logs() -> None:
+    """The App process's logging: the App's own handler, then the access-log redaction.
+
+    WHY a helper: `create_app` sits at the statement limit.
+    """
+    configure_logging()
+    # FEATURE (OME-1795, E10): no request query reaches an access line, from any start path.
+    install_access_log_filter()
 
 
 control_plane_span_sink = load_span_sink
@@ -688,6 +700,20 @@ def build_stream_consumer(settings: Settings) -> JetStreamConsumer:
     return JetStreamConsumer(settings.nats_url, events=events_stream_config(settings))
 
 
+def _read_world_once() -> WorldFile | None:  # pragma: no cover - env wiring (INFRA rule)
+    """The App's one read of its world file, or None when it cannot be read.
+
+    INVARIANT (OME-1770 review): the catalog, the private set, the mounts, the `/healthz` digest
+    and the digest stamped on every run all come from this ONE read. A failed read leaves each
+    consumer to its own fallback: the catalog degrades and the mount derivation fails startup
+    (C7), exactly as before.
+    """
+    try:
+        return read_world_file(os.environ)
+    except WorldConfigError:
+        return None
+
+
 def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INFRA rule, spec §11)
     """Production entrypoint (used by `cli.py` via uvicorn's factory mode).
 
@@ -698,12 +724,16 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     settings = Settings()
     _require_prod_secret(settings)
     stream = build_stream_consumer(settings)
+    world_file = _read_world_once()
     # Catalog first (OME-880): the job runner needs the admitted-model overlay so a
     # dynamically admitted model is routable by the very next scheduled run.
-    catalog = build_executable_catalog_service(settings, os.environ)
+    catalog = build_executable_catalog_service(
+        settings, os.environ, world=None if world_file is None else world_file.config
+    )
     job_runner = build_job_runner(
         settings,
         extra_models=None if catalog is None else (lambda: catalog.admitted_model_ids),
+        world_digest=None if world_file is None else world_file.digest,
     )
     if job_runner is None:
         logging.warning(
@@ -747,6 +777,8 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     # into /openapi.json, and every call runs as a DIRECT run on the worker pool.
     install_mounts(
         app,
-        lambda: derive_mount_table(env=os.environ, engine_routes=engine_route_paths(app)),
+        lambda: derive_mount_table(
+            env=os.environ, engine_routes=engine_route_paths(app), world=world_file
+        ),
     )
     return app

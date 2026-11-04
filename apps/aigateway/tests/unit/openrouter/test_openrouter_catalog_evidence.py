@@ -291,7 +291,7 @@ def _document(upstream: str, *, observed: str | None = None, stale: bool = False
         canonical_id=model,
         gateway_provider="openrouter",
         auth_mode="api_key",
-        scope="account_profile",
+        scope="account_connection",
         context_identity="acct:test|prof:1",
         rules=plugin.chat_parameter_rules(model=model, auth_type="api_key"),
         observations=plugin.overlay_discovered_observations(

@@ -25,8 +25,8 @@ _JWT_AUTH_CLAIMS_KEY = "https://api.openai.com/auth"
 _PLAN_ID = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 
 
-def credential_service_for(profile_name: str) -> str:
-    return f"aigateway:codex:{profile_name}"
+def credential_service_for(credential_name: str) -> str:
+    return f"aigateway:codex:{credential_name}"
 
 
 def _decode_jwt_claims(token: str | None) -> dict[str, Any]:
@@ -143,13 +143,13 @@ def _normalize_token_response(data: dict[str, Any], previous: dict[str, Any] | N
 class CodexOAuth(BaseOAuthStrategy):
     def __init__(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
         account: str | None = None,
         http_client_factory=None,
     ) -> None:
-        super().__init__(profile_name=profile_name)
+        super().__init__(credential_name=credential_name)
         self._store = credential_store or ORMStore()
         self._account = account if account is not None else _ACCOUNT
         self._http_factory = http_client_factory or (
@@ -157,7 +157,7 @@ class CodexOAuth(BaseOAuthStrategy):
         )
 
     def credential_service(self) -> str:
-        return credential_service_for(self.profile_name)
+        return credential_service_for(self.credential_name)
 
     def credential_account(self) -> str:
         return self._account
@@ -166,16 +166,17 @@ class CodexOAuth(BaseOAuthStrategy):
         raw = await self._store.read(self.credential_service(), self.credential_account())
         if raw is None:
             raise CredentialNotFoundError(
-                f"No tokens for codex profile {self.profile_name!r}. Re-authenticate via Electron."
+                f"No tokens for codex profile {self.credential_name!r}. "
+                "Re-authenticate via Electron."
             )
         try:
             loaded = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise AuthError(
-                f"Token blob for {self.profile_name!r} is not valid JSON: {exc}"
+                f"Token blob for {self.credential_name!r} is not valid JSON: {exc}"
             ) from exc
         if not isinstance(loaded, dict):
-            raise AuthError(f"Token blob for {self.profile_name!r} is not a JSON object")
+            raise AuthError(f"Token blob for {self.credential_name!r} is not a JSON object")
         return _normalize_token_response(loaded, loaded)
 
     def _is_expired(self, creds: dict) -> bool:
@@ -213,7 +214,7 @@ class CodexOAuth(BaseOAuthStrategy):
         if resp.status_code != 200:
             if is_reauth_refresh_failure(resp.status_code, resp.text):
                 raise ReauthRequiredError(
-                    f"Refresh token rejected for profile {self.profile_name!r} "
+                    f"Refresh token rejected for profile {self.credential_name!r} "
                     f"(HTTP {resp.status_code}). Re-auth required."
                 )
             raise AuthError(f"OAuth refresh failed status {resp.status_code}: {resp.text[:500]}")

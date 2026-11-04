@@ -77,7 +77,7 @@ def inline_supported_parameters(
     *,
     available_auth_modes: tuple[AuthMode, ...],
 ) -> tuple[str, ...]:
-    """Conservative profile-independent summary.
+    """Conservative caller-independent summary.
 
     A path is included iff its rule is enabled under EVERY auth mode the
     provider offers (intersection). This prevents ``/v1/models`` from

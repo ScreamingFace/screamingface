@@ -11,8 +11,8 @@ from typing import Any
 from ..oauth.models import OAuthConnection
 from ..plugin_base import credential_service_provider_for
 from .auth_mode import auth_type_of, credentialless_auth_mode
+from .connection_authorize import reauth_url_for
 from .connection_locator import credential_name_from_locator
-from .profile_authorize import reauth_url_for
 from .types import CredentialTarget, TargetKind
 
 
@@ -33,7 +33,7 @@ def context_stamp(account_id: str, connection: OAuthConnection | None) -> str:
 def connection_target(
     account_id: str, provider: str, connection: OAuthConnection, *, plugin: Any
 ) -> CredentialTarget:
-    auth_type = auth_type_of(None, connection)
+    auth_type = auth_type_of(connection)
     return CredentialTarget(
         kind="stored",
         auth_type=auth_type,

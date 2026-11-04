@@ -3,7 +3,7 @@ ticket: OME-1613
 stack: screamingface
 status: done
 started: 2026-10-20
-finished: 2026-10-21
+finished: 2026-10-22
 ---
 
 # OME-1613 — replay a published run with `evaluate(pinned_cache=…)` and send author and paper metadata
@@ -231,3 +231,14 @@ pytest with the 95% coverage floor, lint, format, Pyright, notebook and distribu
 The runner needed access to the existing uv cache and package downloads outside the sandbox.
 Self-review: one shared identity check, no new dependencies or public signatures, only supplied
 edit values forwarded, and no change to the accepted partial-replay trust boundary.
+
+## Merge and close (2026-10-22)
+
+PR #1519 squash-merged as `ac2c8cb2d91c897a09d5ae1bf656b8f8b055b8f1` after Dmitry's
+approval of `49cb5e355` and green SDK, golden replay and mirror CI. Linear is Done.
+This documentation-only follow-up closes the task mirror and records the final merge;
+validation is `run_gates.py repo --base origin/main` and `git diff --check`.
+
+Release remains separate: PyPI is still 0.1.6, published 2026-10-21 before this merge.
+The next SDK release must include this commit before OME-1655 enables Reproduce.
+OME-1614 owns the public docs; OME-1699 is the deferred per-case difference follow-up.

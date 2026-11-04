@@ -27,12 +27,12 @@ from ..errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from ..oauth.models import OAuthConnection
 from ..plugin_base import credential_service_provider_for
 from .auth_mode import auth_type_of
+from .connection_authorize import invalidate_session, oauth_connection_store, reauth_url_for
 from .connection_locator import (
     credential_blob_address,
     credential_name_from_locator,
     credential_strategy_for_connection,
 )
-from .profile_authorize import invalidate_session, oauth_connection_store, reauth_url_for
 from .refresh_guard import ConnectionRefreshOwner, guard_refresh
 from .selector import Selector
 from .targets import context_stamp
@@ -87,7 +87,7 @@ def migrated_target(
         raise TargetPending(provider, selector.name)
     if connection.status != "active":
         raise TargetReauthRequired(provider, reauth_url_for(None), requested=selector.name)
-    auth_type = auth_type_of(None, connection)
+    auth_type = auth_type_of(connection)
     return CredentialTarget(
         kind="stored",
         auth_type=auth_type,

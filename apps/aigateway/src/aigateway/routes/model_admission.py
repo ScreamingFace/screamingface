@@ -26,6 +26,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
 from ..core.auth.middleware import CurrentAccount
+from ..core.endpoint_access import EndpointOperation, accessible_plugin
 from ..core.model_capabilities import canonical_model_id
 from ..core.provider_access import (
     CredentialStoreUnavailable,
@@ -122,14 +123,12 @@ async def _credential_verdict(
     except TargetReauthRequired:
         return False, (
             "auth_required",
-            f"the {provider} profile {selector.name!r} must be reconnected — "
-            "reauthorize it, then retry",
+            f"the {provider} connection must be reconnected — reauthorize it, then retry",
         )
     except TargetPending:
         return False, (
             "profile_pending_auth",
-            f"the {provider} profile {selector.name!r} is still connecting — "
-            "finish the connection, then retry",
+            f"the {provider} connection is still connecting — finish the connection, then retry",
         )
     except CredentialStoreUnavailable:
         # INVARIANT: an unavailable authority is not evidence that the credential is absent.
@@ -146,7 +145,11 @@ async def admit_model(request: Request, current: CurrentAccount, body: _AdmitReq
 
     model_id = body.model_id
     provider = model_id.split("/", 1)[0] if "/" in model_id else ""
-    plugin = request.app.state.providers.get(provider)
+    # INVARIANT: a provider this account may not VIEW answers as unregistered, before the
+    # known-set shortcut could tell a declared target apart.
+    plugin = accessible_plugin(
+        request.app, provider, account_id=str(current.id), operation=EndpointOperation.VIEW
+    )
     if plugin is None:
         return _answer(
             model_id,

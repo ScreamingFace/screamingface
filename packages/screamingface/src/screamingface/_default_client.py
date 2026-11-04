@@ -22,8 +22,10 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from screamingface._ui.connections import ConnectionPanel
+    from screamingface.classification import Classification
     from screamingface.connections import Connection, OAuthFlow
     from screamingface.events import Event
+    from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
     from screamingface.report import Report
 
@@ -153,6 +155,24 @@ def close() -> None:
         pull.close_sessions()
 
 
+def fetch_media(media: CaseMedia) -> FetchedMedia:
+    """Fetch one picture or file of a Case with the process-wide Client (``Client.fetch_media``).
+
+    e.g. ``sf.fetch_media(report.candidates[0].cases[0].media[0])``.
+    """
+
+    return default_client().fetch_media(media)
+
+
+def classify(model: str, input: str) -> Classification:
+    """Classify one text with the process-wide Client (``Client.classify``).
+
+    e.g. ``sf.classify("byom_<id>/classifier_v1", "Great service")``.
+    """
+
+    return default_client().classify(model, input)
+
+
 @overload
 def evaluate(
     candidates: str,
@@ -162,7 +182,7 @@ def evaluate(
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool = False,
     use_cache: bool = True,
 ) -> Report: ...
 
@@ -173,10 +193,11 @@ def evaluate(
     *,
     benchmark: str,
     limit: int | None = None,
+    cases: Sequence[int] | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
-    capture: bool = True,
+    capture: bool = False,
     use_cache: bool = True,
 ) -> Report: ...
 
@@ -217,6 +238,7 @@ def evaluate(
     *,
     benchmark: str | None = None,
     limit: int | None = None,
+    cases: Sequence[int] | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
@@ -234,6 +256,10 @@ def evaluate(
     uses, so an option missing here is an option the notebook audience cannot reach at all
     (OME-1227: `answer_seed` shipped on the Client and stayed unreachable from `sf.evaluate`).
     Validation stays with the Client, which refuses a bad seed before any token is minted.
+
+    `cases=[3, 17, 42]` runs only those Case ids (a Case's position in the Benchmark, 1 to N)
+    instead of `limit=`'s first N; see `Client.evaluate`. Refused with a complete URL4 and
+    with a replay (`pinned_cache=` / `score_id=`).
     """
 
     client = default_client()
@@ -243,6 +269,7 @@ def evaluate(
             candidates=candidates,
             benchmark=benchmark,
             limit=limit,
+            cases=cases,
             capture=capture,
             pinned_cache=pinned_cache,
             score_id=score_id,
@@ -254,12 +281,14 @@ def evaluate(
         )
     # One home for these checks: the Client's (review fix, no third copy here).
     candidates = _evaluation_candidates(candidates, url4, record_reproduction)
-    capture = True if capture is None else capture
+    capture = bool(capture)
     if isinstance(candidates, str):
         if benchmark is not None:
             raise TypeError("benchmark must not be passed when evaluating a complete URL4")
         if limit is not None:
             raise TypeError("limit must not be passed when evaluating a complete URL4")
+        if cases is not None:
+            raise TypeError("cases must not be passed when evaluating a complete URL4")
         return client.evaluate(
             candidates,
             on_event=on_event,
@@ -274,6 +303,7 @@ def evaluate(
         candidates,
         benchmark=benchmark,
         limit=limit,
+        cases=cases,
         on_event=on_event,
         progress=progress,
         answer_seed=answer_seed,

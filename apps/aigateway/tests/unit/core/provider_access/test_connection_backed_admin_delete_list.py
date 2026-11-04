@@ -15,17 +15,16 @@ from __future__ import annotations
 import pytest
 from connection_backed_admin_probes import (
     DEFAULT,
-    blob_at_profile_address,
+    blob_at_name_address,
     connection,
     delete,
-    document,
     marker,
 )
 from connection_backed_harness import ConnectionBackedHarness
 from provider_access_harness import ANTHROPIC, PROVIDER
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.provider_access import TargetMissing
+from tests.credential_names import credential_name_for
 
 
 @pytest.fixture
@@ -39,16 +38,12 @@ def migrated(authenticated_client, credential_blobs, monkeypatch) -> ConnectionB
 def test_delete_revokes_the_effective_connection_and_clears_the_reference(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_document(name="default", auth_type="oauth")
+    migrated.seed_blob(name="default", auth_type="oauth")
     connection_id = migrated.seed_authority(name="default", auth_type="oauth")
-    before = document(migrated)
 
     delete(migrated)
 
-    # WHY the document stays (OME-1209 E4b): the DELETE removes no document; E5 does.
-    assert before is not None
-    assert document(migrated) == before
-    assert blob_at_profile_address(migrated) is None
+    assert blob_at_name_address(migrated) is None
     assert connection(migrated, connection_id).status == "revoked"
     pair = marker(migrated)
     assert (pair.migration_state, pair.effective_connection_id, pair.generation) == (

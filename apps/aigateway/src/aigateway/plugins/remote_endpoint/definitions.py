@@ -13,19 +13,36 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from ipaddress import IPv6Address, ip_address
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    Tag,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 SCHEMA_VERSION = 1
 CHAT_CONTRACT = "openai-chat-basic-v1"
+CLASSIFICATION_TASK = "text-classification"
+CLASSIFICATION_CONTRACT = "hf-text-classification-v1"
+_TASKS = ("chat", CLASSIFICATION_TASK)
+_UNKNOWN_TASK = "unknown-task"
 
 _ENDPOINT_ID = re.compile(r"^byom_[0-9a-f]{32}$")
-_LABEL = r"(?!-)[a-z0-9-]{1,63}(?<!-)"
-_HOSTNAME = re.compile(rf"^(?=.{{1,253}}$){_LABEL}(?:\.{_LABEL})+$")
+_DEFAULT_PORT = {"http": 80, "https": 443}
+# WHY `_` inside a label: Docker service names use it, and a single label is a service name.
+_LABEL = r"[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?"
+_HOSTNAME = re.compile(rf"^(?=.{{1,253}}$){_LABEL}(?:\.{_LABEL})*$")
+_NUMERIC_LABEL = re.compile(r"^(?:[0-9]+|0x[0-9a-f]*)$")
 _ALIAS = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
 _SEGMENT = r"[A-Za-z0-9._~-]+"
 _REQUEST_PATH = re.compile(rf"^/(?:{_SEGMENT}(?:/{_SEGMENT})*)?$")
@@ -47,6 +64,16 @@ class ChatTarget:
 
 
 @dataclass(frozen=True, slots=True)
+class ClassificationTarget:
+    alias: str
+    request_path: str
+    response_envelope: Literal["flat", "single-batch"]
+    score_semantics: Literal["bounded-score"] = "bounded-score"
+    task: Literal["text-classification"] = CLASSIFICATION_TASK
+    contract: Literal["hf-text-classification-v1"] = CLASSIFICATION_CONTRACT
+
+
+@dataclass(frozen=True, slots=True)
 class EndpointDefinition:
     """What an instance needs to call its endpoint — and deliberately nothing about who may."""
 
@@ -54,12 +81,20 @@ class EndpointDefinition:
     display_name: str
     origin: str
     validation_target: str
-    targets: tuple[ChatTarget, ...]
+    targets: tuple[ChatTarget | ClassificationTarget, ...]
 
-    def target(self, alias: str) -> ChatTarget | None:
+    def target(self, alias: str) -> ChatTarget | ClassificationTarget | None:
         return next((target for target in self.targets if target.alias == alias), None)
 
-    def model_id(self, target: ChatTarget) -> str:
+    @property
+    def chat_targets(self) -> tuple[ChatTarget, ...]:
+        return tuple(target for target in self.targets if isinstance(target, ChatTarget))
+
+    @property
+    def classifier_targets(self) -> tuple[ClassificationTarget, ...]:
+        return tuple(target for target in self.targets if isinstance(target, ClassificationTarget))
+
+    def model_id(self, target: ChatTarget | ClassificationTarget) -> str:
         return f"{self.id}/{target.alias}"
 
 
@@ -81,12 +116,9 @@ class _Strict(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
 
 
-class _ChatTargetDoc(_Strict):
+class _TargetDoc(_Strict):
     alias: str
-    task: Literal["chat"]
-    contract: Literal["openai-chat-basic-v1"]
     request_path: str
-    upstream_model: str
 
     @field_validator("alias")
     @classmethod
@@ -105,12 +137,50 @@ class _ChatTargetDoc(_Strict):
             raise ValueError("must be a fixed absolute path of unreserved characters")
         return value
 
+
+class _ChatTargetDoc(_TargetDoc):
+    task: Literal["chat"]
+    contract: Literal["openai-chat-basic-v1"]
+    upstream_model: str
+
     @field_validator("upstream_model")
     @classmethod
     def _upstream_model(cls, value: str) -> str:
         if not _UPSTREAM_MODEL.fullmatch(value):
             raise ValueError("must be 1-256 printable ASCII characters without spaces")
         return value
+
+
+class _ClassificationTargetDoc(_TargetDoc):
+    task: Literal["text-classification"]
+    contract: Literal["hf-text-classification-v1"]
+    response_envelope: Literal["flat", "single-batch"]
+    score_semantics: Literal["bounded-score"]
+
+
+class _TaskProbe(BaseModel):
+    # WHY a probe of its own: an unknown task is refused once, at `task`, by a rule that lists the
+    # known tasks, before either kind judges fields that would mean nothing for it.
+    model_config = ConfigDict(extra="ignore", strict=True, frozen=True)
+
+    task: Literal["chat", "text-classification"]
+
+
+def _target_kind(value: Any) -> str:
+    task = value.get("task") if isinstance(value, Mapping) else None
+    return task if isinstance(task, str) and task in _TASKS else _UNKNOWN_TASK
+
+
+if TYPE_CHECKING:
+    # WHY: the probe never validates, so a parsed target is always one of the two kinds.
+    _AnyTargetDoc = _ChatTargetDoc | _ClassificationTargetDoc
+else:
+    _AnyTargetDoc = Annotated[
+        Annotated[_ChatTargetDoc, Tag("chat")]
+        | Annotated[_ClassificationTargetDoc, Tag(CLASSIFICATION_TASK)]
+        | Annotated[_TaskProbe, Tag(_UNKNOWN_TASK)],
+        Discriminator(_target_kind),
+    ]
 
 
 class _EndpointDoc(_Strict):
@@ -120,7 +190,7 @@ class _EndpointDoc(_Strict):
     origin: str
     allowed_account_ids: list[str]
     validation_target: str
-    targets: list[_ChatTargetDoc] = Field(min_length=1)
+    targets: list[_AnyTargetDoc] = Field(min_length=1)
 
     @field_validator("id")
     @classmethod
@@ -206,38 +276,83 @@ def _definition(endpoint: _EndpointDoc) -> EndpointDefinition:
         display_name=endpoint.display_name,
         origin=endpoint.origin,
         validation_target=endpoint.validation_target,
-        targets=tuple(
-            ChatTarget(
-                alias=target.alias,
-                request_path=target.request_path,
-                upstream_model=target.upstream_model,
-            )
-            for target in endpoint.targets
-        ),
+        targets=tuple(_target(target) for target in endpoint.targets),
+    )
+
+
+def _target(target: _AnyTargetDoc) -> ChatTarget | ClassificationTarget:
+    if isinstance(target, _ChatTargetDoc):
+        return ChatTarget(
+            alias=target.alias,
+            request_path=target.request_path,
+            upstream_model=target.upstream_model,
+        )
+    return ClassificationTarget(
+        alias=target.alias,
+        request_path=target.request_path,
+        response_envelope=target.response_envelope,
+        score_semantics=target.score_semantics,
     )
 
 
 def _canonical_origin(value: str) -> str:
-    """`https://<dns-name>` exactly; an explicit `:443` is the one accepted spelling variant."""
-    if not _URL_TEXT.fullmatch(value) or not value.startswith("https://"):
-        raise ValueError("must be an https origin of printable ASCII")
-    parts = urlsplit(value)
+    """`http(s)://<host>[:<port>]` in its one canonical spelling; a default port is dropped."""
+    if not _URL_TEXT.fullmatch(value):
+        raise ValueError("must be an http or https origin of printable ASCII")
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        # WHY replace the parser's error: it quotes a bracketed host, i.e. the private value.
+        raise ValueError(
+            "must use a DNS name, an IPv4 address or a bracketed IPv6 address"
+        ) from None
+    if parts.scheme not in _DEFAULT_PORT or not value.startswith(f"{parts.scheme}://"):
+        raise ValueError("must be an http or https origin of printable ASCII")
     try:
         port = parts.port
     except ValueError:
-        raise ValueError("must use port 443") from None
-    if port not in (None, 443):
-        raise ValueError("must use port 443")
+        raise ValueError("must use a port from 1 to 65535") from None
+    if port == 0:
+        raise ValueError("must use a port from 1 to 65535")
     if "@" in parts.netloc or parts.path or "?" in value or "#" in value:
         raise ValueError("must not carry userinfo, path, query or fragment")
-    host = parts.hostname or ""
-    # WHY compare the netloc: `hostname` is lowercased and unbracketed, so any other spelling
-    # (upper case, an IP literal in brackets) differs from it and is refused rather than rewritten.
-    if parts.netloc not in {host, f"{host}:443"}:
-        raise ValueError("must use a canonical lowercase hostname")
-    if not _HOSTNAME.fullmatch(host) or host.rsplit(".", 1)[-1].isdigit():
-        raise ValueError("must use a fully qualified DNS hostname, not an address")
-    return f"https://{host}"
+    host = _host_spelling(parts.hostname or "")
+    # WHY compare the netloc: `hostname` and `port` parse leniently (case folded, brackets and
+    # leading zeros dropped), so any other spelling differs from the rebuilt one and is refused
+    # rather than rewritten.
+    if parts.netloc != (host if port is None else f"{host}:{port}"):
+        raise ValueError("must use a canonical lowercase host and a decimal port")
+    if port is None or port == _DEFAULT_PORT[parts.scheme]:
+        return f"{parts.scheme}://{host}"
+    return f"{parts.scheme}://{host}:{port}"
+
+
+def _host_spelling(host: str) -> str:
+    """A DNS name, a dotted IPv4 address or a bracketed IPv6 address, as an origin writes it."""
+    try:
+        address = ip_address(host)
+    except ValueError:
+        # WHY refuse a numeric last label: a resolver reads `10.1`, `2130706433` or `0x7f000001`
+        # as an IPv4 address in another spelling, so such a name is no DNS name.
+        if not _HOSTNAME.fullmatch(host) or _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1]):
+            raise ValueError(
+                "must use a DNS name, an IPv4 address or a bracketed IPv6 address"
+            ) from None
+        return host
+    if address.is_unspecified:
+        raise ValueError("must not be an unspecified address")
+    if isinstance(address, IPv6Address):
+        # WHY a format limit, not a reachability rule: IPv4-mapped IPv6 does name a host, but the
+        # prototype accepts each IPv4 host in its dotted form only. The parsed address is checked,
+        # so the hexadecimal spelling is refused as well.
+        if address.ipv4_mapped is not None:
+            raise ValueError("must write an IPv4 address in dotted form, not IPv4-mapped IPv6")
+        # WHY no zone: httpx keeps `%25<zone>` in the host as written, so the zone it would pass
+        # on is not the interface the operator named.
+        if address.scope_id is not None:
+            raise ValueError("must not carry an IPv6 zone")
+        return f"[{address}]"
+    return str(address)
 
 
 def _is_canonical_uuid(value: str) -> bool:
@@ -247,9 +362,23 @@ def _is_canonical_uuid(value: str) -> bool:
         return False
 
 
+def _location(loc: tuple[int | str, ...]) -> str:
+    # WHY drop the kind: the tagged union inserts the kind it chose right after a target's index.
+    # That is the parser's choice, not a place in the operator's document.
+    kinds = {*_TASKS, _UNKNOWN_TASK}
+    parts = [
+        part
+        for i, part in enumerate(loc)
+        if not (
+            i >= 2 and loc[i - 2] == "targets" and isinstance(loc[i - 1], int) and part in kinds
+        )
+    ]
+    return ".".join(str(part) for part in parts) or "<document>"
+
+
 def _sanitized(exc: ValidationError) -> str:
     problems = [
-        f"{'.'.join(str(part) for part in error['loc']) or '<document>'}: {error['msg']}"
+        f"{_location(error['loc'])}: {error['msg']}"
         for error in exc.errors(include_url=False, include_input=False, include_context=False)
     ]
     return "remote endpoint config is invalid: " + "; ".join(problems)

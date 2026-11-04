@@ -37,7 +37,7 @@ from .core.parameter_discovery_cache import (
     SystemMonotonicClock,
 )
 from .core.pending_auth import PendingAuthTable
-from .core.provider_access import ConnectionBackedProviderAccess, SelectorPolicy
+from .core.provider_access import ConnectionBackedProviderAccess
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
@@ -48,7 +48,7 @@ from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
 from .middleware import BodyCapMiddleware, CallIdMiddleware
 from .plugins.taxonomy.plugin import TaxonomyPlugin
-from .provider_composition import compose_providers
+from .provider_composition import close_remote_endpoints, compose_providers
 from .routes import (
     accounts,
     admin,
@@ -59,6 +59,8 @@ from .routes import (
     auth_session,
     cache_entries,
     chat,
+    classifications,
+    classifiers,
     frozen_copies,
     health,
     legacy_profiles_retired,
@@ -206,15 +208,6 @@ async def _lifespan(app):
         if authenticating or app.state.settings.admin_password is not None:
             await ensure_admin_account(app.state.settings.admin_password)
 
-        # WHY a warning, not an import (OME-1209 E4b): the opt-in Claude Code import seeded a
-        # legacy Profile, and no runtime path writes one any more. A provider is connected
-        # through the UI, so a deployment that still sets the flag learns it does nothing.
-        if os.getenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE") == "1":
-            logger.warning(
-                "AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE is set, but the Claude Code credential "
-                "import is retired; connect the provider through the UI instead"
-            )
-
         # OME-303 U3: ONE app-lifetime observed LiteLLM handler. App-lifetime, not
         # per-request, so connection pooling and the default aiohttp transport are
         # preserved — a handler per call would trade production transport behaviour for
@@ -238,23 +231,36 @@ async def _lifespan(app):
 
         yield
     finally:
-        # The scheduler's owned task must never outlive the app: cancel and await it.
-        scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
-        if scheduler is not None:
-            await scheduler.stop()
-        # §9.12: closed explicitly here rather than left to __del__, which is not
-        # guaranteed to run and cannot await. An unclosed handler leaks its connection
-        # pool across TestClient lifecycles and across a reload in dev.
+        # WHY nested `finally` blocks: a cancelled shutdown raises past `except Exception`, and
+        # it must skip none of the steps after the one it hit; each still runs once, in order.
         try:
-            await app.state.taxonomy_plugin.close()
-        except Exception:
-            logger.warning("usage accounting handler did not close cleanly")
-        app.state.usage_accounting_handler = None
-        await auth.close_loopback_callbacks(app)
-        # Clear the process-wide active store so it does not leak across app
-        # instances (e.g. multiple TestClient lifecycles in one process).
-        set_active_secret_store(None)
-        await close_db()
+            # The scheduler's owned task must never outlive the app: cancel and await it.
+            scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
+            if scheduler is not None:
+                await scheduler.stop()
+        finally:
+            # §9.12: closed explicitly here rather than left to __del__, which is not
+            # guaranteed to run and cannot await. An unclosed handler leaks its connection
+            # pool across TestClient lifecycles and across a reload in dev.
+            try:
+                await app.state.taxonomy_plugin.close()
+            except Exception:
+                logger.warning("usage accounting handler did not close cleanly")
+            finally:
+                app.state.usage_accounting_handler = None
+                # FEATURE (hosted BYOM): each configured endpoint's client closes with the app.
+                try:
+                    await close_remote_endpoints(app.state.providers)
+                except Exception:
+                    logger.warning("a remote endpoint client did not close cleanly")
+                finally:
+                    try:
+                        await auth.close_loopback_callbacks(app)
+                    finally:
+                        # Clear the process-wide active store so it does not leak across app
+                        # instances (e.g. multiple TestClient lifecycles in one process).
+                        set_active_secret_store(None)
+                        await close_db()
 
 
 async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONResponse:
@@ -406,9 +412,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # in e2e harnesses. Credential storage itself is always DB-backed.
     credential_store = ORMStore()
     app.state.credential_store = credential_store
-    # OME-1394: the selector sunset is configured once; HTTP boundaries consume this policy through
-    # ``selector_from_request`` and provider-access implementations never inspect it.
-    app.state.selector_policy = SelectorPolicy.REJECT_EXPLICIT
     # OME-1200: the provider-access port (read/resolve), on which the A2 consumers depend.
     # OME-1209 (Stage E, E4a): the Connection-backed authority resolves every pair from its marker
     # and its Connections; no Profile document is read.
@@ -476,6 +479,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(model_parameters.router)
     app.include_router(tavily_retrieval_cache.router)
     app.include_router(chat.router)
+    # FEATURE: hosted BYOM Unit 3 — classifier inference and its catalog.
+    app.include_router(classifications.router)
+    app.include_router(classifiers.router)
     app.include_router(frozen_copies.router)
 
     logger.info("aigateway ready (port=%d, providers=%d)", settings.port, len(registry.all()))

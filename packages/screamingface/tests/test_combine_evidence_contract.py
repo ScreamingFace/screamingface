@@ -29,6 +29,7 @@ _EXPECTED_NAMES = {
     "filter_threshold",
     "judge_label",
     "judge_scores",
+    "mean_weighted_value",
     "median_nearest",
     "median_value",
     "merge_abstain",
@@ -48,6 +49,7 @@ _EXPECTED_NAMES = {
     "vote_tie",
     "vote_weighted",
 }
+_EXPECTED_NAMES |= {"pick_output", "pick_output_missing"}  # E4b pick-output
 
 
 def _cases() -> dict[str, Any]:

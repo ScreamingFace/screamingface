@@ -13,21 +13,23 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Coroutine
-from functools import partial
 from typing import Any, cast, get_args
+from uuid import UUID
 
 import pytest
 from fastapi import APIRouter, FastAPI
 from fastapi.testclient import TestClient
 
 import aigateway.main as main_module
-from aigateway.core.credential_names import profile_id_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileDefaults, ProfileState
-from aigateway.core.provider_access import AvailabilityRow, AvailabilityStatus
-from aigateway.core.provider_access import profile_authorize as authorize_module
+from aigateway.core.oauth.models import OAuthConnection
+from aigateway.core.provider_access import (
+    AvailabilityRow,
+    AvailabilityStatus,
+    PairAuthorityStore,
+)
+from aigateway.core.provider_access import connection_authorize as authorize_module
 from tests.unit.migrated_pair_seed import seed_migrated_pair
+from tests.unit.seed_state import SeedState
 
 ROUTE = "/v1/provider-access"
 STATUSES: frozenset[str] = frozenset(get_args(AvailabilityStatus))
@@ -50,34 +52,24 @@ class _Edge:
         self.client = client
         self.app = _app(client)
         self.account_id: str = client.get("/v1/auth/me").json()["id"]
-        # WHY a store built here (OME-1209 E4b): the app wires no Profile index.
-        self.index = ProfileIndexStore(credential_store=self.app.state.credential_store)
         self.registered: set[str] = {
             plugin.custom_llm_provider for plugin in self.app.state.providers.all()
         }
 
-    def call(self, fn: Callable[..., Coroutine[Any, Any, Any]], *args: Any, **kwargs: Any) -> Any:
-        portal = self.client.portal
-        assert portal is not None
-        return portal.call(partial(fn, *args, **kwargs))
-
-    def seed(self, provider: str, state: str, name: str, **fields: Any) -> Profile:
-        profile = Profile(
-            id=profile_id_for(self.account_id, provider, name),
-            account_id=self.account_id,
-            provider=provider,
-            name=name,
-            state=ProfileState(state),
-            **fields,
-        )
-        self.call(self.index.upsert, profile)
-        return profile
-
-    def seed_pair(self, provider: str, state: str, **fields: Any) -> None:
+    def seed_pair(self, provider: str, state: str, **fields: Any) -> UUID:
         """A migrated pair whose effective Connection is in `state` — what availability reads."""
-        seed_migrated_pair(
-            self.client, self.account_id, provider, state=ProfileState(state), **fields
+        return seed_migrated_pair(
+            self.client, self.account_id, provider, state=SeedState(state), **fields
         )
+
+    def set_identity(self, connection_id: UUID, **identity: Any) -> None:
+        """Store an OAuth identity on a seeded Connection, as a completed callback does."""
+
+        async def update() -> None:
+            await OAuthConnection.filter(id=connection_id).update(**identity)
+
+        assert self.client.portal is not None
+        self.client.portal.call(update)
 
     def get(self, headers: dict[str, str] | None = None) -> Any:
         response = self.client.get(ROUTE, headers=headers)
@@ -90,6 +82,15 @@ class _Edge:
 
     def statuses(self, body: dict[str, Any]) -> dict[str, str]:
         return {row["provider"]: row["status"] for row in body["providers"]}
+
+    def stored_connections(self) -> str:
+        """Every stored field of the caller's Connections, as text — what a leak could copy."""
+
+        async def rows() -> list[dict[str, Any]]:
+            return await OAuthConnection.filter(account_id=self.account_id).values()
+
+        assert self.client.portal is not None
+        return json.dumps(self.client.portal.call(rows), default=str)
 
 
 class _RecordingPort:
@@ -118,7 +119,7 @@ def test_route_refuses_an_anonymous_caller(client: TestClient) -> None:
 
 def test_rows_carry_provider_and_status_only_from_the_closed_family(edge: _Edge) -> None:
     edge.seed_pair("anthropic", "authenticated")
-    edge.seed_pair("gemini", "pending")
+    edge.seed_pair("gemini-cli", "pending")
     edge.seed_pair("codex", "error")
 
     response = edge.get()
@@ -128,15 +129,29 @@ def test_rows_carry_provider_and_status_only_from_the_closed_family(edge: _Edge)
     assert set(body) == {"providers"}
     assert all(set(row) == ROW_KEYS for row in body["providers"])
     assert {row["status"] for row in body["providers"]} <= STATUSES
-    assert [row["provider"] for row in body["providers"]] == sorted(edge.registered | {"gemini"})
+    assert [row["provider"] for row in body["providers"]] == sorted(edge.registered)
     statuses = edge.statuses(body)
     assert statuses["anthropic"] == "connected"
-    assert statuses["gemini"] == "pending"
+    assert statuses["gemini-cli"] == "pending"
     assert statuses["codex"] == "error"
-    assert all(statuses[p] == "not_connected" for p in edge.registered - {"anthropic", "codex"})
+    assert all(
+        statuses[p] == "not_connected"
+        for p in edge.registered - {"anthropic", "gemini-cli", "codex"}
+    )
     # STORY: as the Hosted Engine, I never see `needs_reauth` while effective Connections back the
     # listing.
     assert "needs_reauth" not in statuses.values()
+
+
+def test_a_pair_of_an_unregistered_provider_has_no_row(edge: _Edge) -> None:
+    # INVARIANT (OME-1721): a row is a registered provider the caller may see; the pair itself
+    # stays stored.
+    edge.seed_pair("gemini", "authenticated")
+
+    statuses = edge.statuses(edge.get().json())
+
+    assert "gemini" not in statuses
+    assert set(statuses) == edge.registered
 
 
 def test_listing_is_scoped_to_the_caller(
@@ -239,14 +254,8 @@ def test_route_reads_no_secret_builds_no_strategy_and_writes_nothing(
 
     monkeypatch.setattr(store, "read", _spy_read)
     monkeypatch.setattr(authorize_module, "credential_strategy_from", _no_strategy)
-    for name in ("write", "mutate", "delete"):
+    for name in ("write", "delete"):
         monkeypatch.setattr(store, name, _no_write)
-    for name in (
-        "upsert",
-        "remove",
-        "mark_authenticated_error",
-    ):
-        monkeypatch.setattr(edge.index, name, _no_write)
 
     statuses = edge.statuses(edge.get().json())
 
@@ -255,26 +264,21 @@ def test_route_reads_no_secret_builds_no_strategy_and_writes_nothing(
 
 
 def test_body_carries_no_name_id_label_default_auth_method_or_locator(edge: _Edge) -> None:
-    oauth = edge.seed(
-        "anthropic",
-        "authenticated",
-        "work-oauth",
-        account_label="alice@example.com",
-        scopes=["user:inference"],
-        defaults=ProfileDefaults(
-            model="anthropic/claude-x", system_prompt="be terse", max_tokens=99
-        ),
+    oauth = edge.seed_pair("anthropic", "authenticated", name="work-oauth")
+    edge.set_identity(
+        oauth, identity_email="alice@example.com", identity_raw={"scope": "user:inference"}
     )
-    key = edge.seed(
-        "openai",
-        "authenticated",
-        "team-key",
-        auth_type="api_key",
-        defaults=ProfileDefaults(model="openai/gpt-x", temperature=0.25),
+    key = edge.seed_pair(
+        "openai", "authenticated", name="team-key", auth_type="api_key", credential="sk-team-0001"
     )
-    broken = edge.seed("codex", "error", "broken-oauth")
+    broken = edge.seed_pair("codex", "error", name="broken-oauth")
 
     body = edge.get().json()
+
+    # WHY: an absence below proves nothing unless the listing read all three seeded rows, the
+    # errored one included, so their statuses are pinned first (K4).
+    seeded = {"anthropic": "connected", "openai": "connected", "codex": "error"}
+    assert {p: s for p, s in edge.statuses(body).items() if p in seeded} == seeded
 
     # Structural: the only keys are the three the contract names, and the only leaf values are
     # provider names and statuses — so no id, name, label, default, auth method or URL can hide.
@@ -284,26 +288,27 @@ def test_body_carries_no_name_id_label_default_auth_method_or_locator(edge: _Edg
     assert all(isinstance(leaf, str) for leaf in leaves)
     assert leaves <= edge.registered | STATUSES
     # Explicit: none of the seeded identifying values leaks in any form.
+    # WHY each is first found in the stored rows: a value the listing could never have read
+    # proves nothing by its absence (K4). The Profile defaults this list once named (model,
+    # system prompt, `max_tokens`, temperature) left with OME-1323 (D2); nothing stores them.
     text = json.dumps(body)
+    stored = edge.stored_connections()
     for forbidden in (
         edge.account_id,
-        oauth.id,
-        oauth.name,
+        str(oauth),
+        "work-oauth",
         "alice@example.com",
         "user:inference",
-        "claude-x",
-        "be terse",
-        "99",
-        key.id,
-        key.name,
+        str(key),
+        "team-key",
         "api_key",
-        "gpt-x",
-        "0.25",
-        broken.id,
-        broken.name,
-        "/v1/auth/",
-        "reauth_url",
+        str(broken),
+        "broken-oauth",
     ):
+        assert forbidden in stored, forbidden
+        assert forbidden not in text, forbidden
+    # The errored row's reauth refusal is computed, never stored: absent here all the same.
+    for forbidden in ("/v1/auth/", "reauth_url"):
         assert forbidden not in text, forbidden
 
 
@@ -360,3 +365,28 @@ def test_openapi_publishes_exactly_one_new_operation(edge: _Edge, monkeypatch) -
     del reduced["components"]["schemas"][listing_name]
     del reduced["components"]["schemas"][row_name]
     assert reduced == without.openapi()
+
+
+# --- D17 fold-in (OME-1138): a natively connected pair lists what chat serves ---------------
+
+
+def test_a_provider_connected_natively_after_the_census_lists_connected(
+    edge: _Edge, valid_api_key_readiness: None
+) -> None:
+    # STORY: as the Hosted Engine, I list a provider the user connected through the native flow
+    # as `connected`: the write leaves its pair `none` (no auto-promotion, D14), and chat serves
+    # it through its one active Connection.
+    created = edge.client.post(
+        "/v1/oauth/connections/api-key",
+        json={"provider": "anthropic", "label": "work", "api_key": "sk-ant-api03-fold-in-route"},
+    )
+    assert created.status_code == 201, created.text
+    portal = edge.client.portal
+    assert portal is not None
+    pair = portal.call(PairAuthorityStore().read, edge.account_id, "anthropic")
+    assert pair.migration_state == "none"
+
+    statuses = edge.statuses(edge.get().json())
+
+    assert statuses["anthropic"] == "connected"
+    assert set(statuses.values()) == {"connected", "not_connected"}

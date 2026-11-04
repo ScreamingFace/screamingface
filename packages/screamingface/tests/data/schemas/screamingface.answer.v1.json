@@ -1,7 +1,8 @@
 {
   "abstain_reason": [
     "cut_not_met",
-    "no_votes"
+    "no_votes",
+    "output_missing"
   ],
   "fields": [
     "member_id",
@@ -25,6 +26,7 @@
     "no_votes",
     "not_json",
     "not_numeric",
+    "output_missing",
     "too_large"
   ],
   "signal_order": [

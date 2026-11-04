@@ -22,9 +22,6 @@ from typing import Any, cast
 
 import pytest
 
-from aigateway.core.credential_names import profile_id_for
-from aigateway.core.profile_index import ProfileIndexStore
-from aigateway.core.profile_models import Profile, ProfileState
 from aigateway.core.request_cache.global_controls import GlobalCacheControls
 from aigateway.core.request_cache.global_plan import build_global_cache_plan
 from aigateway.plugins.huggingface_provider.parameters import (
@@ -202,7 +199,7 @@ def test_two_repos_do_not_collide() -> None:
 def test_every_registered_model_contributes_the_full_keyed_set() -> None:
     """HF's own regression floor, derived rather than hardcoded.
 
-    AIDEV-NOTE: this replaces the tempting alternative of raising
+    WHY: this replaces the tempting alternative of raising
     ``_OBSERVED_NON_BYPASS_INSTANCES`` in the SHARED conformance test. That number depends on
     catalog and environment state, and the file is append-only-protected; a floor derived from
     THIS plugin is both stronger for HF and free of blast radius.
@@ -225,7 +222,7 @@ async def _no_discovery(*_args: Any, **_kwargs: Any) -> None:
 
 @pytest.mark.asyncio
 async def test_the_published_parameter_contract_reports_the_promoted_behaviour(
-    authenticated_client, credential_blobs: Any, monkeypatch: pytest.MonkeyPatch
+    authenticated_client, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The caller-visible half of promotion, which nothing else asserts.
 
@@ -241,19 +238,6 @@ async def test_the_published_parameter_contract_reports_the_promoted_behaviour(
     # table rather than from any snapshot.
     monkeypatch.setattr(
         type(PLUGIN), "discover_chat_parameter_snapshot", _no_discovery, raising=True
-    )
-
-    account_id = authenticated_client.get("/v1/auth/me").json()["id"]
-    index = ProfileIndexStore(credential_store=credential_blobs.store)
-    await index.upsert(
-        Profile(
-            id=profile_id_for(account_id, "huggingface", "default"),
-            account_id=account_id,
-            provider="huggingface",
-            name="default",
-            state=ProfileState.AUTHENTICATED,
-            auth_type="api_key",
-        )
     )
 
     resp = authenticated_client.get("/v1/model-parameters", params={"model": _MODEL})

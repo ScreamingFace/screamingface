@@ -17,6 +17,7 @@ import secrets
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextvars import ContextVar
 from decimal import Decimal
+from functools import partial
 from typing import TYPE_CHECKING, Literal
 
 from url4.core.code import CodeCall, SupportsCode
@@ -119,7 +120,7 @@ class BoundedIOLayer:
     the bound — layered *underneath* any node-local cap such as MapNode's
     ``;iteration.concurrency``, never replacing it.
 
-    The optional capability ports (``fetch_ex``, ``fetch_holdings``) are
+    The optional capability ports (``fetch_ex``, ``fetch_bytes``, ``fetch_holdings``) are
     forwarded — bounded by the same semaphore — but only when the *inner*
     adapter provides them: they are bound as instance attributes so a
     ``runtime_checkable`` isinstance test against the wrapper reports exactly
@@ -138,9 +139,12 @@ class BoundedIOLayer:
         self._inner = inner
         self._sem = asyncio.Semaphore(limit)
         if isinstance(inner, SupportsFetchEx):
-            self.fetch_ex = self._bounded_fetch_ex
+            self.fetch_ex = partial(self._admit, inner.fetch_ex)
         if isinstance(inner, SupportsHoldings):
-            self.fetch_holdings = self._bounded_fetch_holdings
+            self.fetch_holdings = partial(self._admit, inner.fetch_holdings)
+        # WHY getattr, not isinstance(SupportsFetchBytes): engine imports io.layer only (layering)
+        if (fetch_bytes := getattr(inner, "fetch_bytes", None)) is not None:
+            self.fetch_bytes = partial(self._admit, fetch_bytes)
         if isinstance(inner, SupportsProcessorRoutes):
             # Not bounded: declaring routes is not I/O. Forwarded so a
             # `processor=` id still resolves through the wrapper (§27.3).
@@ -153,13 +157,10 @@ class BoundedIOLayer:
         async with self._admitted():
             return await self._inner.fetch(target, relative=relative)
 
-    async def _bounded_fetch_ex(self, request: FetchRequest) -> FetchResult:
+    async def _admit[R](self, call: Callable[..., Awaitable[R]], *args: object, **kw: object) -> R:
+        """``call(*args, **kw)`` admitted through the run-wide semaphore (ports take keywords)."""
         async with self._admitted():
-            return await self._inner.fetch_ex(request)  # type: ignore[attr-defined]
-
-    async def _bounded_fetch_holdings(self, identity: str | None, collection: str | None) -> str:
-        async with self._admitted():
-            return await self._inner.fetch_holdings(identity, collection)  # type: ignore[attr-defined]
+            return await call(*args, **kw)
 
     @contextlib.asynccontextmanager
     async def _admitted(self) -> AsyncIterator[None]:
@@ -356,6 +357,7 @@ class ExecutionContext:
         cache_creation_tokens: int | None = None,
         reasoning_tokens: int | None = None,
         cost_usd: Decimal | None = None,
+        image_and_file_tokens: int | None = None,
     ) -> None:
         """Report model token usage under this node's current span. A no-op
         when no ``observer`` was passed to :func:`~url4.dag.run`.
@@ -363,11 +365,12 @@ class ExecutionContext:
         ``model`` is the REQUESTED model; pass ``response_model`` when the provider
         reports which model actually served the call (see :class:`~url4.observe.Usage`).
 
-        The cache/reasoning classes and ``cost_usd`` are optional evidence: omit any the
-        provider did not report. INVARIANT: omitting one leaves it ``None``, which means
+        The cache/reasoning/image-file classes and ``cost_usd`` are optional evidence: omit any
+        the provider did not report. INVARIANT: omitting one leaves it ``None``, which means
         "not reported" and is NOT the same claim as ``0`` — see
         :class:`~url4.observe.Usage`. ``cost_usd`` is already USD; this layer performs no
-        conversion or arithmetic on it.
+        conversion or arithmetic on it. ``image_and_file_tokens`` (OME-1744) is the
+        image/document SUBSET of ``input_tokens``, never added to it.
         """
         if self._obs is not None:
             self._obs.emit(
@@ -382,6 +385,7 @@ class ExecutionContext:
                     cache_creation_tokens,
                     reasoning_tokens,
                     cost_usd,
+                    image_and_file_tokens,
                 )
             )
 

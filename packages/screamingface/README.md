@@ -35,6 +35,18 @@ Scoreboard is refused).
 `screamingface down` to manage them. Runtime state is stored under `~/.screamingface` by default;
 set `SCREAMINGFACE_DATA_DIR` or pass `--data-dir` to override it.
 
+Set `URL4_RUNNER_CONFIG` before `up` or `restart` to supply a custom runner TOML as a full
+runner-world override (routes, capabilities, timeouts, providers). Relative paths and `~` resolve
+at startup; neither this variable nor the paired Gateway variable below is saved in runtime state, so
+re-export both on each `up`/`restart`. Route variants (such as `:free`) are declared
+with `~` in TOML (e.g. `openrouter/vendor/model~free`) and paired with their decoded `:` ID in
+Gateway settings (`AIGW_OPENROUTER_DEFAULT_MODELS`, whose entries must start with `openrouter/`),
+which replace rather than append to the model inventory:
+
+```bash
+URL4_RUNNER_CONFIG=custom.toml AIGW_OPENROUTER_DEFAULT_MODELS='["openrouter/vendor/model:free"]' screamingface up
+```
+
 The default service ports are Gateway `9105`, Scoreboard `9106`, and Engine `9108`. Override them
 with `--gateway-port`, `--scoreboard-port`, and `--engine-port`, or the corresponding
 `SCREAMINGFACE_GATEWAY_PORT`, `SCREAMINGFACE_SCOREBOARD_PORT`, and `SCREAMINGFACE_ENGINE_PORT`
@@ -149,7 +161,8 @@ replayed_report = sf.evaluate(score.url4)
 `Url4.to_python()` is local and no-spend: it returns a `str` of Python source, not live objects —
 the `sf.Model`, `sf.Fusion`, `sf.Pipeline`, `sf.CorrectiveLoop`, or `sf.SelfCorrective` written
 back out as editable code, plus the recovered Benchmark call. Raw URL4 evaluation does not accept
-`benchmark=` or `limit=` because either would imply recompiling an already-complete expression.
+`benchmark=`, `limit=` or `cases=` because any of them would imply recompiling an
+already-complete expression.
 Replay starts a new, potentially paid Run; identical URL4 does not guarantee identical model
 output.
 
@@ -168,6 +181,17 @@ Benchmark IDs are flat, complete identities. Bounded development runs use `limit
 the named protocol: `benchmark="draco", limit=1` still uses canonical DRACO's full rubric and five
 Judge passes. The non-canonical HealthBench challenge is therefore named independently as
 `healthbench-worst30`, rather than presented as a canonical HealthBench variant.
+
+A run can also name a fixed list of Case ids instead of the first N: `sf.evaluate(model,
+benchmark="lab_bench_seqqa", cases=[3, 17, 42])`, where a Case id is the Case's position in the
+Benchmark, 1 to N. This is for a development set and a held-out set that are scattered rather
+than a prefix. The SDK posts the list to the Engine and refuses before any model call unless the
+Engine echoes exactly that list back, so an Engine without the selection route never runs and
+bills the whole Benchmark. `report.selected_cases` names the Cases scored, ascending, and
+`report.selection_fingerprint` is the `sha256:` of the sorted ids, to cite together with the
+Benchmark id and revision. A selected run can't be submitted to the leaderboard, `cases=` and
+`limit=` can't be combined, at most 1,000 ids are accepted, and a list equal to Cases 1 to N is
+the same run as `limit=N`.
 
 ### Candidate policy
 
@@ -324,8 +348,10 @@ same_chain = draft.then(review).then(final)
 ```
 
 The first Pipeline stage receives the Candidate input; each later stage receives only the previous
-stage's answer. No original input or accumulated history is injected implicitly. Pipelines and
-complete Fusions compose recursively, including in the synthesis role:
+stage's answer. No original input or accumulated history is injected implicitly. The one exception
+is the stage after a `sf.Rank` or a `sf.Filter`: its selection JSON also holds the input of that
+Fusion (see "Rank and Concat selections"). Pipelines and complete Fusions compose recursively,
+including in the synthesis role:
 
 ```python
 judge = sf.Model("openrouter/anthropic/claude-opus-4.8")
@@ -380,6 +406,31 @@ A member with no usable value does not vote. When no member votes, the Case abst
 On HealthBench a harmful answer can score below 0, so an abstain can rank above a bad answer; this
 is intended. Only the final step of a Candidate can mark a Case as abstained: a combine step that
 feeds another stage (a Rank or a Filter) never does.
+
+**Weighted median.** `sf.Median(weights=(1, 1, 3))` takes one positive number per member, or
+`sf.signal(key)`, as `sf.Vote` does. The members with a usable weight are sorted by value. The
+answer is the first value where the running weight reaches half the total weight. At exactly
+half, the answer is the mean of that value and the next one, so equal weights give the plain
+median. A member with a missing or non-positive weight is dropped. It is never the nearest pick.
+When no member is left, the Case abstains. For a number in a JSON reply, use the block form
+`sf.Reduce("median", extract=sf.Extract("field", path="answer"),
+weights=sf.signal("field:confidence"), select="value")`. The block form takes `select=` as
+`sf.Median` does: `select="value"` returns the median number, and the default
+`select="nearest"` returns the text of the nearest member. A `sf.signal("score:judge")` weight
+raises `ValueError`: a Median has no judge.
+
+`sf.Mean` returns the mean of the members' numbers (`select="value"`, the default) or the text of
+the member nearest the mean (`select="nearest"`). Give it weights to make some members count more:
+
+```python
+by_mean = sf.Fusion(routes, synthesizer=sf.Mean(weights=[1, 1, 2]))
+```
+
+The sums are exact, and the division is rounded to 34 significant digits. A member with no usable
+weight is dropped: it is not in the mean and it is never the nearest member. For a number in a
+JSON reply, use the block form `sf.Reduce("mean", extract=sf.Extract("field", path="answer"),
+weights=sf.signal("field:confidence"))` (see "Combine recipes"). The block form also takes
+`select="nearest"`.
 
 To group answers the way the benchmark grades them, let the benchmark choose the extract rule. The
 SDK reads the rule from the benchmark before any spend:
@@ -444,8 +495,8 @@ member's `weight` and each answer's summed `score`.
 A weight that is zero, negative, not finite or above `sys.float_info.max / 256` raises `ValueError`
 at `sf.Vote(...)`, and a weight that is not a number raises `TypeError`. A wrong number of weights
 raises `ValueError` when the Fusion is built. All of these raise before any call. Weights apply to
-`sf.Vote` only; `sf.Median(weights=...)` raises `TypeError`. `sf.signal("score:judge")` needs a judge
-on the same vote (see "Judge synthesizer" below).
+`sf.Vote`, `sf.Mean` and `sf.Median` (see "Weighted median" above). `sf.signal("score:judge")`
+needs a judge on the same vote (see "Judge synthesizer" below).
 
 The accounting keys are `cost_usd`, `latency_ms`, `tokens_in` and `tokens_out`. For a member they
 are the sum over the model calls that member made, which the Engine finds by each call's route and
@@ -490,6 +541,17 @@ order. The check is strict: quotes, a full stop, a code fence around a label, a 
 extra key, a string, `NaN` or `Infinity` all fail the Case with `judge_reply_invalid`. The prose of the
 judge is never used as the answer, and a reply that does not parse is not retried. (A transient
 transport error still gets the normal retry of the connector.)
+
+**Lower is better.** `sf.Judge(model, returns="scores", rubric=..., order="min")` picks the member
+with the lowest score, for a rubric such as an error count or a risk score. The judge is told that a
+lower number means a better answer, and the first line of its system prompt is
+`judge-template@1 returns=scores order=min`. A tie goes to the first member in author order. The
+default `order="max"` keeps the url4 of a judge that has no order. A label judge has no order:
+`returns="label"` with `order="min"` raises `ValueError`. `sf.Rank(by=...)` and
+`sf.Vote(judge=...)` refuse a judge with `order="min"`, because they read the scores with their own
+rule. To keep the lowest scores with Rank, use `sf.Rank(k, by=sf.Judge(...), order="min")`; the
+judge is then told that a higher number is better. The block form takes `order=` the same way as
+`rubric=`. `order="min"` needs an Engine whose catalog has `best_holder@1`.
 
 The judge call is the operation `op_judge_1`. Its output is the raw reply of the judge, and its cost
 is in the accounting breakdown as a synthesis row. The combine step is `op_synthesis_1`. Its `combine`
@@ -552,6 +614,8 @@ If the members reply with JSON, a rule can choose or build the answer. No model 
 ```python
 by_confidence = sf.Fusion(routes, synthesizer=sf.Pick("confidence", order="max"))
 by_answer = sf.Fusion(routes, synthesizer=sf.Pick("answer", equals="yes", normalize="text"))
+# the answer is only the "answer" field of the most confident member's JSON reply
+answer_only = sf.Fusion(routes, synthesizer=sf.Pick("confidence", order="max", output="answer"))
 
 # argmax: the member with the lowest value of a named signal (here, the cheapest member)
 cheapest = sf.Fusion(routes, synthesizer=sf.Pick(by_signal=sf.signal("cost_usd"), order="min"))
@@ -595,6 +659,15 @@ SDK adds `sources` to the combine context (the model calls of each member), as i
 `sf.Vote`; a member with a call that appears twice in the Candidate gets no value. `score:judge` raises
 `ValueError`: this reducer has no judge. Use `sf.Judge(..., returns="scores")`, which picks the member
 with the highest judge score. A `Pick` takes a field or `by_signal=`, not both.
+
+`output="answer"` (on a field Pick or on `by_signal=`) makes the answer one top-level field of the
+winner's JSON reply, not its whole text. A string is returned without its quotes, and any other
+value as compact JSON (`42`, `true`, `{"a":1}`). When the winner's field is missing, `null` or
+blank, or its reply is not a JSON object, the Case abstains with the reason `output_missing`. The
+next member is never used. `output` is a field name (a letter or `_`, then letters, digits or `_`,
+at most 64 characters), not a path. A string that is not a field name raises `ValueError`, and a
+value that is not a string raises `TypeError`, both before any call. The block forms take the same
+`output=` option.
 
 The block forms compile to the same url4 as the named classes, and `Url4(...).to_python()` writes the
 named class back: `sf.Reduce("argmax", by_signal=..., order=...)` is `sf.Pick(by_signal=..., order=...)`,
@@ -642,7 +715,8 @@ needs `by_signal@1` and `best_holder@1`.
 A selection is a hand-off to the next stage. It is not an answer. `sf.Rank` keeps the top `k`
 original member texts. `sf.Concat` joins all the member texts. Neither one rewrites a text. A Fusion
 with a selection must be followed by another stage of a `sf.Pipeline`, and that stage receives the
-selection and nothing else.
+selection. After a `sf.Rank` or a `sf.Filter`, the selection also holds the input of the Fusion, so
+the next stage sees the question. After a `sf.Concat`, it is the joined text only.
 
 ```python
 ranked = sf.Pipeline(
@@ -668,10 +742,15 @@ joined = sf.Fusion(routes, synthesizer=sf.Concat(separator="\n\n---\n\n", label=
 `sf.Rank(k, by=sf.Judge(..., returns="scores"))` scores the members with a judge, and
 `sf.Rank(k, by_field="score")` reads a number from the JSON reply of each member (`by_field` is a
 field path like `score` or `result.score[0]`). The next stage receives this JSON, best member first:
-`{"selected":[{"id":"member_2","text":"..."},{"id":"member_4","text":"..."}]}`. A tie at the cut
+`{"input":"...","selected":[{"id":"member_2","text":"..."},{"id":"member_4","text":"..."}]}`.
+`input` is the input of this Fusion, character for character: the Case input when the Fusion is the
+first stage, or the answer of the previous stage when it is not. A conversation input arrives as its
+JSON text. The input is never cut: a selection of more than 8 MiB fails with
+`combine_input_too_large`. The url4 of the candidate does not change. A tie at the cut
 goes to the earlier member, and the evidence sets `tie`. `k` is from 1 to 256 and must not be more
 than the number of members. If fewer than `k` members have a usable score, the combine step
-abstains with `cut_not_met`, and the next stage gets an empty text. The judge call and the scores
+abstains with `cut_not_met`, and the next stage gets the input and no member,
+`{"input":"...","selected":[]}`. The judge call and the scores
 of all the members stay in the report (`op_judge_1` and the `combine` evidence), also for the members that do not continue. A judge reply
 that is not valid fails the Case with `judge_reply_invalid`, as for `sf.Judge`.
 
@@ -705,15 +784,17 @@ and `sf.Reduce("concat", separator=..., label=...)`. Each compiles to the same u
 The compiler checks the place of a selection before any call. A Fusion with `Rank`, `Concat` or
 `Filter` cannot be the last step of a candidate, cannot be a member of another Fusion (also not
 through a `sf.Pipeline` that ends in one), and cannot be a member of a corrective loop. Each case
-raises `ValueError`. The next stage does not receive the original question or the other member
-texts, so put the task in the prompt of that stage. This needs an Engine whose operator catalog has
+raises `ValueError`. After a Rank or a Filter, the next stage receives the input of the Fusion and
+the kept member texts, never the texts that were cut. After a Concat, it receives only the joined
+text, so put the task in the prompt of that stage. This needs an Engine whose operator catalog has
 `scores@1` and `top_k@1` for `Rank` by a judge or by a field, `by_signal@1` and `top_k@1` for `Rank`
 by a signal, or `join@1` and `all@1` for `Concat`.
 
 ### Filter selection
 
-`sf.Filter` keeps the members that pass a test. The next stage gets only those members, as the
-same JSON that `sf.Rank` writes, in author order. `where=` is a regex or a signal comparison:
+`sf.Filter` keeps the members that pass a test. The next stage gets the input of the Fusion and only
+those members, as the same JSON that `sf.Rank` writes (`{"input":"...","selected":[...]}`), in
+author order. `where=` is a regex or a signal comparison:
 
 ```python
 confident = sf.Pipeline(
@@ -737,17 +818,119 @@ plain `bool`, and a comparison is not a `bool` (`if sf.signal("cost_usd") < 1:` 
 `sf.signal("field:x") == True` also passes a member whose number is `1.0`, because a signal holds a
 float. A member with no value for the signal, or that failed to answer, is dropped.
 An accounting key (`cost_usd`, `latency_ms`, `tokens_in`, `tokens_out`) reads the model calls of
-each member, and `sf.signal("score:judge")` is refused. A regex reads the original text of the
-member, never the extracted answer. `extract=` reads each answer first: a member whose answer
-cannot be read is dropped, and the report shows the value it read.
+each member, and `sf.signal("score:judge")` needs `judge=sf.Judge(..., returns="scores")` on the
+same Filter. A regex reads the original text of the member, never the extracted answer.
+`extract=` reads each answer first: a member whose answer cannot be read is dropped, and the
+report shows the value it read.
+
+A Filter can keep the members that a judge scores high enough. One judge call scores every
+member, and the Filter keeps each member whose score passes the test:
+
+```python
+judged = sf.Filter(
+    where=sf.signal("score:judge") >= 7,
+    judge=sf.Judge("openai/gpt-5.5", returns="scores", rubric="Score each draft from 0 to 10."),
+)
+```
+
+`where=sf.signal("score:judge")` and `judge=` go together: one without the other raises
+`ValueError`. The judge must return scores, and it is always told that a higher number is
+better (a judge with `order="min"` is refused). A judge reply that is not one finite score for
+each member fails the Case with `judge_reply_invalid`.
 
 A Filter that keeps no member abstains: its `combine` evidence has the result `abstain` with the
-reason `no_votes`, and the next stage gets an empty text. (The Case is not marked `abstained`, because
-a Filter is never the final step.) The report shows a pass mark in
+reason `no_votes`. The next stage still runs, and it gets the input and no member:
+`{"input":"...","selected":[]}`. So a writer can say that no answer passed. (The Case is not marked
+`abstained`, because a Filter is never the final step.) The report shows a pass mark in
 `members[].score` of the `combine` evidence: `1.0` when the member is kept, `0.0` when it is
-dropped, and `None` when the member failed to answer. The block form is
-`sf.Reduce("filter", where=..., extract=...)`. The place rules of "Rank and Concat selections" apply
-to a Filter too. This needs an Engine whose operator catalog has `filter@1` and `kept@1`.
+dropped, and `None` when the member failed to answer. The block form is `sf.Reduce("filter",
+where=..., extract=..., judge=...)`. The place rules of "Rank and Concat selections" apply to a
+Filter too. This needs an Engine whose operator catalog has `filter@1` and `kept@1`.
+
+### Combine recipes
+
+Each row is one combine scenario with a recipe that you can copy. Each recipe runs offline in the
+Engine's tests, from the url4 that the SDK compiles. A scenario that needs two values from each
+member (an answer and a confidence) asks each member for one JSON reply. Ask every member for the
+same confidence scale, for example 0 to 1. The Engine cannot see that one member writes 80 and
+another member writes 0.8.
+
+| S | Scenario | Recipe |
+|---|---|---|
+| S1 | Read a number from each answer and return the median number | `s1_median_number` |
+| S2 | Read a number from each answer and return the answer nearest the median | `s2_median_member` |
+| S3 | Read a number from each answer and return the mean, with fixed weights | `s3_mean_static` |
+| S4 | Read the answer and the confidence of each JSON reply and return the mean weighted by confidence | `s4_mean_by_confidence` |
+| S4, median form | Read the answer and the confidence of each JSON reply and return the median weighted by confidence | `s4_median_by_confidence` or `sf.Reduce("median", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence"), select="value")` |
+| S5 | Return the answer with the highest confidence | `s5_max_confidence` or `sf.Pick(..., output="answer")` |
+| S7 | Keep the 2 answers with the highest confidence, then a writer combines them | `s7_top_confidence` |
+| S8 | Return the answer with the highest confidence, read as a signal | `s8_argmax_confidence` or `sf.Pick(..., output="answer")` |
+| S9 | Keep the answers with a confidence above 0.7, then a writer combines them | `s9_confident_only` |
+| S10 | A judge scores each answer, keep the best 2, then a writer combines them | `s10_judge_top` |
+| S10, threshold form | A judge scores each answer, keep the answers with a score of 7 or more (see "Filter selection") | `sf.Filter(where=sf.signal("score:judge") >= 7, judge=sf.Judge(m, returns="scores", rubric=R))` |
+| S11 | A judge scores each answer and returns the best answer | `s11_judge_best` |
+| S11, min form | A judge scores each answer with a lower number as better, and returns the answer with the lowest score | `sf.Judge(m, returns="scores", rubric=R, order="min")` |
+
+```python
+import screamingface as sf
+
+routes = ["provider/alpha", "provider/beta", "provider/gamma"]
+# Ask every member for the same JSON reply and the same confidence scale (0 to 1).
+reply_json = (
+    "Answer the request. Reply with only one JSON object: "
+    '{"answer": "<your answer>", "confidence": <a number from 0 to 1>}.'
+)
+json_members = [sf.Model(route, prompt=reply_json) for route in routes]
+writer = sf.Model(
+    "provider/writer", prompt="Write the final answer to the input from the selected answers."
+)
+judge = sf.Judge(
+    "provider/judge", returns="scores", rubric="Give a higher number to a more correct answer."
+)
+
+s1_median_number = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number", select="value"))
+s2_median_member = sf.Fusion(routes, synthesizer=sf.Median(extract="last_number"))
+s3_mean_static = sf.Fusion(routes, synthesizer=sf.Mean(weights=(1, 1, 2)))
+s4_mean_by_confidence = sf.Fusion(
+    json_members,
+    synthesizer=sf.Reduce(
+        "mean", extract=sf.Extract("field", path="answer"), weights=sf.signal("field:confidence")
+    ),
+)
+s4_median_by_confidence = sf.Fusion(
+    json_members,
+    synthesizer=sf.Reduce(
+        "median",
+        extract=sf.Extract("field", path="answer"),
+        weights=sf.signal("field:confidence"),
+        select="value",
+    ),
+)
+s5_max_confidence = sf.Fusion(json_members, synthesizer=sf.Pick("confidence", order="max"))
+s7_top_confidence = sf.Pipeline(
+    [sf.Fusion(json_members, synthesizer=sf.Rank(k=2, by_field="confidence")), writer]
+)
+s8_argmax_confidence = sf.Fusion(
+    json_members, synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max")
+)
+s9_confident_only = sf.Pipeline(
+    [
+        sf.Fusion(json_members, synthesizer=sf.Filter(where=sf.signal("field:confidence") > 0.7)),
+        writer,
+    ]
+)
+s10_judge_top = sf.Pipeline([sf.Fusion(routes, synthesizer=sf.Rank(k=2, by=judge)), writer])
+s11_judge_best = sf.Fusion(routes, synthesizer=judge)
+```
+
+The writer after a Rank or a Filter gets one JSON object: the Case input and the kept member
+texts (see "Rank and Concat selections"). `sf.Rank` gives the kept members best first, and
+`sf.Filter` gives them in author order. The `>` test of `sf.Filter` is strict: a confidence of
+exactly 0.7 is not kept. When no member passes, the Filter abstains with `no_votes` and the writer
+gets `{"input":"...","selected":[]}` (see "Filter selection"). A member whose reply is not JSON has
+no confidence, so `sf.Pick` never returns it. When no member has a confidence, the Case abstains. A
+judge reply that is not one JSON object with a finite score for each member fails the Case with
+`judge_reply_invalid`.
 
 ### Fusion as a named recipe
 
@@ -1137,7 +1320,7 @@ benchmarks = sf.benchmarks.list()
 boards = sf.leaderboards.list()
 draco_board = sf.leaderboards.get("draco", top=50)
 
-# After evaluating a Benchmark whose Scoreboard accepts submissions:
+# After evaluating, with capture=True, a Benchmark whose Scoreboard accepts submissions:
 submission = sf.leaderboards.submit(
     report.candidates.only,
     authors=["alice@example.com", "bob@example.org"],
@@ -1155,7 +1338,7 @@ sf.leaderboards.edit(
     paper_metadata={"title": "Our ensemble", "url": "https://arxiv.org/abs/2610.01234"},
 )
 
-# Replay the published run at $0 from its pinned cache and check that it reproduces:
+# Replay the published run at $0 from its pinned cache (None unless it ran with capture=True):
 replay = sf.evaluate(pinned_cache=same_submission.pinned_cache)
 reproduction = replay.candidates.only.reproduction
 if reproduction is not None:
@@ -1167,7 +1350,7 @@ replayed_report = sf.evaluate(same_submission.url4)
 Explicit Clients provide the same interface through `client.models.list()` and
 `client.models.get(model_id)` alongside `client.benchmarks.list()`; asynchronous Clients use the
 same names with `await`. `ModelInfo` rows are lightweight summaries containing the supported
-parameter and tool names. `ModelDetails` is the profile-specific contract for one Model, including
+parameter and tool names. `ModelDetails` is the Connection-specific contract for one Model, including
 typed parameter schemas, gateway policy, provider evidence, tools, transport, and freshness.
 
 `sf.leaderboards` uses the separate public Scoreboard: `list()` returns its registered benchmark
@@ -1203,7 +1386,8 @@ Provider access and explicit Candidate parameters are preflighted before executi
 fetches one detail document per distinct required Candidate Model, including parameter-free
 Models, and reuses any document fetched during model admission. Authoritative missing provider
 access raises `ProviderConnectionError` before any Candidate dispatch or progress events, with a
-hint to configure BYOK via `sf.connect()` or enable the selected hosted provider profile.
+hint to connect the provider with `sf.connect()` or to ask the operator of a hosted Engine to
+connect it in AI Gateway.
 `ModelDetails.execution_access` is `"configured"`, `"missing"`, or `None` when an older Gateway
 omits the field. Unknown access preserves existing behavior; the early missing-access guarantee
 requires a Gateway that publishes the field. Configured access is not credential validation.
@@ -1219,8 +1403,8 @@ or introduce a separate discovery operation.
 
 ### Replay a published run
 
-Every `evaluate` captures a **pinned cache** by default: every model and web-tool answer of the
-run, stored with it (`CandidateResult.pinned_cache`). After the result is submitted,
+`evaluate(..., capture=True)` captures a **pinned cache**: every model and web-tool answer of the
+run, stored with it (`CandidateResult.pinned_cache`). Capture is off by default. After the result is submitted,
 `sf.evaluate(pinned_cache="<id>")` replays that run at $0: the recipe and answer seed come from the
 public board, and every call is answered from the pinned cache. `CandidateResult.reproduction` then
 says whether the replay gave the published score: `exact`, or `failed` with a `reason` and the
@@ -1231,6 +1415,8 @@ login is asked for only then) unless `record_reproduction=False`.
 - `url4=` is optional; when passed it must be the same parsed recipe as the published one. A passed
   `answer_seed` must equal the captured run's; a run captured without a seed replays without one.
 - `limit=n` replays only the first n cases, for debugging. It is never judged or recorded.
+  `cases=` is refused on a replay: a replay runs the published Case set or its first n, never a
+  different list.
 - A capture that was never submitted replays with `url4=` (and `answer_seed=` if it had one) and
   has no verdict.
 - A replay that cannot start (a partial capture, or an Engine that does not replay) raises
@@ -1257,6 +1443,9 @@ inspect_evals boards alongside ours, and opens JupyterLab against it.
 - [`examples/12_inspect_evals_benchmarks.ipynb`](examples/12_inspect_evals_benchmarks.ipynb): the
   catalogue as two origin groups — ours and the imported inspect_evals boards — then a
   Fusion against one of the imported boards.
+- [`examples/18_picture_benchmarks.ipynb`](examples/18_picture_benchmarks.ipynb): two Cases of
+  each picture Benchmark (LAB-Bench FigQA and TableQA, MMMU, MathVista, HLE, LABBench2 FigQA2 and
+  TableQA2) on the local stack or dev, chosen by one variable, with paid runs off by default.
 
 All notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 
@@ -1324,14 +1513,17 @@ disclosures reuse the cache without decoding Cases; missing, stale or malformed 
 rebuild, and a read-only cache location still returns derived values. Per-Case HTML still
 materializes its rendered output. Automatic lifecycle discovery remains a separate follow-up.
 
-## Optional analytics (dev preview)
+## Usage analytics
 
-Analytics is off until you explicitly opt in. In local Python or Jupyter:
+Analytics is enabled by default in Python scripts, headless jobs and notebooks.
+The SDK makes a best-effort attempt to show its disclosure; redirected, missing
+or closed output does not prevent enrollment. Existing opt-outs remain off.
+In local Python or Jupyter:
 
 ```python
 import screamingface as sf
 
-sf.analytics.enable()  # Remember consent for this OS user
+sf.analytics.enable()  # Explicitly enable again after opting out
 sf.analytics.status()  # Inspect consent and effective state
 sf.analytics.disable()  # Stop sending and remove the local identifier
 sf.analytics.reset_identifier()  # Start a new identifier without linking it
@@ -1341,17 +1533,30 @@ The equivalent commands are `screamingface analytics status`, `enable`, `disable
 and `reset-id`. They do not start local runtime services. `sf.analytics.enable(persist=False)`
 accepts for this process only when you do not want persistent preferences.
 `sf.analytics.disable(process_only=True)` stops this process without changing the saved choice.
-A truthy `DO_NOT_TRACK` overrides acceptance. Noninteractive use never prompts.
+A truthy `DO_NOT_TRACK` overrides acceptance, including in headless jobs.
+Set `DO_NOT_TRACK=1` before import to prevent automatic enrollment entirely.
+Noninteractive use never asks for input.
 
-Explicit interactive `sf.connect()` setup shows a nonblocking notice if no choice
-is saved. Continue without choosing to leave analytics off; the notice does not
-wait for input or run during evaluation. Saved choices have no scheduled re-prompt.
+Studio inherits this default when its sidecar bundles this SDK version. Starting
+it may enroll a fresh installation; the notice goes to runtime logs. Startup alone
+emits no event. Studio and Python share the SDK preference file and opt-out controls,
+independent of Studio's runtime data directory. Studio currently has no dedicated
+analytics notice or settings control; no UI follow-up is planned for now.
+
+Import, connection setup, and the first evaluation can attempt the notice, whichever
+runs first. Python notices go to stderr, including redirected logs, so stdout
+remains usable for data. Local notebooks show inline text. The notice never asks
+for input and is attempted at most once per process when enrolling a new installation.
+Saved choices have no scheduled re-prompt.
+
+> ScreamingFace collects anonymous usage analytics (API usage, SDK versioning, and your local-or-hosted engine preference) to help us build a better API. It does not store any fusion, prompts, outputs, scores, or keys. It's on by default; turn it off anytime with `sf.analytics.disable()` (or set `DO_NOT_TRACK=1`).
 
 Preferences live in `~/.screamingface/analytics.json`, or the explicit
 `SCREAMINGFACE_ANALYTICS_CONFIG` path. This is independent of runtime `--data-dir`,
 virtual environments and project directories. Writes are atomic and owner-only;
-unreadable or malformed preferences disable collection. Failed preference writes
-raise an error rather than claiming consent was saved.
+unreadable or malformed preferences disable collection and are never automatically
+replaced. Failed automatic enrollment leaves analytics off without interrupting
+product work. An explicit `enable()` still raises if preferences cannot be saved.
 
 The four events are `evaluation_started`, `evaluation_finished`,
 `submission_started` and `submission_finished`. They contain random installation,
@@ -1385,16 +1590,21 @@ in evaluation, never waits for delivery at shutdown, and may lose events. Consen
 is rechecked before dispatch and retry; already dispatched requests can complete
 after opt-out. There is no durable event spool.
 
-In Colab, explicit `sf.connect()` setup starts a consent-only browser bridge in a
-background worker. Unknown consent shows the same nonblocking disclosure. Use
-`sf.analytics.enable()` to accept: it waits up to three seconds for confirmed browser
+In Colab, import or first interactive use starts a consent-only browser bridge in
+a background worker. Unknown consent attempts the same inline disclosure, then
+conditionally enables analytics without overriding a saved decline. The first
+evaluation waits up to two seconds for pending setup; asynchronous evaluations keep
+the event loop free during that wait. A timeout lets evaluation proceed untracked
+and invalidates late setup replies. There is no automatic retry or replay of the
+missed operation. Use
+`sf.analytics.enable()` to explicitly enable: it waits up to three seconds for confirmed browser
 consent and a usable ID, then prints `Analytics enabled.` or
 `Couldn't enable analytics; tracking remains off.` It returns `None`, so notebooks show only the confirmation message. Use
 `sf.analytics.status()` for programmatic checks and detailed state. After successful return, the next evaluation
 can be tracked without a separate polling cell. A timed-out acceptance is cancelled
 locally so a late response cannot silently enable tracking.
 
-Automatic setup and event delivery remain nonblocking. `sf.analytics.disable()`
+Import/setup initiation and event delivery remain nonblocking. `sf.analytics.disable()`
 stops local tracking immediately and returns `None`. It prints `Analytics disabled.`
 and, while browser persistence is pending, `Saving your choice in the browser.`
 Use `sf.analytics.status()` to inspect `pending` until acknowledged. Operations begun before consent is
@@ -1419,6 +1629,11 @@ may complete; successful persisted decline prevents subsequent bridge delivery.
 Cookie continuity is per browser profile/Colab partition, not cross-browser identity.
 Safari may show a first-run Colab JavaScript-output warning, also reproduced without
 this bridge. Real Colab background-worker verification remains a release gate.
+
+The service must support `POST /bridge/consent/enroll` before this SDK's default
+Colab enrollment can work. Older services leave new users off; explicit controls
+remain compatible. Enabled preferences alone do not prove events reached reporting.
+Failure diagnostics and automatic recovery are not part of this default change.
 
 There is no identity linking. Events follow PostHog-managed retention under the
 selected plan; ScreamingFace does not promise a fixed raw-event deletion deadline.
