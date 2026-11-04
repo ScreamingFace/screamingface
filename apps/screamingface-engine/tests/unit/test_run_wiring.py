@@ -57,10 +57,14 @@ def test_a_hosted_app_refuses_a_sqlite_database(url: str) -> None:
         install_runs(FastAPI(), Settings(database_url=url), _CountingStream(), local=False)
 
 
-def test_the_local_database_sits_beside_the_artifacts(tmp_path: Path) -> None:
+def test_without_a_url_the_local_database_lives_in_the_home_folder(tmp_path: Path) -> None:
+    # WHY not beside the artifacts: their default is a temp path the OS may clear, and another
+    # user's Engine may own it.
     settings = Settings(artifacts_dir=str(tmp_path / "artifacts"))
 
-    assert local_database_url(settings) == f"sqlite://{tmp_path}/engine.sqlite3"
+    assert local_database_url(settings, home=tmp_path) == (
+        f"sqlite://{tmp_path}/.screamingface-engine/engine.sqlite3"
+    )
 
 
 def test_a_local_database_url_is_kept(tmp_path: Path) -> None:

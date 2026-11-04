@@ -860,7 +860,9 @@ async def _warm_process(environ: Any, stdin: Any) -> int:
 
 
 def _settled(outcome: CandidateOutcome) -> child_protocol.Settled:
-    return child_protocol.Settled(outcome.status, outcome.error_code, outcome.cost_usd)
+    return child_protocol.Settled(
+        outcome.status, outcome.error_code, outcome.cost_usd, outcome.finished_at
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

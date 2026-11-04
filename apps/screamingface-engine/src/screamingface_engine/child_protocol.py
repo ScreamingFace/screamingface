@@ -8,7 +8,8 @@ it before it runs any of the run's code.
     child → worker, control pipe:  READY {"pid": <int>, "world": "ok" | "error"}\\n
     worker → child, stdin:         {"spec_version": "2", "env": {...}, "io_concurrency": <int>}\\n
     child → worker, control pipe:  ACK\\n
-    child → worker, control pipe:  SETTLED {"status": …, "error_code": …, "cost_usd": "…"}\\n
+    child → worker, control pipe:  SETTLED {"status": …, "error_code": …, "cost_usd": "…",
+                                            "finished_at": "<ISO 8601>"}\\n
 
 The child writes SETTLED, its Candidate outcome (OME-1785), after its run and before it exits,
 and only when its own frames reached the stream. A child that dies first sends none.
@@ -23,7 +24,8 @@ the line format lives, and it may pull neither half in.
 """
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 
 SPEC_VERSION = "2"
@@ -64,16 +66,23 @@ class RunSpec:
 
 @dataclass(frozen=True)
 class Settled:
-    """A run's outcome as its child classified it. `cost_usd` is exact, or None."""
+    """A run's outcome as its child classified it. `cost_usd` is exact, or None; `finished_at`
+    is when the child saw the end, so the supervisor relays it instead of its own later time."""
 
     status: str
     error_code: str | None
     cost_usd: Decimal | None
+    finished_at: datetime = field(default_factory=lambda: datetime.now(UTC), compare=False)
 
 
 def encode_settled(settled: Settled) -> bytes:
     cost = None if settled.cost_usd is None else str(settled.cost_usd)
-    body = {"status": settled.status, "error_code": settled.error_code, "cost_usd": cost}
+    body = {
+        "status": settled.status,
+        "error_code": settled.error_code,
+        "cost_usd": cost,
+        "finished_at": settled.finished_at.isoformat(),
+    }
     return _SETTLED + json.dumps(body, separators=(",", ":")).encode() + b"\n"
 
 
@@ -96,7 +105,22 @@ def decode_settled(line: bytes) -> Settled:
         exact = None if cost is None else Decimal(cost)
     except InvalidOperation as exc:
         raise ProtocolError("a SETTLED cost travels as a decimal string") from exc
-    return Settled(status=status, error_code=code, cost_usd=exact)
+    return Settled(
+        status=status,
+        error_code=code,
+        cost_usd=exact,
+        finished_at=_aware_time(body.get("finished_at")),
+    )
+
+
+def _aware_time(value: object) -> datetime:
+    try:
+        when = datetime.fromisoformat(value) if isinstance(value, str) else None
+    except ValueError:
+        when = None
+    if when is None or when.utcoffset() is None:
+        raise ProtocolError("a SETTLED finished_at travels as an aware ISO 8601 string")
+    return when
 
 
 def encode_ready(*, pid: int, world_ok: bool) -> bytes:

@@ -554,9 +554,11 @@ def create_local_app(
         connections=connections,
         benchmarks=benchmarks,
     )
+    # WHY the runner's hooks first: shutdown hooks run in order, so in-flight runs are cancelled,
+    # and their `stopped` outcomes published, while the Runs writer still consumes them.
+    _install_fair_share(app, job_runner, io_gate)
     # FEATURE (OME-1785): first-class Runs, on a SQLite file migrated at start (spec R9).
     install_runs(app, settings, outcomes, local=True)
-    _install_fair_share(app, job_runner, io_gate)
     # FEATURE (C8): the local node route (the eval path), installed after ALL routes and after
     # the runner/gate shutdown hooks whose ordering it depends on. `install_node_route` asserts
     # the route order rather than trusting it — a development shape, never a deployment option.

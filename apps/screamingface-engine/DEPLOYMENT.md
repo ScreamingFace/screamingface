@@ -28,7 +28,11 @@ database only when its volume is empty.
      --from-literal=database-url='postgres://engine:<the password>@<postgres host>:5432/engine'
    ```
 
-3. Point the environment's values at it:
+3. Let the App and the migrate Job reach the database. Both run in the Engine's namespace, as
+   pods labelled `component: control-plane` and `component: migrate`. If the namespace or the
+   database server has a NetworkPolicy or firewall allow-list, add both to it, as for aigateway.
+
+4. Point the environment's values at it:
 
    ```yaml
    database:
@@ -48,6 +52,8 @@ The App reads the URL; the runner pool never does.
   is wiped on every restart.
 - **The release hangs, then fails, on the migrate Job.** `database.existingSecret` names a Secret
   that does not exist yet, and the Job cannot start without it. Create the Secret (step 2) first.
+- **The App refuses to start with "database … did not answer".** The URL is wrong, the database
+  is down, or the pod cannot reach it (step 3). The error names the host with the password hidden.
 
 ## The outcome stream
 
