@@ -3,7 +3,7 @@ ticket: OME-1747
 stack: screamingface-engine
 status: done
 started: 2026-10-22
-finished: 2026-10-22
+finished: 2026-11-04
 ---
 
 # e2e-otel-local-runner — local in-process runs export their span tree (e2e workbench unit 6a)
@@ -41,8 +41,11 @@ passthrough otherwise (the default).
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned, plus this ledger.
-- **Commits:** see `git log` on branch `e2e-otel-local-runner`.
+- **Actual files:** as planned, plus
+  `apps/screamingface-engine/tests/unit/test_inprocess_span_export_lazy_import.py` (the sync
+  lazy-import test, split out) and this ledger.
+- **Commits:** see `git log` on branch `OME-1747-local-run-span-export` (started as
+  `e2e-otel-local-runner`, renamed at PR-open).
 - **Gates:** pytest 5752 passed / 147 skipped / 13 deselected (2026-10-22); after the rebase onto main (2026-10-27) 5831 passed / 153 skipped / 13 deselected; ruff check clean; ruff format
   clean; pyright 0 errors; `check_layering.py` OK. RED first: 9 of 10 new tests failed
   (`span_sink` kwarg absent); the byte-identical default-path test passed before and after,
@@ -71,3 +74,54 @@ passthrough otherwise (the default).
 - **Documented hold:** the module docstring now says that a down collector holds a run's
   admission slot, `exists()` and `status() == "running"` for up to `FLUSH_TIMEOUT_MS` (5 s)
   after `Terminated`. That's the same hold a Job's process has before it exits.
+
+## Review round 2 (HupBaHa, CHANGES_REQUESTED 2026-10-29, head `aced56aa7`)
+
+### Planned changes
+
+- `adapters/inprocess.py`:
+  - **Finding 1 (sink cleanup owner):** `relay.shutdown` moves out of the run task's
+    cancellable `await` into a cleanup task the runner owns (`self._cleanups`). The run task
+    awaits it through `asyncio.shield`, so cancelling the run can't cancel a close that's
+    running or still queued on the default executor. `aclose()` waits for every cleanup task
+    after the runs. Shutdown runs exactly once per built sink.
+  - **Finding 2 (terminal durability):** the frame's verdict is recorded only after
+    `lifecycle_run` returns normally. If lifecycle raises (terminal flush failure, a cancel
+    during the terminal flush), the task status wins (`failed` / `stopped`). Cancellation
+    during the later span-sink cleanup still keeps the recorded verdict.
+- New tests only (append-only): `tests/unit/test_inprocess_sink_cleanup.py`,
+  `tests/unit/test_inprocess_terminal_durability.py`.
+
+### Test plan
+
+- One-worker default executor kept busy: run reaches `Terminated`, then `aclose()`. It must
+  not return until the worker is freed, and when it returns `close_calls == 1` (Dmitry's
+  repro, RED first).
+- `stop()` while the close is queued behind the busy executor: the close still runs exactly
+  once after the worker frees, and `aclose()` waits for it.
+- Close already running (held sink): `aclose()` returns only after the close finishes.
+- No-OTel: a terminal flush that raises -> `status() == "failed"`; an executor that raises ->
+  `failed`; a run past its deadline -> `timed_out`.
+
+### Outcome (round 2)
+
+- **Merged** `origin/main` first (clean, `e26dc1df0`).
+- **Commits:** `4a9f70f4b` (finding 2, durability) and `c9ab86037` (finding 1, close owner).
+- **RED first:** before the fix, 4 of the new sink-cleanup tests failed (aclose returned early;
+  `close_calls == 0` after stop) and 2 of the new durability tests failed (`succeeded` instead of
+  `failed` / `stopped`).
+- **Gates:** `run_gates.py screamingface-engine --base origin/main` all green (append-only,
+  ruff, format, pyright, layering, pytest+coverage); full suite 6810 passed / 168 skipped.
+- **Deviations:**
+  - No prior test was edited. `test_a_cancel_during_the_flush_keeps_the_terminal_frame_verdict`
+    `[aclose-*]` now takes about 5 s each: its held sink is released only after `aclose()`
+    returns, and `aclose()` now waits for the close, so it runs until that test's own
+    `release.wait(timeout=5)` times out. The test still passes. The new tests assert the
+    close-on-return behaviour directly.
+  - `test_the_loader_is_asked_with_the_run_environment` isn't renamed (tests are append-only).
+    Instead, the source docstring now says the loader gets `_base_env`, and why.
+  - A cancel during the TERMINAL flush (inside `lifecycle.run`) now reports `stopped` rather
+    than the frame's verdict. That follows directly from the requested rule and is pinned by a
+    test.
+  - `inprocess.py` is 513 lines (it was 476, already over the 450 guideline, before this
+    round). No split this round.
