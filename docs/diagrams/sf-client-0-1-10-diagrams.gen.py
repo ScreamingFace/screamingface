@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""OME-426: SF Client 0.1.9 docs diagrams. Text source for five SVG diagrams, each in a light and a dark theme.
+"""OME-426: SF Client 0.1.10 docs diagrams. Text source for five SVG diagrams, each in a light and a dark theme.
 
-Usage: python3 sf-client-0-1-9-diagrams.gen.py
-Writes docs/diagrams/sf-client-0-1-9-<name>-{light,dark}.svg. PNGs are rendered from the SVGs with a headless
+Usage: python3 sf-client-0-1-10-diagrams.gen.py
+Writes docs/diagrams/sf-client-0-1-10-<name>-{light,dark}.svg. PNGs are rendered from the SVGs with a headless
 browser (render_png.sh next to this file). Labels use the names and casing of the prose and the API.
 """
 
@@ -79,7 +79,7 @@ class Svg:
 
     def write(self, theme):
         self.parts.append("</svg>\n")
-        (OUT / f"sf-client-0-1-9-{self.name}-{theme}.svg").write_text("\n".join(self.parts))
+        (OUT / f"sf-client-0-1-10-{self.name}-{theme}.svg").write_text("\n".join(self.parts))
 
 
 def reducers_selection(theme):

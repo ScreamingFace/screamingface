@@ -1,6 +1,6 @@
-# Align the SF Client docs with screamingface 0.1.9: plan
+# Align the SF Client docs with screamingface 0.1.10: plan
 
-Status: approved · Refs: `OME-426` · Spec: `docs/spec/2026-10-15-docs-align-sf-client-0-1-9.md` (approved)
+Status: approved · Refs: `OME-426` · Spec: `docs/spec/2026-10-15-docs-align-sf-client-0-1-10.md` (approved)
 Branch: `callis/ome-426-docs-polish-pass-launch`, renamed to `OME-<N>-<description>` at PR-open.
 Landing: `public-docs`, `docs/diagrams`, `docs/spec`, `docs/plan`, `docs/work`, `docs/tasks`.
 
@@ -14,7 +14,7 @@ One pull request and one Linear issue under `OME-426`, filed at PR-open. The wor
 | 2 | Get started pages: Overview, Installation, First fusion, Quickstart (Reproduce DRACO) | D1, D2, D3, D4, D5, D6, D17, D19, D20, D21, D31 and the corrections on these pages |
 | 3 | Guides: Connections, Models, Benchmarks, Evaluation, Clients, Leaderboards, Url4 | D1, D2, D7, D9, D10, D11, D12, D14, D21 and the corrections on these pages |
 | 4 | API reference corrections: Clients, Connections, Models, Benchmarks, Reports, CandidateResult, Events, Errors, Modules, Leaderboards, Usage | D7, D11, D12, D15, D23 and the corrections on these pages |
-| 5 | Reference for the 0.1.9 surface already documented before this pass: combinators and blocks, `Fusion(quorum=, optional=)`, accounting and trace, notices, `sf.reports`; navigation entries | D15 and the missing-surface list |
+| 5 | Reference for the 0.1.10 surface already documented before this pass: combinators and blocks, `Fusion(quorum=, optional=)`, accounting and trace, notices, `sf.reports`; navigation entries | D15 and the missing-surface list |
 | 6 | Learn pages: Engine, Architecture, Gateway, Caching, Leaderboard, Url4 | D5, D8, D9, D12, D19, D22 and the url4 grammar correction |
 | 7 | `sf.cache` and `sf.analytics` reference pages; routes and navigation | D22, D32 |
 | 8 | Capture default: Caching, Evaluation guide, Leaderboards guide, Clients API, CandidateResult API | D26 |
@@ -29,13 +29,13 @@ One pull request and one Linear issue under `OME-426`, filed at PR-open. The wor
 **Start of work**
 
 1. `git fetch origin`, then confirm the worktree for this branch is branched from `origin/main`. No edit happens in the shared checkout.
-2. Keep the work ledger `docs/work/2026-10-15-docs-align-sf-client-0-1-9.md` current: status `in_progress`, outcome filled at the end.
-3. Install 0.1.9 in a fresh environment: `uv venv`, then `uv pip install "screamingface[notebook,runtime]==0.1.9"`. Start the local stack with `screamingface up`.
+2. Keep the work ledger `docs/work/2026-10-15-docs-align-sf-client-0-1-10.md` current: status `in_progress`, outcome filled at the end.
+3. Install 0.1.10 in a fresh environment: `uv venv`, then `uv pip install "screamingface[notebook,runtime]==0.1.10"`. Start the local stack with `screamingface up`.
 
 **Per part**
 
 1. List every statement, signature, number and id on each page in the part.
-2. Check each against 0.1.9: run the sample, read the live value, or read the source. Record the result.
+2. Check each against 0.1.10: run the sample, read the live value, or read the source. Record the result.
 3. Fix the context for the page: the reader, the register and the page type. A page that serves two types is split before any content is added.
 4. Edit the page. Reprint each printed output from the run. Split local and hosted into separate sections where behaviour differs. Apply the prose rules to every sentence added or changed.
 5. Run the gates in `public-docs`: `npm run type-check`, `npm run lint`, `npm run build`.
@@ -56,7 +56,7 @@ The set of sentences is found by search, not by memory. Each rewritten sentence 
 
 **Part 9: reducers**
 
-Each signature is checked by calling it on 0.1.9. Each behaviour is run once with a one-case example on the local engine, within the measurement cap.
+Each signature is checked by calling it on 0.1.10. Each behaviour is run once with a one-case example on the local engine, within the measurement cap.
 
 **Part 10: classify and media**
 
@@ -80,7 +80,7 @@ Run the three passes on the edited pages as the reader in the spec's context tab
 
 ## 5. Global constraints
 
-- A statement stays only if it is true on 0.1.9. Where the team's answer describes intended behaviour (D19), the page states the intended behaviour.
+- A statement stays only if it is true on 0.1.10. Where the team's answer describes intended behaviour (D19), the page states the intended behaviour.
 - No dev host appears in any sample or sentence.
 - Prose states facts. No narrative, no adjectives where a number exists, no em-dash or en-dash in any sentence added or changed.
 - A page differing between local and hosted has one section for each.
@@ -98,5 +98,22 @@ Run the three passes on the edited pages as the reader in the spec's context tab
 ## 7. Risks
 
 - A sample cannot be run because it needs DRACO, a classifier endpoint, parked media or a provisioned hosted account. The page then states no printed output for it.
-- Parts 5, 9 and 10 add reference whose behaviour is read from the source. Each documented signature is checked by calling it on 0.1.9.
+- Parts 5, 9 and 10 add reference whose behaviour is read from the source. Each documented signature is checked by calling it on 0.1.10.
 - The product-context canon and the docs disagree on which benchmark ids are supported. The pass records every id it names and flags the mismatch for its owner. It does not resolve it.
+
+## 8. Retarget from 0.1.9 to 0.1.10
+
+0.1.10 differs from 0.1.9 in `evaluate(cases=...)` with `selected_cases` and `selection_fingerprint`, analytics on by default, and engine and benchmark changes. `len(sf.__all__)` stays 92, so every public name keeps its page. Parts 1 to 12 are committed on 0.1.9 and are re-verified on 0.1.10. The new parts below are commits of their own, each approved before it is made.
+
+| Part | Scope | Spec decisions |
+|---|---|---|
+| R1 | Rename the spec, plan, ledger and diagram files to 0.1.10; amend the spec and plan | D24, D25, D32, D40 |
+| R2 | `evaluate(cases=)`: Evaluation guide, Clients, Reports, CandidateResult, Leaderboards | D40 |
+| R3 | Analytics on by default: Analytics API, Installation FAQ, learn pages | D32 |
+| R4 | Local engine benchmarks and media on 0.1.10: Benchmarks, Installation, First fusion, Quickstart, Engine, CandidateResult media section | D21, D29 |
+| R5 | Connections listing and gateway media refusal on 0.1.10 | D30 |
+| R6 | Re-run every sample on a fresh 0.1.10 install; fix drifted values; replace 0.1.9 with 0.1.10 where confirmed | all |
+| R7 | Hosted engine on 0.1.10, read only: counts and the version, after a browser login | D2, D15 |
+| R8 | Gates, link check, search checks, review report update, ledger outcome, PR retitle and body, Linear issue | Acceptance |
+
+Measured runs have no spend cap (credit available); each still uses `limit=` and a cheap model. Hosted checks write nothing and spend no hosted compute.

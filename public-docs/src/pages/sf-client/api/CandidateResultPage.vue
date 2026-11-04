@@ -451,7 +451,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-
     </p>
 
     <ThemedDiagram
-      name="sf-client-0-1-9-media-fetch"
+      name="sf-client-0-1-10-media-fetch"
       alt="Sequence: the Case media item is read from the report with no network call; sf.fetch_media asks the engine for the bytes and returns FetchedMedia when the size and SHA-256 match, or raises MediaUnavailableError with the code media_not_kept when the engine does not hold the item."
       caption="Reading a CaseMedia makes no call. Fetching it does, and fails with media_not_kept when the engine no longer holds it."
     />
