@@ -16,7 +16,8 @@ from email.utils import parsedate_to_datetime
 
 import httpx
 
-from url4.core.errors import ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.url_display import display_url
 from url4.io._guarded_transport import (
     FETCH_STATE,
     FetchState,
@@ -28,14 +29,14 @@ from url4.io._guarded_transport import (
     past,
     system_resolver,
 )
+from url4.io._hops import fetch_following
+from url4.io._redacted_status import redacted_status_error
 from url4.io._source_policy import (
     SourceGuard,
     check_url,
     has_userinfo,
-    redact_userinfo,
     redirect_limit,
     source_timeout,
-    too_large,
 )
 from url4.io.close_once import CloseOnce
 from url4.io.idempotency import idempotency_key, mark_answered
@@ -155,12 +156,15 @@ class HttpIOLayer:
         """``GET`` the target and return its body exactly as received, plus its media type.
 
         Goes through :meth:`_get`, so the destination guard, the size cap and the deadline apply.
+        A 404 / 410 is ``source_not_found`` (C5).
         """
         response, body = await self._get(
             self._transport_url(request.target, request.relative),
             relative=request.relative,
             accept=request.accept,
             read=_raw_body,
+            typed=True,
+            bound=request,
         )
         return FetchedBytes(body, media_type=_media_type(request.target, response))
 
@@ -175,6 +179,8 @@ class HttpIOLayer:
         relative: bool,
         read: Callable[[httpx.Response], T],
         accept: str | None = None,
+        typed: bool = False,
+        bound: FetchRequest | None = None,
     ) -> tuple[httpx.Response, T]:
         """The response and ``read(response)``, both produced within the fetch's deadline.
 
@@ -196,11 +202,17 @@ class HttpIOLayer:
         total = self._guard.total_timeout if self._client is None else None
         # INVARIANT (OME-1720): ONE absolute deadline per fetch, carried to every hop's body.
         deadline = None if total is None else deadline_in(total)
-        late = f"GET {url!r} passed the {self._guard.total_timeout}s total deadline"
+        late = f"GET {display_url(url)!r} passed the {self._guard.total_timeout}s total deadline"
         try:
             async with asyncio.timeout(total):
                 response = await self._send(
-                    url, headers or None, peer=peer, relative=relative, deadline=deadline
+                    url,
+                    headers or None,
+                    peer=peer,
+                    relative=relative,
+                    deadline=deadline,
+                    typed=typed,
+                    bound=bound,
                 )
         except TimeoutError as exc:
             raise source_timeout(late) from exc
@@ -222,6 +234,8 @@ class HttpIOLayer:
         peer: bool,
         relative: bool,
         deadline: float | None,
+        typed: bool = False,
+        bound: FetchRequest | None = None,
     ) -> httpx.Response:
         client = self._get_client()
         guarded = client is self._owned
@@ -231,19 +245,31 @@ class HttpIOLayer:
         try:
             if guarded and not trusted:
                 check_url(url, self._guard, peer=peer)
-            state = FetchState(peer=peer, trusted_first_hop=trusted, deadline=deadline)
+            # WHY bound: a bytes request's own ceiling and live hook (FetchRequest.max_bytes).
+            cap, on_chunk = (None, None) if bound is None else (bound.max_bytes, bound.on_chunk)
+            limit = self._guard.max_bytes if cap is None else min(self._guard.max_bytes, cap)
+            state = FetchState(
+                peer=peer,
+                trusted_first_hop=trusted,
+                deadline=deadline,
+                max_bytes=limit,
+                on_chunk=on_chunk,
+            )
             extensions = {FETCH_STATE: state} if guarded else None
             request = client.build_request("GET", url, headers=headers, extensions=extensions)
-            response = await client.send(request, stream=True)
-            # A reply came back (any status): the next request to url is a new one.
-            mark_answered(url)
-            try:
-                response.raise_for_status()
-                body = await _read_capped(response, self._guard.max_bytes)
-            finally:
-                await response.aclose()
+            # INVARIANT: on_chunk is told each byte once — by the guarded transport (which sees
+            # every hop's body), else by fetch_following for an injected client. URL4 walks the
+            # redirects so no hop's body is buffered before the limiter saw it (PR #1482 review).
+            response, body = await fetch_following(
+                client,
+                request,
+                limit=limit,
+                on_chunk=None if guarded else on_chunk,
+                # A reply came back (any status): the next request to url is a new one.
+                answered=lambda: mark_answered(url),
+            )
         except (httpx.HTTPError, httpx.InvalidURL) as exc:
-            failure, cause = _failure(url, exc, self._guard.max_redirects)
+            failure, cause = _failure(url, exc, self._guard.max_redirects, typed=typed)
         else:
             return _buffered(response, body)
         # WHY raised outside the handler: the only chained error is the one _failure names.
@@ -281,28 +307,43 @@ class HttpIOLayer:
 
 
 def _failure(
-    url: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int
+    url: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int, *, typed: bool
 ) -> tuple[ResolutionError, Exception | None]:
-    """The :class:`ResolutionError` a failed ``GET url`` surfaces as, and the error it chains."""
+    """The :class:`ResolutionError` a failed ``GET url`` surfaces as, and the error it chains.
+
+    INVARIANT (push security review, #1482): the message, and the chained error's text, show
+    ``url`` through :func:`display_url` — a signed source's userinfo, query and fragment reach
+    no log line when an optional source is omitted. Codes and cause types are unchanged.
+    """
+    shown = display_url(url)
     if isinstance(exc, httpx.InvalidURL) and has_userinfo(url):
         # INVARIANT (PR #1605 review 1): a credentialed malformed target is reported redacted,
         # without httpx's detail and with nothing chained — the credentials reach no message.
-        return ResolutionError(f"GET {redact_userinfo(url)!r} failed: invalid URL"), None
-    return _wrapped(url, exc, max_redirects), exc
+        return ResolutionError(f"GET {shown!r} failed: invalid URL"), None
+    if isinstance(exc, httpx.HTTPStatusError):
+        exc = redacted_status_error(exc)
+    # AIDEV-NOTE: of httpx's own errors only HTTPStatusError puts a URL in its text; InvalidURL
+    # names a host or port at most (the credentialed case is handled above), and the guarded
+    # transport's errors name the host.
+    return _wrapped(shown, exc, max_redirects, typed=typed), exc
 
 
 def _wrapped(
-    url: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int
+    shown: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int, *, typed: bool
 ) -> ResolutionError:
-    message = f"GET {url!r} failed: {exc}"
+    message = f"GET {shown!r} failed: {exc}"
     if isinstance(exc, httpx.HTTPStatusError):
         return ResolutionError(
             message,
+            # WHY typed only on the bytes path: a 404's code on every other URI stays as it was.
+            code=ErrorCode.SOURCE_NOT_FOUND
+            if typed and exc.response.status_code in (404, 410)
+            else None,
             permanent=_permanent_status(exc.response),
             retry_after=_retry_after(exc.response),
         )
     if isinstance(exc, httpx.TooManyRedirects):
-        return redirect_limit(f"GET {url!r} passed the {max_redirects}-hop redirect limit")
+        return redirect_limit(f"GET {shown!r} passed the {max_redirects}-hop redirect limit")
     # WHY InvalidURL too: it is not an HTTPError subclass, so a malformed target (e.g. control
     # chars in a reducer query) still surfaces as ResolutionError, not a raw httpx exception.
     timeout = isinstance(exc, httpx.ConnectTimeout)
@@ -316,19 +357,6 @@ def _trusted_origins(base_url: str) -> frozenset[Origin]:
         return frozenset({origin_of(httpx.URL(base_url))})
     except httpx.InvalidURL:
         return frozenset()
-
-
-async def _read_capped(response: httpx.Response, limit: int) -> bytes:
-    """The decoded body, read chunk by chunk and abandoned as soon as it passes ``limit``.
-
-    INVARIANT: never holds more than ``limit`` bytes — the check runs before each append.
-    """
-    body = bytearray()
-    async for chunk in response.aiter_bytes():
-        if len(body) + len(chunk) > limit:
-            raise too_large(limit)
-        body += chunk
-    return bytes(body)
 
 
 def _buffered(response: httpx.Response, body: bytes) -> httpx.Response:

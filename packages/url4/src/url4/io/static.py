@@ -15,8 +15,9 @@ from inspect import isawaitable
 
 from url4.core.code import CodeCall, CodeHandler, invoke_mounted
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.url_display import display_url
 from url4.io.layer import FetchRequest, FetchResult
-from url4.io.media import FetchedBytes, require_text
+from url4.io.media import FetchedBytes, read_whole, require_text
 from url4.wire.subrequest import decode_subrequest, extract_expression_params
 
 RouteHandler = Callable[[str, str], str | Awaitable[str]]
@@ -39,7 +40,7 @@ class StaticIOLayer:
     source (spec §5.6.6). ``media_types`` maps a target to the media type
     ``fetch_ex`` reports for it. ``code`` maps a code path or name to a handler: the test
     double for a node's ``@node.code`` mounts. Missing keys raise
-    :class:`~url4.core.errors.ResolutionError`.
+    :class:`~url4.core.errors.ResolutionError` (``source_not_found`` on the bytes path).
     """
 
     def __init__(
@@ -65,9 +66,18 @@ class StaticIOLayer:
         return body.decode("utf-8")
 
     async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes:
+        if request.target not in self._fetch and "?" not in request.target:
+            # C5: the bytes path names a missing source; the text path keeps its old error.
+            raise ResolutionError(
+                f"no fetch mapping for {display_url(request.target)!r}",
+                code=ErrorCode.SOURCE_NOT_FOUND,
+                permanent=True,
+            )
         body = await self._lookup(request.target)
         raw = body.encode("utf-8") if isinstance(body, str) else body
-        return FetchedBytes(raw, media_type=self._media_types.get(request.target))
+        return FetchedBytes(
+            read_whole(request, raw), media_type=self._media_types.get(request.target)
+        )
 
     async def _lookup(self, target: str) -> str | bytes:
         # Routes accept the full canonical form "/path?[params&]q=…" (spec
@@ -80,10 +90,11 @@ class StaticIOLayer:
                 context, intent = decode_subrequest(q)
                 result = self._routes[path](context, intent)
                 return await result if isawaitable(result) else result
-        try:
-            return self._fetch[target]
-        except KeyError:
-            raise ResolutionError(f"no fetch mapping for {target!r}") from None
+        if target not in self._fetch:
+            # WHY no try/except: a KeyError context would carry the raw target (push security
+            # review, #1482), even suppressed.
+            raise ResolutionError(f"no fetch mapping for {display_url(target)!r}")
+        return self._fetch[target]
 
     def processor_routes(self) -> list[str]:
         """The declared route paths a `processor=` id may name (§27.3)."""

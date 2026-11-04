@@ -40,8 +40,8 @@ adapter or an engine helper.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable
 
 
@@ -72,12 +72,17 @@ class FetchRequest:
     not support. ``accept`` carries the per-source ``;accept=`` execution
     annotation (spec §4.2) for adapters that honor it. (``;t=`` is enforced
     engine-side by GuardNode, so it never reaches the port.)
+    ``max_bytes`` / ``on_chunk`` bound a ``fetch_bytes`` read (the stricter of ``max_bytes`` and
+    an adapter's own cap wins; ``on_chunk`` is told each decoded chunk's size as it arrives and
+    raises to abort). Neither is part of the request's identity.
     """
 
     target: str
     relative: bool = False
     kind: Literal["http", "url4", "relative", "other"] = "http"
     accept: str | None = None
+    max_bytes: int | None = field(default=None, compare=False)
+    on_chunk: Callable[[int], None] | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
