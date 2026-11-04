@@ -1073,6 +1073,22 @@ check(
     is not None,
     "an external blob endpoint with only half a key pair is refused at render",
 )
+# #1603 review round 3: a whitespace-only inline key is a missing key, not a credential — it
+# must fail the render too, not 403 at runtime. WHY the message: the refusal must be THIS guard,
+# not some unrelated render error the blank values happen to trip.
+_blank_keys_refusal = render_fails(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    *_EXTERNAL_BLOBS,
+    "--set-string",
+    "blobs.storage.s3.accessKey=  ",
+    "--set-string",
+    "blobs.storage.s3.secretKey= ",
+)
+check(
+    "credentials must be supplied" in (_blank_keys_refusal or ""),
+    "an external blob endpoint with whitespace-only inline keys is refused at render",
+)
 _external_with_pair = render(
     ENGINE_CHART,
     ENGINE_RELEASE,
