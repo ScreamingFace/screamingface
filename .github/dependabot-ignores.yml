@@ -131,3 +131,21 @@ ignores:
       of the Engine's pin (the single source of truth), and test_inspect_pin_conformance.py in
       both packages fails on drift. Held only for the Engine, the SDK moved alone to 0.3.270
       (#1119, #1135). Held and lifted together with the Engine's entries.
+
+  - directory: /apps/screamingface-engine
+    dependency: tortoise-orm
+    versions: ""
+    ticket: OME-1800
+    note: >-
+      NOT upstream-blocked, and no probe applies: held so it moves by hand, together with the
+      SDK's runtime extra and aigateway. The runtime extra installs the Engine and aigateway into
+      one local process, so all three must pin one version; Dependabot groups per directory and
+      would bump one alone. test_tortoise_pin_conformance.py in the Engine and the SDK fails on
+      drift. With no version floor the audit prints "cannot parse a version floor" — expected.
+
+  - directory: /packages/screamingface
+    dependency: tortoise-orm
+    versions: ""
+    ticket: OME-1800
+    note: >-
+      NOT upstream-blocked; see the Engine's tortoise-orm entry. Held and moved together with it.
