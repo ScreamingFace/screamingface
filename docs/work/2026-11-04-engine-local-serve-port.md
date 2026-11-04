@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # backfilled at PR-open
+ticket: OME-1620
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-11-04
-finished:
+finished: 2026-11-04
 ---
 
 # engine-local-serve-port — `screamingface-engine serve --local --port N`
