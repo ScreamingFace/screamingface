@@ -78,7 +78,7 @@ with `packages/`.
 | # | Decision | Why |
 |---|---|---|
 | D1 | **The Engine owns the Run record. The Client is an interface to it.** | A Client-local index cannot be reopened from another machine. A "local = disk, cloud = server" split would be two code paths. |
-| D2 | **Storage is one Tortoise ORM adapter behind a `RunRegistry` port.** Local: `engine.sqlite3`, the Engine's own database file, which the Client's runtime passes in its data dir as it does `aigateway.sqlite3`; without a URL the Engine puts it beside its artifacts dir. Hosted: a new database, `engine`, on the existing `charts/db` Postgres server, with its own role and Secret, given as `URL4_CLOUD_DATABASE_URL`. A hosted App with no URL runs with **Runs off**: it logs a warning at start and `/runs*` answer 404, so the Client falls back (D7). A hosted App given a SQLite URL refuses to start. | The same pattern aigateway uses (`apps/aigateway/src/aigateway/db.py:9-43`): one code path, plain SQL for the queries, no new pod or volume. SQLite in a pod would be wiped on every restart. Runs off lets the code ship to an environment before its database exists. *Rejected:* JetStream KV plus SQLite (two adapters that can drift apart); aigateway's database (crosses the app boundary). |
+| D2 | **Storage is one Tortoise ORM adapter behind a `RunRegistry` port.** Local: `engine.sqlite3`, the Engine's own database file, which the Client's runtime passes in its data dir as it does `aigateway.sqlite3`; without a URL the Engine keeps it at `~/.screamingface-engine/engine.sqlite3`, since its default artifacts dir is a temp path. Hosted: a new database, `engine`, on the existing `charts/db` Postgres server, with its own role and Secret, given as `URL4_CLOUD_DATABASE_URL`. A hosted App with no URL runs with **Runs off**: it logs a warning at start and `/runs*` answer 404, so the Client falls back (D7). A hosted App given a SQLite URL refuses to start. | The same pattern aigateway uses (`apps/aigateway/src/aigateway/db.py:9-43`): one code path, plain SQL for the queries, no new pod or volume. SQLite in a pod would be wiped on every restart. Runs off lets the code ship to an environment before its database exists. *Rejected:* JetStream KV plus SQLite (two adapters that can drift apart); aigateway's database (crosses the app boundary). |
 | D3 | **Every database write goes through the App. Runners and url4 hold no database connection.** | The owner condition (§9): one writer is easy to reason about, and runners stay free to run anywhere, for example on AWS Lambda. |
 | D4 | **Outcomes travel on a `CandidateOutcomeStream` port.** It has a JetStream adapter (stream `url4-candidate-outcomes`) and an in-memory adapter (`InMemoryCandidateOutcomeStream`), like `EventStream` and `InMemoryEventStream`. Every producer publishes to it, and one App consumer writes them. | One write path in both modes: no "local writes directly" branch, and no runner holds database access. |
 | D5 | **`Run.id` is `run_` + a random UUID in hex, minted by the Engine. It is not a secret.** Access is checked by owner, and a foreign or unknown id answers 404. Runs list by `created_at`, newest first, with the id breaking ties. | Ordering comes from a timestamp column, not the id, so the id needs no clock or counter and any number of App replicas can mint it. Safe to paste anywhere (`OME-966`). |
@@ -258,6 +258,8 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
     token, because a pre-install hook runs before the chart's own ServiceAccount exists.
   - Local: `serve --local` applies pending migrations at start.
   - The App refuses to start on a schema older than its code.
+  - The App refuses to start when its database does not answer, with an error that names the
+    database (password hidden), not the schema (§9, 2026-11-05).
 - **R10. Create the database once per environment.** This is an owner action, because
   `charts/db`'s `POSTGRES_DB` init runs only on an empty volume. It is
   `CREATE ROLE engine LOGIN PASSWORD '…'; CREATE DATABASE engine OWNER engine;`, then the
@@ -449,3 +451,8 @@ P1b works against an Engine without `/runs` (D7), so the landings can ship in ei
   is no NFC step. `str.lower()` maps the Kelvin sign to `k` in text, but over HTTP the edge's
   UTF-8 bytes arrive as Latin-1 text, which lowercases to no ASCII letter, so a request never
   reaches that merge; a `/runs` route test pins it.
+- **2026-11-05, Tauquir (spec owner), on the #1639 review.** A hosted App whose database does not
+  answer at start fails fast, naming the database, rather than starting with Runs degraded. Runs
+  become a hard dependency in P2, so degrading would only postpone the failure; a database that is
+  never configured still means Runs off. "History never blocks a run" (§1) describes this
+  phase's Client fallback (D7), not a promise about the App's start.

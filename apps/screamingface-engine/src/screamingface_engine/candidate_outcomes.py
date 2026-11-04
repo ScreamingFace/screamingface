@@ -88,6 +88,10 @@ def storable_error_code(code: str | None) -> str | None:
 
 logger = logging.getLogger(__name__)
 
+MAX_OUTCOME_BYTES = 64 * 1024
+"""The largest outcome payload. An outcome is ~200 bytes; the stream refuses a larger message
+(`max_msg_size`), and the decoder drops one as malformed."""
+
 DEFAULT_OUTCOMES_MAX_AGE_S = 86_400.0
 """How long `url4-candidate-outcomes` keeps an unacked outcome. Reconcile's cutoff must
 outlast it (spec R6)."""
@@ -140,6 +144,8 @@ def encode_outcome(topic: str, outcome: CandidateOutcome) -> bytes:
 
 def decode_outcome(payload: bytes) -> tuple[str, CandidateOutcome]:
     """The topic and outcome in ``payload``; `ValueError` for anything else."""
+    if len(payload) > MAX_OUTCOME_BYTES:
+        raise ValueError(f"an outcome must be a JSON object of at most {MAX_OUTCOME_BYTES} bytes")
     try:
         body = json.loads(payload)
     except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:

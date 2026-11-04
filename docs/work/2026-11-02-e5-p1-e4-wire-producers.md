@@ -98,15 +98,20 @@ terminal frame or its ack.
     (`tests/integration/test_warm_child_process.py` needs a broker and is not in the conformance
     job).
 
-## To do here, from the #1634 review (replies posted 2026-11-05)
+## Review of #1634 and #1639 (2026-11-05)
 
-- `ensure_stream`: refuse a live stream whose `max_age` or `max_bytes` is below this code's
-  (widening stays allowed).
-- `decode_outcome`: a payload size cap, sized from the stream config.
-- `child_protocol`: carry the outcome's `finished_at` from the child to the supervisor.
-- Startup on an unreachable database fails fast with an error naming the database, not
-  `SchemaBehindError` (decided: fail fast, since Runs become a hard dependency in P2).
-- Stop importing the private `tortoise.context._current_context`.
-- Before merge: check NetworkPolicy reach from the App (`component: control-plane`) and the
-  migrate Job to the `engine` Postgres, and Cloudflare Access with Envoy-only ingress, in dev,
-  staging and prod; add the NetworkPolicy step to the R10 runbook in `DEPLOYMENT.md`.
+- Done: `ensure_stream` refuses a live stream whose `max_age`, `max_bytes` or `max_msg_size` is
+  below this code's (widening and unlimited stay allowed); startup applies `max_msg_size`.
+- Done: outcomes are capped at 64 KiB (`MAX_OUTCOME_BYTES`), on the stream and in the decoder.
+- Done: SETTLED carries the child's `finished_at`; the supervisor relays it.
+- Done: an unreachable database at start raises `DatabaseUnreachableError`, naming the host with
+  the password hidden; spec R9 and §9 record fail-fast.
+- Kept: `db.using` sets Tortoise's private context variable, because the public `with context:`
+  shares one token across tasks. A test fails if Tortoise stops reading it; the pin is held by
+  hand (#1634).
+- Done: a bare `serve --local` keeps its database in `~/.screamingface-engine/`, not beside the
+  temp artifacts dir (spec D2).
+- Done: local shutdown stops the runner before the Runs writer.
+- Done: the R10 runbook (`DEPLOYMENT.md`) has a NetworkPolicy step.
+- Open: checking NetworkPolicy reach, Cloudflare Access and Envoy-only ingress in dev, staging
+  and prod needs new Firecall sessions.

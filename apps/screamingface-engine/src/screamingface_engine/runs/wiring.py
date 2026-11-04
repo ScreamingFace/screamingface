@@ -16,6 +16,7 @@ import logging
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import FastAPI
 from tortoise.connection import get_connection
@@ -30,6 +31,7 @@ from screamingface_engine.runs.store import TortoiseRunStore
 logger = logging.getLogger(__name__)
 
 LOCAL_DATABASE_NAME = "engine.sqlite3"
+LOCAL_DATA_DIR = ".screamingface-engine"
 MIGRATE_COMMAND = "python -m tortoise -c screamingface_engine.runs.db.TORTOISE_CONFIG migrate"
 
 
@@ -41,21 +43,26 @@ class SchemaBehindError(RuntimeError):
     """The database's schema is older than this Engine's code. Startup fails."""
 
 
+class DatabaseUnreachableError(RuntimeError):
+    """The Run registry's database did not answer. Startup fails (spec R9, §9 2026-11-05)."""
+
+
 def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def local_database_url(settings: Settings) -> str:
-    """The local Engine database: the configured URL, or `engine.sqlite3` beside the artifacts dir.
+def local_database_url(settings: Settings, *, home: Path | None = None) -> str:
+    """The local Engine database: the configured URL, or `~/.screamingface-engine/engine.sqlite3`.
 
     The file is the Engine's, not only the Run registry's; `runs` is the Tortoise app inside it.
-    WHY beside the artifacts when no URL is given: that dir is the Engine's data dir, and under the
-    Client's runtime it is the Client's data folder. A runtime that owns a data dir passes the URL
-    itself, as the Client does for `aigateway.sqlite3` and `scoreboard.sqlite3`.
+    WHY the home folder when no URL is given: the default artifacts dir is a temp path on purpose,
+    which the OS may clear and another user's Engine may own, so 30 days of Runs cannot live
+    beside it. A runtime that owns a data dir passes the URL itself, as the Client does.
     """
     if settings.database_url:
         return settings.database_url
-    return f"sqlite://{Path(settings.artifacts_dir).parent / LOCAL_DATABASE_NAME}"
+    base = home if home is not None else Path.home()
+    return f"sqlite://{base / LOCAL_DATA_DIR / LOCAL_DATABASE_NAME}"
 
 
 def ensure_sqlite_dir(url: str) -> None:
@@ -78,6 +85,7 @@ async def open_run_store(
     context = await db.open_context(url)
     try:
         with db.using(context):
+            await _require_a_reachable_database(url)
             await _refuse_an_older_schema(url)
     except BaseException:
         # WHY: an open SQLite connection's thread keeps the process alive, so a refused start
@@ -92,6 +100,27 @@ async def open_run_store(
         started_at=clock(),
         context=context,
     )
+
+
+async def _require_a_reachable_database(url: str) -> None:
+    # WHY before the schema check: Tortoise reads an unreachable database's migration history as
+    # empty, so without this probe a down database would be reported as an unmigrated one.
+    try:
+        await get_connection(db.CONNECTION).execute_query("SELECT 1")
+    except Exception as exc:
+        raise DatabaseUnreachableError(
+            f"the Run registry's database at {redacted_url(url)} did not answer "
+            f"({type(exc).__name__}); check URL4_CLOUD_DATABASE_URL and that the database is up"
+        ) from exc
+
+
+def redacted_url(url: str) -> str:
+    """``url`` without its password, for an error an operator reads."""
+    parts = urlsplit(url)
+    if parts.password is None:
+        return url
+    netloc = parts.netloc.replace(f":{parts.password}@", ":***@", 1)
+    return urlunsplit(parts._replace(netloc=netloc))
 
 
 async def _refuse_an_older_schema(url: str) -> None:
