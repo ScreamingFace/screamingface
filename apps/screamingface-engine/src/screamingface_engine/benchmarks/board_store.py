@@ -39,7 +39,10 @@ from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
 from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable
-from screamingface_engine.benchmarks.picture_admission import cases_need_modalities
+from screamingface_engine.benchmarks.picture_admission import (
+    PART_MODALITIES,
+    cases_need_modalities,
+)
 from url4.core.errors import ResolutionError
 
 logger = logging.getLogger(__name__)
@@ -52,6 +55,8 @@ BOARD_SCHEMA_V1 = "screamingface.board.v1"
 """The OME-1790 record (``has_pictures``), read only through the legacy full scan."""
 
 _ENTRY = struct.Struct("<QQ")
+_NEEDS: frozenset[str] = frozenset(PART_MODALITIES.values())
+"""The only values a recorded ``modalities`` set may hold: the table's non-text types."""
 _SEPARATORS = (",", ":")
 
 
@@ -226,6 +231,15 @@ class IndexedBoard:
             isinstance(modality, str) for modality in modalities
         ):
             raise _broken(f"{BOARD_FILE} modalities is not a list of strings")
+        # INVARIANT (review on #1645, blocker 1): only the writer's canonical form opens. A set
+        # naming "text" or an unknown type would be satisfied by a text-only model, so a PDF
+        # board relabelled ["text"] would be admitted to one; sorted and distinct keeps the
+        # record the pure function of the rows that ``encode_board`` writes.
+        if modalities != sorted(set(modalities)) or not set(modalities) <= _NEEDS:
+            raise _broken(
+                f"{BOARD_FILE} modalities {modalities!r} is not a sorted, distinct subset of "
+                f"{sorted(_NEEDS)}"
+            )
         # INVARIANT: a cases.json rewritten after its index was built is never read through it.
         if cases_size != expected_size:
             raise _broken(
