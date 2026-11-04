@@ -174,6 +174,11 @@ def _default_model_slugs() -> list[str]:
         # Lightweight open-weight corrective-loop members (IFEval-fallible by design).
         "openrouter/mistralai/ministral-3b-2512",
         "openrouter/microsoft/phi-4",
+        # AIDEV-NOTE: the HLE judge (OME-1478). inspect_evals' default.yaml pins it as HLE's
+        # primary grader, and a different judge changes the scores, so it is seeded here like
+        # the DRACO and HealthBench judges. Present in the live OpenRouter catalog on
+        # 2026-11-02; re-check at release.
+        "openrouter/z-ai/glm-5.3-flash",
     ]
 
 

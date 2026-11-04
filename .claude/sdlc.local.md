@@ -52,6 +52,7 @@ stacks:
       - uv run ruff format --check
       - uv run pyright
       - uv run pytest --cov=scoreboard --cov-fail-under=80 -q
+      - node --test tests/portal/benchmark-picker-keyboard.test.js
       # The portal's pure logic, under Node's built-in runner — no package.json, no
       # vitest, no lockfile. NAMED EXPLICITLY, never a glob: measured on Node 24,
       # `node --test tests/portal/` fails (it resolves the directory as a module),
@@ -59,7 +60,7 @@ stacks:
       # expands globs itself. A renamed file would leave a permanently green gate
       # covering nothing. A missing explicit path exits 1. Add new test files here
       # by name (OME-798).
-      - node --test tests/portal/leaderboard-logic.test.js tests/portal/featured-benchmarks.test.js tests/portal/pareto-chart.test.js tests/portal/pareto-chart-review.test.js tests/portal/pareto-origin.test.js tests/portal/index-cards.test.js tests/portal/analytics.test.js tests/portal/subscribe.test.js tests/portal/paper-link.test.js tests/portal/reproduce-button.test.js tests/portal/spec-meta-lines.test.js tests/portal/pareto-chart-launch-copy.test.js tests/portal/benchmark-chart-isolation.test.js tests/portal/copy-feedback.test.js
+      - node --test tests/portal/leaderboard-logic.test.js tests/portal/featured-benchmarks.test.js tests/portal/pareto-chart.test.js tests/portal/pareto-chart-review.test.js tests/portal/pareto-origin.test.js tests/portal/index-cards.test.js tests/portal/analytics.test.js tests/portal/subscribe.test.js tests/portal/paper-link.test.js tests/portal/reproduce-button.test.js tests/portal/spec-meta-lines.test.js tests/portal/pareto-chart-launch-copy.test.js tests/portal/benchmark-chart-isolation.test.js tests/portal/copy-feedback.test.js tests/portal/benchmark-picker-search.test.js
   - name: report-intake
     root: apps/report-intake
     skill: sdlc-python

@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Header, Path, Query, Request
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
 from screamingface_engine.auth import ProblemException
 from screamingface_engine.benchmarks import BenchmarkRegistry
+from screamingface_engine.benchmarks.selection import MAX_SELECTED_CASE_IDS, CaseSelection
 from screamingface_engine.rest.conditional import conditional_json_response
 
 router = APIRouter()
@@ -68,6 +69,76 @@ async def get_benchmark(
             detail=f"limit must be between 1 and {benchmark.case_count} for {benchmark.id!r}",
         )
     return conditional_json_response(benchmark.resource(limit), if_none_match)
+
+
+_SELECTION_BODY: dict[str, object] = {
+    "required": True,
+    "content": {
+        "application/json": {
+            "schema": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["cases"],
+                "properties": {
+                    "cases": {
+                        "type": "array",
+                        "items": {"type": "integer", "minimum": 1},
+                        "minItems": 1,
+                        "maxItems": MAX_SELECTED_CASE_IDS,
+                        "uniqueItems": True,
+                        "description": "Case ids: positions in the pinned order, 1..case_count.",
+                    }
+                },
+            },
+            "example": {"cases": [3, 17, 42]},
+        }
+    },
+}
+
+
+@router.post(
+    "/v1/benchmarks/{benchmark_id}/selection",
+    tags=["Catalog"],
+    summary="Fetch one Benchmark expression for a fixed list of Case ids",
+    openapi_extra={"requestBody": _SELECTION_BODY},
+)
+async def select_benchmark_cases(
+    request: Request,
+    benchmark_id: Annotated[str, Path(description="An explicit installed Benchmark id.")],
+) -> Response:
+    """The resource whose recipe serves and grades only the posted Case ids (OME-1739).
+
+    FEATURE (OME-1739): a researcher's development and held-out sets, e.g. ``[3, 17, 42]``.
+    WHY a body, not a query string: a 40-id list stays readable and out of access logs.
+    The resource echoes ``selected_case_ids`` so the SDK can refuse an Engine that ignored it.
+
+    INVARIANT: the recipe is written from the checked integers (``CaseSelection``), never from
+    the client's text, so nothing the client sends can reach the recipe as written.
+    """
+
+    benchmark = _registry(request).get(benchmark_id)
+    if benchmark is None:
+        raise ProblemException(
+            status=404,
+            title="Unknown benchmark",
+            detail=f"no Benchmark is installed under {benchmark_id!r}",
+        )
+    try:
+        body: object = await request.json()
+        if not isinstance(body, dict) or set(body) != {"cases"}:
+            raise ValueError('the body must be {"cases": [<Case id>, ...]}')
+        cases: object = body["cases"]
+        if not isinstance(cases, list):
+            raise ValueError('"cases" must be a list of Case ids')
+        selection: CaseSelection = CaseSelection.of(cases).require_within(benchmark.case_count)
+    except ValueError as exc:  # json.JSONDecodeError is a ValueError
+        raise ProblemException(
+            status=422,
+            title="Invalid benchmark selection",
+            detail=f"{benchmark.id!r}: {exc}",
+        ) from None
+    # WHY no ETag or public cache header: a POST answer is per request, never a shared copy.
+    return JSONResponse(benchmark.resource(cases=selection))
 
 
 __all__ = ["router"]
