@@ -9,7 +9,7 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from typing import Any, cast
 
-from screamingface._analytics import wiring
+from screamingface._analytics import prompt, wiring
 from screamingface._analytics.core import Coordinator, Operation
 from screamingface._core.engine_origin import is_hosted_engine
 
@@ -87,6 +87,8 @@ def _sync_wrapper(function: Callable, name: str):
     def wrapped(*args, **kwargs):
         if _active.get() == os.getpid():
             return function(*args, **kwargs)
+        if name == "evaluation":
+            prompt.before_evaluation()
         record = _begin(name, "sync", args, kwargs)
         token = _active.set(os.getpid())
         try:
@@ -114,6 +116,8 @@ def _async_wrapper(function: Callable, name: str):
     async def wrapped(*args, **kwargs):
         if _active.get() == os.getpid():
             return await function(*args, **kwargs)
+        if name == "evaluation":
+            await prompt.before_evaluation_async()
         record = _begin(name, "async", args, kwargs)
         token = _active.set(os.getpid())
         try:
