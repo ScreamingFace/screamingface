@@ -138,10 +138,12 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
     def consume(self) -> AsyncIterator[Delivery[CandidateOutcome]]: ...      # ack() after commit
 ```
 
-- **The core imports ports only.** Adapters live under `adapters/` and are wired in `app.py` and
-  `local.py`, next to the runner they pair with.
-- **Writes use compare-and-set:** `UPDATE … SET revision = revision + 1 WHERE id = ? AND
-  revision = ?`, identical on SQLite and Postgres.
+- **The core imports ports only.** The stream adapters live under `adapters/`. The registry's
+  Tortoise store lives in `runs/` with its models and migrations, as aigateway lays out a feature.
+  Both are wired in `app.py` and `local.py`, next to the runner they pair with.
+- **Writes are compare-and-set on state:** each is one `UPDATE … WHERE … AND state …` guarded on
+  the state it expects, so the row count says which writer won. It is identical on SQLite and
+  Postgres.
 - **Runner-side code imports `CandidateOutcomeStream` only**, never `RunRegistry`.
 
 ### 4.3 Rules
@@ -346,7 +348,7 @@ P1b works against an Engine without `/runs` (D7), so the landings can ship in ei
   - the App and the runner pool render the same `candidateOutcomes.*` values.
 - **P1a, database-writes-in-the-App guards (§9).**
   - The layering gate fails if anything under `runner/` or `worker/`, or any shared leaf,
-    imports `runs/` or the registry adapter, or if any module outside them imports the database
+    imports `runs/`, or if any module outside it imports the database
     stack (`tortoise`, `asyncpg`, `aiosqlite`). `url4` depends on `httpx` only.
   - The rendered runner Deployment carries no database URL or Secret.
 - **P1b, Client.**
