@@ -14,7 +14,14 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from run_registry_support import DATABASES, T0, Registry, open_registry, spec
+from run_registry_support import (
+    DATABASES,
+    T0,
+    Registry,
+    open_registry,
+    postgres_server,  # noqa: F401  (a fixture the Postgres parameter requests)
+    spec,
+)
 
 from screamingface_engine.candidate_outcomes import CandidateOutcome
 from screamingface_engine.runs.records import owner_key
