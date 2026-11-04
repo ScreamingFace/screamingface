@@ -30,14 +30,14 @@ const configure = `sf.configure(
     scoreboard_url="http://127.0.0.1:9106",
 )`
 
-const publish = `# Use the hosted stack: a hosted run makes a capture others can replay.
+const publish = `# Use the hosted stack, and capture the run so others can replay it.
 sf.configure(
     engine_url="https://fusion.screamingface.ai",
     scoreboard_url="https://leaderboard.screamingface.ai",
 )
 # candidate is the Model, Fusion or Pipeline you want to evaluate.
 # Without limit=, this is a paid run over every case of the benchmark.
-report = sf.evaluate(candidate, benchmark="ifeval")
+report = sf.evaluate(candidate, benchmark="ifeval", capture=True)
 
 # publish one candidate
 score = sf.leaderboards.submit(
@@ -61,7 +61,7 @@ const localPublish = `sf.configure(
     scoreboard_url="http://127.0.0.1:9106",
 )
 model = sf.Model("openrouter/deepseek/deepseek-v4-flash")
-report = sf.evaluate(model, benchmark="medxpert", limit=2)
+report = sf.evaluate(model, benchmark="medxpert", limit=2, capture=True)
 
 result = report.candidates.only
 score = sf.leaderboards.submit(result, authors=["alice@example.com"])
@@ -113,7 +113,7 @@ if result.reproduction is not None:
 sf.evaluate(pinned_cache="<pinned-cache-id>", record_reproduction=False)`
 
 const localReplay = `sf.evaluate(score_id=score.id)`
-const localReplayOut = `ReproductionError: Score 9a133646-178b-47a7-a12d-236e1b8de1e5 cannot be replayed: its capture is partial`
+const localReplayOut = `ReproductionError: Score <score-id> cannot be replayed: its capture is partial`
 
 const privateReplay = `# A private score is readable only by its submitter; log in when prompted.
 replay = sf.evaluate(score_id="<score-id>")`
@@ -424,10 +424,10 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     </div>
 
     <p>
-      Capture is on by default: the Engine stores every model and web-tool result of each run in a
-      pinned cache, so others can reproduce the score. <code>capture=False</code> turns it off, and
-      a run without a capture has no <code>pinned_cache</code>. Read <code>capture_status</code> on
-      the result before you publish: a partial or missing capture cannot be reproduced.
+      Capture is off by default. With <code>capture=True</code> the Engine stores every model and
+      web-tool result of the run in a pinned cache, so others can replay it. A run without a capture
+      has no <code>pinned_cache</code>. Read <code>capture_status</code> on the result before you
+      publish: a partial or missing capture cannot be reproduced.
       <RouterLink to="/learn/caching">Reproducing a submission</RouterLink> explains why.
     </p>
 

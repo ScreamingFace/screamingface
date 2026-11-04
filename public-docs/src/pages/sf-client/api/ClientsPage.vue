@@ -296,11 +296,11 @@ const asyncOut = `(109, 'http://127.0.0.1:9108')`
           <td><code>capture</code></td>
           <td><code>bool&nbsp;|&nbsp;None</code></td>
           <td>
-            Defaults to <code>None</code>, which means on for a fresh evaluation.
-            <code>False</code> turns capture off. A replay never captures, and
-            <code>capture=True</code> with a replay raises <code>TypeError</code>. When capture is
-            on, the engine makes a pinned cache of each run, so the score can be reproduced later.
-            Best effort. Read <code>capture_status</code> on each
+            Defaults to <code>None</code>, which means off. <code>True</code> turns capture on for a
+            fresh evaluation. A replay never captures, and <code>capture=True</code> with a replay
+            raises <code>TypeError</code>. When capture is on, the engine makes a pinned cache of
+            each run, so the score can be replayed later. Best effort. Read
+            <code>capture_status</code> on each
             <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink>. See
             <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
           </td>

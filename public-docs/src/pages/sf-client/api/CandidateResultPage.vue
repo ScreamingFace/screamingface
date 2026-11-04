@@ -170,7 +170,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
             The id of the pinned cache that the run opened. <code>None</code> when the run was not
-            captured (<code>capture=False</code>) or the copy did not open.
+            captured (the default) or the copy did not open.
           </td>
         </tr>
         <tr>

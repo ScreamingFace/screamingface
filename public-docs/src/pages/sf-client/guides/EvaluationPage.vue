@@ -191,11 +191,10 @@ client.close()`
           <td>
             Runs one or more candidates against a benchmark's protocol concurrently, returning a
             single <code>sf.Report</code>. Validates everything before the first paid request.
-            Capture is on by default: each run stores a pinned cache, so a score can be
-            <RouterLink to="/learn/caching">reproduced</RouterLink> later, and
-            <code>capture=False</code> turns it off. A replay never captures. With
-            <code>use_cache=False</code> every model call is made fresh instead of being answered
-            from the request cache.
+            Capture is off by default: with <code>capture=True</code> the run stores a pinned cache,
+            so a score can be <RouterLink to="/learn/caching">replayed</RouterLink> later. A replay
+            never captures. With <code>use_cache=False</code> every model call is made fresh instead
+            of being answered from the request cache.
           </td>
         </tr>
         <tr>
