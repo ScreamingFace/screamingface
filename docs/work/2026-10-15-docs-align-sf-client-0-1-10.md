@@ -57,7 +57,8 @@ Fix drift between the SF Client docs (`public-docs`) and screamingface 0.1.10, t
 - **R4:** local engine list (`medxpert` only from `screamingface up`) and the media sample re-run on the 0.1.10 release-tag engine (`920441c76`).
 - **R5:** the connection listing has no SDK change; the text-only model refusal on picture benchmarks documented (`7a668c2bb`).
 - **R6:** 36 audit scripts run on 0.1.9 and on 0.1.10 against the same engine and diffed. The only deterministic SDK differences are the `cases` parameter and the analytics default. Counts (109 local models, 7 providers, `medxpert` 2,450 Cases, 92 `__all__` names), error texts, cache and capture behaviour, url4 length and the Mean and Pick outputs (`'3.75'`, `'green'`) are identical. Differences in token counts, costs, run ids and model-echoed JSON spacing are run-to-run variation. No page contains the string "0.1.9". `p5_reducers.py` timed out at 420 s on both versions (provider latency on `deepseek-v4-pro`) and was re-run with a longer limit.
-- **Not verified on 0.1.10:** hosted values (112 hosted models, 89 hosted benchmarks, 91 leaderboards, the 4,631-row cache pull), until the hosted login in R7.
+- **R7 (hosted, read only, after the browser login):** 112 models, 91 benchmarks (the pages said 89; `labbench2_figqa2_img` and `labbench2_tableqa2_img` are new), 91 leaderboards, `ifeval` 541 cases, `medxpert` 2,450, `draco-3pass` 100, and `PullResult(rows_read=4631, ...)` for `claude-opus-4.8`. `cases=[999999]` on the hosted engine returns `PlanningError invalid_benchmark_selection` with no model call, so the hosted engine serves the selection route. The provider status of this account is `not_connected` for all seven providers on both SDK versions. The hosted engine version is not exposed.
+- **Not verified on 0.1.10:** a hosted `evaluate`, publish and replay, which write data or spend hosted compute.
 
 ## Review report
 

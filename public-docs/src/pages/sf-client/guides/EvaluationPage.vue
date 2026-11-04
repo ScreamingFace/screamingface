@@ -458,9 +458,11 @@ client.close()`
       A run on chosen Cases cannot be submitted to a leaderboard:
       <code>sf.leaderboards.submit</code> raises <code>ValueError</code> with
       <code>a run on selected Cases can't be submitted to the leaderboard; submit a full run</code>.
-      The SDK posts the list to the Engine's selection route and refuses before any model call when
-      the Engine does not echo the list back, so an older Engine never runs and bills every Case.
-      The report JSON written by <code>to_json()</code> carries no <code>selected_cases</code> key.
+      The hosted engine serves the selection route: it refuses an id above the case count with the
+      same <code>PlanningError</code>, before any model call. The SDK posts the list to the Engine's
+      selection route and refuses before any model call when the Engine does not echo the list back,
+      so an older Engine never runs and bills every Case. The report JSON written by
+      <code>to_json()</code> carries no <code>selected_cases</code> key.
     </p>
 
     <h2>When it fails</h2>

@@ -23,7 +23,7 @@ const missingOut = `PlanningError: Benchmark 'ifeval' is not installed on this E
 const hosted = `hosted = sf.Client(engine_url="https://fusion.screamingface.ai")
 benchmarks = hosted.benchmarks.list()
 len(benchmarks), [b.id for b in benchmarks if b.id.startswith("draco")]`
-const hostedOut = `(89, ['draco', 'draco-3pass'])`
+const hostedOut = `(91, ['draco', 'draco-3pass'])`
 </script>
 
 <template>
@@ -50,7 +50,7 @@ const hostedOut = `(89, ['draco', 'draco-3pass'])`
     <blockquote>
       <strong>What you can list depends on the engine.</strong> A local engine started with
       <code>screamingface up</code> serves one benchmark, <code>medxpert</code>. The hosted engine
-      serves 89, including DRACO and IFEval. A repository checkout can serve the others locally: run
+      serves 91, including DRACO and IFEval. A repository checkout can serve the others locally: run
       <code>just local-stack-notebooks</code> from <code>packages/screamingface/</code>. If there's
       a benchmark you'd want to run first,
       <a href="https://github.com/ScreamingFace/screamingface/issues" target="_blank" rel="noopener"
@@ -134,7 +134,7 @@ const hostedOut = `(89, ['draco', 'draco-3pass'])`
       <NbCell :count="2" :code="missing"><NbTextOut :text="missingOut" /></NbCell>
     </div>
 
-    <p>The hosted engine needs an account the OpenMined team grants. It publishes 89 benchmarks:</p>
+    <p>The hosted engine needs an account the OpenMined team grants. It publishes 91 benchmarks:</p>
 
     <div class="not-prose">
       <NbCell :count="3" :code="hosted"><NbTextOut :text="hostedOut" /></NbCell>
