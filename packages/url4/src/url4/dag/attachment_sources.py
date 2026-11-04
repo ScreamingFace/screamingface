@@ -5,10 +5,12 @@ attachments", review rounds 7 and 8, owner 2026-10-27).
 STORY: as an ensemble author I opt a picture in with ``src=https://…/a.png;accept=image/png``;
 an ``https://`` source without such an ``;accept=`` stays the text source it always was.
 
-INVARIANT (opt-in, no grammar change, round 8): an ``http(s)://`` source is an attachment source
+INVARIANT (opt-in, no grammar change, round 8): an ``https://`` source is an attachment source
 iff its ``;accept=`` is EXACTLY one lower-case type of :data:`ATTACHMENT_TYPES` — no wildcard, no
 list, no case folding, no parameter. Any other ``;accept=``, or none, makes it a text source with
 today's semantics, untouched.
+INVARIANT (PR #1587 review finding 5, owner 2026-11-04): ONLY ``https://`` — an ``http://``
+source is a text source whatever its ``;accept=`` (OME-1543, ``ARCHITECTURE.md`` F1b).
 INVARIANT (identity): ``(URL, accept, ;optional, ;t=, ;retry=)``. Equal identities share one
 flight and one attachment; any difference is a separate identity, even for equal bytes.
 
@@ -37,7 +39,9 @@ WHY a fail-closed subset of the gateway gate (any image for ``image_url``, PDF f
 nothing outside this set can become an attachment, whatever the origin answers.
 """
 
-_WEB_SCHEMES = ("http://", "https://")
+# WHY https only: OME-1543 and ARCHITECTURE.md (F1b) define ``https://`` attachment sources
+# only; every other http(s) source keeps the text path (review finding 5, 2026-11-04).
+_ATTACHMENT_SCHEME = "https://"
 
 GuardPolicy = tuple[bool, float | None, int]
 """``(optional, timeout, retries)`` — the ``;optional`` / ``;t=`` / ``;retry=`` disposition."""
@@ -92,7 +96,7 @@ def _annotation_number(raw: str | None, key: str, cast: Callable, check: Callabl
 
 def identity_of(node: Source) -> AttachmentIdentity | None:
     """The attachment identity of a descriptor, or ``None`` for every text source."""
-    if not isinstance(node.value, Url) or not node.value.value.startswith(_WEB_SCHEMES):
+    if not isinstance(node.value, Url) or not node.value.value.startswith(_ATTACHMENT_SCHEME):
         return None
     ann = dict(node.annotations)
     accept = ann.get("accept")

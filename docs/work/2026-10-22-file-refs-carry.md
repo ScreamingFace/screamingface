@@ -658,3 +658,26 @@ tests (settle once per key, exact boundary, release, sticky refusal). Existing c
 **Gates.** `run_gates.py url4 --base origin/OME-1539-url4-file-refs` ALL GATES GREEN;
 `check_module_size.py` within baseline (`dag/_context.py` untouched at 455/455);
 `check_suppressions.py` 3/3; hygiene ratchets green.
+
+## Round 2026-11-04 — HupBaHa CHANGES_REQUESTED on `c9230710b` (six findings): IN_PROGRESS
+
+Merged `origin/main` normally first (no conflicts). Owner decisions (Sergey, 2026-11-04) per
+finding; each lands as its own commit with an append-only test file.
+
+**Planned.**
+1. Local/relative blob reads draw from the shared live `CapBudget` (`max_bytes` / `on_chunk`
+   through `BlobRefNode.verified`, the text-only fallback, the node's relative bytes dispatch and
+   a chunked `[data]` file read). Repro: two 7 MB blobs refused without holding 14 MB.
+2. One shared collection-shape resolver (`dag/_collection_shape.py`) decides model vs model-free
+   for both the scan and admission: follows `$a -> $b -> …` chains and field paths with cycle
+   protection; verified blob collections are parsed from the run-start cache before
+   reachability and slot order. Repros: `$xs.rows` from a model result, `$zs -> $ys -> $xs`,
+   a blob collection holding `[]` sends no nested image.
+3. `run(Graph | DagNode)`: FAIL CLOSED — any attachment-capable source in a pre-built graph
+   (attachment opt-in, blob ref, `url4://` blob ref, malformed opt-in context, non-literal
+   attachment target) is refused before any I/O; text-only graphs unchanged.
+4. Remote-node calls (`url4://` remote expressions) are found by the scan and refused
+   (`x.remote_node_unsupported`) before any run-start I/O, without consuming a client's hop.
+5. Only `https://` is an attachment source; `http://` stays on the text path.
+6. After concurrent flights / blob reads fail, a sticky byte-cap refusal is re-raised so
+   `x.attachments_too_large` always wins.
