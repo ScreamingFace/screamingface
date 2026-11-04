@@ -122,6 +122,9 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "mmmu_open": "8ce88e420239ae4d",
     # OME-1478: Humanity's Last Exam, the full set with its pictures, judged by glm-5.3-flash.
     "hle": "d30effc2a0698079",
+    # OME-1733: LABBench2 FigQA2 and TableQA2 image, a local Task judged by Sonnet 4.5.
+    "labbench2_figqa2_img": "b00a1a0f8bbdb9c4",
+    "labbench2_tableqa2_img": "e3365eafa0730f60",
     "frontierscience": "826050de44778515",
     "pubmedqa": "15e20f21d0a78fd9",
     "xstest_unsafe": "fad9dd3ebabd84a5",
