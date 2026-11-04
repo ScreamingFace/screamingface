@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1824
 stack: aigateway
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-11-04
@@ -73,8 +73,11 @@ RED first; no prior test is expected to change.
     `tests/integration/test_conditional_delete_postgres.py` (4 cases, `needs_postgres`).
   - docs: spec §2a; plan §3a, its layout row and the L7b order.
   - No prior test changed.
-- **Commits:** one on branch `stale-row-conditional-delete`, renamed
-  `OME-N-stale-row-conditional-delete` at PR-open; its sha is recorded then.
+- **Commits:** on branch `OME-1824-stale-row-conditional-delete` (`stale-row-conditional-delete`
+  until PR-open), rebased onto `00802ae3f` at PR-open; upstream changed no `apps/aigateway` file.
+  `f09bdedab` feat(aigateway): let a Connection delete require the row's status (OME-1138 L7c);
+  `7cead4584` docs(work): keep the L7c ledger open until its PR merges (OME-1138 L7c); then the
+  commit that files `OME-1824` here and in its `docs/tasks` mirror.
 - **RED seen:** 11 of the 16 SQLite cases failed: a conditional delete answered 204 where 409
   was expected (a row activated since the listing by a sign-in or by a key fix, a row in another
   status, the effective row in `pending` and in `error`) or where 422 was expected (six values).
