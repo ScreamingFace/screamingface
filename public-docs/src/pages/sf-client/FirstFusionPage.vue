@@ -44,8 +44,7 @@ const readOut = `0.6667`
   >
     <p>
       A fusion is a composed system of different models, working as one. In this tutorial you build
-      one, run it on a handful of benchmark cases, and read its score. It takes a few lines and a
-      couple of minutes.
+      one, run it on three benchmark cases, and read its score.
     </p>
 
     <Note>
@@ -100,8 +99,8 @@ const readOut = `0.6667`
     <p>
       Give <code>sf.Fusion</code> two model routes and a synthesizer. The two members answer the
       same question in parallel; the synthesizer reads both drafts and writes the single answer that
-      gets graded. This is the most accessible kind of fusion, but it can expand into routed
-      ensembles, sequential orchestration with cascades and gates, and more.
+      gets graded. This is the simplest fusion. Recipes also compose into routed ensembles and into
+      sequential cascades and gates.
     </p>
 
     <div class="not-prose">
@@ -112,8 +111,7 @@ const readOut = `0.6667`
 
     <p>
       <code>sf.evaluate</code> runs your fusion against a benchmark and grades the answers.
-      <code>limit=3</code> runs just three cases, so this stays quick and cheap while you are
-      finding your feet.
+      <code>limit=3</code> runs three cases.
     </p>
 
     <Tabs :labels="['Hosted engine', 'Your own engine']">
@@ -165,8 +163,8 @@ const readOut = `0.6667`
     </div>
 
     <p>
-      That is a whole evaluation: compose, run, read. Nothing here was mocked. The same three steps
-      scale from three cases to a full benchmark.
+      That is a whole evaluation: compose, run, read. The same three steps scale from three cases to
+      a full benchmark.
     </p>
 
     <h2>How far this goes</h2>

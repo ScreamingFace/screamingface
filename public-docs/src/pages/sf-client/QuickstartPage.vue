@@ -176,10 +176,6 @@ sf.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])
 sf.connections.list()        # the same status the panel shows
 sf.disconnect("openrouter")  # remove it again`
 
-const connectOauth = `flow = sf.connect("codex", method="oauth")
-flow.authorize_url           # open this in a browser
-connection = flow.wait()     # blocks until you authorize, or the flow expires`
-
 const compose = `ANSWER = "Answer this research prompt thoroughly, in prose, with specific evidence."
 SYNTHESIS = "Combine the panel's answers into one unified prose answer. Add no new facts."
 
@@ -227,13 +223,93 @@ report.failures    # what failed, and why`
     :version="version"
   >
     <p>
-      By the end, you'll have a scored comparison of <strong>4 candidates</strong>: three solo
+      By the end, you'll have a scored comparison of <strong>four recipes</strong>: three solo
       models and one fusion built from them, all on one case (<code>limit=1</code>). On the hosted
       engine the case comes from
       <a href="https://arxiv.org/abs/2602.11685" target="_blank" rel="noopener">DRACO</a> and each
       answer is judged three times. On a local engine the case comes from <code>medxpert</code>,
       graded by exact match with no judge.
     </p>
+
+    <blockquote>
+      You'll need the <RouterLink to="/learn/engine">ScreamingFace Engine</RouterLink> running and
+      an OpenRouter connection first. See
+      <RouterLink to="/sf-client/installation">Installation</RouterLink>. Every model below is an
+      OpenRouter route, so one connection covers everything. DRACO runs on the hosted engine, which
+      needs an account with access. A local engine does not serve DRACO, so with a local engine run
+      the same steps on <code>medxpert</code>.
+    </blockquote>
+
+    <h2>1 · Configure the engine</h2>
+
+    <p>
+      The <RouterLink to="/learn/engine"><strong>ScreamingFace Engine</strong></RouterLink> is a
+      separate process that grades the benchmarks and calls the models on your behalf. On a local
+      engine it holds your provider credentials; on the hosted engine the operator manages them. The
+      Client hands all of that work to the engine, so this first step tells the Client where to find
+      it.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="1" :code="configure" />
+    </div>
+
+    <p>
+      <code>sf.configure()</code> validates and stores the URLs without making a network request.
+      The example above points at a <strong>local engine</strong> on
+      <code>http://127.0.0.1:9108</code> and its leaderboard on <code>http://127.0.0.1:9106</code>,
+      so local scores stay local. A non-default <code>engine_url</code> requires
+      <code>scoreboard_url</code>; <code>configure</code> raises <code>ValueError</code> without it.
+      To run one yourself, install the <code>[runtime]</code> extra and start the stack with
+      <code>screamingface up</code>. The
+      <RouterLink to="/sf-client/installation">Installation</RouterLink> guide walks through that
+      end to end.
+    </p>
+
+    <p>
+      To use the <strong>hosted ScreamingFace engine</strong> instead, name it: the Client's default
+      engine is the hosted one, <code>https://fusion.screamingface.ai</code>, and its leaderboard is
+      <code>https://leaderboard.screamingface.ai</code>. With no <code>configure</code> call and a
+      local stack running, the Client uses the local stack instead and prints
+      <code>connected to the local stack at http://127.0.0.1:9108</code>. Hosted access is granted
+      by the OpenMined team, so reach out to them before it will run evaluations for your account.
+    </p>
+
+    <p>
+      <strong>If the engine isn't reachable</strong>, the first call that needs it will raise
+      <code>EngineUnavailableError</code>. You can check a local one beforehand with
+      <code>curl http://127.0.0.1:9108/healthz</code>. Provider connection calls require HTTPS
+      outside loopback.
+    </p>
+
+    <h2>2 · Connect a provider</h2>
+
+    <p>
+      <strong>On the hosted engine</strong> there is nothing to connect:
+      <code>sf.connect()</code> shows a panel with a Log in button, and after login every provider
+      the OpenMined team has enabled for your account shows as connected. A provider that is not
+      enabled shows as unavailable. <strong>On a local engine</strong> the engine holds your
+      credentials, and you need at least one provider connected before you can call a model.
+      <code>sf.connect()</code> with no arguments shows a panel of every provider the engine
+      supports. The example below connects <strong>OpenRouter</strong> with an API key on a local
+      engine, walking through all six states of the auth flow.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="2" :code="connect">
+        <NbStateCarousel :steps="connectSteps" label="Connecting a provider">
+          <template #default="{ step }">
+            <ProviderConnections
+              :providers="step.providers"
+              :forms="step.forms"
+              :busy="step.providers.some((p) => p.status === 'pending') ? ['openrouter'] : []"
+              engine-url="http://127.0.0.1:9108"
+            >
+            </ProviderConnections>
+          </template>
+        </NbStateCarousel>
+      </NbCell>
+    </div>
 
     <blockquote>
       You'll need the <RouterLink to="/learn/engine">ScreamingFace Engine</RouterLink> running and
@@ -351,17 +427,10 @@ report.failures    # what failed, and why`
     </p>
 
     <p>
-      Providers that use OAuth return an <code>OAuthFlow</code>, which you finish in a browser.
-      Codex and Antigravity use OAuth only; Anthropic and Gemini CLI accept an API key or OAuth:
-    </p>
-
-    <CodeBlock :code="connectOauth" language="python" />
-
-    <p>
-      The flow expires eventually, so <code>flow.wait()</code> will raise an error instead of
-      blocking forever. <code>flow.expired</code> tells you if that's happened, and
-      <code>flow.cancel()</code> abandons the attempt. Connection calls require HTTPS unless the
-      engine is on loopback.
+      The panel states, the OAuth flow for Codex, Antigravity, Anthropic and Gemini CLI, and the
+      hosted engine's read-only connections are in the
+      <RouterLink to="/sf-client/guides/connections">Connections guide</RouterLink> and the
+      <RouterLink to="/sf-client/api/connections">Connections reference</RouterLink>.
     </p>
 
     <h2>3 · Compose the candidates</h2>
@@ -392,7 +461,7 @@ report.failures    # what failed, and why`
       shows whether adding models helps on this case.
     </p>
 
-    <h3>Caching keeps reruns cheap</h3>
+    <h3>The request cache</h3>
 
     <p>
       With the cache on, a model call that was made before is served from the cache instead of being

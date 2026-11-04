@@ -182,7 +182,7 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
     </p>
 
     <p>
-      This makes results auditable. A score alone is just a claim. A score with its url4 shows
+      This makes a result reproducible. A score alone is a claim. A score with its url4 shows
       exactly what produced it. And since the expression is also an address the engine can resolve,
       that same string reruns the evaluation or calls the fusion like a single model, in whatever
       workflow you use. See <RouterLink to="/learn/url4">url4</RouterLink> for the protocol itself.

@@ -62,9 +62,8 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
       <a href="https://openreview.net/forum?id=XSIYfTm2h7" target="_blank" rel="noopener"
         ><em>Beyond Leaderboards: Tokenomics of Agentic Small Language Model Ensembles</em></a
       >
-      (Skurikhin et al., Los Alamos). The SF Client and SF Leaderboard make that easy to show and
-      transparent: a uniform way to grade and compare such systems, fully reproducible and trackable
-      across the cost-quality Pareto frontier.
+      (Skurikhin et al., Los Alamos). The ScreamingFace Client and Leaderboard grade every system
+      the same way and show its score next to its cost, and each result carries its url4.
     </p>
 
     <h2>What the Client and Leaderboard provide</h2>
@@ -86,7 +85,7 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
         have, and calls are billed to your own accounts rather than resold to you.
       </li>
       <li>
-        <strong>Lower cost through shared caching:</strong> With the
+        <strong>Billing only for new calls:</strong> With the
         <RouterLink to="/learn/caching">cache</RouterLink> on, a model call that was made before is
         served from the cache. Calls are matched by route, prompt and parameters, so comparing many
         fusion candidates over one benchmark is billed only for the calls that have not been made
@@ -172,7 +171,7 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
 
     <p>
       This runs on a hosted engine, which requires permission. You can run the same thing by
-      pointing the SF Client at a local engine (<RouterLink to="/sf-client/installation"
+      pointing the ScreamingFace Client at a local engine (<RouterLink to="/sf-client/installation"
         >more here</RouterLink
       >).
     </p>
