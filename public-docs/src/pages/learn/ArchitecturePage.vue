@@ -34,8 +34,8 @@ const components = [
     <p>
       ScreamingFace is a small stack built around one idea: describe an entire AI system as a single
       <RouterLink to="/learn/url4"><strong>url4</strong></RouterLink> expression, run it behind a
-      trust boundary, and hand anyone that same expression to reproduce the result. This page shows
-      how the pieces fit and where each lives in the
+      trust boundary, and hand anyone that same expression to run it again. This page shows how the
+      pieces fit and where each lives in the
       <a :href="GH" target="_blank" rel="noopener">codebase</a>.
     </p>
 
@@ -93,8 +93,7 @@ const components = [
 
     <p>
       There are two ways to run, and only the engine URL changes. A <strong>local</strong> engine
-      runs on your own machine, on your own keys, with its own cache (on by default), and nothing on
-      the local path takes a cut.
+      runs on your own machine, on your own keys, with its own cache (on by default).
     </p>
 
     <figure class="not-prose diagram">
@@ -111,8 +110,8 @@ const components = [
     <p>
       A <strong>hosted</strong> engine, one we operate, runs the identical protocol but adds the
       <RouterLink to="/learn/caching">shared community cache</RouterLink> and subsidized compute for
-      chosen cohorts, so reproducing or building on a published run is usually a cache hit rather
-      than a fresh spend.
+      chosen cohorts, so a call already in the shared cache is a cache hit rather than a new
+      provider call.
     </p>
 
     <figure class="not-prose diagram">

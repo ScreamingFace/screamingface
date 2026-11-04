@@ -8,7 +8,7 @@ const GH_TREE = 'https://github.com/ScreamingFace/screamingface/tree/main'
 
 const read = `import screamingface as sf
 
-sf.leaderboards.list()                      # 87 benchmarks on production
+sf.leaderboards.list()                      # 91 benchmarks on production
 
 board = sf.leaderboards.get("draco-3pass", top=10)
 for entry in board.entries:
@@ -44,14 +44,14 @@ sf.evaluate(entry.url4)  # a new paid run over every case of the benchmark`
     <p>
       Published model numbers usually originate with the party that benefits from them, and are
       reported rather than demonstrated. The board is organized around the opposite arrangement: a
-      rank is a claim someone else has already reproduced, and that you can reproduce again.
+      rank is a claim the hosted engine has run itself, and that you can run again from its url4.
     </p>
 
     <p>
-      A captured run (the default) keeps a pinned cache of its model answers and web-tool results,
-      and <code>sf.evaluate(pinned_cache="…")</code> replays a submission against that cache at $0.
-      The Reproduce button on a captured public row copies this snippet. The Client reads the recipe
-      and seed from the board and returns a report; its single result's
+      A run made with <code>capture=True</code> keeps a pinned cache of its model answers and
+      web-tool results, and <code>sf.evaluate(pinned_cache="…")</code> replays a submission against
+      that cache. The Reproduce button on a captured public row copies this snippet. The Client
+      reads the recipe and seed from the board and returns a report; its single result's
       <code>reproduction.outcome</code> says whether the full replay is exact. The
       <RouterLink to="/learn/caching">caching page</RouterLink> explains how.
     </p>
@@ -67,7 +67,7 @@ sf.evaluate(entry.url4)  # a new paid run over every case of the benchmark`
       <li>
         <strong>Validation:</strong> The score is benchmark-native: the exact number the benchmark's
         own grading produced, fractional or negative included. The board checks it is a finite
-        number and never recomputes, normalizes, or thresholds it — the benchmark is the sole
+        number and never recomputes, normalizes, or thresholds it; the benchmark is the sole
         authority on its formula.
       </li>
       <li>
@@ -119,9 +119,9 @@ sf.evaluate(entry.url4)  # a new paid run over every case of the benchmark`
     </p>
 
     <p>
-      Because reruns mostly land on the
-      <RouterLink to="/learn/caching">cache</RouterLink>, starting from someone else's result is
-      usually far cheaper than the original run was.
+      A call already in the
+      <RouterLink to="/learn/caching">cache</RouterLink> costs nothing to repeat, so starting from
+      someone else's result re-runs only the calls the cache does not hold.
     </p>
 
     <h2>From the Client</h2>

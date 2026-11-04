@@ -11,8 +11,8 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     :navigation="navigation"
   >
     <p>
-      Evaluating a fusion means many model calls, and calls cost money and time. ScreamingFace keeps
-      that cost low in two ways: it caches calls to the providers that support it, and it gives you
+      Evaluating a fusion means many model calls, and calls cost money and time. ScreamingFace
+      addresses that in two ways: it caches calls to the providers that support it, and it gives you
       a choice of where the compute comes from.
     </p>
 
@@ -35,16 +35,16 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <ul>
       <li>
-        <strong>Within a run:</strong> with the cache on, a model call runs once however many
-        candidates use it. Calls are matched by a fingerprint of the route, prompt and parameters,
-        not by model object, so two identical model objects share one call. The first candidate to
-        run stores the response and the next one reuses it, so a fusion that reuses its members
-        costs less than the number of candidates suggests.
+        <strong>Within a run:</strong> with the cache on, an identical call from another candidate
+        is served from the cache. Calls are matched by a fingerprint of the route, prompt and
+        parameters, not by model object, so two identical model objects share one cached response.
+        The first candidate to run stores the response and the next one reuses it.
       </li>
       <li>
-        <strong>Across runs:</strong> with the cache on, re-running an evaluation pays only for the
-        calls that are new to it. A run that failed partway is worth restarting, because the calls
-        that already completed come back from the cache instead of being bought twice.
+        <strong>Across runs:</strong> with the cache on, a call that repeats exactly is served from
+        the cache. A call whose input changed, such as the second turn of a case whose first answer
+        differs, is paid again. A run that failed partway can be restarted: the calls that already
+        completed and repeat exactly come back from the cache.
       </li>
     </ul>
 
@@ -55,15 +55,11 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       model configuration against a benchmark, that call is a cache hit for you as well, at no cost.
       This sharing covers model calls. The gateway also caches web-search and web-fetch results, but
       only for each account: a result that one account stored is never given to another account.
-      Verifying a published result, or building on someone else's fusion, usually costs a fraction
-      of the original run, because the expensive part has already been paid for once.
     </p>
 
     <p>
-      This is what makes reproduction practical. A published result carries its
-      <RouterLink to="/learn/url4">url4</RouterLink>, and re-running that url4 mostly lands on
-      cached calls, so checking the work takes minutes and pennies rather than repeating the whole
-      run.
+      A published result carries its <RouterLink to="/learn/url4">url4</RouterLink>. A call from
+      that url4 that is already in the shared cache is served from it.
     </p>
 
     <p>
@@ -267,15 +263,13 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       answers each call with the answer that it stored for the same call. A call matches a stored
       answer when it has the same case, the same Attempt of that case, the same request, and the
       same position among identical calls in that case. In each case and Attempt, the first
-      identical call gets the first stored answer, the second gets the second, and so on. Nothing
-      calls a provider, and nothing calls the web-search service. A confirmed replay costs
-      <strong>$0</strong>.
+      identical call gets the first stored answer, the second gets the second, and so on.
     </p>
 
     <p>
       A replay does not depend on the cache or on the models of today. It works after a model is
       retired, after a provider plugin is removed, and after the cache rules change. A request that
-      the copy cannot answer fails its case. The replay never buys the answer.
+      the copy cannot answer fails its case.
     </p>
 
     <p>
@@ -366,11 +360,11 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <ul>
       <li>
         <strong>Local:</strong> Run the engine on your own machine with your own provider keys. You
-        pay your providers directly, and there is no middleman on the local path.
+        pay your providers directly.
       </li>
       <li>
         <strong>Hosted:</strong> Use an engine we operate. It carries the shared cache, and we
-        subsidize compute for chosen cohorts so that verifying and exploring stays cheap.
+        subsidize compute for chosen cohorts.
       </li>
     </ul>
 
