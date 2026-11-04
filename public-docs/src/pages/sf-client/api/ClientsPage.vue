@@ -32,6 +32,7 @@ const evaluateSig = `Client.evaluate(
     *,
     benchmark: str | None = None,
     limit: int | None = None,
+    cases: Sequence[int] | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
@@ -260,6 +261,19 @@ const asyncOut = `(109, 'http://127.0.0.1:9108')`
           <td>
             Run only this many cases. <code>None</code> runs the whole benchmark. Use a small limit
             while you are still iterating.
+          </td>
+        </tr>
+        <tr>
+          <td><code>cases</code></td>
+          <td><code>Sequence[int]&nbsp;|&nbsp;None</code></td>
+          <td>
+            Run a fixed list of Case ids instead of the first <code>limit</code>. A Case id is the
+            position of the Case in the benchmark, from 1 to the case count. Pass
+            <code>cases</code> or <code>limit</code>, not both. The list must hold 1 to 1,000
+            distinct whole numbers, and a replay takes no <code>cases</code>. See
+            <RouterLink to="/sf-client/guides/running-an-evaluation"
+              >Running an evaluation</RouterLink
+            >.
           </td>
         </tr>
         <tr>

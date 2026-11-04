@@ -179,6 +179,14 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-
           </td>
         </tr>
         <tr>
+          <td><code>selected_cases</code></td>
+          <td><code>tuple[int,&nbsp;...]&nbsp;|&nbsp;None</code></td>
+          <td>
+            The Case ids this candidate scored on a <code>cases=</code> run, ascending.
+            <code>None</code> for a full run and for a <code>limit</code> run.
+          </td>
+        </tr>
+        <tr>
           <td><code>pinned_cache</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>

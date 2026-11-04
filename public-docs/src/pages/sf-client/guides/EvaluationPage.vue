@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import { SF_ENGINE_URL, SF_SCOREBOARD_URL } from '@/lib/engine'
@@ -9,6 +10,11 @@ import {
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
+const casesCode = `report = sf.evaluate(haiku, benchmark="medxpert", cases=[3, 17, 42])
+report.selected_cases, report.selection_fingerprint`
+const casesOut = `((3, 17, 42), 'sha256:31771f390aca49f97d87821e360188b2ff776fa5ff02c5fc63c4a6b943775352')`
+const casesRefused = `sf.evaluate(haiku, benchmark="medxpert", cases=[1], limit=1)`
+const casesRefusedOut = `TypeError: pass cases= or limit=, not both`
 const run = `import screamingface as sf
 
 haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")
@@ -152,7 +158,10 @@ client.close()`
 
     <ul>
       <li>Evaluate one candidate, or run several at once.</li>
-      <li>Cap the number of cases with <code>limit</code>.</li>
+      <li>
+        Cap the number of cases with <code>limit</code>, or run a fixed list with
+        <code>cases</code>.
+      </li>
       <li>Skip the request cache for one run with <code>use_cache=False</code>.</li>
       <li>Reopen a saved report from disk.</li>
       <li>Watch the run live, or turn off the progress display.</li>
@@ -183,9 +192,9 @@ client.close()`
         <tr>
           <td>
             <code
-              >sf.evaluate(candidates, *, benchmark, limit=None, on_event=None, progress=None,
-              answer_seed=None, capture=None, pinned_cache=None, score_id=None, url4=None,
-              record_reproduction=True, use_cache=True)</code
+              >sf.evaluate(candidates, *, benchmark, limit=None, cases=None, on_event=None,
+              progress=None, answer_seed=None, capture=None, pinned_cache=None, score_id=None,
+              url4=None, record_reproduction=True, use_cache=True)</code
             >
           </td>
           <td>
@@ -369,6 +378,90 @@ client.close()`
     <div class="not-prose">
       <NbCell :count="10" :code="noSave" />
     </div>
+
+    <h3>8 · Run chosen cases</h3>
+
+    <p>
+      <code>cases=[3, 17, 42]</code> runs those Cases instead of the first <code>limit</code>, for
+      example a development set and a held-out set. A Case id is the position of the Case in the
+      benchmark, from 1 to the case count. The list is sorted before it runs, so
+      <code>[42, 3, 17]</code> is the same run as <code>[3, 17, 42]</code>.
+      <code>report.selected_cases</code> names the Cases scored, in ascending order, and
+      <code>report.selection_fingerprint</code> is the <code>sha256:</code> of the sorted ids joined
+      by commas, which a paper can cite. Both are <code>None</code> for a full run and for a
+      <code>limit</code> run, and a list equal to Cases 1 to N is the same run as
+      <code>limit=N</code>.
+    </p>
+
+    <CodeBlock :code="casesCode" language="python" />
+    <CodeBlock :code="casesOut" language="text" />
+
+    <p>The SDK refuses these before it sends anything:</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Call</th>
+          <th>Raises</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>cases</code> with <code>limit</code></td>
+          <td><code>TypeError</code>: <code>pass cases= or limit=, not both</code></td>
+        </tr>
+        <tr>
+          <td>an empty list</td>
+          <td><code>ValueError</code>: <code>cases must name at least one Case id</code></td>
+        </tr>
+        <tr>
+          <td>an id below 1, or an id twice</td>
+          <td><code>ValueError</code>: <code>Case ids must be distinct and at least 1</code></td>
+        </tr>
+        <tr>
+          <td>an id that is not a whole number (a float, a string or a bool)</td>
+          <td>
+            <code>TypeError</code>:
+            <code>Case ids must be whole numbers, e.g. cases=[3, 17, 42]</code>
+          </td>
+        </tr>
+        <tr>
+          <td>more than 1,000 ids</td>
+          <td>
+            <code>ValueError</code>:
+            <code>a run takes at most 1,000 Case ids; this list has 1,001</code>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <code>cases</code> on a replay (<code>pinned_cache=</code> or <code>score_id=</code>)
+          </td>
+          <td>
+            <code>TypeError</code>:
+            <code>cases= is not supported when replaying; replay the run, or use limit=</code>
+          </td>
+        </tr>
+        <tr>
+          <td>an id above the benchmark's case count</td>
+          <td>
+            <code>PlanningError</code> with the code <code>invalid_benchmark_selection</code>:
+            <code>the Benchmark has 2450 Cases; 999999 out of range</code>. It is not retryable.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <CodeBlock :code="casesRefused" language="python" />
+    <CodeBlock :code="casesRefusedOut" language="text" />
+
+    <p>
+      A run on chosen Cases cannot be submitted to a leaderboard:
+      <code>sf.leaderboards.submit</code> raises <code>ValueError</code> with
+      <code>a run on selected Cases can't be submitted to the leaderboard; submit a full run</code>.
+      The SDK posts the list to the Engine's selection route and refuses before any model call when
+      the Engine does not echo the list back, so an older Engine never runs and bills every Case.
+      The report JSON written by <code>to_json()</code> carries no <code>selected_cases</code> key.
+    </p>
 
     <h2>When it fails</h2>
 

@@ -217,7 +217,8 @@ replay.candidates.only.reproduction  # None: no published score to compare`
             spec id, url4, the benchmark-native score, providers, and the idempotency key from that
             result. An optional author list supplies the exact credit line. An optional
             <code>paper_url</code> links the paper; the metadata objects add details about the
-            authors and the paper.
+            authors and the paper. A result from a <code>cases=</code> run raises
+            <code>ValueError</code>, because a leaderboard takes full runs only.
           </td>
         </tr>
         <tr>

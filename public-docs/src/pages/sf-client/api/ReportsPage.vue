@@ -264,6 +264,23 @@ const benchOut = `BenchmarkInfo(id='medxpert', revision='1e5a3b8a461a52f7', case
           <td>One entry per candidate you evaluated, in the order you passed them.</td>
         </tr>
         <tr>
+          <td><code>selected_cases</code></td>
+          <td><code>tuple[int,&nbsp;...]&nbsp;|&nbsp;None</code></td>
+          <td>
+            The Case ids a <code>cases=</code> run scored, ascending. <code>None</code> for a full
+            run and for a <code>limit</code> run.
+          </td>
+        </tr>
+        <tr>
+          <td><code>selection_fingerprint</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            The <code>sha256:</code> of the sorted selected ids joined by commas, for example of
+            <code>3,17,42</code>. <code>None</code> when <code>selected_cases</code> is
+            <code>None</code>.
+          </td>
+        </tr>
+        <tr>
           <td><code>ok</code></td>
           <td><code>bool</code></td>
           <td>
