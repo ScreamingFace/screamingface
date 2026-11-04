@@ -260,17 +260,26 @@ row in `error`, which keeps its label so it can be re-keyed in place (`OAuthConn
 
 - `connect` re-keys the Engine's own `error` API-key row in place (`PUT`), the gateway's designed
   repair;
-- otherwise the Engine first deletes the provider's non-active rows labelled `screamingface`
-  (its own, serving nothing), then creates.
+- otherwise the Engine first deletes the provider's `pending` and `error` rows labelled
+  `screamingface` (its own, serving nothing), then creates.
 
 With an unusable `E` that a labelled create replaces (owner, 2026-11-04), the Engine first deletes
-the provider's non-active rows labelled `screamingface` other than `E`, then creates or starts. A
+the provider's `pending` and `error` rows labelled `screamingface` other than `E`, then creates or
+starts. A
 pre-L7b Engine created such a row beside a migrated `E` whenever no row held the label; once `E`
 is unusable it would block every replacing create with `label_conflict`, because the gateway
 exempts only `E`'s own label (`routes/oauth_connections.py:136-152,263-272`). An `active` row
 other than `E` holding the label is never removed, since it may serve the user elsewhere:
 `connect` and `start_oauth` refuse with `ConnectionConflict` before any write and before the key
 leaves, and disconnecting `E` makes that row the effective one.
+
+**The repair is conditional (owner, 2026-11-04; L7c, §2a).** Each repair `DELETE` carries
+`expected_status`, the status the listing showed. A row that started serving since the listing (a
+sign-in finished, a key fixed) is refused with 409, which is `ConnectionConflict`. The repair runs
+before any create or start, so the key never leaves the Engine and the user's row stays. A
+labelled row in any other status (`expired`, which nothing writes today) is not repaired, and the
+create then meets `label_conflict`. `disconnect` deletes `E` with a plain `DELETE`, the user's
+explicit intent.
 
 Rows under any other label belong to the user and are never deleted by the Engine: the Local
 Engine does not own the user's OAuth, `error` or `pending` rows. A 409 `label_conflict` that still

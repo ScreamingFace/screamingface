@@ -36,6 +36,10 @@ UpstreamConnectionStatus = Literal["pending", "active", "expired", "revoked", "e
 # WHY these two: the gateway's `PUT …/api-key` re-keys an API-key row that is working or in
 # `error` (its designed repair); any other unusable `E` is replaced by a labelled create.
 _REKEYABLE = frozenset({"active", "error"})
+# WHY these two (spec §2a): the statuses the gateway's conditional delete takes, and the only ones a
+# `screamingface` row serving nothing can have — an OAuth `error` row and every `revoked` row are
+# parked under a placeholder label, and nothing writes `expired`.
+_STALE = frozenset({"pending", "error"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,15 +61,16 @@ class Selection:
 
     effective: ConnectionRow | None  # `E`
     active: int  # `A`, the provider's `active` rows
-    stale: tuple[ConnectionRow, ...]  # its non-active `screamingface` rows other than `E`
+    stale: tuple[ConnectionRow, ...]  # its `pending`/`error` `screamingface` rows other than `E`
     label_held: bool  # an `active` row other than `E` holds `screamingface`
 
 
 @dataclass(frozen=True, slots=True)
 class Plan:
-    """One operation's writes: remove these rows first, then re-key one in place or create."""
+    """One operation's writes: retire `E` or repair stale rows first, then re-key or create."""
 
-    remove: tuple[ConnectionRow, ...] = ()
+    retire: ConnectionRow | None = None  # `E`, deleted plainly: only `disconnect` retires it
+    repair: tuple[ConnectionRow, ...] = ()  # each deleted only while it has its listed status
     rekey: ConnectionRow | None = None
 
 
@@ -99,7 +104,7 @@ def api_key_plan(selection: Selection) -> Plan:
         # INVARIANT (spec §3, accepted limitation): a row the user named `screamingface` cannot be
         # told from the Engine's; in `error` it is re-keyed in place and turns `active`.
         return Plan(rekey=own)
-    return Plan(remove=selection.stale)
+    return Plan(repair=selection.stale)
 
 
 def oauth_start_plan(selection: Selection) -> Plan:
@@ -111,15 +116,15 @@ def oauth_start_plan(selection: Selection) -> Plan:
             raise ConnectionAlreadyConnected()
         return _replace_plan(selection)
     _refuse_ambiguity(selection)
-    return Plan(remove=selection.stale)
+    return Plan(repair=selection.stale)
 
 
 def disconnect_plan(selection: Selection) -> Plan:
     """`disconnect` removes `E` whatever its label or status; without one, only stale rows."""
     if selection.effective is not None:
-        return Plan(remove=(selection.effective,))
+        return Plan(retire=selection.effective)
     _refuse_ambiguity(selection)
-    return Plan(remove=selection.stale)
+    return Plan(repair=selection.stale)
 
 
 def _api_key_plan_over(selection: Selection, effective: ConnectionRow) -> Plan:
@@ -144,7 +149,7 @@ def _replace_plan(selection: Selection) -> Plan:
         # WHY refuse, not remove: an active row may serve the user elsewhere. Disconnecting `E`
         # makes it the effective row; refuse before any write and before the key leaves.
         raise ConnectionConflict()
-    return Plan(remove=selection.stale)
+    return Plan(repair=selection.stale)
 
 
 def _selection(rows: Sequence[ConnectionRow], provider: str, *, label_rule: bool) -> Selection:
@@ -171,7 +176,7 @@ def _selection(rows: Sequence[ConnectionRow], provider: str, *, label_rule: bool
     return Selection(
         effective=effective,
         active=active,
-        stale=tuple(row for row in others if row.status != "active"),
+        stale=tuple(row for row in others if row.status in _STALE),
         label_held=any(row.status == "active" for row in others),
     )
 

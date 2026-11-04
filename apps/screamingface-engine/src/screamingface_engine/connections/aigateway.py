@@ -15,6 +15,7 @@ from screamingface_engine import job_env
 from screamingface_engine.connections.aigateway_rows import (
     MANAGED_LABEL,
     ConnectionRow,
+    Plan,
     Selection,
     UpstreamConnectionStatus,
     api_key_plan,
@@ -91,7 +92,7 @@ class AigatewayConnections:
         if "api_key" not in selected_provider.auth_methods:
             raise ConnectionMethodUnsupported()
         plan = api_key_plan(await self._selection(caller, provider))
-        await self._remove(caller, plan.remove)
+        await self._remove(caller, plan)
         if plan.rekey is None:
             response = await self._request(
                 "POST",
@@ -127,7 +128,7 @@ class AigatewayConnections:
         if "oauth" not in selected_provider.auth_methods:
             raise ConnectionMethodUnsupported()
         plan = oauth_start_plan(await self._selection(caller, provider))
-        await self._remove(caller, plan.remove)
+        await self._remove(caller, plan)
         response = await self._request(
             "POST",
             _CONNECTIONS_PATH,
@@ -139,7 +140,7 @@ class AigatewayConnections:
     async def disconnect(self, caller: Caller, provider: str) -> Connection:
         self._require_mutable()
         selected_provider = _provider(await self._providers(caller), provider)
-        await self._remove(caller, disconnect_plan(await self._selection(caller, provider)).remove)
+        await self._remove(caller, disconnect_plan(await self._selection(caller, provider)))
         # WHY read after the writes: deleting `E` clears the pair's reference, so another active
         # row of the user's may now be effective and keep the provider `connected`.
         return _status_only(selected_provider, await self._status(caller, provider))
@@ -159,10 +160,19 @@ class AigatewayConnections:
         rows = await self._rows(caller, provider=provider)
         return select(rows, [provider])[provider]
 
-    async def _remove(self, caller: Caller, rows: tuple[ConnectionRow, ...]) -> None:
-        for row in rows:
+    async def _remove(self, caller: Caller, plan: Plan) -> None:
+        # INVARIANT (spec §2a): a repair `DELETE` requires the status the listing showed, so the
+        # gateway refuses (409, `ConnectionConflict`) a row that started serving since — before
+        # any create or start, so the key never leaves. Only `E` is deleted without a condition.
+        targets: list[tuple[ConnectionRow, str | None]] = [(row, row.status) for row in plan.repair]
+        if plan.retire is not None:
+            targets.append((plan.retire, None))
+        for row, expected in targets:
+            params = None if expected is None else {"expected_status": expected}
             try:
-                response = await self._request("DELETE", f"{_CONNECTIONS_PATH}/{row.id}", caller)
+                response = await self._request(
+                    "DELETE", f"{_CONNECTIONS_PATH}/{row.id}", caller, params=params
+                )
             except ConnectionNotFound:
                 # The caller-visible operation is idempotent. A concurrent disconnect may revoke
                 # the row after our list but before our delete; that already met the goal.

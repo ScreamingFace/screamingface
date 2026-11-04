@@ -21,6 +21,9 @@ Engine already shows), write by spec §3's create and repair table, and fall bac
 for one release against a gateway that predates the field. The label `screamingface` stays as the
 label of an Engine create and the mark the stale-row repair reads; it is never read for selection.
 
+L7b is blocked by L7c (owner decision 5, 2026-11-04): the stale-row repair deletes through the
+gateway's conditional delete (spec §2a), so its PR opens after L7c merges, rebased.
+
 ## Planned changes
 
 Engine src (`apps/screamingface-engine/src/screamingface_engine/connections/`):
@@ -59,6 +62,9 @@ RED first, per plan §3 step 3:
   `ConnectionBadResponse`, `ConnectionUnavailable` and `ConnectionTimeout`;
 - `connect` and `disconnect` return the status read after the writes;
 - the stale-row repair removes only non-active `screamingface` rows and is idempotent;
+- decision 5: every repair `DELETE` carries `expected_status`, the status listed; a row that
+  turns `active` as its `DELETE` arrives → `ConnectionConflict`, no create or start, the key in no
+  request; `disconnect` of `E` carries no condition;
 - the accepted collision with a user row labelled `screamingface`, pinned;
 - 409 `label_conflict` → `ConnectionConflict`; an in-place `PUT` on a row under the user's label is
   accepted;
@@ -85,6 +91,13 @@ RED first, per plan §3 step 3:
     `test_connections_aigateway_effective_writes.py` (`connect`, `start_oauth`, `disconnect`; 40)
     and `test_connections_aigateway_version_skew.py` (7). The effective cases were one 583-line
     file until review; they were split to keep each file under 450 lines.
+  - decision 5 (a second commit): `test_connections_aigateway_conditional_repair.py` (13 cases);
+    the fake gateway of `aigateway_effective_support.py` honours `expected_status` (422 for a
+    value the gateway does not take, 409 for a row no longer in that status or effective) and
+    can activate a row as its `DELETE` arrives (`activate_at_delete`). In src, `Plan` splits
+    `retire` (`E`, a plain `DELETE`) from `repair` (stale rows, each `DELETE` with
+    `expected_status`); the stale set is the `pending` and `error` rows (`_STALE`). The adapter
+    is 447 lines, the rules 219.
   - prior tests changed with the owner's approval (2026-11-04), each fake now answering
     `/v1/provider-access`: `test_connections_aigateway.py` (the shared `_get` and the handlers of
     12 tests), `test_connections_provider_access_availability.py`
@@ -95,9 +108,10 @@ RED first, per plan §3 step 3:
     share, and its docstring). No test was retired. Pinned in
     `.claude/test-change-approvals/OME-N.json` at PR-open.
   - spec `docs/spec/2026-10-29-local-engine-effective-row.md` §3, amended by owner decision 3:
-    the table row for an unusable `E`, the stale-row repair and the accepted limitation.
-- **Commits:** one on branch `effective-row-engine`, renamed `OME-N-effective-row-engine` at
-  PR-open; its sha is recorded then.
+    the table row for an unusable `E`, the stale-row repair and the accepted limitation; and by
+    decision 5: the conditional repair, its `pending` and `error` set, and `disconnect` of `E`.
+- **Commits:** two on branch `effective-row-engine` (the effective row; then decision 5), renamed
+  `OME-N-effective-row-engine` at PR-open; their shas are recorded then.
 - **Owner decisions (2026-11-04):**
   1. The prior-test changes listed at RED (the four files above) are approved.
   2. Under the skew fallback the label row stands in for `E`. With no `screamingface` row and
@@ -113,6 +127,12 @@ RED first, per plan §3 step 3:
   4. The removal of the skew fallback is filed at PR-open as a deferred leaf under `OME-1138`
      (`screamingface-engine`, `agentic`, `deferred`; precondition: an Engine release that
      carries L7b).
+  5. After the second review, which found the repair could delete a row an OAuth callback or a
+     key write activated between the listing and the `DELETE`: the gateway gains a conditional
+     delete in its own leaf, L7c (`?expected_status=pending|error`, spec §2a), and every repair
+     `DELETE` here carries the status the listing showed. A 409 is `ConnectionConflict`, raised
+     before any create or start. `disconnect` of `E` stays a plain `DELETE`. L7b is blocked by
+     L7c.
 - **Review (independent, read-only):** nothing blocking. Added after it: the skew conflict for
   two active rows (three cases), a written row of another provider, `disconnect` deleting only
   `E` when stale rows exist, and an `E` whose method the catalogue lacks. Each of these four
@@ -124,7 +144,9 @@ RED first, per plan §3 step 3:
   pin behaviour that already matched the table (an in-place `PUT` on the labelled row, a create
   with nothing to repair, 409 `label_conflict`). For decision 3, the six new cases failed
   before its change: no removal before the create, and no refusal when an active row held the
-  label.
+  label. For decision 5, 10 of the 13 new cases failed before its change: the `DELETE` carried
+  no condition, so the fake removed the activated row and the create followed, and an `expired`
+  labelled row was deleted. The other 3 pin that `disconnect` of `E` sends no condition.
 - **Prior tests that failed under GREEN before their approved change:** exactly the 17 of the
   approved set (12 + 1 + 1, and the three traceparent tests through their shared fake).
 - **Gates:** `run_gates.py screamingface-engine --base origin/main` (base `52d9492aa`,
@@ -133,6 +155,10 @@ RED first, per plan §3 step 3:
   until the manifest exists. After review and owner decision 3, the same gate commands, run one
   by one (a first runner pass hung inside pytest and was stopped; the rerun took 51 s): ruff,
   format, pyright and the layering check clean; pytest 6849 passed, 168 skipped, coverage 96%.
+  For decision 5, the same commands one by one: ruff, format, pyright and the layering check
+  clean; pytest 6862 passed, 168 skipped, coverage 95.99%. Each of three mutations fails the new
+  suite: a repair `DELETE` without its condition (9 cases), the stale set back to every
+  non-active row (1), a condition on the `DELETE` of `E` (9).
 - **Deviations:**
   - `_ConnectionRow` moved to `aigateway_rows.py` as `ConnectionRow`, with `MANAGED_LABEL`, so the
     rules and the adapter share one row type; `_validate_row` stays in the adapter.
@@ -143,6 +169,11 @@ RED first, per plan §3 step 3:
     traceparent fakes answer every non-catalogue read with the row listing too.
   - Spec §3 changed after its merge in #1658 (owner decision 3); the amendment ships in this
     unit's PR.
+  - Decision 5 narrows the stale set from the non-active labelled rows to the `pending` and
+    `error` ones, the only values the gateway's conditional delete takes. Every reachable state
+    reads the same: an OAuth `error` row and every `revoked` row carry a placeholder label, and
+    nothing writes `expired`. A labelled `expired` row would now meet `label_conflict` instead of
+    a 422. Spec §3 says so.
   - Close-out spec §8 says that after L7b the Engine's selection no longer reads the label. That
     holds against a gateway that lists `effective`; the §4 skew fallback still selects by
     `MANAGED_LABEL` for one release, and its removal in the release after L7b completes the line.

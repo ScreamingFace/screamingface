@@ -95,6 +95,8 @@ class Gateway:
         self.access_after_write = access_after_write
         self.requests: list[httpx.Request] = []
         self.fail: dict[str, httpx.Response | Exception] = {}
+        # The rows whose sign-in finishes, or whose key is fixed, just as their DELETE arrives.
+        self.activate_at_delete: set[str] = set()
 
     def adapter(self) -> AigatewayConnections:
         client = httpx.AsyncClient(
@@ -127,10 +129,7 @@ class Gateway:
     def _write(self, request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
         call = f"{request.method} {request.url.path}"
         if request.method == "DELETE":
-            connection_id = request.url.path.rsplit("/", 1)[-1]
-            before = len(self.rows)
-            self.rows = [kept for kept in self.rows if kept["id"] != connection_id]
-            return httpx.Response(204 if len(self.rows) < before else 404)
+            return self._delete(request)
         if call == f"POST {ROWS_PATH}/api-key":
             body = json.loads(request.content)
             created = row(CREATED_ID, label=body["label"], provider=body["provider"])
@@ -151,6 +150,19 @@ class Gateway:
             )
         raise AssertionError(f"unexpected gateway call {call}")
 
+    def _delete(self, request: httpx.Request) -> httpx.Response:
+        """The gateway's delete and its `expected_status` precondition (spec §2a, L7c)."""
+        connection_id = request.url.path.rsplit("/", 1)[-1]
+        target = next((listed for listed in self.rows if listed["id"] == connection_id), None)
+        if target is None:
+            return httpx.Response(404)
+        if connection_id in self.activate_at_delete:
+            target["status"] = "active"
+        status = _precondition(target, request.url.params.get("expected_status"))
+        if status == 204:
+            self.rows.remove(target)
+        return httpx.Response(status)
+
     def _read(self, request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/providers":
             return httpx.Response(200, json={"object": "list", "data": self.providers})
@@ -164,3 +176,13 @@ class Gateway:
         assert request.url.path == ACCESS_PATH, request.url.path
         listed = [{"provider": key, "status": value} for key, value in self.access.items()]
         return httpx.Response(200, json={"object": "list", "providers": listed})
+
+
+def _precondition(target: dict[str, object], expected: str | None) -> int:
+    """204 when the delete goes ahead, else the gateway's refusal: 422 or 409 (spec §2a)."""
+    if expected is None:
+        return 204
+    if expected not in {"pending", "error"}:
+        return 422
+    still_stale = target["status"] == expected and not target.get("effective")
+    return 204 if still_stale else 409
