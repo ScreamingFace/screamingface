@@ -34,3 +34,17 @@ def test_a_grace_within_the_clients_admission_budget_is_refused(grace: float) ->
 def test_a_non_positive_window_is_refused(field: str) -> None:
     with pytest.raises(ValidationError):
         Settings(**{field: 0})
+
+
+@pytest.mark.parametrize("field", ["run_retention_s", "run_pending_grace_s", "run_lost_after_s"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf")])
+def test_a_window_that_is_not_finite_is_refused(field: str, value: float) -> None:
+    with pytest.raises(ValueError):
+        Settings(**{field: value})
+
+
+@pytest.mark.parametrize("lost_after", [1.0, 86_400.0])
+def test_lost_after_within_the_streams_retention_is_refused(lost_after: float) -> None:
+    # INVARIANT (spec R6): reconcile settles `lost` only once no outcome can still arrive.
+    with pytest.raises(ValueError, match="run_lost_after_s"):
+        Settings(run_lost_after_s=lost_after)

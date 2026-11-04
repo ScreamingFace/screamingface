@@ -95,7 +95,8 @@ class CandidateOutcomesStreamConfig:
 
 
 class CandidateOutcomesStreamConfigError(RuntimeError):
-    """The stream exists with a retention or storage this code cannot run on. Startup fails."""
+    """The stream exists with a retention, storage, discard policy or subject this code cannot
+    run on. Startup fails."""
 
 
 class JetStreamCandidateOutcomeStream:
@@ -144,11 +145,13 @@ class JetStreamCandidateOutcomeStream:
                 if exc.err_code != STREAM_NAME_IN_USE_ERR_CODE:
                     raise
             current = (await js.stream_info(self.config.name)).config
-        for field in ("retention", "storage"):
+        # WHY not the limits: an operator may widen `max_age` or `max_bytes` on purpose. These
+        # four decide whether an outcome is kept until written at all.
+        for field in ("retention", "storage", "discard", "subjects"):
             if getattr(current, field) != getattr(wanted, field):
                 raise CandidateOutcomesStreamConfigError(
                     f"stream {self.config.name!r}: `{field}` is {getattr(current, field)}, "
-                    f"expected {getattr(wanted, field)}; it cannot change on a live stream"
+                    f"expected {getattr(wanted, field)}; outcomes would not be kept until written"
                 )
 
     async def publish(self, topic: str, outcome: CandidateOutcome) -> None:
@@ -157,6 +160,10 @@ class JetStreamCandidateOutcomeStream:
 
     async def consume(self) -> AsyncIterator[OutcomeDelivery]:
         js = await self._jetstream()
+        # WHY add first: `pull_subscribe` binds an existing durable as it is, so a changed
+        # `ack_wait`, or a durable made by hand with a `max_deliver`, would silently stay. The
+        # server updates an existing durable's editable fields, and refuses the rest loudly.
+        await js.add_consumer(self.config.name, self.config.consumer_config())
         sub = await js.pull_subscribe(
             self.config.subject,
             durable=self.config.consumer,

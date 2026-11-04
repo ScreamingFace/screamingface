@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1800",
+  "branch": "OME-1800-e5-p1-e2-registry-outcome-stream",
+  "approver": "Tauquir Ahmed (spec owner)",
+  "date": "2026-11-05",
+  "scope": "Exactly these edits in test_run_records.py: the parameter (\"stra\u00dfe@x.org\", \"STRASSE@x.org\") becomes (\"J\u00dcRGEN@X.ORG\", \"j\u00dcrgen@x.org\"); test_a_fold_that_decomposes_is_still_one_owner becomes test_a_decomposed_character_is_still_one_owner, asserting NFC equivalence of a composed and a decomposed \"\u0390\" instead of casefold equivalence of \"\u0390\" and \"\u03aa\u0301\".",
+  "reason": "E5 P1 spec D6 (owner decision 2026-11-05, PR #1634 review): the owner key lowercases ASCII only, because Unicode case folding merges distinct addresses (\u00df/ss, \ufb01/fi, the Kelvin sign/k) into one owner, and the key is the only check on every Run read and write. The two edited cases asserted that folding.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_run_records.py": {
+      "base_blob": "b7b63841498d6e88b245dc07bc8392bd1a389353",
+      "approved_blob": "bc686ab404b7b9a5a3b184a99420906e52c36208"
+    }
+  }
+}

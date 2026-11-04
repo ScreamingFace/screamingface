@@ -9,26 +9,33 @@ from them on every read (`runs.state.derive_state`), so a read is always exact f
 INVARIANT (spec §4.2): every write is compare-and-set on state. Each is one `UPDATE … WHERE`
 guarded on the state it expects, and the row count says whether this writer won, identically on
 both databases. So a terminal Candidate never moves (R4), and a bind cannot overwrite a cancel.
+
+INVARIANT: every write transaction locks its Run row first (`_lock_run`), then its Candidates.
+One lock order means a bind, settle and cancel of one Run never deadlock on Postgres, and a
+cancel's "is any Candidate live?" check holds until its flag commits (spec D12). SQLite takes one
+write lock per transaction, so the order holds there by construction.
+
+INVARIANT (spec R5): a record is derived from ONE statement, the Run's Candidates joined to their
+Run, so a read never combines facts from two moments.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from typing import cast
 
 from tortoise.backends.base.client import BaseDBAsyncClient
 from tortoise.exceptions import IntegrityError
-from tortoise.expressions import Q
+from tortoise.expressions import Q, Subquery
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
-from screamingface_engine.candidate_outcomes import CandidateOutcome
+from screamingface_engine.candidate_outcomes import COST_PLACES, CandidateOutcome
 from screamingface_engine.runs.db import CONNECTION
 from screamingface_engine.runs.ids import new_run_id
 from screamingface_engine.runs.models import Candidate, Run
-from screamingface_engine.runs.models.candidate import COST_PLACES, ERROR_CODE_LENGTH
 from screamingface_engine.runs.records import (
     CandidateRecord,
     CandidateState,
@@ -41,6 +48,8 @@ from screamingface_engine.runs.records import (
 )
 from screamingface_engine.runs.registry import (
     CandidateAlreadyStarted,
+    ClientKeyConflict,
+    InvalidCursor,
     RunCanceled,
     RunNotFound,
     UnknownCandidate,
@@ -79,8 +88,12 @@ class TortoiseRunStore:
     # --- reads -------------------------------------------------------------------------------
 
     async def get(self, owner: OwnerKey, run_id: str) -> RunRecord | None:
-        run = await Run.get_or_none(id=run_id, owner=owner).prefetch_related("candidates")
-        return None if run is None else self._record(run, run.candidates)
+        return await self._one(Candidate.filter(run_id=run_id, run__owner=owner))
+
+    async def _one(self, candidates: QuerySet[Candidate]) -> RunRecord | None:
+        # WHY from the Candidates: every Run has at least one, and each row carries its Run.
+        rows = await candidates.select_related("run")
+        return self._record(rows[0].run, rows) if rows else None
 
     def _record(self, run: Run, candidates: Iterable[Candidate]) -> RunRecord:
         rows = sorted(candidates, key=lambda row: row.index)
@@ -108,7 +121,7 @@ class TortoiseRunStore:
     # --- writes ------------------------------------------------------------------------------
 
     async def create(self, owner: OwnerKey, spec: RunSpec) -> RunRecord:
-        existing = await self._by_client_key(owner, spec.client_key)
+        existing = await self._by_client_key(owner, spec)
         if existing is not None:
             return existing
         now = self._clock()
@@ -135,7 +148,7 @@ class TortoiseRunStore:
                 )
         except IntegrityError:
             # WHY: a concurrent retry of the same `POST /runs` inserted first. Its Run is ours.
-            raced = await self._by_client_key(owner, spec.client_key)
+            raced = await self._by_client_key(owner, spec)
             if raced is None:
                 raise
             return raced
@@ -143,11 +156,20 @@ class TortoiseRunStore:
         assert created is not None
         return created
 
-    async def _by_client_key(self, owner: OwnerKey, client_key: str) -> RunRecord | None:
-        run = await Run.get_or_none(owner=owner, client_key=client_key).prefetch_related(
-            "candidates"
+    async def _by_client_key(self, owner: OwnerKey, spec: RunSpec) -> RunRecord | None:
+        record = await self._one(
+            Candidate.filter(run__owner=owner, run__client_key=spec.client_key)
         )
-        return None if run is None else self._record(run, run.candidates)
+        if record is None:
+            return None
+        names = tuple(candidate.name for candidate in record.candidates)
+        if (record.benchmark, record.case_count, names) != (
+            spec.benchmark,
+            spec.case_count,
+            spec.candidates,
+        ):
+            raise ClientKeyConflict(f"client_key {spec.client_key!r} names another evaluation")
+        return record
 
     async def bind(self, owner: OwnerKey, run_id: str, candidate: int, topic: str) -> None:
         row = await self._unbound_candidate(owner, run_id, candidate, topic)
@@ -158,6 +180,7 @@ class TortoiseRunStore:
             # WHY one transaction: a re-sent start finds the topic bound and returns early, so a
             # touch lost after the bind committed would never be retried.
             async with in_transaction(CONNECTION) as conn:
+                await _lock_run(run_id, conn)
                 won = await (
                     Candidate.filter(id=row.id, topic__isnull=True, state="pending")
                     .using_db(conn)
@@ -197,6 +220,7 @@ class TortoiseRunStore:
             return
         now = self._clock()
         async with in_transaction(CONNECTION) as conn:
+            await _lock_run(row.run_id, conn)
             if (
                 await Candidate.filter(id=row.id, state="pending")
                 .using_db(conn)
@@ -213,30 +237,32 @@ class TortoiseRunStore:
         # WHY one transaction: a redelivered outcome finds the Candidate terminal and writes
         # nothing, so a touch lost after the state commit would never be retried.
         async with in_transaction(CONNECTION) as conn:
+            await _lock_run(row.run_id, conn)
             won = await (
                 Candidate.filter(id=row.id, state__in=_LIVE)
                 .using_db(conn)
                 .update(
                     state=outcome.status,
-                    finished_at=now,
+                    # WHY the producer's time: an outcome written late (after a database outage)
+                    # still ends the Candidate when the run ended.
+                    finished_at=outcome.finished_at,
+                    # WHY round up: a cost below the column's precision stays visible, never 0.
                     cost_usd=None
                     if outcome.cost_usd is None
-                    else outcome.cost_usd.quantize(_COST_QUANTUM),
-                    # WHY truncate rather than refuse: an outcome is never lost to its error
-                    # code's length.
-                    error_code=None
-                    if outcome.error_code is None
-                    else outcome.error_code[:ERROR_CODE_LENGTH],
+                    else outcome.cost_usd.quantize(_COST_QUANTUM, rounding=ROUND_CEILING),
+                    # The outcome refuses a code the column cannot hold (`CandidateOutcome`).
+                    error_code=outcome.error_code,
                 )
             )
             if won:
                 await self._touch(row.run_id, now, conn)
 
     async def cancel(self, owner: OwnerKey, run_id: str) -> RunRecord | None:
-        if not await Run.filter(id=run_id, owner=owner).exists():
-            return None
         now = self._clock()
         async with in_transaction(CONNECTION) as conn:
+            if not await Run.filter(id=run_id, owner=owner).using_db(conn).exists():
+                return None
+            await _lock_run(run_id, conn)
             if await Candidate.filter(run_id=run_id, state__in=_LIVE).using_db(conn).exists():
                 await Run.filter(id=run_id).using_db(conn).update(canceled=True)
                 await (
@@ -273,16 +299,16 @@ class TortoiseRunStore:
         )
 
     async def expire(self, older_than: datetime) -> int:
-        # WHY one statement: the Candidates go with their Run by the foreign key's `ON DELETE
-        # CASCADE` (Tortoise turns SQLite's `foreign_keys` pragma on), so no orphan keeps its
-        # topic's unique slot, and no id list can outgrow a driver's bound-parameter limit.
-        # The count is read first: SQLite's row count includes the cascaded Candidates.
+        # WHY the Candidates first, by subquery: SQLite counts the rows a cascade deletes, so the
+        # Runs' own delete is the only count both databases agree on, and it is what this call
+        # deleted, not what a concurrent sweep did. No id list, so no driver's bound-parameter
+        # limit applies.
+        expired = Run.filter(created_at__lt=older_than)
         async with in_transaction(CONNECTION) as conn:
-            expired = Run.filter(created_at__lt=older_than).using_db(conn)
-            count = await expired.count()
-            if count:
-                await expired.delete()
-            return count
+            await (
+                Candidate.filter(run_id__in=Subquery(expired.values("id"))).using_db(conn).delete()
+            )
+            return await expired.using_db(conn).delete()
 
     # WHY last: a method named `list` shadows the builtin in annotations of the methods below it.
     async def list(self, owner: OwnerKey, query: RunQuery) -> RunPage:
@@ -293,7 +319,8 @@ class TortoiseRunStore:
         if query.cursor is not None:
             anchor = await Run.get_or_none(id=query.cursor, owner=owner)
             if anchor is None:
-                return RunPage((), None)
+                # WHY refuse: an empty page would read as the end of the list.
+                raise InvalidCursor(query.cursor)
             rows = _after(base, anchor)
         records: list[RunRecord] = []
         # Spec R5: state is derived, so a state filter is applied here. WHY scan in keyset
@@ -301,10 +328,8 @@ class TortoiseRunStore:
         # and its prefetch `IN` list can outgrow a driver's bound-parameter limit.
         batch_size = query.limit + 1 if query.state is None else _SCAN_BATCH
         while len(records) <= query.limit:
-            batch = await (
-                rows.order_by("-created_at", "-id").limit(batch_size).prefetch_related("candidates")
-            )
-            derived = (self._record(run, run.candidates) for run in batch)
+            batch = await rows.order_by("-created_at", "-id").limit(batch_size)
+            derived = await self._records([run.id for run in batch])
             records.extend(r for r in derived if query.state is None or r.state == query.state)
             if len(batch) < batch_size:
                 break
@@ -314,6 +339,19 @@ class TortoiseRunStore:
         more = len(records) > query.limit
         page = tuple(records[: query.limit])
         return RunPage(page, page[-1].id if more else None)
+
+    async def _records(self, run_ids: list[str]) -> list[RunRecord]:
+        """The records of ``run_ids`` in that order, from one statement (spec R5). A Run that
+        retention deleted after the page was read is left out."""
+        by_run: dict[str, list[Candidate]] = {}
+        for row in await Candidate.filter(run_id__in=run_ids).select_related("run"):
+            by_run.setdefault(row.run_id, []).append(row)
+        return [self._record(by_run[i][0].run, by_run[i]) for i in run_ids if i in by_run]
+
+
+async def _lock_run(run_id: str, conn: BaseDBAsyncClient) -> None:
+    """Lock the Run's row for this transaction (see the module's lock-order invariant)."""
+    await Run.filter(id=run_id).using_db(conn).select_for_update().first()
 
 
 def _after(rows: QuerySet[Run], anchor: Run) -> QuerySet[Run]:

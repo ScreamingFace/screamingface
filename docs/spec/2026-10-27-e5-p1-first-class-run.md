@@ -82,7 +82,7 @@ with `packages/`.
 | D3 | **Every database write goes through the App. Runners and url4 hold no database connection.** | The owner condition (§9): one writer is easy to reason about, and runners stay free to run anywhere, for example on AWS Lambda. |
 | D4 | **Outcomes travel on a `CandidateOutcomeStream` port.** It has a JetStream adapter (stream `url4-candidate-outcomes`) and an in-memory adapter (`InMemoryCandidateOutcomeStream`), like `EventStream` and `InMemoryEventStream`. Every producer publishes to it, and one App consumer writes them. | One write path in both modes: no "local writes directly" branch, and no runner holds database access. |
 | D5 | **`Run.id` is `run_` + a random UUID in hex, minted by the Engine. It is not a secret.** Access is checked by owner, and a foreign or unknown id answers 404. Runs list by `created_at`, newest first, with the id breaking ties. | Ordering comes from a timestamp column, not the id, so the id needs no clock or counter and any number of App replicas can mint it. Safe to paste anywhere (`OME-966`). |
-| D6 | **The owner is the verified `X-User-Email` hosted, or `local` in local mode.** It is resolved through the same `require_identity` switch as the mounts, and stored as `sha256` of the email trimmed, NFC-normalised and case-folded. A hosted `/runs*` call without identity gets 401. | It reuses the identity the edge already verifies. Local mode is loopback and single-user. |
+| D6 | **The owner is the verified `X-User-Email` hosted, or `local` in local mode.** It is resolved through the same `require_identity` switch as the mounts, and stored as `sha256` of the email NFC-normalised, trimmed and lowercased in ASCII only (`A`–`Z`). A non-ASCII letter keeps its case, so the key never merges two addresses (§9). A hosted `/runs*` call without identity gets 401. | It reuses the identity the edge already verifies. Local mode is loopback and single-user. |
 | D7 | **Registration is best-effort.** If `POST /runs` fails in any way (any non-2xx answer, such as 401 for no identity, 404 for an older Engine or with Runs off, or a 5xx while the database is down; or a transport error), `evaluate` runs exactly as today, with `Report.run_id = None` and one notice. | History never breaks automation or a lagging local Engine. |
 | D8 | **Every `evaluate` registers a Run**: Recipe, raw-URL4 and replay alike, whatever `save_results` is set to. The Client's local manifest is keyed by `Run.id`. | A Run is the record of every evaluation, not only the saved ones. |
 | D9 | **`Run.report()` reads the Client's local store only.** On a machine without those results it raises an error that names the run and says the results are not on this machine. | Results stay where they are today, so Garage and its lifecycle are unchanged. Opening a report on another machine is P2's question. |
@@ -98,8 +98,8 @@ All routes resolve the owner (D6) and answer RFC 9457 `Problem`s, as the existin
 
 | Route | Request | Response |
 |---|---|---|
-| `POST /runs` | `{client_key, benchmark, case_count, candidates: [name, …], client_version}` | 201 `RunRecord`, or 200 with the existing record for a repeated `(owner, client_key)` |
-| `GET /runs` | `?state=&since=&limit=50&cursor=` | 200 `{runs: [RunRecord], next_cursor}`, newest first |
+| `POST /runs` | `{client_key, benchmark, case_count, candidates: [name, …], client_version}` | 201 `RunRecord`, or 200 with the existing record for a repeated `(owner, client_key)` · 409 `client_key_conflict` when that record names another benchmark, Case count or Candidates |
+| `GET /runs` | `?state=&since=&limit=50&cursor=` | 200 `{runs: [RunRecord], next_cursor}`, newest first · 422 `invalid_cursor` when the cursor names no Run of the owner |
 | `GET /runs/{id}` | — | 200 `RunRecord` · 404 `run_not_found` |
 | `DELETE /runs/{id}` | — | 202, or 204 when every Candidate is terminal · 404 `run_not_found` |
 | `GET /?q=` (existing start) | new headers `X-SF-Run: <run id>`, `X-SF-Run-Candidate: <index>` | as today · 404 `run_not_found` · 409 `run_canceled` · 409 `candidate_already_started` |
@@ -144,6 +144,11 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
 - **Writes are compare-and-set on state:** each is one `UPDATE … WHERE … AND state …` guarded on
   the state it expects, so the row count says which writer won. It is identical on SQLite and
   Postgres.
+- **Every write transaction locks its Run row first**, then its Candidates. One lock order means
+  writes to one Run never deadlock on Postgres, and a cancel's "is any Candidate live?" check
+  holds until its flag commits (D12).
+- **A record is derived from one statement**, the Run's Candidates joined to their Run, so a read
+  never combines facts from two moments (R5).
 - **Runner-side code imports `CandidateOutcomeStream` only**, never `RunRegistry`.
 
 ### 4.3 Rules
@@ -163,8 +168,11 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
   - A different topic for a bound Candidate, or a topic bound elsewhere, gets 409
     `candidate_already_started`.
   - A bind that fails on the database is logged, and the start proceeds unbound (§8).
-- **R3. Outcomes.** A `CandidateOutcome` is `{status, error_code?, cost_usd?}`; cost is exact
-  only, as on the wire. It is built everywhere by one classifier: a `SettlementWatch` (which
+- **R3. Outcomes.** A `CandidateOutcome` is `{status, error_code?, cost_usd?, finished_at}`; cost
+  is exact only, as on the wire, and `finished_at` is when the producer saw the end, so an outcome
+  written late still ends its Candidate on time. An outcome the registry cannot store (a cost of
+  $10¹² or more, an error code over 128 characters or with a NUL) is refused before it is
+  published; a terminal frame's code that cannot be stored becomes `error_code_unstorable`. It is built everywhere by one classifier: a `SettlementWatch` (which
   extends `TerminalWatch`) and the existing `run_evidence.outcome_of`, which returns a
   `CandidateOutcome` carrying the summary's cost.
   - **A producer publishes an outcome only when its own terminal frame is the one that landed on
@@ -415,3 +423,8 @@ P1b works against an Engine without `/runs` (D7), so the landings can ship in ei
   lifecycle (D9). The namespace is `sf.runs`. The outcome stream is `url4-candidate-outcomes`,
   behind a port with a JetStream adapter and an in-memory adapter, with no mode branch (D4).
   Delivery is five PRs, one sub-issue each under `OME-1785`.
+- **2026-11-05, Tauquir (spec owner), on the #1634 review.** The owner key (D6) lowercases ASCII
+  only, after NFC. Unicode case folding maps `ß` to `ss`, `ﬁ` to `fi` and `ſ` to `s`, which gives
+  two different verified addresses one owner, and the key is the only check on every Run read
+  and write. When unsure, the key splits: at worst one person sees fewer of their own Runs. NFC
+  stays, so canonically equivalent text (a decomposed `ü`, the Kelvin sign and `K`) is one owner.

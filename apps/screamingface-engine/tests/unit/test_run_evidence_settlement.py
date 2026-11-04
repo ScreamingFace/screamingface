@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 
 from screamingface_engine.adapters.memory import InMemoryEventStream
-from screamingface_engine.candidate_outcomes import CandidateOutcome
+from screamingface_engine.candidate_outcomes import UNSTORABLE_ERROR_CODE, CandidateOutcome
 from screamingface_engine.run_evidence import (
     NO_TERMINAL_FRAME,
     SettlementWatch,
@@ -127,3 +127,31 @@ async def test_the_evidence_error_is_the_last_terminal_frames_too() -> None:
     await watch.publish("topic", _terminated("succeeded"))
 
     assert outcome_of(watch, await _finished_task()) == ("succeeded", None)
+
+
+class _RefusingPublisher(InMemoryEventStream):
+    async def publish(self, topic: str, event: Any) -> None:
+        if isinstance(event, TerminatedEvent):
+            raise RuntimeError("frame did not land")
+        await super().publish(topic, event)
+
+
+async def test_a_terminal_frame_that_did_not_land_is_no_verdict() -> None:
+    # INVARIANT (spec R3): only a terminal frame that reached `url4-events` decides an outcome.
+    watch = SettlementWatch(_RefusingPublisher())
+    with pytest.raises(RuntimeError, match="did not land"):
+        await watch.publish("topic", _terminated("succeeded"))
+
+    error = RuntimeError("frame did not land")
+    outcome = settlement_of(watch, await _finished_task(error=error))
+
+    assert outcome == CandidateOutcome("failed", NO_TERMINAL_FRAME)
+
+
+async def test_a_frame_code_the_registry_cannot_store_is_named() -> None:
+    watch = SettlementWatch(InMemoryEventStream())
+    await watch.publish("topic", _terminated("failed", "x" * 500))
+
+    outcome = settlement_of(watch, await _finished_task())
+
+    assert outcome == CandidateOutcome("failed", UNSTORABLE_ERROR_CODE)

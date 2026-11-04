@@ -6,6 +6,7 @@ FEATURE: first-class Runs (OME-1785).
 from __future__ import annotations
 
 import hashlib
+import unicodedata
 from datetime import UTC, datetime, tzinfo
 from typing import cast, get_args
 
@@ -189,14 +190,14 @@ def test_a_run_query_needs_an_aware_datetime_since(since: object) -> None:
     ("one", "other"),
     [
         ("Jürgen@x.org", "Jürgen@x.org"),  # NFC and NFD forms of the same email
-        ("straße@x.org", "STRASSE@x.org"),  # casefold, not lower
+        ("JÜRGEN@X.ORG", "jÜrgen@x.org"),  # ASCII letters fold; a non-ASCII one keeps its case
     ],
 )
 def test_one_email_in_different_unicode_forms_is_one_owner(one: str, other: str) -> None:
     assert owner_key(one) == owner_key(other)
 
 
-def test_a_fold_that_decomposes_is_still_one_owner() -> None:
-    # WHY: casefold can turn a composed character into a decomposed sequence, so the folded text
-    # is normalised again; otherwise these two forms of one email would own two sets of Runs.
-    assert owner_key("ΐ@x.org") == owner_key("Ϊ́@x.org")
+def test_a_decomposed_character_is_still_one_owner() -> None:
+    # WHY: one character can arrive composed or decomposed, so the email is NFC-normalised first;
+    # otherwise these two forms of one email would own two sets of Runs.
+    assert owner_key("ΐ@x.org") == owner_key(unicodedata.normalize("NFD", "ΐ") + "@x.org")

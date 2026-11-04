@@ -27,6 +27,7 @@ from screamingface_engine.candidate_outcomes import (
     OUTCOME_STATUSES,
     CandidateOutcome,
     OutcomeStatus,
+    storable_error_code,
 )
 from url4.streaming.interfaces import EventPublisher
 from url4.streaming.protocol import OutboundFrame, TerminatedEvent
@@ -176,21 +177,28 @@ NO_TERMINAL_FRAME = "no_terminal_frame"
 class SettlementWatch(TerminalWatch):
     """A `TerminalWatch` that also keeps the terminal frame's error CODE, which a Candidate's
     outcome stores on its own (E5 P1 spec R3). `error` stays the evidence line's `code: message`.
+
+    INVARIANT (spec R3): ``landed`` is the status of the last terminal frame the inner publisher
+    ACCEPTED. A publish that raises leaves it unchanged, so a frame that never reached
+    `url4-events` never becomes an outcome.
     """
 
     def __init__(self, inner: EventPublisher) -> None:
         super().__init__(inner)
         self.error_code: str | None = None
+        self.landed: str | None = None
 
     async def publish(self, topic: str, event: OutboundFrame) -> None:
-        if isinstance(event, TerminatedEvent):
-            # INVARIANT: the code and the evidence line's error are the last terminal frame's,
-            # like `outcome`, so the two records of one run agree (spec R3).
-            error = event.data.error
-            self.error_code = None if error is None else error.code
-            if error is None:
-                self.error = None
         await super().publish(topic, event)
+        if not isinstance(event, TerminatedEvent):
+            return
+        # INVARIANT: the code and the evidence line's error are the last landed terminal frame's,
+        # like `outcome`, so the two records of one run agree (spec R3).
+        error = event.data.error
+        self.error_code = None if error is None else error.code
+        if error is None:
+            self.error = None
+        self.landed = event.data.status
 
 
 def settlement_of(
@@ -201,12 +209,14 @@ def settlement_of(
 ) -> CandidateOutcome:
     """The Candidate's outcome, from the same verdict as the evidence line.
 
-    INVARIANT (spec R3): one classifier. This reads `outcome_of`, so the registry and the
-    `run terminated` line always agree on how the run ended.
+    INVARIANT (spec R3): one classifier. A landed terminal frame decides it; without one, the
+    task decides it, as `outcome_of` does.
     """
-    status, _ = outcome_of(watch, task)
-    if watch.outcome is not None:
-        return CandidateOutcome(_status(status), watch.error_code, cost_usd)
+    if watch.landed is not None:
+        return CandidateOutcome(
+            _status(watch.landed), storable_error_code(watch.error_code), cost_usd
+        )
+    status, _ = _outcome_without_a_frame(task)
     if status == "stopped":
         return CandidateOutcome("stopped", cost_usd=cost_usd)
     # WHY `failed` for `unknown` too: a Candidate has no `unknown` state, and nobody saw this run

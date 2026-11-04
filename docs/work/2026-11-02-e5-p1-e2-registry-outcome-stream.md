@@ -100,3 +100,21 @@ that builds a `CandidateOutcome`. Nothing is wired; the App does not use any of 
     changed stream limits at startup (`ensure_stream` creates and checks, never rewrites).
   - Locally, the full suite hangs when a NATS broker is reachable on `localhost:4222`
     (pre-existing broker tests; CI's main job has no broker). Not investigated in this unit.
+  - Review of #1634 (owner decision 2026-11-05, spec D6 and §9): the owner key lowercases ASCII
+    only, after NFC. Two prior tests in `test_run_records.py` changed with it, pinned in
+    `.claude/test-change-approvals/OME-1800.json`.
+  - Every write locks its Run row first; a record is derived from one joined statement; `cancel`
+    checks and sets under that lock (spec §4.2).
+  - `CandidateOutcome` carries the producer's `finished_at` and refuses what the registry cannot
+    store; a frame's unstorable code becomes `error_code_unstorable` (spec R3). A cost below the
+    column's precision rounds up, never to 0.
+  - `create` refuses a repeated `client_key` that names another evaluation
+    (`ClientKeyConflict`); `list` refuses a cursor that names no Run (`InvalidCursor`). Their
+    409 and 422 answers are mapped with the routes in PR 4.
+  - `expire` deletes the Candidates first, so its count is the Runs it deleted on both databases.
+  - The outcome codec treats `RecursionError` as malformed; `ensure_stream` also checks `discard`
+    and `subjects`; `consume` applies this code's consumer config to an existing durable; the
+    in-memory adapter refuses an empty topic and is bounded by age and count.
+  - Settings refuse non-finite windows and a `run_lost_after_s` within the streams' retention.
+  - `tortoise-orm` is held by hand in Dependabot for the Engine and the SDK, with a twin pin test
+    in each (`test_tortoise_pin_conformance.py`).

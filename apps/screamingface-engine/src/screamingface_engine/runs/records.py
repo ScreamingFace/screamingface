@@ -7,6 +7,7 @@ Tortoise adapter maps rows onto them, and the routes map them onto the wire.
 from __future__ import annotations
 
 import hashlib
+import string
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
@@ -28,6 +29,7 @@ _TERMINAL_CANDIDATE: frozenset[CandidateState] = frozenset(
 )
 
 OwnerKey = NewType("OwnerKey", str)
+_ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 
 # The widths of the registry's columns (`runs/models/`). WHY checked here: Postgres refuses a value
 # too long for its column while SQLite keeps it, so the rule both databases share comes first.
@@ -45,18 +47,19 @@ _TEXT_LIMITS = {
 
 
 def owner_key(owner: str) -> OwnerKey:
-    """The stored owner (spec D6): sha256 of the verified email, trimmed and casefolded.
+    """The stored owner (spec D6): sha256 of the verified email, NFC-normalised, trimmed, and
+    lowercased in ASCII only.
 
-    WHY normalise: the edge can pass one person's email in different cases on different login
-    paths; without it one researcher would own two disjoint sets of Runs. Local mode passes
-    `local`, which normalises to itself.
+    WHY normalise: the edge can pass one person's email in different cases or Unicode forms on
+    different login paths; without it one researcher would own two disjoint sets of Runs. Local
+    mode passes `local`, which normalises to itself.
     """
-    # WHY NFC and casefold, not lower(): one email can arrive in composed or decomposed Unicode,
-    # and `lower()` misses folds such as "ß" == "SS". NFC again after the fold, because folding
-    # can itself decompose a character ("ΐ").
-    normalised = unicodedata.normalize(
-        "NFC", unicodedata.normalize("NFC", owner.strip()).casefold()
-    )
+    # WHY ASCII-only lowercase, not casefold() or lower(): the key is the only check on every Run
+    # read and write, so when unsure it must split two identities, never merge them. Unicode
+    # folding maps "ß" to "ss", "ﬁ" to "fi" and the Kelvin sign to "k", which would give two
+    # different addresses one owner. A non-ASCII letter keeps its case, so at worst one person
+    # sees fewer of their own Runs.
+    normalised = unicodedata.normalize("NFC", owner).strip().translate(_ASCII_LOWER)
     if not normalised:
         raise ValueError("a Run owner must not be blank")
     return OwnerKey(hashlib.sha256(normalised.encode()).hexdigest())

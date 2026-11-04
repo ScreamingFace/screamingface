@@ -180,11 +180,13 @@ async def test_finished_at_is_the_last_candidates(registry: Registry) -> None:
     run_id = await _run(registry, 2)
     await _start(registry, run_id, 0, 1)
     registry.clock.advance(minutes=1)
-    await registry.store.settle(_topic(1), CandidateOutcome("succeeded"))
+    await registry.store.settle(
+        _topic(1), CandidateOutcome("succeeded", finished_at=registry.clock())
+    )
     assert (await _read(registry, run_id)).finished_at is None
     end = registry.clock.advance(minutes=1)
 
-    await registry.store.settle(_topic(0), CandidateOutcome("succeeded"))
+    await registry.store.settle(_topic(0), CandidateOutcome("succeeded", finished_at=end))
 
     assert (await _read(registry, run_id)).finished_at == end
 

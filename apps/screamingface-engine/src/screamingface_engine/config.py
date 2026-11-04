@@ -8,6 +8,7 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env, runner_queue, subjects
+from screamingface_engine.candidate_outcomes import DEFAULT_OUTCOMES_MAX_AGE_S
 
 RunnerBackend = Literal["none", "queue"]
 ArtifactStoreBackend = Literal["filesystem", "s3"]
@@ -280,14 +281,14 @@ class Settings(BaseSettings):
     database_url: str = ""
     # WHY 30 days (spec R7): long enough to come back to last month's runs; the hourly sweep
     # deletes Runs created before it.
-    run_retention_s: float = Field(default=30 * 86_400.0, gt=0)
+    run_retention_s: float = Field(default=30 * 86_400.0, gt=0, allow_inf_nan=False)
     # WHY 1800 s (spec R5): how long a bound-but-unscheduled or unstarted Candidate still reads
     # `running`. It must exceed the Client's admission budget, or a Client still waiting for
     # admission would read `interrupted` (validated below).
-    run_pending_grace_s: float = 1800.0
+    run_pending_grace_s: float = Field(default=1800.0, allow_inf_nan=False)
     # WHY 48 h (spec R6): past both `url4-candidate-outcomes` and `url4-runq`'s 24 h retention, so
     # reconcile settles a Candidate `lost` only once no outcome can still arrive.
-    run_lost_after_s: float = Field(default=48 * 3600.0, gt=0)
+    run_lost_after_s: float = Field(default=48 * 3600.0, gt=0, allow_inf_nan=False)
 
     # --- shared events stream (uniform executor, PRD 01) --------------------------------------
     # ONE stream holds every run's frames (`url4-events`, subject `url4-cloud.<topic>`). The App
@@ -449,6 +450,19 @@ class Settings(BaseSettings):
                 f"as interrupted"
             )
         return value
+
+    @model_validator(mode="after")
+    def _lost_after_outlasts_retention(self) -> Self:
+        """INVARIANT (spec R6): reconcile settles a Candidate `lost` only once no outcome or
+        queued run can still arrive, so the window must outlast both streams' retention."""
+        retained = max(self.run_queue_max_age_s, DEFAULT_OUTCOMES_MAX_AGE_S)
+        if self.run_lost_after_s <= retained:
+            raise ValueError(
+                f"run_lost_after_s={self.run_lost_after_s} must exceed the outcome and run "
+                f"queue retention ({retained} s), or reconcile settles a Candidate `lost` "
+                f"before its outcome can arrive"
+            )
+        return self
 
     @model_validator(mode="after")
     def _enforce_ack_wait_floor(self) -> Self:

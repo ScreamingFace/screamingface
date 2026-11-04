@@ -114,6 +114,9 @@ updates:
     # drift. Remove together with the Engine's hold when OME-1410 (bump verification) lands.
     ignore:
       - dependency-name: "inspect-ai"
+      # Held by hand: the runtime extra's pin must equal the Engine's and aigateway's, which one
+      # local process loads together (test_tortoise_pin_conformance.py in both packages).
+      - dependency-name: "tortoise-orm"
     groups:
       screamingface-python:
         patterns: ["*"]
@@ -130,6 +133,8 @@ updates:
     ignore:
       - dependency-name: "inspect-ai"
       - dependency-name: "inspect-evals"
+      # Held by hand with the SDK's runtime extra and aigateway (test_tortoise_pin_conformance.py).
+      - dependency-name: "tortoise-orm"
     groups:
       screamingface-engine-python-security:
         applies-to: security-updates

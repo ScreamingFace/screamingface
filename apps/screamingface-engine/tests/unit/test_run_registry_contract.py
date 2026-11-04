@@ -30,6 +30,7 @@ from screamingface_engine.runs.ids import RUN_ID_PATTERN
 from screamingface_engine.runs.records import RunQuery, owner_key
 from screamingface_engine.runs.registry import (
     CandidateAlreadyStarted,
+    InvalidCursor,
     RunCanceled,
     RunNotFound,
     UnknownCandidate,
@@ -70,7 +71,7 @@ async def test_a_repeated_client_key_returns_the_existing_run(registry: Registry
     first = await registry.store.create(ALICE, spec("alpha"))
     registry.clock.advance(seconds=5)
 
-    again = await registry.store.create(ALICE, spec("other", "names"))
+    again = await registry.store.create(ALICE, spec("alpha"))
 
     assert again == first
 
@@ -174,12 +175,12 @@ async def test_a_state_filter_scans_past_many_batches(
     assert ([run.id for run in page.runs], page.next_cursor) == ([ids[0]], None)
 
 
-async def test_an_unknown_cursor_gives_an_empty_page(registry: Registry) -> None:
+async def test_an_unknown_cursor_is_refused(registry: Registry) -> None:
+    # WHY refused: an empty page would read as the end of the list.
     await _create_runs(registry, 2)
 
-    page = await registry.store.list(ALICE, RunQuery(cursor="run_" + "f" * 32))
-
-    assert (page.runs, page.next_cursor) == ((), None)
+    with pytest.raises(InvalidCursor):
+        await registry.store.list(ALICE, RunQuery(cursor="run_" + "f" * 32))
 
 
 async def _finish(registry: Registry, run_id: str, status: OutcomeStatus) -> None:
@@ -293,7 +294,10 @@ async def test_settle_records_the_outcome(registry: Registry) -> None:
     registry.clock.advance(minutes=2)
 
     await registry.store.settle(
-        TOPIC, CandidateOutcome("failed", "provider_error", Decimal("0.0042"))
+        TOPIC,
+        CandidateOutcome(
+            "failed", "provider_error", Decimal("0.0042"), finished_at=registry.clock()
+        ),
     )
 
     record = await registry.store.get(ALICE, run_id)
@@ -311,7 +315,9 @@ async def test_settle_records_the_outcome(registry: Registry) -> None:
 async def test_the_first_terminal_outcome_wins(registry: Registry) -> None:
     """INVARIANT (spec R4): a redelivery or a duplicate claim cannot contradict the first."""
     run_id = await _bound_run(registry, "alpha")
-    await registry.store.settle(TOPIC, CandidateOutcome("succeeded", None, Decimal("1")))
+    await registry.store.settle(
+        TOPIC, CandidateOutcome("succeeded", None, Decimal("1"), finished_at=registry.clock())
+    )
     registry.clock.advance(minutes=1)
 
     await registry.store.settle(TOPIC, CandidateOutcome("succeeded", None, Decimal("1")))

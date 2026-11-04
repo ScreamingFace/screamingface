@@ -21,6 +21,7 @@ from nats.js.api import DiscardPolicy
 
 from screamingface_engine.adapters.candidate_outcomes_jetstream import (
     CandidateOutcomesStreamConfig,
+    CandidateOutcomesStreamConfigError,
     JetStreamCandidateOutcomeStream,
 )
 from screamingface_engine.adapters.memory import InMemoryCandidateOutcomeStream
@@ -207,3 +208,50 @@ async def test_ensure_stream_never_rewrites_a_live_streams_limits() -> None:
 
 def test_a_full_stream_refuses_new_outcomes_instead_of_dropping_old_ones() -> None:
     assert CandidateOutcomesStreamConfig().stream_config().discard == DiscardPolicy.NEW
+
+
+@pytest.mark.skipif(not _nats_reachable(), reason=f"no NATS at {NATS_URL}")
+@pytest.mark.asyncio
+async def test_an_existing_stream_that_drops_old_outcomes_is_refused() -> None:
+    """WHY: `discard=old` would silently drop outcomes not yet written (spec R4)."""
+    stream = _jetstream()
+    assert isinstance(stream, JetStreamCandidateOutcomeStream)
+    wanted = stream.config.stream_config()
+    wanted.discard = DiscardPolicy.OLD
+    nc = await nats.connect(NATS_URL)
+    try:
+        await nc.jetstream().add_stream(wanted)
+    finally:
+        await nc.close()
+    try:
+        with pytest.raises(CandidateOutcomesStreamConfigError, match="discard"):
+            await stream.ensure_stream()
+    finally:
+        await _delete(stream)
+
+
+@pytest.mark.skipif(not _nats_reachable(), reason=f"no NATS at {NATS_URL}")
+@pytest.mark.asyncio
+async def test_an_existing_writer_consumer_takes_this_codes_redelivery_rule() -> None:
+    """WHY: `pull_subscribe` binds an existing durable as it is; a `max_deliver=1` left on it
+    would stop redelivery, and an outcome the writer could not commit would be lost."""
+    stream = _jetstream()
+    assert isinstance(stream, JetStreamCandidateOutcomeStream)
+    await stream.ensure_stream()
+    stale = stream.config.consumer_config()
+    stale.max_deliver = 1
+    nc = await nats.connect(NATS_URL)
+    try:
+        await nc.jetstream().add_consumer(stream.config.name, stale)
+        await stream.publish("topic-a", CandidateOutcome("succeeded"))
+        deliveries = stream.consume()
+        await _next(deliveries, 5)  # never acked
+
+        again = await _next(deliveries, 5 + ACK_WAIT_S)
+
+        assert again.topic == "topic-a"
+        info = await nc.jetstream().consumer_info(stream.config.name, stream.config.consumer)
+        assert info.config.max_deliver in (None, -1)
+    finally:
+        await nc.close()
+        await _delete(stream)

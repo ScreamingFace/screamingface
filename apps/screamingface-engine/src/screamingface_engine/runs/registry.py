@@ -31,15 +31,30 @@ class CandidateAlreadyStarted(RuntimeError):
     409 `candidate_already_started`)."""
 
 
+class ClientKeyConflict(RuntimeError):
+    """The owner already has a Run with this `client_key` but a different benchmark, Case count
+    or Candidates: a repeat of `POST /runs` must describe the same evaluation (409)."""
+
+
+class InvalidCursor(LookupError):
+    """The `list` cursor names no Run of this owner, for example one retention has deleted (422)."""
+
+
 class RunRegistry(Protocol):
     async def create(self, owner: OwnerKey, spec: RunSpec) -> RunRecord:
-        """Register a Run, or return the owner's existing Run with the same `client_key`."""
+        """Register a Run, or return the owner's existing Run with the same `client_key`.
+
+        Raises `ClientKeyConflict` when that Run describes a different evaluation.
+        """
         ...
 
     async def get(self, owner: OwnerKey, run_id: str) -> RunRecord | None: ...
 
     async def list(self, owner: OwnerKey, query: RunQuery) -> RunPage:
-        """The owner's Runs, newest first by `created_at`, the id breaking ties."""
+        """The owner's Runs, newest first by `created_at`, the id breaking ties.
+
+        Raises `InvalidCursor` when the cursor names no Run of this owner.
+        """
         ...
 
     async def bind(self, owner: OwnerKey, run_id: str, candidate: int, topic: str) -> None:
@@ -76,6 +91,8 @@ class RunRegistry(Protocol):
 
 __all__ = [
     "CandidateAlreadyStarted",
+    "ClientKeyConflict",
+    "InvalidCursor",
     "RunCanceled",
     "RunNotFound",
     "RunRegistry",

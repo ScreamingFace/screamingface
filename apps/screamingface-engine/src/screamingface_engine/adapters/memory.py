@@ -20,7 +20,11 @@ from collections import deque
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-from screamingface_engine.candidate_outcomes import CandidateOutcome, OutcomeDelivery
+from screamingface_engine.candidate_outcomes import (
+    DEFAULT_OUTCOMES_MAX_AGE_S,
+    CandidateOutcome,
+    OutcomeDelivery,
+)
 from url4.streaming.codec import decode, encode
 from url4.streaming.interfaces import EventStream, StreamNotFoundError, validate_from_sequence
 from url4.streaming.protocol import OutboundFrame
@@ -114,12 +118,22 @@ DEFAULT_OUTCOME_ACK_WAIT_S = 30.0
 """How long an unacked outcome waits before it is delivered again, as `url4-candidate-outcomes`."""
 
 
+DEFAULT_MAX_OUTCOMES = 300_000
+"""About what `url4-candidate-outcomes`' 64 MiB holds at ~200 bytes an outcome."""
+
+
+class OutcomeStreamFull(RuntimeError):
+    """A publish was refused because the stream holds `max_outcomes` unwritten outcomes."""
+
+
 # WHY eq=False: two outcomes can carry the same topic and verdict (a duplicate claim), and an ack
 # must remove the one delivery it belongs to, so entries compare by identity.
 @dataclass(slots=True, eq=False)
 class _Outcome:
     topic: str
     outcome: CandidateOutcome
+    # The loop time it was published at, for the stream's max age.
+    published_at: float = 0.0
     # While delivered and unacked: the loop time after which it is delivered again.
     redeliver_at: float = 0.0
 
@@ -132,12 +146,24 @@ class InMemoryCandidateOutcomeStream:
 
     INVARIANT (spec R6): `survives_restart` is False. Outcomes live in this process only, so a
     restart loses the unacked ones, and reconcile settles their Candidates as `lost`.
+
+    Bounded like the stream: an outcome older than `max_age_s` is dropped, and a publish past
+    `max_outcomes` is refused (JetStream's `discard=new`), so an outcome nobody writes cannot
+    grow the process without limit.
     """
 
     survives_restart = False
 
-    def __init__(self, *, ack_wait_s: float = DEFAULT_OUTCOME_ACK_WAIT_S) -> None:
+    def __init__(
+        self,
+        *,
+        ack_wait_s: float = DEFAULT_OUTCOME_ACK_WAIT_S,
+        max_age_s: float = DEFAULT_OUTCOMES_MAX_AGE_S,
+        max_outcomes: int = DEFAULT_MAX_OUTCOMES,
+    ) -> None:
         self._ack_wait_s = ack_wait_s
+        self._max_age_s = max_age_s
+        self._max_outcomes = max_outcomes
         self._ready: deque[_Outcome] = deque()
         self._unacked: list[_Outcome] = []
         self._changed = asyncio.Condition()
@@ -146,9 +172,22 @@ class InMemoryCandidateOutcomeStream:
         return None
 
     async def publish(self, topic: str, outcome: CandidateOutcome) -> None:
+        # WHY: the JetStream codec drops an outcome with no topic as malformed; refusing it here
+        # keeps the two adapters to one contract.
+        if not topic:
+            raise ValueError("an outcome names its topic")
         async with self._changed:
-            self._ready.append(_Outcome(topic, outcome))
+            now = asyncio.get_running_loop().time()
+            self._drop_expired(now)
+            if len(self._ready) + len(self._unacked) >= self._max_outcomes:
+                raise OutcomeStreamFull(f"{self._max_outcomes} outcomes are waiting to be written")
+            self._ready.append(_Outcome(topic, outcome, published_at=now))
             self._changed.notify_all()
+
+    def _drop_expired(self, now: float) -> None:
+        cutoff = now - self._max_age_s
+        self._ready = deque(entry for entry in self._ready if entry.published_at > cutoff)
+        self._unacked = [entry for entry in self._unacked if entry.published_at > cutoff]
 
     async def consume(self) -> AsyncIterator[OutcomeDelivery]:
         while True:
@@ -160,6 +199,7 @@ class InMemoryCandidateOutcomeStream:
         async with self._changed:
             while True:
                 now = loop.time()
+                self._drop_expired(now)
                 due = [entry for entry in self._unacked if entry.redeliver_at <= now]
                 for entry in due:
                     self._unacked.remove(entry)
@@ -188,7 +228,9 @@ class InMemoryCandidateOutcomeStream:
 
 __all__ = [
     "DEFAULT_MAX_FRAMES_PER_TOPIC",
+    "DEFAULT_MAX_OUTCOMES",
     "DEFAULT_OUTCOME_ACK_WAIT_S",
     "InMemoryCandidateOutcomeStream",
     "InMemoryEventStream",
+    "OutcomeStreamFull",
 ]

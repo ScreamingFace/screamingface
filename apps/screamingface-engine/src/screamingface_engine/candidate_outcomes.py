@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Literal, Protocol, cast, get_args
 
@@ -20,6 +21,26 @@ from typing import Literal, Protocol, cast, get_args
 # `lost` is not one: only the registry's reconcile writes it, once no outcome can still arrive.
 OutcomeStatus = Literal["succeeded", "failed", "stopped", "timed_out"]
 OUTCOME_STATUSES: frozenset[str] = frozenset(get_args(OutcomeStatus))
+
+# The registry's column widths (`runs/models/candidate.py`). WHY here: an outcome is checked
+# against them before it is published, so a value Postgres would refuse never reaches the writer.
+ERROR_CODE_LENGTH = 128
+# WHY 12 places: costs are fractions of a cent per call; 24 digits leave 12 for whole dollars.
+COST_DIGITS = 24
+COST_PLACES = 12
+_MAX_COST = Decimal(10) ** (COST_DIGITS - COST_PLACES)
+
+UNSTORABLE_ERROR_CODE = "error_code_unstorable"
+"""Stands in for a terminal frame's error code that is too long for the registry or holds a NUL.
+url4 does not bound a code, so a producer names the case instead of losing the outcome."""
+
+
+def storable_error_code(code: str | None) -> str | None:
+    """``code`` if the registry can store it as it is, else `UNSTORABLE_ERROR_CODE`."""
+    if code is None or (len(code) <= ERROR_CODE_LENGTH and "\x00" not in code):
+        return code
+    return UNSTORABLE_ERROR_CODE
+
 
 DEFAULT_OUTCOMES_MAX_AGE_S = 86_400.0
 """How long `url4-candidate-outcomes` keeps an unacked outcome. Reconcile's cutoff must
@@ -35,13 +56,21 @@ class CandidateOutcome:
     status: OutcomeStatus
     error_code: str | None = None
     cost_usd: Decimal | None = None
+    # WHEN the producer saw the end, so a Candidate's `finished_at` is not the time a delayed
+    # outcome was written (after a database outage, hours later). WHY not compared: two outcomes
+    # with one verdict are the same outcome, whenever each was seen.
+    finished_at: datetime = field(default_factory=lambda: datetime.now(UTC), compare=False)
 
     def __post_init__(self) -> None:
         if self.status not in OUTCOME_STATUSES:
             raise ValueError(f"an outcome status is one of {sorted(OUTCOME_STATUSES)}")
         cost = self.cost_usd
-        if cost is not None and (not cost.is_finite() or cost < 0):
-            raise ValueError("a cost must be a finite, non-negative amount")
+        if cost is not None and (not cost.is_finite() or cost < 0 or cost >= _MAX_COST):
+            raise ValueError(f"a cost must be a finite amount from 0 up to {_MAX_COST} USD")
+        if storable_error_code(self.error_code) != self.error_code:
+            raise ValueError(f"an error code is at most {ERROR_CODE_LENGTH} characters, no NUL")
+        if self.finished_at.utcoffset() is None:
+            raise ValueError("an outcome's finished_at must be timezone-aware")
 
 
 def encode_outcome(topic: str, outcome: CandidateOutcome) -> bytes:
@@ -53,6 +82,7 @@ def encode_outcome(topic: str, outcome: CandidateOutcome) -> bytes:
         "status": outcome.status,
         "error_code": outcome.error_code,
         "cost_usd": cost,
+        "finished_at": outcome.finished_at.isoformat(),
     }
     return json.dumps(body, separators=(",", ":")).encode()
 
@@ -61,7 +91,9 @@ def decode_outcome(payload: bytes) -> tuple[str, CandidateOutcome]:
     """The topic and outcome in ``payload``; `ValueError` for anything else."""
     try:
         body = json.loads(payload)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+        # WHY RecursionError too: deeply nested JSON exhausts the parser, and an error the writer
+        # does not drop would stop every outcome behind it.
         raise ValueError("an outcome must be a JSON object") from exc
     if not isinstance(body, dict):
         raise ValueError("an outcome must be a JSON object")
@@ -74,10 +106,24 @@ def decode_outcome(payload: bytes) -> tuple[str, CandidateOutcome]:
         raise ValueError(f"an outcome status is one of {sorted(OUTCOME_STATUSES)}")
     if error_code is not None and not isinstance(error_code, str):
         raise ValueError("an error code is a string")
+    if "\x00" in topic:
+        raise ValueError("an outcome's topic has no NUL")
     outcome = CandidateOutcome(
-        cast(OutcomeStatus, status), error_code, _decimal(body.get("cost_usd"))
+        cast(OutcomeStatus, status),
+        error_code,
+        _decimal(body.get("cost_usd")),
+        _finished_at(body.get("finished_at")),
     )
     return topic, outcome
+
+
+def _finished_at(value: object) -> datetime:
+    if not isinstance(value, str):
+        raise ValueError("an outcome's finished_at is an ISO 8601 string")
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("an outcome's finished_at is an ISO 8601 string") from exc
 
 
 def _decimal(value: object) -> Decimal | None:

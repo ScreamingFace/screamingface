@@ -8,16 +8,13 @@ from tortoise import fields
 from tortoise.models import Model
 
 from screamingface_engine.auth.token import TOPIC_LENGTH
+from screamingface_engine.candidate_outcomes import COST_DIGITS, COST_PLACES, ERROR_CODE_LENGTH
 from screamingface_engine.runs.records import MAX_CANDIDATE_NAME_LENGTH
 
 if TYPE_CHECKING:
     from screamingface_engine.runs.models.run import Run
 
 STATE_LENGTH = 16
-ERROR_CODE_LENGTH = 128
-# WHY 12 places: costs are fractions of a cent per call; 24 digits leave 12 for whole dollars.
-COST_DIGITS = 24
-COST_PLACES = 12
 
 
 class BaseCandidate(Model):
