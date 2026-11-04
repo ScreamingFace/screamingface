@@ -472,8 +472,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         the WS stop path deliberately does not, which mirrors the queue runner.
         """
         task = self._tasks.get(job_name(topic))
-        if task is not None and not task.done():
-            task.cancel()
+        if task is not None:
+            _stop_once(task)
 
     async def exists(self, topic: str) -> bool:
         task = self._tasks.get(job_name(topic))
@@ -489,6 +489,10 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         Each cancelled run still publishes its own `Terminated(stopped)`, so a client attached
         during shutdown sees the run end rather than the socket simply going quiet.
 
+        INVARIANT: each run is stopped exactly once (`_stop_once`), whether by `stop()`, this
+        call, or a concurrent/repeated `aclose()`; every caller then waits for the same run
+        completion, and cancelling a caller never reaches the run.
+
         INVARIANT: returns only after every span-sink close has FINISHED — including closes a
         cancelled run started and stopped waiting for. Those are awaited through shields, never
         cancelled — not even when this `aclose()` itself is cancelled: a close still queued on
@@ -497,10 +501,14 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         """
         pending = [task for task in self._tasks.values() if not task.done()]
         for task in pending:
-            task.cancel()
+            _stop_once(task)
         if pending:
             _logger.info("cancelling %d in-flight local run(s) on shutdown", len(pending))
-            await asyncio.gather(*pending, return_exceptions=True)
+            # WHY shielded views: gather cancels its children when its caller is cancelled.
+            # Without the shields, a cancelled `aclose()` — or one of two concurrent calls —
+            # would cancel each run a SECOND time while it flushes its `Terminated(stopped)`
+            # frame, cutting that flush off. A caller's cancel now abandons only its own wait.
+            await asyncio.gather(*(asyncio.shield(t) for t in pending), return_exceptions=True)
         # Read AFTER the runs are gathered: a run cancelled above starts its close on the way out.
         closes = list(self._sink_closes)
         if closes:
@@ -509,6 +517,18 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             # only its own wait — the runner-owned close stays queued/running and tracked, so a
             # concurrent or repeated `aclose()` still waits for the real completion.
             await asyncio.gather(*(asyncio.shield(c) for c in closes), return_exceptions=True)
+
+
+def _stop_once(task: asyncio.Task[None]) -> None:
+    """Cancel a live run unless a stop is already on its way.
+
+    WHY `cancelling()`: a run that is already stopping is publishing and flushing its
+    `Terminated(stopped)` frame. A second cancel would land on that flush and cut it off, so the
+    stop frame might never become durable. `lifecycle.run` never uncancels, so a non-zero count
+    means a stop already reached (or is about to reach) the run.
+    """
+    if not task.done() and task.cancelling() == 0:
+        task.cancel()
 
 
 __all__ = [

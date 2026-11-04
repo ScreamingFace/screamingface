@@ -139,3 +139,9 @@ passthrough otherwise (the default).
   `aclose()` with a queued close, with a running close, two concurrent with one cancelled,
   repeated after a cancelled one) all failed before the fix and pass after. No existing test
   changed.
+- **Follow-up (same round):** `aclose()` also gathered the run tasks directly, so a cancelled
+  or concurrent `aclose()` cancelled each run a second time while it flushed its
+  `Terminated(stopped)` frame. `stop()` and `aclose()` now share `_stop_once` (cancel only if
+  `task.cancelling() == 0`), and `aclose()` waits on shielded views of the run tasks. Run
+  verdicts work as in round 2. The two new tests in `tests/unit/test_inprocess_aclose_runs.py`
+  failed before the change (the stop-frame flush was cancelled) and pass after it.
