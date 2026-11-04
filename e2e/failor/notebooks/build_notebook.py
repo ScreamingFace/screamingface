@@ -64,11 +64,15 @@ Grepping the engine Deployment will show nothing and read as a false failure.
 md("## 0. Imports")
 
 code("""
+import os
 import re
 import shutil
 import subprocess
 import threading
 import time
+
+# INVARIANT: this diagnostic notebook must not emit product analytics.
+os.environ["DO_NOT_TRACK"] = "1"
 
 TRACEPARENT_RE = re.compile(r"00-([0-9a-f]{32})-([0-9a-f]{16})-[0-9a-f]{2}")
 RUNNER_SELECTOR = "app.kubernetes.io/name=url4-runner"  # RUNNER_LABELS, adapters/k8s.py
@@ -106,7 +110,7 @@ code("""
 def kc(*args, timeout=30):
     return subprocess.run(
         [KUBECTL, "-n", NAMESPACE, *args],
-        capture_output=True, text=True, timeout=timeout,
+        capture_output=True, text=True, timeout=timeout, check=False,
     )
 
 assert shutil.which(KUBECTL), f"{KUBECTL} not on PATH"
@@ -329,7 +333,7 @@ for argv in (
     ["ruff", "check", "--fix", "--quiet", str(out)],
     ["ruff", "format", "--quiet", str(out)],
 ):
-    result = subprocess.run(argv, capture_output=True, text=True)
+    result = subprocess.run(argv, capture_output=True, text=True, check=False)
     if result.returncode != 0:
         raise SystemExit(
             f"{' '.join(argv[:2])} failed:\n{result.stdout}{result.stderr}"

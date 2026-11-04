@@ -26,6 +26,7 @@ from aigateway.core.oauth.schemas import (
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
+    list_row_from_connection,
     response_from_connection,
 )
 from aigateway.core.oauth.token_service import (
@@ -43,6 +44,7 @@ from aigateway.core.provider_access import (
     credential_has_other_owner,
     credential_name_of,
     effective_to_replace,
+    flagged_connections,
     guard_refresh,
     lock_lower_addressers,
     replaced_label,
@@ -70,10 +72,17 @@ async def list_connections(
     provider: str | None = None,
     status: str | None = None,
 ) -> OAuthConnectionListResponse:
-    store = _store(request)
-    connections = await store.list(str(current.id), provider=provider, status=status)
+    # FEATURE: OME-1138 close-out, L7a — each row says whether it is the one chat uses; the rule
+    # and the filters live in the core (`flagged_connections`).
+    with refusals_as_http():
+        listed = await flagged_connections(
+            request.app, str(current.id), provider=provider, status=status
+        )
     return OAuthConnectionListResponse(
-        connections=[response_from_connection(connection) for connection in connections]
+        connections=[
+            list_row_from_connection(connection, effective=effective)
+            for connection, effective in listed
+        ]
     )
 
 

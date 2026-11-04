@@ -73,6 +73,9 @@ class ErrorCode(StrEnum):
     CONSENT_WITHHELD = "consent_withheld"
     INTENT_ERROR = "intent_error"
     UNSUPPORTED_MODE = "unsupported_mode"
+    UNSUPPORTED_CONTENT_TYPE = "unsupported_content_type"
+    """A resolved source has a media type this consumer cannot handle (Spec C §13.5.2,
+    conformance case C8) — e.g. a PNG asked for as text. Permanent: the same bytes come back."""
     DIRECT_EVAL_REFUSED = "direct_eval_refused"
     """A direct call (one handler, `url4.peer.dispatch_direct`) targeted the eval path, which
     evaluates an expression — the one thing a direct call must never do."""

@@ -139,6 +139,7 @@ extend-exclude = [
     "src/screamingface_engine_inspect/local_tasks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
+    "src/screamingface_engine_inspect/local_tasks/lab_bench_2/vendor",
     "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 
@@ -168,6 +169,7 @@ ignore = [
     "src/screamingface_engine_inspect/local_tasks/ifeval/vendor",
     "src/screamingface_engine_inspect/local_tasks/musique/vendor",
     "src/screamingface_engine_inspect/local_tasks/arc_agi_2/vendor",
+    "src/screamingface_engine_inspect/local_tasks/lab_bench_2/vendor",
     "src/screamingface_engine/combine/operators/_inspect_vendor.py",
 ]
 

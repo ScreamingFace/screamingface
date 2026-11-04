@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from email.utils import parsedate_to_datetime
 
 import httpx
@@ -39,6 +40,7 @@ from url4.io._source_policy import (
 from url4.io.close_once import CloseOnce
 from url4.io.idempotency import idempotency_key, mark_answered
 from url4.io.layer import FetchRequest, FetchResult
+from url4.io.media import FetchedBytes, bare_media_type, require_text
 
 # Headers that describe the wire encoding of a body this adapter has already decoded.
 _DECODED_AWAY = frozenset({"content-encoding", "content-length", "transfer-encoding"})
@@ -54,7 +56,10 @@ class HttpIOLayer:
     ``url4://`` target is translated to ``https://`` for transport (spec §3.5 —
     the URL4 scheme rides HTTPS on the wire). :meth:`fetch_ex` additionally
     reports the response's media type so collection parsing can be
-    Content-Type-driven (spec §5.3.7).
+    Content-Type-driven (spec §5.3.7), and :meth:`fetch_bytes` returns the raw
+    body unmodified for binary sources (PNG, PDF). The text paths refuse a binary
+    media type with ``unsupported_content_type`` rather than decode it. A
+    request's ``;accept=`` annotation is sent as the ``Accept`` header.
 
     A single :class:`httpx.AsyncClient` is created on the first fetch and reused
     for the adapter's lifetime, so pooling / keep-alive apply across a fan-out.
@@ -130,33 +135,63 @@ class HttpIOLayer:
         return self._owned
 
     async def fetch(self, target: str, *, relative: bool) -> str:
-        _response, text = await self._get(self._transport_url(target, relative), relative=relative)
+        _response, text = await self._get(
+            self._transport_url(target, relative),
+            relative=relative,
+            read=lambda response: _text(target, response),
+        )
         return text
 
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:
         response, text = await self._get(
-            self._transport_url(request.target, request.relative), relative=request.relative
+            self._transport_url(request.target, request.relative),
+            relative=request.relative,
+            accept=request.accept,
+            read=lambda response: _text(request.target, response),
         )
-        content_type = response.headers.get("content-type", "")
-        media_type = content_type.split(";", 1)[0].strip().lower() or None
-        return FetchResult(text, media_type=media_type)
+        return FetchResult(text, media_type=_media_type(request.target, response))
+
+    async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes:
+        """``GET`` the target and return its body exactly as received, plus its media type.
+
+        Goes through :meth:`_get`, so the destination guard, the size cap and the deadline apply.
+        """
+        response, body = await self._get(
+            self._transport_url(request.target, request.relative),
+            relative=request.relative,
+            accept=request.accept,
+            read=_raw_body,
+        )
+        return FetchedBytes(body, media_type=_media_type(request.target, response))
 
     def _transport_url(self, target: str, relative: bool) -> str:
         # A url4:// target stays url4:// here: _get needs the scheme to know a peer call.
         return f"{self._base_url}{target}" if relative else target
 
-    async def _get(self, target: str, *, relative: bool) -> tuple[httpx.Response, str]:
-        """The response and its body as text, both produced within the fetch's deadline.
+    async def _get[T](
+        self,
+        target: str,
+        *,
+        relative: bool,
+        read: Callable[[httpx.Response], T],
+        accept: str | None = None,
+    ) -> tuple[httpx.Response, T]:
+        """The response and ``read(response)``, both produced within the fetch's deadline.
 
-        AIDEV-NOTE: this is the TEXT path (``fetch``/``fetch_ex``). WHY: a raw-bytes path (e.g.
-        open PR #1478's ``fetch_bytes``) must NOT go through ``response.text`` — that decodes
-        binary content. It needs the same deadline-checked GET returning the raw response, with
-        the final ``past(deadline)`` check after its own body handling instead.
+        AIDEV-NOTE: ``read`` is the body handling — text paths (``fetch``/``fetch_ex``) pass a
+        decoder, ``fetch_bytes`` passes :func:`_raw_body`. WHY not decode here: ``response.text``
+        decodes binary content; the bytes path must never touch it. Either way the final
+        ``past(deadline)`` check runs AFTER ``read``.
         """
         peer = target.startswith("url4://")
         url = "https://" + target.removeprefix("url4://") if peer else target
+        headers: dict[str, str] = {}
         key = idempotency_key(url)
-        headers = {"Idempotency-Key": key} if key is not None else None
+        if key is not None:
+            headers["Idempotency-Key"] = key
+        if accept is not None:
+            # WHY: `;accept=` (spec §4.2) is the caller's content negotiation; sent verbatim.
+            headers["Accept"] = accept
         # WHY owned only: an injected client keeps the timeouts its owner chose.
         total = self._guard.total_timeout if self._client is None else None
         # INVARIANT (OME-1720): ONE absolute deadline per fetch, carried to every hop's body.
@@ -165,18 +200,19 @@ class HttpIOLayer:
         try:
             async with asyncio.timeout(total):
                 response = await self._send(
-                    url, headers, peer=peer, relative=relative, deadline=deadline
+                    url, headers or None, peer=peer, relative=relative, deadline=deadline
                 )
         except TimeoutError as exc:
             raise source_timeout(late) from exc
-        # WHY here: charset decoding is synchronous work no asyncio.timeout can interrupt, so it
-        # runs BEFORE the final check (PR #1555 review: a slow codec succeeded late).
-        text = response.text
+        # WHY here: body handling (charset decoding on the text paths) is synchronous work no
+        # asyncio.timeout can interrupt, so it runs BEFORE the final check (PR #1555 review: a
+        # slow codec succeeded late).
+        body = read(response)
         if past(deadline):
             # INVARIANT: never a success after the deadline, even one no checkpoint caught —
-            # text conversion included.
+            # body handling included.
             raise source_timeout(late)
-        return response, text
+        return response, body
 
     async def _send(
         self,
@@ -301,6 +337,27 @@ def _buffered(response: httpx.Response, body: bytes) -> httpx.Response:
     return httpx.Response(
         response.status_code, headers=headers, content=body, request=response.request
     )
+
+
+def _media_type(target: str, response: httpx.Response) -> str | None:
+    """The one bare, lower-cased media type of ``response``, else ``None``.
+
+    A duplicate (comma-joined by HTTPX) or malformed ``Content-Type`` raises
+    ``unsupported_content_type`` rather than leaking a joined value to the caller.
+    """
+    return bare_media_type(target, response.headers.get("content-type"))
+
+
+def _raw_body(response: httpx.Response) -> bytes:
+    """The buffered body exactly as received (content-coding undone) — never decoded to text."""
+    # INVARIANT: response.content, never .text — the bytes are the origin's bytes.
+    return response.content
+
+
+def _text(target: str, response: httpx.Response) -> str:
+    """``response.text`` for a text body; a binary body is refused, never decoded."""
+    require_text(target, response.headers.get("content-type"))
+    return response.text
 
 
 # Spec C §13.2.1: 4xx is permanent except these; 5xx is transient except the others.
