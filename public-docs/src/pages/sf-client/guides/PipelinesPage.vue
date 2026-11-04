@@ -349,7 +349,7 @@ const pipelineSig = `sf.Pipeline(
         </g>
       </svg>
       <figcaption class="dgcap">
-        The unnamed inner Pipeline flattens into the outer one — draft → review → final runs as a
+        The unnamed inner Pipeline flattens into the outer one: draft → review → final runs as a
         single sequence.
       </figcaption>
     </figure>

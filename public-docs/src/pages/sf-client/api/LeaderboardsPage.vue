@@ -543,7 +543,10 @@ if result.reproduction is not None:
       <tbody>
         <tr>
           <td><code>outcome</code></td>
-          <td><code>"exact"&nbsp;|&nbsp;"failed"&nbsp;|&nbsp;"not_reproducible"</code></td>
+          <td>
+            <code>sf.ReproductionOutcome</code>, one of <code>"exact"</code>,
+            <code>"failed"</code> or <code>"not_reproducible"</code>
+          </td>
           <td>
             <code>"exact"</code>: the replay gave the stored score and case count on the same
             benchmark revision, and the same case digest when the score has one.

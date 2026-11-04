@@ -90,8 +90,9 @@ const GITHUB = 'https://github.com/ScreamingFace'
         <div class="def">
           <dt><code>fusion</code></dt>
           <dd>
-            A composed AI system built from many heterogeneous models &mdash; an ensemble, a router,
-            a routed ensemble, a cascade, or any multi-model artifact you compose, run, and share.
+            A composed AI system built from many heterogeneous models, such as an ensemble, a
+            router, a routed ensemble, a cascade, or any multi-model artifact you compose, run, and
+            share.
           </dd>
         </div>
         <div class="def">

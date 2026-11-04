@@ -128,7 +128,7 @@ screamingface cache pull --url https://fusion.screamingface.ai --data-dir ~/.scr
       The first page opens the engine's sign-in in a browser, unless this process is already signed
       in to that engine, by an earlier pull or by the default client. One sign-in serves every later
       pull in the process. The production engine needs access granted by the OpenMined team, so a
-      pull needs the same hosted access as <code>sf.login()</code>.
+      pull needs the same hosted access as <code>Client.login()</code>.
     </Note>
 
     <p>The pull also needs:</p>
