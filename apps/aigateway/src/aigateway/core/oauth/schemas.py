@@ -33,8 +33,18 @@ class OAuthConnectionResponse(BaseModel):
     is_duplicate: bool = False
 
 
+class OAuthConnectionListRow(OAuthConnectionResponse):
+    """A listed Connection, with whether it is the one the default chat resolve serves.
+
+    # FEATURE: OME-1138 close-out, L7a — the Local Engine manages the row chat uses; at most one
+    # row per provider is effective. Only the listing carries the flag.
+    """
+
+    effective: bool = Field(json_schema_extra={"readOnly": True})
+
+
 class OAuthConnectionListResponse(BaseModel):
-    connections: list[OAuthConnectionResponse] = Field(default_factory=list)
+    connections: list[OAuthConnectionListRow] = Field(default_factory=list)
 
 
 class CreateOAuthConnectionRequest(BaseModel):

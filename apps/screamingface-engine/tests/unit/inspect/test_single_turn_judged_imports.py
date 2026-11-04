@@ -78,7 +78,7 @@ async def _grade(
     aggregate = _judged_aggregate(imported_benchmark(key), root, node)  # type: ignore[arg-type]
     rows: str = json.dumps([_row(index, reply) for index, reply in enumerate(replies, start=1)])
     with request_scope(RequestScope(origin="run")):
-        result: dict[str, Any] = await aggregate(rows, len(replies))
+        result: dict[str, Any] = await aggregate(rows, tuple(range(1, len(replies) + 1)))
     return result, node
 
 

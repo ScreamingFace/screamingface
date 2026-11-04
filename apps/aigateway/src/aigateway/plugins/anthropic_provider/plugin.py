@@ -9,7 +9,7 @@ from aigateway.core.content_parts import UnsupportedContentPart, text_only
 from aigateway.core.input_modalities import (
     TEXT_IMAGE_PDF,
     InputModality,
-    declared_family_modalities,
+    declared_family_evidence,
 )
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.plugin_base import (
@@ -88,16 +88,15 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
     def register_models(self) -> list[ModelEntry]:
         return list(self.settings.models)
 
-    def model_input_modalities(self, entry: ModelEntry) -> tuple[str, ...]:
-        # OME-1537: declared family table; a model outside it is unknown -> text-only.
+    def model_input_modality_evidence(self, entry: ModelEntry) -> tuple[str, ...] | None:
+        # OME-1537: declared family table. Outside it the model is unknown (None), which
+        # publishes as text-only and passes the chat backstop (OME-1807).
         # WHY the routed target, not the name: ``settings.models`` lets an operator
         # alias any name to any upstream model, so only ``litellm_params["model"]``
         # says which model actually reads the request.
         target = entry.litellm_params.get("model")
         model = target if isinstance(target, str) else entry.model_name
-        return declared_family_modalities(
-            model.removeprefix("anthropic/"), _INPUT_MODALITY_FAMILIES
-        )
+        return declared_family_evidence(model.removeprefix("anthropic/"), _INPUT_MODALITY_FAMILIES)
 
     def oauth_config(self) -> OAuthConfig:
         return OAuthConfig(
@@ -117,7 +116,7 @@ class AnthropicProviderPlugin(ProviderPluginBase[AnthropicPluginSettings]):
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy:
         return AnthropicOAuth(
-            profile_name=credential_name,
+            credential_name=credential_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
             settings=self.settings,

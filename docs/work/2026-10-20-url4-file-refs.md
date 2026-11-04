@@ -360,3 +360,22 @@ not change request equality or hash.
 **Gates.** `run_gates.py url4 --base origin/OME-1538-url4-bytes-fetch` ALL GATES GREEN;
 `check_module_size.py` within baseline (`io/layer.py` 202/204); `check_suppressions.py` 3/3;
 hygiene ratchets green; `io/http.py` 448 lines.
+
+### PR #1482 review — injected-client redirect bodies bypassed the byte limiter
+
+**Finding (HupBaHa, CHANGES_REQUESTED).** With an injected `httpx.AsyncClient(follow_redirects=True)`,
+httpx `aread()`s every redirect body before `client.send(..., stream=True)` returns, so those bytes
+skipped `on_chunk` and `max_bytes` (repro: 4096-byte 302 then 1-byte 200, `max_bytes=1024` → success).
+
+**Change.** New `io/_hops.py`: `fetch_following` sends every request with `follow_redirects=False`
+and walks the chain itself (next hop = httpx's own `response.next_request`, so method rewrite,
+cross-origin `Authorization` drop and cookies are unchanged), reading each hop through
+`read_capped` (moved from `io/http.py`) before anything is held. It follows only when the client
+does, and enforces the client's `max_redirects` as `httpx.TooManyRedirects`. The owned (guarded)
+client uses the same path; its transport still owns `on_chunk` there, so each byte is reported once.
+
+**Tests (append-only, new file).** `tests/unit/test_io_injected_redirect_budget.py` (4): the
+reviewer's 4096-byte 302 is refused `source_too_large` with the hook told 4096 bytes and the next
+hop never requested; a 512-byte 302 + 600-byte 200 succeeds with the hook told 1112 bytes; a
+non-following client still gets its 302 as an error; a cross-origin hop drops `Authorization`.
+Main merged first (`origin/main` after #1478's squash), conflicts resolved to this branch's side.
