@@ -695,9 +695,8 @@ finding; each lands as its own commit with an append-only test file.
 | — | (this commit) | edge/error paths of 1–3 | `test_attachment_round9_edges.py` (6) |
 
 **Shortcuts and limits (stated plainly).**
-- F1: a blob whose digest is already counted (a Case attachment) is read without the budget hooks
-  — its bytes dedup into one entry, and charging them would refuse a run that fits; that read is
-  bounded only by the io's own caps. A text-only io, a whole-bytes `[data]` provider and a node's
+- F1: ~~a blob whose digest is already counted (a Case attachment) is read without the budget
+  hooks~~ CLOSED in the follow-up below. A text-only io, a whole-bytes `[data]` provider and a node's
   endpoint/eval bytes cannot stream: they are charged (and `max_bytes`-checked) right after the
   read, as `io.media.read_whole` already does, so one such body is held before the refusal.
 - F2: still conservatively reachable (fetched, attached): a row reference (`$item`), holdings, a
@@ -709,10 +708,31 @@ finding; each lands as its own commit with an append-only test file.
   and opt-ins hidden in kept text are `malformed_source` (a `url4://` blob ref
   `x.remote_blob_unsupported`). The `NotStaticNode` lowering also refuses `src=$v;accept=<type>`
   for an executor that bypasses `run()` (it read as text before) — owner decision C.
-- F4: gated on run-start I/O, so a text-only run keeps the execution-time refusal unchanged. Not
-  covered: a `url4://` reduce PROCESSOR (`processor._check_remote_processor`) is still refused when
-  the reduce runs, i.e. after the attachment phase; it is a run option, not an AST source.
+- F4: gated on run-start I/O, so a text-only run keeps the execution-time refusal unchanged.
+  ~~A `url4://` reduce PROCESSOR is refused only when the reduce runs~~ CLOSED in the follow-up
+  below (a Form-3 computed processor is still checked when it resolves: its value is unknown
+  before it is evaluated).
 
 **Gates.** `run_gates.py url4 --base origin/main` and `run_gates.py screamingface-engine --base
 origin/main`: ALL GATES GREEN (exit 0; append-only check green on both). `check_module_size.py`:
 all capped modules within baseline (`source_scan.py` 417, `_materialize.py` 397 lines).
+
+### Follow-up 2026-11-04 — owner: close both disclosed gaps before re-review: DONE
+
+1. **`url4://` reduce processor.** `processor.remote_processor_hop` reads a LITERAL `url4://`
+   processor (`run(processor=…)` or a node's `default_processor`, i.e. `run_ctx.processor`);
+   `_run_files._precheck_remote` adds it to the same `precheck_remote_nodes` call as the AST's
+   remote expressions, before any run-start I/O. `_check_remote_processor` uses the same parser.
+   It is refused even when the expression has no reduce (fail closed). A Form-3 expression
+   processor is only known once evaluated and keeps its resolve-time check.
+2. **Case-attachment blob reads.** `CapBudget` keeps each counted key's size; `charge_bytes` on a
+   counted key draws only the bytes BEYOND that size (an honest re-read adds nothing — the list
+   dedups it — so `test_a_blob_equal_to_a_case_attachment_is_not_counted_twice` stays green
+   unedited), `charge` on a counted key gives its live bytes back, and `ceiling(key)` =
+   `remaining()` + its counted size is the read's `max_bytes`. `_verify` no longer bypasses the
+   hooks. Measured: Case 4 MB + 4 MB with the store serving 9 MB per digest → refused
+   `x.attachments_too_large` after 62 + 1 chunks = 4,128,768 bytes streamed (before: each read ran
+   to the io's own cap). Residual: an honest re-read of a Case digest still holds one more copy of
+   that body while it is verified (the run's list does not grow).
+
+Tests (new file, append-only): `tests/unit/test_review_gaps_closed.py` (10).

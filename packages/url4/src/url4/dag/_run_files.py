@@ -21,7 +21,7 @@ from url4.dag.attachment_sources import AttachmentIdentity, not_static  # isort:
 from url4.dag._caps import CapBudget, gather_charged  # isort: skip
 from url4.dag._materialize import Admission, Outcomes, Prefetched, check_caps, check_static  # isort: skip
 from url4.dag._materialize import materialize  # isort: skip
-from url4.dag.source_scan import reachable_order, refuse_malformed  # isort: skip
+from url4.dag.source_scan import SourceScan, reachable_order, refuse_malformed  # isort: skip
 from url4.dag.attachments import (  # isort: skip
     CachedBlob,
     FileRef,
@@ -35,6 +35,7 @@ from url4.dag.compiler import Graph  # isort: skip
 from url4.dag.node import DagNode, ExecutionContext  # isort: skip
 from url4.dag.nodes.blob import BlobRefNode  # isort: skip
 from url4.dag.remote_nodes import precheck_remote_nodes  # isort: skip
+from url4.dag.processor import remote_processor_hop  # isort: skip
 from url4.dag._graph_admission import refuse_prebuilt  # isort: skip
 
 
@@ -87,10 +88,7 @@ async def _run_start(
         refuse_malformed(scan)  # owner 2026-11-02: before any I/O, ahead of every refusal
     refuse_remote(refs)
     if scan is not None and (refs or scan.occurrences):
-        # C6 (finding 4): a node context refuses a remote-node call before ANY I/O — so before
-        # the attachment phase below, not when the call executes. A run with no run-start I/O
-        # keeps the execution-time refusal unchanged.
-        precheck_remote_nodes(scan.remote_nodes)
+        _precheck_remote(scan, run_ctx)
     if scan is not None and scan.non_literal:  # owner decision C: before any I/O
         raise not_static(scan.non_literal[0])
     occurrences = () if scan is None else scan.occurrences
@@ -114,6 +112,16 @@ async def _run_start(
     return start
 
 
+def _precheck_remote(scan: SourceScan, run_ctx: ExecutionContext) -> None:
+    """C6 (finding 4): a node context refuses a remote-node call before ANY I/O — so before the
+    attachment phase, not when the call executes. A run with no run-start I/O keeps the
+    execution-time refusal unchanged. The run's literal ``url4://`` reduce processor (a run
+    option or a node default) is the same remote-node call, checked here too (owner 2026-11-04).
+    """
+    processor = remote_processor_hop(run_ctx.processor)
+    precheck_remote_nodes((*scan.remote_nodes, *(() if processor is None else (processor,))))
+
+
 async def _verify(
     ref: FileRef, run_ctx: ExecutionContext, budget: CapBudget
 ) -> tuple[bytes, str | None]:
@@ -124,18 +132,19 @@ async def _verify(
     entries leave (``max_bytes``) — exactly as an attachment-source flight does — so concurrent
     blob reads never hold more than about the cap plus one chunk each. A failed read gives its
     bytes back at once.
-    WHY a key already counted reads with no hooks: it is a Case attachment's digest, which the
-    final list dedups, so its bytes never add to the run (charging them would refuse a run that
-    fits). A collection blob is not an attachment (D4) and is never charged.
+    INVARIANT (review gap 2, owner 2026-11-04): a key already counted — a Case attachment's
+    digest — draws too, but only its bytes beyond the counted size (:meth:`CapBudget.charge_bytes`;
+    the final list dedups it), with its counted size added to its ceiling. A collection blob is
+    not an attachment (D4) and is never charged.
     """
     node = BlobRefNode(ref.address)
-    if ref.collection or budget.counted(ref.key):
+    if ref.collection:
         return await node.verified(run_ctx)
     budget.release(ref.key)
     try:
         body, media_type = await node.verified(
             run_ctx,
-            max_bytes=budget.remaining(),
+            max_bytes=budget.ceiling(ref.key),
             on_chunk=partial(budget.charge_bytes, ref.key),
         )
     except BaseException:

@@ -62,9 +62,10 @@ class CapBudget:
     def __init__(self, case: Sequence[Attachment] = ()) -> None:
         self._entries: set[Hashable] = set()  # every entry known to come
         self._charged: set[Hashable] = set()  # entries whose bytes are counted
+        self._sizes: dict[Hashable, int] = {}  # each counted entry's counted size
         self._bytes = 0  # settled: landed entries
         self._live: dict[Hashable, int] = {}  # in flight: bytes received so far, per key
-        self._live_total = 0
+        self._live_total = 0  # the live bytes that count (see _counted_live)
         self._refused: int | None = None  # the total that first crossed the cap
         self._lock = threading.RLock()
         for attachment in case:
@@ -81,33 +82,38 @@ class CapBudget:
     def charge(self, key: Hashable, size: int) -> None:
         """Count one received entry's decoded bytes (once per key) and re-check both caps.
 
-        Settles ``key``: its live bytes (:meth:`charge_bytes`) become these counted ones.
+        Settles ``key``: its live bytes (:meth:`charge_bytes`) become these counted ones. A key
+        already counted (a Case attachment's digest read again from the store) only gives its
+        live bytes back: the final list dedups it.
         """
         with self._lock:
             if key in self._charged:
+                self.release(key)
                 return
+            self._live_total -= self._counted_live(key, self._live.pop(key, 0))
             self._charged.add(key)
-            self._live_total -= self._live.pop(key, 0)
+            self._sizes[key] = size
             self._bytes += size
             self.expect((key,))
             self._check()
 
-    def counted(self, key: Hashable) -> bool:
-        """Whether ``key``'s bytes are already counted (a landed entry the list dedups by)."""
-        with self._lock:
-            return key in self._charged
-
     def charge_bytes(self, key: Hashable, size: int) -> None:
-        """Draw ``size`` more bytes of ``key``'s in-flight body; refuse once the total passes."""
+        """Draw ``size`` more bytes of ``key``'s in-flight body; refuse once the total passes.
+
+        INVARIANT (PR #1587 review gap 2, owner 2026-11-04): a read of a key whose bytes are
+        already counted draws only the bytes BEYOND its counted size — an honest re-read adds
+        nothing to the list, an oversized one is refused once the run passes the cap.
+        """
         with self._lock:
+            before = self._counted_live(key, self._live.get(key, 0))
             self._live[key] = self._live.get(key, 0) + size
-            self._live_total += size
+            self._live_total += self._counted_live(key, self._live[key]) - before
             self._check()
 
     def release(self, key: Hashable) -> None:
         """Give back ``key``'s in-flight bytes: its attempt failed, or a retry starts over."""
         with self._lock:
-            self._live_total -= self._live.pop(key, 0)
+            self._live_total -= self._counted_live(key, self._live.pop(key, 0))
 
     def remaining(self) -> int:
         """The bytes left after the SETTLED entries: a new flight's read ceiling.
@@ -118,6 +124,14 @@ class CapBudget:
         """
         with self._lock:
             return max(0, MAX_ATTACHMENT_BYTES - self._bytes)
+
+    def ceiling(self, key: Hashable) -> int:
+        """``key``'s read ceiling: :meth:`remaining`, plus its own counted size when counted."""
+        with self._lock:
+            return self.remaining() + self._sizes.get(key, 0)
+
+    def _counted_live(self, key: Hashable, received: int) -> int:
+        return max(0, received - self._sizes[key]) if key in self._charged else received
 
     def raise_if_refused(self) -> None:
         """Re-raise the byte-cap refusal, if any — e.g. one an ``;optional`` guard swallowed."""
