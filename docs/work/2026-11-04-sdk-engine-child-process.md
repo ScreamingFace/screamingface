@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # backfilled at PR-open
+ticket: OME-1620
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-11-04
-finished:
+finished: 2026-11-04
 ---
 
 # sdk-engine-child-process — `screamingface up` starts the Engine from an Engine environment
