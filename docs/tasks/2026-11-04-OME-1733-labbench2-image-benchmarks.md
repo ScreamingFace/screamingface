@@ -27,8 +27,8 @@ external eval, so it lands as a local Task.
   byte, the inspect port's verdict reader vendored, the figures fetched from the authors'
   public bucket into the replay cache with an md5 check. A real build gave 101 and 100 Cases,
   every picture sealed, largest Case 5.53 MB.
-- 2026-11-04, PR 2 of 2: `labbench2_figqa2_img` (101 Cases, revision `b00a1a0f8bbdb9c4`, tier
-  hard) and `labbench2_tableqa2_img` (100 Cases, revision `e3365eafa0730f60`, tier easy)
+- 2026-11-04, PR 2 of 2: `labbench2_figqa2_img` (101 Cases, revision `770667413b4b1e51`, tier
+  hard) and `labbench2_tableqa2_img` (100 Cases, revision `742c148e87b15f69`, tier easy)
   imported at `3678e7e`, licence CC BY-SA 4.0, policy `withhold`, judged by Claude Sonnet 4.5 at
   temperature 0. Frontier scores read from the paper's Figure 3: 0.614 and 0.94 (GPT 5.2 Pro, no
   tools), so TableQA2 image is near saturation. Both join the picture notebook. This closes the

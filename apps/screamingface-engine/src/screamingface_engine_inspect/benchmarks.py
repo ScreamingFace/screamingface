@@ -7405,7 +7405,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="labbench2_figqa2_img",
-        published_revision="b00a1a0f8bbdb9c4",
+        published_revision="770667413b4b1e51",
         title="LABBench2 FigQA2 (image)",
         description=(
             "101 questions about a figure from a biology research paper (the LABBench2 "
@@ -7421,7 +7421,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "grade in three tries counts 0, as the authors' harness counts it. Named "
             "deviations: the judge's JSON response schema is not sent (its verdict line is "
             "read instead), and the authors' current harness is followed where the inspect "
-            "port's older copy differs. No mid-run check surface."
+            "port's older copy differs. The judge is the authors' own model and prompt, "
+            "so scores are comparable to the paper's no-tools image results up to those "
+            "deviations; its best, 0.614 (GPT 5.2 Pro), is read from the bars of its Figure 3, "
+            "which prints no table. No mid-run check surface."
         ),
         focus="Reading biology research figures (free answer, picture input, LLM-judged)",
         dataset_url="https://huggingface.co/datasets/EdisonScientific/labbench2",
@@ -7496,7 +7499,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="labbench2_tableqa2_img",
-        published_revision="e3365eafa0730f60",
+        published_revision="742c148e87b15f69",
         title="LABBench2 TableQA2 (image)",
         description=(
             "100 questions about a table from a biology research paper (the LABBench2 "
@@ -7512,7 +7515,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "grade in three tries counts 0, as the authors' harness counts it. Named "
             "deviations: the judge's JSON response schema is not sent (its verdict line is "
             "read instead), and the authors' current harness is followed where the inspect "
-            "port's older copy differs. No mid-run check surface."
+            "port's older copy differs. The judge is the authors' own model and prompt, "
+            "so scores are comparable to the paper's no-tools image results up to those "
+            "deviations; its best, 0.94 (GPT 5.2 Pro), is read from the bars of its Figure 3, "
+            "which prints no table. No mid-run check surface."
         ),
         focus="Reading biology research tables (free answer, picture input, LLM-judged)",
         dataset_url="https://huggingface.co/datasets/EdisonScientific/labbench2",

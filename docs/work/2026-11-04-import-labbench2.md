@@ -43,8 +43,8 @@ Claude Sonnet 4.5, and listed in the picture notebook.
 - **Gates:** importer run 2026-11-04: `labbench2_figqa2_img` 101 Cases, Case Digest
   `14980c37ac16…`; `labbench2_tableqa2_img` 100 Cases, Case Digest `fee5764a5560…`; source pin
   `EdisonScientific/labbench2@3678e7e3`, licence cc-by-sa-4.0 read from the card. Fingerprints
-  `b00a1a0f8bbdb9c4` and `e3365eafa0730f60`, set as the published revisions. Tests: the new
-  rows file (6), the PR 1 Task file (32) and the five row tables, 809 passed with the inspect
+  `770667413b4b1e51` and `742c148e87b15f69`, set as the published revisions. Tests: the new
+  rows file (6), the PR 1 Task file (34) and the five row tables, 811 passed with the inspect
   extra; every Engine test file that walks the row table (75 files) passed extra-less, as in CI
   (189 passed, 63 skipped); extra-less pyright clean on the touched files. Four catalogue
   tests in `test_benchmark_display_metadata.py` and `test_benchmark_protocol.py` fail with the
@@ -59,6 +59,11 @@ Claude Sonnet 4.5, and listed in the picture notebook.
   - The frontier scores are read from Figure 3's pixels (the paper prints no table): FigQA2
     image 0.614 and TableQA2 image 0.94, GPT 5.2 Pro, no tools. The same reading gives GPT 5.2
     0.565 on FigQA2 image, where inspect_evals' register quotes the paper at 0.564.
+- **Review round (2026-11-04):** PR 1's retry fix moved the Task's source digest, so both
+  fingerprints moved (they hash every `.py` under `local_tasks/lab_bench_2/`); merged #1669's
+  branch in and re-pinned the published revisions to the new fingerprints, free since no score
+  exists yet. Both cards now say how the frontier score was read and that scores are
+  comparable to the paper's no-tools image results up to the named deviations.
 - **Owner verify:** the paid smoke on both Benchmarks after merge
   (`screamingface-paid-benchmark-smoke.yml`, benchmarks `labbench2_figqa2_img,labbench2_tableqa2_img`);
   the notebook's two LABBench2 cells on the local stack with `HF_TOKEN`, then on dev once its
