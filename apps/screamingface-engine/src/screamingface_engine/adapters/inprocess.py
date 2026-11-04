@@ -12,10 +12,12 @@ queue and a worker pool.
 # `screamingface_engine.local`, and it is exempt there by name.
 
 Span export (e2e workbench unit 6a): with an OTLP endpoint configured, each run flushes its span
-tree after its terminal frame, off the event loop but INSIDE the run's task. A slow or down
-collector therefore keeps the run's admission slot (and `exists()` / `status() == "running"`)
+tree after its terminal frame, off the event loop, and the run's task waits for it. A slow or
+down collector therefore keeps the run's admission slot (and `exists()` / `status() == "running"`)
 for up to `tracing.otlp.FLUSH_TIMEOUT_MS` after `Terminated` — the same hold a Job's process has
-before it exits. With no endpoint (the default) there is no flush and no hold.
+before it exits. With no endpoint (the default) there is no flush and no hold. The flush itself
+is owned by the runner, not the run's task: cancelling the run stops the WAIT, never the flush,
+and `aclose()` returns only after every flush has finished.
 """
 
 import asyncio
@@ -159,6 +161,11 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # patching the process environment.
         self._base_env = dict(base_env or {})
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        # INVARIANT (OME-1747 review): one entry per built span sink until its close has
+        # finished. The runner, not the run's task, owns these: `stop()`/`aclose()` cancel the
+        # run's task, and a close owned by that task was cancelled with it — never run at all
+        # when it was still queued on a busy default executor. `aclose()` waits for every entry.
+        self._sink_closes: set[asyncio.Task[None]] = set()
         # The terminal frame's verdict per job name, recorded before the span flush is awaited.
         # Pruned in step with `_tasks`; replaced when a topic is re-run.
         self._verdicts: dict[str, JobStatus] = {}
@@ -435,11 +442,26 @@ class InProcessJobRunner(IdentityAwareJobRunner):
                 self._verdicts[name] = cast(JobStatus, watch.outcome)
         finally:
             if sink is not None:
-                # WHY a thread: `OtlpSpanSink.close` joins its flush for up to its bound, and
-                # every local run shares this one event loop — a blocking flush here would
-                # stall every other run in flight. Awaited (not fire-and-forget) so the run's
-                # task ends only once its trace, root span included, has been handed over.
-                await asyncio.to_thread(relay.shutdown)
+                # WHY shielded: cancelling the run must stop only this task's WAIT, never the
+                # close itself (see `_close_sink`). Awaited so the run's task still ends only
+                # once its trace, root span included, has been handed over.
+                await asyncio.shield(self._close_sink(relay))
+
+    def _close_sink(self, relay: SpanRelay) -> asyncio.Task[None]:
+        """Start the run's sink close as a task the RUNNER owns, and return it.
+
+        WHY a thread: `OtlpSpanSink.close` joins its flush for up to its bound, and every local
+        run shares this one event loop — a blocking flush here would stall every other run.
+
+        INVARIANT: called once per built sink, from the run's `finally`, so the close runs
+        exactly once. Nothing ever cancels this task: the run's cancel stops at the shield, and
+        `aclose()` awaits it rather than cancelling it — so a close queued behind a saturated
+        default executor still runs once a worker frees.
+        """
+        close = asyncio.get_running_loop().create_task(asyncio.to_thread(relay.shutdown))
+        self._sink_closes.add(close)
+        close.add_done_callback(self._sink_closes.discard)
+        return close
 
     async def stop(self, topic: str) -> None:
         """Cancel the run, if one is live. Idempotent — absent or finished is a no-op.
@@ -465,6 +487,10 @@ class InProcessJobRunner(IdentityAwareJobRunner):
 
         Each cancelled run still publishes its own `Terminated(stopped)`, so a client attached
         during shutdown sees the run end rather than the socket simply going quiet.
+
+        INVARIANT: returns only after every span-sink close has FINISHED — including closes a
+        cancelled run started and stopped waiting for. Those are awaited, never cancelled: a
+        close still queued on the default executor would otherwise never run.
         """
         pending = [task for task in self._tasks.values() if not task.done()]
         for task in pending:
@@ -472,6 +498,10 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         if pending:
             _logger.info("cancelling %d in-flight local run(s) on shutdown", len(pending))
             await asyncio.gather(*pending, return_exceptions=True)
+        # Read AFTER the runs are gathered: a run cancelled above starts its close on the way out.
+        closes = list(self._sink_closes)
+        if closes:
+            await asyncio.gather(*closes, return_exceptions=True)
 
 
 __all__ = [
