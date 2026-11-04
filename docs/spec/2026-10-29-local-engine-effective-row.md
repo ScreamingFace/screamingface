@@ -16,6 +16,9 @@ It refines §4.7 in two places. The status always comes from `/v1/provider-acces
 no row is effective), by the owner's answer of 2026-11-02. An Engine create carries the label
 `screamingface` (§4.7: no label), because Anthropic refuses an unlabelled create (§3).
 
+§2a (L7c, added 2026-11-04 on base `origin/main` `15bea1200`) adds the conditional delete the
+stale-row repair of §3 needs.
+
 ## 1. Problem
 
 The Local Engine adapter (`apps/screamingface-engine/src/screamingface_engine/connections/aigateway.py`)
@@ -89,6 +92,90 @@ reference in its callback, in the transaction that activates the new row
 (`routes/auth.py:651-660`). No prior test changes.
 
 **OpenAPI.** Additive. L9 regenerates the UI schema after this merges.
+
+## 2a. A delete can require the row's status (L7c)
+
+Owner, 2026-11-04, after the L7b review. The stale-row repair of §3 decides from one listing and
+then deletes. Between the two requests the row can start serving:
+
+1. The Engine lists a `pending` row labelled `screamingface` and plans to remove it.
+2. That row's OAuth callback commits: `complete_pending` turns it `active`
+   (`core/oauth/store.py:191-218`, from `routes/auth.py:640-677`).
+3. The Engine's `DELETE` arrives. `_delete_connection` (`routes/oauth_connections.py`) reads the
+   row as it is now, claims the pair at its new generation, revokes the row whatever its status
+   and deletes its blob.
+4. `connect` then creates the replacement and sends the key.
+
+The pair marker does not stop this. The callback and the delete both claim it first, so they are
+ordered, but a delete that comes second claims the generation the callback published and wins. An
+`error` API-key row that a concurrent key write re-activates has the same window
+(`PUT …/{id}/api-key`; the admin console, `core/provider_access/connection_admin.py:202`).
+Re-reading before the `DELETE` only moves the window. The check has to run inside the delete's own
+transaction.
+
+**The parameter.** `DELETE /v1/oauth/connections/{id}?expected_status=<pending|error>`.
+
+- **Without it**, the route is unchanged.
+- **With it**, after the delete's pair claim (`claim_for_connection`) and inside its transaction,
+  the row is removed only when both hold:
+  - it is not its pair's effective reference (`effective_pair_of` returns `None`);
+  - its status still equals `expected_status`.
+
+  Otherwise the gateway answers 409 `connection_conflict` and changes nothing: the transaction
+  rolls back, the claim included.
+- **Values.** Only `pending` and `error`, the two statuses a stale row can have (§3). Any other
+  value is 422. A conditional delete never targets a working row.
+- **Unchanged answers.** 204 when removed, 404 when the row is gone.
+
+**Why it holds.** The callback (`claim_observed`, or `replace_effective` when it repairs a
+migrated pair), a key write (`claim_for_connection`) and the delete all take the pair marker as
+their first write.
+
+- On PostgreSQL (READ COMMITTED) the marker's row lock orders them. A callback or key write that
+  comes second finds the row revoked or the generation moved and loses, as before. A delete that
+  comes second re-checks the row as it now is and refuses.
+- On SQLite the single writer serializes them anyway.
+
+The status check takes the row's own lock: a locking read, `SELECT … WHERE id = :id AND status =
+:expected FOR UPDATE` (`lock_if_status`, `core/provider_access/connection_native.py`), right
+before `mark_revoked`. Under READ COMMITTED it waits for a writer holding the row and re-checks
+the status on what that writer committed; a row it locks keeps its status until the delete
+commits. The lock order stays the same: lower rows, then the own row, then higher rows. No row
+locked is the 409.
+
+**Owner answers (2026-11-04).**
+
+- The parameter names a status (`?expected_status=`): an optimistic precondition, and the gateway
+  learns no Engine vocabulary such as "unused".
+- L9 waits for L7c and regenerates the UI schema once.
+
+**Engine (L7b).**
+
+- Every stale-row repair `DELETE` carries `expected_status`, set to the status its listing
+  showed. A 409 is `ConnectionConflict`. Removal precedes any create or start, so the key never
+  leaves the Engine.
+- `disconnect` deletes `E` with a plain `DELETE`, the user's explicit intent.
+- Under the §4 fallback the stale set is always empty, so a gateway older than L7a receives no
+  conditional `DELETE`. A gateway with `effective` but without L7c ignores the parameter. Only
+  `main` builds between L7a and L7c are in that state, and no release is if L7c merges before
+  gateway 1.0.0.
+
+**Tests.**
+
+- SQLite route tests:
+  - a row still `pending`, or still in `error`, is removed (204; its blob goes);
+  - a row that turned `active` since the listing, by a finished sign-in or a key fix, is kept with
+    its blob and its pair generation (409);
+  - a row in another unusable status is refused;
+  - the effective row is refused, `pending` or in `error`;
+  - without the parameter a `pending` and an `active` row both go;
+  - any other value is 422; a missing row is 404.
+- PostgreSQL (`needs_postgres`, `AIGW_TEST_PG=1`), with no effective row and with a broken one:
+  - a callback that commits after the delete read the row and before its claim → the delete
+    answers 409, and the row stays `active` with its blob;
+  - a delete that claims first → the callback loses (409), and the row is revoked.
+
+**OpenAPI.** One optional query parameter on the route.
 
 ## 3. The Engine selects the effective row (L7b)
 

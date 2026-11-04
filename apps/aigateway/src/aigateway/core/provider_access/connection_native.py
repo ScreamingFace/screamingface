@@ -219,6 +219,26 @@ async def lock_lower_addressers(connection: OAuthConnection) -> None:
     await _live_rows(connection).filter(id__lt=connection.id).order_by("id").select_for_update()
 
 
+async def lock_if_status(connection: OAuthConnection, status: str) -> bool:
+    """Conditional delete time (L7c), BEFORE `mark_revoked`: lock this row only while it still
+    has `status`; False when it has moved since the caller listed it.
+
+    # INVARIANT: under READ COMMITTED the locking read waits for a writer holding the row and then
+    # re-checks the status on what it committed, so a row an activation turned `active` first is
+    # neither locked nor revoked. A locked row keeps its status until commit, so `mark_revoked`
+    # revokes the row as the caller listed it. This is the own-row lock of the one id order.
+    # WHY no FOR UPDATE on SQLite: its single writer serializes the transactions anyway.
+    """
+    row = (
+        await OAuthConnection.filter(
+            id=connection.id, account_id=str(connection.account_id), status=status
+        )
+        .select_for_update()
+        .first()
+    )
+    return row is not None
+
+
 async def credential_has_other_owner(connection: OAuthConnection) -> bool:
     """Delete time, AFTER `mark_revoked`: does another live row still serve this row's blob?
 
