@@ -32,6 +32,7 @@ from ..oauth.store import OAuthConnectionStore, ensure_anonymous_account
 from ..plugin_base import credential_service_provider_for
 from ..storage_outages import STORAGE_OUTAGES
 from .connection_admin import ConnectionBackedCredentialAdmin, live_connection_ids
+from .connection_authorize import invalidate_session
 from .connection_native import credential_has_other_owner, credential_name_of, lock_lower_addressers
 from .pair_admin import (
     PairConflictKind,
@@ -43,7 +44,6 @@ from .pair_admin import (
     store_reads,
 )
 from .pair_authority import UNMARKED_GENERATION, PairAuthorityConflict, PairAuthorityStore
-from .profile_authorize import invalidate_session
 from .types import CredentialStoreUnavailable, PairNotManageable, ProviderUnknown, WriteConflict
 
 # WHY row 11 is refused outright (OME-1209 E4a): the legacy shadow identity proof compared a

@@ -1,7 +1,8 @@
 """The picture notebook picks which Benchmarks to run without trusting the catalogue on a Mac.
 
 INVARIANT under test: on a local stack on a Mac, the three Benchmarks whose Case Digest is
-sealed on Linux are skipped, even though the catalogue lists them. A local Engine lists every
+sealed on Linux are skipped, even though the catalogue lists them, and HLE, whose digest seals
+the same on a Mac, is served. A local Engine lists every
 Benchmark it knows, prepared or not, so a notebook that trusted the listing would run them and
 fail on missing Cases, with the wrong reason printed (OME-1787).
 """
@@ -16,12 +17,13 @@ from typing import Any
 import pytest
 
 _NOTEBOOK = Path(__file__).parent.parent / "examples" / "18_picture_benchmarks.ipynb"
-_ALL_FIVE = (
+_ALL_SIX = (
     "inspect-lab_bench_figqa",
     "inspect-lab_bench_tableqa",
     "inspect-mmmu_multiple_choice",
     "inspect-mmmu_open",
     "inspect-mathvista",
+    "inspect-hle",
 )
 _LINUX_SEALED = {"inspect-mmmu_multiple_choice", "inspect-mmmu_open", "inspect-mathvista"}
 
@@ -56,9 +58,13 @@ def _run_selection(target: str, system: str, listed: tuple[str, ...]) -> dict[st
 def test_a_local_mac_skips_the_linux_sealed_benchmarks_although_the_catalogue_lists_them(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    namespace: dict[str, Any] = _run_selection("local", "Darwin", _ALL_FIVE)
+    namespace: dict[str, Any] = _run_selection("local", "Darwin", _ALL_SIX)
 
-    assert namespace["served"] == ["inspect-lab_bench_figqa", "inspect-lab_bench_tableqa"]
+    assert namespace["served"] == [
+        "inspect-lab_bench_figqa",
+        "inspect-lab_bench_tableqa",
+        "inspect-hle",
+    ]
     out: str = capsys.readouterr().out
     for benchmark_id in _LINUX_SEALED:
         assert f"skipped  {benchmark_id}: its Case Digest is sealed on Linux" in out
@@ -66,15 +72,15 @@ def test_a_local_mac_skips_the_linux_sealed_benchmarks_although_the_catalogue_li
 
 @pytest.mark.parametrize(("target", "system"), [("dev", "Darwin"), ("local", "Linux")])
 def test_every_listed_benchmark_runs_off_a_local_mac(target: str, system: str) -> None:
-    namespace: dict[str, Any] = _run_selection(target, system, _ALL_FIVE)
+    namespace: dict[str, Any] = _run_selection(target, system, _ALL_SIX)
 
-    assert namespace["served"] == list(_ALL_FIVE)
+    assert namespace["served"] == list(_ALL_SIX)
 
 
 def test_a_benchmark_the_engine_does_not_list_is_named_missing(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    namespace: dict[str, Any] = _run_selection("dev", "Darwin", _ALL_FIVE[:4])
+    namespace: dict[str, Any] = _run_selection("dev", "Darwin", _ALL_SIX[:4])
 
-    assert namespace["served"] == list(_ALL_FIVE[:4])
+    assert namespace["served"] == list(_ALL_SIX[:4])
     assert "missing  inspect-mathvista: not merged into this Engine yet" in capsys.readouterr().out

@@ -166,7 +166,6 @@ async def _dispatch_and_finalize_accounting(
     body: dict[str, Any],
     accounting: Any,
     account_id: str,
-    profile_name: str,
     target: CredentialTarget,
     observation: DispatchObservation | None = None,
 ) -> Any:
@@ -196,7 +195,6 @@ async def _dispatch_and_finalize_accounting(
             plugin=plugin,
             provider=provider,
             account_id=account_id,
-            profile_name=profile_name,
             target=target,
             observation=observation,
         ) from None
@@ -224,7 +222,6 @@ async def _dispatch_and_finalize_accounting(
             plugin=plugin,
             provider=provider,
             account_id=account_id,
-            profile_name=profile_name,
             target=target,
             observation=observation,
             error_type=type(exc).__name__,
@@ -251,7 +248,6 @@ async def _dispatch_and_finalize_accounting(
             plugin=plugin,
             provider=provider,
             account_id=account_id,
-            profile_name=profile_name,
             target=target,
             observation=observation,
             error_type=error_type,
@@ -270,7 +266,6 @@ async def _dispatch_and_finalize_accounting(
         plugin=plugin,
         provider=provider,
         account_id=account_id,
-        profile_name=profile_name,
         target=target,
         observation=observation,
     )
@@ -745,7 +740,6 @@ async def chat_completions(request: Request, response: Response, current: Curren
             body=body,
             accounting=accounting,
             account_id=account_id,
-            profile_name=selector.name,
             target=target,
             observation=observation,
         )

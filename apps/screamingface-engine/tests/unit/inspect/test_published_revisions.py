@@ -120,6 +120,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "mathvista": "ca4cd0f692d18f0e",
     # OME-1477 PR 2: MMMU's open-answer task, judged once the judge read inspect's question.
     "mmmu_open": "8ce88e420239ae4d",
+    # OME-1478: Humanity's Last Exam, the full set with its pictures, judged by glm-5.3-flash.
+    "hle": "d30effc2a0698079",
     "frontierscience": "826050de44778515",
     "pubmedqa": "15e20f21d0a78fd9",
     "xstest_unsafe": "fad9dd3ebabd84a5",

@@ -87,5 +87,5 @@ async def test_selection_at_available_count_is_accepted():
     node = Url4Node("test")
     node.endpoint("/grade")(case_result_endpoint(load, available_case_count=2))
     result = json.loads(await _call(node, "/grade", json.dumps(_envelope(2, _grading(2))), "1:2"))
-    assert loads == [2]
+    assert loads == [(1, 2)]
     assert result["result"]["case_id"] == 2

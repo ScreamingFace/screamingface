@@ -74,6 +74,7 @@ def compile_evaluation(
         required_models=_ordered_unique(
             tuple(model for candidate in selected_candidates for model in candidate.models)
         ),
+        selected_cases=resource.selected_case_ids,
     )
 
 
