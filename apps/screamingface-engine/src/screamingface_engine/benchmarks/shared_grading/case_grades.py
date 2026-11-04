@@ -286,7 +286,7 @@ def read_selected_cases(
     by_id: Mapping[int, Mapping[str, Any]] = (
         _streamed_rows(root, case_ids, benchmark_label=benchmark_label, error_type=error_type)
         if board is None
-        else board.rows(case_ids)
+        else board.rows_by_id(case_ids)
     )
     selected: list[SelectedCase] = []
     for case_id in case_ids:

@@ -63,7 +63,7 @@ async def test_aggregate_endpoint_validates_selection_and_passes_case_evaluation
 ):
     node = Url4Node("aggregate")
 
-    def aggregate(case_evaluations: str, selected_case_count: int) -> dict[str, object]:
+    def aggregate(case_evaluations: str, selected_case_count: tuple[int, ...]) -> dict[str, object]:
         return {
             "selected_case_count": selected_case_count,
             "case_evaluations": json.loads(case_evaluations),
@@ -77,7 +77,7 @@ async def test_aggregate_endpoint_validates_selection_and_passes_case_evaluation
         (await node.evaluate(_call("/benchmark/aggregate", '[{"case_id":1}]', "aggregate:1"))).text
     )
     assert result == {
-        "selected_case_count": 1,
+        "selected_case_count": [1],
         "case_evaluations": [{"case_id": 1}],
     }
 

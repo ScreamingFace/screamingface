@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1739",
+  "branch": "OME-1739-pr2-sdk-case-selection",
+  "approver": "Khoa Duy Nguyen (author)",
+  "date": "2026-11-03",
+  "scope": "Public API snapshot records only the additive OME-1739 surface: the cases= option on sf.evaluate, Client.evaluate and AsyncClient.evaluate, CandidateResult.selected_cases, Report.selected_cases and Report.selection_fingerprint. No row is removed or changed beyond the evaluate signatures gaining cases=; every inherited Python test and assertion is unchanged.",
+  "reason": "User asked on 2026-11-03 for PR 2 of 2 of OME-1739, the SDK half whose public cases= API and Report selection fields the ticket specifies; the snapshot is regenerated (UPDATE_SURFACE_SNAPSHOT=1) with the CHANGELOG entry to pin that interface.",
+  "files": {
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "4e11d926a577917d41faaa2dcb952cfc987e4cd5",
+      "approved_blob": "b72408d416e7456a47e1cba7d0f2f06604d56444"
+    }
+  }
+}

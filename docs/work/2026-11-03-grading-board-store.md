@@ -3,7 +3,7 @@ ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at P
 stack: screamingface-engine
 status: done
 started: 2026-11-03
-finished: 2026-11-03
+finished: 2026-11-04
 ---
 
 # grading-board-store — imported-board grading reads the selected Cases through the offset index
@@ -57,3 +57,33 @@ index keep #1628's streaming path. Owner-approved 2026-11-03 (Sergey); branch on
   reader, so `read_selected_cases` re-applies the streamed filter (int id == Case id) to
   indexed rows. `IndexedBoard.rows` is additive and off the `BoardStore` Protocol (the Cases
   route's port). Trial merge with `origin/OME-1803-pdf-admission`: see the commit's report.
+
+## Update 2026-11-04 — merged with #1636 (OME-1739)
+
+#1636 added `IndexedBoard.rows(Sequence[int]) -> str` for the Cases route, proven by a walk
+from Case 1. A check of only the selected entries cannot catch its nested-object forgery
+(`{"id":3}` inside another row), so this branch's seek-per-id reader was wrong.
+
+- **Resolution (owner direction):** one validated read path, `IndexedBoard._walk`, behind two
+  names. `rows(ids) -> str` keeps #1636's name and signature exactly. `rows_by_id(ids) ->
+  dict[int, dict]` is grading's accessor. The branch's `_read_row` is gone, and
+  `_check_row` returns the row it already parsed.
+- **Correction:** grading's indexed read is **I/O O(largest selected id), memory O(selected)**,
+  not O(selected) I/O as the Outcome above says.
+- **Tests:** owner-approved 2026-11-04 (Sergey). The `rows(...)` dict test now calls
+  `rows_by_id`. `test_only_the_selected_entries_are_checked` is inverted to
+  `test_a_broken_entry_below_the_largest_selected_id_is_refused`. Recorded in
+  `.claude/test-change-approvals/grading-board-store.json`. Appended: parity tests showing
+  `rows_by_id` and `read_selected_cases` refuse #1636's nested `{"id":3}` and `true`-id
+  tampers exactly as `rows()` does.
+- **Measured peaks (tracemalloc, ~100 KB rows, selection (90, 7)):**
+
+  | Board | Indexed, 2 Cases | Streamed, 2 Cases |
+  |---|---|---|
+  | 100 Cases, 10 MB | 700 KiB | 5465 KiB |
+  | 200 Cases, 20 MB | 698 KiB | 5540 KiB |
+  | 400 Cases, 40 MB | 698 KiB | 5565 KiB |
+
+  Indexed, 20 Cases (300..319) on 400 Cases: 2391 KiB. The 2-Case peak rose from 512 KB to
+  about 700 KiB because the walk has one unselected tile and its parse in flight. It is still
+  flat across board sizes.

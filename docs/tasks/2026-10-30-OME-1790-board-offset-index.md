@@ -1,13 +1,13 @@
 ---
 id: OME-1790
 linear_url: https://linear.app/openmined/issue/OME-1790/store-imported-boards-one-file-per-case-so-runs-never-load-the-full
-status: in_review
+status: done
 type: feature
 priority: medium
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1314
 created: 2026-10-30
-closed:
+closed: 2026-11-02
 ---
 
 # Store imported boards so runs never load the full bundle (Option B: offset index)

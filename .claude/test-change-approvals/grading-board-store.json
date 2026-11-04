@@ -1,0 +1,14 @@
+{
+  "issue": "unfiled",
+  "branch": "grading-board-store",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-11-04",
+  "scope": "Two tests this branch added in 9069d0feb, changed when it was merged with #1636 (OME-1739). (1) test_indexed_board_reads_rows_by_id_and_skips_ids_it_does_not_hold now calls IndexedBoard.rows_by_id instead of rows; its input and expected dict are unchanged. (2) test_only_the_selected_entries_are_checked is inverted and renamed to test_a_broken_entry_below_the_largest_selected_id_is_refused: the 50/51 entry swap with selection (181, 7, 90) is now refused as benchmark_unavailable ('not in served order'). No other existing test line is changed; new tests are appended.",
+  "reason": "#1636 made IndexedBoard.rows(Sequence[int]) -> str the Cases route's read, proven by a walk from Case 1 because a check of only the selected entries cannot catch the nested-object forgery. The owner directed one shared validated read path behind two names, so grading's dict accessor became rows_by_id and inherits the walk: I/O is O(largest selected id), memory O(selected). AIDEV-NOTE: named by slug because no OME-N exists yet. The gate matcher only reads OME-*.json, and the file is new relative to origin/main, so this record is documentation until the issue is filed at PR-open; then rename it to OME-N.json and set issue and branch.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_grading_board_store.py": {
+      "base_blob": "4c9a9dce60e5f1c48ec93d641da567ba89cb881a",
+      "approved_blob": "1613fa434c0a94274044ed73c584ff9884019284"
+    }
+  }
+}

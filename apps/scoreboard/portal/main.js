@@ -285,7 +285,7 @@ window.ScorePortal = (function () {
       container.appendChild(a);
     });
     if (split.rest.length) {
-      container.appendChild(buildMoreMenu(split.rest, activeId));
+      container.appendChild(buildMoreMenu(split.rest, listed, activeId));
     }
   }
 
@@ -301,7 +301,7 @@ window.ScorePortal = (function () {
   // Returns a fragment of [button, panel]; the panel is positioned relative to the .tabstrip
   // (see portal.css .tabstrip-more-panel). It is a disclosure, not a menu: the button carries
   // aria-expanded + aria-controls, and Escape / a click or tab away from the control closes it.
-  function buildMoreMenu(rest, activeId) {
+  function buildMoreMenu(rest, listed, activeId) {
     var activeBoard = null;
     rest.forEach(function (b) { if (b.id === activeId) activeBoard = b; });
 
@@ -325,7 +325,9 @@ window.ScorePortal = (function () {
 
     function renderList(query) {
       clear(list);
-      var matches = window.SFLeaderboardLogic.filterBenchmarks(rest, query);
+      // WHY: featured tabs must be searchable too; blank queries retain the overflow list.
+      var pool = query.trim() ? listed : rest;
+      var matches = window.SFLeaderboardLogic.filterBenchmarks(pool, query);
       if (!matches.length) {
         list.appendChild(el("div", "tabstrip-more-empty", "No benchmark matches."));
         return;
@@ -355,7 +357,8 @@ window.ScorePortal = (function () {
     // Escape closes from anywhere in the control and returns focus to the button.
     function onKeydown(e) { if (e.key === "Escape" && !panel.hidden) { close(); button.focus(); } }
     button.addEventListener("keydown", onKeydown);
-    search.addEventListener("keydown", onKeydown);
+    // WHY: result links bubble to the panel, not to their sibling search input.
+    panel.addEventListener("keydown", onKeydown);
     // Close when focus leaves the control entirely — e.g. tabbing past the last link — so the overlay
     // never lingers over the page.
     function onFocusOut(e) {

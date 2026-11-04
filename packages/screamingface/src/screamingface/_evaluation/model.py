@@ -96,6 +96,8 @@ class _Evaluation:
     case_count: int
     candidates: _Candidates
     required_models: tuple[str, ...]
+    # FEATURE (OME-1739): the Case ids a `cases=` run asked for, ascending; None for `limit=`.
+    selected_cases: tuple[int, ...] | None
 
     def __init__(self) -> NoReturn:
         raise TypeError("Evaluation values are derived internally; they are not constructed")
@@ -289,6 +291,7 @@ def _compiled_evaluation(
     case_count: int,
     candidates: Sequence[Candidate],
     required_models: Sequence[str],
+    selected_cases: tuple[int, ...] | None = None,
 ) -> _Evaluation:
     """Build one validated private Evaluation after no-spend compilation."""
 
@@ -296,7 +299,13 @@ def _compiled_evaluation(
         raise TypeError("Evaluation benchmark must be an sf.BenchmarkInfo")
     _validate_limit(limit)
     selected_count = _positive_count(case_count, "Evaluation case_count")
-    expected_count = benchmark.case_count if limit is None else min(limit, benchmark.case_count)
+    expected_count = (
+        len(selected_cases)
+        if selected_cases is not None
+        else benchmark.case_count
+        if limit is None
+        else min(limit, benchmark.case_count)
+    )
     if selected_count != expected_count:
         raise ValueError("Evaluation case_count must match its Benchmark and limit")
     evaluation = object.__new__(_Evaluation)
@@ -309,6 +318,7 @@ def _compiled_evaluation(
             required_models,
             "Evaluation required_models",
         ),
+        "selected_cases": selected_cases,
     }
     for name, value in values.items():
         object.__setattr__(evaluation, name, value)

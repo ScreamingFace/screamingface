@@ -16,10 +16,10 @@ bytes 1..9 and serves ``[{"id":1}]``.
 INVARIANT: every file is a pure function of the rows (no timestamps, no paths, fixed key order),
 so two prepares of the same pins give the same bytes and the Case Digest never moves.
 
-AIDEV-NOTE: the selection is always a prefix today (``protocol.py``: ``slice=(0, N)``), so
-:meth:`BoardStore.head` is the one read the Cases route needs. Aggregation reads by id through
-:meth:`IndexedBoard.rows` (grading-board-store); an input lookup for the check surface is left
-for that unit.
+AIDEV-NOTE: a selection is a prefix (:meth:`BoardStore.head`) or, since OME-1739, explicit
+Case ids (:meth:`BoardStore.rows`, served as JSON for the Cases route). Aggregation reads the
+same validated walk by id through :meth:`IndexedBoard.rows_by_id` (grading-board-store); an
+input lookup for the check surface is left for that unit.
 """
 
 from __future__ import annotations
@@ -27,9 +27,9 @@ from __future__ import annotations
 import json
 import logging
 import struct
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import Any, BinaryIO, NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol
 
 from screamingface_engine.benchmarks.grading_endpoints import benchmark_unavailable
 from screamingface_engine.benchmarks.picture_admission import cases_need_pictures
@@ -114,6 +114,20 @@ class BoardStore(Protocol):
         """
         ...
 
+    def rows(self, case_ids: Sequence[int]) -> str:
+        """The rows for ``case_ids`` (ascending, distinct) as a JSON array (OME-1739).
+
+        Worked example: ``rows((3, 17))`` serves ``[{"id":3,…},{"id":17,…}]``, walking tiles
+        1..17 to prove each is a top-level element but holding only the selected ones;
+        ``rows((1, 2, 3))`` is byte-identical to ``head(3)``.
+
+        Raises:
+            ValueError: an id is outside ``1..case_count()``.
+            ResolutionError: ``benchmark_unavailable``; a read row's ``id`` is not its position,
+                or the index does not match its rows.
+        """
+        ...
+
 
 def _broken(detail: str) -> ResolutionError:
     return benchmark_unavailable(f"imported board cases are unavailable: {detail}")
@@ -122,6 +136,29 @@ def _broken(detail: str) -> ResolutionError:
 def _check_count(count: int, available: int) -> None:
     if not 1 <= count <= available:
         raise ValueError(f"selected {count} of {available} Cases")
+
+
+def _check_ids(case_ids: Sequence[int], available: int) -> None:
+    if not case_ids or case_ids[0] < 1 or case_ids[-1] > available:
+        raise ValueError(f"selected Cases {list(case_ids)} outside 1..{available}")
+    # WHY (review on #1636): the 1..N shortcut below reads ``case_ids[-1] == len(case_ids)``,
+    # which ``(2, 2)`` satisfies; only an ascending, distinct list may take it.
+    if any(later <= earlier for earlier, later in zip(case_ids, case_ids[1:], strict=False)):
+        raise ValueError(f"selected Cases {list(case_ids)} are not ascending and distinct")
+
+
+def _positioned(row: object, case_id: int) -> None:
+    """INVARIANT (OME-1739): the row read from position ``case_id`` carries that id.
+
+    WHY: a selection names Cases by position, so a board whose rows are out of order would
+    serve one question under another's id and grade it against the wrong answer key.
+    """
+
+    found: object = row.get("id") if isinstance(row, dict) else row
+    # WHY type() not isinstance: a JSON true is a Python bool, and ``True == 1`` would let a
+    # ``{"id": true}`` row pass as Case 1.
+    if not isinstance(row, dict) or type(found) is not int or found != case_id:
+        raise _broken(f"Case {case_id} is stored with id {found!r}")
 
 
 def _check_row(chunk: bytes, first: int, length: int, position: int) -> dict[str, object]:
@@ -220,52 +257,86 @@ class IndexedBoard:
         # the selected rows, served as the original bytes (never re-serialised).
         return "[" + text + "]"
 
-    def rows(self, case_ids: Iterable[int]) -> dict[int, dict[str, object]]:
-        """The rows of the given Case ids, one offset entry and one row's bytes per id.
+    def rows(self, case_ids: Sequence[int]) -> str:
+        _check_ids(case_ids, self._count)
+        if case_ids[-1] == len(case_ids):
+            return self.head(len(case_ids))  # 1..N: one contiguous read, as ``head``
+        served: list[str] = [text for _, text, _ in self._walk(frozenset(case_ids))]
+        return "[" + ",".join(served) + "]"
 
-        FEATURE (grading-board-store): aggregation's selection need not be a prefix (Cases 181,
-        7, 90), so it seeks to each row instead of reading ``head``. Ids outside
-        ``1..case_count()`` are left out; the caller decides what a missing Case means.
+    def rows_by_id(self, case_ids: Iterable[int]) -> dict[int, dict[str, object]]:
+        """The parsed rows of the given Case ids, keyed by id, through :meth:`rows`' walk.
 
-        INVARIANT: each row is checked like ``head`` checks it — bounded by the array, between
-        its "[" or "," and its "," or "]", one object holding Case ``id`` — so an index that no
-        longer matches its rows never serves another Case's bytes. Only the selected entries
-        are checked: the cost stays O(selected), never O(board).
+        FEATURE (grading-board-store): aggregation's selection need not be a prefix nor sorted
+        (Cases 181, 7, 90), and may repeat an id. Ids outside ``1..case_count()`` are left out;
+        the caller decides what a missing Case means. The rows are the dicts ``_check_row``
+        already parsed, so grading never parses a row twice.
+
+        INVARIANT: the same validated read as :meth:`rows` — tiles 1..max(selected) proven by
+        induction from the array start — so an index that :meth:`rows` refuses (a nested
+        ``{"id":3}``, a ``true`` id, a shifted or reordered entry) is refused here too, with
+        the same bounded ``benchmark_unavailable``. Memory stays O(selected); I/O is
+        O(largest selected id), as for :meth:`rows`.
 
         Raises:
-            ResolutionError: ``benchmark_unavailable``; a selected entry does not match its row.
+            ResolutionError: ``benchmark_unavailable``; the index does not match its rows.
         """
 
-        # WHY sorted: one forward pass over both files, and a duplicate id is read once.
-        wanted: list[int] = sorted({i for i in case_ids if 1 <= i <= self._count})
-        found: dict[int, dict[str, object]] = {}
+        wanted: frozenset[int] = frozenset(i for i in case_ids if 1 <= i <= self._count)
+        if not wanted:
+            return {}
+        return {position: row for position, _, row in self._walk(wanted)}
+
+    def _walk(self, selected: frozenset[int]) -> Iterator[tuple[int, str, dict[str, object]]]:
+        """Prove tiles ``1..max(selected)`` and yield each selected one: id, text, parsed row.
+
+        AIDEV-NOTE: the one per-id read path behind :meth:`rows` and :meth:`rows_by_id`. Do not
+        add a second reader that seeks straight to a selected entry — see the INVARIANT below.
+
+        Raises:
+            ResolutionError: ``benchmark_unavailable``; ``selected`` must be non-empty and
+                inside ``1..case_count()`` (the callers check it).
+        """
+
+        last: int = max(selected)
+        # INVARIANT (review on #1636, round 2): a selected tile is proven a top-level element
+        # by INDUCTION from the array start, never by its neighbouring bytes. A delimiter
+        # cannot prove nesting depth: inside ``"nested":[{"id":3,…}]`` the inner object sits
+        # between "[" and "]" exactly like a real element, and rewriting the entries around it
+        # keeps a neighbour-only chain contiguous. So: tile 1 is pinned at offset 1 (just after
+        # the array's "[") and is checked to be one whole object, hence it is the true Case 1;
+        # each proven tile ends one "," before the next entry's offset (``_check_layout``),
+        # which pins the next tile's start; therefore tiles 1..last are the array's own
+        # elements in order, and an object nested inside one of them can never be among them.
+        # AIDEV-NOTE: this costs O(largest selected id) reads, like ``limit=`` does, while memory
+        # stays O(selected): one tile is in flight at a time. An offsets hash recorded in
+        # board.json at prepare time would let a selected read trust the index and go back to
+        # O(selected) I/O — a follow-up, not this PR.
         try:
-            with self._offsets.open("rb") as offsets, self._cases.open("rb") as cases:
-                for case_id in wanted:
-                    offsets.seek((case_id - 1) * _ENTRY.size)
-                    offset, length = _ENTRY.unpack(offsets.read(_ENTRY.size))
-                    found[case_id] = self._read_row(cases, case_id, offset, length)
+            with self._offsets.open("rb") as handle:
+                entries: list[tuple[int, int]] = list(
+                    _ENTRY.iter_unpack(handle.read(last * _ENTRY.size))
+                )
+            if len(entries) != last:
+                raise _broken(f"{OFFSETS_FILE} holds fewer than {last} entries")
+            self._check_layout(entries, entries[0][0], entries[-1][0] + entries[-1][1])
+            with self._cases.open("rb") as cases:
+                for position, (offset, length) in enumerate(entries, start=1):
+                    # WHY the gap byte: ``_check_row`` proves the "," before every tile but the
+                    # first, whose start is pinned by ``_check_layout`` (offset 1) instead.
+                    first: int = 0 if position == 1 else 1
+                    cases.seek(offset - first)
+                    chunk: bytes = cases.read(length + first)
+                    if len(chunk) != length + first:
+                        raise _broken(f"{CASES_FILE} is shorter than its index")
+                    row: dict[str, object] = _check_row(chunk, first, length, position)
+                    if position in selected:
+                        # WHY decode for both callers: ``rows`` serves the text, and grading
+                        # must refuse the same non-UTF-8 bytes ``rows`` refuses.
+                        yield position, chunk[first:].decode("utf-8"), row
         # WHY ValueError: json.JSONDecodeError and UnicodeDecodeError are both ValueErrors.
         except (OSError, struct.error, ValueError) as exc:
             raise _broken(f"{OFFSETS_FILE} does not match {CASES_FILE} ({exc})") from exc
-        return found
-
-    def _read_row(
-        self, cases: BinaryIO, case_id: int, offset: int, length: int
-    ) -> dict[str, object]:
-        """One row's bytes with the byte on each side, checked as Case ``case_id``."""
-
-        if offset < 1 or offset + length > self._size - 1:
-            raise ValueError(f"entry {case_id} points outside {CASES_FILE}")
-        cases.seek(offset - 1)
-        framed: bytes = cases.read(length + 2)
-        if len(framed) != length + 2:
-            raise ValueError(f"{CASES_FILE} is shorter than its index")
-        opener: bytes = b"[" if case_id == 1 else b","
-        closer: bytes = b"]" if case_id == self._count else b","
-        if framed[:1] != opener or framed[-1:] != closer:
-            raise ValueError(f"entry {case_id} is not framed by {opener!r} and {closer!r}")
-        return _check_row(framed[1:-1], 0, length, case_id)
 
     def _check_layout(self, entries: Sequence[tuple[int, int]], start: int, end: int) -> None:
         """The rows are contiguous, comma-separated, and inside the array brackets."""
@@ -300,6 +371,14 @@ class LegacyBoard:
         if any(not isinstance(row, dict) for row in rows[:count]):
             raise ValueError("case rows must be objects")
         return json.dumps(rows[:count], ensure_ascii=False, separators=_SEPARATORS)
+
+    def rows(self, case_ids: Sequence[int]) -> str:
+        rows: list[Any] = self._all()
+        _check_ids(case_ids, len(rows))
+        selected: list[Any] = [rows[case_id - 1] for case_id in case_ids]
+        for row, case_id in zip(selected, case_ids, strict=True):
+            _positioned(row, case_id)
+        return json.dumps(selected, ensure_ascii=False, separators=_SEPARATORS)
 
 
 def open_board(root: Path, read_legacy: Callable[[], str]) -> BoardStore:

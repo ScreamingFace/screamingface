@@ -156,7 +156,7 @@ def test_a_board_without_an_index_is_still_streamed(tmp_path: Path) -> None:
 
 def test_indexed_board_reads_rows_by_id_and_skips_ids_it_does_not_hold(tmp_path: Path) -> None:
     root = _write_indexed(tmp_path, _rows(4))
-    rows = IndexedBoard(root).rows((4, 0, 2, 9, 2, -3))
+    rows = IndexedBoard(root).rows_by_id((4, 0, 2, 9, 2, -3))
     assert rows == {
         4: {"id": 4, "case_id": "c4", "input": "question 4 — π ≈ 4?"},
         2: {"id": 2, "case_id": "c2", "input": "question 2 — π ≈ 2?"},
@@ -251,12 +251,24 @@ def test_a_corrupt_index_is_the_bounded_unavailable_error(
     assert str(exc.value).startswith("imported board cases are unavailable: ")
 
 
-def test_only_the_selected_entries_are_checked(tmp_path: Path, no_streaming: None) -> None:
-    """A broken entry the run never selects costs nothing and refuses nothing (O(selected))."""
+def test_a_broken_entry_below_the_largest_selected_id_is_refused(
+    tmp_path: Path, no_streaming: None
+) -> None:
+    """A swap at entries 50/51, outside the selection (181, 7, 90), is benchmark_unavailable.
+
+    WHY (#1636, nested-object forgery): checking only the selected entries cannot prove nesting
+    depth — an entry can point at ``{"id":3,…}`` inside another row's nested array and still be
+    framed by "," on both sides. Grading reads through the same walk as ``rows()``, proving
+    every tile from Case 1 to the largest selected id, so a broken unselected entry below it is
+    refused rather than trusted. I/O is O(largest selected id); memory stays O(selected).
+    """
 
     root = _write_indexed(tmp_path, _rows())
     _swap_entries(root, 50, 51)
-    assert [case.case_id for case in _selected(root, (181, 7, 90))] == [181, 7, 90]
+    with pytest.raises(ResolutionError) as exc:
+        _selected(root, (181, 7, 90))
+    assert exc.value.code == "benchmark_unavailable"
+    assert "not in served order" in str(exc.value)
 
 
 def _selected(root: Path, case_ids: tuple[int, ...]) -> list[Any]:
@@ -342,3 +354,80 @@ def test_a_board_open_board_reads_whole_is_streamed_not_held(
         (2, "question 2 — π ≈ 2?", {}),
     ]
     assert asked == [root]
+
+
+# ── grading refuses exactly what the Cases route's ``rows()`` refuses (#1636) ─────────────
+
+
+def _fake_row() -> bytes:
+    return json.dumps({"id": 3, "input": "FAKE"}, separators=(",", ":")).encode()
+
+
+def _nested_fake(root: Path) -> IndexedBoard:
+    """Main's nested-object tamper: entry 3 points at ``{"id":3,"input":"FAKE"}`` inside row 2.
+
+    WHY: the inner object sits between "[" and "]" like a top-level element, so only the walk
+    from Case 1 (tile 2 is not one whole object any more) proves it is not Case 3.
+    """
+
+    rows = _rows(50)
+    rows[1] = {"id": 2, "nested": [{"id": 3, "input": "FAKE"}]}
+    _write_indexed(root, rows)
+    cases = (root / CASES_FILE).read_bytes()
+    _set_entry(root, 3, cases.index(_fake_row()), len(_fake_row()))
+    return IndexedBoard(root)
+
+
+def _true_id(root: Path) -> IndexedBoard:
+    """Main's bool tamper: Case 1 stored as ``{"id": true}``, which ``True == 1`` would admit."""
+
+    rows = _rows(50)
+    rows[0] = {"id": True, "input": "question 1"}
+    _write_indexed(root, rows)
+    return IndexedBoard(root)
+
+
+TAMPERS: list[tuple[Callable[[Path], IndexedBoard], tuple[int, ...]]] = [
+    (_nested_fake, (3, 4)),
+    (_true_id, (1, 3)),
+]
+
+
+@pytest.mark.parametrize(("tamper", "ids"), TAMPERS, ids=lambda v: getattr(v, "__name__", ""))
+def test_rows_by_id_refuses_what_rows_refuses(
+    tmp_path: Path, tamper: Callable[[Path], IndexedBoard], ids: tuple[int, ...]
+) -> None:
+    """INVARIANT: one validated read path behind both names — same refusal, same error text."""
+
+    board = tamper(tmp_path)
+    with pytest.raises(ResolutionError) as served:
+        board.rows(ids)
+    with pytest.raises(ResolutionError) as graded:
+        board.rows_by_id(ids)
+    assert served.value.code == graded.value.code == "benchmark_unavailable"
+    assert str(graded.value) == str(served.value)
+    assert "FAKE" not in str(graded.value)
+
+
+@pytest.mark.parametrize(("tamper", "ids"), TAMPERS, ids=lambda v: getattr(v, "__name__", ""))
+def test_grading_refuses_a_tampered_index_through_read_selected_cases(
+    tmp_path: Path,
+    tamper: Callable[[Path], IndexedBoard],
+    ids: tuple[int, ...],
+    no_streaming: None,
+) -> None:
+    """End to end: aggregation never grades the nested FAKE or a ``true`` id as a Case."""
+
+    tamper(tmp_path)
+    with pytest.raises(ResolutionError) as exc:
+        _selected(tmp_path, tuple(reversed(ids)))
+    assert exc.value.code == "benchmark_unavailable"
+    assert "FAKE" not in str(exc.value)
+
+
+def test_rows_by_id_returns_the_rows_rows_serves(tmp_path: Path) -> None:
+    """Same bytes, two shapes: ``rows`` serves JSON text, ``rows_by_id`` the parsed rows."""
+
+    board = IndexedBoard(_write_indexed(tmp_path, _rows(50)))
+    served = json.loads(board.rows((7, 42)))
+    assert board.rows_by_id((42, 7, 42, 0, 51)) == {row["id"]: row for row in served}

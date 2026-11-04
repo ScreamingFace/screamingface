@@ -2210,14 +2210,15 @@ def _picture_benchmarks_e2e() -> NotebookNode:
         nbformat.v4.new_markdown_cell("""\
 # Picture Benchmarks — two Cases each, on the local stack or dev
 
-Five imported Benchmarks show the Candidate a picture with every question: LAB-Bench FigQA
-(biology figures), LAB-Bench TableQA (biology tables), MMMU multiple choice and MMMU open
-(college exam questions about charts, diagrams and photos) and MathVista (maths over plots and
-figures). Each picture is saved inside its Case when the Benchmark is imported, so nothing is
-fetched at run time.
+Six imported Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures),
+LAB-Bench TableQA (biology tables), MMMU multiple choice and MMMU open (college exam questions
+about charts, diagrams and photos) and MathVista (maths over plots and figures) with every
+question, and Humanity's Last Exam (HLE, expert questions across 100+ subjects) with 342 of its
+2,500 questions. Each picture is saved inside its Case when the Benchmark is imported, so
+nothing is fetched at run time.
 
 This notebook is a smoke test for the picture path, not a ranking. It points at **either** the
-local stack **or** dev with one variable, lists which of the five that Engine serves, and runs
+local stack **or** dev with one variable, lists which of the six that Engine serves, and runs
 two Cases of each with one cheap model that reads pictures. Two Cases are enough to catch a run
 that breaks on pictures, for example one that goes over its memory budget.
 
@@ -2232,15 +2233,20 @@ extra) beside the Scoreboard on `:9106`, prepares every Benchmark's Cases the fi
 once) and opens Jupyter on `examples/`. If you moved the Engine with
 `SCREAMINGFACE_NOTEBOOK_ENGINE_PORT=…`, the next cell reads the same variable.
 
+**HLE's dataset is gated.** cais/hle on Hugging Face asks you to accept its terms once; then set
+`HF_TOKEN` (or run `huggingface-cli login`) before `just local-stack-notebooks`. Without a token
+the local stack skips HLE with a warning and serves the other five.
+
 **Dev.** fusion.dev, behind a Cloudflare Access login. `sf.connect()` opens that login in your
 browser.
 
 Two things differ between the two targets:
 
-- **On a Mac, the local stack serves only FigQA and TableQA.** MMMU and MathVista have their
-  Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
+- **On a Mac, the local stack serves only FigQA, TableQA and HLE.** MMMU and MathVista have
+  their Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
   Pillow writes different PNG bytes on macOS, so a Mac's own prepared Cases cannot match it, and
-  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them.
+  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE keeps each
+  picture's bytes as the dataset ships them, so its Case Digest seals the same on a Mac.
 - **The per-run memory budget is enforced only on a Linux deployment.** A local Engine watches
   no memory, so a run that uses too much memory fails on dev and never locally (section 7)."""),
         nbformat.v4.new_markdown_cell("""\
@@ -2280,7 +2286,7 @@ sf.connect()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 2. Which picture Benchmarks this Engine serves
 
-The five ids below are the catalogue ids of the five picture Benchmarks. The cell lists the
+The six ids below are the catalogue ids of the six picture Benchmarks. The cell lists the
 ones this Engine serves and names each one it can't run with its likely reason:
 
 - the local stack runs on a Mac, and the Benchmark's Case Digest is sealed on Linux. A local
@@ -2298,6 +2304,7 @@ PICTURE_BENCHMARKS = {
     "inspect-mmmu_multiple_choice": "letter match (inspect's choice scorer, no judge)",
     "inspect-mmmu_open": "judge (a judge model reads the reply against the answer)",
     "inspect-mathvista": "exact match of the letter or the text after 'ANSWER:', no judge",
+    "inspect-hle": "judge (HLE's regex_judge compares the final answer with the reference)",
 }
 # Their pictures are re-saved by Pillow at preparation, so their Case Digest is sealed on Linux.
 SEALED_ON_LINUX = {"inspect-mmmu_multiple_choice", "inspect-mmmu_open", "inspect-mathvista"}
@@ -2324,8 +2331,8 @@ for benchmark_id in PICTURE_BENCHMARKS:
 ## 3. Each served Benchmark's card
 
 The Case count, the revision (the pin on the imported Cases: two Engines showing the same
-revision ask the same questions) and how the Benchmark is graded. Only `inspect-mmmu_open`
-spends judge tokens; the other four grade by matching the answer, for free."""),
+revision ask the same questions) and how the Benchmark is graded. Only `inspect-mmmu_open` and
+`inspect-hle` spend judge tokens; the other four grade by matching the answer, for free."""),
         nbformat.v4.new_code_cell("""\
 for benchmark_id in served:
     card = sf.benchmarks.get(benchmark_id)
@@ -2389,6 +2396,16 @@ run_two_cases("inspect-mmmu_open")"""),
         nbformat.v4.new_code_cell("""\
 run_two_cases("inspect-mathvista")"""),
         nbformat.v4.new_markdown_cell("""\
+### HLE: one picture Case and one text Case
+
+HLE's first two Cases, in its dataset order, are a picture question and then a text question, so
+`limit=2` runs both paths the Benchmark has. Its judge is glm-5.3-flash on OpenRouter: on the
+local stack the OpenRouter key from the panel pays for it, as for MMMU open. Run it on the local
+stack first; on dev, once the deployment that carries this Benchmark is up. Section 6 shows the
+picture the model saw and the judge's own words on each Case."""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("inspect-hle")"""),
+        nbformat.v4.new_markdown_cell("""\
 ## 6. Inspect the results
 
 Per Case: its status, its score, and any failure codes. A Case with no grade shows its failure
@@ -2431,22 +2448,22 @@ else:
         picture = f"Could not fetch the picture: {exc.code}: {exc.message}"
 picture"""),
         nbformat.v4.new_markdown_cell("""\
-### The judge's evidence on MMMU open
+### The judge's evidence on MMMU open and HLE
 
-`inspect-mmmu_open` is the one judged Benchmark here. Each Case's check evidence carries the
-judge's own explanation verbatim, the way `12_inspect_evals_benchmarks` section 7 shows it, so a
-surprising score can be read, not just counted."""),
+`inspect-mmmu_open` and `inspect-hle` are the two judged Benchmarks here. Each Case's check
+evidence carries the judge's own explanation verbatim, the way `12_inspect_evals_benchmarks`
+section 7 shows it, so a surprising score can be read, not just counted."""),
         nbformat.v4.new_code_cell("""\
-open_report = reports.get("inspect-mmmu_open")
-if open_report is None:
-    print("No inspect-mmmu_open run yet (not served, or RUN_EVALUATION is False).")
-else:
-    for case in open_report.candidates.only.cases:
+for benchmark_id in ("inspect-mmmu_open", "inspect-hle"):
+    judged_report = reports.get(benchmark_id)
+    if judged_report is None:
+        print(f"No {benchmark_id} run yet (not served, or RUN_EVALUATION is False).")
+        continue
+    for case in judged_report.candidates.only.cases:
         grade = case.grade
-        print(case.case_id, case.status, grade.score if grade else None)
-
-first = open_report.candidates.only.cases[0].grade if open_report is not None else None
-() if first is None or not first.checks else first.checks[0].evidence"""),
+        print(benchmark_id, case.case_id, case.status, grade.score if grade else None)
+        if grade is not None and grade.checks:
+            print("  judge:", grade.checks[0].evidence)"""),
         nbformat.v4.new_markdown_cell("""\
 ## 7. When a run fails on memory
 
@@ -2457,7 +2474,8 @@ memory, so the same run passes locally.
 
 A 2-Case run is not a small run for memory: it still loads the Benchmark's whole Cases file,
 pictures included, before it picks its two Cases. A Benchmark whose Cases file is large can go
-over the budget at any `limit`."""),
+over the budget at any `limit`. HLE's is the largest here (2,500 Cases, 342 with a picture), so
+on dev it is the first to meet that budget."""),
     )
 
 
