@@ -1620,6 +1620,13 @@ def _frozen_tool_results(
 
 
 def _messages(context: str | None, intent: str | None) -> list[dict[str, Any]]:
+    if not context and intent:
+        # FIX (OME-1808): a default-route reduce with no attachments has an empty context, and
+        # `system=<intent>` + `user=""` is a 400 on Anthropic ("at least one message is
+        # required": the system message is lifted out and the empty turn dropped). The intent is
+        # then the only content, so it travels as the one user turn. A non-empty context keeps
+        # today's bytes exactly; the request identity hashes context and intent, not messages.
+        return [{"role": "user", "content": intent}]
     messages: list[dict[str, Any]] = []
     if intent:
         messages.append({"role": "system", "content": intent})

@@ -82,3 +82,34 @@ list equal to 1..N is written as the count, so every `limit=` recipe stays byte-
   (whole-Engine pyright): `Benchmark.build` is typed `int | CaseSelection`, because builders
   still take the historic count; and #1629's stand-in board in `test_board_cases_route.py`
   gained a two-line `rows` so it still matches the `BoardStore` protocol (no assertion moved).
+- **Review round 1 (#1636, 2026-11-03):** `IndexedBoard.rows()` now gives `head()`'s guarantees
+  on the explicit-id path: exact 16-byte entry reads, the row read with one byte each side and
+  required to sit between `[`/`,` and `,`/`]` (an index entry aimed at a nested object inside
+  another row is refused), `_check_row` on the bytes (`type(id) is int`, id == position), and
+  every `OSError`/`struct.error`/`ValueError` (short reads, bad UTF-8, bad JSON) mapped to
+  `benchmark_unavailable`; `_check_ids` requires ascending, distinct ids (`rows((2, 2))` is a
+  `ValueError`); `LegacyBoard` refuses a `true` id. `CaseSelection.of` checks the cap before
+  listing duplicates and every id list in an error message shows at most ten ids. Pinned by
+  `tests/unit/test_board_rows_hardening.py` (8) and one appended test in
+  `test_case_selection_ids.py`. The five prior-test edits (count → Case-id tuple) are approved by
+  Sergey Bershadsky (owner, review of 2026-11-03) and pinned in
+  `.claude/test-change-approvals/OME-1739.json`; the append-only check passes against `a91ef670`
+  with the manifest and fails without it. Gates: 151 passed, 1 skipped across the 7 selection,
+  board-store and selection-route test files; ruff, ruff format, pyright and layering clean.
+  Skipped (needs a scoring harness the serving tests lack): a MedXpert `/case-result` loader test
+  on `[2, 3]`.
+- **Review round 2 (#1636, 2026-11-04):** the one-byte framing was not a proof: an object inside
+  a nested ARRAY sits between `[` and `]` like a real element, and rewriting the entries around
+  it keeps a neighbour-only chain contiguous (HupBaHa's repro served FAKE as Case 3; the
+  pushed-out variant with entries 2, 3 and 4 rewritten passed a neighbour check). `rows()` now
+  proves a selected tile is top-level by induction from the array start: it reads entries
+  1..largest id in one read, runs `_check_layout` (offset 1, one-byte gaps, inside the array),
+  then walks tiles 1..largest sequentially, running `_check_row` on EVERY tile and keeping only
+  the selected ones. Tile 1 is pinned at offset 1 and proven one object, so it is the true Case
+  1; each proven tile pins the next tile's start; hence tiles 1..largest are the array's own
+  elements and a nested object can never be among them. Cost: O(largest selected id) reads,
+  like `limit=`; memory O(selected), one tile in flight. An offsets hash recorded in
+  `board.json` at prepare time would restore O(selected) I/O (follow-up). Pinned by two tests
+  appended to `tests/unit/test_board_rows_hardening.py` (both served FAKE before the fix).
+  Gates: 133 passed, 1 skipped across the 6 board-store and selection test files; ruff, format,
+  pyright clean.

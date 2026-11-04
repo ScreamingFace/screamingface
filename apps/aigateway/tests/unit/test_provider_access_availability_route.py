@@ -27,7 +27,7 @@ from aigateway.core.provider_access import (
     AvailabilityStatus,
     PairAuthorityStore,
 )
-from aigateway.core.provider_access import profile_authorize as authorize_module
+from aigateway.core.provider_access import connection_authorize as authorize_module
 from tests.unit.migrated_pair_seed import seed_migrated_pair
 from tests.unit.seed_state import SeedState
 

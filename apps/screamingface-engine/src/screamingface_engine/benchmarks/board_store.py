@@ -116,8 +116,9 @@ class BoardStore(Protocol):
     def rows(self, case_ids: Sequence[int]) -> str:
         """The rows for ``case_ids`` (ascending, distinct) as a JSON array (OME-1739).
 
-        Worked example: ``rows((3, 17))`` reads only positions 3 and 17 and serves
-        ``[{"id":3,…},{"id":17,…}]``; ``rows((1, 2, 3))`` is byte-identical to ``head(3)``.
+        Worked example: ``rows((3, 17))`` serves ``[{"id":3,…},{"id":17,…}]``, walking tiles
+        1..17 to prove each is a top-level element but holding only the selected ones;
+        ``rows((1, 2, 3))`` is byte-identical to ``head(3)``.
 
         Raises:
             ValueError: an id is outside ``1..case_count()``.
@@ -139,6 +140,10 @@ def _check_count(count: int, available: int) -> None:
 def _check_ids(case_ids: Sequence[int], available: int) -> None:
     if not case_ids or case_ids[0] < 1 or case_ids[-1] > available:
         raise ValueError(f"selected Cases {list(case_ids)} outside 1..{available}")
+    # WHY (review on #1636): the 1..N shortcut below reads ``case_ids[-1] == len(case_ids)``,
+    # which ``(2, 2)`` satisfies; only an ascending, distinct list may take it.
+    if any(later <= earlier for earlier, later in zip(case_ids, case_ids[1:], strict=False)):
+        raise ValueError(f"selected Cases {list(case_ids)} are not ascending and distinct")
 
 
 def _positioned(row: object, case_id: int) -> None:
@@ -148,8 +153,10 @@ def _positioned(row: object, case_id: int) -> None:
     serve one question under another's id and grade it against the wrong answer key.
     """
 
-    if not isinstance(row, dict) or row.get("id") != case_id:
-        found: object = row.get("id") if isinstance(row, dict) else row
+    found: object = row.get("id") if isinstance(row, dict) else row
+    # WHY type() not isinstance: a JSON true is a Python bool, and ``True == 1`` would let a
+    # ``{"id": true}`` row pass as Case 1.
+    if not isinstance(row, dict) or type(found) is not int or found != case_id:
         raise _broken(f"Case {case_id} is stored with id {found!r}")
 
 
@@ -252,23 +259,45 @@ class IndexedBoard:
         _check_ids(case_ids, self._count)
         if case_ids[-1] == len(case_ids):
             return self.head(len(case_ids))  # 1..N: one contiguous read, as ``head``
+        selected: frozenset[int] = frozenset(case_ids)
+        last: int = case_ids[-1]
         served: list[str] = []
+        # INVARIANT (review on #1636, round 2): a selected tile is proven a top-level element
+        # by INDUCTION from the array start, never by its neighbouring bytes. A delimiter
+        # cannot prove nesting depth: inside ``"nested":[{"id":3,…}]`` the inner object sits
+        # between "[" and "]" exactly like a real element, and rewriting the entries around it
+        # keeps a neighbour-only chain contiguous. So: tile 1 is pinned at offset 1 (just after
+        # the array's "[") and is checked to be one whole object, hence it is the true Case 1;
+        # each proven tile ends one "," before the next entry's offset (``_check_layout``),
+        # which pins the next tile's start; therefore tiles 1..last are the array's own
+        # elements in order, and an object nested inside one of them can never be among them.
+        # AIDEV-NOTE: this costs O(largest selected id) reads, like ``limit=`` does, while memory
+        # stays O(selected): one tile is in flight at a time. An offsets hash recorded in
+        # board.json at prepare time would let a selected read trust the index and go back to
+        # O(selected) I/O — a follow-up, not this PR.
         try:
-            with self._offsets.open("rb") as offsets, self._cases.open("rb") as cases:
-                for case_id in case_ids:
-                    offsets.seek((case_id - 1) * _ENTRY.size)
-                    offset, length = _ENTRY.unpack(offsets.read(_ENTRY.size))
-                    if offset < 1 or length < 2 or offset + length > self._size - 1:
-                        raise _broken(f"{OFFSETS_FILE} points outside {CASES_FILE}")
-                    cases.seek(offset)
-                    text: str = cases.read(length).decode("utf-8")
-                    try:
-                        _positioned(json.loads(text), case_id)
-                    except ValueError as exc:
-                        raise _broken(f"{OFFSETS_FILE} does not match {CASES_FILE}") from exc
-                    served.append(text)
-        except OSError as exc:
-            raise _broken(str(exc)) from exc
+            with self._offsets.open("rb") as handle:
+                entries: list[tuple[int, int]] = list(
+                    _ENTRY.iter_unpack(handle.read(last * _ENTRY.size))
+                )
+            if len(entries) != last:
+                raise _broken(f"{OFFSETS_FILE} holds fewer than {last} entries")
+            self._check_layout(entries, entries[0][0], entries[-1][0] + entries[-1][1])
+            with self._cases.open("rb") as cases:
+                for position, (offset, length) in enumerate(entries, start=1):
+                    # WHY the gap byte: ``_check_row`` proves the "," before every tile but the
+                    # first, whose start is pinned by ``_check_layout`` (offset 1) instead.
+                    first: int = 0 if position == 1 else 1
+                    cases.seek(offset - first)
+                    chunk: bytes = cases.read(length + first)
+                    if len(chunk) != length + first:
+                        raise _broken(f"{CASES_FILE} is shorter than its index")
+                    _check_row(chunk, first, length, position)
+                    if position in selected:
+                        served.append(chunk[first:].decode("utf-8"))
+        # WHY ValueError: json.JSONDecodeError and UnicodeDecodeError are both ValueErrors.
+        except (OSError, struct.error, ValueError) as exc:
+            raise _broken(f"{OFFSETS_FILE} does not match {CASES_FILE} ({exc})") from exc
         return "[" + ",".join(served) + "]"
 
     def _check_layout(self, entries: Sequence[tuple[int, int]], start: int, end: int) -> None:

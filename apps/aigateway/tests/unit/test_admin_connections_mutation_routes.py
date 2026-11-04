@@ -150,7 +150,7 @@ def test_a_committed_mutation_drops_only_the_pairs_pending_flows(client, admin_c
         return PendingAuthEntry(
             account_id=tenant,
             provider=provider,
-            profile_name="default",
+            fallback_label="default",
             code_verifier="v",
             redirect_uri="https://example.invalid/cb",
             connection_id=connection,

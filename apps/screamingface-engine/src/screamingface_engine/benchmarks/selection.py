@@ -65,13 +65,17 @@ class CaseSelection:
             if type(case_id) is not int:
                 raise ValueError("Case ids must be whole numbers of at least 1")
             ids.append(case_id)
-        repeated: list[int] = sorted(case_id for case_id, seen in Counter(ids).items() if seen > 1)
-        if repeated:
-            raise ValueError(f"Case ids must be distinct (repeated: {repeated})")
+        # WHY the cap before the duplicates (review on #1636): a 200,000-id body once produced
+        # a 1.5 MB 422 detail listing every repeated id; the cap bounds the work and the text.
+        # AIDEV-NOTE: a POST of 1..1001 is refused here although ``limit=1001`` would write the
+        # same recipe; the cap is on the posted list, not on the recipe it would produce.
         if len(ids) > MAX_SELECTED_CASE_IDS:
             raise ValueError(
                 f"at most {MAX_SELECTED_CASE_IDS} Case ids per run; this list has {len(ids)}"
             )
+        repeated: list[int] = sorted(case_id for case_id, seen in Counter(ids).items() if seen > 1)
+        if repeated:
+            raise ValueError(f"Case ids must be distinct (repeated: {_listed(repeated)})")
         return cls(tuple(sorted(ids)))
 
     @classmethod
@@ -124,9 +128,7 @@ class CaseSelection:
 
         if self.case_ids[-1] > available:
             above: list[int] = [case_id for case_id in self.case_ids if case_id > available]
-            raise ValueError(
-                f"the Benchmark has {available} Cases; {', '.join(map(str, above))} out of range"
-            )
+            raise ValueError(f"the Benchmark has {available} Cases; {_listed(above)} out of range")
         return self
 
     def __str__(self) -> str:
@@ -136,5 +138,16 @@ class CaseSelection:
             return str(self.count)
         return json.dumps(list(self.case_ids), separators=(",", ":"))
 
+
+def _listed(case_ids: Iterable[int]) -> str:
+    """The first ``_SHOWN_IDS`` ids as text, then ``…``: error detail stays bounded."""
+
+    shown: list[int] = list(case_ids)
+    text: str = ", ".join(map(str, shown[:_SHOWN_IDS]))
+    return text if len(shown) <= _SHOWN_IDS else f"{text}, … ({len(shown)} in all)"
+
+
+# WHY 10: enough to find the offending ids in a 422 detail, never the whole posted list.
+_SHOWN_IDS = 10
 
 __all__ = ["MAX_SELECTED_CASE_IDS", "CaseSelection"]

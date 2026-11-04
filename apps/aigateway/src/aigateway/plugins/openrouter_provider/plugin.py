@@ -131,9 +131,9 @@ if TYPE_CHECKING:
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
 
 
-def _credential_service_for(profile_name: str) -> str:
+def _credential_service_for(credential_name: str) -> str:
     """Namespace the stored credential slot by provider + profile/connection."""
-    return f"aigateway:openrouter:{profile_name}"
+    return f"aigateway:openrouter:{credential_name}"
 
 
 def _upstream_model_for_discovery(model: str) -> str | None:
