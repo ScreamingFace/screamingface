@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -52,6 +52,7 @@ _DEFAULT_TIMEOUT_S = 30.0
 # fixed cost however large a hostile store or proxy makes the body (#1603 review round 3).
 _ERROR_PREFIX_BYTES = 512
 _ERROR_DETAIL_CHARS = 200
+_IDENTITY_ENCODINGS = frozenset({"", "identity"})
 
 
 class S3ObjectTooLarge(Exception):
@@ -235,12 +236,16 @@ class S3ArtifactStore:
                         f"object storage refused GET {key} with {r.status_code}: "
                         f"{_read_error_detail(r)}"
                     )
+                _refuse_encoded(r, f"GET {key}")
                 declared = r.headers.get("content-length", "")
                 if declared.isdigit() and int(declared) > max_bytes:
                     raise S3ObjectTooLarge(f"{key} holds {declared} bytes; the cap is {max_bytes}")
                 chunks: list[bytes] = []
                 size = 0
-                for chunk in r.iter_bytes(_STREAM_CHUNK_BYTES):
+                # INVARIANT (#1603 review round 4): RAW bytes. `iter_bytes` decodes any
+                # Content-Encoding BEFORE chunking, so a tiny gzip body would inflate past the
+                # cap before the first size check; `_refuse_encoded` makes raw == stored.
+                for chunk in _raw_chunks(r, _STREAM_CHUNK_BYTES):
                     size += len(chunk)
                     if size > max_bytes:
                         raise S3ObjectTooLarge(f"{key} holds more than {max_bytes} bytes")
@@ -339,28 +344,96 @@ class S3ArtifactStore:
             async with self._async_client_factory() as client:
                 async with client.stream("GET", url, headers=headers) as response:
                     if response.status_code >= 400:
-                        # INVARIANT: a bounded prefix, never `aread()` (#1603 review round 3).
-                        prefix = b""
-                        async for prefix in response.aiter_bytes(_ERROR_PREFIX_BYTES):
-                            break
+                        # INVARIANT: a bounded RAW prefix, never `aread()` or `aiter_bytes()`
+                        # (#1603 review rounds 3 and 4); an encoded body is not read at all.
+                        detail = _encoded_body_note(response)
+                        if detail is None:
+                            prefix = b""
+                            async for prefix in _araw_chunks(response, _ERROR_PREFIX_BYTES):
+                                break
+                            detail = _error_detail(prefix)
                         await response.aclose()
                         raise S3StorageError(
                             f"object storage refused GET {key} with {response.status_code}: "
-                            f"{_error_detail(prefix)}"
+                            f"{detail}"
                         )
-                    async for chunk in response.aiter_bytes(_STREAM_CHUNK_BYTES):
+                    _refuse_encoded(response, f"GET {key}")
+                    async for chunk in _araw_chunks(response, _STREAM_CHUNK_BYTES):
                         yield chunk
         except httpx.HTTPError as exc:
             raise S3StorageError(f"GET {key} could not reach object storage: {exc}") from exc
 
 
+def _raw_chunks(response: httpx.Response, size: int) -> Iterator[bytes]:
+    """The body's raw (undecoded) bytes in `size` chunks.
+
+    WHY the `is_stream_consumed` branch: a response built in memory (`httpx.Response(content=)`,
+    as a mock transport or a buffering transport returns) is already read, and `iter_raw` would
+    raise `StreamConsumed`. Its bytes are already materialised, so slicing them costs nothing
+    the response has not already spent. On the wire, `client.stream` never pre-reads.
+    """
+    if response.is_stream_consumed:
+        body = response.content
+        for at in range(0, len(body), size):
+            yield body[at : at + size]
+        return
+    yield from response.iter_raw(size)
+
+
+async def _araw_chunks(response: httpx.Response, size: int) -> AsyncIterator[bytes]:
+    """The async twin of `_raw_chunks`."""
+    if response.is_stream_consumed:
+        for chunk in _raw_chunks(response, size):
+            yield chunk
+        return
+    async for chunk in response.aiter_raw(size):
+        yield chunk
+
+
+def _content_encoding(response: httpx.Response) -> str | None:
+    """The response's Content-Encoding when it is anything but identity, else None."""
+    raw = response.headers.get("content-encoding", "")
+    tokens = {token.strip().lower() for token in raw.split(",")}
+    return None if tokens <= _IDENTITY_ENCODINGS else raw.strip()
+
+
+def _encoded_body_note(response: httpx.Response) -> str | None:
+    """A diagnostic standing in for an encoded error body that is deliberately left unread."""
+    encoding = _content_encoding(response)
+    return None if encoding is None else f"<{encoding}-encoded body not read>"
+
+
+def _refuse_encoded(response: httpx.Response, what: str) -> None:
+    """Refuse an object body the store (or a proxy) sent with a non-identity Content-Encoding.
+
+    FEATURE: #1603 review round 4 — HTTPX would inflate it before any cap applies.
+
+    WHY refuse rather than decode: an object store returns the stored bytes and this client
+    never asks for compression, so an encoded body is a misbehaving store or proxy. Decoding it
+    under a cap would mean a decompressor with its own output bound; refusing needs none.
+    """
+    encoding = _content_encoding(response)
+    if encoding is not None:
+        raise S3StorageError(
+            f"object storage answered {what} with Content-Encoding {encoding!r}; "
+            "object bytes must arrive unencoded"
+        )
+
+
 def _read_error_detail(response: httpx.Response) -> str:
-    """The error text from at most `_ERROR_PREFIX_BYTES` of a STREAMED body, then close it."""
-    prefix = b""
-    for prefix in response.iter_bytes(_ERROR_PREFIX_BYTES):
-        break
+    """The error text from at most `_ERROR_PREFIX_BYTES` of a STREAMED body, then close it.
+
+    INVARIANT (#1603 review round 4): RAW bytes only, and an encoded body is not read at all —
+    `iter_bytes` would inflate a compressed body before the prefix limit applied.
+    """
+    detail = _encoded_body_note(response)
+    if detail is None:
+        prefix = b""
+        for prefix in _raw_chunks(response, _ERROR_PREFIX_BYTES):
+            break
+        detail = _error_detail(prefix)
     response.close()
-    return _error_detail(prefix)
+    return detail
 
 
 def _error_detail(prefix: bytes) -> str:

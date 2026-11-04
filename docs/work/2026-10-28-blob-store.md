@@ -276,3 +276,22 @@ status: done (item 1 unblocked by owner approval 2026-11-04)
 - **Follow-up (coordinator, same round):** `_request` now uses `client.stream`, so HEAD/PUT/DELETE
   error bodies cost the same 512-byte prefix; 404/412 unchanged and never read. 5 new tests
   (RED confirmed), no prior test changed.
+
+## Review round 4 — HupBaHa CHANGES_REQUESTED on head ff9ddd58d (2026-11-04)
+
+status: done
+
+- **Finding:** `iter_bytes`/`aiter_bytes` decode `Content-Encoding` before chunking (httpx
+  0.28.1), so a 19 KB gzip body inflating to 20 MB peaked near 50 MB under a 100-byte cap. This
+  affected the capped success read, the sync error diagnostics and the async artifact stream.
+- **Fix:** `s3.py` reads object bytes and error prefixes with `iter_raw`/`aiter_raw`, through
+  the `_raw_chunks`/`_araw_chunks` helpers. A pre-read in-memory response is sliced instead,
+  because `iter_raw` raises `StreamConsumed` on it. A non-identity `Content-Encoding` is never
+  decoded. On a 2xx (capped GET, artifact stream) it is refused as `S3StorageError`. On an
+  error response the body is left unread and the message says `<gzip-encoded body not read>`.
+- **Tests:** `test_blob_review_round4.py` has 17 cases, written first, with RED confirmed
+  (peaks of about 17 MB). gzip and deflate bombs inflate to 20 MB each. They run on the success
+  read, the error read, the `_request` error, the blob backend, and the async stream success and
+  error. Each asserts `S3StorageError` and a tracemalloc peak under 1 MB above baseline. Identity
+  bodies are still read, both pre-read and streamed. No prior test changed.
+- **Gates:** `run_gates.py screamingface-engine --base origin/main` ALL GREEN; `s3.py` 445 lines.
