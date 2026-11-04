@@ -16,6 +16,10 @@ permissions:
   checks: write
   pull-requests: write
 
+# INVARIANT: test and preparation commands never enroll runners in SDK analytics.
+env:
+  DO_NOT_TRACK: "1"
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -72,6 +76,9 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=80 \
             -v
+
+      - name: Run benchmark picker keyboard tests
+        run: node --test tests/portal/benchmark-picker-keyboard.test.js
 
       # The portal's pure logic (which row may be presented as SOTA, ordering, bar
       # scaling), under Node's built-in runner. No package.json, no vitest, no
@@ -172,6 +179,7 @@ jobs:
             tests/unit/scores/test_read_snapshot_postgres.py \
             tests/unit/test_delete_scores_postgres.py \
             tests/unit/test_readyz_pool_postgres.py \
+            tests/unit/test_score_text_validation.py \
             -v
 
   cost:

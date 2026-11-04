@@ -16,6 +16,7 @@ from inspect import isawaitable
 from url4.core.code import CodeCall, CodeHandler, invoke_mounted
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.layer import FetchRequest, FetchResult
+from url4.io.media import FetchedBytes, require_text
 from url4.wire.subrequest import decode_subrequest, extract_expression_params
 
 RouteHandler = Callable[[str, str], str | Awaitable[str]]
@@ -24,7 +25,10 @@ RouteHandler = Callable[[str, str], str | Awaitable[str]]
 class StaticIOLayer:
     """An in-memory :class:`~url4.io.layer.IOLayer` — no network, fully deterministic.
 
-    ``fetch_map`` maps an exact URL/path to its content (a static data read).
+    ``fetch_map`` maps an exact URL/path to its content (a static data read):
+    ``str`` for text, or ``bytes`` for a binary-safe source served by
+    ``fetch_bytes`` as-is. A ``bytes`` value whose mapped media type is binary is
+    refused on the text paths (``unsupported_content_type``), like ``HttpIOLayer``.
     ``routes`` maps a localhost path (e.g. ``/claude``) to a handler
     ``(context, intent) -> str`` (sync or async) — invoked when a relative
     expression is fetched as ``/claude?q=(context)!intent``, simulating a
@@ -40,7 +44,7 @@ class StaticIOLayer:
 
     def __init__(
         self,
-        fetch_map: dict[str, str] | None = None,
+        fetch_map: Mapping[str, str | bytes] | None = None,
         routes: dict[str, RouteHandler] | None = None,
         *,
         holdings: Mapping[str, str] | None = None,
@@ -54,6 +58,18 @@ class StaticIOLayer:
         self._code = dict(code or {})
 
     async def fetch(self, target: str, *, relative: bool) -> str:
+        body = await self._lookup(target)
+        if isinstance(body, str):
+            return body
+        require_text(target, self._media_types.get(target))
+        return body.decode("utf-8")
+
+    async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes:
+        body = await self._lookup(request.target)
+        raw = body.encode("utf-8") if isinstance(body, str) else body
+        return FetchedBytes(raw, media_type=self._media_types.get(request.target))
+
+    async def _lookup(self, target: str) -> str | bytes:
         # Routes accept the full canonical form "/path?[params&]q=…" (spec
         # §3.1.1) — protocol params before q= are tolerated and ignored by
         # this test double; the expression alone reaches the handler.

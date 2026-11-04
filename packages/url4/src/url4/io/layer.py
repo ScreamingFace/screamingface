@@ -21,6 +21,9 @@ Two optional capability protocols widen the port without breaking old adapters:
 - :class:`SupportsHoldings` — resolves ``@`` / ``@identity`` self- and
   identity-references (spec §5.6) against the node's own data.
 
+The binary-safe bytes port (``fetch_bytes``) and the text/binary media-type rule
+live in :mod:`url4.io.media`.
+
 The batteries-included adapters live in their own modules so importing the port
 never pulls one in:
 

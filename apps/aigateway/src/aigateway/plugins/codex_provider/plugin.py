@@ -10,7 +10,7 @@ from aigateway.core.content_parts import check_messages
 from aigateway.core.input_modalities import (
     TEXT_IMAGE_PDF,
     InputModality,
-    declared_family_modalities,
+    declared_family_evidence,
 )
 from aigateway.core.oauth.identity import AccountIdentity, identity_from_id_token
 from aigateway.core.plugin_base import (
@@ -92,9 +92,10 @@ class CodexProviderPlugin(ProviderPluginBase):
         # AIDEV-NOTE: read through the module attribute so tests swap DIRECTORY.
         live_models.DIRECTORY.set_enabled(enabled=enabled)
 
-    def model_input_modalities(self, entry: ModelEntry) -> tuple[str, ...]:
-        # OME-1537: declared family table; a model outside it is unknown -> text-only.
-        return declared_family_modalities(
+    def model_input_modality_evidence(self, entry: ModelEntry) -> tuple[str, ...] | None:
+        # OME-1537: declared family table. Outside it the model is unknown (None), which
+        # publishes as text-only and passes the chat backstop (OME-1807).
+        return declared_family_evidence(
             entry.model_name.removeprefix("codex/"), _INPUT_MODALITY_FAMILIES
         )
 

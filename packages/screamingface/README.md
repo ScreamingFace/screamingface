@@ -161,7 +161,8 @@ replayed_report = sf.evaluate(score.url4)
 `Url4.to_python()` is local and no-spend: it returns a `str` of Python source, not live objects —
 the `sf.Model`, `sf.Fusion`, `sf.Pipeline`, `sf.CorrectiveLoop`, or `sf.SelfCorrective` written
 back out as editable code, plus the recovered Benchmark call. Raw URL4 evaluation does not accept
-`benchmark=` or `limit=` because either would imply recompiling an already-complete expression.
+`benchmark=`, `limit=` or `cases=` because any of them would imply recompiling an
+already-complete expression.
 Replay starts a new, potentially paid Run; identical URL4 does not guarantee identical model
 output.
 
@@ -180,6 +181,17 @@ Benchmark IDs are flat, complete identities. Bounded development runs use `limit
 the named protocol: `benchmark="draco", limit=1` still uses canonical DRACO's full rubric and five
 Judge passes. The non-canonical HealthBench challenge is therefore named independently as
 `healthbench-worst30`, rather than presented as a canonical HealthBench variant.
+
+A run can also name a fixed list of Case ids instead of the first N: `sf.evaluate(model,
+benchmark="lab_bench_seqqa", cases=[3, 17, 42])`, where a Case id is the Case's position in the
+Benchmark, 1 to N. This is for a development set and a held-out set that are scattered rather
+than a prefix. The SDK posts the list to the Engine and refuses before any model call unless the
+Engine echoes exactly that list back, so an Engine without the selection route never runs and
+bills the whole Benchmark. `report.selected_cases` names the Cases scored, ascending, and
+`report.selection_fingerprint` is the `sha256:` of the sorted ids, to cite together with the
+Benchmark id and revision. A selected run can't be submitted to the leaderboard, `cases=` and
+`limit=` can't be combined, at most 1,000 ids are accepted, and a list equal to Cases 1 to N is
+the same run as `limit=N`.
 
 ### Candidate policy
 
@@ -1403,6 +1415,8 @@ login is asked for only then) unless `record_reproduction=False`.
 - `url4=` is optional; when passed it must be the same parsed recipe as the published one. A passed
   `answer_seed` must equal the captured run's; a run captured without a seed replays without one.
 - `limit=n` replays only the first n cases, for debugging. It is never judged or recorded.
+  `cases=` is refused on a replay: a replay runs the published Case set or its first n, never a
+  different list.
 - A capture that was never submitted replays with `url4=` (and `answer_seed=` if it had one) and
   has no verdict.
 - A replay that cannot start (a partial capture, or an Engine that does not replay) raises
@@ -1430,8 +1444,8 @@ inspect_evals boards alongside ours, and opens JupyterLab against it.
   catalogue as two origin groups — ours and the imported inspect_evals boards — then a
   Fusion against one of the imported boards.
 - [`examples/18_picture_benchmarks.ipynb`](examples/18_picture_benchmarks.ipynb): two Cases of
-  each picture Benchmark (LAB-Bench FigQA and TableQA, MMMU, MathVista, HLE) on the local stack or
-  dev, chosen by one variable, with paid runs off by default.
+  each picture Benchmark (LAB-Bench FigQA and TableQA, MMMU, MathVista, HLE, LABBench2 FigQA2 and
+  TableQA2) on the local stack or dev, chosen by one variable, with paid runs off by default.
 
 All notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 
@@ -1499,14 +1513,17 @@ disclosures reuse the cache without decoding Cases; missing, stale or malformed 
 rebuild, and a read-only cache location still returns derived values. Per-Case HTML still
 materializes its rendered output. Automatic lifecycle discovery remains a separate follow-up.
 
-## Optional analytics (dev preview)
+## Usage analytics
 
-Analytics is off until you explicitly opt in. In local Python or Jupyter:
+Analytics is enabled by default in Python scripts, headless jobs and notebooks.
+The SDK makes a best-effort attempt to show its disclosure; redirected, missing
+or closed output does not prevent enrollment. Existing opt-outs remain off.
+In local Python or Jupyter:
 
 ```python
 import screamingface as sf
 
-sf.analytics.enable()  # Remember consent for this OS user
+sf.analytics.enable()  # Explicitly enable again after opting out
 sf.analytics.status()  # Inspect consent and effective state
 sf.analytics.disable()  # Stop sending and remove the local identifier
 sf.analytics.reset_identifier()  # Start a new identifier without linking it
@@ -1516,17 +1533,30 @@ The equivalent commands are `screamingface analytics status`, `enable`, `disable
 and `reset-id`. They do not start local runtime services. `sf.analytics.enable(persist=False)`
 accepts for this process only when you do not want persistent preferences.
 `sf.analytics.disable(process_only=True)` stops this process without changing the saved choice.
-A truthy `DO_NOT_TRACK` overrides acceptance. Noninteractive use never prompts.
+A truthy `DO_NOT_TRACK` overrides acceptance, including in headless jobs.
+Set `DO_NOT_TRACK=1` before import to prevent automatic enrollment entirely.
+Noninteractive use never asks for input.
 
-Explicit interactive `sf.connect()` setup shows a nonblocking notice if no choice
-is saved. Continue without choosing to leave analytics off; the notice does not
-wait for input or run during evaluation. Saved choices have no scheduled re-prompt.
+Studio inherits this default when its sidecar bundles this SDK version. Starting
+it may enroll a fresh installation; the notice goes to runtime logs. Startup alone
+emits no event. Studio and Python share the SDK preference file and opt-out controls,
+independent of Studio's runtime data directory. Studio currently has no dedicated
+analytics notice or settings control; no UI follow-up is planned for now.
+
+Import, connection setup, and the first evaluation can attempt the notice, whichever
+runs first. Python notices go to stderr, including redirected logs, so stdout
+remains usable for data. Local notebooks show inline text. The notice never asks
+for input and is attempted at most once per process when enrolling a new installation.
+Saved choices have no scheduled re-prompt.
+
+> ScreamingFace collects anonymous usage analytics (API usage, SDK versioning, and your local-or-hosted engine preference) to help us build a better API. It does not store any fusion, prompts, outputs, scores, or keys. It's on by default; turn it off anytime with `sf.analytics.disable()` (or set `DO_NOT_TRACK=1`).
 
 Preferences live in `~/.screamingface/analytics.json`, or the explicit
 `SCREAMINGFACE_ANALYTICS_CONFIG` path. This is independent of runtime `--data-dir`,
 virtual environments and project directories. Writes are atomic and owner-only;
-unreadable or malformed preferences disable collection. Failed preference writes
-raise an error rather than claiming consent was saved.
+unreadable or malformed preferences disable collection and are never automatically
+replaced. Failed automatic enrollment leaves analytics off without interrupting
+product work. An explicit `enable()` still raises if preferences cannot be saved.
 
 The four events are `evaluation_started`, `evaluation_finished`,
 `submission_started` and `submission_finished`. They contain random installation,
@@ -1560,16 +1590,21 @@ in evaluation, never waits for delivery at shutdown, and may lose events. Consen
 is rechecked before dispatch and retry; already dispatched requests can complete
 after opt-out. There is no durable event spool.
 
-In Colab, explicit `sf.connect()` setup starts a consent-only browser bridge in a
-background worker. Unknown consent shows the same nonblocking disclosure. Use
-`sf.analytics.enable()` to accept: it waits up to three seconds for confirmed browser
+In Colab, import or first interactive use starts a consent-only browser bridge in
+a background worker. Unknown consent attempts the same inline disclosure, then
+conditionally enables analytics without overriding a saved decline. The first
+evaluation waits up to two seconds for pending setup; asynchronous evaluations keep
+the event loop free during that wait. A timeout lets evaluation proceed untracked
+and invalidates late setup replies. There is no automatic retry or replay of the
+missed operation. Use
+`sf.analytics.enable()` to explicitly enable: it waits up to three seconds for confirmed browser
 consent and a usable ID, then prints `Analytics enabled.` or
 `Couldn't enable analytics; tracking remains off.` It returns `None`, so notebooks show only the confirmation message. Use
 `sf.analytics.status()` for programmatic checks and detailed state. After successful return, the next evaluation
 can be tracked without a separate polling cell. A timed-out acceptance is cancelled
 locally so a late response cannot silently enable tracking.
 
-Automatic setup and event delivery remain nonblocking. `sf.analytics.disable()`
+Import/setup initiation and event delivery remain nonblocking. `sf.analytics.disable()`
 stops local tracking immediately and returns `None`. It prints `Analytics disabled.`
 and, while browser persistence is pending, `Saving your choice in the browser.`
 Use `sf.analytics.status()` to inspect `pending` until acknowledged. Operations begun before consent is
@@ -1594,6 +1629,11 @@ may complete; successful persisted decline prevents subsequent bridge delivery.
 Cookie continuity is per browser profile/Colab partition, not cross-browser identity.
 Safari may show a first-run Colab JavaScript-output warning, also reproduced without
 this bridge. Real Colab background-worker verification remains a release gate.
+
+The service must support `POST /bridge/consent/enroll` before this SDK's default
+Colab enrollment can work. Older services leave new users off; explicit controls
+remain compatible. Enabled preferences alone do not prove events reached reporting.
+Failure diagnostics and automatic recovery are not part of this default change.
 
 There is no identity linking. Events follow PostHog-managed retention under the
 selected plan; ScreamingFace does not promise a fixed raw-event deletion deadline.

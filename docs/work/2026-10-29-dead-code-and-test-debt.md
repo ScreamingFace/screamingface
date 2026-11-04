@@ -3,7 +3,7 @@ ticket: OME-1798
 stack: aigateway
 status: done   # planned | in_progress | done | blocked
 started: 2026-10-29
-finished: 2026-10-30
+finished: 2026-11-02
 ---
 
 # OME-1798 dead-code-and-test-debt — OME-1138 close-out L4b: dead code, stale comments, guards, test debt
@@ -89,8 +89,8 @@ RED first, guards before GREEN:
     change only the import line; the guards; the §4.4 test-debt sites; the three owner-approved
     off-manifest edits below.
 - **Commits:** `c1cb9a78b` `refactor(aigateway): remove Profile-era dead code and clear the
-  close-out test debt`, then a ledger note and the second review's fixes. The squash merge lands
-  them as one commit.
+  close-out test debt`, then a ledger note and the review fixes. Squash-merged to `main` as
+  `3009c8362` (#1642) on 2026-11-02.
 - **RED seen:** the import-boundary owner check (on `routes/admin.py`, `core/admin_schemas.py`,
   `migrations/`); `_RETIRED_MODULES` (`credential_names` still importable); the AST guard (found
   `core/credential_names.py`); K4 (identifying values absent from the stored rows); the
@@ -123,7 +123,8 @@ RED first, guards before GREEN:
   - After the third review (2026-11-02, base `origin/main` `2df01be4c`, no gateway change since
     `834c3086a`): the append-only check against `origin/main` passed with the manifest pinning all
     51 changed prior test files; the two changed test files pass (36), with ruff, format and
-    pyright clean. No PostgreSQL test changed in that round.
+    pyright clean. The full `run_gates.py aigateway --base origin/main` then ran ALL GATES GREEN
+    on that tree. No PostgreSQL test changed in that round.
 - **Review:** an independent read-only review found nothing blocking; should-fix 1-4 and minor
   1-6 were applied. A second review of PR #1642 (2026-11-02) found nothing blocking and two minor
   points, both fixed with the owner's approval, the manifest re-pinned:

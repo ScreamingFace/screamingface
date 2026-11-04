@@ -2158,6 +2158,42 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         needs_hf_token=True,
         license="mit",
     ),
+    # labbench2_figqa2_img — imported by Task replay on 2026-11-04 from
+    #   screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_figqa2_img.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face EdisonScientific/labbench2/figqa2-img
+    #     pin revision 3678e7e38748477d0606407468db9cd7e2f2e667
+    "labbench2_figqa2_img": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_figqa2_img",
+        case_count=101,
+        case_digest="14980c37ac16c1228c9556bcc5c803723ff9d441225c0bba3f81e4c3b54340c0",
+        case_set_digest="f4e5424845f67be7a203f84e12bbd8c76a71ca6e6966dacb66341a2a0eddd4e0",
+        keep_sample_metadata=True,
+        keep_sample_input=True,
+        source_pins={
+            "EdisonScientific/labbench2": "3678e7e38748477d0606407468db9cd7e2f2e667",
+        },
+        needs_hf_token=True,
+        license="cc-by-sa-4.0",
+    ),
+    # labbench2_tableqa2_img — imported by Task replay on 2026-11-04 from
+    #   screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_tableqa2_img.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face EdisonScientific/labbench2/tableqa2-img
+    #     pin revision 3678e7e38748477d0606407468db9cd7e2f2e667
+    "labbench2_tableqa2_img": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_tableqa2_img",
+        case_count=100,
+        case_digest="fee5764a5560ad68adf3625347e6819c0bf1a4d69f0890cb94c57b6eb70798cf",
+        case_set_digest="80c068cb4c7c6ff761cc58615990dd6b8d716bc5cebb101a44ffa70c4289f33e",
+        keep_sample_metadata=True,
+        keep_sample_input=True,
+        source_pins={
+            "EdisonScientific/labbench2": "3678e7e38748477d0606407468db9cd7e2f2e667",
+        },
+        needs_hf_token=True,
+        license="cc-by-sa-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

@@ -2210,15 +2210,16 @@ def _picture_benchmarks_e2e() -> NotebookNode:
         nbformat.v4.new_markdown_cell("""\
 # Picture Benchmarks — two Cases each, on the local stack or dev
 
-Six imported Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures),
-LAB-Bench TableQA (biology tables), MMMU multiple choice and MMMU open (college exam questions
-about charts, diagrams and photos) and MathVista (maths over plots and figures) with every
-question, and Humanity's Last Exam (HLE, expert questions across 100+ subjects) with 342 of its
-2,500 questions. Each picture is saved inside its Case when the Benchmark is imported, so
+Eight Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
+TableQA (biology tables), MMMU multiple choice and MMMU open (college exam questions about
+charts, diagrams and photos), MathVista (maths over plots and figures) and LABBench2's FigQA2
+and TableQA2 image (harder biology figures and tables, free answers) with every question, and
+Humanity's Last Exam (HLE, expert questions across 100+ subjects) with 342 of its 2,500
+questions. Each picture is saved inside its Case when the Benchmark is imported, so
 nothing is fetched at run time.
 
 This notebook is a smoke test for the picture path, not a ranking. It points at **either** the
-local stack **or** dev with one variable, lists which of the six that Engine serves, and runs
+local stack **or** dev with one variable, lists which of the eight that Engine serves, and runs
 two Cases of each with one cheap model that reads pictures. Two Cases are enough to catch a run
 that breaks on pictures, for example one that goes over its memory budget.
 
@@ -2233,20 +2234,23 @@ extra) beside the Scoreboard on `:9106`, prepares every Benchmark's Cases the fi
 once) and opens Jupyter on `examples/`. If you moved the Engine with
 `SCREAMINGFACE_NOTEBOOK_ENGINE_PORT=…`, the next cell reads the same variable.
 
-**HLE's dataset is gated.** cais/hle on Hugging Face asks you to accept its terms once; then set
-`HF_TOKEN` (or run `huggingface-cli login`) before `just local-stack-notebooks`. Without a token
-the local stack skips HLE with a warning and serves the other five.
+**HLE's and LABBench2's datasets are gated.** cais/hle and EdisonScientific/labbench2 on
+Hugging Face each ask you to accept their terms once; then set `HF_TOKEN` (or run
+`huggingface-cli login`) before `just local-stack-notebooks`. Without a token the local stack
+skips those three Benchmarks with a warning and serves the other five.
 
 **Dev.** fusion.dev, behind a Cloudflare Access login. `sf.connect()` opens that login in your
 browser.
 
 Two things differ between the two targets:
 
-- **On a Mac, the local stack serves only FigQA, TableQA and HLE.** MMMU and MathVista have
+- **On a Mac, the local stack serves FigQA, TableQA, HLE and the two LABBench2 Benchmarks.**
+  MMMU and MathVista have
   their Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
   Pillow writes different PNG bytes on macOS, so a Mac's own prepared Cases cannot match it, and
-  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE keeps each
-  picture's bytes as the dataset ships them, so its Case Digest seals the same on a Mac.
+  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE and LABBench2
+  keep each picture's bytes as the dataset ships them, so their Case Digest seals the same on a
+  Mac.
 - **The per-run memory budget is enforced only on a Linux deployment.** A local Engine watches
   no memory, so a run that uses too much memory fails on dev and never locally (section 7)."""),
         nbformat.v4.new_markdown_cell("""\
@@ -2286,7 +2290,7 @@ sf.connect()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 2. Which picture Benchmarks this Engine serves
 
-The six ids below are the catalogue ids of the six picture Benchmarks. The cell lists the
+The eight ids below are the catalogue ids of the eight picture Benchmarks. The cell lists the
 ones this Engine serves and names each one it can't run with its likely reason:
 
 - the local stack runs on a Mac, and the Benchmark's Case Digest is sealed on Linux. A local
@@ -2305,6 +2309,8 @@ PICTURE_BENCHMARKS = {
     "inspect-mmmu_open": "judge (a judge model reads the reply against the answer)",
     "inspect-mathvista": "exact match of the letter or the text after 'ANSWER:', no judge",
     "inspect-hle": "judge (HLE's regex_judge compares the final answer with the reference)",
+    "labbench2_figqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
+    "labbench2_tableqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
 }
 # Their pictures are re-saved by Pillow at preparation, so their Case Digest is sealed on Linux.
 SEALED_ON_LINUX = {"inspect-mmmu_multiple_choice", "inspect-mmmu_open", "inspect-mathvista"}
@@ -2331,8 +2337,9 @@ for benchmark_id in PICTURE_BENCHMARKS:
 ## 3. Each served Benchmark's card
 
 The Case count, the revision (the pin on the imported Cases: two Engines showing the same
-revision ask the same questions) and how the Benchmark is graded. Only `inspect-mmmu_open` and
-`inspect-hle` spend judge tokens; the other four grade by matching the answer, for free."""),
+revision ask the same questions) and how the Benchmark is graded. `inspect-mmmu_open`,
+`inspect-hle` and the two LABBench2 Benchmarks spend judge tokens; the other four grade by
+matching the answer, for free."""),
         nbformat.v4.new_code_cell("""\
 for benchmark_id in served:
     card = sf.benchmarks.get(benchmark_id)
@@ -2406,6 +2413,17 @@ picture the model saw and the judge's own words on each Case."""),
         nbformat.v4.new_code_cell("""\
 run_two_cases("inspect-hle")"""),
         nbformat.v4.new_markdown_cell("""\
+### LABBench2: a figure and a table, free answers
+
+Each Case is one figure (FigQA2) or one table (TableQA2) from a biology paper and a question
+whose answer is usually a number. The judge is Claude Sonnet 4.5 on OpenRouter, the authors'
+own grader, so the OpenRouter key from the panel pays for it on the local stack. TableQA2 is
+near saturation (frontier models score about 0.94); FigQA2 is not (about 0.61)."""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("labbench2_figqa2_img")"""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("labbench2_tableqa2_img")"""),
+        nbformat.v4.new_markdown_cell("""\
 ## 6. Inspect the results
 
 Per Case: its status, its score, and any failure codes. A Case with no grade shows its failure
@@ -2448,13 +2466,18 @@ else:
         picture = f"Could not fetch the picture: {exc.code}: {exc.message}"
 picture"""),
         nbformat.v4.new_markdown_cell("""\
-### The judge's evidence on MMMU open and HLE
+### The judge's evidence on the judged Benchmarks
 
-`inspect-mmmu_open` and `inspect-hle` are the two judged Benchmarks here. Each Case's check
+`inspect-mmmu_open`, `inspect-hle` and the two LABBench2 Benchmarks are judged. Each Case's check
 evidence carries the judge's own explanation verbatim, the way `12_inspect_evals_benchmarks`
 section 7 shows it, so a surprising score can be read, not just counted."""),
         nbformat.v4.new_code_cell("""\
-for benchmark_id in ("inspect-mmmu_open", "inspect-hle"):
+for benchmark_id in (
+    "inspect-mmmu_open",
+    "inspect-hle",
+    "labbench2_figqa2_img",
+    "labbench2_tableqa2_img",
+):
     judged_report = reports.get(benchmark_id)
     if judged_report is None:
         print(f"No {benchmark_id} run yet (not served, or RUN_EVALUATION is False).")

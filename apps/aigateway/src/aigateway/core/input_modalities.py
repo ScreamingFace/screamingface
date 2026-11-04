@@ -76,7 +76,20 @@ def declared_family_modalities(
     therefore text-only — a new family is never assumed to see. Families match only at
     a family boundary (``matches_family``).
     """
+    evidence = declared_family_evidence(model, table)
+    return evidence if evidence is not None else TEXT_ONLY
+
+
+def declared_family_evidence(
+    model: str, table: Sequence[tuple[str, tuple[InputModality, ...]]]
+) -> tuple[InputModality, ...] | None:
+    """The DECLARED modalities of ``model``'s family, or ``None`` when no family matches.
+
+    WHY a separate answer from ``declared_family_modalities`` (OME-1807): publication
+    collapses unknown to text-only, but the chat backstop refuses only on evidence —
+    a model outside every declared family must read as unknown there, not text-only.
+    """
     for family, modalities in table:
         if matches_family(model, family):
             return modalities
-    return TEXT_ONLY
+    return None

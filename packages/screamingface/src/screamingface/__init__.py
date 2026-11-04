@@ -95,6 +95,12 @@ from screamingface.warnings import (
 # The installed distribution's version, resolved once at import — see `_version.py`.
 __version__ = resolve_version()
 
+# FEATURE: default-on analytics with best-effort disclosure and explicit opt-out.
+from screamingface._analytics.prompt import offer as _offer_analytics
+
+_offer_analytics()
+del _offer_analytics
+
 __all__ = [
     "analytics",
     "__version__",

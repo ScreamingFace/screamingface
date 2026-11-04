@@ -3,7 +3,7 @@
   'use strict';
   let active = null;
   let generation = 0;
-  const commands = new Set(['state', 'accept', 'decline', 'id', 'events']);
+  const commands = new Set(['state', 'accept', 'enroll', 'decline', 'id', 'events']);
   function allowedOrigin(origin) {
     if (allowedParents.includes(origin)) return true;
     if (typeof colabParentPattern !== 'string' || !colabParentPattern) return false;
@@ -23,6 +23,7 @@
     switch (message.command) {
       case 'state': return ['/bridge/consent/state', null];
       case 'accept': return ['/bridge/consent', {choice:'accepted', consent_version:'1'}];
+      case 'enroll': return ['/bridge/consent/enroll', {consent_version:'1'}];
       case 'decline': return ['/bridge/consent', {choice:'declined', consent_version:'1'}];
       case 'id': return ['/bridge/id', {}];
       case 'events': return ['/bridge/id/events', message.batch];

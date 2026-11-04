@@ -83,9 +83,10 @@ async def effective_pair_of(connection: OAuthConnection) -> PairAuthority | None
     return pair
 
 
-# WHY these two: a row in `error` or `revoked` serves nothing — a new OAuth flow replaces it
-# whatever its auth type.
-UNUSABLE_EFFECTIVE = frozenset({"error", "revoked"})
+# WHY these three: a row in `error`, `expired` or `revoked` serves nothing — a new flow replaces
+# it whatever its auth type. `expired` joined at the OME-1138 close-out, L7a (spec §8.1); only
+# `active` and `pending` are usable (R6), so a `pending` effective row is never displaced.
+UNUSABLE_EFFECTIVE = frozenset({"error", "expired", "revoked"})
 
 
 # WHY: `mark_error`, `mark_revoked` and a pending start park a row under these — never a name.

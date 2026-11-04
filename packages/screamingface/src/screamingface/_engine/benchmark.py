@@ -12,7 +12,7 @@ from screamingface._evaluation.benchmark import (
     _BenchmarkResource,
     _decode_benchmark_resource,
 )
-from screamingface.errors import EngineUnavailableError, PlanningError
+from screamingface.errors import EngineCapabilityError, EngineUnavailableError, PlanningError
 
 
 class BenchmarkResources:
@@ -25,24 +25,36 @@ class BenchmarkResources:
         self,
         benchmark: str,
         limit: int | None,
+        cases: tuple[int, ...] | None = None,
     ) -> _BenchmarkResource:
         benchmark_id = _benchmark_id(benchmark)
         try:
-            response = self._http.get(
-                f"/v1/benchmarks/{quote(benchmark_id, safe='')}",
-                params=_query(limit),
-                extensions={_REPLAY_SAFE: True},
+            response = (
+                self._http.get(
+                    _path(benchmark_id),
+                    params=_query(limit),
+                    extensions={_REPLAY_SAFE: True},
+                )
+                if cases is None
+                else self._http.post(
+                    f"{_path(benchmark_id)}/selection",
+                    json={"cases": list(cases)},
+                    # WHY replay-safe despite the POST: the route only reads the catalog and
+                    # builds a recipe; it starts no Run and spends nothing.
+                    extensions={_REPLAY_SAFE: True},
+                )
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
                 "Could not reach the SF Engine Benchmark catalog",
                 engine_url=_engine_url(self._http),
             ) from exc
-        _success(response)
+        _success(response, selecting=cases is not None)
         return _decode_benchmark_resource(
             _json(response),
             requested_id=benchmark,
             requested_limit=limit,
+            requested_cases=cases,
         )
 
 
@@ -56,25 +68,47 @@ class AsyncBenchmarkResources:
         self,
         benchmark: str,
         limit: int | None,
+        cases: tuple[int, ...] | None = None,
     ) -> _BenchmarkResource:
         benchmark_id = _benchmark_id(benchmark)
         try:
-            response = await self._http.get(
-                f"/v1/benchmarks/{quote(benchmark_id, safe='')}",
-                params=_query(limit),
-                extensions={_REPLAY_SAFE: True},
+            response = (
+                await self._http.get(
+                    _path(benchmark_id),
+                    params=_query(limit),
+                    extensions={_REPLAY_SAFE: True},
+                )
+                if cases is None
+                else await self._http.post(
+                    f"{_path(benchmark_id)}/selection",
+                    json={"cases": list(cases)},
+                    # WHY replay-safe despite the POST: the route only reads the catalog and
+                    # builds a recipe; it starts no Run and spends nothing.
+                    extensions={_REPLAY_SAFE: True},
+                )
             )
         except httpx.HTTPError as exc:
             raise EngineUnavailableError(
                 "Could not reach the SF Engine Benchmark catalog",
                 engine_url=_engine_url(self._http),
             ) from exc
-        _success(response)
+        _success(response, selecting=cases is not None)
         return _decode_benchmark_resource(
             _json(response),
             requested_id=benchmark,
             requested_limit=limit,
+            requested_cases=cases,
         )
+
+
+def _path(benchmark_id: str) -> str:
+    """The catalog path of one Benchmark; `/selection` below it takes a Case-id list (OME-1739).
+
+    WHY a POST body for the list: a 40-id list stays readable and out of access logs, and the
+    selection route answers with a resource that echoes the ids it selected.
+    """
+
+    return f"/v1/benchmarks/{quote(benchmark_id, safe='')}"
 
 
 def _query(limit: int | None) -> dict[str, int]:
@@ -106,9 +140,25 @@ def _json(response: httpx.Response) -> object:
         ) from exc
 
 
-def _success(response: httpx.Response) -> None:
+def _success(response: httpx.Response, *, selecting: bool = False) -> None:
     if response.is_success:
         return
+    if selecting and response.status_code == 404 and not _unknown_benchmark(response):
+        # WHY (review on #1653): an Engine older than OME-1739 has no `/selection` route, so its
+        # router answers a plain 404. Reading that as "not installed" sends the researcher to
+        # the Benchmark id when the fix is a newer Engine. The capability error is the same
+        # shape the operator catalog raises for a missing route, so callers match one class.
+        raise EngineCapabilityError(
+            "This SF Engine cannot run a fixed list of Case ids: it has no Case selection route",
+            code="engine_cannot_select_cases",
+            status=404,
+            permanent=True,
+            details={"path": str(response.request.url.path), "method": "POST"},
+            hint=(
+                "Use an SF Engine that serves POST /v1/benchmarks/{id}/selection, "
+                "or run with limit=."
+            ),
+        )
     detail = _problem_detail(response)
     if response.status_code == 404:
         message = "The requested Benchmark is not installed on this Engine"
@@ -127,6 +177,18 @@ def _success(response: httpx.Response) -> None:
         status=response.status_code,
         permanent=response.status_code < 500,
     )
+
+
+def _unknown_benchmark(response: httpx.Response) -> bool:
+    """Whether a 404 is the Engine's own "Unknown benchmark" problem, not a missing route."""
+
+    try:
+        payload: object = response.json()
+    except ValueError:
+        return False
+    # WHY the title: the Engine's catalog routes answer an unknown id with an RFC 9457 problem
+    # titled "Unknown benchmark"; a route the Engine lacks gets the router's bare 404 instead.
+    return isinstance(payload, dict) and payload.get("title") == "Unknown benchmark"
 
 
 def _problem_detail(response: httpx.Response) -> str | None:
