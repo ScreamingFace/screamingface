@@ -17,7 +17,7 @@ from url4.core.nodes import Node as AstNode
 
 from url4.dag.attachment import OCTET_STREAM, Attachment  # isort: skip
 from url4.dag.attachment_sources import AttachmentIdentity, not_static  # isort: skip
-from url4.dag._caps import CapBudget  # isort: skip
+from url4.dag._caps import CapBudget, gather_charged  # isort: skip
 from url4.dag._materialize import Admission, Outcomes, Prefetched, check_caps, check_static  # isort: skip
 from url4.dag._materialize import materialize  # isort: skip
 from url4.dag.source_scan import reachable_order, refuse_malformed  # isort: skip
@@ -31,7 +31,7 @@ from url4.dag.attachments import (  # isort: skip
     refuse_remote,
 )
 from url4.dag.compiler import Graph  # isort: skip
-from url4.dag.node import DagNode, ExecutionContext, gather_or_cancel  # isort: skip
+from url4.dag.node import DagNode, ExecutionContext  # isort: skip
 from url4.dag.nodes.blob import BlobRefNode  # isort: skip
 
 
@@ -82,7 +82,7 @@ async def _run_start(
     check_static(occurrences)
     budget = CapBudget(case)
     budget.expect(ref.key for ref in refs if not ref.collection)
-    bodies = await gather_or_cancel(_verify(ref, run_ctx, budget) for ref in refs)
+    bodies = await gather_charged(budget, (_verify(ref, run_ctx, budget) for ref in refs))
     admission: Admission = await materialize(occurrences, run_ctx, budget)
     resolved = {ref.key: _as_attachment(ref, *body) for ref, body in zip(refs, bodies, strict=True)}
     cache: dict[str, CachedBlob] = {

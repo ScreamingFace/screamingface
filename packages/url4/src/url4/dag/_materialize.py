@@ -58,9 +58,10 @@ from url4.dag._caps import MAX_ATTACHMENT_BYTES as MAX_ATTACHMENT_BYTES  # isort
 from url4.dag._caps import MAX_ATTACHMENTS as MAX_ATTACHMENTS  # isort: skip
 from url4.dag._caps import CapBudget  # isort: skip
 from url4.dag._caps import check_caps as check_caps  # isort: skip
+from url4.dag._caps import gather_charged  # isort: skip
 from url4.dag.attachment_sources import AttachmentIdentity, classify, guard_policy, not_static  # isort: skip
 from url4.dag.attachments import CollectionGuard, Occurrence, prefetch_key  # isort: skip
-from url4.dag.node import DagNode, ExecutionContext, Payload, SourceFailure, gather_or_cancel  # isort: skip
+from url4.dag.node import DagNode, ExecutionContext, Payload, SourceFailure  # isort: skip
 from url4.dag.nodes import GuardNode  # isort: skip
 from url4.dag.semantics.collection import parse_collection  # isort: skip
 
@@ -109,7 +110,9 @@ async def materialize(
         if identity not in reachable and await _all_have_rows(guards, ctx, rows, prefetched):
             reachable[identity] = index
     budget.expect(identity for identity in reachable if not identity.optional)
-    flights = await gather_or_cancel(_flight(identity, ctx, budget) for identity in reachable)
+    flights = await gather_charged(
+        budget, (_flight(identity, ctx, budget) for identity in reachable)
+    )
     outcomes = dict(zip(reachable, flights, strict=True))
     return Admission(outcomes, prefetched, frozenset(reachable.values()))
 

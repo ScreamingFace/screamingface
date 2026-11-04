@@ -26,10 +26,12 @@ source — so the budget never counts an entry the final list collapses.
 from __future__ import annotations
 
 import threading
-from collections.abc import Hashable, Iterable, Sequence
+from collections.abc import Coroutine, Hashable, Iterable, Sequence
+from typing import Any
 
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag.attachment import Attachment
+from url4.dag.node import gather_or_cancel
 
 MAX_ATTACHMENTS = 20
 MAX_ATTACHMENT_BYTES = 8_000_000
@@ -127,6 +129,21 @@ class CapBudget:
             raise _too_large(total)
 
 
+async def gather_charged[T](budget: CapBudget, coros: Iterable[Coroutine[Any, Any, T]]) -> list[T]:
+    """:func:`gather_or_cancel` over flights that draw from ``budget``; the cap refusal wins.
+
+    INVARIANT (PR #1587 review finding 6, owner 2026-11-04): when the concurrent flights fail and
+    ``budget`` is refused (sticky), the run fails ``x.attachments_too_large`` — never a sibling's
+    source error that ``gather_or_cancel``'s first-leaf pick happened to surface. A failure
+    with no refusal re-raises unchanged.
+    """
+    try:
+        return await gather_or_cancel(coros)
+    except Exception:
+        budget.raise_if_refused()
+        raise
+
+
 def check_caps(attachments: Sequence[Attachment]) -> None:
     """F1b per-run caps over the WHOLE final list: 20 entries, 8,000,000 decoded bytes."""
     if len(attachments) > MAX_ATTACHMENTS:
@@ -136,4 +153,4 @@ def check_caps(attachments: Sequence[Attachment]) -> None:
         raise _too_large(total)
 
 
-__all__ = ["MAX_ATTACHMENTS", "MAX_ATTACHMENT_BYTES", "CapBudget", "check_caps"]
+__all__ = ["MAX_ATTACHMENTS", "MAX_ATTACHMENT_BYTES", "CapBudget", "check_caps", "gather_charged"]
