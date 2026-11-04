@@ -659,7 +659,7 @@ tests (settle once per key, exact boundary, release, sticky refusal). Existing c
 `check_module_size.py` within baseline (`dag/_context.py` untouched at 455/455);
 `check_suppressions.py` 3/3; hygiene ratchets green.
 
-## Round 2026-11-04 — HupBaHa CHANGES_REQUESTED on `c9230710b` (six findings): IN_PROGRESS
+## Round 2026-11-04 — HupBaHa CHANGES_REQUESTED on `c9230710b` (six findings): DONE
 
 Merged `origin/main` normally first (no conflicts). Owner decisions (Sergey, 2026-11-04) per
 finding; each lands as its own commit with an append-only test file.
@@ -681,3 +681,38 @@ finding; each lands as its own commit with an append-only test file.
 5. Only `https://` is an attachment source; `http://` stays on the text path.
 6. After concurrent flights / blob reads fail, a sticky byte-cap refusal is re-raised so
    `x.attachments_too_large` always wins.
+
+**Outcome.** One commit per finding (tests append-only, all new files; no prior test edited):
+
+| # | Commit | Change | Tests |
+|---|---|---|---|
+| 5 | `6513a68c6` | `attachment_sources.identity_of`: `https://` only | `test_attachment_http_text_path.py` (5) |
+| 6 | `a9cd4a45b` | `_caps.gather_charged`: after a failed gather, a sticky refusal is re-raised; used for flights and run-start blob reads | `test_attachment_cap_refusal_wins.py` (4); the blob-read race test is in `test_blob_live_budget.py` (committed with 1) |
+| 1 | `246bb49c7` | `_run_files._verify` reads attached blobs with `max_bytes=remaining()` / `on_chunk=charge_bytes`, gives back on failure; `BlobRefNode.verified` passes both (text fallback too); peer relative bytes honour the request; `[data]` files read in 64 KiB pieces (`FileData.read_chunks`, `SupportsReadChunks`) | `test_blob_live_budget.py` (13) |
+| 4 | `132821f8d` | scan records every `url4://` remote call; `_run_start` prechecks them (`remote_nodes.precheck_remote_nodes`, read-only) before any I/O when the run has run-start I/O | `test_remote_node_before_attachment_io.py` (13) |
+| 2 | `a58bceb7a` | `dag/_collection_shape.resolve_collection`: one resolver for `check_static` and admission; follows every `$name` hop + path, cycle-safe; mirrors execution (a `$name` collection is the binding text with each hop's path, no media type; only a direct unpathed `$x` bound to a blob ref reads the body); blob collections read from the verified run-start cache | `test_attachment_reachability_resolver.py` (21) |
+| 3 | `3b41f9aea` | `dag/_graph_admission.refuse_prebuilt` (fail closed, before any I/O); non-literal attachment targets lower to `NotStaticNode` | `test_prebuilt_graph_fail_closed.py` (33) |
+| — | (this commit) | edge/error paths of 1–3 | `test_attachment_round9_edges.py` (6) |
+
+**Shortcuts and limits (stated plainly).**
+- F1: a blob whose digest is already counted (a Case attachment) is read without the budget hooks
+  — its bytes dedup into one entry, and charging them would refuse a run that fits; that read is
+  bounded only by the io's own caps. A text-only io, a whole-bytes `[data]` provider and a node's
+  endpoint/eval bytes cannot stream: they are charged (and `max_bytes`-checked) right after the
+  read, as `io.media.read_whole` already does, so one such body is held before the refusal.
+- F2: still conservatively reachable (fetched, attached): a row reference (`$item`), holdings, a
+  templated source, a bound inline group, a cycle. A `;optional` collection binding that fails is
+  unreachable at admission; execution would then substitute `$xs` verbatim — if that ever runs a
+  body, its attachment source is not in the manifest and fails `x.source_not_static` (closed).
+- F3: an attachment opt-in or non-literal target in a pre-built graph keeps `x.source_not_static`
+  (the code two existing tests pin since round 7), now before any I/O; blob refs, malformed contexts
+  and opt-ins hidden in kept text are `malformed_source` (a `url4://` blob ref
+  `x.remote_blob_unsupported`). The `NotStaticNode` lowering also refuses `src=$v;accept=<type>`
+  for an executor that bypasses `run()` (it read as text before) — owner decision C.
+- F4: gated on run-start I/O, so a text-only run keeps the execution-time refusal unchanged. Not
+  covered: a `url4://` reduce PROCESSOR (`processor._check_remote_processor`) is still refused when
+  the reduce runs, i.e. after the attachment phase; it is a run option, not an AST source.
+
+**Gates.** `run_gates.py url4 --base origin/main` and `run_gates.py screamingface-engine --base
+origin/main`: ALL GATES GREEN (exit 0; append-only check green on both). `check_module_size.py`:
+all capped modules within baseline (`source_scan.py` 417, `_materialize.py` 397 lines).
