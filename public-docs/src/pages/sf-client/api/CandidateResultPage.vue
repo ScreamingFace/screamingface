@@ -19,6 +19,9 @@ const mediaOut = `(CaseMedia(kind='image', media_type='image/jpeg', size=1962250
 const mediaFetch = `fetched = sf.fetch_media(item)   # checks size and sha256 against the placeholder
 len(fetched.data), fetched.save("picture.jpg")`
 const mediaFetchOut = `(1962250, PosixPath('picture.jpg'))`
+const textOnly = `m = sf.Model("openrouter/deepseek/deepseek-v4-flash")
+sf.evaluate(m, benchmark="inspect-lab_bench_figqa", limit=1)`
+const textOnlyOut = `ExecutionError: This Benchmark's Cases carry pictures, and these models cannot take images: openrouter/deepseek/deepseek-v4-flash. The gateway reports them as text-only; a model it knows nothing about counts as text-only too.`
 const mediaGone = `sf.fetch_media(item)`
 const mediaGoneOut = `MediaUnavailableError: The engine no longer holds x.png · image/png · 10 B · sha256 00000000…; a local engine drops parked pictures and files after a while (48 hours by default). Run the Case again to see it.`
 const metrics = `dict(candidate.metrics)`
@@ -538,6 +541,18 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-
 
     <CodeBlock :code="mediaGone" language="python" />
     <CodeBlock :code="mediaGoneOut" language="text" />
+
+    <p>
+      A benchmark whose Cases carry pictures refuses a model that the gateway reports as text-only,
+      and a model the gateway knows nothing about counts as text-only. The call raises
+      <code>ExecutionError</code> with the code <code>intent_error</code>. The error is permanent
+      (<code>retryable</code> is <code>False</code>), and the message names the models. With two
+      candidates where one is text-only, the call raises <code>ExecutionError</code> with the code
+      <code>candidates_failed</code>.
+    </p>
+
+    <CodeBlock :code="textOnly" language="python" />
+    <CodeBlock :code="textOnlyOut" language="text" />
 
     <h2>Accounting, answers and trace</h2>
 
