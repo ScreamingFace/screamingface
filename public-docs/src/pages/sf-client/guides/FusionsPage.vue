@@ -344,7 +344,7 @@ const reducerExample = `fusion = sf.Fusion(
     <CodeBlock :code="reducerExample" language="python" />
 
     <p>
-      <code>sf.Median</code>, <code>sf.Judge</code>, <code>sf.Pick</code> and
+      <code>sf.Median</code>, <code>sf.Mean</code>, <code>sf.Judge</code>, <code>sf.Pick</code> and
       <code>sf.Merge</code> work the same way, and <code>sf.Rank</code>, <code>sf.Concat</code> and
       <code>sf.Filter</code> hand members to a later stage. The
       <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> lists them all.

@@ -17,6 +17,32 @@ c = sf.Model("openrouter/anthropic/claude-haiku-4.5", name="c")
 fusion = sf.Fusion([a, b, c], synthesizer=sf.Vote())
 report = sf.evaluate(fusion, benchmark="medxpert", limit=1)`
 
+const mean = `def number(n, name):
+    return sf.Model(
+        "openrouter/google/gemini-3.5-flash-lite",
+        name=name,
+        prompt=f"Ignore the question. Reply with exactly the number {n} and nothing else.",
+    )
+
+a, b, c = number(1, "a"), number(2, "b"), number(6, "c")
+fusion = sf.Fusion([a, b, c], synthesizer=sf.Mean(weights=[1, 1, 2]))
+report = sf.evaluate(fusion, benchmark="medxpert", limit=1)
+report.candidates.only.cases[0].output`
+const meanOut = `'3.75'`
+
+const pick = `def reply(answer, confidence, name):
+    return sf.Model(
+        "openrouter/google/gemini-3.5-flash-lite",
+        name=name,
+        prompt=f'Ignore the question. Reply with exactly this JSON: {{"answer": "{answer}", "confidence": {confidence}}}',
+    )
+
+members = [reply("red", 0.2, "a"), reply("green", 0.9, "b"), reply("blue", 0.5, "c")]
+fusion = sf.Fusion(members, synthesizer=sf.Pick("confidence", order="max", output="answer"))
+report = sf.evaluate(fusion, benchmark="medxpert", limit=1)
+report.candidates.only.cases[0].output`
+const pickOut = `'green'`
+
 const judge = `judge = sf.Judge(
     "openrouter/google/gemini-3.5-flash-lite",
     returns="label",
@@ -96,32 +122,58 @@ const abstainOut = `(True, '', 0.0)`
           <td>
             The median of the members' numeric answers: the nearest member's text
             (<code>select="nearest"</code>), or the number itself (<code>select="value"</code>).
-            <code>weights</code> must be <code>None</code>.
+            <code>weights</code> takes the same values as for <code>sf.Vote</code>. With weights,
+            the answer is the first value where the running weight reaches half the total, or the
+            mean of that value and the next at exactly half. A member with a missing or non-positive
+            weight is dropped and never the nearest member.
           </td>
         </tr>
         <tr>
           <td>
-            <code>sf.Judge(model, *, returns, rubric, params=None)</code>
+            <code>sf.Mean(*, extract="last_number", select="value", weights=None)</code>
+          </td>
+          <td>
+            The mean of the members' numeric answers: the number (<code>select="value"</code>), or
+            the text of the member nearest the mean (<code>select="nearest"</code>), where a tie
+            goes to the first member in author order. <code>weights</code> takes one positive number
+            per member, or <code>sf.signal(key)</code>. A member with a missing, zero, negative or
+            non-number weight is dropped. The sums are exact and the one division is rounded to 34
+            significant digits. Give every member the same scale for a confidence weight: the engine
+            cannot tell that one member writes <code>80</code> and another <code>0.8</code>.
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <code>sf.Judge(model, *, returns, rubric, params=None, order="max")</code>
           </td>
           <td>
             A judge model picks one member. <code>returns="label"</code> names one member;
             <code>returns="scores"</code> scores every member. The answer is that member's text
-            unchanged. A reply that is not valid fails the case with
-            <code>judge_reply_invalid</code>. Members reach the judge in author order, so a judge
-            can favour a position.
+            unchanged. <code>order="min"</code> with <code>returns="scores"</code> tells the judge
+            that a lower number is a better answer, and the answer is the member with the lowest
+            score; a tie goes to the first member in author order. <code>order="min"</code> with
+            <code>returns="label"</code> raises <code>ValueError</code>, and
+            <code>sf.Rank(by=...)</code> and <code>sf.Vote(judge=...)</code> refuse it. A reply that
+            is not valid fails the case with <code>judge_reply_invalid</code>. Members reach the
+            judge in author order, so a judge can favour a position.
           </td>
         </tr>
         <tr>
           <td>
             <code
-              >sf.Pick(field=None, *, by_signal=None, order=None, equals=None, normalize=None)</code
+              >sf.Pick(field=None, *, by_signal=None, order=None, equals=None, normalize=None,
+              output=None)</code
             >
           </td>
           <td>
             The member whose JSON <code>field</code> is the largest (<code>order="max"</code>), the
             smallest (<code>"min"</code>) or equal to <code>equals</code>. Or, with
             <code>by_signal</code>, the member whose named signal is highest or lowest. The text is
-            that member's own.
+            that member's own. With <code>output="answer"</code>, the answer is that top-level field
+            of the winner's JSON reply instead: a string as it is, any other value as canonical
+            JSON. When the field is missing, <code>null</code> or blank, or the reply is not a JSON
+            object, the case abstains with the reason <code>output_missing</code>, and the next
+            member is never used.
           </td>
         </tr>
         <tr>
@@ -142,6 +194,22 @@ const abstainOut = `(True, '', 0.0)`
       <code>FieldRule.model(model, *, prompt, params=None)</code>, where a model writes the field
       from that field's values only.
     </p>
+
+    <p>
+      Three members that answer 1, 2 and 6, combined by a mean weighted <code>[1, 1, 2]</code>, give
+      (1 + 2 + 12) / 4:
+    </p>
+
+    <CodeBlock :code="mean" language="python" />
+    <CodeBlock :code="meanOut" language="text" />
+
+    <p>
+      With members that reply in JSON, <code>Pick</code> with <code>output="answer"</code> returns
+      one field of the winner's reply:
+    </p>
+
+    <CodeBlock :code="pick" language="python" />
+    <CodeBlock :code="pickOut" language="text" />
 
     <div class="not-prose">
       <NbCell :count="2" :code="judge" />
@@ -182,15 +250,27 @@ const abstainOut = `(True, '', 0.0)`
           </td>
         </tr>
         <tr>
-          <td><code>sf.Filter(*, where, extract=None)</code></td>
+          <td><code>sf.Filter(*, where, extract=None, judge=None)</code></td>
           <td>
             The members that pass <code>where</code>, in author order:
             <code>sf.matches(pattern)</code> or a comparison on a signal such as
-            <code>sf.signal("field:x") &gt;= 0.6</code>.
+            <code>sf.signal("field:x") &gt;= 0.6</code>. With
+            <code>where=sf.signal("score:judge") &gt;= x</code> and
+            <code>judge=sf.Judge(..., returns="scores")</code>, one judge call scores every member
+            and the Filter keeps each member whose score passes. A <code>score:judge</code>
+            comparison without a judge, a judge without one, a label judge or an
+            <code>order="min"</code> judge raises <code>ValueError</code> before any call.
           </td>
         </tr>
       </tbody>
     </table>
+
+    <p>
+      The stage after a <code>Rank</code> or <code>Filter</code> receives one JSON object. Its
+      <code>input</code> key holds the Case input, and its <code>selected</code> key holds the kept
+      members as a list of <code>{"id": ..., "text": ...}</code>, best first for a Rank and in
+      author order for a Filter. When nothing is kept, <code>selected</code> is <code>[]</code>.
+    </p>
 
     <div class="not-prose">
       <NbCell :count="3" :code="selection" />
@@ -237,9 +317,14 @@ const abstainOut = `(True, '', 0.0)`
           <td>
             The generic block. <code>op</code> is one of <code>plurality</code>,
             <code>weighted</code>, <code>argmax</code>, <code>top_k</code>, <code>filter</code>,
-            <code>pick_field</code>, <code>concat</code>, <code>median</code>, <code>judge</code>,
-            <code>merge</code> and <code>context</code>. It compiles to the same url4 as the named
-            form, and <code>Url4(...).to_python()</code> writes the named form back.
+            <code>pick_field</code>, <code>concat</code>, <code>median</code>, <code>mean</code>,
+            <code>judge</code>, <code>merge</code> and <code>context</code>. For
+            <code>median</code> and <code>mean</code>, <code>select="value"</code> returns the
+            number and <code>select="nearest"</code> returns the text of the nearest member. A block
+            that gives both <code>mode=</code> and <code>select=</code> raises
+            <code>ValueError</code>. It compiles to the same url4 as the named form, and
+            <code>Url4(...).to_python()</code>
+            writes the named form back.
           </td>
         </tr>
         <tr>
