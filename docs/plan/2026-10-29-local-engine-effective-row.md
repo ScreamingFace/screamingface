@@ -150,10 +150,16 @@ row whatever its stored rows; its public status comes from `/v1/provider-access`
        provider keeps its `/v1/provider-access` status (spec §3, §6.3);
      - a malformed provider-access body raises `ConnectionBadResponse`, an unreachable gateway
        `ConnectionUnavailable`, a timeout `ConnectionTimeout`;
+     - `connect` returns the `/v1/provider-access` status read after its write, never one derived
+       from the written row: a write the gateway then lists as `needs_reauth` or `error` returns
+       that status, and the written row only supplies `auth_method`;
      - `disconnect` of `E` while the user has a second active row returns `connected`, read after
        the writes;
      - the stale-row repair removes only the provider's non-active `screamingface` rows, leaves a
        non-active row under any other label, and is idempotent with nothing to remove;
+     - the accepted collision (spec §3), pinned with a row the user created outside the Engine:
+       with no `E`, an `error` API-key row labelled `screamingface` is re-keyed in place by
+       `connect` (a `PUT`, the row turns `active`) and removed by the repair of `start_oauth`;
      - a 409 `label_conflict` maps to `ConnectionConflict`;
      - `connect` accepts an in-place `PUT` on a row under the user's label.
    - New `tests/unit/test_connections_aigateway_version_skew.py`: a listing in which no row carries
@@ -167,7 +173,9 @@ row whatever its stored rows; its public status comes from `/v1/provider-access`
    - `_ConnectionRow` (`:58-65`) records whether `effective` was present and its value;
      `_validate_row` (`:408-435`) accepts a boolean or its absence and refuses any other value.
    - Local `list` reads `/v1/oauth/connections` and `/v1/provider-access`; the writes follow the
-     table; `disconnect` returns the provider-access status after its writes.
+     table; `connect` and `disconnect` return the provider-access status after their writes, so no
+     Local status is derived from a row's lifecycle (`_public`, `connections/aigateway.py:276-297`,
+     no longer decides it).
    - The per-provider listing checks run only for the providers `/v1/providers` lists; rows of any
      other provider are ignored. The field-presence check covers the whole response.
    - `_MANAGED_LABEL` (`:44`) stays as the label of an Engine create and the mark the stale-row
@@ -209,9 +217,11 @@ row whatever its stored rows; its public status comes from `/v1/provider-access`
 - **Version skew.** A new Engine against an older gateway falls back to the label rule for one
   release; a listing with the field on some rows only is a bad response. An older Engine against
   the new gateway ignores the field: `_validate_row` reads named keys only.
-- **One more request per Local listing** (`/v1/provider-access`), and one after each `disconnect`.
-- **The stale-row repair** removes a non-active row the user named `screamingface` (the spec's
-  accepted limitation).
+- **One more request per Local listing** (`/v1/provider-access`), and one after each `connect` and
+  `disconnect`.
+- **The label collision** (the spec's accepted limitation): with no `E`, `connect` re-keys in place
+  an `error` API-key row the user named `screamingface`, and the stale-row repair removes any other
+  non-active row of that name.
 - **Open points.** None: the owner settled the spec's §8 on 2026-11-02 and the no-auth listing
   rule on 2026-11-03.
 

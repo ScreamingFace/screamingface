@@ -148,8 +148,10 @@ No `E` with two or more `active` rows is the legitimate conflict case below.
 | no `E`, `A` ≥ 2 | `ConnectionConflict` | `ConnectionConflict` | `ConnectionConflict` |
 | no `E`, `A` = 0 | own `error` API-key row: `PUT` in place. Otherwise stale-row repair, then `POST …/api-key` with label `screamingface` | stale-row repair, then `POST` start with label `screamingface` | stale-row repair only; idempotent when there is nothing to remove |
 
-**What `disconnect` returns.** The provider's status from `/v1/provider-access`, read after the
-writes, not a fixed `not_connected`. Deleting `E` clears the pair's effective reference
+**What `connect` and `disconnect` return.** The provider's status from `/v1/provider-access`,
+read after the writes: never one derived from the written row, and never a fixed `connected` or
+`not_connected`. For `connect`, the written row still passes the response checks below and gives
+`auth_method`; the status is whatever the gateway lists once the write is done. Deleting `E` clears the pair's effective reference
 (`retire_effective`, `routes/oauth_connections.py:473-475`, `connection_native.py:237`), so the
 pair falls back to the
 one-active-row rule. If the user has another active row, that row becomes effective and the
@@ -179,9 +181,15 @@ Engine does not own the user's OAuth, `error` or `pending` rows. A 409 `label_co
 occurs (a concurrent create) maps to `ConnectionConflict`.
 
 **Accepted limitation.** A non-active row the user named `screamingface` cannot be told apart from
-an Engine row, and the repair removes it. Such a row serves nothing (it is neither `E` nor
-`active`), and since the label is unique per pair it would block the Engine's create with
-`label_conflict` anyway.
+an Engine row: the label is the only mark of one. With no `E`, such a row meets one of two fates.
+
+- `connect` re-keys an `error` API-key row of that label in place: the user's row turns `active`
+  with the key the Engine was given, and keeps its label.
+- Any other such row, and on `start_oauth` and `disconnect` an `error` API-key row too, is
+  removed by the stale-row repair.
+
+Either way the row served nothing (it is neither `E` nor `active`), and since the label is unique
+per pair it would block the Engine's create with `label_conflict` anyway.
 
 **Response checks.** `connect` keeps its checks of status code, `auth_type` and `active` status,
 and drops the label check: an in-place `PUT` on a row the user named keeps that name.
@@ -204,8 +212,10 @@ Engine ignores the field.
   one active row, two active, pending only, no rows): `effective` is set on exactly the row the
   default resolve returns, and on none otherwise. A `provider` or `status` filter keeps the flag.
   A provider that declares only `none` flags no row: a stray `active` row of it, alone or named by
-  a `migrated` reference, lists `effective: false`. The listing reads no secret, writes nothing,
-  and lists markers and Connections once. PG: the listing route on PostgreSQL.
+  a `migrated` reference, lists `effective: false`, as does a row of a provider the registry does
+  not know or the caller may not view. The listing reads no secret, writes nothing, and lists
+  markers and Connections once when no write lands between them; a delete between the reads is
+  read again, and a marker that keeps moving answers 503. PG: the listing route on PostgreSQL.
 - **Engine (RED).** Every row of §3's table, with a fake gateway. A label-only gateway listing
   (no `effective`) selects by label. Also:
   - `list` shows the provider-access status, including `needs_reauth` and `error` on an `active`
@@ -215,8 +225,13 @@ Engine ignores the field.
   - a stray `active` row of a provider `/v1/providers` does not list (a no-auth provider),
     flagged `false`, raises no `ConnectionBadResponse`: the Engine builds nothing from it, and
     every listed provider keeps its `/v1/provider-access` status;
+  - `connect` returns the provider-access status read after its write, not one derived from the
+    written row: a gateway that lists `needs_reauth` or `error` after a successful write gets that
+    status back;
   - `disconnect` of `E` while the user has a second active row returns `connected`;
-  - the stale-row repair leaves a non-active row under any other label.
+  - the stale-row repair leaves a non-active row under any other label;
+  - the accepted limitation, pinned: with no `E`, an `error` API-key row the user labelled
+    `screamingface` is re-keyed in place by `connect` and removed by `start_oauth`'s repair.
 
   The hosted adapter's suite is unchanged.
 
