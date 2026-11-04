@@ -1,7 +1,7 @@
 ---
 id: OME-1538
 linear_url: https://linear.app/openmined/issue/OME-1538/fetch-url4-sources-as-bytes-with-their-media-type
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [url4-engine, agentic, autonomous]
