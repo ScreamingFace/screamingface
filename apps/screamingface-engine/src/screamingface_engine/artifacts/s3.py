@@ -231,13 +231,9 @@ class S3ArtifactStore:
                     return None
                 if r.status_code >= 400:
                     # INVARIANT: a bounded prefix, never `r.read()` — the cap holds on errors too.
-                    prefix = b""
-                    for prefix in r.iter_bytes(_ERROR_PREFIX_BYTES):
-                        break
-                    r.close()
                     raise S3StorageError(
                         f"object storage refused GET {key} with {r.status_code}: "
-                        f"{_error_detail(prefix)}"
+                        f"{_read_error_detail(r)}"
                     )
                 declared = r.headers.get("content-length", "")
                 if declared.isdigit() and int(declared) > max_bytes:
@@ -304,26 +300,31 @@ class S3ArtifactStore:
             method, key, payload_sha256=payload_sha256, extra_headers=extra_headers
         )
         url = f"{self._config.endpoint_url.rstrip('/')}{self._url_path(key)}"
+        # INVARIANT (#1603 review round 3): STREAMED, so no response body is ever buffered whole.
+        # Callers use only the status and headers; an error body costs at most the diagnostic
+        # prefix, and a 404/412 body is never read at all. The headers survive the close.
         try:
-            with self._client_factory() as client:
-                response = client.request(method, url, headers=headers, content=content)
+            with (
+                self._client_factory() as client,
+                client.stream(method, url, headers=headers, content=content) as response,
+            ):
+                if allow_missing and response.status_code == 404:
+                    return None
+                if allow_precondition_failed and response.status_code == 412:
+                    return None
+                if response.status_code >= 400:
+                    # AIDEV-NOTE: the body is the store's own error XML, not ours; it names the
+                    # real cause (SignatureDoesNotMatch, NoSuchBucket, AccessDenied) and is what
+                    # turns an opaque 403 into an actionable one. No credential material.
+                    raise S3StorageError(
+                        f"object storage refused {method} {key} with {response.status_code}: "
+                        f"{_read_error_detail(response)}"
+                    )
+                return response
         except httpx.HTTPError as exc:
             # WHY wrapped: callers handle `S3StorageError`; a bare httpx error crossing this
             # boundary would surface as an unhandled exception mid-run.
             raise S3StorageError(f"{method} {key} could not reach object storage: {exc}") from exc
-        if allow_missing and response.status_code == 404:
-            return None
-        if allow_precondition_failed and response.status_code == 412:
-            return None
-        if response.status_code >= 400:
-            # AIDEV-NOTE: the body is the store's own error XML, not ours; it names the real
-            # cause (SignatureDoesNotMatch, NoSuchBucket, AccessDenied) and is what turns an
-            # opaque 403 into an actionable one. It carries no credential material.
-            raise S3StorageError(
-                f"object storage refused {method} {key} with {response.status_code}: "
-                f"{response.text[:200]}"
-            )
-        return response
 
     async def _stream(self, key: str) -> AsyncIterator[bytes]:
         """Stream one object's body.
@@ -351,6 +352,15 @@ class S3ArtifactStore:
                         yield chunk
         except httpx.HTTPError as exc:
             raise S3StorageError(f"GET {key} could not reach object storage: {exc}") from exc
+
+
+def _read_error_detail(response: httpx.Response) -> str:
+    """The error text from at most `_ERROR_PREFIX_BYTES` of a STREAMED body, then close it."""
+    prefix = b""
+    for prefix in response.iter_bytes(_ERROR_PREFIX_BYTES):
+        break
+    response.close()
+    return _error_detail(prefix)
 
 
 def _error_detail(prefix: bytes) -> str:

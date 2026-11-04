@@ -239,3 +239,54 @@ def test_a_matching_sidecar_is_kept_by_a_signature_checked_reupload(
     again, created_again = store.ingest(SCOPE, PDF_HEX, "Application/PDF; x=1", PDF)
     assert (created_first, created_again) == (True, False)
     assert again == first
+
+
+# --- item 1 follow-up: the non-streamed requests (HEAD/PUT/DELETE) bound their error bodies too --
+
+
+def _erroring_store(body: _ErrorBody, status: int = 500) -> S3ArtifactStore:
+    def handle(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, content=body.sync_chunks())
+
+    return S3ArtifactStore(
+        _config(), client_factory=lambda: httpx.Client(transport=httpx.MockTransport(handle))
+    )
+
+
+def test_a_huge_s3_error_body_on_a_put_pulls_only_a_prefix() -> None:
+    body = _ErrorBody()
+    with pytest.raises(S3StorageError) as caught:
+        _erroring_store(body).put_object(KEY, PDF)
+    assert body.bytes_pulled <= PULL_BOUND
+    assert "InternalError" in str(caught.value)
+    assert "500" in str(caught.value)
+
+
+def test_a_huge_s3_error_body_on_a_conditional_put_pulls_only_a_prefix() -> None:
+    body = _ErrorBody()
+    with pytest.raises(S3StorageError):
+        _erroring_store(body).put_object_if_absent(f"{KEY}.json", b"{}")
+    assert body.bytes_pulled <= PULL_BOUND
+
+
+def test_a_huge_s3_error_body_on_a_head_pulls_only_a_prefix() -> None:
+    body = _ErrorBody()
+    with pytest.raises(S3StorageError) as caught:
+        _erroring_store(body).content("a" * 64)
+    assert body.bytes_pulled <= PULL_BOUND
+    assert "InternalError" in str(caught.value)
+
+
+def test_a_huge_s3_error_body_on_a_delete_pulls_only_a_prefix() -> None:
+    body = _ErrorBody()
+    with pytest.raises(S3StorageError):
+        _erroring_store(body).delete("a" * 64)
+    assert body.bytes_pulled <= PULL_BOUND
+
+
+def test_404_and_412_bodies_are_not_read_at_all() -> None:
+    """The absent and precondition-failed answers stay `None` and cost no body bytes."""
+    missing, raced = _ErrorBody(), _ErrorBody()
+    assert _erroring_store(missing, 404).content("a" * 64) is None
+    assert _erroring_store(raced, 412).put_object_if_absent(f"{KEY}.json", b"{}") is False
+    assert (missing.bytes_pulled, raced.bytes_pulled) == (0, 0)

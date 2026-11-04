@@ -260,9 +260,8 @@ status: done (item 1 unblocked by owner approval 2026-11-04)
 - **Merged origin/main** (ecb21ce4a, `feat(url4): resolve blob file refs`), no conflicts.
 - **Items 1-2 — c3140bc42.** `s3.py`: `get_object_at_most` and `_stream` read a 512-byte
   error prefix (`iter_bytes`/`aiter_bytes`, first chunk only), decode `errors="replace"`,
-  close; `_stream`'s error now carries the 200-char detail too. Not changed: `_request`
-  (HEAD/PUT/DELETE, non-streamed `client.request`) still buffers the whole error body before
-  `text[:200]`. `blobs.py`: `_existing` keeps a record only if the bytes carry its recorded
+  close; `_stream`'s error now carries the 200-char detail too. `_request`
+  (HEAD/PUT/DELETE) was left buffering in c3140bc42 and fixed in the follow-up below. `blobs.py`: `_existing` keeps a record only if the bytes carry its recorded
   type's signature (with `verify_signature`); a corrupt record is rewritten, `created=False`
   (also for an unparseable sidecar, which used to return `created=True`).
 - **Item 3 — 33579f98d.** `secret-blob-storage.yaml` trims the inline keys; verifier 145/145.
@@ -274,3 +273,6 @@ status: done (item 1 unblocked by owner approval 2026-11-04)
 - **Deviation:** item 2 is checked by signature, not by equality with the new label: equality
   would break `test_a_repeat_upload_keeps_the_first_media_type` (label-trusting store, no
   signature check). With `verify_signature` (the App) the two are the same test.
+- **Follow-up (coordinator, same round):** `_request` now uses `client.stream`, so HEAD/PUT/DELETE
+  error bodies cost the same 512-byte prefix; 404/412 unchanged and never read. 5 new tests
+  (RED confirmed), no prior test changed.
