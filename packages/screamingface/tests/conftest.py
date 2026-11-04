@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from screamingface._runtime import cli
+
 _PAID_FLAG = "SCREAMINGFACE_TEST_PAID"
 _PAID_LANE: Path = Path(__file__).resolve().parent / "paid"
 
@@ -55,6 +57,26 @@ def _isolated_screamingface_data_dir(
     # workbench U1); a token exported in the dev's shell or by the workbench would otherwise
     # change every Access test. Tests that need it set it via monkeypatch.
     monkeypatch.delenv("SCREAMINGFACE_ACCESS_TOKEN", raising=False)
+
+
+# FEATURE (OME-1620): `up`, `restart` and `prepare` BUILD a pip user's Engine environment when
+# none is set — a 700 MB install. Captured at import, before any test patches it.
+_REAL_ENGINE_BUILD = cli._with_built_engine_environment
+
+
+@pytest.fixture(autouse=True)
+def _no_engine_environment_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    # INVARIANT: the suite never builds a real Engine environment. Runtime tests force the
+    # bundled source to exercise `up` with stubbed apps; without this guard every one of them
+    # would start a real `uv venv` + pip install into its temp dir. The in-process Engine is
+    # what those tests expect, which is exactly what "no build" leaves them with.
+    monkeypatch.setattr(cli, "_with_built_engine_environment", lambda config, source: config)
+
+
+@pytest.fixture
+def real_engine_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opt back in to the real decision; stub `ensure_engine_environment`, never install."""
+    monkeypatch.setattr(cli, "_with_built_engine_environment", _REAL_ENGINE_BUILD)
 
 
 __all__: list[str] = []

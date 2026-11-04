@@ -62,6 +62,35 @@ class CustomBuildHook(BuildHookInterface):
                 "screamingface-engine/url4.toml",
             ),
             (url4, "url4", "url4/src/url4"),
+            # FEATURE (OME-1620): what `up` needs to BUILD a pip user's Engine environment —
+            # the inspect plugin (the 87 imported boards) beside the Engine sources above, and
+            # the two project files pip/uv build the Engine and url4 from. url4's README and
+            # LICENSE travel because its pyproject names them; the Engine's names neither.
+            (
+                apps / "screamingface-engine" / "src" / "screamingface_engine_inspect",
+                "screamingface_engine_inspect",
+                "screamingface-engine/src/screamingface_engine_inspect",
+            ),
+            (
+                apps / "screamingface-engine" / "pyproject.toml",
+                "screamingface/_runtime/engine_dist/screamingface-engine/pyproject.toml",
+                "screamingface-engine/pyproject.toml",
+            ),
+            (
+                url4.parents[1] / "pyproject.toml",
+                "screamingface/_runtime/engine_dist/url4/pyproject.toml",
+                "url4/pyproject.toml",
+            ),
+            (
+                url4.parents[1] / "README.md",
+                "screamingface/_runtime/engine_dist/url4/README.md",
+                "url4/README.md",
+            ),
+            (
+                url4.parents[1] / "LICENSE",
+                "screamingface/_runtime/engine_dist/url4/LICENSE",
+                "url4/LICENSE",
+            ),
         )
         missing = [str(path) for path, _, _ in sources if not path.exists()]
         if missing:

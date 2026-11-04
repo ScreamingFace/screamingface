@@ -24,15 +24,23 @@ screamingface prepare --all  # first run only
 screamingface up
 ```
 
-`draco`, the Benchmark the examples below use, is a local inspect Task, and so is `ifeval`: the plain
-`screamingface up` Engine lists neither, because the imported boards need `inspect-ai`, which cannot
-share an environment with the `runtime` extra. `up` can start the Engine from an Engine environment
-of its own instead: in a checkout, run `uv sync --extra benchmarks` in `apps/screamingface-engine`
-and `screamingface up` finds that venv by itself; elsewhere set `SCREAMINGFACE_ENGINE_PYTHON` (or pass
-`--engine-python`) to the interpreter of an environment holding `screamingface-engine[benchmarks]`.
-`up` then prints the environment and its benchmark count, `screamingface prepare --list` lists every
-benchmark it serves, and the local Scoreboard reads the Engine's catalogue over HTTP. Without one,
-`up` runs the Engine in-process as before; `just local-stack-notebooks` still works too.
+The imported Benchmarks (`draco`, `ifeval` and the rest of the inspect_evals catalogue) need
+`inspect-ai`, which cannot share an environment with the `runtime` extra's `litellm` pin. So
+`screamingface up` runs the Engine from an **Engine environment of its own**, as a child process:
+
+- **pip install:** the first `up` builds it under the data directory (`~/.screamingface/engine-env/`,
+  about 700 MB, under a minute with `uv` on `PATH`, a few minutes with pip), with the same pinned
+  `inspect-ai` and `inspect-evals` the deployed Engine runs, so every Benchmark keeps its revision.
+  Later runs reuse it; a pin change in a new release rebuilds it and removes the old one.
+- **checkout:** run `uv sync --extra benchmarks` in `apps/screamingface-engine` and `up` finds that
+  venv by itself (`just local-stack-notebooks` still works too).
+- **anywhere:** set `SCREAMINGFACE_ENGINE_PYTHON` (or pass `--engine-python`) to the interpreter of
+  an environment holding `screamingface-engine[benchmarks]`.
+
+`up` prints the environment and its benchmark count, `screamingface prepare --list` lists every
+benchmark it serves, `screamingface prepare <id>` downloads one (`--all` for everything, 2–3 GB),
+and the local Scoreboard reads the Engine's catalogue over HTTP. `screamingface doctor` names the
+environment in use.
 
 `screamingface up` starts AI Gateway, Scoreboard, and the Engine in the background. Use
 `screamingface status`, `screamingface doctor`, `screamingface logs`, `screamingface restart`, and

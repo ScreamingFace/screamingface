@@ -311,6 +311,7 @@ def _config(args: argparse.Namespace) -> RuntimeConfig:
             getattr(args, "engine_python", None),
             os.environ,
             runtime_source.resolve_source(os.environ),
+            data_dir=args.data_dir,
         )
         if use_port_environment or args.command == "prepare"
         else None
@@ -344,7 +345,6 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
 
     require_runtime_extra()
     _require_runner_config(config)
-    _require_full_engine_environment(config)
     state = _read_state(config)
     owned = bool(state and _verify_owner(state))
     if owned:
@@ -371,6 +371,10 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     if occupied:
         raise RuntimeError(f"required port(s) already in use by another process: {occupied}")
     config.data_dir.mkdir(parents=True, exist_ok=True)
+    # WHY here, after adoption and the port check: a stack already running needs no Engine
+    # environment, and a 700 MB build must never precede a refusal.
+    config = _with_built_engine_environment(config, runtime_source.resolve_source(os.environ))
+    _require_full_engine_environment(config)
     token = os.urandom(16).hex()
     if foreground:
         _serve(config, token, foreground=True)
@@ -415,6 +419,22 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     # servers came up (server.run), so by ready time it is there to print.
     _print_gateway_config(_read_state(config))
     _print_urls(config.services, config.log_path)
+
+
+def _with_built_engine_environment(
+    config: RuntimeConfig, source: runtime_source.RuntimeSource
+) -> RuntimeConfig:
+    """For a pip install with no Engine environment yet: build one under the data dir.
+
+    FEATURE (OME-1620): `pip install screamingface[runtime]` then `screamingface up` serves every
+    board. Only the bundled source builds — a checkout dev without the Engine venv keeps the
+    in-process Engine and the `uv sync` hint, never a surprise download — and a named or
+    already-found interpreter is never replaced.
+    """
+    if config.engine_python is not None:
+        return config
+    built: Path | None = engine_env.environment_for_pip_install(config.data_dir, source, os.environ)
+    return config if built is None else dataclasses.replace(config, engine_python=built)
 
 
 def _require_full_engine_environment(config: RuntimeConfig) -> None:
@@ -719,6 +739,7 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
 
     require_runtime_extra()
     _require_runner_config(config)
+    config = _with_built_engine_environment(config, runtime_source.resolve_source(os.environ))
     _require_full_engine_environment(config)
     _down(config)
     _up(config, foreground=foreground)
@@ -919,6 +940,7 @@ def _prepare(
         return
     if all_benchmarks == (benchmark is not None):
         raise RuntimeError("choose one benchmark or pass --all")
+    config = _with_built_engine_environment(config, runtime_source.resolve_source(os.environ))
     if config.engine_python is not None:
         _prepare_with_engine(config, benchmark, all_benchmarks=all_benchmarks, force=force)
         return
@@ -1100,6 +1122,13 @@ def _doctor(config: RuntimeConfig) -> int:  # noqa: C901, PLR0912, PLR0915
         checks.append(("warn", "API discovery", "Engine is not running"))
 
     assets = _recorded_assets(config, state, owned=owned)
+    # FEATURE (OME-1620): which Engine this stack runs — its own environment, or in-process
+    # (medxpert only), which is worth a warning rather than a pass.
+    checks.append(
+        ("pass", "engine environment", str(assets.engine_python))
+        if assets.engine_python is not None
+        else ("warn", "engine environment", "in-process Engine: serves medxpert only")
+    )
     if assets.benchmark_assets_dir is not None:
         folder = assets.benchmark_assets_dir
         # WHY fail, not pass: an explicit folder that is gone or unreadable fails every run.

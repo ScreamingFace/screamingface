@@ -29,10 +29,15 @@ interpreter's preparer with `--root ~/.screamingface/benchmark-assets --bundle i
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
 import json
+import shutil
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable, Mapping
+from importlib.resources import files
 from pathlib import Path
 
 from screamingface._runtime.source import MODE_CHECKOUT, RuntimeSource
@@ -43,11 +48,11 @@ ENGINE_PYTHON_ENV = "SCREAMINGFACE_ENGINE_PYTHON"
 # WHY this path: it is where `uv sync` in the Engine app puts its interpreter, and the venv
 # `just local-stack-notebooks` has always served the full Engine from.
 _CHECKOUT_ENGINE_APP = Path("apps") / "screamingface-engine"
-_VENV_PYTHON = (
-    Path(".venv") / "Scripts" / "python.exe"
-    if sys.platform == "win32"
-    else Path(".venv") / "bin" / "python"
+# The interpreter inside any venv folder, and inside the Engine app's `.venv` in particular.
+_INTERPRETER_IN_VENV = (
+    Path("Scripts") / "python.exe" if sys.platform == "win32" else Path("bin") / "python"
 )
+_VENV_PYTHON = Path(".venv") / _INTERPRETER_IN_VENV
 
 # WHY: the Engine's single hand-built board. An environment whose preparer lists nothing beyond
 # it has the Engine but not the inspect plugin's dependencies — the one thing worth refusing.
@@ -63,11 +68,16 @@ type RunCommand = Callable[..., subprocess.CompletedProcess[str]]
 
 
 def resolve_engine_python(
-    explicit: Path | None, environment: Mapping[str, str], source: RuntimeSource
+    explicit: Path | None,
+    environment: Mapping[str, str],
+    source: RuntimeSource,
+    *,
+    data_dir: Path | None = None,
 ) -> Path | None:
     """Stage 1 — the interpreter to start the Engine from, or None for the in-process Engine.
 
-    Precedence: the flag, then `SCREAMINGFACE_ENGINE_PYTHON`, then a checkout's Engine venv.
+    Precedence: the flag, then `SCREAMINGFACE_ENGINE_PYTHON`, then a checkout's Engine venv,
+    then an environment `up` built earlier under `data_dir` (`ensure_engine_environment`).
     A path that was NAMED (flag or variable) but is not a file is refused by name: silently
     falling back to the in-process Engine would serve one board behind a setting that promised
     all of them.
@@ -88,11 +98,13 @@ def resolve_engine_python(
                 f"(named by --engine-python or {ENGINE_PYTHON_ENV})"
             )
         return candidate
+    chosen: Path | None = None
     if source.mode == MODE_CHECKOUT and source.root is not None:
         default = (source.root / _CHECKOUT_ENGINE_APP / _VENV_PYTHON).absolute()
-        if default.is_file():
-            return default
-    return None
+        chosen = default if default.is_file() else None
+    if chosen is None and data_dir is not None:
+        chosen = existing_engine_environment(data_dir)
+    return chosen
 
 
 def engine_bundle_ids(
@@ -207,6 +219,247 @@ def bundle_status(assets_root: Path, bundle: str) -> str:
     return "prepared" if finished else "incomplete"
 
 
+# --- building the environment (pip users; OME-1620) ---------------------------------------------
+
+#: Under the data dir: `engine-env/<key>/` holds one built environment; other keys are removed.
+ENGINE_ENV_DIRNAME = "engine-env"
+#: Written LAST into a built environment, naming its key. No marker, no environment.
+READY_MARKER = ".ready"
+# WHY 16 hex chars: enough to never collide across the handful of worlds one machine sees.
+_KEY_LENGTH = 16
+# WHY the figure: the Engine venv with the benchmarks extra measured 658 MB (2026-11-04).
+_ENVIRONMENT_SIZE_HINT = "about 700 MB"
+# WHY 30 min: a cold pip install of the pinned world on a slow link; uv finishes in under a
+# minute. A hung installer must not hang `up` forever.
+_INSTALL_TIMEOUT_SECONDS = 1800.0
+
+
+def _requirements_path() -> Path:
+    """The Engine's pinned `benchmarks` world, exported from its lock and shipped in the wheel."""
+
+    return Path(str(files("screamingface._runtime.resources") / "engine-requirements.txt"))
+
+
+def _requirements_text() -> str:
+    return _requirements_path().read_text(encoding="utf-8")
+
+
+# WHY a checkout fallback, like `config.bundled_runner_config`: an editable install ships no
+# `engine_dist/` (the project files would be frozen copies), so the key and the assembly read
+# the live files of the surrounding checkout instead. Same depth as config.py: this file is
+# <root>/packages/screamingface/src/screamingface/_runtime/engine_env.py.
+_CHECKOUT_PROJECT_DIRS: dict[str, Path] = {
+    "screamingface-engine": Path("apps") / "screamingface-engine",
+    "url4": Path("packages") / "url4",
+}
+
+
+def _project_file(project: str, name: str) -> Path:
+    """One project file the wheel carries under `engine_dist/<project>/`, or the checkout's."""
+
+    vendored = Path(str(files("screamingface._runtime") / "engine_dist" / project / name))
+    if vendored.is_file():
+        return vendored
+    checkout = Path(__file__).resolve().parents[5] / _CHECKOUT_PROJECT_DIRS[project] / name
+    if checkout.is_file():
+        return checkout
+    raise FileNotFoundError(f"project file not found for {project}: {name}")
+
+
+def _vendored_package(name: str) -> Path:
+    """Where the installed SDK carries package `name`'s sources (its top-level vendored copy)."""
+
+    spec = importlib.util.find_spec(name)
+    locations = list(spec.submodule_search_locations or ()) if spec is not None else []
+    if not locations:
+        raise RuntimeError(f"the installed screamingface carries no copy of {name}")
+    return Path(locations[0])
+
+
+def environment_key() -> str:
+    """The identity of the environment `up` would build now: its pins, project files, Python.
+
+    INVARIANT: any change to what goes into the environment changes the key — an environment
+    built on other pins would serve boards whose revision no longer matches the deployed
+    Engine's, and must never be started.
+    """
+
+    digest = hashlib.sha256()
+    digest.update(_requirements_text().encode("utf-8"))
+    for project in ("screamingface-engine", "url4"):
+        digest.update(_project_file(project, "pyproject.toml").read_bytes())
+    digest.update(f"python{sys.version_info.major}.{sys.version_info.minor}".encode())
+    return digest.hexdigest()[:_KEY_LENGTH]
+
+
+def existing_engine_environment(data_dir: Path) -> Path | None:
+    """The interpreter of an environment `up` already built for the current key, or None."""
+
+    target: Path = data_dir / ENGINE_ENV_DIRNAME / environment_key()
+    python: Path = target / _INTERPRETER_IN_VENV
+    if (target / READY_MARKER).is_file() and python.is_file():
+        return python
+    return None
+
+
+def ensure_engine_environment(
+    data_dir: Path,
+    *,
+    environ: Mapping[str, str],
+    run: RunCommand | None = None,
+    which: Callable[[str], str | None] = shutil.which,
+    progress: Callable[[str], None] = print,
+) -> Path:
+    """Build the Engine environment under `data_dir` unless a ready one exists; return its python.
+
+    Think of it as stocking the Engine's own kitchen once. Stages, in order:
+
+    1. A ready environment for the current key → return it, run nothing.
+    2. Remove every other key's folder (a pin bump must not leave the old 700 MB behind) and
+       any half-built folder for this key (no marker means it was never finished).
+    3. Assemble the Engine and url4 projects in a temporary folder from the sources the wheel
+       carries, so pip/uv can build them — entry points included, which is what makes the
+       Engine find its inspect plugin.
+    4. Create the venv on THIS interpreter, install the pinned world, then the two projects
+       with no dependency resolution of their own: every version comes from the pins. uv when
+       it is on PATH (seconds), else `python -m venv` and pip (minutes).
+    5. Write the ready marker LAST, naming the key.
+
+    A failing step raises with its command and the last lines it printed, and leaves no folder
+    behind, so the next `up` starts clean.
+    """
+
+    existing: Path | None = existing_engine_environment(data_dir)
+    if existing is not None:
+        return existing
+    run_command: RunCommand = run if run is not None else subprocess.run
+    root: Path = data_dir / ENGINE_ENV_DIRNAME
+    root.mkdir(parents=True, exist_ok=True)
+    key: str = environment_key()
+    # Stage 2 — one environment per data dir: other keys and half-built folders go.
+    for folder in root.iterdir():
+        if folder.is_dir():
+            shutil.rmtree(folder)
+    target: Path = root / key
+    python: Path = target / _INTERPRETER_IN_VENV
+    uv: str | None = which("uv")
+    progress(
+        f"building the Engine environment in {root} ({_ENVIRONMENT_SIZE_HINT}; "
+        f"{'under a minute with uv' if uv else 'a few minutes with pip'})"
+    )
+    with tempfile.TemporaryDirectory(prefix="screamingface-engine-") as scratch:
+        # Stage 3 — the projects to install, assembled from the wheel's copies.
+        url4_project, engine_project = _assemble_projects(Path(scratch))
+        # Stage 4 — the installer sequence.
+        for command in _install_commands(
+            target,
+            python,
+            uv=uv,
+            requirements=_requirements_path(),
+            projects=(url4_project, engine_project),
+        ):
+            try:
+                completed = run_command(
+                    command,
+                    env=dict(environ),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=_INSTALL_TIMEOUT_SECONDS,
+                )
+            except (OSError, subprocess.SubprocessError) as exc:
+                shutil.rmtree(target, ignore_errors=True)
+                raise RuntimeError(
+                    f"building the Engine environment failed at `{' '.join(command)}`: {exc}"
+                ) from None
+            if completed.returncode != 0:
+                shutil.rmtree(target, ignore_errors=True)
+                tail: str = "\n".join(
+                    (completed.stderr or completed.stdout)
+                    .strip()
+                    .splitlines()[-_CHILD_ERROR_TAIL_LINES:]
+                )
+                raise RuntimeError(
+                    f"building the Engine environment failed at `{' '.join(command)}` "
+                    f"(exit {completed.returncode}):\n{tail}"
+                )
+    # Stage 5 — the marker, last. (The venv step created `target`; `mkdir` only keeps an
+    # installer that is replaced in tests from failing here.)
+    target.mkdir(parents=True, exist_ok=True)
+    (target / READY_MARKER).write_text(key, encoding="utf-8")
+    return python
+
+
+def _install_commands(
+    target: Path,
+    python: Path,
+    *,
+    uv: str | None,
+    requirements: Path,
+    projects: tuple[Path, ...],
+) -> list[list[str]]:
+    """The three installer commands, for uv or for venv+pip; identical in what they install."""
+
+    project_args: list[str] = [str(project) for project in projects]
+    if uv is not None:
+        return [
+            # WHY `--python sys.executable`: the same interpreter the SDK runs on, never a
+            # different one uv happens to prefer.
+            [uv, "venv", "--python", sys.executable, str(target)],
+            [uv, "pip", "install", "--python", str(python), "-r", str(requirements)],
+            [uv, "pip", "install", "--python", str(python), "--no-deps", *project_args],
+        ]
+    return [
+        [sys.executable, "-m", "venv", str(target)],
+        [str(python), "-m", "pip", "install", "-r", str(requirements)],
+        [str(python), "-m", "pip", "install", "--no-deps", *project_args],
+    ]
+
+
+def _assemble_projects(scratch: Path) -> tuple[Path, Path]:
+    """Lay out url4 and the Engine as installable projects from the wheel's copies.
+
+    Each gets its project file beside a `src/<package>` tree, which is the layout both
+    `pyproject.toml`s declare — so hatchling builds them exactly as from the monorepo.
+    """
+
+    url4_project: Path = scratch / "url4"
+    url4_project.mkdir()
+    for name in ("pyproject.toml", "README.md", "LICENSE"):
+        shutil.copy2(_project_file("url4", name), url4_project / name)
+    _copy_package("url4", url4_project / "src" / "url4")
+    engine_project: Path = scratch / "screamingface-engine"
+    engine_project.mkdir()
+    shutil.copy2(
+        _project_file("screamingface-engine", "pyproject.toml"), engine_project / "pyproject.toml"
+    )
+    for name in ("screamingface_engine", "screamingface_engine_inspect"):
+        _copy_package(name, engine_project / "src" / name)
+    return url4_project, engine_project
+
+
+def _copy_package(name: str, destination: Path) -> None:
+    shutil.copytree(
+        _vendored_package(name), destination, ignore=shutil.ignore_patterns("__pycache__", "*.pyc")
+    )
+
+
+def environment_for_pip_install(
+    data_dir: Path, source: RuntimeSource, environ: Mapping[str, str]
+) -> Path | None:
+    """Build (or reuse) the Engine environment for a pip install; None where that is not the job.
+
+    Only the bundled source builds: a checkout dev without the Engine venv keeps the in-process
+    Engine and its `uv sync` hint, never a surprise download. A frozen app (Studio's sidecar)
+    cannot create a venv at all and keeps the in-process Engine too — its own Engine
+    environment is a later ticket, through `SCREAMINGFACE_ENGINE_PYTHON`.
+    """
+
+    if source.mode == MODE_CHECKOUT or getattr(sys, "frozen", False):
+        return None
+    return ensure_engine_environment(data_dir, environ=environ)
+
+
 def describe(python: Path | None) -> str:
     """One line for the boot log and the ready banner."""
 
@@ -214,10 +467,16 @@ def describe(python: Path | None) -> str:
 
 
 __all__ = [
+    "ENGINE_ENV_DIRNAME",
     "ENGINE_PYTHON_ENV",
+    "READY_MARKER",
     "bundle_status",
     "describe",
     "engine_bundle_ids",
+    "ensure_engine_environment",
+    "environment_for_pip_install",
+    "environment_key",
+    "existing_engine_environment",
     "prepare_command",
     "require_full_engine",
     "resolve_engine_python",
