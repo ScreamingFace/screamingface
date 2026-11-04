@@ -242,15 +242,16 @@ def test_a_named_interpreter_still_wins_over_a_built_environment(tmp_path: Path)
 def test_up_builds_the_environment_for_a_pip_install_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """INVARIANT: a pip user gets the environment built; a checkout dev without the Engine venv
-    keeps the in-process Engine (and the `uv sync` hint), never a 700 MB download by surprise."""
+    """A pip user gets the environment built from the wheel's copies; a checkout dev without
+    the Engine venv gets one built from the live checkout (PR 4; before it, the checkout kept
+    the in-process Engine and a `uv sync` hint)."""
     built = tmp_path / "built" / "python"
     built.parent.mkdir()
     built.write_text("")
-    calls: list[Path] = []
+    calls: list[tuple[Path, object]] = []
 
-    def ensure(data_dir: Path, **_: object) -> Path:
-        calls.append(data_dir)
+    def ensure(data_dir: Path, **kwargs: object) -> Path:
+        calls.append((data_dir, kwargs.get("editable_root")))
         return built
 
     monkeypatch.setattr(engine_env, "ensure_engine_environment", ensure)
@@ -260,8 +261,8 @@ def test_up_builds_the_environment_for_a_pip_install_only(
     checkout = cli._with_built_engine_environment(config, RuntimeSource(MODE_CHECKOUT, tmp_path))
 
     assert bundled.engine_python == built
-    assert calls == [config.data_dir]
-    assert checkout.engine_python is None
+    assert checkout.engine_python == built
+    assert calls == [(config.data_dir, None), (config.data_dir, tmp_path)]
 
 
 @pytest.mark.usefixtures("real_engine_build")
@@ -286,10 +287,7 @@ def test_a_frozen_app_never_builds(tmp_path: Path, monkeypatch: pytest.MonkeyPat
         engine_env, "ensure_engine_environment", lambda *a, **k: pytest.fail("built anyway")
     )
 
-    assert (
-        engine_env.environment_for_pip_install(tmp_path, RuntimeSource(MODE_BUNDLED, None), {})
-        is None
-    )
+    assert engine_env.environment_for(tmp_path, RuntimeSource(MODE_BUNDLED, None), {}) is None
 
 
 # --- the pins never drift from the Engine's lock ---------------------------------------------

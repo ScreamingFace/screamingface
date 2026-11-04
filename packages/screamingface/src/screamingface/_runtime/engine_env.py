@@ -103,7 +103,8 @@ def resolve_engine_python(
         default = (source.root / _CHECKOUT_ENGINE_APP / _VENV_PYTHON).absolute()
         chosen = default if default.is_file() else None
     if chosen is None and data_dir is not None:
-        chosen = existing_engine_environment(data_dir)
+        editable_root = source.root if source.mode == MODE_CHECKOUT else None
+        chosen = existing_engine_environment(data_dir, editable_root=editable_root)
     return chosen
 
 
@@ -276,12 +277,13 @@ def _vendored_package(name: str) -> Path:
     return Path(locations[0])
 
 
-def environment_key() -> str:
-    """The identity of the environment `up` would build now: its pins, project files, Python.
+def environment_key(*, editable_root: Path | None = None) -> str:
+    """The identity of the environment `up` would build now: its pins, project files, Python,
+    and — for a checkout — the root whose live code it installs editable.
 
     INVARIANT: any change to what goes into the environment changes the key — an environment
     built on other pins would serve boards whose revision no longer matches the deployed
-    Engine's, and must never be started.
+    Engine's, and must never be started. Two checkouts never share one either.
     """
 
     digest = hashlib.sha256()
@@ -289,13 +291,17 @@ def environment_key() -> str:
     for project in ("screamingface-engine", "url4"):
         digest.update(_project_file(project, "pyproject.toml").read_bytes())
     digest.update(f"python{sys.version_info.major}.{sys.version_info.minor}".encode())
+    if editable_root is not None:
+        digest.update(f"editable:{editable_root.resolve()}".encode())
     return digest.hexdigest()[:_KEY_LENGTH]
 
 
-def existing_engine_environment(data_dir: Path) -> Path | None:
+def existing_engine_environment(
+    data_dir: Path, *, editable_root: Path | None = None
+) -> Path | None:
     """The interpreter of an environment `up` already built for the current key, or None."""
 
-    target: Path = data_dir / ENGINE_ENV_DIRNAME / environment_key()
+    target: Path = data_dir / ENGINE_ENV_DIRNAME / environment_key(editable_root=editable_root)
     python: Path = target / _INTERPRETER_IN_VENV
     if (target / READY_MARKER).is_file() and python.is_file():
         return python
@@ -309,8 +315,13 @@ def ensure_engine_environment(
     run: RunCommand | None = None,
     which: Callable[[str], str | None] = shutil.which,
     progress: Callable[[str], None] = print,
+    editable_root: Path | None = None,
 ) -> Path:
     """Build the Engine environment under `data_dir` unless a ready one exists; return its python.
+
+    With `editable_root` (a checkout), stage 3 is skipped and stage 4 installs the checkout's
+    live `packages/url4` and `apps/screamingface-engine` EDITABLE instead of the wheel's
+    copies: edits are served without a rebuild, and the dev's own venv is never touched.
 
     Think of it as stocking the Engine's own kitchen once. Stages, in order:
 
@@ -329,13 +340,13 @@ def ensure_engine_environment(
     behind, so the next `up` starts clean.
     """
 
-    existing: Path | None = existing_engine_environment(data_dir)
+    existing: Path | None = existing_engine_environment(data_dir, editable_root=editable_root)
     if existing is not None:
         return existing
     run_command: RunCommand = run if run is not None else subprocess.run
     root: Path = data_dir / ENGINE_ENV_DIRNAME
     root.mkdir(parents=True, exist_ok=True)
-    key: str = environment_key()
+    key: str = environment_key(editable_root=editable_root)
     # Stage 2 — one environment per data dir: other keys and half-built folders go.
     for folder in root.iterdir():
         if folder.is_dir():
@@ -345,49 +356,67 @@ def ensure_engine_environment(
     uv: str | None = which("uv")
     progress(
         f"building the Engine environment in {root} ({_ENVIRONMENT_SIZE_HINT}; "
-        f"{'under a minute with uv' if uv else 'a few minutes with pip'})"
+        f"{'under a minute with uv' if uv else 'a few minutes with pip'}"
+        f"{'; live code from ' + str(editable_root) if editable_root else ''})"
     )
     with tempfile.TemporaryDirectory(prefix="screamingface-engine-") as scratch:
-        # Stage 3 — the projects to install, assembled from the wheel's copies.
-        url4_project, engine_project = _assemble_projects(Path(scratch))
-        # Stage 4 — the installer sequence.
-        for command in _install_commands(
+        # Stage 3 — the projects to install: the wheel's copies, or the checkout's live trees.
+        if editable_root is None:
+            projects: tuple[Path, ...] = _assemble_projects(Path(scratch))
+        else:
+            projects = (
+                editable_root / _CHECKOUT_PROJECT_DIRS["url4"],
+                editable_root / _CHECKOUT_PROJECT_DIRS["screamingface-engine"],
+            )
+        # Stage 4 — the installer sequence; a failed step removes the target and raises.
+        commands = _install_commands(
             target,
             python,
             uv=uv,
             requirements=_requirements_path(),
-            projects=(url4_project, engine_project),
-        ):
-            try:
-                completed = run_command(
-                    command,
-                    env=dict(environ),
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=_INSTALL_TIMEOUT_SECONDS,
-                )
-            except (OSError, subprocess.SubprocessError) as exc:
-                shutil.rmtree(target, ignore_errors=True)
-                raise RuntimeError(
-                    f"building the Engine environment failed at `{' '.join(command)}`: {exc}"
-                ) from None
-            if completed.returncode != 0:
-                shutil.rmtree(target, ignore_errors=True)
-                tail: str = "\n".join(
-                    (completed.stderr or completed.stdout)
-                    .strip()
-                    .splitlines()[-_CHILD_ERROR_TAIL_LINES:]
-                )
-                raise RuntimeError(
-                    f"building the Engine environment failed at `{' '.join(command)}` "
-                    f"(exit {completed.returncode}):\n{tail}"
-                )
+            projects=projects,
+            editable=editable_root is not None,
+        )
+        _run_installer(commands, target, environ=environ, run=run_command)
     # Stage 5 — the marker, last. (The venv step created `target`; `mkdir` only keeps an
     # installer that is replaced in tests from failing here.)
     target.mkdir(parents=True, exist_ok=True)
     (target / READY_MARKER).write_text(key, encoding="utf-8")
     return python
+
+
+def _run_installer(
+    commands: list[list[str]], target: Path, *, environ: Mapping[str, str], run: RunCommand
+) -> None:
+    """Run the installer commands in order; on any failure remove `target` and raise, naming
+    the command and its last lines, so the next `up` starts clean."""
+
+    for command in commands:
+        try:
+            completed = run(
+                command,
+                env=dict(environ),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_INSTALL_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            shutil.rmtree(target, ignore_errors=True)
+            raise RuntimeError(
+                f"building the Engine environment failed at `{' '.join(command)}`: {exc}"
+            ) from None
+        if completed.returncode != 0:
+            shutil.rmtree(target, ignore_errors=True)
+            tail: str = "\n".join(
+                (completed.stderr or completed.stdout)
+                .strip()
+                .splitlines()[-_CHILD_ERROR_TAIL_LINES:]
+            )
+            raise RuntimeError(
+                f"building the Engine environment failed at `{' '.join(command)}` "
+                f"(exit {completed.returncode}):\n{tail}"
+            )
 
 
 def _install_commands(
@@ -397,10 +426,15 @@ def _install_commands(
     uv: str | None,
     requirements: Path,
     projects: tuple[Path, ...],
+    editable: bool = False,
 ) -> list[list[str]]:
     """The three installer commands, for uv or for venv+pip; identical in what they install."""
 
-    project_args: list[str] = [str(project) for project in projects]
+    project_args: list[str] = []
+    for project in projects:
+        if editable:
+            project_args.append("-e")
+        project_args.append(str(project))
     if uv is not None:
         return [
             # WHY `--python sys.executable`: the same interpreter the SDK runs on, never a
@@ -444,20 +478,29 @@ def _copy_package(name: str, destination: Path) -> None:
     )
 
 
-def environment_for_pip_install(
+def environment_for(
     data_dir: Path, source: RuntimeSource, environ: Mapping[str, str]
 ) -> Path | None:
-    """Build (or reuse) the Engine environment for a pip install; None where that is not the job.
+    """Build (or reuse) the Engine environment this install needs; None where that is not the job.
 
-    Only the bundled source builds: a checkout dev without the Engine venv keeps the in-process
-    Engine and its `uv sync` hint, never a surprise download. A frozen app (Studio's sidecar)
-    cannot create a venv at all and keeps the in-process Engine too — its own Engine
-    environment is a later ticket, through `SCREAMINGFACE_ENGINE_PYTHON`.
+    A pip install builds from the wheel's copies; a checkout builds with its live code
+    installed editable (nothing to run by hand, the dev's venv untouched). A frozen app
+    (Studio's sidecar) cannot create a venv at all and keeps the in-process Engine — its own
+    Engine environment is a later ticket, through `SCREAMINGFACE_ENGINE_PYTHON`.
     """
 
-    if source.mode == MODE_CHECKOUT or getattr(sys, "frozen", False):
+    if getattr(sys, "frozen", False):
         return None
-    return ensure_engine_environment(data_dir, environ=environ)
+    editable_root: Path | None = source.root if source.mode == MODE_CHECKOUT else None
+    return ensure_engine_environment(data_dir, environ=environ, editable_root=editable_root)
+
+
+def checkout_engine_venv(source: RuntimeSource) -> Path | None:
+    """The Engine app's own venv interpreter in this checkout, whether or not it exists."""
+
+    if source.mode != MODE_CHECKOUT or source.root is None:
+        return None
+    return (source.root / _CHECKOUT_ENGINE_APP / _VENV_PYTHON).absolute()
 
 
 def describe(python: Path | None) -> str:
@@ -473,8 +516,9 @@ __all__ = [
     "bundle_status",
     "describe",
     "engine_bundle_ids",
+    "checkout_engine_venv",
     "ensure_engine_environment",
-    "environment_for_pip_install",
+    "environment_for",
     "environment_key",
     "existing_engine_environment",
     "prepare_command",

@@ -32,8 +32,10 @@ The imported Benchmarks (`draco`, `ifeval` and the rest of the inspect_evals cat
   about 700 MB, under a minute with `uv` on `PATH`, a few minutes with pip), with the same pinned
   `inspect-ai` and `inspect-evals` the deployed Engine runs, so every Benchmark keeps its revision.
   Later runs reuse it; a pin change in a new release rebuilds it and removes the old one.
-- **checkout:** run `uv sync --extra benchmarks` in `apps/screamingface-engine` and `up` finds that
-  venv by itself (`just local-stack-notebooks` still works too).
+- **checkout:** nothing to do. `up` uses the Engine app's venv when it carries the `benchmarks`
+  extra, and otherwise builds the same environment with the live `apps/screamingface-engine` and
+  `packages/url4` installed editable, so edits are served without a rebuild and your own venv is
+  never touched. `just local-stack-notebooks` is prepare + up + JupyterLab.
 - **anywhere:** set `SCREAMINGFACE_ENGINE_PYTHON` (or pass `--engine-python`) to the interpreter of
   an environment holding `screamingface-engine[benchmarks]`.
 
