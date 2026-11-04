@@ -518,3 +518,21 @@ async def test_a_cost_reads_the_same_on_either_database(
     body = (await engine.client.get(f"/runs/{run_id}", headers=ALICE)).json()
 
     assert body["candidates"][0]["cost_usd"] == wire
+
+
+async def test_a_repeated_client_key_for_another_evaluation_is_409(registry: Registry) -> None:
+    engine = _Engine(registry)
+    await engine.create()
+
+    refused = await engine.create(candidates=["gamma"])
+
+    assert (refused.status_code, refused.json()["code"]) == (409, "client_key_conflict")
+
+
+async def test_a_cursor_that_names_no_run_of_yours_is_422(registry: Registry) -> None:
+    engine = _Engine(registry)
+    await engine.create()
+
+    refused = await engine.client.get(f"/runs?cursor={UNKNOWN}", headers=ALICE)
+
+    assert (refused.status_code, refused.json()["code"]) == (422, "invalid_cursor")
