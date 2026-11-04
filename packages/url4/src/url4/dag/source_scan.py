@@ -179,10 +179,9 @@ def _walk_iteration(
     node: Iteration, bound: Mapping[str, Node], out: _Found, guards: _Guards
 ) -> None:
     _walk_collection(node.collection, bound, out, guards)
-    items = node.collection
-    if isinstance(items, VarRef) and not items.path and items.name in bound:
-        items = bound[items.name]  # ``$xs*(…)`` reads its enclosing binding's value
-    guard = CollectionGuard(items, bound, node.directives.slice)
+    # WHY the raw collection: its shape is decided ONLY by ``_collection_shape`` (finding 2),
+    # which follows every ``$name`` hop and path; admission and the static check read it.
+    guard = CollectionGuard(node.collection, bound, node.directives.slice)
     _walk_source_list(node.body, bound, out, (*guards, guard))
 
 

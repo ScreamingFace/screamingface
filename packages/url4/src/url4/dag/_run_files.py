@@ -91,11 +91,12 @@ async def _run_start(
     budget = CapBudget(case)
     budget.expect(ref.key for ref in refs if not ref.collection)
     bodies = await gather_charged(budget, (_verify(ref, run_ctx, budget) for ref in refs))
-    admission: Admission = await materialize(occurrences, run_ctx, budget)
-    resolved = {ref.key: _as_attachment(ref, *body) for ref, body in zip(refs, bodies, strict=True)}
     cache: dict[str, CachedBlob] = {
         ref.key: CachedBlob(*body) for ref, body in zip(refs, bodies, strict=True)
     }
+    # WHY the cache goes in: a verified blob collection's rows decide reachability (finding 2).
+    admission: Admission = await materialize(occurrences, run_ctx, budget, cache)
+    resolved = {ref.key: _as_attachment(ref, *body) for ref, body in zip(refs, bodies, strict=True)}
     # F1b: an identity's slot is its first REACHABLE occurrence, known only after admission.
     order = (
         () if scan is None else reachable_order(scan.order, occurrences, admission.first_reachable)

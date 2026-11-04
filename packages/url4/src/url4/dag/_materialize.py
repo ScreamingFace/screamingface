@@ -21,8 +21,12 @@ INVARIANT: an expression with no attachment source never enters this module (tex
 byte-identical to today).
 
 AIDEV-NOTE (conservative readings, ledger round 7): a collection this phase cannot resolve
-without running the body (a row reference ``$item``, a blob ref, holdings, a templated source)
-is treated as reachable; a pre-built graph has no AST, so it has no manifest. An annotated
+without running the body (a row reference ``$item``, holdings, a templated source, a bound inline
+group) is treated as reachable. Every collection's shape comes from the ONE resolver
+:mod:`url4.dag._collection_shape` (review finding 2): ``$name`` chains and field paths are followed
+to their value, a model anywhere on the chain is ``x.source_not_static``, and a verified blob
+collection is read from the run-start cache. A pre-built graph has no AST, so it has no
+manifest. An annotated
 ``http(s)://`` or relative collection IS resolved here, under its own guard policy (review
 round 7b). A collection whose guarded admission still fails is final: execution replays that
 failure as permanent (never retried, never re-fetched), so the body it gates can never run
@@ -37,19 +41,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 
-from url4.core.errors import CollectionError, ErrorCode, ResolutionError, Url4Error
-from url4.core.nodes import (
-    Expression,
-    Iteration,
-    Node,
-    RelExpr,
-    RelUrl,
-    RemoteExpr,
-    Source,
-    Text,
-    Url,
-    VarRef,
-)
+from url4.core.blob_ref import address_of
+from url4.core.errors import CollectionError, ErrorCode, ResolutionError, ScopeError, Url4Error
+from url4.core.nodes import Expression, Node, RelUrl, Source, Url
 from url4.core.url_display import display_url
 from url4.io.layer import FetchRequest, FetchResult, fetch_result
 
@@ -60,13 +54,14 @@ from url4.dag._caps import CapBudget  # isort: skip
 from url4.dag._caps import check_caps as check_caps  # isort: skip
 from url4.dag._caps import gather_charged  # isort: skip
 from url4.dag.attachment_sources import AttachmentIdentity, classify, guard_policy, not_static  # isort: skip
-from url4.dag.attachments import CollectionGuard, Occurrence, prefetch_key  # isort: skip
-from url4.dag.node import DagNode, ExecutionContext, Payload, SourceFailure  # isort: skip
+from url4.dag._collection_shape import BLOB, FETCH, INLINE, MODEL, TEXT, CollectionShape  # isort: skip
+from url4.dag._collection_shape import resolve_collection  # isort: skip
+from url4.dag.attachments import CachedBlob, CollectionGuard, Occurrence, prefetch_key  # isort: skip
+from url4.dag.node import RDS_STRICT, DagNode, ExecutionContext, Payload, SourceFailure  # isort: skip
 from url4.dag.nodes import GuardNode  # isort: skip
+from url4.dag.nodes.blob import collection_text  # isort: skip
 from url4.dag.semantics.collection import parse_collection  # isort: skip
-
-_MODEL = "model"
-_UNKNOWN = "unknown"
+from url4.dag.semantics.ensemble import resolve_field_path  # isort: skip
 
 Outcomes = dict[AttachmentIdentity, Attachment | ResolutionError]
 Prefetched = dict[tuple, list[FetchResult | Exception]]
@@ -86,28 +81,37 @@ class Admission:
 
 
 def check_static(occurrences: Sequence[Occurrence]) -> None:
-    """``x.source_not_static`` for an occurrence under a model-derived collection — no I/O."""
+    """``x.source_not_static`` for an occurrence under a model-derived collection — no I/O.
+
+    The shape comes from the ONE resolver (:func:`resolve_collection`, review finding 2), so a
+    model reached through any chain of ``$name`` aliases or field paths is caught here.
+    """
     for identity, guards in occurrences:
-        if any(_kind(guard.items, guard.bound) == _MODEL for guard in guards):
+        if any(resolve_collection(g.items, g.bound).kind == MODEL for g in guards):
             raise not_static(identity.url)
 
 
 async def materialize(
-    occurrences: Sequence[Occurrence], ctx: ExecutionContext, budget: CapBudget
+    occurrences: Sequence[Occurrence],
+    ctx: ExecutionContext,
+    budget: CapBudget,
+    blobs: Mapping[str, CachedBlob] | None = None,
 ) -> Admission:
     """Every reachable identity's outcome, the collection fetches made to decide it, and
     the occurrence each identity's slot sits at. ``budget`` carries the caps the run already
-    charged (Case attachments, blob refs); the flights charge it too."""
+    charged (Case attachments, blob refs); the flights charge it too. ``blobs`` is the run's
+    verified blob cache: a blob collection's rows are read from it, never fetched again."""
     if not occurrences:
         return Admission()
     check_static(occurrences)
     prefetched: Prefetched = {}
     rows: dict[int, bool] = {}
     reachable: dict[AttachmentIdentity, int] = {}
+    reader = _Rows(ctx, prefetched, blobs or {})
     # INVARIANT: preorder walk; an identity's later occurrences are never evaluated once an
     # earlier one is reachable (its slot is fixed, and no extra collection is fetched).
     for index, (identity, guards) in enumerate(occurrences):
-        if identity not in reachable and await _all_have_rows(guards, ctx, rows, prefetched):
+        if identity not in reachable and await _all_have_rows(guards, reader, rows):
             reachable[identity] = index
     budget.expect(identity for identity in reachable if not identity.optional)
     flights = await gather_charged(
@@ -118,69 +122,104 @@ async def materialize(
 
 
 async def _all_have_rows(
-    guards: Sequence[CollectionGuard],
-    ctx: ExecutionContext,
-    rows: dict[int, bool],
-    prefetched: Prefetched,
+    guards: Sequence[CollectionGuard], reader: _Rows, rows: dict[int, bool]
 ) -> bool:
     # Outer first, stopping at the first empty one: an inner collection of a body over zero
     # rows is never resolved (a body over zero rows causes no I/O).
     for guard in guards:
         if id(guard) not in rows:
-            rows[id(guard)] = await _has_rows(guard, ctx, prefetched)
+            rows[id(guard)] = await reader.has_rows(guard)
         if not rows[id(guard)]:
             return False
     return True
 
 
-def _unwrap(items: Node, bound: Mapping[str, Node]) -> tuple[Node, Source | None]:
-    """Follow ``$xs`` to its enclosing binding, and a descriptor to its value.
+@dataclass(frozen=True)
+class _Rows:
+    """Decides whether a collection yields rows, reading it exactly as execution will."""
 
-    Returns the value and its OUTERMOST descriptor (``None`` when bare): the descriptor's
-    annotations are the collection's guard policy and ``;accept=``, which admission must
-    honor exactly as the lowering does (``_descriptor._lower_source``).
-    One step only: a binding whose value is itself a reference is ``unknown`` (reachable).
+    ctx: ExecutionContext
+    prefetched: Prefetched
+    blobs: Mapping[str, CachedBlob]
+
+    async def has_rows(self, guard: CollectionGuard) -> bool:
+        shape = resolve_collection(guard.items, guard.bound)
+        read = await self._read(shape)
+        if isinstance(read, _Reachable):
+            has = True  # unknown before the body runs: conservatively reachable
+        elif read is None:
+            has = False  # the collection failed: execution fails or omits it; no body runs
+        elif isinstance(read, list):
+            has = _sliced(read, guard)
+        else:
+            has = _rows_of(read, shape, guard, self.ctx)
+        return has
+
+    async def _read(self, shape: CollectionShape) -> _Read:
+        """The collection as execution will see it: elements, (body, media type), or neither."""
+        value = shape.value
+        read: _Read = _REACHABLE
+        if shape.kind == INLINE and isinstance(value, Expression):
+            read = list(value.sources)
+        elif shape.kind == TEXT and shape.text is not None:
+            read = (shape.text, None)
+        elif shape.kind == FETCH and isinstance(value, (Url, RelUrl)):
+            read = await _fetched_rows(value, shape.descriptor, self.ctx, self.prefetched)
+        elif shape.kind == BLOB and (cached := _cached(value, self.blobs)) is not None:
+            read = _blob_rows(cached)
+        return read
+
+
+class _Reachable:
+    """A collection admission cannot read before the body runs: conservatively reachable."""
+
+
+_REACHABLE = _Reachable()
+_Read = _Reachable | list[Node] | tuple[str, str | None] | None
+
+
+def _rows_of(
+    read: tuple[str, str | None],
+    shape: CollectionShape,
+    guard: CollectionGuard,
+    ctx: ExecutionContext,
+) -> bool:
+    body: str | None
+    body, media_type = read
+    if shape.via_ref:
+        # A ``$name`` collection is a TextNode payload: each hop's path, no media type.
+        body, media_type = _selected(body, shape.paths, ctx), None
+    return body is not None and _parsed(body, media_type, guard)
+
+
+def _selected(body: str, paths: Sequence[str], ctx: ExecutionContext) -> str | None:
+    """``body`` read through each hop's field path as execution's substitution reads it.
+
+    ``None`` when strict field mode refuses a path: execution raises there, so no body runs.
     """
-    if isinstance(items, VarRef) and not items.path and items.name in bound:
-        items = bound[items.name]
-    descriptor = items if isinstance(items, Source) else None
-    while isinstance(items, Source):
-        items = items.value
-    return items, descriptor
+    strict = ctx.strict_fields or RDS_STRICT.get()
+    try:
+        for path in paths:
+            body = resolve_field_path(body, path, strict=strict, ref="$collection")
+    except ScopeError:
+        return None
+    return body
 
 
-def _kind(items: Node, bound: Mapping[str, Node]) -> str:
-    """``model`` when the collection is a model output, else ``unknown`` or a resolvable shape.
-
-    WHY a call, a remote expression and a nested iteration are ``model``: their rows are a
-    model's (or another node's) output, so the body's reachability is unknown until after a
-    model call — an attachment source there cannot be frozen first (F1b ``x.source_not_static``).
-    """
-    items, _ = _unwrap(items, bound)
-    kind = _UNKNOWN
-    if isinstance(items, Expression):
-        kind = "inline" if items.intent is None and not items.broadcast else _MODEL
-    elif isinstance(items, (RelExpr, RemoteExpr, Iteration)):
-        kind = _MODEL
-    elif isinstance(items, Url) and items.value.startswith(("http://", "https://")):
-        kind = "fetch"
-    elif isinstance(items, RelUrl) and "$" not in items.value:
-        kind = "fetch"
-    elif isinstance(items, Text):
-        kind = "text"
-    return kind
+def _cached(value: Node, blobs: Mapping[str, CachedBlob]) -> CachedBlob | None:
+    """The run-start verified blob ``value`` names; ``None`` (unknown: reachable) otherwise."""
+    address = address_of(value)
+    return None if address is None else blobs.get(f"sha256:{address.digest}")
 
 
-async def _has_rows(guard: CollectionGuard, ctx: ExecutionContext, prefetched: Prefetched) -> bool:
-    items, descriptor = _unwrap(guard.items, guard.bound)
-    has_rows = True  # unknown before the body runs: conservatively reachable
-    if isinstance(items, Expression) and _kind(items, {}) == "inline":
-        has_rows = _sliced(list(items.sources), guard)
-    elif isinstance(items, Text):
-        has_rows = _parsed(items.value, None, guard)
-    elif isinstance(items, (Url, RelUrl)) and _kind(items, {}) == "fetch":
-        has_rows = await _fetched_rows(items, descriptor, ctx, guard, prefetched)
-    return has_rows
+def _blob_rows(cached: CachedBlob) -> tuple[str, str | None] | None:
+    """A verified blob collection's text and media type, read as execution reads it (D4)."""
+    try:
+        # WHY a fixed label: only whether the read is refused (C8) matters here, never the text.
+        text = collection_text("blob collection", cached.body, cached.media_type)
+    except ResolutionError:
+        return None  # C8 at execution: the body never runs
+    return str(text), cached.media_type
 
 
 def _collection_request(items: Url | RelUrl, accept: str | None) -> FetchRequest:
@@ -195,11 +234,11 @@ async def _fetched_rows(
     items: Url | RelUrl,
     descriptor: Source | None,
     ctx: ExecutionContext,
-    guard: CollectionGuard,
     prefetched: Prefetched,
-) -> bool:
+) -> tuple[str, str | None] | None:
     """Resolve one collection under its own guard policy; record the FINAL outcome for replay.
 
+    Returns the body and media type, or ``None`` when the collection failed or was omitted.
     WHY final, and a failure made permanent: admission already spent the source's policy
     (its retries and its ``;t=`` deadline). Execution's own guard must not spend it again —
     a fresh retry that succeeded there would run a body admission judged unreachable.
@@ -218,15 +257,15 @@ async def _fetched_rows(
             outcome = await guarded.resolve({}, ctx)
             if isinstance(outcome, SourceFailure):  # an omitted ;optional collection
                 pending.append(ResolutionError(outcome.message, code=outcome.code, permanent=True))
-                return False
+                return None
     except Exception as exc:  # replayed by execution, which fails exactly as it does today
         pending.append(_final(exc))
-        return False
+        return None
     if leaf.result is None:  # resolve returns only after it stored the result
         shown = display_url(request.target)
         raise RuntimeError(f"collection admission for {shown!r} stored nothing")
     pending.append(leaf.result)
-    return _parsed(leaf.result.body, leaf.result.media_type, guard)
+    return leaf.result.body, leaf.result.media_type
 
 
 def _final(exc: Exception) -> Exception:

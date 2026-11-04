@@ -170,6 +170,9 @@ def _collection_text(ref: str, body: bytes, media_type: str | None) -> FetchedTe
     )
 
 
+collection_text = _collection_text  # the one D4 read admission mirrors (review finding 2)
+
+
 def _required(address: BlobAddress | None, ref: str) -> BlobAddress:
     if address is None:
         raise ValueError(f"{ref!r} is not a file ref")
