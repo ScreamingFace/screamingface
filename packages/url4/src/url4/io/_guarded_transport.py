@@ -96,6 +96,13 @@ class FetchState:
     INVARIANT: consumed by the first hop, so no redirect hop is ever trusted — not even one
     back into the base_url origin.
     """
+    max_bytes: int | None = None
+    """The fetch's own decoded-byte ceiling (``FetchRequest.max_bytes``); the stricter one wins."""
+    on_chunk: Callable[[int], None] | None = None
+    """Told the size of every decoded piece of every hop's body as it arrives; raises to abort.
+
+    WHY every hop: httpx reads a redirect's body itself, so it is held too (push security review).
+    """
 
 
 async def system_resolver(host: str, port: int) -> Sequence[str]:
@@ -176,7 +183,13 @@ class GuardedTransport(httpx.AsyncBaseTransport):
             response.status_code,
             headers=headers,
             stream=_CappedStream(
-                stream, self._guard.max_bytes, decoder, lease, deadline=state.deadline
+                stream,
+                self._guard.max_bytes,
+                decoder,
+                lease,
+                deadline=state.deadline,
+                decoded_limit=state.max_bytes,
+                on_chunk=state.on_chunk,
             ),
             extensions=response.extensions,
         )
@@ -319,6 +332,10 @@ class _CappedStream(httpx.AsyncByteStream):
     INVARIANT (OME-1720): every raw chunk and every decompress call — even one that yields
     nothing, like an empty gzip member — is a checkpoint against the fetch deadline, and each
     raw step yields to the event loop so a cancellation or ``asyncio.timeout`` is delivered.
+    INVARIANT (push security review, resource-cap-defeat): ``on_chunk`` is told each decoded
+    piece BEFORE the decoded cap is checked (the caller's refusal outranks
+    ``x.source_too_large``), and ``decoded_limit`` only ever tightens ``limit`` on DECODED bytes;
+    the raw count keeps ``limit``.
     """
 
     def __init__(
@@ -329,11 +346,15 @@ class _CappedStream(httpx.AsyncByteStream):
         lease: Lease,
         *,
         deadline: float | None = None,
+        decoded_limit: int | None = None,
+        on_chunk: Callable[[int], None] | None = None,
     ) -> None:
         self._inner = inner
         self._lease = lease
         self._deadline = deadline
         self._limit = limit
+        self._decoded_limit = limit if decoded_limit is None else min(limit, decoded_limit)
+        self._on_chunk = on_chunk
         self._decoder = decoder
         self._raw = 0
         self._seen = 0
@@ -357,9 +378,11 @@ class _CappedStream(httpx.AsyncByteStream):
             raise source_timeout("the source body passed the total deadline while being read")
 
     def _count(self, piece: bytes) -> bytes:
+        if self._on_chunk is not None:
+            self._on_chunk(len(piece))
         self._seen += len(piece)
-        if self._seen > self._limit:
-            raise too_large(self._limit)
+        if self._seen > self._decoded_limit:
+            raise too_large(self._decoded_limit)
         return piece
 
     async def aclose(self) -> None:
