@@ -12,10 +12,12 @@ import subprocess
 import sys
 import threading
 from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from functools import cache
 from types import FrameType
 from typing import Any, Protocol
 
+from screamingface._runtime import engine_env
 from screamingface._runtime.bootstrap import (
     enable_local_providers,
     neutralise_litellm_debug,
@@ -32,6 +34,15 @@ from screamingface._runtime.source import (
 )
 
 STARTUP_TIMEOUT_SECONDS = 90.0
+
+
+@dataclass(frozen=True, slots=True)
+class _Child:
+    """One service this supervisor runs as a child process and relays into the runtime log."""
+
+    name: str
+    process: subprocess.Popen[bytes]
+    port: int
 
 
 class Server(Protocol):
@@ -197,10 +208,15 @@ async def run(
     )
     if publish_config is not None:
         publish_config(gateway_config)
-    servers = (
-        _server(gateway, config.gateway_port, "AI Gateway"),
-        _server(engine, config.engine_port, "Engine"),
-    )
+    servers: list[Server] = [_server(gateway, config.gateway_port, "AI Gateway")]
+    children: list[_Child] = []
+    if engine is not None:
+        servers.append(_server(engine, config.engine_port, "Engine"))
+    else:
+        # FEATURE (OME-1620): the Engine runs from its own environment, as a child of this
+        # process, relayed into the same runtime log under its own service tag.
+        print(f"engine env: {engine_env.describe(config.engine_python)}", flush=True)
+        children.append(_Child("engine", _start_engine_child(config), config.engine_port))
     if getattr(sys, "frozen", False):
         scoreboard_command = [
             sys.executable,
@@ -221,21 +237,29 @@ async def run(
             "--scoreboard-port",
             str(config.scoreboard_port),
         ]
-    scoreboard = subprocess.Popen(
-        scoreboard_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
-    )
-    try:
-        await _supervise(
-            servers,
-            scoreboard=scoreboard,
-            scoreboard_port=config.scoreboard_port,
-            services=config.services,
-            shutdown_event=shutdown_event,
+    if engine is None:
+        # WHY: with the Engine in another process the board cannot import its registry; it
+        # reads the catalogue over HTTP, as the hosted board does — so it starts only once the
+        # Engine answers (see `_supervise`).
+        scoreboard_command += [
+            "--engine-port",
+            str(config.engine_port),
+            "--seed-from-engine",
+        ]
+
+    def start_scoreboard() -> _Child:
+        process = subprocess.Popen(
+            scoreboard_command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
         )
-    finally:
-        if scoreboard.poll() is None:
-            scoreboard.terminate()
-            await asyncio.to_thread(scoreboard.wait)
+        return _Child("scoreboard", process, config.scoreboard_port)
+
+    await _supervise(
+        tuple(servers),
+        children=tuple(children),
+        start_scoreboard=start_scoreboard,
+        services=config.services,
+        shutdown_event=shutdown_event,
+    )
 
 
 async def _migrate(config: RuntimeConfig) -> None:
@@ -254,13 +278,12 @@ async def _migrate(config: RuntimeConfig) -> None:
             await Tortoise.close_connections()
 
 
-def _build_apps(config: RuntimeConfig) -> tuple[object, object, dict[str, str]]:
+def _build_apps(config: RuntimeConfig) -> tuple[object, object | None, dict[str, str]]:
+    """The Gateway app, the in-process Engine app (None with an Engine environment), and the
+    gateway config summary for the banner."""
     from aigateway.config import Settings as GatewaySettings
     from aigateway.main import create_app as create_gateway_app
     from pydantic import SecretStr  # pyright: ignore[reportMissingImports]
-    from screamingface_engine import job_env
-    from screamingface_engine.config import Settings as EngineSettings
-    from screamingface_engine.local import create_local_app
 
     gateway_settings = GatewaySettings(
         host="127.0.0.1",
@@ -279,24 +302,67 @@ def _build_apps(config: RuntimeConfig) -> tuple[object, object, dict[str, str]]:
         # and answers. A folder the user chose is left to the Engine's store.
         config.artifacts_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         config.artifacts_dir.chmod(0o700)
+    if config.engine_python is not None:
+        # FEATURE (OME-1620): the Engine starts from its own environment (`_start_engine_child`),
+        # so nothing of it is imported here.
+        return gateway, None, _gateway_config_summary(gateway_settings)
+    from screamingface_engine.config import Settings as EngineSettings
+    from screamingface_engine.local import create_local_app
+
     artifacts_dir = str(config.effective_artifacts_dir(os.environ))
-    run_env: Mapping[str, str] = {
-        **os.environ,
-        job_env.RUNNER_CONFIG: str(config.runner_config),
-        job_env.AIGATEWAY_BASE_URL: config.services["gateway"],
-        "URL4_BENCHMARK_ASSETS": str(config.assets_dir),
-        job_env.ARTIFACTS_DIR: artifacts_dir,
-    }
     engine = create_local_app(
         settings=EngineSettings(
             aigateway_base_url=config.services["gateway"], artifacts_dir=artifacts_dir
         ),
-        env=run_env,
+        env=_run_environment(config, os.environ),
     )
     return gateway, engine, _gateway_config_summary(gateway_settings)
 
 
-def run_scoreboard(config: RuntimeConfig) -> None:
+def _run_environment(config: RuntimeConfig, environ: Mapping[str, str]) -> dict[str, str]:
+    """The environment each run's executor is built from: the runner config, the Gateway
+    address, the datasets root and the artifacts folder — the same four whether the Engine
+    runs in this process or as a child."""
+    from screamingface_engine import job_env
+
+    return {
+        **environ,
+        job_env.RUNNER_CONFIG: str(config.runner_config),
+        job_env.AIGATEWAY_BASE_URL: config.services["gateway"],
+        "URL4_BENCHMARK_ASSETS": str(config.assets_dir),
+        job_env.ARTIFACTS_DIR: str(config.effective_artifacts_dir(environ)),
+    }
+
+
+def _engine_child_environment(config: RuntimeConfig, environ: Mapping[str, str]) -> dict[str, str]:
+    """What the child-process Engine sees: the run environment plus the Gateway address as the
+    Engine's own Settings reads it.
+
+    INVARIANT: the in-process Engine was handed `aigateway_base_url` and `artifacts_dir` as
+    Settings arguments; the child reads them from the environment, so both are set here under
+    the Engine's `URL4_CLOUD_` prefix (`artifacts_dir` already is — `job_env.ARTIFACTS_DIR` is
+    that very name).
+    """
+    return {
+        **_run_environment(config, environ),
+        "URL4_CLOUD_AIGATEWAY_BASE_URL": config.services["gateway"],
+    }
+
+
+def _start_engine_child(config: RuntimeConfig) -> subprocess.Popen[bytes]:
+    """Start the Engine's local mode from the Engine environment on the stack's Engine port."""
+    if config.engine_python is None:
+        raise RuntimeError("an Engine child needs an Engine environment")
+    return subprocess.Popen(
+        engine_env.serve_command(config.engine_python, config.engine_port),
+        env=_engine_child_environment(config, os.environ),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+
+def run_scoreboard(config: RuntimeConfig, *, seed_from_engine: bool = False) -> None:
     portal_dir, artifacts_dir = scoreboard_assets()
     os.environ.setdefault("SCOREBOARD_PORTAL_DIR", str(portal_dir))
     os.environ.setdefault("SCOREBOARD_PORTAL_ARTIFACTS_DIR", str(artifacts_dir))
@@ -317,13 +383,19 @@ def run_scoreboard(config: RuntimeConfig) -> None:
     # trip the seeder's rule that configuration may not assert a revision the Engine did not
     # publish — every row would be refused and the local leaderboard would come up empty
     # (OME-904).
-    asyncio.run(
-        _run(
-            configured=[],
-            engine_url=None,
-            engine_rows=load_benchmarks_json(scoreboard_seed_json(BUILTIN_BENCHMARKS)),
+    if seed_from_engine:
+        # FEATURE (OME-1620): the Engine runs in its own process, so its registry cannot be
+        # imported here; read its catalogue over HTTP like the hosted board. The supervisor
+        # starts this child only once the Engine answers, and the fetch retries on its own.
+        asyncio.run(_run(configured=[], engine_url=config.services["engine"]))
+    else:
+        asyncio.run(
+            _run(
+                configured=[],
+                engine_url=None,
+                engine_rows=load_benchmarks_json(scoreboard_seed_json(BUILTIN_BENCHMARKS)),
+            )
         )
-    )
     settings = Settings(
         host="127.0.0.1",
         port=config.scoreboard_port,
@@ -440,16 +512,26 @@ def _embedded_server_type():
 async def _supervise(  # noqa: C901, PLR0912, PLR0915
     servers: tuple[Server, ...],
     *,
-    scoreboard: subprocess.Popen[bytes],
-    scoreboard_port: int,
+    children: tuple[_Child, ...],
+    start_scoreboard: Callable[[], _Child],
     services: Mapping[str, str],
     shutdown_event: threading.Event | None,
 ) -> None:
+    """Run the in-process servers and the child processes until one stops or a stop is asked.
+
+    Two startup phases: first every in-process server and every child in `children` (the
+    Engine, when it runs from its own environment) must answer on its port; only then is the
+    Scoreboard started — it seeds from the Engine's catalogue over HTTP in that mode, and a
+    board that boots first would find nothing to read. The whole startup shares one deadline.
+    """
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
+    processes: list[_Child] = list(children)
     with _signal_handlers(loop, stop):
         tasks = tuple(asyncio.create_task(_serve_service(server)) for server in servers)
-        scoreboard_log_task = asyncio.create_task(_relay_scoreboard_output(scoreboard))
+        relays: dict[_Child, asyncio.Task[None]] = {
+            child: asyncio.create_task(_relay_child_output(child)) for child in children
+        }
         stop_task = asyncio.create_task(stop.wait())
         external_stop_task = (
             asyncio.create_task(_wait_for_thread_event(shutdown_event))
@@ -458,29 +540,36 @@ async def _supervise(  # noqa: C901, PLR0912, PLR0915
         )
         try:
             async with asyncio.timeout(STARTUP_TIMEOUT_SECONDS):
-                while not all(server.started for server in servers) or not _port_open(
-                    scoreboard_port
+                while not all(server.started for server in servers) or not all(
+                    _port_open(child.port) for child in children
                 ):
-                    if scoreboard.poll() is not None:
-                        raise RuntimeError("Scoreboard stopped during startup")
-                    failed = next((task for task in tasks if task.done()), None)
-                    if failed is not None:
-                        exception = failed.exception()
-                        raise RuntimeError("runtime service stopped during startup") from exception
+                    await _raise_if_a_child_stopped(relays, "during startup")
+                    _raise_if_a_server_stopped(tasks, "during startup")
+                    await asyncio.sleep(0.01)
+                scoreboard = start_scoreboard()
+                processes.append(scoreboard)
+                relays[scoreboard] = asyncio.create_task(_relay_child_output(scoreboard))
+                while not _port_open(scoreboard.port):
+                    await _raise_if_a_child_stopped(relays, "during startup")
+                    _raise_if_a_server_stopped(tasks, "during startup")
                     await asyncio.sleep(0.01)
             print(
                 "SCREAMINGFACE_RUNTIME_READY "
                 + json.dumps({"services": services}, separators=(",", ":"), sort_keys=True),
                 flush=True,
             )
-            scoreboard_task = asyncio.create_task(asyncio.to_thread(scoreboard.wait))
-            waiters = (*tasks, stop_task, scoreboard_task)
+            child_waits: dict[asyncio.Task[int], _Child] = {
+                asyncio.create_task(asyncio.to_thread(child.process.wait)): child
+                for child in processes
+            }
+            waiters: tuple[asyncio.Task[Any], ...] = (*tasks, stop_task, *child_waits)
             if external_stop_task is not None:
                 waiters = (*waiters, external_stop_task)
             done, _ = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
             if stop_task not in done and external_stop_task not in done:
-                if scoreboard_task in done:
-                    raise RuntimeError("Scoreboard stopped unexpectedly")
+                for wait_task, child in child_waits.items():
+                    if wait_task in done:
+                        raise RuntimeError(f"{child.name.title()} stopped unexpectedly")
                 failed = next(task for task in tasks if task in done)
                 exception = failed.exception()
                 raise RuntimeError("a runtime service stopped unexpectedly") from exception
@@ -488,6 +577,13 @@ async def _supervise(  # noqa: C901, PLR0912, PLR0915
             for server in servers:
                 server.should_exit = True
             await asyncio.gather(*tasks, return_exceptions=True)
+            # WHY terminate the children here: they are this supervisor's, started in both
+            # phases above, and must go with it — the Engine child first, since the board
+            # may be mid-request against it.
+            for child in processes:
+                if child.process.poll() is None:
+                    child.process.terminate()
+                    await asyncio.to_thread(child.process.wait)
             stop_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await stop_task
@@ -495,9 +591,37 @@ async def _supervise(  # noqa: C901, PLR0912, PLR0915
                 external_stop_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await external_stop_task
-            scoreboard_log_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await scoreboard_log_task
+            for relay in relays.values():
+                relay.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await relay
+
+
+# WHY 5 s: a dead child's pipe is finite; draining it is what puts its traceback in the log.
+_DEAD_CHILD_DRAIN_SECONDS = 5.0
+
+
+async def _raise_if_a_child_stopped(relays: Mapping[_Child, asyncio.Task[None]], when: str) -> None:
+    """Raise for the first child that has exited — after its relay drained what it printed.
+
+    WHY drain first: the relay copies the child's output line by line in a thread; raising
+    at once cancels it, and the child's last lines — its traceback, the whole reason it died —
+    never reach runtime.log. The first real boot (2026-11-04) failed with a bare "Engine
+    stopped during startup" for exactly that reason.
+    """
+    for child, relay in relays.items():
+        if child.process.poll() is None:
+            continue
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(relay), _DEAD_CHILD_DRAIN_SECONDS)
+        raise RuntimeError(f"{child.name.title()} stopped {when}")
+
+
+def _raise_if_a_server_stopped(tasks: Sequence[asyncio.Task[None]], when: str) -> None:
+    failed = next((task for task in tasks if task.done()), None)
+    if failed is not None:
+        exception = failed.exception()
+        raise RuntimeError(f"runtime service stopped {when}") from exception
 
 
 async def _wait_for_thread_event(event: threading.Event) -> None:
@@ -511,11 +635,12 @@ async def _serve_service(server: Server) -> None:
         await server.serve()
 
 
-async def _relay_scoreboard_output(scoreboard: subprocess.Popen[bytes]) -> None:
-    if scoreboard.stdout is None:
+async def _relay_child_output(child: _Child) -> None:
+    """Copy a child's merged stdout/stderr into the runtime log under its service tag."""
+    if child.process.stdout is None:
         return
-    with log_service("scoreboard"):
-        while line := await asyncio.to_thread(scoreboard.stdout.readline):
+    with log_service(child.name):
+        while line := await asyncio.to_thread(child.process.stdout.readline):
             print(line.decode(errors="replace").rstrip(), flush=True)
 
 

@@ -7,6 +7,7 @@ import importlib
 import importlib.metadata
 import json
 import os
+import shutil
 import socket
 import stat
 import subprocess
@@ -22,11 +23,15 @@ from typing import Any
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
+from screamingface._runtime import engine_env
 from screamingface._runtime import source as runtime_source
 from screamingface._runtime.config import RuntimeConfig, default_data_dir
 
 _STATE_VERSION = 1
 _PORT_DEFAULTS = {"gateway": 9105, "scoreboard": 9106, "engine": 9108}
+# WHY still here: the benchmarks the IN-PROCESS Engine can prepare. With an Engine environment
+# (`engine_env`) the list comes from the Engine's own preparer instead; PR 3 retires this tuple
+# with the in-process path.
 _BENCHMARKS = ("medxpert",)
 # WHY 15: enough to carry the failing import plus its traceback into the `up` error;
 # short enough that the message stays readable where it lands (OME-1036).
@@ -47,6 +52,7 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     up.add_argument("--foreground", action="store_true")
     _add_port_options(up)
     _add_benchmark_assets_dir(up)
+    _add_engine_python(up)
     down = commands.add_parser("down", help="Stop the local runtime")
     _add_data_dir(down)
     restart = commands.add_parser("restart", help="Restart the local runtime")
@@ -54,6 +60,7 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     restart.add_argument("--foreground", action="store_true")
     _add_port_options(restart)
     _add_benchmark_assets_dir(restart)
+    _add_engine_python(restart)
     doctor = commands.add_parser("doctor", help="Diagnose the local runtime")
     _add_data_dir(doctor)
     status = commands.add_parser("status", help="Show local runtime status")
@@ -75,13 +82,16 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     )
     prepare = commands.add_parser("prepare", help="Download benchmark assets")
     _add_data_dir(prepare)
-    prepare.add_argument("benchmark", nargs="?", choices=_BENCHMARKS)
+    # WHY no `choices`: with an Engine environment the ids come from the Engine's preparer at
+    # run time; `_prepare` checks the name against that list and names `--list` on a miss.
+    prepare.add_argument("benchmark", nargs="?")
     prepare.add_argument("--all", action="store_true", dest="all_benchmarks")
     prepare.add_argument("--list", action="store_true", dest="list_benchmarks")
     prepare.add_argument("--force", action="store_true")
     # WHY accepted only to be refused (in _config): a clear message beats argparse's
     # "unrecognized arguments" for an option that exists on `up`.
     _add_benchmark_assets_dir(prepare)
+    _add_engine_python(prepare)
     _add_cache_commands(commands)
     serve = commands.add_parser("_serve", help=argparse.SUPPRESS)
     _add_data_dir(serve)
@@ -89,9 +99,14 @@ def _parser() -> argparse.ArgumentParser:  # noqa: PLR0915
     serve.add_argument("--background", action="store_true")
     _add_port_options(serve)
     _add_benchmark_assets_dir(serve)
+    _add_engine_python(serve)
     scoreboard = commands.add_parser("_scoreboard", help=argparse.SUPPRESS)
     _add_data_dir(scoreboard)
     scoreboard.add_argument("--scoreboard-port", type=int, default=9106)
+    scoreboard.add_argument("--engine-port", type=int, default=_PORT_DEFAULTS["engine"])
+    # WHY a flag and not "always": the in-process Engine shares this child's parent, whose
+    # registry the board still reads by import; only a child-process Engine is read over HTTP.
+    scoreboard.add_argument("--seed-from-engine", action="store_true")
     commands._choices_actions = [  # noqa: SLF001
         action
         for action in commands._choices_actions  # noqa: SLF001
@@ -134,6 +149,28 @@ def _add_benchmark_assets_dir(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Read benchmark datasets from this folder instead of <data-dir>/benchmark-assets",
     )
+
+
+def _add_engine_python(parser: argparse.ArgumentParser) -> None:
+    # FEATURE (OME-1620): start the Engine from an environment of its own — the one that can
+    # hold the inspect extra the runtime extra cannot (OME-1626).
+    parser.add_argument(
+        "--engine-python",
+        type=Path,
+        default=None,
+        help=(
+            "Python interpreter of an Engine environment to start the Engine from "
+            f"(default: ${engine_env.ENGINE_PYTHON_ENV}, else a checkout's Engine venv, "
+            "else the Engine runs in-process)"
+        ),
+    )
+
+
+def _engine_python_arguments(config: RuntimeConfig) -> list[str]:
+    """The option that hands the Engine interpreter to the background `_serve` child."""
+    if config.engine_python is None:
+        return []
+    return ["--engine-python", str(config.engine_python)]
 
 
 def _add_port_options(parser: argparse.ArgumentParser) -> None:
@@ -187,7 +224,7 @@ def _dispatch_runtime(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912,
         elif args.command == "_scoreboard":
             from screamingface._runtime.server import run_scoreboard
 
-            run_scoreboard(config)
+            run_scoreboard(config, seed_from_engine=args.seed_from_engine)
     except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
         raise SystemExit(f"screamingface: {exc}") from None
 
@@ -267,12 +304,24 @@ def _config(args: argparse.Namespace) -> RuntimeConfig:
         values[service] = (
             argument if argument is not None else _environment_port(configured, fallback)
         )
+    # WHY the same command set as the ports: `down` and `logs` must never fail on a bad
+    # SCREAMINGFACE_ENGINE_PYTHON — recovery commands read no runtime setting.
+    engine_python: Path | None = (
+        engine_env.resolve_engine_python(
+            getattr(args, "engine_python", None),
+            os.environ,
+            runtime_source.resolve_source(os.environ),
+        )
+        if use_port_environment or args.command == "prepare"
+        else None
+    )
     return RuntimeConfig(
         data_dir=args.data_dir,
         gateway_port=values["gateway"],
         scoreboard_port=values["scoreboard"],
         engine_port=values["engine"],
         benchmark_assets_dir=getattr(args, "benchmark_assets_dir", None),
+        engine_python=engine_python,
     )
 
 
@@ -295,6 +344,7 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
 
     require_runtime_extra()
     _require_runner_config(config)
+    _require_full_engine_environment(config)
     state = _read_state(config)
     owned = bool(state and _verify_owner(state))
     if owned:
@@ -343,6 +393,7 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
         "--engine-port",
         str(config.engine_port),
         *_benchmark_assets_arguments(config),
+        *_engine_python_arguments(config),
     ]
     process = subprocess.Popen(
         command,
@@ -364,6 +415,22 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     # servers came up (server.run), so by ready time it is there to print.
     _print_gateway_config(_read_state(config))
     _print_urls(config.services, config.log_path)
+
+
+def _require_full_engine_environment(config: RuntimeConfig) -> None:
+    """Fail `up` before anything boots when the Engine environment serves medxpert alone.
+
+    WHY here: a half-stocked Engine env boots healthy and refuses every imported board at run
+    time — the silent failure this stack exists to end (OME-1620). Costs one child run of the
+    Engine's preparer listing; prints the environment and its board count so the choice is
+    auditable where the user is looking.
+    """
+    if config.engine_python is None:
+        return
+    source = runtime_source.resolve_source(os.environ)
+    ids = engine_env.engine_bundle_ids(config.engine_python, os.environ)
+    engine_env.require_full_engine(config.engine_python, ids, source)
+    print(f"engine env: {config.engine_python} ({len(ids)} benchmarks)")
 
 
 def _require_benchmark_assets_dir(config: RuntimeConfig) -> None:
@@ -424,6 +491,13 @@ def _benchmark_assets_field(config: RuntimeConfig) -> dict[str, str]:
     return {"benchmark_assets_dir": str(config.benchmark_assets_dir)}
 
 
+def _engine_python_field(config: RuntimeConfig) -> dict[str, str]:
+    """The status/state key naming the Engine interpreter; empty for the in-process Engine."""
+    if config.engine_python is None:
+        return {}
+    return {"engine_python": str(config.engine_python)}
+
+
 def _recorded_assets(
     config: RuntimeConfig, state: dict[str, object] | None, *, owned: bool
 ) -> RuntimeConfig:
@@ -433,9 +507,12 @@ def _recorded_assets(
     Without a recorded folder the config is returned unchanged.
     """
     recorded = state.get("benchmark_assets_dir") if owned and state else None
-    if not isinstance(recorded, str):
-        return config
-    return dataclasses.replace(config, benchmark_assets_dir=Path(recorded))
+    if isinstance(recorded, str):
+        config = dataclasses.replace(config, benchmark_assets_dir=Path(recorded))
+    recorded_python = state.get("engine_python") if owned and state else None
+    if isinstance(recorded_python, str):
+        config = dataclasses.replace(config, engine_python=Path(recorded_python))
+    return config
 
 
 def _refuse_foreign_gateway_database() -> None:
@@ -541,6 +618,9 @@ def _serve_logged(config: RuntimeConfig, token: str) -> None:
         # WHY recorded: `status` and `doctor` run in other processes without the flag, and
         # must report the folder the Engine serves.
         **_benchmark_assets_field(config),
+        # WHY recorded too (OME-1620): the interpreter the Engine runs from decides which
+        # boards `status` may call prepared, and `restart` keeps it like the folder.
+        **_engine_python_field(config),
     }
     _write_state(config, state)
     control_thread = threading.Thread(target=control.serve_forever, daemon=True)
@@ -618,6 +698,11 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
         assets = config.benchmark_assets_dir or (
             Path(recorded) if isinstance(recorded, str) else None
         )
+        recorded_python = state.get("engine_python")
+        # WHY like the folder: the Engine interpreter is part of what the stack IS.
+        engine_python = config.engine_python or (
+            Path(recorded_python) if isinstance(recorded_python, str) else None
+        )
         config = RuntimeConfig(
             data_dir=config.data_dir,
             gateway_port=values["gateway"],
@@ -625,6 +710,7 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
             engine_port=values["engine"],
             benchmark_assets_dir=assets,
             runner_config=config.runner_config,
+            engine_python=engine_python,
         )
     # WHY before `_down`: a missing or replaced folder must leave the running stack untouched,
     # not stop it and then fail to bring it back.
@@ -633,6 +719,7 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
 
     require_runtime_extra()
     _require_runner_config(config)
+    _require_full_engine_environment(config)
     _down(config)
     _up(config, foreground=foreground)
 
@@ -832,11 +919,22 @@ def _prepare(
         return
     if all_benchmarks == (benchmark is not None):
         raise RuntimeError("choose one benchmark or pass --all")
+    if config.engine_python is not None:
+        _prepare_with_engine(config, benchmark, all_benchmarks=all_benchmarks, force=force)
+        return
     from screamingface._runtime.server import require_runtime_extra
 
     require_runtime_extra()
     selected = _BENCHMARKS if all_benchmarks else (benchmark,)
     config.assets_dir.mkdir(parents=True, exist_ok=True)
+    _prepare_in_process(config, selected, force=force)
+    print(f"Benchmark assets ready at {config.assets_dir}")
+
+
+def _prepare_in_process(
+    config: RuntimeConfig, selected: tuple[str | None, ...], *, force: bool
+) -> None:
+    """The in-process Engine's own preparers, one child interpreter per hand-built bundle."""
     # WHY: the preparer child is a fresh interpreter with no sys.path activation of
     # its own — PYTHONPATH is how a checkout's live engine code reaches it.
     child_env = runtime_source.child_environment(
@@ -876,11 +974,66 @@ def _prepare(
         except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
             manifest.unlink(missing_ok=True)
             raise RuntimeError(f"failed to prepare {name} in {destination}: {exc}") from None
+
+
+def _prepare_with_engine(
+    config: RuntimeConfig, benchmark: str | None, *, all_benchmarks: bool, force: bool
+) -> None:
+    """`prepare` through the Engine environment's own preparer (OME-1620).
+
+    The Engine lists what it can prepare; one child run per bundle writes the datasets under
+    the stack's assets folder, and the bundle counts as finished by the Engine's own marker
+    (`engine_env.bundle_status`). `--force` clears the folder first, because the preparer
+    refuses to write into a used one.
+    """
+    if config.engine_python is None:
+        raise RuntimeError("prepare through the Engine needs an Engine environment")
+    python: Path = config.engine_python
+    ids: tuple[str, ...] = engine_env.engine_bundle_ids(python, os.environ)
+    if benchmark is not None and benchmark not in ids:
+        raise RuntimeError(
+            f"no such benchmark {benchmark!r} in the Engine at {python}; "
+            "run `screamingface prepare --list` for the names it serves"
+        )
+    selected: tuple[str, ...] = ids if all_benchmarks else (str(benchmark),)
+    config.assets_dir.mkdir(parents=True, exist_ok=True)
+    for name in selected:
+        destination: Path = config.assets_dir / name
+        status: str = engine_env.bundle_status(config.assets_dir, name)
+        if status == "prepared" and not force:
+            print(f"{name} is already prepared at {destination}")
+            continue
+        if destination.exists():
+            # WHY remove, not reuse: the preparer refuses a non-empty folder, and debris from a
+            # run that died (or an older prepare, under --force) must not survive beside new
+            # files. Only the one bundle's folder goes.
+            shutil.rmtree(destination)
+        try:
+            subprocess.run(
+                engine_env.prepare_command(python, config.assets_dir, name),
+                check=True,
+                env=dict(os.environ),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise RuntimeError(f"failed to prepare {name} in {destination}: {exc}") from None
+        if engine_env.bundle_status(config.assets_dir, name) != "prepared":
+            raise RuntimeError(
+                f"the Engine's preparer finished but {destination} holds no cases.json; "
+                "see its output above"
+            )
     print(f"Benchmark assets ready at {config.assets_dir}")
 
 
 def _benchmark_statuses(config: RuntimeConfig) -> dict[str, str]:
-    return {name: _benchmark_status(config, name) for name in _BENCHMARKS}
+    """Each benchmark's datasets status, for `prepare --list`, `status` and `doctor`.
+
+    With an Engine environment the names come from the Engine's preparer and the Engine's
+    completion marker decides; otherwise the in-process Engine's one hand-built board.
+    """
+    if config.engine_python is None:
+        return {name: _benchmark_status(config, name) for name in _BENCHMARKS}
+    names: tuple[str, ...] = engine_env.engine_bundle_ids(config.engine_python, os.environ)
+    return {name: engine_env.bundle_status(config.assets_dir, name) for name in names}
 
 
 def _doctor(config: RuntimeConfig) -> int:  # noqa: C901, PLR0912, PLR0915

@@ -25,10 +25,14 @@ screamingface up
 ```
 
 `draco`, the Benchmark the examples below use, is a local inspect Task, and so is `ifeval`: the plain
-`screamingface up` Engine lists neither. From a checkout, `just local-stack-notebooks` serves an
-Engine with the `inspect` extra beside the stack; otherwise point `SCREAMINGFACE_ENGINE_URL` at such
-an Engine and `SCREAMINGFACE_SCOREBOARD_URL` at its Scoreboard (a non-default Engine without a
-Scoreboard is refused).
+`screamingface up` Engine lists neither, because the imported boards need `inspect-ai`, which cannot
+share an environment with the `runtime` extra. `up` can start the Engine from an Engine environment
+of its own instead: in a checkout, run `uv sync --extra benchmarks` in `apps/screamingface-engine`
+and `screamingface up` finds that venv by itself; elsewhere set `SCREAMINGFACE_ENGINE_PYTHON` (or pass
+`--engine-python`) to the interpreter of an environment holding `screamingface-engine[benchmarks]`.
+`up` then prints the environment and its benchmark count, `screamingface prepare --list` lists every
+benchmark it serves, and the local Scoreboard reads the Engine's catalogue over HTTP. Without one,
+`up` runs the Engine in-process as before; `just local-stack-notebooks` still works too.
 
 `screamingface up` starts AI Gateway, Scoreboard, and the Engine in the background. Use
 `screamingface status`, `screamingface doctor`, `screamingface logs`, `screamingface restart`, and
