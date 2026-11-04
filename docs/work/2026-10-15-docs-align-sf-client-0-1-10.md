@@ -1,5 +1,5 @@
 ---
-ticket: OME-426
+ticket: OME-1826
 stack: repo
 status: in_progress
 started: 2026-10-15
