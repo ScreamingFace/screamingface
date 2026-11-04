@@ -400,8 +400,16 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         but `span_sink` is an injected seam, so a raising loader is logged here and the run goes
         ahead unexported rather than dying before its first frame.
 
-        INVARIANT: the terminal verdict is recorded BEFORE the flush is awaited, so a stop or
-        shutdown that cancels the task mid-flush cannot turn a finished run into `stopped`.
+        INVARIANT: the terminal verdict is recorded only when `lifecycle.run` RETURNS — that is
+        its promise that the outcome is published and durable. When it raises (the terminal
+        flush failed, or a cancel landed on it), the frame may not be durable and the task's
+        own `failed`/`stopped` stands. The verdict is recorded BEFORE the span flush is
+        awaited, so a stop or shutdown that cancels the task during that later flush cannot
+        turn a finished run into `stopped`.
+
+        WHY the loader gets `_base_env` and not the run's synthesised env: only the ambient
+        `OTEL_*` variables configure export, and they live in the base env — the per-run keys
+        `_env` adds (topic, expression, identity, ...) have no bearing on the exporter.
         """
         try:
             sink = self._span_sink(self._base_env)
@@ -423,9 +431,9 @@ class InProcessJobRunner(IdentityAwareJobRunner):
                 traceparent=traceparent,
                 deadline_s=deadline_s,
             )
-        finally:
             if watch.outcome is not None:
                 self._verdicts[name] = cast(JobStatus, watch.outcome)
+        finally:
             if sink is not None:
                 # WHY a thread: `OtlpSpanSink.close` joins its flush for up to its bound, and
                 # every local run shares this one event loop — a blocking flush here would
