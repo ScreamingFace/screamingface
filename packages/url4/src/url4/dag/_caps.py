@@ -92,6 +92,11 @@ class CapBudget:
             self.expect((key,))
             self._check()
 
+    def counted(self, key: Hashable) -> bool:
+        """Whether ``key``'s bytes are already counted (a landed entry the list dedups by)."""
+        with self._lock:
+            return key in self._charged
+
     def charge_bytes(self, key: Hashable, size: int) -> None:
         """Draw ``size`` more bytes of ``key``'s in-flight body; refuse once the total passes."""
         with self._lock:

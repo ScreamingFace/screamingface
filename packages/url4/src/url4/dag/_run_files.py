@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from functools import partial
 
 from url4.core.errors import ParseError
 from url4.core.grammar import parse as grammar_parse
@@ -101,10 +102,31 @@ async def _run_start(
 async def _verify(
     ref: FileRef, run_ctx: ExecutionContext, budget: CapBudget
 ) -> tuple[bytes, str | None]:
-    """One blob ref's verified bytes; an attached (non-collection) one is charged to the caps."""
-    body, media_type = await BlobRefNode(ref.address).verified(run_ctx)
-    if not ref.collection:
-        budget.charge(ref.key, len(body))
+    """One blob ref's verified bytes; an attached (non-collection) one is charged to the caps.
+
+    INVARIANT (PR #1587 review finding 1, owner 2026-11-04): an attached blob read draws from
+    the run's ONE live budget chunk by chunk (``on_chunk``), bounded by the bytes the settled
+    entries leave (``max_bytes``) — exactly as an attachment-source flight does — so concurrent
+    blob reads never hold more than about the cap plus one chunk each. A failed read gives its
+    bytes back at once.
+    WHY a key already counted reads with no hooks: it is a Case attachment's digest, which the
+    final list dedups, so its bytes never add to the run (charging them would refuse a run that
+    fits). A collection blob is not an attachment (D4) and is never charged.
+    """
+    node = BlobRefNode(ref.address)
+    if ref.collection or budget.counted(ref.key):
+        return await node.verified(run_ctx)
+    budget.release(ref.key)
+    try:
+        body, media_type = await node.verified(
+            run_ctx,
+            max_bytes=budget.remaining(),
+            on_chunk=partial(budget.charge_bytes, ref.key),
+        )
+    except BaseException:
+        budget.release(ref.key)
+        raise
+    budget.charge(ref.key, len(body))
     return body, media_type
 
 
