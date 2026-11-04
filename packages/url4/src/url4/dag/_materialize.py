@@ -25,8 +25,8 @@ without running the body (a row reference ``$item``, holdings, a templated sourc
 group) is treated as reachable. Every collection's shape comes from the ONE resolver
 :mod:`url4.dag._collection_shape` (review finding 2): ``$name`` chains and field paths are followed
 to their value, a model anywhere on the chain is ``x.source_not_static``, and a verified blob
-collection is read from the run-start cache. A pre-built graph has no AST, so it has no
-manifest. An annotated
+collection is read from the run-start cache. A pre-built graph has no AST, so ``run()``
+refuses one that names an attachment-capable source (review finding 3, fail closed). An annotated
 ``http(s)://`` or relative collection IS resolved here, under its own guard policy (review
 round 7b). A collection whose guarded admission still fails is final: execution replays that
 failure as permanent (never retried, never re-fetched), so the body it gates can never run

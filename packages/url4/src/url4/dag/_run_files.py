@@ -35,6 +35,7 @@ from url4.dag.compiler import Graph  # isort: skip
 from url4.dag.node import DagNode, ExecutionContext  # isort: skip
 from url4.dag.nodes.blob import BlobRefNode  # isort: skip
 from url4.dag.remote_nodes import precheck_remote_nodes  # isort: skip
+from url4.dag._graph_admission import refuse_prebuilt  # isort: skip
 
 
 @dataclass(frozen=True)
@@ -68,9 +69,15 @@ async def _run_start(
     ``x.source_not_static`` (a non-literal attachment target, or one under a model-derived
     collection; both before any I/O), then the caps and fetch failures.
     A nested ``run()`` resolves nothing: it inherits the outer list and cache verbatim.
+    INVARIANT (PR #1587 review finding 3, owner 2026-11-04 — FAIL CLOSED): a pre-built
+    ``Graph`` / ``DagNode`` has no AST to admit its files from, so one naming any
+    attachment-capable source is refused first, with no I/O
+    (:func:`~url4.dag._graph_admission.refuse_prebuilt`); a text-only graph runs as before.
     WHY text sources are not touched here: they are never attached (owner decision A) and
     stay lazy, so they behave exactly as before (D5 exempt).
     """
+    if isinstance(target, (Graph, DagNode)):
+        refuse_prebuilt(target)  # finding 3 (owner 2026-11-04): fail closed, before any I/O
     if current_run_files() is not None:
         return RunStart(tuple(case))
     ast = _ast_of(target)

@@ -22,7 +22,8 @@ from url4.dag.nodes.blob import as_collection  # isort: skip
 # 7), the one decoding an attachment identity shares with its GuardNode; re-exported here.
 from url4.dag.attachment_sources import _annotation_number as _annotation_number  # isort: skip
 from url4.dag.attachment_sources import guard_policy as _guard_options  # isort: skip
-from url4.dag.attachment_sources import identity_of  # isort: skip
+from url4.dag.attachment_sources import identity_of, non_literal_attachment  # isort: skip
+from url4.dag.nodes.web_attach import NotStaticNode  # isort: skip
 
 if TYPE_CHECKING:  # the registry type only — this module never constructs one
     from url4.dag._lowering import LoweringRegistry
@@ -38,6 +39,11 @@ def _lower_source(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNo
     on the value.
     """
     assert isinstance(node, Source)
+    # WHY before the guard: the refusal is the run's, never a source failure ;optional omits.
+    # Same rule as the scan (``source_scan._walk_source``): an ``;expand`` source is a collection.
+    target = None if node.expand else non_literal_attachment(node)
+    if target is not None:
+        return NotStaticNode(target)
     ann = dict(node.annotations)
     guard = _guard_options(ann, node)
     inner = registry.lower(node.value, {} if guard is not None else edges)

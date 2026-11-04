@@ -317,6 +317,25 @@ def refuse_malformed(scan: SourceScan) -> None:
         )
 
 
+def scan_source_list(text: str) -> SourceScan:
+    """The scan of a raw source-list (an iteration body template); unparseable segments skipped.
+
+    WHY public: a pre-built graph keeps iteration bodies as text (``MapNode.body``), so the
+    run-start graph check (:mod:`url4.dag._graph_admission`) scans them the same way the AST
+    walk scans an iteration body.
+    """
+    found = _Found()
+    _walk_source_list(text, {}, found, ())
+    return SourceScan(
+        tuple(found.refs.values()),
+        (),
+        tuple(found.occurrences),
+        tuple(found.non_literal),
+        (),
+        tuple(found.remote_nodes),
+    )
+
+
 def _walk_source_list(
     text: str, bound: Mapping[str, Node], out: _Found, guards: _Guards
 ) -> list[str]:
@@ -393,5 +412,6 @@ __all__ = [
     "reachable_order",
     "refuse_malformed",
     "refuse_remote",
+    "scan_source_list",
     "scan_sources",
 ]

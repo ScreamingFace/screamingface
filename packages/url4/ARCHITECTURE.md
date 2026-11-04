@@ -160,7 +160,11 @@ extra (`url4[streaming]`) because it is pydantic models.
   whole list) are charged on every adding path while the list is built
   (`dag/_caps.py`); nothing adds after the run starts. The byte cap is one live
   budget the concurrent flights draw from as bytes arrive (`FetchRequest.on_chunk`),
-  so a breach stops every read within about one chunk per flight.
+  so a breach stops every read within about one chunk per flight; run-start blob reads
+  draw from the same budget. Reachability is decided by one collection-shape resolver
+  (`dag/_collection_shape.py`) shared by the static check and admission. A pre-built
+  `Graph`/`DagNode` has no AST to admit files from, so `run()` refuses one that names
+  any attachment-capable source before any I/O (`dag/_graph_admission.py`, fail closed).
 - **The engine names no transport at module scope.** `HttpIOLayer` is imported
   lazily in `dag/_run.py`.
 
