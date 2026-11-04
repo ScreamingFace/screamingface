@@ -251,8 +251,8 @@ async def refuse_blind_candidate(node: Url4Node, *, needs: frozenset[str]) -> No
     """Stages 1-4 with stage 2 already answered: ``needs`` is the Benchmark's modality set.
 
     FEATURE (OME-1790, OME-1803): an Imported Board records its ``modalities`` in
-    ``board.json`` at build time (schema v2), so its Cases route admits a run without reading
-    any row.
+    ``board.json`` at build time (schema v3, bound to ``cases.json`` by its digest), so its
+    Cases route admits a run without reading any row.
 
     Raises:
         ResolutionError: ``intent_error`` (permanent), naming each model and what it lacks; or

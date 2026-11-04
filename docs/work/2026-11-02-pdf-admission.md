@@ -91,3 +91,36 @@ list lacks the modality).
     `has_pictures`. `refuse_blind_models(node, rows)` and `cases_need_pictures` stay (prior
     tests and the hand-built route use them). A modality with no sentence of its own (a future
     table row) is refused with a generic sentence rather than admitted.
+
+## Follow-up — review on #1645 (HupBaHa, 2 blockers) and board.json schema v3 (2026-11-04)
+
+- **Status:** done (awaiting re-review).
+- **Intent:** merge `origin/main` (OME-1739 explicit Case selection, `cases_loaded` logging),
+  then close the two admission-integrity blockers: (1) a non-canonical `modalities` set (e.g.
+  `["text"]` on a PDF board) opened and admitted a text-only model; (2) the record was not bound
+  to `cases.json`, so stale text metadata beside same-size PDF Cases skipped admission.
+- **Owner decisions (Sergey, 2026-11-04):** re-pin the OME-1803 approval for
+  `test_board_cases_route.py` after main appended tests; bind by digest: schema
+  `screamingface.board.v3` with a REQUIRED `cases_sha256` (hex SHA-256 of `cases.json`),
+  checked at open by a streamed hash; a v2 board is refused as `benchmark_unavailable`
+  (re-prepare); v1 keeps the legacy full scan; three named test edits approved.
+- **Planned changes:** `benchmarks/board_record.py` (new: schema constants, canonical-set check
+  against `PART_MODALITIES` values, v2 refusal, streamed `cases_digest`), `board_store.py`
+  (`encode_board` emits `cases_sha256`; `IndexedBoard` checks it last), docstrings in
+  `prepare.py` / `picture_admission.py`. No schema/migration (files only); no committed board
+  bundles or fixtures exist on disk to regenerate (`encode_board` is the only writer).
+- **Test plan:** new `tests/unit/test_board_integrity.py` — the review's two probes (PDF board
+  relabelled `["text"]` does not open; stale `modalities: []` record beside same-size PDF Cases
+  with identical offsets is refused with zero `/v1/models` reads), non-canonical sets, every
+  canonical set opens, wrong/missing digest, v2 refused with "re-prepare", one-byte content
+  change, streamed hash (no whole-file read of `cases.json`). The three owner-approved edits.
+- **Outcome:**
+  - Merge `e13302453`: one conflict in `case_selection.py` (`cases_loaded` log + `modalities()`).
+  - Blocker 1: `a6e5de0cb`.
+  - Blocker 2: the commit after `a6e5de0cb` (schema v3 + digest), with the owner's
+    2026-11-04 `OME-1803.json` amendment (test_board_store.py re-pinned).
+  - Gates: `run_gates.py screamingface-engine --base origin/main` ALL GREEN (6856 passed,
+    coverage 95.93%).
+  - Deviations: `board_record.py` split out to keep `board_store.py` under 450 lines (it
+    re-exports every name). `import hashlib` added to `test_board_store.py` for the approved
+    line. Every Imported Board open now hashes `cases.json` (O(board) I/O, O(1) memory).

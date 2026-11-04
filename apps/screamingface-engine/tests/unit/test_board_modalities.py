@@ -112,10 +112,10 @@ def test_the_build_records_the_modalities_the_cases_need(name: str) -> None:
 
     record = json.loads(encode_board(rows).board)
 
-    assert record["schema"] == BOARD_SCHEMA == "screamingface.board.v2"
+    assert record["schema"] == BOARD_SCHEMA == "screamingface.board.v3"
     assert record["modalities"] == expected
     assert "has_pictures" not in record
-    assert list(record) == ["schema", "case_count", "cases_bytes", "modalities"]
+    assert list(record) == ["schema", "case_count", "cases_bytes", "modalities", "cases_sha256"]
 
 
 @pytest.mark.parametrize(("name"), list(_BOARDS))
@@ -324,7 +324,7 @@ def _unavailable(exc: pytest.ExceptionInfo[ResolutionError]) -> None:
 def test_an_unknown_board_schema_fails_closed(tmp_path: Path) -> None:
     root = _write(tmp_path, _BOARDS["pdf only"][0])
     record = json.loads((root / BOARD_FILE).read_bytes())
-    _rewrite_board_json(root, {**record, "schema": "screamingface.board.v3"})
+    _rewrite_board_json(root, {**record, "schema": "screamingface.board.v99"})
 
     with pytest.raises(ResolutionError) as exc:
         open_board(root, _never_read)

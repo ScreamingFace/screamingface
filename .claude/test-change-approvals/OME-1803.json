@@ -12,7 +12,15 @@
     },
     "apps/screamingface-engine/tests/unit/test_board_store.py": {
       "base_blob": "342e5cf65d25964b0cb859ac70b13bf0c93c42df",
-      "approved_blob": "5123e7e427c3c59aa7b9d8be088f4537f6007b4b"
+      "approved_blob": "116fa9d9f1d6b3c3013b741215d418bad89e0a90"
     }
-  }
+  },
+  "amendments": [
+    {
+      "date": "2026-11-04",
+      "approver": "Sergey Bershadsky (owner, 2026-11-04)",
+      "reason": "v3 required cases.json digest (Dmitry #1645 blocker 2)",
+      "scope": "(1) test_board_store.py test_board_json_records_count_pictures_and_cases_size: exact dict gains \"cases_sha256\": hashlib.sha256(files.cases).hexdigest(), plus the `import hashlib` it needs; files entry re-pinned. (2) test_board_modalities.py test_the_build_records_the_modalities_the_cases_need: schema v3; key list adds cases_sha256. (3) test_board_modalities.py test_an_unknown_board_schema_fails_closed: unknown schema is screamingface.board.v99. test_board_modalities.py is new in this PR (absent on origin/main), so no blob pin."
+    }
+  ]
 }

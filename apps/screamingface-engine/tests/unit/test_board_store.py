@@ -12,6 +12,7 @@ read would serve, and an index that no longer matches its ``cases.json`` is a bo
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import struct
@@ -106,6 +107,7 @@ def test_board_json_records_count_pictures_and_cases_size() -> None:
         "case_count": 2,
         "cases_bytes": len(files.cases),
         "modalities": ["image"],
+        "cases_sha256": hashlib.sha256(files.cases).hexdigest(),
     }
     assert json.loads(encode_board(_TEXT_ROWS).board)["modalities"] == []
 
