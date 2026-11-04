@@ -34,6 +34,7 @@ from url4.dag.attachments import (  # isort: skip
 from url4.dag.compiler import Graph  # isort: skip
 from url4.dag.node import DagNode, ExecutionContext  # isort: skip
 from url4.dag.nodes.blob import BlobRefNode  # isort: skip
+from url4.dag.remote_nodes import precheck_remote_nodes  # isort: skip
 
 
 @dataclass(frozen=True)
@@ -62,7 +63,8 @@ async def _run_start(
     order — Case attachments, then blob refs (counted before their I/O, bytes as verified),
     then attachment-source flights — so a breach stops the remaining I/O; :func:`check_caps`
     re-checks the final list. Order of refusals: ``malformed_source`` (an unparseable
-    call-context segment beside an attachment opt-in), ``x.remote_blob_unsupported``, then
+    call-context segment beside an attachment opt-in), ``x.remote_blob_unsupported``,
+    ``x.remote_node_unsupported`` (a node context; only when there is run-start I/O), then
     ``x.source_not_static`` (a non-literal attachment target, or one under a model-derived
     collection; both before any I/O), then the caps and fetch failures.
     A nested ``run()`` resolves nothing: it inherits the outer list and cache verbatim.
@@ -77,6 +79,11 @@ async def _run_start(
     if scan is not None:
         refuse_malformed(scan)  # owner 2026-11-02: before any I/O, ahead of every refusal
     refuse_remote(refs)
+    if scan is not None and (refs or scan.occurrences):
+        # C6 (finding 4): a node context refuses a remote-node call before ANY I/O — so before
+        # the attachment phase below, not when the call executes. A run with no run-start I/O
+        # keeps the execution-time refusal unchanged.
+        precheck_remote_nodes(scan.remote_nodes)
     if scan is not None and scan.non_literal:  # owner decision C: before any I/O
         raise not_static(scan.non_literal[0])
     occurrences = () if scan is None else scan.occurrences

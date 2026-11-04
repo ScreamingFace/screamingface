@@ -109,6 +109,8 @@ class SourceScan:
     occurrences: tuple[Occurrence, ...] = ()
     non_literal: tuple[str, ...] = ()  # owner decision C: refused, x.source_not_static
     malformed: tuple[str, ...] = ()  # owner 2026-11-02: refused, malformed_source
+    # PR #1587 review finding 4: every url4:// remote-node call, (authority, path), in preorder.
+    remote_nodes: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass
@@ -118,6 +120,7 @@ class _Found:
     occurrences: list[Occurrence] = field(default_factory=list)
     non_literal: list[str] = field(default_factory=list)
     malformed: list[str] = field(default_factory=list)
+    remote_nodes: list[tuple[str, str]] = field(default_factory=list)
 
 
 _Guards = tuple[CollectionGuard, ...]
@@ -131,7 +134,12 @@ def scan_sources(ast: Node) -> SourceScan:
     attached = {ref.key for ref in refs if not ref.collection}
     order = tuple(key for key in found.order if isinstance(key, OccurrenceSlot) or key in attached)
     return SourceScan(
-        refs, order, tuple(found.occurrences), tuple(found.non_literal), tuple(found.malformed)
+        refs,
+        order,
+        tuple(found.occurrences),
+        tuple(found.non_literal),
+        tuple(found.malformed),
+        tuple(found.remote_nodes),
     )
 
 
@@ -149,10 +157,10 @@ def _walk(
             _walk_source(node, bound, collection, out, guards)
         case Iteration():
             _walk_iteration(node, bound, out, guards)
-        case RelExpr():
-            _walk_rel_expr(node, bound, out, guards)
+        case RelExpr() | RemoteExpr():
+            _walk_call(node, bound, out, guards)
         case _:
-            pass  # Text, RemoteExpr (C6), holdings, VarRef in scalar use, struct, ...
+            pass  # Text, holdings, VarRef in scalar use, struct, ...
 
 
 def _walk_source(
@@ -216,6 +224,17 @@ def _walk_expression(
         _walk(source, scope, False, out, guards)
     if node.intent is not None:
         _walk(node.intent, scope, False, out, guards)
+
+
+def _walk_call(
+    node: RelExpr | RemoteExpr, bound: Mapping[str, Node], out: _Found, guards: _Guards
+) -> None:
+    if isinstance(node, RelExpr):
+        _walk_rel_expr(node, bound, out, guards)
+    else:
+        # C6: a remote call's context is the remote node's business (never walked); the CALL
+        # itself is recorded so a node context refuses it before any run-start I/O (finding 4).
+        out.remote_nodes.append((node.authority, node.path))
 
 
 def _walk_rel_expr(node: RelExpr, bound: Mapping[str, Node], out: _Found, guards: _Guards) -> None:
