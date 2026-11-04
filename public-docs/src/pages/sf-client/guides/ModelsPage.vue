@@ -78,7 +78,7 @@ const inspectOut = `('number', 0.0, 2.0, True)`
       <li>Name a Model so two samples of the same route stay distinguishable.</li>
       <li>Override the answer prompt and generation parameters.</li>
       <li>List the routes this engine can actually reach.</li>
-      <li>Read one route's profile to see which parameters and tools it supports.</li>
+      <li>Read one route's details to see which parameters and tools it supports.</li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -108,8 +108,8 @@ const inspectOut = `('number', 0.0, 2.0, True)`
         <tr>
           <td><code>sf.models.get(model_id)</code></td>
           <td>
-            Returns one route's <code>sf.ModelDetails</code> profile: which parameters and tools it
-            supports, and whether the profile is current.
+            Returns one route's <code>sf.ModelDetails</code>: which parameters and tools it
+            supports, and whether the details are current.
           </td>
         </tr>
         <tr>
@@ -190,12 +190,12 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     <h3>5 · Check that a route accepts your policy</h3>
 
     <p>
-      <code>sf.models.get(id)</code> returns the fuller <code>sf.ModelDetails</code> profile for one
-      route: each parameter with its schema and whether the gateway currently projects it, the tools
-      and transports it supports, and whether the profile is stale. Consulting it is how you learn
-      that <code>params={"max_tokens": 1024}</code> is available on a route before a run spends
-      anything. Which parameters a route accepts ultimately depends on the provider: a provider can
-      reject a parameter its profile lists, and the run then fails with <code>provider_error</code>.
+      <code>sf.models.get(id)</code> returns the fuller <code>sf.ModelDetails</code> for one route:
+      each parameter with its schema and whether the gateway currently projects it, the tools and
+      transports it supports, and whether the details are stale. Consulting it is how you learn that
+      <code>params={"max_tokens": 1024}</code> is available on a route before a run spends anything.
+      Which parameters a route accepts ultimately depends on the provider: a provider can reject a
+      parameter its details list, and the run then fails with <code>provider_error</code>.
     </p>
 
     <div class="not-prose">
@@ -205,9 +205,9 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     <h3>6 · Discover a route's parameters</h3>
 
     <p>
-      The same <code>ModelDetails</code> profile is also how you find out <em>what</em> a route lets
-      you configure. <code>details.parameters</code> is a mapping keyed by parameter name, so
-      listing its keys enumerates every knob the route exposes.
+      The same <code>ModelDetails</code> is also how you find out <em>what</em> a route lets you
+      configure. <code>details.parameters</code> is a mapping keyed by parameter name, so listing
+      its keys enumerates every knob the route exposes.
     </p>
 
     <div class="not-prose">

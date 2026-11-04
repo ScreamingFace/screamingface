@@ -156,8 +156,8 @@ const modelSig = `sf.Model(
       These are the read-only values model discovery returns.
       <code>client.models.list()</code> hands back a <code>ModelInfo</code> for every route the
       configured engine can currently reach, and <code>client.models.get(id)</code> returns the
-      fuller <code>ModelDetails</code> profile for one route. Consulting them before naming a route
-      in a <a href="#model">Model</a> is worthwhile: a route the engine does not carry raises a
+      fuller <code>ModelDetails</code> for one route. Consulting them before naming a route in a
+      <a href="#model">Model</a> is worthwhile: a route the engine does not carry raises a
       <code>PlanningError</code> at evaluation time rather than at construction time.
     </p>
 
@@ -218,10 +218,10 @@ const modelSig = `sf.Model(
     <h2>ModelDetails</h2>
 
     <p>
-      <code>client.models.get(id)</code> returns the fuller <code>ModelDetails</code> profile for
-      one route: every parameter with its schema and whether the gateway currently projects it, the
-      tool and transport capabilities, and whether the profile is stale or degraded. In a notebook
-      it renders as a card.
+      <code>client.models.get(id)</code> returns the fuller <code>ModelDetails</code> for one route:
+      every parameter with its schema and whether the gateway currently projects it, the tool and
+      transport capabilities, and whether the details are stale or degraded. In a notebook it
+      renders as a card.
     </p>
 
     <table>
@@ -251,7 +251,7 @@ const modelSig = `sf.Model(
         <tr>
           <td><code>contract_id</code></td>
           <td><code>str</code></td>
-          <td>Identifies the capability contract this profile was built from.</td>
+          <td>Identifies the capability contract these details were built from.</td>
         </tr>
         <tr>
           <td><code>scope</code></td>
@@ -266,14 +266,14 @@ const modelSig = `sf.Model(
           <td><code>auth_mode</code></td>
           <td><code>str</code></td>
           <td>
-            The authentication mode this profile applies under: <code>api_key</code>,
+            The authentication mode these details apply under: <code>api_key</code>,
             <code>oauth</code> or <code>none</code>.
           </td>
         </tr>
         <tr>
           <td><code>context_revision</code></td>
           <td><code>str</code></td>
-          <td>The revision of the discovery context this profile was resolved against.</td>
+          <td>The revision of the discovery context these details were resolved against.</td>
         </tr>
         <tr>
           <td><code>source_revision</code></td>
@@ -299,8 +299,8 @@ const modelSig = `sf.Model(
           <td><code>observed_at</code></td>
           <td><code>datetime&nbsp;|&nbsp;None</code></td>
           <td>
-            When the profile was observed, as a timezone-aware value. <code>None</code> on a
-            degraded profile.
+            When the details were observed, as a timezone-aware value. <code>None</code> on degraded
+            details and when the provider reports no observation time.
           </td>
         </tr>
         <tr>
@@ -314,13 +314,13 @@ const modelSig = `sf.Model(
         <tr>
           <td><code>stale</code></td>
           <td><code>bool</code></td>
-          <td>Whether the profile is past its observation window and should be refetched.</td>
+          <td>Whether the details are past their observation window and should be refetched.</td>
         </tr>
         <tr>
           <td><code>degraded</code></td>
           <td><code>bool</code></td>
           <td>
-            Whether the profile was served without a fresh observation. Mutually exclusive with
+            Whether the details were served without a fresh observation. Mutually exclusive with
             <code>stale</code>.
           </td>
         </tr>

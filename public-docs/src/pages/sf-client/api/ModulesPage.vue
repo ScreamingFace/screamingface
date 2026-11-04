@@ -123,7 +123,7 @@ if reproduction is not None:
         <tr>
           <td><code>get(model_id)</code></td>
           <td>
-            The full <code>ModelDetails</code> profile for one route. It does not need the provider
+            The full <code>ModelDetails</code> for one route. It does not need the provider
             connected: an unconnected route fails at evaluation, not here.
           </td>
         </tr>
@@ -346,6 +346,22 @@ if reproduction is not None:
         </tr>
       </tbody>
     </table>
+
+    <h3>classify()</h3>
+
+    <p>
+      Sends one text to a text classifier you configured on your own endpoint and returns a
+      <code>Classification</code>. Identical to <code>Client.classify()</code>. See
+      <RouterLink to="/sf-client/api/classify">Classify</RouterLink>.
+    </p>
+
+    <h3>fetch_media()</h3>
+
+    <p>
+      Fetches one picture or file of a case from the engine and returns a
+      <code>FetchedMedia</code>. Identical to <code>Client.fetch_media()</code>. See
+      <RouterLink to="/sf-client/api/candidate-result#case-media">Case media</RouterLink>.
+    </p>
 
     <h3>close()</h3>
 

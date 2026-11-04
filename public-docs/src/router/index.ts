@@ -154,6 +154,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/LeaderboardsPage.vue'),
     },
     {
+      path: '/sf-client/api/classify',
+      name: 'sf-client-api-classify',
+      component: () => import('@/pages/sf-client/api/ClassifyPage.vue'),
+    },
+    {
       path: '/sf-client/api/cache',
       name: 'sf-client-api-cache',
       component: () => import('@/pages/sf-client/api/CachePage.vue'),

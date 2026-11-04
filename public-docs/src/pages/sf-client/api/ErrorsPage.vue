@@ -51,8 +51,8 @@ else:
   >
     <p>
       Errors the Client raises about the engine, a provider, a leaderboard or an evaluation inherit
-      from <code>ScreamingFaceError</code>. Eight subclasses say where the failure happened, and
-      each carries a machine-readable code alongside its message. Argument validation raises
+      from <code>ScreamingFaceError</code>. Nine subclasses say where the failure happened, and each
+      carries a machine-readable code alongside its message. Argument validation raises
       <code>ValueError</code>, <code>TypeError</code> or <code>KeyError</code> instead (for example
       <code>limit=0</code> raises <code>ValueError</code>), and a closed Client raises
       <code>RuntimeError</code>. Catch <code>ScreamingFaceError</code> for runtime failures and let
@@ -73,6 +73,7 @@ else:
     ├── EngineUnavailableError
     ├── ExecutionError
     ├── LeaderboardError
+    ├── MediaUnavailableError
     ├── PlanningError
     │   └── EngineCapabilityError
     ├── ProviderConnectionError
@@ -153,6 +154,15 @@ Warning
           <td>
             A <RouterLink to="/sf-client/api/leaderboards">leaderboard</RouterLink> operation could
             not be completed safely.
+          </td>
+        </tr>
+        <tr>
+          <td><code>MediaUnavailableError</code></td>
+          <td>
+            A picture or file of a case cannot be fetched from the engine. The code
+            <code>media_not_kept</code> means the engine no longer holds it, and the error is
+            permanent. See
+            <RouterLink to="/sf-client/api/candidate-result#case-media">Case media</RouterLink>.
           </td>
         </tr>
       </tbody>

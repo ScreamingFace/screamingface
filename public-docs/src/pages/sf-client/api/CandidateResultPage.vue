@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import {
@@ -8,6 +9,17 @@ import {
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
+const mediaCode = `report = sf.evaluate(model, benchmark="inspect-lab_bench_figqa", limit=1)
+case = report.candidates.only.cases[0]
+item = case.media[0]            # a CaseMedia, with no network call
+item, str(item)`
+const mediaOut = `(CaseMedia(kind='image', media_type='image/jpeg', size=1962250, sha256='3fcd47b91497d9cd78e49e90efc006bb54f74c2a8f4057c8b2424fa9d6ec1a5a', filename=None),
+ 'image/jpeg · 1.9 MB · sha256 3fcd47b9…')`
+const mediaFetch = `fetched = sf.fetch_media(item)   # checks size and sha256 against the placeholder
+len(fetched.data), fetched.save("picture.jpg")`
+const mediaFetchOut = `(1962250, PosixPath('picture.jpg'))`
+const mediaGone = `sf.fetch_media(item)`
+const mediaGoneOut = `MediaUnavailableError: The engine no longer holds x.png · image/png · 10 B · sha256 00000000…; a local engine drops parked pictures and files after a while (48 hours by default). Run the Case again to see it.`
 const metrics = `dict(candidate.metrics)`
 const metricsOut = `{'correct': 0, 'scored_cases': 1, 'answered': 1, 'answered_rate': 1.0}`
 
@@ -428,6 +440,88 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-
         </tr>
       </tbody>
     </table>
+
+    <h2 id="case-media">Case media</h2>
+
+    <p>
+      <code>CaseResult.media</code> lists the pictures and files of a case as a tuple of
+      <code>CaseMedia</code>, in the case's order. It makes no network call, and it is empty for a
+      text case. A <code>CaseMedia</code> names what proves the bytes and not the bytes themselves.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>kind</code></td>
+          <td><code>"image"&nbsp;|&nbsp;"file"</code></td>
+          <td>Whether the item is a picture or a file.</td>
+        </tr>
+        <tr>
+          <td><code>media_type</code></td>
+          <td><code>str</code></td>
+          <td>The media type, such as <code>image/png</code>.</td>
+        </tr>
+        <tr>
+          <td><code>size</code></td>
+          <td><code>int</code></td>
+          <td>The size in bytes.</td>
+        </tr>
+        <tr>
+          <td><code>sha256</code></td>
+          <td><code>str</code></td>
+          <td>The SHA-256 digest of the bytes.</td>
+        </tr>
+        <tr>
+          <td><code>filename</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>The item's own name, when it has one.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      <code>str(item)</code> is the placeholder line that every view shows, for example
+      <code>image/png · 300 KB · sha256 9f86d081…</code>.
+    </p>
+
+    <p>
+      <code>sf.fetch_media(item)</code> and <code>Client.fetch_media(item)</code> fetch the bytes
+      from the engine and return a <code>FetchedMedia</code> only when the size and the SHA-256
+      match the placeholder. <code>AsyncClient</code> has no <code>fetch_media</code>. A
+      <code>FetchedMedia</code> has <code>media</code>, the <code>CaseMedia</code> it came from, and
+      <code>data</code>, the bytes. <code>save(path)</code> writes the bytes to <code>path</code>,
+      or into it under the item's name when <code>path</code> is a folder, and returns the
+      <code>Path</code>. An item with no name is saved under a name made from its SHA-256 and its
+      media type, for example <code>3fcd47b91497.jpg</code>. A picture shows inline in Jupyter, and
+      a file shows its placeholder line.
+    </p>
+
+    <p>
+      The local engine started with <code>screamingface up</code> serves no benchmark with pictures.
+      The example below ran on an engine that serves <code>inspect-lab_bench_figqa</code>, whose
+      cases each carry one picture.
+    </p>
+
+    <CodeBlock :code="mediaCode" language="python" />
+    <CodeBlock :code="mediaOut" language="text" />
+    <CodeBlock :code="mediaFetch" language="python" />
+    <CodeBlock :code="mediaFetchOut" language="text" />
+
+    <p>
+      A local engine keeps parked pictures and files for 48 hours by default. After that, or when
+      the engine never held the item, the fetch raises <code>MediaUnavailableError</code> with the
+      code <code>media_not_kept</code>. The error is permanent, so retrying does not help.
+    </p>
+
+    <CodeBlock :code="mediaGone" language="python" />
+    <CodeBlock :code="mediaGoneOut" language="text" />
 
     <h2>Accounting, answers and trace</h2>
 

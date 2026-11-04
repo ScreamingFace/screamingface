@@ -84,6 +84,7 @@ export const sfClientReferenceNavigation: NavEntry[] = [
     title: 'Modules & types',
     children: [
       { title: 'Cache', path: '/sf-client/api/cache' },
+      { title: 'Classify', path: '/sf-client/api/classify' },
       { title: 'Analytics', path: '/sf-client/api/analytics' },
     ],
   },

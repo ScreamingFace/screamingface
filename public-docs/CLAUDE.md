@@ -80,6 +80,7 @@ There is no automated test setup in this project.
 | `/sf-client/api/events`                   | `src/pages/sf-client/api/EventsPage.vue`          |
 | `/sf-client/api/leaderboards`             | `src/pages/sf-client/api/LeaderboardsPage.vue`    |
 | `/sf-client/api/cache`                    | `src/pages/sf-client/api/CachePage.vue`           |
+| `/sf-client/api/classify`                 | `src/pages/sf-client/api/ClassifyPage.vue`        |
 | `/sf-client/api/analytics`                | `src/pages/sf-client/api/AnalyticsPage.vue`       |
 | `/learn`                                  | `src/pages/learn/ArchitecturePage.vue`            |
 | `/learn/url4`                             | `src/pages/learn/Url4Page.vue`                    |
