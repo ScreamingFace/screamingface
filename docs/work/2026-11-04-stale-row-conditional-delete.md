@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: aigateway
-status: done   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-11-04
-finished: 2026-11-04
+finished:
 ---
 
 # stale-row-conditional-delete — OME-1138 close-out L7c: a Connection delete can require the row's status
