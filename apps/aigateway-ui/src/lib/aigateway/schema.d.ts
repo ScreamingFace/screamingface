@@ -245,6 +245,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/cache/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Community Cache Entries */
+        get: operations["community_cache_entries_v1_cache_entries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/oauth/connections/api-key/validate": {
         parameters: {
             query?: never;
@@ -279,7 +296,7 @@ export interface paths {
          *     This route intentionally does not require a JWT because OAuth providers
          *     redirect browser tabs here after the user leaves the app. The pending-auth
          *     state nonce is the callback credential; it maps back to the initiating
-         *     account and profile.
+         *     account and Connection.
          *
          *     Some public OAuth clients require a fixed localhost callback path. We
          *     dispatch to the correct provider by looking up the ``state`` value in the
@@ -676,6 +693,57 @@ export interface paths {
         put?: never;
         /** Chat Completions */
         post: operations["chat_completions_v1_chat_completions_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/classifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Classification */
+        post: operations["create_classification_v1_classifications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/classifiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Classifiers */
+        get: operations["list_classifiers_v1_classifiers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/classifiers/details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Classifier Details */
+        get: operations["classifier_details_v1_classifiers_details_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1100,7 +1168,64 @@ export interface components {
         /** OAuthConnectionListResponse */
         OAuthConnectionListResponse: {
             /** Connections */
-            connections?: components["schemas"]["OAuthConnectionResponse"][];
+            connections?: components["schemas"]["OAuthConnectionListRow"][];
+        };
+        /**
+         * OAuthConnectionListRow
+         * @description A listed Connection, with whether it is the one the default chat resolve serves.
+         *
+         *     # FEATURE: OME-1138 close-out, L7a — the Local Engine manages the row chat uses; at most one
+         *     # row per provider is effective. Only the listing carries the flag.
+         */
+        OAuthConnectionListRow: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Provider */
+            provider: string;
+            /** Label */
+            label: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "active" | "expired" | "revoked" | "error";
+            /**
+             * Auth Type
+             * @default oauth
+             * @enum {string}
+             */
+            auth_type: "oauth" | "api_key";
+            account?: components["schemas"]["AccountIdentity"] | null;
+            /** Credential Locator */
+            credential_locator: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /** Last Refreshed At */
+            last_refreshed_at?: string | null;
+            /** Error Message */
+            error_message?: string | null;
+            /**
+             * Is Duplicate
+             * @default false
+             */
+            is_duplicate: boolean;
+            /** Effective */
+            readonly effective: boolean;
         };
         /** OAuthConnectionResponse */
         OAuthConnectionResponse: {
@@ -1763,6 +1888,38 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AdminCacheJobOut"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    community_cache_entries_v1_cache_entries_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+                limit?: number;
+                count?: boolean;
+                model?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -2505,6 +2662,83 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    create_classification_v1_classifications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    list_classifiers_v1_classifiers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    classifier_details_v1_classifiers_details_get: {
+        parameters: {
+            query: {
+                model: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
