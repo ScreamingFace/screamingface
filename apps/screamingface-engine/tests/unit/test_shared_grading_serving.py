@@ -403,7 +403,7 @@ class TestBenchmarkAggregate:
         root = _emit_bundle(tmp_path / "toy")
         handler = benchmark_aggregate(root, _toy_benchmark(reduce=reduce))
 
-        result = handler("[]", 2)
+        result = handler("[]", (1, 2))
 
         assert result == {"score": 1.0}
         assert reduce.calls == [

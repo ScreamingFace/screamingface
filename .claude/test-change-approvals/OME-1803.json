@@ -7,8 +7,8 @@
   "reason": "Owner decision (Sergey, 2026-11-03) for the #1629/#1645 merge: board.json moves to schema screamingface.board.v2 with a sorted modalities list in place of has_pictures, because a picture flag cannot carry the PDF admission decision. BoardStore.has_pictures() is replaced by modalities() and refuse_blind_candidate(node, *, needs_pictures) by refuse_blind_candidate(node, *, needs: frozenset[str]), with no compatibility shims. These OME-1790 tests spelled the removed names; each edit is the mechanical rename (needs_pictures True/False -> {\"image\"}/empty set, has_pictures() -> \"image\" in modalities()) and each test keeps its intent: the board flag reaches admission, a picture board refuses a blind model and admits a seeing one, a text board never reads the model list.",
   "files": {
     "apps/screamingface-engine/tests/unit/test_board_cases_route.py": {
-      "base_blob": "3e822e28b6b5ce157874f870c5f17fb7a57d4643",
-      "approved_blob": "85e563d11fc37f7cfd624f3b78c43fab248b1d23"
+      "base_blob": "71263e1749d604d3f6473dd65c9060c3413cc579",
+      "approved_blob": "1b2f08e68dbdad5a726024238479112f12a00e3c"
     },
     "apps/screamingface-engine/tests/unit/test_board_store.py": {
       "base_blob": "342e5cf65d25964b0cb859ac70b13bf0c93c42df",

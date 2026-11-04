@@ -51,8 +51,8 @@ _MISSING_SECRET_MESSAGE = (
 )
 
 
-def credential_service_for(profile_name: str) -> str:
-    return f"aigateway:antigravity:{profile_name}"
+def credential_service_for(credential_name: str) -> str:
+    return f"aigateway:antigravity:{credential_name}"
 
 
 def _require_secret(client_secret: str | None) -> str:
@@ -64,7 +64,7 @@ def _require_secret(client_secret: str | None) -> str:
 class AntigravityOAuth(BaseOAuthStrategy):
     def __init__(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         client_secret: str | None,
         client_id: str = ANTIGRAVITY_CLIENT_ID,
@@ -73,7 +73,7 @@ class AntigravityOAuth(BaseOAuthStrategy):
         account: str | None = None,
         http_client_factory=None,
     ) -> None:
-        super().__init__(profile_name=profile_name)
+        super().__init__(credential_name=credential_name)
         self._client_secret = client_secret
         # client_id + token_url come from the SAME source authorize uses (the
         # plugin threads settings here), so a settings override can't mint a
@@ -87,7 +87,7 @@ class AntigravityOAuth(BaseOAuthStrategy):
         )
 
     def credential_service(self) -> str:
-        return credential_service_for(self.profile_name)
+        return credential_service_for(self.credential_name)
 
     def credential_account(self) -> str:
         return self._account
@@ -96,17 +96,17 @@ class AntigravityOAuth(BaseOAuthStrategy):
         raw = await self._store.read(self.credential_service(), self.credential_account())
         if raw is None:
             raise CredentialNotFoundError(
-                f"No tokens for antigravity profile {self.profile_name!r}. "
+                f"No tokens for antigravity profile {self.credential_name!r}. "
                 "Re-authenticate via Electron."
             )
         try:
             loaded = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise AuthError(
-                f"Token blob for {self.profile_name!r} is not valid JSON: {exc}"
+                f"Token blob for {self.credential_name!r} is not valid JSON: {exc}"
             ) from exc
         if not isinstance(loaded, dict):
-            raise AuthError(f"Token blob for {self.profile_name!r} is not a JSON object")
+            raise AuthError(f"Token blob for {self.credential_name!r} is not a JSON object")
         return normalize_token_response(loaded, loaded)
 
     def _is_expired(self, creds: dict[str, Any]) -> bool:
@@ -119,7 +119,7 @@ class AntigravityOAuth(BaseOAuthStrategy):
         return {
             "Authorization": f"Bearer {creds['access_token']}",
             "User-Agent": ANTIGRAVITY_USER_AGENT,
-            ANTIGRAVITY_PROFILE_HEADER: self.profile_name,
+            ANTIGRAVITY_PROFILE_HEADER: self.credential_name,
         }
 
     async def _refresh_credential(self, creds: dict[str, Any]) -> dict[str, Any]:
@@ -142,7 +142,7 @@ class AntigravityOAuth(BaseOAuthStrategy):
         if resp.status_code != 200:
             if is_reauth_refresh_failure(resp.status_code, resp.text):
                 raise ReauthRequiredError(
-                    f"Refresh token rejected for profile {self.profile_name!r} "
+                    f"Refresh token rejected for profile {self.credential_name!r} "
                     f"(HTTP {resp.status_code}). Re-auth required."
                 )
             # Status-only (U7): never echo the upstream body.

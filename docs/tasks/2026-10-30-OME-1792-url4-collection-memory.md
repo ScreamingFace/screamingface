@@ -1,12 +1,12 @@
 ---
 id: OME-1792
 linear_url: https://linear.app/openmined/issue/OME-1792/url4-parse-large-collections-once-and-release-finished-node-results
-status: in_review
+status: done
 type: feature
 priority: high
 labels: [url4-sdk, agentic, autonomous]
 created: 2026-10-30
-closed:
+closed: 2026-11-02
 ---
 
 # url4: parse large collections once and release finished node results

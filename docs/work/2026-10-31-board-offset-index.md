@@ -142,3 +142,4 @@ selected prefix through the index, and picture admission reads `has_pictures` fr
 - **Deviation:** `case_id` is checked as a string, not against the position: the writer spells
   it `str(id)`, but prior tests build rows with `case_id="c1"`, so binding it would change them.
 - Owner decision (Sergey, 2026-11-02): keep the weaker `case_id` check (it must be a string; its value is not tied to the row position), so existing tests stay unedited.
+- Merged: #1629 squash `a91ef6709` (2026-11-02, approved by HupBaHa at `c623fa37f` after two review rounds). Linear OME-1790 → Done.

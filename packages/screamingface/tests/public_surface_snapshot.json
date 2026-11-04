@@ -121,7 +121,7 @@
           "connect": "method (self, provider: 'str', *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | AsyncOAuthFlow'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
           "scoreboard_url": "property"
@@ -212,6 +212,7 @@
           "run_id": "field",
           "score": "field",
           "scores": "property",
+          "selected_cases": "property",
           "started_at": "field",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "trace_id": "field",
@@ -301,7 +302,7 @@
           "connect": "method (self, provider: 'str | None' = None, *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | ConnectionPanel | OAuthFlow'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
-          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'",
+          "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'",
           "fetch_media": "method (self, media: 'CaseMedia') -> 'FetchedMedia'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
@@ -926,6 +927,8 @@
           "export": "method (self, path: 'str | PathLike[str]' = 'report.json', *, format: \"Literal['json', 'inspect']\" = 'json', candidate: 'str | None' = None) -> 'Path'",
           "failures": "property",
           "ok": "property",
+          "selected_cases": "property",
+          "selection_fingerprint": "property",
           "started_at": "property",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "to_json": "method (self) -> 'str'",
@@ -1067,7 +1070,7 @@
       },
       "evaluate": {
         "kind": "function",
-        "signature": "(candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'"
+        "signature": "(candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'"
       },
       "events": {
         "kind": "module",
@@ -1456,6 +1459,7 @@
           "run_id": "field",
           "score": "field",
           "scores": "property",
+          "selected_cases": "property",
           "started_at": "field",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "trace_id": "field",
@@ -1642,6 +1646,8 @@
           "export": "method (self, path: 'str | PathLike[str]' = 'report.json', *, format: \"Literal['json', 'inspect']\" = 'json', candidate: 'str | None' = None) -> 'Path'",
           "failures": "property",
           "ok": "property",
+          "selected_cases": "property",
+          "selection_fingerprint": "property",
           "started_at": "property",
           "to_dict": "method (self) -> 'dict[str, object]'",
           "to_json": "method (self) -> 'str'",

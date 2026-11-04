@@ -24,7 +24,7 @@ from aigateway.core.google_code_assist import (
 from aigateway.core.input_modalities import (
     TEXT_IMAGE_PDF,
     InputModality,
-    declared_family_modalities,
+    declared_family_evidence,
 )
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.plugin_base import (
@@ -107,9 +107,10 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
 
-    def model_input_modalities(self, entry: ModelEntry) -> tuple[str, ...]:
-        # OME-1537: declared family table; a model outside it is unknown -> text-only.
-        return declared_family_modalities(
+    def model_input_modality_evidence(self, entry: ModelEntry) -> tuple[str, ...] | None:
+        # OME-1537: declared family table. Outside it the model is unknown (None), which
+        # publishes as text-only and passes the chat backstop (OME-1807).
+        return declared_family_evidence(
             entry.model_name.removeprefix("antigravity/"), _INPUT_MODALITY_FAMILIES
         )
 
@@ -138,7 +139,7 @@ class AntigravityProviderPlugin(ProviderPluginBase[AntigravityPluginSettings]):
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy:
         return AntigravityOAuth(
-            profile_name=credential_name,
+            credential_name=credential_name,
             client_secret=self._client_secret(),
             client_id=self.settings.client_id,
             token_url=self.settings.token_url,

@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1658",
+  "branch": "OME-1658-score-text-validation",
+  "approver": "Filip Boltuzic",
+  "date": "2026-10-30",
+  "scope": "Strengthen test_validation_error_can_echo_surrogates_outside_the_checked_fields: replace the serialized substring check and location-only assertion with strict UTF-8 JSON parsing, exactly one matching error location, and equality of its input to the expected object or invalid field-name string. No other tests change.",
+  "reason": "After discussing the review finding and the structural replacement, Filip explicitly requested: \u201ccan you find the PR where this is and improve on it?\u201d This pins the requested strengthening of the existing test without weakening its coverage.",
+  "files": {
+    "apps/scoreboard/tests/unit/test_score_text_validation.py": {
+      "base_blob": "0237f5ed123baa5a87c08a1c499e1ea91845a67b",
+      "approved_blob": "b5bde5e71f008c1d76cec886a95f2e03bb688001"
+    }
+  }
+}

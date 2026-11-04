@@ -129,6 +129,9 @@ class _Flagged:
     def head(self, count: int) -> str:
         return '[{"id":1,"input":"text"}]'
 
+    def rows(self, case_ids: Sequence[int]) -> str:  # OME-1739: the id-list read
+        return self.head(len(case_ids))
+
 
 async def _awaited(value: Awaitable[str]) -> str:
     return await value

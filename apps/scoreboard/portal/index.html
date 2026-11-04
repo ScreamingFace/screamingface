@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>screamingface — benchmark receipts</title>
+  <title>screamingface · benchmark receipts</title>
   <meta name="description" content="Public screamingface benchmark results with scores, providers, and local rerun links.">
   <!-- Link previews (Slack, X, LinkedIn, iMessage): crawlers need absolute URLs. -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="ScreamingFace">
-  <meta property="og:title" content="screamingface — benchmark receipts">
+  <meta property="og:title" content="screamingface · benchmark receipts">
   <meta property="og:description" content="Public screamingface benchmark results with scores, providers, and local rerun links.">
   <meta property="og:url" content="https://leaderboard.screamingface.ai/">
   <meta property="og:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
@@ -16,7 +16,7 @@
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="The ScreamingFace mark above the wordmark ScreamingFace.ai, on black.">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="screamingface — benchmark receipts">
+  <meta name="twitter:title" content="screamingface · benchmark receipts">
   <meta name="twitter:description" content="Public screamingface benchmark results with scores, providers, and local rerun links.">
   <meta name="twitter:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
@@ -46,29 +46,60 @@
   </div>
 
   <div class="wrap wide landing">
-    <header class="masthead hero" data-section="hero">
-      <div class="eyebrow">ScreamingFace · open leaderboard</div>
-      <h1 class="hero-title">Fusi<img class="o-mark" src="assets/mark/sf-mark-128.png" alt="o">ns, ranked and reproducible.</h1>
-      <p class="lead hero-lead">The first verified map of the quality–cost frontier for ensembles and routers.</p>
-    </header>
-
-    <dl class="kv defs hero-defs" aria-label="How to read the board">
-      <dt class="dt-repro">Reproducible</dt>
-      <dd>Ran on shared compute and stored on the global cache. Anyone can re-run it and get the same
-      score.</dd>
-      <dt>Unverified</dt>
-      <dd>Self-reported, or imported from a third-party board. Not yet reproduced on the global cache.</dd>
-      <dt>Solo model</dt>
-      <dd>A single model, shown as a reference baseline (no submitter).</dd>
-    </dl>
-
-    <div class="hero-cta" data-section="hero">
-      <a class="btn--primary" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Get started with ScreamingFace →</a>
-      <a class="btn" href="#subscribe-site-band">Subscribe for updates</a>
+    <div class="la-top">
+      <div>
+        <header class="masthead hero" data-section="hero">
+          <div class="eyebrow">ScreamingFace · open leaderboard</div>
+          <h1 class="hero-title hero-title--index" aria-label="The leaderboard for fusions.">The leaderboard for fusi<img class="o-mark" src="assets/mark/sf-mark-128.png" alt="" aria-hidden="true">ns.</h1>
+          <p class="lead hero-lead">The first verified map of the quality–cost frontier for multi-model systems: ensembles, routers, cascades and more.</p>
+        </header>
+        <div class="hero-cta" data-section="hero">
+          <a class="btn--primary" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Get started with ScreamingFace →</a>
+          <a class="btn" href="#subscribe-site-band">Subscribe for updates</a>
+        </div>
+      </div>
+      <figure class="frontier" aria-label="The quality-cost frontier: fusions sit above single models at every budget. This diagram is illustrative.">
+        <svg viewBox="0 0 300 190" width="100%" role="img" aria-label="Accuracy versus cost: the fusion frontier sits above the single-model frontier at every budget. This diagram is illustrative.">
+          <!-- axes -->
+          <line x1="44" y1="16" x2="44" y2="150" stroke="var(--line-2)" stroke-width="1.2"/>
+          <line x1="44" y1="150" x2="292" y2="150" stroke="var(--line-2)" stroke-width="1.2"/>
+          <!-- band between the two frontiers -->
+          <path d="M58,124 C82,96 112,76 150,66 S222,52 288,46 L288,69 C222,76 180,82 150,92 C112,106 82,118 58,140 Z" fill="var(--gold-9)" opacity="0.18"/>
+          <!-- single-model frontier -->
+          <path d="M58,140 C82,118 112,106 150,92 C180,82 222,76 288,69" fill="none" stroke="var(--ink-3)" stroke-width="1.8"/>
+          <!-- fusion frontier -->
+          <path d="M58,124 C82,96 112,76 150,66 C188,58 222,52 288,46" fill="none" stroke="var(--gold-11)" stroke-width="2.4"/>
+          <!-- single-model points -->
+          <g fill="var(--ink-3)" opacity="0.5">
+            <circle cx="72" cy="132" r="3"/><circle cx="100" cy="112" r="3"/><circle cx="130" cy="100" r="3"/>
+            <circle cx="150" cy="104" r="3"/><circle cx="188" cy="84" r="3"/><circle cx="232" cy="74" r="3"/><circle cx="118" cy="114" r="3"/>
+          </g>
+          <!-- fusion points -->
+          <g fill="var(--gold-11)">
+            <circle cx="80" cy="100" r="3.4"/><circle cx="118" cy="78" r="3.4"/><circle cx="162" cy="63" r="3.4"/><circle cx="216" cy="54" r="3.4"/><circle cx="264" cy="48" r="3.4"/>
+          </g>
+          <!-- ticks -->
+          <g stroke="var(--line-2)" stroke-width="1">
+            <line x1="40" y1="120" x2="44" y2="120"/><line x1="40" y1="84" x2="44" y2="84"/><line x1="40" y1="48" x2="44" y2="48"/>
+            <line x1="96" y1="150" x2="96" y2="154"/><line x1="168" y1="150" x2="168" y2="154"/><line x1="240" y1="150" x2="240" y2="154"/>
+          </g>
+          <g class="tk" text-anchor="end">
+            <text x="37" y="123">.6</text><text x="37" y="87">.7</text><text x="37" y="51">.8</text>
+          </g>
+          <g class="tk" text-anchor="middle">
+            <text x="96" y="163">$.1</text><text x="168" y="163">$.4</text><text x="240" y="163">$.8</text>
+          </g>
+          <!-- axis titles + series labels (italic serif, LaTeX-ish) -->
+          <text class="ax" fill="var(--ink-2)" transform="rotate(-90 15 86)" x="15" y="86" text-anchor="middle">accuracy*</text>
+          <text class="ax" fill="var(--ink-2)" x="168" y="180" text-anchor="middle">cost (USD)</text>
+          <text class="sl" fill="var(--gold-11)" x="236" y="38">fusions</text>
+          <text class="sl" fill="var(--ink-3)" x="150" y="128">single models</text>
+        </svg>
+      </figure>
     </div>
 
     <section id="benchmarks" class="benchmarks-section" data-section="catalogue">
-      <h2 class="section-label">Catalogue</h2>
+      <h2 class="section-label">Browse latest benchmarks</h2>
 
       <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
 
@@ -79,6 +110,8 @@
     </section>
 
     <div data-subscribe="all" data-section="subscribe"></div>
+
+    <p class="fine-print">*The diagram on cost-quality pareto frontier is illustrative.</p>
 
     <div class="foot" data-section="footer">
       <span>😱 screamingface</span>

@@ -17,6 +17,7 @@ from screamingface_engine.benchmarks.provenance import (
     provenance_metadata,
     validate_provenance,
 )
+from screamingface_engine.benchmarks.selection import CaseSelection
 from screamingface_engine.retrieval_policy import normalize_excluded_domains
 from url4 import Node, RelExpr, build, expr, render, src, struct, text
 from url4.peer.server import Url4Node
@@ -253,9 +254,10 @@ class AnswerRule:
 class Benchmark:
     """Immutable metadata plus one complete URL4 protocol builder.
 
-    ``build`` is pure: it specializes the protocol to an exact selected case count and returns a
-    structured URL4 node. ``install`` owns any private routes and validates immutable assets
-    against the explicitly injected root before a run can spend money.
+    ``build`` is pure: it specializes the protocol to an exact Case selection (the first N, or
+    explicit Case ids, OME-1739) and returns a structured URL4 node. ``install`` owns any
+    private routes and validates immutable assets against the explicitly injected root before
+    a run can spend money.
     """
 
     id: str
@@ -263,7 +265,7 @@ class Benchmark:
     description: str
     revision: str
     case_count: int
-    build: Callable[[int], Node]
+    build: Callable[[int | CaseSelection], Node]
     # INVARIANT: `declaration` is required with NO default — a benchmark that never
     # declared its failure policy fails registration before any paid request (OME-1039).
     declaration: BenchmarkDeclaration
@@ -404,10 +406,17 @@ class Benchmark:
             metadata["answer_rule"] = self.answer_rule.as_block()
         return metadata
 
-    def protocol(self, selected_case_count: int) -> Node:
-        """Build and type-check one exact selection without rendering it prematurely."""
+    def protocol(self, selected_case_count: int | CaseSelection) -> Node:
+        """Build and type-check one exact selection without rendering it prematurely.
 
-        if (
+        ``selected_case_count`` is a count N (Cases 1 to N) or an explicit
+        :class:`CaseSelection` (OME-1739); ``build`` always receives a ``CaseSelection``,
+        whose ``str()`` is the count for 1..N, so a count-only builder renders as before.
+        """
+
+        if isinstance(selected_case_count, CaseSelection):
+            selection: CaseSelection = selected_case_count.require_within(self.case_count)
+        elif (
             isinstance(selected_case_count, bool)
             or not isinstance(selected_case_count, int)
             or selected_case_count < 1
@@ -417,23 +426,39 @@ class Benchmark:
                 f"Benchmark limit must be between 1 and {self.case_count}, "
                 f"got {selected_case_count!r}"
             )
-        protocol = self.build(selected_case_count)
+        else:
+            selection = CaseSelection.first(selected_case_count)
+        protocol = self.build(selection)
         if not isinstance(protocol, Node):
             raise TypeError("Benchmark build must return a URL4 Node")
         return protocol
 
-    def resource(self, limit: int | None = None) -> dict[str, object]:
-        """Build one flat, independently executable public resource."""
+    def resource(
+        self, limit: int | None = None, *, cases: CaseSelection | None = None
+    ) -> dict[str, object]:
+        """Build one flat, independently executable public resource.
 
-        selected = self.case_count if limit is None else limit
+        ``cases`` (OME-1739) selects explicit Case ids instead of a ``limit``; the resource
+        then echoes them as ``selected_case_ids``, so the SDK can refuse an Engine that ran a
+        different set. INVARIANT: a ``limit`` resource carries no such key and is unchanged.
+        """
+
+        if limit is not None and cases is not None:
+            raise ValueError("select Cases by limit or by Case ids, not both")
+        selected: int | CaseSelection = (
+            cases if cases is not None else self.case_count if limit is None else limit
+        )
         protocol = self.protocol(selected)
-        return {
+        resource: dict[str, object] = {
             "schema": "screamingface.benchmark.v1",
             **self._metadata(),
-            "selected_case_count": selected,
+            "selected_case_count": selected if isinstance(selected, int) else selected.count,
             "candidate_binding": CANDIDATE_BINDING,
             "url4": render(protocol),
         }
+        if cases is not None:
+            resource["selected_case_ids"] = list(cases.case_ids)
+        return resource
 
 
 def candidate_call(

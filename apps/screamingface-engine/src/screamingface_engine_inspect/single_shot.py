@@ -78,6 +78,7 @@ from screamingface_engine.benchmarks.protocol import (
     preserve_candidate_outcome,
 )
 from screamingface_engine.benchmarks.provenance import ProvenanceFields
+from screamingface_engine.benchmarks.selection import CaseSelection
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     CASE_GRADING_CONCURRENCY,
     BenchmarkAggregation,
@@ -185,12 +186,18 @@ class JudgeSpec:
             pinned params, so N passes are N requests, never one cached reply (OME-1527
             R12). Benchmark identity when set. A pinned ``seed`` beside it is refused, and
             so is a judge call that names no pass.
+        redraw_repeats: the scorer re-asks its judge in the same words when a reply does not
+            parse (hle's ``max_grader_attempts``); a re-ask after a live reply skips the
+            gateway cache, so it is a new draw as under inspect's own ``eval()``, not the
+            stored unparseable reply. A cached or frozen-copy reply stays final. Benchmark
+            identity when set (OME-1478).
     """
 
     model: str
     params: tuple[tuple[str, str], ...] = ()
     model_role: str | None = None
     seed_per_pass: bool = False
+    redraw_repeats: bool = False
 
     def __post_init__(self) -> None:
         """Refuse a row that pins a seed AND gives each judge pass its own."""
@@ -570,6 +577,9 @@ def single_shot_benchmark(
                         # WHY conditional: no published row gives its passes seeds, so
                         # every judged revision holds (OME-1527 R12).
                         *(("judge_seed_per_pass=True",) if judge.seed_per_pass else ()),
+                        # WHY conditional (OME-1478): no published row sets it, so every
+                        # judged revision holds.
+                        *(("judge_redraw_repeats=True",) if judge.redraw_repeats else ()),
                     )
                 ),
                 # WHY conditional (OME-1527, R13): searching changes what the Candidate can
@@ -767,7 +777,7 @@ def _build(
     available: int,
     attempts: int = 1,
     retrieval_policy: RetrievalPolicyDeclaration | None = None,
-) -> Callable[[int], Node]:
+) -> Callable[[int | CaseSelection], Node]:
     """The canonical one-invocation expression — one answer per Case, graded once.
 
     With ``attempts`` above 1 (OME-1458) the same execution runs once per Attempt; at 1 the
@@ -778,14 +788,16 @@ def _build(
 
     banned: tuple[str, ...] = () if retrieval_policy is None else retrieval_policy.excluded_domains
 
-    def build(case_count: int) -> Node:
+    def build(selection: int | CaseSelection) -> Node:
+        # OME-1739: a count or explicit Case ids; the Candidate is told the run's size.
+        selected: CaseSelection = CaseSelection.coerce(selection)
         candidate_invocation = candidate(
             "$item.input",
             web_search=retrieval_policy is not None,
             web_search_exclude=banned,
             case_id="$item.id",
             case_index="$index",
-            case_count=str(case_count),
+            case_count=str(selected.count),
         )
         checked = expr(
             src(
@@ -816,7 +828,7 @@ def _build(
                 case_id="$item.id",
                 attempts=attempts,
             ),
-            selected_case_count=case_count,
+            selected_case_count=selected,
             available_case_count=available,
             aggregate_route=routes["aggregate"],
         )
@@ -1154,21 +1166,19 @@ async def benchmark_aggregate_async(
 
 def _aggregate(
     benchmark: ImportedBenchmark, root: Path
-) -> Callable[[str, int], Awaitable[dict[str, Any]]]:
-    async def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
-        return await benchmark_aggregate_async(
-            benchmark, case_evaluations, root, case_ids=tuple(range(1, selected_case_count + 1))
-        )
+) -> Callable[[str, tuple[int, ...]], Awaitable[dict[str, Any]]]:
+    async def aggregate_handler(case_evaluations: str, case_ids: tuple[int, ...]) -> dict[str, Any]:
+        return await benchmark_aggregate_async(benchmark, case_evaluations, root, case_ids=case_ids)
 
     return aggregate_handler
 
 
 def _judged_aggregate(
     benchmark: ImportedBenchmark, root: Path, node: Url4Node
-) -> Callable[[str, int], Awaitable[dict[str, Any]]]:
+) -> Callable[[str, tuple[int, ...]], Awaitable[dict[str, Any]]]:
     """The judged face: bind the judge transport, grade on the CALLER's loop."""
 
-    async def aggregate_handler(case_evaluations: str, selected_case_count: int) -> dict[str, Any]:
+    async def aggregate_handler(case_evaluations: str, case_ids: tuple[int, ...]) -> dict[str, Any]:
         # WHY the lazy import: judge_provider drags in inspect_ai; benchmark
         # registration happens at engine import in every mode, and only a judged
         # benchmark's GRADING needs the provider (the scorer adapter's own lazy-import rule).
@@ -1190,6 +1200,7 @@ def _judged_aggregate(
             params=benchmark.judge.params,
             benchmark_id=benchmark.benchmark.id,
             seed_per_pass=benchmark.judge.seed_per_pass,
+            redraw_repeats=benchmark.judge.redraw_repeats,
         )
         with ExitStack() as scope:
             scope.enter_context(bound_judge_transport(transport))
@@ -1203,7 +1214,7 @@ def _judged_aggregate(
                 benchmark,
                 case_evaluations,
                 root,
-                case_ids=tuple(range(1, selected_case_count + 1)),
+                case_ids=case_ids,
             )
 
     return aggregate_handler
