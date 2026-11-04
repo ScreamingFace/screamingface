@@ -44,7 +44,7 @@ Fix drift between the SF Client docs (`public-docs`) and screamingface 0.1.9, th
 - Every diagram in the spec's Diagram plan exists as source, SVG and PNG.
 - The review report exists, in the required order.
 - No edited page contains an em-dash, and no heading is in title case.
-- The footer names 0.1.9.
+- The footer names the newest release tag (the owner's decision).
 - Type-check, lint and build pass.
 
 ## Review report
@@ -142,9 +142,9 @@ flowchart LR
 
 Rewrites of sentences that failed are in the Friction log and Top fixes tables.
 
-## Outcome (fill at the end, required before COMMIT)
+## Outcome
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** 84 files in the 12 unpushed commits (plus the earlier pushed ones): `public-docs/src/pages/sf-client/**` (guides, API reference, new `ClassifyPage.vue`), `public-docs/src/pages/learn/**`, `HomePage.vue`, `public-docs/src/router/index.ts`, `public-docs/src/navigation/sf-client.ts`, `public-docs/src/components/ui/ThemedDiagram.vue`, `public-docs/CLAUDE.md`, `public-docs/public/diagrams/`, `docs/diagrams/` (five new diagrams as SVG and PNG with their generator, four request-architecture diagrams corrected), this ledger.
+- **Commits:** `bca712edb` get-started pages, `b59b89b44` guides, `9075d0054` API reference, `3ad7d0093` recipe reference, `3f8bbc96c` learn pages, `c5c182a0c` cache and analytics, `e9ff1fbb3` capture off by default, `f23a4e797` reducers, `e39f0e051` validation fixes, `9597e70f4` classify and case media, `f70488d7b` diagrams, `b440b5e69` review report and fixes.
+- **Gates:** `npm run type-check`, `npm run lint` (0 errors), `npx prettier --check src` and `npm run build` pass. Search checks over `public-docs/src` find none of `fusion.dev`, `leaderboard.dev`, a slash benchmark id, `sf.reproduce`, `hle`, `05_draco_lite_e2e`, `07_ifeval_e2e`, `cases=`, `Fanout`, `JudgePick`, `draco-lite`, a dev host. No em-dash or en-dash in a page, a heading or a diagram; the dashes left in `src` are in code comments of files this pass did not edit. All 12 external links answer 200. Every internal route resolves (the one dead path, `/roadmap`, is in a commented-out block). Every name in the 0.1.9 `__all__` has a page.
+- **Deviations:** (1) The footer reads 0.1.10: the branch contains the `screamingface-v0.1.10` tag and the label is the newest reachable release tag. The owner decided the footer follows the tag, so the acceptance line "the footer names 0.1.9" is replaced by "the footer names the newest release tag". The pages document 0.1.9. (2) Not verifiable on 0.1.9 and marked so on the pages: hosted `evaluate`, publish, private, partial and unsubmitted replays, exact replays, `edit` and `metadata_events` on a real board, Colab analytics, the `openai` and `huggingface` cached-provider rows (source only). (3) The case media sample ran on an engine from repository `main`, not on a released engine; the page says so. (4) The report-browser media buttons are not described, because they were not verified. (5) Findings that need an owner are in `issues-tracker.md` (I-5 to I-9), outside the repository.
