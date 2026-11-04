@@ -49,6 +49,16 @@ Fix drift between the SF Client docs (`public-docs`) and screamingface 0.1.10, t
 - The footer names the newest release tag (the owner's decision).
 - Type-check, lint and build pass.
 
+## Retarget results (0.1.10)
+
+- **R1:** spec, plan, ledger and diagrams renamed and amended (`b018a31c9`).
+- **R2:** `evaluate(cases=)` documented from measured runs (`81f7c34b8`). Source only: the SDK refuses before any model call when the Engine does not echo the list.
+- **R3:** analytics on by default, measured on a fresh config home (`10c710dac`). Not run: Colab, and the notebook (standard output) path of the notice.
+- **R4:** local engine list (`medxpert` only from `screamingface up`) and the media sample re-run on the 0.1.10 release-tag engine (`920441c76`).
+- **R5:** the connection listing has no SDK change; the text-only model refusal on picture benchmarks documented (`7a668c2bb`).
+- **R6:** 36 audit scripts run on 0.1.9 and on 0.1.10 against the same engine and diffed. The only deterministic SDK differences are the `cases` parameter and the analytics default. Counts (109 local models, 7 providers, `medxpert` 2,450 Cases, 92 `__all__` names), error texts, cache and capture behaviour, url4 length and the Mean and Pick outputs (`'3.75'`, `'green'`) are identical. Differences in token counts, costs, run ids and model-echoed JSON spacing are run-to-run variation. No page contains the string "0.1.9". `p5_reducers.py` timed out at 420 s on both versions (provider latency on `deepseek-v4-pro`) and was re-run with a longer limit.
+- **Not verified on 0.1.10:** hosted values (112 hosted models, 89 hosted benchmarks, 91 leaderboards, the 4,631-row cache pull), until the hosted login in R7.
+
 ## Review report
 
 Method: three passes over the edited pages in the reader's order (Overview, Installation, First fusion, Quickstart, then guides, API reference, learn pages), the nine-item scorecard, the trust check. Scans over all pages in `public-docs/src/pages` for performance adjectives, claims words, title-case headings and terminology counts. Examples were run in earlier parts; this part runs none. Unavailable context slots: time budget and operational metrics (no source supplies them).
