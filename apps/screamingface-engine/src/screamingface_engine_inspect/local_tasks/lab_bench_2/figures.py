@@ -17,7 +17,8 @@ Stages, in execution order (:func:`fetch_question_files`):
               layout under a different root. A name that would leave that folder is refused.
     Stage 3 — download: a file already there with the listed md5 is kept; anything else is
               fetched into a ``.part`` sibling, checked against the listed md5, and renamed
-              into place only when it matches. A reset connection is retried, twice.
+              into place only when it matches. A passing fault (a dropped or cut-short
+              connection, HTTP 429 or 5xx) is retried, twice.
 
 WHY the replay cache, not the authors' ``~/.cache/labbench2``: the importer seals a picture
 from a file only when the file sits inside the import's own cache (``picture_input.py``), the
@@ -42,6 +43,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import http.client
 import json
 import os
 import time
@@ -67,6 +69,8 @@ _TIMEOUT_S: Final[float] = 60.0
 _ATTEMPTS: Final[int] = 3
 #: The wait before retry k is ``k`` times this (2 s, then 4 s).
 _BACKOFF_S: Final[float] = 2.0
+#: The one 4xx status that means "later", not "never".
+_TOO_MANY_REQUESTS: Final[int] = 429
 
 #: How a URL is opened. A seam, so the tests point it at a local server.
 Opener = Callable[[str, float], Any]
@@ -209,7 +213,12 @@ def _download(blob: _Blob, destination: Path, prefix: str, open_url: Opener) -> 
 
 
 def _read(url: str, open_url: Opener, what: str) -> bytes:
-    """The body at ``url``, retried after a connection fault; a refusal (4xx) is not retried."""
+    """The body at ``url``, retried after a passing fault; any other refusal is not retried.
+
+    Passing: a connection that drops (``OSError``) or ends before the body does
+    (``http.client.IncompleteRead``, an ``HTTPException`` and NOT an ``OSError``), and HTTP 429
+    or 5xx, the statuses the connector also treats as temporary.
+    """
 
     last: Exception | None = None
     for attempt in range(_ATTEMPTS):
@@ -217,11 +226,11 @@ def _read(url: str, open_url: Opener, what: str) -> bytes:
             with open_url(url, _TIMEOUT_S) as response:
                 return response.read()
         except urllib.error.HTTPError as exc:
-            # WHY no retry on 4xx: a missing or forbidden object stays so; only 5xx may pass.
-            if exc.code < 500:
+            # WHY no retry on other 4xx: a missing or forbidden object stays so.
+            if exc.code != _TOO_MANY_REQUESTS and exc.code < 500:
                 raise FigureFetchError(f"{what}: the bucket answered HTTP {exc.code}") from None
             last = exc
-        except OSError as exc:
+        except (OSError, http.client.HTTPException) as exc:
             last = exc
         if attempt + 1 < _ATTEMPTS:
             time.sleep(_BACKOFF_S * (attempt + 1))

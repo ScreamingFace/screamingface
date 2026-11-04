@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import http.client
 import io
 import json
 import urllib.error
@@ -295,7 +296,9 @@ def test_a_listed_name_that_leaves_the_question_folder_is_refused(tmp_path: Path
     escaping = _PREFIX.strip("/") + "/../../../../escape.png"
     with pytest.raises(FigureFetchError, match="is not a file inside the prefix"):
         fetch_question_files(_PREFIX, tmp_path, opener=_FakeBucket({escaping: _PNG}))
-    assert not (tmp_path.parent / "escape.png").exists()
+    # Four `..` from the question's folder would land at <cache>/lab_bench_2/escape.png; nothing
+    # may be written anywhere under the cache.
+    assert not [path for path in tmp_path.rglob("*") if path.is_file()]
 
 
 def test_a_missing_object_fails_by_name_without_retrying(tmp_path: Path) -> None:
@@ -317,6 +320,59 @@ def test_a_connection_that_keeps_failing_is_retried_then_named(tmp_path: Path) -
         fetch_question_files(_PREFIX, tmp_path, opener=bucket)
 
     assert len(bucket.calls) == 3
+
+
+class _Truncated:
+    """A response whose body is cut short mid-transfer, as a dropped connection leaves it."""
+
+    def __enter__(self) -> _Truncated:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        raise http.client.IncompleteRead(b"\x89PNG", 1_000)
+
+
+def test_a_body_cut_short_is_retried_then_named(tmp_path: Path) -> None:
+    # IncompleteRead is not an OSError; it must still be retried, and fail as FigureFetchError
+    # naming the prefix, never escape raw.
+    name = _PREFIX.strip("/") + "/figure.png"
+    bucket = _FakeBucket({name: _PNG})
+    downloads: list[str] = []
+
+    def opener(url: str, timeout: float) -> Any:
+        if "/storage/v1/" in url:
+            return bucket(url, timeout)
+        downloads.append(url)
+        return _Truncated()
+
+    with pytest.raises(
+        FigureFetchError, match=f"'{name}': failed after 3 attempts: IncompleteRead"
+    ):
+        fetch_question_files(_PREFIX, tmp_path, opener=opener)
+
+    assert len(downloads) == 3
+    assert not [path for path in tmp_path.rglob("*") if path.is_file()]
+
+
+def test_a_rate_limited_download_is_retried(tmp_path: Path) -> None:
+    # 429 is temporary, as the connector counts it beside 5xx; only other 4xx refuse at once.
+    name = _PREFIX.strip("/") + "/figure.png"
+    bucket = _FakeBucket({name: _PNG})
+    limited: list[str] = []
+
+    def opener(url: str, timeout: float) -> Any:
+        if "/storage/v1/" not in url and not limited:
+            limited.append(url)
+            raise urllib.error.HTTPError(url, 429, "Too Many Requests", None, None)  # type: ignore[arg-type]
+        return bucket(url, timeout)
+
+    paths = fetch_question_files(_PREFIX, tmp_path, opener=opener)
+
+    assert len(limited) == 1
+    assert paths[0].read_bytes() == _PNG
 
 
 # ── rows the build refuses ──────────────────────────────────────────────────────────────────
