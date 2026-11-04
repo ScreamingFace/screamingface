@@ -11,7 +11,7 @@ import {
 const pull = `import screamingface as sf
 
 result = sf.cache.pull_from_remote()                      # every model
-result = sf.cache.pull_from_remote(["openrouter/anthropic/claude-opus-5.5"])  # one model`
+result = sf.cache.pull_from_remote(["openrouter/anthropic/claude-opus-4.8"])  # one model`
 
 const handle = `try:
     result = sf.cache.pull_from_remote()
@@ -19,11 +19,12 @@ except sf.cache.CachePullError as exc:
     print(exc.code, exc.result)             # how far the pull got
     result = sf.cache.pull_from_remote()    # same process: continues from the last page`
 
+const pullOut = `PullResult(rows_read=4631, rows_added=4631, pages=1, resumed=False, complete=True, rows_skipped=0)`
 const optOut = `model = sf.Model("openrouter/google/gemini-3.5-flash-lite")
 report = sf.evaluate(model, benchmark="medxpert", limit=2, use_cache=False)`
 
 const shell = `screamingface cache pull
-screamingface cache pull --model openrouter/anthropic/claude-opus-5.5
+screamingface cache pull --model openrouter/anthropic/claude-opus-4.8
 screamingface cache pull --url https://fusion.screamingface.ai --data-dir ~/.screamingface`
 </script>
 
@@ -97,7 +98,7 @@ screamingface cache pull --url https://fusion.screamingface.ai --data-dir ~/.scr
     <ul>
       <li>
         <strong><code>models</code>:</strong> A sequence of model names, exactly as the hosted cache
-        names them, for example <code>"openrouter/anthropic/claude-opus-5.5"</code>. A run can hit
+        names them, for example <code>"openrouter/anthropic/claude-opus-4.8"</code>. A run can hit
         only the rows of the models its candidates and judge use, so a filtered pull loses no hits.
         <code>None</code> pulls every model. A single string raises <code>TypeError</code>, and so
         does an empty or non-string name.
@@ -115,6 +116,13 @@ screamingface cache pull --url https://fusion.screamingface.ai --data-dir ~/.scr
     </ul>
 
     <CodeBlock :code="pull" language="python" />
+
+    <p>
+      One call for <code>openrouter/anthropic/claude-opus-4.8</code> returned the result below. The
+      counts depend on what the community cache holds when you run it.
+    </p>
+
+    <CodeBlock :code="pullOut" language="text" />
 
     <Note>
       The first page opens the engine's sign-in in a browser, unless this process is already signed

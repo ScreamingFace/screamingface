@@ -198,9 +198,9 @@ const doNotTrackOut = `Couldn't enable analytics; tracking remains off.
 
     <p>
       Analytics are off while <code>DO_NOT_TRACK</code> has any value other than an empty string,
-      <code>0</code>, <code>false</code>, <code>no</code> or <code>off</code>. The variable wins
-      over a saved opt-in: <code>status()['enabled']</code> is <code>False</code> and
-      <code>enable()</code> does not turn analytics on.
+      <code>0</code>, <code>false</code>, <code>no</code> or <code>off</code>, compared without
+      regard to case. The variable wins over a saved opt-in: <code>status()['enabled']</code> is
+      <code>False</code> and <code>enable()</code> does not turn analytics on.
     </p>
 
     <div class="not-prose">
