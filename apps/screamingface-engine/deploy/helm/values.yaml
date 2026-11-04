@@ -293,9 +293,10 @@ blobs:
       endpointUrl: ""
       bucket: screamingface-blobs
       region: garage
-      # Both may be left empty: the chart generates a stable pair (reused across upgrades via
-      # `lookup`) and the blob Garage adopts it on first boot — the same scheme as
-      # `artifactStorage.s3`. NEVER commit a real secret key to a values file.
+      # With the bundled blob Garage (`endpointUrl` empty) both may be left empty: the chart
+      # generates a stable pair (reused across upgrades via `lookup`) and the blob Garage adopts
+      # it on first boot. With an external `endpointUrl` the render FAILS unless both are set or
+      # `existingSecret` is (#1603 review). NEVER commit a real secret key to a values file.
       accessKey: ""
       secretKey: ""
       # Bring your own Secret. It must carry `URL4_CLOUD_BLOB_S3_ACCESS_KEY` and

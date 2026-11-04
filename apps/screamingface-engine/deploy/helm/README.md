@@ -458,8 +458,19 @@ not derived from the release name, and only the Garage pod receives it: the App 
 pool read the blob key pair by named `secretKeyRef`, not `envFrom`. With
 `blobs.storage.s3.existingSecret`, that Secret must carry `GARAGE_RPC_SECRET` as well.
 Set `blobs.storage.s3.endpointUrl` to use storage you already run; no blob Garage is rendered
-then. Use a bucket, ideally a volume or quota, distinct from the results store's, or the
-isolation is lost.
+then, and the render **fails** unless you also supply its credentials —
+`blobs.storage.s3.existingSecret` (recommended; it must carry `URL4_CLOUD_BLOB_S3_ACCESS_KEY` and
+`URL4_CLOUD_BLOB_S3_SECRET_KEY`) or both `accessKey` and `secretKey` — because a generated pair is
+adopted only by the bundled blob Garage. Use a bucket, ideally a volume or quota, distinct from
+the results store's, or the isolation is lost. Both the App and the runner pool carry a
+`checksum/blob-secret` pod annotation, so a chart-owned key rotation rolls both.
+
+**Concurrent first uploads.** The store's first metadata write is create-exclusive: an exclusive
+`link` on the filesystem, a PUT with `If-None-Match: *` on S3. Garage v2.3.0 ignores that
+condition (probed 2026-11-04: a second conditional PUT overwrote and answered 200), so on the
+bundled Garage two uploads of the same new file racing within milliseconds can both answer `201`;
+both hold the same verified bytes and the same record. A conforming S3 (AWS, MinIO) answers `412`
+to the loser, which then answers `200`.
 
 **Network policy.** The blob Garage's pods carry `app.kubernetes.io/component: garage-blobs`, not
 `garage` (a shared value would put them behind the results Garage's Service). A platform

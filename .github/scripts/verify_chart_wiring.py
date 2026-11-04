@@ -1019,6 +1019,9 @@ engine_s3_external = render(
     "garage.enabled=true",
     "--set",
     "blobs.storage.s3.endpointUrl=https://blobs.example",
+    # #1603 review round 2: an external endpoint needs the operator's credentials (below).
+    "--set",
+    "blobs.storage.s3.existingSecret=blob-credentials",
 )
 check(
     not [
@@ -1043,6 +1046,64 @@ check(
     )
     is not None,
     "an unknown blob backend is refused at render time",
+)
+# #1603 review round 2 (owner decision 2026-11-04): an external blob endpoint with no
+# credentials must fail render — a generated pair is adopted only by the bundled blob Garage.
+_EXTERNAL_BLOBS = (
+    *_ENGINE_ARGS,
+    "--set",
+    "artifactStorage.backend=s3",
+    "--set",
+    "garage.enabled=true",
+    "--set",
+    "blobs.storage.s3.endpointUrl=https://blobs.example",
+)
+check(
+    render_fails(ENGINE_CHART, ENGINE_RELEASE, *_EXTERNAL_BLOBS) is not None,
+    "an external blob endpoint with no credentials and no existingSecret is refused at render",
+)
+check(
+    render_fails(
+        ENGINE_CHART,
+        ENGINE_RELEASE,
+        *_EXTERNAL_BLOBS,
+        "--set",
+        "blobs.storage.s3.accessKey=GKexternal",
+    )
+    is not None,
+    "an external blob endpoint with only half a key pair is refused at render",
+)
+_external_with_pair = render(
+    ENGINE_CHART,
+    ENGINE_RELEASE,
+    *_EXTERNAL_BLOBS,
+    "--set",
+    "blobs.storage.s3.accessKey=GKexternal",
+    "--set",
+    "blobs.storage.s3.secretKey=external-secret",
+)
+check(
+    find_named(_external_with_pair, "Secret", _blob_secret)["stringData"][
+        "URL4_CLOUD_BLOB_S3_ACCESS_KEY"
+    ]
+    == "GKexternal",
+    "an external blob endpoint with a supplied key pair renders that pair, not a generated one",
+)
+# #1603 review round 2: the App reads the blob key pair too, so a rotation must roll it — the
+# same checksum the runner pool already carries.
+_pod_annotations = {
+    _name: find_named(engine_s3, "Deployment", _name)["spec"]["template"]["metadata"][
+        "annotations"
+    ]
+    for _name in (ENGINE_FULLNAME, f"{ENGINE_FULLNAME}-runner")
+}
+# WHY presence, not equality: offline (`helm template`, no `lookup`) each include generates a
+# fresh random pair, so the two hashes differ here even though both cover the same template.
+check(
+    all(
+        len(a.get("checksum/blob-secret", "")) == 64 for a in _pod_annotations.values()
+    ),
+    "the App and the runner pool both carry a checksum/blob-secret pod annotation",
 )
 
 print("\nreport-intake chart")
