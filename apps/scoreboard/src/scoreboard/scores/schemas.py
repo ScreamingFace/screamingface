@@ -27,6 +27,7 @@ from .credit_metadata import (
     author_identity,
     authors_metadata_problems,
     paper_metadata_problems,
+    validate_storable_json,
 )
 from .credit_metadata import (
     PAPER_URL_MAX_CHARS as _PAPER_URL_MAX_CHARS,
@@ -450,6 +451,7 @@ def _validate_bounded_authors(value: list[str] | None) -> list[str] | None:
     """
     if value is None:
         return value
+    validate_storable_json(value)
     if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
         raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
     encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
@@ -788,6 +790,12 @@ class ScoreSubmission(BaseModel):
                 f"run_cost_usd must be absent when run_cost_status is {self.run_cost_status!r}"
             )
         return self
+
+    @field_validator("metadata")
+    @classmethod
+    def _storable_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        validate_storable_json(value)
+        return value
 
     @field_validator("authors")
     @classmethod

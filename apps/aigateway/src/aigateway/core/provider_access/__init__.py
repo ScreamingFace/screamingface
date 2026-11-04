@@ -20,6 +20,12 @@ from .auth_mode import (
     credentialless_auth_mode,
     provider_name_of,
 )
+from .connection_authorize import (
+    apply_authorization,
+    invalidate_session,
+    oauth_connection_store,
+    reauth_url_for,
+)
 from .connection_backed import (
     ConnectionBackedProviderAccess,
     operational_access_for,
@@ -40,6 +46,7 @@ from .connection_native import (
     retire_replaced,
     take_over_effective,
 )
+from .effective_connection import effective_connection_ids, flagged_connections
 from .pair_admin import (
     CredentialState,
     PairConflict,
@@ -59,12 +66,6 @@ from .pair_authority import (
     PairAuthorityStore,
 )
 from .ports import ProviderAccess, ProviderOperationalAccess
-from .profile_authorize import (
-    apply_authorization,
-    invalidate_session,
-    oauth_connection_store,
-    reauth_url_for,
-)
 from .refresh_guard import ConnectionRefreshOwner, guard_refresh
 from .selector import DEFAULT_SELECTOR_NAME, Selector
 from .targets import context_stamp
@@ -147,8 +148,10 @@ __all__ = [
     "lock_lower_addressers",
     "credential_name_of",
     "effective_pair_of",
+    "effective_connection_ids",
     "effective_to_replace",
     "fences_writer",
+    "flagged_connections",
     "guard_refresh",
     "invalidate_session",
     "oauth_connection_store",

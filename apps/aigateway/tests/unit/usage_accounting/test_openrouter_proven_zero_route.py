@@ -92,7 +92,6 @@ async def test_prepared_web_search_reaches_finalizer_as_auxiliary_charge_risk(
         body=body,
         accounting=session,
         account_id="account",
-        profile_name="default",
         target=cast(Any, object()),
     )
 

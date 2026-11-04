@@ -56,9 +56,13 @@ async def test_consent_only_never_creates_id_or_emits():
 
 async def test_cookie_continuity_decline_and_reenable():
     async with browser(create_app(config(), Recorder())) as c:
-        identity = await accept(c)
+        consent = await c.post(
+            "/bridge/consent", json={"choice": "accepted", "consent_version": "1"}
+        )
+        assert consent.status_code == 200
         response = await c.post("/bridge/id", json={})
-        assert response.json()["persistent_id"] == identity
+        assert response.status_code == 200
+        identity = response.json()["persistent_id"]
         cookie = response.headers["set-cookie"]
         for attribute in (
             "Secure",
@@ -70,6 +74,11 @@ async def test_cookie_continuity_decline_and_reenable():
         ):
             assert attribute in cookie
         assert "Domain=" not in cookie
+        reread = await c.post("/bridge/id", json={})
+        assert reread.json()["persistent_id"] == identity
+        assert [header.split("=", 1)[0] for header in reread.headers.get_list("set-cookie")] == [
+            "__Secure-sf_bridge_consent"
+        ]
         response = await c.post(
             "/bridge/consent", json={"choice": "declined", "consent_version": "1"}
         )

@@ -81,6 +81,8 @@ class ColabBridge:
         self._changed = threading.Condition(self._lock)
         self._worker: threading.Thread | None = None
         self.pending = False
+        self._setup_generation: int | None = None
+        self._setup_waited = False
 
     def read(self) -> Consent:
         with self._lock:
@@ -105,11 +107,44 @@ class ColabBridge:
             if command == "state" and self.pending:
                 return
             self._generation += 1
+            if command == "setup":
+                self._setup_generation = self._generation
             self._state = Consent()
             self.pending = True
             self._drain()
             self._enqueue(command, None)
             self._changed.notify_all()
+
+    def setup_pending(self) -> bool:
+        with self._lock:
+            return (
+                self.pending
+                and not self._setup_waited
+                and self._setup_generation == self._generation
+            )
+
+    def wait_for_setup(self) -> None:
+        """The first evaluation waits at most two seconds, including queue delay."""
+        with self._changed:
+            generation = self._setup_generation
+            if self._setup_waited or generation != self._generation:
+                return
+            self._setup_waited = True
+            finished = self._changed.wait_for(
+                lambda: generation != self._generation or not self.pending, timeout=2
+            )
+            if not finished:
+                self.expire_setup()
+
+    def expire_setup(self) -> None:
+        with self._changed:
+            if self.pending and self._setup_generation == self._generation:
+                # INVARIANT: a late setup reply cannot enroll a timed-out kernel.
+                self._generation += 1
+                self._state = Consent()
+                self.pending = False
+                self._drain()
+                self._changed.notify_all()
 
     def accept(self) -> None:
         """Confirm explicit opt-in within three seconds, including queue delay."""
@@ -176,10 +211,6 @@ class ColabBridge:
                 if command != "events":
                     self.pending = False
                 self._changed.notify_all()
-            if command == "state" and state is not None and state.choice == "unknown":
-                from screamingface._analytics.prompt import NOTICE
-
-                print(NOTICE)
 
     def _allowed(self, generation: int, command: str, event: Event | None) -> bool:
         from screamingface import analytics
@@ -203,11 +234,28 @@ class ColabBridge:
         }.get(command, (command,))
         deadline = time.monotonic() + 2
         try:
-            result = self._steps(generation, steps, event, deadline)
+            result = (
+                self._setup(generation, deadline)
+                if command == "setup"
+                else self._steps(generation, steps, event, deadline)
+            )
             return self._parse(result) if command != "events" or result.get("unavailable") else None
         except Exception:
             # Optional browser infrastructure must never kill product execution.
             return Consent()
+
+    def _setup(self, generation: int, deadline: float) -> dict:
+        from screamingface._analytics.prompt import show_notice
+
+        result = self._steps(generation, ("state",), None, deadline)
+        if result.get("consent_version") != "1" or result.get("unavailable"):
+            return result
+        if result.get("choice") == "unknown" and self._allowed(generation, "enroll", None):
+            show_notice("colab")
+            result = self._steps(generation, ("enroll", "id"), None, deadline)
+        elif result.get("choice") == "accepted":
+            result = self._steps(generation, ("id",), None, deadline)
+        return result
 
     def _steps(self, generation: int, steps: tuple, event: Event | None, deadline: float) -> dict:
         result = {}

@@ -236,6 +236,7 @@ class Client:
         *,
         benchmark: str,
         limit: int | None = None,
+        cases: Sequence[int] | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
@@ -280,6 +281,7 @@ class Client:
         *,
         benchmark: str | None = None,
         limit: int | None = None,
+        cases: Sequence[int] | None = None,
         on_event: Callable[[Event], None] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
@@ -305,6 +307,11 @@ class Client:
         `use_cache` is on by default: every model call may be answered from the request cache.
         `use_cache=False` opts this evaluation out (the calls are made fresh, and the report shows
         them as cache `bypass` / `opted_out`).
+
+        `cases=[3, 17, 42]` runs only those Case ids (a Case's position in the Benchmark, 1 to N)
+        instead of `limit=`'s first N, e.g. a development or held-out set. The Report names them in
+        `selected_cases` and `selection_fingerprint`; such a run can't be submitted to the
+        leaderboard. At most 1,000 ids.
         """
 
         from screamingface._evaluation.runner import evaluate_sync
@@ -316,6 +323,7 @@ class Client:
                 candidates=candidates,
                 benchmark=benchmark,
                 limit=limit,
+                cases=cases,
                 capture=capture,
                 pinned_cache=pinned_cache,
                 score_id=score_id,
@@ -332,7 +340,7 @@ class Client:
         selected_seed = _answer_seed_value(answer_seed)
         _use_cache_value(use_cache)
         if isinstance(candidates, str):
-            _raw_url4_options(benchmark, limit)
+            _raw_url4_options(benchmark, limit, cases)
             return evaluate_url4_sync(
                 self._transport,
                 candidates,
@@ -359,6 +367,7 @@ class Client:
             capture=capture,
             use_cache=use_cache,
             load_operators=self._operator_catalog.load,
+            cases=cases,
         )
 
     def _evaluate_replay(
@@ -368,6 +377,7 @@ class Client:
         benchmark: str | None,
         limit: int | None,
         capture: bool | None,
+        cases: object = None,
         pinned_cache: str | None,
         score_id: UUID | str | None,
         url4: str | None,
@@ -379,7 +389,7 @@ class Client:
         from screamingface._replay import replay_sync
 
         self._require_open()
-        _replay_options(candidates, benchmark, capture)
+        _replay_options(candidates, benchmark, capture, cases)
         return replay_sync(
             self,
             pinned_cache=pinned_cache,
@@ -747,6 +757,7 @@ class AsyncClient:
         *,
         benchmark: str,
         limit: int | None = None,
+        cases: Sequence[int] | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
@@ -791,6 +802,7 @@ class AsyncClient:
         *,
         benchmark: str | None = None,
         limit: int | None = None,
+        cases: Sequence[int] | None = None,
         on_event: Callable[[Event], None | Awaitable[None]] | None = None,
         progress: bool | None = None,
         answer_seed: int | None = None,
@@ -811,6 +823,11 @@ class AsyncClient:
         `use_cache` is on by default: every model call may be answered from the request cache.
         `use_cache=False` opts this evaluation out (the calls are made fresh, and the report shows
         them as cache `bypass` / `opted_out`).
+
+        `cases=[3, 17, 42]` runs only those Case ids (a Case's position in the Benchmark, 1 to N)
+        instead of `limit=`'s first N, e.g. a development or held-out set. The Report names them in
+        `selected_cases` and `selection_fingerprint`; such a run can't be submitted to the
+        leaderboard. At most 1,000 ids.
         """
 
         from screamingface._evaluation.runner import evaluate_async
@@ -822,6 +839,7 @@ class AsyncClient:
                 candidates=candidates,
                 benchmark=benchmark,
                 limit=limit,
+                cases=cases,
                 capture=capture,
                 pinned_cache=pinned_cache,
                 score_id=score_id,
@@ -837,7 +855,7 @@ class AsyncClient:
         selected_seed = _answer_seed_value(answer_seed)
         _use_cache_value(use_cache)
         if isinstance(candidates, str):
-            _raw_url4_options(benchmark, limit)
+            _raw_url4_options(benchmark, limit, cases)
             return await evaluate_url4_async(
                 self._transport,
                 candidates,
@@ -864,6 +882,7 @@ class AsyncClient:
             capture=capture,
             use_cache=use_cache,
             load_operators=self._operator_catalog.load,
+            cases=cases,
         )
 
     async def _evaluate_replay(
@@ -873,6 +892,7 @@ class AsyncClient:
         benchmark: str | None,
         limit: int | None,
         capture: bool | None,
+        cases: object = None,
         pinned_cache: str | None,
         score_id: UUID | str | None,
         url4: str | None,
@@ -884,7 +904,7 @@ class AsyncClient:
         from screamingface._replay import replay_async
 
         self._require_open()
-        _replay_options(candidates, benchmark, capture)
+        _replay_options(candidates, benchmark, capture, cases)
         return await replay_async(
             self,
             pinned_cache=pinned_cache,
@@ -991,9 +1011,15 @@ def _use_cache_value(use_cache: object) -> None:
         raise TypeError("use_cache must be True or False")
 
 
-def _replay_options(candidates: object, benchmark: str | None, capture: bool | None) -> None:
+def _replay_options(
+    candidates: object, benchmark: str | None, capture: bool | None, cases: object = None
+) -> None:
     """A replay is one complete published run (spec §1): nothing else selects what runs."""
 
+    # WHY refused, not ignored (OME-1739): a replay runs the published Case set or its first N
+    # (`limit=`); silently replaying other Cases than the list named would be a wrong answer.
+    if cases is not None:
+        raise TypeError("cases= is not supported when replaying; replay the run, or use limit=")
     if candidates is not None:
         raise TypeError("candidates must not be passed with pinned_cache= or score_id=")
     if benchmark is not None:
@@ -1015,11 +1041,13 @@ def _evaluation_candidates(
     return candidates
 
 
-def _raw_url4_options(benchmark: str | None, limit: int | None) -> None:
+def _raw_url4_options(benchmark: str | None, limit: int | None, cases: object = None) -> None:
     if benchmark is not None:
         raise TypeError("benchmark must not be passed when evaluating a complete URL4")
     if limit is not None:
         raise TypeError("limit must not be passed when evaluating a complete URL4")
+    if cases is not None:
+        raise TypeError("cases must not be passed when evaluating a complete URL4")
 
 
 def _engine_access_discovery_error(origin: str) -> BaseException:

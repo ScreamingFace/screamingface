@@ -91,7 +91,7 @@ def _http_factory(transport: httpx.MockTransport):
 
 def _oauth(store: _FakeStore, transport: httpx.MockTransport | None = None) -> AntigravityOAuth:
     return AntigravityOAuth(
-        profile_name="default",
+        credential_name="default",
         client_secret=_TEST_SECRET,
         credential_store=store,
         http_client_factory=_http_factory(transport) if transport is not None else None,
@@ -116,7 +116,7 @@ async def test_refresh_uses_overridden_client_id_and_token_url() -> None:
         )
 
     strategy = AntigravityOAuth(
-        profile_name="default",
+        credential_name="default",
         client_secret=_TEST_SECRET,
         client_id="override-client-id",
         token_url="https://override.example/token",
@@ -180,7 +180,7 @@ async def test_missing_credential_raises() -> None:
 @pytest.mark.asyncio
 async def test_fresh_credential_yields_headers() -> None:
     strategy = AntigravityOAuth(
-        profile_name="acct:default",
+        credential_name="acct:default",
         client_secret=_TEST_SECRET,
         credential_store=_FakeStore(payload=json.dumps(_creds())),
     )
@@ -254,7 +254,7 @@ async def test_refresh_without_secret_raises_actionable_error() -> None:
     """Defensive guard: empty client secret still fails before token POST."""
     expired = _creds(expires_at_ms=int((time.time() - 60) * 1000))
     strategy = AntigravityOAuth(
-        profile_name="default",
+        credential_name="default",
         client_secret="",
         credential_store=_FakeStore(payload=json.dumps(expired)),
     )

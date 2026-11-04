@@ -27,6 +27,9 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+# INVARIANT: diagnostic runs must not count as SDK adoption.
+os.environ["DO_NOT_TRACK"] = "1"
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLIENT = REPO_ROOT / "packages" / "screamingface"
 

@@ -96,6 +96,11 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "mathvista": "mcq",
     # OME-1477 PR 2: MMMU's open-answer task, graded by inspect's model_graded_fact judge.
     "mmmu_open": "judged",
+    # OME-1478: HLE, graded by inspect_evals' own regex_judge with the grader role bound.
+    "hle": "judged",
+    # OME-1733: LABBench2 FigQA2 and TableQA2 image, graded by the authors' exact-match judge.
+    "labbench2_figqa2_img": "judged",
+    "labbench2_tableqa2_img": "judged",
     "frontierscience": "judged",
     # OME-1269: the first question-filter benchmark — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no draft-feedback offer.
