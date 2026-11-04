@@ -7,7 +7,7 @@ priority: high
 labels: [url4-engine, agentic, autonomous]
 parent: OME-1529
 created: 2026-10-09
-closed:
+closed: 2026-11-04
 ---
 
 # Fetch url4 sources as bytes with their media type
