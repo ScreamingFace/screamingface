@@ -36,6 +36,8 @@ from screamingface_engine.runs.records import (
 )
 from screamingface_engine.runs.registry import (
     CandidateAlreadyStarted,
+    ClientKeyConflict,
+    InvalidCursor,
     RunCanceled,
     RunNotFound,
     RunRegistry,
@@ -48,6 +50,8 @@ _logger = logging.getLogger(__name__)
 RUN_NOT_FOUND = "run_not_found"
 RUN_CANCELED = "run_canceled"
 CANDIDATE_ALREADY_STARTED = "candidate_already_started"
+CLIENT_KEY_CONFLICT = "client_key_conflict"
+INVALID_CURSOR = "invalid_cursor"
 RUN_HEADER = "X-SF-Run"
 CANDIDATE_HEADER = "X-SF-Run-Candidate"
 # The verified identity that owns a hosted Run (spec D6). Local mode is single-user.
@@ -196,7 +200,8 @@ async def _stop(request: Request, topic: str) -> None:
 
 @router.post("", status_code=201, summary="Register a Run")
 async def create_run(request: Request, response: Response, body: RunCreate) -> RunBody:
-    """201 with the new Run, or 200 with the caller's Run of the same `client_key`."""
+    """201 with the new Run, or 200 with the caller's Run of the same `client_key`; 409
+    `client_key_conflict` when that Run names another evaluation."""
     registry = _registry(request)
     owner = _owner(request)
     try:
@@ -209,7 +214,12 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
         )
     except ValueError as exc:
         raise _invalid(exc) from exc
-    record, created = await registry.register(owner, spec)
+    try:
+        record, created = await registry.register(owner, spec)
+    except ClientKeyConflict as exc:
+        raise ProblemException(
+            status=409, title="Conflict", detail=str(exc), code=CLIENT_KEY_CONFLICT
+        ) from exc
     if not created:
         response.status_code = 200
     return RunBody.of(record)
@@ -229,7 +239,15 @@ async def list_runs(
         query = RunQuery(state=state, since=since, limit=limit, cursor=cursor)
     except ValueError as exc:
         raise _invalid(exc) from exc
-    page = await registry.list(owner, query)
+    try:
+        page = await registry.list(owner, query)
+    except InvalidCursor as exc:
+        raise ProblemException(
+            status=422,
+            title="Unprocessable Content",
+            detail=f"the cursor {exc} names no run of yours",
+            code=INVALID_CURSOR,
+        ) from exc
     return RunList(runs=[RunBody.of(r) for r in page.runs], next_cursor=page.next_cursor)
 
 
