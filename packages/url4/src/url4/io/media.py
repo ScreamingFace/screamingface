@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.url_display import display_url
+from url4.io._source_policy import too_large
 from url4.io.layer import FetchRequest, IOLayer, fetch_result
 
 
@@ -51,7 +53,20 @@ async def fetch_bytes(io: IOLayer, request: FetchRequest) -> FetchedBytes:
     if isinstance(io, SupportsFetchBytes):
         return await io.fetch_bytes(request)
     result = await fetch_result(io, request)
-    return FetchedBytes(result.body.encode("utf-8"), result.media_type)
+    return FetchedBytes(read_whole(request, result.body.encode("utf-8")), result.media_type)
+
+
+def read_whole(request: FetchRequest, body: bytes) -> bytes:
+    """``body``, checked against ``request``'s byte hook by an adapter that does not stream.
+
+    WHY ``on_chunk`` first: the caller's own refusal (a run's shared budget) outranks this
+    request's ``x.source_too_large``, exactly as on the streaming path.
+    """
+    if request.on_chunk is not None:
+        request.on_chunk(len(body))
+    if request.max_bytes is not None and len(body) > request.max_bytes:
+        raise too_large(request.max_bytes)
+    return body
 
 
 # Application types whose body is text even without a charset parameter.
@@ -271,7 +286,7 @@ def bare_media_type(target: str, content_type: str | None) -> str | None:
     parsed = _parse(content_type)
     if parsed is None:
         raise ResolutionError(
-            f"{target!r} has Content-Type {_shown(content_type)}, "
+            f"{display_url(target)!r} has Content-Type {_shown(content_type)}, "
             "which is not one valid media type",
             code=ErrorCode.UNSUPPORTED_CONTENT_TYPE,
             permanent=True,
@@ -288,7 +303,8 @@ def require_text(target: str, content_type: str | None) -> None:
     """
     if not is_text_media_type(content_type):
         raise ResolutionError(
-            f"{target!r} is {_shown(content_type)}, which is not text; fetch it as bytes",
+            f"{display_url(target)!r} is {_shown(content_type)}, "
+            "which is not text; fetch it as bytes",
             code=ErrorCode.UNSUPPORTED_CONTENT_TYPE,
             permanent=True,
         )
@@ -300,5 +316,6 @@ __all__ = [
     "bare_media_type",
     "fetch_bytes",
     "is_text_media_type",
+    "read_whole",
     "require_text",
 ]
