@@ -1,13 +1,13 @@
 ---
 id: OME-1797
 linear_url: https://linear.app/openmined/issue/OME-1797/add-the-run-types-state-rule-and-the-database-writes-layering-rule-e5
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1785
 created: 2026-10-30
-closed:
+closed: 2026-11-04
 ---
 
 # Add the Run types, state rule and the database-writes layering rule (E5 P1 · E1)
