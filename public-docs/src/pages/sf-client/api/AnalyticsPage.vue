@@ -3,7 +3,6 @@ import DocLayout from '@/components/layout/DocLayout.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
-import Note from '@/components/ui/Note.vue'
 import {
   sfClientReferenceNavigation as navigation,
   sfClientVersion as version,
@@ -12,16 +11,17 @@ import {
 const statusCode = `import screamingface as sf
 
 sf.analytics.status()`
-const statusOut = `{'choice': 'unknown', 'enabled': False, 'scope': 'installation', 'installation_id': None}`
+const statusOut = `{'choice': 'accepted', 'enabled': True, 'scope': 'installation',
+ 'installation_id': 'cfcae993-e908-4513-8e01-7d1f3822031c'}`
 
 const enableCode = `sf.analytics.enable()
 sf.analytics.status()`
 const enableOut = `Analytics enabled.
 {'choice': 'accepted', 'enabled': True, 'scope': 'installation',
- 'installation_id': 'ddc5b9cd-1be2-4bfe-92c7-406e6188823d'}`
+ 'installation_id': 'cfcae993-e908-4513-8e01-7d1f3822031c'}`
 
 const resetCode = `sf.analytics.reset_identifier()['installation_id']`
-const resetOut = `'0e71bc42-0e66-406d-9689-ed76e309524f'`
+const resetOut = `'d0115a23-dae9-4614-aeee-d82614ed3fdb'`
 
 const disableCode = `sf.analytics.disable()
 sf.analytics.status()`
@@ -40,8 +40,10 @@ const shell = `screamingface analytics status
 screamingface analytics enable
 screamingface analytics reset-id
 screamingface analytics disable`
-const shellOut = `{"choice": "accepted", "enabled": true, "scope": "installation", "installation_id": "16e3dd46-093e-4070-b583-6533f73c4267"}`
+const shellOut = `{"choice": "accepted", "enabled": true, "scope": "installation", "installation_id": "88d3a1ad-4122-43f3-a3b2-aa9947e43120"}`
 
+const notice = `ScreamingFace collects anonymous usage analytics (API usage, SDK versioning, and your local-or-hosted engine preference) to help us build a better API. It does not store any fusion, prompts, outputs, scores, or keys. It's on by default; turn it off anytime with \`sf.analytics.disable()\` (or set \`DO_NOT_TRACK=1\`).`
+const savedFile = `{"version": 1, "consent_version": "1", "choice": "accepted", "installation_id": "74a24bce-39a4-490a-926a-a5baab1e75aa"}`
 const doNotTrack = `DO_NOT_TRACK=1 python -c "import screamingface as sf; sf.analytics.enable(); print(sf.analytics.status())"`
 const doNotTrackOut = `Couldn't enable analytics; tracking remains off.
 {'choice': 'unknown', 'enabled': False, 'scope': 'installation', 'installation_id': None}`
@@ -55,26 +57,22 @@ const doNotTrackOut = `Couldn't enable analytics; tracking remains off.
     :version="version"
   >
     <p>
-      <code>sf.analytics</code> controls the Client's optional analytics. Analytics are off until
-      you opt in. No account identity or login is involved: events carry a random installation ID
-      and a random session ID. The setup notice lists what an event holds: the start and outcome of
-      an evaluation or a submission, coarse timing, the SDK version, and whether the run was local
-      or hosted. It states that no prompt, response, score, credential or email is sent.
+      <code>sf.analytics</code> controls the Client's analytics. Analytics are on by default. No
+      account identity or login is involved: events carry a random installation ID. Per the notice,
+      the Client collects API usage, the SDK version and whether you chose a local or a hosted
+      engine, and it stores no fusion, prompt, output, score or key.
     </p>
 
-    <Note>
-      Opting out or resetting the identifier does not delete past events. The events follow the
-      retention of the analytics provider, and no fixed deletion deadline is promised.
-    </Note>
-
-    <h2>The setup notice</h2>
+    <h2>The first import</h2>
 
     <p>
-      When the choice is <code>unknown</code>, the Client prints a one-time notice in an interactive
-      terminal or a Jupyter notebook. The notice names <code>sf.analytics.enable()</code> and
-      <code>sf.analytics.disable()</code>. It never waits for input. A process that continues
-      without choosing leaves analytics off, and the notice does not record a choice.
+      On the first <code>import screamingface</code> with no saved choice, the Client prints this
+      notice to standard error, saves the choice <code>accepted</code> with a random installation
+      ID, and prints nothing on later imports. The notice never waits for input. When
+      <code>DO_NOT_TRACK</code> is set, the first import prints no notice and saves nothing.
     </p>
+
+    <CodeBlock :code="notice" language="text" />
 
     <h2>Functions</h2>
 
@@ -88,10 +86,7 @@ const doNotTrackOut = `Couldn't enable analytics; tracking remains off.
       <tbody>
         <tr>
           <td><code>sf.analytics.status()</code></td>
-          <td>
-            Returns a <code>dict</code> with the saved choice and the effective state. It creates no
-            file and no identifier.
-          </td>
+          <td>Returns a <code>dict</code> with the saved choice and the effective state.</td>
         </tr>
         <tr>
           <td><code>sf.analytics.enable(*, persist=True)</code></td>
@@ -132,7 +127,8 @@ const doNotTrackOut = `Couldn't enable analytics; tracking remains off.
         <tr>
           <td><code>choice</code></td>
           <td>
-            <code>'unknown'</code> before a choice, <code>'accepted'</code> or
+            <code>'unknown'</code> when no choice is saved (<code>DO_NOT_TRACK</code> was set at the
+            first import, or the file is unreadable or invalid), <code>'accepted'</code> or
             <code>'declined'</code>. An opt-in with <code>persist=False</code> reads
             <code>'accepted'</code>.
           </td>
@@ -176,8 +172,12 @@ const doNotTrackOut = `Couldn't enable analytics; tracking remains off.
       A saved choice lives in <code>~/.screamingface/analytics.json</code>, independent of the
       runtime data directory. <code>SCREAMINGFACE_ANALYTICS_CONFIG</code> names another path. The
       file is replaced atomically, so a reader sees the old or the new document, never a partial
-      write. A missing, unreadable or invalid file reads as <code>unknown</code>.
+      write. A missing file is a new install: the first import saves <code>accepted</code>, unless
+      <code>DO_NOT_TRACK</code> is set. An unreadable or invalid file reads as
+      <code>unknown</code> and analytics stay off. The file holds these keys:
     </p>
+
+    <CodeBlock :code="savedFile" language="json" />
 
     <h2>screamingface analytics</h2>
 
@@ -200,7 +200,9 @@ const doNotTrackOut = `Couldn't enable analytics; tracking remains off.
       Analytics are off while <code>DO_NOT_TRACK</code> has any value other than an empty string,
       <code>0</code>, <code>false</code>, <code>no</code> or <code>off</code>, compared without
       regard to case. The variable wins over a saved opt-in: <code>status()['enabled']</code> is
-      <code>False</code> and <code>enable()</code> does not turn analytics on.
+      <code>False</code> while the saved choice stays <code>accepted</code>, and
+      <code>enable()</code> does not turn analytics on. The sample below ran on a machine with no
+      saved choice.
     </p>
 
     <div class="not-prose">
@@ -210,6 +212,11 @@ const doNotTrackOut = `Couldn't enable analytics; tracking remains off.
     </div>
 
     <h2>Colab</h2>
+
+    <p>
+      This section was read from the source and not run on 0.1.10, because it needs a Colab
+      notebook.
+    </p>
 
     <p>
       In Google Colab the choice lives in the browser, not on disk. The Client reads and writes it

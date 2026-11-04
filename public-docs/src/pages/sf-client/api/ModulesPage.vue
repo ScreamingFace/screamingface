@@ -267,10 +267,11 @@ if reproduction is not None:
     <h2>sf.analytics</h2>
 
     <p>
-      Reads and sets the opt-in analytics choice. It exposes <code>status()</code>,
-      <code>enable()</code>, <code>disable()</code> and <code>reset_identifier()</code>. The command
-      line form is <code>screamingface analytics</code>, and <code>DO_NOT_TRACK</code> turns
-      analytics off. See <RouterLink to="/sf-client/api/analytics">Analytics</RouterLink>.
+      Reads and sets the analytics choice. Analytics are on by default. It exposes
+      <code>status()</code>, <code>enable()</code>, <code>disable()</code> and
+      <code>reset_identifier()</code>. The command line form is
+      <code>screamingface analytics</code>, and <code>DO_NOT_TRACK</code> turns analytics off. See
+      <RouterLink to="/sf-client/api/analytics">Analytics</RouterLink>.
     </p>
 
     <h2>Top-level functions</h2>

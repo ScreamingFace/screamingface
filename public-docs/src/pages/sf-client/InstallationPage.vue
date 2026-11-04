@@ -63,10 +63,10 @@ const tavily = `export TAVILY_API_KEY="tvly-..."
 screamingface up`
 
 const analytics = `$ screamingface analytics status
-{"choice": "unknown", "enabled": false, "scope": "installation", "installation_id": null}`
+{"choice": "accepted", "enabled": true, "scope": "installation", "installation_id": "e368e2f6-68a0-4824-9c92-79388a95398f"}`
 
 const analyticsPython = `sf.analytics.status()
-# {'choice': 'unknown', 'enabled': False, 'scope': 'installation', 'installation_id': None}`
+# {'choice': 'accepted', 'enabled': True, 'scope': 'installation', 'installation_id': 'cfcae993-e908-4513-8e01-7d1f3822031c'}`
 
 const cachePull = `$ screamingface cache pull --model openrouter/anthropic/claude-opus-4.8`
 
@@ -306,11 +306,14 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
     <Collapsible title="Does the Client send analytics?">
       <p>
-        Analytics are off until you opt in. <code>screamingface analytics status</code> and
+        Analytics are on by default. The first <code>import screamingface</code> prints a notice and
+        saves the choice <code>accepted</code>. <code>screamingface analytics status</code> and
         <code>sf.analytics.status()</code> report the choice; <code>enable</code>,
-        <code>disable</code> and <code>reset_identifier</code> change it. A non-empty
+        <code>disable</code> and <code>reset_identifier</code> change it, and
+        <code>sf.analytics.disable()</code> turns analytics off. A non-empty
         <code>DO_NOT_TRACK</code> value other than <code>0</code>, <code>false</code>,
-        <code>no</code> or <code>off</code> disables analytics for the process.
+        <code>no</code> or <code>off</code> disables analytics for the process, and the first import
+        then prints no notice and saves nothing.
       </p>
       <CodeBlock :code="analytics" language="bash" />
       <CodeBlock :code="analyticsPython" language="python" />
