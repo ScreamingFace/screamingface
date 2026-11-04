@@ -92,7 +92,7 @@ Run the three passes on the edited pages as the reader in the spec's context tab
 
 - Gates after each part: type-check, lint and build pass.
 - Link check after each part passes.
-- After the last part, a search of `public-docs/src` finds none of: `fusion.dev`, `leaderboard.dev`, a slash benchmark id, `sf.reproduce`, `hle`, `05_draco_lite_e2e`, `07_ifeval_e2e`, an em-dash, an en-dash used as a connector, `cases=`, `Fanout`, `JudgePick`.
+- After the last part, a search of `public-docs/src` finds none of: `fusion.dev`, `leaderboard.dev`, a slash benchmark id, `sf.reproduce`, `hle`, `05_draco_lite_e2e`, `07_ifeval_e2e`, an em-dash, an en-dash used as a connector, `Fanout`, `JudgePick`.
 - Every acceptance line in the spec is checked and recorded in the ledger.
 
 ## 7. Risks

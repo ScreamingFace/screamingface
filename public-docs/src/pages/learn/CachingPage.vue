@@ -8,7 +8,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 <template>
   <DocLayout
     title="Caching and compute"
-    description="Why runs, and especially reruns, stay cheap: call-level caching, a shared community cache, and where the compute comes from."
+    description="What a run bills: call-level caching, a shared community cache, and where the compute comes from."
     :navigation="navigation"
   >
     <p>
@@ -65,8 +65,9 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       The shared cache belongs to the hosted engine. A local engine has its own cache, on by
-      default, which makes your reruns cheap but starts empty and stays yours. Running everything
-      yourself means giving up the community's hits unless you pull them, as the next section shows.
+      default, which bills a rerun only for the calls not made before, but starts empty and stays
+      yours. Running everything yourself means giving up the community's hits unless you pull them,
+      as the next section shows.
     </p>
 
     <h3>Pull the community cache into a local engine</h3>
