@@ -3,7 +3,7 @@ ticket: unfiled
 stack: scoreboard
 status: done
 started: 2026-11-03
-finished: 2026-11-03
+finished: 2026-11-04
 ---
 
 # Benchmark catalog performance measurements
@@ -20,7 +20,7 @@ Saved the public catalog and top=1 responses: 87 registered benchmarks, 86 liste
 21 top score rows. Seeded a disposable local PostgreSQL 15 database with those public
 rows and baselines. Both homepage versions used this SAME database and local API.
 Old HTML/main.js came from base commit ffdc7e93f; the new version includes the final
-bulk privacy recheck. No application or response caching, no production writes.
+bulk privacy recheck and corrupt-candidate validation (remeasured 2026-11-04). No application or response caching, no production writes.
 
 Browser comparisons: 5 runs per variant/profile. Metric is first API request start
 to first usable cards, not navigation or page-load event. The old version waits for
@@ -34,13 +34,13 @@ Every load made 87 API requests. Local browser results:
 
 | Profile | Old median (range), ms | Summary median (range), ms |
 | --- | ---: | ---: |
-| Actual local PostgreSQL + loopback | 126 (123–165) | 11 (9–32) |
-| Same app, 150 ms added per API request | 425 (419–454) | 162 (159–166) |
-| Recorded-response delay model | 1825 (1825–1831) | 307 (301–310) |
+| Actual local PostgreSQL + loopback | 126 (123–188) | 11 (8–19) |
+| Same app, 150 ms added per API request | 439 (432–449) | 162 (159–169) |
+| Recorded-response delay model | 1827 (1821–1833) | 307 (303–311) |
 
 API requests: 87 → 1. Decoded local API body bytes: 452717 → 78453 (about 83% less).
 These are decoded bytes; do not compare directly with production's compressed sizes.
-Backend reads: two fixed queries (grouped scores + final bulk visibility check),
+Backend reads: two fixed queries (ranked top candidates + final bulk visibility check),
 independent of the number of benchmarks. No database migration or cache.
 
 The recorded-response model pads old requests to observed per-endpoint durations.
@@ -58,10 +58,12 @@ against all detailed top=1 responses on every repetition. Restored the original
 
 | Total score rows | Summary median response, ms |
 | ---: | ---: |
-| 21 public top rows | 4.75 |
-| 2100 (synthetic depth) | 5.30 |
-| 21000 (synthetic depth) | 27.17 |
+| 21 public top rows | 5.24 |
+| 2100 (synthetic depth) | 6.78 |
+| 21000 (synthetic depth) | 32.26 |
 
+The 21-row server run overlapped the final local test gate; larger datasets and
+browser comparisons ran without that overlap. These are rough local estimates.
 These include local HTTP overhead and warm database buffers. Unknown: production
 history depth/distribution, concurrent traffic, database hardware, pool pressure,
 network topology and query plans. No claim of production-wide latency or p95.

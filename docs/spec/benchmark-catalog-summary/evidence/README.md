@@ -24,3 +24,9 @@ load tests. Read docs/work/2026-11-03-benchmark-catalog-performance.md for assum
 
 The committed live.json.gz is the original public response snapshot. Capture replaces it
 with a fresh one; skip capture to reproduce against the recorded snapshot.
+
+The comparison reads baseline HTML and JavaScript from Git commit
+`ffdc7e93f8f17e7622db0148c51982eca1e6a720`; that commit must exist locally
+(use a full clone). No duplicate baseline source files are maintained. The small
+public fixture and screenshots stay versioned for reproducibility; PR links use
+commit hashes so deleting the branch does not break the evidence.

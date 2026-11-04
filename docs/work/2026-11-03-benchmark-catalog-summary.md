@@ -38,21 +38,54 @@ catalog. Baseline reproducible locally, measurements distinguished from projecti
 
 ## Outcome
 
-- Implemented compact /v1/benchmarks/summary with grouped score aggregation and a
+- Implemented compact /v1/benchmarks/summary with a bulk ranked-candidate projection and a
   final bulk visibility check. Constant two queries, no caches or migrations.
 - Implemented alphabetical catalog, default Has scores filter, complete-catalog
   search, include/clear actions, accessible counts and nine-card batches.
-- New tests: 16 SQLite/PostgreSQL cases (including a private flip during the read)
-  and four DOM-controller tests. Existing tests unchanged.
-- Gates: scoreboard and repo ALL GATES GREEN. Full Python suite: 1782 passed,
-  64 skipped, 3 deselected; coverage 91.86%. All registered portal tests passed.
+- API tests: 32 passed across SQLite/PostgreSQL, two PostgreSQL cases skipped
+  because its column types reject the corrupt fixture values. Four DOM-controller
+  tests pass. Existing tests unchanged; new cases are append-only.
+- Gates: scoreboard and repo ALL GATES GREEN after the review fixes, including
+  full Python coverage gate, lint, type checking and all registered portal tests.
 - Browser: desktop/mobile, dark mode, filter/query/paging/navigation URL and 503
   state checked; no page errors or mobile overflow. One UI API request throughout.
 - Performance: docs/work/2026-11-03-benchmark-catalog-performance.md and its
-  versioned evidence. Local 150 ms/request comparison: median 425 ms → 162 ms.
+  versioned evidence. Local 150 ms/request comparison: median 439 ms → 162 ms.
   Production observed 1.8–2.3 s; trace replay reproduces roughly 1.8 s but is NOT
-  a deployment forecast. Synthetic 21000-row summary median 27 ms.
+  a deployment forecast. Synthetic 21000-row summary median 32 ms.
 - Deviations: an initial one-statement design was expanded to two fixed queries
   to preserve the repository's final visibility recheck. No existing guard was
   weakened. PostgreSQL 15 local; PostgreSQL 17 covered by the CI job.
 - Review/merge pending. No deployment. Commits: see git history for this ledger.
+
+## Review follow-up — 2026-11-04
+
+Owner requested validation and fixes for corrupt-row isolation and card/board parity.
+Plan: reproduce independent corrupt provider/score cases on SQLite and PostgreSQL;
+add append-only regressions; preserve two fixed reads by selecting one ranked candidate
+per benchmark in bulk and applying the existing row decoder; serve unknown for an
+unreadable/non-finite candidate. Re-run parity, privacy, gates and local performance.
+Keep option C. Pin PR evidence links to commits and replace copied baseline source
+with retrieval from its recorded base commit; retain the reproducible public snapshot.
+
+
+Result: independent SQLite corruption reproduced the catalog 500 for a text score
+and the card/board mismatch for malformed providers. The report's isolated text-score
+board-200 claim did not reproduce: that legacy board also fails unless the row is
+already dropped for another corrupt field. PostgreSQL NaN/Infinity did not cause a
+500 in this app version (serialization returned null), but finite validation now
+handles them explicitly before response construction. PostgreSQL provider JSON
+with the wrong shape is also isolated by the summary.
+
+The fix uses the same provider field decoder as ranking, plus finite-score and
+provider-shape validation. Window selection preserves newest-per-spec and
+first-claim-between-specs ties. A bad selected candidate logs a warning and returns
+null without promoting a lower row; optional corrupt cost/authors fields do not
+hide the score. Regression tests cover these cases on fresh fixtures. The scope
+and private-flip tests, two-query assertions, full gates and browser smoke pass.
+
+Removed the copied baseline HTML/JavaScript; the harness now reads the immutable
+base commit. Kept the small public snapshot and screenshots as reproducible review
+evidence, rather than moving them to unversioned attachments. PR links are pinned
+to a commit. Alphabetical/default-scored option C remains the approved behavior.
+Performance was remeasured and the report/evidence updated; no cache was introduced.

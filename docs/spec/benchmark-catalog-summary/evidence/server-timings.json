@@ -3,165 +3,165 @@
     "scores": 21,
     "samples": [
       {
-        "oldMs": 155.61,
-        "summaryMs": 5.87
+        "oldMs": 151.67,
+        "summaryMs": 5.77
       },
       {
-        "oldMs": 680.55,
-        "summaryMs": 4.41
+        "oldMs": 662.01,
+        "summaryMs": 5.24
       },
       {
-        "oldMs": 667.04,
-        "summaryMs": 5.21
+        "oldMs": 675.1,
+        "summaryMs": 5.34
       },
       {
-        "oldMs": 690.75,
-        "summaryMs": 4.66
+        "oldMs": 677.24,
+        "summaryMs": 5.45
       },
       {
-        "oldMs": 658.51,
-        "summaryMs": 4.81
+        "oldMs": 680.99,
+        "summaryMs": 5.31
       },
       {
-        "oldMs": 695.07,
-        "summaryMs": 5.46
+        "oldMs": 750.07,
+        "summaryMs": 5.23
       },
       {
-        "oldMs": 737.02,
-        "summaryMs": 7.45
+        "oldMs": 670.93,
+        "summaryMs": 5.09
       },
       {
-        "oldMs": 707.25,
-        "summaryMs": 4.7
+        "oldMs": 632.73,
+        "summaryMs": 5.42
       },
       {
-        "oldMs": 228.26,
-        "summaryMs": 5.66
+        "oldMs": 279.13,
+        "summaryMs": 4.11
       },
       {
-        "oldMs": 611.33,
-        "summaryMs": 4.19
+        "oldMs": 484.01,
+        "summaryMs": 3.71
       },
       {
-        "oldMs": 652.6,
-        "summaryMs": 4.67
+        "oldMs": 442.62,
+        "summaryMs": 3.48
       },
       {
-        "oldMs": 634.36,
-        "summaryMs": 4.2
+        "oldMs": 438.73,
+        "summaryMs": 3.79
       }
     ],
-    "oldMedianMs": 662.77,
-    "summaryMedianMs": 4.75
+    "oldMedianMs": 647.37,
+    "summaryMedianMs": 5.24
   },
   {
     "scores": 2100,
     "samples": [
       {
-        "oldMs": 615.73,
-        "summaryMs": 5.61
+        "oldMs": 472.74,
+        "summaryMs": 6.72
       },
       {
-        "oldMs": 597.36,
-        "summaryMs": 5.47
+        "oldMs": 503.69,
+        "summaryMs": 6.76
       },
       {
-        "oldMs": 678.72,
-        "summaryMs": 7.35
+        "oldMs": 450.76,
+        "summaryMs": 6.49
       },
       {
-        "oldMs": 663.97,
-        "summaryMs": 6.09
+        "oldMs": 452.09,
+        "summaryMs": 6.48
       },
       {
-        "oldMs": 393.67,
-        "summaryMs": 4.65
+        "oldMs": 497.88,
+        "summaryMs": 6.65
       },
       {
-        "oldMs": 395.3,
-        "summaryMs": 4.28
+        "oldMs": 494.84,
+        "summaryMs": 6.8
       },
       {
-        "oldMs": 375.16,
-        "summaryMs": 5.1
+        "oldMs": 446.42,
+        "summaryMs": 6.49
       },
       {
-        "oldMs": 383.51,
-        "summaryMs": 5.13
+        "oldMs": 199.11,
+        "summaryMs": 6.92
       },
       {
-        "oldMs": 379.37,
-        "summaryMs": 5.06
+        "oldMs": 573.75,
+        "summaryMs": 7.7
       },
       {
-        "oldMs": 373.02,
-        "summaryMs": 4.01
+        "oldMs": 564.51,
+        "summaryMs": 7.27
       },
       {
-        "oldMs": 376.17,
-        "summaryMs": 6.19
+        "oldMs": 594.14,
+        "summaryMs": 7.76
       },
       {
-        "oldMs": 515.51,
-        "summaryMs": 6.03
+        "oldMs": 615.09,
+        "summaryMs": 7.08
       }
     ],
-    "oldMedianMs": 394.49,
-    "summaryMedianMs": 5.3
+    "oldMedianMs": 496.36,
+    "summaryMedianMs": 6.78
   },
   {
     "scores": 21000,
     "samples": [
       {
-        "oldMs": 440.03,
-        "summaryMs": 30.45
+        "oldMs": 718.04,
+        "summaryMs": 33.16
       },
       {
-        "oldMs": 350.69,
-        "summaryMs": 26.99
+        "oldMs": 423.89,
+        "summaryMs": 31.65
       },
       {
-        "oldMs": 270.49,
-        "summaryMs": 30.24
+        "oldMs": 335.3,
+        "summaryMs": 31.88
       },
       {
-        "oldMs": 259.21,
-        "summaryMs": 28.31
+        "oldMs": 392.72,
+        "summaryMs": 33.36
       },
       {
-        "oldMs": 266.37,
-        "summaryMs": 26.74
+        "oldMs": 368.7,
+        "summaryMs": 31.69
       },
       {
-        "oldMs": 250.75,
-        "summaryMs": 27.35
+        "oldMs": 386.25,
+        "summaryMs": 32.64
       },
       {
-        "oldMs": 257.42,
-        "summaryMs": 25.92
+        "oldMs": 369.56,
+        "summaryMs": 32.64
       },
       {
-        "oldMs": 242.84,
-        "summaryMs": 26.94
+        "oldMs": 393.95,
+        "summaryMs": 33.66
       },
       {
-        "oldMs": 265.94,
-        "summaryMs": 25.64
+        "oldMs": 399.3,
+        "summaryMs": 31.23
       },
       {
-        "oldMs": 247.03,
-        "summaryMs": 25.71
+        "oldMs": 398.23,
+        "summaryMs": 33.06
       },
       {
-        "oldMs": 257.71,
-        "summaryMs": 28.3
+        "oldMs": 402.24,
+        "summaryMs": 31.01
       },
       {
-        "oldMs": 242.89,
-        "summaryMs": 29.04
+        "oldMs": 375.78,
+        "summaryMs": 31.85
       }
     ],
-    "oldMedianMs": 258.46,
-    "summaryMedianMs": 27.17
+    "oldMedianMs": 393.34,
+    "summaryMedianMs": 32.26
   }
 ]

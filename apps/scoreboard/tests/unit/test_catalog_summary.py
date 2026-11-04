@@ -221,3 +221,141 @@ def test_private_flip_during_summary_read_is_excluded(
     response = catalog_client.get("/v1/benchmarks/summary")
     assert response.status_code == 200
     assert "pinned" not in {row["id"] for row in response.json()["benchmarks"]}
+
+
+@pytest.mark.parametrize("corruption", ["providers", "text-score", "nan-score", "infinite-score"])
+def test_corrupt_candidate_cannot_fail_other_catalog_cards(
+    catalog_client: TestClient, corruption: str
+) -> None:
+    assert catalog_client.portal is not None
+
+    dialect = catalog_client.portal.call(
+        lambda: Tortoise.get_connection("default").capabilities.dialect
+    )
+    if dialect != "sqlite" and corruption == "text-score":
+        pytest.skip("PostgreSQL rejects arbitrary text in a float column")
+
+    async def corrupt() -> None:
+        await seed_catalog()
+        conn = Tortoise.get_connection("default")
+        if corruption == "providers":
+            # A malformed JSON document on SQLite; a valid JSON scalar that cannot
+            # decode as provider JSON on PostgreSQL (JSON syntax itself is enforced).
+            raw = "broken-json" if conn.capabilities.dialect == "sqlite" else '"broken-json"'
+            await conn.execute_query(
+                (
+                    "UPDATE scores SET ran_with_providers = ? WHERE benchmark_id = 'zero'"
+                    if dialect == "sqlite"
+                    else "UPDATE scores SET ran_with_providers = $1 WHERE benchmark_id = 'zero'"
+                ),
+                [raw],
+            )
+        else:
+            raw = {"text-score": "broken-score", "nan-score": "NaN", "infinite-score": "Infinity"}[
+                corruption
+            ]
+            await conn.execute_query(
+                (
+                    "UPDATE scores SET score = ? WHERE benchmark_id = 'zero'"
+                    if dialect == "sqlite"
+                    else "UPDATE scores SET score = $1 WHERE benchmark_id = 'zero'"
+                ),
+                [raw if conn.capabilities.dialect == "sqlite" else float(raw)],
+            )
+
+    catalog_client.portal.call(corrupt)
+    # Providers corruption is independently tested, not left over from an earlier
+    # experiment. Its board must drop the row and still answer successfully.
+    if corruption == "providers" and dialect == "sqlite":
+        board = catalog_client.get("/v1/leaderboard/zero?top=1")
+        assert board.status_code == 200
+        assert board.json()["entries"] == []
+    response = catalog_client.get("/v1/benchmarks/summary")
+    assert response.status_code == 200
+    scores = {row["id"]: row["best_score"] for row in response.json()["benchmarks"]}
+    assert scores["zero"] is None
+    assert scores["pinned"] == 0.7
+    assert scores["negative"] == -2
+
+
+@pytest.mark.parametrize(
+    ("same_spec", "corrupt_newer", "expected"),
+    [(True, True, None), (True, False, 0.9), (False, True, 0.9), (False, False, None)],
+)
+def test_corrupt_tied_candidate_obeys_top_one_selection(
+    catalog_client: TestClient, same_spec: bool, corrupt_newer: bool, expected: float | None
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    assert catalog_client.portal is not None
+
+    async def seed() -> str:
+        await Benchmark.create(id="ties", display_name="Ties")
+        conn = Tortoise.get_connection("default")
+        dialect = conn.capabilities.dialect
+        for i in range(2):
+            entry = await Score.create(
+                benchmark_id="ties",
+                spec_id="s" if same_spec else f"s-{i}",
+                score=0.9,
+                total_questions=10,
+                ran_with_providers=[],
+                url4_expression="url4://test",
+            )
+            await Score.filter(id=entry.id).update(
+                submitted_at=datetime(2026, 1, 1, tzinfo=UTC) + timedelta(days=i)
+            )
+            if bool(i) == corrupt_newer:
+                await conn.execute_query(
+                    "UPDATE scores SET ran_with_providers = ? WHERE id = ?"
+                    if dialect == "sqlite"
+                    else "UPDATE scores SET ran_with_providers = $1 WHERE id = $2",
+                    ["broken-json" if dialect == "sqlite" else '"broken-json"', str(entry.id)],
+                )
+        # A lower readable score must not replace an unreadable top=1 candidate.
+        await Score.create(
+            benchmark_id="ties",
+            spec_id="lower",
+            score=0.5,
+            total_questions=10,
+            ran_with_providers=[],
+            url4_expression="url4://test",
+        )
+        return dialect
+
+    dialect = catalog_client.portal.call(seed)
+    response = catalog_client.get("/v1/benchmarks/summary")
+    assert response.status_code == 200
+    assert response.json()["benchmarks"][0]["best_score"] == expected
+    if dialect == "sqlite":
+        board = catalog_client.get("/v1/leaderboard/ties?top=1")
+        assert board.status_code == 200
+        assert [e["score"] for e in board.json()["entries"]] == (
+            [] if expected is None else [expected]
+        )
+
+
+def test_unreadable_nullable_details_do_not_hide_catalog_score(catalog_client: TestClient) -> None:
+    assert catalog_client.portal is not None
+    dialect = catalog_client.portal.call(
+        lambda: Tortoise.get_connection("default").capabilities.dialect
+    )
+    if dialect != "sqlite":
+        pytest.skip("PostgreSQL enforces JSON syntax and numeric column types")
+
+    async def corrupt() -> None:
+        await seed_catalog()
+        await Tortoise.get_connection("default").execute_query(
+            "UPDATE scores SET authors = ?, run_cost_usd = ?, cache_saved_cost_usd = ? "
+            "WHERE benchmark_id = 'zero'",
+            ["broken-json", "broken-cost", "broken-saving"],
+        )
+
+    catalog_client.portal.call(corrupt)
+    response = catalog_client.get("/v1/benchmarks/summary")
+    assert response.status_code == 200
+    scores = {row["id"]: row["best_score"] for row in response.json()["benchmarks"]}
+    assert scores["zero"] == 0
+    board = catalog_client.get("/v1/leaderboard/zero?top=1")
+    assert board.status_code == 200
+    assert board.json()["entries"][0]["score"] == 0

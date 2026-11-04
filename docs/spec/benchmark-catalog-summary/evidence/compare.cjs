@@ -1,10 +1,13 @@
 // Run with PLAYWRIGHT_MODULE pointing to an installed playwright package.
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE);
 const fs=require('node:fs/promises');
+const {execFileSync}=require('node:child_process');
 const path=require('node:path');
 const assert=require('node:assert/strict');
 const ROOT=path.resolve(__dirname,'../../../..');
 const ORIGIN='http://127.0.0.1:8773';
+const BASE='ffdc7e93f8f17e7622db0148c51982eca1e6a720';
+const baseline=Object.fromEntries(['index.html','main.js'].map(file=>[file,execFileSync('git',['show',`${BASE}:apps/scoreboard/portal/${file}`],{cwd:ROOT})]));
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function main(){
  const live=JSON.parse(require('node:zlib').gunzipSync(await fs.readFile(path.join(__dirname,'live.json.gz'))));
@@ -23,8 +26,9 @@ async function main(){
    const url=new URL(route.request().url());
    if(url.origin!==ORIGIN)return route.abort();
    if(url.pathname==='/' || (variant==='baseline'&&url.pathname==='/main.js')){
-    const filename=url.pathname==='/'?(variant==='baseline'?path.join(__dirname,'baseline-index.html'):path.join(ROOT,'apps/scoreboard/portal/index.html')):path.join(__dirname,'baseline-main.js');
-    return route.fulfill({status:200,contentType:url.pathname==='/'?'text/html':'text/javascript',body:await fs.readFile(filename)});
+    const file=url.pathname==='/'?'index.html':'main.js';
+    const body=variant==='baseline'?baseline[file]:await fs.readFile(path.join(ROOT,'apps/scoreboard/portal',file));
+    return route.fulfill({status:200,contentType:url.pathname==='/'?'text/html':'text/javascript',body});
    }
    if(url.pathname.startsWith('/v1/')){
     const start=performance.now();
