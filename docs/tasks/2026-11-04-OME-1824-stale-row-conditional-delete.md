@@ -1,7 +1,7 @@
 ---
 id: OME-1824
 linear_url: https://linear.app/openmined/issue/OME-1824/let-a-connection-delete-require-the-rows-status-l7c
-status: in_progress
+status: in_review
 type: task
 priority: medium
 labels: [aigateway, agentic, autonomous]
