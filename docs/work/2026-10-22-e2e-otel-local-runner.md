@@ -125,3 +125,17 @@ passthrough otherwise (the default).
     test.
   - `inprocess.py` is 513 lines (it was 476, already over the 450 guideline, before this
     round). No split this round.
+
+### Outcome (round 3)
+
+- **Finding (HupBaHa, on `4b9ba0b9f`):** `aclose()` gathered the runner-owned close tasks
+  directly; cancelling `aclose()` cancelled them, the done callback dropped them from
+  `_sink_closes`, and a queued `relay.shutdown` never ran. Repeated/concurrent `aclose()`
+  returned without waiting.
+- **Fix:** `aclose()` gathers `asyncio.shield(close)` views, so caller cancellation stops only
+  that caller's wait. Nothing can cancel a close task now, so the done callback removes it only
+  once it has really finished.
+- **RED first:** 4 new tests in `tests/unit/test_inprocess_sink_cleanup.py` (cancelled
+  `aclose()` with a queued close, with a running close, two concurrent with one cancelled,
+  repeated after a cancelled one) all failed before the fix and pass after. No existing test
+  changed.
