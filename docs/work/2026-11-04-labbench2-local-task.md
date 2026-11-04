@@ -85,7 +85,7 @@ New file only; no prior test changes.
   `vendor/` folder joins the ruff and pyright exclusions, as ifeval's, musique's and
   arc_agi_2's vendored code does) and `vendor/__init__.py`.
 - **Commits:** see the PR; one commit on `OME-1733-pr1-labbench2-local-task`.
-- **Gates:** `tests/unit/inspect/test_local_task_lab_bench_2.py` 32 passed (with the inspect
+- **Gates:** `tests/unit/inspect/test_local_task_lab_bench_2.py` 34 passed (with the inspect
   extra) and 1 skipped (extra-less, as CI); ruff check, ruff format and pyright clean on the
   package and the test, pyright also extra-less. Real build, run by hand with `HF_TOKEN`
   against the gated dataset and the public bucket: FigQA2 image 101 Samples, TableQA2 image
@@ -99,5 +99,11 @@ New file only; no prior test changes.
     pins the bytes, the GDPval precedent.
   - Reference harness is the authors' current `0cabab27`, not the inspect port's older copy;
     named in the README.
+- **Review round (2026-11-04, #1669):** a body cut short mid-transfer
+  (`http.client.IncompleteRead`, not an `OSError`) escaped raw and unretried, and HTTP 429 was
+  refused at once; both are now retried and end as `FigureFetchError` naming the file, pinned by
+  `test_a_body_cut_short_is_retried_then_named` and `test_a_rate_limited_download_is_retried`
+  (both red before the fix). The escape test's second assertion checked the wrong folder; it now
+  checks that no file at all is written under the cache.
 - **Owner verify (PR 2):** the importer run that writes the two rows needs `HF_TOKEN` and
   downloads about 115 MB per replay (two replays); the paid smoke run follows the rows.
