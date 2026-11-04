@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import Note from '@/components/ui/Note.vue'
@@ -121,6 +122,12 @@ const quorumExample = `fusion = sf.Fusion(
       failed answer with the reason <code>missing</code> and never as a vote. A required member that
       fails fails the candidate. <code>optional</code> is only valid in a Fusion's member position.
     </p>
+
+    <ThemedDiagram
+      name="sf-client-0-1-9-fusion-quorum"
+      alt="Topology: members A and B succeed and member C, optional, fails; the quorum check passes the answers that arrived to the synthesizer when enough members succeeded, and the candidate fails when the quorum is not met or a required member failed."
+      caption="Which members reach the synthesizer, and where a failure stops the candidate."
+    />
 
     <div class="not-prose">
       <NbCell :count="2" :code="quorumExample" />

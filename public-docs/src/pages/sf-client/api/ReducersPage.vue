@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
@@ -271,6 +272,12 @@ const abstainOut = `(True, '', 0.0)`
       members as a list of <code>{"id": ..., "text": ...}</code>, best first for a Rank and in
       author order for a Filter. When nothing is kept, <code>selected</code> is <code>[]</code>.
     </p>
+
+    <ThemedDiagram
+      name="sf-client-0-1-9-reducers-selection"
+      alt="Flow: the Case input goes to the members, their answers go to Rank or Filter, and the next stage receives the Case input and the kept members as one JSON object."
+      caption="What the stage after Rank or Filter receives: the Case input, and the kept members as a list of id and text."
+    />
 
     <div class="not-prose">
       <NbCell :count="3" :code="selection" />

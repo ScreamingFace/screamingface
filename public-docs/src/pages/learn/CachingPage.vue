@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
 import { learnNavigation as navigation } from '@/navigation/learn'
 </script>
 
@@ -156,6 +157,12 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <h3>Complete and partial</h3>
+
+    <ThemedDiagram
+      name="sf-client-0-1-9-pinned-cache-states"
+      alt="State diagram: a pinned cache is opened, filled, sealed and confirmed by the gateway, and the capture status is complete only when every call is stored and the run did not use the local runtime; a failure to open, a failed, refused, missing, error or ambiguous call, an unconfirmed seal or a local run gives the status partial."
+      caption="The states of a pinned cache and the reasons a capture is partial."
+    />
 
     <p>
       A captured run has a <code>capture_status</code> and, when the copy opened, a

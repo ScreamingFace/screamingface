@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import {
   sfClientReferenceNavigation as navigation,
@@ -33,6 +34,12 @@ const tooLongOut = `PlanningError: The classification request is 9088 bytes once
       <code>AsyncClient</code> has no <code>classify</code>. An engine without
       <code>/classify</code> raises <code>EngineCapabilityError</code>.
     </p>
+
+    <ThemedDiagram
+      name="sf-client-0-1-9-classify-flow"
+      alt="Flow: the Client sends the classify call to the Engine, which reaches your classifier endpoint through the AI Gateway, using the key you stored with sf.connect."
+      caption="The path of sf.classify from the Client to your classifier endpoint."
+    />
 
     <h2>The call</h2>
 

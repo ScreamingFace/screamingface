@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
@@ -448,6 +449,12 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-
       <code>CaseMedia</code>, in the case's order. It makes no network call, and it is empty for a
       text case. A <code>CaseMedia</code> names what proves the bytes and not the bytes themselves.
     </p>
+
+    <ThemedDiagram
+      name="sf-client-0-1-9-media-fetch"
+      alt="Sequence: the Case media item is read from the report with no network call; sf.fetch_media asks the engine for the bytes and returns FetchedMedia when the size and SHA-256 match, or raises MediaUnavailableError with the code media_not_kept when the engine does not hold the item."
+      caption="Reading a CaseMedia makes no call. Fetching it does, and fails with media_not_kept when the engine no longer holds it."
+    />
 
     <table>
       <thead>
