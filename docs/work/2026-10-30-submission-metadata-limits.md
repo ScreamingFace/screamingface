@@ -1,9 +1,9 @@
 ---
 ticket: OME-969
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-10-30
-finished:
+finished: 2026-11-05
 ---
 
 # Bound score submission metadata
@@ -35,7 +35,7 @@ Existing valid requests and baseline import/read validation are unchanged.
 
 ## Outcome
 
-Implementation complete; review/merge pending. Actual files match the plan.
+Implementation merged; see closure below. Actual files match the plan.
 
 - RED: five over-limit requests accepted; eight valid controls passed.
 - GREEN: all 13 new HTTP tests pass. Combined new/baseline selection: 27 passed.
@@ -63,3 +63,20 @@ Authorized by Filip: “please fix the issues you feel are real ones”. Run reg
 Sanitize every validation error located at body.metadata, including wrong-type and size failures, by omitting only its input. Keep error type, location, context and messages, and preserve unrelated inputs. Reproduce oversized and wrong-type metadata containing NaN/Infinity and test both databases.
 
 Authorized by Filip: “Check these reviews and fix if you see fit”. Capture failing regressions first, then run focused SQLite/PostgreSQL tests, scoreboard gates and combined-branch verification. Outcome: 20 new cross-backend cases failed before the fix. All 46 metadata review tests now pass on SQLite/PostgreSQL, and the complete PostgreSQL CI selection passes (55 tests). Full scoreboard gates green. Every body.metadata error omits input while preserving its type/location/context; unrelated errors retain their input. No schema or dependency changes.
+
+## Closure — 2026-11-05
+
+User authorized the final review and squash merge. Merged [PR #1623](https://github.com/ScreamingFace/screamingface/pull/1623)
+as `49d0d5312966d377caa3f0e8526314687394e1b0`. Approval and green CI covered the unchanged PR head.
+
+Final verification combined all three approved changes with current main: full
+scoreboard and repository gates passed; 217 focused SQLite/PostgreSQL regressions
+passed with no skips (local PostgreSQL 15, CI PostgreSQL 17). This included metadata,
+Unicode/non-finite validation, corrupted costs, migrations and concurrency.
+Subsequent concurrent main changes were confined to Engine code/docs; scoreboard
+paths still matched the tested sequence before the last merge.
+
+Sergio approved with nits. Baseline accept/reject limits stay the same, but excessive depth now reports metadata_too_deep; this error-contract difference is an accepted deviation. Main already includes the general non-finite validation-input handler from PR #1620.
+
+Linear is Done with the merge and validation evidence recorded. No production
+release was performed and no visual owner check is needed for these changes.

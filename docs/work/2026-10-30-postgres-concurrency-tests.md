@@ -1,9 +1,9 @@
 ---
 ticket: OME-430
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-10-30
-finished:
+finished: 2026-11-05
 ---
 
 # Enable PostgreSQL concurrency regressions
@@ -39,7 +39,7 @@ schema consumers still work; schema cleanup is retained. No application changes.
 
 ## Outcome
 
-Implementation complete; review/merge pending.
+Implementation merged; see closure below.
 
 - RED: both original race tests failed before their bodies with nested asyncio.run.
 - A second fixture issue surfaced after that fix: tortoise_test_context attempts
@@ -70,3 +70,20 @@ Use PostgreSQL index catalog attributes instead of matching rendered index SQL. 
 Authorized by Filip: “please fix the issues you feel are real ones”. Run regression tests and full scoreboard gates before committing. Outcome: The old LIKE query incorrectly accepted both partial and expression indexes (two failing negative controls). The catalog query now rejects both, composite and non-unique indexes, and accepts the valid unique content_hash index. Ten focused PostgreSQL tests pass; full PostgreSQL CI selection: 19 passed. All scoreboard gates green. Only the stale comment changed in the original concurrency test; its assertions are intact.
 
 CI registration is separated from the other pending PostgreSQL suites so their additions can merge without dropping tests. The exact workflow selection and all scoreboard gates pass after this adjustment.
+
+## Closure — 2026-11-05
+
+User authorized the final review and squash merge. Merged [PR #1625](https://github.com/ScreamingFace/screamingface/pull/1625)
+as `4b2ca3e656f52d6b0ed721e48203013a6ae71cbe`. Approval and green CI covered the unchanged PR head.
+
+Final verification combined all three approved changes with current main: full
+scoreboard and repository gates passed; 217 focused SQLite/PostgreSQL regressions
+passed with no skips (local PostgreSQL 15, CI PostgreSQL 17). This included metadata,
+Unicode/non-finite validation, corrupted costs, migrations and concurrency.
+Subsequent concurrent main changes were confined to Engine code/docs; scoreboard
+paths still matched the tested sequence before the last merge.
+
+Dmitry and Sergio approved. The suggested stronger guard against future CI skips remains non-blocking.
+
+Linear is Done with the merge and validation evidence recorded. No production
+release was performed and no visual owner check is needed for these changes.
