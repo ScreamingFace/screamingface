@@ -12,7 +12,6 @@ Either way the App declares the outcome stream, because its own terminal writers
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import os
 from collections.abc import Callable
@@ -60,7 +59,8 @@ def hold_local_database(url: str) -> int:
     WHY: a local Engine reconciles every Candidate bound before it started as `lost`, which is
     right after a restart and wrong while another Engine on the same file still runs them.
     """
-    path = Path(url.removeprefix("sqlite://") + ".lock")
+    # WHY resolved: two spellings of one file (a symlink, `..`) must find one lock.
+    path = Path(Path(url.removeprefix("sqlite://")).resolve().as_posix() + ".lock")
     descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
         _lock(descriptor)
@@ -200,6 +200,15 @@ class _RunsLifecycle:
         if self._local:
             ensure_sqlite_dir(self._url)
             self._local_lock = hold_local_database(self._url)
+        # WHY roll back here: a failed startup runs no shutdown hook, and a local Engine inside
+        # the Client's own process lives on, so a held lock would refuse its next start.
+        try:
+            await self._open()
+        except BaseException:
+            await self.stop()
+            raise
+
+    async def _open(self) -> None:
         store = await open_run_store(
             self._url,
             self._settings,
@@ -220,21 +229,34 @@ class _RunsLifecycle:
             sweeper.run(interval_s=self._settings.run_sweep_interval_s, sweep_first=False)
         )
 
+    async def _cancel_task(self, name: str) -> None:
+        task = getattr(self._app.state, name)
+        setattr(self._app.state, name, None)
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("%s ended with an error at shutdown", name)
+
     async def stop(self) -> None:
-        for name in ("run_sweep_task", "outcome_writer_task"):
-            task = getattr(self._app.state, name)
-            setattr(self._app.state, name, None)
-            if task is not None:
-                task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await task
-        store = self._app.state.run_registry
-        if store is not None:
+        """Release what `start` took, each step even when an earlier one fails."""
+        try:
+            for name in ("run_sweep_task", "outcome_writer_task"):
+                await self._cancel_task(name)
+        finally:
+            store = self._app.state.run_registry
             self._app.state.run_registry = None
-            await store.aclose()
-        if self._local_lock is not None:
-            os.close(self._local_lock)
-            self._local_lock = None
+            try:
+                if store is not None:
+                    await store.aclose()
+            finally:
+                if self._local_lock is not None:
+                    os.close(self._local_lock)
+                    self._local_lock = None
 
 
 def install_runs(
