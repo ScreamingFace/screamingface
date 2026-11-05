@@ -65,3 +65,13 @@ async def test_a_forgotten_child_has_none() -> None:
 
     assert await pool.settlement(child) is None
     await pool.drain()
+
+
+async def test_a_broken_control_pipe_reads_as_none() -> None:
+    """WHY: the settlement is evidence only; a read error must not reach the queue ack."""
+    pool, child = await _launched(_FakeChild(1))
+    child.control.set_exception(ConnectionResetError("pipe broke"))
+    child.exit(0)
+
+    assert await pool.settlement(child) is None
+    await pool.drain()

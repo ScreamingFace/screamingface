@@ -13,7 +13,7 @@ kind: Job
 metadata:
   name: {{ include "screamingface-engine.fullname" $ }}-migrate
   labels:
-    {{- include "screamingface-engine.labels" $ | nindent 4 }}
+    {{- include "screamingface-engine.labelsBase" $ | nindent 4 }}
     app.kubernetes.io/component: migrate
   annotations:
     "helm.sh/hook": pre-install,pre-upgrade
