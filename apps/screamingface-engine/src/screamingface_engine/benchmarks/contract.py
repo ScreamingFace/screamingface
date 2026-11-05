@@ -76,6 +76,7 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # Check met if any Attempt met it, which only means something for a Check graded 0
         # or 1. An Attempt whose Check scored anything else fails its Case by this name.
         "attempt_grade_not_pass_fail",
+        # AIDEV-NOTE: keep time-based additions in failure_classes.TIME_BASED_CODES too.
         "provider_queue_timeout",
         "provider_execution_timeout",
         "caller_deadline_exceeded",
