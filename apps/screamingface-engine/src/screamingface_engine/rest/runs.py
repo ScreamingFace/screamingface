@@ -16,17 +16,19 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, PlainSerializer, StrictInt
 
 from screamingface_engine import job_env
 from screamingface_engine.auth import ProblemException
+from screamingface_engine.rest.gateway_route import problem_responses
 from screamingface_engine.rest.stopping import stop_topic
 from screamingface_engine.runs.ids import RUN_ID_PATTERN
 from screamingface_engine.runs.records import (
     MAX_CANDIDATES,
+    CandidateRecord,
     CandidateState,
     OwnerKey,
     RunQuery,
@@ -93,14 +95,22 @@ def _require_identity(request: Request) -> None:
     _owner(request)
 
 
+# The cache headers every `/runs` answer carries, as OpenAPI documents a response's headers.
+_PRIVATE_HEADERS_DOC: dict[str, Any] = {
+    name: {"schema": {"type": "string", "enum": [value]}}
+    for name, value in _PRIVATE_HEADERS.items()
+}
+
 router = APIRouter(
     prefix="/runs",
     tags=["Runs"],
     dependencies=[Depends(_private), Depends(_require_identity)],
-    responses={
-        401: {"description": "A hosted call with no verified identity (`identity_required`)."},
-        404: {"description": "No such Run of the caller's (`run_not_found`), or Runs are off."},
-    },
+    responses=problem_responses(
+        {
+            401: "A hosted call with no verified identity (`identity_required`).",
+            404: "No such Run of the caller's (`run_not_found`), or Runs are off on this Engine.",
+        }
+    ),
 )
 
 
@@ -253,9 +263,18 @@ async def _stop_all(request: Request, topics: list[str]) -> None:
     status_code=201,
     summary="Register a Run",
     responses={
-        200: {"description": "The caller's Run with this `client_key`, already registered."},
-        409: {"description": "That `client_key` names another evaluation (`client_key_conflict`)."},
-        422: {"description": "An invalid Run."},
+        201: {"description": "The new Run.", "headers": _PRIVATE_HEADERS_DOC},
+        200: {
+            "description": "The caller's Run with this `client_key`, already registered.",
+            "model": RunBody,
+            "headers": _PRIVATE_HEADERS_DOC,
+        },
+        **problem_responses(
+            {
+                409: "That `client_key` names another evaluation (`client_key_conflict`).",
+                422: "An invalid Run.",
+            }
+        ),
     },
 )
 async def create_run(request: Request, response: Response, body: RunCreate) -> RunBody:
@@ -287,7 +306,12 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
 @router.get(
     "",
     summary="List Runs, newest first",
-    responses={422: {"description": "An invalid query, or a cursor that names no Run of yours."}},
+    responses={
+        200: {"description": "A page of the caller's Runs.", "headers": _PRIVATE_HEADERS_DOC},
+        **problem_responses(
+            {422: "An invalid query, or a cursor that names no Run of yours (`invalid_cursor`)."}
+        ),
+    },
 )
 async def list_runs(
     request: Request,
@@ -314,7 +338,11 @@ async def list_runs(
     return RunList(runs=[RunBody.of(r) for r in page.runs], next_cursor=page.next_cursor)
 
 
-@router.get("/{run_id}", summary="Read a Run")
+@router.get(
+    "/{run_id}",
+    summary="Read a Run",
+    responses={200: {"description": "The Run.", "headers": _PRIVATE_HEADERS_DOC}},
+)
 async def get_run(request: Request, run_id: str) -> RunBody:
     registry = _registry(request)
     return RunBody.of(await _read(registry, _owner(request), run_id))
@@ -324,9 +352,21 @@ async def get_run(request: Request, run_id: str) -> RunBody:
     "/{run_id}",
     status_code=202,
     summary="Cancel a Run",
+    # No body on either success: the answer is the status.
+    response_class=Response,
     responses={
-        204: {"description": "Every Candidate had already ended; nothing changed."},
-        503: {"description": "The run queue could not be read; retry (`Retry-After`)."},
+        202: {
+            "description": "Canceled; its live Candidates were stopped.",
+            "headers": _PRIVATE_HEADERS_DOC,
+        },
+        204: {
+            "description": "Every Candidate had already ended; nothing changed.",
+            "headers": _PRIVATE_HEADERS_DOC,
+        },
+        503: {
+            **problem_responses({503: "The run queue could not be read; retry."})[503],
+            "headers": {"Retry-After": {"schema": {"type": "integer"}}, **_PRIVATE_HEADERS_DOC},
+        },
     },
 )
 async def cancel_run(request: Request, run_id: str) -> Response:
@@ -336,27 +376,40 @@ async def cancel_run(request: Request, run_id: str) -> Response:
     owner = _owner(request)
     before = await _read(registry, owner, run_id)
     if all(is_terminal_candidate(c.state) for c in before.candidates):
+        # WHY stop again: a cancel whose stops failed (503) is retried, and by then its Candidates
+        # read `stopped`. Stopping a stopped topic changes nothing, so the retry finishes the job.
+        await _private_stops(request, _bound(before, lambda c: c.state == "stopped"))
         return Response(status_code=204, headers=_PRIVATE_HEADERS)
     record = await registry.cancel(owner, run_id)
     if record is None:
         raise _not_found(run_id)
-    # WHY from the read before the cancel: a bound Candidate still `pending` may already be on
-    # the runner (scheduled, then `mark_scheduled` failed or had not run yet), and the cancel just
-    # marked it `stopped`. A Candidate that ended on its own meanwhile is left alone.
-    live_before = {c.name for c in before.candidates if not is_terminal_candidate(c.state)}
-    to_stop = [
-        c.attempt_id
-        for c in record.candidates
-        if c.attempt_id is not None
-        and (c.state in _ON_THE_RUNNER or (c.state == "stopped" and c.name in live_before))
-    ]
-    if not to_stop and all(is_terminal_candidate(c.state) for c in record.candidates):
-        stopped_now = any(c.state == "stopped" and c.name in live_before for c in record.candidates)
-        if not stopped_now:
-            # The last outcome landed before the cancel took the lock: nothing changed.
-            return Response(status_code=204, headers=_PRIVATE_HEADERS)
-    await _stop_all(request, to_stop)
+    # WHY the read before the cancel: only a `pending` Candidate is moved by the cancel itself,
+    # and a bound one may already be on the runner (scheduled, `mark_scheduled` not landed). One
+    # that was scheduled or running and reads `stopped` now ended on its own.
+    pending = {c.name for c in before.candidates if c.state == "pending"}
+    stopped_by_this = {
+        c.name for c in record.candidates if c.state == "stopped" and c.name in pending
+    }
+    to_stop = _bound(record, lambda c: c.state in _ON_THE_RUNNER or c.name in stopped_by_this)
+    if not to_stop and not stopped_by_this:
+        # The last outcomes landed before the cancel took the lock: nothing changed.
+        return Response(status_code=204, headers=_PRIVATE_HEADERS)
+    await _private_stops(request, to_stop)
     return Response(status_code=202, headers=_PRIVATE_HEADERS)
+
+
+def _bound(record: RunRecord, keep: Callable[[CandidateRecord], bool]) -> list[str]:
+    """The topics of the record's bound Candidates that ``keep`` selects."""
+    return [c.attempt_id for c in record.candidates if c.attempt_id is not None and keep(c)]
+
+
+async def _private_stops(request: Request, topics: list[str]) -> None:
+    """`_stop_all`, its failure carrying the private cache headers like every `/runs` answer."""
+    try:
+        await _stop_all(request, topics)
+    except ProblemException as exc:
+        exc.headers = {**(exc.headers or {}), **_PRIVATE_HEADERS}
+        raise
 
 
 # --- binding a start (spec R2) -----------------------------------------------------------
@@ -377,10 +430,15 @@ _REFUSALS: dict[type[Exception], tuple[int, str, str, str]] = {
 
 def _start_binding(request: Request) -> tuple[RunRegistry, str, int] | None:
     """(registry, run id, Candidate index) for a start that names a Run, else None."""
-    run_id = request.headers.get(RUN_HEADER)
-    raw = request.headers.get(CANDIDATE_HEADER)
-    if run_id is None and raw is None:
+    runs, candidates = (
+        request.headers.getlist(RUN_HEADER),
+        request.headers.getlist(CANDIDATE_HEADER),
+    )
+    if not runs and not candidates:
         return None
+    # WHY refuse a repeat: two field lines would bind whichever one `get` happened to return.
+    run_id = runs[0] if len(runs) == 1 else None
+    raw = candidates[0] if len(candidates) == 1 else None
     # WHY a length bound before `int`: a run of thousands of digits is costly to parse and
     # overflows the database's index column; no Run has more than `MAX_CANDIDATES`.
     if (
@@ -421,7 +479,8 @@ async def bind_start(request: Request, topic: str) -> Callable[[], Awaitable[Non
         await registry.bind(owner, run_id, candidate, topic)
     except tuple(_REFUSALS) as exc:
         status, title, code, detail = _REFUSALS[type(exc)]
-        raise ProblemException(status=status, title=title, detail=detail, code=code) from exc
+        # Private: whether a Run is canceled or not yours depends on who asks.
+        raise _problem(status=status, title=title, detail=detail, code=code) from exc
     except Exception:
         _logger.warning("run bind failed topic=%s; starting unbound", topic, exc_info=True)
         return _unbound
