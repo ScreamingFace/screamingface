@@ -359,6 +359,10 @@ def _start_engine_child(config: RuntimeConfig) -> subprocess.Popen[bytes]:
         stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
+        # WHY its own session: in `up --foreground`, Ctrl-C signals the terminal's whole
+        # process group; inside it the child got SIGINT directly AND a terminate() from the
+        # supervisor. Outside it, the supervisor is the one that stops it.
+        start_new_session=True,
     )
 
 
@@ -387,7 +391,15 @@ def run_scoreboard(config: RuntimeConfig, *, seed_from_engine: bool = False) -> 
         # FEATURE (OME-1620): the Engine runs in its own process, so its registry cannot be
         # imported here; read its catalogue over HTTP like the hosted board. The supervisor
         # starts this child only once the Engine answers, and the fetch retries on its own.
-        asyncio.run(_run(configured=[], engine_url=config.services["engine"]))
+        seeded: int = asyncio.run(_run(configured=[], engine_url=config.services["engine"]))
+        if seeded != 0:
+            # WHY raise: serving an unseeded board puts an empty leaderboard behind a READY
+            # banner. Exiting makes the supervisor report "Scoreboard stopped during startup",
+            # with the seeder's own lines already drained into runtime.log.
+            raise RuntimeError(
+                f"the Scoreboard could not read the Engine's benchmarks at "
+                f"{config.services['engine']} and has never been seeded"
+            )
     else:
         asyncio.run(
             _run(
@@ -581,9 +593,7 @@ async def _supervise(  # noqa: C901, PLR0912, PLR0915
             # phases above, and must go with it — the Engine child first, since the board
             # may be mid-request against it.
             for child in processes:
-                if child.process.poll() is None:
-                    child.process.terminate()
-                    await asyncio.to_thread(child.process.wait)
+                await asyncio.to_thread(_stop_child_process, child.process)
             stop_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await stop_task
@@ -633,6 +643,25 @@ async def _serve_service(server: Server) -> None:
     name = getattr(server, "name", "supervisor").lower().replace("ai ", "")
     with log_service(name):
         await server.serve()
+
+
+# WHY 10 s: uvicorn's graceful shutdown of a local server takes well under a second; a child
+# still alive after this is stuck and would hold its port for the next `up`.
+_CHILD_STOP_GRACE_SECONDS = 10.0
+
+
+def _stop_child_process(
+    process: subprocess.Popen[bytes], *, grace: float = _CHILD_STOP_GRACE_SECONDS
+) -> None:
+    """Stop one child: terminate, wait `grace` seconds, then kill, so no port stays held."""
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=grace)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
 
 
 async def _relay_child_output(child: _Child) -> None:

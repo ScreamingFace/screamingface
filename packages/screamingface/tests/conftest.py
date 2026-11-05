@@ -7,6 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from screamingface._runtime import engine_env
+from screamingface._runtime import source as runtime_source
+
 _PAID_FLAG = "SCREAMINGFACE_TEST_PAID"
 _PAID_LANE: Path = Path(__file__).resolve().parent / "paid"
 
@@ -55,6 +58,30 @@ def _isolated_screamingface_data_dir(
     # workbench U1); a token exported in the dev's shell or by the workbench would otherwise
     # change every Access test. Tests that need it set it via monkeypatch.
     monkeypatch.delenv("SCREAMINGFACE_ACCESS_TOKEN", raising=False)
+
+
+# FEATURE (OME-1620): with no interpreter named, `screamingface up` starts the Engine from the
+# checkout's own Engine venv when it finds one. Captured at import, before any test patches it.
+_REAL_CHECKOUT = runtime_source.checkout_root()
+_REAL_CHECKOUT_ENGINE_VENV = engine_env.checkout_engine_venv
+
+
+@pytest.fixture(autouse=True)
+def _no_real_engine_venv(monkeypatch: pytest.MonkeyPatch) -> None:
+    # INVARIANT: the suite never reads the developer's real Engine venv, like their real data
+    # dir above. Otherwise every test that reaches `_config` in the checkout it runs from
+    # depends on that venv: red on a box whose venv lacks the benchmarks extra ("serves only
+    # medxpert"), a real 4 s Engine child on one that has it, green in CI only because CI has
+    # none. Fake checkouts under tmp_path keep their default, so the rung stays testable.
+    def isolated(source: runtime_source.RuntimeSource) -> Path | None:
+        if _REAL_CHECKOUT is not None and source.root is not None:
+            if source.root.resolve() == _REAL_CHECKOUT.resolve():
+                return None
+        return _REAL_CHECKOUT_ENGINE_VENV(source)
+
+    monkeypatch.setattr(engine_env, "checkout_engine_venv", isolated)
+    # Same invariant for an interpreter exported in the developer's shell.
+    monkeypatch.delenv(engine_env.ENGINE_PYTHON_ENV, raising=False)
 
 
 __all__: list[str] = []

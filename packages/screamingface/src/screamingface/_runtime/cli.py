@@ -166,6 +166,32 @@ def _add_engine_python(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _engine_python_named(args: argparse.Namespace) -> bool:
+    """Whether this command NAMED an Engine interpreter (flag or variable), not merely found one."""
+    return getattr(args, "engine_python", None) is not None or bool(
+        os.environ.get(engine_env.ENGINE_PYTHON_ENV, "").strip()
+    )
+
+
+def _with_recorded_engine(config: RuntimeConfig, args: argparse.Namespace) -> RuntimeConfig:
+    """Use the running stack's Engine interpreter unless this command named one.
+
+    WHY: `prepare --list` beside a running stack must list what THAT Engine serves, not what a
+    checkout default or a built environment would.
+    """
+    if _engine_python_named(args):
+        return config
+    state = _read_state(config)
+    if not state or not _verify_owner(state):
+        return config
+    recorded = state.get("engine_python")
+    return (
+        dataclasses.replace(config, engine_python=Path(recorded))
+        if isinstance(recorded, str)
+        else config
+    )
+
+
 def _engine_python_arguments(config: RuntimeConfig) -> list[str]:
     """The option that hands the Engine interpreter to the background `_serve` child."""
     if config.engine_python is None:
@@ -211,7 +237,7 @@ def _dispatch_runtime(args: argparse.Namespace) -> None:  # noqa: C901, PLR0912,
             raise SystemExit(_doctor(config))
         elif args.command == "prepare":
             _prepare(
-                config,
+                _with_recorded_engine(config, args),
                 args.benchmark,
                 all_benchmarks=args.all_benchmarks,
                 list_benchmarks=args.list_benchmarks,
@@ -430,7 +456,7 @@ def _require_full_engine_environment(config: RuntimeConfig) -> None:
     source = runtime_source.resolve_source(os.environ)
     ids = engine_env.engine_bundle_ids(config.engine_python, os.environ)
     engine_env.require_full_engine(config.engine_python, ids, source)
-    print(f"engine env: {config.engine_python} ({len(ids)} benchmarks)")
+    print(f"engine env: {config.engine_python} ({len(ids)} benchmark bundles)")
 
 
 def _require_benchmark_assets_dir(config: RuntimeConfig) -> None:
@@ -699,9 +725,14 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
             Path(recorded) if isinstance(recorded, str) else None
         )
         recorded_python = state.get("engine_python")
-        # WHY like the folder: the Engine interpreter is part of what the stack IS.
-        engine_python = config.engine_python or (
-            Path(recorded_python) if isinstance(recorded_python, str) else None
+        # WHY like the folder: the Engine interpreter is part of what the stack IS, so the
+        # recorded one beats a default that was merely FOUND (a checkout venv); only a newly
+        # named interpreter replaces it.
+        engine_python = (
+            config.engine_python
+            if _engine_python_named(args)
+            else (Path(recorded_python) if isinstance(recorded_python, str) else None)
+            or config.engine_python
         )
         config = RuntimeConfig(
             data_dir=config.data_dir,
@@ -807,7 +838,7 @@ def _print_status(config: RuntimeConfig, *, json_output: bool = False) -> int:
             "artifacts_dir": str(artifacts) if artifacts is not None else None,
             "artifacts_bytes": _artifacts_bytes(artifacts),
             "artifacts_hint": _artifacts_hint(artifacts),
-            "benchmarks": _benchmark_statuses(assets),
+            "benchmarks": _benchmark_statuses(assets, ask_engine=False),
             **_benchmark_assets_field(assets),
         }
         print(json.dumps(payload, separators=(",", ":"), sort_keys=True))
@@ -1024,15 +1055,22 @@ def _prepare_with_engine(
     print(f"Benchmark assets ready at {config.assets_dir}")
 
 
-def _benchmark_statuses(config: RuntimeConfig) -> dict[str, str]:
+def _benchmark_statuses(config: RuntimeConfig, *, ask_engine: bool = True) -> dict[str, str]:
     """Each benchmark's datasets status, for `prepare --list`, `status` and `doctor`.
 
-    With an Engine environment the names come from the Engine's preparer and the Engine's
-    completion marker decides; otherwise the in-process Engine's one hand-built board.
+    With an Engine environment the Engine's completion marker decides. `ask_engine` lists
+    every bundle the Engine serves (one child run of its preparer, ~4 s — `prepare --list`);
+    without it only the bundle folders already on disk are read (`status`, polled). Otherwise
+    the in-process Engine's one hand-built board.
     """
     if config.engine_python is None:
         return {name: _benchmark_status(config, name) for name in _BENCHMARKS}
-    names: tuple[str, ...] = engine_env.engine_bundle_ids(config.engine_python, os.environ)
+    names: tuple[str, ...]
+    if ask_engine:
+        names = engine_env.engine_bundle_ids(config.engine_python, os.environ)
+    else:
+        root: Path = config.assets_dir
+        names = tuple(sorted(p.name for p in root.iterdir() if p.is_dir())) if root.is_dir() else ()
     return {name: engine_env.bundle_status(config.assets_dir, name) for name in names}
 
 
@@ -1105,7 +1143,7 @@ def _doctor(config: RuntimeConfig) -> int:  # noqa: C901, PLR0912, PLR0915
         # WHY fail, not pass: an explicit folder that is gone or unreadable fails every run.
         readable = folder.is_dir() and os.access(folder, os.R_OK | os.X_OK)
         checks.append(("pass" if readable else "fail", "benchmark assets dir", str(folder)))
-    statuses = _benchmark_statuses(assets)
+    statuses = _doctor_benchmark_statuses(assets, checks)
     for name, status in statuses.items():
         severity = "pass" if status == "prepared" else "warn" if status == "missing" else "fail"
         checks.append((severity, f"{name} assets", status))
@@ -1113,6 +1151,27 @@ def _doctor(config: RuntimeConfig) -> int:  # noqa: C901, PLR0912, PLR0915
     for severity, label, detail in checks:
         print(f"{severity.upper():4}  {label:22} {detail}")
     return 1 if any(severity == "fail" for severity, _, _ in checks) else 0
+
+
+def _doctor_benchmark_statuses(
+    config: RuntimeConfig, checks: list[tuple[str, str, str]]
+) -> dict[str, str]:
+    """The datasets statuses `doctor` reports, plus one check for the Engine environment.
+
+    WHY guarded: a broken Engine environment is exactly what `doctor` is run to find, so it is
+    reported as FAIL with the first line of the reason, not raised.
+    """
+    if config.engine_python is None:
+        return _benchmark_statuses(config)
+    try:
+        ids = engine_env.engine_bundle_ids(config.engine_python, os.environ)
+    except RuntimeError as exc:
+        checks.append(("fail", "engine environment", str(exc).splitlines()[0]))
+        return _benchmark_statuses(config, ask_engine=False)
+    checks.append(
+        ("pass", "engine environment", f"{config.engine_python} ({len(ids)} benchmark bundles)")
+    )
+    return {name: engine_env.bundle_status(config.assets_dir, name) for name in ids}
 
 
 def _writable_location(path: Path) -> bool:
