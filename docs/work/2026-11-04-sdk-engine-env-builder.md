@@ -78,3 +78,27 @@ environment is assembled from those at build time. PR 3 of 3 (OME-1620 / OME-162
   cannot fail the marker step; the build moved to after adoption and the port check in `up` (a
   stack already running needs no environment; a 700 MB build must never precede a refusal) —
   the plan had it before the probe only.
+
+## Review round 1 (2026-11-05)
+
+- **Blocker fixed — frozen Studio crashed at config time.** Looking for a built environment ran
+  on every `up`/`status`/`doctor` and computed the environment key, which raises with no
+  `engine_dist/` and no checkout. `existing_engine_environment` now never raises (frozen → none;
+  no key → none); only a build raises. Pinned by
+  `test_looking_for_a_built_environment_never_raises_without_project_files` (frozen and not).
+- **Blocker fixed — the drift test could not run when the drift happened.** The SDK lane does
+  not trigger on the Engine's lock. Instead of a workflow edit (CI is owner territory), an
+  Engine-lane twin, `apps/screamingface-engine/tests/unit/test_sdk_engine_requirements_conformance.py`,
+  reads the SDK's pins and the export script's flags as text (like the inspect pin twin) and
+  compares pin sets with a fresh export. Mutation run: bumping one committed pin turns it red.
+  Both copies now compare pin SETS, so a uv formatting change cannot fail an unrelated PR.
+- **Nonblocking fixed:** the build call in `up` is pinned by
+  `test_up_hands_the_built_environment_to_the_stack` (deleting the call turns it red, mutation
+  run); two `up`s serialize on `engine-env/.build.lock` and the second reuses the first's build
+  (`test_two_ups_never_build_over_each_other`); the build prints `1/3 … 2/3 … 3/3` so a pip
+  install no longer looks hung; the key test also perturbs the project files; `doctor` keeps one
+  engine-environment check after the merge of PR 2.
+- **OME-1626 stays open** (re-scoped in Linear): the two extras still cannot co-install; this
+  stack only removes the need for Benchmarks.
+- **Gates:** 221 passed across the 12 runtime test files; the Engine twin passes; ruff + pyright
+  clean on the touched files of both apps.

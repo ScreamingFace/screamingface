@@ -311,6 +311,140 @@ def test_the_committed_pins_equal_a_fresh_export_of_the_engine_lock() -> None:
     spec.loader.exec_module(exporter)
     committed: Path = exporter.REQUIREMENTS
 
-    assert committed.read_text(encoding="utf-8") == exporter.exported_requirements()
+    # WHY sets of pins, not bytes: a uv release that reorders or re-spaces its export must not
+    # fail an unrelated PR; only a changed pin may. The Engine lane carries a twin of this test
+    # (apps/screamingface-engine/tests/unit/test_sdk_engine_requirements_conformance.py), so the
+    # PR that moves the Engine's lock is the one that goes red.
+    def pins(text: str) -> set[str]:
+        return {
+            "".join(line.split())
+            for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        }
+
+    assert pins(committed.read_text(encoding="utf-8")) == pins(exporter.exported_requirements())
     assert committed == engine_env._requirements_path()
     assert "inspect-ai==" in committed.read_text(encoding="utf-8")
+
+
+# --- review round 1 (2026-11-05) -----------------------------------------------------------------
+
+
+def _no_project_files(project: str, name: str) -> Path:
+    raise FileNotFoundError(f"project file not found for {project}: {name}")
+
+
+@pytest.mark.parametrize("frozen", [True, False])
+def test_looking_for_a_built_environment_never_raises_without_project_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, frozen: bool
+) -> None:
+    """A frozen Studio sidecar (or any install without `engine_dist/` and no checkout) has
+    nothing to compute an environment key from. LOOKING for an environment runs on every
+    `up`, `status` and `doctor`, so it must answer "none", not crash the sidecar at config
+    time; only an actual BUILD may raise."""
+    if frozen:
+        monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(engine_env, "_project_file", _no_project_files)
+
+    chosen = engine_env.resolve_engine_python(
+        None, {}, RuntimeSource(MODE_BUNDLED, None), data_dir=tmp_path
+    )
+
+    assert chosen is None
+    if not frozen:
+        with pytest.raises(FileNotFoundError):
+            engine_env.ensure_engine_environment(
+                tmp_path, environ={}, run=_recorder([]), which=lambda _: None, progress=print
+            )
+
+
+def test_the_key_follows_the_project_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    before = engine_env.environment_key()
+    other = tmp_path / "pyproject.toml"
+    other.write_text('[project]\nname = "screamingface-engine"\nversion = "9.9.9"\n')
+    monkeypatch.setattr(engine_env, "_project_file", lambda project, name: other)
+
+    assert engine_env.environment_key() != before
+
+
+def test_two_ups_never_build_over_each_other(tmp_path: Path, vendored: dict[str, Path]) -> None:
+    """Two `up`s in two shells: the second waits on the build lock, then REUSES what the first
+    built instead of deleting its half-built folder and starting again."""
+    import fcntl
+    import threading
+
+    root = tmp_path / engine_env.ENGINE_ENV_DIRNAME
+    root.mkdir()
+    holder = (root / engine_env._BUILD_LOCK).open("w")
+    fcntl.flock(holder, fcntl.LOCK_EX)
+    ran: list[list[str]] = []
+    result: dict[str, Path] = {}
+    second = threading.Thread(
+        target=lambda: result.update(
+            python=engine_env.ensure_engine_environment(
+                tmp_path,
+                environ={},
+                run=_recorder(ran),
+                which=lambda _: None,
+                progress=lambda _: None,
+            )
+        )
+    )
+    second.start()
+    second.join(timeout=0.3)
+    assert second.is_alive(), "the second up must wait for the first build"
+    built = _ready_environment(tmp_path)  # the first up finishes
+    fcntl.flock(holder, fcntl.LOCK_UN)
+    holder.close()
+    second.join(timeout=5)
+
+    assert result["python"] == built
+    assert ran == []
+
+
+def test_the_build_says_which_step_it_is_on(tmp_path: Path, vendored: dict[str, Path]) -> None:
+    # WHY: a pip install of 136 pins prints nothing for minutes; without steps it reads as a hang.
+    said: list[str] = []
+
+    engine_env.ensure_engine_environment(
+        tmp_path, environ={}, run=_recorder([]), which=lambda _: None, progress=said.append
+    )
+
+    steps = [line for line in said if line.lstrip().startswith(("1/3", "2/3", "3/3"))]
+    assert len(steps) == 3
+
+
+@pytest.mark.usefixtures("real_engine_build")
+def test_up_hands_the_built_environment_to_the_stack(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The call in `up` that builds the environment, pinned: delete it and this goes red."""
+    import types
+
+    built = tmp_path / "built" / "python"
+    built.parent.mkdir()
+    built.write_text("")
+    monkeypatch.setattr(engine_env, "ensure_engine_environment", lambda *a, **k: built)
+    server = types.ModuleType("screamingface._runtime.server")
+    server.require_runtime_extra = lambda: None  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "screamingface._runtime.server", server)
+    monkeypatch.setattr(
+        cli.runtime_source, "resolve_source", lambda _env: RuntimeSource(MODE_BUNDLED, None)
+    )
+    monkeypatch.setattr(cli, "_require_runner_config", lambda _config: None)
+    monkeypatch.setattr(cli, "_port_open", lambda _port: False)
+    reached: list[RuntimeConfig] = []
+
+    class _Stop(Exception):
+        pass
+
+    def full(config: RuntimeConfig) -> None:
+        reached.append(config)
+        raise _Stop
+
+    monkeypatch.setattr(cli, "_require_full_engine_environment", full)
+
+    with pytest.raises(_Stop):
+        cli._up(RuntimeConfig(data_dir=tmp_path / "data"), foreground=False)
+
+    assert reached[0].engine_python == built

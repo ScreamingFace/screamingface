@@ -29,6 +29,7 @@ interpreter's preparer with `--root ~/.screamingface/benchmark-assets --bundle i
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
 import json
@@ -36,7 +37,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from importlib.resources import files
 from pathlib import Path
 
@@ -241,6 +242,14 @@ READY_MARKER = ".ready"
 _KEY_LENGTH = 16
 # WHY the figure: the Engine venv with the benchmarks extra measured 658 MB (2026-11-04).
 _ENVIRONMENT_SIZE_HINT = "about 700 MB"
+#: Under `engine-env/`: held while one `up` builds, so a second `up` waits and then reuses.
+_BUILD_LOCK = ".build.lock"
+# The three installer steps, in order, as the progress lines name them.
+_STEP_LABELS = (
+    "creating the venv",
+    "installing the pinned packages",
+    "installing url4 and the Engine",
+)
 # WHY 30 min: a cold pip install of the pinned world on a slow link; uv finishes in under a
 # minute. A hung installer must not hang `up` forever.
 _INSTALL_TIMEOUT_SECONDS = 1800.0
@@ -305,13 +314,24 @@ def environment_key() -> str:
 
 
 def existing_engine_environment(data_dir: Path) -> Path | None:
-    """The interpreter of an environment `up` already built for the current key, or None."""
+    """The interpreter of an environment `up` already built for the current key, or None.
 
-    target: Path = data_dir / ENGINE_ENV_DIRNAME / environment_key()
+    INVARIANT: never raises. This LOOKUP runs on every `up`, `status` and `doctor`; an install
+    with nothing to compute a key from (a frozen Studio sidecar, or one with neither
+    `engine_dist/` nor a checkout) has no built environment, and must say so rather than crash
+    at config time. Only a BUILD may raise.
+    """
+
+    key: str | None = None
+    if not getattr(sys, "frozen", False):
+        with contextlib.suppress(OSError):
+            key = environment_key()
+    if key is None:
+        return None
+    target: Path = data_dir / ENGINE_ENV_DIRNAME / key
     python: Path = target / _INTERPRETER_IN_VENV
-    if (target / READY_MARKER).is_file() and python.is_file():
-        return python
-    return None
+    ready: bool = (target / READY_MARKER).is_file() and python.is_file()
+    return python if ready else None
 
 
 def ensure_engine_environment(
@@ -346,8 +366,46 @@ def ensure_engine_environment(
         return existing
     run_command: RunCommand = run if run is not None else subprocess.run
     root: Path = data_dir / ENGINE_ENV_DIRNAME
-    root.mkdir(parents=True, exist_ok=True)
     key: str = environment_key()
+    root.mkdir(parents=True, exist_ok=True)
+    with _build_lock(root):
+        # Stage 1 again, under the lock: a second `up` that waited here reuses what the
+        # first one built instead of deleting it and starting over.
+        existing = existing_engine_environment(data_dir)
+        if existing is not None:
+            return existing
+        return _build(root, key, environ=environ, run=run_command, which=which, progress=progress)
+
+
+@contextlib.contextmanager
+def _build_lock(root: Path) -> Iterator[None]:
+    """Hold an exclusive lock on `root/.build.lock` for one build (no-op where fcntl is absent)."""
+
+    try:
+        import fcntl
+    except ImportError:  # pragma: no cover - Windows: one `up` at a time, documented
+        yield
+        return
+    with (root / _BUILD_LOCK).open("w") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _build(
+    root: Path,
+    key: str,
+    *,
+    environ: Mapping[str, str],
+    run: RunCommand,
+    which: Callable[[str], str | None],
+    progress: Callable[[str], None],
+) -> Path:
+    """Stages 2-5 of `ensure_engine_environment`, run under the build lock."""
+
+    run_command: RunCommand = run
     # Stage 2 — one environment per data dir: other keys and half-built folders go.
     for folder in root.iterdir():
         if folder.is_dir():
@@ -363,13 +421,15 @@ def ensure_engine_environment(
         # Stage 3 — the projects to install, assembled from the wheel's copies.
         url4_project, engine_project = _assemble_projects(Path(scratch))
         # Stage 4 — the installer sequence.
-        for command in _install_commands(
+        commands = _install_commands(
             target,
             python,
             uv=uv,
             requirements=_requirements_path(),
             projects=(url4_project, engine_project),
-        ):
+        )
+        for step, (label, command) in enumerate(zip(_STEP_LABELS, commands, strict=True), 1):
+            progress(f"  {step}/{len(commands)} {label}")
             try:
                 completed = run_command(
                     command,
