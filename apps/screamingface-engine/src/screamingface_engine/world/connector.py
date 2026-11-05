@@ -83,6 +83,7 @@ from screamingface_engine.world.cache_readback import (
     read_cache_outcome,
     requires_revalidation,
 )
+from screamingface_engine.world.capture_proof import replay_failure_code
 from screamingface_engine.world.config import ModelSpec, WorldConfigError, provider_of, routes_for
 from screamingface_engine.world.errors import RunnerRequestError
 from screamingface_engine.world.fresh_judge_retry import scope_for_this_send
@@ -1360,6 +1361,7 @@ async def _recorded_completion(
             case_key=case_key,
             occurrence=occurrence,
             answered=True,
+            replay_failure=replay_failure_code(resp),
         )
     )
     return resp, outcome

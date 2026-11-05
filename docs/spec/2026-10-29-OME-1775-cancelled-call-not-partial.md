@@ -298,3 +298,16 @@ time-based failure is never forgiven (R1); a time limit that records no failure 
   is an operations task, not a rule change.
 - The 10 prod rows. They were set to `complete` by hand on 2026-10-29 (backup
   `~/sf-backups/partial-to-complete-2026-10-29/`).
+
+## R1 correction after blocking review (2026-11-05)
+
+This section supersedes the broad failed-case rule above. A failed case alone does not prove
+that replay will fail: data mounts and outbound reads are not frozen and can recover.
+Forgiveness requires a failed case with only a positively identified deterministic model
+failure, and a matching stored response for the cancelled call's case/attempt. Initially the
+only accepted failure is `model_token_cap`, which the Engine derives from an empty response
+with `finish_reason=length`. Unknown, transient, missing-result and time-based failures remain
+strict. Every attempt must satisfy the rule. All existing ambiguity and retry guards remain.
+
+Previously relabelled production rows are not validated by this code change. Replay or
+recompute them separately before treating those rows as acceptance evidence.

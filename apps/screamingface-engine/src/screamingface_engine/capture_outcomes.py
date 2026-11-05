@@ -4,8 +4,8 @@ FEATURE: OME-1307 — a capture run records, for every chat call and every web-t
 the gateway stored it in the frozen copy. Each logical call takes an occurrence of its case key and
 request, in capture and in replay, so a replay reads the exact entry its capture stored (§5.4).
 
-FEATURE: OME-1775 — a no-answer outcome in a Case that failed does not make the run partial, because
-a replay fails that Case again (spec §4, R1). The tally keeps each Case's final result for it.
+FEATURE: OME-1775 — an unanswered outcome may be forgiven only with a deterministic Case failure
+and a matching stored failure response (spec R1 correction, 2026-11-05).
 
 A shared leaf: stdlib only, importable by both halves of the engine.
 """
@@ -45,6 +45,8 @@ class CaptureOutcome:
     """The call's case key (:func:`case_key_for`); ``""`` when the call names no Case."""
     occurrence: int | None = None
     """The occurrence the call took (:meth:`CaptureTally.next_occurrence`)."""
+    replay_failure: str | None = field(default=None, kw_only=True)
+    """A deterministic failure identified from this response; proof only when stored."""
     answered: bool = True
     """The model got an answer: a chat call's 2xx response was read, or a tool call gave one."""
 
@@ -147,7 +149,8 @@ class CaptureTally:
     """Per (case key, lane, request digest), the occurrence the next logical call takes."""
     case_results: dict[str, bool] = field(default_factory=dict)
     """Per str(Case id), True when a replay may score the Case: ANY final Case result of the run
-    scored it, or failed on time (OME-1775 R1, `benchmarks/aggregation.py` `_failed_on_time`).
+    scored it, or lacks a supported deterministic failure in any Attempt (OME-1775 R1).
+    False is only eligibility: `_lost` separately checks stored evidence at the call's case key.
     A run holds one final result per Candidate."""
 
     def status(self) -> Literal["complete", "partial"]:
@@ -194,9 +197,9 @@ class CaptureTally:
 
         Q27 forgives no outcome: a call that left no entry at its key would be a replay miss, so a
         later call can never make up for it. R1 (OME-1775, spec §4)
-        is the one exception. A call that gave the model no answer, in a Case that every final
-        result failed, and that no later occurrence of the same request answered, is reproduced
-        exactly by a replay: it misses, a miss is permanent, and the Case fails again.
+        is the one exception, narrowed by the 2026-11-05 correction: every final result must
+        have a supported deterministic failure, backed by a stored failure response at the
+        cancelled call's case/attempt key. An unknown or transient failure is never proof.
 
         FEATURE: OME-1775 — spec §4 (R1 to R4).
         """
@@ -205,20 +208,32 @@ class CaptureTally:
             if outcome.answered and outcome.occurrence is not None:
                 key = (outcome.case_key, outcome.lane, outcome.digest)
                 answered_at[key] = max(answered_at.get(key, -1), outcome.occurrence)
+        stable_keys = {
+            (outcome.case_id, outcome.case_key)
+            for outcome in self.outcomes
+            if outcome.lane == "chat"
+            and outcome.status == "stored"
+            and outcome.answered
+            and outcome.digest is not None
+            and outcome.case_key
+            and outcome.replay_failure == "model_token_cap"
+        }
         return [
             outcome
             for outcome in self.outcomes
-            if outcome.status != "stored" and not self._forgiven(outcome, answered_at)
+            if outcome.status != "stored" and not self._forgiven(outcome, answered_at, stable_keys)
         ]
 
     def _forgiven(
         self,
         outcome: CaptureOutcome,
         answered_at: Mapping[tuple[str, Lane, str | None], int],
+        stable_keys: set[tuple[str | None, str]],
     ) -> bool:
         """True when a replay reproduces this outcome exactly, so the run is not partial (R1)."""
         # INVARIANT: a Case missing from ``case_results`` is never forgiven, and neither is a Case
-        # that a replay may score (it scored for any Candidate, or it failed on time).
+        # that a replay may score. Eligibility alone is not proof: the stored failure must also
+        # belong to this exact case/attempt, never a different attempt or neighbouring Case.
         # WHY: the retry guard exists because url4 ``retry=`` can retry a retryable no-answer
         # failure into an answer at the next occurrence in the capture (spec §4.1). A replay miss
         # is permanent and url4 never retries it, so the replay drops that member, and the Case
@@ -229,6 +244,7 @@ class CaptureTally:
             and outcome.case_id is not None
             and outcome.occurrence is not None
             and self.case_results.get(outcome.case_id) is False
+            and (outcome.case_id, outcome.case_key) in stable_keys
             and answered_at.get((outcome.case_key, outcome.lane, outcome.digest), -1)
             <= outcome.occurrence
         )
@@ -280,8 +296,8 @@ def record_capture_outcome(outcome: CaptureOutcome) -> None:
 def record_case_results(results: Iterable[tuple[object, bool]]) -> None:
     """Note each final Case result (Case id, a replay may score it) in the bound tally. A no-op
     when none is bound. A Case that a replay may score in any result stays so. The caller
-    (`finalize_candidate_result`) sets the flag for a Case that scored or that failed on time, so
-    R1 never forgives the calls of such a Case."""
+    (`finalize_candidate_result`) sets the flag unless every Attempt has a supported deterministic
+    failure. R1 separately checks stored evidence before forgiving an outcome."""
 
     tally = _tally.get()
     if tally is None:

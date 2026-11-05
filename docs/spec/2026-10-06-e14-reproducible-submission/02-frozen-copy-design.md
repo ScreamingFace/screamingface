@@ -51,7 +51,7 @@ header, the revisions endpoint) is removed from the stack. There is no publish s
 | Q29 | Per-case exact (review item 3) | The SDK computes a case digest from the graded cases. The board stores it at submit and compares it on reproduction. |
 | Q30 | Tavily retrieval cache (found in the review) | The cache key includes the caller's account. Cross-account sharing stops until the engine has a service identity. |
 | Q31 | Capture default (2026-10-29) | Reverses Q22. Capture is off by default; it is on only when the caller passes `capture=True`. |
-| Q32 | Exact replay is not partial (2026-10-29, OME-1775) | Narrows Q27's "no outcome is forgiven". A no-answer outcome (`error`, or `failed`/`refused`/`missing` on a non-2xx last response) is not counted when its Case's final result is not scored for any Candidate, the Case did not fail on time (a time-based failure code), and no later call of the same lane, digest and case key gave an answer. A `max-age` re-issue with a 2xx last response takes that response's status. A connect-phase transport failure is `error`, not `ambiguous`. Every other outcome keeps Q27. Spec: `docs/spec/2026-10-29-OME-1775-cancelled-call-not-partial.md` §4. |
+| Q32 | Exact replay is not partial (2026-10-29, OME-1775) | Narrows Q27's "no outcome is forgiven". A no-answer outcome (`error`, or `failed`/`refused`/`missing` on a non-2xx last response) is not counted when every Candidate/Attempt has a supported deterministic failure (`model_token_cap` only), the copy contains a matching stored failure response at that call's case/attempt key, and no later call of the same lane, digest and case key gave an answer. Unknown, temporary and time-based failures stay strict (2026-11-05 blocking-review correction). A `max-age` re-issue with a 2xx last response takes that response's status. A connect-phase transport failure is `error`, not `ambiguous`. Every other outcome keeps Q27. Spec: `docs/spec/2026-10-29-OME-1775-cancelled-call-not-partial.md` §4. |
 
 ## 3. Data model (AI Gateway, new)
 
@@ -191,11 +191,11 @@ present (pinned 2026-10-08, B3 review).
    `partial`. Q27 removes D2: a call that left no entry at its key would be a replay miss. Q32 forgives
    only a no-answer outcome (`error`, or `failed`/`refused`/`missing` whose last response was not 2xx)
    that meets all three of these conditions:
-   - Its Case's final result (after the Attempt fold) is not scored, and the Case scored for no
-     Candidate in the run.
-   - Its Case did not fail on time: no failure of the Case, or of one of its Attempts, has a
-     time-based code or `source_code` (a timeout or a deadline). A replay serves stored answers at
-     once, so it may score such a Case.
+   - Every final Case result and every Attempt failed with a supported deterministic failure.
+     Currently only a non-retryable candidate `model_token_cap` qualifies. Unknown, missing,
+     retryable and time-based failures stay strict; a data mount or outbound source can recover.
+   - The copy contains a stored response classified as `model_token_cap` at the unanswered call's
+     exact case/attempt key. A failed Case alone, or a response from another attempt, is not proof.
    - No later call with the same lane, request digest and case key, at a higher occurrence, gave
      the model an answer.
 

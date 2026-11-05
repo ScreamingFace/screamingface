@@ -236,3 +236,11 @@ differ from §2, this section applies.
 - **The `status()` default.** `answered` has the default `False`, the strict value, because a prior
   test (`test_retry_cost_of_intelligence.py:303`) calls `status()` with no argument. That test does
   not change.
+
+## Blocking-review correction (2026-11-05)
+
+The user requested fixing the blocker and merging #1616. First add the recovering-source
+executor test. Then narrow aggregation's eligibility to deterministic token-cap failures in
+all attempts, and require a stored token-cap response at the cancelled outcome's case key in
+the tally. Update the old broad-rule assertions to the stricter contract and document their
+scope; retain all strict timeout, ambiguity, scored-case and retry checks. Run both stack gates.

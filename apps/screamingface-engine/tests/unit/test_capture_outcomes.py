@@ -177,6 +177,12 @@ def _case_tally(*outcomes: CaptureOutcome, case_results: dict[str, bool]) -> Cap
     tally = CaptureTally(mode="capture", frozen_copy_id=_COPY, sealed=True)
     tally.outcomes.extend(outcomes)
     tally.case_results.update(case_results)
+    # OME-1775 review fix: these guard tests start with positive stored-failure evidence.
+    # Missing evidence is covered separately in test_capture_replay_proof.py.
+    tally.outcomes.extend(
+        CaptureOutcome("chat", "stored", "cause", case_id, "k", 0, replay_failure="model_token_cap")
+        for case_id in case_results
+    )
     return tally
 
 
