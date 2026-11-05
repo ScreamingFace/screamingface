@@ -100,11 +100,15 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
     </div>
 
     <p>
-      A member marked <code>optional=True</code> (on a <code>Model</code>, a
-      <code>Pipeline</code> or a <code>Fusion</code>) can fail while the run still synthesizes, as
-      long as at least <code>quorum</code> members succeed. A failed optional member appears as a
-      failed answer with the reason <code>missing</code> and never as a vote. A required member that
-      fails fails the candidate. <code>optional</code> is only valid in a Fusion's member position.
+      A member marked <code>optional=True</code> (on a <code>Model</code> or a
+      <code>Pipeline</code>, or a fusion wrapped in <code>sf.Pipeline([...], optional=True)</code>)
+      can fail while the run still completes, as long as at least <code>quorum</code> members
+      succeed. A failed optional member appears as an answer with the status <code>fail</code> and
+      the reason <code>missing</code>, and never as a vote. When fewer than <code>quorum</code>
+      members succeed, or a required member fails, the candidate fails and its score is
+      <code>None</code>. <code>optional=True</code> is only valid on a member of
+      <code>sf.Fanout</code>; elsewhere it raises
+      <code>ValueError: optional=True is only supported on sf.Fanout members</code>.
     </p>
 
     <ThemedDiagram

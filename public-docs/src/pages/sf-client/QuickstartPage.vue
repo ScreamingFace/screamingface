@@ -207,7 +207,7 @@ const loadLocalOut = `('MedXpertQA', '1e5a3b8a461a52f7', 2450)`
 
 const scoresLocal = `{c.name: c.score for c in report.candidates}`
 
-const scoresLocalOut = `{'claude-opus-4.8': 0.0, 'gpt-5.5': 1.0, 'gemini-3.1-pro-preview': 1.0, 'frontier-trio': 0.0}`
+const scoresLocalOut = `{'claude-opus-4.8': 0.0, 'gpt-5.5': 1.0, 'gemini-3.1-pro-preview': 1.0, 'frontier-trio': 1.0}`
 
 const checkReport = `report.ok          # False if any candidate or member failed
 report.failures    # what failed, and why`
@@ -515,7 +515,7 @@ report.failures    # what failed, and why`
       <code>draco-3pass</code> runs the same 100-case dataset and rubric as the canonical
       <code>draco</code> board, judging each answer three times instead of five. Passing
       <code>limit=1</code> pins this tutorial to a single case. The <code>medxpert</code> run below
-      cost $0.26 for the four candidates.
+      cost $0.717229 for the four candidates.
     </p>
 
     <h2>5 · Evaluate</h2>

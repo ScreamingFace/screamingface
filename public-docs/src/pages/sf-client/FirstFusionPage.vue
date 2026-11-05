@@ -29,9 +29,9 @@ const run = `report = sf.evaluate(fusion, benchmark="ifeval", limit=3)`
 const runLocal = `report = sf.evaluate(fusion, benchmark="medxpert", limit=3)`
 
 const read = `candidate = report.candidates.only
-candidate.score`
+candidate.score, report.usage.cost_usd`
 
-const readOut = `0.6667`
+const readOut = `(0.6667, Decimal('0.4662255'))`
 </script>
 
 <template>
@@ -155,7 +155,7 @@ const readOut = `0.6667`
       it one candidate, so <code>report.candidates.only</code> is your fusion, and its
       <code>score</code> is the fraction of cases it got right, and higher is better. On
       <code>medxpert</code> with <code>limit=3</code> the fusion answered two of three correctly.
-      The run cost $0.17, read from <code>report.usage.cost_usd</code>:
+      The run cost $0.4662255, read from <code>report.usage.cost_usd</code>:
     </p>
 
     <div class="not-prose">

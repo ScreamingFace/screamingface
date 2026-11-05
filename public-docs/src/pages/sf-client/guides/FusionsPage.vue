@@ -383,12 +383,13 @@ const synthesizeSig = `sf.Synthesize(
     </p>
 
     <p>
-      <code>sf.Median</code>, <code>sf.Mean</code>, <code>sf.Judge</code>, <code>sf.Pick</code> and
-      <code>sf.Merge</code> work the same way, and <code>sf.Rank</code>, <code>sf.Concat</code> and
-      <code>sf.Filter</code> hand members to a later stage. The
+      <code>sf.Median</code>, <code>sf.Mean</code>, <code>sf.ArgMax</code>, <code>sf.ArgMin</code>,
+      <code>sf.First</code>, <code>sf.JudgePick</code> and <code>sf.Merge</code> work the same way,
+      and <code>sf.Rank</code>, <code>sf.Concat</code> and <code>sf.Filter</code> keep some members
+      for a later step. The
       <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> lists them all.
-      <code>quorum</code> sets how many members must succeed, and a member built with
-      <code>optional=True</code> may fail without stopping the Fusion.
+      <code>quorum</code> on <code>sf.Fanout</code> sets how many members must succeed, and a member
+      built with <code>optional=True</code> may fail without stopping the fusion.
     </p>
 
     <h3>4 · Nest a fusion</h3>
@@ -565,23 +566,6 @@ const synthesizeSig = `sf.Synthesize(
             no prompt. With no prompt, the default synthesis prompt applies.
           </td>
         </tr>
-        <tr>
-          <td><code>quorum</code></td>
-          <td><code>int&nbsp;|&nbsp;"all"</code></td>
-          <td>
-            How many members must succeed. The default <code>"all"</code> requires every required
-            member; a member built with <code>optional=True</code> may fail without stopping the
-            Fusion when the quorum is met.
-          </td>
-        </tr>
-        <tr>
-          <td><code>optional</code></td>
-          <td><code>bool</code></td>
-          <td>
-            Marks this Fusion as optional when it is a member of another Fusion. Default
-            <code>False</code>.
-          </td>
-        </tr>
       </tbody>
     </table>
 
@@ -660,7 +644,9 @@ const synthesizeSig = `sf.Synthesize(
         </tr>
         <tr>
           <td><code>quorum</code> is above the member count</td>
-          <td><code>ValueError: Fusion quorum must be between zero and the member count</code></td>
+          <td>
+            <code>ValueError: sf.Fanout quorum must be between zero and the member count</code>
+          </td>
         </tr>
       </tbody>
     </table>
