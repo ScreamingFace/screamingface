@@ -160,6 +160,8 @@ class RunRecord:
     benchmark: str
     case_count: int
     candidates: tuple[CandidateRecord, ...]
+    # Whether a cancel has flagged the Run. Not on the wire: `state` says `canceled` once over.
+    canceled: bool = False
 
 
 # WHY a cap: one `GET /runs` page is one bounded query, never a scan of an owner's whole history.

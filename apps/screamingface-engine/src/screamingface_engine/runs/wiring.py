@@ -12,11 +12,14 @@ Either way the App declares the outcome stream, because its own terminal writers
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import FastAPI
@@ -59,8 +62,10 @@ def hold_local_database(url: str) -> int:
     WHY: a local Engine reconciles every Candidate bound before it started as `lost`, which is
     right after a restart and wrong while another Engine on the same file still runs them.
     """
-    # WHY resolved: two spellings of one file (a symlink, `..`) must find one lock.
-    path = Path(Path(url.removeprefix("sqlite://")).resolve().as_posix() + ".lock")
+    # WHY the path alone, resolved: Tortoise reads a query (`?journal_mode=WAL`) as options of
+    # the same file, and a symlink or `..` spelling names the same file too; all find one lock.
+    file_path = url.removeprefix("sqlite://").split("?", 1)[0]
+    path = Path(Path(file_path).resolve().as_posix() + ".lock")
     descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
         _lock(descriptor)
@@ -200,15 +205,7 @@ class _RunsLifecycle:
         if self._local:
             ensure_sqlite_dir(self._url)
             self._local_lock = hold_local_database(self._url)
-        # WHY roll back here: a failed startup runs no shutdown hook, and a local Engine inside
-        # the Client's own process lives on, so a held lock would refuse its next start.
-        try:
-            await self._open()
-        except BaseException:
-            await self.stop()
-            raise
-
-    async def _open(self) -> None:
+        # A failure from here on is rolled back by the App's lifespan (`install_runs`).
         store = await open_run_store(
             self._url,
             self._settings,
@@ -253,6 +250,9 @@ class _RunsLifecycle:
             try:
                 if store is not None:
                     await store.aclose()
+            except Exception:
+                # WHY logged, not raised: a raise here would skip the App's later shutdown hooks.
+                logger.exception("the Run registry did not close cleanly")
             finally:
                 if self._local_lock is not None:
                     os.close(self._local_lock)
@@ -288,6 +288,33 @@ def install_runs(
     )
     app.router.on_startup.append(lifecycle.start)
     app.router.on_shutdown.append(lifecycle.stop)
+    app.router.lifespan_context = _rolled_back_on_failed_start(
+        app.router.lifespan_context, lifecycle
+    )
+
+
+def _rolled_back_on_failed_start(
+    inner: Callable[[Any], AbstractAsyncContextManager[Any]], lifecycle: _RunsLifecycle
+) -> Callable[[Any], AbstractAsyncContextManager[Any]]:
+    """The App's lifespan, releasing Runs when ANY startup hook fails, even one after Runs'.
+
+    WHY: a failed startup runs no shutdown hook, and a local Engine inside the Client's own
+    process lives on; the lock, store and tasks Runs took would stay held.
+    """
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Any) -> AsyncIterator[Any]:
+        started = False
+        try:
+            async with inner(app) as state:
+                started = True
+                yield state
+        except BaseException:
+            if not started:
+                await lifecycle.stop()
+            raise
+
+    return lifespan
 
 
 __all__ = [

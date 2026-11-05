@@ -141,6 +141,7 @@ class TortoiseRunStore:
             benchmark=run.benchmark,
             case_count=run.case_count,
             candidates=tuple(_candidate(row) for row in rows),
+            canceled=run.canceled,
         )
 
     # --- writes ------------------------------------------------------------------------------
@@ -305,6 +306,12 @@ class TortoiseRunStore:
             await _lock_run(run_id, conn)
             if await Candidate.filter(run_id=run_id, state__in=_LIVE).using_db(conn).exists():
                 await Run.filter(id=run_id).using_db(conn).update(canceled=True)
+                # Spec D12: every bound live Candidate may be on a runner, so it is owed a stop.
+                await (
+                    Candidate.filter(run_id=run_id, state__in=_LIVE, topic__isnull=False)
+                    .using_db(conn)
+                    .update(stop_owed=True)
+                )
                 await (
                     Candidate.filter(run_id=run_id, state="pending")
                     .using_db(conn)
@@ -312,6 +319,15 @@ class TortoiseRunStore:
                 )
                 await self._touch(run_id, now, conn)
         return await self.get(owner, run_id)
+
+    @_in_context
+    async def owed_stops(self, owner: OwnerKey, run_id: str) -> list[str]:
+        rows = await Candidate.filter(run_id=run_id, run__owner=owner, stop_owed=True)
+        return [row.topic for row in rows if row.topic is not None]
+
+    @_in_context
+    async def stop_done(self, topic: str) -> None:
+        await Candidate.filter(topic=topic, stop_owed=True).update(stop_owed=False)
 
     async def _touch(
         self, run_id: str, now: datetime, conn: BaseDBAsyncClient | None = None

@@ -164,6 +164,16 @@ def _lifecycle(tmp_path: Path) -> tuple[wiring._RunsLifecycle, str]:
     return lifecycle, url
 
 
+def _local_app(tmp_path: Path) -> tuple[FastAPI, str]:
+    """A bare App with local Runs installed on its own database file."""
+    app = FastAPI()
+    url = f"sqlite://{tmp_path}/engine.sqlite3"
+    wiring.install_runs(
+        app, Settings(database_url=url), InMemoryCandidateOutcomeStream(), local=True
+    )
+    return app, url
+
+
 async def test_a_failed_start_releases_the_local_lock(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -174,10 +184,11 @@ async def test_a_failed_start_releases_the_local_lock(
         raise RuntimeError("the database refused")
 
     monkeypatch.setattr(wiring, "open_run_store", _refuse)
-    lifecycle, url = _lifecycle(tmp_path)
+    app, url = _local_app(tmp_path)
 
     with pytest.raises(RuntimeError, match="refused"):
-        await lifecycle.start()
+        async with app.router.lifespan_context(app):
+            pass
 
     os.close(hold_local_database(url))
 
@@ -192,8 +203,7 @@ async def test_a_failed_close_still_releases_the_local_lock(tmp_path: Path) -> N
     lifecycle._local_lock = hold_local_database(url)
     lifecycle._app.state.run_registry = _FailingStore()
 
-    with pytest.raises(RuntimeError, match="close failed"):
-        await lifecycle.stop()
+    await lifecycle.stop()  # logged, so the App's later shutdown hooks still run
 
     os.close(hold_local_database(url))
 
