@@ -4,7 +4,9 @@ Owner revision, 2026-11-03: imported results belong in the regular table, share
 sorting and normal rank numbers, and are distinguished visually by gray styling.
 Remove the separate section, explanatory paragraph, repeated external labels and
 comparison-note column. “Original result ↗” replaces the recipe action in the existing “Run Locally” column. Non-reproducibility
-and comparison notes remain accessible through hover and screen-reader text.
+remains available through hover and screen-reader text. Comparison notes use a
+native “Comparison” disclosure in the model cell, readable by touch, keyboard and
+screen readers without adding a notes column.
 
 Merge the community top 50 and valid imported baselines, sort by descending score,
 then take the combined top 50 and assign ordinal ranks. On equal scores keep the
@@ -15,8 +17,13 @@ Header sorting changes display order, never the score-based ranks.
 
 Summaries and table score tracks describe the displayed rows. Cost-based frontier
 claims and replay actions remain community-only. The cost/score chart remains
-community-only; score-only bars include external results in gray. External rows do not invent cost, authors, providers or run dates;
-show unknown fields as dashes and the import date in a titled date cell.
+community-only and retains every fetched community point even when imports push
+those runs outside the combined table's top 50. Score-only bars include external
+results in gray. The count is labelled “Results shown”. External rows do not
+invent cost, authors, providers or run dates; show unknown fields as dashes. The
+“Added” column shows community submission dates and first import dates, with an
+“Imported on” tooltip on external rows. It does not claim to show source run dates
+or when a source was last read.
 
 Preserve native scores, safe text rendering and structural absolute HTTP(S) URL
 validation. No new backend/API, migration, dependencies or production import.
