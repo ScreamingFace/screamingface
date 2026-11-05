@@ -84,9 +84,10 @@ class CandidateOutcome:
             raise ValueError(f"an outcome status is one of {sorted(OUTCOME_STATUSES)}")
         cost = self.cost_usd
         # WHY the stored value: rounding up can carry a cost just below the bound onto it, which
-        # the column cannot hold.
+        # the column cannot hold. WHY the plain bound first: `quantize` raises `InvalidOperation`
+        # on a huge exponent, which the writer does not drop as malformed.
         if cost is not None and (
-            not cost.is_finite() or cost < 0 or stored_cost(cost) >= _MAX_COST
+            not cost.is_finite() or cost < 0 or cost >= _MAX_COST or stored_cost(cost) >= _MAX_COST
         ):
             raise ValueError(f"a cost must be a finite amount from 0 up to {_MAX_COST} USD")
         if storable_error_code(self.error_code) != self.error_code:
