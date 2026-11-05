@@ -452,6 +452,12 @@ const abstainOut = `(True, '', 0.0)`
       reason <code>not_selected</code>.
     </p>
 
+    <ThemedDiagram
+      name="sf-client-0-1-11-narrow-chain"
+      alt="Flow: three members answer 1, 1 and 2; a Judge scores them 10, 10 and 2; Rank keeps the two best, a and b; the Vote reads a and b and answers 1; member c is excluded with the reason not_selected."
+      caption="One combine call with a Judge, a Rank and a Vote: the Vote reads only the kept members."
+    />
+
     <table>
       <thead>
         <tr>

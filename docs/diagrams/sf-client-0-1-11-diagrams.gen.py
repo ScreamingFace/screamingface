@@ -83,29 +83,29 @@ class Svg:
 
 
 def reducers_selection(theme):
-    s = Svg("reducers-selection", "The input of the stage after Rank or Filter", 1060, 360, theme)
-    s.heading("What the stage after Rank or Filter receives",
-              "SELECTION IN A PIPELINE · THE NEXT STAGE IS A STAGE OF THE SAME PIPELINE")
+    s = Svg("reducers-selection", "The input of the Synthesize writer after Rank or Filter", 1060, 360, theme)
+    s.heading("What the writer after Rank or Filter receives",
+              "NARROW STEP IN A CHAIN · THE WRITER IS THE sf.Synthesize STEP THAT FOLLOWS")
     s.box(40, 100, 220, 96, "Case input", ["the question of one case,", "given to every member"])
-    s.box(340, 100, 260, 96, "Members", ["each member answers", "the Case input"], accent=True)
-    s.box(680, 100, 340, 96, "Rank(k) or Filter", ["Rank keeps the best k, best first", "Filter keeps by a test, author order"])
+    s.box(340, 100, 260, 96, "sf.Fanout members", ["each member answers", "the Case input"], accent=True)
+    s.box(680, 100, 340, 96, "sf.Rank(k) or sf.Filter", ["Rank keeps the best k, best first", "Filter keeps by a test, author order"])
     s.arrow([(260, 148), (340, 148)])
     s.arrow([(600, 148), (680, 148)])
     s.label(640, 138, "answers", "muted")
-    s.box(340, 250, 680, 82, "The next stage", ["receives one JSON object:",
+    s.box(340, 250, 680, 82, "sf.Synthesize writer", ["receives one JSON object:",
           '{"input": <Case input>, "selected": [{"id": ..., "text": ...}]}'], accent=True)
     s.arrow([(850, 196), (850, 250)])
     s.label(860, 228, "kept members", "muted", "start")
     s.arrow([(150, 196), (150, 291), (340, 291)])
     s.label(160, 240, "input", "muted", "start")
-    s.label(40, 352, "When nothing is kept, selected is []. A selection that ends a candidate, is a Fusion member or feeds a corrective loop raises ValueError.", "muted", "start", 10)
+    s.label(40, 352, "When nothing is kept, selected is []. A member that a narrow step leaves out is excluded with the reason not_selected.", "muted", "start", 10)
     s.write(theme)
 
 
 def fusion_quorum(theme):
     s = Svg("fusion-quorum", "Fusion with quorum and optional members", 1060, 430, theme)
-    s.heading("Which members reach the synthesizer",
-              "FUSION(MEMBERS, SYNTHESIZER, QUORUM=...) · THE QUORUM IS CHECKED AFTER THE MEMBERS FINISH")
+    s.heading("Which members reach the last step",
+              "sf.Fanout(MEMBERS, QUORUM=...) >> REDUCER OR sf.Synthesize · THE QUORUM IS CHECKED AFTER THE MEMBERS FINISH")
     s.box(40, 100, 230, 66, "Member A", ["required, succeeds"], stroke="ok")
     s.box(40, 190, 230, 66, "Member B", ["required, succeeds"], stroke="ok")
     s.box(40, 280, 230, 66, "Member C", ["optional=True, fails"], stroke="bad", dashed=True)
@@ -115,13 +115,32 @@ def fusion_quorum(theme):
     s.arrow([(270, 313), (335, 313), (335, 250), (400, 250)], "bad", dashed=True)
     s.label(40, 372, "A failed optional member is a failed answer with reason missing,", "bad", "start")
     s.label(40, 389, "never a vote.", "bad", "start")
-    s.box(780, 100, 240, 90, "Synthesizer", ["combines the answers", "that reached it"], stroke="ok")
+    s.box(780, 100, 240, 90, "Reducer or Synthesize", ["combines the answers", "that reached it"], stroke="ok")
     s.box(780, 250, 240, 90, "Candidate fails", ["quorum not met, or a", "required member failed"], stroke="bad")
     s.arrow([(670, 200), (725, 200), (725, 145), (780, 145)], "ok")
     s.arrow([(670, 250), (725, 250), (725, 295), (780, 295)], "bad")
     s.label(676, 192, "met", "ok", "start")
     s.label(676, 268, "not met", "bad", "start")
-    s.label(40, 418, "A required member that fails fails the candidate, whatever the quorum. quorum=0 lets the synthesizer run with no successful member.", "muted", "start", 10)
+    s.label(40, 418, "A required member that fails fails the candidate, whatever the quorum. optional=True is valid on a sf.Fanout member only.", "muted", "start", 10)
+    s.write(theme)
+
+
+def narrow_chain(theme):
+    s = Svg("narrow-chain", "A chain with a narrow step before a reducer", 1060, 410, theme)
+    s.heading("One combine call: score, narrow, reduce",
+              "sf.Fanout(m) >> sf.Judge(...) >> sf.Rank(2, by=\"score:judge\") >> sf.Vote()")
+    s.box(40, 100, 200, 96, "sf.Fanout", ["members a, b, c answer:", "1, 1 and 2"], accent=True)
+    s.box(290, 100, 200, 96, "sf.Judge", ["one call scores every", "member: 10, 10 and 2"])
+    s.box(540, 100, 220, 96, "sf.Rank(2)", ["keeps the 2 best by", "score:judge: a and b"])
+    s.box(810, 100, 210, 96, "sf.Vote()", ["reads a and b only", "answer: '1'"], stroke="ok")
+    s.arrow([(240, 148), (290, 148)])
+    s.arrow([(490, 148), (540, 148)])
+    s.arrow([(760, 148), (810, 148)], "ok")
+    s.box(540, 250, 220, 70, "Member c", ["status excluded", "reason not_selected"], stroke="bad", dashed=True)
+    s.arrow([(650, 196), (650, 250)], "bad")
+    s.label(40, 350, "The Judge, Rank and Vote steps run in one combine call on the engine.", "mid", "start")
+    s.label(40, 368, "A block takes at most one judge and at most 4 narrow steps, and ends in one reducer or sf.Synthesize.", "muted", "start", 10)
+    s.label(40, 384, "The evidence is on CaseOperation.combine: narrow, members, tally and result.", "muted", "start", 10)
     s.write(theme)
 
 
@@ -208,5 +227,5 @@ def classify_flow(theme):
 
 
 for theme in THEMES:
-    for fn in (reducers_selection, fusion_quorum, media_fetch, pinned_cache, classify_flow):
+    for fn in (reducers_selection, fusion_quorum, narrow_chain, media_fetch, pinned_cache, classify_flow):
         fn(theme)
