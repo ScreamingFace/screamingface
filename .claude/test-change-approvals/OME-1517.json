@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1517",
+  "branch": "OME-1517-unreadable-served-costs",
+  "approver": "Filip Boltuzic",
+  "date": "2026-11-02",
+  "scope": "Replace the driver-error substring assertion with the exact exception type and SQLSTATE; add public-history and projection regressions. Existing product behavior and other assertions are unchanged.",
+  "reason": "Filip authorized the reviewed fixes: “please fix the issues you feel are real ones”.",
+  "files": {
+    "apps/scoreboard/tests/unit/test_unreadable_served_costs.py": {
+      "base_blob": "c64af08e332eb070dc80a322cb087f64719e12db",
+      "approved_blob": "c0497d159dd8a25289ec4fe7b25feb65517a69d6"
+    }
+  }
+}

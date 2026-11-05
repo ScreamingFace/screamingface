@@ -78,6 +78,10 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         # response that triggered it.
         "frozen_copy_miss",
         "frozen_copy_unavailable",
+        # world/connector.py::_raise_for_status via
+        # benchmarks/failure_classes.py::logprobs_unsupported (E4b part 3) — a member call refused
+        # for its logprobs. One fixed message, nothing interpolated, never the upstream text.
+        "logprobs_unsupported",
     }
 )
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import warnings
 
 import pytest
+from _nodes import fusion_node
 from _reducer_fixtures import FixtureVote, fixture_operators
 from url4 import expr, render, src, text
 
@@ -20,7 +21,7 @@ def _compile(recipe: sf.Recipe) -> None:
 
 
 def test_duplicate_members_in_reducer_fusion_warn() -> None:
-    fusion = sf.Fusion(["provider/a", "provider/a", "provider/b"], synthesizer=FixtureVote())
+    fusion = fusion_node(["provider/a", "provider/a", "provider/b"], FixtureVote())
 
     with pytest.warns(
         sf.DuplicateMembersWarning, match=r"members 1 and 2 send the same request to 'provider/a'"
@@ -34,16 +35,14 @@ def test_duplicate_members_in_reducer_fusion_warn() -> None:
 
 
 def test_three_equal_members_name_all_three_positions() -> None:
-    fusion = sf.Fusion(["provider/a"] * 3, synthesizer=FixtureVote())
+    fusion = fusion_node(["provider/a"] * 3, FixtureVote())
 
     with pytest.warns(sf.DuplicateMembersWarning, match=r"members 1, 2 and 3 send the same"):
         _compile(fusion)
 
 
 def test_two_groups_of_duplicates_warn_once_each() -> None:
-    fusion = sf.Fusion(
-        ["provider/a", "provider/b", "provider/a", "provider/b"], synthesizer=FixtureVote()
-    )
+    fusion = fusion_node(["provider/a", "provider/b", "provider/a", "provider/b"], FixtureVote())
 
     with pytest.warns(sf.DuplicateMembersWarning) as recorded:
         _compile(fusion)
@@ -59,29 +58,29 @@ def test_two_groups_of_duplicates_warn_once_each() -> None:
 @pytest.mark.parametrize(
     "fusion",
     [
-        sf.Fusion(sf.samples("provider/a", 3), synthesizer=FixtureVote()),
-        sf.Fusion(
+        fusion_node(sf.samples("provider/a", 3), FixtureVote()),
+        fusion_node(
             [sf.Model("provider/a", prompt="en"), sf.Model("provider/a", prompt="fr")],
-            synthesizer=FixtureVote(),
+            FixtureVote(),
         ),
-        sf.Fusion(
+        fusion_node(
             [sf.Model("provider/a", params={"top_p": 0.1}), sf.Model("provider/a")],
-            synthesizer=FixtureVote(),
+            FixtureVote(),
         ),
         # A Model synthesizer is not a reducer Fusion: the guard is for reducers only.
-        sf.Fusion(["provider/a", "provider/a"], synthesizer="provider/s"),
+        sf.Fanout(["provider/a", "provider/a"]) >> sf.Synthesize("provider/s"),
         # Recipe members are skipped, so two equal nested Fusions do not warn.
-        sf.Fusion(
+        fusion_node(
             [
-                sf.Fusion(["provider/a", "provider/b"], synthesizer="provider/s"),
-                sf.Fusion(["provider/a", "provider/b"], synthesizer="provider/s"),
+                sf.Fanout(["provider/a", "provider/b"]) >> sf.Synthesize("provider/s"),
+                sf.Fanout(["provider/a", "provider/b"]) >> sf.Synthesize("provider/s"),
             ],
-            synthesizer=FixtureVote(),
+            FixtureVote(),
         ),
     ],
     ids=["samples", "prompts", "params", "model-synthesizer", "nested-fusions"],
 )
-def test_distinct_members_and_non_reducer_fusions_do_not_warn(fusion: sf.Fusion) -> None:
+def test_distinct_members_and_non_reducer_fusions_do_not_warn(fusion: sf.Recipe) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error", sf.DuplicateMembersWarning)
         _compile(fusion)
@@ -95,7 +94,7 @@ _SURFACE = _CheckSurface(
 
 
 def _duplicate_loop() -> sf.CorrectiveLoop:
-    duplicated = sf.Fusion(["provider/a", "provider/a"], synthesizer=FixtureVote())
+    duplicated = fusion_node(["provider/a", "provider/a"], FixtureVote())
     return sf.CorrectiveLoop([duplicated, "provider/d"], judge="provider/j", max_rounds=2)
 
 
@@ -126,12 +125,12 @@ def test_url4_recovery_never_repeats_the_warning() -> None:
         python = sf.Url4(compiled).to_python()
         recovered = _candidate_from_url4(_linked(compiled))
 
-    assert "Fusion" in python
+    assert "sf.Fanout(['provider/a', 'provider/a'])" in python
     assert recovered.kind == "corrective_loop"
 
 
-def _pair(first: sf.Model, second: sf.Model) -> sf.Fusion:
-    return sf.Fusion([first, second], synthesizer=FixtureVote())
+def _pair(first: sf.Model, second: sf.Model) -> sf.Recipe:
+    return fusion_node([first, second], FixtureVote())
 
 
 @pytest.mark.parametrize(
@@ -151,7 +150,7 @@ def _pair(first: sf.Model, second: sf.Model) -> sf.Fusion:
     ],
     ids=["default-prompt", "leading-slash", "param-spelling", "param-order", "names"],
 )
-def test_spellings_that_send_the_same_request_warn(fusion: sf.Fusion) -> None:
+def test_spellings_that_send_the_same_request_warn(fusion: sf.Recipe) -> None:
     with pytest.warns(sf.DuplicateMembersWarning, match="members 1 and 2"):
         _compile(fusion)
 

@@ -16,6 +16,7 @@ from types import MappingProxyType
 from screamingface_engine.combine.ports import (
     OperatorDescriptor,
     OperatorUnknown,
+    SourceDescriptor,
     SpecInvalid,
     Stage,
 )
@@ -24,15 +25,26 @@ from screamingface_engine.combine.ports import (
 class OperatorRegistry:
     """One immutable set of combine operators (built once at import, in combine/builtins.py)."""
 
-    __slots__ = ("_by_id",)
+    __slots__ = ("_by_id", "_sources")
 
-    def __init__(self, descriptors: Iterable[OperatorDescriptor] = ()) -> None:
+    def __init__(
+        self,
+        descriptors: Iterable[OperatorDescriptor] = (),
+        *,
+        sources: Iterable[SourceDescriptor] = (),
+    ) -> None:
         selected: dict[str, OperatorDescriptor] = {}
         for descriptor in descriptors:
             if descriptor.id in selected:
                 raise ValueError(f"duplicate combine operator id {descriptor.id!r}")
             selected[descriptor.id] = descriptor
         self._by_id: Mapping[str, OperatorDescriptor] = MappingProxyType(selected)
+        declared: dict[str, SourceDescriptor] = {}
+        for source in sources:
+            if source.name in declared:
+                raise ValueError(f"duplicate declared signal source {source.name!r}")
+            declared[source.name] = source
+        self._sources: Mapping[str, SourceDescriptor] = MappingProxyType(declared)
 
     def __len__(self) -> int:
         return len(self._by_id)
@@ -53,6 +65,13 @@ class OperatorRegistry:
             raise SpecInvalid(
                 f"combine operator {op_id!r} is a {descriptor.stage} operator, not {stage}"
             )
+        return descriptor
+
+    def source(self, name: str) -> SourceDescriptor:
+        """The declared signal source ``name``; never echoes the name."""
+        descriptor = self._sources.get(name)
+        if descriptor is None:
+            raise SpecInvalid("a declared signal source is not registered")
         return descriptor
 
     def describe(self) -> list[dict[str, object]]:

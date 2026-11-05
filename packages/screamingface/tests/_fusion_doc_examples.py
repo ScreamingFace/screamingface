@@ -74,37 +74,30 @@ def _gpt() -> sf.Model:
 
 
 def _readme_frontier_pair() -> sf.Recipe:  # README.md:57
-    return sf.Fusion(
-        [_opus(), _gpt()],
-        name="frontier-pair",
-        synthesizer="openrouter/anthropic/claude-opus-4.8",
+    return sf.Fanout([_opus(), _gpt()], name="frontier-pair") >> sf.Synthesize(
+        "openrouter/anthropic/claude-opus-4.8"
     )
 
 
 def _readme_pair() -> sf.Recipe:  # README.md:119 (opus and gpt: README.md:54-55)
-    return sf.Fusion(
-        [_opus(), _gpt()],
-        synthesizer="openrouter/anthropic/claude-opus-4.8",
-    )
+    return sf.Fanout([_opus(), _gpt()]) >> sf.Synthesize("openrouter/anthropic/claude-opus-4.8")
 
 
 def _readme_constraint_aware() -> sf.Recipe:  # README.md:134 (opus and gpt: README.md:54-55)
-    return sf.Fusion(
-        [_opus(), _gpt()],
-        synthesizer=sf.Model(
+    return sf.Fanout([_opus(), _gpt()]) >> sf.Synthesize(
+        sf.Model(
             "openrouter/openai/gpt-5.5",
             prompt=(
                 "Produce one final answer that preserves every constraint in the original request."
             ),
             params={"reasoning_effort": "high"},
-        ),
+        )
     )
 
 
 def _readme_samples_vote() -> sf.Recipe:  # README.md:158
-    return sf.Fusion(
-        sf.samples("openrouter/openai/gpt-5.5", 5, temperature=0.7),
-        synthesizer=sf.Vote(extract="last_number", normalize="numeric"),
+    return sf.Fanout(sf.samples("openrouter/openai/gpt-5.5", 5, temperature=0.7)) >> sf.Vote(
+        over="last_number", normalize="numeric"
     )
 
 
@@ -121,174 +114,133 @@ def _readme_recursive() -> sf.Recipe:  # README.md:222 (draft, review, final: RE
     review_chain = sf.Pipeline([draft, review, final], name="review-chain")
     judge = sf.Model("openrouter/anthropic/claude-opus-4.8")
     writer = sf.Model("openrouter/openai/gpt-5.5")
-    return sf.Fusion(
+    return sf.Fanout(
         [
             review_chain,
             sf.Model("openrouter/google/gemini-3.1-pro-preview"),
-        ],
-        synthesizer=sf.Pipeline([judge, writer]),
-    )
+        ]
+    ) >> sf.Synthesize(sf.Pipeline([judge, writer]))
 
 
 def _readme_by_vote() -> sf.Recipe:  # README.md:260
-    return sf.Fusion(_ROUTES, synthesizer=sf.Vote(extract="last_number", normalize="numeric"))
+    return sf.Fanout(_ROUTES) >> sf.Vote(over="last_number", normalize="numeric")
 
 
 def _readme_by_median() -> sf.Recipe:  # README.md:261
-    return sf.Fusion(_ROUTES, synthesizer=sf.Median(extract="last_number", select="value"))
+    return sf.Fanout(_ROUTES) >> sf.Median(over="last_number", select="value")
 
 
 def _readme_by_grader() -> sf.Recipe:  # README.md:273
-    return sf.Fusion(_ROUTES, synthesizer=sf.Vote(extract="benchmark"))
+    return sf.Fanout(_ROUTES) >> sf.Vote(over="benchmark")
 
 
 def _readme_fixed() -> sf.Recipe:  # README.md:290
-    return sf.Fusion(_ROUTES, synthesizer=sf.Vote(weights=[2, 1, 1]))
+    return sf.Fanout(_ROUTES) >> sf.Vote(weights=[2, 1, 1])
 
 
 def _readme_by_confidence_weighted() -> sf.Recipe:  # README.md:293
-    return sf.Fusion(
-        _ROUTES,
-        synthesizer=sf.Reduce(
-            "weighted",
-            extract=sf.Extract("field", path="answer", normalize="text"),
-            weights=sf.signal("field:confidence"),
-        ),
+    return sf.Fanout(_ROUTES) >> sf.Vote(
+        over=sf.Extract("field", path="answer", normalize="text"),
+        weights=sf.signal("field:confidence"),
     )
 
 
 def _readme_by_cost() -> sf.Recipe:  # README.md:303
-    return sf.Fusion(_ROUTES, synthesizer=sf.Vote(weights=sf.signal("cost_usd")))
+    return sf.Fanout(_ROUTES) >> sf.Vote(weights=sf.signal("cost_usd"))
 
 
 def _readme_by_cost_block() -> sf.Recipe:  # README.md:304
-    return sf.Fusion(
-        _ROUTES,
-        synthesizer=sf.Reduce(
-            "weighted",
-            extract=sf.Extract("last_line", normalize="text"),
-            weights=sf.signal("cost_usd"),
-        ),
+    return sf.Fanout(_ROUTES) >> sf.Vote(
+        over=sf.Extract("last_line", normalize="text"), weights=sf.signal("cost_usd")
     )
 
 
 def _readme_by_label() -> sf.Recipe:  # README.md:339
-    return sf.Fusion(
-        _ROUTES,
-        synthesizer=sf.Judge(
-            "anthropic/claude-opus-5", returns="label", rubric="Pick the most correct answer."
-        ),
+    return sf.Fanout(_ROUTES) >> sf.JudgePick(
+        "anthropic/claude-opus-5", rubric="Pick the most correct answer."
     )
 
 
 def _readme_by_scores() -> sf.Recipe:  # README.md:345
-    return sf.Fusion(
-        _ROUTES,
-        synthesizer=sf.Judge(
+    return (
+        sf.Fanout(_ROUTES)
+        >> sf.Judge(
             "anthropic/claude-opus-5",
-            returns="scores",
             rubric="Give a higher number to a more correct answer.",
             params={"temperature": 0},
-        ),
+        )
+        >> sf.ArgMax("score:judge")
     )
 
 
 def _readme_weighted() -> sf.Recipe:  # README.md:387
-    return sf.Fusion(
-        _ROUTES,
-        synthesizer=sf.Vote(
-            extract="last_number",
-            normalize="numeric",
-            weights=sf.signal("score:judge"),
-            judge=sf.Judge(
-                "anthropic/claude-opus-5", returns="scores", rubric="Score each answer."
-            ),
-        ),
+    return (
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("anthropic/claude-opus-5", rubric="Score each answer.")
+        >> sf.Vote(over="last_number", normalize="numeric", weights=sf.signal("score:judge"))
     )
 
 
 def _readme_weighted_block() -> sf.Recipe:  # README.md:397
-    return sf.Fusion(
-        _ROUTES,
-        synthesizer=sf.Reduce(
-            "weighted",
-            extract=sf.Extract("last_number", normalize="numeric"),
-            weights=sf.signal("score:judge"),
-            judge=sf.Judge(
-                "anthropic/claude-opus-5", returns="scores", rubric="Score each answer."
-            ),
-        ),
+    return (
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("anthropic/claude-opus-5", rubric="Score each answer.")
+        >> sf.Vote(
+            over=sf.Extract("last_number", normalize="numeric"), weights=sf.signal("score:judge")
+        )
     )
 
 
 def _readme_pick_confidence() -> sf.Recipe:  # README.md:418
-    return sf.Fusion(_ROUTES, synthesizer=sf.Pick("confidence", order="max"))
+    return sf.Fanout(_ROUTES) >> sf.ArgMax("field:confidence")
 
 
 def _readme_pick_answer() -> sf.Recipe:  # README.md:419
-    return sf.Fusion(_ROUTES, synthesizer=sf.Pick("answer", equals="yes", normalize="text"))
+    return sf.Fanout(_ROUTES) >> sf.First(where=sf.field("answer", normalize="text") == "yes")
 
 
 def _readme_cheapest() -> sf.Recipe:  # README.md:422
-    return sf.Fusion(_ROUTES, synthesizer=sf.Pick(by_signal=sf.signal("cost_usd"), order="min"))
+    return sf.Fanout(_ROUTES) >> sf.ArgMin("cost_usd")
 
 
 def _readme_cheapest_block() -> sf.Recipe:  # README.md:424
-    return sf.Fusion(
-        _ROUTES, synthesizer=sf.Reduce("argmax", by_signal=sf.signal("cost_usd"), order="min")
-    )
+    return sf.Fanout(_ROUTES) >> sf.ArgMin("cost_usd")
 
 
 def _readme_merged() -> sf.Recipe:  # README.md:428
-    return sf.Fusion(
-        _ROUTES,
-        synthesizer=sf.Merge(
-            fields={
-                "answer": sf.FieldRule.majority(normalize="text"),
-                "score": sf.FieldRule.max(),
-                "source": sf.FieldRule.from_member(2),
-                "synonyms": sf.FieldRule.union(normalize="text"),
-                "summary": sf.FieldRule.model(
-                    "anthropic/claude-sonnet-5", prompt="Write one summary."
-                ),
-            }
-        ),
+    return sf.Fanout(_ROUTES) >> sf.Merge(
+        {
+            "answer": sf.FieldRule.majority(normalize="text"),
+            "score": sf.FieldRule.max(),
+            "source": sf.FieldRule.from_member(2),
+            "synonyms": sf.FieldRule.union(normalize="text"),
+            "summary": sf.FieldRule.model("anthropic/claude-sonnet-5", prompt="Write one summary."),
+        }
     )
 
 
 def _readme_ranked() -> sf.Recipe:  # README.md:514 (the Pipeline of the snippet, as written)
-    return sf.Pipeline(
-        [
-            sf.Fusion(
-                _ROUTES,
-                synthesizer=sf.Rank(
-                    k=2,
-                    by=sf.Judge(
-                        "anthropic/claude-opus-5",
-                        returns="scores",
-                        rubric="Give a higher number to a more correct answer.",
-                    ),
-                ),
-            ),
+    return (
+        sf.Fanout(_ROUTES)
+        >> sf.Judge(
+            "anthropic/claude-opus-5", rubric="Give a higher number to a more correct answer."
+        )
+        >> sf.Rank(2, by="score:judge")
+        >> sf.Synthesize(
             sf.Model(
                 "anthropic/claude-sonnet-5", prompt="Write the final answer from these drafts."
-            ),
-        ]
+            )
+        )
     )
 
 
 def _readme_rank_by_field() -> sf.Recipe:  # README.md:528
-    return sf.Pipeline(
-        [sf.Fusion(_ROUTES, synthesizer=sf.Rank(k=2, by_field="score")), "provider/next"]
-    )
+    return sf.Fanout(_ROUTES) >> sf.Rank(2, by="field:score") >> sf.Synthesize("provider/next")
 
 
 def _readme_joined() -> sf.Recipe:  # README.md:529
-    return sf.Pipeline(
-        [
-            sf.Fusion(_ROUTES, synthesizer=sf.Concat(separator="\n\n---\n\n", label=True)),
-            "provider/next",
-        ]
+    return (
+        sf.Fanout(_ROUTES) >> sf.Concat("\n\n---\n\n", label=True) >> sf.Synthesize("provider/next")
     )
 
 
@@ -298,14 +250,13 @@ def _readme_joined() -> sf.Recipe:  # README.md:529
 def _docs_overview() -> sf.Recipe:  # public-docs .../Index.vue:27
     gpt = sf.Model("openrouter/openai/gpt-5.5")
     flash = sf.Model("openrouter/google/gemini-3-flash-preview")
-    return sf.Fusion([gpt, flash], synthesizer="openrouter/openai/gpt-5.5")
+    return sf.Fanout([gpt, flash]) >> sf.Synthesize("openrouter/openai/gpt-5.5")
 
 
 def _docs_first_fusion() -> sf.Recipe:  # public-docs .../FirstFusionPage.vue:15
-    return sf.Fusion(
-        ["openrouter/openai/gpt-5.5", "openrouter/google/gemini-3-flash-preview"],
-        synthesizer="openrouter/openai/gpt-5.5",
-    )
+    return sf.Fanout(
+        ["openrouter/openai/gpt-5.5", "openrouter/google/gemini-3-flash-preview"]
+    ) >> sf.Synthesize("openrouter/openai/gpt-5.5")
 
 
 def _docs_pipelines_recursive() -> sf.Recipe:  # public-docs .../guides/PipelinesPage.vue:39
@@ -314,10 +265,9 @@ def _docs_pipelines_recursive() -> sf.Recipe:  # public-docs .../guides/Pipeline
     review = sf.Model("openrouter/anthropic/claude-opus-4.8")
     judge = sf.Model("openrouter/anthropic/claude-opus-4.8", name="judge")
     writer = sf.Model("openrouter/openai/gpt-5.5", name="writer")
-    return sf.Fusion(
-        [draft.then(review), sf.Model("openrouter/google/gemini-3.1-pro-preview")],
-        synthesizer=sf.Pipeline([judge, writer]),
-    )
+    return sf.Fanout(
+        [draft >> review, sf.Model("openrouter/google/gemini-3.1-pro-preview")]
+    ) >> sf.Synthesize(sf.Pipeline([judge, writer]))
 
 
 def _docs_pipelines_mixed() -> sf.Recipe:  # public-docs .../guides/PipelinesPage.vue:45
@@ -325,42 +275,39 @@ def _docs_pipelines_mixed() -> sf.Recipe:  # public-docs .../guides/PipelinesPag
     draft = sf.Model("openrouter/openai/gpt-5.5")
     review = sf.Model("openrouter/anthropic/claude-opus-4.8")
     final = sf.Model("openrouter/openai/gpt-5.5", name="polish")
-    panel = sf.Fusion([draft, review], synthesizer=final)
+    panel = sf.Fanout([draft, review]) >> sf.Synthesize(final)
     refine = sf.Pipeline([review, final], name="refine")
     return sf.Pipeline([draft, panel, refine], name="mixed")
 
 
 def _docs_fusions_pair() -> sf.Recipe:  # public-docs .../guides/FusionsPage.vue:17
-    return sf.Fusion([_opus(), _gpt()], synthesizer="openrouter/anthropic/claude-opus-4.8")
+    return sf.Fanout([_opus(), _gpt()]) >> sf.Synthesize("openrouter/anthropic/claude-opus-4.8")
 
 
 def _docs_fusions_synth() -> sf.Recipe:  # public-docs .../guides/FusionsPage.vue:24
-    return sf.Fusion(
-        [_opus(), _gpt()],
-        name="pair-gpt-synth",
-        synthesizer=sf.Model(
+    return sf.Fanout([_opus(), _gpt()], name="pair-gpt-synth") >> sf.Synthesize(
+        sf.Model(
             "openrouter/openai/gpt-5.5",
             prompt="Write the final answer from the drafts.",
-        ),
+        )
     )
 
 
 def _docs_fusions_nested() -> sf.Recipe:  # public-docs .../guides/FusionsPage.vue:36
     # pair: FusionsPage.vue:17; haiku: FusionsPage.vue:34
-    pair = sf.Fusion([_opus(), _gpt()], synthesizer="openrouter/anthropic/claude-opus-4.8")
+    pair = sf.Fanout([_opus(), _gpt()]) >> sf.Synthesize("openrouter/anthropic/claude-opus-4.8")
     haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")
-    return sf.Fusion([pair, haiku], name="nested", synthesizer="openrouter/openai/gpt-5.5")
+    return sf.Fanout([pair, haiku], name="nested") >> sf.Synthesize("openrouter/openai/gpt-5.5")
 
 
 def _docs_evaluation_many() -> sf.Recipe:  # public-docs .../guides/EvaluationPage.vue:33
-    return sf.Fusion([_opus(), _gpt()], synthesizer="openrouter/openai/gpt-5.5")
+    return sf.Fanout([_opus(), _gpt()]) >> sf.Synthesize("openrouter/openai/gpt-5.5")
 
 
 def _docs_api_fusion() -> sf.Recipe:  # public-docs .../api/FusionsPage.vue:19
-    return sf.Fusion(
-        ["openrouter/deepseek/deepseek-v4-pro", "openrouter/z-ai/glm-5.2"],
-        synthesizer="openrouter/moonshotai/kimi-k3",
-    )
+    return sf.Fanout(
+        ["openrouter/deepseek/deepseek-v4-pro", "openrouter/z-ai/glm-5.2"]
+    ) >> sf.Synthesize("openrouter/moonshotai/kimi-k3")
 
 
 def _docs_quickstart_trio() -> sf.Recipe:  # public-docs .../QuickstartPage.vue:233
@@ -373,14 +320,12 @@ def _docs_quickstart_trio() -> sf.Recipe:  # public-docs .../QuickstartPage.vue:
         prompt=answer,
         params={"temperature": 0, "max_tokens": 8192},
     )
-    return sf.Fusion(
-        [opus, gpt, gemini],
-        name="frontier-trio",
-        synthesizer=sf.Model(
+    return sf.Fanout([opus, gpt, gemini], name="frontier-trio") >> sf.Synthesize(
+        sf.Model(
             "openrouter/anthropic/claude-opus-4.8",
             prompt=synthesis,
             params={"temperature": 0, "max_tokens": 8192},
-        ),
+        )
     )
 
 
@@ -390,28 +335,27 @@ _PAIR = ["provider/a", "provider/b"]
 
 
 def _extra_named_pipeline_synthesizer() -> sf.Recipe:
-    return sf.Fusion(
-        _PAIR, synthesizer=sf.Pipeline(["provider/j", "provider/w"], name="judge-write")
+    return sf.Fanout(_PAIR) >> sf.Synthesize(
+        sf.Pipeline(["provider/j", "provider/w"], name="judge-write")
     )
 
 
 def _extra_named_pipeline_of_one_fusion() -> sf.Recipe:
-    return sf.Pipeline([sf.Fusion(_PAIR, synthesizer="provider/s")], name="x")
+    return sf.Pipeline([sf.Fanout(_PAIR) >> sf.Synthesize("provider/s")], name="x")
 
 
 def _extra_nested_fusion() -> sf.Recipe:
-    return sf.Fusion(
-        [sf.Fusion(["provider/a", "provider/b"], synthesizer="provider/s1"), "provider/c"],
-        synthesizer="provider/s2",
-    )
+    return sf.Fanout(
+        [sf.Fanout(["provider/a", "provider/b"]) >> sf.Synthesize("provider/s1"), "provider/c"]
+    ) >> sf.Synthesize("provider/s2")
 
 
 def _extra_300_members() -> sf.Recipe:
-    return sf.Fusion([f"provider/m{index}" for index in range(300)], synthesizer="provider/s")
+    return sf.Fanout([f"provider/m{index}" for index in range(300)]) >> sf.Synthesize("provider/s")
 
 
 def _extra_fusion_then_model() -> sf.Recipe:
-    return sf.Pipeline([sf.Fusion(_PAIR, synthesizer="provider/s"), "provider/after"])
+    return sf.Pipeline([sf.Fanout(_PAIR) >> sf.Synthesize("provider/s"), "provider/after"])
 
 
 def _doc(slug: str, source: str, build: Callable[[], sf.Recipe], **flags: bool) -> DocExample:

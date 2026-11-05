@@ -573,6 +573,33 @@ def test_each_attempt_replays_its_own_answer(capture_client: TestClient, open_co
     ]
 
 
+# --- OME-1775 R2: a use-cache re-issue at the same key is the answer a replay serves -------
+
+
+def test_a_use_cache_reissue_at_the_same_key_is_the_answer_a_replay_serves(
+    capture_client: TestClient, open_copy: str
+) -> None:
+    # INVARIANT: the Engine's R2 (OME-1775) depends on this. A `max-age` re-issue is the same call
+    # with only `cache: {"use-cache": false}` added. The key digest drops the `cache` object, so
+    # the re-issue stores at the same key as the call it re-issues, and `find` serves the later 200
+    # to a replay that sends no `cache` field.
+    first = _chat(capture_client, open_copy, chat_body())
+    reissue = _chat(capture_client, open_copy, chat_body(cache={"use-cache": False}))
+
+    assert first.status_code == 200 and reissue.status_code == 200
+    assert first.headers[CAPTURE_HEADER] == "stored"
+    assert reissue.headers[CAPTURE_HEADER] == "stored"
+    entries = stored_entries(capture_client, open_copy)
+    assert [entry["digest"] for entry in entries] == [entries[0]["digest"]] * 2
+    assert entries[0]["seq"] < entries[1]["seq"]
+
+    seal_copy(capture_client, open_copy)
+    replayed = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
+
+    assert replayed.status_code == 200
+    assert replayed.json()["id"] == reissue.json()["id"] == "live-2"
+
+
 # --- review round 2: a client disconnect is never captured ---------------------------------
 
 

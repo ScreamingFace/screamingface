@@ -29,8 +29,8 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
     <p>
       A <code>CandidateResult</code> is one candidate's outcome inside a
       <RouterLink to="/sf-client/api/reports">Report</RouterLink>. The candidate is whatever
-      <RouterLink to="/sf-client/api/recipes">recipe</RouterLink> you evaluated — a Model, a Fusion,
-      or a Pipeline. This page covers <code>CandidateResult</code> itself, alongside
+      <RouterLink to="/sf-client/api/recipes">recipe</RouterLink> you evaluated — a Model, a
+      fanout block, or a Pipeline. This page covers <code>CandidateResult</code> itself, alongside
       <code>MemberResult</code> for one member of a fusion, <code>OperationInfo</code> for a step
       that ran, and <code>CaseResult</code> for one graded case. Every example below reads from a
       <code>candidate</code> pulled off a report with <code>report.candidates.only</code>.
