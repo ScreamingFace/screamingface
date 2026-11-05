@@ -42,8 +42,15 @@ owner chose one PR that reuses OME-1652 and OME-1653 on 2026-11-04.
   (`world/connector.py`, `CHANGELOG.md`, `README.md`, `build_notebooks.py`, `__init__.py`,
   `_scoreboard/leaderboards.py`, `public_surface_snapshot.json`); 17 files differ from the #1461
   tip because main changed them too.
-- **Commits:** `00c2505b1` — feat(screamingface): land E4b parts 2 to 7 on main; this ledger.
-- **Gates:** pending.
+- **Commits:** `0755523da` — feat(screamingface): land E4b parts 2 to 7 on main; the ledger commits.
+- **Gates (local, base `origin/main`):** aigateway and repo ALL GATES GREEN. screamingface: the
+  append-only check (every pinned test file approved), ruff, ruff format and pyright pass; pytest
+  6594 passed, 1 failed — `test_member_usage_memory_does_not_grow_with_lazy_cases` (tracemalloc
+  peak), which passes alone and in small parallel runs; a probe showed no retained growth, only
+  pytest-xdist work-stealing allocations. screamingface-engine: ruff, ruff format and the layering
+  check pass; pyright fails only in 4 untouched `tests/unit/inspect/` files because the local
+  `uv run` installs inspect-ai (CI does not); the test suite went over the 20-minute local limit.
+  The owner chose to let CI run the full suites.
 - **Deviations:**
   - Main added `18_picture_benchmarks.ipynb`, so the E4b notebook is now
     `19_map_select_reduce.ipynb` and its test is `test_example_19_recipes.py`.
