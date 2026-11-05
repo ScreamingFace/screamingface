@@ -685,3 +685,7 @@ td.col-open { white-space: nowrap; }
 .external-result__source { color: var(--ink-2); text-decoration: underline; white-space: nowrap; }
 .external-result__source:hover { color: var(--ink); }
 .external-result__source:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
+.external-result__comparison { margin-top: var(--space-1); }
+.external-result__comparison summary { cursor: pointer; }
+.external-result__comparison summary:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
+.external-result__comparison p { margin: var(--space-1) 0 0; }

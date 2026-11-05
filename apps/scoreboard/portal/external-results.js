@@ -59,6 +59,12 @@
     model.title = description + (typeof note === "string" && note.trim() ? " " + note : "");
     model.appendChild(P.el("span", "mono", row.spec_id));
     model.appendChild(P.el("span", "sr-only", description));
+    if (typeof note === "string" && note.trim()) {
+      var details = P.el("details", "external-result__comparison");
+      details.appendChild(P.el("summary", null, "Comparison"));
+      details.appendChild(P.el("p", null, note));
+      model.appendChild(details);
+    }
     tr.appendChild(model);
     tr.appendChild(P.el("td", null, P.EM_DASH));
     tr.appendChild(P.el("td", null, P.EM_DASH));

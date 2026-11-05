@@ -36,7 +36,7 @@
     // generic numeric sort: it arrives as a fixed-precision string, and absent cost sorts last
     // rather than as zero. See compare() and leaderboard-logic.js.
     { key: "run_cost_usd", label: "Cost", sort: "cost", dir: "asc", cls: "num" },
-    { key: "submitted_at", label: "Submitted", sort: "date", dir: "desc" },
+    { key: "submitted_at", label: "Added", sort: "date", dir: "desc" },
     { key: "__run", label: "Run Locally", sort: null, cls: "col-run" },
   ];
 
@@ -282,7 +282,7 @@
     }
 
     var best = bestScore(entries);
-    // Bare numbers: the .stats cell labels ("Submissions shown") already carry the words.
+    // Bare numbers: the .stats cell labels ("Results shown") already carry the words.
     document.getElementById("summary-best").textContent = P.formatScore(best);
     document.getElementById("summary-specs").textContent = entries.length.toLocaleString();
     summaryNode.hidden = false;
@@ -436,6 +436,8 @@
           document.title = name + " — screamingface";
         }
         state.entries = (data && data.entries) || [];
+        // Keep the fetched community points even when imports displace table rows.
+        var chartEntries = state.entries;
         state.rows = window.SFExternalResults
           ? window.SFExternalResults.selectRows(state.entries, data && data.baselines, 50)
           : state.entries;
@@ -454,7 +456,7 @@
           wrap.hidden = false;
           // No rows at all: the key would point at nothing.
           legend.hidden = true;
-          renderParetoChart(state.entries);
+          renderParetoChart(chartEntries);
           return;
         }
         renderSummary(state.rows);
@@ -474,7 +476,7 @@
           return row.score === bestScore(state.rows);
         });
         // Last, after the table is visible: the chart can only ever add to the page.
-        renderParetoChart(state.entries);
+        renderParetoChart(chartEntries);
       },
       function (err) {
         if (err && err.status === 404) {

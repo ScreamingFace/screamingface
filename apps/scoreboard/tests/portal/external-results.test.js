@@ -242,6 +242,40 @@ test("equal scores keep community order before external rows", async () => {
   assert.deepEqual(rows(page).map((r) => cell(r, 0).textContent), ["1", "2", "3"]);
 });
 
+test("imports cannot displace fetched community frontier points from the cost chart", async () => {
+  const measured = Array.from({ length: 50 }, (_, i) =>
+    entry("run-" + i, 0.9 - i / 100, String(50 - i), true));
+  const withoutImports = await renderBoard(measured, []);
+  const mixed = await renderBoard(measured, [BASELINE]);
+  assert.equal(rows(mixed).length, 50);
+  assert.equal(modelName(rows(mixed)[49]), "run-48");
+  assert.deepEqual(
+    Array.from(mixed.charts.at(-1), (row) => row.spec_id),
+    Array.from(withoutImports.charts.at(-1), (row) => row.spec_id),
+  );
+  assert.equal(mixed.charts.at(-1)[49].on_pareto_frontier, true);
+
+  const importsOnlyInTable = await renderBoard(measured, Array.from({ length: 50 }, (_, i) =>
+    ({ ...BASELINE, model_name: "external-" + i, score: 1 })));
+  assert.ok(rows(importsOnlyInTable).every((row) => row.className === "external-result"));
+  assert.equal(importsOnlyInTable.charts.at(-1).length, 50);
+});
+
+test("comparison notes are readable through a native disclosure, not just a tooltip", async () => {
+  const page = await renderBoard([], [BASELINE]);
+  const model = cell(rows(page)[0], 2);
+  const details = model.children.find((node) => node.tag === "details");
+  assert.ok(details, "provide a disclosure usable by touch and keyboard");
+  assert.equal(details.children[0].tag, "summary");
+  assert.equal(details.children[0].textContent, "Comparison");
+  assert.equal(details.children[1].textContent, BASELINE.metadata.comparison_note);
+  assert.equal(details.children[1].attrs["aria-hidden"], undefined);
+  for (const note of [null, "", "  ", 123]) {
+    const empty = await renderBoard([], [{ ...BASELINE, metadata: { comparison_note: note } }]);
+    assert.ok(!nodes(rows(empty)[0]).some((node) => node.tag === "details"));
+  }
+});
+
 for (const baselines of [undefined, null, [], {}]) {
   test("missing/empty/non-list baselines preserve the ordinary empty board: " + JSON.stringify(baselines), async () => {
     const page = await renderBoard([], baselines);
