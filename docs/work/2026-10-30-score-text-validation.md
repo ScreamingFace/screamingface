@@ -1,9 +1,9 @@
 ---
 ticket: OME-1658
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-10-30
-finished:
+finished: 2026-11-03
 ---
 
 # Safe score text and validation errors
@@ -92,3 +92,8 @@ cases failed on the new input comparison as expected. All scoreboard gates passe
 Prevent non-finite floats echoed in any validation error input from causing JSONResponse to return 500. Remove only inputs containing non-finite numbers, using bounded-stack iterative inspection; preserve finite inputs and Unicode escape behavior. Cover score/integer/unknown-field errors, nested NaN/Infinity, and combined Unicode/non-finite errors on both databases. Do not broadly catch unrelated ValueError failures.
 
 Authorized by Filip: “Check these reviews and fix if you see fit”. Capture failing regressions first, then run focused SQLite/PostgreSQL tests, scoreboard gates and combined-branch verification. Outcome: 20 new cross-backend cases failed before the fix. All 95 text/error regressions pass on SQLite/PostgreSQL; the complete PostgreSQL CI selection passes (104 tests). Full scoreboard gates green. The mixed-error control proves ordinary strings, finite numbers, nested finite values and lone-surrogate inputs survive unchanged while the non-finite input is omitted. No broad exception catch, schema change or dependency change.
+
+## Closure — 2026-11-05
+
+Merged [PR #1620](https://github.com/ScreamingFace/screamingface/pull/1620) on 2026-11-03 as
+`706a790fa984db16d7c06c4d64de3716c2e73428`. Linear is Done.
