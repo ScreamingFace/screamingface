@@ -734,3 +734,92 @@ def test_the_engine_child_runs_in_its_own_session(
     server._start_engine_child(RuntimeConfig(data_dir=tmp_path / "data", engine_python=python))
 
     assert seen["start_new_session"] is True
+
+
+# --- gated datasets under `prepare --all` (2026-11-05, the #1675 replay-lane failure) ------------
+
+_SKIP_GATED = "SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN"
+
+
+@pytest.fixture
+def gated_preparer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
+    """An Engine whose preparer lists a gated bundle between two open ones.
+
+    The gated one behaves like the real preparer without a Hugging Face token: with the skip
+    switch it exits 0 and writes no cases.json; without it, it exits 1. The open ones write
+    their cases.json. Each run's environment is recorded.
+    """
+    python = tmp_path / "engine" / "python"
+    python.parent.mkdir()
+    python.write_text("")
+    config = RuntimeConfig(data_dir=tmp_path / "data", engine_python=python)
+    envs: dict[str, str | None] = {}
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if "--list-bundles" in command:
+            return subprocess.CompletedProcess(command, 0, stdout="aaa\nhle\nzzz\n", stderr="")
+        bundle = command[command.index("--bundle") + 1]
+        env = kwargs.get("env")
+        skip = env.get(_SKIP_GATED) if isinstance(env, dict) else None
+        envs[bundle] = skip
+        root = Path(command[command.index("--root") + 1])
+        if bundle == "hle":
+            if skip != "1":
+                raise subprocess.CalledProcessError(1, command)
+            (root / bundle).mkdir(parents=True, exist_ok=True)
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        (root / bundle).mkdir(parents=True, exist_ok=True)
+        (root / bundle / "cases.json").write_text('[{"id": 1}]')
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(engine_env.subprocess, "run", run)
+    monkeypatch.delenv(_SKIP_GATED, raising=False)
+    return {"config": config, "envs": envs}
+
+
+def test_prepare_all_skips_a_gated_dataset_and_prepares_the_rest(
+    gated_preparer: dict[str, object], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """INVARIANT: one gated dataset without a token never stops `prepare --all`.
+
+    Before this, the preparer exited 1 on `cais/hle` and the whole run died, after ten minutes
+    of downloads (the replay lane on #1675, 2026-11-05). `--all` now turns the preparer's skip
+    switch on, says which bundles it skipped and why, and prepares everything else.
+    """
+    config = gated_preparer["config"]
+    envs = gated_preparer["envs"]
+    assert isinstance(config, RuntimeConfig) and isinstance(envs, dict)
+
+    cli._prepare(config, None, all_benchmarks=True)
+
+    assert envs == {"aaa": "1", "hle": "1", "zzz": "1"}
+    assert engine_env.bundle_status(config.assets_dir, "zzz") == "prepared"
+    out = capsys.readouterr().out
+    assert "hle skipped" in out and "HF_TOKEN" in out
+    assert "1 skipped" in out
+
+
+def test_a_named_gated_dataset_fails_loudly(gated_preparer: dict[str, object]) -> None:
+    # WHY: a user who asked for exactly this dataset must learn it needs a token, not get a
+    # quiet "skipped"; the preparer's own message (stderr) names the dataset and the fix.
+    config = gated_preparer["config"]
+    envs = gated_preparer["envs"]
+    assert isinstance(config, RuntimeConfig) and isinstance(envs, dict)
+
+    with pytest.raises(RuntimeError, match="failed to prepare hle"):
+        cli._prepare(config, "hle", all_benchmarks=False)
+
+    assert envs == {"hle": None}
+
+
+def test_an_exported_skip_switch_still_wins_under_prepare_all(
+    gated_preparer: dict[str, object], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: `SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=0` is how CI or a careful user asks
+    # for a missing token to fail the run; the default must not override it.
+    config = gated_preparer["config"]
+    assert isinstance(config, RuntimeConfig)
+    monkeypatch.setenv(_SKIP_GATED, "0")
+
+    with pytest.raises(RuntimeError, match="failed to prepare hle"):
+        cli._prepare(config, None, all_benchmarks=True)
