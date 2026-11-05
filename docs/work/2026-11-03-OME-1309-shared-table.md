@@ -69,3 +69,16 @@ gates before pushing the follow-up to the same PR.
 Validation: the old wording failed the updated assertion; all 12 portal cases and
 all scoreboard gates pass after the change. Any PR preview should show a mixed
 board with both recorded and external rows, per the owner's follow-up instruction.
+
+## Comparison policy follow-up — 2026-11-05
+
+Owner requires matching questions/version, full coverage, grading and metric;
+documented prompt differences and exact conversions are allowed. The portal now
+requires the API's literal `ranking_eligible: true`, so an older API or metadata
+claim cannot silently grant ranks. The 16-case suite covers false/missing flags,
+unchanged community ranks/counts, and prompt notes from a verified review.
+Full scoreboard gates and the UTC+14 suite pass. The current dev payload's two
+unreviewed SAT-English observations produce no ranked rows, summary or score bars.
+Backend validation and the audit are a separate follow-up on #1683. No live writes
+or Linear updates. Existing mixed-table test fixtures represent approved synthetic
+observations; they are not an approval of the actual dev candidates.

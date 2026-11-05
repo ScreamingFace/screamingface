@@ -3,7 +3,9 @@
   "use strict";
 
   function externalRow(row) {
-    if (!row || typeof row.model_name !== "string" || !row.model_name.trim()
+    // Missing eligibility (including an older API) must never grant a shared rank.
+    if (!row || row.ranking_eligible !== true
+        || typeof row.model_name !== "string" || !row.model_name.trim()
         || typeof row.score !== "number" || !Number.isFinite(row.score)) return null;
     return {
       external: true, spec_id: row.model_name, score: row.score,
@@ -56,6 +58,9 @@
     var model = P.el("td", "cell-wrap");
     var description = "External result; not reproducible.";
     var note = row.metadata && row.metadata.comparison_note;
+    if ((typeof note !== "string" || !note.trim()) && row.metadata && row.metadata.comparison) {
+      note = row.metadata.comparison.prompt_note;
+    }
     model.title = description + (typeof note === "string" && note.trim() ? " " + note : "");
     model.appendChild(P.el("span", "mono", row.spec_id));
     model.appendChild(P.el("span", "sr-only", description));

@@ -158,9 +158,10 @@ async function renderBoard(entries, baselines, fail = false) {
 
 
 const BASELINE = {
+  ranking_eligible: true,
   model_name: "GPT-4o", score: 0.932, source: "agieval-authors-zero-shot-dev-e20",
   source_url: "https://example.org/results", imported_at: "2026-11-02T12:08:48Z",
-  metadata: { comparison_note: "Same questions; different prompts and answer extraction." },
+  metadata: { comparison_note: "Same questions and grading; different prompts." },
 };
 const nodes = (root) => [root, ...(root.children || []).flatMap(nodes)];
 const rows = (page) => page.ids["leaderboard-body"].children;
@@ -312,4 +313,30 @@ test("unknown fields stay unknown and finite scores keep their native scale", as
 test("malformed rows do not hide valid rows", async () => {
   const page = await renderBoard([entry("valid", 1, null, false)], [null, {}, { ...BASELINE, score: "0.9" }, { ...BASELINE, model_name: null }, { ...BASELINE, model_name: "  " }, BASELINE]);
   assert.deepEqual(rows(page).map(modelName), ["valid", "GPT-4o"]);
+});
+
+test("only explicitly eligible external results affect ranks, counts and score bars", async () => {
+  for (const flag of [undefined, null, false, 1, "true"]) {
+    const page = await renderBoard([entry("community", 0.8, "1", true)], [
+      { ...BASELINE, ranking_eligible: flag, score: 1250,
+        metadata: { strictly_comparable: true, ranking_eligible: true } },
+    ]);
+    assert.deepEqual(rows(page).map(modelName), ["community"]);
+    assert.equal(cell(rows(page)[0], 0).textContent, "1");
+    assert.equal(page.ids["summary-best"].textContent, "0.8");
+    assert.equal(page.ids["summary-specs"].textContent, "1");
+    assert.equal(page.charts.at(-1).length, 1);
+  }
+  const pending = await renderBoard([], [{ ...BASELINE, ranking_eligible: false }]);
+  assert.equal(rows(pending).length, 0);
+  assert.equal(pending.ids["leaderboard-summary"].hidden, true);
+  assert.equal(pending.ids["leaderboard-climb-section"].hidden, true);
+});
+
+test("verified review prompt differences are available in the comparison disclosure", async () => {
+  const note = "Different prompts; same graded answer format.";
+  const page = await renderBoard([], [{ ...BASELINE, metadata: { comparison: { prompt_note: note } } }]);
+  const details = cell(rows(page)[0], 2).children.find((node) => node.tag === "details");
+  assert.ok(details);
+  assert.equal(details.children[1].textContent, note);
 });

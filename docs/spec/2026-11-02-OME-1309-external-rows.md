@@ -8,7 +8,7 @@ remains available through hover and screen-reader text. Comparison notes use a
 native “Comparison” disclosure in the model cell, readable by touch, keyboard and
 screen readers without adding a notes column.
 
-Merge the community top 50 and valid imported baselines, sort by descending score,
+Merge the community top 50 and eligible imported baselines, sort by descending score,
 then take the combined top 50 and assign ordinal ranks. On equal scores keep the
 existing community order and place community rows before external rows; external
 ties retain API order. Limiting after the merge is necessary: assigning ranks to
@@ -27,5 +27,12 @@ or when a source was last read.
 
 Preserve native scores, safe text rendering and structural absolute HTTP(S) URL
 validation. No new backend/API, migration, dependencies or production import.
-This accepts shared ranking for this increment; import history, source health and
-broader comparability policy remain E20 work. Linear writes still require approval.
+Owner policy revision, 2026-11-05: require matching questions/version, complete
+coverage, grading and metric; allow documented prompt differences and exact unit
+conversions. The portal ranks only baselines whose API `ranking_eligible` is
+literal `true`. Missing eligibility from an older API, false, or metadata flags
+never grant a rank. Unreviewed rows do not enter summaries or score bars. Prompt
+notes in a validated `metadata.comparison` review also use the Comparison disclosure.
+The existing SAT-English dev trials have incompatible grading and unverified run
+coverage; they remain stored but will not rank. Import history, source health and
+the remaining E20 delivery work stay open. Linear writes still require approval.
