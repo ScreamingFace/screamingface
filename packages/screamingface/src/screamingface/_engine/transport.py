@@ -287,6 +287,9 @@ class Url4CloudTransport:
         lifecycle = _Lifecycle(candidate)
         started = time.monotonic()
         try:
+            # WHY again: an abort may have landed while the capability was minting; nothing
+            # has started yet, so the Candidate stops here (spec R8).
+            self._runs.refuse_if_canceled(candidate)
             # WHY stamped here and not in `contract.py`: that layer decodes what the
             # Engine sent, while this id is what the CLIENT minted (OME-967). Only the
             # transport holds it, and the outcome is where a caller reads it back.
@@ -307,7 +310,7 @@ class Url4CloudTransport:
 
     def _track(self, candidate: Candidate, minted: list[str], abort: _ThreadEvent) -> None:
         """Record the Candidate's capabilities and abort; the caller holds `_active_lock`."""
-        if self._aborted:
+        if self._aborted or self._runs.is_aborted(candidate):
             abort.set()
         self._minted_by[id(candidate)] = minted
         self._aborts_by[id(candidate)] = abort
@@ -857,14 +860,13 @@ class AsyncUrl4CloudTransport:
         trace = new_trace_context()
         self._runs.refuse_if_canceled(candidate)
         minted = [await _mint_async(self._http, trace=trace)]
-        self._end_finished_abort()
-        self._active_tokens.add(minted[0])
-        self._running += 1
-        self._track(candidate, minted, _AsyncEvent())
+        self._begin(candidate, minted)
         cancelled = False
         started = time.monotonic()
         lifecycle = _Lifecycle(candidate)
         try:
+            # WHY again: see the sync twin — an abort can land while the mint is awaited.
+            self._runs.refuse_if_canceled(candidate)
             return _dataclass_replace(
                 await self._run_reconnecting(
                     lifecycle, minted, candidate, on_event, started, trace
@@ -927,9 +929,16 @@ class AsyncUrl4CloudTransport:
         """Async twin of the sync `_retire`; no lock (class INVARIANT)."""
         self._active_tokens.difference_update(minted)
 
+    def _begin(self, candidate: Candidate, minted: list[str]) -> None:
+        """Count the Run as running and track it; no lock (class INVARIANT)."""
+        self._end_finished_abort()
+        self._active_tokens.add(minted[0])
+        self._running += 1
+        self._track(candidate, minted, _AsyncEvent())
+
     def _track(self, candidate: Candidate, minted: list[str], abort: _AsyncEvent) -> None:
         """Async twin of the sync `_track`; no lock (class INVARIANT)."""
-        if self._aborted:
+        if self._aborted or self._runs.is_aborted(candidate):
             abort.set()
         self._minted_by[id(candidate)] = minted
         self._aborts_by[id(candidate)] = abort

@@ -63,6 +63,9 @@ class RunBindings:
         self._lock = Lock()
         self._bindings: dict[int, _Binding] = {}
         self._canceled: set[str] = set()
+        # The Candidates an abort covered, by id, whether or not their Run was registered (D7):
+        # the intent outlives a start still minting its capability (spec R8).
+        self._aborted: set[int] = set()
 
     def register(
         self,
@@ -104,9 +107,16 @@ class RunBindings:
         """
         binding = self._bindings.get(id(candidate))
         with self._lock:
-            canceled = binding is not None and binding.run_id in self._canceled
+            canceled = id(candidate) in self._aborted or (
+                binding is not None and binding.run_id in self._canceled
+            )
         if canceled:
             raise canceled_error()
+
+    def is_aborted(self, candidate: Candidate) -> bool:
+        """Whether an abort covered ``candidate``, its Run registered or not."""
+        with self._lock:
+            return id(candidate) in self._aborted
 
     def note_refusal(self, candidate: Candidate, exc: ExecutionError) -> None:
         binding = self._bindings.get(id(candidate))
@@ -118,11 +128,14 @@ class RunBindings:
         with self._lock:
             for candidate in candidates:
                 self._bindings.pop(id(candidate), None)
+                self._aborted.discard(id(candidate))
 
     def to_cancel(self, candidates: tuple[Candidate, ...]) -> tuple[str, ...]:
         """The Runs of ``candidates`` an abort cancels, each once (spec R8). They count as
-        canceled from here: their later starts are refused before they mint anything."""
+        canceled from here, and so do ``candidates`` themselves, registered or not: their later
+        starts are refused, and a start still minting is refused once its capability arrives."""
         with self._lock:
+            self._aborted.update(id(candidate) for candidate in candidates)
             bindings = [self._bindings.get(id(candidate)) for candidate in candidates]
             run_ids = {b.run_id for b in bindings if b is not None and b.run_id is not None}
             run_ids -= self._canceled
