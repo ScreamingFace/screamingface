@@ -81,3 +81,24 @@ environment for pip users and retires the in-process path.
   now an explicit `main()` entry, pinned in the serve-command test. A dead child's output is
   drained into runtime.log before "stopped during startup" is raised, so the next such failure
   names its cause.
+
+## Review round 1 (2026-11-05)
+
+- **Blocker fixed:** prior runtime tests depended on the developer's real Engine venv (a prior
+  restart test failed with "serves only medxpert" on a box whose venv lacks the extra; spawned a
+  4 s child on one that has it; CI green only because CI has none). The checkout-default rung is
+  now one function, `engine_env.checkout_engine_venv`, and an autouse conftest fixture hides the
+  REAL checkout's venv (fake checkouts under tmp_path keep theirs) and unsets
+  `SCREAMINGFACE_ENGINE_PYTHON`. Pinned by
+  `test_a_restart_in_this_checkout_never_runs_the_real_engine_venv`, which makes the real
+  checkout look like it has a venv; removing the fixture turns it red (mutation run).
+- **Nonblocking fixed:** the Scoreboard child exits when seeding from the Engine fails (no empty
+  board behind READY); `status` reads bundle folders on disk and never starts the Engine;
+  `doctor` reports a broken Engine environment as FAIL instead of dying; `restart` keeps the
+  recorded interpreter over a merely-found default; `prepare` uses the running stack's
+  interpreter unless one is named; the Engine child runs in its own session and a child that
+  ignores terminate is killed after 10 s; the banner says "benchmark bundles".
+- **Left, noted in the PR:** a SIGKILLed supervisor still orphans its children (true of the
+  Scoreboard child before this PR too); `restart` probes the Engine twice; the medxpert-only
+  refusal names the one hand-built bundle.
+- **Gates:** 194 passed across the 9 runtime test files (9 new); ruff + pyright clean.

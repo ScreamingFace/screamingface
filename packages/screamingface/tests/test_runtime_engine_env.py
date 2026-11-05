@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from screamingface._runtime import cli, engine_env, server
+from screamingface._runtime import source as source_module
 from screamingface._runtime.config import RuntimeConfig
 from screamingface._runtime.source import MODE_BUNDLED, MODE_CHECKOUT, RuntimeSource
 
@@ -494,3 +495,242 @@ def test_the_scoreboard_seeds_from_the_running_engine_in_engine_mode(
     server.run_scoreboard(config, seed_from_engine=True)
 
     assert seeded == {"configured": [], "engine_url": "http://127.0.0.1:9111", "engine_rows": None}
+
+
+# --- review round 1 (2026-11-05) -----------------------------------------------------------------
+
+
+def _stub_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Replace the runtime extra's guard that `restart` imports at call time."""
+    import types
+
+    module = types.ModuleType("screamingface._runtime.server")
+    module.require_runtime_extra = lambda: None  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "screamingface._runtime.server", module)
+
+
+def test_a_restart_in_this_checkout_never_runs_the_real_engine_venv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """INVARIANT: the suite never reads the developer's real Engine venv (conftest).
+
+    Without that isolation `_config` finds `apps/screamingface-engine/.venv/bin/python` in the
+    checkout the tests run from, and `restart` then runs the real Engine's bundle listing: a
+    prior restart test failed with "serves only medxpert" on a dev box whose Engine venv lacks
+    the benchmarks extra, and spawned a 4 s child on one that has it. CI was green only because
+    CI has no Engine venv. Here the real checkout is MADE to look like it has one — the venv
+    path is pointed at a file every checkout carries — so the guard is exercised on every machine.
+    """
+    real_root = source_module.checkout_root()
+    assert real_root is not None, "the suite runs from a ScreamingFace checkout"
+    monkeypatch.setattr(engine_env, "_VENV_PYTHON", Path("pyproject.toml"))
+    monkeypatch.setattr(
+        engine_env.subprocess, "run", lambda *a, **k: pytest.fail("ran a real Engine child")
+    )
+    _stub_server(monkeypatch)
+    monkeypatch.setattr(cli, "_require_runner_config", lambda _config: None)
+    monkeypatch.setattr(cli, "_down", lambda _config: None)
+    started: list[RuntimeConfig] = []
+    monkeypatch.setattr(cli, "_up", lambda config, *, foreground: started.append(config))
+
+    args = cli._parser().parse_args(["--data-dir", str(tmp_path / "data"), "restart"])
+    cli._restart(cli._config(args), args, foreground=False)
+
+    assert started[0].engine_python is None
+    assert engine_env.checkout_engine_venv(RuntimeSource(MODE_CHECKOUT, real_root)) is None
+
+
+def test_the_scoreboard_refuses_to_serve_an_unseeded_board(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The seeder returns 1 when the Engine's catalogue was unreadable and the board was never
+    seeded. Serving anyway put an empty leaderboard behind a READY banner; the child must exit,
+    so the supervisor reports it (with the seeder's own lines drained into runtime.log)."""
+    import types
+
+    async def unseeded(**_: object) -> int:
+        return 1
+
+    def module(name: str, **attributes: object) -> None:
+        stub = types.ModuleType(name)
+        for key, value in attributes.items():
+            setattr(stub, key, value)
+        monkeypatch.setitem(sys.modules, name, stub)
+
+    module("uvicorn", run=lambda *a, **k: pytest.fail("served an unseeded board"))
+    module("scoreboard.config", Settings=lambda **kwargs: types.SimpleNamespace(**kwargs))
+    module("scoreboard.main", create_app=lambda settings: object())
+    module("scoreboard.seed", _run=unseeded, load_benchmarks_json=lambda raw: [])
+    module("screamingface_engine.benchmarks.builtins", BUILTIN_BENCHMARKS=())
+    monkeypatch.setattr(server, "scoreboard_assets", lambda: (tmp_path, tmp_path))
+
+    with pytest.raises(RuntimeError, match="could not read the Engine's benchmarks"):
+        server.run_scoreboard(RuntimeConfig(data_dir=tmp_path / "data"), seed_from_engine=True)
+
+
+def test_status_reads_bundles_from_disk_and_never_starts_the_engine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: `status --json` is polled (Studio, scripts); a 4 s Engine child per call is not a status.
+    monkeypatch.setattr(
+        engine_env, "engine_bundle_ids", lambda *a, **k: pytest.fail("status ran the Engine")
+    )
+    python = tmp_path / "python"
+    python.write_text("")
+    config = RuntimeConfig(data_dir=tmp_path / "data", engine_python=python)
+    (config.assets_dir / "ifeval").mkdir(parents=True)
+    (config.assets_dir / "ifeval" / "cases.json").write_text('[{"id": 1}]')
+    (config.assets_dir / "mmlu").mkdir()
+
+    statuses = cli._benchmark_statuses(config, ask_engine=False)
+
+    assert statuses == {"ifeval": "prepared", "mmlu": "incomplete"}
+
+
+def test_doctor_reports_a_broken_engine_environment_instead_of_dying(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def broken(*_: object, **__: object) -> tuple[str, ...]:
+        raise RuntimeError("the Engine at /x/python could not list its benchmarks (exit 1)")
+
+    monkeypatch.setattr(engine_env, "engine_bundle_ids", broken)
+    _stub_server(monkeypatch)
+    python = tmp_path / "python"
+    python.write_text("")
+
+    code = cli._doctor(RuntimeConfig(data_dir=tmp_path / "data", engine_python=python))
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "FAIL  engine environment" in out
+    assert "could not list its benchmarks" in out
+
+
+def _state_with_engine(config: RuntimeConfig, python: Path) -> None:
+    cli._write_state(
+        config,
+        {
+            "schema_version": 1,
+            "pid": 42,
+            "owner_token": "secret",
+            "control_url": "http://127.0.0.1:1",
+            "services": config.services,
+            "engine_python": str(python),
+        },
+    )
+
+
+@pytest.fixture
+def restart_stubs(monkeypatch: pytest.MonkeyPatch) -> list[RuntimeConfig]:
+    _stub_server(monkeypatch)
+    monkeypatch.setattr(cli, "_verify_owner", lambda _state: False)
+    monkeypatch.setattr(cli, "_require_runner_config", lambda _config: None)
+    monkeypatch.setattr(cli, "_require_full_engine_environment", lambda _config: None)
+    monkeypatch.setattr(cli, "_down", lambda _config: None)
+    started: list[RuntimeConfig] = []
+    monkeypatch.setattr(cli, "_up", lambda config, *, foreground: started.append(config))
+    return started
+
+
+def test_restart_keeps_the_recorded_interpreter_over_a_found_default(
+    tmp_path: Path, restart_stubs: list[RuntimeConfig]
+) -> None:
+    # INVARIANT: like the datasets folder, the interpreter is part of what the stack IS; a
+    # checkout default (merely found) must not swap it out from under a restart.
+    recorded = _python_file(tmp_path / "recorded" / "python")
+    found = _python_file(tmp_path / "found" / "python")
+    config = RuntimeConfig(data_dir=tmp_path / "data", engine_python=found)
+    _state_with_engine(config, recorded)
+    args = cli._parser().parse_args(["--data-dir", str(tmp_path / "data"), "restart"])
+
+    cli._restart(config, args, foreground=False)
+
+    assert restart_stubs[0].engine_python == recorded
+
+
+def test_restart_takes_a_newly_named_interpreter(
+    tmp_path: Path, restart_stubs: list[RuntimeConfig]
+) -> None:
+    recorded = _python_file(tmp_path / "recorded" / "python")
+    named = _python_file(tmp_path / "named" / "python")
+    config = RuntimeConfig(data_dir=tmp_path / "data", engine_python=named)
+    _state_with_engine(config, recorded)
+    args = cli._parser().parse_args(
+        ["--data-dir", str(tmp_path / "data"), "restart", "--engine-python", str(named)]
+    )
+
+    cli._restart(config, args, foreground=False)
+
+    assert restart_stubs[0].engine_python == named
+
+
+def test_prepare_uses_the_running_stacks_interpreter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: `prepare --list` beside a running stack must list what THAT Engine serves.
+    recorded = _python_file(tmp_path / "recorded" / "python")
+    found = _python_file(tmp_path / "found" / "python")
+    config = RuntimeConfig(data_dir=tmp_path / "data", engine_python=found)
+    _state_with_engine(config, recorded)
+    monkeypatch.setattr(cli, "_verify_owner", lambda _state: True)
+    args = cli._parser().parse_args(["--data-dir", str(tmp_path / "data"), "prepare", "--list"])
+
+    assert cli._with_recorded_engine(config, args).engine_python == recorded
+
+    monkeypatch.setattr(cli, "_verify_owner", lambda _state: False)
+    assert cli._with_recorded_engine(config, args).engine_python == found
+
+
+class _StubbornProcess:
+    """A child that ignores SIGTERM: `wait` times out until it is killed."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.killed = False
+
+    def poll(self) -> int | None:
+        return -9 if self.killed else None
+
+    def terminate(self) -> None:
+        self.calls.append("terminate")
+
+    def kill(self) -> None:
+        self.calls.append("kill")
+        self.killed = True
+
+    def wait(self, timeout: float | None = None) -> int:
+        self.calls.append(f"wait({timeout})")
+        if not self.killed:
+            raise subprocess.TimeoutExpired("engine", timeout or 0)
+        return -9
+
+
+def test_a_child_that_ignores_terminate_is_killed() -> None:
+    # WHY: without the kill, a stuck Engine child keeps 9108 and the next `up` refuses the port.
+    process = _StubbornProcess()
+
+    server._stop_child_process(process, grace=0.1)  # type: ignore[arg-type]
+
+    assert process.calls[:2] == ["terminate", "wait(0.1)"]
+    assert "kill" in process.calls
+
+
+def test_the_engine_child_runs_in_its_own_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # WHY: in `up --foreground`, Ctrl-C signals the whole terminal process group; a child in
+    # that group got SIGINT directly AND a terminate() from the supervisor. Its own session
+    # leaves the supervisor as the one that stops it.
+    seen: dict[str, object] = {}
+
+    def popen(command: list[str], **kwargs: object) -> object:
+        seen.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(server.subprocess, "Popen", popen)
+    python = tmp_path / "python"
+    python.write_text("")
+
+    server._start_engine_child(RuntimeConfig(data_dir=tmp_path / "data", engine_python=python))
+
+    assert seen["start_new_session"] is True

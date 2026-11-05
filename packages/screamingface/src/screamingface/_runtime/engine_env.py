@@ -99,12 +99,24 @@ def resolve_engine_python(
             )
         return candidate
     chosen: Path | None = None
-    if source.mode == MODE_CHECKOUT and source.root is not None:
-        default = (source.root / _CHECKOUT_ENGINE_APP / _VENV_PYTHON).absolute()
-        chosen = default if default.is_file() else None
+    default: Path | None = checkout_engine_venv(source)
+    if default is not None and default.is_file():
+        chosen = default
     if chosen is None and data_dir is not None:
         chosen = existing_engine_environment(data_dir)
     return chosen
+
+
+def checkout_engine_venv(source: RuntimeSource) -> Path | None:
+    """The Engine app's own venv interpreter in this checkout, whether or not it exists.
+
+    One function so the test suite can hide the developer's REAL Engine venv (conftest) the
+    way it hides their real data dir: a unit test must not depend on, or spawn, it.
+    """
+
+    if source.mode != MODE_CHECKOUT or source.root is None:
+        return None
+    return (source.root / _CHECKOUT_ENGINE_APP / _VENV_PYTHON).absolute()
 
 
 def engine_bundle_ids(
@@ -471,6 +483,7 @@ __all__ = [
     "ENGINE_PYTHON_ENV",
     "READY_MARKER",
     "bundle_status",
+    "checkout_engine_venv",
     "describe",
     "engine_bundle_ids",
     "ensure_engine_environment",
