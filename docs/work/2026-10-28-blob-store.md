@@ -295,3 +295,14 @@ status: done
   error. Each asserts `S3StorageError` and a tracemalloc peak under 1 MB above baseline. Identity
   bodies are still read, both pre-read and streamed. No prior test changed.
 - **Gates:** `run_gates.py screamingface-engine --base origin/main` ALL GREEN; `s3.py` 445 lines.
+
+### #1603 review — `blob_max_bytes` ceiling (khoaguin, 2026-11-05)
+
+- **Finding:** `blob_max_bytes` had no ceiling, while the Runner's `blob_store_from_env` reads
+  with the default policy (8,000,000). An App set to 10 MB would store a 9 MB PDF that the Runner
+  then refuses as `x.blob_digest_mismatch`. The chart does not expose the setting.
+- **Fix:** `config.py` sets `le=DEFAULT_BLOB_MAX_BYTES` on the field, so a larger cap is refused
+  at config load.
+- **Tests:** three cases appended to `test_blob_review_hardening.py`, written first with RED
+  confirmed: 8,000,000 accepted, 8,000,001 refused, and the env var behaves the same. No prior
+  test changed.

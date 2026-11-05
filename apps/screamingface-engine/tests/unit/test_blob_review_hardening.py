@@ -26,6 +26,7 @@ from screamingface_engine.app import create_app
 from screamingface_engine.artifacts.blobs import (
     ATTACHMENT_MEDIA_TYPES,
     BLOB_UNSUPPORTED_MEDIA_TYPE,
+    DEFAULT_BLOB_MAX_BYTES,
     MEDIA_TYPE_SIGNATURES,
     BlobContentMismatch,
     BlobPolicy,
@@ -311,3 +312,28 @@ async def test_the_app_accepts_every_correctly_labelled_type(
             headers={**_cap(), "Content-Type": media_type},
         )
     assert put.status_code == 201, put.text
+
+
+# --- #1603 review round 3 (config.py:135): the App's per-blob cap never exceeds the Runner's ----
+#
+# WHY: the Runner's `blob_store_from_env` reads with the default policy (DEFAULT_BLOB_MAX_BYTES),
+# so an App cap above it would store a blob the Runner then refuses as `x.blob_digest_mismatch`.
+# A larger cap is refused at config load instead.
+
+
+def test_blob_max_bytes_accepts_the_runner_cap() -> None:
+    settings = Settings.model_validate({"blob_max_bytes": DEFAULT_BLOB_MAX_BYTES})
+    assert settings.blob_max_bytes == 8_000_000 == DEFAULT_BLOB_MAX_BYTES
+
+
+def test_blob_max_bytes_above_the_runner_cap_is_refused() -> None:
+    with pytest.raises(ValidationError, match="blob_max_bytes"):
+        Settings.model_validate({"blob_max_bytes": 8_000_001})
+
+
+def test_blob_max_bytes_env_var_obeys_the_same_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("URL4_CLOUD_BLOB_MAX_BYTES", "8000000")
+    assert Settings().blob_max_bytes == 8_000_000
+    monkeypatch.setenv("URL4_CLOUD_BLOB_MAX_BYTES", "8000001")
+    with pytest.raises(ValidationError, match="blob_max_bytes"):
+        Settings()

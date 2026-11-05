@@ -8,7 +8,7 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env, runner_queue, subjects
-from screamingface_engine.artifacts.blobs import ATTACHMENT_MEDIA_TYPES
+from screamingface_engine.artifacts.blobs import ATTACHMENT_MEDIA_TYPES, DEFAULT_BLOB_MAX_BYTES
 
 RunnerBackend = Literal["none", "queue"]
 ArtifactStoreBackend = Literal["filesystem", "s3"]
@@ -132,7 +132,10 @@ class Settings(BaseSettings):
     # (Q4a): one blob is at most the spec's per-run attachment total, and only the five spec
     # attachment types are kept. Over the cap → 413 `x.blob_too_large`; any other type → 415
     # `x.blob_unsupported_media_type`. Blobs share `artifact_ttl_s` and its sweep.
-    blob_max_bytes: int = Field(default=8_000_000, gt=0)
+    # INVARIANT (#1603 review round 3): never above DEFAULT_BLOB_MAX_BYTES. The Runner's
+    # `blob_store_from_env` reads with the default policy, so a larger App cap would store a
+    # blob the Runner then refuses as `x.blob_digest_mismatch`; it is refused at config load.
+    blob_max_bytes: int = Field(default=DEFAULT_BLOB_MAX_BYTES, gt=0, le=DEFAULT_BLOB_MAX_BYTES)
     blob_media_types: list[str] = Field(
         default_factory=lambda: [
             "image/png",
