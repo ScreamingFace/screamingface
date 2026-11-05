@@ -98,13 +98,24 @@ after url4 sees the body.
 All three options add one small per-board metadata file, `board.json`, written **before**
 `cases.json` so the completion marker keeps its meaning:
 
-```json
-{"schema": "screamingface.board.v1", "case_count": 181, "has_pictures": true}
+```text
+{"schema": "screamingface.board.v2", "case_count": 181,
+ "cases_bytes": <size of cases.json>, "modalities": ["image"]}
 ```
 
-`has_pictures` is `cases_need_pictures(rows)` computed at build time, over the rows as the
-Candidate will see them (after the envelope, where the board uses one). This makes consumer 4
-O(1) with the same meaning ("a picture anywhere").
+`modalities` is `sorted(cases_need_modalities(rows))` computed at build time, over the rows as
+the Candidate will see them (after the envelope, where the board uses one): the non-text input
+types any Case needs, in the gateway's `/v1/models` `input_modalities` vocabulary (`image`,
+`pdf`). `text` is never listed, so `[]` is a text-only board. This makes consumer 4 O(1) with
+the same meaning ("a picture or a PDF anywhere").
+
+> **Amended by OME-1803 (owner, 2026-11-03): schema v2.** v1 (`screamingface.board.v1`, as
+> shipped by #1629) carried `has_pictures: bool`, which cannot carry the PDF decision. v2 drops
+> it for `modalities`. One part-type → modality table (`PART_MODALITIES` in
+> `picture_admission.py`: `image_url` → `image`, `file` (PDF only) → `pdf`) feeds both this scan
+> and the rows path. A v1 board, or a bundle with no `board.json`, takes the legacy full read
+> with a warning and one cached scan of `cases.json`; v1's flag is never trusted. Any other
+> schema fails closed as `benchmark_unavailable`.
 
 ### Option A — one file per Case plus `board.json`
 
@@ -167,7 +178,7 @@ measured numbers (acceptance 3).
 - **A port in core:** `screamingface_engine/benchmarks/board_store.py` defines
   `BoardStore(Protocol)`:
   - `case_count() -> int`
-  - `has_pictures() -> bool`
+  - `modalities() -> frozenset[str]` (was `has_pictures() -> bool` before OME-1803)
   - `rows(ids) -> str` (a JSON array, byte-identical to today's slice)
   - `row(id) -> Mapping`
   - `id_for_input(text) -> int`
@@ -179,8 +190,10 @@ measured numbers (acceptance 3).
   `count = int(request.intent)`. The provider takes `count`, validates it against
   `case_count()`, and returns `rows(1..count)`. The url4 `slice=(0, N)` stays (it is then a no-op)
   so the recipe identity and expression bytes do not move.
-- **Admission takes a flag:** `refuse_blind_models(node, needs_pictures: bool)`. The flag comes
-  from `has_pictures()`. The legacy fallback computes it with `cases_need_pictures` as today.
+- **Admission takes the set:** `refuse_blind_candidate(node, *, needs: frozenset[str])` (OME-1803;
+  was a `needs_pictures` flag). The set comes from `modalities()`; every Candidate model whose
+  published `input_modalities` lacks a needed modality is named in one permanent `intent_error`.
+  The legacy fallback computes it with `cases_need_modalities`.
 - **Envelope per row:** `_enveloped_inputs` runs over the N rows read, never over the whole board.
 - **Aggregation:** `read_selected_cases(root, case_ids, ...)` reads `store.row(id)` per id. Error
   wording is unchanged.
@@ -245,7 +258,7 @@ the owner should confirm the choice (Q1).
 - **Writer (unit):** the joined-row `cases.json` equals the old `json.dumps(list)` bytes. Cover
   non-ASCII, nested envelopes, a picture row larger than any read buffer, and a single-row board.
   Every `(offset, length)` slice parses to its row. `board.json` fields match the rows.
-  `has_pictures` matches `cases_need_pictures` over enveloped and non-enveloped rows.
+  `modalities` matches `cases_need_modalities` over enveloped and non-enveloped rows.
   Determinism: prepare twice and compare the bytes.
 - **Store (unit):**
   - `rows(1..N)` equals the legacy slice for N = 1, mid, all.

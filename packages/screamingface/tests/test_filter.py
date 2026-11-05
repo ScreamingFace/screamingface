@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from typing import Any
 
 import httpx
 import pytest
 from _combine_flow_fixtures import flow_operators, members3
+from _nodes import FilterNode, FusionNode, fusion_node, lowered
 from _reducer_fixtures import evidence_wire
 from _vote_run_fixtures import (
     ScriptedTransport,
@@ -29,6 +31,7 @@ from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
 from screamingface._signals import _Comparison
+from screamingface._surface.chain import Step
 from screamingface.reducer import Reducer
 
 _SURFACE = _CheckSurface(
@@ -38,14 +41,16 @@ _SURFACE = _CheckSurface(
 )
 _CONFIDENCE = sf.signal("field:confidence")
 _CMPS = ["gt", "ge", "lt", "le", "eq"]
+_OPEN_BLOCK = "the chain ends inside a sf.Fanout block: add a reducer or sf.Synthesize"
 
 
-def _wrapped(reducer: Reducer) -> sf.Pipeline:
-    return sf.Pipeline([sf.Fusion(members3(), synthesizer=reducer), "provider/next"])
+def _chain(step: Step) -> sf.Pipeline:
+    """A selection step in a block, then the writer that reads the selected members."""
+    return sf.Fanout(members3()) >> step >> sf.Synthesize("provider/next")
 
 
-def _url4(reducer: Reducer) -> str:
-    return compile_candidate(_wrapped(reducer), operators=flow_operators()).url4
+def _chain_url4(step: Step) -> str:
+    return compile_candidate(_chain(step), operators=flow_operators()).url4
 
 
 def _spec(reducer: Reducer, members: int = 3) -> dict[str, Any]:
@@ -94,7 +99,7 @@ def test_signal_comparisons_build_predicates() -> None:
     assert (same == 1).value == 1.0  # type: ignore[union-attr]
     assert (same == True) != (same == 1)  # noqa: E712
 
-    with pytest.raises(TypeError, match="an sf.Filter predicate, not a bool"):
+    with pytest.raises(TypeError, match="a sf.Filter predicate, not a bool"):
         bool(predicate)
     with pytest.raises(TypeError, match=r"sf\.Filter has no != predicate"):
         _ = same != 1
@@ -134,21 +139,16 @@ def test_comparisons_compare_and_hash_by_a_typed_key() -> None:
     assert (_CONFIDENCE >= 0.6) != (sf.signal("cost_usd") >= 0.6)
     assert (_CONFIDENCE >= 0.6) == (sf.signal("field:confidence") >= 0.6)
 
-    # a Filter and a block that hold the comparisons keep them apart too
+    # a Filter that holds the comparisons keeps them apart too
     assert sf.Filter(where=as_true) != sf.Filter(where=as_one)  # type: ignore[arg-type]
     assert sf.Filter(where=as_one) == sf.Filter(where=as_float)  # type: ignore[arg-type]
-    blocks = [sf.Reduce("filter", where=value) for value in (as_true, as_one, as_float)]  # type: ignore[arg-type]
-    assert blocks[0] != blocks[1]
-    assert blocks[1] == blocks[2]
-    assert len({hash(blocks[0]), hash(blocks[1])}) == 2 or len(set(blocks)) == 2
-    assert len(set(blocks)) == 2
+    filters = [sf.Filter(where=value) for value in (as_true, as_one, as_float)]  # type: ignore[arg-type]
+    nodes = [FilterNode(where=value) for value in (as_true, as_one, as_float)]  # type: ignore[arg-type]
     # equal values compile to equal bytes, and different values to different bytes
-    assert _url4(blocks[1]) == _url4(blocks[2])
-    assert _url4(blocks[0]) != _url4(blocks[1])
-    assert '"value":true' in combine_spec_text(
-        blocks[0], member_count=3, operators=flow_operators()
-    )
-    assert '"value":1.0' in combine_spec_text(blocks[1], member_count=3, operators=flow_operators())
+    assert _chain_url4(filters[1]) == _chain_url4(filters[2])
+    assert _chain_url4(filters[0]) != _chain_url4(filters[1])
+    assert '"value":true' in combine_spec_text(nodes[0], member_count=3, operators=flow_operators())
+    assert '"value":1.0' in combine_spec_text(nodes[1], member_count=3, operators=flow_operators())
 
 
 def test_non_finite_threshold_is_rejected() -> None:
@@ -179,7 +179,7 @@ def test_non_finite_threshold_is_rejected() -> None:
 
 
 def test_filter_compiles_filter_and_kept() -> None:
-    reducer = sf.Filter(where=_CONFIDENCE >= 0.6)  # type: ignore[arg-type]
+    reducer = FilterNode(where=_CONFIDENCE >= 0.6)  # type: ignore[arg-type]
     spec = _spec(reducer)
 
     assert spec["reducer"] == "filter"
@@ -191,19 +191,19 @@ def test_filter_compiles_filter_and_kept() -> None:
     assert spec["select"] == {"args": {}, "op": "kept@1"}
     assert reducer._plan().kind == "selection"
 
-    pattern = _spec(sf.Filter(where=sf.matches(r"ANSWER: \d+", ignore_case=True)))
+    pattern = _spec(FilterNode(where=sf.matches(r"ANSWER: \d+", ignore_case=True)))
     assert pattern["reduce"] == {
         "args": {"ignore_case": True, "pattern": r"ANSWER: \d+"},
         "op": "filter@1",
     }
-    plain = _spec(sf.Filter(where=sf.matches(r"ANSWER: \d+")))
+    plain = _spec(FilterNode(where=sf.matches(r"ANSWER: \d+")))
     assert plain["reduce"]["args"] == {"pattern": r"ANSWER: \d+"}
 
-    field = _spec(sf.Filter(where=sf.matches("yes"), extract=sf.Extract("field", path="answer")))
+    field = _spec(FilterNode(where=sf.matches("yes"), extract=sf.Extract("field", path="answer")))
     assert field["extract"] == {"args": {"path": "answer"}, "op": "json_field@1"}
     assert field["normalize"] is None
     normalized = _spec(
-        sf.Filter(where=sf.matches("yes"), extract=sf.Extract("field", "text", path="answer"))
+        FilterNode(where=sf.matches("yes"), extract=sf.Extract("field", "text", path="answer"))
     )
     assert normalized["normalize"] == {"args": {}, "op": "text@1"}
 
@@ -217,7 +217,7 @@ def test_every_comparison_writes_its_cmp(cmp_op: str) -> None:
         "le": _CONFIDENCE <= 0.5,
         "eq": _CONFIDENCE == 0.5,
     }[cmp_op]
-    spec = _spec(sf.Filter(where=built))  # type: ignore[arg-type]
+    spec = _spec(FilterNode(where=built))  # type: ignore[arg-type]
 
     assert spec["reduce"]["args"] == {"cmp": cmp_op, "key": "field:confidence", "value": 0.5}
 
@@ -225,22 +225,15 @@ def test_every_comparison_writes_its_cmp(cmp_op: str) -> None:
 def test_filter_benchmark_extract_resolves_from_the_benchmark_rule() -> None:
     from _fusion_doc_examples import _GSM8K_RULE
 
-    reducer = sf.Filter(where=sf.matches("42"), extract=sf.Extract("benchmark"))
+    reducer = sf.Filter(where=sf.matches("42"), over=sf.Extract("benchmark"))
     compiled = compile_candidate(
-        _wrapped(reducer), operators=flow_operators(), benchmark_rule=_GSM8K_RULE
+        _chain(reducer), operators=flow_operators(), benchmark_rule=_GSM8K_RULE
     )
 
     assert '"op":"inspect_number@1"' in compiled.url4.replace("\\u0022", '"') or (
         "inspect_number@1" in compiled.url4
     )
     assert "inspect_numeric@1" in compiled.url4
-    block = sf.Reduce("filter", where=sf.matches("42"), extract=sf.Extract("benchmark"))
-    assert (
-        compile_candidate(
-            _wrapped(block), operators=flow_operators(), benchmark_rule=_GSM8K_RULE
-        ).url4
-        == compiled.url4
-    )
 
 
 # --- FL#6: the last-stage rule -----------------------------------------------------------------
@@ -248,141 +241,91 @@ def test_filter_benchmark_extract_resolves_from_the_benchmark_rule() -> None:
 
 def test_filter_as_last_stage_is_rejected() -> None:
     reducer = sf.Filter(where=_CONFIDENCE >= 0.6)  # type: ignore[arg-type]
-    fusion = sf.Fusion(members3(), synthesizer=reducer)
+    fusion = sf.Fanout(members3()) >> reducer
 
-    with pytest.raises(ValueError, match="a Filter must be followed by another stage"):
+    with pytest.raises(ValueError, match=re.escape(_OPEN_BLOCK)):
         compile_candidate(fusion, operators=flow_operators())
-    block = sf.Fusion(
-        members3(),
-        synthesizer=sf.Reduce("filter", where=_CONFIDENCE >= 0.6),  # type: ignore[arg-type]
-    )
-    with pytest.raises(ValueError, match=r"a Reduce\('filter'\) must be followed by another stage"):
-        compile_candidate(block, operators=flow_operators())
-    # a Fusion member and a corrective-loop judge are refused too
-    with pytest.raises(ValueError, match="a Filter Fusion cannot be a Fusion member"):
+    # a sf.Fanout member and a corrective-loop judge are refused too
+    with pytest.raises(ValueError, match=re.escape(_OPEN_BLOCK)):
         compile_candidate(
-            sf.Fusion([fusion, "provider/d"], synthesizer="provider/s"), operators=flow_operators()
+            sf.Fanout([fusion, "provider/d"]) >> sf.Synthesize("provider/s"),
+            operators=flow_operators(),
         )
-    with pytest.raises(ValueError, match="a Filter cannot feed a corrective loop"):
+    with pytest.raises(ValueError, match=re.escape(_OPEN_BLOCK)):
         compile_candidate(
             sf.CorrectiveLoop(["provider/a", "provider/b"], judge=fusion),
             check_surface=_SURFACE,
             operators=flow_operators(),
         )
-    followed = sf.Pipeline([fusion, "provider/next"])
+    # the compiler's own guard on the internal node, which only a hand-built url4 reaches: alone,
+    # as a member and as a loop judge
+    node = fusion_node(members3(), FilterNode(where=_CONFIDENCE >= 0.6))  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="a sf.Filter must be followed by sf.Synthesize"):
+        compile_candidate(node, operators=flow_operators())
+    with pytest.raises(ValueError, match="a sf.Filter block cannot be a sf.Fanout member"):
+        compile_candidate(
+            fusion_node([node, "provider/d"], "provider/s"), operators=flow_operators()
+        )
+    with pytest.raises(ValueError, match="a sf.Filter block cannot feed a corrective loop"):
+        compile_candidate(
+            sf.CorrectiveLoop(["provider/a", "provider/b"], judge=node),
+            check_surface=_SURFACE,
+            operators=flow_operators(),
+        )
+    followed = fusion >> sf.Synthesize("provider/next")
     assert compile_candidate(followed, operators=flow_operators()).operations
-
-
-# --- FL#9 / BK#4: the block form ---------------------------------------------------------------
-
-
-def test_reduce_filter_block_equals_sf_filter() -> None:
-    pairs: list[tuple[Reducer, Reducer]] = []
-    for built in (
-        _CONFIDENCE > 0.6,
-        _CONFIDENCE >= 0.6,
-        _CONFIDENCE < 0.6,
-        _CONFIDENCE <= 0.6,
-        _CONFIDENCE == 0.6,
-        _CONFIDENCE == True,  # noqa: E712
-        _CONFIDENCE == False,  # noqa: E712
-        sf.signal("cost_usd") < 0.01,
-    ):
-        pairs.append(
-            (sf.Reduce("filter", where=built), sf.Filter(where=built))  # type: ignore[arg-type]
-        )
-    for matcher in (sf.matches("a+"), sf.matches("a+", ignore_case=True)):
-        pairs.append((sf.Reduce("filter", where=matcher), sf.Filter(where=matcher)))
-    extract = sf.Extract("field", "text", path="answer")
-    pairs.append(
-        (
-            sf.Reduce("filter", where=sf.matches("yes"), extract=extract),
-            sf.Filter(where=sf.matches("yes"), extract=extract),
-        )
-    )
-    pairs.append(
-        (
-            sf.Reduce("filter", where=_CONFIDENCE >= 0.6, extract=sf.Extract("last_number")),  # type: ignore[arg-type]
-            sf.Filter(where=_CONFIDENCE >= 0.6, extract=sf.Extract("last_number")),  # type: ignore[arg-type]
-        )
-    )
-
-    for block, named in pairs:
-        assert _url4(block) == _url4(named)
-        assert block._plan() == named._plan()
-
-
-def test_reduce_filter_block_canonical_form_equality_and_hash() -> None:
-    plain = sf.Reduce("filter", where=sf.matches("a"))
-    twin = sf.Reduce("filter", where=sf.matches("a", ignore_case=False))
-
-    assert plain == twin
-    assert hash(plain) == hash(twin)
-    assert dict(plain.options) == {"where": sf.matches("a")}
-    with_extract = sf.Reduce("filter", where=_CONFIDENCE >= 0.6, extract=sf.Extract("boxed"))  # type: ignore[arg-type]
-    for block in (plain, with_extract, sf.Reduce("filter", where=_CONFIDENCE <= 1)):  # type: ignore[arg-type]
-        again = eval(block._python(), {"sf": sf})  # noqa: S307
-        assert again == block
-        assert hash(again) == hash(block)
-    assert sf.Reduce("filter", where=sf.matches("a", ignore_case=True)) != plain
-    assert sf.Reduce("filter", where=_CONFIDENCE >= 0.6) != sf.Reduce(
-        "filter", where=_CONFIDENCE > 0.6
-    )  # type: ignore[arg-type]
 
 
 # --- validation, round trip, decode ------------------------------------------------------------
 
 
 def test_filter_validation() -> None:
-    with pytest.raises(TypeError, match="Filter where must be"):
+    where_rule = re.escape(
+        "sf.Filter where= takes sf.matches(...) or a signal comparison such as "
+        "sf.signal(key) >= 0.6"
+    )
+    with pytest.raises(TypeError, match=where_rule):
         sf.Filter(where="x")  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="Filter where must be"):
+    with pytest.raises(TypeError, match=where_rule):
         sf.Filter(where=None)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="Filter extract must be an sf.Extract"):
-        sf.Filter(where=sf.matches("a"), extract="last_number")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match=r"Filter where=sf\.signal\('score:judge'\) needs a judge"):
-        sf.Filter(where=sf.signal("score:judge") >= 0.5)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="score:judge"):
-        sf.Reduce("filter", where=sf.signal("score:judge") >= 0.5)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match="option 'where' must be"):
-        sf.Reduce("filter", where="x")  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match="needs option 'where'"):
-        sf.Reduce("filter")
+    with pytest.raises(TypeError, match="sf.Filter extract must be a sf.Extract"):
+        FilterNode(where=sf.matches("a"), extract="last_number")  # type: ignore[arg-type]
+    with pytest.raises(
+        ValueError, match=re.escape("score:judge needs sf.Judge(...) after sf.Fanout")
+    ):
+        _chain(sf.Filter(where=sf.signal("score:judge") >= 0.5))  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="sf.matches"):
         sf.matches("(")
 
 
 def test_filter_fields_repr_and_equality() -> None:
-    named = sf.Filter(where=_CONFIDENCE >= 0.6)  # type: ignore[arg-type]
-    pattern = sf.Filter(where=sf.matches("a", ignore_case=True), extract=sf.Extract("boxed"))
+    named = FilterNode(where=_CONFIDENCE >= 0.6)  # type: ignore[arg-type]
+    pattern = FilterNode(where=sf.matches("a", ignore_case=True), extract=sf.Extract("boxed"))
 
     assert (named.name, named.where, named.extract) == ("filter", _CONFIDENCE >= 0.6, None)
     assert repr(named) == "Filter(where=sf.signal('field:confidence') >= 0.6)"
-    assert named._python() == "sf.Filter(where=sf.signal('field:confidence') >= 0.6)"
     assert repr(pattern) == (
         "Filter(where=sf.matches('a', ignore_case=True), extract=sf.Extract('boxed'))"
     )
-    for item in (named, pattern):
-        assert eval(item._python(), {"sf": sf}) == item  # noqa: S307
     assert named != pattern
-    assert named == sf.Filter(where=sf.signal("field:confidence") >= 0.6)  # type: ignore[arg-type]
+    assert named == FilterNode(where=sf.signal("field:confidence") >= 0.6)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
         hash(named)
-    assert repr(sf.Fusion(members3(), synthesizer=named)).endswith(f"synthesizer={named!r})")
+    assert repr(fusion_node(members3(), named)).endswith(f"synthesizer={named!r})")
 
 
 def _shapes() -> dict[str, sf.Recipe]:
-    judge_free: dict[str, Reducer] = {
+    judge_free: dict[str, Step] = {
         "threshold": sf.Filter(where=_CONFIDENCE >= 0.6),  # type: ignore[arg-type]
         "equal true": sf.Filter(where=_CONFIDENCE == True),  # noqa: E712  # type: ignore[arg-type]
         "accounting": sf.Filter(where=sf.signal("cost_usd") <= 0.01),  # type: ignore[arg-type]
         "pattern": sf.Filter(where=sf.matches("ANSWER: [0-9]+")),
         "pattern ignoring case": sf.Filter(where=sf.matches("yes", ignore_case=True)),
         "pattern with extract": sf.Filter(
-            where=sf.matches("^y"), extract=sf.Extract("field", "text", path="answer")
+            where=sf.matches("^y"), over=sf.Extract("field", "text", path="answer")
         ),
     }
-    return {name: _wrapped(reducer) for name, reducer in judge_free.items()}
+    return {name: _chain(step) for name, step in judge_free.items()}
 
 
 @pytest.mark.parametrize(
@@ -395,9 +338,10 @@ def test_filter_round_trips_and_is_recovered_as_sf_filter(shape: str) -> None:
 
     recovered = _recovered(url4)
     assert isinstance(recovered, sf.Pipeline)
-    fusion = recovered.stages[0]
-    assert isinstance(fusion, sf.Fusion)
-    assert type(fusion.synthesizer) is sf.Filter
+    assert type(recovered.steps[1]) is sf.Filter
+    fusion = lowered(recovered)._stage_values()[0]
+    assert isinstance(fusion, FusionNode)
+    assert type(fusion.synthesizer) is FilterNode
     assert compile_candidate(recovered, operators=flow_operators()).url4 == url4
 
 
@@ -405,11 +349,11 @@ def test_to_python_writes_the_filter() -> None:
     url4 = compile_candidate(_shapes()["threshold"], operators=flow_operators()).url4
     source = sf.Url4(url4).to_python()
 
-    assert "synthesizer=sf.Filter(where=sf.signal('field:confidence') >= 0.6)," in source
+    assert "    >> sf.Filter(where=sf.signal('field:confidence') >= 0.6)" in source.splitlines()
     pattern = compile_candidate(_shapes()["pattern ignoring case"], operators=flow_operators())
     assert (
-        "synthesizer=sf.Filter(where=sf.matches('yes', ignore_case=True)),"
-        in sf.Url4(pattern.url4).to_python()
+        "    >> sf.Filter(where=sf.matches('yes', ignore_case=True))"
+        in sf.Url4(pattern.url4).to_python().splitlines()
     )
 
 
@@ -444,11 +388,10 @@ def test_filter_tampering_is_refused_as_cannot_rebuild(case: str) -> None:
 
 
 def _scripted_filter_run(evidence: dict[str, Any]) -> sf.Report:
-    recipe = sf.Pipeline(
-        [
-            sf.Fusion(members3(), synthesizer=sf.Filter(where=_CONFIDENCE >= 0.6)),  # type: ignore[arg-type]
-            "provider/writer",
-        ]
+    recipe = (
+        sf.Fanout(members3())
+        >> sf.Filter(where=_CONFIDENCE >= 0.6)  # type: ignore[arg-type]
+        >> sf.Synthesize("provider/writer")
     )
     operations = [
         operation_wire("op_model_1", '{"answer":"A","confidence":0.9}'),
@@ -541,9 +484,9 @@ def test_equal_comparisons_compile_to_equal_bytes_for_a_negative_zero() -> None:
 
     assert negative == positive
     assert hash(negative) == hash(positive)
-    assert _url4(sf.Filter(where=negative)) == _url4(sf.Filter(where=positive))  # type: ignore[arg-type]
+    assert _chain_url4(sf.Filter(where=negative)) == _chain_url4(sf.Filter(where=positive))  # type: ignore[arg-type]
     assert '"value":0.0' in combine_spec_text(
-        sf.Filter(where=negative),  # type: ignore[arg-type]
+        FilterNode(where=negative),  # type: ignore[arg-type]
         member_count=3,
         operators=flow_operators(),
     )

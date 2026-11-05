@@ -17,7 +17,7 @@ sf.Url4("(candidate='…compiled url4…')!'$model_0'")`
 
 const remix = `plan = report.candidates["frontier-trio"].url4   # or any url4 string you were given
 
-plan.to_python()    # editable sf.Model / sf.Fusion / sf.Pipeline code, no spend
+plan.to_python()    # editable sf.Model / sf.Fanout / sf.Synthesize / sf.Pipeline code, no spend
 sf.evaluate(plan)   # or run it again exactly as it ran, benchmark included`
 
 const ops = `c = report.candidates.only
@@ -219,8 +219,9 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
         <tr>
           <td><code>Url4.to_python()</code></td>
           <td>
-            Reconstruct editable <code>sf.Model</code> / <code>sf.Fusion</code> /
-            <code>sf.Pipeline</code> code from an expression, including the
+            Reconstruct editable <code>sf.Model</code> / <code>sf.Fanout</code> /
+            <code>sf.Synthesize</code> / <code>sf.Pipeline</code> code from an expression, including
+            the
             <code>sf.evaluate(...)</code> line when the url4 embeds a benchmark. Local and free.
           </td>
         </tr>
@@ -285,8 +286,9 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
 
     <p>
       Because a <code>url4</code> is a complete plan, it converts back into the recipe that produced
-      it. <code>to_python()</code> reconstructs the <code>sf.Model</code>, <code>sf.Fusion</code>,
-      and <code>sf.Pipeline</code> calls, nested as they originally were, so you can edit one part
+      it. <code>to_python()</code> reconstructs the <code>sf.Model</code>, <code>sf.Fanout</code>,
+      <code>sf.Synthesize</code> and <code>sf.Pipeline</code> calls, nested as they originally were,
+      so you can edit one part
       and run the result as your own next attempt. It costs nothing, since it is a local
       transformation rather than a run. Passing the expression to <code>sf.evaluate()</code> instead
       runs it again as it stands, which can spend.

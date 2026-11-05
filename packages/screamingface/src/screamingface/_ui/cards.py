@@ -14,15 +14,13 @@ from screamingface._ui.card_style import CARD_STYLE
 from screamingface._ui.engine_origin import _is_hosted_engine
 from screamingface._ui.style import NO_MATH
 from screamingface.recipe import _recipe_kind
-from screamingface.reducer import Reducer
 
 if TYPE_CHECKING:
     from typing import Protocol
 
+    from screamingface._surface.chain import Pipeline, Step, _Block
     from screamingface.discovery import Benchmark, ModelDetails, ModelInfo
-    from screamingface.fusion import Fusion
     from screamingface.model import Model
-    from screamingface.pipeline import Pipeline
     from screamingface.recipe import Recipe
 
     class _ClientLike(Protocol):
@@ -57,35 +55,98 @@ def model_card_html(model: Model) -> str:
     )
 
 
-def fusion_card_html(fusion: Fusion) -> str:
-    """Render the Benchmark-independent Fusion topology."""
+# The section label of each step category of a block (rebuild-display §3): a Judge is "judge".
+_STEP_LABELS: Mapping[str, str] = {
+    "score": "judge",
+    "narrow": "narrow",
+    "reduce": "reduce",
+    "write": "write",
+}
 
-    members = "".join(_member_detail(member) for member in fusion.members)
-    synthesis = ""
-    if fusion.synthesizer is not None:
-        fields = _synthesizer_fields(fusion.synthesizer)
-        synthesis = _section("synthesis", f"<div class='sf-card__grid'>{fields}</div>")
+
+def block_card_html(block: _Block) -> str:
+    """Render one closed block of the new surface: its members, signals and steps (DS-1).
+
+    WHY no ``synthesis`` section: the terminal is a step like the others, labelled ``reduce`` or
+    ``write`` (rebuild-display §3).
+    """
+
+    fanout = block.fanout
+    members = "".join(_member_detail(member) for member in fanout.members)
+    signals = ""
+    if fanout.signals is not None:
+        fields = "".join(
+            _field(name, _mono(repr(source))) for name, source in fanout.signals.items()
+        )
+        signals = _section("signals", f"<div class='sf-card__grid'>{fields}</div>")
+    steps = (
+        *(() if block.judge is None else (block.judge,)),
+        *block.narrow,
+        block.terminal,
+    )
     return (
-        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace fusion'>"
+        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace fanout block'>"
         "<div class='sf-card__accent'></div>"
-        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(fusion.name)}</span>"
-        "<span class='sf-card__kicker'>fusion</span></div>"
-        f"{_section('members', members)}{synthesis}</div>"
+        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(block.name)}</span>"
+        "<span class='sf-card__kicker'>fanout</span></div>"
+        f"{_section('members', members)}{signals}"
+        f"{_section('steps', ''.join(_step_detail(step) for step in steps))}</div>"
     )
 
 
-def pipeline_card_html(pipeline: Pipeline) -> str:
-    """Render one serial Candidate as an explicitly ordered topology."""
+def chain_card_html(chain: Pipeline) -> str:
+    """Render one chain of the new surface: its stages in order; a block shows as one stage.
+
+    A chain that ends inside a block (CH-8) shows that open block last, with the steps it has.
+    """
+
+    # WHY lazy: the surface package imports the recipe tree, which imports this module's users
+    from screamingface._surface.chain import _Block
 
     stages = "".join(
-        _recipe_detail(stage, index=index) for index, stage in enumerate(pipeline.stages, start=1)
+        _block_stage(stage, index)
+        if isinstance(stage, _Block)
+        else _recipe_detail(stage, index=index)
+        for index, stage in enumerate(chain._stages, start=1)
     )
+    if chain._open:
+        stages += _open_stage(chain._open, len(chain._stages) + 1)
     return (
-        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace pipeline'>"
+        f"{CARD_STYLE}<div class='sf-ui sf-card {NO_MATH}' aria-label='ScreamingFace chain'>"
         "<div class='sf-card__accent sf-card__accent--pipeline'></div>"
-        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(pipeline.name)}</span>"
-        "<span class='sf-card__kicker sf-card__kicker--pipeline'>pipeline</span></div>"
+        f"<div class='sf-card__head'><span class='sf-card__title'>{escape(chain.name)}</span>"
+        "<span class='sf-card__kicker sf-card__kicker--pipeline'>chain</span></div>"
         f"{_section('stages', stages)}</div>"
+    )
+
+
+def _block_stage(block: _Block, index: int) -> str:
+    return (
+        f"<div class='sf-detail__item'><div class='sf-detail__index'>stage {index}</div>"
+        f"<div class='sf-detail__name'>{escape(block.name)}</div>"
+        "<div class='sf-card__hint'>fanout block</div></div>"
+    )
+
+
+def _open_stage(steps: tuple[Step, ...], index: int) -> str:
+    """The open block of a chain: its Fanout name, then the steps after the Fanout."""
+
+    fanout, *rest = steps
+    return (
+        f"<div class='sf-detail__item'><div class='sf-detail__index'>stage {index}</div>"
+        f"<div class='sf-detail__name'>{escape(getattr(fanout, 'name', ''))}</div>"
+        "<div class='sf-card__hint'>open fanout block</div></div>"
+        + "".join(_step_detail(step) for step in rest)
+    )
+
+
+def _step_detail(step: Step) -> str:
+    """One step of a block: its category, then its repr (only the options that differ)."""
+
+    return (
+        "<div class='sf-detail__item'>"
+        f"<div class='sf-detail__index'>{_STEP_LABELS[step._category]}</div>"
+        f"<div class='sf-detail__route'>{escape(repr(step))}</div></div>"
     )
 
 
@@ -430,7 +491,7 @@ def _member_detail(member: Recipe) -> str:
 
 def _recipe_detail(recipe: Recipe, *, index: int | None = None) -> str:
     route = getattr(recipe, "model", None)
-    kind = _recipe_kind(recipe)
+    kind = _kind_word(recipe)
     if route is None:
         detail = f"<div class='sf-card__hint'>nested {escape(kind)}</div>"
     else:
@@ -442,30 +503,14 @@ def _recipe_detail(recipe: Recipe, *, index: int | None = None) -> str:
     )
 
 
-def _synthesizer_fields(synthesizer: Recipe | Reducer) -> str:
-    if isinstance(synthesizer, Reducer):
-        return _field(
-            "synthesizer",
-            f"<span class='sf-mono'>{escape(synthesizer.name)}</span>"
-            "<div class='sf-card__hint'>reducer</div>",
-            wide=True,
-        )
-    route = getattr(synthesizer, "model", None)
-    if route is None:
-        value = (
-            f"<span class='sf-mono'>{escape(synthesizer.name)}</span>"
-            f"<div class='sf-card__hint'>nested {escape(_recipe_kind(synthesizer))}</div>"
-        )
-        return _field("synthesizer", value, wide=True)
+def _kind_word(recipe: Recipe) -> str:
+    """The kind a card names: a ``Pipeline`` is a ``chain`` (erratum E5), every other value its
+    recipe kind."""
 
-    fields = _field("synthesizer", _mono(str(route)), wide=True)
-    prompt = getattr(synthesizer, "prompt", None)
-    if prompt is not None:
-        fields += _field("prompt", escape(str(prompt)), wide=True)
-    params = getattr(synthesizer, "params", None)
-    if params:
-        fields += _field("params", _params(params), wide=True)
-    return fields
+    # WHY lazy: the surface package imports the recipe tree, which imports this module's users
+    from screamingface._surface.chain import Pipeline
+
+    return "chain" if isinstance(recipe, Pipeline) else _recipe_kind(recipe)
 
 
 def _provider_of(route: str) -> str:

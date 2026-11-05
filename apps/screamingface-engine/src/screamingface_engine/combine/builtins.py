@@ -17,7 +17,7 @@ from screamingface_engine.combine.operators import (
     selection,
     signals,
 )
-from screamingface_engine.combine.ports import OperatorDescriptor
+from screamingface_engine.combine.ports import OperatorDescriptor, SourceDescriptor
 from screamingface_engine.combine.registry import OperatorRegistry
 
 BUILTIN_REGISTRATIONS: tuple[OperatorDescriptor, ...] = (
@@ -30,6 +30,7 @@ BUILTIN_REGISTRATIONS: tuple[OperatorDescriptor, ...] = (
     *selection.OPERATORS,
     *signals.OPERATORS,
 )
-BUILTIN_OPERATORS = OperatorRegistry(BUILTIN_REGISTRATIONS)
+BUILTIN_SOURCES: tuple[SourceDescriptor, ...] = (*extract.SOURCES,)
+BUILTIN_OPERATORS = OperatorRegistry(BUILTIN_REGISTRATIONS, sources=BUILTIN_SOURCES)
 
-__all__ = ["BUILTIN_OPERATORS", "BUILTIN_REGISTRATIONS"]
+__all__ = ["BUILTIN_OPERATORS", "BUILTIN_REGISTRATIONS", "BUILTIN_SOURCES"]

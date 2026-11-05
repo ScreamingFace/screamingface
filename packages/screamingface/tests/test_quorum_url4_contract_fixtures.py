@@ -24,26 +24,19 @@ from screamingface._evaluation.candidate import compile_candidate
 def quorum_vote_url4() -> str:
     """Three members, the third optional, voting with a quorum of two."""
 
-    recipe = sf.Fusion(
-        ["prov/alpha", "prov/beta", sf.Model("prov/gamma", optional=True)],
-        synthesizer=sf.Vote(extract="last_line", normalize="text"),
-        quorum=2,
-    )
+    recipe = sf.Fanout(
+        ["prov/alpha", "prov/beta", sf.Model("prov/gamma", optional=True)], quorum=2
+    ) >> sf.Vote(over="last_line", normalize="text")
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
 def quorum_judge_vote_url4() -> str:
     """The judge-weighted vote over a quorum panel: the judge scores the members that answered."""
 
-    recipe = sf.Fusion(
-        ["prov/alpha", "prov/beta", sf.Model("prov/gamma", optional=True)],
-        synthesizer=sf.Vote(
-            extract="last_number",
-            normalize="numeric",
-            weights=sf.signal("score:judge"),
-            judge=sf.Judge("prov/judge", returns="scores", rubric="Score each answer."),
-        ),
-        quorum=2,
+    recipe = (
+        sf.Fanout(["prov/alpha", "prov/beta", sf.Model("prov/gamma", optional=True)], quorum=2)
+        >> sf.Judge("prov/judge", rubric="Score each answer.")
+        >> sf.Vote(over="last_number", normalize="numeric", weights=sf.signal("score:judge"))
     )
     return compile_candidate(recipe, operators=flow_operators()).url4
 

@@ -68,6 +68,7 @@ from .dispatch_errors import (
     _online_model_suffix_error,
     _response_conversion_exception,
     _unsafe_litellm_state_error,
+    _unsupported_parameters_error,
 )
 
 # AIDEV-NOTE: ``X as X`` is an explicit RE-EXPORT, not a redundant alias. OME-305
@@ -89,7 +90,12 @@ from .live_models import (
 )
 from .observations import ROUTING_POLICY_OBSERVATIONS
 from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
-from .provenance import converter_error_message, converter_error_status, is_http200_body_error
+from .provenance import (
+    converter_error_message,
+    converter_error_status,
+    is_http200_body_error,
+    is_parameter_refusal,
+)
 from .response_errors import (
     _embedded_error_status as _embedded_error_status,
 )
@@ -591,6 +597,11 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                     converter_error_message(exc),
                     forbidden=credential_values(body),
                 ) from exc
+            # E4b part 3 (LC-E5): a proven transport 404 that is OpenRouter's refusal of
+            # an unsupported parameter gets its own gateway code; any other error is
+            # re-raised unchanged for the route's generic mapping.
+            if is_parameter_refusal(exc):
+                raise _unsupported_parameters_error() from exc
             raise
         try:
             payload: Any = response.model_dump() if hasattr(response, "model_dump") else response

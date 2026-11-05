@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from _nodes import fusion_node
 from _reducer_fixtures import FixtureJudgeish, FixtureVote, fixture_operators, reducer_fusion
 from url4 import Expression, build, expr, render, src, text
 
@@ -129,7 +130,7 @@ def _recipes() -> dict[str, sf.Recipe]:
         "model": sf.Model("provider/x"),
         "pipeline": sf.Pipeline(["provider/a", "provider/b"]),
         "pipeline_of_reducers": sf.Pipeline(
-            [reducer_fusion(), sf.Fusion(["provider/d", "provider/e"], synthesizer=FixtureVote())]
+            [reducer_fusion(), fusion_node(["provider/d", "provider/e"], FixtureVote())]
         ),
     }
 
@@ -164,19 +165,17 @@ def test_to_python_and_corrective_replay_use_the_reducer_registry(
     url4 = _compiled(reducer_fusion())
 
     monkeypatch.setattr(reducer_module, "_REDUCER_CLASSES", {})
-    # no named class registered: the block form rebuilds it (BK-D2)
+    # no named class registered: the block form rebuilds it (BK-D2), as a Vote over the extract
     source = sf.Url4(url4).to_python()
-    assert (
-        "synthesizer=sf.Reduce('plurality', extract=sf.Extract('last_number', "
-        "normalize='numeric'))" in source
-    )
-    judgeish = _compiled(sf.Fusion(["provider/a", "provider/b"], synthesizer=FixtureJudgeish()))
+    assert ">> sf.Vote(over=sf.Extract('last_number'), normalize='numeric')" in source
+    judgeish = _compiled(fusion_node(["provider/a", "provider/b"], FixtureJudgeish()))
     with pytest.raises(ValueError, match="cannot rebuild"):
         sf.Url4(judgeish).to_python()
 
+    # a custom reducer from the registry has no step, so its url4 has no Python (7e)
     monkeypatch.setitem(reducer_module._REDUCER_CLASSES, "vote", FixtureVote)
-    source = sf.Url4(url4).to_python()
-    assert "synthesizer=sf.FixtureVote(extract='last_number@2', normalize='numeric@1')" in source
+    with pytest.raises(ValueError, match="vote spec this SDK version cannot rebuild"):
+        sf.Url4(url4).to_python()
 
     loop = sf.CorrectiveLoop([reducer_fusion(), "provider/d"], judge="provider/j", max_rounds=2)
     linked = _linked(_compiled(loop))

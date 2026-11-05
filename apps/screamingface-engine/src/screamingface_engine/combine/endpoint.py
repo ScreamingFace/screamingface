@@ -6,16 +6,23 @@ STORY: as the url4 route adapter (``world/combine.py``), I hand over one call's 
 (the member outputs) and intent (the spec) and get back one member's text byte for byte, or a text
 built only by the spec's operators, plus the ``CombineEvidence`` of what happened.
 
-One call runs: read the members (extract, then normalize), reduce, select, check.
+One call runs: read the members (extract, then normalize), the narrow steps when the spec has
+them (each one a reduce and a select over the live set, narrow.md §3), reduce, select, check.
 
 INVARIANT: this module imports no ``url4`` module -- the adapter owns the route, the
 ``ResolutionError`` mapping and the task-local record (a side effect), so the core stays pure.
 INVARIANT: pure CPU work -- no HTTP client, no clock, no cache, no module state. Order always
 comes from ``spec.members``; nothing iterates a dict or set to decide an output.
 INVARIANT: only a ``CombineError`` is a declared failure. A plugin bug stays loud. A step that
-finds no answer (no usable member, or a reduce or select step raising ``NoVotes``) is not a
-failure: it returns evidence with ``result.status == "abstain"`` and the empty text. A select
-operator with ``envelope`` (Rank, Filter) returns the empty envelope instead (E4b fix 2026-10-14).
+finds no answer (no usable member, a reduce or select step raising ``NoVotes``, or a vote gate that
+takes the abstain fallback: ``gate_not_met``, E4b part 5, or that finds its number inside the
+abstain band: ``in_band``, E4b part 6) is not a failure: it returns evidence with
+``result.status == "abstain"`` and the empty text. A select operator with ``envelope`` (Rank,
+Filter) returns the empty envelope instead (E4b fix 2026-10-14).
+INVARIANT (FB-I1, E4b part 5): only the fallback branch of a gate reads a ``fallback_*`` reply.
+The band branch (E4b part 6) never reads one.
+INVARIANT: a consistency value reads the ``samples`` context of the members' extra calls; the
+samples never vote (E4b part 7).
 INVARIANT: a failure message names ids, counts and limits -- never member text or arg values.
 WHY no ``record_model_outcome``: the step is not a model call, so the Candidate's terminal finish
 reason stays the members' common reason; the operation's own finish reason is ``stop``.
@@ -26,47 +33,71 @@ from __future__ import annotations
 import logging
 import math
 import re
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Iterator, Mapping
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Any, Literal, cast
 
-from pydantic import ValidationError
+from pydantic import JsonValue, ValidationError
 
+from screamingface_engine.combine.consistency import SampleCount, count_samples
 from screamingface_engine.combine.evidence import (
     AnswerRecord,
     CombineEvidence,
+    CutRecord,
     FieldReadingRecord,
+    GateRecord,
     JudgeReadingRecord,
+    NarrowRecord,
     ResultRecord,
+    SampleCountRecord,
     SignalRecord,
     TallyRowRecord,
 )
+from screamingface_engine.combine.gate import (
+    check_fallback_signals,
+    fallback_label,
+    fallback_text,
+    in_band,
+    observed_number,
+    passes,
+)
+from screamingface_engine.combine.logprob_forms import entropy_value, logprob_value
 from screamingface_engine.combine.ports import (
     ACCOUNTING_SIGNALS,
     FIELD_SIGNAL_PREFIX,
     JUDGE_SIGNAL,
     MAX_OUTPUT_READ_BYTES,
     READING_TO_ANSWER,
+    REPLY_ENTROPY_MEAN,
+    REPLY_LOGPROB_SUM,
+    REPLY_TOKENS,
     AbstainReason,
     AccountingReader,
     Answer,
+    AnswerReason,
     CombineError,
     CombineInput,
+    Cut,
     EvidenceKind,
+    ExcludeReason,
     Extractor,
+    GateBranch,
     InputTooLarge,
+    MemberSources,
     Normalizer,
     NoVotes,
     OpArgs,
     OperatorDescriptor,
     ReadingStatus,
+    RecordStatus,
     ReduceOp,
     Reduction,
     Selection,
     SelectOp,
     SignalRead,
+    SourceRead,
     SpecInvalid,
     Stage,
     StageResult,
@@ -81,14 +112,25 @@ from screamingface_engine.combine.ports import (
     utf8_exceeds,
 )
 from screamingface_engine.combine.registry import OperatorRegistry
+from screamingface_engine.combine.signal_sum import sum_value
 from screamingface_engine.combine.spec import (
     MAX_MEMBERS,
     MAX_WEIGHT,
+    NARROW_JUDGE_REDUCE,
+    NARROW_RULES,
+    REDUCE_SELECT_RULES,
     REDUCER_RULES,
     CombineContext,
     CombineSpec,
+    ConsistencySource,
+    EntropySource,
+    GateSpec,
+    LogprobSource,
+    NarrowSpec,
     SignalWeights,
     StepSpec,
+    SumSource,
+    declares_reply_sources,
     parse_context,
     parse_spec,
 )
@@ -98,6 +140,8 @@ MAX_SPEC_BYTES = 64 * 1024
 MAX_CONTEXT_BYTES = 64 * 1024 * 1024
 MAX_RESULT_BYTES = 8 * 1024 * 1024
 _BINDING = re.compile(r"synthesis_\d+")  # same \d+ as benchmarks/operation_outputs.py
+# NR-C1: the main reduce ops that parse a model reply over the whole context (narrow.md §3.6).
+_WHOLE_CONTEXT_REDUCES = frozenset({"label@1", "field_rules@1"})
 
 logger = logging.getLogger(__name__)
 
@@ -112,8 +156,159 @@ class _Step[F]:
 
 
 @dataclass(frozen=True, slots=True)
+class _Exclusion:
+    """The one rule of a step that can leave a member out (E4b part 2, erd §6 X1-X2).
+
+    ``reason`` "no_weight": the step counts a signal weight, and the member has no usable one.
+    ``reason`` "no_signal": the reduce args read ``key``, and the member has no number for it.
+    """
+
+    reason: ExcludeReason
+    key: str  # the signal key the rule reads
+
+
+@dataclass(frozen=True, slots=True)
+class _Declared:
+    """One declared name, the source reader that computes it, and the source's checked args."""
+
+    name: str
+    read: SourceRead
+    args: OpArgs
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplyDeclared:
+    """One declared name that the member's reply log-probabilities give (logprob, entropy).
+
+    WHY not a ``_Declared``: its value comes from the member reader (the recorded reply), not from
+    the member text, so it has no ``SourceRead``.
+    """
+
+    name: str
+    source: LogprobSource | EntropySource
+
+
+@dataclass(frozen=True, slots=True)
+class _Summed:
+    """One declared sum: its name and its (component, coefficient) terms in spec order (E4b part 6).
+
+    WHY not a ``_Declared``: its value comes from the other declared values of the same member,
+    not from the member text or the reply, so it has no source reader.
+    """
+
+    name: str
+    terms: tuple[tuple[str, float], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _SampleDeclared:
+    """One declared consistency name (E4b part 7): ``n`` extra samples per member, and the match
+    steps (the E4a extract, then normalize) that read the member's text and each sample's text.
+
+    WHY not a ``_Declared``: its value comes from the ``samples`` context and the counts of
+    ``_sample_counts``, not from the member text alone.
+    """
+
+    name: str
+    n: int
+    extract: _Step[Extractor]
+    normalize: _Step[Normalizer] | None
+
+    def match_value(self, text: str) -> str | None:
+        """The text's value after the read cap, then extract, then normalize (P10).
+
+        None for a text over ``MAX_OUTPUT_READ_BYTES`` or when no value is extracted:
+        ``_checked`` makes the value non-None exactly when the stage voted.
+        """
+        if utf8_exceeds(text, MAX_OUTPUT_READ_BYTES):
+            return None
+        return _extract_then_normalize(text, self.extract, self.normalize)[2]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _Recorded(Mapping[str, Mapping[str, float | None]]):
+    """Each member's recorded signals, as a read-only mapping (member -> key -> number), plus the
+    sample counts of the declared consistency source (None when the spec declares none).
+
+    WHY one carrier (consistency-value PRD §2, P22): ``recorded=`` already reaches every exit
+    (answer, abstain, gate, fallback), so the counts reach ``_evidence`` with no new keyword and no
+    call-site change. WHY ``eq=False``: the ``Mapping`` equality (by items) stays.
+    """
+
+    numbers: Mapping[str, Mapping[str, float | None]]
+    samples: Mapping[str, SampleCount] | None = None
+    # WHY here too (narrow.md §3.2): the narrow outcome must reach ``_evidence`` from every exit,
+    # as the sample counts do. None: the spec has no narrow step.
+    narrowed: _Narrowed | None = None
+
+    def __getitem__(self, key: str, /) -> Mapping[str, float | None]:
+        return self.numbers[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.numbers)
+
+    def __len__(self) -> int:
+        return len(self.numbers)
+
+
+# The member numbers of the one member reader call: member -> reader key -> number (None: unknown).
+type _ReaderNumbers = Mapping[str, Mapping[str, float | None]]
+
+
+@dataclass(frozen=True, slots=True)
+class _NarrowPlan:
+    """One resolved narrow step (narrow.md §3.1): its stages, the one signal it reads, the rule
+    that leaves a member out (X2: no value for that signal), and the rank and cut hooks of a top k.
+
+    ``signal``: the reduce args' read, or ``score:judge`` for a judge ``scores@1`` step. It is the
+    key the evidence record names and every member row records (narrow.md §4.1).
+    """
+
+    extract: _Step[Extractor] | None
+    normalize: _Step[Normalizer] | None
+    reduce: _Step[ReduceOp]
+    select: _Step[SelectOp]
+    signal: SignalRead | None
+    excludes: _Exclusion | None
+    ranks: Callable[[Reduction, CombineInput, OpArgs], Mapping[str, int]] | None
+    cut: Cut | None
+
+
+@dataclass(frozen=True, slots=True)
+class _NarrowOps:
+    """The resolved operators of one narrow item, before any args are checked."""
+
+    item: NarrowSpec
+    extract: OperatorDescriptor | None
+    normalize: OperatorDescriptor | None
+    reduce: OperatorDescriptor
+    select: OperatorDescriptor
+
+
+@dataclass(frozen=True, slots=True)
+class _Narrowed:
+    """What the narrow steps did (narrow.md §3.2).
+
+    ``whole``: the input before them (every member: the evidence rows). ``live``: the main step's
+    input (the answers of the members every step kept). ``records``: one per step that ran.
+    ``left_out``: the reason of each member a step left out, from the FIRST step that did (NR-I3).
+    ``abstain``: the reason of the step that chose no member; the call then stops there.
+    """
+
+    whole: CombineInput
+    live: CombineInput
+    records: tuple[NarrowRecord, ...]
+    left_out: Mapping[str, ExcludeReason]
+    abstain: AbstainReason | None
+
+
+@dataclass(frozen=True, slots=True)
 class _Plan:
-    """The four resolved stages of one call; ``extract`` and ``normalize`` may be absent."""
+    """The four resolved stages of one call; ``extract`` and ``normalize`` may be absent.
+
+    ``ranks`` and ``cut``: the hooks of a select step that ranks (``top_k@1``); the cut is read
+    once from the checked args. ``narrow``: the narrow steps that run first, in spec order.
+    """
 
     extract: _Step[Extractor] | None
     normalize: _Step[Normalizer] | None
@@ -121,6 +316,11 @@ class _Plan:
     select: _Step[SelectOp]
     signal: SignalRead | None = None
     envelope: bool = False
+    excludes: _Exclusion | None = None
+    ranks: Callable[[Reduction, CombineInput, OpArgs], Mapping[str, int]] | None = None
+    cut: Cut | None = None
+    declared: tuple[_Declared | _ReplyDeclared | _Summed | _SampleDeclared, ...] = ()
+    narrow: tuple[_NarrowPlan, ...] = ()
 
     @property
     def operators(self) -> tuple[str, ...]:
@@ -203,45 +403,181 @@ def _combine(
     if len(spec.members) > MAX_MEMBERS:
         raise InputTooLarge(f"a combine call takes at most {MAX_MEMBERS} members")
     plan = _plan(spec, registry)
+    sample = _sample_item(plan)
     context = parse_context(
         context_text,
         spec.members,
-        sources_expected=plan.signal is not None and plan.signal.key in ACCOUNTING_SIGNALS,
+        sources_expected=_reads_accounting(plan) or declares_reply_sources(spec),
+        samples_n=None if sample is None else sample.n,
     )
-    signals = _signal_values(plan.signal, spec, context, accounting)
-    combine_input = _read_members(spec, plan, context, signals)
+    check_fallback_signals(spec.gate, context.signals)
+    counts = None if sample is None else _sample_counts(sample, spec, context)
+    recorded = _Recorded(_signal_values(plan, spec, context, accounting, counts), counts)
+    combine_input = _read_members(spec, plan, context, recorded)
     trace.voters = str(len(combine_input.voters))
+    if plan.narrow:
+        narrowed = _narrowed(plan, combine_input, recorded)
+        recorded = replace(recorded, narrowed=narrowed)
+        combine_input = narrowed.live
+        if narrowed.abstain is not None:
+            # NR-I5: a narrow abstain stops the call before the main step; the gate does not run.
+            return _abstain(
+                spec,
+                plan,
+                combine_input,
+                None,
+                narrowed.abstain,
+                recorded=recorded,
+                gate=_not_run(spec),
+            )
     if not combine_input.voters:
-        return _abstain(spec, plan, combine_input, None, "no_votes")
-    return _decide(spec, plan, combine_input, context, trace)
+        return _abstain(
+            spec, plan, combine_input, None, "no_votes", recorded=recorded, gate=_not_run(spec)
+        )
+    return _decide(spec, plan, combine_input, context, trace, recorded=recorded)
 
 
 def _signal_values(
-    read: SignalRead | None,
+    plan: _Plan,
     spec: CombineSpec,
     context: CombineContext,
     accounting: AccountingReader | None,
+    counts: Mapping[str, SampleCount] | None,
 ) -> dict[str, dict[str, float | None]]:
-    """Each member's signals: the one number the spec reads, or none at all."""
-    if read is None:
+    """Each member's recorded signals: the key the spec reads, then every declared name (EV-I2).
+
+    A declared sum is computed last, from the columns of its components (E4b part 6, SU-I1).
+    A consistency name reads its value from ``counts`` (E4b part 7).
+    """
+    keys = _recorded_keys(plan)
+    if not keys:
         return {member: {} for member in spec.members}
     if not any(member in context.outputs for member in spec.members):
         # WHY no read (OME-1557): an empty quorum panel abstains with no_votes; reading a signal
         # over no member (a judge reply above all) could only refuse a Case that has no answer.
-        return {member: {read.key: None} for member in spec.members}
-    numbers = _signal_numbers(read.key, spec, context, accounting)
-    return {member: {read.key: numbers[member]} for member in spec.members}
+        return {member: {key: None for key in keys} for member in spec.members}
+    sums = {item.name: item for item in plan.declared if isinstance(item, _Summed)}
+    # WHY a sum key never reaches _column: it would fall through to _signal_numbers and read a
+    # quiet, wrong field number. Every component is a declared non-sum name (SU-I1, SU-I2), so its
+    # column exists before the sums are computed; a consistency component reads its column from
+    # ``counts``, which _combine computes first (E4b part 7).
+    by_name = {item.name: item for item in plan.declared if not isinstance(item, _Summed)}
+    plain = tuple(key for key in keys if key not in sums)
+    looked = _reader_numbers(plain, by_name, context, accounting)
+    columns: dict[str, Mapping[str, float | None]] = {
+        key: _column(key, by_name.get(key), spec, context, looked, counts) for key in plain
+    }
+    for name, item in sums.items():
+        columns[name] = {
+            member: sum_value(item.terms, {c: columns[c][member] for c, _ in item.terms})
+            for member in spec.members
+        }
+    return {member: {key: columns[key][member] for key in keys} for member in spec.members}
+
+
+def _sample_counts(
+    item: _SampleDeclared, spec: CombineSpec, context: CombineContext
+) -> Mapping[str, SampleCount]:
+    """Each member's sample counts for the one declared consistency source, in member order
+    (E4b part 7, erd §5). ``_combine`` computes them once.
+
+    The member's text and each sample text go through the same match steps
+    (``_SampleDeclared.match_value``). A member that failed, or that a quorum panel left out, has
+    no match value, so its ``matched`` is None (P11).
+    """
+    samples = context.samples
+    if samples is None:  # parse_context required them for a consistency spec
+        raise RuntimeError("combine context samples are missing for a consistency signal")
+    counts: dict[str, SampleCount] = {}
+    for member in spec.members:
+        text = context.outputs.get(member)  # None: a quorum panel left the member out
+        own = None if text is None else item.match_value(text)
+        counts[member] = count_samples(own, samples[member], item.n, item.match_value)
+    return MappingProxyType(counts)
+
+
+def _sample_item(plan: _Plan) -> _SampleDeclared | None:
+    """The plan's one consistency source (a spec declares at most one); None when it has none."""
+    return next((item for item in plan.declared if isinstance(item, _SampleDeclared)), None)
+
+
+def _reader_numbers(
+    keys: tuple[str, ...],
+    by_name: Mapping[str, _Declared | _ReplyDeclared | _SampleDeclared],
+    context: CombineContext,
+    accounting: AccountingReader | None,
+) -> _ReaderNumbers:
+    """The ONE member reader call of a combine call (C5), made only when a recorded key needs it:
+    an accounting signal, or a logprob or entropy name. Empty when no key needs it.
+
+    WHY once: the reader logs a count-only warning per call; two calls would log it twice.
+    """
+    if not any(
+        key in ACCOUNTING_SIGNALS or isinstance(by_name.get(key), _ReplyDeclared) for key in keys
+    ):
+        return {}
+    # WHY the reader is a port: the core does no I/O and has no recorder; the adapter knows
+    # what each source call cost and what each reply carried.
+    if context.sources is None:  # parse_context required them for these keys
+        raise RuntimeError(
+            "combine context sources are missing for an accounting or reply-logprob signal"
+        )
+    # WHY only the members that answered (OME-1557): a member a quorum panel left out has no
+    # recorded call to match, so asking for it would only log a false warning.
+    asked = MappingProxyType({m: c for m, c in context.sources.items() if m in context.outputs})
+    return {} if accounting is None else accounting(asked)
+
+
+def _column(
+    key: str,
+    item: _Declared | _ReplyDeclared | _SampleDeclared | None,
+    spec: CombineSpec,
+    context: CombineContext,
+    looked: _ReaderNumbers,
+    counts: Mapping[str, SampleCount] | None,
+) -> Mapping[str, float | None]:
+    """One recorded key's number for each member, from its source."""
+    if isinstance(item, _SampleDeclared):
+        if counts is None:  # _combine computes the counts whenever the plan has this item
+            raise RuntimeError("consistency counts are missing for a consistency signal")
+        return {member: counts[member].value for member in spec.members}
+    if isinstance(item, _Declared):
+        return _declared_numbers(item, spec, context)
+    # WHY one conditional return: ruff max-returns is 3.
+    return (
+        _signal_numbers(key, spec, context, looked)
+        if item is None
+        else _reply_numbers(item.source, spec, context, looked)
+    )
+
+
+def _recorded_keys(plan: _Plan) -> tuple[str, ...]:
+    """The keys each member row records: the key of each step that reads one, in step order (the
+    narrow steps, then the main step; narrow.md §5), then every declared name (EV-I2)."""
+    read = tuple(
+        dict.fromkeys(step.signal.key for step in (*plan.narrow, plan) if step.signal is not None)
+    )
+    return (*read, *(item.name for item in plan.declared if item.name not in read))
+
+
+def _reads_accounting(plan: _Plan) -> bool:
+    """Whether any step reads an accounting signal: the context then carries ``sources``."""
+    return any(
+        step.signal is not None and step.signal.key in ACCOUNTING_SIGNALS
+        for step in (*plan.narrow, plan)
+    )
 
 
 def _signal_numbers(
     key: str,
     spec: CombineSpec,
     context: CombineContext,
-    accounting: AccountingReader | None,
+    looked: _ReaderNumbers,
 ) -> Mapping[str, float | None]:
     """One number (or None) for each member, from the source that the signal key names."""
     if key in ACCOUNTING_SIGNALS:
-        return _accounting_numbers(key, spec, context, accounting)
+        # Without a reader (``looked`` is empty) every member's number is unknown.
+        return {m: finite_float(looked.get(m, {}).get(key)) for m in spec.members}
     if key == JUDGE_SIGNAL:
         # WHY strict (F4): the judge reply format is the contract; judge reducers fail the same way.
         present = [member for member in spec.members if member in context.outputs]
@@ -250,21 +586,74 @@ def _signal_numbers(
     return _field_numbers(key[len(FIELD_SIGNAL_PREFIX) :], spec, context)
 
 
-def _accounting_numbers(
-    key: str,
+def _reply_numbers(
+    source: LogprobSource | EntropySource,
     spec: CombineSpec,
     context: CombineContext,
-    accounting: AccountingReader | None,
+    looked: _ReaderNumbers,
 ) -> dict[str, float | None]:
-    # WHY the reader is a port: the core does no I/O and has no recorder; the adapter knows
-    # what each source call cost. Without a reader every member's number is unknown.
-    if context.sources is None:  # parse_context required them for an accounting key
-        raise RuntimeError("combine context sources are missing for an accounting signal")
-    # WHY only the members that answered (OME-1557): a member a quorum panel left out has no
-    # recorded call to match, so asking for it would only log a false accounting warning.
-    asked = MappingProxyType({m: c for m, c in context.sources.items() if m in context.outputs})
-    looked = {} if accounting is None else accounting(asked)
-    return {m: finite_float(looked.get(m, {}).get(key)) for m in spec.members}
+    """One logprob or entropy value per member, from the member's reply numbers (C5). None for a
+    member that a quorum panel left out, or whose reply numbers are unknown.
+
+    An entropy is None too when the member call did not ask for the declared ``top_logprobs``: an
+    entropy over another k is not the declared signal (C1, C2). One count-only warning per step.
+    """
+    numbers: dict[str, float | None] = {}
+    other_k = 0
+    declared_k = str(source.top_logprobs) if isinstance(source, EntropySource) else None
+    for member in spec.members:
+        row = looked.get(member) if member in context.outputs else None
+        if row is None:
+            numbers[member] = None
+        elif isinstance(source, LogprobSource):
+            tokens = finite_float(row.get(REPLY_TOKENS))
+            total = finite_float(row.get(REPLY_LOGPROB_SUM))
+            numbers[member] = logprob_value(tokens, total, source.form)
+        else:
+            value = entropy_value(finite_float(row.get(REPLY_ENTROPY_MEAN)))
+            if value is not None and _asked_top_logprobs(member, context) != declared_k:
+                other_k += 1
+                value = None
+            numbers[member] = value
+    if other_k:
+        logger.warning(
+            "combine entropy: %d member(s) asked for a top_logprobs other than the declared one",
+            other_k,
+        )
+    return numbers
+
+
+def _asked_top_logprobs(member: str, context: CombineContext) -> str | None:
+    """The ``top_logprobs`` param text of the member's one source call; None without one such
+    call, or when that call has no such param.
+
+    WHY the source fingerprint and not ``ReplyLogprobs.top_k``: the reader matches this exact
+    fingerprint to the recorded call, and the connector sets ``top_k`` from the same body param,
+    so both give the same k; the fingerprint is already in the core and keeps the port keys as
+    they are.
+    WHY a text compare: the caller compares this text with ``str(k)``, so another spelling of the
+    same k (``" 5"``) reads as another k and gives None, the safe side. The SDK always writes the
+    canonical text.
+    """
+    # parse_context requires the sources when the spec declares a reply source.
+    calls = cast("MemberSources", context.sources)[member]
+    if len(calls) != 1:
+        return None
+    ((_, params),) = calls.values()
+    return dict(params).get("top_logprobs")
+
+
+def _declared_numbers(
+    declared: _Declared, spec: CombineSpec, context: CombineContext
+) -> dict[str, float | None]:
+    numbers: dict[str, float | None] = {}
+    for member in spec.members:
+        text = context.outputs.get(member)  # None: a quorum panel left the member out
+        if text is None or utf8_exceeds(text, MAX_OUTPUT_READ_BYTES):
+            numbers[member] = None
+        else:
+            numbers[member] = finite_float(declared.read(text, declared.args))
+    return numbers
 
 
 def _field_numbers(
@@ -280,29 +669,341 @@ def _field_numbers(
     return numbers
 
 
+def _narrowed(plan: _Plan, whole: CombineInput, recorded: _Recorded) -> _Narrowed:
+    """Run the narrow steps in order over the live set (narrow.md §3.2).
+
+    The live set starts as the members the main step reads as answered (a failed member is never
+    live). Each step reads the live members with its own stages and the one signal it reads, runs
+    its own reduce and select (``_run_narrow``; no tally check and no gate, unlike ``_decide``),
+    and keeps the members its select chose. A member it
+    does not keep is left out with ``no_signal`` (no value for the step's signal, X2) or
+    ``not_selected``. A step that chooses no member (``NoVotes``) stops the call there.
+    """
+    live = tuple(answer.member_id for answer in whole.voters)
+    records: list[NarrowRecord] = []
+    left_out: dict[str, ExcludeReason] = {}
+    abstain: AbstainReason | None = None
+    for step in plan.narrow:
+        step_input = _step_input(step, whole, live, recorded)
+        kept, record, abstain = _run_narrow(step, step_input)
+        records.append(record)
+        for answer in step_input.answers:
+            if answer.member_id not in kept:
+                left_out[answer.member_id] = _left_out_reason(answer, step.excludes)
+        live = kept
+        if abstain is not None:
+            break
+    kept_set = frozenset(live)
+    return _Narrowed(
+        whole=whole,
+        live=replace(whole, answers=tuple(a for a in whole.answers if a.member_id in kept_set)),
+        records=tuple(records),
+        left_out=MappingProxyType(left_out),
+        abstain=abstain,
+    )
+
+
+def _step_input(
+    step: _NarrowPlan, whole: CombineInput, live: tuple[str, ...], recorded: _Recorded
+) -> CombineInput:
+    """The input of one narrow step: the live members read with the step's own stages, each with
+    only the signal the step reads (I-S3), and no weight. The judged set stays the whole one."""
+    read = () if step.signal is None else (step.signal.key,)
+    answers = tuple(
+        _answer(
+            member,
+            whole.outputs[member],
+            step,
+            MappingProxyType({key: recorded[member][key] for key in read}),
+            None,
+        )
+        for member in live
+    )
+    return replace(whole, answers=answers)
+
+
+def _run_narrow(
+    step: _NarrowPlan, step_input: CombineInput
+) -> tuple[tuple[str, ...], NarrowRecord, AbstainReason | None]:
+    """One narrow step: (the members it kept in author order, its record, its abstain reason).
+
+    WHY a step with no voter abstains without running: as the main step does in ``_combine``.
+    """
+    reduction: Reduction | None = None
+    try:
+        if not step_input.voters:
+            raise NoVotes(reason="no_votes")
+        reduction = step.reduce.run(step_input, step.reduce.args)
+        selection = step.select.run(reduction, step_input, step.select.args)
+    except NoVotes as exc:
+        return (), _narrow_record(step, step_input, reduction, ()), exc.reason
+    kept = _narrow_kept(selection, step_input, step.select.op_id)
+    return kept, _narrow_record(step, step_input, reduction, kept), None
+
+
+def _narrow_kept(selection: Selection, step_input: CombineInput, op_id: str) -> tuple[str, ...]:
+    """The chosen members in author order; a select that chose none or a member that is not live
+    is a plugin bug (kept@1 and top_k@1 raise ``NoVotes`` instead of choosing none)."""
+    chosen = selection.chosen
+    members = step_input.members
+    if not chosen or len(set(chosen)) != len(chosen) or not set(chosen) <= set(members):
+        raise RuntimeError(f"{op_id} returned an invalid selection")
+    return tuple(member for member in members if member in chosen)
+
+
+def _narrow_record(
+    step: _NarrowPlan,
+    step_input: CombineInput,
+    reduction: Reduction | None,
+    kept: tuple[str, ...],
+) -> NarrowRecord:
+    """The evidence record of one narrow step (narrow.md §4.2); scores and ranks in author order.
+
+    The ranks read the one ``top_k@1`` order (part 2, P6), also on a ``cut_not_met`` abstain.
+    """
+    scores = {} if reduction is None else (reduction.scores or {})
+    ranks = (
+        {}
+        if reduction is None or step.ranks is None
+        else step.ranks(reduction, step_input, step.select.args)
+    )
+    members = step_input.members
+    return NarrowRecord(
+        reduce=step.reduce.op_id,
+        select=step.select.op_id,
+        signal=None if step.signal is None else step.signal.key,
+        kept=list(kept),
+        cut=None if step.cut is None else CutRecord(k=step.cut.k, order=step.cut.order),
+        scores={m: _finite(scores[m]) for m in members if m in scores} or None,
+        ranks={m: ranks[m] for m in members if m in ranks} or None,
+    )
+
+
+def _left_out_reason(answer: Answer, excludes: _Exclusion | None) -> ExcludeReason:
+    """Why a narrow step left a live member out: the step's exclusion rule (``no_signal``), else
+    ``not_selected`` (its select did not choose the member, or the step's extract read no value)."""
+    status, reason = _record_status(answer, excludes)
+    return cast("ExcludeReason", reason) if status == "excluded" else "not_selected"
+
+
 def _decide(
     spec: CombineSpec,
     plan: _Plan,
     combine_input: CombineInput,
     context: CombineContext,
     trace: _Trace,
+    *,
+    recorded: _Recorded,
 ) -> CombineOutcome:
-    """Run reduce, then select. Only these two steps may abstain (by raising ``NoVotes``)."""
+    """Run reduce, then select, then the gate when the spec has one (E4b part 5).
+
+    Three things may abstain: the reduce and the select steps (by raising ``NoVotes``) and the gate
+    (``gate_not_met``, or ``in_band`` inside the abstain band, E4b part 6). When reduce or select
+    abstains, the gate does not run (GR-I1, P10).
+    """
     try:
         reduction = plan.reduce.run(combine_input, plan.reduce.args)
         _check_tally(reduction, combine_input.members, plan.reduce.op_id)
     except NoVotes as exc:
-        return _abstain(spec, plan, combine_input, None, exc.reason)
+        return _abstain(
+            spec, plan, combine_input, None, exc.reason, recorded=recorded, gate=_not_run(spec)
+        )
     try:
         selection = plan.select.run(reduction, combine_input, plan.select.args)
     except NoVotes as exc:
-        return _abstain(spec, plan, combine_input, reduction, exc.reason)
+        return _abstain(
+            spec, plan, combine_input, reduction, exc.reason, recorded=recorded, gate=_not_run(spec)
+        )
+    return (
+        _gated(
+            spec.gate,
+            spec,
+            plan,
+            combine_input,
+            context,
+            reduction,
+            selection,
+            trace,
+            recorded=recorded,
+        )
+        if spec.gate is not None
+        else _majority(
+            spec, plan, combine_input, context, reduction, selection, trace, recorded=recorded
+        )
+    )
+
+
+def _majority(
+    spec: CombineSpec,
+    plan: _Plan,
+    combine_input: CombineInput,
+    context: CombineContext,
+    reduction: Reduction,
+    selection: Selection,
+    trace: _Trace,
+    *,
+    recorded: _Recorded,
+    gate: GateRecord | None = None,
+) -> CombineOutcome:
+    """The selection's own answer: an ungated vote, or a gate that passed."""
     output = _output(selection, plan.select.op_id, context)
+    # WHY after _output: an ungated InputTooLarge keeps logging agreement=- (today's line). For a
+    # passed gate, _gated already set these fields, so this write is a no-op.
+    _trace_selection(trace, selection)
+    result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
+    evidence = _evidence(
+        spec, plan, combine_input, reduction, selection, result, recorded=recorded, gate=gate
+    )
+    return CombineOutcome(output, evidence)
+
+
+def _trace_selection(trace: _Trace, selection: Selection) -> None:
     trace.agreement = "-" if selection.agreement is None else str(selection.agreement)
     trace.tie = "true" if selection.tie else "false"
-    result = _result(selection, REDUCER_RULES[spec.reducer].kind, output, combine_input)
-    return CombineOutcome(
-        output, _evidence(spec, plan, combine_input, reduction, selection, result)
+
+
+def _gated(
+    gate: GateSpec,
+    spec: CombineSpec,
+    plan: _Plan,
+    combine_input: CombineInput,
+    context: CombineContext,
+    reduction: Reduction,
+    selection: Selection,
+    trace: _Trace,
+    *,
+    recorded: _Recorded,
+) -> CombineOutcome:
+    """Check the band, then compare the gate number with the threshold; record it and take one
+    branch (ans:Q1; E4b part 6 ans:Q2).
+
+    Inside the band (P8, P9): an abstain with ``in_band`` for every ``otherwise``; no comparison.
+    Outside it: true keeps the majority answer; false takes the fallback (abstain, judge or writer).
+    FB-I1: the majority and the band branches never read a fallback reply, so E4c can skip that
+    call with no wire change (C8).
+    """
+    observed = observed_number(gate, selection, recorded, combine_input.members)
+    # Part 5 erratum E2: the log fields are set before any branch, so an abstain logs them too.
+    _trace_selection(trace, selection)
+    # WHY one flow and not an early band return: this function is at the lint limit of 3 returns.
+    banded = in_band(observed, gate.abstain_band)
+    passed = None if banded else passes(observed, gate.cmp, gate.threshold)
+    branch: GateBranch = "band" if banded else ("majority" if passed else "fallback")
+    record = _gate_record(gate, observed, passed, branch)
+    if passed:
+        return _majority(
+            spec,
+            plan,
+            combine_input,
+            context,
+            reduction,
+            selection,
+            trace,
+            recorded=recorded,
+            gate=record,
+        )
+    if banded or gate.otherwise == "abstain":
+        reason: AbstainReason = "in_band" if banded else "gate_not_met"
+        return _abstain(
+            spec,
+            plan,
+            combine_input,
+            reduction,
+            reason,
+            recorded=recorded,
+            selection=selection,
+            gate=record,
+        )
+    return _fallback(
+        gate, record, spec, plan, combine_input, context, reduction, selection, recorded=recorded
+    )
+
+
+def _fallback(
+    gate: GateSpec,
+    record: GateRecord,
+    spec: CombineSpec,
+    plan: _Plan,
+    combine_input: CombineInput,
+    context: CombineContext,
+    reduction: Reduction,
+    selection: Selection,
+    *,
+    recorded: _Recorded,
+) -> CombineOutcome:
+    """The judge or the writer fallback answer (gate-decision §2 delta 4, P14).
+
+    Judge: the label member's text, byte for byte; the reading goes into the evidence ``judge``.
+    Writer: the reply text is the output (8 MiB cap first); the value is the vote's own extract and
+    normalize of that text (``_stages``), None when nothing is extracted.
+    The vote's tally, agreement and tie stay in the evidence.
+    """
+    if gate.otherwise == "judge":
+        reading = fallback_label(context.signals, _kept(combine_input, plan.excludes))
+        final = Selection(
+            chosen=(cast("str", reading.parsed),),
+            tie=selection.tie,
+            agreement=selection.agreement,
+        )
+        output = _output(final, plan.select.op_id, context)
+        result = _result(final, REDUCER_RULES[spec.reducer].kind, output, combine_input)
+        reduction = replace(reduction, judge=reading)
+    else:
+        text = fallback_text(context.signals)
+        final = Selection(chosen=(), output=text, tie=selection.tie, agreement=selection.agreement)
+        output = _output(final, plan.select.op_id, context)  # InputTooLarge over 8 MiB, first
+        result = ResultRecord(
+            member_id=None, value=_stages(text, plan)[2], status="answered", reason=None
+        )
+    evidence = _evidence(
+        spec, plan, combine_input, reduction, final, result, recorded=recorded, gate=record
+    )
+    return CombineOutcome(output, evidence)
+
+
+def _kept(combine_input: CombineInput, excludes: _Exclusion | None) -> tuple[str, ...]:
+    """GD-E6: the present members that the step did not exclude, in spec order.
+
+    The same rule writes the member records (``_record_status``), so a fallback label can never name
+    a member that the evidence marks ``excluded`` (CE-I3).
+    """
+    answers = {answer.member_id: answer for answer in combine_input.answers}
+    return tuple(
+        member
+        for member in combine_input.present
+        if _record_status(answers[member], excludes)[0] != "excluded"
+    )
+
+
+def _not_run(spec: CombineSpec) -> GateRecord | None:
+    """GR-I1, P10: the record of a gate that did not run (the vote found no answer); None when the
+    spec has no gate. The fallback reply is not read."""
+    gate = spec.gate
+    return None if gate is None else _gate_record(gate, None, None, None)
+
+
+def _gate_record(
+    gate: GateSpec, observed: float | None, passed: bool | None, branch: GateBranch | None
+) -> GateRecord:
+    """The record of one gate decision. The caller names the branch: ``"band"`` (inside the band,
+    no comparison, so ``passed`` is None), ``"majority"``, ``"fallback"``, or None (the gate did
+    not run, GR-I1). The record copies the spec band (P11).
+
+    WHY a branch argument and not a ``band`` flag: a flag is valid only with ``passed`` None, so a
+    caller could build a record that the model refuses at run time (spec review R12).
+    """
+    band = gate.abstain_band
+    return GateRecord(
+        observe=gate.observe,
+        observed=observed,
+        cmp=gate.cmp,
+        threshold=float(gate.threshold),
+        passed=passed,
+        branch=branch,
+        otherwise=gate.otherwise,
+        # WHY a list and ``float(...)``: the record model is strict; it refuses a tuple, and the
+        # wire is a JSON list.
+        abstain_band=None if band is None else [float(value) for value in band],
     )
 
 
@@ -312,6 +1013,10 @@ def _abstain(
     combine_input: CombineInput,
     reduction: Reduction | None,
     reason: AbstainReason,
+    *,
+    recorded: _Recorded,
+    selection: Selection | None = None,
+    gate: GateRecord | None = None,
 ) -> CombineOutcome:
     """The normal output of a step that finds no answer: an abstain result, and the text the next
     stage gets.
@@ -319,12 +1024,16 @@ def _abstain(
     That text is empty, except for a select step that hands on the selection envelope (Rank and
     Filter): it hands on the empty envelope ``{"input":"...","selected":[]}``, so the next stage
     still sees the input (E4b ans:Q7 with ans:Q4). The 8 MiB result cap applies to it too.
+    A gate abstain (gate_not_met, in_band) passes the vote's selection, so the evidence keeps the
+    tally, the agreement and the tie (P14).
     """
     output = selection_envelope((), combine_input) if plan.envelope else ""
     if utf8_exceeds(output, MAX_RESULT_BYTES):
         raise InputTooLarge("the combine output exceeds 8 MiB")
     result = ResultRecord(member_id=None, value=None, status="abstain", reason=reason)
-    evidence = _evidence(spec, plan, combine_input, reduction, None, result)
+    evidence = _evidence(
+        spec, plan, combine_input, reduction, selection, result, recorded=recorded, gate=gate
+    )
     return CombineOutcome(output, evidence)
 
 
@@ -359,6 +1068,17 @@ def _bind(descriptor: OperatorDescriptor | None, step: StepSpec | None) -> _Step
     return _Step(descriptor.id, descriptor.run, MappingProxyType(dict(step.args)))
 
 
+def _cut(select: OperatorDescriptor | None, bound: _Step[SelectOp] | None) -> Cut | None:
+    """The cut that the select step declares (``top_k@1``), from its bound args; else None.
+
+    WHY the bound step: ``_bind`` made it after it checked the args, and the hook reads ``k``
+    without a check.
+    """
+    if select is None or select.cut is None or bound is None:
+        return None
+    return select.cut(bound.args)
+
+
 def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     # WHY resolve ALL four steps before checking any args: an unknown operator is the more basic
     # failure, so it wins over bad args of an earlier step. Stage order: extract, normalize,
@@ -367,55 +1087,238 @@ def _plan(spec: CombineSpec, registry: OperatorRegistry) -> _Plan:
     normalize = _resolve(registry, spec.normalize, "normalize")
     reduce = registry.resolve(spec.reduce.op, "reduce")
     select = _resolve(registry, spec.select, "select")
+    narrow = tuple(_resolve_narrow(registry, item) for item in spec.narrow or ())
+    _check_pairing(reduce.id, None if select is None else select.id)
+    for ops in narrow:
+        _check_narrow_pair(ops)
+    if narrow:
+        _check_after_narrow(spec, reduce.id)
+    # WHY this order: the arg checks run reduce, extract, normalize, select (a bad reduce arg wins).
     bound_reduce = cast("_Step[ReduceOp]", _bind(reduce, spec.reduce))
+    bound_extract = cast("_Step[Extractor] | None", _bind(extract, spec.extract))
+    bound_normalize = cast("_Step[Normalizer] | None", _bind(normalize, spec.normalize))
+    bound_select = cast("_Step[SelectOp]", _bind(select, spec.select))
+    declared = _declared(spec, registry)
+    from_weights, from_reduce = _signal_sources(spec, reduce, bound_reduce)
     return _Plan(
-        extract=cast("_Step[Extractor] | None", _bind(extract, spec.extract)),
-        normalize=cast("_Step[Normalizer] | None", _bind(normalize, spec.normalize)),
+        extract=bound_extract,
+        normalize=bound_normalize,
         reduce=bound_reduce,
-        select=cast("_Step[SelectOp]", _bind(select, spec.select)),
-        signal=_signal_read(spec, reduce, bound_reduce),
+        select=bound_select,
+        signal=from_reduce if from_weights is None else from_weights,
         envelope=select is not None and select.envelope,
+        excludes=_exclusion(reduce, from_weights, from_reduce),
+        ranks=None if select is None else select.ranks,
+        cut=_cut(select, bound_select),
+        declared=declared,
+        narrow=tuple(_narrow_plan(spec, ops) for ops in narrow),
     )
 
 
-def _signal_read(
+def _resolve_narrow(registry: OperatorRegistry, item: NarrowSpec) -> _NarrowOps:
+    """The operators of one narrow item, in stage order (an unknown operator wins, as in _plan)."""
+    return _NarrowOps(
+        item=item,
+        extract=_resolve(registry, item.extract, "extract"),
+        normalize=_resolve(registry, item.normalize, "normalize"),
+        reduce=registry.resolve(item.reduce.op, "reduce"),
+        select=registry.resolve(item.select.op, "select"),
+    )
+
+
+def _check_narrow_pair(ops: _NarrowOps) -> None:
+    """NR-S2: a narrow item's (reduce, select) pair is in ``NARROW_RULES``. The message names the
+    rule from the table, never the ids of the spec."""
+    if NARROW_RULES.get(ops.reduce.id) != ops.select.id:
+        pairs = ", ".join(f"{reduce} with {select}" for reduce, select in NARROW_RULES.items())
+        raise SpecInvalid(f"a narrow step pairs {pairs}")
+
+
+def _check_after_narrow(spec: CombineSpec, reduce_id: str) -> None:
+    """NR-C1 (narrow.md §3.6, O11): no narrow step before a step that reads the whole context.
+
+    ``label@1`` and ``field_rules@1`` parse a model reply over every member, and a gate fallback
+    to a judge or a writer is a model call over the whole context: each would see the members the
+    narrow steps left out. The SDK refuses these chains too; the Engine refuses a hand-written one.
+    """
+    if reduce_id in _WHOLE_CONTEXT_REDUCES:
+        raise SpecInvalid("a narrow step cannot come before a label@1 or field_rules@1 reduce")
+    if spec.gate is not None and spec.gate.otherwise != "abstain":
+        raise SpecInvalid("a narrow step cannot come before a gate with a judge or writer fallback")
+
+
+def _narrow_plan(spec: CombineSpec, ops: _NarrowOps) -> _NarrowPlan:
+    """One narrow item, bound and checked as the main step is (the arg checks run reduce,
+    extract, normalize, select).
+
+    NR-S3: a narrow item has no ``weights`` key, so it reads at most one signal, the reduce args'
+    read. Each narrow step and the main step count apart.
+    NR-S2b: a step that reads a signal (its ``signal_read``) or the judge reads no extracted value,
+    so it has no extract (a normalize needs an extract, checked at parse).
+    """
+    item = ops.item
+    reduce = cast("_Step[ReduceOp]", _bind(ops.reduce, item.reduce))
+    extract = cast("_Step[Extractor] | None", _bind(ops.extract, item.extract))
+    normalize = cast("_Step[Normalizer] | None", _bind(ops.normalize, item.normalize))
+    select = cast("_Step[SelectOp]", _bind(ops.select, item.select))
+    read = _reduce_read(spec, ops.reduce, reduce)
+    if (read is not None or reduce.op_id == NARROW_JUDGE_REDUCE) and extract is not None:
+        raise SpecInvalid("a narrow step that reads a signal or the judge has no extract")
+    return _NarrowPlan(
+        extract=extract,
+        normalize=normalize,
+        reduce=reduce,
+        select=select,
+        signal=SignalRead(JUDGE_SIGNAL) if reduce.op_id == NARROW_JUDGE_REDUCE else read,
+        excludes=_exclusion(ops.reduce, None, read),
+        ranks=ops.select.ranks,
+        cut=_cut(ops.select, select),
+    )
+
+
+def _check_pairing(reduce_id: str, select_id: str | None) -> None:
+    """A reduce op named in ``REDUCE_SELECT_RULES`` pairs only with the select ops it lists.
+
+    It reads the ids of the resolved descriptors. The message names the rule from the table,
+    never the select id of the spec.
+    """
+    selects = REDUCE_SELECT_RULES.get(reduce_id)
+    if selects is not None and select_id not in selects:
+        raise SpecInvalid(f"{reduce_id} pairs only with select {', '.join(sorted(selects))}")
+
+
+def _declared(
+    spec: CombineSpec, registry: OperatorRegistry
+) -> tuple[_Declared | _ReplyDeclared | _Summed | _SampleDeclared, ...]:
+    if spec.signals is None:
+        return ()
+    found: list[_Declared | _ReplyDeclared | _Summed | _SampleDeclared] = []
+    for name, source in spec.signals.items():
+        if isinstance(source, SumSource):  # computed by the core, no source plugin (E4b part 6)
+            found.append(_Summed(name, tuple(source.coefficients.items())))
+            continue
+        if isinstance(source, LogprobSource | EntropySource):
+            found.append(_ReplyDeclared(name, source))  # read from the reply, not the text
+            continue
+        if isinstance(source, ConsistencySource):
+            found.append(_sample_source(name, source, registry))  # read from the samples
+            continue
+        descriptor = registry.source(source.source)
+        args: OpArgs = MappingProxyType(source.model_dump(exclude={"source"}, exclude_unset=True))
+        try:
+            descriptor.check_args(args)
+        except SpecInvalid as exc:
+            raise SpecInvalid(
+                f"declared signal source {descriptor.name} is invalid: {exc}"
+            ) from exc
+        found.append(_Declared(name, descriptor.read, args))
+    return tuple(found)
+
+
+def _sample_source(
+    name: str, source: ConsistencySource, registry: OperatorRegistry
+) -> _SampleDeclared:
+    """The resolved match steps of a consistency source (E4b part 7, P3).
+
+    The same resolve and bind as a spec step: an unknown id is ``combine_operator_unknown``; a
+    wrong stage or bad args is ``combine_spec_invalid``. WHY resolve both before binding either:
+    as in ``_plan``, an unknown operator wins over bad args.
+    """
+    match = source.match
+    extract = registry.resolve(match.extract.op, "extract")
+    normalize = _resolve(registry, match.normalize, "normalize")
+    return _SampleDeclared(
+        name=name,
+        n=source.n,
+        extract=cast("_Step[Extractor]", _bind(extract, match.extract)),
+        normalize=cast("_Step[Normalizer] | None", _bind(normalize, match.normalize)),
+    )
+
+
+def _signal_sources(
     spec: CombineSpec, reduce: OperatorDescriptor, bound: _Step[ReduceOp]
-) -> SignalRead | None:
-    """The one signal the spec reads: from ``weights``, or from the reduce step's args (F6)."""
+) -> tuple[SignalRead | None, SignalRead | None]:
+    """The two sources of the one signal the spec reads: ``weights``, and the reduce args (F6).
+
+    Each source is read and checked once, here; at most one of the two is set. The plan's signal
+    is the one that is set, and ``_exclusion`` reads both.
+    """
     from_weights = (
         SignalRead(spec.weights.signal) if isinstance(spec.weights, SignalWeights) else None
     )
-    hook = reduce.signal_read
-    from_reduce = None if hook is None else hook(bound.args)
-    if from_reduce is not None:
-        if not is_signal_key(from_reduce.key):
-            raise SpecInvalid(f"{bound.op_id} reads an unknown signal")
-        if from_reduce.order not in (None, "max", "min"):
-            raise RuntimeError(f"{bound.op_id} returned an invalid signal read")  # a plugin bug
+    from_reduce = _reduce_read(spec, reduce, bound)
+    if from_weights is not None and not _known(from_weights.key, spec):
+        raise SpecInvalid("weights reads an undeclared signal")
     if from_weights is not None and from_reduce is not None:
         raise SpecInvalid("a combine step reads at most one signal")
-    return from_reduce if from_weights is None else from_weights
+    return from_weights, from_reduce
+
+
+def _reduce_read(
+    spec: CombineSpec, reduce: OperatorDescriptor, bound: _Step[ReduceOp]
+) -> SignalRead | None:
+    """The signal a reduce step's args read (``signal_read``), checked once: the key is known."""
+    hook = reduce.signal_read
+    read = None if hook is None else hook(bound.args)
+    if read is not None:
+        if not _known(read.key, spec):
+            raise SpecInvalid(f"{bound.op_id} reads an unknown signal")
+        if read.order not in (None, "max", "min"):
+            raise RuntimeError(f"{bound.op_id} returned an invalid signal read")  # a plugin bug
+    return read
+
+
+def _exclusion(
+    reduce: OperatorDescriptor, from_weights: SignalRead | None, from_reduce: SignalRead | None
+) -> _Exclusion | None:
+    """Which rule of this step can leave a member out (E4b part 2, P13, erd §6).
+
+    X1: the spec weights are a signal and the reduce op counts weights -> "no_weight".
+    X2: the reduce args read a signal (``signal_read``) -> "no_signal".
+    X4, X5, X6: no rule, so no member is excluded.
+    WHY the two sources, not the plan's one signal: that merges them, and the reason depends on
+    which source it was. ``_signal_sources`` read and checked both; at most one is set.
+    INVARIANT: the rule is read from the spec, not reported by the operator, so it holds only
+    because no select op can choose a member the rule leaves out (CE-I3). ``REDUCE_SELECT_RULES``
+    enforces it: a reduce op with such a rule pairs only with the selects that honor it
+    (``_check_pairing``), and test_combine_exclusion_never_chosen runs every accepted pairing.
+    """
+    if from_weights is not None and reduce.reads_weights:
+        return _Exclusion("no_weight", from_weights.key)
+    return None if from_reduce is None else _Exclusion("no_signal", from_reduce.key)
+
+
+def _known(key: str, spec: CombineSpec) -> bool:
+    """An E4a key, or a name this spec declares (contracts C1: the plan-level key check)."""
+    return is_signal_key(key) or (spec.signals is not None and key in spec.signals)
 
 
 def _read_members(
     spec: CombineSpec,
     plan: _Plan,
     context: CombineContext,
-    signals: Mapping[str, Mapping[str, float | None]],
+    recorded: Mapping[str, Mapping[str, float | None]],
 ) -> CombineInput:
-    """One ``Answer`` per member in spec order; ``signals`` holds only the signal read (I-S3)."""
+    """One ``Answer`` per member in spec order. An Answer's signals hold only the key the spec
+    reads (I-S3 for operators); the evidence records every declared name too (EV-I2)."""
+    read = () if plan.signal is None else (plan.signal.key,)
     answers = tuple(
         _answer(
             member,
             context.outputs.get(member),
             plan,
-            MappingProxyType(dict(signals[member])),
-            _weight(spec, member, signals[member]),
+            MappingProxyType({key: recorded[member][key] for key in read}),
+            _weight(spec, member, recorded[member]),
         )
         for member in spec.members
     )
     return CombineInput(
-        answers=answers, outputs=context.outputs, signals=context.signals, input=context.input
+        answers=answers,
+        outputs=context.outputs,
+        signals=context.signals,
+        input=context.input,
+        # The judged set (narrow.md §3.2): every member that sent an output, before any narrow step.
+        judged=tuple(member for member in spec.members if member in context.outputs),
     )
 
 
@@ -431,7 +1334,7 @@ def _weight(spec: CombineSpec, member: str, signals: Mapping[str, float | None])
 def _answer(
     member_id: str,
     text: str | None,
-    plan: _Plan,
+    plan: _Plan | _NarrowPlan,
     signals: Mapping[str, float | None],
     weight: Decimal | None,
 ) -> Answer:
@@ -446,7 +1349,7 @@ def _answer(
     return Answer(member_id, raw, value, answer_state, reason, signals, weight)
 
 
-def _stages(text: str, plan: _Plan) -> tuple[ReadingStatus, str | None, str | None]:
+def _stages(text: str, plan: _Plan | _NarrowPlan) -> tuple[ReadingStatus, str | None, str | None]:
     """The (status, raw, value) of one member text after extract, then normalize."""
     if utf8_exceeds(text, MAX_OUTPUT_READ_BYTES):
         return "too_large", None, None
@@ -540,22 +1443,44 @@ def _evidence(
     reduction: Reduction | None,
     selection: Selection | None,
     result: ResultRecord,
+    *,
+    recorded: _Recorded,
+    gate: GateRecord | None = None,
 ) -> CombineEvidence:
-    # An abstain has no selection, and none or only part of a reduction (a select step may abstain).
+    # An abstain has no selection (a gate abstain has one: P14), and none or only part of a
+    # reduction (a select step may abstain).
     reduction = Reduction() if reduction is None else reduction
     scores = reduction.scores or {}
+    # E4b part 2 (P6, P7): the rank of each scored member of a top_k@1 step, also on an abstain.
+    ranks = {} if plan.ranks is None else plan.ranks(reduction, combine_input, plan.select.args)
     statistic = reduction.statistic
     is_mean = spec.reducer == "mean"
+    # WHY (P14): an abstain keeps tally, agreement and tie, not chosen.
+    kept = selection if result.status == "answered" else None
+    # narrow.md §4.1: a row for every member, also the ones a narrow step left out (NR-I6).
+    narrowed = recorded.narrowed
+    whole = combine_input if narrowed is None else narrowed.whole
+    left_out = {} if narrowed is None else narrowed.left_out
     return CombineEvidence(
         kind=REDUCER_RULES[spec.reducer].kind,
         reducer=spec.reducer,
         operators=list(plan.operators),
-        members=[_member_record(answer, scores) for answer in combine_input.answers],
+        members=[
+            _member_record(
+                answer,
+                scores,
+                recorded[answer.member_id],
+                plan.excludes,
+                rank=ranks.get(answer.member_id),
+                left_out=left_out.get(answer.member_id),
+            )
+            for answer in whole.answers
+        ],
         tally=_tally_records(reduction),
         judge=_judge_record(reduction),
         fields=_field_records(reduction, plan.reduce.op_id),
-        chosen=[] if selection is None else list(selection.chosen),
-        built=selection is not None and selection.output is not None,
+        chosen=[] if kept is None else list(kept.chosen),
+        built=kept is not None and kept.output is not None,
         agreement=(
             None
             if selection is None or selection.agreement is None
@@ -564,28 +1489,102 @@ def _evidence(
         tie=selection is not None and selection.tie,
         median=None if statistic is None or is_mean else canonical_decimal(statistic),
         mean=canonical_decimal(statistic) if is_mean and statistic is not None else None,
-        presentation_order="author" if "judge" in combine_input.signals else None,
+        presentation_order=_presentation_order(combine_input, gate),
         separator_collision=reduction.separator_collision,
         signal=None
         if plan.signal is None
         else SignalRecord(key=plan.signal.key, order=plan.signal.order),
+        cut=None if plan.cut is None else CutRecord(k=plan.cut.k, order=plan.cut.order),
+        narrow=None if narrowed is None else list(narrowed.records),
+        consistency=_consistency_record(plan, recorded),
+        declared=_declared_record(spec),
+        gate=gate,
         result=result,
-        dropped=sum(answer.status == "fail" for answer in combine_input.answers),
+        dropped=sum(answer.status == "fail" for answer in whole.answers),
         finish_reason="stop",
     )
 
 
-def _member_record(answer: Answer, scores: Mapping[str, Decimal]) -> AnswerRecord:
+def _presentation_order(
+    combine_input: CombineInput, gate: GateRecord | None
+) -> Literal["author"] | None:
+    """ "author" when the step read a judge: the context ``judge`` signal, or a fallback judge that
+    the gate branch used (E4b part 5, P14)."""
+    fallback_judge = gate is not None and gate.branch == "fallback" and gate.otherwise == "judge"
+    return "author" if "judge" in combine_input.signals or fallback_judge else None
+
+
+def _declared_record(spec: CombineSpec) -> dict[str, dict[str, JsonValue]] | None:
+    if spec.signals is None:
+        return None
+    return {
+        name: source.model_dump(mode="json", exclude_unset=True)
+        for name, source in spec.signals.items()
+    }
+
+
+def _consistency_record(
+    plan: _Plan, recorded: _Recorded
+) -> dict[str, list[SampleCountRecord]] | None:
+    """The evidence ``consistency`` record: the counts of the one declared consistency name, in
+    member order (P13); None when the spec declares none, so the key is not written."""
+    item = _sample_item(plan)
+    if item is None or recorded.samples is None:
+        return None
+    return {
+        item.name: [
+            SampleCountRecord(
+                member_id=member,
+                matched=count.matched,
+                succeeded=count.succeeded,
+                failed=count.failed,
+            )
+            for member, count in recorded.samples.items()
+        ]
+    }
+
+
+def _member_record(
+    answer: Answer,
+    scores: Mapping[str, Decimal],
+    recorded: Mapping[str, float | None],
+    excludes: _Exclusion | None,
+    *,
+    rank: int | None,
+    left_out: ExcludeReason | None = None,
+) -> AnswerRecord:
+    """One evidence row. ``left_out``: the reason of the narrow step that left the member out; it
+    wins over the main step's rule (NR-I3: the first step that left the member out)."""
+    status, reason = ("excluded", left_out) if left_out else _record_status(answer, excludes)
     return AnswerRecord(
         member_id=answer.member_id,
         raw=answer.raw,
         value=answer.value,
-        status=answer.status,
-        reason=answer.reason,
-        signals=dict(answer.signals),
+        status=status,
+        reason=reason,
+        signals=dict(recorded),
         weight=None if answer.weight is None else _finite(answer.weight),
         score=_finite(scores[answer.member_id]) if answer.member_id in scores else None,
+        rank=rank,
     )
+
+
+def _record_status(
+    answer: Answer, excludes: _Exclusion | None
+) -> tuple[RecordStatus, AnswerReason | ExcludeReason | None]:
+    """The record status: the member's own, or "excluded" when the step's rule left it out.
+
+    X3: a failure wins over an exclusion, so only an answered member can be excluded. The core
+    ``Answer`` stays "answered" (I-A3, AR-I5): the operators saw the same input as before.
+    """
+    if excludes is None or answer.status != "answered":
+        return answer.status, answer.reason
+    left_out = (
+        answer.weight is None
+        if excludes.reason == "no_weight"
+        else answer.signals.get(excludes.key) is None
+    )
+    return ("excluded", excludes.reason) if left_out else ("answered", None)
 
 
 def _tally_records(reduction: Reduction) -> list[TallyRowRecord] | None:
