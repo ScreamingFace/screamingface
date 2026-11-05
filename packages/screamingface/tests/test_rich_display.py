@@ -411,7 +411,7 @@ def test_client_repr_html_marks_a_hosted_engine() -> None:
     html = cast(Any, client)._repr_html_()
     client.close()
 
-    assert "https://fusion.dev.screamingface.ai" in html
+    assert ">https://fusion.dev.screamingface.ai<" in html
     assert ">hosted<" in html
     assert ">local<" not in html
 
