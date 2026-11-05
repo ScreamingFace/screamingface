@@ -31,7 +31,7 @@ from url4.core.nodes import Node
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
 from url4.dag.remote_nodes import refuse_remote_nodes
 from url4.io.layer import FetchRequest, FetchResult, IOLayer
-from url4.peer import _dispatch
+from url4.peer import _dispatch, _inprocess
 from url4.peer._code import CodeMounts
 from url4.peer._dispatch import Request
 from url4.peer._http import asgi_app as _asgi_app
@@ -230,7 +230,7 @@ class Url4Node(CodeMounts):
         return await _dispatch.fetch(self, target, relative=relative)
 
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:
-        return await _dispatch.fetch_ex(self, request)
+        return await _inprocess.fetch_ex(self, request)  # in-process fast path, else wire
 
     async def fetch_holdings(self, identity: str | None, collection: str | None) -> str:
         return await _dispatch.fetch_holdings(self, identity, collection)

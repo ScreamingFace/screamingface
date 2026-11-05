@@ -13,7 +13,9 @@ from url4.core.context import Context
 from url4.core.errors import CollectionError, ErrorCode, ResolutionError
 from url4.core.nodes import Params
 from url4.io.layer import FetchRequest, SupportsHoldings
-from url4.wire.subrequest import encode_subrequest
+from url4.wire.subrequest import SubrequestCall, encode_subrequest
+
+from url4.dag.nodes._subrequest_fetch import SubrequestFetch  # isort: skip
 
 from url4.dag.remote_nodes import check_remote_node  # isort: skip
 from url4.dag.node import (  # isort: skip
@@ -118,9 +120,8 @@ class RelUrlNode:
         intent = _as_text(inputs["intent"]) if "intent" in inputs else None
         quote = not self.verbatim_intent
         params = _wire_params(self.params)
-        target = encode_subrequest(path, context, intent, params=params, quote=quote)
-        request = FetchRequest(target, relative=True, kind="relative", accept=self.accept)
-        return await _fetch(ctx, request)
+        call = SubrequestCall(path, context, intent, params, quote=quote)  # see SubrequestFetch
+        return await _fetch(ctx, SubrequestFetch(call, accept=self.accept))
 
 
 def _resolved_context(

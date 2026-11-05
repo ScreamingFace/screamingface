@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
 from urllib.parse import unquote_plus
 
 from url4.core._annotations import EXPRESSION_BEARING_KEYS, validate_param
@@ -110,6 +111,46 @@ def encode_subrequest(
         f"{key}&" if not value else f"{key}={_wire_escape(value)}&" for key, value in params
     )
     return f"{path}?{prefix}q={query}"
+
+
+@dataclass(frozen=True)
+class SubrequestCall:
+    """One relative sub-request, kept structured: ``/path(context)!intent`` plus its params.
+
+    FEATURE: in-process dispatch (memory fix 1, spec
+    ``docs/spec/2026-11-05-url4-inprocess-dispatch.md``).
+    WHY: a node that serves ``path`` itself has no use for the URL — encoding a ~150 MB
+    context only for the same process to parse it back held ~15x the context at peak.
+    :meth:`encode` is the wire form for every other reader; :meth:`endpoint_parts` is what
+    an in-process endpoint receives instead.
+    """
+
+    path: str
+    context: str
+    intent: str | None
+    params: Sequence[tuple[str, str]] = ()
+    quote: bool = False
+
+    def encode(self) -> str:
+        """The wire target — exactly :func:`encode_subrequest` of these fields."""
+        return encode_subrequest(
+            self.path, self.context, self.intent, self.params, quote=self.quote
+        )
+
+    def endpoint_parts(self) -> tuple[str, str, dict[str, str]]:
+        """``(context, intent, params)`` as the endpoint would decode them off the wire.
+
+        INVARIANT (equivalence): byte-identical to decoding :meth:`encode`, refusals
+        included. The intent and params DO cross the real codec — encoded with an empty
+        context and decoded by the same functions the HTTP ingress runs — so quoting and
+        param validation cannot drift. Only the context skips the round trip, which is the
+        identity: :func:`_wire_escape` escapes ``%``, ``+`` and whitespace, so
+        :func:`unquote_plus` restores exactly the text it was given.
+        """
+        envelope = encode_subrequest(self.path, "", self.intent, self.params, quote=self.quote)
+        params, q = extract_expression_params(envelope.partition("?")[2])
+        _, intent = decode_subrequest_http(q or "")
+        return self.context, intent, params
 
 
 def decode_subrequest(query: str) -> tuple[str, str]:
@@ -299,6 +340,7 @@ def extract_expression_params(query_string: str) -> tuple[dict[str, str], str | 
 
 __all__ = [
     "TRANSPORT_ONLY_PARAMS",
+    "SubrequestCall",
     "decode_expression_http",
     "decode_subrequest",
     "decode_subrequest_http",
