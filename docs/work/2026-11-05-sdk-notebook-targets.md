@@ -15,7 +15,7 @@ the hosted Engine. The notebooks did not say which one they used: most called `s
 unconfigured, so the SDK picked a running local stack and otherwise fell back to the hosted
 Engine without a word. A researcher who forgot `up` ran hosted and did not notice. This unit
 puts one `TARGET` variable in every Benchmark notebook, defaulting to `"local"`, and splits
-each "Before running" section into Local and Hosted. PR 5 of 5 (OME-1620).
+each "Before running" section into Local and Hosted. Rides #1675, PR 4 of 4 (OME-1620).
 
 ## Planned changes
 
