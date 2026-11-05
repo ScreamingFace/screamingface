@@ -31,7 +31,9 @@ const fs=require('node:fs/promises');const path=require('node:path');const asser
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false);
   await page.screenshot({path:path.join(__dirname,`catalog-${width}.png`)});
  }
- await page.evaluate(()=>document.documentElement.setAttribute('data-theme','dark'));
+ await page.locator('#theme-toggle').click();
+ assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
+ await page.locator('#benchmarks').scrollIntoViewIfNeeded();
  await page.screenshot({path:path.join(__dirname,'catalog-dark-mobile.png')});
  assert.equal(requests.length,1);assert.deepEqual(errors,[]);
  await page.route('**/v1/benchmarks/summary',route=>route.fulfill({status:503,body:'Unavailable'}));

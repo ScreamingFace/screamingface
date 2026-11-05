@@ -89,3 +89,28 @@ base commit. Kept the small public snapshot and screenshots as reproducible revi
 evidence, rather than moving them to unversioned attachments. PR links are pinned
 to a commit. Alphabetical/default-scored option C remains the approved behavior.
 Performance was remeasured and the report/evidence updated; no cache was introduced.
+
+## Publication review — 2026-11-05
+
+Owner requested a final review and publication if sound. Rebase onto current main,
+retaining its updated homepage layout and all PostgreSQL CI registrations. Review
+score eligibility/tie selection, corruption isolation, privacy exit checks, static
+route integration, DOM safety, search/filter/paging and failure states. Run full
+scoreboard/repository gates, the combined PostgreSQL CI selection, and browser
+smoke on desktop/mobile/dark layouts before publishing the existing draft PR.
+
+Outcome: no blocking findings. Rebased on `0b2d63facecc9fe44924dda7573cf84a8021ac42`.
+The only conflict was the PostgreSQL workflow selection; retained every existing
+suite plus the catalog suite. Range-diff confirms the corruption fix is unchanged;
+main's current homepage layout/copy is preserved. No application behavior changes
+were needed during this review.
+
+Full scoreboard and repository gates pass. The workflow's complete PostgreSQL
+selection passes: 245 tests, two expected skips for corruption PostgreSQL rejects
+on write. Browser smoke passes for one request, nine-card paging, search beyond the
+first page, filter/clear/include actions, empty/error states and responsive layouts.
+Refreshed desktop/mobile/dark screenshots; dark mode is now exercised through the
+actual theme button. No cache or fallback request fan-out was added. The recorded
+performance comparison remains the 2026-11-04 measurement; production speedup still
+requires measurement after deployment. Ready to publish for external review; not
+merged or deployed by this task.
