@@ -13,4 +13,4 @@ closed:
 
 End-to-end docs polish pass; fix drift against the released SDK and app. Done when the docs read clean and accurate at launch.
 
-Spec: `docs/spec/2026-10-15-docs-align-sf-client-0-1-10.md`. Plan: `docs/plan/2026-10-15-docs-align-sf-client-0-1-10.md`. Ledger: `docs/work/2026-10-15-docs-align-sf-client-0-1-10.md`.
+Spec: `docs/spec/2026-10-15-docs-align-sf-client-0-1-11.md`. Plan: `docs/plan/2026-10-15-docs-align-sf-client-0-1-11.md`. Ledger: `docs/work/2026-10-15-docs-align-sf-client-0-1-11.md`.

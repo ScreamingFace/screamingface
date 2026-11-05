@@ -36,7 +36,7 @@ const tooLongOut = `PlanningError: The classification request is 9088 bytes once
     </p>
 
     <ThemedDiagram
-      name="sf-client-0-1-10-classify-flow"
+      name="sf-client-0-1-11-classify-flow"
       alt="Flow: the Client sends the classify call to the Engine, which reaches your classifier endpoint through the AI Gateway, using the key you stored with sf.connect."
       caption="The path of sf.classify from the Client to your classifier endpoint."
     />

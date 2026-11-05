@@ -16,4 +16,4 @@ Aligns the SF Client docs (`public-docs`) with the released screamingface 0.1.10
 
 PR: https://github.com/ScreamingFace/screamingface/pull/1436
 
-Spec: `docs/spec/2026-10-15-docs-align-sf-client-0-1-10.md`. Plan: `docs/plan/2026-10-15-docs-align-sf-client-0-1-10.md`. Ledger: `docs/work/2026-10-15-docs-align-sf-client-0-1-10.md`.
+Spec: `docs/spec/2026-10-15-docs-align-sf-client-0-1-11.md`. Plan: `docs/plan/2026-10-15-docs-align-sf-client-0-1-11.md`. Ledger: `docs/work/2026-10-15-docs-align-sf-client-0-1-11.md`.

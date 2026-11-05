@@ -160,7 +160,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <h3>Complete and partial</h3>
 
     <ThemedDiagram
-      name="sf-client-0-1-10-pinned-cache-states"
+      name="sf-client-0-1-11-pinned-cache-states"
       alt="State diagram: a pinned cache is opened, filled, sealed and confirmed by the gateway, and the capture status is complete only when every call is stored and the run did not use the local runtime; a failure to open, a failed, refused, missing, error or ambiguous call, an unconfirmed seal or a local run gives the status partial."
       caption="The states of a pinned cache and the reasons a capture is partial."
     />

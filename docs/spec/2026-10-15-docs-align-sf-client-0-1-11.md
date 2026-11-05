@@ -1,10 +1,10 @@
-# Align the SF Client docs with screamingface 0.1.10
+# Align the SF Client docs with screamingface 0.1.11
 
 Status: approved · Stack: repo · Epic: `OME-426`
 
 ## Problem
 
-The SF Client docs (`public-docs`) disagree with screamingface 0.1.10, the released package (PyPI, 2026-11-04; 0.1.9 was released the same day), in four ways: false statements and stale samples, statements true on only one of the local and hosted engines, surface that no page documents, and behaviour that changed in 0.1.10. `len(sf.__all__)` is 92. `evaluate` captures a pinned cache only when asked, and `evaluate(cases=...)` exists. The team answered the open questions; the answers are the decisions below.
+The SF Client docs (`public-docs`) disagree with screamingface 0.1.11, the released package (PyPI, 2026-11-05; 0.1.9 and 0.1.10 were released on 2026-11-04), in four ways: false statements and stale samples, statements true on only one of the local and hosted engines, surface that no page documents, and behaviour that changed in 0.1.11. `len(sf.__all__)` is 105. `evaluate` captures a pinned cache only when asked, and `evaluate(cases=...)` exists. The team answered the open questions; the answers are the decisions below.
 
 The pass follows the OME-898 rules: the documentation-writing rules (page types, prose, diagrams, review), the product-context rules (terminology, personas, claims), the docs-in-every-PR rule (every public name has a page) and the release docs review (code against docs, docs against product context). Each rule is restated below, so this spec does not depend on any file outside the repository.
 
@@ -19,7 +19,7 @@ The writing rules require fixing the context before any page is written or revie
 | Reader's goal | Install the Client, run a fusion on a benchmark, read the score and the cost, and share or replay the run. |
 | Terminology casing | ScreamingFace Client, Engine, Leaderboard, Studio and Toolkit are capitalised. `url4` is lower case everywhere, including at the start of a sentence. "fusion" is the lead noun. A fusion is a system, never a "fusion model". "ensemble" is correct in a docs register. |
 | Time budget | Unavailable. No source supplies it. |
-| Operational metrics | Unavailable. The pass uses only values measured on 0.1.10, with their conditions. |
+| Operational metrics | Unavailable. The pass uses only values measured on 0.1.11, with their conditions. |
 | House voice | The repository rules: no narrative, a colon after every run-in label, complete sentences. The OME-898 convention: no em-dashes or en-dashes. |
 
 ## Decisions
@@ -46,20 +46,25 @@ The writing rules require fixing the context before any page is written or revie
 | D18 | The `EngineUnavailableError` hint is not documented. | none |
 | D19 | Shared model calls: with the cache on, a model call runs once however many candidates use it. Calls are matched by a fingerprint of the route, prompt and parameters, not by model object, so two identical model objects share one call. The first candidate to run stores the response and the next one reuses it. | Caching, Engine, Overview, Quickstart |
 | D20 | Quickstart (Reproduce DRACO): the lineup is cut to the four candidates the page defines (`opus`, `gpt`, `gemini`, `frontier_trio`); the static mock panels and the BEST marker are removed; the provider list is the seven providers a local engine advertises. A local reader runs the steps on `medxpert`. | Quickstart |
-| D21 | A local engine started with `screamingface up` serves `medxpert` only (measured on 0.1.10). A repository checkout serves the other benchmarks locally with `just local-stack-notebooks`. Local samples use `benchmark="medxpert"` with a small `limit=` and print output from a real run. Hosted-only samples keep the hosted ids. | Every page with a local sample; Benchmarks guide and API, First fusion, Installation, Quickstart, Engine |
+| D21 | A local engine started with `screamingface up` serves `medxpert` only (measured on 0.1.10; re-measured on 0.1.11 in the pass). A repository checkout serves the other benchmarks locally with `just local-stack-notebooks`. Local samples use `benchmark="medxpert"` with a small `limit=` and print output from a real run. Hosted-only samples keep the hosted ids. | Every page with a local sample; Benchmarks guide and API, First fusion, Installation, Quickstart, Engine |
 | D22 | `sf.cache` and `sf.analytics` get reference pages: `pull_from_remote`, `PullResult`, `CachePullError`, `screamingface cache pull`, `use_cache=False`; `status`, `enable`, `disable`, `reset_identifier`, `screamingface analytics`, `DO_NOT_TRACK`. | New API pages, Modules, navigation |
 | D23 | A non-default engine requires an explicit `scoreboard_url` in `configure` and in the environment variables. | Installation, Clients, Modules, Connections |
-| D24 | The baseline is the released 0.1.10. A release candidate is not a source. | all |
-| D25 | Only behaviour in the 0.1.10 wheel is documented. E4b part 1 is documented. E4b parts 2 to 7 (`Fanout`, `Gate`, `JudgePick`, `Consistency`, `ArgMax`, `ArgMin`, `First`, `Sum`) are not in `main` or in 0.1.10 and are not documented. | Reducers, Fusions, Pipelines |
+| D24 | The baseline is the released 0.1.11. A release candidate is not a source. | all |
+| D25 | Only behaviour in the 0.1.11 wheel is documented. E4b parts 1 to 7 are documented: they reached `main` in PR #1680 and are in 0.1.11. Names removed from 0.1.11 (`Pick`, `Reduce`, `Fusion.synthesizer`, `.then`, `Pipeline(stages=)`, `extract=`, `Judge(returns=, order=)`) have no page. | Reducers, Fusions, Pipelines, Recipes, Evaluation, Clients |
 | D26 | `evaluate` does not capture a pinned cache unless `capture=True` is passed. Every statement that capture is on by default is rewritten. A replay never captures. | Caching, Evaluation guide, Leaderboards guide, Clients API, CandidateResult API |
 | D27 | The Reducers reference gains the E4b part 1 surface: `sf.Mean`, weights on `sf.Median` and `sf.Vote`, `Judge(order="min")`, `Filter(judge=...)`, `Pick(output=...)`, `Reduce("median"/"mean", select=...)`, and the selection input `{"input": ..., "selected": [...]}` for the stage after `Rank` or `Filter`. | Reducers, Fusions guide |
 | D28 | `sf.classify(model, input)` and `Client.classify(model, input)` get a reference section: arguments, return types (`Classification`, `LabelScore`), the model-id form, and the errors. | API reference, Modules |
 | D29 | Case media gets a reference section: `CaseResult.media`, `CaseMedia`, `sf.fetch_media`, `Client.fetch_media`, `FetchedMedia`, and `MediaUnavailableError` with code `media_not_kept`. | CandidateResult API, Errors API, Modules |
-| D30 | The `provider_not_connected` hint and the `model_not_found` error text match 0.1.10. | Errors API, Connections guide |
-| D31 | `len(sf.__all__)` is 92. | Installation |
-| D32 | Analytics are on by default in 0.1.10. The first evaluation prints a notice, and `sf.analytics.disable()` or `DO_NOT_TRACK=1` turns them off. The Analytics page and every page that mentions analytics state what a clean install does, measured on a fresh config home. | Analytics, Installation, learn pages |
-| D33 | The judged imported-benchmark judge input described in the engine changelog is checked against the Benchmarks guide, and the guide states the 0.1.10 behaviour. | Benchmarks guide |
+| D30 | The `provider_not_connected` hint and the `model_not_found` error text match 0.1.11. | Errors API, Connections guide |
+| D31 | `len(sf.__all__)` is 105. | Installation |
+| D32 | Analytics are on by default in 0.1.11. The first evaluation prints a notice, and `sf.analytics.disable()` or `DO_NOT_TRACK=1` turns them off. The Analytics page and every page that mentions analytics state what a clean install does, measured on a fresh config home. | Analytics, Installation, learn pages |
+| D33 | The judged imported-benchmark judge input described in the engine changelog is checked against the Benchmarks guide, and the guide states the 0.1.11 behaviour. | Benchmarks guide |
 | D40 | `evaluate(cases=[...])` runs a fixed list of Case ids. `Report.selected_cases`, `Report.selection_fingerprint` and `CandidateResult.selected_cases` name what was scored. Refusals, the limit that a selected run cannot be submitted to a leaderboard, and the Engine requirement are stated from measured runs. | Evaluation guide, Clients API, Reports API, CandidateResult API, Leaderboards guide |
+| D41 | A recipe is a chain of steps joined with `>>`: `sf.Fanout(members, signals=, quorum=, name=, prompt=)` maps, an optional `sf.Judge` scores, optional narrow steps (`sf.Rank`, `sf.Filter`, `sf.Concat`) keep some members, and one reducer or one `sf.Synthesize(model, prompt=)` ends the block. `sf.Fusion(members, synthesizer=...)` is documented as the shortcut that returns the chain. `sf.Pipeline(steps=)` replaces `stages=`. `optional=True` on a chain is set on `sf.Pipeline`. The chain rules (one ending step, at most one `sf.Judge`, at most 4 narrow steps) are stated with their errors from measured runs. | Recipes, Fusions, Pipelines, Evaluation, Quickstart, First fusion |
+| D42 | The Reducers reference lists the 0.1.11 steps: `Vote`, `Median`, `Mean` (with `over=` and `weights=`), `ArgMax`, `ArgMin`, `First` (with `output=`), `Rank`, `Filter`, `Concat`, `Merge`, `Judge`, `JudgePick`, `Gate`, `Synthesize`. Each signature is checked by calling it. | Reducers |
+| D43 | The declared signals get a section: `sf.Verbalized`, `sf.Logprob`, `sf.Entropy`, `sf.Consistency`, `sf.Sum`, `sf.field`, `sf.agreement`, and `sf.signal(name).chosen()` and `.mean()`. Each is run once on the local engine where the engine supports it. | Reducers, Fusions |
+| D44 | The report shows the combine steps: `CombineEvidence.narrow`, `sf.report.CombineNarrow`, the `not_selected` and `no_signal` reasons, ranks and cuts, the judge keys in the trace, and `sf.JudgeWriterWarning`. | Reports, CandidateResult, Errors, Events |
+| D45 | url4 in 0.1.11: `Url4(...).to_python()` writes the chain form, a recipe with a scoring judge has a new url4 and the template `judge-template@2`, and a url4 with an old field pick does not rebuild. The Url4 pages state each from a measured run. | Url4 guide, Url4 API, learn pages |
 | D34 | Prose uses "fusion" for the composed system. API names are unchanged. | all |
 | D35 | Each page has one type: tutorial, how-to, reference or explanation. New reference material goes on reference pages (`api/`). A guide links forward to the reference page once. A page that serves two types is split, not balanced. | all edited pages |
 | D36 | Diagrams are authored as text source in `docs/diagrams/`, rendered to SVG and PNG, and reviewed in the same change. Labels use the exact names and casing of the prose and the API. A stale diagram is deleted or corrected in this pass. | see Diagram plan |
@@ -86,11 +91,12 @@ A concept that describes structure, flow, sequence, state or a decision has a di
 
 | Concept | Type | The question it answers | Page |
 |---|---|---|---|
-| The stage after `Rank` or `Filter` receives the Case input with the selection | flow | What does the next stage receive, and from where? | Reducers |
+| The `Synthesize` writer after `Rank` or `Filter` receives the Case input with the selection | flow | What does the next stage receive, and from where? | Reducers |
 | A reducer with `quorum` and optional members | topology | Which members reach the combine call, and where does a failure stop? | Fusions |
 | Opening and fetching a Case's media | sequence | What is fetched, from where, and when does `media_not_kept` occur? | CandidateResult API |
 | A pinned cache from open to sealed or partial | state | Which states exist, and what makes a capture partial? | Caching |
 | `sf.classify` call path | flow | Which endpoint does the call reach, and with which model id? | classify reference |
+| A chain with a narrow step before a reducer | flow | Which steps run in one combine call, and which members does the reducer read? | Reducers |
 | The local request flow on the Overview | component | Which parts exist, and what talks to what? Reviewed for current names. | Overview |
 
 ## Review rules
@@ -108,12 +114,12 @@ The pass runs the review procedure end to end on the edited pages, as the reader
 
 - **Code against docs.** Every user-facing entry in the current changelogs of `apps/aigateway`, `apps/aigateway-ui`, `apps/report-intake`, `apps/scoreboard`, `apps/screamingface-engine`, `packages/screamingface` and `packages/url4`, including each "Unreleased" section, is listed with its page. A new `sf.*` export has a page. Changed behaviour has an updated guide. Removed behaviour has no page that describes it.
 - **Docs against product context.** Terminology casing matches. No public sentence violates the claims rules in D37. The persona set matches the reader in the context table. Anything the docs state as settled that product context marks provisional or open is flagged for its owner, not resolved here.
-- **Every public name has a page.** Each name in the 0.1.10 `__all__` maps to a page under `public-docs/src/pages/sf-client/api/`. A name added to or removed from `__all__` has its page added, changed or removed. A name with no page is listed as a named exception.
+- **Every public name has a page.** Each name in the 0.1.11 `__all__` maps to a page under `public-docs/src/pages/sf-client/api/`. A name added to or removed from `__all__` has its page added, changed or removed. A name with no page is listed as a named exception.
 - **Reviewer:** Irina Bejan.
 
 ## Corrections that need no decision
 
-- Installation: `len(sf.__all__)` is 92; the `up` sample prints `Scoreboard`, not `Leaderboard`; the `web_search` check returns False on every route; the provider-plugin FAQ is stale (`screamingface up` enables OpenRouter); `login()` in a notebook only prints a link.
+- Installation: `len(sf.__all__)` is 105; the `up` sample prints `Scoreboard`, not `Leaderboard`; the `web_search` check returns False on every route; the provider-plugin FAQ is stale (`screamingface up` enables OpenRouter); `login()` in a notebook only prints a link.
 - Connections guide and Quickstart: a local engine advertises 7 providers, not one; the demo panel lists Tavily, which is not a connection.
 - Models guide: the profile sample (12 parameters, `web_search`) and the `list()` counts are stale.
 - Quickstart: the 16-candidate lineup uses names the page never defines (`NameError`); the report view has no BEST marker, only score, coverage and cost.
@@ -126,8 +132,8 @@ The pass runs the review procedure end to end on the edited pages, as the reader
 - Url4 concept page: one grammar example does not parse (`ParseError` on the bundled url4 1.5.1).
 - Leaderboards guide and Leaderboard concept: sample ids and board counts; the example submits a partial run, which is not ranked.
 - Home glossary: the em-dash in the `fusion` definition becomes a comma.
-- Footer: reads the newest release tag (0.1.10), with no edit.
-- Every revision, count and id on an edited page is reprinted from a live 0.1.10 call.
+- Footer: reads the newest release tag (0.1.11), with no edit.
+- Every revision, count and id on an edited page is reprinted from a live 0.1.11 call.
 
 ## Missing surface to document
 
@@ -140,15 +146,14 @@ The pass runs the review procedure end to end on the edited pages, as the reader
 ## Out of scope
 
 - Package bugs `OME-1620` to `OME-1628`.
-- E4b parts 2 to 7 and the map, select and reduce recipe surface: not in `main` or in 0.1.10.
 - The url4 SDK page's CLI examples: they belong to the standalone `url4` package, which a screamingface install does not provide.
 - Adding `sf.reports` to the public-surface snapshot (package change).
 
 ## Verification
 
 - Gates: `npm run type-check`, `npm run lint`, `npm run build` in `public-docs`.
-- Fresh 0.1.10 install: `uv venv`, then `uv pip install "screamingface[notebook,runtime]==0.1.10"`. Start the local stack with `screamingface up`.
-- Every sample on an edited page runs on 0.1.10 against the local engine, and its printed output is reprinted from the run. A hosted sample prints no output that was not observed.
+- Fresh 0.1.11 install: `uv venv`, then `uv pip install "screamingface[notebook,runtime]==0.1.11"`. Start the local stack with `screamingface up`.
+- Every sample on an edited page runs on 0.1.11 against the local engine, and its printed output is reprinted from the run. A hosted sample prints no output that was not observed.
 - Link check over the built site: every internal route resolves and every external link answers 200.
 - A search of `public-docs/src` finds none of: an em-dash, an en-dash used as a connector, `cases=`, `Fanout`, `JudgePick`.
 
@@ -158,9 +163,9 @@ The pass runs the review procedure end to end on the edited pages, as the reader
 - No page lists a slash benchmark id, `sf.reproduce`, `hle` or the `draco-lite` link.
 - No page states that capture is on by default.
 - Each page that differs between local and hosted has a section for each.
-- Every sample on an edited page was run on 0.1.10 and matches its printed output, or is marked unverified with the reason.
-- Every name in the 0.1.10 `__all__` has a page, or is a listed named exception.
-- No page documents a name that is not in the 0.1.10 `__all__`.
+- Every sample on an edited page was run on 0.1.11 and matches its printed output, or is marked unverified with the reason.
+- Every name in the 0.1.11 `__all__` has a page, or is a listed named exception.
+- No page documents a name that is not in the 0.1.11 `__all__`.
 - Every diagram in the Diagram plan exists as source, SVG and PNG, with labels that match the prose.
 - The review report exists, in the required order, with a quoted line for each of the nine scores and a before and after for each top fix.
 - No edited page contains an em-dash, and no heading is in title case.

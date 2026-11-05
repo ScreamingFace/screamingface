@@ -274,7 +274,7 @@ const abstainOut = `(True, '', 0.0)`
     </p>
 
     <ThemedDiagram
-      name="sf-client-0-1-10-reducers-selection"
+      name="sf-client-0-1-11-reducers-selection"
       alt="Flow: the Case input goes to the members, their answers go to Rank or Filter, and the next stage receives the Case input and the kept members as one JSON object."
       caption="What the stage after Rank or Filter receives: the Case input, and the kept members as a list of id and text."
     />

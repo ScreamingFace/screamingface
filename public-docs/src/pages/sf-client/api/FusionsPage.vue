@@ -108,7 +108,7 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
     </p>
 
     <ThemedDiagram
-      name="sf-client-0-1-10-fusion-quorum"
+      name="sf-client-0-1-11-fusion-quorum"
       alt="Topology: members A and B succeed and member C, optional, fails; the quorum check passes the answers that arrived to the synthesizer when enough members succeeded, and the candidate fails when the quorum is not met or a required member failed."
       caption="Which members reach the synthesizer, and where a failure stops the candidate."
     />
