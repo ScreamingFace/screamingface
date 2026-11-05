@@ -22,6 +22,9 @@ On 2026-11-03 the owner limited the listing check "exactly one `active` row and 
 credential-bearing providers (spec §6.3). A provider that declares only `none` has no effective
 row whatever its stored rows; its public status comes from `/v1/provider-access`.
 
+On 2026-11-04 the owner added a third leaf, L7c (`aigateway`, §3a, spec §2a): a delete that
+requires the row's status, which the stale-row repair of L7b uses. L7b is blocked by L7c.
+
 ## 1. Layout and order
 
 | Tree | Branch (from `origin/main`) | Carries |
@@ -29,6 +32,7 @@ row whatever its stored rows; its public status comes from `/v1/provider-access`
 | `.claude/worktrees/local-engine-effective-row` | `local-engine-effective-row` | this plan and the spec |
 | `.claude/worktrees/effective-row-gateway` | `effective-row-gateway` | L7a: code, tests, ledger |
 | `.claude/worktrees/effective-row-engine` | `effective-row-engine` | L7b: code, tests, ledger |
+| `.claude/worktrees/stale-row-conditional-delete` | `stale-row-conditional-delete` | L7c: code, tests, ledger, the spec §2a and this §3a |
 
 `uv sync --locked` in the app of each worktree. Nothing is edited in the shared checkout.
 
@@ -39,7 +43,7 @@ row whatever its stored rows; its public status comes from `/v1/provider-access`
    (`routes/oauth_connections.py:177`) and the `connection_authorize` import in
    `core/provider_access/connection_backed.py:43`. Within the `aigateway` stack at most one leaf
    is between GREEN and merge.
-3. **L7b.** Built against a fake gateway; it merges after L7a.
+3. **L7b.** Built against a fake gateway; it merges after L7a and L7c.
 4. **After L7a merges:** L9 regenerates the UI schema, and L3 may start (L4a, L4b and L5 have
    merged).
 
@@ -211,6 +215,40 @@ row whatever its stored rows; its public status comes from `/v1/provider-access`
    with labels `screamingface-engine`, `agentic`, `autonomous`; branch `OME-N-effective-row-engine`;
    the manifest of step 5; the release note says a Local Engine now lists and manages the
    Connection chat uses.
+
+## 3a. L7c — a delete can require the row's status (`aigateway`)
+
+Spec §2a. One leaf under `OME-1138` that blocks L7b; it merges before L7b and before gateway
+1.0.0 is released.
+
+1. **Ledger first.** `docs/work/2026-11-04-stale-row-conditional-delete.md`, `ticket: unfiled`.
+2. **Docs.** Spec §2a and this section ship in the L7c PR.
+3. **RED.**
+   - `tests/unit/core/provider_access/test_conditional_delete.py`, on the Connection-backed
+     harness of `test_connection_backed_native_routes.py`: the SQLite cases of spec §2a.
+   - `tests/integration/test_conditional_delete_postgres.py` (`needs_postgres`), on the fixtures
+     of `test_native_repair_postgres.py`: the two PostgreSQL orders of spec §2a.
+   - No prior test changes.
+4. **GREEN.**
+   - `routes/oauth_connections.py`: an optional `expected_status: Literal["pending", "error"]`
+     query parameter on `delete_connection`, passed to `_delete_connection`. After
+     `claim_for_connection`, a row `effective_pair_of` names is refused; with the parameter,
+     `mark_revoked` runs only after `lock_if_status` locked the row in that status. The 409 is
+     raised inside the transaction.
+   - `core/provider_access/connection_native.py`: `lock_if_status`, a locking read of the row in
+     the expected status, beside `lock_lower_addressers` (the own-row lock of the one id order).
+   - Without the parameter the path is unchanged.
+5. **Gates.** `uv run .claude/scripts/run_gates.py aigateway --base origin/main`, and the
+   PostgreSQL lane with `AIGW_TEST_PG=1` where Docker runs; the ledger records whether it ran.
+6. **Review, ledger outcome, PR-open and close** as in §2 steps 7-10: the L7c leaf under
+   `OME-1138` with labels `aigateway`, `agentic`, `autonomous`, blocking L7b; branch
+   `OME-N-stale-row-conditional-delete`; the release note says a Connection delete can require
+   the row's status.
+7. **Then L7b** (§3): its ledger records the decision; every stale-row repair `DELETE` carries
+   `expected_status`, `disconnect` of `E` does not; a fake gateway that activates the stale row
+   at the `DELETE` pins `ConnectionConflict` with no create and the key in no request. L7b's
+   PR-open follows L7c's merge, rebased.
+8. **L9** waits for L7c, then regenerates the UI schema and re-checks the byte match.
 
 ## 4. Risks
 

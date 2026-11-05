@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
@@ -43,9 +44,11 @@ from aigateway.core.provider_access import (
     claim_native_write,
     credential_has_other_owner,
     credential_name_of,
+    effective_pair_of,
     effective_to_replace,
     flagged_connections,
     guard_refresh,
+    lock_if_status,
     lock_lower_addressers,
     replaced_label,
     republish_effective_api_key,
@@ -63,6 +66,11 @@ from .provider_access_http import refusals_as_http
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+# WHY these two (OME-1138 close-out, L7c): a row in `pending` or `error` serves nothing yet keeps
+# its label, so a caller repairing its rows removes it. A conditional delete never targets a
+# working row.
+ExpectedDeleteStatus = Literal["pending", "error"]
 
 
 @router.get("/v1/oauth/connections", response_model=OAuthConnectionListResponse)
@@ -457,11 +465,18 @@ async def patch_connection(
 
 
 @router.delete("/v1/oauth/connections/{connection_id}", status_code=204)
-async def delete_connection(connection_id: UUID, request: Request, current: CurrentAccount) -> None:
+async def delete_connection(
+    connection_id: UUID,
+    request: Request,
+    current: CurrentAccount,
+    expected_status: ExpectedDeleteStatus | None = None,
+) -> None:
     store = _store(request)
     with refusals_as_http():
         async with in_transaction():
-            connection = await _delete_connection(request, store, str(current.id), connection_id)
+            connection = await _delete_connection(
+                request, store, str(current.id), connection_id, expected_status
+            )
     # Evict the shared cached strategy so a deleted connection's still-valid token
     # can't keep being served from memory (SF-282) — under the name the locator derives, which
     # for a migrated pair's effective row is the Profile address (S2'b4).
@@ -472,13 +487,21 @@ async def delete_connection(connection_id: UUID, request: Request, current: Curr
 
 
 async def _delete_connection(
-    request: Request, store: OAuthConnectionStore, account_id: str, connection_id: UUID
+    request: Request,
+    store: OAuthConnectionStore,
+    account_id: str,
+    connection_id: UUID,
+    expected_status: ExpectedDeleteStatus | None,
 ) -> OAuthConnection:
     connection = await store.get(account_id, connection_id)
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
     # INVARIANT (OME-1497, G0): a `none` or unmarked pair is claimed FIRST (marker → row → blob).
     await claim_for_connection(connection)
+    # INVARIANT (L7c): a conditional delete re-checks the row only after the claim, inside this
+    # transaction — a callback or key write that committed since the caller listed it is seen.
+    if expected_status is not None and await effective_pair_of(connection) is not None:
+        raise _changed_since_listed()
     # INVARIANT (D14, S2'b4): a migrated pair's effective row retires the pair FIRST — marker
     # (effective → None) — before the row and the blob; no-op otherwise.
     await retire_effective(connection)
@@ -492,12 +515,26 @@ async def _delete_connection(
     # The credential row may be ABSENT; a missing-row delete takes no lock under READ
     # COMMITTED, so it cannot serialize a concurrent set. Locking the connection row first
     # forces a racing set to observe the revoke (its reactivate CAS matches 0 rows and 409s),
-    # so nothing is orphaned or resurrected.
+    # so nothing is orphaned or resurrected. A conditional delete takes that lock first, in
+    # `lock_if_status`, and only while the row still has the expected status.
+    if expected_status is not None and not await lock_if_status(connection, expected_status):
+        raise _changed_since_listed()
     await store.mark_revoked(connection)
     keep_blob = await credential_has_other_owner(connection)
     if not keep_blob:
         await _delete_credentials(request, connection.credential_locator)
     return connection
+
+
+def _changed_since_listed() -> HTTPException:
+    # WHY raised inside the transaction: the claim and every write so far roll back with it.
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "connection_conflict",
+            "message": "Connection is effective or no longer has the expected status",
+        },
+    )
 
 
 @router.get(
