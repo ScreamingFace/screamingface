@@ -1,12 +1,12 @@
 ---
 id: OME-1747
 linear_url: https://linear.app/openmined/issue/OME-1747/export-the-span-tree-of-local-in-process-engine-runs
-status: in_progress
+status: done
 type: feature
 priority: 3
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-10-27
-closed:
+closed: 2026-11-05
 ---
 
 # OME-1747 — Export the span tree of local in-process engine runs
