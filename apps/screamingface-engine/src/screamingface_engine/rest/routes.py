@@ -51,7 +51,7 @@ from screamingface_engine.request_scope import (
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
-from screamingface_engine.rest.runs import bind_start
+from screamingface_engine.rest.runs import PRIVATE_HEADERS_DOC, bind_start
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from screamingface_engine.rest.sessions import RunSessions
 from screamingface_engine.rest.stopping import QUEUE_UNAVAILABLE_RETRY_AFTER_S, stop_topic
@@ -713,15 +713,29 @@ _START_RESPONSES: dict[int | str, dict[str, Any]] = {
         "unsupported `X-Profile` header (`code: x_profile_unsupported`), or `X-SF-Run-Candidate` "
         "is not an index of the Run's Candidates (`code: malformed_header`)."
     ),
-    404: _problem(
-        "The `X-SF-Run` Run is unknown or not the caller's (`code: run_not_found`, OME-1785)."
-    ),
-    409: _problem(
-        "A run already exists for this topic (single-shot); or, under `X-SF-Run`, the Run was "
-        "canceled (`code: run_canceled`) or the Candidate already started under another topic "
-        "(`code: candidate_already_started`)."
-    ),
+    # The `X-SF-Run` answers depend on who asks, so they carry the `/runs` cache headers.
+    404: {
+        **_problem(
+            "The `X-SF-Run` Run is unknown or not the caller's (`code: run_not_found`, OME-1785)."
+        ),
+        "headers": PRIVATE_HEADERS_DOC,
+    },
+    409: {
+        **_problem(
+            "A run already exists for this topic (single-shot); or, under `X-SF-Run`, the Run was "
+            "canceled (`code: run_canceled`) or the Candidate already started under another "
+            "topic (`code: candidate_already_started`)."
+        ),
+        "headers": PRIVATE_HEADERS_DOC,
+    },
     428: _problem("Attach a WebSocket to the topic before starting the run."),
+    503: {
+        **_problem(
+            "The run queue could not be read or is unavailable; or, under `X-SF-Run`, a cancel "
+            "won while this Candidate started and stopping it failed. Retry after `Retry-After`."
+        ),
+        "headers": {"Retry-After": {"schema": {"type": "integer"}}, **PRIVATE_HEADERS_DOC},
+    },
     502: _problem("The run failed."),
     504: _problem("The run exceeded its 16 h deadline."),
 }

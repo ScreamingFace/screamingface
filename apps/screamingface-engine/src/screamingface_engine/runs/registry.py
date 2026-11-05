@@ -84,8 +84,18 @@ class RunRegistry(Protocol):
         ...
 
     async def cancel(self, owner: OwnerKey, run_id: str) -> RunRecord | None:
-        """Cancel the Run while any Candidate is not terminal (spec D12): set the sticky flag and
-        stop every `pending` Candidate. A finished Run is returned unchanged."""
+        """Cancel the Run while any Candidate is not terminal (spec D12): set the sticky flag,
+        owe a stop to every bound live Candidate, and stop every `pending` one. A finished Run is
+        returned unchanged."""
+        ...
+
+    async def owed_stops(self, owner: OwnerKey, run_id: str) -> list[str]:
+        """The topics a cancel of the owner's Run still owes a stop (spec D12), whatever their
+        state now: a stop that failed stays owed until `stop_done`."""
+        ...
+
+    async def stop_done(self, topic: str) -> None:
+        """Record that the topic's owed stop succeeded."""
         ...
 
     async def reconcile(self) -> int:
