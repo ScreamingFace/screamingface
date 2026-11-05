@@ -22,6 +22,17 @@ const mediaFetchOut = `(1962250, PosixPath('picture.jpg'))`
 const textOnly = `m = sf.Model("openrouter/deepseek/deepseek-v4-flash")
 sf.evaluate(m, benchmark="inspect-lab_bench_figqa", limit=1)`
 const textOnlyOut = `ExecutionError: This Benchmark's Cases carry pictures, and these models cannot take images: openrouter/deepseek/deepseek-v4-flash. The gateway reports them as text-only; a model it knows nothing about counts as text-only too.`
+const narrowCode = `op = next(o for o in case.operations if o.combine is not None)
+evidence = op.combine
+evidence.narrow[0], [(m.member_id, m.status, m.reason) for m in evidence.members]`
+const narrowOut = `(CombineNarrow(reduce='scores@1', select='top_k@1', signal='score:judge',
+               kept=('member_1', 'member_2'), cut=CombineCut(k=2, order='max'),
+               scores={'member_1': 10.0, 'member_2': 10.0, 'member_3': 2.0},
+               ranks={'member_1': 1, 'member_2': 2, 'member_3': 3}),
+ [('member_1', 'answered', None), ('member_2', 'answered', None), ('member_3', 'excluded', 'not_selected')])`
+const gateEvidenceOut = `CombineGate(observe='agreement', observed=0.6666666666666666, cmp='>=', threshold=0.7,
+            passed=False, branch='fallback', otherwise='abstain', abstain_band=None)
+CombineResult(member_id=None, value=None, status='abstain', reason='gate_not_met')`
 const mediaGone = `sf.fetch_media(item)`
 const mediaGoneOut = `MediaUnavailableError: The engine no longer holds x.png · image/png · 10 B · sha256 00000000…; a local engine drops parked pictures and files after a while (48 hours by default). Run the Case again to see it.`
 const metrics = `dict(candidate.metrics)`
@@ -438,11 +449,8 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-
           <td><code>combine</code></td>
           <td><code>CombineEvidence&nbsp;|&nbsp;None</code></td>
           <td>
-            For a combine step, what it read and decided for the case: <code>kind</code>,
-            <code>reducer</code>, <code>operators</code>, <code>members</code>, <code>chosen</code>,
-            <code>tie</code>, <code>agreement</code>, <code>result</code> and
-            <code>finish_reason</code>, plus <code>tally</code>, <code>judge</code> or
-            <code>fields</code> where the reducer has them. <code>None</code> for any other step.
+            For a combine step, what it read and decided for the case. See
+            <a href="#combine-evidence">Combine evidence</a>. <code>None</code> for any other step.
           </td>
         </tr>
         <tr>
@@ -590,8 +598,10 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-
       </li>
       <li>
         <code>answers(operation_id=None)</code>: one <code>sf.Answer</code> per member and one for
-        each combine step. A case with no combine step returns <code>()</code>. An unknown
-        <code>operation_id</code> raises <code>ValueError</code>.
+        each combine step. An answer's <code>status</code> is <code>answered</code>,
+        <code>abstain</code>, <code>excluded</code> or <code>fail</code>. A case with no combine
+        step returns <code>()</code>. An unknown <code>operation_id</code> raises
+        <code>ValueError</code>.
       </li>
       <li>
         <code>trace()</code>: <code>TraceEntry</code> values in operation order, of kind
@@ -599,6 +609,111 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-
         <code>Report.trace_dict()</code> exports them.
       </li>
     </ul>
+
+    <h2 id="combine-evidence">Combine evidence</h2>
+
+    <p>
+      <code>CaseOperation.combine</code> is a <code>CombineEvidence</code> for a combine step. It
+      holds <code>kind</code>, <code>reducer</code>, <code>operators</code>, <code>members</code>,
+      <code>tally</code>, <code>judge</code>, <code>fields</code>, <code>chosen</code>,
+      <code>built</code>, <code>agreement</code>, <code>tie</code>, <code>median</code>,
+      <code>mean</code>, <code>presentation_order</code>, <code>separator_collision</code>,
+      <code>signal</code>, <code>cut</code>, <code>narrow</code>, <code>consistency</code>,
+      <code>declared</code>, <code>gate</code>, <code>result</code>, <code>dropped</code> and
+      <code>finish_reason</code>. A field that the step does not use is <code>None</code> or empty.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Fields</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>CombineAnswerRow</code></td>
+          <td>
+            <code>member_id</code>, <code>raw</code>, <code>value</code>, <code>status</code>,
+            <code>reason</code>, <code>signals</code>, <code>weight</code>, <code>score</code>,
+            <code>rank</code>
+          </td>
+          <td>
+            One row per member. <code>status</code> is <code>answered</code> or
+            <code>excluded</code> in the runs above. <code>reason</code> is
+            <code>not_selected</code> for a member that a narrow step left out and
+            <code>no_signal</code> for a member with no value for the signal that a step reads.
+            <code>signals</code> holds each signal of the member, such as <code>score:judge</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>CombineNarrow</code></td>
+          <td>
+            <code>reduce</code>, <code>select</code>, <code>signal</code>, <code>kept</code>,
+            <code>cut</code>, <code>scores</code>, <code>ranks</code>
+          </td>
+          <td>
+            One record per narrow step: the select operator, the signal it read, the kept member ids
+            and, for a <code>sf.Rank</code>, the cut, the scores and the ranks (1 is the best, and
+            equal scores take author order).
+          </td>
+        </tr>
+        <tr>
+          <td><code>CombineCut</code></td>
+          <td><code>k</code>, <code>order</code></td>
+          <td>The <code>k</code> and the order of a <code>sf.Rank</code>.</td>
+        </tr>
+        <tr>
+          <td><code>CombineGate</code></td>
+          <td>
+            <code>observe</code>, <code>observed</code>, <code>cmp</code>, <code>threshold</code>,
+            <code>passed</code>, <code>branch</code>, <code>otherwise</code>,
+            <code>abstain_band</code>
+          </td>
+          <td>What a <code>sf.Gate</code> read, the comparison, and which branch ran.</td>
+        </tr>
+        <tr>
+          <td><code>CombineJudgeReading</code></td>
+          <td><code>raw</code>, <code>returns</code>, <code>parsed</code></td>
+          <td>The judge's reply as text and as one number per member.</td>
+        </tr>
+        <tr>
+          <td><code>CombineResult</code></td>
+          <td>
+            <code>member_id</code>, <code>value</code>, <code>status</code>, <code>reason</code>
+          </td>
+          <td>What the step decided.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      A chain
+      <code
+        >Fanout([1, 1, 2]) &gt;&gt; Judge(...) &gt;&gt; Rank(2, by="score:judge") &gt;&gt;
+        Vote()</code
+      >
+      leaves the third member out. These are the records it produced:
+    </p>
+
+    <CodeBlock :code="narrowCode" language="python" />
+    <CodeBlock :code="narrowOut" language="text" />
+
+    <p>A <code>sf.Gate</code> that does not hold records the comparison and abstains:</p>
+
+    <CodeBlock :code="gateEvidenceOut" language="text" />
+
+    <p>
+      The <code>reduce</code> entry of <code>case.trace()</code> has the keys
+      <code>operation_id</code>, <code>op</code>, <code>rule</code>, <code>mode</code>,
+      <code>tally</code>, <code>chosen</code>, <code>signal</code>, <code>result</code>,
+      <code>dropped</code>, <code>judge_operation_id</code> and <code>judge_model</code>. The two
+      judge keys name the judge call of a step that reads the judge directly. For
+      <code>Judge &gt;&gt; ArgMax("score:judge")</code> they are <code>op_judge_1</code> and
+      <code>openrouter/google/gemini-3.5-flash-lite</code>. For
+      <code>Judge &gt;&gt; Rank &gt;&gt; Vote</code> they are <code>None</code>.
+    </p>
 
     <h2>How a case is graded</h2>
 

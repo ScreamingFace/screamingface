@@ -83,7 +83,8 @@ Warning
 └── UserWarning
     └── EvaluationWarning
         ├── DuplicateMembersWarning
-        └── FixedSeedSittingWarning"
+        ├── FixedSeedSittingWarning
+        └── JudgeWriterWarning"
       language="text"
     />
 
@@ -342,6 +343,20 @@ Warning
             <code>seed</code> (every <code>sf.samples()</code> member does). Those calls send the
             same request in every sitting, so the spread across sittings is not measured. The run
             still goes on.
+          </td>
+        </tr>
+        <tr>
+          <td><code>JudgeWriterWarning</code></td>
+          <td>
+            A judge and the writer of the same block use one model, or a stage that reads a judge is
+            followed directly by a model stage with the judge's model. The writer is then also the
+            scorer. It is emitted when the SDK compiles the recipe, and the run still goes on. The
+            message names the stages and the model:
+            <code
+              >Stage 1 (a fanout block) uses the same model
+              'openrouter/google/gemini-3.5-flash-lite' for its judge and its writer</code
+            >. Give the judge or the writer another model to clear it. A judge on another model
+            emits nothing.
           </td>
         </tr>
       </tbody>
