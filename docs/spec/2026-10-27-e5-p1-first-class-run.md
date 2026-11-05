@@ -116,7 +116,8 @@ All routes resolve the owner (D6) and answer RFC 9457 `Problem`s, as the existin
 - **Problem codes.** `run_not_found`, `run_canceled` and `candidate_already_started` are the
   Problem's `code`, as for every other Engine code. A hosted `/runs*` call without identity
   answers 401 `identity_required`. An `X-SF-Run-Candidate` that is not an index of the run's
-  `candidates` answers 400 `malformed_header`, before anything is scheduled.
+  `candidates`, or either header without the other, answers 400 `malformed_header`, before
+  anything is scheduled.
 - **`RunRecord`** is `{id, state, created_at, finished_at, benchmark, case_count, candidates:
   [{name, state, attempt_id?, started_at?, finished_at?, cost_usd?, error_code?}]}`. It never
   carries the owner.
@@ -264,7 +265,9 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
     required, so a named Secret that does not exist fails the release; with no
     `database.existingSecret` the App runs with Runs off (D2). The Job runs under the namespace's default ServiceAccount with no
     token, because a pre-install hook runs before the chart's own ServiceAccount exists.
-  - Local: `serve --local` applies pending migrations at start.
+  - Local: `serve --local` applies pending migrations at start, holding an exclusive lock beside
+    the file; a second local Engine on the same file refuses to start, since each reconciles the
+    Candidates bound before it started as `lost`.
   - The App refuses to start on a schema older than its code.
   - The App refuses to start when its database does not answer, with an error that names the
     database (password hidden), not the schema (§9, 2026-11-05).

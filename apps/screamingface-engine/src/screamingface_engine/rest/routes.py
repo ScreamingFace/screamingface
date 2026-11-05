@@ -789,6 +789,24 @@ async def start_run(
     ] = None,
     # Documents the refusal in OpenAPI; `refuse_selector` below is what decides.
     _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
+    # Documented here; `rest.runs.bind_start` reads and checks them (E5 P1 spec R2).
+    _x_sf_run: Annotated[
+        str | None,
+        Header(
+            alias="X-SF-Run",
+            description="Optional id of the caller's Run this start belongs to. Sent with "
+            "`X-SF-Run-Candidate`; the start is then bound to that Candidate (404 for a Run not "
+            "the caller's, 409 when canceled or already started).",
+        ),
+    ] = None,
+    _x_sf_run_candidate: Annotated[
+        str | None,
+        Header(
+            alias="X-SF-Run-Candidate",
+            description="The Candidate's zero-based index within `X-SF-Run`. Required with it, "
+            "and refused alone (400 `malformed_header`).",
+        ),
+    ] = None,
     x_answer_seed: Annotated[
         str | None,
         Header(

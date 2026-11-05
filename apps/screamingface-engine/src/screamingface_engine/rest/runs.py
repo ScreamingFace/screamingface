@@ -26,6 +26,7 @@ from screamingface_engine.auth import ProblemException
 from screamingface_engine.rest.stopping import stop_topic
 from screamingface_engine.runs.ids import RUN_ID_PATTERN
 from screamingface_engine.runs.records import (
+    MAX_CANDIDATES,
     CandidateState,
     OwnerKey,
     RunQuery,
@@ -66,14 +67,41 @@ _ON_THE_RUNNER = ("scheduled", "running")
 _STOP_CONCURRENCY = 16
 
 
+# INVARIANT (spec D5, D6): a Run answer is its owner's alone, so a shared cache in front of the
+# Engine never serves it to another caller. Errors and empty answers carry it too: a 404 tells
+# one owner's Runs from another's.
+_PRIVATE_HEADERS = {"Cache-Control": "private, no-store", "Vary": _OWNER_HEADER}
+
+
 def _private(response: Response) -> None:
-    """INVARIANT (spec D5, D6): a Run answer is its owner's alone, so a shared cache in front of
-    the Engine never serves it to another caller."""
-    response.headers["Cache-Control"] = "private, no-store"
-    response.headers["Vary"] = _OWNER_HEADER
+    response.headers.update(_PRIVATE_HEADERS)
 
 
-router = APIRouter(prefix="/runs", tags=["Runs"], dependencies=[Depends(_private)])
+def _problem(
+    *, status: int, title: str, detail: str | None = None, code: str | None = None
+) -> ProblemException:
+    """A `/runs` Problem, with the private cache headers."""
+    return ProblemException(
+        status=status, title=title, detail=detail, code=code, headers=dict(_PRIVATE_HEADERS)
+    )
+
+
+def _require_identity(request: Request) -> None:
+    """Spec D2, D6, before the request is validated: Runs off answers 404, and a hosted call
+    with no identity 401, whatever its body or query."""
+    _registry(request)
+    _owner(request)
+
+
+router = APIRouter(
+    prefix="/runs",
+    tags=["Runs"],
+    dependencies=[Depends(_private), Depends(_require_identity)],
+    responses={
+        401: {"description": "A hosted call with no verified identity (`identity_required`)."},
+        404: {"description": "No such Run of the caller's (`run_not_found`), or Runs are off."},
+    },
+)
 
 
 # --- the wire ----------------------------------------------------------------------------
@@ -155,7 +183,7 @@ def _registry(request: Request) -> RunRegistry:
     # `getattr`: an App assembled without `install_runs` has Runs off.
     registry = getattr(request.app.state, "run_registry", None)
     if registry is None:
-        raise ProblemException(status=404, title="Not Found", detail="Runs are off on this Engine")
+        raise _problem(status=404, title="Not Found", detail="Runs are off on this Engine")
     return registry
 
 
@@ -170,7 +198,7 @@ def _caller(request: Request) -> OwnerKey | None:
 def _owner(request: Request) -> OwnerKey:
     owner = _caller(request)
     if owner is None:
-        raise ProblemException(
+        raise _problem(
             status=401,
             title="Unauthorized",
             detail="a verified caller identity is required",
@@ -180,13 +208,11 @@ def _owner(request: Request) -> OwnerKey:
 
 
 def _not_found(run_id: str) -> ProblemException:
-    return ProblemException(
-        status=404, title="Not Found", detail=f"no run {run_id}", code=RUN_NOT_FOUND
-    )
+    return _problem(status=404, title="Not Found", detail=f"no run {run_id}", code=RUN_NOT_FOUND)
 
 
 def _invalid(exc: ValueError) -> ProblemException:
-    return ProblemException(status=422, title="Unprocessable Content", detail=str(exc))
+    return _problem(status=422, title="Unprocessable Content", detail=str(exc))
 
 
 async def _read(registry: RunRegistry, owner: OwnerKey, run_id: str) -> RunRecord:
@@ -222,7 +248,16 @@ async def _stop_all(request: Request, topics: list[str]) -> None:
 # --- the routes --------------------------------------------------------------------------
 
 
-@router.post("", status_code=201, summary="Register a Run")
+@router.post(
+    "",
+    status_code=201,
+    summary="Register a Run",
+    responses={
+        200: {"description": "The caller's Run with this `client_key`, already registered."},
+        409: {"description": "That `client_key` names another evaluation (`client_key_conflict`)."},
+        422: {"description": "An invalid Run."},
+    },
+)
 async def create_run(request: Request, response: Response, body: RunCreate) -> RunBody:
     """201 with the new Run, or 200 with the caller's Run of the same `client_key`; 409
     `client_key_conflict` when that Run names another evaluation."""
@@ -241,7 +276,7 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
     try:
         record, created = await registry.register(owner, spec)
     except ClientKeyConflict as exc:
-        raise ProblemException(
+        raise _problem(
             status=409, title="Conflict", detail=str(exc), code=CLIENT_KEY_CONFLICT
         ) from exc
     if not created:
@@ -249,7 +284,11 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
     return RunBody.of(record)
 
 
-@router.get("", summary="List Runs, newest first")
+@router.get(
+    "",
+    summary="List Runs, newest first",
+    responses={422: {"description": "An invalid query, or a cursor that names no Run of yours."}},
+)
 async def list_runs(
     request: Request,
     state: RunState | None = None,
@@ -266,7 +305,7 @@ async def list_runs(
     try:
         page = await registry.list(owner, query)
     except InvalidCursor as exc:
-        raise ProblemException(
+        raise _problem(
             status=422,
             title="Unprocessable Content",
             detail=f"the cursor {exc} names no run of yours",
@@ -281,7 +320,15 @@ async def get_run(request: Request, run_id: str) -> RunBody:
     return RunBody.of(await _read(registry, _owner(request), run_id))
 
 
-@router.delete("/{run_id}", status_code=202, summary="Cancel a Run")
+@router.delete(
+    "/{run_id}",
+    status_code=202,
+    summary="Cancel a Run",
+    responses={
+        204: {"description": "Every Candidate had already ended; nothing changed."},
+        503: {"description": "The run queue could not be read; retry (`Retry-After`)."},
+    },
+)
 async def cancel_run(request: Request, run_id: str) -> Response:
     """Spec D12: 202 while any Candidate is not terminal, after stopping every live topic; 204,
     changing nothing, once every Candidate is terminal."""
@@ -289,17 +336,27 @@ async def cancel_run(request: Request, run_id: str) -> Response:
     owner = _owner(request)
     before = await _read(registry, owner, run_id)
     if all(is_terminal_candidate(c.state) for c in before.candidates):
-        return Response(status_code=204)
+        return Response(status_code=204, headers=_PRIVATE_HEADERS)
     record = await registry.cancel(owner, run_id)
     if record is None:
         raise _not_found(run_id)
-    live = [
+    # WHY from the read before the cancel: a bound Candidate still `pending` may already be on
+    # the runner (scheduled, then `mark_scheduled` failed or had not run yet), and the cancel just
+    # marked it `stopped`. A Candidate that ended on its own meanwhile is left alone.
+    live_before = {c.name for c in before.candidates if not is_terminal_candidate(c.state)}
+    to_stop = [
         c.attempt_id
         for c in record.candidates
-        if c.state in _ON_THE_RUNNER and c.attempt_id is not None
+        if c.attempt_id is not None
+        and (c.state in _ON_THE_RUNNER or (c.state == "stopped" and c.name in live_before))
     ]
-    await _stop_all(request, live)
-    return Response(status_code=202)
+    if not to_stop and all(is_terminal_candidate(c.state) for c in record.candidates):
+        stopped_now = any(c.state == "stopped" and c.name in live_before for c in record.candidates)
+        if not stopped_now:
+            # The last outcome landed before the cancel took the lock: nothing changed.
+            return Response(status_code=204, headers=_PRIVATE_HEADERS)
+    await _stop_all(request, to_stop)
+    return Response(status_code=202, headers=_PRIVATE_HEADERS)
 
 
 # --- binding a start (spec R2) -----------------------------------------------------------
@@ -321,14 +378,24 @@ _REFUSALS: dict[type[Exception], tuple[int, str, str, str]] = {
 def _start_binding(request: Request) -> tuple[RunRegistry, str, int] | None:
     """(registry, run id, Candidate index) for a start that names a Run, else None."""
     run_id = request.headers.get(RUN_HEADER)
-    if run_id is None:
-        return None
     raw = request.headers.get(CANDIDATE_HEADER)
-    if raw is None or not raw.isascii() or not raw.isdigit():
+    if run_id is None and raw is None:
+        return None
+    # WHY a length bound before `int`: a run of thousands of digits is costly to parse and
+    # overflows the database's index column; no Run has more than `MAX_CANDIDATES`.
+    if (
+        run_id is None
+        or raw is None
+        or not raw.isascii()
+        or not raw.isdigit()
+        or len(raw) > len(str(MAX_CANDIDATES))
+        or int(raw) >= MAX_CANDIDATES
+    ):
         raise ProblemException(
             status=400,
             title="Bad Request",
-            detail=f"{CANDIDATE_HEADER} must be the Candidate's zero-based index",
+            detail=f"{RUN_HEADER} and {CANDIDATE_HEADER}, the Candidate's zero-based index, "
+            "come together",
             code=MALFORMED_HEADER,
         )
     registry = getattr(request.app.state, "run_registry", None)

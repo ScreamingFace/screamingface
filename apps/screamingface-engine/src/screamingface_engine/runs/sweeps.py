@@ -38,8 +38,11 @@ class RunSweeper:
         if lost or expired:
             logger.info("Run sweep: %d Candidates lost, %d Runs expired", lost, expired)
 
-    async def run(self, *, interval_s: float) -> None:
-        """Sweep now, then every ``interval_s``, until cancelled."""
+    async def run(self, *, interval_s: float, sweep_first: bool = True) -> None:
+        """Sweep now (unless ``sweep_first`` is False), then every ``interval_s``, until
+        cancelled."""
+        if not sweep_first:
+            await asyncio.sleep(interval_s)
         while True:
             # INVARIANT: one failed sweep never ends the loop; a database blip would otherwise
             # stop reconcile and retention until the next deploy.
