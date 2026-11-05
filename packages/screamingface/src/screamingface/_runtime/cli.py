@@ -15,7 +15,7 @@ import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -1069,6 +1069,12 @@ def _prepare_in_process(
             raise RuntimeError(f"failed to prepare {name} in {destination}: {exc}") from None
 
 
+# INVARIANT: the Engine preparer's own name for its skip switch
+# (`screamingface_engine_inspect.prepare.SKIP_BENCHMARKS_NEEDING_HF_TOKEN_ENV`), spelled here
+# because this process cannot import the Engine's plugin.
+_SKIP_GATED_DATASETS_ENV = "SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN"
+
+
 def _prepare_with_engine(
     config: RuntimeConfig, benchmark: str | None, *, all_benchmarks: bool, force: bool
 ) -> None:
@@ -1090,34 +1096,54 @@ def _prepare_with_engine(
         )
     selected: tuple[str, ...] = ids if all_benchmarks else (str(benchmark),)
     config.assets_dir.mkdir(parents=True, exist_ok=True)
-    for name in selected:
-        destination: Path = config.assets_dir / name
-        status: str = engine_env.bundle_status(config.assets_dir, name)
-        if status == "prepared" and not force:
-            print(f"{name} is already prepared at {destination}")
-            continue
-        if destination.exists():
-            # WHY remove, not reuse: the preparer refuses a non-empty folder, and debris from a
-            # run that died (or an older prepare, under --force) must not survive beside new
-            # files. Only the one bundle's folder goes.
-            shutil.rmtree(destination)
-        try:
-            subprocess.run(
-                engine_env.prepare_command(python, config.assets_dir, name),
-                check=True,
-                env=dict(os.environ),
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise RuntimeError(f"failed to prepare {name} in {destination}: {exc}") from None
-        if engine_env.bundle_status(config.assets_dir, name) != "prepared":
-            # WHY a warning, not a failure: the preparer exits 0 and writes nothing when it
-            # SKIPS a bundle (a gated dataset with no Hugging Face token, by design); one skip
-            # must not stop the other ninety downloads of `--all`.
-            print(
-                f"{name} skipped: the preparer wrote no cases.json (a gated dataset without "
-                "HF_TOKEN? see its output above)"
-            )
+    child_env: dict[str, str] = dict(os.environ)
+    if all_benchmarks:
+        # WHY: under `--all`, one gated dataset without a Hugging Face token must not stop the
+        # other ninety (the #1675 replay lane died on `cais/hle` after ten minutes of downloads).
+        # The Engine's preparer then skips it, exits 0 and writes no cases.json; it is reported
+        # below and retried next time. A named bundle keeps the preparer's loud refusal, and an
+        # exported value (e.g. 0, to fail on a missing token) always wins.
+        child_env.setdefault(_SKIP_GATED_DATASETS_ENV, "1")
+    skipped: list[str] = [
+        name
+        for name in selected
+        if not _prepare_one_bundle(python, config, name, force=force, env=child_env)
+    ]
+    if skipped:
+        print(f"{len(skipped)} skipped: {', '.join(skipped)}; set HF_TOKEN and run prepare again")
     print(f"Benchmark assets ready at {config.assets_dir}")
+
+
+def _prepare_one_bundle(
+    python: Path, config: RuntimeConfig, name: str, *, force: bool, env: Mapping[str, str]
+) -> bool:
+    """Prepare one bundle through the Engine's preparer; False when the preparer skipped it.
+
+    The preparer exits 0 and writes no cases.json only when it SKIPPED the bundle (a gated
+    dataset with the skip switch on); a non-zero exit raises, naming the bundle.
+    """
+    destination: Path = config.assets_dir / name
+    if engine_env.bundle_status(config.assets_dir, name) == "prepared" and not force:
+        print(f"{name} is already prepared at {destination}")
+        return True
+    if destination.exists():
+        # WHY remove, not reuse: the preparer refuses a non-empty folder, and debris from a
+        # run that died (or an older prepare, under --force) must not survive beside new
+        # files. Only the one bundle's folder goes.
+        shutil.rmtree(destination)
+    try:
+        subprocess.run(
+            engine_env.prepare_command(python, config.assets_dir, name), check=True, env=dict(env)
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(f"failed to prepare {name} in {destination}: {exc}") from None
+    if engine_env.bundle_status(config.assets_dir, name) == "prepared":
+        return True
+    print(
+        f"{name} skipped: the preparer wrote no cases.json (a gated dataset without "
+        "HF_TOKEN? see its output above)"
+    )
+    return False
 
 
 def _benchmark_statuses(config: RuntimeConfig, *, ask_engine: bool = True) -> dict[str, str]:
