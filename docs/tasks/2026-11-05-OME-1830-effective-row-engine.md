@@ -1,13 +1,13 @@
 ---
 id: OME-1830
 linear_url: https://linear.app/openmined/issue/OME-1830/manage-the-connection-chat-uses-in-the-local-engine-l7b
-status: in_review
+status: done
 type: task
 priority: medium
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1138
 created: 2026-11-05
-closed:
+closed: 2026-11-05
 ---
 
 # Manage the Connection chat uses in the Local Engine (L7b)
@@ -23,3 +23,5 @@ one release; its removal is `OME-1832`. Spec `docs/spec/2026-10-29-local-engine-
 `docs/work/2026-11-04-effective-row-engine.md`.
 
 - 2026-11-05: filed after L7c (`OME-1824`) merged; the PR opened.
+- 2026-11-05: squash-merged to `main` as `529bdb7f9` (PR #1684). Closed Done in Linear the same
+  day with the close comment.
