@@ -10,6 +10,7 @@ and no answer carries the owner.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import logging
 from collections.abc import Awaitable, Callable
@@ -18,7 +19,7 @@ from decimal import Decimal
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Request, Response
-from pydantic import BaseModel, PlainSerializer, StrictInt
+from pydantic import BaseModel, ConfigDict, PlainSerializer, StrictInt
 
 from screamingface_engine import job_env
 from screamingface_engine.auth import ProblemException
@@ -59,6 +60,10 @@ _OWNER_HEADER = "X-User-Email"
 _LOCAL_OWNER = "local"
 # The Candidate states a cancel must stop on the runner: `pending` ones it stops itself.
 _ON_THE_RUNNER = ("scheduled", "running")
+# How many of a Run's topics a cancel stops at once: each stop may wait on the runner's control
+# asks, so one at a time would take N times as long; unbounded, a 256-Candidate Run would open
+# 256 asks on the broker together.
+_STOP_CONCURRENCY = 16
 
 
 def _private(response: Response) -> None:
@@ -75,6 +80,9 @@ router = APIRouter(prefix="/runs", tags=["Runs"], dependencies=[Depends(_private
 
 
 class RunCreate(BaseModel):
+    # WHY forbid: a field this Engine does not know is refused, not silently dropped.
+    model_config = ConfigDict(extra="forbid")
+
     client_key: str
     benchmark: str
     case_count: StrictInt
@@ -195,6 +203,22 @@ async def _stop(request: Request, topic: str) -> None:
         await stop_topic(job_runner, request.app.state.stream, topic)
 
 
+async def _stop_all(request: Request, topics: list[str]) -> None:
+    """Stop every topic, `_STOP_CONCURRENCY` at a time. Every stop is tried even when one fails;
+    the first failure is then raised (a 503 on an unreadable queue), and a retried cancel stops
+    what is still live."""
+    gate = asyncio.Semaphore(_STOP_CONCURRENCY)
+
+    async def stop_one(topic: str) -> None:
+        async with gate:
+            await _stop(request, topic)
+
+    results = await asyncio.gather(*(stop_one(t) for t in topics), return_exceptions=True)
+    for result in results:
+        if isinstance(result, BaseException):
+            raise result
+
+
 # --- the routes --------------------------------------------------------------------------
 
 
@@ -269,9 +293,12 @@ async def cancel_run(request: Request, run_id: str) -> Response:
     record = await registry.cancel(owner, run_id)
     if record is None:
         raise _not_found(run_id)
-    for candidate in record.candidates:
-        if candidate.state in _ON_THE_RUNNER and candidate.attempt_id is not None:
-            await _stop(request, candidate.attempt_id)
+    live = [
+        c.attempt_id
+        for c in record.candidates
+        if c.state in _ON_THE_RUNNER and c.attempt_id is not None
+    ]
+    await _stop_all(request, live)
     return Response(status_code=202)
 
 
