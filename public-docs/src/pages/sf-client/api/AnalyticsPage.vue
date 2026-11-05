@@ -214,7 +214,7 @@ const doNotTrackOut = `Couldn't enable analytics; tracking remains off.
     <h2>Colab</h2>
 
     <p>
-      This section was read from the source and not run on 0.1.10, because it needs a Colab
+      This section was read from the source and not run on 0.1.11, because it needs a Colab
       notebook.
     </p>
 

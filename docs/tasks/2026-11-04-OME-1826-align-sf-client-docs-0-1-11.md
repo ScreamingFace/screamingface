@@ -10,9 +10,9 @@ created: 2026-11-04
 closed:
 ---
 
-# Align the SF Client docs with screamingface 0.1.10
+# Align the SF Client docs with screamingface 0.1.11
 
-Aligns the SF Client docs (`public-docs`) with the released screamingface 0.1.10: corrected samples and numbers, local and hosted sections, `evaluate(cases=...)`, analytics on by default, capture off unless `capture=True`, reference pages for reducers, `sf.cache`, `sf.analytics` and `sf.classify`, case media, five diagrams, and a review report. Out of scope: E4b parts 2 to 7, which are not in `main` or in 0.1.10.
+Aligns the SF Client docs (`public-docs`) with the released screamingface 0.1.11: corrected samples and numbers, local and hosted sections, `evaluate(cases=...)`, the chain syntax and the reducer, judge, gate and signal steps, analytics on by default, capture off unless `capture=True`, reference pages for reducers, `sf.cache`, `sf.analytics` and `sf.classify`, case media, five diagrams, and a review report. E4b parts 1 to 7 are in scope: they are in `main` and in 0.1.11.
 
 PR: https://github.com/ScreamingFace/screamingface/pull/1436
 
