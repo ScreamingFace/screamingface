@@ -349,11 +349,13 @@ def _engine_child_environment(config: RuntimeConfig, environ: Mapping[str, str])
     INVARIANT: the in-process Engine was handed `aigateway_base_url` and `artifacts_dir` as
     Settings arguments; the child reads them from the environment, so both are set here under
     the Engine's `URL4_CLOUD_` prefix (`artifacts_dir` already is — `job_env.ARTIFACTS_DIR` is
-    that very name).
+    that very name). FEATURE (OME-1785): so is the Run registry's database, in the data dir as
+    for the in-process Engine; an Engine without the setting ignores the variable.
     """
     return {
         **_run_environment(config, environ),
         "URL4_CLOUD_AIGATEWAY_BASE_URL": config.services["gateway"],
+        "URL4_CLOUD_DATABASE_URL": config.engine_database_url,
     }
 
 
