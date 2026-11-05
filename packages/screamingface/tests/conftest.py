@@ -7,8 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from screamingface._runtime import cli, engine_env
-from screamingface._runtime import source as runtime_source
+# INVARIANT: disable analytics before collection imports the SDK, not just in fixtures.
+# Analytics tests explicitly clear this only with isolated preferences and mocked sinks.
+os.environ["DO_NOT_TRACK"] = "1"
+
+from screamingface._runtime import cli, engine_env  # noqa: E402 -- after DO_NOT_TRACK on purpose
+from screamingface._runtime import source as runtime_source  # noqa: E402
 
 _PAID_FLAG = "SCREAMINGFACE_TEST_PAID"
 _PAID_LANE: Path = Path(__file__).resolve().parent / "paid"
@@ -109,5 +113,5 @@ __all__: list[str] = []
 
 @pytest.fixture(autouse=True)
 def _isolated_analytics_preferences(tmp_path, monkeypatch):
-    # INVARIANT: opted-in developer preferences must never make tests send telemetry.
+    # WHY: isolate explicit preference tests as well as the collection-time opt-out above.
     monkeypatch.setenv("SCREAMINGFACE_ANALYTICS_CONFIG", str(tmp_path / "analytics.json"))

@@ -7,6 +7,8 @@ member, in author order, with visible boundaries. ``top_k`` and ``kept`` also co
 context ``input`` into their JSON (E4b ans:Q7), so the next stage sees the question; ``join`` and
 ``all`` do not (ans:Q13). ``top_k`` and ``kept`` declare ``envelope``: when the call abstains, the
 endpoint hands on the empty envelope ``{"input": ..., "selected": []}`` (E4b fix 2026-10-14).
+``top_k`` also declares ``ranks`` and ``cut``: the endpoint writes each scored member's rank and
+the cut into the evidence, from the one order of ``_ranked`` (E4b part 2, P6, P7).
 STORY: as a researcher, "focus on the best three" is enforced by the engine and not asked of a
 prompt, and a multi-document hand-off does not go through a model that summarizes.
 
@@ -30,12 +32,14 @@ was unreleased. A ``CombineInput`` without ``input`` (the flow golden fixtures) 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from decimal import Decimal
 from types import MappingProxyType
 from typing import cast, get_args
 
 from screamingface_engine.combine.ports import (
     CombineInput,
+    Cut,
     NoVotes,
     OpArgs,
     OperatorDescriptor,
@@ -67,6 +71,25 @@ def _check_top_k_args(args: OpArgs) -> None:
         )
 
 
+def _ranked(
+    reduction: Reduction, combine_input: CombineInput, args: OpArgs
+) -> list[tuple[str, Decimal]]:
+    """The scored members in the ``top_k@1`` order: ``(member, score)``, best first.
+
+    ``order`` "max" (the default) puts the highest score first, "min" the lowest. Equal scores keep
+    author order (a stable sort). The cut and the ranks both read this one order (E4b part 2, P6),
+    so they can never disagree.
+    """
+    scores = reduction.scores
+    if scores is None:
+        raise SpecInvalid("top_k@1 needs scores")
+    return sorted(
+        ((member, scores[member]) for member in combine_input.members if member in scores),
+        key=lambda pair: pair[1],
+        reverse=args.get("order", "max") == "max",
+    )
+
+
 def top_k(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
     """The k best-scored members in score order; the output is the selection JSON.
 
@@ -75,14 +98,7 @@ def top_k(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) ->
     member and the first dropped one have the same score.
     """
     k = cast("int", args["k"])  # check_args ran first
-    scores = reduction.scores
-    if scores is None:
-        raise SpecInvalid("top_k@1 needs scores")
-    ranked = sorted(
-        ((member, scores[member]) for member in combine_input.members if member in scores),
-        key=lambda pair: pair[1],
-        reverse=args.get("order", "max") == "max",
-    )
+    ranked = _ranked(reduction, combine_input, args)
     if len(ranked) < k:
         raise NoVotes(
             f"top_k@1 needs {k} scored members, {len(ranked)} have a score", reason="cut_not_met"
@@ -93,6 +109,25 @@ def top_k(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) ->
         output=selection_envelope(chosen, combine_input),
         tie=len(ranked) > k and ranked[k - 1][1] == ranked[k][1],
     )
+
+
+def top_k_ranks(
+    reduction: Reduction, combine_input: CombineInput, args: OpArgs, /
+) -> Mapping[str, int]:
+    """The 1-based rank of each scored member in the ``top_k@1`` order (ordinal: no two equal).
+
+    A member with no score has no rank. A reduction with no scores (the reduce step abstained)
+    gives no ranks, so an abstain still writes its evidence.
+    """
+    if reduction.scores is None:
+        return MappingProxyType({})
+    ranked = _ranked(reduction, combine_input, args)
+    return MappingProxyType({member: rank for rank, (member, _) in enumerate(ranked, start=1)})
+
+
+def top_k_cut(args: OpArgs) -> Cut:
+    """The cut of a ``top_k@1`` step: its ``k``, and its ``order`` (the default "max" filled in)."""
+    return Cut(k=cast("int", args["k"]), order=cast("SignalOrder", args.get("order", "max")))
 
 
 def kept(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
@@ -191,6 +226,8 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         ),
         check_args=_check_top_k_args,
         envelope=True,
+        ranks=top_k_ranks,
+        cut=top_k_cut,
     ),
     OperatorDescriptor(
         "kept",

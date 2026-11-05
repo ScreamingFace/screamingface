@@ -33,6 +33,7 @@ _FAILURE = {
     "provider_timeout",
     "provider_rate_limit",
     "provider_error",
+    "logprobs_unsupported",
 }
 
 

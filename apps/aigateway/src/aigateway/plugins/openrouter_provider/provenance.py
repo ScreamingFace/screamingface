@@ -147,3 +147,36 @@ def converter_error_message(exc: BaseException) -> str | None:
         return None
     message = vars(_cause_chain(exc)[0]).get("message")
     return message if isinstance(message, str) else None
+
+
+# FEATURE (E4b part 3, LC-E5): the OpenRouter refusal of a request whose parameters no
+# endpoint supports. The gateway forces `provider.require_parameters` (OME-651), so a model
+# with no endpoint for e.g. `logprobs` is refused with a transport 404.
+#
+# WHY text, not status: unit 1 recorded (2026-10-15) that this refusal is a plain 404, which
+# is also the status of a `max_price` or data-policy refusal and of a missing upstream model.
+# Only OpenRouter's wording tells them apart. The two known phrasings are matched as fixed
+# substrings; every other "No endpoints found ..." text stays a generic provider error.
+#
+# INVARIANT: DETECTION only. The provider text is read to classify, never copied into an
+# answer (that is `dispatch_errors._unsupported_parameters_error`, gateway text only).
+_PARAMETER_REFUSAL_PHRASES = (
+    "No endpoints found that can handle the requested parameters",
+    "No endpoints found that support all parameters",
+)
+
+
+def is_parameter_refusal(exc: BaseException) -> bool:
+    """True when ``exc`` is OpenRouter's transport 404 refusal of unsupported parameters.
+
+    Requires a PROVEN transport failure: a BODY or AMBIGUOUS exception with the same
+    status and text is not this refusal, whatever the caller checked before.
+    """
+    if classify_provenance(exc) is not ErrorProvenance.TRANSPORT:
+        return False
+    if valid_http_error_status(getattr(exc, "status_code", None)) != 404:
+        return False
+    message = getattr(exc, "message", None)
+    if not isinstance(message, str):
+        return False
+    return any(phrase in message for phrase in _PARAMETER_REFUSAL_PHRASES)

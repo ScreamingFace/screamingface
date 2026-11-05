@@ -44,7 +44,7 @@ def test_local_provider_discovery_reaches_a_real_fusion_benchmark(tmp_path) -> N
     with replay_stack(backend, work_dir=tmp_path, assets_dir=assets) as stack:
         with sf.Client(engine_url=stack.engine_url) as client:
             report = client.evaluate(
-                sf.Fusion(_ROUTES[:3], synthesizer=_ROUTES[3]),
+                sf.Fanout(_ROUTES[:3]) >> sf.Synthesize(_ROUTES[3]),
                 benchmark="medxpert",
                 limit=1,
                 progress=False,

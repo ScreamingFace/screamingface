@@ -15,9 +15,11 @@ import binascii
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from fastapi import HTTPException
+
+from .input_modalities import normalize_input_modalities
 
 # WHY: base64 is passed through verbatim — no re-encode of a multi-megabyte payload. This pattern is
 # the envelope `data:<type>/<subtype>[;param…];base64,<non-empty payload>`; `parse_data_uri` adds
@@ -205,6 +207,44 @@ def check_messages(
             if isinstance(part, RemoteImagePart) and not allow_remote_images:
                 raise UnsupportedContentPart(
                     provider=provider, part_type=part_type, reason="remote_url"
+                )
+
+
+_PART_MODALITY: Mapping[str, str] = {"image_url": "image", "file": "pdf"}
+
+
+def check_input_modalities(messages: Iterable[Any], *, provider: str, modalities: object) -> None:
+    """Refuse, before dispatch, a media part the routed model is PUBLISHED not to take (OME-1807).
+
+    # FEATURE: the gateway modality backstop. Engine admission (OME-1803) is the primary,
+    # fail-closed refusal; this catches every other caller before a paid upstream call — an
+    # OpenRouter PDF to an image-only model answered 200, billed, then failed as retryable.
+    # INVARIANT (owner decision A, 2026-11-02): ``modalities is None`` means unknown and admits
+    # everything, exactly as before. Only published evidence refuses.
+    # WHY no `parse_content`: it fails closed on part types it does not model (Anthropic
+    # `thinking`, OpenAI `input_audio`), which the providers without `check_messages` carry
+    # today. This judges `image_url` and `file` by type alone and leaves every other part to the
+    # data:-only guard and the adapters.
+    """
+    if modalities is None:
+        return
+    published = normalize_input_modalities(modalities)
+    for message in messages:
+        if not isinstance(message, Mapping):
+            continue
+        content = message.get("content")
+        if not isinstance(content, list):
+            continue
+        for part in content:
+            if not isinstance(part, Mapping):
+                continue
+            part_type = part.get("type")
+            needed = _PART_MODALITY.get(part_type) if isinstance(part_type, str) else None
+            if needed is not None and needed not in published:
+                raise UnsupportedContentPart(
+                    provider=provider,
+                    part_type=cast("str", part_type),
+                    reason=f"modality_unsupported {needed}",
                 )
 
 

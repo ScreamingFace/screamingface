@@ -1,12 +1,13 @@
 ---
 id: OME-1798
 linear_url: https://linear.app/openmined/issue/OME-1798/remove-profile-era-dead-code-and-clear-the-close-out-test-debt-l4b
-status: in_progress
+status: done
 type: task
 priority: medium
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-10-30
+closed: 2026-11-02
 ---
 
 # Remove Profile-era dead code and clear the close-out test debt (L4b)
@@ -22,3 +23,5 @@ Built on OME-1784 (L4a), merged first; the PR targets `main`. Spec `docs/spec/20
 `docs/work/2026-10-29-dead-code-and-test-debt.md`.
 
 - 2026-10-30: filed, implemented, PR opened.
+- 2026-11-02: squash-merged to `main` as `3009c8362` (PR #1642). Linear closed the issue Done
+  the same day with the close comment.

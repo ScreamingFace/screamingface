@@ -388,3 +388,59 @@ async def test_recovery_back_to_fresh_is_logged(caplog: pytest.LogCaptureFixture
     messages = [r.getMessage() for r in caplog.records if "tier=" in r.getMessage()]
     assert any("tier=seeds" in m for m in messages)
     assert any("tier=fresh" in m for m in messages)
+
+
+# ------------------------------------------------------------------ chat snapshot read (OME-1807)
+# INVARIANT (owner decision (i), 2026-11-02): chat may READ a snapshot, never refresh one.
+
+
+@pytest.mark.asyncio
+async def test_snapshot_entries_reads_a_cached_listing_without_calling_the_port() -> None:
+    plugin = _StubPlugin(outcomes=[_ENTRIES])
+    catalog = ModelCatalog(clock=_Clock())
+    await _entries(catalog, plugin)
+
+    assert catalog.snapshot_entries(plugin) == _ENTRIES
+    assert plugin.calls == 1
+
+
+def test_snapshot_entries_on_a_cold_catalog_is_none_and_never_refreshes() -> None:
+    plugin = _StubPlugin(outcomes=[_ENTRIES])
+    catalog = ModelCatalog(clock=_Clock())
+
+    assert catalog.snapshot_entries(plugin) is None
+    assert plugin.calls == 0
+
+
+def test_snapshot_entries_without_a_declared_source_is_none() -> None:
+    assert ModelCatalog(clock=_Clock()).snapshot_entries(_StubPlugin(source=None)) is None
+
+
+@pytest.mark.asyncio
+async def test_snapshot_entries_serves_within_the_stale_window_and_not_past_it() -> None:
+    clock = _Clock()
+    plugin = _StubPlugin(outcomes=[_ENTRIES])
+    catalog = ModelCatalog(clock=clock)
+    await _entries(catalog, plugin)
+
+    clock.value += _SOURCE.ttl_s + _SOURCE.stale_ttl_s
+    assert catalog.snapshot_entries(plugin) == _ENTRIES
+    clock.value += 1.0
+    assert catalog.snapshot_entries(plugin) is None
+    assert plugin.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_snapshot_entries_ignores_a_snapshot_from_another_revision() -> None:
+    plugin = _StubPlugin(outcomes=[_ENTRIES])
+    catalog = ModelCatalog(clock=_Clock())
+    await _entries(catalog, plugin)
+
+    plugin._source = ModelDiscoverySource(
+        key=_SOURCE.key,
+        revision="stub:models:list-v2",
+        ttl_s=_SOURCE.ttl_s,
+        stale_ttl_s=_SOURCE.stale_ttl_s,
+        failure_ttl_s=_SOURCE.failure_ttl_s,
+    )
+    assert catalog.snapshot_entries(plugin) is None

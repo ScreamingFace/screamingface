@@ -11,6 +11,7 @@ from screamingface_engine.benchmarks.picture_admission import (
     refuse_blind_models,
 )
 from screamingface_engine.benchmarks.selection import CaseSelection
+from screamingface_engine.process_memory import log_process_memory
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
@@ -38,6 +39,10 @@ def cases_handler(
             raise ResolutionError(
                 "Invalid benchmark case selection", code="benchmark_contract_error", permanent=True
             ) from exc
+        # FEATURE (memory diagnostics, OME-1314): the point a raw-provider Benchmark's Cases pass
+        # through, loaded and parsed — what the run holds here is the Cases' cost (Imported
+        # Boards log the same line in `board_cases_handler`). Only the COUNT, never a row.
+        log_process_memory("cases_loaded", cases=len(rows))
         # FEATURE (OME-1548): the Cases route runs once, before any Candidate call, so it is the
         # last point where a picture run can still refuse a blind model with nothing spent.
         # WHY every row, not rows[:count]: a picture anywhere makes it a picture Benchmark.
@@ -114,6 +119,9 @@ def board_cases_handler(
         # WHY outside the try: a broken Case's envelope names its id (OME-1271); it is not a
         # selection error and must not be reworded as one.
         served: str = selected if serve is None else serve(selected)
+        # FEATURE (memory diagnostics, OME-1314): Imported Boards (FigQA among them) load their
+        # Cases here, not through `cases_handler` — the same `cases_loaded` line, count only.
+        log_process_memory("cases_loaded", cases=selection.count)
         return served, board.has_pictures()
 
     def cases(request: Request) -> str | Awaitable[str]:
