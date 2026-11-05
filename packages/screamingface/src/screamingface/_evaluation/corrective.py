@@ -41,9 +41,13 @@ from typing import TYPE_CHECKING
 
 from url4 import Expression, Node, RelExpr, Text, iterate, ref, render, src, struct
 
+from screamingface._evaluation.candidate import _children
 from screamingface._evaluation.topology import _RecipeTopology
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
+from screamingface.fusion import FusionNode
+from screamingface.reducer import Reducer
+from screamingface.signal_sources import consistency_source
 
 if TYPE_CHECKING:
     from screamingface._evaluation.benchmark import _CheckSurface
@@ -65,6 +69,7 @@ CHECK_INTENT = "check"
 _MIN_MEMBERS = 2
 MEMBER_LABEL_SCHEME = "lowercase-base26"
 _NESTED_INPUT_REF = "$_sf_recipe_input"
+_CONSISTENCY_IN_LOOP = "sf.Consistency is not supported inside a corrective loop in this version"
 
 RETRY_INSTRUCTION = (
     "Write a new answer to the original request. Correct every requirement named in the "
@@ -128,6 +133,7 @@ def _compile_corrective(
 ) -> _ResolvedRecipe:
     """Render one corrective loop as sources on the compiler, root-position only."""
 
+    _refuse_consistency(recipe)
     if check_surface is None:
         # WHY fail here too: the runner preflights this with the benchmark's name
         # before compiling, but compile_candidate is also a public seam — a loop
@@ -139,6 +145,23 @@ def _compile_corrective(
             permanent=True,
         )
     return _LoopRenderer(compiler, recipe, check_surface).render()
+
+
+def _refuse_consistency(recipe: CorrectiveLoop | SelfCorrective) -> None:
+    """Refuse a loop that holds a Fusion with sf.Consistency at any depth (E4b part 7 P19, D2).
+
+    WHY before the check-surface check: this is a Recipe shape error, so it shows on every
+    benchmark, also on one without mid-run checking.
+    """
+
+    pending: list[Recipe | Reducer] = [recipe]
+    while pending:
+        value = pending.pop()
+        if isinstance(value, Reducer):
+            continue
+        if isinstance(value, FusionNode) and consistency_source(value.signals) is not None:
+            raise ValueError(_CONSISTENCY_IN_LOOP)
+        pending.extend(_children(value))
 
 
 class _LoopRenderer:

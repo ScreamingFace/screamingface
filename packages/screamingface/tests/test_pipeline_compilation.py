@@ -63,10 +63,8 @@ def test_pipeline_compiles_a_parallel_fusion_as_one_serial_stage() -> None:
     pipeline = sf.Pipeline(
         [
             sf.Model("provider/draft"),
-            sf.Fusion(
-                [sf.Model("provider/reviewer-a"), sf.Model("provider/reviewer-b")],
-                synthesizer="provider/reconciler",
-            ),
+            sf.Fanout([sf.Model("provider/reviewer-a"), sf.Model("provider/reviewer-b")])
+            >> sf.Synthesize("provider/reconciler"),
             sf.Model("provider/final"),
         ]
     )
@@ -121,10 +119,7 @@ def test_fusion_compiles_pipeline_members_and_a_pipeline_synthesizer() -> None:
         ],
         name="judge-and-write",
     )
-    fusion = sf.Fusion(
-        [member, sf.Model("provider/alternative")],
-        synthesizer=synthesizer,
-    )
+    fusion = sf.Fanout([member, sf.Model("provider/alternative")]) >> sf.Synthesize(synthesizer)
 
     compiled = compile_candidate(fusion)
 
@@ -171,16 +166,13 @@ def test_fusion_compiles_pipeline_members_and_a_pipeline_synthesizer() -> None:
 
 
 def test_fusion_compiles_a_complete_fusion_as_its_synthesizer() -> None:
-    synthesizer = sf.Fusion(
-        [sf.Model("provider/editor-a"), sf.Model("provider/editor-b")],
-        synthesizer="provider/final-editor",
-    )
+    synthesizer = sf.Fanout(
+        [sf.Model("provider/editor-a"), sf.Model("provider/editor-b")]
+    ) >> sf.Synthesize("provider/final-editor")
 
     compiled = compile_candidate(
-        sf.Fusion(
-            [sf.Model("provider/proposer-a"), sf.Model("provider/proposer-b")],
-            synthesizer=synthesizer,
-        )
+        sf.Fanout([sf.Model("provider/proposer-a"), sf.Model("provider/proposer-b")])
+        >> sf.Synthesize(synthesizer)
     )
 
     assert compiled.kind == "fusion"
@@ -221,7 +213,7 @@ def test_reusing_one_recipe_at_a_later_stage_creates_a_distinct_invocation() -> 
 
 def test_candidate_compilation_rejects_a_cycle_even_when_it_rebinds_input() -> None:
     pipeline = sf.Pipeline([sf.Model("provider/a"), sf.Model("provider/b")])
-    object.__setattr__(pipeline, "stages", (sf.Model("provider/a"), pipeline))
+    object.__setattr__(pipeline, "_stages", (sf.Model("provider/a"), pipeline))
 
     with pytest.raises(ValueError, match="cycle"):
         compile_candidate(pipeline)

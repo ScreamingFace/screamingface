@@ -6,7 +6,9 @@ STORY: as an author of a majority-vote Candidate, I choose how the answer is rea
 Mental model: a reader with a ruler. ``last_number`` and ``boxed`` look only at a bounded stretch
 of text (the last 128 characters ending at the last digit; 4096 characters after the last box), so
 a hostile 1 MiB reply costs them the same as a short one. The other three make one linear pass
-over the text at C speed (a strip, a ``json.loads`` or a ``rfind``).
+over the text at C speed (a strip, a ``json.loads`` or a ``rfind``). The ``verbalized`` declared
+signal source (E4b part 3) reads the last match of a one-group pattern in the last 65,536
+characters.
 
 regex runs on RE2 (google-re2), whose matching is linear in the text, so no pattern can freeze a
 worker; it reads only the last 1024 characters. RE2 syntax: ``\\d`` and ``\\w`` are ASCII (use
@@ -41,12 +43,14 @@ from screamingface_engine.combine.ports import (
     FIELD_PATH,
     OpArgs,
     OperatorDescriptor,
+    SourceDescriptor,
     SpecInvalid,
     StageResult,
     accepted,
     canonical_json,
     decode_json_reply,
     field_value_text,
+    finite_float,
     rejected,
     walk_field_path,
 )
@@ -202,16 +206,17 @@ def _check_regex_args(args: OpArgs) -> None:
         raise SpecInvalid("regex@1 group must name a group of the pattern")
 
 
-def _last_match(compiled: Any, window: str) -> Any:
+def _last_match(compiled: Any, window: str | bytes) -> Any:
     last = None
     for last in compiled.finditer(window):
         pass
     return last
 
 
-def _regex_window(text: str) -> str:
+def _re2_window(text: str, size: int) -> str:
+    """The last ``size`` characters of ``text``, as RE2 reads them (regex@1, verbalized)."""
     # WHY: RE2 reads UTF-8 only, so a lone surrogate (JSON can carry one) reads as U+FFFD.
-    return _SURROGATE.sub("\ufffd", text[-_REGEX_WINDOW:])
+    return _SURROGATE.sub("\ufffd", text[-size:])
 
 
 def check_regex_pattern(args: OpArgs) -> None:
@@ -222,13 +227,13 @@ def check_regex_pattern(args: OpArgs) -> None:
 
 def regex_finds(text: str, args: OpArgs) -> bool:
     """Whether the regex@1 rule finds a match in the last 1024 characters of ``text``."""
-    return _compile(args).search(_regex_window(text)) is not None
+    return _compile(args).search(_re2_window(text, _REGEX_WINDOW)) is not None
 
 
 def regex(text: str, args: OpArgs, /) -> StageResult:
     """The chosen group of the last (or first) match in the last 1024 characters, by RE2."""
     compiled = _compile(args)
-    window = _regex_window(text)
+    window = _re2_window(text, _REGEX_WINDOW)
     first = args.get("occurrence", "last") == "first"
     match = compiled.search(window) if first else _last_match(compiled, window)
     if match is None:
@@ -239,6 +244,52 @@ def regex(text: str, args: OpArgs, /) -> StageResult:
 
 _ASCII_DIGIT = re.compile(r"[0-9]")
 _BOX = "\\boxed{"
+
+
+_SIGNAL_WINDOW = 65_536  # characters; a verbalized scan reads text[-_SIGNAL_WINDOW:] (P7)
+_SIGNAL_ARGS = frozenset({"pattern", "ignore_case"})
+_DECIMAL = re.compile(r"[-+]?[0-9]+(?:\.[0-9]+)?")  # ASCII only (I-S2)
+
+
+def check_signal_pattern(args: OpArgs) -> None:
+    """A verbalized pattern: regex@1's pattern rules and RE2 compile, plus exactly one group."""
+    if "pattern" not in args or not set(args) <= _SIGNAL_ARGS:
+        raise SpecInvalid("a verbalized source takes a pattern and an optional ignore_case")
+    check_regex_pattern(args)
+    if _compile(args).groups != 1:
+        raise SpecInvalid("a verbalized pattern must have exactly one capture group")
+
+
+def verbalized_value(text: str, args: OpArgs, /) -> float | None:
+    """The group of the LAST match in the last 65,536 characters, as a number, or None (ans:Q9).
+
+    The group is stripped; only an ASCII decimal number counts (no exponent, NaN, inf or comma).
+    A lone surrogate reads as U+FFFD (RE2 reads UTF-8 only), as in regex@1.
+    """
+    group = _last_group(_compile(args), _re2_window(text, _SIGNAL_WINDOW))
+    if group is None:
+        return None
+    stripped = group.strip()
+    if _DECIMAL.fullmatch(stripped) is None:
+        return None
+    number = finite_float(float(stripped))  # 400 digits overflow to inf: None
+    return None if number is None else number + 0.0  # WHY + 0.0: -0 is recorded as 0.0
+
+
+def _last_group(compiled: Any, window: str) -> str | None:
+    """Group 1 of the last match in ``window``, or None.
+
+    WHY bytes for an ASCII window: for a str text the re2 wrapper maps every match's byte offsets
+    back to str offsets in Python, and a 65,536-character window can hold that many matches. In
+    ASCII one character is one byte, so the bytes scan finds the same matches (the same starts, the
+    same one-step move past an empty match) at about a third of the cost (review P3 #4).
+    """
+    if window.isascii():
+        match = _last_match(compiled, window.encode("ascii"))
+        group = None if match is None else match.group(1)
+        return None if group is None else group.decode("ascii")
+    match = _last_match(compiled, window)
+    return None if match is None else match.group(1)
 
 
 def _inspect_number_word(value: str) -> str | None:
@@ -355,4 +406,8 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
     OperatorDescriptor("whole", 1, "extract", "The whole text.", whole),
 )
 
-__all__ = ["OPERATORS"]
+SOURCES: tuple[SourceDescriptor, ...] = (
+    SourceDescriptor("verbalized", check_signal_pattern, verbalized_value),
+)
+
+__all__ = ["OPERATORS", "SOURCES"]

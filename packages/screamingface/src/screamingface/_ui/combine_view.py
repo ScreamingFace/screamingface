@@ -1,0 +1,682 @@
+"""The Combine views of the report (E4b part 4): the Case pane section and the run summary.
+
+INVARIANT: every text from data goes through html.escape; a float shows 4 significant digits and
+its exact stored value as the title (ans:Q3); a missing value is an em dash with its reason.
+"""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from fractions import Fraction
+from html import escape
+from typing import TYPE_CHECKING
+
+from screamingface._case_views import accounting_index, judge_link
+from screamingface._ui.text import short
+
+if TYPE_CHECKING:
+    from screamingface.case_result import CaseResult
+    from screamingface.combine_evidence import (
+        CombineAnswerRow,
+        CombineEvidence,
+        CombineGate,
+        CombineNarrow,
+        CombineResult,
+        CombineSampleCount,
+        CombineSignal,
+    )
+    from screamingface.operation import OperationInfo
+    from screamingface.report import CandidateResult
+
+_DASH = "—"
+_TEXT_CELL = 80  # characters of a member value shown in one cell (P7)
+_NUMBER_COLUMNS = ("weight", "score", "rank")  # C4-C6: shown when any row has the value (P11)
+_NO_EVIDENCE = "no combine evidence recorded for this step"
+_NO_JUDGE_MODEL = "no model recorded for the judge call"
+_GATE_NOT_RUN = "the vote found no answer, so the gate did not run"
+_GATE_NO_NUMBER = "no number to compare, so the gate took the fallback"
+_EVERY_SAMPLE_FAILED = "every sample failed"  # E4b part 7 (P15, ans:Q4): no sample answered
+_NO_ANSWER_TO_COMPARE = "no answer to compare"  # E4b part 7 (P11): the member has no match value
+
+# WHY one "<style>…</style>" constant: the house precedent (accounting_view.STYLE, joined into
+# report_view._STYLE). WHY text-align on th AND td, and the tbody tr background: JupyterLab's
+# rendered-HTML rules right-align table cells and paint zebra rows; the zebra rule has a higher
+# specificity, so it needs !important (house precedent: report_browser.py:44). Same intent as
+# .sf-eval__table (evaluation_view.py:41,47).
+STYLE = """<style>
+.sf-cmb{margin-top:6px;overflow-x:auto}
+.sf-cmb__t{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px;
+  font-variant-numeric:tabular-nums}
+.sf-cmb__t th{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;font-weight:600;
+  text-align:left;color:var(--sf-ink-2);padding:4px 8px;border-bottom:1px solid var(--sf-line-2)}
+.sf-cmb__t td{padding:4px 8px;text-align:left;border-bottom:1px solid var(--sf-line);
+  color:var(--sf-ink);overflow-wrap:anywhere}
+.sf-cmb__t tbody tr{background:transparent!important}
+.sf-cmb__out td{color:var(--sf-ink-3)}
+.sf-cmb__na,.sf-cmb__nn{color:var(--sf-ink-3)}
+.sf-cmb__na,.sf-cmb__n{cursor:help}
+.sf-cmb__h{font-size:13px;font-weight:600;margin-top:10px}
+.sf-cmb__nn{font-size:11px}
+</style>"""
+
+
+def number_html(value: float | None, reason: str) -> str:
+    """A float at 4 significant digits, the exact stored value as its title; None: a dash."""
+    if value is None:
+        return dash_html(reason)
+    return (
+        f"<span class='sf-cmb__n' title='{escape(repr(value))}'>"
+        f"{escape(format(value, '.4g'))}</span>"
+    )
+
+
+def dash_html(reason: str) -> str:
+    """The missing-value mark: an em dash whose title is the reason (ans:Q3)."""
+    return f"<span class='sf-cmb__na' title='{escape(reason)}'>{_DASH}</span>"
+
+
+def text_html(value: str | None, reason: str) -> str:
+    """A member value: escaped, at most 80 characters then an ellipsis; None: a dash."""
+    if value is None:
+        return dash_html(reason)
+    return escape(short(value, _TEXT_CELL))
+
+
+def missing_reason(row: CombineAnswerRow, label: str) -> str:
+    """Why a cell of this member row is empty (MR-1..MR-3, P6)."""
+    if row.status == "fail":
+        return f"member failed: {row.reason}"
+    if row.status == "excluded":
+        return f"left out by the rule: {row.reason}"
+    return f"no {label} recorded"
+
+
+# --- the Case pane: one Combine section per combine step (E4b part 4 unit 3) --------------------
+
+
+def combine_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
+    """One Combine section per combine step of the Case, in operation order (ans:Q2, P19)."""
+    if case.operations is None:
+        return ""
+    graph = candidate._operation_graph()
+    steps = [
+        op
+        for op in case.operations
+        if op.combine is not None or _is_combine(graph, op.operation_id)
+    ]
+    if not steps:
+        return ""
+    accounting_of = accounting_index(case.operations)  # once per pane, not once per step
+    return "".join(
+        _section(
+            op.operation_id,
+            op.combine,
+            # WHY judge_link and not case_trace: the chip reads only the judge id and model of the
+            # step, so the full trace (every extract and model call entry) is not built.
+            judge_link(op.operation_id, op.combine, graph, accounting_of),
+            graph,
+        )
+        if op.combine is not None
+        else _no_evidence_section(op.operation_id, graph)
+        for op in steps
+    )
+
+
+def _is_combine(graph: Mapping[str, OperationInfo], operation_id: str) -> bool:
+    """The graph node of this operation is a combine step (a step may have no evidence, P19)."""
+    node = graph.get(operation_id)
+    return node is not None and node.kind == "combine"
+
+
+def _label(graph: Mapping[str, OperationInfo], operation_id: str) -> str:
+    """The operation label in the Candidate graph, else the id. Not escaped: the caller escapes."""
+    node = graph.get(operation_id)
+    return operation_id if node is None else node.label
+
+
+def _table(head: str, rows: str) -> str:
+    """One Combine table. ``head`` is the header cells, ``rows`` the ``<tr>`` rows (both HTML)."""
+    return f"<table class='sf-cmb__t'><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>"
+
+
+def _heading(graph: Mapping[str, OperationInfo], operation_id: str) -> str:
+    """The section heading: ``combine · {label}``, the operation id as its title."""
+    return (
+        f"<div class='sf-detail__k' title='{escape(operation_id)}'>"
+        f"combine · {escape(_label(graph, operation_id))}</div>"
+    )
+
+
+def _no_evidence_section(operation_id: str, graph: Mapping[str, OperationInfo]) -> str:
+    """A combine step with no evidence: the heading and one ``evidence · —`` chip (P19)."""
+    return (
+        f"<div class='sf-cmb'>{_heading(graph, operation_id)}<div class='sf-chips'>"
+        f"<span class='sf-chip'>evidence · {dash_html(_NO_EVIDENCE)}</span></div></div>"
+    )
+
+
+def _section(
+    operation_id: str,
+    evidence: CombineEvidence,
+    link: Mapping[str, str | None],
+    graph: Mapping[str, OperationInfo],
+) -> str:
+    """One Combine section: the heading, the step chips, the member table, the tally table."""
+    columns = tuple(
+        name
+        for name in _NUMBER_COLUMNS
+        if any(getattr(row, name) is not None for row in evidence.members)
+    )
+    keys = tuple(dict.fromkeys(key for row in evidence.members for key in row.signals))
+    head = (
+        "".join(f"<th scope='col'>{name}</th>" for name in ("member", "status", "value", *columns))
+        + "".join(_signal_head(evidence, key) for key in keys)
+        + "<th scope='col'>chosen</th>"
+    )
+    left_out = _left_out(evidence)
+    rows = "".join(_member_row(row, evidence, columns, keys, left_out) for row in evidence.members)
+    return (
+        f"<div class='sf-cmb'>{_heading(graph, operation_id)}"
+        f"<div class='sf-chips'>{_chips(evidence, link)}</div>"
+        f"{_table(head, rows)}{_tally_html(evidence)}</div>"
+    )
+
+
+def _chips(evidence: CombineEvidence, link: Mapping[str, str | None]) -> str:
+    """The step facts F1-F10 (erd §4), the gate (part 5, P16), the samples (part 7, P15)."""
+    chips = [
+        escape(f"reducer · {evidence.reducer}"),
+        escape("rule · " + " → ".join(evidence.operators)),
+        *_narrow_chips(evidence),
+        _result_chip(evidence.result),
+        ""
+        if evidence.cut is None
+        else escape(f"cut · top {evidence.cut.k} · {evidence.cut.order}"),
+        "" if evidence.signal is None else _reads_chip(evidence.signal),
+        _judge_chip(link),
+        "" if evidence.agreement is None else "agreement · " + number_html(evidence.agreement, ""),
+        _gate_chip(evidence.gate),
+        "tie · yes" if evidence.tie else "tie · no",
+        f"dropped · {evidence.dropped}",
+        "" if evidence.median is None else "median · " + text_html(evidence.median, ""),
+        "" if evidence.mean is None else "mean · " + text_html(evidence.mean, ""),
+        _samples_chip(evidence),
+    ]
+    return "".join(f"<span class='sf-chip'>{chip}</span>" for chip in chips if chip)
+
+
+# --- the narrow steps (E4b map-reduce surface, rebuild-display §4) ------------------------------
+
+
+def _narrow_records(evidence: CombineEvidence) -> list[tuple[CombineNarrow, tuple[str, ...]]]:
+    """Each narrow record with the members live before it: the answered members (a failed
+    member is never live), then the members the step before kept (NR-I1). An evidence with no
+    narrow step gives an empty list."""
+
+    records: list[tuple[CombineNarrow, tuple[str, ...]]] = []
+    live = tuple(row.member_id for row in evidence.members if row.status != "fail")
+    for record in evidence.narrow or ():
+        records.append((record, live))
+        live = record.kept
+    return records
+
+
+def _narrow_word(record: CombineNarrow) -> str:
+    """``rank`` for a top-k step (``sf.Rank``), ``filter`` for a kept step (``sf.Filter``)."""
+
+    return "rank" if record.select.partition("@")[0] == "top_k" else "filter"
+
+
+def _narrow_chips(evidence: CombineEvidence) -> list[str]:
+    """One chip per narrow step: ``filter · kept 2 of 4`` or ``rank top 2 · max``."""
+
+    chips: list[str] = []
+    for record, live in _narrow_records(evidence):
+        word = _narrow_word(record)
+        if word == "rank" and record.cut is not None:
+            chips.append(escape(f"rank top {record.cut.k} · {record.cut.order}"))
+        else:
+            chips.append(escape(f"{word} · kept {len(record.kept)} of {len(live)}"))
+    return chips
+
+
+def _left_out(evidence: CombineEvidence) -> dict[str, int]:
+    """member id -> the 1-based narrow step that left it out (NR-I3: the first step only)."""
+
+    steps: dict[str, int] = {}
+    for index, (record, live) in enumerate(_narrow_records(evidence), start=1):
+        for member_id in live:
+            if member_id not in record.kept:
+                steps.setdefault(member_id, index)
+    return steps
+
+
+def _result_chip(result: CombineResult) -> str:
+    """F3: the member the step answered with, ``built``, or the abstain reason."""
+    if result.status == "abstain":
+        return escape(f"abstain · {result.reason}")
+    return escape(f"answered · {'built' if result.member_id is None else result.member_id}")
+
+
+def _reads_chip(signal: CombineSignal) -> str:
+    """F5: the signal the rule reads, and its order when it has one."""
+    order = "" if signal.order is None else f" · {signal.order}"
+    return escape(f"reads · {signal.key}{order}")
+
+
+@dataclass(frozen=True, slots=True)
+class _SampleFacts:
+    """The consistency samples of one Case of a step (E4b part 7, P15)."""
+
+    name: str  # the declared consistency name
+    per_member: int  # n: the extra calls of each member
+    failed: int  # the failed extra calls over the members
+    total: int  # n × the members
+
+
+def _sample_facts(evidence: CombineEvidence) -> _SampleFacts | None:
+    """The samples of a step that declares consistency; None for any other step.
+
+    WHY the record sums, not ``declared[name]["n"]``: CS-I3 (checked by ``CombineEvidence``) makes
+    ``succeeded + failed == n`` for every member, and a record holds typed ints, while a declared
+    entry value is an ``object``.
+    """
+    if evidence.consistency is None:
+        return None
+    name, records = next(iter(evidence.consistency.items()))  # CS-I1: exactly one name
+    return _SampleFacts(
+        name=name,
+        per_member=records[0].succeeded + records[0].failed,  # CS-I2: one record per member
+        failed=sum(record.failed for record in records),
+        total=sum(record.succeeded + record.failed for record in records),
+    )
+
+
+def _samples_chip(evidence: CombineEvidence) -> str:
+    """The sample facts of the step (E4b part 7, P15); a step without consistency: no chip."""
+    facts = _sample_facts(evidence)
+    if facts is None:
+        return ""
+    return escape(
+        f"samples · {facts.name} · {facts.per_member} per member"
+        f" · failed {facts.failed} of {facts.total}"
+    )
+
+
+def _judge_chip(link: Mapping[str, str | None]) -> str:
+    """F6: the judge model of the step's judge link, as the trace shows it (P12); none: no chip."""
+    if link["judge_operation_id"] is None:
+        return ""
+    model = link["judge_model"]
+    if model is None:
+        return "judge · " + dash_html(_NO_JUDGE_MODEL)
+    return escape(f"judge · {model}")
+
+
+def _gate_chip(gate: CombineGate | None) -> str:
+    """The gate: the number, the comparison, the threshold, the band and the branch (P16; E4b part
+    6 P14); none: no chip."""
+    if gate is None:
+        return ""
+    head = escape(f"gate · {gate.observe} {gate.cmp} ") + number_html(gate.threshold, "")
+    reason = _GATE_NOT_RUN if gate.branch is None else _GATE_NO_NUMBER
+    observed = number_html(gate.observed, reason)
+    return f"{head}{_band_text(gate)} · observed {observed} · {escape(_gate_verdict(gate))}"
+
+
+def _band_text(gate: CombineGate) -> str:
+    """`` · band [{lo}, {hi}]`` when the gate record has an abstain band (E4b part 6); else ""."""
+    if gate.abstain_band is None:
+        return ""
+    lo, hi = gate.abstain_band
+    return f" · band [{number_html(lo, '')}, {number_html(hi, '')}]"
+
+
+def _gate_verdict(gate: CombineGate) -> str:
+    """The branch words: ``majority``, ``fallback · {otherwise}``, ``in band · abstain`` or
+    ``not run``. WHY branch, not passed: the band branch has ``passed`` None too (GR-I1')."""
+    if gate.branch is None:
+        return "not run"
+    if gate.branch == "band":
+        return "in band · abstain"
+    return "majority" if gate.branch == "majority" else f"fallback · {gate.otherwise}"
+
+
+def _signal_head(evidence: CombineEvidence, key: str) -> str:
+    """C7: one signal header cell; the title names the declared source and the rule read."""
+    notes: list[str] = []
+    if evidence.declared is not None and key in evidence.declared:
+        notes.append(f"source: {_source_text(evidence.declared[key])}")
+    if evidence.signal is not None and evidence.signal.key == key:
+        notes.append("read by the rule")
+    title = "; ".join(notes)
+    title_attr = f" title='{escape(title)}'" if title else ""
+    return f"<th scope='col'{title_attr}>{escape(key)}</th>"
+
+
+def _source_text(entry: Mapping[str, object]) -> str:
+    """The source words of one declared entry (E4b part 6, P14).
+
+    A sum whose coefficients map names to real numbers: ``sum of 0.5 × sev_a + 0.3 × sev_b``, one
+    term per coefficient, in the entry order. Any other entry, a malformed sum included:
+    ``str(entry["source"])``, the part 4 text.
+    """
+    source = str(entry["source"])
+    coefficients = entry.get("coefficients")
+    if source != "sum" or not isinstance(coefficients, Mapping) or not coefficients:
+        return source
+    terms = [_term_text(str(name), value) for name, value in coefficients.items()]
+    texts = [text for text in terms if text is not None]
+    if len(texts) != len(terms):
+        return source
+    return "sum of " + " + ".join(texts)
+
+
+def _term_text(name: str, value: object) -> str | None:
+    """One sum term ``{coefficient!r} × {name}``; None when the coefficient is not a real number."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    try:
+        return f"{float(value)!r} × {name}"
+    except OverflowError:  # WHY: an int past the float range (a hand-built entry)
+        return None
+
+
+def _member_row(
+    row: CombineAnswerRow,
+    evidence: CombineEvidence,
+    columns: tuple[str, ...],
+    keys: tuple[str, ...],
+    left_out: Mapping[str, int],
+) -> str:
+    """C1-C8: one member row; a failed or excluded member gets the ``sf-cmb__out`` class. A member
+    that a narrow step left out says at which step and why (rebuild-display §4)."""
+    opening = "<tr>" if row.status == "answered" else "<tr class='sf-cmb__out'>"
+    status = "answered" if row.status == "answered" else f"{row.status} · {row.reason}"
+    if row.member_id in left_out:
+        status = f"left out at step {left_out[row.member_id]}"
+        if row.reason is not None:  # NR-I3 gives every left-out member a reason; never "None"
+            status += ": " + row.reason.replace("_", " ")
+    numbers = "".join(f"<td>{_number_cell(row, column)}</td>" for column in columns)
+    signals = "".join(f"<td>{_signal_cell(row, evidence, key)}</td>" for key in keys)
+    chosen = "&check;" if row.member_id in evidence.chosen else ""
+    return (
+        f"{opening}<td>{escape(row.member_id)}</td><td>{escape(status)}</td>"
+        f"<td>{text_html(row.value, missing_reason(row, 'value'))}</td>"
+        f"{numbers}{signals}<td>{chosen}</td></tr>"
+    )
+
+
+def _signal_cell(row: CombineAnswerRow, evidence: CombineEvidence, key: str) -> str:
+    """C7: one declared value; the consistency name adds the failed samples (E4b part 7, P15)."""
+    value = row.signals.get(key)
+    record = _sample_record(evidence, row.member_id, key)
+    if record is None:
+        return number_html(value, missing_reason(row, key))
+    note = f" <span class='sf-cmb__nn'>{record.failed} failed</span>" if record.failed else ""
+    return number_html(value, _consistency_reason(row, key, record)) + note
+
+
+def _sample_record(
+    evidence: CombineEvidence, member_id: str, key: str
+) -> CombineSampleCount | None:
+    """This member's sample record when ``key`` is the consistency name; else None."""
+    if evidence.consistency is None or key not in evidence.consistency:
+        return None
+    # CS-I2: the record list names every member once
+    return next(record for record in evidence.consistency[key] if record.member_id == member_id)
+
+
+def _consistency_reason(row: CombineAnswerRow, key: str, record: CombineSampleCount) -> str:
+    """Why a consistency value is missing: the member reason first, then the samples (P15)."""
+    if row.status != "answered":
+        return missing_reason(row, key)
+    return _EVERY_SAMPLE_FAILED if record.succeeded == 0 else _NO_ANSWER_TO_COMPARE
+
+
+def _number_cell(row: CombineAnswerRow, column: str) -> str:
+    """C4-C6: the weight or score (4 digits), or the rank (an integer, no title)."""
+    if column == "rank":
+        return dash_html(missing_reason(row, "rank")) if row.rank is None else str(row.rank)
+    value = row.weight if column == "weight" else row.score
+    return number_html(value, missing_reason(row, column))
+
+
+def _tally_html(evidence: CombineEvidence) -> str:
+    """The tally table of a vote; absent when the step has no tally."""
+    if evidence.tally is None:
+        return ""
+    head = "<th scope='col'>tally value</th><th scope='col'>score</th><th scope='col'>holders</th>"
+    rows = "".join(
+        f"<tr><td>{text_html(row.value, '')}</td><td>{number_html(row.score, '')}</td>"
+        f"<td>{escape(', '.join(row.holders))}</td></tr>"
+        for row in evidence.tally
+    )
+    return _table(head, rows)
+
+
+def combine_summary_html(candidate: CandidateResult) -> str:
+    """Per reducer step: chosen and excluded counts, and declared-signal means (ans:Q1, P13).
+
+    Its own pass over the Cases; the Candidate card feeds a ``CombineSummary`` instead (E7).
+    """
+    summary = CombineSummary()
+    for case in candidate.cases:
+        summary.add(case)
+    return summary.html(candidate)
+
+
+@dataclass(slots=True)
+class CombineSummary:
+    """The run summary of one Candidate, fed one Case at a time. Dicts keep first-seen order.
+
+    WHY fed and not a pass of its own: a saved Candidate decodes a Case on each read (DiskCases),
+    so the card reads the Cases once for this summary and the abstained count (E7).
+    """
+
+    steps: dict[str, _StepSummary] = field(default_factory=dict)
+
+    def add(self, case: CaseResult) -> None:
+        """Count each combine step of this Case that has evidence.
+
+        A step is in the summary only when a Case has its evidence, so a combine step with no
+        evidence (P19) and the steps of an Attempt (P15) are not counted.
+        """
+        for operation in case.operations or ():
+            if operation.combine is not None:
+                self.steps.setdefault(
+                    operation.operation_id, _StepSummary(operation.combine.reducer)
+                ).add(operation.combine)
+
+    def html(self, candidate: CandidateResult) -> str:
+        """The summary block, one table per step; empty when no Case has combine evidence."""
+        if not self.steps:
+            return ""
+        graph = candidate._operation_graph()
+        blocks = "".join(
+            _summary_html(operation_id, step, graph) for operation_id, step in self.steps.items()
+        )
+        return f"<div class='sf-detail__k'>combine</div><div class='sf-cmb'>{blocks}</div>"
+
+
+@dataclass(slots=True)
+class _StepSummary:
+    """One combine step over the Cases of one Candidate (erd §5). Dicts keep first-seen order."""
+
+    reducer: str
+    cases: int = 0
+    chosen: dict[str, int] = field(default_factory=dict)
+    excluded: dict[str, int] = field(default_factory=dict)
+    declared: dict[str, str] = field(default_factory=dict)
+    values: dict[tuple[str, str], list[float]] = field(default_factory=dict)
+    sample_name: str | None = None  # E4b part 7 (P15): the consistency name, then its samples
+    samples_failed: int = 0
+    samples_total: int = 0
+    majority: int = 0  # E4b part 5: one counter per gate branch
+    fallback: int = 0
+    band: int = 0  # E4b part 6: the Cases that abstained inside the gate band
+    not_run: int = 0
+    narrow: list[_NarrowCount] = field(default_factory=list)  # one per narrow step, in order
+
+    def add(self, evidence: CombineEvidence) -> None:
+        """Count one Case: chosen, excluded, the declared names, values, gate, samples and the
+        members each narrow step left out."""
+        self.cases += 1
+        self._add_gate(evidence.gate)
+        self._add_narrow(evidence)
+        self._add_samples(evidence)
+        for name, entry in (evidence.declared or {}).items():
+            if name not in self.declared:  # WHY: the first Case wins; build its text once
+                self.declared[name] = _source_text(entry)
+        for row in evidence.members:
+            self.chosen.setdefault(row.member_id, 0)
+            self.excluded.setdefault(row.member_id, 0)
+            if row.member_id in evidence.chosen:
+                self.chosen[row.member_id] += 1
+            if row.status == "excluded":
+                self.excluded[row.member_id] += 1
+            # WHY only the names this Case declares (E6): the summary shows a mean for a declared
+            # name alone, and a Case also holds accounting keys, score:judge and field:* values. A
+            # value counts when its own Case declares the name, so the Case order does not matter.
+            for name in evidence.declared or ():
+                value = row.signals.get(name)
+                if value is not None:
+                    self.values.setdefault((row.member_id, name), []).append(value)
+
+    @property
+    def gated(self) -> int:
+        """The Cases with a gate record: each one counts in exactly one branch."""
+        return self.majority + self.fallback + self.band + self.not_run
+
+    def _add_narrow(self, evidence: CombineEvidence) -> None:
+        """Add, per narrow step, the members it read and the members it left out."""
+        for index, (record, live) in enumerate(_narrow_records(evidence)):
+            if index == len(self.narrow):
+                self.narrow.append(_NarrowCount(_narrow_word(record)))
+            count = self.narrow[index]
+            count.seen += len(live)
+            count.left_out += len(live) - len(record.kept)
+
+    def _add_samples(self, evidence: CombineEvidence) -> None:
+        """Add the samples of one Case of a step that declares consistency (E4b part 7, P15)."""
+        facts = _sample_facts(evidence)
+        if facts is None:
+            return
+        self.sample_name = facts.name
+        self.samples_failed += facts.failed
+        self.samples_total += facts.total
+
+    def _add_gate(self, gate: CombineGate | None) -> None:
+        """Count the branch of one gated Case: majority, fallback, band or not run (E4b part 6)."""
+        if gate is None:
+            return
+        if gate.branch is None:
+            self.not_run += 1
+        elif gate.branch == "band":
+            self.band += 1
+        elif gate.branch == "majority":
+            self.majority += 1
+        else:
+            self.fallback += 1
+
+
+@dataclass(slots=True)
+class _NarrowCount:
+    """One narrow step over the Cases: the members it read and the members it left out."""
+
+    word: str  # "filter" or "rank"
+    left_out: int = 0
+    seen: int = 0
+
+
+def _narrow_line(step: _StepSummary) -> str:
+    """Per narrow step, the members it left out over the Cases; a step with none: no line."""
+    if not step.narrow:
+        return ""
+    texts = (
+        f"narrow · step {index} · {count.word} · left out {count.left_out} of {count.seen}"
+        for index, count in enumerate(step.narrow, start=1)
+    )
+    chips = "".join(f"<span class='sf-chip'>{escape(text)}</span>" for text in texts)
+    return f"<div class='sf-chips'>{chips}</div>"
+
+
+def _summary_html(operation_id: str, step: _StepSummary, graph: Mapping[str, OperationInfo]) -> str:
+    """One step of the run summary: heading, gate line, samples line, member rows (P13, P15)."""
+    total = step.cases
+    noun = "case" if total == 1 else "cases"
+    heading = (
+        f"<div class='sf-cmb__h' title='{escape(operation_id)}'>"
+        f"{escape(_label(graph, operation_id))} · {escape(step.reducer)} · {total} {noun}</div>"
+    )
+    head = "<th scope='col'>member</th><th scope='col'>chosen</th><th scope='col'>excluded</th>"
+    head += "".join(
+        f"<th scope='col' title='{escape('source: ' + source)}'>{escape(name)} mean</th>"
+        for name, source in step.declared.items()
+    )
+    rows = "".join(_summary_row(member_id, step) for member_id in step.chosen)
+    return (
+        heading + _gate_line(step) + _samples_line(step) + _narrow_line(step) + _table(head, rows)
+    )
+
+
+def _gate_line(step: _StepSummary) -> str:
+    """How often the gate of a gated step kept the majority, fell back, abstained in its band or
+    did not run; an ungated step: no line (P16; E4b part 6 P14)."""
+    if step.gated == 0:
+        return ""
+    total = step.cases
+    band = f" · in band {step.band} of {total}" if step.band else ""
+    tail = f" · not run {step.not_run} of {total}" if step.not_run else ""
+    return (
+        "<div class='sf-chips'><span class='sf-chip'>"
+        f"gate · majority {step.majority} of {total} · fallback {step.fallback} of {total}"
+        f"{band}{tail}"
+        "</span></div>"
+    )
+
+
+def _samples_line(step: _StepSummary) -> str:
+    """The failed samples of a consistency step over its Cases; any other step: no line (P15)."""
+    if step.sample_name is None:
+        return ""
+    text = f"samples · {step.sample_name} · failed {step.samples_failed} of {step.samples_total}"
+    return f"<div class='sf-chips'><span class='sf-chip'>{escape(text)}</span></div>"
+
+
+def _summary_row(member_id: str, step: _StepSummary) -> str:
+    """One member row: chosen and excluded as `{count} of {N}`, then one mean cell per name."""
+    total = step.cases
+    means = "".join(_mean_cell(step.values.get((member_id, name), [])) for name in step.declared)
+    return (
+        f"<tr><td>{escape(member_id)}</td><td>{step.chosen[member_id]} of {total}</td>"
+        f"<td>{step.excluded[member_id]} of {total}</td>{means}</tr>"
+    )
+
+
+def _mean_cell(values: list[float]) -> str:
+    """The mean of one member's values of one declared name, and their count n (P13, ans:Q3)."""
+    return (
+        f"<td>{number_html(_mean(values), 'no Case gave a value')}"
+        f" <span class='sf-cmb__nn'>n={len(values)}</span></td>"
+    )
+
+
+def _mean(values: list[float]) -> float | None:
+    """``math.fsum`` of ``values`` over their count; None when there are none (P13)."""
+    if not values:
+        return None
+    try:
+        return math.fsum(values) / len(values)
+    except OverflowError:
+        # WHY Fraction: the sum of finite values can leave the float range, but their mean cannot;
+        # the exact rational mean rounds to a finite float (part 4 erratum E5). A sum signal (E4b
+        # part 6, P14) makes large values likely. TWIN: `_mean` in
+        # apps/screamingface-engine/src/screamingface_engine/combine/gate.py (part 5 erratum E6)
+        # holds the same rule; when one copy changes, change the other.
+        return float(sum(map(Fraction, values), Fraction(0)) / len(values))
+
+
+__all__: list[str] = []
