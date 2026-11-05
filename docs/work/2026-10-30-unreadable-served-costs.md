@@ -1,9 +1,9 @@
 ---
 ticket: OME-1517
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-10-30
-finished:
+finished: 2026-11-05
 ---
 
 # Keep submission reads available with unreadable costs
@@ -39,7 +39,7 @@ unchanged; no migration.
 
 ## Outcome
 
-Implementation complete; review/merge pending.
+Implementation merged; see closure below.
 
 - Both served reads now use narrow raw projections, the existing money decoder,
   and the existing unreadable-saving policy. History retains valid stored parts.
@@ -77,3 +77,20 @@ Replace driver-message regex matching with the structured PostgreSQL exception a
 Authorized by Filip: “please fix the issues you feel are real ones”. Run regression tests and full scoreboard gates before committing. Outcome: 53 SQLite/PostgreSQL tests pass, including anonymous public history across both submitters, each corrupt money field, structured SQLSTATE checks and schema/projection parity. Full PostgreSQL CI selection: 62 passed. The CI job keeps this suite explicitly registered, away from the other pending additions. All scoreboard gates green. No production-code changes in this follow-up.
 
 CI registration is separated from the other pending PostgreSQL suites so their additions can merge without dropping tests. The exact workflow selection and all scoreboard gates pass after this adjustment.
+
+## Closure — 2026-11-05
+
+User authorized the final review and squash merge. Merged [PR #1626](https://github.com/ScreamingFace/screamingface/pull/1626)
+as `b972231dafc92f975bd43445bdd50f5015bdabe2`. Approval and green CI covered the unchanged PR head.
+
+Final verification combined all three approved changes with current main: full
+scoreboard and repository gates passed; 217 focused SQLite/PostgreSQL regressions
+passed with no skips (local PostgreSQL 15, CI PostgreSQL 17). This included metadata,
+Unicode/non-finite validation, corrupted costs, migrations and concurrency.
+Subsequent concurrent main changes were confined to Engine code/docs; scoreboard
+paths still matched the tested sequence before the last merge.
+
+Sergio approved with nits. Shared decoding also omits malformed provider rows and uses the submitter fallback for malformed authors on SQLite. This non-money behavior remains a non-blocking review note; stored/export data is unchanged.
+
+Linear is Done with the merge and validation evidence recorded. No production
+release was performed and no visual owner check is needed for these changes.
