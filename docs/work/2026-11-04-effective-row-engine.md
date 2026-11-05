@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1830
 stack: screamingface-engine
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-11-04
@@ -106,12 +106,16 @@ RED first, per plan §3 step 3:
     `test_a_single_non_active_managed_row_is_not_a_conflict`, and the docstring naming the label
     rule's new home), `test_traceparent_propagation.py` (`_RecordingUpstream`, which three tests
     share, and its docstring). No test was retired. Pinned in
-    `.claude/test-change-approvals/OME-N.json` at PR-open.
+    `.claude/test-change-approvals/OME-1830.json` at PR-open.
   - spec `docs/spec/2026-10-29-local-engine-effective-row.md` §3, amended by owner decision 3:
     the table row for an unusable `E`, the stale-row repair and the accepted limitation; and by
     decision 5: the conditional repair, its `pending` and `error` set, and `disconnect` of `E`.
-- **Commits:** two on branch `effective-row-engine` (the effective row; then decision 5), renamed
-  `OME-N-effective-row-engine` at PR-open; their shas are recorded then.
+- **Commits:** on branch `OME-1830-effective-row-engine` (`effective-row-engine` until PR-open),
+  rebased onto `24d979a5e` after L7c (#1678) merged: `61727d4de` feat(screamingface-engine):
+  manage the Connection chat uses in the Local Engine (OME-1138 L7b); `b3ebfcdcc`
+  fix(screamingface-engine): repair stale rows only while they are still stale (OME-1138 L7b);
+  then the commit that files `OME-1830` and `OME-1832` here and in their `docs/tasks` mirrors and
+  adds the manifest.
 - **Owner decisions (2026-11-04):**
   1. The prior-test changes listed at RED (the four files above) are approved.
   2. Under the skew fallback the label row stands in for `E`. With no `screamingface` row and
@@ -126,13 +130,13 @@ RED first, per plan §3 step 3:
      until a disconnect. Spec §3 is amended to match.
   4. The removal of the skew fallback is filed at PR-open as a deferred leaf under `OME-1138`
      (`screamingface-engine`, `agentic`, `deferred`; precondition: an Engine release that
-     carries L7b).
+     carries L7b). Filed as `OME-1832`.
   5. After the second review, which found the repair could delete a row an OAuth callback or a
      key write activated between the listing and the `DELETE`: the gateway gains a conditional
      delete in its own leaf, L7c (`?expected_status=pending|error`, spec §2a), and every repair
      `DELETE` here carries the status the listing showed. A 409 is `ConnectionConflict`, raised
      before any create or start. `disconnect` of `E` stays a plain `DELETE`. L7b is blocked by
-     L7c.
+     L7c, which merged as #1678 (`OME-1824`) on 2026-11-05.
 - **Review (independent, read-only):** nothing blocking. Added after it: the skew conflict for
   two active rows (three cases), a written row of another provider, `disconnect` deleting only
   `E` when stale rows exist, and an `E` whose method the catalogue lacks. Each of these four
@@ -159,6 +163,11 @@ RED first, per plan §3 step 3:
   clean; pytest 6862 passed, 168 skipped, coverage 95.99%. Each of three mutations fails the new
   suite: a repair `DELETE` without its condition (9 cases), the stale set back to every
   non-active row (1), a condition on the `DELETE` of `E` (9).
+  Rebased onto `24d979a5e` after L7c merged (2026-11-05): `run_gates.py screamingface-engine
+  --base origin/main` with `--skip-append-only`: ruff, format, pyright, the layering check and
+  pytest with coverage all green, 7997 tests collected. With
+  `.claude/test-change-approvals/OME-1830.json` the append-only check passes, the four approved
+  files pinned byte-exact.
 - **Deviations:**
   - `_ConnectionRow` moved to `aigateway_rows.py` as `ConnectionRow`, with `MANAGED_LABEL`, so the
     rules and the adapter share one row type; `_validate_row` stays in the adapter.
