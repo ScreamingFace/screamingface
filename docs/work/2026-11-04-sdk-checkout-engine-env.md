@@ -70,3 +70,20 @@ for lack of a Hugging Face token. PR 4 of 4 (OME-1620).
   `test_a_frozen_app_never_builds` calls the renamed `environment_for`. Both are this stack's own
   unmerged tests; flagged here and in the PR body for the reviewer. `test-paid-benchmarks` in
   the justfile keeps its own sync-and-prepare loop (a paid-run recipe; out of scope).
+
+## CI fix (2026-11-05): the replay lane
+
+- **What broke:** the replay lane ran `screamingface prepare --all` in a CI checkout. With this
+  PR a checkout builds the editable Engine environment, so `--all` meant all 92 bundles: ten
+  minutes of downloads, then a hard stop on `cais/hle` (gated, no token).
+- **Fixed in #1673** (merged up): `prepare --all` skips a gated dataset with a warning and a
+  count; `prepare` runs `up`'s medxpert-only check.
+- **Fixed here:** `prepare` (and `prepare --list`) take the Engine environment `up` takes, so a
+  checkout venv without the benchmarks extra falls through to the built one; the bundle list is
+  asked once. Pinned by `test_prepare_list_falls_through_like_up` and
+  `test_prepare_runs_the_preparer_from_the_environment_up_would_use`.
+- **Workflow (owner-approved 2026-11-05):** the replay lane prepares `medxpert` by name, which is
+  what `--all` meant before this stack.
+- **Evidence:** the lane's prepare step run locally from this worktree, whose Engine venv lacks
+  the extra: fell through, built the editable environment, prepared medxpert in 29 s. 238 passed
+  across the 13 runtime test files.

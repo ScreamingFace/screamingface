@@ -1006,14 +1006,20 @@ def _prepare(
     if list_benchmarks:
         if all_benchmarks or benchmark is not None or force:
             raise RuntimeError("--list cannot be combined with a benchmark, --all, or --force")
-        for name, status in _benchmark_statuses(config).items():
-            print(f"{name:12} {status}")
-        return
-    if all_benchmarks == (benchmark is not None):
+    elif all_benchmarks == (benchmark is not None):
         raise RuntimeError("choose one benchmark or pass --all")
+    # INVARIANT: `prepare` takes the Engine environment `up` would take — built when missing,
+    # and a checkout venv without the benchmarks extra falls through to the built one — and
+    # asks it for its bundles once.
     config = _with_built_engine_environment(config, runtime_source.resolve_source(os.environ))
+    ids: tuple[str, ...] = ()
     if config.engine_python is not None:
-        _prepare_with_engine(config, benchmark, all_benchmarks=all_benchmarks, force=force)
+        config, ids = _require_full_engine_environment(config)
+    if list_benchmarks:
+        _print_benchmark_statuses(config, ids)
+        return
+    if config.engine_python is not None:
+        _prepare_with_engine(config, benchmark, all_benchmarks=all_benchmarks, force=force, ids=ids)
         return
     from screamingface._runtime.server import require_runtime_extra
 
@@ -1022,6 +1028,17 @@ def _prepare(
     config.assets_dir.mkdir(parents=True, exist_ok=True)
     _prepare_in_process(config, selected, force=force)
     print(f"Benchmark assets ready at {config.assets_dir}")
+
+
+def _print_benchmark_statuses(config: RuntimeConfig, ids: tuple[str, ...]) -> None:
+    """`prepare --list`: each bundle the Engine serves and whether its datasets are ready."""
+    statuses: dict[str, str] = (
+        {name: engine_env.bundle_status(config.assets_dir, name) for name in ids}
+        if config.engine_python is not None
+        else _benchmark_statuses(config)
+    )
+    for name, status in statuses.items():
+        print(f"{name:12} {status}")
 
 
 def _prepare_in_process(
@@ -1088,7 +1105,12 @@ def _checked_engine_bundle_ids(python: Path) -> tuple[str, ...]:
 
 
 def _prepare_with_engine(
-    config: RuntimeConfig, benchmark: str | None, *, all_benchmarks: bool, force: bool
+    config: RuntimeConfig,
+    benchmark: str | None,
+    *,
+    all_benchmarks: bool,
+    force: bool,
+    ids: tuple[str, ...] | None = None,
 ) -> None:
     """`prepare` through the Engine environment's own preparer (OME-1620).
 
@@ -1100,7 +1122,8 @@ def _prepare_with_engine(
     if config.engine_python is None:
         raise RuntimeError("prepare through the Engine needs an Engine environment")
     python: Path = config.engine_python
-    ids: tuple[str, ...] = _checked_engine_bundle_ids(python)
+    if ids is None:
+        ids = _checked_engine_bundle_ids(python)
     if benchmark is not None and benchmark not in ids:
         raise RuntimeError(
             f"no such benchmark {benchmark!r} in the Engine at {python}; "

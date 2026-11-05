@@ -245,3 +245,41 @@ def test_prepare_warns_instead_of_failing_when_the_preparer_skipped_the_bundle(
     out = capsys.readouterr().out
     assert "xstest" in out and "skipped" in out
     assert engine_env.bundle_status(config.assets_dir, "xstest") == "missing"
+
+
+# --- prepare takes the same Engine environment as up (2026-11-05) -------------------------------
+
+
+def test_prepare_list_falls_through_like_up(
+    tmp_path: Path, checkout: dict[str, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """STORY: as a dev whose Engine venv lacks the benchmarks extra (the pre-push hook makes
+    one), `prepare --list` shows every Benchmark, from the environment `up` would use, instead
+    of failing in the preparer with "the `datasets` package is required"."""
+    config = RuntimeConfig(data_dir=tmp_path / "data", engine_python=checkout["venv_python"])
+
+    cli._prepare(config, None, all_benchmarks=False, list_benchmarks=True)
+
+    out = capsys.readouterr().out
+    assert "ifeval" in out
+    assert str(checkout["built"]) in out
+
+
+def test_prepare_runs_the_preparer_from_the_environment_up_would_use(
+    tmp_path: Path, checkout: dict[str, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ran: list[list[str]] = []
+
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        ran.append(command)
+        root = Path(command[command.index("--root") + 1])
+        (root / "ifeval").mkdir(parents=True, exist_ok=True)
+        (root / "ifeval" / "cases.json").write_text('[{"id": 1}]')
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(engine_env.subprocess, "run", run)
+    config = RuntimeConfig(data_dir=tmp_path / "data", engine_python=checkout["venv_python"])
+
+    cli._prepare(config, "ifeval", all_benchmarks=False)
+
+    assert [command[0] for command in ran] == [str(checkout["built"])]
