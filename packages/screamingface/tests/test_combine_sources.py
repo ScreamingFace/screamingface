@@ -18,7 +18,7 @@ from url4 import Expression, RelExpr, Source, build, render, struct
 import screamingface as sf
 from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
-from screamingface.reducer import Reducer
+from screamingface._surface.chain import Step
 
 _SURFACE = _CheckSurface(
     check_route="/benchmarks/ifeval/revision-1/check-surface",
@@ -56,9 +56,9 @@ def _context(outputs: dict[str, str], sources: dict[str, Any] | None = None) -> 
     return render(struct(value))
 
 
-def _mixed(synthesizer: Reducer) -> sf.Fusion:
+def _mixed(synthesizer: Step) -> sf.Recipe:
     members = [sf.Model("p/a", params={"temperature": 0.5}), "p/b", sf.Pipeline(["p/c", "p/d"])]
-    return sf.Fusion(members, synthesizer=synthesizer)
+    return sf.Fanout(members) >> synthesizer
 
 
 _MIXED_OUTPUTS = {"member_1": "$model_1", "member_2": "$model_2", "member_3": "$model_4"}
@@ -86,44 +86,44 @@ def test_compile_emits_sources_only_when_accounting_signal_is_read(key: str) -> 
     ],
     ids=repr,
 )
-def test_no_sources_when_no_accounting_signal_is_read(synthesizer: Reducer) -> None:
+def test_no_sources_when_no_accounting_signal_is_read(synthesizer: Step) -> None:
     url4 = _url4(_mixed(synthesizer))
 
     assert context_of(url4, "synthesis_1") == _context(_MIXED_OUTPUTS)
 
 
 def _duplicates() -> sf.Recipe:
-    return sf.Fusion(["p/a", "p/a", "p/b"], synthesizer=sf.Vote(weights=_COST))
+    return sf.Fanout(["p/a", "p/a", "p/b"]) >> sf.Vote(weights=_COST)
 
 
 def _nested() -> sf.Recipe:
-    inner_a = sf.Fusion(["p/a", "p/b"], synthesizer=sf.Vote())
-    inner_b = sf.Fusion(["p/a", "p/c"], synthesizer=sf.Vote())
-    return sf.Fusion([inner_a, inner_b, "p/d"], synthesizer=sf.Vote(weights=_COST))
+    inner_a = sf.Fanout(["p/a", "p/b"]) >> sf.Vote()
+    inner_b = sf.Fanout(["p/a", "p/c"]) >> sf.Vote()
+    return sf.Fanout([inner_a, inner_b, "p/d"]) >> sf.Vote(weights=_COST)
 
 
 def _reuse_after() -> sf.Recipe:
-    fusion = sf.Fusion(["p/a", "p/b"], synthesizer=sf.Vote(weights=_COST))
+    fusion = sf.Fanout(["p/a", "p/b"]) >> sf.Vote(weights=_COST)
     return sf.Pipeline([fusion, "p/a"])
 
 
 def _prompts() -> sf.Recipe:
     members = [sf.Model("p/a", prompt="x"), sf.Model("p/a", prompt="y")]
-    return sf.Fusion(members, synthesizer=sf.Vote(weights=_COST))
+    return sf.Fanout(members) >> sf.Vote(weights=_COST)
 
 
 def _samples() -> sf.Recipe:
-    return sf.Fusion(sf.samples("p/a", 3), synthesizer=sf.Vote(weights=_COST))
+    return sf.Fanout(sf.samples("p/a", 3)) >> sf.Vote(weights=_COST)
 
 
 def _model_synthesizer_member() -> sf.Recipe:
-    inner = sf.Fusion(["p/a", "p/b"], synthesizer="p/s")
-    return sf.Fusion([inner, "p/c"], synthesizer=sf.Vote(weights=_COST))
+    inner = sf.Fanout(["p/a", "p/b"]) >> sf.Synthesize("p/s")
+    return sf.Fanout([inner, "p/c"]) >> sf.Vote(weights=_COST)
 
 
 def _reducer_member() -> sf.Recipe:
-    inner = sf.Fusion(["p/a", "p/b"], synthesizer=sf.Vote())
-    return sf.Fusion([inner, "p/c"], synthesizer=sf.Vote(weights=_COST))
+    inner = sf.Fanout(["p/a", "p/b"]) >> sf.Vote()
+    return sf.Fanout([inner, "p/c"]) >> sf.Vote(weights=_COST)
 
 
 _AB = {"member_1": "$model_1", "member_2": "$model_2"}
@@ -220,7 +220,7 @@ def test_fingerprint_claimed_twice_in_expression_is_left_out_of_sources(
 
 
 def test_a_corrective_round_claims_every_member_call_again() -> None:
-    fusion = sf.Fusion(["p/a", "p/b"], synthesizer=sf.Vote(weights=_COST))
+    fusion = sf.Fanout(["p/a", "p/b"]) >> sf.Vote(weights=_COST)
     loop = sf.CorrectiveLoop([fusion, "p/d"], judge="p/j", max_rounds=2)
 
     url4 = _url4(loop)
@@ -230,7 +230,7 @@ def test_a_corrective_round_claims_every_member_call_again() -> None:
 
 def test_dotted_param_key_compiles_in_sources() -> None:
     model = sf.Model("p/a", params={"x.y": 1, "stop": "a:b/c"})
-    url4 = _url4(sf.Fusion([model, "p/b"], synthesizer=sf.Vote(weights=_COST)))
+    url4 = _url4(sf.Fanout([model, "p/b"]) >> sf.Vote(weights=_COST))
 
     sources = {
         "member_1": {"model_1": _call("/p/a", "stop=a%3Ab%2Fc&x.y=1")},

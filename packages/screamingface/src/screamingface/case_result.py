@@ -107,7 +107,7 @@ def _validated_evidence_parts(
     if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
         raise ValueError("Evidence sequence must be a positive integer")
     if not isinstance(producer, EvidenceProducer):
-        raise TypeError("Evidence producer must be an sf.EvidenceProducer")
+        raise TypeError("Evidence producer must be a sf.EvidenceProducer")
     if not isinstance(valid, bool):
         raise TypeError("Evidence valid must be a boolean")
     if outcome not in {None, "MET", "UNMET", "PASS", "FAIL"}:
@@ -117,7 +117,7 @@ def _validated_evidence_parts(
     if not valid and (outcome is not None or explanation is not None):
         raise ValueError("invalid Evidence cannot contain an outcome or explanation")
     if accounting is not None and not isinstance(accounting, OperationAccounting):
-        raise TypeError("Evidence accounting must be an sf.OperationAccounting or None")
+        raise TypeError("Evidence accounting must be a sf.OperationAccounting or None")
     return explanation
 
 
@@ -344,9 +344,9 @@ class CaseOperation:
                 _nonblank_text(self.finish_reason, "Case Operation finish_reason"),
             )
         if self.accounting is not None and not isinstance(self.accounting, OperationAccounting):
-            raise TypeError("Case Operation accounting must be an sf.OperationAccounting or None")
+            raise TypeError("Case Operation accounting must be a sf.OperationAccounting or None")
         if self.combine is not None and not isinstance(self.combine, CombineEvidence):
-            raise TypeError("Case Operation combine must be an sf.report.CombineEvidence or None")
+            raise TypeError("Case Operation combine must be a sf.report.CombineEvidence or None")
 
     def to_dict(self) -> dict[str, object]:
         selected: dict[str, object] = {
@@ -400,7 +400,7 @@ class CaseAttempt:
             if value is not None:
                 object.__setattr__(self, name, _nonblank_text(value, f"Case Attempt {name}"))
         if self.grade is not None and not isinstance(self.grade, CaseGrade):
-            raise TypeError("Case Attempt grade must be an sf.CaseGrade or None")
+            raise TypeError("Case Attempt grade must be a sf.CaseGrade or None")
         object.__setattr__(
             self, "failures", _typed_values(self.failures, Failure, "Case Attempt failures")
         )
@@ -474,7 +474,7 @@ class CaseResult:
         if output is not None and not isinstance(output, str):
             raise TypeError("Case Result output must be text or None")
         if grade is not None and not isinstance(grade, CaseGrade):
-            raise TypeError("Case Result grade must be an sf.CaseGrade or None")
+            raise TypeError("Case Result grade must be a sf.CaseGrade or None")
         if finish_reason is not None:
             finish_reason = _nonblank_text(finish_reason, "Case Result finish_reason")
         if refusal is not None:

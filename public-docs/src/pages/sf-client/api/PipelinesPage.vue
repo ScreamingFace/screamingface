@@ -10,9 +10,10 @@ import {
 } from '@/navigation/sf-client'
 
 const pipelineSig = `sf.Pipeline(
-    stages: Sequence[str | Recipe],
+    steps: Sequence[str | Recipe | Step],
     *,
     name: str | None = None,
+    optional: bool = False,
 )`
 
 const pipelineExample = `pipeline = sf.Pipeline(
@@ -56,9 +57,20 @@ report = sf.evaluate(pipeline, benchmark="ifeval", limit=1)`
           </td>
         </tr>
         <tr>
-          <td><code>stages</code></td>
-          <td><code>tuple[Recipe, ...]</code></td>
-          <td>The ordered stages, each refining the previous answer. At least one.</td>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            <code>True</code> for a chain that is an optional member of a <code>sf.Fanout</code>.
+            Defaults to <code>False</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>steps</code></td>
+          <td><code>tuple</code></td>
+          <td>
+            The ordered steps, each refining the previous answer. At least one. A fusion block shows
+            as its <code>Fanout</code> and <code>Synthesize</code> steps.
+          </td>
         </tr>
       </tbody>
     </table>
@@ -71,8 +83,9 @@ report = sf.evaluate(pipeline, benchmark="ifeval", limit=1)`
     </Note>
 
     <p>
-      Any recipe also has <code>.then(stage)</code>, which appends a stage and returns a Pipeline —
-      see <RouterLink to="/sf-client/api/recipes">Recipe</RouterLink>.
+      <code>a &gt;&gt; b</code> joins two stages and returns a Pipeline.
+      <code>a &gt;&gt; b &gt;&gt; c</code> reads left to right and returns a new
+      <code>sf.Pipeline</code>. See <RouterLink to="/sf-client/api/recipes">Recipe</RouterLink>.
     </p>
 
     <div class="not-prose">

@@ -57,8 +57,11 @@ def test_only_the_qwen_member_caps_its_reasoning() -> None:
     import screamingface as sf
 
     panel = fusion_panel()
+    assert isinstance(panel, sf.Pipeline)
+    fanout, writer = panel.steps
+    assert isinstance(fanout, sf.Fanout) and isinstance(writer, sf.Synthesize)
     calls: list[sf.Model] = [
-        call for call in (*panel.members, panel.synthesizer) if isinstance(call, sf.Model)
+        call for call in (*fanout.members, writer.model) if isinstance(call, sf.Model)
     ]
     assert len(calls) == 3, "the panel must stay two Model members plus a Model synthesizer"
     params_by_model = {call.model: dict(call.params) for call in calls}

@@ -42,17 +42,19 @@ write in the App (spec D3, §9), so the new code is split along it:
   port. Importable by the App, the worker and the run half.
 - `run_evidence.py` (existing; it imports only `url4.streaming`), a **shared leaf**: the one
   classifier, `SettlementWatch` and `outcome_of`.
-- `runs/`, **control plane only**: the `RunRegistry` port and its types, the pure state function,
-  the consumer and the sweeps.
-- `adapters/run_registry_tortoise.py` (control plane), `adapters/candidate_outcomes_jetstream.py`
-  (shared leaf, beside `adapters.jetstream`), and the in-memory adapter in `adapters/memory.py`.
+- `runs/`, **control plane only**, laid out like an aigateway feature: the `RunRegistry` port
+  (`registry.py`), its records and the pure state function, the Tortoise models (`models/`, one
+  file per model), the store that implements the port (`store.py`), `db.py`, `migrations/`, the
+  consumer and the sweeps.
+- `adapters/candidate_outcomes_jetstream.py` (shared leaf, beside `adapters.jetstream`), and the
+  in-memory adapter in `adapters/memory.py`.
 
 ### E1. Layering rule, Run types and state
 
 Not wired. No dependency change.
 
 - `check_layering.py`:
-  - `runs` and `adapters.run_registry_tortoise` join the control plane, which bars the run mode
+  - `runs` joins the control plane, which bars the run mode
     and every shared leaf from them; a new rule bars the worker too.
   - No module outside the registry may import the database stack (`tortoise`, `asyncpg`,
     `aiosqlite`), exempt modules included. This is what keeps a process without the registry
@@ -62,7 +64,7 @@ Not wired. No dependency change.
     boundary (spec §9).
   - `candidate_outcomes`, `run_evidence` and `adapters.candidate_outcomes_jetstream` are unlisted,
     so they are shared leaves by the gate's default.
-- New `runs/model.py`: `RunSpec`, `RunRecord`, `RunQuery`, `RunPage`, `OwnerKey`, the Candidate
+- New `runs/records.py`: `RunSpec`, `RunRecord`, `RunQuery`, `RunPage`, `OwnerKey`, the Candidate
   states. They keep only the domain rules (at least one Candidate, unique names stored stripped,
   `limit` bounds, a known `state`, an aware `since`); request types are checked by the route
   schemas (E8).
@@ -70,16 +72,15 @@ Not wired. No dependency change.
 - New `runs/ids.py`: the `run_` id, a random UUID in hex (spec D5), and its anchored pattern.
 
 Tests:
-- A fixture module under `worker/`, `runner/` or a shared leaf importing `runs` or the registry
-  adapter fails the gate; the database stack imported anywhere outside `runs/` and the registry
-  adapter fails, `local.py` included; the same imports from `app` (registry) and `runs/` (the
-  stack) pass.
+- A fixture module under `worker/`, `runner/` or a shared leaf importing `runs` fails the gate;
+  the database stack imported anywhere outside `runs/` fails, `local.py` included; the same
+  imports from `app` (registry) and `runs/` (the stack) pass.
 - Every R5 row in its stated order, including overlaps (one `succeeded` plus one `lost` is
   `interrupted`; `failed` plus a reaped `stopped` is `interrupted`; cancel flag with every
   Candidate terminal is `canceled`) and both sides of the `run_pending_grace_s` window.
 - Ids have the `run_` + 32-hex form and are distinct; the pattern refuses anything else.
 
-### E2. Registry port and Tortoise adapter
+### E2. Registry port and Tortoise store
 
 Not wired.
 
@@ -90,9 +91,10 @@ Not wired.
   code. A read derives the Run's state and `finished_at` with R5.
 - `bind` leaves the Candidate `pending`; `mark_scheduled` moves it to `scheduled`. `cancel` moves
   `pending` Candidates to `stopped` and applies only while any Candidate is non-terminal.
-- New `runs/registry.py` (the port), `adapters/run_registry_tortoise.py`,
-  `runs/migrations/0001_initial.py`, and `runs/db.py`, with the config built like
-  `apps/aigateway/src/aigateway/db.py:9-43`.
+- New `runs/registry.py` (the port), `runs/store.py` (the Tortoise implementation),
+  `runs/models/` (`run.py`, `candidate.py`), `runs/migrations/0001_initial.py`, and `runs/db.py`,
+  with the config built like `apps/aigateway/src/aigateway/db.py:9-43`.
+- Every write is one conditional `UPDATE` guarded on the state it expects (spec §4.2).
 - `pyproject.toml`: `tortoise-orm[asyncpg]==1.1.8`, `asyncpg==0.31.0`, the dev dependency
   `testcontainers[postgres]==4.15.0` and the `needs_postgres` marker, all at aigateway's pins.
 - `config.py`: `URL4_CLOUD_DATABASE_URL` (defaults to SQLite in the data dir only under

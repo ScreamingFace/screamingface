@@ -46,16 +46,12 @@ def _cases_for(candidate: Candidate) -> list[dict[str, object]]:
 
 
 def vote_median_report() -> sf.Report:
-    vote = sf.Fusion(
-        ["provider/a", "provider/b", "provider/c"],
-        synthesizer=sf.Vote(extract="last_number", normalize="numeric"),
-        name="vote",
+    vote = sf.Fanout(["provider/a", "provider/b", "provider/c"], name="vote") >> sf.Vote(
+        over="last_number", normalize="numeric"
     )
-    median = sf.Fusion(
-        ["provider/a", "provider/b", "provider/c", "provider/d"],
-        synthesizer=sf.Median(extract="last_number"),
-        name="median",
-    )
+    median = sf.Fanout(
+        ["provider/a", "provider/b", "provider/c", "provider/d"], name="median"
+    ) >> sf.Median(over="last_number")
     transport = ScriptedTransport("draco", "fixture-revision", _cases_for)
     resources = {"draco": benchmark_resource("draco")}
     with sf.Client(

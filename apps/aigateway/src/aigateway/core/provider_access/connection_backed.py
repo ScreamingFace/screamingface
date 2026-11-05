@@ -21,7 +21,6 @@ from typing import Any
 
 from ..auth_types import AuthMode
 from ..credential_blob import DispatchObservation, OperationalOutcome
-from ..endpoint_access import EndpointOperation, permits
 from ..oauth.models import OAuthConnection
 from .auth_mode import (
     allows_chatless,
@@ -41,6 +40,12 @@ from .connection_authority import (
     require_operational_access_migrated,
 )
 from .connection_authorize import authorize, oauth_connection_store, record_dispatch_failure
+from .effective_connection import (
+    effective_connection_ids,
+    no_auth_providers,
+    served_by_reference,
+    visible_providers,
+)
 from .pair_authority import PairAuthority, PairAuthorityStore
 from .ports import ProviderAccess, ProviderOperationalAccess
 from .selector import Selector
@@ -99,8 +104,9 @@ def _select_by_label(
 
     Raises `SelectorAmbiguous` over two or more rows.
 
-    # INVARIANT (OME-1138, D17 fold-in): the one label rule. Resolve serves the row chosen here
-    # and availability reports it, so `connected` never names a row chat would not pick.
+    # INVARIANT (OME-1138, D17 fold-in): the one label rule. Resolve serves the row chosen here;
+    # `effective_connection_ids` names the same row for availability and the Connection listing
+    # (L7a), and `test_effective_connection.py` pins that they agree.
     # WHY no label is read (OME-1138 close-out, L4a): the default is the only selector since the
     # Stage D sunset, and a label never disambiguates two active rows.
     """
@@ -109,11 +115,6 @@ def _select_by_label(
     if len(connections) == 1:
         return connections[0]
     raise SelectorAmbiguous(provider)
-
-
-def _served_by_reference(pair: PairAuthority) -> bool:
-    """Whether the default resolve serves this pair from its marker's effective reference."""
-    return pair.migration_state == "migrated" and pair.effective_connection_id is not None
 
 
 class ConnectionBackedProviderAccess:
@@ -145,7 +146,7 @@ class ConnectionBackedProviderAccess:
                 account_id, provider, selector, plugin=plugin, policy=policy
             )
             return replace(target, _observed_pair=pair)
-        if not _served_by_reference(pair):
+        if not served_by_reference(pair):
             return await self._resolve_migrated_by_label(
                 account_id, provider, selector, plugin=plugin, policy=policy
             )
@@ -295,10 +296,11 @@ class ConnectionBackedProviderAccess:
     async def availability(self, account_id: str) -> tuple[AvailabilityRow, ...]:
         """Op 6: each listed provider's status, by the rule its default chat resolve follows.
 
-        # FEATURE: OME-1138 D17 fold-in — a `migrated` pair whose marker names an effective
-        # Connection reports that row (A3, OME-1230); every other pair reports its Connections by
-        # label (`_label_status`), so a provider connected natively lists what chat serves. A
-        # provider declaring only "none" reads `not_connected`, whatever its marker or rows.
+        # FEATURE: OME-1138 D17 fold-in — a pair reports its effective row (A3, OME-1230; the rule
+        # `effective_connection_ids` shares with the Connection listing, L7a), so a provider
+        # connected natively lists what chat serves; a pair without one reports why chat refuses
+        # (`_unserved_status`). A provider declaring only "none" reads `not_connected`, whatever
+        # its marker or rows.
         # INVARIANT (OME-1721): a row is a registered provider this account may VIEW. A pair of
         # any other provider, gone from the registry or hidden from this account, is listed with
         # the account's markers and Connections but never read for a status: neither its
@@ -312,62 +314,33 @@ class ConnectionBackedProviderAccess:
         if registry is None:
             return ()
         statuses: dict[str, AvailabilityStatus] = {
-            plugin.custom_llm_provider: "not_connected"
-            for plugin in registry.all()
-            if permits(
-                self._app,
-                plugin.custom_llm_provider,
-                account_id=account_id,
-                operation=EndpointOperation.VIEW,
-            )
+            provider: "not_connected" for provider in visible_providers(self._app, account_id)
         }
-        pairs = {pair.provider: pair for pair in await self._markers.list(account_id)}
+        pairs = await self._markers.list(account_id)
+        connections = await oauth_connection_store(self._app).list(account_id)
         rows: dict[str, list[OAuthConnection]] = {}
-        for connection in await oauth_connection_store(self._app).list(account_id):
+        for connection in connections:
             rows.setdefault(connection.provider, []).append(connection)
+        listed = {connection.id: connection for connection in connections}
+        # INVARIANT (spec §7): a provider declaring only "none" resolves targetless before its
+        # marker is read, so neither a legacy reference nor a row of its provider string stands
+        # for it here; the rule leaves it out and it keeps `not_connected`.
+        no_auth = no_auth_providers(self._app)
+        effective = effective_connection_ids(pairs, connections, no_auth=no_auth)
         for provider in statuses:
-            plugin = registry.get(provider)
-            # INVARIANT (spec §7): a provider declaring only "none" resolves targetless before its
-            # marker is read, so neither a legacy reference nor a row of its provider string
-            # stands for it here.
-            if available_auth_modes(plugin) == ("none",):
+            if provider in no_auth:
                 continue
-            pair = pairs.get(provider)
-            if pair is not None and _served_by_reference(pair):
-                connection = await self._effective_connection(account_id, pair)
-                statuses[provider] = await operational_availability_status_for(
-                    self._app, connection, plugin=plugin
-                )
+            connection_id = effective.get(provider)
+            if connection_id is None:
+                statuses[provider] = _unserved_status(rows.get(provider, []))
                 continue
-            statuses[provider] = await self._label_status(
-                provider, rows.get(provider, []), plugin=plugin
+            # WHY no read by id: a referenced row this listing hides is `revoked` (rows are only
+            # soft-deleted, and a hard delete clears the reference), and a revoked row lists
+            # `not_connected` exactly as no row does.
+            statuses[provider] = await operational_availability_status_for(
+                self._app, listed.get(connection_id), plugin=registry.get(provider)
             )
         return tuple(AvailabilityRow(provider, statuses[provider]) for provider in sorted(statuses))
-
-    async def _label_status(
-        self, provider: str, connections: Sequence[OAuthConnection], *, plugin: Any
-    ) -> AvailabilityStatus:
-        """Op 6 for a pair the label path serves: what the default selector's resolve finds.
-
-        # WHY each answer: one active row is the row chat serves, so it reports that row's
-        # operational status; two or more are refused as ambiguous (409), and `not_connected`
-        # would invite connecting yet another (owner Q1, 2026-10-29). With no active row chat is
-        # refused, and the status says why: a row still `pending`, else one in `error`.
-        # INVARIANT: no API-key retag — `_repair_api_key_only` writes and stays on resolve.
-        """
-        active = [connection for connection in connections if connection.status == "active"]
-        try:
-            connection = _select_by_label(provider, active)
-        except SelectorAmbiguous:
-            return "error"
-        if connection is not None:
-            return await operational_availability_status_for(self._app, connection, plugin=plugin)
-        present = {connection.status for connection in connections}
-        if "pending" in present:
-            return "pending"
-        if "error" in present:
-            return "error"
-        return "not_connected"
 
 
 def provider_access_for(app: Any) -> ProviderAccess:
@@ -388,3 +361,21 @@ def operational_access_for(app: Any) -> ProviderOperationalAccess | None:
     """Return the optional outcome capability without widening the stable port."""
     access = provider_access_for(app)
     return access if isinstance(access, ProviderOperationalAccess) else None
+
+
+def _unserved_status(connections: Sequence[OAuthConnection]) -> AvailabilityStatus:
+    """Op 6 for a pair with no effective row: why the default chat resolve refuses it.
+
+    # WHY each answer: two or more active rows are refused as ambiguous (409), and `not_connected`
+    # would invite connecting yet another (owner Q1, 2026-10-29). With no active row chat is
+    # refused, and the status says why: a row still `pending`, else one in `error`.
+    # INVARIANT: no API-key retag — `_repair_api_key_only` writes and stays on resolve.
+    """
+    present = [connection.status for connection in connections]
+    if present.count("active") >= 2:
+        return "error"
+    if "pending" in present:
+        return "pending"
+    if "error" in present:
+        return "error"
+    return "not_connected"

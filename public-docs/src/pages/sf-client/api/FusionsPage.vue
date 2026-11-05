@@ -9,17 +9,22 @@ import {
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
-const fusionSig = `sf.Fusion(
+const fusionSig = `sf.Fanout(
     members: Sequence[str | Recipe],
     *,
+    signals: Mapping[str, SignalSource] | None = None,
+    quorum: int | Literal["all"] = "all",
     name: str | None = None,
-    synthesizer: str | Recipe,
+    prompt: str | None = None,
+) >> sf.Synthesize(
+    model: str | Recipe,
+    *,
+    prompt: str | None = None,
 )`
 
-const fusionExample = `fusion = sf.Fusion(
+const fusionExample = `fusion = sf.Fanout(
     ["openrouter/deepseek/deepseek-v4-pro", "openrouter/z-ai/glm-5.2"],
-    synthesizer="openrouter/moonshotai/kimi-k3",
-)
+) >> sf.Synthesize("openrouter/moonshotai/kimi-k3")
 report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
 </script>
 
@@ -31,9 +36,12 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
     :version="version"
   >
     <p>
-      A Fusion is a <RouterLink to="/sf-client/api/recipes">Recipe</RouterLink> that runs several
-      members in parallel and combines their answers with an explicit synthesizer. Like every recipe
-      it is frozen and holds no Client, so you can build it before connecting. The
+      A fusion is a <RouterLink to="/sf-client/api/recipes">Recipe</RouterLink> that runs several
+      members in parallel and combines their answers with an explicit synthesizer. You build it as a
+      chain: <code>sf.Fanout(members)</code> sends the question to every member, and
+      <code>&gt;&gt; sf.Synthesize(model)</code> adds the synthesizer. The chain is an
+      <RouterLink to="/sf-client/api/pipelines"><code>sf.Pipeline</code></RouterLink>. Like every
+      recipe it is frozen and holds no Client, so you can build it before connecting. The
       <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink> walks through building
       one.
     </p>
@@ -54,27 +62,36 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
           <td><code>str</code></td>
           <td>
             The fusion's name. Inferred by joining member names with <code>+</code> unless you pass
-            one.
+            <code>name</code> to <code>sf.Fanout</code>.
           </td>
         </tr>
         <tr>
-          <td><code>members</code></td>
-          <td><code>tuple[Recipe, ...]</code></td>
-          <td>The members that run in parallel. At least one.</td>
+          <td><code>steps</code></td>
+          <td><code>tuple</code></td>
+          <td>
+            The <code>Fanout</code> step, then the <code>Synthesize</code> step. The
+            <code>Fanout</code> step keeps the members that run in parallel (at least one). The
+            <code>Synthesize</code> step keeps the <code>model</code> that combines the members'
+            answers into the single graded answer.
+          </td>
         </tr>
         <tr>
-          <td><code>synthesizer</code></td>
-          <td><code>Recipe</code></td>
-          <td>The recipe that combines the members' answers into the single graded answer.</td>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            <code>False</code>. Set it on an <code>sf.Pipeline</code> that wraps the chain, for an
+            optional member.
+          </td>
         </tr>
       </tbody>
     </table>
 
     <Note>
       Members and the synthesizer are themselves recipes, so any of them can be a
-      <code>Model</code>, another <code>Fusion</code>, or a
+      <code>Model</code>, another fusion, or a
       <RouterLink to="/sf-client/api/pipelines">Pipeline</RouterLink>, nested in any combination.
-      Only the synthesizer's final answer is graded.
+      Only the synthesizer's final answer is graded. A reducer such as <code>sf.Vote</code> can
+      close the block in place of <code>sf.Synthesize</code>.
     </Note>
 
     <div class="not-prose">

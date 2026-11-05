@@ -67,5 +67,5 @@ def test_a_free_surface_stays_silent() -> None:
 
 
 def test_a_non_loop_candidate_is_never_billed_for_checks() -> None:
-    fusion = sf.Fusion(["prov/a", "prov/b"], synthesizer="prov/s")
+    fusion = sf.Fanout(["prov/a", "prov/b"]) >> sf.Synthesize("prov/s")
     assert _validate_check_surface((fusion,), "draco", _resource("paid")) is None
