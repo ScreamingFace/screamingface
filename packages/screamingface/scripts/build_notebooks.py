@@ -42,6 +42,25 @@ _DRACO_SYNTHESIS_PROMPT_PARTS = (
 )
 _DRACO_SYNTHESIS_PROMPT = "".join(_DRACO_SYNTHESIS_PROMPT_PARTS)
 
+# FEATURE: every Benchmark notebook runs against the researcher's own `screamingface up` stack
+# or the hosted Engine, chosen by one visible variable.
+# WHY explicit: unconfigured, the SDK falls back from a stopped local stack to the hosted Engine
+# without a word, so a researcher could run against the wrong Engine and not notice.
+_TARGET_SETUP = """\
+import screamingface as sf
+
+TARGET = "local"  # "local": your `screamingface up` stack · "hosted": fusion.screamingface.ai
+
+if TARGET == "local":
+    sf.configure(engine_url="http://127.0.0.1:9108", scoreboard_url="http://127.0.0.1:9106")
+elif TARGET == "hosted":
+    sf.configure(
+        engine_url="https://fusion.screamingface.ai",
+        scoreboard_url="https://leaderboard.screamingface.ai",
+    )
+else:
+    raise ValueError(f'TARGET must be "local" or "hosted", not {TARGET!r}')"""
+
 
 def notebooks() -> dict[str, NotebookNode]:
     # WHY: resolve the companion from this checkout even when loaded through runpy.
@@ -102,6 +121,27 @@ def _string_assignment(name: str, parts: tuple[str, ...]) -> str:
     return f"{name} = (\n{literals}\n)"
 
 
+def _before_running(heading: str, commands: str, extra: str = "") -> str:
+    """Write a notebook's setup section: the two TARGETs, the local stack's commands, hosted."""
+    section: str = (
+        f"{heading}\n\n"
+        'The next cell picks where this notebook runs: `TARGET = "local"` (the default)\n'
+        'uses your `screamingface up` stack, and `TARGET = "hosted"` uses\n'
+        "`fusion.screamingface.ai`.\n\n"
+        "**Local.** Install the local services with\n"
+        '`pip install "screamingface[runtime,notebook]"`, then from a terminal:\n\n'
+        f"```bash\n{commands}\n```\n\n"
+        "Use `screamingface logs` to inspect startup failures and `screamingface down` when\n"
+        "finished. Stack management stays outside the notebook so **Run All** never starts or\n"
+        "stops local services. Working from a checkout? `just local-stack-notebooks` in\n"
+        "`packages/screamingface/` does every local step — assets, stack, and Jupyter — in one\n"
+        "command.\n\n"
+        '**Hosted.** Nothing to start: `pip install "screamingface[notebook]"` is enough, and\n'
+        "`sf.connect()` opens the login in your browser."
+    )
+    return f"{section}\n\n{extra}" if extra else section
+
+
 def _quickstart() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell("""\
@@ -110,29 +150,16 @@ def _quickstart() -> NotebookNode:
 Six steps: inspect the public Leaderboards, connect a provider, run a Benchmark, read the
 Report, publish its Candidate Result, and replay its URL4. The wider interface is covered in
 `01_client_tour.ipynb`."""),
-        nbformat.v4.new_markdown_cell("""\
-## Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
 screamingface prepare draco  # first run only: download pinned Benchmark assets
 screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.configure(
-    engine_url="http://127.0.0.1:9108",
-    scoreboard_url="http://127.0.0.1:9106",
-)
-
-BENCHMARK_ID = "draco\""""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(_TARGET_SETUP + '\n\nBENCHMARK_ID = "draco"'),
         nbformat.v4.new_markdown_cell("""\
 ## 1 · Leaderboards
 
@@ -649,24 +676,16 @@ where `sf.CorrectiveLoop` is the protocol from
         nbformat.v4.new_markdown_cell("""\
 ![The IFEval protocol grid: solo vs panel, no loop vs corrective](assets/ifeval-protocol-grid.png)
 """),
-        nbformat.v4.new_markdown_cell("""\
-## Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
 screamingface prepare ifeval  # first run only: download pinned Benchmark assets
 screamingface up              # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## Define models and fusion"""),
         nbformat.v4.new_code_cell("""\
@@ -774,26 +793,20 @@ This notebook evaluates DRACO using new models (August 2026) and fusions of thes
 <img src="assets/draco-benchmark.svg" width="900"
   alt="DRACO at a glance: 100 research tasks, ~40 weighted rubric criteria each, judge
   answers MET/UNMET per criterion, score = mean of weighted case scores in 0..1"/>"""),
-        nbformat.v4.new_markdown_cell("""\
-## Running things locally
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Running things locally",
+                """\
 screamingface prepare draco  # first run only: download pinned Benchmark assets
 screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services."""),
+screamingface status""",
+            )
+        ),
         nbformat.v4.new_markdown_cell("""\
 Export `TAVILY_API_KEY` before `screamingface up`: the Gemini, Kimi, DeepSeek, and
 Qwen answer routes use its guarded tool loop, and the Engine fails before model spend when that
 required retrieval mechanism is unavailable."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf"""),
+        nbformat.v4.new_code_cell(_TARGET_SETUP),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Connect OpenRouter"""),
         nbformat.v4.new_code_cell("""\
@@ -926,25 +939,17 @@ what published HealthBench figures do."""),
 <img src="assets/healthbench-worst30-benchmark.svg" width="900"
   alt="HealthBench worst-30 at a glance: 157 hardest conversations, physician-written
   rubrics where penalties subtract, unclamped case scores, raw mean keeps negatives"/>"""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare healthbench-worst30       # first run only: download pinned assets
 screamingface prepare healthbench-professional  # first run only: download pinned assets
 screamingface up                                # start Gateway, Scoreboard, and Engine
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Run the hard board with 1 model
 
@@ -1077,25 +1082,16 @@ leaderboard?"."""),
   task, roughly 4,500 per full run), case score = earned points over positive points with
   negatives subtracting and no clamp, board score = plain mean over 102 cases — deliberately
   not the official pairwise-vs-human GDPval metric"/>"""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare gdpval-text  # first run only: download pinned Benchmark assets
 screamingface up                   # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Run one case with a single model
 
@@ -1206,25 +1202,16 @@ entirely answer generation.
   alt="MedXpertQA at a glance: 2,450 expert medical MCQs with ten choices, a two-turn
   reason-then-commit exchange, free exact-match grading, score = matching cases / cases run
   with answered_rate reported beside it"/>"""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare medxpert  # first run only: download pinned Benchmark assets
 screamingface up                # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Run a few cases with one model
 
@@ -1323,21 +1310,14 @@ and pinned at import time, so a published board never drifts under you.
 
 This notebook walks the whole path: list the catalogue → read an imported board's card → run a
 fusion against it."""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare inspect-gsm8k  # first run only: download pinned Benchmark assets
 screamingface up                     # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local services.
-
+screamingface status""",
+                """\
 **Where the imported boards live.** An Engine serves imported boards only when it runs with its
 `inspect` extra (the upstream scorers come from `inspect-ai`, which cannot co-install with the
 local runtime's dependencies — a declared conflict, not an accident). So the first
@@ -1346,21 +1326,10 @@ later starts reuse it), and the local stack lists both groups. Each board still 
 on disk before a run — `screamingface prepare inspect-gsm8k` for this notebook's example.
 
 The first cell of section 2 checks for the imported shelf and stops with guidance rather than
-failing partway through. To use another Engine instead, point the SDK at it, and at its
-Scoreboard, before starting the kernel:
-
-```bash
-export SCREAMINGFACE_ENGINE_URL="https://<an-engine-with-the-inspect-extra>"
-export SCREAMINGFACE_SCOREBOARD_URL="https://<its-scoreboard>"
-```
-
-A non-default Engine without its Scoreboard is refused, so a run can never publish to the public
-leaderboard by accident. Leaving both unset falls back to a running local stack, then to the
-hosted default."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+failing partway through.""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. List the catalogue — one group per origin
 
@@ -1387,8 +1356,7 @@ the notebook stops here with directions instead of failing on the lookup."""),
 if not any(benchmark.origin == "inspect_evals" for benchmark in benchmarks):
     raise RuntimeError(
         "this Engine serves no imported boards — the rest of this notebook needs an "
-        "Engine running with its inspect extra; see section 0 for how to point "
-        "SCREAMINGFACE_ENGINE_URL at one"
+        "Engine running with its inspect extra; see section 0 for the two TARGETs"
     )
 
 gsm8k = sf.benchmarks.get("inspect-gsm8k")
@@ -1635,25 +1603,16 @@ credit**. No judge, no grading tokens — like MedXpertQA, what you pay for is a
   score here is **F1**, not accuracy — F1 scores that model 0.
 - **The score is not a mean of case scores.** F1 comes from a confusion matrix built across the
   whole run, so a 5-case rehearsal produces a number that is real but extremely coarse."""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare contracteval  # first run only: download pinned Benchmark assets
 screamingface up                    # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Run a few cases with one model
 
@@ -1779,25 +1738,16 @@ against the ones the dataset marks as supporting).
   reader takes the last `Supporting paragraphs:` and the last `Answer:` it finds. A reply with
   no `Answer:` line is graded as a whole, which almost always means F1 0 — tell the model about
   the format rather than hoping it infers it."""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare musique  # first run only: download the pinned dev split from the Hub
 screamingface up               # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Read the board's card
 
@@ -1921,25 +1871,16 @@ grids solved / grids in the task, so a task with two grids and one solved scores
   re-ask; this board scores it 0. One Attempt cut off at the token cap fails the whole Case.
 - **Give the model room.** An answer grid alone runs to 2,760 characters; with reasoning on top,
   a low `max_tokens` fails Attempts."""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare arc_agi_2  # first run only: download the pinned task zip from GitHub
 screamingface up                 # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Read the board's card
 
@@ -2050,25 +1991,16 @@ case.
 - **The articles are 2024 revisions drawn with today's templates.** A few tables show a value from
   2025 or later, and a few templates deleted since draw only their name; the snapshot's card
   lists both."""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare frames_oracle  # first run only: download the questions and the articles
 screamingface up                     # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Read the Benchmark's card
 
@@ -2191,10 +2123,10 @@ once).
 `HF_TOKEN` (or run `huggingface-cli login`) before `just local-stack-notebooks`. Without a token
 the local stack skips HLE with a warning and serves the other five.
 
-**Dev.** fusion.dev, behind a Cloudflare Access login. `sf.connect()` opens that login in your
-browser.
+**Hosted.** fusion.screamingface.ai, behind a Cloudflare Access login. `sf.connect()` opens that
+login in your browser. **Dev** is the team's test deployment, fusion.dev, behind the same login.
 
-Two things differ between the two targets:
+Two things differ between local and the deployed targets:
 
 - **On a Mac, the local stack serves only FigQA, TableQA and HLE.** MMMU and MathVista have
   their Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
@@ -2204,7 +2136,7 @@ Two things differ between the two targets:
 - **The per-run memory budget is enforced only on a Linux deployment.** A local Engine watches
   no memory, so a run that uses too much memory fails on dev and never locally (section 7)."""),
         nbformat.v4.new_markdown_cell("""\
-## 1. One switch: local or dev
+## 1. One switch: local, hosted or dev
 
 Set `TARGET`, then run the cell. It points the Client at that Engine and its Scoreboard, then
 opens the connection panel. A deployment uses exactly one credential mode (see
@@ -2212,19 +2144,24 @@ opens the connection panel. A deployment uses exactly one credential mode (see
 
 - **local** is bring your own key: the panel takes a provider key, which goes to the Engine
   for validation and encrypted storage; the notebook never keeps it.
-- **dev** is hosted credits: the panel shows a **Log in** step (Cloudflare Access opens in
-  your browser), then the providers your hosted account can use."""),
+- **hosted** and **dev** are hosted credits: the panel shows a **Log in** step (Cloudflare
+  Access opens in your browser), then the providers your hosted account can use."""),
         nbformat.v4.new_code_cell("""\
 import platform
 
 import screamingface as sf
 
-TARGET = "local"  # or "dev"
+TARGET = "local"  # or "hosted"; "dev" is the team's test deployment
 
 if TARGET == "local":
     sf.configure(
         engine_url="http://127.0.0.1:9108",
         scoreboard_url="http://127.0.0.1:9106",
+    )
+elif TARGET == "hosted":
+    sf.configure(
+        engine_url="https://fusion.screamingface.ai",
+        scoreboard_url="https://leaderboard.screamingface.ai",
     )
 elif TARGET == "dev":
     sf.configure(
@@ -2232,7 +2169,7 @@ elif TARGET == "dev":
         scoreboard_url="https://leaderboard.dev.screamingface.ai",
     )
 else:
-    raise ValueError(f'TARGET must be "local" or "dev", not {TARGET!r}')
+    raise ValueError(f'TARGET must be "local", "hosted" or "dev", not {TARGET!r}')
 
 sf.connect()"""),
         nbformat.v4.new_markdown_cell("""\
@@ -2450,24 +2387,16 @@ so this notebook runs the loop on IFEval alone:
 | Benchmark | Checked by | Mid-run check cost |
 |---|---|---|
 | `ifeval` | vendored official verifier (deterministic) | free |"""),
-        nbformat.v4.new_markdown_cell("""\
-## Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
 screamingface prepare ifeval  # first run only: download pinned Benchmark assets
 screamingface up              # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-"""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## Define the panel and the judge"""),
         nbformat.v4.new_code_cell("""\
