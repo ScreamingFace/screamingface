@@ -109,3 +109,9 @@ environment for pip users and retires the in-process path.
   loud refusal. Pinned by `test_prepare_all_skips_a_gated_dataset_and_prepares_the_rest`,
   `test_a_named_gated_dataset_fails_loudly`, `test_an_exported_skip_switch_still_wins_under_prepare_all`.
   197 passed across the 9 runtime test files.
+- **Follow-up 2 (2026-11-05, found by running the replay lane's prepare step locally):**
+  `prepare` used the resolved interpreter without `up`'s medxpert-only check, so a checkout
+  Engine venv without the benchmarks extra (the pre-push hook creates one) ran the preparer and
+  died with "the `datasets` package is required". `prepare` and `prepare --list` now run the
+  same check (`_checked_engine_bundle_ids`). Pinned by
+  `test_prepare_refuses_a_medxpert_only_environment_like_up`. 199 passed.

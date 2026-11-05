@@ -1013,6 +1013,18 @@ def _prepare_in_process(
 _SKIP_GATED_DATASETS_ENV = "SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN"
 
 
+def _checked_engine_bundle_ids(python: Path) -> tuple[str, ...]:
+    """The bundles the Engine at `python` serves, refusing a medxpert-only one exactly as `up` does.
+
+    WHY: `prepare` must judge the Engine environment the way `up` does. Without this, a
+    checkout's Engine venv synced without the benchmarks extra ran the preparer and died with
+    "the `datasets` package is required" instead of getting the one-line fix.
+    """
+    ids: tuple[str, ...] = engine_env.engine_bundle_ids(python, os.environ)
+    engine_env.require_full_engine(python, ids, runtime_source.resolve_source(os.environ))
+    return ids
+
+
 def _prepare_with_engine(
     config: RuntimeConfig, benchmark: str | None, *, all_benchmarks: bool, force: bool
 ) -> None:
@@ -1026,7 +1038,7 @@ def _prepare_with_engine(
     if config.engine_python is None:
         raise RuntimeError("prepare through the Engine needs an Engine environment")
     python: Path = config.engine_python
-    ids: tuple[str, ...] = engine_env.engine_bundle_ids(python, os.environ)
+    ids: tuple[str, ...] = _checked_engine_bundle_ids(python)
     if benchmark is not None and benchmark not in ids:
         raise RuntimeError(
             f"no such benchmark {benchmark!r} in the Engine at {python}; "
@@ -1096,7 +1108,7 @@ def _benchmark_statuses(config: RuntimeConfig, *, ask_engine: bool = True) -> di
         return {name: _benchmark_status(config, name) for name in _BENCHMARKS}
     names: tuple[str, ...]
     if ask_engine:
-        names = engine_env.engine_bundle_ids(config.engine_python, os.environ)
+        names = _checked_engine_bundle_ids(config.engine_python)
     else:
         root: Path = config.assets_dir
         names = tuple(sorted(p.name for p in root.iterdir() if p.is_dir())) if root.is_dir() else ()

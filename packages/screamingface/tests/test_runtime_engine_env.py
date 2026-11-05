@@ -823,3 +823,29 @@ def test_an_exported_skip_switch_still_wins_under_prepare_all(
 
     with pytest.raises(RuntimeError, match="failed to prepare hle"):
         cli._prepare(config, None, all_benchmarks=True)
+
+
+@pytest.mark.parametrize("listing", [True, False])
+def test_prepare_refuses_a_medxpert_only_environment_like_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, listing: bool
+) -> None:
+    """INVARIANT: `prepare` judges the Engine environment exactly as `up` does.
+
+    Before this, `prepare` used whatever interpreter it resolved without the medxpert-only
+    check: a checkout whose Engine venv lacks the benchmarks extra (the pre-push hook creates
+    one) ran the preparer there and died with "the `datasets` package is required". Now it gets
+    the same refusal and the same fix as `up`.
+    """
+    python = tmp_path / "python"
+    python.write_text("")
+    monkeypatch.setattr(engine_env, "engine_bundle_ids", lambda *a, **k: ("medxpert",))
+    monkeypatch.setattr(
+        engine_env.subprocess, "run", lambda *a, **k: pytest.fail("ran the preparer anyway")
+    )
+    config = RuntimeConfig(data_dir=tmp_path / "data", engine_python=python)
+
+    with pytest.raises(RuntimeError, match="lacks the inspect extra"):
+        if listing:
+            cli._prepare(config, None, all_benchmarks=False, list_benchmarks=True)
+        else:
+            cli._prepare(config, "medxpert", all_benchmarks=False)
