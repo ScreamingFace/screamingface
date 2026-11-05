@@ -43,6 +43,6 @@ each "Before running" section into Local and Hosted. Rides #1675, PR 4 of 4 (OME
 - **Gates:** `tests/test_notebook_targets.py` 13 passed (one per Benchmark notebook);
   mutation check: one notebook defaulting to `"hosted"` fails it. The 8 notebook test files:
   100 passed. `check_notebooks.py` clean; ruff check + format clean.
-- **Deviations:** none.
+- **Deviations:** none. After main merged in (#1680), its new `19_map_select_reduce` notebook got the same switch and a Before running section: it evaluates `inspect-gsm8k` through the default client, so it had the same silent fallback.
 - **Not checked:** the hosted path end to end (it needs a login, and its runs are paid), and
   whether production serves every Benchmark these notebooks name.

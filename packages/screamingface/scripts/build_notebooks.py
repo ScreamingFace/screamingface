@@ -2421,8 +2421,18 @@ reads" gives the rules.
 
 Each cell below builds one recipe. Building a recipe makes no request. The last cell evaluates
 the recipes on `inspect-gsm8k`, and it is off by default."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
+screamingface prepare inspect-gsm8k  # first run only: download pinned Benchmark assets
+screamingface up                     # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(
+            _TARGET_SETUP
+            + """
 
 BENCHMARK = "inspect-gsm8k"
 LIMIT = 3
@@ -2470,7 +2480,8 @@ RUBRIC_MAX = "Score each answer from 0 to 10. Give a higher number to a more cor
 RUBRIC_MIN = (
     "Score each answer by how wrong it is, from 0 to 10. 0 means fully correct. "
     "Give a lower number to a more correct answer."
-)"""),
+)"""
+        ),
         nbformat.v4.new_markdown_cell("""\
 ## The 13 combine cases"""),
         nbformat.v4.new_code_cell("""\
