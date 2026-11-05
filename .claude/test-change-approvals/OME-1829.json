@@ -1,6 +1,6 @@
 {
-  "issue": "OME-1309",
-  "branch": "external-result-metadata",
+  "issue": "OME-1829",
+  "branch": "OME-1829-external-result-metadata",
   "approver": "Filip Boltuzic (owner)",
   "date": "2026-11-03",
   "reason": "Owner selected option A: publish external-result metric and dates, but keep attaching-person attribution internal. Add metric_name, observed_at and last_imported_at to the exact public-field allowlist and explicitly forbid attached_by. Preserve all other privacy assertions.",
