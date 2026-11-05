@@ -1,9 +1,9 @@
 ---
 ticket: OME-1833   # filed under OME-1314
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-05
-finished:
+finished: 2026-11-05
 ---
 
 # case-result-store — store each Case's result as it finishes, stream it into the aggregate
@@ -48,7 +48,32 @@ Spec: `docs/spec/2026-11-05-case-result-store.md`. Plan: `docs/plan/2026-11-05-c
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, plus `runner/operation_capture.py:new_case_result_store`.
+  The memory test lives in `tests/unit/inspect/test_case_result_memory.py`, because it needs
+  the `inspect` extra; CI runs that lane as `uv run --extra inspect pytest tests/unit/inspect`.
+- **Commits:** `052dd303d` docs (spec, plan, ledger); then the `feat(engine)` commit on
+  branch `OME-1833-case-result-store`.
+- **Gates:** `run_gates.py screamingface-engine --base origin/main` ALL GATES GREEN (exit 0).
+  The inspect lane passed 2936 tests. url4 is untouched.
+- **Measured (tracemalloc, single-model Candidate, test above):**
+
+  | Measure | Before | After |
+  |---|---|---|
+  | Aggregate, KiB per Case (N=500 / N=2,000) | 91 / 92 | 14.6 / 14.3 |
+  | Case phase, marginal slope, KiB per Case | 6.3 | 1.6 |
+
+- **Measured (repro harness, 12,032 Cases, 2-member fusion, RSS):**
+
+  | Measure | Before | After |
+  |---|---|---|
+  | Case phase, 2k→10k Cases | 277→378 MiB (~12.9 KiB/Case) | 210→214 MiB (~0.4 KiB/Case) |
+  | Peak RSS | 2,963 MiB | 1,016 MiB |
+  | End RSS | 1,821 MiB | 1,003 MiB |
+
 - **Deviations:**
+  - `benchmark_aggregation.py` was already over the 450-line cap (1,056 lines); this unit adds
+    7 lines and leaves the split to its own unit.
+  - The report is still built whole. That is about 800 MiB of the 1,016 MiB peak (fusion
+    `operations` included). Streaming `cases` into the artifact store would make the run body
+    a reference, which changes the public shape, so it is left as an owner decision (see the
+    spec).
