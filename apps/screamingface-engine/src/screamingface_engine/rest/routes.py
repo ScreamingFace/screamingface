@@ -708,11 +708,15 @@ _START_RESPONSES: dict[int | str, dict[str, Any]] = {
             },
         },
     },
-    400: _problem(
-        "The url4 expression query parameter `q` is required, or the request states the "
-        "unsupported `X-Profile` header (`code: x_profile_unsupported`), or `X-SF-Run-Candidate` "
-        "is not an index of the Run's Candidates (`code: malformed_header`)."
-    ),
+    400: {
+        **_problem(
+            "The url4 expression query parameter `q` is required, or the request states the "
+            "unsupported `X-Profile` header (`code: x_profile_unsupported`), or "
+            "`X-SF-Run-Candidate` is not an index of the Run's Candidates "
+            "(`code: malformed_header`)."
+        ),
+        "headers": PRIVATE_HEADERS_DOC,
+    },
     # The `X-SF-Run` answers depend on who asks, so they carry the `/runs` cache headers.
     404: {
         **_problem(

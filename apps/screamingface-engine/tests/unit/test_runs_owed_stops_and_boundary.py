@@ -80,8 +80,9 @@ async def test_a_mixed_runs_failed_pending_stop_is_retried(registry: Registry) -
 
     assert failed.status_code == 503
     assert retried.status_code == 202
-    # The failed pending stop is retried; the still-live sibling is owed a stop again too.
+    # The failed pending stop is retried; the sibling whose stop succeeded is not stopped again.
     assert runner.attempts.count("topic-p") == 2
+    assert runner.attempts.count("topic-s") == 1
     assert "topic-p" in runner.stopped
 
 
