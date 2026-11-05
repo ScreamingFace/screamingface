@@ -675,8 +675,8 @@ def _gateway_client(node: object) -> httpx.AsyncClient | None:
 
 _MODEL_LIST_PATH = "/v1/models"
 _MODEL_LIST_UNREADABLE = (
-    "the gateway's model list could not be read, so this picture run cannot check that its "
-    "models take images; nothing was sent to a model"
+    "the gateway's model list could not be read, so this run cannot check that its models "
+    "take its pictures or PDFs; nothing was sent to a model"
 )
 
 
