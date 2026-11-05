@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import inspect
 import logging
@@ -183,6 +184,11 @@ class Url4CloudTransport:
         self._abort = _ThreadEvent()
         self._active_lock = Lock()
         self._active_tokens: set[str] = set()
+        # Per Candidate in `run()`: the capabilities it minted (the list `_run` appends a
+        # remint to) and its own abort, so `abort_evaluation` stops one evaluation's Runs and
+        # wakes only its waits (spec R8). Guarded by `_active_lock`.
+        self._minted_by: dict[int, list[str]] = {}
+        self._aborts_by: dict[int, _ThreadEvent] = {}
         # How many `run()` calls are in flight — NOT the registry size: a Run can leave the
         # registry before it ends. Guarded by `_active_lock`.
         self._running = 0
@@ -277,6 +283,7 @@ class Url4CloudTransport:
             self._end_finished_abort()
             self._active_tokens.add(minted[0])
             self._running += 1
+            self._track(candidate, minted, _ThreadEvent())
         lifecycle = _Lifecycle(candidate)
         started = time.monotonic()
         try:
@@ -296,6 +303,18 @@ class Url4CloudTransport:
             with self._active_lock:
                 self._active_tokens.difference_update(minted)
                 self._running -= 1
+                self._untrack(candidate)
+
+    def _track(self, candidate: Candidate, minted: list[str], abort: _ThreadEvent) -> None:
+        """Record the Candidate's capabilities and abort; the caller holds `_active_lock`."""
+        if self._aborted:
+            abort.set()
+        self._minted_by[id(candidate)] = minted
+        self._aborts_by[id(candidate)] = abort
+
+    def _untrack(self, candidate: Candidate) -> None:
+        self._minted_by.pop(id(candidate), None)
+        self._aborts_by.pop(id(candidate), None)
 
     def _end_finished_abort(self) -> None:
         """Clear the owner-abort flag when a Run starts and no Run is running (spec B1).
@@ -396,7 +415,7 @@ class Url4CloudTransport:
                 use_cache=candidate.use_cache,
                 admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
                 on_event=on_event,
-                wait=self._abort.wait,
+                wait=self._aborts_by.get(id(candidate), self._abort).wait,
                 run_headers=self._runs.headers(candidate),
             )
         except ExecutionError as exc:
@@ -472,8 +491,9 @@ class Url4CloudTransport:
         delays the abort the user already chose (the SIGINT lands on the main thread;
         worker threads learn of it here).
         """
-        if self._aborted or time.monotonic() >= budget_deadline:
-            if not self._aborted:
+        aborted = self._is_aborted(token)
+        if aborted or time.monotonic() >= budget_deadline:
+            if not aborted:
                 _logger.warning("SF Engine reconnect budget exhausted; stopping the Run")
                 self._sweep_after_disconnect(token)
             raise _disconnected(exc, time.monotonic() - started) from exc
@@ -539,6 +559,20 @@ class Url4CloudTransport:
         with self._active_lock:
             self._aborted = True
             tokens = tuple(self._active_tokens)
+            for abort in self._aborts_by.values():
+                abort.set()
+        self._stop_tokens(tokens)
+
+    def _is_aborted(self, token: str) -> bool:
+        """Whether the owner aborted the Run of ``token``: every Run, or its evaluation's."""
+        with self._active_lock:
+            return self._aborted or any(
+                token in self._minted_by.get(key, ())
+                for key, abort in self._aborts_by.items()
+                if abort.is_set()
+            )
+
+    def _stop_tokens(self, tokens: tuple[str, ...]) -> None:
         if not tokens:
             return
         with ThreadPoolExecutor(
@@ -555,12 +589,23 @@ class Url4CloudTransport:
             raise ExceptionGroup("Could not stop every active SF Engine Run", errors)
 
     def abort_evaluation(self, candidates: tuple[Candidate, ...]) -> None:
-        """`cancel_active`, and cancel the Runs of ``candidates`` (spec R8). Only theirs: another
-        evaluation on this Client keeps its Run."""
+        """Stop the Runs of ``candidates`` and cancel their Runs on the Engine (spec R8). Only
+        theirs: another evaluation on this Client keeps running."""
         # WHY before the stops: from here a queued Candidate of these Runs refuses to start.
         run_ids = self._runs.to_cancel(candidates)
+        keys = {id(candidate) for candidate in candidates}
+        with self._active_lock:
+            for key in keys:
+                if (abort := self._aborts_by.get(key)) is not None:
+                    abort.set()
+            tokens = tuple(
+                token
+                for key in keys
+                for token in self._minted_by.get(key, ())
+                if token in self._active_tokens
+            )
         try:
-            self.cancel_active()
+            self._stop_tokens(tokens)
         finally:
             # WHY after the stops: a slow Engine must never delay stopping paid work.
             self._cancel_runs(run_ids)
@@ -678,6 +723,10 @@ class AsyncUrl4CloudTransport:
         # replace this module's `asyncio` with a namespace of `sleep` and `wait_for` only.
         self._abort = _AsyncEvent()
         self._active_tokens: set[str] = set()
+        # Per Candidate: its capabilities and its own abort; see the sync twin (spec R8). A
+        # cancelled Run keeps its entry, like its capability, for the sweep that stops it.
+        self._minted_by: dict[int, list[str]] = {}
+        self._aborts_by: dict[int, _AsyncEvent] = {}
         # In-flight `run()` calls; see the sync twin (spec 4.3).
         self._running = 0
 
@@ -730,24 +779,40 @@ class AsyncUrl4CloudTransport:
         else:
             self._abort.clear()
 
-    async def _wait_unless_aborted(self, delay: float) -> bool:
-        """Wait `delay` seconds; True at once if the owner aborts meanwhile (spec B3)."""
+    async def _wait_unless_aborted(self, delay: float, abort: _AsyncEvent | None = None) -> bool:
+        """Wait `delay` seconds; True at once if the owner aborts meanwhile (spec B3), or,
+        given ``abort``, the evaluation it belongs to."""
         try:
-            await asyncio.wait_for(self._abort.wait(), timeout=delay)
+            await asyncio.wait_for((abort or self._abort).wait(), timeout=delay)
         except TimeoutError:
             return False
         return True
+
+    def _is_aborted(self, token: str) -> bool:
+        """Async twin of the sync `_is_aborted`."""
+        return self._aborted or any(
+            token in self._minted_by.get(key, ())
+            for key, abort in self._aborts_by.items()
+            if abort.is_set()
+        )
 
     async def cancel_active(self) -> None:
         """Stop every Run currently owned by this asynchronous Client."""
 
         self._aborted = True
+        for abort in self._aborts_by.values():
+            abort.set()
         tokens = tuple(self._active_tokens)
-        if not tokens:
-            return
         # Retiring them here bounds the registry: a cancelled Run deliberately leaves its
         # capability behind, and this sweep is what owns clearing it.
         self._active_tokens.clear()
+        self._minted_by.clear()
+        self._aborts_by.clear()
+        await self._stop_tokens(tokens)
+
+    async def _stop_tokens(self, tokens: tuple[str, ...]) -> None:
+        if not tokens:
+            return
         results = await asyncio.gather(
             *(_stop_async(self._http, token) for token in tokens),
             return_exceptions=True,
@@ -795,6 +860,7 @@ class AsyncUrl4CloudTransport:
         self._end_finished_abort()
         self._active_tokens.add(minted[0])
         self._running += 1
+        self._track(candidate, minted, _AsyncEvent())
         cancelled = False
         started = time.monotonic()
         lifecycle = _Lifecycle(candidate)
@@ -824,6 +890,7 @@ class AsyncUrl4CloudTransport:
             self._running -= 1
             if not cancelled:
                 self._retire(minted)
+                self._untrack(candidate)
 
     async def _start_run(
         self,
@@ -845,7 +912,9 @@ class AsyncUrl4CloudTransport:
                 use_cache=candidate.use_cache,
                 admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
                 on_event=on_event,
-                wait=self._wait_unless_aborted,
+                wait=functools.partial(
+                    self._wait_unless_aborted, abort=self._aborts_by.get(id(candidate))
+                ),
                 run_headers=self._runs.headers(candidate),
             )
         except ExecutionError as exc:
@@ -857,6 +926,17 @@ class AsyncUrl4CloudTransport:
     def _retire(self, minted: list[str]) -> None:
         """Async twin of the sync `_retire`; no lock (class INVARIANT)."""
         self._active_tokens.difference_update(minted)
+
+    def _track(self, candidate: Candidate, minted: list[str], abort: _AsyncEvent) -> None:
+        """Async twin of the sync `_track`; no lock (class INVARIANT)."""
+        if self._aborted:
+            abort.set()
+        self._minted_by[id(candidate)] = minted
+        self._aborts_by[id(candidate)] = abort
+
+    def _untrack(self, candidate: Candidate) -> None:
+        self._minted_by.pop(id(candidate), None)
+        self._aborts_by.pop(id(candidate), None)
 
     def _end_finished_abort(self) -> None:
         """Async twin of the sync `_end_finished_abort` (spec B1); no lock (class INVARIANT)."""
@@ -963,8 +1043,9 @@ class AsyncUrl4CloudTransport:
         token: str,
     ) -> int:
         """Async twin of the sync backoff/terminal decision — see its docstring."""
-        if self._aborted or time.monotonic() >= budget_deadline:
-            if not self._aborted:
+        aborted = self._is_aborted(token)
+        if aborted or time.monotonic() >= budget_deadline:
+            if not aborted:
                 _logger.warning("SF Engine reconnect budget exhausted; stopping the Run")
                 await self._sweep_after_disconnect(token)
             raise _disconnected(exc, time.monotonic() - started) from exc
@@ -992,10 +1073,22 @@ class AsyncUrl4CloudTransport:
         return True
 
     async def abort_evaluation(self, candidates: tuple[Candidate, ...]) -> None:
-        """Async twin of the sync `abort_evaluation`."""
+        """Async twin of the sync `abort_evaluation`: this evaluation's Runs only."""
         run_ids = self._runs.to_cancel(candidates)
+        keys = {id(candidate) for candidate in candidates}
+        for key in keys:
+            if (abort := self._aborts_by.get(key)) is not None:
+                abort.set()
+        tokens = tuple(
+            token
+            for key in keys
+            for token in self._minted_by.get(key, ())
+            if token in self._active_tokens
+        )
+        # The sweep clears what it stops, as `cancel_active` does for every Run.
+        self._active_tokens.difference_update(tokens)
         try:
-            await self.cancel_active()
+            await self._stop_tokens(tokens)
         finally:
             await self._cancel_runs(run_ids)
 

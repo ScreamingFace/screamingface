@@ -277,7 +277,7 @@ def problem_code(response: httpx.Response) -> str | None:
 def _json(response: httpx.Response) -> object:
     try:
         return response.json()
-    except ValueError:
+    except (ValueError, RecursionError):
         _malformed()
 
 
@@ -347,9 +347,11 @@ def _is_int(value: object) -> bool:
 
 
 def _choice(value: object, allowed: frozenset[str]) -> str:
-    if value not in allowed:
+    # WHY the type first: a list or an object is unhashable, and `in` would raise TypeError,
+    # which no caller treats as a malformed answer.
+    if not isinstance(value, str) or value not in allowed:
         _malformed()
-    return cast(str, value)
+    return value
 
 
 def _time(value: object) -> datetime:

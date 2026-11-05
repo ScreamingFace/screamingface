@@ -158,7 +158,9 @@ def test_a_failed_cancel_changes_nothing_else(monkeypatch: pytest.MonkeyPatch) -
         transport.open_run("gsm8k", 1, (alpha,))
         transport.abort_evaluation((alpha,))
 
-    assert transport._aborted
+        # The abort still took effect: the Run's later starts are refused.
+        with pytest.raises(ExecutionError):
+            transport._runs.refuse_if_canceled(alpha)
 
 
 def test_a_finished_candidate_is_not_canceled() -> None:
@@ -436,6 +438,7 @@ def test_an_abort_stops_its_runs_before_it_cancels_them(monkeypatch: pytest.Monk
     with isolation_engine({}) as engine, _sync_transport(engine.url) as transport:
         transport.open_run("gsm8k", 1, (alpha,))
         transport._active_tokens.add("cap-1")
+        transport._minted_by[id(alpha)] = ["cap-1"]
         transport.abort_evaluation((alpha,))
 
     # WHY: a slow Engine must never delay stopping paid work.
@@ -497,6 +500,7 @@ def test_an_abort_refuses_queued_starts_while_it_stops(monkeypatch: pytest.Monke
     with isolation_engine({}) as engine, _sync_transport(engine.url) as transport:
         transport.open_run("gsm8k", 2, (alpha, beta))
         transport._active_tokens.add("cap-1")
+        transport._minted_by[id(alpha)] = ["cap-1"]
         transport.abort_evaluation((alpha, beta))
 
     assert refused == [True]
