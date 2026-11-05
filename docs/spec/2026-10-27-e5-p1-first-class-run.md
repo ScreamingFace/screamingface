@@ -82,7 +82,7 @@ with `packages/`.
 | D3 | **Every database write goes through the App. Runners and url4 hold no database connection.** | The owner condition (§9): one writer is easy to reason about, and runners stay free to run anywhere, for example on AWS Lambda. |
 | D4 | **Outcomes travel on a `CandidateOutcomeStream` port.** It has a JetStream adapter (stream `url4-candidate-outcomes`) and an in-memory adapter (`InMemoryCandidateOutcomeStream`), like `EventStream` and `InMemoryEventStream`. Every producer publishes to it, and one App consumer writes them. | One write path in both modes: no "local writes directly" branch, and no runner holds database access. |
 | D5 | **`Run.id` is `run_` + a random UUID in hex, minted by the Engine. It is not a secret.** Access is checked by owner, and a foreign or unknown id answers 404. Runs list by `created_at`, newest first, with the id breaking ties. | Ordering comes from a timestamp column, not the id, so the id needs no clock or counter and any number of App replicas can mint it. Safe to paste anywhere (`OME-966`). |
-| D6 | **The owner is the verified `X-User-Email` hosted, or `local` in local mode.** It is resolved through the same `require_identity` switch as the mounts, and stored as `sha256` of the email NFC-normalised, trimmed and lowercased in ASCII only (`A`–`Z`). A non-ASCII letter keeps its case, so the key never merges two addresses (§9). A hosted `/runs*` call without identity gets 401. | It reuses the identity the edge already verifies. Local mode is loopback and single-user. |
+| D6 | **The owner is the verified `X-User-Email` hosted, or `local` in local mode.** It is resolved through the same `require_identity` switch as the mounts, and stored as `sha256` of the email trimmed and lowercased (`str.lower()`), the rule aigateway's account key uses. It never case-folds, so `ß`/`ss`, `ﬁ`/`fi` and `ſ`/`s` stay two owners (§9). A hosted `/runs*` call without identity gets 401. | It reuses the identity the edge already verifies. Local mode is loopback and single-user. |
 | D7 | **Registration is best-effort.** If `POST /runs` fails in any way (any non-2xx answer, such as 401 for no identity, 404 for an older Engine or with Runs off, or a 5xx while the database is down; or a transport error), `evaluate` runs exactly as today, with `Report.run_id = None` and one notice. | History never breaks automation or a lagging local Engine. |
 | D8 | **Every `evaluate` registers a Run**: Recipe, raw-URL4 and replay alike, whatever `save_results` is set to. The Client's local manifest is keyed by `Run.id`. | A Run is the record of every evaluation, not only the saved ones. |
 | D9 | **`Run.report()` reads the Client's local store only.** On a machine without those results it raises an error that names the run and says the results are not on this machine. | Results stay where they are today, so Garage and its lifecycle are unchanged. Opening a report on another machine is P2's question. |
@@ -428,8 +428,11 @@ P1b works against an Engine without `/runs` (D7), so the landings can ship in ei
   `adapters/run_registry_tortoise` module. Writes are compare-and-set on state, not on a
   `revision` column: every write is one `UPDATE … WHERE` guarded on the state it expects, so the
   row count says which writer won (§4.2).
-- **2026-11-05, Tauquir (spec owner), on the #1634 review.** The owner key (D6) lowercases ASCII
-  only, after NFC. Unicode case folding maps `ß` to `ss`, `ﬁ` to `fi` and `ſ` to `s`, which gives
-  two different verified addresses one owner, and the key is the only check on every Run read
-  and write. When unsure, the key splits: at worst one person sees fewer of their own Runs. NFC
-  stays, so canonically equivalent text (a decomposed `ü`, the Kelvin sign and `K`) is one owner.
+- **2026-11-05, Tauquir (spec owner), on the #1634 and #1648 reviews.** The owner key (D6) is
+  the email trimmed and lowercased, exactly as aigateway's account key
+  (`CloudflareIdentity.username`), so one verified email is one identity in both services.
+  Unicode case folding is out: it maps `ß` to `ss`, `ﬁ` to `fi` and `ſ` to `s`, giving two
+  verified addresses one owner, and the key is the only check on every Run read and write. There
+  is no NFC step. `str.lower()` maps the Kelvin sign to `k` in text, but over HTTP the edge's
+  UTF-8 bytes arrive as Latin-1 text, which lowercases to no ASCII letter, so a request never
+  reaches that merge; a `/runs` route test pins it.

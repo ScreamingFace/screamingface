@@ -100,8 +100,8 @@ that builds a `CandidateOutcome`. Nothing is wired; the App does not use any of 
     changed stream limits at startup (`ensure_stream` creates and checks, never rewrites).
   - Locally, the full suite hangs when a NATS broker is reachable on `localhost:4222`
     (pre-existing broker tests; CI's main job has no broker). Not investigated in this unit.
-  - Review of #1634 (owner decision 2026-11-05, spec D6 and §9): the owner key lowercases ASCII
-    only, after NFC. Two prior tests in `test_run_records.py` changed with it, pinned in
+  - Review of #1634 (owner decision 2026-11-05, spec D6 and §9): the owner key is the email
+    trimmed and lowercased, as aigateway's account key. Two prior tests in `test_run_records.py` changed with it, pinned in
     `.claude/test-change-approvals/OME-1800.json`.
   - Every write locks its Run row first; a record is derived from one joined statement; `cancel`
     checks and sets under that lock (spec §4.2).

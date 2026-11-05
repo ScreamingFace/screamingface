@@ -7,8 +7,6 @@ Tortoise adapter maps rows onto them, and the routes map them onto the wire.
 from __future__ import annotations
 
 import hashlib
-import string
-import unicodedata
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
@@ -29,7 +27,6 @@ _TERMINAL_CANDIDATE: frozenset[CandidateState] = frozenset(
 )
 
 OwnerKey = NewType("OwnerKey", str)
-_ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 
 # The widths of the registry's columns (`runs/models/`). WHY checked here: Postgres refuses a value
 # too long for its column while SQLite keeps it, so the rule both databases share comes first.
@@ -47,19 +44,15 @@ _TEXT_LIMITS = {
 
 
 def owner_key(owner: str) -> OwnerKey:
-    """The stored owner (spec D6): sha256 of the verified email, NFC-normalised, trimmed, and
-    lowercased in ASCII only.
+    """The stored owner (spec D6): sha256 of the verified email, trimmed and lowercased.
 
-    WHY normalise: the edge can pass one person's email in different cases or Unicode forms on
-    different login paths; without it one researcher would own two disjoint sets of Runs. Local
-    mode passes `local`, which normalises to itself.
+    WHY this rule: it is aigateway's account key (`CloudflareIdentity.username`), so one verified
+    email is one identity in both services. Local mode passes `local`, which is unchanged by it.
     """
-    # WHY ASCII-only lowercase, not casefold() or lower(): the key is the only check on every Run
-    # read and write, so when unsure it must split two identities, never merge them. Unicode
-    # folding maps "ß" to "ss", "ﬁ" to "fi" and the Kelvin sign to "k", which would give two
-    # different addresses one owner. A non-ASCII letter keeps its case, so at worst one person
-    # sees fewer of their own Runs.
-    normalised = unicodedata.normalize("NFC", owner).strip().translate(_ASCII_LOWER)
+    # WHY no Unicode normalisation: the edge sends the email as UTF-8 bytes, which Starlette reads
+    # as Latin-1 text, so a non-ASCII address reaches here as that text and no fold can merge it
+    # with an ASCII one; the route test pins that over HTTP (spec D6).
+    normalised = owner.strip().lower()
     if not normalised:
         raise ValueError("a Run owner must not be blank")
     return OwnerKey(hashlib.sha256(normalised.encode()).hexdigest())

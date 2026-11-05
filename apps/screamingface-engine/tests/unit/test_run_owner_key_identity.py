@@ -1,7 +1,8 @@
 """E5 P1 spec D6: the owner key never merges two different people.
 
 FEATURE: first-class Runs (OME-1785). INVARIANT: the key is the only check on every Run read and
-write, so it lowercases ASCII only. Unicode case folding would give distinct addresses one owner.
+write. It lowercases as aigateway's account key does, never case-folds: folding would give
+distinct addresses one owner.
 """
 
 from __future__ import annotations
@@ -28,12 +29,12 @@ def test_ascii_case_and_surrounding_space_are_one_owner() -> None:
     assert owner_key(" Alice@Example.ORG\n") == owner_key("alice@example.org")
 
 
-def test_a_non_ascii_letter_keeps_its_case() -> None:
-    # WHY: when unsure, split. At worst one person sees fewer of their own Runs.
-    assert owner_key("Ärzte@x.org") != owner_key("ärzte@x.org")
+def test_a_non_ascii_letter_lowercases_too() -> None:
+    assert owner_key("Ärzte@x.org") == owner_key("ärzte@x.org")
 
 
-def test_a_canonically_equivalent_character_is_one_owner() -> None:
-    # WHY: the Kelvin sign is canonically equivalent to "K" (NFC maps one to the other), so the
-    # two spellings are one text, not two addresses a fold merged.
+def test_the_kelvin_sign_lowercases_to_k_only_as_text() -> None:
+    """WHY: `str.lower()` maps the Kelvin sign to "k", as in aigateway's account key. Over HTTP
+    the edge's UTF-8 bytes arrive as Latin-1 text, which lowercases to no ASCII letter, so a
+    request never reaches this merge (the `/runs` route test pins that)."""
     assert owner_key("\u212aim@corp.org") == owner_key("kim@corp.org")
