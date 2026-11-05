@@ -177,6 +177,7 @@ jobs:
             tests/unit/scores/test_store.py::test_postgres_concurrent_identical_recipe_submissions_share_winner \
             tests/unit/scores/test_idempotency_postgres.py \
             tests/unit/scores/test_idempotency_postgres_safety.py \
+            tests/unit/test_submission_metadata_review.py \
             tests/unit/scores/test_read_snapshot_postgres.py \
             tests/unit/test_delete_scores_postgres.py \
             tests/unit/test_readyz_pool_postgres.py \
