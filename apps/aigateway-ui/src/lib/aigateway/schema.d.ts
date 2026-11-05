@@ -2230,7 +2230,9 @@ export interface operations {
     };
     delete_connection_v1_oauth_connections__connection_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                expected_status?: ("pending" | "error") | null;
+            };
             header?: never;
             path: {
                 connection_id: string;

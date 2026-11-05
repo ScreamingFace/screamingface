@@ -69,7 +69,13 @@ Under `apps/aigateway-ui/`:
     `OAuthConnectionListRow` with `readonly effective: boolean`, which the
     `/v1/oauth/connections` listing now returns in place of `OAuthConnectionResponse`;
     `/v1/cache/entries`; and one OAuth callback description line ("account and Connection").
-    No UI source consumes a changed type.
+    No UI source consumes a changed type. Regenerated once more the same way after L7c
+    (#1678) merged, from `origin/main` `24d979a5e` (42 paths, 41 schemas): the one further change
+    is the Connection delete's optional query parameter `expected_status?: ("pending" | "error")
+    | null`. sha256 of the generated `schema.d.ts`:
+    `514c3b09050f652ecbcc81bed8e0fb8c2e5dda991aa2dd636fc9b1ff0edc6652`; of the exported OpenAPI
+    JSON: `085fe16d59f4038f3ffb59fc7a93f73ae9ff1efb7fe31469e2789b2721d21533`. A second run of the
+    generator writes the same bytes.
   - `src/lib/aigateway/errors.ts`: `credential_write_conflict` left `CODE_KINDS` and the
     `conflict` kind's doc comment, which now says `profile_index_conflict` is decoded for a
     gateway older than E5a (`routes/provider_access_http.py:77-78`).
@@ -97,7 +103,8 @@ Under `apps/aigateway-ui/`:
   PR-open, once the issue id exists. The same runner with `--skip-append-only`: `npm ci`, `lint`,
   `lint:css`, `typecheck`, `build` and `test:ci` passed, ALL GATES GREEN; 21 files / 309 tests.
   Rerun the same way after the review's `errors.ts` edit: ALL GATES GREEN; the comment-only
-  change to `client.test.ts` after it passed that file's tests and `eslint`.
+  change to `client.test.ts` after it passed that file's tests and `eslint`. Rebased onto
+  `24d979a5e` and rerun with the final schema the same way (2026-11-05): ALL GATES GREEN.
 - **Deviations:**
   - Close-out spec §8 says `credential_write_conflict` is "gone from the UI src". The plan's RED
     step needs a test that names the retired code, and the UI's tests sit under `src`, so this
