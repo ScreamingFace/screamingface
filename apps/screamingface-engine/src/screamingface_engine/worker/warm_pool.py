@@ -405,8 +405,10 @@ class WarmChildPool:
     async def settlement(self, proc: _Process) -> child_protocol.Settled | None:
         """The `SETTLED` line of a child whose run is over, or None when it sent none.
 
-        Read once, after the child exits: a child that died first, or sent a malformed line,
-        has none, and the supervisor publishes its own classification instead.
+        Read once, after the child exits: a child that died first, sent a malformed line, or
+        whose pipe broke has none, and the supervisor publishes its own classification instead.
+        INVARIANT: best-effort evidence. Nothing here may raise, or the queue ack after it is
+        skipped and the error cancels the worker's other runs.
         """
         control = self._controls.pop(id(proc), None)
         if control is None:
@@ -414,7 +416,7 @@ class WarmChildPool:
         try:
             line = await asyncio.wait_for(control.readline(), SETTLED_READ_TIMEOUT_S)
             return child_protocol.decode_settled(line) if line else None
-        except (TimeoutError, ValueError) as exc:
+        except (TimeoutError, ValueError, OSError) as exc:
             logger.warning("no readable SETTLED line from child %s: %r", proc.pid, exc)
             return None
 

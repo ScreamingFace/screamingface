@@ -252,9 +252,9 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
   - Hosted: migrations run in a pre-install/pre-upgrade Helm hook Job, modelled on aigateway's
     (`apps/aigateway/charts/aigateway/templates/job-migrate.yaml`). The Job, and the App's
     database variable, render only when `database.existingSecret` is set (key
-    `database.existingSecretKey`, default `database-url`, as for aigateway), and the App's secret
-    reference is `optional: true`. Without the Secret the chart renders and installs, and the App
-    runs with Runs off (D2). The Job runs under the namespace's default ServiceAccount with no
+    `database.existingSecretKey`, default `database-url`, as for aigateway). Both references are
+    required, so a named Secret that does not exist fails the release; with no
+    `database.existingSecret` the App runs with Runs off (D2). The Job runs under the namespace's default ServiceAccount with no
     token, because a pre-install hook runs before the chart's own ServiceAccount exists.
   - Local: `serve --local` applies pending migrations at start.
   - The App refuses to start on a schema older than its code.
