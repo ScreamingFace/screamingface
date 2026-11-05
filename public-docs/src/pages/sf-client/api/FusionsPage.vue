@@ -10,30 +10,23 @@ import {
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
-const fusionSig = `sf.Fusion(
+const fusionSig = `sf.Fanout(
     members: Sequence[str | Recipe],
     *,
-    name: str | None = None,
-    synthesizer: str | Recipe | Reducer,
+    signals: Mapping[str, SignalSource] | None = None,
     quorum: int | Literal["all"] = "all",
-    optional: bool = False,
+    name: str | None = None,
+    prompt: str | None = None,
+) >> sf.Synthesize(
+    model: str | Recipe,
+    *,
+    prompt: str | None = None,
 )`
 
-const fusionExample = `fusion = sf.Fusion(
-    ["openrouter/deepseek/deepseek-v4-flash", "openrouter/z-ai/glm-5.2"],
-    synthesizer="openrouter/moonshotai/kimi-k3",
-)
-report = sf.evaluate(fusion, benchmark="medxpert", limit=1)`
-
-const quorumExample = `fusion = sf.Fusion(
-    [
-        sf.Model("openrouter/deepseek/deepseek-v4-flash", name="a"),
-        sf.Model("openrouter/google/gemini-3.5-flash-lite", name="b"),
-        sf.Model("openrouter/anthropic/claude-haiku-4.5", name="c", optional=True),
-    ],
-    quorum=2,
-    synthesizer=sf.Vote(),
-)`
+const fusionExample = `fusion = sf.Fanout(
+    ["openrouter/deepseek/deepseek-v4-pro", "openrouter/z-ai/glm-5.2"],
+) >> sf.Synthesize("openrouter/moonshotai/kimi-k3")
+report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
 </script>
 
 <template>
@@ -44,11 +37,14 @@ const quorumExample = `fusion = sf.Fusion(
     :version="version"
   >
     <p>
-      A Fusion is a <RouterLink to="/sf-client/api/recipes">Recipe</RouterLink> that runs several
-      members in parallel and combines their answers with an explicit synthesizer. Like every recipe
-      it is frozen and holds no Client, so you can build it before connecting. The
-      <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink> walks through building
-      one.
+      A fusion is a <RouterLink to="/sf-client/api/recipes">Recipe</RouterLink> that runs several
+      members in parallel and combines their answers with an explicit synthesizer. You build it as a
+      chain: <code>sf.Fanout(members)</code> sends the question to every member, and
+      <code>&gt;&gt; sf.Synthesize(model)</code> adds the synthesizer. The chain is an
+      <RouterLink to="/sf-client/api/pipelines"><code>sf.Pipeline</code></RouterLink
+      >. Like every recipe it is frozen and holds no Client, so you can build it before connecting.
+      The <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink> walks through
+      building one.
     </p>
 
     <CodeBlock :code="fusionSig" language="python" />
@@ -67,38 +63,25 @@ const quorumExample = `fusion = sf.Fusion(
           <td><code>str</code></td>
           <td>
             The fusion's name. Inferred by joining member names with <code>+</code> unless you pass
-            one.
+            <code>name</code> to <code>sf.Fanout</code>.
           </td>
         </tr>
         <tr>
-          <td><code>members</code></td>
-          <td><code>tuple[Recipe, ...]</code></td>
-          <td>The members that run in parallel. At least one.</td>
-        </tr>
-        <tr>
-          <td><code>synthesizer</code></td>
-          <td><code>Recipe</code></td>
+          <td><code>steps</code></td>
+          <td><code>tuple</code></td>
           <td>
-            The recipe that combines the members' answers into the single graded answer. It can also
-            be a <RouterLink to="/sf-client/api/reducers">reducer</RouterLink>.
-          </td>
-        </tr>
-        <tr>
-          <td><code>quorum</code></td>
-          <td><code>int | "all"</code></td>
-          <td>
-            How many members must succeed, checked after the members finish. <code>"all"</code> (the
-            default) needs every member. An integer must lie between 0 and the member count, or the
-            constructor raises <code>ValueError</code>. <code>0</code> lets synthesis run with no
-            successful member; a required member that fails still fails the candidate.
+            The <code>Fanout</code> step, then the <code>Synthesize</code> step. The
+            <code>Fanout</code> step keeps the members that run in parallel (at least one). The
+            <code>Synthesize</code> step keeps the <code>model</code> that combines the members'
+            answers into the single graded answer.
           </td>
         </tr>
         <tr>
           <td><code>optional</code></td>
           <td><code>bool</code></td>
           <td>
-            Whether this Fusion, as a member of another Fusion, may fail without stopping that
-            Fusion, as long as its quorum is met. The synthesizer itself stays required.
+            <code>False</code>. Set it on an <code>sf.Pipeline</code> that wraps the chain, for an
+            optional member.
           </td>
         </tr>
       </tbody>
@@ -106,9 +89,10 @@ const quorumExample = `fusion = sf.Fusion(
 
     <Note>
       Members and the synthesizer are themselves recipes, so any of them can be a
-      <code>Model</code>, another <code>Fusion</code>, or a
+      <code>Model</code>, another fusion, or a
       <RouterLink to="/sf-client/api/pipelines">Pipeline</RouterLink>, nested in any combination.
-      Only the synthesizer's final answer is graded.
+      Only the synthesizer's final answer is graded. A reducer such as <code>sf.Vote</code> can
+      close the block in place of <code>sf.Synthesize</code>.
     </Note>
 
     <div class="not-prose">
@@ -128,9 +112,5 @@ const quorumExample = `fusion = sf.Fusion(
       alt="Topology: members A and B succeed and member C, optional, fails; the quorum check passes the answers that arrived to the synthesizer when enough members succeeded, and the candidate fails when the quorum is not met or a required member failed."
       caption="Which members reach the synthesizer, and where a failure stops the candidate."
     />
-
-    <div class="not-prose">
-      <NbCell :count="2" :code="quorumExample" />
-    </div>
   </DocLayout>
 </template>

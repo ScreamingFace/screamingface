@@ -12,10 +12,7 @@ from screamingface._evaluation.linking import link_candidate
 
 def _candidate_url4() -> str:
     return compile_candidate(
-        sf.Fusion(
-            ["provider/a", "provider/b"],
-            synthesizer="provider/synth",
-        )
+        sf.Fanout(["provider/a", "provider/b"]) >> sf.Synthesize("provider/synth")
     ).url4
 
 

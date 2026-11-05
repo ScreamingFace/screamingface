@@ -1,9 +1,9 @@
 ---
 ticket: OME-1819   # slug-named ledger; filed at PR-open
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-03
-finished:
+finished: 2026-11-04
 ---
 
 # effective-row-gateway — OME-1138 close-out L7a: the gateway marks the effective Connection
@@ -102,7 +102,8 @@ RED first:
     `test_oauth_connections_effective.py` (17), `test_native_replaces_an_expired_effective.py`
     (2), and the PG `test_oauth_connections_effective_postgres.py` (2). No prior test changed.
 - **Commits:** `ef802a6bb` `feat(aigateway): mark the Connection chat uses in the Connection
-  listing`, then a records fix to this ledger; the PR squash-merges them as one.
+  listing`, then a records fix to this ledger and the review fixes. Squash-merged to `main` as
+  `6e998fa4d` (#1660) on 2026-11-04, after the spec and plan (#1658, `10de727e8`).
 - **RED seen:** the rule's module did not exist; every listing test failed on the missing
   `effective` key, the schema test on the missing list row, the unknown-marker test with no
   `PairAuthorityDataError`; both `expired` cases kept the old effective row. After review: a

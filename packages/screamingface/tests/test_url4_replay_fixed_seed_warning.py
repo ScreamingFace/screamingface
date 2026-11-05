@@ -11,6 +11,7 @@ import warnings
 
 import httpx
 import pytest
+from _nodes import fusion_node
 from _reducer_fixtures import FixtureVote, fixture_operators, operators_response
 from test_client_run import _AsyncReplayTransport, _ReplayTransport
 from test_fixed_seed_sitting_warning import _run_sync as _run_recipe_sync
@@ -24,7 +25,7 @@ _MODEL = "provider/opus"
 
 
 def _samples_fusion() -> sf.Recipe:
-    return sf.Fusion(sf.samples(_MODEL, 3), synthesizer=FixtureVote())
+    return fusion_node(sf.samples(_MODEL, 3), FixtureVote())
 
 
 def _replay(recipe: sf.Recipe) -> str:
@@ -92,9 +93,9 @@ def test_no_warning_without_a_run_seed() -> None:
 
 
 def test_no_warning_when_no_call_sets_a_seed() -> None:
-    recipe = sf.Fusion(
+    recipe = fusion_node(
         [sf.Model(_MODEL, params={"temperature": 0.2}), sf.Model(_MODEL)],
-        synthesizer=FixtureVote(),
+        FixtureVote(),
     )
 
     fixed, transport = _sync_replay(recipe, answer_seed=3)

@@ -135,7 +135,7 @@ async def test_sdk_quorum_judge_scores_only_the_members_that_answered() -> None:
     assert record["output"] == "beta says 7"
     assert _members(record)[2] == ("member_3", "fail", "missing")
     judge = next(body for body in seen if body["model"] == "prov/judge")
-    assert judge["messages"][0]["content"].startswith("judge-template@1 returns=scores input=panel")
+    assert judge["messages"][0]["content"].startswith("judge-template@2 returns=scores input=panel")
     panel = json.loads(json.loads(judge["messages"][-1]["content"])["panel"])
     assert [row["source_name"] for row in panel] == ["member_1", "member_2"]
     assert "gamma says 12" not in judge["messages"][-1]["content"]

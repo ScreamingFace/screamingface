@@ -20,10 +20,9 @@ const connectLocal = `sf.configure(
 )
 sf.connect("openrouter", api_key="sk-or-...")  # your own OpenRouter key`
 
-const build = `fusion = sf.Fusion(
+const build = `fusion = sf.Fanout(
     ["openrouter/openai/gpt-5.5", "openrouter/google/gemini-3-flash-preview"],
-    synthesizer="openrouter/openai/gpt-5.5",
-)`
+) >> sf.Synthesize("openrouter/openai/gpt-5.5")`
 
 const run = `report = sf.evaluate(fusion, benchmark="ifeval", limit=3)`
 
@@ -97,10 +96,11 @@ const readOut = `0.6667`
     <h2>3 · Build the fusion</h2>
 
     <p>
-      Give <code>sf.Fusion</code> two model routes and a synthesizer. The two members answer the
-      same question in parallel; the synthesizer reads both drafts and writes the single answer that
-      gets graded. This is the simplest fusion. Recipes also compose into routed ensembles and into
-      sequential cascades and gates.
+      Give <code>sf.Fanout</code> two model routes. The two members answer the same question in
+      parallel. Then <code>&gt;&gt;</code> adds <code>sf.Synthesize</code>, the synthesizer: it
+      reads both drafts and writes the single answer that gets graded. Here the first model doubles
+      as the synthesizer. Recipes also compose into routed ensembles and into sequential cascades
+      and gates.
     </p>
 
     <div class="not-prose">

@@ -183,14 +183,12 @@ opus = sf.Model("openrouter/anthropic/claude-opus-4.8", prompt=ANSWER)
 gpt = sf.Model("openrouter/openai/gpt-5.5", prompt=ANSWER)
 gemini = sf.Model("openrouter/google/gemini-3.1-pro-preview", prompt=ANSWER, params={"max_tokens": 8192})
 
-frontier_trio = sf.Fusion(
-    [opus, gpt, gemini],
-    name="frontier-trio",
-    synthesizer=sf.Model(
+frontier_trio = sf.Fanout([opus, gpt, gemini], name="frontier-trio") >> sf.Synthesize(
+    sf.Model(
         "openrouter/anthropic/claude-opus-4.8",
         prompt=SYNTHESIS,
         params={"max_tokens": 8192},
-    ),
+    )
 )
 
 candidates = [opus, gpt, gemini, frontier_trio]   # 3 solo models and 1 fusion`
@@ -446,9 +444,10 @@ report.failures    # what failed, and why`
         solo candidate.
       </li>
       <li>
-        <code>sf.Fusion</code>: several members combined through an explicit
-        <strong>synthesizer</strong>. Here, the synthesizer is another model that combines the
-        members' answers into one.
+        <code>sf.Fanout(...) &gt;&gt; sf.Synthesize(...)</code>: a fusion.
+        <code>sf.Fanout</code> sends the question to several members.
+        <code>sf.Synthesize</code> adds an explicit <strong>synthesizer</strong>. Here, the
+        synthesizer is another model that combines the members' answers into one.
       </li>
     </ul>
 

@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 from _combine_flow_fixtures import RUBRIC, flow_operators, judge_fusion, members3
+from _nodes import FusionNode, JudgeNode, MedianNode, VoteNode
 from url4 import Expression, build, expr, render, src, text
 
 import screamingface as sf
@@ -14,6 +15,7 @@ from screamingface._evaluation.benchmark import _CheckSurface
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text, decode_combine_spec
 from screamingface._evaluation.url4 import _candidate_from_url4
+from screamingface._surface.lowering import lower
 from screamingface.judge import JUDGE_TEMPLATES
 from screamingface.reducer import _ModelSignal
 from screamingface.url4 import _calls
@@ -53,10 +55,11 @@ def test_judge_round_trips_through_url4() -> None:
     compiled = _compiled(judge_fusion())
 
     source = sf.Url4(compiled.url4).to_python()
-    assert (
-        "synthesizer=sf.Judge('provider/j', returns='label', rubric='Pick the most correct "
-        "answer.'),"
-    ) in source
+    assert source.splitlines()[-2:] == [
+        "    >> sf.JudgePick('provider/j', rubric='Pick the most correct answer.')",
+        ")",
+    ]
+    assert _recovered(compiled.url4) == judge_fusion()
     assert _compiled(_recovered(compiled.url4)).url4 == compiled.url4
 
     replayed = _candidate_from_url4(_linked(compiled.url4))
@@ -81,19 +84,25 @@ def test_judge_round_trips_through_url4() -> None:
 def test_judge_round_trip_keeps_params_and_scores() -> None:
     original = sf.Judge(
         "provider/j",
-        returns="scores",
         rubric="Score each.\nLine two costs $5 and \"quotes\" and 'single'.",
         params={"temperature": 0, "seed": 7, "top_p": 0.5, "flag": True},
     )
-    compiled = _compiled(sf.Fusion(members3(), synthesizer=original))
+    chain = sf.Fanout(members3()) >> original >> sf.ArgMax("score:judge")
+    compiled = _compiled(chain)
+    lowered = lower(chain)
 
     rebuilt = _recovered(compiled.url4)
 
-    assert isinstance(rebuilt, sf.Fusion)
-    assert rebuilt.synthesizer == original
-    assert isinstance(rebuilt.synthesizer, sf.Judge)
-    for field in ("name", "model", "returns", "rubric", "params"):
-        assert getattr(rebuilt.synthesizer, field) == getattr(original, field)
+    assert rebuilt == chain
+    assert isinstance(rebuilt, sf.Pipeline)
+    judge = rebuilt.steps[1]
+    assert isinstance(judge, sf.Judge)
+    for field in ("model", "rubric", "params"):
+        assert getattr(judge, field) == getattr(original, field)
+    rebuilt_node = lower(rebuilt)
+    assert isinstance(rebuilt_node, FusionNode) and isinstance(lowered, FusionNode)
+    assert rebuilt_node.synthesizer == lowered.synthesizer
+    assert isinstance(rebuilt_node.synthesizer, JudgeNode)
     assert _compiled(rebuilt).url4 == compiled.url4
 
 
@@ -166,39 +175,39 @@ def test_judge_topology_tampering_is_refused(case: str) -> None:
 
 def test_a_pure_rule_reducer_refuses_signals() -> None:
     spec = decode_combine_spec(
-        combine_spec_text(sf.Median(), member_count=3, operators=flow_operators())
+        combine_spec_text(MedianNode(), member_count=3, operators=flow_operators())
     )
     signal = _ModelSignal("judge", "provider/j", JUDGE_TEMPLATES["label"], MappingProxyType({}))
 
     with pytest.raises(ValueError, match=_INVALID_REDUCER):
-        sf.Median._rebuild(spec, (signal,))
-    assert sf.Median._rebuild(spec, ()) == sf.Median(extract="last_number@1", select="nearest@1")
+        MedianNode._rebuild(spec, (signal,))
+    assert MedianNode._rebuild(spec, ()) == MedianNode(extract="last_number@1", select="nearest@1")
 
 
 def test_a_vote_reads_a_scores_judge_call_only() -> None:
     spec = decode_combine_spec(
-        combine_spec_text(sf.Vote(), member_count=3, operators=flow_operators())
+        combine_spec_text(VoteNode(), member_count=3, operators=flow_operators())
     )
     signal = _ModelSignal("judge", "provider/j", JUDGE_TEMPLATES["label"], MappingProxyType({}))
 
-    assert sf.Vote._rebuild(spec, ()) == sf.Vote(extract="last_line@1", normalize="text@1")
+    assert VoteNode._rebuild(spec, ()) == VoteNode(extract="last_line@1", normalize="text@1")
     with pytest.raises(ValueError, match="unsupported judge call"):
-        sf.Vote._rebuild(spec, (signal,))
+        VoteNode._rebuild(spec, (signal,))
 
 
 def test_a_judge_spec_without_its_judge_call_is_refused() -> None:
     spec = decode_combine_spec(
         combine_spec_text(
-            sf.Judge("provider/j", returns="label", rubric=RUBRIC),
+            JudgeNode("provider/j", returns="label", rubric=RUBRIC),
             member_count=3,
             operators=flow_operators(),
         )
     )
 
     with pytest.raises(ValueError, match="without its judge call"):
-        sf.Judge._from_spec(spec)
+        JudgeNode._from_spec(spec)
     with pytest.raises(ValueError, match="unsupported judge call"):
-        sf.Judge._rebuild(spec, ())
+        JudgeNode._rebuild(spec, ())
 
 
 def test_corrective_replay_recompiles_a_judge_member() -> None:
@@ -206,7 +215,7 @@ def test_corrective_replay_recompiles_a_judge_member() -> None:
     compiled = _compiled(loop)
 
     source = sf.Url4(compiled.url4).to_python()
-    assert "synthesizer=sf.Judge(" in source
+    assert ">> sf.JudgePick('provider/j', rubric='Pick the most correct answer.')" in source
     replayed = _candidate_from_url4(_linked(compiled.url4))
     assert replayed.kind == "corrective_loop"
     assert "ensemble/combine/v1" not in replayed.models
@@ -230,9 +239,11 @@ def test_corrective_replay_recompiles_a_judge_member() -> None:
 
 
 def _nested_shapes() -> dict[str, sf.Recipe]:
-    scores = sf.Judge("provider/k", returns="scores", rubric="Score each member.")
+    scores = sf.Judge("provider/k", rubric="Score each member.")
     return {
-        "judge inside judge": sf.Fusion([judge_fusion(), "provider/d"], synthesizer=scores),
+        "judge inside judge": sf.Fanout([judge_fusion(), "provider/d"])
+        >> scores
+        >> sf.ArgMax("score:judge"),
     }
 
 
