@@ -5,30 +5,38 @@ from __future__ import annotations
 import unicodedata
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from screamingface.reducer import Reducer
 
 if TYPE_CHECKING:
-    from screamingface.pipeline import Pipeline
+    from screamingface._surface.chain import Pipeline as Chain
+    from screamingface._surface.chain import Step
 
 
-class Recipe(ABC):
+class _Chainable:
+    """``a >> b`` is the chain ``Pipeline([a, b])`` for every recipe and every step (D7-3); a
+    route string on the left works through ``__rrshift__``."""
+
+    __slots__ = ()
+
+    def __rshift__(self, other: str | Recipe | Step) -> Chain:
+        # WHY lazy: screamingface._surface builds on this module
+        from screamingface._surface.chain import Pipeline as Chain
+
+        return Chain([cast("Recipe | Step", self), other])
+
+    def __rrshift__(self, other: str | Recipe | Step) -> Chain:
+        from screamingface._surface.chain import Pipeline as Chain
+
+        return Chain([other, cast("Recipe | Step", self)])
+
+
+class Recipe(_Chainable, ABC):
     """Non-constructible umbrella type for answer-producing Recipe values."""
 
     name: str
     optional: bool
-
-    def then(self, next_recipe: str | Recipe) -> Pipeline:
-        """Return an immutable serial Pipeline ending in ``next_recipe``.
-
-        WHY: unnamed-Pipeline flattening lives once, in the Pipeline constructor —
-        this method only expresses "these two, in order".
-        """
-
-        from screamingface.pipeline import Pipeline
-
-        return Pipeline((self, next_recipe))
 
     @property
     @abstractmethod
@@ -71,6 +79,9 @@ def _model_route(value: object) -> str:
     return _name(value, "model route")
 
 
+OPTIONAL_MEMBERS_ONLY = "optional=True is only supported on sf.Fanout members"
+
+
 def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recipe:
     """Normalize the one intentional shorthand at every Recipe-valued position."""
 
@@ -79,12 +90,17 @@ def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recip
 
         return Model(value)
     if isinstance(value, Reducer):
-        raise TypeError(f"{label} cannot be a reducer: a reducer must be a Fusion synthesizer")
+        raise TypeError(f"{label} cannot be a reducer: a reducer closes a sf.Fanout block")
+    # WHY lazy: screamingface._surface builds on this module: a step or an open chain is not a
+    # recipe (CH-8, CH-11).
+    from screamingface._surface.chain import refuse_step
+
+    refuse_step(value)
     if not _is_supported_recipe(value):
-        raise TypeError(f"{label} must be a model route or sf.Model, sf.Fusion, or sf.Pipeline")
+        raise TypeError(f"{label} must be a model route, a sf.Model or a sf.Pipeline")
     assert isinstance(value, Recipe)
     if value.optional and not allow_optional:
-        raise ValueError("optional=True is only supported on Fusion members")
+        raise ValueError(OPTIONAL_MEMBERS_ONLY)
     return value
 
 
@@ -98,17 +114,17 @@ def _recipe_kind(
     Recipe kinds) reads this one function instead of forking its own mapping.
     """
 
+    from screamingface._surface.chain import Pipeline
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
-    from screamingface.fusion import Fusion
+    from screamingface.fusion import FusionNode
     from screamingface.model import Model
-    from screamingface.pipeline import Pipeline
 
     kinds: tuple[
         tuple[type, Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]],
         ...,
     ] = (
         (Model, "model"),
-        (Fusion, "fusion"),
+        (FusionNode, "fusion"),
         (Pipeline, "pipeline"),
         (CorrectiveLoop, "corrective_loop"),
         (SelfCorrective, "self_corrective"),
@@ -116,15 +132,17 @@ def _recipe_kind(
     for recipe_type, kind in kinds:
         if isinstance(value, recipe_type):
             return kind
-    raise TypeError("candidate must be an sf.Model, sf.Fusion, or sf.Pipeline")
+    raise TypeError("candidate must be a sf.Model or a sf.Pipeline")
 
 
 def _is_supported_recipe(value: object) -> bool:
-    from screamingface.fusion import Fusion
+    from screamingface._surface.chain import Pipeline
+    from screamingface.fusion import FusionNode
     from screamingface.model import Model
-    from screamingface.pipeline import Pipeline
 
-    return isinstance(value, Model | Fusion | Pipeline)
+    # A closed chain is a recipe; lower() turns its blocks into internal nodes before the compile
+    # reads it (E4b surface lowering §2.4).
+    return isinstance(value, Model | FusionNode | Pipeline)
 
 
 def _text(value: object, label: str) -> str:

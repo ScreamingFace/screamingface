@@ -157,6 +157,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "combine_spec_invalid",
         "combine_operator_unknown",
         "combine_input_too_large",
+        # WHY declared (E4b part 3, ans:Q5): a member call that asked for token log-probabilities
+        # and that the gateway refused for its parameters (HTTP 404 `unsupported_parameters`).
+        # Engine-authored fixed text, permanent (no retry without logprobs).
+        "logprobs_unsupported",
     }
 )
 # WHY a pattern beside the set: the connector mints one code PER HTTP status

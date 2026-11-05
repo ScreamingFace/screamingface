@@ -271,8 +271,9 @@ async def test_recipe_s5_plain_text_member_is_not_picked() -> None:
     assert record["output"] == beta
     combine = operation(record, "op_synthesis_1")["combine"]
     assert combine["chosen"] == ["member_2"]
-    assert combine["members"][0]["status"] == "fail"
-    assert combine["members"][0]["reason"] == "not_json"
+    # WHY no_signal: S5 reads field:confidence as a signal since 7d-1 (S5 is S8 byte for byte)
+    assert combine["members"][0]["status"] == "excluded"
+    assert combine["members"][0]["reason"] == "no_signal"
 
 
 @pytest.mark.asyncio

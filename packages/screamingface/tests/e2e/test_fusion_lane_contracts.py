@@ -5,8 +5,7 @@ recording, so neither runs here. What does run is everything around them that ne
 
 - the spend refusals of ``record`` (no opt-in flag, no key, a model without a usable ``seed``);
 - the refusals of ``bless``: a recording that does not describe one run of this lane, a replay that
-  does not reproduce the saved report (url4, statuses, score, coverage, failures, one Case output),
-  and a block form that does not match the named form (FR-2);
+  does not reproduce the saved report (url4, statuses, score, coverage, failures, one Case output);
 - ``inspect_capture_stack``, the replay stack with a capture proxy, with its teardown order.
 
 A mistake in any of them would otherwise first show after the user's paid recording.
@@ -90,39 +89,6 @@ def test_a_replay_that_does_not_reproduce_the_report_refuses_the_bless() -> None
 def test_a_replay_that_lost_a_case_refuses_the_bless() -> None:
     with pytest.raises(SystemExit, match="BLESS REFUSED"):
         _reproduce(_report(cases=[_case("1", "scored", "so 42")]))
-
-
-# -- bless: the block form must match the named form (FR-2) -------------------------
-
-_DIGESTS = body_digests([{"request_body": {"a": 1}}, {"request_body": {"b": 2}}])
-
-
-def _match(block: Any, block_digests: tuple[str, ...] = _DIGESTS) -> None:
-    fusion_lane._refuse_unless_block_matches(_report(), block, _DIGESTS, block_digests)
-
-
-def test_a_block_form_that_matches_the_named_form_is_accepted() -> None:
-    _match(_report())
-
-
-@pytest.mark.parametrize(
-    ("block", "digests", "reason"),
-    [
-        (_report(url4="(another expression)"), _DIGESTS, "different url4 than sf.Fusion"),
-        (
-            _report(cases=[_case("1", "scored", "so 41"), _case("2", "failed", None)]),
-            _DIGESTS,
-            "answered differently",
-        ),
-        (_report(), _DIGESTS[:1], "request bodies"),
-    ],
-    ids=["url4", "output", "digests"],
-)
-def test_a_block_form_that_differs_refuses_the_bless(
-    block: Any, digests: tuple[str, ...], reason: str
-) -> None:
-    with pytest.raises(SystemExit, match=f"BLESS REFUSED.*{reason}.*FR-2"):
-        _match(block, digests)
 
 
 # -- bless: the recording must describe one run of this lane ------------------------

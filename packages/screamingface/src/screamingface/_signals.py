@@ -1,7 +1,8 @@
 """Answer signal keys and the sf.signal seam (OME-1289 gap, signals I-S1, BU-E2).
 
 INVARIANT: FIELD_PATH is the Engine's combine/ports.py field-path grammar, copied line for line;
-STU/test_signal_key_conformance.py binds the copy. E4b adds declared signals through this seam.
+STU/test_signal_key_conformance.py binds the copy. E4b part 3 adds declared signals
+(`is_signal_name`) through this seam.
 """
 
 from __future__ import annotations
@@ -10,7 +11,10 @@ import math
 import re
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+if TYPE_CHECKING:
+    from screamingface._surface.refs import GateRef
 
 _FIELD_KEY = r"[A-Za-z_][A-Za-z0-9_]*"  # verbatim E/combine/ports.py
 _FIELD_INDEX = r"\[(?:0|[1-9][0-9]*)\]"
@@ -18,6 +22,9 @@ FIELD_PATH = re.compile(rf"(?:{_FIELD_KEY}|{_FIELD_INDEX})(?:\.{_FIELD_KEY}|{_FI
 ACCOUNTING_SIGNALS: tuple[str, ...] = ("cost_usd", "latency_ms", "tokens_in", "tokens_out")
 FIELD_SIGNAL_PREFIX = "field:"
 JUDGE_SIGNAL = "score:judge"
+DECLARED_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
+RESERVED_NAME_PREFIXES: tuple[str, ...] = ("logprob", "entropy", "verbalized", "consistency")
+MAX_DECLARED_SIGNALS = 8
 
 
 def is_signal_key(key: object) -> bool:
@@ -29,6 +36,17 @@ def is_signal_key(key: object) -> bool:
         return True
     return key.startswith(FIELD_SIGNAL_PREFIX) and (
         FIELD_PATH.fullmatch(key[len(FIELD_SIGNAL_PREFIX) :]) is not None
+    )
+
+
+def is_signal_name(key: object) -> bool:
+    """E4b P1: a declared name: [a-z][a-z0-9_]{0,31}, not an E4a key, no reserved prefix."""
+
+    return (
+        isinstance(key, str)
+        and DECLARED_NAME.fullmatch(key) is not None
+        and key not in ACCOUNTING_SIGNALS
+        and not key.startswith(RESERVED_NAME_PREFIXES)
     )
 
 
@@ -54,7 +72,7 @@ class Signal:
             raise TypeError("a signal key must be text")
         if self.key in _RESERVED:
             raise ValueError(_RESERVED[self.key])
-        if not is_signal_key(self.key):
+        if not is_signal_key(self.key) and not is_signal_name(self.key):
             raise ValueError(_rejection(self.key))
 
     def __repr__(self) -> str:
@@ -99,6 +117,31 @@ class Signal:
     def __le__(self, other: object) -> Any:
         return _ordered(self, "le", other)
 
+    def chosen(self) -> GateRef:
+        """The declared signal of the member that the vote chose: a gate reference."""
+
+        return _gate_ref("chosen", self._declared("chosen"))
+
+    def mean(self) -> GateRef:
+        """The mean of the declared signal over the members: a gate reference."""
+
+        return _gate_ref("mean", self._declared("mean"))
+
+    def _declared(self, method: str) -> str:
+        if is_signal_key(self.key):
+            raise ValueError(  # SI-1
+                f"sf.signal({self.key!r}).{method}() reads a declared signal; an E4a key such as "
+                "cost_usd is not a gate input"
+            )
+        return self.key
+
+
+def _gate_ref(method: str, name: str) -> GateRef:
+    # WHY lazy: the gate references live with the gate step (S/_surface/refs.py imports this module)
+    from screamingface._surface.refs import GateRef
+
+    return GateRef(f"{method}:{name}")
+
 
 def _ordered(signal: Signal, cmp: _Cmp, other: object) -> Any:
     """``signal < 3`` and friends: a predicate for a number, NotImplemented (a TypeError) else."""
@@ -134,7 +177,7 @@ class _Comparison:
         return hash(self._key())
 
     def __bool__(self) -> bool:
-        raise TypeError("a signal comparison is an sf.Filter predicate, not a bool")
+        raise TypeError("a signal comparison is a sf.Filter predicate, not a bool")
 
     def __repr__(self) -> str:
         return f"signal({self.signal.key!r}) {_SYMBOLS[self.cmp]} {self.value!r}"
@@ -175,20 +218,46 @@ def _finite(value: float) -> float:
     return number + 0.0
 
 
+def _finite_number(value: object, type_message: str, finite_message: str) -> float:
+    """A number that is not a bool, as a finite float (an int becomes a float).
+
+    TypeError(type_message) for any other value; ValueError(finite_message) for NaN, an infinity
+    or an int beyond the float range. The caller gives both messages.
+
+    WHY ``_finite`` (``_comparison``) stays separate: there a bool is a valid ``==`` threshold,
+    ``+ 0.0`` turns -0.0 into 0.0, and its message differs (one fixed sf.signal text).
+    """
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        raise TypeError(type_message)
+    try:
+        number = float(value)
+    except OverflowError:  # an int beyond the float range
+        raise ValueError(finite_message) from None
+    if not math.isfinite(number):
+        raise ValueError(finite_message)
+    return number
+
+
 def _rejection(key: str) -> str:
     if key.startswith(FIELD_SIGNAL_PREFIX):
         return "field signal path must be a JSON path like 'a', 'a.b' or 'a[0].b'"
-    if key.startswith("logprob"):
-        return f"{key!r} comes with E4b (declared signals); E4a signal keys are {_E4A_KEYS}"
+    if key.startswith(RESERVED_NAME_PREFIXES):
+        return (
+            f"{key!r} is reserved: names that start with logprob, entropy, verbalized or "
+            "consistency belong to E4b declared sources; declare a name such as "
+            "signals={'lp': sf.Logprob('mean')} and read sf.signal('lp'); "
+            f"E4a signal keys are {_E4A_KEYS}"
+        )
     return (
-        f"unknown signal key {key!r}; E4a signal keys are {_E4A_KEYS}; "
-        "logprob and other declared signals come with E4b"
+        f"{key!r} is not a signal key or a declared name; E4a signal keys are {_E4A_KEYS}; "
+        "an E4b declared name matches [a-z][a-z0-9_]{0,31}"
     )
 
 
 def signal(key: str) -> Signal:
     """A named number on a member Answer, read by a reducer: cost_usd, latency_ms, tokens_in,
-    tokens_out, score:judge, or field:<path>. A missing value is None, never an error."""
+    tokens_out, score:judge, field:<path>, or a name that the ``sf.Fanout`` declares in
+    ``signals=``. A missing value is None, never an error."""
 
     return Signal(key)
 

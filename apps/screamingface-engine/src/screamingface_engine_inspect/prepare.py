@@ -12,7 +12,9 @@ produced; the dataset owner's gating or drift cannot change a published benchmar
 
 Emits, per benchmark::
 
-    <out>/board.json         {"schema", "case_count", "has_pictures", "cases_bytes"}
+    <out>/board.json         {"schema", "case_count", "cases_bytes", "modalities",
+                             "cases_sha256"} — v3 (OME-1803): the sorted non-text input
+                             types the Cases need, bound to cases.json by its SHA-256
     <out>/cases.offsets      (offset, length) of each cases.json row, 16 bytes per Case
     <out>/cases.json         [{"id", "case_id", "input"}] — ALL a client sees; written
                              last (the completion marker), after its index (OME-1790)

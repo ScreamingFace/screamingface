@@ -85,13 +85,34 @@ carries **no media type**; the media type lives on the enclosing [`ResultData.me
   `allow_remote_images=False` ([`G/plugins/ollama_provider/plugin.py:90-99`][g-oll]): a PDF or a remote image URL
   gets 422 `unsupported_content_part`; data-URI images are unchanged. *History:* before #1447 (e.g. at
   `637594595`) LiteLLM's `ollama_chat` conversion **silently dropped** `file` parts (observed 2026-10-16:
-  PDF answered 200 with +7 prompt tokens and an unrelated answer). PDF-to-text for Ollama stays with `OME-1550`.
+  PDF answered 200 with +7 prompt tokens and an unrelated answer).
+- **v1 rule (normative) for a PDF sent to a model that cannot take files** (owner decision 2026-11-02,
+  `OME-1760`, superseding the 2026-10-28 gateway-only wording): the engine **must refuse the run at
+  admission** when a model it would send the PDF to does not list `pdf` in its published `/v1/models`
+  `input_modalities` (served by `G/core/model_capabilities.py` on `main` since #1451; the same list picture
+  admission, C9 `OME-1548`, already reads), with url4 `intent_error` naming the model, before any model is paid
+  (in a Fusion, before the other members are paid for). This keys on the published modalities, not on model
+  names. The gateway's typed 422 `unsupported_content_part`, reported by the engine connector as url4
+  `intent_error` with permanence kept (§4), is the **backstop** when admission misses; neither path is ever
+  a silent drop. There is no PDF-to-text fallback in v1; `OME-1550` was narrowed to office formats.
+- **Current `main` (`834c3086a`, 2026-11-02) implements this rule for pictures only.** Picture admission
+  (C9, `OME-1548`, #1584, `E/benchmarks/picture_admission.py`) reads `input_modalities` once per Runner run
+  through the `ModelSightReader` port and refuses a model without `image`; there is no `pdf` check yet. The
+  PDF admission check is tracked by `OME-1803` (In Progress; it extends the same reader, and the PDF row of
+  the per-type policy is tracked under `OME-1681`). The backstop's translation to url4 `intent_error` is pending in #1588
+  (`OME-1545`, draft). Today a PDF is refused only at the gateway, with the raw 422
+  `unsupported_content_part`, and only by Ollama (`allow_files=False`) and by configured remote endpoints,
+  whose text-only contract refuses every media part ([`G/plugins/remote_endpoint/request.py:58`][g-remote]).
+  Gemini, Antigravity and Codex accept PDFs natively.
 - Anthropic, OpenRouter and OpenAI (API key) do not call `check_messages`; their parts go through LiteLLM as sent.
+  So the gateway backstop never fires for them: a PDF sent to a text-only model on these providers
+  (e.g. `o3-mini`) would reach the provider. This is why the v1 rule above refuses at engine admission.
 - Still open:
   - **No request body cap** anywhere in the gateway (the only size checks under `G/` are on responses or object-store uploads). → `OME-1542`
   - **Anthropic OAuth drops non-text system parts:** [`G/plugins/anthropic_provider/chat_handler.py:180-197`][g-anth] keeps only `type == "text"`. → `OME-1542`
-  - **`/v1/models` carries no input-modality field.** Only HuggingFace discovery parses `input_modalities` ([`:74`][g-hf74], [`:129`][g-hf129]), and nothing exposes it. → `OME-1537`
   - **SSRF:** LiteLLM may fetch caller `http(s)` image URLs for the pass-through providers (Anthropic, OpenRouter). **UNVERIFIED**; from the 2026-10-07 research. → `OME-1542`
+- Resolved since this snapshot:
+  - **Input modalities on `/v1/models`** (`OME-1537`, #1451): at this snapshot only HuggingFace discovery parsed `input_modalities` ([`:74`][g-hf74], [`:129`][g-hf129]) and nothing exposed it; `main` now publishes `input_modalities` (`text`, `image`, `pdf`) on every `/v1/models` row.
 
 ## 2. Normative decisions (owner, locked 2026-10-21)
 
@@ -475,7 +496,12 @@ future-compatible capability, not a v1 execution path:
 4. **Per-type policy** (`OME-1548`, `OME-1550`), decided per file before dispatch:
    - **native:** images and PDFs to models that accept them;
    - **convert to text:** office formats, reusing the GDPval readers;
-   - **reject:** with a typed error (§4). A blind model is refused by name at admission (C9 `intent_error`), never degraded silently.
+   - **reject:** with a typed error (§4). Normative v1 rule: a blind model is refused at run admission
+     (`intent_error`, naming the model), never degraded silently. Admission reads the model's published
+     `/v1/models` `input_modalities`: `image` for a picture (C9, `OME-1548`), `pdf` for a PDF (§1 gateway note;
+     `OME-1803`). The gateway's 422 `unsupported_content_part` is the backstop (§4). On `main`: the picture check
+     has landed (#1584); the PDF check (`OME-1803`) and the backstop's `intent_error` translation (#1588) are
+     pending (§1).
 5. **Benchmarks pin files at build time.** Assets are baked into the benchmark image ([`I/prepare.py:8`][i-prep8]),
    so a Case never depends on a run-time fetch.
 6. **Identity.** v1 changes no request key (F3). Equal files reach the gateway as byte-identical
@@ -504,8 +530,8 @@ Kevin adopts them into the spec, as `x.admission_timeout` does today ([`U/core/e
 | `x.source_timeout` | url4 HTTP transport guard | 504 (proposed) | retryable | F1b; connect timeout or the total deadline across all hops |
 | `x.blob_digest_mismatch` | engine blob store (ingest and read) | 422 at ingest (proposed); 500 at read (proposed) | permanent | F3; at read it is store corruption, logged as such: the node fails with this code and the node path, the run ends `failed` with it, and it is never retried or served from a cache (F3 order) |
 | `unsupported_content_type` | url4 bytes fetch (#1478, pre-materialization classification); engine connector (per-type policy) | per Spec C §13.5.2 | permanent | C8; on an https attachment source, a Content-Type not equal to its `;accept=` type, missing, or not one media type (no sniffing); on a text source, #1478's existing text rule, unchanged; or a type the node cannot carry or convert |
-| `intent_error` | engine admission (model modality check) | 422 ([`U/peer/_http.py:52`][u-intent]) | permanent | C9; the source stays `resolved` |
-| `unsupported_content_part` | gateway `check_messages` | 422 ([`G/core/content_parts.py:66-83`][g-422]) | permanent | backstop when admission misses; translated to `intent_error` with the gateway `info` as `cause`: the one named exception to the verbatim wrapping rule |
+| `intent_error` | engine admission (model modality check: published `input_modalities` lists `image` / `pdf`) | 422 ([`U/peer/_http.py:52`][u-intent]) | permanent | C9; the source stays `resolved`; picture admission is on `main` (#1584, `OME-1548`); the PDF check is pending (`OME-1803`) |
+| `unsupported_content_part` | gateway `check_messages` | 422 ([`G/core/content_parts.py:66-83`][g-422]) | permanent | backstop when admission misses; translated to `intent_error` with the gateway `info` as `cause`: the one named exception to the verbatim wrapping rule (translation pending in #1588) |
 | `timeout` | whichever phase owns the deadline (resolver, connector, gateway upstream) | url4 mapping, unchanged | retryable | retried with the same frozen attachments snapshot and the same request; no re-fetch |
 | `x.source_not_static` | url4 run admission (attachment manifest, `OME-1543`) | 422 (proposed) | permanent | F1b; an `https://` **attachment source** whose URL or `;accept=` is not literal in the authored expression (row-substituted, variable, model-derived or fetched-body-derived; row-derived URLs are deferred to `OME-1748`), or whose reachability depends on model execution (an enclosing iteration over a processed group, a model call, a remote expression, a nested model-dependent iteration, or a binding to one); text sources are never refused with it; raised before any fetch or model call |
 | `x.attachments_too_many` | url4 run pre-materialization (`OME-1543`) | 413 (proposed) | permanent | F1b; more than 20 url4 attachments in one run; raised before any model call |
@@ -634,4 +660,5 @@ All rows below are manual observations; none is a guarantee or a fixture.
 [pr1478-media]: https://github.com/ScreamingFace/screamingface/blob/9d32862f9587bef310fc696c717cad7d109f378c/packages/url4/src/url4/io/media.py#L240-L256
 [g-img-main]: https://github.com/ScreamingFace/screamingface/blob/dd4bd9a47ad5a3af8fd283e64c6e098826df6901/apps/aigateway/src/aigateway/core/content_parts.py#L242
 [g-pdf-main]: https://github.com/ScreamingFace/screamingface/blob/dd4bd9a47ad5a3af8fd283e64c6e098826df6901/apps/aigateway/src/aigateway/core/content_parts.py#L42
+[g-remote]: https://github.com/ScreamingFace/screamingface/blob/834c3086ab7c56a129bb14da1f8e8bf5fc332bc9/apps/aigateway/src/aigateway/plugins/remote_endpoint/request.py#L58
 [pr1478-text]: https://github.com/ScreamingFace/screamingface/blob/9d32862f9587bef310fc696c717cad7d109f378c/packages/url4/src/url4/io/media.py#L213-L237
