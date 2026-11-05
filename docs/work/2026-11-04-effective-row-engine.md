@@ -1,9 +1,9 @@
 ---
 ticket: OME-1830
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-04
-finished:
+finished: 2026-11-05
 ---
 
 # effective-row-engine — OME-1138 close-out L7b: the Local Engine selects the effective Connection
@@ -115,7 +115,7 @@ RED first, per plan §3 step 3:
   manage the Connection chat uses in the Local Engine (OME-1138 L7b); `b3ebfcdcc`
   fix(screamingface-engine): repair stale rows only while they are still stale (OME-1138 L7b);
   then the commit that files `OME-1830` and `OME-1832` here and in their `docs/tasks` mirrors and
-  adds the manifest.
+  adds the manifest. Squash-merged to `main` as `529bdb7f9` (#1684) on 2026-11-05.
 - **Owner decisions (2026-11-04):**
   1. The prior-test changes listed at RED (the four files above) are approved.
   2. Under the skew fallback the label row stands in for `E`. With no `screamingface` row and

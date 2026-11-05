@@ -1,13 +1,13 @@
 ---
 id: OME-1831
 linear_url: https://linear.app/openmined/issue/OME-1831/catch-the-admin-ui-up-with-the-gateway-l9
-status: in_review
+status: done
 type: task
 priority: medium
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-11-05
-closed:
+closed: 2026-11-05
 ---
 
 # Catch the Admin UI up with the gateway (L9)
@@ -22,3 +22,5 @@ the brand README names the Connection action instead of "delete profile";
 `docs/work/2026-11-04-ui-schema-effective.md`.
 
 - 2026-11-05: filed after L7c (`OME-1824`) merged; the PR opened.
+- 2026-11-05: squash-merged to `main` as `70da8dfbe` (PR #1685). Closed Done in Linear the same
+  day with the close comment.
