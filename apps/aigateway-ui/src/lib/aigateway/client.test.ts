@@ -369,8 +369,8 @@ describe("deleteConnection", () => {
 
 describe("successor error codes are dispatched before the status (D18 §7)", () => {
   it.each([
-    // Retryable: the gateway lost a CAS after its own retries, beside the legacy index conflict.
-    [503, "credential_write_conflict", "conflict"],
+    // Retryable: the legacy index conflict, decoded for a gateway older than E5a.
+    // `credential_write_conflict` retired in E5a; its successor pin is `errors.test.ts` (L9).
     [503, "profile_index_conflict", "conflict"],
     // Never retried: the state moved, or the pair cannot be addressed or managed safely.
     [409, "credential_publication_superseded", "superseded"],
