@@ -110,7 +110,8 @@ def resolve_engine_python(
     if default is not None and default.is_file():
         chosen = default
     if chosen is None and data_dir is not None:
-        chosen = existing_engine_environment(data_dir)
+        editable_root = source.root if source.mode == MODE_CHECKOUT else None
+        chosen = existing_engine_environment(data_dir, editable_root=editable_root)
     return chosen
 
 
@@ -326,12 +327,13 @@ def _vendored_package(name: str) -> Path:
     return Path(locations[0])
 
 
-def environment_key() -> str:
-    """The identity of the environment `up` would build now: its pins, project files, Python.
+def environment_key(*, editable_root: Path | None = None) -> str:
+    """The identity of the environment `up` would build now: its pins, project files, Python,
+    and — for a checkout — the root whose live code it installs editable.
 
     INVARIANT: any change to what goes into the environment changes the key — an environment
     built on other pins would serve boards whose revision no longer matches the deployed
-    Engine's, and must never be started.
+    Engine's, and must never be started. Two checkouts never share one either.
     """
 
     digest = hashlib.sha256()
@@ -339,10 +341,14 @@ def environment_key() -> str:
     for project in ("screamingface-engine", "url4"):
         digest.update(_project_file(project, "pyproject.toml").read_bytes())
     digest.update(f"python{sys.version_info.major}.{sys.version_info.minor}".encode())
+    if editable_root is not None:
+        digest.update(f"editable:{editable_root.resolve()}".encode())
     return digest.hexdigest()[:_KEY_LENGTH]
 
 
-def existing_engine_environment(data_dir: Path) -> Path | None:
+def existing_engine_environment(
+    data_dir: Path, *, editable_root: Path | None = None
+) -> Path | None:
     """The interpreter of an environment `up` already built for the current key, or None.
 
     INVARIANT: never raises. This LOOKUP runs on every `up`, `status` and `doctor`; an install
@@ -354,7 +360,7 @@ def existing_engine_environment(data_dir: Path) -> Path | None:
     key: str | None = None
     if not getattr(sys, "frozen", False):
         with contextlib.suppress(OSError, RuntimeError):
-            key = environment_key()
+            key = environment_key(editable_root=editable_root)
     if key is None:
         return None
     target: Path = data_dir / ENGINE_ENV_DIRNAME / key
@@ -370,8 +376,13 @@ def ensure_engine_environment(
     run: RunCommand | None = None,
     which: Callable[[str], str | None] = shutil.which,
     progress: Callable[[str], None] = print,
+    editable_root: Path | None = None,
 ) -> Path:
     """Build the Engine environment under `data_dir` unless a ready one exists; return its python.
+
+    With `editable_root` (a checkout), stage 3 is skipped and stage 4 installs the checkout's
+    live `packages/url4` and `apps/screamingface-engine` EDITABLE instead of the wheel's
+    copies: edits are served without a rebuild, and the dev's own venv is never touched.
 
     Think of it as stocking the Engine's own kitchen once. Stages, in order:
 
@@ -390,20 +401,28 @@ def ensure_engine_environment(
     behind, so the next `up` starts clean.
     """
 
-    existing: Path | None = existing_engine_environment(data_dir)
+    existing: Path | None = existing_engine_environment(data_dir, editable_root=editable_root)
     if existing is not None:
         return existing
     run_command: RunCommand = run if run is not None else subprocess.run
     root: Path = data_dir / ENGINE_ENV_DIRNAME
-    key: str = environment_key()
+    key: str = environment_key(editable_root=editable_root)
     root.mkdir(parents=True, exist_ok=True)
     with _build_lock(root):
         # Stage 1 again, under the lock: a second `up` that waited here reuses what the
         # first one built instead of deleting it and starting over.
-        existing = existing_engine_environment(data_dir)
+        existing = existing_engine_environment(data_dir, editable_root=editable_root)
         if existing is not None:
             return existing
-        return _build(root, key, environ=environ, run=run_command, which=which, progress=progress)
+        return _build(
+            root,
+            key,
+            environ=environ,
+            run=run_command,
+            which=which,
+            progress=progress,
+            editable_root=editable_root,
+        )
 
 
 @contextlib.contextmanager
@@ -431,6 +450,7 @@ def _build(
     run: RunCommand,
     which: Callable[[str], str | None],
     progress: Callable[[str], None],
+    editable_root: Path | None,
 ) -> Path:
     """Stages 2-5 of `ensure_engine_environment`, run under the build lock."""
 
@@ -444,53 +464,76 @@ def _build(
     uv: str | None = which("uv")
     progress(
         f"building the Engine environment in {root} ({_ENVIRONMENT_SIZE_HINT}; "
-        f"{'under a minute with uv' if uv else 'a few minutes with pip'})"
+        f"{'under a minute with uv' if uv else 'a few minutes with pip'}"
+        f"{'; live code from ' + str(editable_root) if editable_root else ''})"
     )
     with tempfile.TemporaryDirectory(prefix="screamingface-engine-") as scratch:
-        # Stage 3 — the projects to install, assembled from the wheel's copies, and the pins.
-        url4_project, engine_project = _assemble_projects(Path(scratch))
+        # Stage 3 — the projects to install (the wheel's copies, or the checkout's live
+        # trees) and the pins.
+        if editable_root is None:
+            projects: tuple[Path, ...] = _assemble_projects(Path(scratch))
+        else:
+            projects = (
+                editable_root / _CHECKOUT_PROJECT_DIRS["url4"],
+                editable_root / _CHECKOUT_PROJECT_DIRS["screamingface-engine"],
+            )
         requirements: Path = Path(scratch) / REQUIREMENTS_NAME
         requirements.write_text(_requirements_text(), encoding="utf-8")
-        # Stage 4 — the installer sequence.
+        # Stage 4 — the installer sequence; a failed step removes the target and raises.
         commands = _install_commands(
             target,
             python,
             uv=uv,
             requirements=requirements,
-            projects=(url4_project, engine_project),
+            projects=projects,
+            editable=editable_root is not None,
         )
-        for step, (label, command) in enumerate(zip(_STEP_LABELS, commands, strict=True), 1):
-            progress(f"  {step}/{len(commands)} {label}")
-            try:
-                completed = run_command(
-                    command,
-                    env=dict(environ),
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=_INSTALL_TIMEOUT_SECONDS,
-                )
-            except (OSError, subprocess.SubprocessError) as exc:
-                shutil.rmtree(target, ignore_errors=True)
-                raise RuntimeError(
-                    f"building the Engine environment failed at `{' '.join(command)}`: {exc}"
-                ) from None
-            if completed.returncode != 0:
-                shutil.rmtree(target, ignore_errors=True)
-                tail: str = "\n".join(
-                    (completed.stderr or completed.stdout)
-                    .strip()
-                    .splitlines()[-_CHILD_ERROR_TAIL_LINES:]
-                )
-                raise RuntimeError(
-                    f"building the Engine environment failed at `{' '.join(command)}` "
-                    f"(exit {completed.returncode}):\n{tail}"
-                )
+        _run_installer(commands, target, environ=environ, run=run_command, progress=progress)
     # Stage 5 — the marker, last. (The venv step created `target`; `mkdir` only keeps an
     # installer that is replaced in tests from failing here.)
     target.mkdir(parents=True, exist_ok=True)
     (target / READY_MARKER).write_text(key, encoding="utf-8")
     return python
+
+
+def _run_installer(
+    commands: list[list[str]],
+    target: Path,
+    *,
+    environ: Mapping[str, str],
+    run: RunCommand,
+    progress: Callable[[str], None],
+) -> None:
+    """Run the installer commands in order, saying which step it is on; on any failure remove
+    `target` and raise, naming the command and its last lines, so the next `up` starts clean."""
+
+    for step, (label, command) in enumerate(zip(_STEP_LABELS, commands, strict=True), 1):
+        progress(f"  {step}/{len(commands)} {label}")
+        try:
+            completed = run(
+                command,
+                env=dict(environ),
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=_INSTALL_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            shutil.rmtree(target, ignore_errors=True)
+            raise RuntimeError(
+                f"building the Engine environment failed at `{' '.join(command)}`: {exc}"
+            ) from None
+        if completed.returncode != 0:
+            shutil.rmtree(target, ignore_errors=True)
+            tail: str = "\n".join(
+                (completed.stderr or completed.stdout)
+                .strip()
+                .splitlines()[-_CHILD_ERROR_TAIL_LINES:]
+            )
+            raise RuntimeError(
+                f"building the Engine environment failed at `{' '.join(command)}` "
+                f"(exit {completed.returncode}):\n{tail}"
+            )
 
 
 def _install_commands(
@@ -500,10 +543,15 @@ def _install_commands(
     uv: str | None,
     requirements: Path,
     projects: tuple[Path, ...],
+    editable: bool = False,
 ) -> list[list[str]]:
     """The three installer commands, for uv or for venv+pip; identical in what they install."""
 
-    project_args: list[str] = [str(project) for project in projects]
+    project_args: list[str] = []
+    for project in projects:
+        if editable:
+            project_args.append("-e")
+        project_args.append(str(project))
     if uv is not None:
         return [
             # WHY `--python sys.executable`: the same interpreter the SDK runs on, never a
@@ -547,20 +595,21 @@ def _copy_package(name: str, destination: Path) -> None:
     )
 
 
-def environment_for_pip_install(
+def environment_for(
     data_dir: Path, source: RuntimeSource, environ: Mapping[str, str]
 ) -> Path | None:
-    """Build (or reuse) the Engine environment for a pip install; None where that is not the job.
+    """Build (or reuse) the Engine environment this install needs; None where that is not the job.
 
-    Only the bundled source builds: a checkout dev without the Engine venv keeps the in-process
-    Engine and its `uv sync` hint, never a surprise download. A frozen app (Studio's sidecar)
-    cannot create a venv at all and keeps the in-process Engine too — its own Engine
-    environment is a later ticket, through `SCREAMINGFACE_ENGINE_PYTHON`.
+    A pip install builds from the wheel's copies; a checkout builds with its live code
+    installed editable (nothing to run by hand, the dev's venv untouched). A frozen app
+    (Studio's sidecar) cannot create a venv at all and keeps the in-process Engine — its own
+    Engine environment is a later ticket, through `SCREAMINGFACE_ENGINE_PYTHON`.
     """
 
-    if source.mode == MODE_CHECKOUT or getattr(sys, "frozen", False):
+    if getattr(sys, "frozen", False):
         return None
-    return ensure_engine_environment(data_dir, environ=environ)
+    editable_root: Path | None = source.root if source.mode == MODE_CHECKOUT else None
+    return ensure_engine_environment(data_dir, environ=environ, editable_root=editable_root)
 
 
 def describe(python: Path | None) -> str:
@@ -578,7 +627,7 @@ __all__ = [
     "describe",
     "engine_bundle_ids",
     "ensure_engine_environment",
-    "environment_for_pip_install",
+    "environment_for",
     "environment_key",
     "existing_engine_environment",
     "prepare_command",

@@ -27,6 +27,10 @@ plugin was never found; and `prepare` was a hardcoded list. Three PRs, one ticke
   the first `up` builds the environment under the data dir (uv or pip), keyed by its pins. Pip
   users are served here; closes OME-1626 for Benchmarks (the report exporter still needs its own
   environment).
+- PR 4 (SDK): a checkout's `up` builds the same environment with the live Engine and url4
+  installed editable when the Engine app's venv is missing or lacks the extra, so nothing is run
+  by hand; `just local-stack-notebooks` shrinks to prepare + up + JupyterLab; `up` says when no
+  dataset is prepared; `prepare --all` warns past a skipped gated dataset.
 
 Owner decisions (2026-11-04): no PyPI publishing of the Engine; three PRs, each useful alone;
 the in-process Engine path stays for a checkout without the Engine venv and for a frozen Studio
@@ -34,4 +38,5 @@ build (retiring it deletes prior tests, a later owner decision).
 
 Ledgers: `docs/work/2026-11-04-engine-local-serve-port.md` (PR 1),
 `docs/work/2026-11-04-sdk-engine-child-process.md` (PR 2),
-`docs/work/2026-11-04-sdk-engine-env-builder.md` (PR 3).
+`docs/work/2026-11-04-sdk-engine-env-builder.md` (PR 3),
+`docs/work/2026-11-04-sdk-checkout-engine-env.md` (PR 4).

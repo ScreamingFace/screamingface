@@ -400,7 +400,8 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
     # WHY here, after adoption and the port check: a stack already running needs no Engine
     # environment, and a 700 MB build must never precede a refusal.
     config = _with_built_engine_environment(config, runtime_source.resolve_source(os.environ))
-    _require_full_engine_environment(config)
+    config, bundle_ids = _require_full_engine_environment(config)
+    _hint_unprepared_datasets(config, bundle_ids)
     token = os.urandom(16).hex()
     if foreground:
         _serve(config, token, foreground=True)
@@ -450,33 +451,72 @@ def _up(config: RuntimeConfig, *, foreground: bool) -> None:  # noqa: PLR0915
 def _with_built_engine_environment(
     config: RuntimeConfig, source: runtime_source.RuntimeSource
 ) -> RuntimeConfig:
-    """For a pip install with no Engine environment yet: build one under the data dir.
+    """With no Engine environment yet: build one under the data dir and use it.
 
     FEATURE (OME-1620): `pip install screamingface[runtime]` then `screamingface up` serves every
-    board. Only the bundled source builds — a checkout dev without the Engine venv keeps the
-    in-process Engine and the `uv sync` hint, never a surprise download — and a named or
-    already-found interpreter is never replaced.
+    board, from the wheel's copies; a checkout's `up` builds the same environment with its live
+    code installed editable, so there is nothing to run by hand and the dev's venv is never
+    touched. A named or already-found interpreter is never replaced; a frozen app never builds.
     """
     if config.engine_python is not None:
         return config
-    built: Path | None = engine_env.environment_for_pip_install(config.data_dir, source, os.environ)
+    built: Path | None = engine_env.environment_for(config.data_dir, source, os.environ)
     return config if built is None else dataclasses.replace(config, engine_python=built)
 
 
-def _require_full_engine_environment(config: RuntimeConfig) -> None:
-    """Fail `up` before anything boots when the Engine environment serves medxpert alone.
+def _require_full_engine_environment(
+    config: RuntimeConfig,
+) -> tuple[RuntimeConfig, tuple[str, ...]]:
+    """Fail `up` before anything boots when the Engine environment serves medxpert alone —
+    or, when that environment is a checkout's Engine venv found by default, build the
+    editable one instead and use it.
 
     WHY here: a half-stocked Engine env boots healthy and refuses every imported board at run
     time — the silent failure this stack exists to end (OME-1620). Costs one child run of the
     Engine's preparer listing; prints the environment and its board count so the choice is
-    auditable where the user is looking.
+    auditable where the user is looking. Returns the config to boot with and the bundle ids.
     """
     if config.engine_python is None:
-        return
+        return config, ()
     source = runtime_source.resolve_source(os.environ)
     ids = engine_env.engine_bundle_ids(config.engine_python, os.environ)
-    engine_env.require_full_engine(config.engine_python, ids, source)
+    try:
+        engine_env.require_full_engine(config.engine_python, ids, source)
+    except RuntimeError:
+        # WHY only the checkout DEFAULT: an interpreter the user named is honoured or refused,
+        # never replaced. The app's venv was merely found — a dev who never synced the
+        # benchmarks extra gets the built environment instead of a sync that would break
+        # their pre-push gate.
+        if config.engine_python != engine_env.checkout_engine_venv(source):
+            raise
+        print(
+            f"the Engine venv at {config.engine_python} lacks the inspect extra; "
+            "using an Engine environment built from this checkout instead"
+        )
+        built = engine_env.ensure_engine_environment(
+            config.data_dir, environ=os.environ, editable_root=source.root
+        )
+        config = dataclasses.replace(config, engine_python=built)
+        ids = engine_env.engine_bundle_ids(built, os.environ)
+        engine_env.require_full_engine(built, ids, source)
     print(f"engine env: {config.engine_python} ({len(ids)} benchmark bundles)")
+    return config, ids
+
+
+def _hint_unprepared_datasets(config: RuntimeConfig, bundle_ids: tuple[str, ...]) -> None:
+    """Say at `up` when not one dataset is prepared yet, naming the command that does it.
+
+    WHY: `up` builds the Engine environment, not the datasets; a first-time user who then
+    runs a Benchmark meets a run-time refusal far from this screen.
+    """
+    if not bundle_ids:
+        return
+    if any(engine_env.bundle_status(config.assets_dir, name) == "prepared" for name in bundle_ids):
+        return
+    print(
+        "no benchmark datasets are prepared yet; run `screamingface prepare <benchmark>` "
+        "(or `prepare --all`) before evaluating"
+    )
 
 
 def _require_benchmark_assets_dir(config: RuntimeConfig) -> None:
@@ -771,7 +811,7 @@ def _restart(config: RuntimeConfig, args: argparse.Namespace, *, foreground: boo
     require_runtime_extra()
     _require_runner_config(config)
     config = _with_built_engine_environment(config, runtime_source.resolve_source(os.environ))
-    _require_full_engine_environment(config)
+    config, _ = _require_full_engine_environment(config)
     _down(config)
     _up(config, foreground=foreground)
 
@@ -966,14 +1006,20 @@ def _prepare(
     if list_benchmarks:
         if all_benchmarks or benchmark is not None or force:
             raise RuntimeError("--list cannot be combined with a benchmark, --all, or --force")
-        for name, status in _benchmark_statuses(config).items():
-            print(f"{name:12} {status}")
-        return
-    if all_benchmarks == (benchmark is not None):
+    elif all_benchmarks == (benchmark is not None):
         raise RuntimeError("choose one benchmark or pass --all")
+    # INVARIANT: `prepare` takes the Engine environment `up` would take — built when missing,
+    # and a checkout venv without the benchmarks extra falls through to the built one — and
+    # asks it for its bundles once.
     config = _with_built_engine_environment(config, runtime_source.resolve_source(os.environ))
+    ids: tuple[str, ...] = ()
     if config.engine_python is not None:
-        _prepare_with_engine(config, benchmark, all_benchmarks=all_benchmarks, force=force)
+        config, ids = _require_full_engine_environment(config)
+    if list_benchmarks:
+        _print_benchmark_statuses(config, ids)
+        return
+    if config.engine_python is not None:
+        _prepare_with_engine(config, benchmark, all_benchmarks=all_benchmarks, force=force, ids=ids)
         return
     from screamingface._runtime.server import require_runtime_extra
 
@@ -982,6 +1028,17 @@ def _prepare(
     config.assets_dir.mkdir(parents=True, exist_ok=True)
     _prepare_in_process(config, selected, force=force)
     print(f"Benchmark assets ready at {config.assets_dir}")
+
+
+def _print_benchmark_statuses(config: RuntimeConfig, ids: tuple[str, ...]) -> None:
+    """`prepare --list`: each bundle the Engine serves and whether its datasets are ready."""
+    statuses: dict[str, str] = (
+        {name: engine_env.bundle_status(config.assets_dir, name) for name in ids}
+        if config.engine_python is not None
+        else _benchmark_statuses(config)
+    )
+    for name, status in statuses.items():
+        print(f"{name:12} {status}")
 
 
 def _prepare_in_process(
@@ -1048,7 +1105,12 @@ def _checked_engine_bundle_ids(python: Path) -> tuple[str, ...]:
 
 
 def _prepare_with_engine(
-    config: RuntimeConfig, benchmark: str | None, *, all_benchmarks: bool, force: bool
+    config: RuntimeConfig,
+    benchmark: str | None,
+    *,
+    all_benchmarks: bool,
+    force: bool,
+    ids: tuple[str, ...] | None = None,
 ) -> None:
     """`prepare` through the Engine environment's own preparer (OME-1620).
 
@@ -1060,7 +1122,8 @@ def _prepare_with_engine(
     if config.engine_python is None:
         raise RuntimeError("prepare through the Engine needs an Engine environment")
     python: Path = config.engine_python
-    ids: tuple[str, ...] = _checked_engine_bundle_ids(python)
+    if ids is None:
+        ids = _checked_engine_bundle_ids(python)
     if benchmark is not None and benchmark not in ids:
         raise RuntimeError(
             f"no such benchmark {benchmark!r} in the Engine at {python}; "

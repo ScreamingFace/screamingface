@@ -2,9 +2,8 @@
 #
 # The local dev stack is `screamingface up` (OME-1001): the `notebooks` recipe SHELLS
 # that CLI rather than assembling a stack of its own, so devs keep running the exact
-# code path users run. It adds one thing the CLI cannot: a second Engine carrying the
-# `inspect` extra, because `inspect-ai` and the runtime extra's `litellm` pin are
-# declared uncoinstallable — the imported boards can only be served from their own env.
+# code path users run. Since OME-1620 `up` serves every Benchmark itself, from an Engine
+# environment it finds or builds, so the recipe is prepare + up + JupyterLab and nothing more.
 
 set default-list := true
 
@@ -31,10 +30,6 @@ assets := env("SCREAMINGFACE_E2E_ASSETS", data_dir / "benchmark-assets")
 # source_directory(), NOT justfile_directory(): reached through the root justfile's `mod`,
 # the latter resolves to the REPO ROOT and every relative path below lands two levels too high.
 engine_dir := source_directory() / ".." / ".." / "apps" / "screamingface-engine"
-# Not 9108: `screamingface up` owns that one, and this Engine runs beside it. Overridable
-# because two worktrees running this recipe at once would otherwise contend for one port —
-# which this repo expects, since sessions run concurrently against one clone.
-engine_port := env("SCREAMINGFACE_NOTEBOOK_ENGINE_PORT", "9111")
 
 # Every bless recipe's preconditions, checked BEFORE its body — a run that discovers a
 # missing docker or unprepared assets deep inside Python may already have written partial
@@ -46,86 +41,24 @@ _bless-preconditions:
     @echo "docker: {{ require('docker') }}"
     @echo "assets: {{ if path_exists(assets) == 'true' { assets } else { error('no benchmark assets at ' + assets + ' — run `uv run screamingface prepare --all`') } }}"
 
-# Open EVERY example notebook against a stack serving both board families: ours
-# (7 boards, origin=screamingface) and imported (10 inspect_evals boards). Downloads each
-# benchmark's dataset on first run — network, minutes — then reuses it forever.
+# Open EVERY example notebook against the local stack, every Benchmark served.
 #
-# Layout: `screamingface up` brings the Gateway (:9105) and Scoreboard (:9106); the
-# Engine started here serves ALL 17 boards on :9111 and reaches that same Gateway, so
-# the stack's own Engine simply goes unused.
+# Three commands, nothing bespoke (OME-1620): `screamingface prepare --all` downloads each
+# Benchmark's dataset once (resumable; a bundle counts as finished only when its cases.json
+# parses, and a gated dataset is skipped with a warning unless HF_TOKEN is set);
+# `screamingface up` starts the Gateway, the Scoreboard and the Engine — the Engine from an
+# Engine environment `up` finds or builds by itself (this checkout's Engine venv if it carries
+# the benchmarks extra, else one built from the live checkout under the data dir, nothing to
+# sync by hand); then JupyterLab opens the examples against that stack.
 #
 # Shutting down: quit JupyterLab (Ctrl-C in this terminal, or File > Shut Down) and the
-# recipe tears down what it started. The Engine it launched always goes; the stack goes
-# only if this recipe was what started it — a stack you already had running is left alone,
-# because tearing down someone else's is not this recipe's business. Stop that one yourself
-# with `screamingface down` when you are finished with it.
-[doc("Open every example notebook against a stack serving ours AND imported boards")]
+# recipe stops the stack — only if this recipe was what started it; a stack you already had
+# running is left alone, because tearing down someone else's is not this recipe's business.
+[doc("Open every example notebook against the local stack, every Benchmark served")]
 local-stack-notebooks:
     #!/usr/bin/env bash
     set -euo pipefail
     UV="{{ require('uv') }}"
-    # require() so a missing binary aborts loudly. Bare `lsof` was worse than useless:
-    # its "not found" went to the same /dev/null as a clean result, so on a box without
-    # it the port guard below silently never fired.
-    LSOF="{{ require('lsof') }}"
-    CURL="{{ require('curl') }}"
-
-    # Each benchmark's dataset is downloaded once and written to disk as fixed files (the
-    # repo calls this baking); a run afterwards only reads them. That is slow and it is
-    # exactly what a half-finished attempt must not repeat, so this resumes one benchmark
-    # at a time. Every preparer writes `cases.json` LAST, so a directory containing it is
-    # finished; a directory with anything else is wreckage from a run that died mid-write,
-    # which the preparer would refuse to write over. Ask the Engine which exist, clear
-    # only the unfinished directories, and redo exactly those. Nothing complete is fetched
-    # twice, and nothing usable is deleted (without cases.json a benchmark cannot be served).
-    #
-    # `benchmarks` is the Engine's preparer extra — `inspect` (the imported boards' own
-    # scorers, plus the pinned `datasets`) plus the pdfplumber/python-docx readers that
-    # flatten GDPval's reference PDFs into text. It is the SAME extra Dockerfile.benchmark
-    # syncs, so a notebook reads data built exactly the way production builds it.
-    ( cd "{{ engine_dir }}" && "$UV" sync --extra benchmarks )
-
-    # A bundle counts as finished only when its cases.json PARSES. Existence alone is not
-    # enough: the preparers write that file non-atomically, so a run killed mid-write (or a
-    # full disk) leaves a truncated, unparseable file that `-f` would happily call complete
-    # — and the bundle would then be skipped forever while the Engine could never serve it.
-    # Reading it is cheap next to re-downloading a dataset by mistake.
-    missing=()
-    while read -r bundle; do
-        if "$UV" run python -c "import json,sys;json.load(open(sys.argv[1]))" \
-            "{{ assets }}/$bundle/cases.json" >/dev/null 2>&1; then
-            continue
-        fi
-        # Unfinished or corrupt: clear the debris so the preparer sees a clean directory.
-        # Nothing usable is lost — a bundle whose cases.json will not parse cannot be served.
-        rm -rf "{{ assets }}/${bundle:?}"
-        missing+=("--bundle" "$bundle")
-    done < <( cd "{{ engine_dir }}" && "$UV" run python -m screamingface_engine.benchmarks.prepare --list-bundles )
-
-    # Gated datasets (xstest_safe, OME-1269) need a Hugging Face token: HF_TOKEN, or a
-    # `huggingface-cli login`, from an account that accepted the dataset's terms. With
-    # neither, the preparer skips those boards with a warning (they stay unfinished and
-    # are retried next time) instead of stopping every bundle after them. Set
-    # SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN=0 to make a missing token fail instead.
-    if [ ${#missing[@]} -gt 0 ]; then
-        echo "==> downloading $((${#missing[@]} / 2)) benchmark dataset(s) into {{ assets }} — slow, once"
-        ( cd "{{ engine_dir }}" \
-            && SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN="${SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN:-1}" \
-                "$UV" run python -m screamingface_engine.benchmarks.prepare \
-                --root "{{ assets }}" "${missing[@]}" )
-    fi
-
-    # Refuse the port BEFORE starting anything. `screamingface up` guards its own three and
-    # says so plainly; this one had nothing, and the two ways it goes wrong are both silent.
-    # A listener on the same address makes uvicorn exit with EADDRINUSE, which downstream
-    # looks like a missing dependency. A listener on the OTHER address family (IPv6 `*` vs
-    # our IPv4 127.0.0.1) does not collide at all: both bind, and which one answers is luck.
-    if "$LSOF" -nP -iTCP:{{ engine_port }} -sTCP:LISTEN >/dev/null 2>&1; then
-        echo "error: port {{ engine_port }} is already in use, so the Engine cannot start there." >&2
-        echo "  Another worktree running this recipe is the usual cause. Either stop it, or" >&2
-        echo "  pick a free port: SCREAMINGFACE_NOTEBOOK_ENGINE_PORT=9121 just …" >&2
-        exit 1
-    fi
 
     # Note whether a stack was ALREADY up, so the trap tears down only what this recipe
     # started — quitting a notebook must not kill a gateway someone started for other work.
@@ -135,75 +68,27 @@ local-stack-notebooks:
         stack_was_running=true
     fi
 
-    # `up` runs EITHER WAY, including over a stack that is already running. Skipping it then
-    # looked harmless — it prints "already running" and returns — but `up` is where
-    # `_ensure_adoptable` lives, the check that refuses to adopt a stack belonging to a
-    # DIFFERENT checkout (OME-1001). `status` reports ownership and health; it does not
-    # enforce them, so the shortcut silently ran notebooks against another branch's services.
     # --extra runtime: the stack's servers live in that optional extra, and the default
-    # project env (notebook + dev only) cannot boot them.
-    echo "==> checking the Gateway and Scoreboard (screamingface up)"
-    "$UV" run --extra runtime screamingface up
+    # project env (notebook + dev only) cannot boot them. The Engine itself runs from its
+    # own environment, so this extra never conflicts with inspect-ai.
+    echo "==> preparing every benchmark dataset (slow once; resumable)"
+    SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN="${SCREAMINGFACE_SKIP_BENCHMARKS_NEEDING_HF_TOKEN:-1}" \
+        "$UV" run --extra runtime screamingface prepare --all
 
-    echo "==> starting an inspect-capable Engine on :{{ engine_port }}"
-    # WHY full activity: the notebook's live activity panel shows only the Engine's activity
-    # records, and a local Engine emits none unless URL4_CLOUD_ACTIVITY_LEVEL=full (default
-    # "off", which exists for private deployments). Off here left the panel stuck on "No
-    # structured activity received yet" for the whole run. Export it as "off" to opt out.
-    ( cd "{{ engine_dir }}" \
-        && URL4_BENCHMARK_ASSETS="{{ assets }}" \
-            URL4_CLOUD_ACTIVITY_LEVEL="${URL4_CLOUD_ACTIVITY_LEVEL:-full}" \
-            exec "$UV" run uvicorn \
-            --factory screamingface_engine.local:create_local_app \
-            --host 127.0.0.1 --port {{ engine_port }} ) &
-    engine_pid=$!
-    # Runs on any exit, including the Ctrl-C that ends Jupyter. Killing the `uv run` wrapper
-    # takes uvicorn with it (verified), so the port is released.
-    trap 'kill "$engine_pid" 2>/dev/null || true; \
-          [ "$stack_was_running" = true ] || "$UV" run --extra runtime screamingface down || true' EXIT
+    # `up` runs EITHER WAY, including over a stack that is already running: it is where
+    # `_ensure_adoptable` lives, the check that refuses to adopt a stack belonging to a
+    # DIFFERENT checkout (OME-1001). WHY full activity: the notebook's live activity panel
+    # shows only the Engine's activity records, and a local Engine emits none unless
+    # URL4_CLOUD_ACTIVITY_LEVEL=full (default "off"). Export it as "off" to opt out.
+    echo "==> starting the stack (screamingface up)"
+    URL4_CLOUD_ACTIVITY_LEVEL="${URL4_CLOUD_ACTIVITY_LEVEL:-full}" \
+        "$UV" run --extra runtime screamingface up
+    trap '[ "$stack_was_running" = true ] || "$UV" run --extra runtime screamingface down || true' EXIT
 
-    ready=false
-    for _ in $(seq 60); do
-        if "$CURL" -fsS --max-time 2 "http://127.0.0.1:{{ engine_port }}/v1/benchmarks" \
-            >/dev/null 2>&1; then
-            ready=true
-            break
-        fi
-        if ! kill -0 "$engine_pid" 2>/dev/null; then
-            echo "error: the Engine exited before it served anything." >&2
-            echo "  Run the uvicorn command above by hand to see why." >&2
-            exit 1
-        fi
-        sleep 1
-    done
-    # WHY an explicit failure: without it the loop simply ran out and fell through, opening
-    # Jupyter against an Engine that never answered.
-    if [ "$ready" != true ]; then
-        echo "error: the Engine is still not answering on :{{ engine_port }} after 60s." >&2
-        exit 1
-    fi
-
-    # Explicit URL beats local-stack adoption (OME-998), so the kernel reaches THIS Engine.
-    #
-    # The Scoreboard has to be named too, and for a reason easy to miss: the SDK adopts the
-    # local stack ONLY when no engine URL is set, so naming the Engine turns that adoption
-    # off for BOTH services and the Scoreboard silently falls back to the hosted leaderboard.
-    # `sf.leaderboards.submit(...)` from a notebook would then publish to the deployment
-    # instead of the Scoreboard this recipe just started — the "local engine + hosted
-    # leaderboard" hybrid `_default_client` warns about in its own comment. Read from
-    # `status` rather than assuming 9106, so a port override still lands.
-    export SCREAMINGFACE_ENGINE_URL="http://127.0.0.1:{{ engine_port }}"
-    export SCREAMINGFACE_SCOREBOARD_URL="$(
-        "$UV" run --extra runtime screamingface status --json \
-            | "$UV" run python -c "import json,sys;print(json.load(sys.stdin)['services']['scoreboard']['url'])"
-    )"
-    echo "==> Engine ready at $SCREAMINGFACE_ENGINE_URL"
-    echo "==> Scoreboard at $SCREAMINGFACE_SCOREBOARD_URL — opening the examples"
+    echo "==> opening the examples"
     # --extra inspect: `report.export(format="inspect")` writes a .eval log through inspect-ai,
-    # so the kernel needs it importable. This is the SDK's exporter extra, NOT the Engine's
-    # `benchmarks` extra (a different project) — the kernel writes a log, it never bakes assets.
-    # Safe here precisely because this line does NOT ask for `runtime`: the stack's servers are
-    # what conflict with inspect-ai, and they were started above in their own uv invocation.
+    # so the kernel needs it importable. Safe here precisely because this line does NOT ask for
+    # `runtime`: the stack's servers were started above in their own uv invocation.
     "$UV" run --extra inspect jupyter lab examples/
 
 # Bless one board's e2e replay fixtures from the owner-held recordings (OME-964):

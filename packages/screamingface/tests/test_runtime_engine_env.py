@@ -625,7 +625,8 @@ def restart_stubs(monkeypatch: pytest.MonkeyPatch) -> list[RuntimeConfig]:
     _stub_server(monkeypatch)
     monkeypatch.setattr(cli, "_verify_owner", lambda _state: False)
     monkeypatch.setattr(cli, "_require_runner_config", lambda _config: None)
-    monkeypatch.setattr(cli, "_require_full_engine_environment", lambda _config: None)
+    # WHY (config, ()): since PR 4 the check returns the config to boot with and the bundle ids.
+    monkeypatch.setattr(cli, "_require_full_engine_environment", lambda config: (config, ()))
     monkeypatch.setattr(cli, "_down", lambda _config: None)
     started: list[RuntimeConfig] = []
     monkeypatch.setattr(cli, "_up", lambda config, *, foreground: started.append(config))
