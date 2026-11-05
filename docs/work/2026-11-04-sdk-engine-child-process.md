@@ -102,3 +102,10 @@ environment for pip users and retires the in-process path.
   Scoreboard child before this PR too); `restart` probes the Engine twice; the medxpert-only
   refusal names the one hand-built bundle.
 - **Gates:** 194 passed across the 9 runtime test files (9 new); ruff + pyright clean.
+- **Follow-up (2026-11-05, found by #1675's replay lane):** `prepare --all` through the Engine
+  died on the first gated dataset without a Hugging Face token (`cais/hle`), after ten minutes
+  of downloads. `--all` now turns the preparer's skip switch on (an exported value still wins),
+  reports each skipped bundle and a count, and prepares the rest; a named bundle keeps the
+  loud refusal. Pinned by `test_prepare_all_skips_a_gated_dataset_and_prepares_the_rest`,
+  `test_a_named_gated_dataset_fails_loudly`, `test_an_exported_skip_switch_still_wins_under_prepare_all`.
+  197 passed across the 9 runtime test files.
