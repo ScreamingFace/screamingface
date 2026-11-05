@@ -109,9 +109,13 @@ def test_uv_builds_the_environment_from_the_pins_then_the_vendored_projects(
     comes from the pins, never from what pip or uv would pick today."""
     ran: list[list[str]] = []
     assembled: dict[str, list[str]] = {}
+    pins: list[str] = []
 
     def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
         ran.append(list(command))
+        if "-r" in command:
+            # The pins file, like the projects, exists only while the install runs.
+            pins.append(Path(command[command.index("-r") + 1]).read_text(encoding="utf-8"))
         if "--no-deps" in command:
             # The assembled projects exist only while the install runs: record their layout now.
             for project in command[command.index("--no-deps") + 1 :]:
@@ -132,9 +136,9 @@ def test_uv_builds_the_environment_from_the_pins_then_the_vendored_projects(
 
     target = tmp_path / engine_env.ENGINE_ENV_DIRNAME / engine_env.environment_key()
     assert python == target / engine_env._INTERPRETER_IN_VENV
-    requirements = str(engine_env._requirements_path())
     assert ran[0] == ["/usr/bin/uv", "venv", "--python", sys.executable, str(target)]
-    assert ran[1] == ["/usr/bin/uv", "pip", "install", "--python", str(python), "-r", requirements]
+    assert ran[1][:6] == ["/usr/bin/uv", "pip", "install", "--python", str(python), "-r"]
+    assert pins == [engine_env._requirements_text()]
     assert ran[2][:6] == ["/usr/bin/uv", "pip", "install", "--python", str(python), "--no-deps"]
     assert [Path(project).name for project in ran[2][6:]] == ["url4", "screamingface-engine"]
     assert assembled["url4"] == ["LICENSE", "README.md", "pyproject.toml", "src/url4/__init__.py"]
@@ -293,38 +297,6 @@ def test_a_frozen_app_never_builds(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
 
 # --- the pins never drift from the Engine's lock ---------------------------------------------
-
-
-def test_the_committed_pins_equal_a_fresh_export_of_the_engine_lock() -> None:
-    """The deployed Engine's world and the local one are the same file, by construction.
-
-    Regenerate with `uv run python scripts/export_engine_requirements.py` when the Engine's
-    lock moves. Needs uv on PATH, which the SDK's CI lane has; it fails loudly without it rather
-    than skipping, so a lane without uv cannot pass this by accident.
-    """
-    import importlib.util
-
-    script = Path(__file__).resolve().parents[1] / "scripts" / "export_engine_requirements.py"
-    spec = importlib.util.spec_from_file_location("export_engine_requirements", script)
-    assert spec is not None and spec.loader is not None
-    exporter = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(exporter)
-    committed: Path = exporter.REQUIREMENTS
-
-    # WHY sets of pins, not bytes: a uv release that reorders or re-spaces its export must not
-    # fail an unrelated PR; only a changed pin may. The Engine lane carries a twin of this test
-    # (apps/screamingface-engine/tests/unit/test_sdk_engine_requirements_conformance.py), so the
-    # PR that moves the Engine's lock is the one that goes red.
-    def pins(text: str) -> set[str]:
-        return {
-            "".join(line.split())
-            for line in text.splitlines()
-            if line.strip() and not line.lstrip().startswith("#")
-        }
-
-    assert pins(committed.read_text(encoding="utf-8")) == pins(exporter.exported_requirements())
-    assert committed == engine_env._requirements_path()
-    assert "inspect-ai==" in committed.read_text(encoding="utf-8")
 
 
 # --- review round 1 (2026-11-05) -----------------------------------------------------------------

@@ -38,9 +38,15 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
+from functools import cache
 from importlib.resources import files
 from pathlib import Path
 
+from screamingface._runtime.engine_lock import (
+    ENGINE_APP,
+    REQUIREMENTS_NAME,
+    export_engine_requirements,
+)
 from screamingface._runtime.source import MODE_CHECKOUT, RuntimeSource
 
 # INVARIANT: one spelling of the variable — `_config` reads it, `up` prints it, docs name it.
@@ -255,14 +261,37 @@ _STEP_LABELS = (
 _INSTALL_TIMEOUT_SECONDS = 1800.0
 
 
-def _requirements_path() -> Path:
-    """The Engine's pinned `benchmarks` world, exported from its lock and shipped in the wheel."""
+def _vendored_requirements() -> Path | None:
+    """The pins a release wheel carries (exported from the Engine's lock at build), or None."""
 
-    return Path(str(files("screamingface._runtime.resources") / "engine-requirements.txt"))
+    shipped = Path(str(files("screamingface._runtime.resources") / REQUIREMENTS_NAME))
+    return shipped if shipped.is_file() else None
+
+
+@cache
+def _exported_requirements(engine_app: Path) -> str:
+    """The pins exported from a checkout's live Engine lock, once per process."""
+
+    return export_engine_requirements(engine_app)
 
 
 def _requirements_text() -> str:
-    return _requirements_path().read_text(encoding="utf-8")
+    """The Engine's pinned `benchmarks` world: the wheel's copy, else the checkout's lock.
+
+    INVARIANT: both come from `apps/screamingface-engine/uv.lock`, the lock the deployed Engine
+    image is built from, so there is no committed copy that could go stale.
+    """
+
+    shipped: Path | None = _vendored_requirements()
+    if shipped is not None:
+        return shipped.read_text(encoding="utf-8")
+    checkout_engine_app: Path = Path(__file__).resolve().parents[5] / ENGINE_APP
+    if not (checkout_engine_app / "uv.lock").is_file():
+        raise FileNotFoundError(
+            "the Engine's pinned packages were not found: neither this install's "
+            f"{REQUIREMENTS_NAME} nor a checkout's {ENGINE_APP / 'uv.lock'}"
+        )
+    return _exported_requirements(checkout_engine_app)
 
 
 # WHY a checkout fallback, like `config.bundled_runner_config`: an editable install ships no
@@ -324,7 +353,7 @@ def existing_engine_environment(data_dir: Path) -> Path | None:
 
     key: str | None = None
     if not getattr(sys, "frozen", False):
-        with contextlib.suppress(OSError):
+        with contextlib.suppress(OSError, RuntimeError):
             key = environment_key()
     if key is None:
         return None
@@ -418,14 +447,16 @@ def _build(
         f"{'under a minute with uv' if uv else 'a few minutes with pip'})"
     )
     with tempfile.TemporaryDirectory(prefix="screamingface-engine-") as scratch:
-        # Stage 3 — the projects to install, assembled from the wheel's copies.
+        # Stage 3 — the projects to install, assembled from the wheel's copies, and the pins.
         url4_project, engine_project = _assemble_projects(Path(scratch))
+        requirements: Path = Path(scratch) / REQUIREMENTS_NAME
+        requirements.write_text(_requirements_text(), encoding="utf-8")
         # Stage 4 — the installer sequence.
         commands = _install_commands(
             target,
             python,
             uv=uv,
-            requirements=_requirements_path(),
+            requirements=requirements,
             projects=(url4_project, engine_project),
         )
         for step, (label, command) in enumerate(zip(_STEP_LABELS, commands, strict=True), 1):
