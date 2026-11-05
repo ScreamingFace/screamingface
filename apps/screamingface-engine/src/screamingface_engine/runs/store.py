@@ -260,9 +260,14 @@ class TortoiseRunStore:
             ):
                 await self._touch(row.run_id, now, conn)
                 return True
-        # WHY the cancel flag and not the state: a re-sent start finds the Candidate already
-        # `scheduled`, and a fast run may have settled it; only a cancel stopped it before this.
-        return not await Run.filter(id=row.run_id, canceled=True).exists()
+        # WHY this Candidate's own state: a re-sent start finds it already `scheduled`, and a
+        # fast run may have settled it, even under a Run a sibling's cancel flagged. Only a
+        # cancel that stopped THIS Candidate before it was scheduled loses the race.
+        current = await Candidate.get(id=row.id)
+        return (
+            current.state != "stopped"
+            or not await Run.filter(id=row.run_id, canceled=True).exists()
+        )
 
     @_in_context
     async def settle(self, topic: str, outcome: CandidateOutcome) -> None:
@@ -342,6 +347,9 @@ class TortoiseRunStore:
         # limit applies.
         expired = Run.filter(created_at__lt=older_than)
         async with in_transaction(CONNECTION) as conn:
+            # INVARIANT (lock order): the Runs first, as every write does, so a sweep and a
+            # `settle` on an expiring Run never wait on each other in a cycle.
+            await expired.using_db(conn).select_for_update().only("id")
             await (
                 Candidate.filter(run_id__in=Subquery(expired.values("id"))).using_db(conn).delete()
             )

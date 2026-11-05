@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -47,6 +48,39 @@ class SchemaBehindError(RuntimeError):
 
 class DatabaseUnreachableError(RuntimeError):
     """The Run registry's database did not answer. Startup fails (spec R9, §9 2026-11-05)."""
+
+
+class LocalDatabaseInUseError(RuntimeError):
+    """Another local Engine holds this SQLite file. Startup fails."""
+
+
+def hold_local_database(url: str) -> int:
+    """Take the local database's exclusive lock, beside it; the descriptor holds it until closed.
+
+    WHY: a local Engine reconciles every Candidate bound before it started as `lost`, which is
+    right after a restart and wrong while another Engine on the same file still runs them.
+    """
+    path = Path(url.removeprefix("sqlite://") + ".lock")
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        _lock(descriptor)
+    except OSError as exc:
+        os.close(descriptor)
+        raise LocalDatabaseInUseError(
+            f"another local Engine is using {path.with_suffix('')}; stop it first"
+        ) from exc
+    return descriptor
+
+
+def _lock(descriptor: int) -> None:
+    if os.name == "nt":
+        import msvcrt  # noqa: PLC0415 - one platform's module
+
+        msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl  # noqa: PLC0415 - one platform's module
+
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 def _utc_now() -> datetime:
@@ -153,6 +187,7 @@ class _RunsLifecycle:
         self._url = url
         self._local = local
         self._writer_retry_s = writer_retry_s
+        self._local_lock: int | None = None
 
     async def start(self) -> None:
         await self._outcomes.ensure_stream(update=True)
@@ -164,6 +199,7 @@ class _RunsLifecycle:
             return
         if self._local:
             ensure_sqlite_dir(self._url)
+            self._local_lock = hold_local_database(self._url)
         store = await open_run_store(
             self._url,
             self._settings,
@@ -177,8 +213,11 @@ class _RunsLifecycle:
         sweeper = RunSweeper(
             store, retention=timedelta(seconds=self._settings.run_retention_s), clock=_utc_now
         )
+        # WHY awaited: Candidates the last process left, and expired Runs, are cleared before the
+        # App serves; the loop then sweeps every interval.
+        await sweeper.sweep_once()
         self._app.state.run_sweep_task = loop.create_task(
-            sweeper.run(interval_s=self._settings.run_sweep_interval_s)
+            sweeper.run(interval_s=self._settings.run_sweep_interval_s, sweep_first=False)
         )
 
     async def stop(self) -> None:
@@ -193,6 +232,9 @@ class _RunsLifecycle:
         if store is not None:
             self._app.state.run_registry = None
             await store.aclose()
+        if self._local_lock is not None:
+            os.close(self._local_lock)
+            self._local_lock = None
 
 
 def install_runs(
