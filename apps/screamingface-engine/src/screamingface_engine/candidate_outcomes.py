@@ -14,7 +14,15 @@ import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from decimal import ROUND_CEILING, Decimal, InvalidOperation
+from decimal import (
+    ROUND_CEILING,
+    Context,
+    Decimal,
+    DecimalException,
+    DivisionByZero,
+    InvalidOperation,
+    Overflow,
+)
 from typing import Literal, Protocol, cast, get_args
 
 # INVARIANT: exactly the statuses a terminal frame can carry (url4 `TerminatedData.status`).
@@ -28,14 +36,31 @@ ERROR_CODE_LENGTH = 128
 # WHY 12 places: costs are fractions of a cent per call; 24 digits leave 12 for whole dollars.
 COST_DIGITS = 24
 COST_PLACES = 12
-_MAX_COST = Decimal(10) ** (COST_DIGITS - COST_PLACES)
-_COST_QUANTUM = Decimal(1).scaleb(-COST_PLACES)
+# Built from strings, which is exact in any context.
+_MAX_COST = Decimal(f"1E{COST_DIGITS - COST_PLACES}")
+_COST_QUANTUM = Decimal(f"1E-{COST_PLACES}")
+
+
+# WHY a fixed context: rounding must not depend on the process's or task's ambient one, which
+# any library may change (more traps, less precision). One more digit than the column holds, so a
+# cost rounded up onto the bound is still exact and the bound check refuses it.
+_COST_CONTEXT = Context(
+    prec=COST_DIGITS + 1,
+    rounding=ROUND_CEILING,
+    traps=[InvalidOperation, Overflow, DivisionByZero],
+)
 
 
 def stored_cost(cost: Decimal) -> Decimal:
     """``cost`` as the registry stores it: rounded up to `COST_PLACES`, so a cost below the
-    column's precision stays visible, never 0."""
-    return cost.quantize(_COST_QUANTUM, rounding=ROUND_CEILING)
+    column's precision stays visible, never 0. `ValueError` for one that cannot be rounded."""
+    try:
+        stored = cost.quantize(_COST_QUANTUM, context=_COST_CONTEXT)
+    except DecimalException as exc:
+        raise ValueError(f"a cost the registry cannot store: {cost}") from exc
+    if not stored.is_finite():
+        raise ValueError(f"a cost the registry cannot store: {cost}")
+    return stored
 
 
 def check_topic(topic: object) -> str:
