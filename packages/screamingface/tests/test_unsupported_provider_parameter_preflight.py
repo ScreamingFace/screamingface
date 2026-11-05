@@ -176,7 +176,7 @@ def _engine(
 
 
 def _fusion() -> sf.Recipe:
-    return sf.Fusion([sf.Model(_MEMBER)], synthesizer=_SYNTH)
+    return sf.Fanout([sf.Model(_MEMBER)]) >> sf.Synthesize(_SYNTH)
 
 
 def test_seeded_fusion_refuses_before_spend_when_the_synthesizer_provider_denies_seed() -> None:
@@ -362,7 +362,7 @@ def test_declaring_the_seed_only_on_models_that_accept_it_is_allowed() -> None:
     arrived would look stricter and would silently remove this workflow.
     """
     transport = _ReachedTransport()
-    candidate = sf.Fusion([sf.Model(_MEMBER, params={"seed": 42})], synthesizer=_SYNTH)
+    candidate = sf.Fanout([sf.Model(_MEMBER, params={"seed": 42})]) >> sf.Synthesize(_SYNTH)
     client = sf.Client(
         engine_url="https://engine.example",
         http_transport=_engine({_SYNTH: "unsupported"}),

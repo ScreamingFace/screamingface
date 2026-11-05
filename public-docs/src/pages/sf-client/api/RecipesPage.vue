@@ -51,16 +51,17 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
       page documents <code>Recipe</code>, the abstract base every candidate shares. The three
       concrete types each have their own home: a single model route in
       <RouterLink to="/sf-client/api/models">Models</RouterLink>, several members combined by a
-      synthesizer in the <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink>, and
+      synthesizer (<code>sf.Fanout(...) &gt;&gt; sf.Synthesize(...)</code>) in the
+      <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink>, and
       stages chained in series in the
       <RouterLink to="/sf-client/guides/pipelines">Pipelines guide</RouterLink>.
     </p>
 
     <p>
       Every constructible recipe is frozen and holds no client. Building one makes no network
-      requests, so you can compose them before connecting to anything. Recipes nest: a
-      <code>Fusion</code> or <code>Pipeline</code> can contain a <code>Model</code>, another
-      <code>Fusion</code>, or another <code>Pipeline</code>, in any combination.
+      requests, so you can compose them before connecting to anything. Recipes nest: a fusion or a
+      <code>Pipeline</code> can contain a <code>Model</code>, another fusion, or another
+      <code>Pipeline</code>, in any combination.
     </p>
 
     <Note>
@@ -78,14 +79,15 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
 
     <p>
       <code>Recipe</code> is the abstract base the concrete types inherit from. You can't
-      instantiate it directly. It exists for type annotations and so a <code>Fusion</code> or
+      instantiate it directly. It exists for type annotations and so a <code>Fanout</code> or a
       <code>Pipeline</code> can hold a mixed list of members.
     </p>
 
     <p>
-      Every recipe has one public attribute: <code>name</code> (a <code>str</code>). It also
-      provides <code>.then()</code>, which appends a stage and returns a
-      <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink>.
+      Every recipe has one public attribute: <code>name</code> (a <code>str</code>).
+      <code>a &gt;&gt; b</code> joins two recipes and returns a
+      <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink>. A corrective loop is a
+      whole candidate: it cannot be a stage.
     </p>
 
     <p>Calling <code>sf.Recipe()</code> directly raises:</p>
@@ -105,7 +107,8 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
       </li>
       <li>
         <strong><RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink></strong
-        >: members combined by a synthesizer. The Fusions guide carries its full reference.
+        >: members combined by a synthesizer, built with <code>sf.Fanout</code> and
+        <code>sf.Synthesize</code>. The Fusions guide carries its full reference.
       </li>
       <li>
         <strong><RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink></strong
@@ -141,7 +144,7 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
         <tr>
           <td><strong>No loop</strong></td>
           <td><code>Model</code></td>
-          <td><code>Fusion</code></td>
+          <td><code>Fanout &gt;&gt; Synthesize</code></td>
         </tr>
         <tr>
           <td><strong>Corrective</strong></td>

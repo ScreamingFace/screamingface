@@ -57,10 +57,8 @@ REPLAY_URL4 = render(
     )
 )
 FUSION_CANDIDATE_URL4 = compile_candidate(
-    sf.Fusion(
-        [sf.Model("provider/opus"), sf.Model("provider/sonnet")],
-        synthesizer="provider/synthesizer",
-    )
+    sf.Fanout([sf.Model("provider/opus"), sf.Model("provider/sonnet")])
+    >> sf.Synthesize("provider/synthesizer")
 ).url4
 assert FUSION_CANDIDATE_URL4 is not None
 FUSION_REPLAY_URL4 = render(
@@ -457,11 +455,9 @@ def test_evaluate_rejects_an_unavailable_fusion_model_before_execution() -> None
             return _not_installed_response()
         return _engine(request)
 
-    fusion = sf.Fusion(
-        [sf.Model("provider/opus"), sf.Model("provider/gpt")],
-        name="panel",
-        synthesizer="provider/synthesis",
-    )
+    fusion = sf.Fanout(
+        [sf.Model("provider/opus"), sf.Model("provider/gpt")], name="panel"
+    ) >> sf.Synthesize("provider/synthesis")
     transport = _ForbiddenTransport()
     client = sf.Client(
         engine_url="https://engine.example",
