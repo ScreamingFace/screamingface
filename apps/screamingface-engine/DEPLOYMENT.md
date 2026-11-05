@@ -29,8 +29,37 @@ database only when its volume is empty.
    ```
 
 3. Let the App and the migrate Job reach the database. Both run in the Engine's namespace, as
-   pods labelled `component: control-plane` and `component: migrate`. If the namespace or the
-   database server has a NetworkPolicy or firewall allow-list, add both to it, as for aigateway.
+   pods labelled `app.kubernetes.io/component: control-plane` and
+   `app.kubernetes.io/component: migrate`. A namespace with a `default-deny` NetworkPolicy needs an
+   egress rule for both on port 5432. For a managed Postgres server outside the cluster, copy
+   aigateway's `allow-egress-managed-postgres`:
+
+   ```yaml
+   apiVersion: networking.k8s.io/v1
+   kind: NetworkPolicy
+   metadata:
+     name: allow-engine-egress-managed-postgres
+     namespace: <engine namespace>
+   spec:
+     podSelector:
+       matchExpressions:
+         - key: app.kubernetes.io/component
+           operator: In
+           values: [control-plane, migrate]
+     policyTypes: [Egress]
+     egress:
+       - ports:
+           - port: 5432
+             protocol: TCP
+         to:
+           - ipBlock:
+               cidr: 0.0.0.0/0
+               except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16]
+   ```
+
+   For a Postgres pod in the cluster, name its pods in `to` instead, and give the database an
+   ingress rule for the same two components. If the server has a firewall allow-list, add the
+   cluster's egress address to it.
 
 4. Point the environment's values at it:
 
