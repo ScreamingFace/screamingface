@@ -23,7 +23,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import datetime, timedelta
-from decimal import ROUND_CEILING, Decimal
 from typing import cast
 
 from tortoise.backends.base.client import BaseDBAsyncClient
@@ -32,7 +31,7 @@ from tortoise.expressions import Q, Subquery
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
-from screamingface_engine.candidate_outcomes import COST_PLACES, CandidateOutcome
+from screamingface_engine.candidate_outcomes import CandidateOutcome, stored_cost
 from screamingface_engine.runs.db import CONNECTION
 from screamingface_engine.runs.ids import new_run_id
 from screamingface_engine.runs.models import Candidate, Run
@@ -58,7 +57,6 @@ from screamingface_engine.runs.state import derive_state
 
 # The non-terminal Candidate states: the only ones a write may move a Candidate out of.
 _LIVE = ("pending", "scheduled", "running")
-_COST_QUANTUM = Decimal(1).scaleb(-COST_PLACES)
 # How many Runs one state-filtered `list` reads per query.
 _SCAN_BATCH = 200
 
@@ -246,10 +244,7 @@ class TortoiseRunStore:
                     # WHY the producer's time: an outcome written late (after a database outage)
                     # still ends the Candidate when the run ended.
                     finished_at=outcome.finished_at,
-                    # WHY round up: a cost below the column's precision stays visible, never 0.
-                    cost_usd=None
-                    if outcome.cost_usd is None
-                    else outcome.cost_usd.quantize(_COST_QUANTUM, rounding=ROUND_CEILING),
+                    cost_usd=None if outcome.cost_usd is None else stored_cost(outcome.cost_usd),
                     # The outcome refuses a code the column cannot hold (`CandidateOutcome`).
                     error_code=outcome.error_code,
                 )

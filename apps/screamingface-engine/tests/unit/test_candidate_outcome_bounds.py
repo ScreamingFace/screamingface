@@ -48,11 +48,12 @@ def test_a_topic_with_a_nul_is_malformed() -> None:
     "kwargs",
     [
         {"cost_usd": Decimal("1E12")},
+        {"cost_usd": Decimal("999999999999.9999999999999")},  # rounds up onto the bound
         {"error_code": "x" * (ERROR_CODE_LENGTH + 1)},
         {"error_code": "bad\x00code"},
         {"finished_at": datetime(2026, 11, 5, 9, 30)},  # noqa: DTZ001 - naive on purpose
     ],
-    ids=["cost-overflow", "long-code", "nul-code", "naive-time"],
+    ids=["cost-overflow", "cost-rounds-over", "long-code", "nul-code", "naive-time"],
 )
 def test_an_outcome_the_registry_cannot_store_is_refused(kwargs: dict[str, object]) -> None:
     with pytest.raises(ValueError):
@@ -83,9 +84,12 @@ def test_an_outcome_without_an_end_time_is_malformed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_in_memory_stream_refuses_an_outcome_with_no_topic() -> None:
+@pytest.mark.parametrize("topic", ["", "to\x00pic"], ids=["empty", "nul"])
+async def test_the_in_memory_stream_refuses_a_topic_the_codec_refuses(topic: str) -> None:
     with pytest.raises(ValueError, match="topic"):
-        await InMemoryCandidateOutcomeStream().publish("", CandidateOutcome("succeeded"))
+        await InMemoryCandidateOutcomeStream().publish(topic, CandidateOutcome("succeeded"))
+    with pytest.raises(ValueError, match="topic"):
+        encode_outcome(topic, CandidateOutcome("succeeded"))
 
 
 @pytest.mark.asyncio

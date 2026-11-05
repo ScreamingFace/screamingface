@@ -14,7 +14,7 @@ import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_CEILING, Decimal, InvalidOperation
 from typing import Literal, Protocol, cast, get_args
 
 # INVARIANT: exactly the statuses a terminal frame can carry (url4 `TerminatedData.status`).
@@ -29,6 +29,24 @@ ERROR_CODE_LENGTH = 128
 COST_DIGITS = 24
 COST_PLACES = 12
 _MAX_COST = Decimal(10) ** (COST_DIGITS - COST_PLACES)
+_COST_QUANTUM = Decimal(1).scaleb(-COST_PLACES)
+
+
+def stored_cost(cost: Decimal) -> Decimal:
+    """``cost`` as the registry stores it: rounded up to `COST_PLACES`, so a cost below the
+    column's precision stays visible, never 0."""
+    return cost.quantize(_COST_QUANTUM, rounding=ROUND_CEILING)
+
+
+def check_topic(topic: object) -> str:
+    """``topic`` if an outcome may name it: a non-empty string with no NUL. Both adapters and
+    the codec apply this one rule, so neither accepts an outcome the other would drop."""
+    if not isinstance(topic, str) or not topic:
+        raise ValueError("an outcome names its topic")
+    if "\x00" in topic:
+        raise ValueError("an outcome's topic has no NUL")
+    return topic
+
 
 UNSTORABLE_ERROR_CODE = "error_code_unstorable"
 """Stands in for a terminal frame's error code that is too long for the registry or holds a NUL.
@@ -65,7 +83,11 @@ class CandidateOutcome:
         if self.status not in OUTCOME_STATUSES:
             raise ValueError(f"an outcome status is one of {sorted(OUTCOME_STATUSES)}")
         cost = self.cost_usd
-        if cost is not None and (not cost.is_finite() or cost < 0 or cost >= _MAX_COST):
+        # WHY the stored value: rounding up can carry a cost just below the bound onto it, which
+        # the column cannot hold.
+        if cost is not None and (
+            not cost.is_finite() or cost < 0 or stored_cost(cost) >= _MAX_COST
+        ):
             raise ValueError(f"a cost must be a finite amount from 0 up to {_MAX_COST} USD")
         if storable_error_code(self.error_code) != self.error_code:
             raise ValueError(f"an error code is at most {ERROR_CODE_LENGTH} characters, no NUL")
@@ -78,7 +100,7 @@ def encode_outcome(topic: str, outcome: CandidateOutcome) -> bytes:
     readers, and a float cannot hold an exact cost."""
     cost = None if outcome.cost_usd is None else str(outcome.cost_usd)
     body = {
-        "topic": topic,
+        "topic": check_topic(topic),
         "status": outcome.status,
         "error_code": outcome.error_code,
         "cost_usd": cost,
@@ -98,16 +120,13 @@ def decode_outcome(payload: bytes) -> tuple[str, CandidateOutcome]:
     if not isinstance(body, dict):
         raise ValueError("an outcome must be a JSON object")
     topic, status, error_code = body.get("topic"), body.get("status"), body.get("error_code")
-    if not isinstance(topic, str) or not topic:
-        raise ValueError("an outcome names its topic")
+    topic = check_topic(topic)
     # WHY the type first: a list or object is unhashable, and `in` would raise TypeError, which
     # the writer does not drop, so one such message would stop every outcome behind it.
     if not isinstance(status, str) or status not in OUTCOME_STATUSES:
         raise ValueError(f"an outcome status is one of {sorted(OUTCOME_STATUSES)}")
     if error_code is not None and not isinstance(error_code, str):
         raise ValueError("an error code is a string")
-    if "\x00" in topic:
-        raise ValueError("an outcome's topic has no NUL")
     outcome = CandidateOutcome(
         cast(OutcomeStatus, status),
         error_code,

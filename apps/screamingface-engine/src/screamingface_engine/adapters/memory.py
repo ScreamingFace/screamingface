@@ -24,6 +24,7 @@ from screamingface_engine.candidate_outcomes import (
     DEFAULT_OUTCOMES_MAX_AGE_S,
     CandidateOutcome,
     OutcomeDelivery,
+    check_topic,
 )
 from url4.streaming.codec import decode, encode
 from url4.streaming.interfaces import EventStream, StreamNotFoundError, validate_from_sequence
@@ -172,10 +173,8 @@ class InMemoryCandidateOutcomeStream:
         return None
 
     async def publish(self, topic: str, outcome: CandidateOutcome) -> None:
-        # WHY: the JetStream codec drops an outcome with no topic as malformed; refusing it here
-        # keeps the two adapters to one contract.
-        if not topic:
-            raise ValueError("an outcome names its topic")
+        # WHY: the JetStream codec refuses the same topics, so the two adapters keep one contract.
+        check_topic(topic)
         async with self._changed:
             now = asyncio.get_running_loop().time()
             self._drop_expired(now)
