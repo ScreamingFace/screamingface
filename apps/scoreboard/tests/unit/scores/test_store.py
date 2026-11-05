@@ -396,9 +396,8 @@ async def test_submit_different_accuracy_is_not_deduped(tortoise_db: None) -> No
 async def test_postgres_concurrent_idempotency_submissions_share_winner(
     tortoise_db: None,
 ) -> None:
-    # AIDEV-NOTE: this test currently only ever skips — see OME-430 for why
-    # (postgres_schema_database_url calls asyncio.run() inside an already-running
-    # event loop, and CI never sets SCOREBOARD_TEST_DATABASE_URL). Fix there, not here.
+    # AIDEV-NOTE: OME-430 runs this in the dedicated PostgreSQL CI job.
+    # The default SQLite suite still skips the backend-specific race.
     if Tortoise.get_connection("default").capabilities.dialect != "postgres":
         pytest.skip("requires Postgres")
 

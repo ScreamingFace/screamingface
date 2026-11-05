@@ -42,6 +42,7 @@ from scoreboard.routes.dependencies import (
 from scoreboard.routes.dependencies import (
     UNTRUSTED_PEER_DETAIL as UNTRUSTED_PEER_DETAIL,
 )
+from scoreboard.routes.metadata_validation import MetadataValidationRoute
 from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
     CaptureStatus,
@@ -69,7 +70,7 @@ from scoreboard.scores.store import (
     ScoreStore,
 )
 
-router = APIRouter(prefix="/v1", tags=["scores"])
+router = APIRouter(prefix="/v1", tags=["scores"], route_class=MetadataValidationRoute)
 logger = logging.getLogger(__name__)
 
 STORE_UNAVAILABLE_DETAIL = "score store unavailable"
