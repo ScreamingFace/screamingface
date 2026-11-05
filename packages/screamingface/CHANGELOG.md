@@ -121,15 +121,6 @@
 
 ### Features
 
-* **screamingface:** every `evaluate` is recorded on the Engine as a Run (`OME-1785`), and
-  `Report.run_id` names it. The new `sf.runs` lists, reopens, waits on and cancels your Runs from
-  any notebook or machine: `sf.runs.list()`, `sf.runs.get(run_id)` and their async twins, which
-  return `sf.Run`, with `sf.CandidateRun` and `sf.RunProgress`. Each start names its Run, a
-  cancel from another notebook stops the Candidates not yet started, and Ctrl-C cancels the Run.
-  An Engine that does not record Runs runs every `evaluate` as before, with one
-  `EvaluationWarning`, and `Report.run_id` is `None`. The local Engine of `screamingface up`
-  keeps its Runs in `engine.sqlite3` in the data directory.
-
 * **screamingface:** show the combine steps in the report (E4b part 4). The Case pane has a Combine section for every reducer step, with the step facts and one row per member (status and reason, value, weight, score, rank, each signal, chosen). Each Candidate card has a summary per reducer step: how often each member was chosen and excluded, and the mean of each declared signal with its count. Numbers show 4 significant digits, the exact value on hover, and a missing value is an em dash with its reason. `report.export()` adds a `trace` key to each Case with a combine step (the `report.trace_dict()` entries); the schema stays `report.v1`. No new Python API. No Engine change.
 
 * **screamingface:** the README section "Signal sources" gives five recipes for the E4b declared signals (E4b part 3): S12 a vote weighted by the confidence that each member states (`sf.Verbalized`), S13 a vote weighted by token probability (`sf.Logprob("prob")`), S14 the member with the highest mean token log-probability, S15 the member with the lowest mean token entropy (`sf.Entropy`), and S16 a log-probability threshold before a larger writer (the writer still runs; the skip comes with E4c). Each recipe runs offline in the Engine's tests from the url4 that the SDK compiles. Two paid tests check `openrouter/openai/gpt-4o-mini` live, and check that a model that refuses logprobs fails with `logprobs_unsupported`. No API change.
@@ -241,6 +232,15 @@
 * Retain completed evaluation results on disk before decoding and reopen them with `sf.reports.list()`, `get()`, `get_async()`, and explicit `delete()`. Public Clients save results by default; `save_results=False` retains in-memory collection. Verified incremental indexing preserves full Case data and provenance, while fusion-member totals retain nullable values with bounded auxiliary memory.
 
 * **screamingface:** add `sf.classify(model, input)` and `Client.classify(model, input)` (`OME-1796`). They send one text to a text classifier you configured on your own endpoint (a model ID such as `byom_<id>/classifier_v1`) through the Engine's `/classify`, and return a `sf.Classification`: the model, the result contract (`classification-scores-v1` today) and `scores`, a tuple of `sf.LabelScore(label, score)` in the classifier's order, ties included. The call asks the Engine to wait at most 30 s, reads for 45 s and is never re-sent by the SDK, neither after a sign-in nor through a redirect: a result spilled to an artifact is fetched only from the Engine's exact signed artifact path, and that fetch alone is sent once more when a Cloudflare Access sign-in interrupted it. An input whose encoded request passes the Engine's 8 KiB limit raises `PlanningError(code="uri_too_long")` before any call, and a model ID or input that UTF-8 cannot encode raises `PlanningError(code="malformed_source")` before any call; an Engine without `/classify` raises `EngineCapabilityError`. An error is `retryable` only when nothing ran (the Engine was not reached, a rate limit, or a refusal at admission); an Engine timeout, any other server failure, a connection lost after sending and a result that could not be read are not, because classifying again runs and may bill the classifier again. Sync only: `AsyncClient` has no `classify`. **Requires an SF Engine that serves `/classify`.**
+
+* **screamingface:** every `evaluate` is recorded on the Engine as a Run (`OME-1785`), and
+  `Report.run_id` names it. The new `sf.runs` lists, reopens, waits on and cancels your Runs from
+  any notebook or machine: `sf.runs.list()`, `sf.runs.get(run_id)` and their async twins, which
+  return `sf.Run`, with `sf.CandidateRun` and `sf.RunProgress`. Each start names its Run, a
+  cancel from another notebook stops the Candidates not yet started, and Ctrl-C cancels the Run.
+  An Engine that does not record Runs runs every `evaluate` as before, with one
+  `EvaluationWarning`, and `Report.run_id` is `None`. The local Engine of `screamingface up`
+  keeps its Runs in `engine.sqlite3` in the data directory.
 
 ### Features
 * **screamingface:** read benchmark datasets from a separate folder. `screamingface up --benchmark-assets-dir PATH` points the Engine's `URL4_BENCHMARK_ASSETS` at `PATH` instead of `<data-dir>/benchmark-assets`, so an app can ship the datasets read-only in its bundle. A missing folder fails `up` before any service starts. The running stack records the folder in `runtime.json`; `status --json` (new `benchmark_assets_dir` key) and `doctor` (a `benchmark assets dir` line) report it and the bundle status from it, and `restart` keeps it. `prepare` still writes to the data directory and refuses the option. Without the option nothing changes.
