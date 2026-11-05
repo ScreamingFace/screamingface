@@ -64,7 +64,7 @@ def hold_local_database(url: str) -> int:
     """
     # WHY the path alone, resolved: Tortoise reads a query (`?journal_mode=WAL`) as options of
     # the same file, and a symlink or `..` spelling names the same file too; all find one lock.
-    file_path = url.removeprefix("sqlite://").split("?", 1)[0]
+    file_path = url.removeprefix("sqlite://").split("?", 1)[0].split("#", 1)[0]
     path = Path(Path(file_path).resolve().as_posix() + ".lock")
     descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
     try:
@@ -296,23 +296,21 @@ def install_runs(
 def _rolled_back_on_failed_start(
     inner: Callable[[Any], AbstractAsyncContextManager[Any]], lifecycle: _RunsLifecycle
 ) -> Callable[[Any], AbstractAsyncContextManager[Any]]:
-    """The App's lifespan, releasing Runs when ANY startup hook fails, even one after Runs'.
+    """The App's lifespan, releasing Runs however it ends.
 
-    WHY: a failed startup runs no shutdown hook, and a local Engine inside the Client's own
-    process lives on; the lock, store and tasks Runs took would stay held.
+    WHY: a failed startup runs no shutdown hook, and a shutdown hook that raises skips the ones
+    after it, while a local Engine inside the Client's own process lives on; the lock, store and
+    tasks Runs took would stay held. `stop` is idempotent, so the usual shutdown hook and this
+    one never release twice.
     """
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Any) -> AsyncIterator[Any]:
-        started = False
         try:
             async with inner(app) as state:
-                started = True
                 yield state
-        except BaseException:
-            if not started:
-                await lifecycle.stop()
-            raise
+        finally:
+            await lifecycle.stop()
 
     return lifespan
 

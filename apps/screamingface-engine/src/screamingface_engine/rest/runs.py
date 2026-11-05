@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import BaseModel, ConfigDict, PlainSerializer, StrictInt
+from starlette.exceptions import HTTPException
 
 from screamingface_engine import job_env
 from screamingface_engine.auth import ProblemException
@@ -57,6 +58,7 @@ RUN_CANCELED = "run_canceled"
 CANDIDATE_ALREADY_STARTED = "candidate_already_started"
 CLIENT_KEY_CONFLICT = "client_key_conflict"
 INVALID_CURSOR = "invalid_cursor"
+MALFORMED_BODY = "malformed_body"
 RUN_HEADER = "X-SF-Run"
 CANDIDATE_HEADER = "X-SF-Run-Candidate"
 # The verified identity that owns a hosted Run (spec D6). Local mode is single-user.
@@ -87,6 +89,23 @@ def _problem(
     )
 
 
+# How much of a refused request a 422 names. WHY a bound: a request can carry thousands of
+# unknown fields, or a field name of any length, and the answer must not grow with it.
+_SHOWN_LOCATIONS = 10
+_SHOWN_SEGMENT = 64
+
+
+def _invalid_at(exc: RequestValidationError) -> str:
+    """Where ``exc`` found the request invalid: the field locations only, never their values
+    (those are the caller's request, echoed back), bounded in count and length."""
+    locations = sorted(
+        {".".join(str(part)[:_SHOWN_SEGMENT] for part in e.get("loc", ())) for e in exc.errors()}
+    )
+    shown = ", ".join(locations[:_SHOWN_LOCATIONS])
+    hidden = len(locations) - _SHOWN_LOCATIONS
+    return shown if hidden <= 0 else f"{shown} and {hidden} more"
+
+
 class _RunsRoute(APIRoute):
     """The `/runs` boundary. Spec D2, D6: Runs off answers 404 and a hosted call with no identity
     401, whatever its body or query; a request FastAPI cannot validate answers a 422 Problem."""
@@ -102,12 +121,20 @@ class _RunsRoute(APIRoute):
             try:
                 return await route_handler(request)
             except RequestValidationError as exc:
-                # WHY only the locations: an error's input is the caller's request, echoed back.
-                fields = sorted({".".join(str(p) for p in e.get("loc", ())) for e in exc.errors()})
                 raise _problem(
                     status=422,
                     title="Unprocessable Content",
-                    detail=f"the request is invalid at {', '.join(fields)}",
+                    detail=f"the request is invalid at {_invalid_at(exc)}",
+                ) from None
+            except HTTPException as exc:
+                # FastAPI's answer to a body it could not decode (invalid UTF-8, say).
+                if exc.status_code != 400:
+                    raise
+                raise _problem(
+                    status=400,
+                    title="Bad Request",
+                    detail="the request body could not be read as JSON",
+                    code=MALFORMED_BODY,
                 ) from None
 
         return runs_route_handler
@@ -135,6 +162,7 @@ router = APIRouter(
     dependencies=[Depends(_private)],
     responses=_private_problems(
         {
+            400: "The request body could not be read as JSON (`malformed_body`).",
             401: "A hosted call with no verified identity (`identity_required`).",
             422: "The request does not validate: its body, path or query.",
             404: "No such Run of the caller's (`run_not_found`), or Runs are off on this Engine.",
@@ -531,9 +559,9 @@ async def confirm_scheduled(request: Request, topic: str) -> None:
     if not stands:
         try:
             await _stop(request, topic)
+            await registry.stop_done(topic)
         except BaseException as exc:
             raise _private_failure(exc) from exc
-        await registry.stop_done(topic)
         # Private: whether a Run is canceled depends on who asks.
         raise _problem(
             status=409,

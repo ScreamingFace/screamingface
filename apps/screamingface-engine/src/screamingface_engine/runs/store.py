@@ -305,13 +305,18 @@ class TortoiseRunStore:
                 return None
             await _lock_run(run_id, conn)
             if await Candidate.filter(run_id=run_id, state__in=_LIVE).using_db(conn).exists():
-                await Run.filter(id=run_id).using_db(conn).update(canceled=True)
-                # Spec D12: every bound live Candidate may be on a runner, so it is owed a stop.
-                await (
-                    Candidate.filter(run_id=run_id, state__in=_LIVE, topic__isnull=False)
-                    .using_db(conn)
-                    .update(stop_owed=True)
+                flagged = (
+                    await Run.filter(id=run_id, canceled=False).using_db(conn).update(canceled=True)
                 )
+                # Spec D12: every bound live Candidate may be on a runner, so the cancel that
+                # flags the Run owes each a stop. WHY only that one: a retry finds the stops that
+                # succeeded cleared, and must not owe them again while their outcomes land.
+                if flagged:
+                    await (
+                        Candidate.filter(run_id=run_id, state__in=_LIVE, topic__isnull=False)
+                        .using_db(conn)
+                        .update(stop_owed=True)
+                    )
                 await (
                     Candidate.filter(run_id=run_id, state="pending")
                     .using_db(conn)
