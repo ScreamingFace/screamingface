@@ -71,6 +71,11 @@ database only when its volume is empty.
 On the next `helm upgrade`, the chart's `migrate` Job creates the tables before the App starts.
 The App reads the URL; the runner pool never does.
 
+**Changing the URL later** (a new password, another host): update the Secret, run
+`helm upgrade` so the `migrate` Job runs against the new database, then
+`kubectl -n <engine namespace> rollout restart deployment/<release>`. The App reads the URL only
+at start, so without the restart it keeps the old one.
+
 ### What can go wrong
 
 - **The App refuses to start with "schema is older than this Engine".** The migrate Job did not
@@ -80,7 +85,8 @@ The App reads the URL; the runner pool never does.
 - **The App refuses to start with "SQLite URL".** A hosted App needs Postgres: a pod's SQLite file
   is wiped on every restart.
 - **The release hangs, then fails, on the migrate Job.** `database.existingSecret` names a Secret
-  that does not exist yet, and the Job cannot start without it. Create the Secret (step 2) first.
+  that does not exist yet. Neither the Job nor the App can start without it. Create the Secret
+  (step 2) first.
 - **The App refuses to start with "database … did not answer".** The URL is wrong, the database
   is down, or the pod cannot reach it (step 3). The error names the host with the password hidden.
 

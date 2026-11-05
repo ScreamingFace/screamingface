@@ -61,11 +61,14 @@ def test_without_a_secret_there_is_no_database_and_no_migrate_job() -> None:
     assert _jobs(docs) == []
 
 
-def test_the_secret_reaches_the_app_as_an_optional_reference() -> None:
+def test_the_secret_reaches_the_app_as_a_required_reference() -> None:
+    """WHY required: the migrate Job's reference is, so a named Secret that does not exist
+    fails the release in both places instead of silently leaving Runs off."""
     entry = _env(_container(_deployment(_render(_SECRET), "app")))[_DATABASE_VAR]
 
     ref = entry["valueFrom"]["secretKeyRef"]
-    assert (ref["name"], ref["key"], ref["optional"]) == ("engine-db", "database-url", True)
+    assert (ref["name"], ref["key"]) == ("engine-db", "database-url")
+    assert "optional" not in ref
 
 
 def test_the_runner_pool_never_sees_the_database() -> None:
@@ -132,3 +135,15 @@ def test_an_outcome_max_age_the_lost_cutoff_cannot_outlast_is_refused() -> None:
 
     assert result.returncode != 0
     assert "maxAgeS" in result.stderr
+
+
+def test_the_migrate_job_names_its_component_once() -> None:
+    """WHY the raw text: a YAML parser keeps the last of two equal keys, but a strict one, such
+    as the GitOps controller's, refuses the manifest."""
+    args = ["helm", "template", _RELEASE, str(_CHART), "--set-string", _NATS, "--set", _SECRET]
+    rendered = subprocess.run(args, capture_output=True, text=True, check=True).stdout
+    (job_text,) = [doc for doc in rendered.split("\n---") if "\nkind: Job\n" in doc]
+    labels = job_text.split("\n  labels:\n", 1)[1].split("\n  annotations:", 1)[0]
+
+    assert labels.count("app.kubernetes.io/component:") == 1
+    assert "app.kubernetes.io/component: migrate" in labels
