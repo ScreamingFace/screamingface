@@ -8,15 +8,13 @@ finished:
 
 # docs-align-sf-client-0-1-11: Align the SF Client docs with screamingface 0.1.11
 
-> Retargeted on 2026-11-05 from 0.1.10 to 0.1.11 after the 0.1.11 release (plan section 9, parts S1 to S10); the earlier retarget on 2026-11-04 from 0.1.9 to 0.1.10, below, is kept as the record.
->
-> Retargeted on 2026-11-04 from 0.1.9 to 0.1.10 after the 0.1.10 release. The review report and outcome below record the 0.1.9 pass as committed; plan section 8 (parts R1 to R8) re-verifies it on 0.1.10, and the outcome is rewritten at S10.
+Versions: 0.1.9 (2026-11-04), 0.1.10 (2026-11-04), 0.1.11 (2026-11-05). Plan sections 8 (R1 to R8, 0.1.10) and 9 (S1 to S10, 0.1.11). The review report and the Outcome record 0.1.11. The "Retarget results" sections list each version.
 
 Epic: `OME-426` (Docs polish pass, launch).
 
 ## Intent
 
-Fix drift between the SF Client docs (`public-docs`) and screamingface 0.1.11, the released package. Every statement, sample and number on the affected pages is verified against 0.1.11 on a local engine, and on the hosted engine where the account allows. The team's answers to the open questions decide which side is right. The pass follows the OME-898 rules for writing, terminology, claims and review, restated in the spec.
+Fix drift between the SF Client docs (`public-docs`) and screamingface 0.1.11, the released package. Every statement, sample and number on the affected pages is verified against 0.1.11 on a local engine, and on the hosted engine where the account allows. The pass follows the OME-898 rules for writing, terminology, claims and review, restated in the spec.
 
 ## Planned changes
 
@@ -48,20 +46,20 @@ Fix drift between the SF Client docs (`public-docs`) and screamingface 0.1.11, t
 - Every diagram in the spec's Diagram plan exists as source, SVG and PNG.
 - The review report exists, in the required order.
 - No edited page contains an em-dash, and no heading is in title case.
-- The footer names the newest release tag (the owner's decision).
+- The footer names the newest release tag.
 - Type-check, lint and build pass.
 
 ## Retarget results (0.1.11)
 
 - **S1:** spec, plan, ledger, mirror and diagrams renamed and amended (`0d0d68dbc`). `len(sf.__all__)` is 105.
-- **S2:** the chain syntax: Recipes, Fusions, Pipelines, Evaluation, Quickstart, First fusion (`12e5b6e92`). Upstream's text from PR #1680 was checked with about 40 probes; fixes to the merged text are in the commit.
-- **S3 and S4:** the Reducers reference, the Gate and the declared signals (`ed0799260`). `Logprob` and `Entropy` returned no value on any model tried; recorded as I-10.
-- **S5:** the combine evidence, the trace keys and `JudgeWriterWarning` (`b5565bbad`). The report-browser Combine section is not described, because it was not verified.
-- **S6:** the url4 changes (`b83a7d1a7`): the single-model and plain-fusion url4 are byte for byte equal to 0.1.10; a scoring-judge url4 and a field-pick url4 changed; the old ones do not rebuild.
+- **S2:** the chain syntax on Recipes, Fusions, Pipelines, Evaluation, Quickstart and First fusion (`12e5b6e92`). The text from PR #1680 was run with about 40 probes.
+- **S3 and S4:** the Reducers reference, the Gate and the declared signals (`ed0799260`). `Logprob` and `Entropy` returned no value on any model tried (I-10).
+- **S5:** the combine evidence, the trace keys and `JudgeWriterWarning` (`b5565bbad`). The report-browser Combine section is not described: not verified.
+- **S6:** the url4 changes (`b83a7d1a7`). The single-model and plain-fusion url4 are byte for byte equal to 0.1.10. A scoring-judge url4 and a field-pick url4 changed. The old ones do not rebuild.
 - **S7:** two diagrams updated and the narrow-chain diagram added (`c6cb7213e`).
-- **S8:** 24 audit scripts run on 0.1.11 and diffed against the 0.1.10 outputs. Deterministic drift: local `models.list()` 109 to 110, `len(sf.__all__)` 92 to 105. Unchanged: capture default, error texts, cost reporting, url4 length, connections. Run-to-run variation: tokens, costs, run ids. `part2b.py` counts provider calls from the runtime log and gave 7 and 10 on the same SDK in repeated runs, so the shared-call count is not a reliable drift signal. `guides_ctor.py` checks the old Pipelines sample names and is obsolete.
-- **S9 (hosted, read only, after the browser login):** 112 models, 91 benchmarks, 91 leaderboards, `ifeval` 541 Cases, `medxpert` 2,450, `draco-3pass` 100, `PullResult(rows_read=4631, ...)`: all unchanged from 0.1.10. `cases=[999999]` returns `PlanningError invalid_benchmark_selection` and a chain ending after `sf.Fanout` raises `ValueError`, both before any model call. Not verified: whether the hosted engine serves the narrow step, because the selection error comes first and a run would spend hosted compute.
-- **S10:** the media sample, the `media_not_kept` error and the text-only refusal were re-run on the engine of the `screamingface-v0.1.11` tag (started with `just local-stack-notebooks`): outputs identical to 0.1.10. Analytics behaviour re-measured on 0.1.11 on a fresh config home: unchanged (notice on the first import, `accepted`, `DO_NOT_TRACK=1` saves nothing).
+- **S8:** 24 audit scripts run on 0.1.11 and diffed against the 0.1.10 outputs (`7eea0be1f`). Drift: local `models.list()` 109 to 110, `len(sf.__all__)` 92 to 105. No change: capture default, error texts, cost reporting, url4 length, connections. Run-to-run variation: tokens, costs, run ids. `part2b.py` (provider calls counted from the runtime log) gave 7 and 10 on the same SDK. `guides_ctor.py` checks the old Pipelines sample names and fails.
+- **S9 (hosted, read only):** 112 models, 91 benchmarks, 91 leaderboards, `ifeval` 541 Cases, `medxpert` 2,450, `draco-3pass` 100, `PullResult(rows_read=4631, ...)`. All equal to 0.1.10. `cases=[999999]` returns `PlanningError invalid_benchmark_selection`. A chain ending after `sf.Fanout` raises `ValueError`. Both happen before any model call. Not verified: whether the hosted engine serves the narrow step.
+- **S10:** the media sample, the `media_not_kept` error and the text-only refusal re-run on the engine of the `screamingface-v0.1.11` tag (`just local-stack-notebooks`): outputs equal to 0.1.10. Analytics re-measured on a fresh config home: unchanged.
 
 ## Retarget results (0.1.10)
 
@@ -71,12 +69,12 @@ Fix drift between the SF Client docs (`public-docs`) and screamingface 0.1.11, t
 - **R4:** local engine list (`medxpert` only from `screamingface up`) and the media sample re-run on the 0.1.10 release-tag engine (`920441c76`).
 - **R5:** the connection listing has no SDK change; the text-only model refusal on picture benchmarks documented (`7a668c2bb`).
 - **R6:** 36 audit scripts run on 0.1.9 and on 0.1.10 against the same engine and diffed. The only deterministic SDK differences are the `cases` parameter and the analytics default. Counts (109 local models, 7 providers, `medxpert` 2,450 Cases, 92 `__all__` names), error texts, cache and capture behaviour, url4 length and the Mean and Pick outputs (`'3.75'`, `'green'`) are identical. Differences in token counts, costs, run ids and model-echoed JSON spacing are run-to-run variation. No page contains the string "0.1.9". `p5_reducers.py` timed out at 420 s on both versions (provider latency on `deepseek-v4-pro`) and was re-run with a longer limit.
-- **R7 (hosted, read only, after the browser login):** 112 models, 91 benchmarks (the pages said 89; `labbench2_figqa2_img` and `labbench2_tableqa2_img` are new), 91 leaderboards, `ifeval` 541 cases, `medxpert` 2,450, `draco-3pass` 100, and `PullResult(rows_read=4631, ...)` for `claude-opus-4.8`. `cases=[999999]` on the hosted engine returns `PlanningError invalid_benchmark_selection` with no model call, so the hosted engine serves the selection route. The provider status of this account is `not_connected` for all seven providers on both SDK versions. The hosted engine version is not exposed.
+- **R7 (hosted, read only):** 112 models, 91 benchmarks (89 before; `labbench2_figqa2_img` and `labbench2_tableqa2_img` are new), 91 leaderboards, `ifeval` 541 cases, `medxpert` 2,450, `draco-3pass` 100, and `PullResult(rows_read=4631, ...)` for `claude-opus-4.8`. `cases=[999999]` on the hosted engine returns `PlanningError invalid_benchmark_selection` with no model call, so the hosted engine serves the selection route. The provider status of this account is `not_connected` for all seven providers on both SDK versions.
 - **Not verified on 0.1.10:** a hosted `evaluate`, publish and replay, which write data or spend hosted compute.
 
 ## Review report
 
-Method: three passes over the edited pages in the reader's order (Overview, Installation, First fusion, Quickstart, then guides, API reference, learn pages), the nine-item scorecard, the trust check. Scans over all pages in `public-docs/src/pages` for performance adjectives, claims words, title-case headings and terminology counts. Examples were run in earlier parts; this part runs none. Unavailable context slots: time budget and operational metrics (no source supplies them).
+Method: three passes over the edited pages in the reader's order (Overview, Installation, First fusion, Quickstart, then guides, API reference, learn pages), the nine-item scorecard, the trust check. Scans over all pages in `public-docs/src/pages` for performance adjectives, claims words, title-case headings and terminology counts. Unavailable context slots: time budget and operational metrics (no source supplies them).
 
 **Reader:** ensemble routing researcher (priority 0). **Goal:** install the Client, run a fusion on a benchmark, read the score and the cost, share or replay the run.
 
@@ -153,7 +151,7 @@ flowchart LR
 ### 7. What already works
 
 - First fusion: one printed result with its cost, `limit=3`, local and hosted split.
-- The Caching page: a state table of partial reasons that matches the code, now with a state diagram.
+- The Caching page: a state table of partial reasons that matches the code, with a state diagram.
 - The Installation FAQ: each entry gives the symptom, the cause and the command.
 - Every public name has a page, and every printed output was reprinted from a 0.1.9 run.
 
@@ -171,7 +169,7 @@ Rewrites of sentences that failed are in the Friction log and Top fixes tables.
 
 ### Addendum for 0.1.11
 
-The 0.1.11 retarget adds the chain syntax, the rewritten Reducers reference, the combine evidence and the url4 changes. The scans were run again over all pages: no performance adjective, no claims word and no dash in a page, and the one remaining "simplest" and "state-of-the-art" are the Overview wording of the learn pages and a link title.
+Scope: the chain syntax, the Reducers reference, the combine evidence and the url4 changes. Scan over all pages: no performance adjective, no claims word and no dash in a page. "simplest" appears on two learn and API pages and "state-of-the-art" in one link title.
 
 | # | Item | Score | Quoted evidence |
 |---|---|---|---|
@@ -190,5 +188,5 @@ Open from this addendum: the Reducers page carries 9 notebook cells and 8 tables
 - **Commits (retarget to 0.1.10):** `b018a31c9`, `81f7c34b8`, `10c710dac`, `920441c76`, `7a668c2bb`, `ed0abf6f2`, `4e92622a7`, `fd0b0e5aa`, `0f6d65faa`, `ff570d9c0`.
 - **Commits (retarget to 0.1.11):** `e60610f22` merge of `origin/main`, `0d0d68dbc` rename and amend, `12e5b6e92` chain syntax, `ed0799260` Reducers, `b5565bbad` combine evidence, `b83a7d1a7` url4, `c6cb7213e` diagrams, `7eea0be1f` counts, and the commit that closes the pass.
 - **Gates:** `npm run type-check`, `npm run lint` (0 errors), `npx prettier --check src` and `npm run build` pass. Search checks over `public-docs/src` find none of `fusion.dev`, `leaderboard.dev`, `sf.reproduce`, `hle`, `draco-lite`, `sf.Pick`, `sf.Reduce`, `.then(`, `stages=`, `extract=`, a dev host, "0.1.9", or a dash in a page. Every name in the 0.1.11 `__all__` (105) has a page and no `sf.*` name in a page is unresolved. All external links answer 200, and every internal route resolves.
-- **Deviations:** (1) The footer reads the newest release tag; the owner decided it follows the tag. (2) Not verifiable on 0.1.11 and marked on the pages or here: a hosted `evaluate`, publish and the replays (they write data or spend hosted compute); whether the hosted engine serves the narrow step; `edit` and `metadata_events` on a real board; Colab analytics and the notebook path of the analytics notice; the `openai` and `huggingface` cached-provider rows (source only); a printed `sf.Logprob` or `sf.Entropy` value (no model returned one, I-10); the SDK refusal when an Engine does not echo `cases=` (changelog only); the report-browser Combine section and the media buttons. (3) The case media sample ran on the engine of the release tag from a repository checkout, not on the engine that `screamingface up` starts. (4) The hosted engine version is not exposed; the hosted checks are by behaviour. (5) Findings that need an owner are in `issues-tracker.md` (I-5 to I-12), outside the repository. (6) The upstream text of PR #1680 was merged as the base for the Fusions, Pipelines and Recipes pages and was checked by running it.
+- **Deviations:** (1) The footer reads the newest release tag. (2) Not verifiable on 0.1.11 and marked on the pages or here: a hosted `evaluate`, publish and the replays (they write data or spend hosted compute); whether the hosted engine serves the narrow step; `edit` and `metadata_events` on a real board; Colab analytics and the notebook path of the analytics notice; the `openai` and `huggingface` cached-provider rows (source only); a printed `sf.Logprob` or `sf.Entropy` value (no model returned one, I-10); the SDK refusal when an Engine does not echo `cases=` (changelog only); the report-browser Combine section and the media buttons. (3) The case media sample ran on the engine of the release tag from a repository checkout, not on the engine that `screamingface up` starts. (4) Findings that need an owner or Eng are in `issues-tracker.md` (I-5 to I-14), outside the repository. (5) The text of PR #1680 is the base of the Fusions, Pipelines and Recipes pages.
 - **Review report:** written against the 0.1.9 pages, with an addendum for 0.1.11.
