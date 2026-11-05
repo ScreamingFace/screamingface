@@ -1,9 +1,9 @@
 ---
 ticket: OME-1824
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-04
-finished:
+finished: 2026-11-05
 ---
 
 # stale-row-conditional-delete — OME-1138 close-out L7c: a Connection delete can require the row's status
@@ -77,7 +77,8 @@ RED first; no prior test is expected to change.
   until PR-open), rebased onto `00802ae3f` at PR-open; upstream changed no `apps/aigateway` file.
   `f09bdedab` feat(aigateway): let a Connection delete require the row's status (OME-1138 L7c);
   `7cead4584` docs(work): keep the L7c ledger open until its PR merges (OME-1138 L7c); then the
-  commit that files `OME-1824` here and in its `docs/tasks` mirror.
+  commit that files `OME-1824` here and in its `docs/tasks` mirror, and the review's move of the
+  mirror to `in_review`. Squash-merged to `main` as `24d979a5e` (#1678) on 2026-11-05.
 - **RED seen:** 11 of the 16 SQLite cases failed: a conditional delete answered 204 where 409
   was expected (a row activated since the listing by a sign-in or by a key fix, a row in another
   status, the effective row in `pending` and in `error`) or where 422 was expected (six values).
