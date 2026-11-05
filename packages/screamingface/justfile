@@ -30,10 +30,6 @@ assets := env("SCREAMINGFACE_E2E_ASSETS", data_dir / "benchmark-assets")
 # source_directory(), NOT justfile_directory(): reached through the root justfile's `mod`,
 # the latter resolves to the REPO ROOT and every relative path below lands two levels too high.
 engine_dir := source_directory() / ".." / ".." / "apps" / "screamingface-engine"
-# Not 9108: `screamingface up` owns that one, and this Engine runs beside it. Overridable
-# because two worktrees running this recipe at once would otherwise contend for one port —
-# which this repo expects, since sessions run concurrently against one clone.
-engine_port := env("SCREAMINGFACE_NOTEBOOK_ENGINE_PORT", "9111")
 
 # Every bless recipe's preconditions, checked BEFORE its body — a run that discovers a
 # missing docker or unprepared assets deep inside Python may already have written partial

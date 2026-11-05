@@ -87,3 +87,21 @@ for lack of a Hugging Face token. PR 4 of 4 (OME-1620).
 - **Evidence:** the lane's prepare step run locally from this worktree, whose Engine venv lacks
   the extra: fell through, built the editable environment, prepared medxpert in 29 s. 238 passed
   across the 13 runtime test files.
+
+## Notebook instructions (2026-11-05)
+
+- **What was stale:** ten notebooks' "Before running" text still described the old layout. Eight
+  said the plain `screamingface up` Engine cannot list their Benchmark (`draco`, `ifeval`, both
+  HealthBench boards, `gdpval-text`, `contracteval`); notebook 12 said the same of the imported
+  boards; notebook 18's local target connected to a second Engine on `:9111`, which the shrunk
+  recipe no longer starts, so that notebook was broken locally, not just out of date.
+- **Fixed in `scripts/build_notebooks.py`** (the notebooks are regenerated from it): each of
+  those notebooks now lists its one-time `screamingface prepare <id>` line above `up`; notebook
+  12 explains that the first `up` builds the Engine's inspect environment; notebook 18 targets
+  the stack's own Engine on `:9108`. The recipe's now-unused `engine_port` variable is removed.
+- **Evidence:** every new `prepare` line run against a fresh data dir with no `HF_TOKEN`:
+  draco, ifeval, healthbench-worst30, healthbench-professional, gdpval-text, contracteval,
+  inspect-gsm8k all exit 0 (8-41 s each). `check_notebooks.py` clean; 100 passed across the 8
+  notebook test files; `just --list` parses.
+- **Not changed:** `tests/e2e/workbench/` comments still describe the recipe's old side Engine;
+  that harness starts its own Engine and still works, so it is left for its owner.

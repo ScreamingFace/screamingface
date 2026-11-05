@@ -117,19 +117,13 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services.
-
-**`draco` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
-shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
-boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
-recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
-Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
+management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -252,19 +246,13 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services.
-
-**`draco` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
-shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
-boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
-recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
-Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
+management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf"""),
         nbformat.v4.new_markdown_cell("""\
@@ -668,19 +656,13 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface prepare ifeval  # first run only: download pinned Benchmark assets
+screamingface up              # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services.
-
-**`ifeval` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
-shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
-boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
-recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
-Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
+management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -799,19 +781,13 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services.
-
-**`draco` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
-shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
-boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
-recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
-Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
+management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_markdown_cell("""\
 Export `TAVILY_API_KEY` before `screamingface up`: the Gemini, Kimi, DeepSeek, and
 Qwen answer routes use its guarded tool loop, and the Engine fails before model spend when that
@@ -957,20 +933,14 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface prepare healthbench-worst30       # first run only: download pinned assets
+screamingface prepare healthbench-professional  # first run only: download pinned assets
+screamingface up                                # start Gateway, Scoreboard, and Engine
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services.
-
-**Both HealthBench boards need an Engine with the `inspect` extra.** They are Benchmarks we
-author in inspect's shape (origin `screamingface`), served by the same machinery as the imported
-inspect_evals boards, so the plain `screamingface up` Engine does not list them. The
-`just local-stack-notebooks` recipe serves an inspect-capable Engine beside the stack and points
-this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine and
-`SCREAMINGFACE_SCOREBOARD_URL` to its Scoreboard before starting the kernel (see
-`12_inspect_evals_benchmarks`)."""),
+management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -1114,21 +1084,14 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface prepare gdpval-text  # first run only: download pinned Benchmark assets
+screamingface up                   # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
 Stack management stays outside the notebook so **Run All** never starts or stops local
-services.
-
-**`gdpval-text` needs an Engine with the `inspect` extra.** It is a Benchmark we author in
-inspect's shape (origin `screamingface`), served by the same machinery as the imported
-inspect_evals boards, so the plain `screamingface up` Engine does not list it. The
-`just local-stack-notebooks` recipe serves an inspect-capable Engine beside the stack and points
-this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine and
-`SCREAMINGFACE_SCOREBOARD_URL` to its Scoreboard before starting the kernel (see
-`12_inspect_evals_benchmarks`)."""),
+services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -1367,7 +1330,8 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface prepare inspect-gsm8k  # first run only: download pinned Benchmark assets
+screamingface up                     # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
@@ -1376,12 +1340,14 @@ Stack management stays outside the notebook so **Run All** never starts or stops
 
 **Where the imported boards live.** An Engine serves imported boards only when it runs with its
 `inspect` extra (the upstream scorers come from `inspect-ai`, which cannot co-install with the
-local runtime's dependencies — a declared conflict, not an accident). The local
-`screamingface up` stack therefore lists the ScreamingFace group only. **An inspect-capable
-Engine is a prerequisite for everything past section 1**: the listing works against any Engine,
-and the first cell of section 2 checks for the imported shelf and stops with guidance rather
-than failing partway through. To browse and run the imported catalogue, point the SDK at an
-inspect-capable Engine, and at its Scoreboard, before starting the kernel:
+local runtime's dependencies — a declared conflict, not an accident). So the first
+`screamingface up` builds the Engine its own environment with that extra (a few minutes, once;
+later starts reuse it), and the local stack lists both groups. Each board still needs its Cases
+on disk before a run — `screamingface prepare inspect-gsm8k` for this notebook's example.
+
+The first cell of section 2 checks for the imported shelf and stops with guidance rather than
+failing partway through. To use another Engine instead, point the SDK at it, and at its
+Scoreboard, before starting the kernel:
 
 ```bash
 export SCREAMINGFACE_ENGINE_URL="https://<an-engine-with-the-inspect-extra>"
@@ -1390,13 +1356,7 @@ export SCREAMINGFACE_SCOREBOARD_URL="https://<its-scoreboard>"
 
 A non-default Engine without its Scoreboard is refused, so a run can never publish to the public
 leaderboard by accident. Leaving both unset falls back to a running local stack, then to the
-hosted default.
-
-**Running one yourself, from a checkout.** The `just local-stack-notebooks` recipe above does
-exactly this: it bakes the imported snapshots, serves an inspect-capable Engine beside the
-`screamingface up` stack on a free port — reaching the same Gateway on `:9105`, so only the
-Engine URL changes — and exports `SCREAMINGFACE_ENGINE_URL` and `SCREAMINGFACE_SCOREBOARD_URL`
-for the kernel it opens."""),
+hosted default."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -1682,21 +1642,14 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface prepare contracteval  # first run only: download pinned Benchmark assets
+screamingface up                    # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
 Stack management stays outside the notebook so **Run All** never starts or stops local
-services.
-
-**`contracteval` needs an Engine with the `inspect` extra.** It is a Benchmark we author in
-inspect's shape (origin `screamingface`), served by the same machinery as the imported
-inspect_evals boards, so the plain `screamingface up` Engine does not list it. The
-`just local-stack-notebooks` recipe serves an inspect-capable Engine beside the stack and points
-this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine and
-`SCREAMINGFACE_SCOREBOARD_URL` to its Scoreboard before starting the kernel (see
-`12_inspect_evals_benchmarks`)."""),
+services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
 
@@ -2228,10 +2181,11 @@ starts or stops a stack."""),
 ## 0. Before running
 
 **Local.** From a checkout, run `just local-stack-notebooks` in `packages/screamingface/`. It
-serves an inspect-capable Engine on `:9111` (the imported Benchmarks need the Engine's `inspect`
-extra) beside the Scoreboard on `:9106`, prepares every Benchmark's Cases the first time (slow,
-once) and opens Jupyter on `examples/`. If you moved the Engine with
-`SCREAMINGFACE_NOTEBOOK_ENGINE_PORT=…`, the next cell reads the same variable.
+prepares every Benchmark's Cases the first time (slow, once), starts `screamingface up` (Engine
+on `:9108`, Scoreboard on `:9106`) and opens Jupyter on `examples/`. Without a checkout, run
+`screamingface prepare --all` and `screamingface up` yourself. The first `up` builds the Engine
+its own environment with the `inspect` extra the imported Benchmarks need (a few minutes,
+once).
 
 **HLE's dataset is gated.** cais/hle on Hugging Face asks you to accept its terms once; then set
 `HF_TOKEN` (or run `huggingface-cli login`) before `just local-stack-notebooks`. Without a token
@@ -2261,7 +2215,6 @@ opens the connection panel. A deployment uses exactly one credential mode (see
 - **dev** is hosted credits: the panel shows a **Log in** step (Cloudflare Access opens in
   your browser), then the providers your hosted account can use."""),
         nbformat.v4.new_code_cell("""\
-import os
 import platform
 
 import screamingface as sf
@@ -2269,9 +2222,8 @@ import screamingface as sf
 TARGET = "local"  # or "dev"
 
 if TARGET == "local":
-    ENGINE_PORT = os.environ.get("SCREAMINGFACE_NOTEBOOK_ENGINE_PORT", "9111")
     sf.configure(
-        engine_url=f"http://127.0.0.1:{ENGINE_PORT}",
+        engine_url="http://127.0.0.1:9108",
         scoreboard_url="http://127.0.0.1:9106",
     )
 elif TARGET == "dev":
@@ -2505,18 +2457,12 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface prepare ifeval  # first run only: download pinned Benchmark assets
+screamingface up              # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-
-**`ifeval` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
-shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
-boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
-recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
-Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`).
 """),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf
