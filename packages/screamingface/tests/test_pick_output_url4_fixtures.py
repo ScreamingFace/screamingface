@@ -32,20 +32,14 @@ _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
 def s5_pick_output_url4() -> str:
     """S5: the answer is the ``answer`` field of the member with the highest confidence."""
 
-    recipe = sf.Fusion(
-        _MEMBERS,
-        synthesizer=sf.Pick("confidence", order="max", output="answer"),
-    )
+    recipe = sf.Fanout(_MEMBERS) >> sf.ArgMax("field:confidence", output="answer")
     return compile_candidate(recipe, operators=flow_operators()).url4
 
 
 def s8_pick_output_url4() -> str:
     """S8: the answer is the ``answer`` field of the member a signal chooses."""
 
-    recipe = sf.Fusion(
-        _MEMBERS,
-        synthesizer=sf.Pick(by_signal=sf.signal("field:confidence"), order="max", output="answer"),
-    )
+    recipe = sf.Fanout(_MEMBERS) >> sf.ArgMax("field:confidence", output="answer")
     return compile_candidate(recipe, operators=flow_operators()).url4
 
 

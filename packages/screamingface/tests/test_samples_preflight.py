@@ -19,6 +19,7 @@ import httpx
 import pytest
 from _model_parameter_fixtures import DETAILS as _DETAILS
 from _model_parameter_fixtures import SUMMARY as _SUMMARY
+from _nodes import fusion_node
 from _reducer_fixtures import FixtureVote, operators_response
 from url4 import RelExpr, expr, render, src, text
 
@@ -129,7 +130,7 @@ class _ForbiddenTransport:
 
 
 def _candidate() -> sf.Recipe:
-    return sf.Fusion(sf.samples(_MODEL, 3), synthesizer=FixtureVote())
+    return fusion_node(sf.samples(_MODEL, 3), FixtureVote())
 
 
 @pytest.mark.parametrize(

@@ -30,10 +30,10 @@ from screamingface._evaluation.topology import (
     _signal_role,
     _SignalRole,
     _SignalTopology,
-    _writer_key,
+    _writer_field,
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
-from screamingface.fusion import Fusion
+from screamingface.fusion import FusionNode
 from screamingface.judge import panel_judge_signal
 from screamingface.reducer import (
     Reducer,
@@ -97,7 +97,7 @@ class _CompiledSignals:
 
 def _compile_signals(
     compiler: _CandidateCompiler,
-    fusion: Fusion,
+    fusion: FusionNode,
     plan: _ReducerPlan,
     members: tuple[_ResolvedRecipe, ...],
     *,
@@ -114,6 +114,9 @@ def _compile_signals(
     signals = plan.signal_calls
     if not signals:
         return _CompiledSignals(MappingProxyType({}), (), (), ())
+    # INVARIANT (narrow.md §6): the plan of a whole combine call (``Reducer._combine_plan``) lists
+    # each key once, so a judge that a narrow step and the main step both read is ONE call here.
+    assert len({signal.key for signal in signals}) == len(signals)
     roles: list[_SignalRole] = [_signal_call_role(signal) for signal in signals]
     # INVARIANT: _reducer_synthesizer refuses a reducer without a catalog before it reaches here.
     operators = compiler._operators
@@ -170,23 +173,22 @@ def _compile_signals(
 def _signal_call_role(signal: _ModelSignal) -> _SignalRole:
     """The role of a signal's model call; refuse a signal whose key and field disagree.
 
-    INVARIANT: a writer signal names its field and its key is the writer key of that field; a
-    judge signal has no field. The projection and the url4 recovery both rely on it.
+    INVARIANT (FC-I3): a signal names a projection field exactly when its key is the
+    ``writer_<field>`` key of that field. A judge, a fallback judge and a fallback writer have
+    no field. The projection and the url4 recovery both rely on it.
     """
 
     role = _signal_role(signal.key)
     if role is None:
         raise ValueError("unsupported reducer signal")
-    if (role == "writer") != (signal.field is not None) or (
-        signal.field is not None and signal.key != _writer_key(signal.field)
-    ):
+    if _writer_field(signal.key) != signal.field:
         raise ValueError("reducer signal key does not match its field")
     return role
 
 
 def _projection_source(
     compiler: _CandidateCompiler,
-    fusion: Fusion,
+    fusion: FusionNode,
     signal: _ModelSignal,
     *,
     spec_text: str,
@@ -212,7 +214,7 @@ def _projection_source(
 
 def _model_signal_source(
     compiler: _CandidateCompiler,
-    fusion: Fusion,
+    fusion: FusionNode,
     signal: _ModelSignal,
     *,
     route: str,

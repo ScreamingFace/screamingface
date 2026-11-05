@@ -7403,6 +7403,194 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,
     ),
+    BenchmarkSpec(
+        key="labbench2_figqa2_img",
+        published_revision="770667413b4b1e51",
+        title="LABBench2 FigQA2 (image)",
+        description=(
+            "101 questions about a figure from a biology research paper (the LABBench2 "
+            "FigQA2 image subset, the successor to LAB-Bench), served as a local Task that "
+            "follows the authors' harness. Each question comes with its figure as a "
+            "picture, saved inside the Case at import, so the Candidate must read images and "
+            "nothing is fetched at run time; the answer is free text, usually a number. An "
+            "LLM judge, Claude Sonnet 4.5 at temperature 0, compares it with the authors' "
+            "ideal answer using their exact-match prompt (numbers equal within 1e-6 whatever "
+            "the notation, other answers must state the same thing), with every judge call "
+            "routed and metered through our gateway. Benchmark score = mean over the cases "
+            "run: correct scores 1, incorrect or unsure 0, and a reply the judge could not "
+            "grade in three tries counts 0, as the authors' harness counts it. Named "
+            "deviations: the judge's JSON response schema is not sent (its verdict line is "
+            "read instead), and the authors' current harness is followed where the inspect "
+            "port's older copy differs. The judge is the authors' own model and prompt, "
+            "so scores are comparable to the paper's no-tools image results up to those "
+            "deviations; its best, 0.614 (GPT 5.2 Pro), is read from the bars of its Figure 3, "
+            "which prints no table. No mid-run check surface."
+        ),
+        focus="Reading biology research figures (free answer, picture input, LLM-judged)",
+        dataset_url="https://huggingface.co/datasets/EdisonScientific/labbench2",
+        # Expert-written figure questions that the best model without tools still misses
+        # four times in ten (0.614, below) — "hard" (OME-1257).
+        difficulty="hard",
+        # A Case the judge cannot grade counts 0, the authors' harness's accounting.
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_figqa2_img,
+        #   a LOCAL Task (OME-1733): inspect_evals lists LABBench2 only as an external eval.
+        # License: cc-by-sa-4.0, the dataset card at the pinned revision.
+        paper_url="https://arxiv.org/abs/2604.09554",
+        authors="Laurent et al., 2026",
+        citation=(
+            "@misc{laurent2026labbench2improvedbenchmark,\n"
+            "      title={LABBench2: An Improved Benchmark for AI Systems Performing Biol"
+            "ogy Research}, \n"
+            "      author={Jon M Laurent and Albert Bou and Michael Pieler and Conor Igoe "
+            "and Alex Andonian and Siddharth Narayanan and James Braza and Alexandros San"
+            "chez Vassopoulos and Jacob L Steenwyk and Blake Lash and Andrew D White and "
+            "Samuel G Rodriques},\n"
+            "      year={2026},\n"
+            "      eprint={2604.09554},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2604.09554}, \n"
+            "}"
+        ),
+        origin="screamingface",
+        # The authors' evaluation harness at the commit this Task follows (its file-mode prompt
+        # and exact-match judge prompt are vendored from it).
+        harness_url="https://github.com/EdisonScientific/labbench2/tree/0cabab27f6a23a5bc060a4699205709f1be7e93f",
+        license="CC-BY-SA-4.0",
+        license_note=(
+            "EdisonScientific/labbench2 dataset card and the authors' harness are CC BY-SA 4.0; "
+            "the figures and tables come from published papers whose own terms are not stated "
+            "(owner decision on OME-1733, 2026-10-28, on LAB-Bench v1's terms)"
+        ),
+        content_warning=(
+            "Wet-lab biology research questions; inspect files LAB-Bench under Safeguards as "
+            "dual-use capability."
+        ),
+        human_baseline=NotPublished(
+            reason="the LABBench2 paper reports no human or expert accuracy on this subset",
+        ),
+        # Frontier score: GPT 5.2 Pro, base model without tools, FigQA2 "img" bars of Figure 3
+        # in arXiv 2604.09554v2 (2026-05), read from the figure's pixels: 0.613 of the axis,
+        # i.e. 62 of 101. Same reading for GPT 5.2 gives 0.565, the 0.564 inspect_evals'
+        # register quotes from the paper. With tools, GPT 5.2 reaches 0.663.
+        frontier_score=FrontierScore(
+            score=0.614,
+            model="GPT 5.2 Pro",
+            source_url="https://arxiv.org/abs/2604.09554",
+            as_of="2026-05",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        scorer="screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_exact_match",
+        scorer_kwargs={"judge_model": "screamingface/openrouter/anthropic/claude-sonnet-4.5"},
+        judge=JudgeSpec(
+            # The authors' harness and the inspect port both grade with Claude Sonnet 4.5
+            # (owner decision on OME-1733, 2026-11-04).
+            model="openrouter/anthropic/claude-sonnet-4.5",
+            # The authors' judge settings: temperature 0, and pydantic-ai's Anthropic default
+            # of 4,096 output tokens; web_search=false is the house judges' retrieval-free
+            # grading. NAMED DEVIATION: their JSON response schema is not sent; the verdict
+            # is read from the reply's result line, the inspect port's own fallback.
+            params=(("temperature", "0"), ("max_tokens", "4096"), ("web_search", "false")),
+        ),
+        # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
+        with_check_surface=False,
+    ),
+    BenchmarkSpec(
+        key="labbench2_tableqa2_img",
+        published_revision="742c148e87b15f69",
+        title="LABBench2 TableQA2 (image)",
+        description=(
+            "100 questions about a table from a biology research paper (the LABBench2 "
+            "TableQA2 image subset, the successor to LAB-Bench), served as a local Task that "
+            "follows the authors' harness. Each question comes with its table as a "
+            "picture, saved inside the Case at import, so the Candidate must read images and "
+            "nothing is fetched at run time; the answer is free text, usually a number. An "
+            "LLM judge, Claude Sonnet 4.5 at temperature 0, compares it with the authors' "
+            "ideal answer using their exact-match prompt (numbers equal within 1e-6 whatever "
+            "the notation, other answers must state the same thing), with every judge call "
+            "routed and metered through our gateway. Benchmark score = mean over the cases "
+            "run: correct scores 1, incorrect or unsure 0, and a reply the judge could not "
+            "grade in three tries counts 0, as the authors' harness counts it. Named "
+            "deviations: the judge's JSON response schema is not sent (its verdict line is "
+            "read instead), and the authors' current harness is followed where the inspect "
+            "port's older copy differs. The judge is the authors' own model and prompt, "
+            "so scores are comparable to the paper's no-tools image results up to those "
+            "deviations; its best, 0.94 (GPT 5.2 Pro), is read from the bars of its Figure 3, "
+            "which prints no table. No mid-run check surface."
+        ),
+        focus="Reading biology research tables (free answer, picture input, LLM-judged)",
+        dataset_url="https://huggingface.co/datasets/EdisonScientific/labbench2",
+        # Largely saturated: every model in the paper reads the table image at 0.91-0.95 without
+        # tools (0.94, below) — "easy" (OME-1257), unlike its pdf and retrieve variants.
+        difficulty="easy",
+        # A Case the judge cannot grade counts 0, the authors' harness's accounting.
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:
+        #   lab_bench_2_tableqa2_img,
+        #   a LOCAL Task (OME-1733): inspect_evals lists LABBench2 only as an external eval.
+        # License: cc-by-sa-4.0, the dataset card at the pinned revision.
+        paper_url="https://arxiv.org/abs/2604.09554",
+        authors="Laurent et al., 2026",
+        citation=(
+            "@misc{laurent2026labbench2improvedbenchmark,\n"
+            "      title={LABBench2: An Improved Benchmark for AI Systems Performing Biol"
+            "ogy Research}, \n"
+            "      author={Jon M Laurent and Albert Bou and Michael Pieler and Conor Igoe "
+            "and Alex Andonian and Siddharth Narayanan and James Braza and Alexandros San"
+            "chez Vassopoulos and Jacob L Steenwyk and Blake Lash and Andrew D White and "
+            "Samuel G Rodriques},\n"
+            "      year={2026},\n"
+            "      eprint={2604.09554},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2604.09554}, \n"
+            "}"
+        ),
+        origin="screamingface",
+        # The authors' evaluation harness at the commit this Task follows (its file-mode prompt
+        # and exact-match judge prompt are vendored from it).
+        harness_url="https://github.com/EdisonScientific/labbench2/tree/0cabab27f6a23a5bc060a4699205709f1be7e93f",
+        license="CC-BY-SA-4.0",
+        license_note=(
+            "EdisonScientific/labbench2 dataset card and the authors' harness are CC BY-SA 4.0; "
+            "the figures and tables come from published papers whose own terms are not stated "
+            "(owner decision on OME-1733, 2026-10-28, on LAB-Bench v1's terms)"
+        ),
+        content_warning=(
+            "Wet-lab biology research questions; inspect files LAB-Bench under Safeguards as "
+            "dual-use capability."
+        ),
+        human_baseline=NotPublished(
+            reason="the LABBench2 paper reports no human or expert accuracy on this subset",
+        ),
+        # Frontier score: GPT 5.2 Pro, base model without tools, TableQA2 "img" bars of
+        # Figure 3 in arXiv 2604.09554v2 (2026-05), read from the figure's pixels: 0.938 of the
+        # axis, i.e. 94 of 100. Gemini 3 Pro and GPT 5.2 read 0.93; with tools, 0.95.
+        frontier_score=FrontierScore(
+            score=0.94,
+            model="GPT 5.2 Pro",
+            source_url="https://arxiv.org/abs/2604.09554",
+            as_of="2026-05",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        scorer="screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_exact_match",
+        scorer_kwargs={"judge_model": "screamingface/openrouter/anthropic/claude-sonnet-4.5"},
+        judge=JudgeSpec(
+            # The authors' harness and the inspect port both grade with Claude Sonnet 4.5
+            # (owner decision on OME-1733, 2026-11-04).
+            model="openrouter/anthropic/claude-sonnet-4.5",
+            # The authors' judge settings: temperature 0, and pydantic-ai's Anthropic default
+            # of 4,096 output tokens; web_search=false is the house judges' retrieval-free
+            # grading. NAMED DEVIATION: their JSON response schema is not sent; the verdict
+            # is read from the reply's result line, the inspect port's own fallback.
+            params=(("temperature", "0"), ("max_tokens", "4096"), ("web_search", "false")),
+        ),
+        # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
+        with_check_surface=False,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

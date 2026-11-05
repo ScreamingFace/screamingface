@@ -37,6 +37,7 @@ _STATUS_BY_CODE: dict[str, int] = {
     ErrorCode.MISSING_INTENT: 400,
     ErrorCode.ENDPOINT_NOT_FOUND: 404,
     ErrorCode.UNKNOWN_IDENTITY: 404,
+    ErrorCode.SOURCE_NOT_FOUND: 404,
     ErrorCode.IDENTITY_UNAVAILABLE: 404,
     ErrorCode.IDENTITY_ACCESS_DENIED: 403,
     ErrorCode.CONSENT_REQUIRED: 403,

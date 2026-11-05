@@ -52,7 +52,9 @@
       "chosen",
       "signal",
       "result",
-      "dropped"
+      "dropped",
+      "judge_operation_id",
+      "judge_model"
     ]
   }
 }

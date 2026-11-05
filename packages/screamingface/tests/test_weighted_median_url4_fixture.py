@@ -19,13 +19,8 @@ _FIXTURE = COMBINE_CONTRACT / "weighted_median_confidence_candidate.url4"
 
 
 def weighted_median_confidence_url4() -> str:
-    fusion = sf.Fusion(
-        ["prov/alpha", "prov/beta", "prov/gamma", "prov/delta"],
-        synthesizer=sf.Reduce(
-            "median",
-            extract=sf.Extract("field", path="answer"),
-            weights=sf.signal("field:confidence"),
-        ),
+    fusion = sf.Fanout(["prov/alpha", "prov/beta", "prov/gamma", "prov/delta"]) >> sf.Median(
+        over="field:answer", weights=sf.signal("field:confidence")
     )
     return compile_candidate(fusion, operators=flow_operators()).url4
 

@@ -15,7 +15,9 @@ from inspect import isawaitable
 
 from url4.core.code import CodeCall, CodeHandler, invoke_mounted
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.url_display import display_url
 from url4.io.layer import FetchRequest, FetchResult
+from url4.io.media import FetchedBytes, read_whole, require_text
 from url4.wire.subrequest import decode_subrequest, extract_expression_params
 
 RouteHandler = Callable[[str, str], str | Awaitable[str]]
@@ -24,7 +26,10 @@ RouteHandler = Callable[[str, str], str | Awaitable[str]]
 class StaticIOLayer:
     """An in-memory :class:`~url4.io.layer.IOLayer` — no network, fully deterministic.
 
-    ``fetch_map`` maps an exact URL/path to its content (a static data read).
+    ``fetch_map`` maps an exact URL/path to its content (a static data read):
+    ``str`` for text, or ``bytes`` for a binary-safe source served by
+    ``fetch_bytes`` as-is. A ``bytes`` value whose mapped media type is binary is
+    refused on the text paths (``unsupported_content_type``), like ``HttpIOLayer``.
     ``routes`` maps a localhost path (e.g. ``/claude``) to a handler
     ``(context, intent) -> str`` (sync or async) — invoked when a relative
     expression is fetched as ``/claude?q=(context)!intent``, simulating a
@@ -35,12 +40,12 @@ class StaticIOLayer:
     source (spec §5.6.6). ``media_types`` maps a target to the media type
     ``fetch_ex`` reports for it. ``code`` maps a code path or name to a handler: the test
     double for a node's ``@node.code`` mounts. Missing keys raise
-    :class:`~url4.core.errors.ResolutionError`.
+    :class:`~url4.core.errors.ResolutionError` (``source_not_found`` on the bytes path).
     """
 
     def __init__(
         self,
-        fetch_map: dict[str, str] | None = None,
+        fetch_map: Mapping[str, str | bytes] | None = None,
         routes: dict[str, RouteHandler] | None = None,
         *,
         holdings: Mapping[str, str] | None = None,
@@ -54,6 +59,27 @@ class StaticIOLayer:
         self._code = dict(code or {})
 
     async def fetch(self, target: str, *, relative: bool) -> str:
+        body = await self._lookup(target)
+        if isinstance(body, str):
+            return body
+        require_text(target, self._media_types.get(target))
+        return body.decode("utf-8")
+
+    async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes:
+        if request.target not in self._fetch and "?" not in request.target:
+            # C5: the bytes path names a missing source; the text path keeps its old error.
+            raise ResolutionError(
+                f"no fetch mapping for {display_url(request.target)!r}",
+                code=ErrorCode.SOURCE_NOT_FOUND,
+                permanent=True,
+            )
+        body = await self._lookup(request.target)
+        raw = body.encode("utf-8") if isinstance(body, str) else body
+        return FetchedBytes(
+            read_whole(request, raw), media_type=self._media_types.get(request.target)
+        )
+
+    async def _lookup(self, target: str) -> str | bytes:
         # Routes accept the full canonical form "/path?[params&]q=…" (spec
         # §3.1.1) — protocol params before q= are tolerated and ignored by
         # this test double; the expression alone reaches the handler.
@@ -64,10 +90,11 @@ class StaticIOLayer:
                 context, intent = decode_subrequest(q)
                 result = self._routes[path](context, intent)
                 return await result if isawaitable(result) else result
-        try:
-            return self._fetch[target]
-        except KeyError:
-            raise ResolutionError(f"no fetch mapping for {target!r}") from None
+        if target not in self._fetch:
+            # WHY no try/except: a KeyError context would carry the raw target (push security
+            # review, #1482), even suppressed.
+            raise ResolutionError(f"no fetch mapping for {display_url(target)!r}")
+        return self._fetch[target]
 
     def processor_routes(self) -> list[str]:
         """The declared route paths a `processor=` id may name (§27.3)."""
