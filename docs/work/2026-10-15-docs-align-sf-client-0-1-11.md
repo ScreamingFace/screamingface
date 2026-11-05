@@ -51,6 +51,16 @@ Fix drift between the SF Client docs (`public-docs`) and screamingface 0.1.11, t
 - The footer names the newest release tag (the owner's decision).
 - Type-check, lint and build pass.
 
+## Retarget results (0.1.11)
+
+- **S1:** spec, plan, ledger, mirror and diagrams renamed and amended (`0d0d68dbc`). `len(sf.__all__)` is 105.
+- **S2:** the chain syntax: Recipes, Fusions, Pipelines, Evaluation, Quickstart, First fusion (`12e5b6e92`). Upstream's text from PR #1680 was checked with about 40 probes; fixes to the merged text are in the commit.
+- **S3 and S4:** the Reducers reference, the Gate and the declared signals (`ed0799260`). `Logprob` and `Entropy` returned no value on any model tried; recorded as I-10.
+- **S5:** the combine evidence, the trace keys and `JudgeWriterWarning` (`b5565bbad`). The report-browser Combine section is not described, because it was not verified.
+- **S6:** the url4 changes (`b83a7d1a7`): the single-model and plain-fusion url4 are byte for byte equal to 0.1.10; a scoring-judge url4 and a field-pick url4 changed; the old ones do not rebuild.
+- **S7:** two diagrams updated and the narrow-chain diagram added (`c6cb7213e`).
+- **S8:** 24 audit scripts run on 0.1.11 and diffed against the 0.1.10 outputs. Deterministic drift: local `models.list()` 109 to 110, `len(sf.__all__)` 92 to 105. Unchanged: capture default, error texts, cost reporting, url4 length, connections. Run-to-run variation: tokens, costs, run ids. `part2b.py` counts provider calls from the runtime log and gave 7 and 10 on the same SDK in repeated runs, so the shared-call count is not a reliable drift signal. `guides_ctor.py` checks the old Pipelines sample names and is obsolete.
+
 ## Retarget results (0.1.10)
 
 - **R1:** spec, plan, ledger and diagrams renamed and amended (`b018a31c9`).

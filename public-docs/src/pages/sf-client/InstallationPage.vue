@@ -17,7 +17,7 @@ const pypiRuntime = `pip install "screamingface[runtime,notebook]"`
 
 const verify = `import screamingface as sf
 
-len(sf.__all__)   # 92`
+len(sf.__all__)   # 105`
 
 const point = `import screamingface as sf
 

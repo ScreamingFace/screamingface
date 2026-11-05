@@ -74,7 +74,7 @@ async def main():
         return len(models), client.engine_url
 
 asyncio.run(main())   # in a notebook: await main()`
-const asyncOut = `(109, 'http://127.0.0.1:9108')`
+const asyncOut = `(110, 'http://127.0.0.1:9108')`
 </script>
 
 <template>

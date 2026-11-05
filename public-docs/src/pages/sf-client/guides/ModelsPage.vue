@@ -33,7 +33,7 @@ ModelInfo('anthropic/claude-opus-4-5', provider='anthropic', parameters=5, tools
 ModelInfo('anthropic/claude-fable-5', provider='anthropic', parameters=5, tools=1)
 ModelInfo('anthropic/claude-sonnet-5', provider='anthropic', parameters=5, tools=1)
 ModelInfo('anthropic/claude-sonnet-4-6', provider='anthropic', parameters=7, tools=1)
-…   # 109 entries across 6 providers on a local engine`
+…   # 110 entries across 6 providers on a local engine`
 
 const details = `gpt = sf.models.get("openrouter/openai/gpt-5.5")
 gpt.parameters["temperature"].enabled, sorted(gpt.tools)`
@@ -175,7 +175,7 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     <p>
       Two things to note. The catalogue spans <strong>every provider the engine knows</strong>, not
       only the ones you have connected: a route you have no credential for will fail at evaluation,
-      not here. The hosted engine lists more routes than a local one (112 against 109). And ID
+      not here. The hosted engine lists more routes than a local one (112 against 110). And ID
       shapes differ per provider: <code>anthropic/claude-opus-4-8</code> against
       <code>openrouter/anthropic/claude-opus-4.8</code>. Copy the <code>id</code> rather than
       retyping it.
