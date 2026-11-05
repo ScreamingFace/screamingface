@@ -260,6 +260,8 @@ BASELINE_PUBLISHED_FIELDS = frozenset(
         "last_imported_at",
         "metric_name",
         "observed_at",
+        # Owner-approved E20 comparison policy: eligibility is public, attribution is not.
+        "ranking_eligible",
         "metadata",
         "model_name",
         "openness_override",

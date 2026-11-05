@@ -12,14 +12,15 @@ from tortoise.transactions import in_transaction
 from scoreboard.classification.openness import Openness
 from scoreboard.db import DEFAULT_CONNECTION
 
+from .baseline_comparison import validate_comparison
 from .models import Baseline, Benchmark
 from .schemas import BaselineImportRow, BaselineSchema
 
 logger = logging.getLogger(__name__)
 
 
-def _baseline_to_schema(model: Baseline) -> BaselineSchema:
-    return BaselineSchema(
+def _baseline_to_schema(model: Baseline, benchmark: Benchmark | None = None) -> BaselineSchema:
+    result = BaselineSchema(
         id=model.id,
         benchmark_id=cast(str, getattr(model, "benchmark_id")),
         model_name=model.model_name,
@@ -37,6 +38,34 @@ def _baseline_to_schema(model: Baseline) -> BaselineSchema:
         # construction, which is what actually enforces the invariant at runtime.
         openness_override=cast(Openness | None, model.openness_override),
     )
+    result.ranking_eligible = _ranking_eligible(result, model.attached_by, benchmark)
+    return result
+
+
+def _ranking_eligible(
+    row: BaselineSchema,
+    attached_by: str | None,
+    benchmark: Benchmark | None,
+) -> bool:
+    if benchmark is None or not row.metadata or "comparison" not in row.metadata:
+        return False
+    try:
+        data = row.model_dump(
+            exclude={
+                "id",
+                "imported_at",
+                "last_imported_at",
+                "openness_override",
+                "ranking_eligible",
+            }
+        )
+        candidate = BaselineImportRow.model_validate({**data, "attached_by": attached_by})
+        return validate_comparison(
+            candidate, revision=benchmark.revision, case_count=benchmark.case_count
+        )
+    except ValueError:
+        # WHY: stale or malformed evidence must not take down the board or inherit approval.
+        return False
 
 
 class BaselineStore:
@@ -57,9 +86,10 @@ class BaselineStore:
         # INVARIANT: a baseline can only be imported against a benchmark that already
         # exists, mirroring the check the /v1/scores route performs before ScoreStore
         # sees a submission (see routes/scores.py::submit_score).
-        exists = await Benchmark.filter(id=row.benchmark_id).using_db(using_db).exists()
-        if not exists:
+        benchmark = await Benchmark.filter(id=row.benchmark_id).using_db(using_db).first()
+        if benchmark is None:
             raise ValueError(f"unknown benchmark_id: {row.benchmark_id!r}")
+        validate_comparison(row, revision=benchmark.revision, case_count=benchmark.case_count)
 
         baseline, _ = await Baseline.update_or_create(
             benchmark_id=row.benchmark_id,
@@ -78,7 +108,7 @@ class BaselineStore:
             },
             using_db=using_db,
         )
-        return _baseline_to_schema(baseline)
+        return _baseline_to_schema(baseline, benchmark)
 
     async def import_many(self, rows: Sequence[BaselineImportRow]) -> list[BaselineSchema]:
         # INVARIANT: all-or-nothing — if any row in the batch fails (e.g. an unknown
@@ -88,6 +118,7 @@ class BaselineStore:
             return [await self.import_baseline(row, using_db=connection) for row in rows]
 
     async def list_baselines(self, benchmark_id: str) -> list[BaselineSchema]:
+        benchmark = await Benchmark.get_or_none(id=benchmark_id)
         rows = await Baseline.filter(benchmark_id=benchmark_id).order_by("-score")
         # INVARIANT: one row that fails schema validation (e.g. metadata written
         # before the bound existed, or inserted outside the import path) must not
@@ -96,7 +127,7 @@ class BaselineStore:
         baselines: list[BaselineSchema] = []
         for baseline in rows:
             try:
-                baselines.append(_baseline_to_schema(baseline))
+                baselines.append(_baseline_to_schema(baseline, benchmark))
             except ValidationError:
                 logger.warning("skipping baseline %s: failed schema validation", baseline.id)
         return baselines

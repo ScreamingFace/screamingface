@@ -1488,6 +1488,8 @@ class BaselineSchema(BaselineObservation):
     imported_at: datetime
     last_imported_at: datetime | None = None
     metadata: dict[str, Any] | None
+    # WHY: computed from the current board scope and evidence, never accepted from import JSON.
+    ranking_eligible: bool = False
     # FEATURE: OME-323 — manual open/closed correction, mirrors ScoreSchema's field.
     openness_override: Literal["open", "closed"] | None = None
 
