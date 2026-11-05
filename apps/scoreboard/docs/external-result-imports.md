@@ -25,7 +25,7 @@ Example input (illustrative values, not a published result):
 
 | Field | Meaning |
 | --- | --- |
-| `score` | The reported value, expressed in this board's units. Import does not convert or verify units. |
+| `score` | The value in board units. A comparison review must record the original value and an exact supported conversion; the importer verifies the supplied result. |
 | `source` | Stable source identifier; part of the row's identity alongside benchmark and model. |
 | `source_url` | HTTP(S) link to the original result. |
 | `metric_name` | Metric reported by the source, such as `accuracy`; at most 128 characters. |
@@ -53,3 +53,10 @@ from public responses. Do not duplicate attribution or other private information
 inside `metadata`. Attribution is operator supplied, not proof of identity. This
 change adds no public write API and does not determine who may add/edit results
 through a future manual-entry UI.
+
+Storage does not confer a rank. See [comparison policy and SAT-English audit](external-result-comparison.md)
+for `metadata.comparison`, evidence requirements and supported conversions. The
+public `ranking_eligible` boolean is computed on every read, defaults to false, and
+cannot be supplied by an importer. The example above lacks a review and remains
+unranked. Invalid supplied reviews fail before writing; missing reviews can be
+stored for later investigation.
