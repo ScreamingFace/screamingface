@@ -415,6 +415,10 @@ P1b works against an Engine without `/runs` (D7), so the landings can ship in ei
   unbound (R2): the cancel check is skipped, and the Candidate's outcome reaches the consumer as
   an unbound topic. The Run then reads `interrupted` and that cost is missing. This is accepted,
   because the alternative makes every evaluation depend on the history database.
+- **A failed `mark_scheduled` leaves a running Candidate `pending`.** The start was bound and
+  scheduled, but the database refused the move to `scheduled`, so it is logged and the start
+  answers as usual. Once the 30-minute pending grace passes, the Run reads `interrupted` while the
+  Candidate still runs; its outcome then settles it (R4). This is accepted for the same reason.
 - **A lost outcome message** (a NATS failure at publish, or an outage longer than 24 h) is caught
   by R6 48 h after the bind. Until then the Run reads `running`; afterwards the Candidate reads
   `lost` even if its work succeeded, and its cost is unknown.

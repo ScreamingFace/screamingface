@@ -6,12 +6,13 @@ another notebook, read one, and cancel one still running, and only I can see min
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 import pytest
@@ -25,6 +26,7 @@ from run_registry_support import (
     postgres_server,  # noqa: F401  (a fixture the Postgres parameter requests)
 )
 
+from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.candidate_outcomes import CandidateOutcome
@@ -536,3 +538,101 @@ async def test_a_cursor_that_names_no_run_of_yours_is_422(registry: Registry) ->
     refused = await engine.client.get(f"/runs?cursor={UNKNOWN}", headers=ALICE)
 
     assert (refused.status_code, refused.json()["code"]) == (422, "invalid_cursor")
+
+
+# --- review follow-ups on #1648 ------------------------------------------------------------
+
+# Pairs that Unicode case folding would merge into one owner (ligature, sharp s, long s), and
+# the Kelvin sign, which `str.lower()` maps to "k" in text but not as the edge sends it.
+_LOOKALIKES = [
+    ("finance@corp.org", "ﬁnance@corp.org"),
+    ("strasse@corp.org", "straße@corp.org"),
+    ("sam@corp.org", "ſam@corp.org"),
+    ("kim@corp.org", "Kim@corp.org"),
+]
+
+
+@pytest.mark.parametrize(("owner", "other"), _LOOKALIKES, ids=["fi", "sharp-s", "long-s", "kelvin"])
+async def test_a_lookalike_email_is_another_owner(
+    registry: Registry, owner: str, other: str
+) -> None:
+    """INVARIANT (spec D6): only the owner key authorizes a Run, so two addresses that fold
+    together must still be two owners. The edge sends the email as UTF-8 bytes."""
+    engine = _Engine(registry)
+    run_id = (await engine.create(headers={"X-User-Email": owner})).json()["id"]
+    # `cast`: httpx sends a bytes header value as it is, as the edge sends a UTF-8 email.
+    as_other = cast("dict[str, str]", {"X-User-Email": other.encode()})
+
+    read = await engine.client.get(f"/runs/{run_id}", headers=as_other)
+    cancel = await engine.client.delete(f"/runs/{run_id}", headers=as_other)
+    start = await engine.start("topic-a", run_id, **as_other)
+
+    for resp in (read, cancel, start):
+        assert (resp.status_code, resp.json()["code"]) == (404, "run_not_found")
+    assert engine.runner.scheduled == []
+    assert (await _record(registry, run_id, owner)).state == "running"
+
+
+class _SlowStops(RecordingJobRunner):
+    """Stops that take a while, recording how many run at once; one topic's stop can fail."""
+
+    def __init__(self, failing: str | None = None) -> None:
+        super().__init__()
+        self.failing = failing
+        self.in_flight = 0
+        self.most_at_once = 0
+
+    async def stop(self, topic: str) -> None:
+        self.in_flight += 1
+        self.most_at_once = max(self.most_at_once, self.in_flight)
+        try:
+            await asyncio.sleep(0.01)
+            if topic == self.failing:
+                raise QueueReadError(topic)
+            self.stopped.append(topic)
+        finally:
+            self.in_flight -= 1
+
+
+async def _live_run(engine: _Engine, registry: Registry, count: int) -> str:
+    names = [f"c{i}" for i in range(count)]
+    run_id = (await engine.create(candidates=names)).json()["id"]
+    alice = owner_key("alice@example.org")
+    for index in range(count):
+        await registry.store.bind(alice, run_id, index, f"topic-{index}")
+        await registry.store.mark_scheduled(f"topic-{index}")
+    return run_id
+
+
+async def test_cancel_stops_live_topics_together_but_bounded(registry: Registry) -> None:
+    runner = _SlowStops()
+    engine = _Engine(registry, runner=runner)
+    run_id = await _live_run(engine, registry, 40)
+
+    resp = await engine.client.delete(f"/runs/{run_id}", headers=ALICE)
+
+    assert resp.status_code == 202
+    assert sorted(runner.stopped) == sorted(f"topic-{i}" for i in range(40))
+    assert 1 < runner.most_at_once <= 16
+
+
+async def test_a_failed_stop_still_tries_the_others_and_answers_503(registry: Registry) -> None:
+    runner = _SlowStops(failing="topic-1")
+    engine = _Engine(registry, runner=runner)
+    run_id = await _live_run(engine, registry, 4)
+
+    resp = await engine.client.delete(f"/runs/{run_id}", headers=ALICE)
+
+    assert resp.status_code == 503
+    assert resp.headers["Retry-After"] == "5"
+    assert sorted(runner.stopped) == ["topic-0", "topic-2", "topic-3"]
+    runner.failing = None
+    retried = await engine.client.delete(f"/runs/{run_id}", headers=ALICE)
+    assert retried.status_code == 202
+    assert "topic-1" in runner.stopped
+
+
+async def test_a_run_with_a_field_this_engine_does_not_know_is_422(registry: Registry) -> None:
+    engine = _Engine(registry)
+
+    assert (await engine.create(retries=3)).status_code == 422
