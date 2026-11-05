@@ -23,6 +23,7 @@ both import it.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -64,12 +65,22 @@ class CollectionShape:
     text: str | None = None
     paths: tuple[str, ...] = ()
     via_ref: bool = False
+    cycle: bool = False  # a ``$name`` chain that loops: execution raises, no body ever runs
 
 
-def resolve_collection(items: Node, bound: Mapping[str, Node]) -> CollectionShape:
-    """Follow ``items`` through ``bound`` to the value it reads, and classify it."""
+_TEMPLATE_REF = re.compile(r"\$\$|\$([A-Za-z_]\w*)", re.ASCII)  # ``$$`` is a literal ``$``
+
+
+def resolve_collection(
+    items: Node, bound: Mapping[str, Node], outer: frozenset[str] = frozenset()
+) -> CollectionShape:
+    """Follow ``items`` through ``bound`` to the value it reads, and classify it.
+
+    ``outer`` holds the names a templated value being classified already follows (recursion
+    guard for :func:`_template_kind`).
+    """
     paths: list[str] = []
-    seen: set[str] = set()
+    seen: set[str] = set(outer)
     node, descriptor, raw = items, None, items
     while True:
         if isinstance(node, Source):
@@ -78,14 +89,41 @@ def resolve_collection(items: Node, bound: Mapping[str, Node]) -> CollectionShap
             continue
         if not isinstance(node, VarRef):
             break
-        if node.name not in bound or node.name in seen:
-            return CollectionShape(UNKNOWN, node)  # a row reference, holdings, or a cycle
+        if node.name not in bound:
+            return CollectionShape(UNKNOWN, node)  # a row reference or holdings
+        if node.name in seen:
+            # INVARIANT (review round 10, owner 2026-11-05): a binding cycle never yields rows
+            # (execution raises), so admission treats its body as unreachable — no fetch.
+            return CollectionShape(UNKNOWN, node, cycle=True)
         seen.add(node.name)
         paths.append(_path_text(node.path))
         node = raw = bound[node.name]
         descriptor = None  # the next binding's own descriptor governs its fetch
     hops = tuple(reversed(paths))
-    return _classify(node, descriptor, raw, hops)
+    if _template_kind(node, bound, frozenset(seen)) == MODEL:
+        shape = CollectionShape(MODEL, node)
+    else:
+        shape = _classify(node, descriptor, raw, hops)
+    return shape
+
+
+def _template_kind(node: Node, bound: Mapping[str, Node], seen: frozenset[str]) -> str | None:
+    """:data:`MODEL` when a templated relative URL (``/rows/$xs``) substitutes a model's output.
+
+    INVARIANT (PR #1587 review round 10, owner 2026-11-05): the URL a templated collection
+    fetches is only known once its ``$name`` values are, so a template over a model-derived
+    binding is itself model-derived — ``x.source_not_static`` with zero I/O, never conservatively
+    reachable. Names are followed through the same resolver (cycle-safe via ``seen``); a row
+    reference, holdings, or a model-free value leaves the template :data:`UNKNOWN` as before.
+    """
+    if not isinstance(node, RelUrl) or "$" not in node.value:
+        return None
+    for match in _TEMPLATE_REF.finditer(node.value):
+        name = match.group(1)
+        if name is not None and name in bound and name not in seen:
+            if resolve_collection(VarRef(name), bound, seen).kind == MODEL:
+                return MODEL
+    return None
 
 
 def _classify(

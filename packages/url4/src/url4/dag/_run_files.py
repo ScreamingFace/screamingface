@@ -35,7 +35,7 @@ from url4.dag.compiler import Graph  # isort: skip
 from url4.dag.node import DagNode, ExecutionContext  # isort: skip
 from url4.dag.nodes.blob import BlobRefNode  # isort: skip
 from url4.dag.remote_nodes import precheck_remote_nodes  # isort: skip
-from url4.dag.processor import remote_processor_hop  # isort: skip
+from url4.dag.processor import classify_processor, remote_processor_hop  # isort: skip
 from url4.dag._graph_admission import refuse_prebuilt  # isort: skip
 
 
@@ -119,7 +119,27 @@ def _precheck_remote(scan: SourceScan, run_ctx: ExecutionContext) -> None:
     option or a node default) is the same remote-node call, checked here too (owner 2026-11-04).
     """
     processor = remote_processor_hop(run_ctx.processor)
-    precheck_remote_nodes((*scan.remote_nodes, *(() if processor is None else (processor,))))
+    precheck_remote_nodes(
+        (
+            *scan.remote_nodes,
+            *(() if processor is None else (processor,)),
+            *_processor_expression_calls(run_ctx.processor),
+        )
+    )
+
+
+def _processor_expression_calls(value: str | None) -> tuple[tuple[str, str], ...]:
+    """The structural ``url4://`` calls inside a Form-3 (expression-valued) processor.
+
+    INVARIANT (PR #1587 review round 10, owner 2026-11-05): an expression processor is parsed
+    and given the SAME structural remote-call scan as the run's own expression, so a remote call
+    in its AST is refused before any run-start I/O; only its computed FINAL value stays checked
+    when it resolves. A processor that does not parse is left to its resolve-time error.
+    """
+    if value is None or classify_processor(value) != "expression":
+        return ()
+    ast = _ast_of(value.strip())
+    return () if ast is None else scan_sources(ast).remote_nodes
 
 
 async def _verify(
@@ -136,6 +156,9 @@ async def _verify(
     digest — draws too, but only its bytes beyond the counted size (:meth:`CapBudget.charge_bytes`;
     the final list dedups it), with its counted size added to its ceiling. A collection blob is
     not an attachment (D4) and is never charged.
+    INVARIANT (review round 10, owner 2026-11-05): a provider that can only hand over its body
+    whole draws its DECLARED size first (``on_declared`` → :meth:`CapBudget.reserve`); an
+    undeclared or over-budget size is refused ``x.attachments_too_large`` before the read.
     """
     node = BlobRefNode(ref.address)
     if ref.collection:
@@ -146,6 +169,7 @@ async def _verify(
             run_ctx,
             max_bytes=budget.ceiling(ref.key),
             on_chunk=partial(budget.charge_bytes, ref.key),
+            on_declared=partial(budget.reserve, ref.key),
         )
     except BaseException:
         budget.release(ref.key)

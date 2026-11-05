@@ -85,6 +85,7 @@ class BlobRefNode:
         *,
         max_bytes: int | None = None,
         on_chunk: Callable[[int], None] | None = None,
+        on_declared: Callable[[int | None], None] | None = None,
     ) -> tuple[bytes, str | None]:
         """The bytes and reported media type, sha256-verified; from the run cache on a hit.
 
@@ -94,7 +95,8 @@ class BlobRefNode:
         names after substitution, or a node evaluated outside ``run()``) fetches as before.
         INVARIANT (PR #1587 review finding 1): ``max_bytes`` / ``on_chunk`` ride on the read's
         :class:`FetchRequest` (and the text-only fallback), so the run-start read of an attached
-        blob draws from the run's live byte budget as its bytes arrive.
+        blob draws from the run's live byte budget as its bytes arrive; ``on_declared`` rides the
+        same way (a whole-body provider's declared size, drawn before its read — round 10).
         """
         address = self.address
         if address.form == "remote":
@@ -126,6 +128,7 @@ class BlobRefNode:
             kind="relative",
             max_bytes=max_bytes,
             on_chunk=on_chunk,
+            on_declared=on_declared,
         )
         body, media_type = await _fetch_bytes(ctx, request)
         # INVARIANT: a content address that returns other content never resolves.

@@ -145,7 +145,9 @@ class _Rows:
     async def has_rows(self, guard: CollectionGuard) -> bool:
         shape = resolve_collection(guard.items, guard.bound)
         read = await self._read(shape)
-        if isinstance(read, _Reachable):
+        if shape.cycle:
+            has = False  # a binding cycle: execution raises before any body runs (round 10)
+        elif isinstance(read, _Reachable):
             has = True  # unknown before the body runs: conservatively reachable
         elif read is None:
             has = False  # the collection failed: execution fails or omits it; no body runs

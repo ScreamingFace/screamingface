@@ -47,6 +47,18 @@ class SupportsReadChunks(Protocol):
     def read_chunks(self) -> AsyncGenerator[bytes]: ...
 
 
+@runtime_checkable
+class SupportsDeclaredSize(Protocol):
+    """A provider that can tell its body's size BEFORE handing it over whole.
+
+    WHY (PR #1587 review round 10, owner 2026-11-05): a provider that cannot stream holds its
+    whole body at once, so a run's live byte budget must draw that size before the read
+    (``FetchRequest.on_declared``); a provider that cannot declare it is refused unread.
+    """
+
+    def declared_size(self) -> int | None: ...
+
+
 async def fetch_bytes(node: Url4Node, request: FetchRequest) -> FetchedBytes:
     """The node's binary-safe port: relative targets by its own dispatch, others outbound.
 
@@ -74,7 +86,9 @@ async def dispatch_bytes(
     (:class:`SupportsReadBytes`, e.g. a ``url4 serve`` ``[data]`` file) is never decoded.
     INVARIANT (PR #1587 review finding 1): ``request``'s ``max_bytes`` / ``on_chunk`` bound
     every relative bytes read — per piece for a :class:`SupportsReadChunks` provider, after the
-    read for the rest (as ``url4.io.media.read_whole`` does for a non-streaming adapter).
+    read for the rest (as ``url4.io.media.read_whole`` does for a non-streaming adapter) — unless
+    ``on_declared`` is set: then a whole-body data route's declared size is drawn BEFORE the
+    read and an undeclared one is refused unread (:func:`_reserve`, review round 10).
     """
     path = target.partition("?")[0]
     if path not in node._endpoints and not node._is_eval_path(path):
@@ -90,10 +104,49 @@ async def serve_data_bytes(route: _DataRoute, request: FetchRequest | None = Non
     provider = route.provider
     if isinstance(provider, SupportsReadChunks):
         return FetchedBytes(await _read_pieces(provider, request), route.media_type)
+    if isinstance(provider, str):  # already held by the node: its size is known
+        body = provider.encode("utf-8")
+        return FetchedBytes(_settled(request, body, _reserve(len(body), request)), route.media_type)
+    declared = _reserve(_declared(provider), request)  # round 10: drawn BEFORE the whole read
     if isinstance(provider, SupportsReadBytes):
-        return FetchedBytes(_bounded(request, await provider.read_bytes()), route.media_type)
-    body = await _text(provider() if callable(provider) else provider)
-    return FetchedBytes(_bounded(request, body.encode("utf-8")), route.media_type)
+        body = await provider.read_bytes()
+    else:
+        body = (await _text(provider() if callable(provider) else provider)).encode("utf-8")
+    return FetchedBytes(_settled(request, body, declared), route.media_type)
+
+
+def _declared(provider: object) -> int | None:
+    return provider.declared_size() if isinstance(provider, SupportsDeclaredSize) else None
+
+
+def _reserve(size: int | None, request: FetchRequest | None) -> int | None:
+    """Draw a whole-body provider's declared size before its read, when the caller asks to.
+
+    INVARIANT (PR #1587 review round 10, owner 2026-11-05 — FAIL CLOSED): with ``on_declared``
+    set (a run's attached blob read), the body is never read before its size is drawn from the
+    run's live budget; an undeclared size or one over the budget is refused there, unread, and
+    one over the request's ``max_bytes`` is ``x.source_too_large``, unread. Without it the read
+    is bounded after the fact (:func:`_bounded`), as before.
+    WHY data routes only: a blob ref's target carries no ``?q=``, so an endpoint or the eval
+    path refuses it (``missing_intent``) before producing any body.
+    """
+    if request is None or request.on_declared is None:
+        return None
+    request.on_declared(size)
+    if size is not None and request.max_bytes is not None and size > request.max_bytes:
+        raise too_large(request.max_bytes)
+    return size
+
+
+def _settled(request: FetchRequest | None, body: bytes, declared: int | None) -> bytes:
+    """``body`` bounded; with a drawn ``declared`` size, only the bytes past it are drawn now."""
+    if request is None or declared is None:
+        return _bounded(request, body)
+    if request.on_chunk is not None and len(body) > declared:
+        request.on_chunk(len(body) - declared)
+    if request.max_bytes is not None and len(body) > request.max_bytes:
+        raise too_large(request.max_bytes)
+    return body
 
 
 async def _read_pieces(provider: SupportsReadChunks, request: FetchRequest | None) -> bytes:

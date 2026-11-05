@@ -736,3 +736,49 @@ all capped modules within baseline (`source_scan.py` 417, `_materialize.py` 397 
    that body while it is verified (the run's list does not grow).
 
 Tests (new file, append-only): `tests/unit/test_review_gaps_closed.py` (10).
+
+### Review round 10 (HupBaHa, 2026-11-05, head `0b562f450`) — owner decisions Sergey 2026-11-05: BLOCKED on 1(a)
+
+**Intent.** Close the three remaining High findings, append-only tests, each repro RED first.
+
+**Planned changes.**
+1. Whole-body reads. (a) A blob ref whose digest equals a verified Case attachment reuses the Case
+   bytes, no store read (`_run_files._verify`). (b) A peer data provider that cannot stream draws
+   its DECLARED size from the run budget before the read (`FetchRequest.on_declared`,
+   `CapBudget.reserve`, `peer/_bytes.serve_data_bytes`); unknown or over budget →
+   `x.attachments_too_large`, no read.
+2. Templated model-derived collections. `_collection_shape`: a templated `RelUrl` whose `$name`
+   resolves to a model is `MODEL` (→ `x.source_not_static`, zero I/O); a binding cycle is marked
+   unreachable (admission fetches nothing), kind kept `UNKNOWN`.
+3. Form-3 processor expressions. `_run_files._precheck_remote` parses an expression-valued
+   processor and adds its structural remote calls to the pre-I/O precheck.
+
+**Test plan.** New file `tests/unit/test_review_round10.py`: 2 × 7,000,000-byte synchronized
+whole-body providers peak ≤ cap; unknown size refused with no read; lying size refused; honest
+declared size passes; 8 MB Case + same-digest store body → no store read; the templated repro
+makes zero fetches and refuses; a cycle fetches nothing; the Form-3 processor repro makes zero
+fetches.
+
+**Acceptance.** Both gate runs green (exit 0); no prior test edited.
+
+**Outcome.**
+- 1(b) DONE. `FetchRequest.on_declared` (io/layer.py); `CapBudget.reserve` draws a declared size
+  through `charge_bytes`, refuses an undeclared one stickily; `peer/_bytes.serve_data_bytes`
+  reserves before `read_bytes()` / a callable text provider and draws only bytes past the declared
+  size after; a plain `str` provider's size is known. `_verify` passes
+  `on_declared=partial(budget.reserve, key)`. Repro: 2 × 7,000,000 B synchronized → refused,
+  peak 7,000,000 ≤ 8,000,000 (was 14,000,000).
+- 2 DONE. `_template_kind`: a `RelUrl` template whose `$name` resolves to `MODEL` is `MODEL`
+  (→ `x.source_not_static`, zero I/O); `CollectionShape.cycle` makes admission treat a cycle as
+  unreachable (kind stays `UNKNOWN`, so `test_a_binding_cycle_terminates_as_unknown` is untouched).
+  No other UNKNOWN-reachable case changed.
+- 3 DONE. `_processor_expression_calls`: a Form-3 processor is parsed and `scan_sources`'
+  `remote_nodes` join the pre-I/O precheck.
+- 1(a) STOPPED. Reusing the Case bytes (trial) breaks exactly one prior test,
+  `test_review_gaps_closed.py::test_case_attachment_blobs_served_past_the_cap_are_refused_within_a_chunk`
+  (it asserts the oversized store copy IS read and refused); needs an owner call to amend it.
+- Tests: `tests/unit/test_review_round10.py` (15, new; no prior test edited).
+- Gates: `run_gates.py url4` and `run_gates.py screamingface-engine` (`--base origin/main`) exit 0;
+  `check_module_size.py` exit 0.
+- Deviations: a whole-body provider that declares no size (incl. a callable text provider) is now
+  refused for a run's attached blob read (fail closed, by decision).

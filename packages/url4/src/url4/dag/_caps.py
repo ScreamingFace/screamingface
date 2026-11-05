@@ -26,7 +26,8 @@ source — so the budget never counts an entry the final list collapses.
 from __future__ import annotations
 
 import threading
-from collections.abc import Coroutine, Hashable, Iterable, Sequence
+from collections.abc import Callable, Coroutine, Hashable, Iterable, Sequence
+from functools import partial
 from typing import Any
 
 from url4.core.errors import ErrorCode, ResolutionError
@@ -53,6 +54,15 @@ def _too_large(total: int) -> ResolutionError:
     )
 
 
+def _undeclared() -> ResolutionError:
+    return ResolutionError(
+        "an attachment body of undeclared size cannot be read within the run's "
+        f"{MAX_ATTACHMENT_BYTES}-byte budget",
+        code=ErrorCode.ATTACHMENTS_TOO_LARGE,
+        permanent=True,
+    )
+
+
 class CapBudget:
     """The caps, counted while ``attachments[]`` is built (before any model call).
 
@@ -66,7 +76,7 @@ class CapBudget:
         self._bytes = 0  # settled: landed entries
         self._live: dict[Hashable, int] = {}  # in flight: bytes received so far, per key
         self._live_total = 0  # the live bytes that count (see _counted_live)
-        self._refused: int | None = None  # the total that first crossed the cap
+        self._refused: Callable[[], ResolutionError] | None = None  # the run-ending refusal
         self._lock = threading.RLock()
         for attachment in case:
             self.charge(attachment.digest, len(attachment.body))
@@ -110,6 +120,20 @@ class CapBudget:
             self._live_total += self._counted_live(key, self._live[key]) - before
             self._check()
 
+    def reserve(self, key: Hashable, size: int | None) -> None:
+        """Draw a NON-streaming body's declared ``size`` BEFORE it is read (``on_declared``).
+
+        INVARIANT (PR #1587 review round 10, owner 2026-11-05 — FAIL CLOSED): a body the
+        provider can only hand over whole is never read past the shared live budget: its
+        declared size is drawn first, and a body of unknown size is refused unread, stickily
+        (an ``;optional`` guard cannot swallow it).
+        """
+        with self._lock:
+            if size is None:
+                self._refused = self._refused or _undeclared
+                raise self._refused()
+            self.charge_bytes(key, size)
+
     def release(self, key: Hashable) -> None:
         """Give back ``key``'s in-flight bytes: its attempt failed, or a retry starts over."""
         with self._lock:
@@ -136,7 +160,7 @@ class CapBudget:
     def raise_if_refused(self) -> None:
         """Re-raise the byte-cap refusal, if any — e.g. one an ``;optional`` guard swallowed."""
         if self._refused is not None:
-            raise _too_large(self._refused)
+            raise self._refused()
 
     def _check(self) -> None:
         # INVARIANT: once refused, every later draw is refused too — a breaching flight giving
@@ -144,8 +168,8 @@ class CapBudget:
         self.raise_if_refused()
         total = self._bytes + self._live_total
         if total > MAX_ATTACHMENT_BYTES:
-            self._refused = total
-            raise _too_large(total)
+            self._refused = partial(_too_large, total)
+            raise self._refused()
 
 
 async def gather_charged[T](budget: CapBudget, coros: Iterable[Coroutine[Any, Any, T]]) -> list[T]:
