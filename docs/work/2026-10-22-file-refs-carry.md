@@ -737,7 +737,7 @@ all capped modules within baseline (`source_scan.py` 417, `_materialize.py` 397 
 
 Tests (new file, append-only): `tests/unit/test_review_gaps_closed.py` (10).
 
-### Review round 10 (HupBaHa, 2026-11-05, head `0b562f450`) — owner decisions Sergey 2026-11-05: BLOCKED on 1(a)
+### Review round 10 (HupBaHa, 2026-11-05, head `0b562f450`) — owner decisions Sergey 2026-11-05: DONE
 
 **Intent.** Close the three remaining High findings, append-only tests, each repro RED first.
 
@@ -782,3 +782,15 @@ fetches.
   `check_module_size.py` exit 0.
 - Deviations: a whole-body provider that declares no size (incl. a callable text provider) is now
   refused for a run's attached blob read (fail closed, by decision).
+
+**Follow-up 2026-11-05 (owner: amend the 1(a) test; security review of `567f33e57`).**
+- 1(a) DONE. `_run_files._verify` answers a ref whose digest is a Case attachment's from the
+  Case bytes (no store read, one resident copy). Owner-approved amendment of
+  `test_case_attachment_blobs_served_past_the_cap_are_refused_within_a_chunk` (now: never read,
+  one copy, within the cap), recorded in `.claude/test-change-approvals/OME-1543.json`.
+- DoS DONE. `_template_kind` re-walked bindings per path (`seen` per branch): 2^n on a doubling
+  chain (n=18 → 1.26 s). Replaced by `_TemplateWalk`: one shared visited set (each binding
+  followed once, linear) plus `MAX_TEMPLATE_STEPS = 4096`, past which the collection is
+  model-derived (fails closed `x.source_not_static`). n=3000 → 4 ms.
+- Tests appended to `test_review_round10.py`: 1(a) repro (2 params), deep doubling chain, dense
+  fan-out, long template, step-budget fail-closed.

@@ -8,7 +8,7 @@ when file-ref resolution (spec F2 / D1 / D5) changes; ``_run`` changes when the 
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 
@@ -95,7 +95,7 @@ async def _run_start(
     check_static(occurrences)
     budget = CapBudget(case)
     budget.expect(ref.key for ref in refs if not ref.collection)
-    bodies = await gather_charged(budget, (_verify(ref, run_ctx, budget) for ref in refs))
+    bodies = await _verify_all(refs, case, run_ctx, budget)
     cache: dict[str, CachedBlob] = {
         ref.key: CachedBlob(*body) for ref, body in zip(refs, bodies, strict=True)
     }
@@ -142,8 +142,22 @@ def _processor_expression_calls(value: str | None) -> tuple[tuple[str, str], ...
     return () if ast is None else scan_sources(ast).remote_nodes
 
 
+async def _verify_all(
+    refs: Sequence[FileRef],
+    case: Sequence[Attachment],
+    run_ctx: ExecutionContext,
+    budget: CapBudget,
+) -> list[tuple[bytes, str | None]]:
+    """Every blob ref's verified bytes, read concurrently; a Case digest reuses the Case bytes."""
+    held = {attachment.digest: attachment for attachment in case}
+    return await gather_charged(budget, (_verify(ref, run_ctx, budget, held) for ref in refs))
+
+
 async def _verify(
-    ref: FileRef, run_ctx: ExecutionContext, budget: CapBudget
+    ref: FileRef,
+    run_ctx: ExecutionContext,
+    budget: CapBudget,
+    held: Mapping[str, Attachment],
 ) -> tuple[bytes, str | None]:
     """One blob ref's verified bytes; an attached (non-collection) one is charged to the caps.
 
@@ -152,14 +166,17 @@ async def _verify(
     entries leave (``max_bytes``) — exactly as an attachment-source flight does — so concurrent
     blob reads never hold more than about the cap plus one chunk each. A failed read gives its
     bytes back at once.
-    INVARIANT (review gap 2, owner 2026-11-04): a key already counted — a Case attachment's
-    digest — draws too, but only its bytes beyond the counted size (:meth:`CapBudget.charge_bytes`;
-    the final list dedups it), with its counted size added to its ceiling. A collection blob is
-    not an attachment (D4) and is never charged.
+    A collection blob is not an attachment (D4) and is never charged.
     INVARIANT (review round 10, owner 2026-11-05): a provider that can only hand over its body
     whole draws its DECLARED size first (``on_declared`` → :meth:`CapBudget.reserve`); an
     undeclared or over-budget size is refused ``x.attachments_too_large`` before the read.
+    INVARIANT (review round 10 1(a), owner 2026-11-05): a ref whose digest is a verified Case
+    attachment's (``held``) reuses those bytes and never reads the store copy — one resident copy,
+    no I/O, nothing past the cap (the Case bytes are already counted).
     """
+    case_file = held.get(ref.key)
+    if case_file is not None:
+        return case_file.body, case_file.media_type
     node = BlobRefNode(ref.address)
     if ref.collection:
         return await node.verified(run_ctx)

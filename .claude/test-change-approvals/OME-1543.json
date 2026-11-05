@@ -14,6 +14,10 @@
     "packages/url4/tests/unit/test_https_attachments.py": {
       "base_blob": "6edd3152e2c5ff1f00f9126a932a96ea53a89984",
       "approved_blob": "36b98bfd93878cf8cb4511e8b284219e75064fb9"
+    },
+    "packages/url4/tests/unit/test_review_gaps_closed.py": {
+      "base_blob": "901d67de831d48a9c307904c6f9131bc41cfa624",
+      "approved_blob": "d4249ab72a433bbea4eb1a7b72b40092cbf9b717"
     }
   },
   "amendments": [
@@ -28,6 +32,12 @@
       "date": "2026-10-28",
       "reason": "owner decision 2026-10-28: an io with no binary-safe bytes port refuses an attachment source with unsupported_mode (501, permanent), matching the dag/nodes/code.py precedent, instead of the misleading unsupported_content_type; spec #1450 §4 gap goes to Kevin's wire review",
       "scope": "packages/url4/tests/unit/test_attachment_sources_round7.py: exactly test_attachment_source_on_an_adapter_without_bytes_fetch_is_unsupported now expects UNSUPPORTED_MODE (intent kept: the refusal is permanent and nothing falls back to text). Pinned against this branch's HEAD 6e7f51a52 (the file is new on this branch; it does not exist on origin/main)."
+    },
+    {
+      "approved_by": "Sergey Bershadsky (owner)",
+      "date": "2026-11-05",
+      "reason": "round-10 1(a): reuse verified Case bytes",
+      "scope": "packages/url4/tests/unit/test_review_gaps_closed.py: exactly test_case_attachment_blobs_served_past_the_cap_are_refused_within_a_chunk now asserts the new rule — the store copy of a Case digest is never read (no request, 0 bytes streamed), the Case bytes are the one resident copy, and the attached total stays within the cap (name kept for traceability). Pinned base 901d67de8 (this branch's HEAD 567f33e57; the file is new on this branch and absent from origin/main) -> approved d4249ab72."
     }
   ]
 }

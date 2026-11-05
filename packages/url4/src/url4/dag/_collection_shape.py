@@ -71,16 +71,10 @@ class CollectionShape:
 _TEMPLATE_REF = re.compile(r"\$\$|\$([A-Za-z_]\w*)", re.ASCII)  # ``$$`` is a literal ``$``
 
 
-def resolve_collection(
-    items: Node, bound: Mapping[str, Node], outer: frozenset[str] = frozenset()
-) -> CollectionShape:
-    """Follow ``items`` through ``bound`` to the value it reads, and classify it.
-
-    ``outer`` holds the names a templated value being classified already follows (recursion
-    guard for :func:`_template_kind`).
-    """
+def resolve_collection(items: Node, bound: Mapping[str, Node]) -> CollectionShape:
+    """Follow ``items`` through ``bound`` to the value it reads, and classify it."""
     paths: list[str] = []
-    seen: set[str] = set(outer)
+    seen: set[str] = set()
     node, descriptor, raw = items, None, items
     while True:
         if isinstance(node, Source):
@@ -100,30 +94,78 @@ def resolve_collection(
         node = raw = bound[node.name]
         descriptor = None  # the next binding's own descriptor governs its fetch
     hops = tuple(reversed(paths))
-    if _template_kind(node, bound, frozenset(seen)) == MODEL:
+    if _TemplateWalk(bound, seen).model_derived(node):
         shape = CollectionShape(MODEL, node)
     else:
         shape = _classify(node, descriptor, raw, hops)
     return shape
 
 
-def _template_kind(node: Node, bound: Mapping[str, Node], seen: frozenset[str]) -> str | None:
-    """:data:`MODEL` when a templated relative URL (``/rows/$xs``) substitutes a model's output.
+MAX_TEMPLATE_STEPS = 4096  # names one collection's templates may follow before failing closed
+
+
+class _StepsExhausted(Exception):
+    """The template walk ran out of steps: classified model-derived (fail closed)."""
+
+
+class _TemplateWalk:
+    """Whether a templated relative URL (``/rows/$xs``) substitutes a model's output.
 
     INVARIANT (PR #1587 review round 10, owner 2026-11-05): the URL a templated collection
     fetches is only known once its ``$name`` values are, so a template over a model-derived
     binding is itself model-derived — ``x.source_not_static`` with zero I/O, never conservatively
-    reachable. Names are followed through the same resolver (cycle-safe via ``seen``); a row
-    reference, holdings, or a model-free value leaves the template :data:`UNKNOWN` as before.
+    reachable. A row reference, holdings, or a model-free value leaves it :data:`UNKNOWN`.
+    INVARIANT (security review of round 10, algorithmic-complexity DoS): ONE visited set is
+    shared by the whole walk, so every binding is followed at most once — linear in the bindings
+    and template text, however the aliases fan out or refer back. WHY that is sound: the walk
+    stops at the first model, so a visited name is either still being explored or known
+    model-free. A walk past :data:`MAX_TEMPLATE_STEPS` names fails closed as model-derived.
     """
+
+    def __init__(self, bound: Mapping[str, Node], chain: set[str]) -> None:
+        self._bound = bound
+        self._visited = set(chain)  # the alias chain already walked counts as visited
+        self._steps = 0
+
+    def model_derived(self, node: Node) -> bool:
+        try:
+            return self._walk(node)
+        except _StepsExhausted:
+            return True
+
+    def _walk(self, node: Node) -> bool:
+        pending = [node]
+        while pending:
+            for name in _template_names(pending.pop()):
+                target = self._follow(name)
+                if target is not None and _kind(target) == MODEL:
+                    return True
+                if target is not None:
+                    pending.append(target)
+        return False
+
+    def _follow(self, name: str) -> Node | None:
+        """``name``'s value through its alias hops; ``None`` when unbound or already visited."""
+        node: Node = VarRef(name)
+        while True:
+            if isinstance(node, Source):
+                node = node.value
+                continue
+            if not isinstance(node, VarRef):
+                return node
+            if node.name not in self._bound or node.name in self._visited:
+                return None
+            self._steps += 1
+            if self._steps > MAX_TEMPLATE_STEPS:
+                raise _StepsExhausted
+            self._visited.add(node.name)
+            node = self._bound[node.name]
+
+
+def _template_names(node: Node) -> list[str]:
     if not isinstance(node, RelUrl) or "$" not in node.value:
-        return None
-    for match in _TEMPLATE_REF.finditer(node.value):
-        name = match.group(1)
-        if name is not None and name in bound and name not in seen:
-            if resolve_collection(VarRef(name), bound, seen).kind == MODEL:
-                return MODEL
-    return None
+        return []
+    return [m.group(1) for m in _TEMPLATE_REF.finditer(node.value) if m.group(1) is not None]
 
 
 def _classify(
@@ -179,6 +221,7 @@ __all__ = [
     "MODEL",
     "TEXT",
     "UNKNOWN",
+    "MAX_TEMPLATE_STEPS",
     "CollectionShape",
     "resolve_collection",
 ]

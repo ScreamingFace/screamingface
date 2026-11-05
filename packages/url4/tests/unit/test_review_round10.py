@@ -285,3 +285,110 @@ async def test_a_form3_processor_run_option_with_a_remote_call_refuses_before_an
         await refuse_remote_nodes(run(WITH_IMAGE, io, processor="(url4://n2/v1(x)!go)!'pick'"))
     assert caught.value.code == ErrorCode.REMOTE_NODE_UNSUPPORTED
     assert io.calls == []
+
+
+# -- finding 1a: a Case attachment's digest reuses the verified Case bytes --------------------
+
+
+class _Store:
+    """A store that would serve the same digest again; records every read."""
+
+    def __init__(self, body: bytes) -> None:
+        self.body = body
+        self.reads: list[str] = []
+
+    async def fetch(self, target: str, *, relative: bool) -> str:
+        self.reads.append(f"fetch {target}")
+        return ""
+
+    async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes:
+        self.reads.append(f"fetch_bytes {request.target}")
+        if request.on_chunk is not None:
+            request.on_chunk(len(self.body))
+        return FetchedBytes(bytes(self.body), "image/png")  # a distinct second copy
+
+
+@pytest.mark.parametrize("collection", [False, True])
+@pytest.mark.asyncio
+async def test_an_8_mb_case_attachment_and_its_store_body_leave_one_copy(collection: bool) -> None:
+    from url4.dag.attachment import Attachment
+    from url4.dag.attachments import current_attachments
+
+    body, hex_ = _blob(b"c", CAP)  # exactly 8,000,000 bytes
+    case = Attachment(f"sha256:{hex_}", "image/png", body)
+    store = _Store(body)
+    seen: list[tuple[Attachment, ...]] = []
+
+    async def model(sources: str, intent: str | None, scope: object) -> str:
+        seen.append(current_attachments())
+        return "ok"
+
+    if collection:  # a collection read of the same digest reuses the Case bytes too (C8 here)
+        with pytest.raises(ResolutionError) as caught:
+            await run(
+                f"(/blob/sha256/{hex_}*($item)!'d')!'r'", store, process=model, attachments=[case]
+            )
+        assert caught.value.code == ErrorCode.UNSUPPORTED_CONTENT_TYPE
+    else:
+        assert await run(
+            f"(src=/blob/sha256/{hex_}, 'q')!'d'", store, process=model, attachments=[case]
+        )
+        (attached,) = seen
+        assert [x.body is body for x in attached] == [True]  # the one resident copy
+    assert store.reads == []  # the store copy is never read
+
+
+# -- security review: the template walk is bounded --------------------------------------------
+
+
+def _timed(items: Node, bound: dict[str, Node]) -> tuple[str, float]:
+    import time
+
+    start = time.perf_counter()
+    kind = resolve_collection(items, bound).kind
+    return kind, time.perf_counter() - start
+
+
+def test_a_deep_doubling_template_chain_resolves_in_bounded_time() -> None:
+    from url4.core.nodes import RelUrl, Text
+
+    # Each level substitutes the next twice: 2**60 paths for a per-path walk.
+    bound: dict[str, Node] = {f"x{i}": RelUrl(f"/r/$x{i + 1}/$x{i + 1}") for i in range(60)}
+    bound["x60"] = Text("a")
+    kind, took = _timed(RelUrl("/r/$x0"), bound)
+    assert kind != MODEL and took < 1.0
+
+
+def test_a_dense_fan_out_of_templates_and_aliases_resolves_in_bounded_time() -> None:
+    from url4.core.nodes import RelUrl, VarRef
+
+    # Every binding's template names every other binding, and each has an alias: k! orders.
+    k = 300
+    every = "/".join(f"$t{j}" for j in range(k))
+    bound: dict[str, Node] = {f"t{i}": RelUrl(f"/r/{every}") for i in range(k)}
+    bound.update({f"a{i}": VarRef(f"t{i}") for i in range(k)})
+    kind, took = _timed(RelUrl("/r/" + "/".join(f"$a{i}" for i in range(k))), bound)
+    assert kind != MODEL and took < 1.0
+
+
+def test_a_long_template_with_a_model_at_its_end_resolves_in_bounded_time() -> None:
+    from url4.core.nodes import RelExpr, RelUrl
+
+    bound: dict[str, Node] = {"m": RelExpr(path="/m", context="q", intent=None, params=())}
+    kind, took = _timed(RelUrl("/r/" + "$$x" * 200_000 + "$m"), bound)
+    assert kind == MODEL and took < 1.0
+
+
+@pytest.mark.asyncio
+async def test_a_template_walk_past_its_step_budget_fails_closed_with_zero_io() -> None:
+    from url4.dag._collection_shape import MAX_TEMPLATE_STEPS
+
+    n = MAX_TEMPLATE_STEPS + 1
+    chain = ", ".join(f"x{i}=/r/$x{i + 1}" for i in range(n))
+    io = _Tripwire()
+    with pytest.raises(ResolutionError) as caught:
+        await run(
+            f"(x{n}='a', {chain}, /rows/$x0*(src={IMG};accept=image/png)!'d')!'r'", io, process=_ok
+        )
+    assert caught.value.code == ErrorCode.SOURCE_NOT_STATIC
+    assert io.calls == []

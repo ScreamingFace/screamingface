@@ -128,18 +128,22 @@ async def test_case_attachment_blobs_served_past_the_cap_are_refused_within_a_ch
     # The store serves 9 MB for each digest: the Case already holds 8 MB, so every byte the
     # reads add beyond the Case sizes is over the cap.
     io = _Oversized({f"/blob/sha256/{a_hex}": 9_000_000, f"/blob/sha256/{b_hex}": 9_000_000})
+    seen: list[tuple[Attachment, ...]] = []
 
-    async def never(sources: str, intent: str | None, scope: object) -> str:
-        raise AssertionError("no model call")
+    async def model(sources: str, intent: str | None, scope: object) -> str:
+        seen.append(current_attachments())
+        return "ok"
 
     text = f"(src=/blob/sha256/{a_hex}, src=/blob/sha256/{b_hex})!'d'"
-    with pytest.raises(ResolutionError) as caught:
-        await run(text, io, process=never, attachments=[a, b])
-    assert caught.value.code == ErrorCode.ATTACHMENTS_TOO_LARGE
-    # INVARIANT: counted bytes (Case 8 MB + reads beyond the Case sizes) pass the cap by at
-    # most one chunk; the reads never run on to the io's own cap (20 MiB each).
-    assert io.streamed <= 4_000_000 + 4_000_000 + 2 * CHUNK
-    assert all(r.on_chunk is not None and r.max_bytes is not None for r in io.requests)
+    assert await run(text, io, process=model, attachments=[a, b])
+    # INVARIANT (round 10 1(a), owner 2026-11-05 — amended with approval): the store copy of a
+    # Case digest is never read, so the oversized store bodies never reach the run; the Case
+    # bytes are the one resident copy, and nothing goes past the cap.
+    assert (io.requests, io.streamed) == ([], 0)
+    (attached,) = seen
+    assert [x.body for x in attached] == [a.body, b.body]
+    assert all(x.body is case.body for x, case in zip(attached, (a, b), strict=True))
+    assert sum(len(x.body) for x in attached) <= CAP
 
 
 @pytest.mark.asyncio
