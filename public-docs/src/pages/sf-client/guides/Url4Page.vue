@@ -20,6 +20,11 @@ const remix = `plan = report.candidates["frontier-trio"].url4   # or any url4 st
 plan.to_python()    # editable sf.Model / sf.Fanout / sf.Synthesize / sf.Pipeline code, no spend
 sf.evaluate(plan)   # a new paid run of the same recipe over the same benchmark`
 
+const oldJudge = `sf.Url4(url4_with_a_scoring_judge_from_0_1_10).to_python()`
+const oldJudgeOut = `ValueError: URL4 Candidate has an unsupported judge call`
+const oldPick = `sf.Url4(url4_with_a_max_field_pick_from_0_1_10).to_python()`
+const oldPickOut = `ValueError: URL4 Candidate has a pick spec this SDK version cannot rebuild`
+
 const ops = `c = report.candidates.only
 len(c.operations), [o.kind for o in c.operations]`
 const opsOut = `(1, ['model'])`
@@ -286,15 +291,46 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
     <p>
       Because a <code>url4</code> is a complete plan, it converts back into the recipe that produced
       it. <code>to_python()</code> reconstructs the <code>sf.Model</code>, <code>sf.Fanout</code>,
-      <code>sf.Synthesize</code> and <code>sf.Pipeline</code> calls, nested as they originally were,
-      so you can edit one part and run the result as your own next attempt. It costs nothing, since
-      it is a local transformation rather than a run. Passing the expression to
-      <code>sf.evaluate()</code> instead runs it again as it stands, which can spend.
+      <code>sf.Synthesize</code>, <code>sf.Pipeline</code> and the judge, narrow and reducer steps
+      as a chain joined with <code>&gt;&gt;</code>, nested as they originally were, so you can edit
+      one part and run the result as your own next attempt. It costs nothing, since it is a local
+      transformation rather than a run. Passing the expression to <code>sf.evaluate()</code> instead
+      runs it again as it stands, which can spend.
     </p>
 
     <div class="not-prose">
       <NbCell :count="2" :code="remix" />
     </div>
+
+    <p>
+      The generated code compiles back to the same url4: a plain fusion and a judge chain, each run
+      through <code>to_python()</code> and evaluated, gave the url4 they started with. A recipe with
+      no scoring judge and no field pick has the same url4 as on 0.1.10: the single-model run above
+      and a plain fusion (2,694 characters) are byte for byte equal. Two kinds of recipe have a new
+      url4, so their gateway calls miss the cache once:
+    </p>
+
+    <ul>
+      <li>
+        <strong>A scoring judge:</strong> <code>sf.Judge</code> uses the template
+        <code>judge-template@2</code>, where the rubric alone says which way is better. A judge
+        fusion that was 3,668 characters is 3,667.
+      </li>
+      <li>
+        <strong>A field pick:</strong> <code>sf.ArgMax("field:x")</code>,
+        <code>sf.ArgMin("field:x")</code> and <code>sf.Rank(k, by="field:x")</code> read a signal. A
+        max-field pick that was 2,771 characters is 2,725.
+      </li>
+    </ul>
+
+    <p><code>to_python()</code> refuses a url4 written by an older SDK for these two cases:</p>
+
+    <CodeBlock :code="oldJudge" language="python" />
+    <CodeBlock :code="oldJudgeOut" language="text" />
+    <CodeBlock :code="oldPick" language="python" />
+    <CodeBlock :code="oldPickOut" language="text" />
+
+    <p>Build the recipe again with the current names.</p>
 
     <h3>3 · Inspect the operation graph</h3>
 
