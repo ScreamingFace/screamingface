@@ -74,3 +74,62 @@ def test_local_resolves_the_real_local_app_factory(monkeypatch: pytest.MonkeyPat
     # INVARIANT: loopback. Not configurable, and never 0.0.0.0 — see `local.LOCAL_HOST`.
     assert captured["host"] == LOCAL_HOST == "127.0.0.1"
     assert callable(create_local_app)
+
+
+# --- `--port`: the local server's port, for a supervisor that owns the port plan -----------
+
+
+@pytest.fixture
+def local_ports(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    """Record the port `_serve_local` is handed; `_serve` stays recorded as a bare marker."""
+    seen: list[object] = []
+    monkeypatch.setattr(cli, "_serve", lambda: seen.append("serve"))
+    monkeypatch.setattr(cli, "_serve_local", lambda port=cli._PORT: seen.append(port))
+    return seen
+
+
+def test_local_without_a_port_binds_the_default(local_ports: list[object]) -> None:
+    # INVARIANT: a plain `serve --local` keeps binding 9108 — the port `screamingface up` and
+    # the SDK's default client discovery expect when nobody asks for another.
+    cli.main(["serve", "--local"])
+    assert local_ports == [9108]
+
+
+def test_local_binds_the_requested_port(local_ports: list[object]) -> None:
+    # FEATURE (OME-1620): `screamingface up --engine-port N` starts this process as a child and
+    # must be able to hand N down, or the stack's port plan and the Engine's bind disagree.
+    cli.main(["serve", "--local", "--port", "9111"])
+    assert local_ports == [9111]
+
+
+def test_port_without_local_is_a_usage_error(local_ports: list[object]) -> None:
+    """INVARIANT: the deployed `serve` port is hardcoded on purpose — it IS the chart's
+    containerPort (see `_serve`). A moved deployed port would put the probes and the Service on
+    a port nothing listens on, so the flag is refused rather than honoured there."""
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["serve", "--port", "9111"])
+
+    assert exc.value.code == 2
+    assert local_ports == []
+
+
+@pytest.mark.parametrize("value", ["0", "65536", "nine"])
+def test_local_rejects_a_port_outside_the_tcp_range(local_ports: list[object], value: str) -> None:
+    with pytest.raises(SystemExit) as exc:
+        cli.main(["serve", "--local", "--port", value])
+
+    assert exc.value.code == 2
+    assert local_ports == []
+
+
+def test_the_real_local_server_binds_the_requested_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_serve_local(port=…)` unshimmed: the port reaches uvicorn, and the host stays loopback."""
+    import uvicorn
+
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: captured.update(app=app, **kw))
+
+    cli._serve_local(port=9111)
+
+    assert captured["port"] == 9111
+    assert captured["host"] == "127.0.0.1"
