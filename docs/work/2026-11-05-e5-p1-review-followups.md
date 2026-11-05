@@ -24,7 +24,10 @@ left stale. This unit adds a real-import guard and closes E1's records.
 - `docs/tasks/2026-10-30-OME-1797-e5-p1-e1-run-types-state.md`: closed.
 - Deferred from the #1648 review (point 8): answer FastAPI's request-validation 422 as an RFC
   9457 Problem (`application/problem+json`) on every Engine route, not FastAPI's `detail[]`.
-  App-wide, so not in the `/runs` PR; lands here once the Engine stack is on `main`.
+  App-wide, so not in the `/runs` PR; lands here once the Engine stack is on `main`. On `/runs`
+  the handler also checks Runs-off and identity first (an unparseable body otherwise answers 422
+  before them), adds the private cache headers, and documents the 422 as a Problem in OpenAPI
+  (#1648 second review, points 7, 8 and 9).
 
 ## Test plan
 
