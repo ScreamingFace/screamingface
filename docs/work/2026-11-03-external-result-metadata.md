@@ -90,3 +90,13 @@ production importing and source eligibility are separate work.
 
 PR description will use the same scope, validation and migration limits above.
 No Linear write or PR opening before confirmation.
+
+## Publication preparation — 2026-11-05
+
+Rebased the implementation onto current main `0b2d63fac`, including the merged
+scoreboard validation and cost-read fixes. No conflicts or migration numbering
+collision. The full scoreboard gate runner passes against that base, including
+the owner-approved privacy transition, lint, formatting, typecheck, complete Python
+suite/coverage and portal tests. A read-only Linear check found no existing metadata
+child issue. Publication confirmation requested before creating it and opening the
+PR; no Linear or GitHub writes yet.
