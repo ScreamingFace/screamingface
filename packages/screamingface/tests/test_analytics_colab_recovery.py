@@ -1,9 +1,10 @@
-"""Desired recovery after Colab failures observed in OME-1768; intentionally red."""
+"""Recovery after the Colab failures observed in OME-1768."""
 
 import asyncio
 import socket
 import threading
 import time
+from typing import Any, cast
 
 import pytest
 from test_analytics_colab import accepted
@@ -31,14 +32,14 @@ class BrowserReplies:
         self.returned = threading.Event()
         self.stall = False
 
-    def exchange(self, command, event=None, **kwargs):
+    def exchange(self, command, event: dict | None = None, **kwargs):
         self.calls.append(command)
         if self.stall and command == "state":
             self.entered.set()
-            self.release.wait(5)
+            self.release.wait(10)
             self.returned.set()
         elif command == self.fail_command and (
-            self.fail_event is None or event["event"] == self.fail_event
+            self.fail_event is None or (event is not None and event["event"] == self.fail_event)
         ):
             self.fail_command = None
             self.failed.set()
@@ -46,6 +47,7 @@ class BrowserReplies:
                 raise TimeoutError("Simulated browser exchange timeout")
             return {"choice": "unknown", "unavailable": True}
         elif command == "events":
+            assert event is not None
             self.delivered.append(event.copy())
             return {"status": "upstream_accepted", "count": 1}
         return self.saved.copy()
@@ -84,12 +86,12 @@ def evaluate(request):
     async def asynchronous():
         async with sf.AsyncClient() as client:
             with pytest.raises(TypeError):
-                await client.evaluate([])
+                await client.evaluate(cast(Any, []))
 
     def synchronous():
         with sf.Client() as client:
             with pytest.raises(TypeError):
-                client.evaluate([])
+                client.evaluate(cast(Any, []))
 
     return synchronous if request.param == "sync" else lambda: asyncio.run(asynchronous())
 
@@ -140,7 +142,7 @@ def test_later_evaluation_recovers_after_setup_deadline(evaluate, browser, repli
     evaluate()
     elapsed = time.monotonic() - started
     assert replies.entered.is_set()
-    assert 1.5 <= elapsed < 2.75
+    assert 4.5 <= elapsed < 5.75
     assert sf.analytics.status()["choice"] == "unknown"
     assert not browser.pending
     replies.release.set()

@@ -35,15 +35,15 @@ def _offer() -> None:
     global _shown
     from screamingface import analytics
 
-    if _shown or analytics._disabled():
+    if analytics._disabled():
         return
     environment = origin()
     if environment == "colab":
         from screamingface._analytics.colab import bridge
 
-        bridge().control("setup")
+        bridge().ensure_setup()
         _shown = True
-    else:
+    elif not _shown:
         store = LocalConsentStore(config_path())
         if not analytics._session_only and store.missing():
             show_notice(environment)
@@ -66,7 +66,7 @@ def offer() -> None:
         _LOG.debug("Analytics setup skipped")
 
 
-def wait_for_setup() -> None:
+def wait_for_setup(generation: int | None = None) -> None:
     from screamingface import analytics
 
     if origin() == "colab" and not analytics._disabled():
@@ -74,11 +74,14 @@ def wait_for_setup() -> None:
 
         selected = bridge()
         try:
-            selected.wait_for_setup()
+            if generation is None:
+                selected.wait_for_setup()
+            else:
+                selected.wait_for_generation(generation)
         except Exception:
             # INVARIANT: failed optional setup cannot fail the evaluation or let
             # an in-flight reply enable tracking later. Interruptions propagate.
-            selected.expire_setup()
+            selected.expire_setup(generation, reason="unavailable")
             _LOG.debug("Analytics setup skipped")
 
 
@@ -103,14 +106,19 @@ async def before_evaluation_async() -> None:
         return
     # Colab only queues browser work here; it never opens local preference files.
     offer()
-    from screamingface._analytics.colab import bridge
+    from screamingface._analytics.colab import BRIDGE_TIMEOUT, bridge
 
     selected = bridge()
+    generation = selected.setup_token()
     try:
-        if selected.setup_pending():
+        if generation is not None:
             # WHY: include executor queue delay without blocking Colab's event loop.
-            await asyncio.wait_for(asyncio.to_thread(wait_for_setup), timeout=2)
-    except Exception:
+            await asyncio.wait_for(
+                asyncio.to_thread(wait_for_setup, generation), timeout=BRIDGE_TIMEOUT
+            )
+    except Exception as exc:
         # Includes timeout and executor failure; BaseException cancellation escapes.
-        selected.expire_setup()
+        selected.expire_setup(
+            generation, reason="timeout" if isinstance(exc, TimeoutError) else "unavailable"
+        )
         _LOG.debug("Analytics setup skipped")

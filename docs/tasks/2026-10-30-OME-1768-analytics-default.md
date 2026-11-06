@@ -22,7 +22,7 @@ co-sign has not been recorded here. PR #1633 also addresses late existing-ID rea
 and automatic enrollment responses after explicit reaccept; see the work ledger
 for regression tests and validation. Deployed Colab smoke remains outstanding.
 
-Latest decision (2 November): headless, terminal and notebook environments all
+Decision on 2 November: headless, terminal and notebook environments all
 default on. Notice visibility is not an enrollment gate. Saved declines,
 process disable and DO_NOT_TRACK always win. The two-second Colab setup wait remains.
 
@@ -34,7 +34,10 @@ before the SDK release that contains this change.
 Reopened to In Progress in Linear at Filip's request on 2026-11-06. Production
 PostHog received real Colab SDK events after a manual setup retry, but tracking
 later became unknown/disabled again. Local fault injection reproduces setup and
-delivery failures with no automatic recovery. Failing regression tests are being
-added; see the spec, plan and ledger named
+delivery failures with no automatic recovery. PR #1703 first published failing
+regressions and now implements recovery with safe local diagnostics; see the spec, plan and ledger named
 `2026-11-06-colab-analytics-recovery-tests.md`. The initial browser failure cause
-remains unconfirmed; no product fix has been made in this unit.
+remains unconfirmed. Filip authorized five seconds for both consent setup and
+background delivery on 6 November, superseding the original two-second setup
+budget. Recovery rechecks browser consent on a later evaluation, preserves all
+opt-outs, and never replays missed events. Deployed Colab verification is still needed.
