@@ -1,12 +1,12 @@
 ---
 id: OME-1768
 linear_url: https://linear.app/openmined/issue/OME-1768
-status: todo
+status: done
 type: task
 priority: 1
 labels: [analytics, agentic, deferred]
 created: 2026-10-29
-closed:
+closed: 2026-11-05
 ---
 
 # Make SDK analytics on by default in all environments
@@ -25,3 +25,8 @@ for regression tests and validation. Deployed Colab smoke remains outstanding.
 Latest decision (2 November): headless, terminal and notebook environments all
 default on. Notice visibility is not an enrollment gate. Saved declines,
 process disable and DO_NOT_TRACK always win. The two-second Colab setup wait remains.
+
+Merged [PR #1633](https://github.com/ScreamingFace/screamingface/pull/1633)
+on 2026-11-04, commit `52d9492aa8b51b34dd9d4ceea6dae1eed0a750ba`. Linear is Done.
+Rollout checks remain: deployed Colab smoke, and the analytics service upgraded
+before the SDK release that contains this change.
