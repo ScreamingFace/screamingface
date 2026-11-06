@@ -10,7 +10,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 import pytest_asyncio
@@ -31,6 +32,7 @@ from test_queue_runner_cancel import (
 from test_runs_routes import ALICE, _Engine
 
 from screamingface_engine.adapters.jetstream import QueueReadError
+from screamingface_engine.rest import runs
 from screamingface_engine.runner_queue import encode_message
 from screamingface_engine.runs.records import owner_key
 from url4.streaming.protocol import TerminatedEvent
@@ -134,3 +136,74 @@ async def test_a_stop_another_cancel_completed_is_not_a_503(registry: Registry) 
 
     assert runner.attempts == 2
     assert 503 not in (first.status_code, second.status_code)
+
+
+async def test_a_run_stopped_before_its_schedule_queues_nothing_and_holds_no_slot() -> None:
+    """WHY: a slot reserved after the tombstone is newer than it, so nothing would release it."""
+    publisher = _FakePublisher()
+    runner = _runner(publisher, _FakeControl(reply=False))
+
+    await runner.stop_bound("t")
+    await runner.schedule("t", "'hi'", 60, identity={"X-User-Email": "alice@example.org"})
+
+    assert runner._queue.published == []  # type: ignore[attr-defined]
+    assert all("t" not in topics for topics in runner._in_flight_by_caller.values())
+
+
+class _RecheckFails:
+    """A registry whose owed-stop read fails once the stops have been tried."""
+
+    def __init__(self, store: Any) -> None:
+        self._store = store
+        self._reads = 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+    async def owed_stops(self, owner: Any, run_id: str) -> list[str]:
+        self._reads += 1
+        if self._reads > 1:
+            raise RuntimeError("the database went away")
+        return await self._store.owed_stops(owner, run_id)
+
+
+class _StopFails(RecordingJobRunner):
+    async def stop(self, topic: str) -> None:
+        raise QueueReadError(topic)
+
+
+async def test_a_failed_recheck_still_answers_the_stops_private_503(registry: Registry) -> None:
+    engine = _Engine(registry, runner=_StopFails())
+    run_id = (await engine.create(candidates=["a"])).json()["id"]
+    await registry.store.bind(_ALICE_KEY, run_id, 0, "topic-a")
+    engine.app.state.run_registry = _RecheckFails(registry.store)
+
+    resp = await engine.client.delete(f"/runs/{run_id}", headers=ALICE)
+
+    assert resp.status_code == 503
+    assert resp.headers["Cache-Control"] == "private, no-store"
+
+
+class _StopCancelled(RecordingJobRunner):
+    async def stop(self, topic: str) -> None:
+        raise asyncio.CancelledError
+
+
+class _OwedOnce:
+    def __init__(self) -> None:
+        self._reads = 0
+
+    async def owed_stops(self, owner: Any, run_id: str) -> list[str]:
+        self._reads += 1
+        return ["topic-a"] if self._reads == 1 else []
+
+    async def stop_done(self, topic: str) -> None:
+        pass
+
+
+async def test_a_cancelled_stop_is_never_swallowed() -> None:
+    state = SimpleNamespace(job_runner=_StopCancelled(), stream=None)
+    request: Any = SimpleNamespace(app=SimpleNamespace(state=state))
+
+    with pytest.raises(asyncio.CancelledError):
+        await runs._stop_owed(request, cast(Any, _OwedOnce()), _ALICE_KEY, "run")

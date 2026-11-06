@@ -312,9 +312,15 @@ async def _stop_owed(request: Request, registry: RunRegistry, owner: OwnerKey, r
     failed = [(t, r) for t, r in zip(topics, results, strict=True) if isinstance(r, BaseException)]
     if not failed:
         return
+    for _, result in failed:
+        if not isinstance(result, Exception):
+            raise result  # a cancellation is never swallowed
     # WHY recheck: a concurrent cancel may have completed the same stop, so this one's failure
     # leaves nothing owed and is not the caller's to retry.
-    still_owed = set(await registry.owed_stops(owner, run_id))
+    try:
+        still_owed = set(await registry.owed_stops(owner, run_id))
+    except Exception:
+        still_owed = {topic for topic, _ in failed}
     for topic, result in failed:
         if topic in still_owed:
             raise _private_failure(result) from result
