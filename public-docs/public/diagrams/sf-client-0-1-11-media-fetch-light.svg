@@ -1,37 +1,35 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 520" width="1060" height="520" font-family="IBM Plex Mono, Menlo, monospace">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 60 1060 468" width="1060" height="468" font-family="Helvetica Neue, Arial, sans-serif">
 <title>Opening and fetching a Case&#x27;s media</title>
-<defs><marker id="a-mid" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#585d67"/></marker><marker id="a-bad" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#b4452f"/></marker><marker id="a-ok" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#2f7d4f"/></marker><marker id="a-accent" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#c9821f"/></marker></defs>
+<defs><marker id="a-mid" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5a6069"/></marker><marker id="a-bad" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d0634a"/></marker><marker id="a-ok" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#58b36e"/></marker><marker id="a-accent" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#c9821f"/></marker></defs>
 <rect width="1060" height="520" fill="#ffffff"/>
-<text x="40" y="42" font-size="16" fill="#16181d" text-anchor="start" font-weight="600">Fetching a Case&#x27;s media</text>
-<text x="40" y="64" font-size="11" fill="#8b909a" text-anchor="start" letter-spacing="0.04em">SEQUENCE · THE REPORT HOLDS A PLACEHOLDER, THE ENGINE HOLDS THE BYTES</text>
-<rect x="30" y="84" width="240" height="44" fill="#f6f6f7" stroke="#d4d6db" stroke-width="1"/>
-<text x="150.0" y="108" font-size="12" fill="#16181d" text-anchor="middle" font-weight="600" letter-spacing="0.04em">Your code</text>
-<path d="M150 128 L150 504" stroke="#d4d6db" stroke-width="1" stroke-dasharray="3 5"/>
-<rect x="410" y="84" width="240" height="44" fill="#f6f6f7" stroke="#d4d6db" stroke-width="1"/>
-<text x="530.0" y="108" font-size="12" fill="#16181d" text-anchor="middle" font-weight="600" letter-spacing="0.04em">ScreamingFace Client</text>
-<path d="M530 128 L530 504" stroke="#d4d6db" stroke-width="1" stroke-dasharray="3 5"/>
-<rect x="790" y="84" width="240" height="44" fill="#f6f6f7" stroke="#d4d6db" stroke-width="1"/>
-<text x="910.0" y="108" font-size="12" fill="#16181d" text-anchor="middle" font-weight="600" letter-spacing="0.04em">ScreamingFace Engine</text>
-<path d="M910 128 L910 504" stroke="#d4d6db" stroke-width="1" stroke-dasharray="3 5"/>
-<path d="M150 170 L530 170" fill="none" stroke="#585d67" stroke-width="1.3" marker-end="url(#a-mid)"/>
-<text x="340" y="162" font-size="10.5" fill="#16181d" text-anchor="middle">case.media[0]</text>
-<path d="M530 198 L150 198" fill="none" stroke="#2f7d4f" stroke-width="1.3" marker-end="url(#a-ok)"/>
-<text x="340" y="216" font-size="10.5" fill="#2f7d4f" text-anchor="middle">CaseMedia: media_type, size, sha256</text>
-<text x="340" y="232" font-size="10.5" fill="#8b909a" text-anchor="middle">no network call</text>
-<path d="M150 272 L530 272" fill="none" stroke="#585d67" stroke-width="1.3" marker-end="url(#a-mid)"/>
-<text x="340" y="264" font-size="10.5" fill="#16181d" text-anchor="middle">sf.fetch_media(item)</text>
-<path d="M530 304 L910 304" fill="none" stroke="#585d67" stroke-width="1.3" marker-end="url(#a-mid)"/>
-<text x="720" y="296" font-size="10.5" fill="#16181d" text-anchor="middle">fetch the item&#x27;s bytes</text>
-<rect x="40" y="326" width="980" height="1" fill="#d4d6db"/>
-<text x="40" y="346" font-size="10.5" fill="#2f7d4f" text-anchor="start">The engine holds the item</text>
-<path d="M910 372 L530 372" fill="none" stroke="#2f7d4f" stroke-width="1.3" marker-end="url(#a-ok)"/>
-<text x="720" y="364" font-size="10.5" fill="#2f7d4f" text-anchor="middle">bytes</text>
-<path d="M530 402 L150 402" fill="none" stroke="#2f7d4f" stroke-width="1.3" marker-end="url(#a-ok)"/>
-<text x="340" y="394" font-size="10.5" fill="#2f7d4f" text-anchor="middle">FetchedMedia, only when size and sha256 match</text>
-<rect x="40" y="420" width="980" height="1" fill="#d4d6db"/>
-<text x="40" y="440" font-size="10.5" fill="#b4452f" text-anchor="start">The engine no longer holds the item, or never held it</text>
-<path d="M910 466 L530 466" fill="none" stroke="#b4452f" stroke-width="1.3" marker-end="url(#a-bad)"/>
-<text x="720" y="458" font-size="10.5" fill="#b4452f" text-anchor="middle">not held</text>
-<path d="M530 494 L150 494" fill="none" stroke="#b4452f" stroke-width="1.3" marker-end="url(#a-bad)"/>
-<text x="340" y="486" font-size="10.5" fill="#b4452f" text-anchor="middle">MediaUnavailableError, code media_not_kept</text>
+<rect x="30" y="84" width="240" height="44" rx="10" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1"/>
+<text x="150.0" y="108" font-size="12" fill="#2c2f36" text-anchor="middle" font-weight="500">Your code</text>
+<path d="M150 128 L150 504" stroke="#cdd0d6" stroke-width="1" stroke-dasharray="3 5"/>
+<rect x="410" y="84" width="240" height="44" rx="10" fill="#4f86e8" stroke="#3f73d0" stroke-width="1"/>
+<text x="530.0" y="108" font-size="12" fill="#ffffff" text-anchor="middle" font-weight="500">ScreamingFace Client</text>
+<path d="M530 128 L530 504" stroke="#cdd0d6" stroke-width="1" stroke-dasharray="3 5"/>
+<rect x="790" y="84" width="240" height="44" rx="10" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1"/>
+<text x="910.0" y="108" font-size="12" fill="#2c2f36" text-anchor="middle" font-weight="500">ScreamingFace Engine</text>
+<path d="M910 128 L910 504" stroke="#cdd0d6" stroke-width="1" stroke-dasharray="3 5"/>
+<path d="M150 170 L530 170" fill="none" stroke="#5a6069" stroke-width="1.3" marker-end="url(#a-mid)"/>
+<text x="340" y="162" font-size="10.5" fill="#2c2f36" text-anchor="middle">case.media[0]</text>
+<path d="M530 198 L150 198" fill="none" stroke="#58b36e" stroke-width="1.3" marker-end="url(#a-ok)"/>
+<text x="340" y="216" font-size="10.5" fill="#58b36e" text-anchor="middle">CaseMedia: media_type, size, sha256</text>
+<text x="340" y="232" font-size="10.5" fill="#8b9096" text-anchor="middle">no network call</text>
+<path d="M150 272 L530 272" fill="none" stroke="#5a6069" stroke-width="1.3" marker-end="url(#a-mid)"/>
+<text x="340" y="264" font-size="10.5" fill="#2c2f36" text-anchor="middle">sf.fetch_media(item)</text>
+<path d="M530 304 L910 304" fill="none" stroke="#5a6069" stroke-width="1.3" marker-end="url(#a-mid)"/>
+<text x="720" y="296" font-size="10.5" fill="#2c2f36" text-anchor="middle">fetch the item&#x27;s bytes</text>
+<rect x="40" y="326" width="980" height="1" fill="#cdd0d6"/>
+<text x="40" y="346" font-size="10.5" fill="#58b36e" text-anchor="start">The engine holds the item</text>
+<path d="M910 372 L530 372" fill="none" stroke="#58b36e" stroke-width="1.3" marker-end="url(#a-ok)"/>
+<text x="720" y="364" font-size="10.5" fill="#58b36e" text-anchor="middle">bytes</text>
+<path d="M530 402 L150 402" fill="none" stroke="#58b36e" stroke-width="1.3" marker-end="url(#a-ok)"/>
+<text x="340" y="394" font-size="10.5" fill="#58b36e" text-anchor="middle">FetchedMedia, only when size and sha256 match</text>
+<rect x="40" y="420" width="980" height="1" fill="#cdd0d6"/>
+<text x="40" y="440" font-size="10.5" fill="#d0634a" text-anchor="start">The engine no longer holds the item, or never held it</text>
+<path d="M910 466 L530 466" fill="none" stroke="#d0634a" stroke-width="1.3" marker-end="url(#a-bad)"/>
+<text x="720" y="458" font-size="10.5" fill="#d0634a" text-anchor="middle">not held</text>
+<path d="M530 494 L150 494" fill="none" stroke="#d0634a" stroke-width="1.3" marker-end="url(#a-bad)"/>
+<text x="340" y="486" font-size="10.5" fill="#d0634a" text-anchor="middle">MediaUnavailableError, code media_not_kept</text>
 </svg>

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 470" width="1240" height="470" font-family="Helvetica Neue, Arial, sans-serif">
+<title>Hosted request flow: you, through the Client on your machine, reach a ScreamingFace-run engine and gateway in the cloud that call providers on subsidised tokens; the shared community cache grows with every run, and the engine submits a verifiable result to the public leaderboard.</title>
+<defs>
+<marker id="arw" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8a9099"/></marker>
+</defs>
+<rect width="1240" height="470" fill="#ffffff"/>
+
+<!-- your machine -->
+<rect x="30" y="24" width="360" height="190" rx="12" fill="none" stroke="#c4c7cd" stroke-width="1.3" stroke-dasharray="6 5"/>
+<text x="52" y="48" font-size="15" fill="#9aa0a6">your machine</text>
+
+<!-- ScreamingFace cloud -->
+<rect x="410" y="24" width="492" height="312" rx="12" fill="none" stroke="#c4c7cd" stroke-width="1.3" stroke-dasharray="6 5"/>
+<text x="432" y="48" font-size="15" fill="#9aa0a6">ScreamingFace cloud · subsidised compute</text>
+
+<!-- top row -->
+<rect x="56" y="64" width="104" height="84" rx="10" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1.4"/>
+<text x="108" y="112" font-size="18" fill="#2c2f36" text-anchor="middle" font-weight="500">You</text>
+
+<rect x="210" y="64" width="176" height="84" rx="10" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1.4"/>
+<text x="298" y="112" font-size="18" fill="#2c2f36" text-anchor="middle" font-weight="500">Client</text>
+
+<rect x="446" y="64" width="176" height="84" rx="10" fill="#4f86e8" stroke="#3f73d0" stroke-width="1.4"/>
+<text x="534" y="112" font-size="18" fill="#ffffff" text-anchor="middle" font-weight="500">Engine</text>
+
+<rect x="682" y="64" width="176" height="84" rx="10" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1.4"/>
+<text x="770" y="112" font-size="18" fill="#2c2f36" text-anchor="middle" font-weight="500">Gateway</text>
+
+<rect x="980" y="64" width="214" height="84" rx="10" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1.4"/>
+<text x="1087" y="105" font-size="18" fill="#2c2f36" text-anchor="middle" font-weight="500">Provider</text>
+<text x="1087" y="127" font-size="13" fill="#8b9096" text-anchor="middle">OpenRouter · …</text>
+
+<!-- top row arrows -->
+<line x1="160" y1="106" x2="206" y2="106" stroke="#8a9099" stroke-width="1.8" marker-end="url(#arw)"/>
+<line x1="386" y1="106" x2="442" y2="106" stroke="#8a9099" stroke-width="1.8" marker-end="url(#arw)"/>
+<line x1="622" y1="106" x2="678" y2="106" stroke="#8a9099" stroke-width="1.8" marker-end="url(#arw)"/>
+<line x1="858" y1="106" x2="976" y2="106" stroke="#8a9099" stroke-width="1.8" marker-end="url(#arw)"/>
+<text x="917" y="94" font-size="13" fill="#8b9096" text-anchor="middle">subsidised tokens</text>
+
+<!-- shared cache cylinder -->
+<line x1="534" y1="148" x2="534" y2="208" stroke="#8a9099" stroke-width="1.8" marker-end="url(#arw)"/>
+<path d="M479 210 a55 11 0 0 1 110 0 v56 a55 11 0 0 1 -110 0 z" fill="#f0f1f3" stroke="#cdd0d6" stroke-width="1.3"/>
+<path d="M479 210 a55 11 0 0 0 110 0" fill="none" stroke="#cdd0d6" stroke-width="1.3"/>
+<text x="534" y="246" font-size="15" fill="#2c2f36" text-anchor="middle">cache</text>
+<text x="534" y="302" font-size="12.5" fill="#8b9096" text-anchor="middle">shared · grows as the community runs</text>
+
+<!-- verifiable submission to the public leaderboard -->
+<rect x="840" y="372" width="360" height="54" rx="10" fill="#f1f9f3" stroke="#58b36e" stroke-width="1.4"/>
+<text x="1020" y="405" font-size="17" fill="#2f8a46" text-anchor="middle" font-weight="500">public verifiable leaderboard</text>
+<path d="M612 148 V399 H840" fill="none" stroke="#8a9099" stroke-width="1.8" marker-end="url(#arw)"/>
+<text x="705" y="392" font-size="12.5" fill="#8b9096" text-anchor="start">verifiable submission</text>
+</svg>
