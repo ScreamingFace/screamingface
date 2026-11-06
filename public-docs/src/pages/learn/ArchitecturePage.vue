@@ -10,9 +10,9 @@ const { isDark } = storeToRefs(useThemeStore())
 const GH = 'https://github.com/ScreamingFace/screamingface/tree/main'
 
 const localDiagram = (dark: boolean) =>
-  `/diagrams/screamingface-request-architecture-local-${dark ? 'dark' : 'light'}.svg`
+  `/diagrams/sf-request-architecture-local-${dark ? 'dark' : 'light'}.svg`
 const cloudDiagram = (dark: boolean) =>
-  `/diagrams/screamingface-request-architecture-cloud-${dark ? 'dark' : 'light'}.svg`
+  `/diagrams/sf-request-architecture-cloud-${dark ? 'dark' : 'light'}.svg`
 
 const components = [
   { name: 'url4: the protocol', path: 'packages/url4' },
@@ -99,11 +99,13 @@ const components = [
     <figure class="not-prose diagram">
       <img
         :src="localDiagram(isDark)"
-        alt="Local request flow: the Client drives an engine on your own machine, which fans model calls out through the AI gateway to the providers you hold keys for."
+        alt="Local request flow: the Client drives an engine on your own machine, which fans model calls out through the gateway to the providers you hold keys for; its cache accumulates and can pull from the shared community cache, and the engine submits a verifiable result to the public leaderboard."
       />
       <figcaption>
         <strong>Local.</strong> The Client drives an engine on your own machine; model calls fan out
-        through the gateway to the providers you hold keys for.
+        through the gateway to the providers you hold keys for. Its cache accumulates across runs and
+        can pull from the shared community cache, and the engine submits a verifiable result to the
+        public leaderboard.
       </figcaption>
     </figure>
 
@@ -117,11 +119,12 @@ const components = [
     <figure class="not-prose diagram">
       <img
         :src="cloudDiagram(isDark)"
-        alt="Cloud request flow: a hosted engine runs the same protocol; a control plane schedules the run and streams execution events back to the Client."
+        alt="Hosted request flow: the Client on your machine reaches a ScreamingFace-run engine and gateway in the cloud that call providers on subsidised tokens; the shared community cache grows with every run, and the engine submits a verifiable result to the public leaderboard."
       />
       <figcaption>
-        <strong>Cloud.</strong> A hosted engine runs the same protocol; a control plane schedules
-        the run and streams execution events back.
+        <strong>Cloud.</strong> The Client reaches a ScreamingFace-run engine and gateway in the
+        cloud that call providers on subsidised tokens, so you need no keys of your own. The cache is
+        shared across the community and grows with every run.
       </figcaption>
     </figure>
 
