@@ -1,7 +1,7 @@
 ---
 id: OME-1839
 linear_url: https://linear.app/openmined/issue/OME-1839/retire-the-profile-era-models-from-the-aigateway-catalog-stage-e
-status: in_progress
+status: in_review
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
@@ -23,4 +23,5 @@ Spec `docs/spec/2026-11-05-stage-e-catalog-catch-up.md`, plan
 `docs/plan/2026-11-05-stage-e-catalog-catch-up.md`, ledger
 `docs/work/2026-11-05-stage-e-catalog-catch-up.md`.
 
-- 2026-11-05: filed at PR-open; the catalog PR opened in `screamingface-design`.
+- 2026-11-05: filed at PR-open; the catalog PR opened in `screamingface-design`. In Review.
+- 2026-11-06: review findings addressed in the spec, plan and ledger.

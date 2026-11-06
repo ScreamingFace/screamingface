@@ -11,9 +11,10 @@ finished:
 ## Intent
 
 The AIGateway solution catalog in `screamingface-design` was last projected from gateway source at
-`d35a46537` (2026-09-29), before Stage E of `OME-1138` deleted the Profile models (E3, E5c). Its
-fifteen generated Profile-era cards are still `approved`, authored cards still cite deleted modules
-as live code, and the local projection tools can no longer run against `main`: the exporter imports
+`d35a46537` (2026-09-29), before Stage E of `OME-1138` deleted the Profile models (E3, E5c). Ten
+of its fifteen generated Profile-era cards are not `deprecated` (`OME-1413` deprecated the other
+five), authored cards still cite deleted modules as live code, and the local projection tools can
+no longer run against `main`: the exporter imports
 `Profile`/`ProfileIndex`, the projector pins them as extra schemas, and the version step raises on
 the fifteen models that left the source. This unit makes the tools run against `main` again, retires
 those cards as `deprecated` through a closed retirement list, re-projects the rest, and corrects the
@@ -23,10 +24,12 @@ authored cards, in one reviewed catalog change.
 
 - Local tools (`solutions/_tools/`, untracked, never committed): `export_contracts.py`,
   `project_models.py`, `project_model_versions.py`, `project_model_labels.json`, and their tests.
-- Catalog (`screamingface-design`, `solutions/screamingface/product/aigateway/...`): the fifteen
-  retired generated cards (status only), the re-projected live cards, both `openapi.yaml` exports,
-  `datamodel/profile-defaults`, the authored cards that cite deleted code, solution
-  `protocol/completions`, and a provenance paragraph in `solutions/README.md`.
+- Catalog (`screamingface-design`, `solutions/screamingface/product/aigateway/...`): the 17 cards
+  on the retirement list (status only; the 15 Profile-era cards and the 2 predecessors of the
+  successor swap), the 2 successor cards, the re-projected live cards, the 8 new `draft` cards,
+  both `openapi.yaml` exports, `datamodel/profile-defaults`, the `config` datamodel, the authored
+  cards that cite deleted code, solution `protocol/completions`, and a provenance paragraph in
+  `solutions/README.md`.
 - This repository: this ledger, `docs/spec/2026-11-05-stage-e-catalog-catch-up.md`,
   `docs/plan/2026-11-05-stage-e-catalog-catch-up.md`, and the `docs/tasks/` mirror at PR-open.
 
@@ -34,24 +37,30 @@ authored cards, in one reviewed catalog change.
 
 - Tool suite (`python -B -m unittest discover -s solutions/_tools -p 'test_*.py'`), RED first:
   - the extra-schema inventory is `{"usage_accounting"}` and the `$defs` walk over the Profile
-    schemas is gone;
-  - the exporter's `collect` names no Profile model class;
-  - retirement list: a listed and absent slug is kept, set `deprecated`, version unchanged; an
-    unlisted disappearance raises; a listed slug that is generated again raises;
-  - an authored `relations: supersedes` survives `--write`;
-  - one fixture per reconciled text kind found by the baseline check.
-- Existing tool tests stay unmodified.
+    schemas is gone; a model in both the OpenAPI and the extra inventory raises;
+  - the exporter imports no Profile model module, in any import form;
+  - retirement list: a listed and absent slug is kept, set `deprecated`, version unchanged; a
+    listed card missing either file, or its directory, raises; an unlisted disappearance raises; a
+    listed slug that is generated again raises;
+  - the successor list is closed, and only a successor card carries `relations: supersedes`;
+  - in a Git checkout whose `HEAD` tracks no generated card while the working tree holds some,
+    `--check` and `--write` refuse and nothing on disk changes.
+- Existing tool tests change only within the owner-approved scope listed below.
 
 ## Acceptance
 
-- `project_models.py --check` on `main` reports no difference after the write; the export runs
-  against `main` without importing a Profile class.
-- The fifteen listed cards are `deprecated` with their version unchanged; `profile-defaults` is
+- `project_models.py --check` on `main`, in a copy without `.git`, reports no difference after the
+  write; in a Git checkout where the catalog is untracked it refuses before any write. The export
+  runs against `main` without importing a Profile model module.
+- The 17 cards on the retirement list are `deprecated` with version and body unchanged: twelve
+  change status only and the five already deprecated do not change. `profile-defaults` is
   `deprecated` and advances exactly once.
-- Every other changed entity advances exactly once relative to design `main`.
+- The 32 re-projected live cards advance exactly once; the 2 successor cards enter at v1
+  `approved` with `relations: supersedes`; the 8 new cards enter at v1 `draft`.
+- Every changed authored entity advances exactly once relative to design `main`.
 - No card outside the deprecated set cites a deleted Profile-era module as live code.
 - Catalog check: no errors beyond design `main`; `--since origin/main` lists exactly the changed
-  entities, each version-bumped.
+  entities, each existing one version-bumped or changed in status only.
 
 ## Baseline reconciliation work list
 
@@ -77,7 +86,8 @@ Baseline check at `d35a46537`, run 2026-11-05 against design `main` `63d41f7`.
     v2) is not in the labels file.
 - **Versioning.** In a Git worktree the version step finds the `.git` marker, reads the catalog
   bucket from the code repository's `HEAD` (where it is untracked), and so treats every card as new
-  at version 1. Projection must run in a root without a `.git` marker (file-only mode).
+  at version 1. Projection must run in a root without a `.git` marker (file-only mode). Since the
+  2026-11-06 review the projector refuses that configuration before any write instead.
 - **`main` beyond `d35a46537`.** 57 operations added (48 under `/admin`, 12 in OpenAPI), none
   removed; 8 new models with no card or label (`AdminConnectionConflictOut`, `AdminConnectionList`,
   `AdminConnectionOut`, `OAuthConnectionListRow`, `Provenance`, `SealRequest`, `ToolLookupRequest`,
@@ -118,15 +128,22 @@ Baseline check at `d35a46537`, run 2026-11-05 against design `main` `63d41f7`.
    version as on design `main`. Relation edges stay on the old slugs; moving them is a follow-up.
 7. Two prior assertions in `test_project_models.py` change only their expected slug to
    `chat-usage-accounting` (see below).
+8. Review of the tools (2026-11-06). The projector refuses three more cases: a listed card missing
+   either file or its directory, which it used to drop silently; a model in both the OpenAPI and
+   the extra inventory, even when identical; and a Git checkout whose `HEAD` tracks no generated
+   card while the working tree holds some, which used to restart every card at version 1. The
+   owner chose to require the retired cards unconditionally, with the prior-test fixtures changed
+   to match, and approved changing the one prior test that pinned the version restart (see below).
 
-## Prior tool tests changed (owner approval 2026-11-05)
+## Prior tool tests changed (owner approval 2026-11-05 and 2026-11-06)
 
-The local tool suite had 14 existing tests that encoded the Profile models or the `d35a46537`
-census. The owner approved this scope on 2026-11-05: update the census tests to the current
-authoritative counts, signed with the revisions they come from; remove only the Profile branches
-from the mixed tests or move their check to `usage_accounting`; delete the Profile-only tests;
-delete `project_models.semantic()`, which only the Profile-equivalence check called, and its two
-unit tests. The tools are local and never committed, so this ledger is their audit trail.
+16 existing tests of the local tool suite changed or went on 2026-11-05: 14 that encoded the
+Profile models or the `d35a46537` census, plus the two unit tests of `project_models.semantic()`,
+deleted with the function because only the Profile-equivalence check called it. The owner approved
+this scope on 2026-11-05: update the census tests to the current authoritative counts, signed with
+the revisions they come from; remove only the Profile branches from the mixed tests or move their
+check to `usage_accounting`; delete the Profile-only tests and `semantic()`. The tools are local
+and never committed, so this ledger is their audit trail.
 
 Census tests, updated:
 
@@ -171,14 +188,36 @@ Deleted:
   `test_existing_nullable_forms_remain_equivalent_without_losing_constraints`), which tested
   `semantic()` only.
 
+Review of the tools, 2026-11-06 (owner decision 8). With every retired card required, a fixture
+must hold them, and an artifact count includes them:
+
+- Fixtures: the `setUp` of `TestArtifacts` (`test_project_models.py`), `TestGitVersions`
+  (`test_project_model_versions.py`) and `TestInputs` (`test_project_model_regressions.py`) also
+  copies the 17 retired cards, through the new helper `copy_retired` in `test_project_models.py`.
+  The mocked Git `HEAD` of `TestGitVersions` tracks them, as a real catalog does.
+- Counts: `test_english_cards...`, `test_ast_never_executes...` and
+  `test_git_directory_marker...` expect 84 plus two files per retired card;
+  `test_english_cards...` skips the retired cards in its per-card checks, which describe
+  generated cards at the current revision.
+- `test_new_git_entities_repair_inflated_versions_read_only_then_start_at_one`: with `HEAD`
+  tracking the retired cards, a new entity in a tracked catalog still starts at version 1. History
+  is now read for the tracked cards, so instead of asserting that no blob is read, the test
+  asserts that only the tracked cards' blobs are read.
+- `ruff.toml` names the tools' modules as first-party, so ruff sorts imports the same way from the
+  repository root and from `solutions/_tools`.
+
 The Stage E invariants are pinned separately in the new `test_stage_e_retirement.py`: the
-exporter imports no Profile module; the extra-schema inventory is `usage_accounting` only; an
-unlisted disappearance fails; a listed disappearance keeps the card and makes it `deprecated` at
-its version; a listed model generated again fails; a retired card keeps its authored body and
+exporter imports no Profile module, in any import form; the extra-schema inventory is
+`usage_accounting` only; a model in both inventories fails, identical or not; an unlisted
+disappearance fails; a listed disappearance keeps the card and makes it `deprecated` at its
+version; a listed card missing either file or its directory fails, and a write then changes
+nothing; a listed model generated again fails; a retired card keeps its authored body and
 relations verbatim; the eight new models get `draft` cards; a write is followed by a clean
 `--check`; the successor list is closed and each successor slug maps from its model; only a
 successor card carries `relations: supersedes`; a retired card changes only its status; the
-config card lists exactly `AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE` and `USER` as deprecated.
+config card lists exactly `AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE` and `USER` as deprecated. The
+refusal in an untracked Git checkout is pinned in `test_project_model_versions.py`, next to the
+mocked Git history it needs.
 
 ## Projection at `main`
 
@@ -212,8 +251,9 @@ until the follow-up moves them.
 
 - **Actual files:**
   - Local tools (never committed): `export_contracts.py`, `project_models.py`,
-    `project_model_versions.py`, `project_model_labels.json`, the five changed test modules listed
-    above and the new `test_stage_e_retirement.py`; `_coverage/contracts.json` re-exported.
+    `project_model_versions.py`, `project_model_labels.json`, `ruff.toml`, the six changed test
+    modules listed above and the new `test_stage_e_retirement.py`; `_coverage/contracts.json`
+    re-exported.
   - Catalog (`screamingface-design`): 91 entities. 10 new (the 8 `draft` cards and the 2
     successors), 13 `deprecated` (12 generated, status only, and `profile-defaults`, advanced
     once), 32 generated cards advanced once and 36 authored entities advanced once; both
@@ -222,23 +262,37 @@ until the follow-up moves them.
 - **Commits:** `screamingface-design` `b08b5ed` — docs(catalog): retire the Profile-era AIGateway
   models after Stage E. This repository: the docs commit carrying this ledger, the spec, the plan
   and the task mirror.
-- **Gates:** tool suite 173 tests OK; ruff check and format clean; export 105 operations,
-  41 OpenAPI schemas, 9 providers, 0 denied I/O attempts; `project_models.py --check` 42 models,
-  84 files, 17 retired. Catalog check in the design repository: 0 errors, 27 warnings,
-  133 entities; `--since origin/main`: 81 existing entities changed, each version-bumped or
-  status-only. The 19 warnings beyond design `main` are all `W_REF_DEPRECATED`, from edges kept on
-  deprecated datamodels.
+- **Gates:** tool suite 178 tests OK (173 before the 2026-11-06 review, which added five);
+  `ruff check` and `ruff format --check` clean on `solutions/_tools`, run from the repository root
+  and from `solutions/_tools`; export 105 operations, 41 OpenAPI schemas, 9 providers, 0 denied
+  I/O attempts; `project_models.py --check` in the copy without `.git`: 42 models, 84 files,
+  17 retired; in the Git worktree, `--write` refuses and the catalog files are unchanged. Catalog
+  check in the design repository: 0 errors, 27 warnings, 133 entities; `--since origin/main`: 91
+  entities, 81 existing ones changed, each version-bumped or status-only, and 10 new. The 19
+  warnings beyond design `main` are all `W_REF_DEPRECATED`, from edges kept on deprecated
+  datamodels. The review changed neither the exporter nor the catalog, so the export and both
+  catalog checks stand as run on 2026-11-05.
 - **Deviations:**
   - The ledger is dated 2026-11-05 (work start), not the plan's 2026-10-29 draft date.
-  - Owner decisions 1 to 7 above; existing tool tests changed under the approved scope.
+  - Owner decisions 1 to 8 above; existing tool tests changed under the approved scope.
   - The evolution rule needs Git history, so only the check in the design repository sees it;
     the git-less projection root cannot. That check drove decisions 5 and 6.
-- **Follow-ups (one `improvement-ideas` issue, filed only on the owner's word):**
-  - `check_coverage.py`: stale reviewed snapshot, the operations added since `d35a46537`, and
-    `_coverage/aigateway.json` slugs.
-  - Move the edges and prose links on deprecated datamodels to their successors (`chat-api`
-    `exposes`, `parameter-contracts` `uses`, `component/usage-accounting`).
-  - Prose drift the scan found outside this change's rule: the `aigateway-ui` and Engine cards;
-    three `config` Settings fields added since `5e1d30cc`; `persistence` packages and migrations
-    0014 and 0015; `plugin-contract` hook list and adapter count; line-number drift in
-    `provider-access` and `provider-access-availability`; Profile wording left in source strings.
+- **Follow-up `OME-1840`** (`improvement-ideas`, Triage, filed 2026-11-05), "Refresh AIGateway
+  catalog coverage, successor references, and drifted prose":
+  - Coverage: refresh the reviewed operation-coverage snapshot (`check_coverage.py`, stale at
+    `d35a46537`, and the `_coverage/aigateway.json` slugs), and give the operations added since
+    then catalog citations and prose.
+  - Successor references: move the edges and prose links on deprecated datamodels to their
+    successors, or drop an edge whose datamodel has none: the `chat-api` `exposes` edges; the
+    `credential-store`, `parameter-contracts` and `provider-access` edges to `profile`,
+    `profile-index` and `profile-defaults`; `component/usage-accounting`, its edge and its prose
+    link.
+  - Post-baseline prose drift: the `aigateway-ui` card; the Engine card's Stage D target section;
+    `persistence` packages and migrations 0014 and 0015; the `plugin-contract` hook list and
+    adapter count; `model-discovery` per-grant model filtering; `application-lifecycle` shutdown
+    closing remote endpoints; line references in `provider-access` and
+    `provider-access-availability`.
+  - Config: a full refresh of the `config` datamodel at a current source revision, including the
+    three Settings fields added since `5e1d30cc`.
+  - Not in `OME-1840`: Profile wording left in gateway source strings, a code change rather than a
+    catalog one.
