@@ -13,7 +13,7 @@ import {
 const { isDark } = storeToRefs(useThemeStore())
 
 const localDiagram = (dark: boolean) =>
-  `/diagrams/screamingface-request-architecture-local-${dark ? 'dark' : 'light'}.svg`
+  `/diagrams/sf-request-architecture-local-${dark ? 'dark' : 'light'}.svg`
 
 // The smallest complete run: name the engine, compose a fusion, evaluate it
 // beside its own member, read both scores. Every name here is shipped API.
@@ -134,9 +134,10 @@ report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
         alt="Local request flow: the Client compiles your fusion into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
       />
       <figcaption>
-        <strong>The local flow.</strong> The Client compiles your fusion into one url4 expression
-        and hands it to an engine on your own machine; the engine fans model calls out through the
-        gateway to the providers you hold keys for, then streams scores and cost back.
+        <strong>The local flow.</strong> The Client hands your fusion to an engine on your own
+        machine, which fans model calls through the gateway to the providers you hold keys for. Its
+        cache accumulates across runs and can pull from the shared community cache, and the engine
+        submits a verifiable result to the public leaderboard.
       </figcaption>
     </figure>
 

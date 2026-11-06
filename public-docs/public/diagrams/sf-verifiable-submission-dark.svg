@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 200" width="760" height="200" font-family="Helvetica Neue, Arial, sans-serif">
+<title>The engine submits a verifiable result, the score together with the reproducible url4 recipe, to the public leaderboard.</title>
+<defs>
+<marker id="arw" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7a808a"/></marker>
+</defs>
+<rect width="760" height="200" fill="#0c0f13"/>
+
+<rect x="56" y="60" width="150" height="78" rx="10" fill="#4f86e8" stroke="#6a9bf0" stroke-width="1.4"/>
+<text x="131" y="104" font-size="17" fill="#ffffff" text-anchor="middle" font-weight="500">engine</text>
+
+<rect x="440" y="60" width="280" height="78" rx="10" fill="#11231a" stroke="#4faa68" stroke-width="1.4"/>
+<text x="580" y="104" font-size="16" fill="#7cdf8c" text-anchor="middle" font-weight="500">public verifiable leaderboard</text>
+
+<line x1="206" y1="99" x2="436" y2="99" stroke="#7a808a" stroke-width="1.8" marker-end="url(#arw)"/>
+<text x="321" y="88" font-size="13" fill="#e0e5eb" text-anchor="middle">verifiable submission</text>
+<text x="321" y="116" font-size="11.5" fill="#8d939b" text-anchor="middle">score + reproducible url4 recipe</text>
+</svg>

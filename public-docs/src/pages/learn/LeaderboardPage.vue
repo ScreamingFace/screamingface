@@ -2,6 +2,7 @@
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
 import { learnNavigation as navigation } from '@/navigation/learn'
 
 const GH_TREE = 'https://github.com/ScreamingFace/screamingface/tree/main'
@@ -40,6 +41,12 @@ sf.evaluate(entry.url4)  # a new paid run over every case of the benchmark`
       which is what you would use to run the same evaluation and check the number against your own
       result.
     </p>
+
+    <ThemedDiagram
+      name="sf-verifiable-submission"
+      alt="The engine submits a verifiable result, the score together with the reproducible url4 recipe, to the public leaderboard."
+      caption="A rank is a verifiable submission: the score together with the url4 recipe that reproduces it."
+    />
 
     <p>
       Published model numbers usually originate with the party that benefits from them, and are
