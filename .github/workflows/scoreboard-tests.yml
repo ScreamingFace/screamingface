@@ -79,6 +79,8 @@ jobs:
 
       - name: Run benchmark picker keyboard tests
         run: node --test tests/portal/benchmark-picker-keyboard.test.js
+      - name: Catalog summary UI regressions
+        run: node --test tests/portal/catalog.test.js
 
       # The portal's pure logic (which row may be presented as SOTA, ordering, bar
       # scaling), under Node's built-in runner. No package.json, no vitest, no
@@ -175,6 +177,7 @@ jobs:
             tests/unit/test_postgres_fixture_migrations.py \
             tests/unit/scores/test_store.py::test_postgres_concurrent_idempotency_submissions_share_winner \
             tests/unit/scores/test_store.py::test_postgres_concurrent_identical_recipe_submissions_share_winner \
+            tests/unit/test_catalog_summary.py \
             tests/unit/scores/test_idempotency_postgres.py \
             tests/unit/scores/test_idempotency_postgres_safety.py \
             tests/unit/test_submission_metadata_review.py \

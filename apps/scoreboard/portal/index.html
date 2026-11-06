@@ -101,6 +101,16 @@
     <section id="benchmarks" class="benchmarks-section" data-section="catalogue">
       <h2 class="section-label">Browse latest benchmarks</h2>
 
+      <div id="benchmark-controls" class="catalog-controls" hidden>
+        <div class="catalog-search">
+          <label for="benchmark-search">Search benchmarks</label>
+          <input id="benchmark-search" type="search" placeholder="Name or benchmark ID" aria-controls="benchmark-cards" autocomplete="off">
+        </div>
+        <label class="catalog-scored"><input id="benchmark-scored" type="checkbox" checked> Has scores</label>
+        <button id="benchmark-clear" class="btn" type="button" hidden>Clear search</button>
+        <button id="benchmark-include" class="btn" type="button" hidden>Include benchmarks without scores</button>
+        <p id="benchmark-count" class="catalog-count" role="status" aria-live="polite" aria-atomic="true"></p>
+      </div>
       <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
 
       <div id="benchmark-cards" class="cards" aria-label="Benchmarks" hidden></div>
@@ -121,6 +131,7 @@
 
   <script src="leaderboard-logic.js" defer></script>
   <script src="main.js" defer></script>
+  <script src="catalog.js" defer></script>
   <script src="subscribe.js" defer></script>
   <script src="theme.js" defer></script>
 </body>

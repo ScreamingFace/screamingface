@@ -424,88 +424,6 @@ window.ScorePortal = (function () {
     return card;
   }
 
-  // One leaderboard request per benchmark, for the card's "Best reproducible" figure only. Entries
-  // arrive ranked by score descending, so `top=1` is enough to read the best — the card no longer
-  // shows a fusion count, so there is nothing to scan the full board for.
-  //
-  // The entries-not-baselines decision lives in leaderboard-logic.js so it stays assertable without
-  // a browser — see bestEntryScore there.
-  function fetchBoard(benchmarkId) {
-    return fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "?top=1").then(
-      function (data) {
-        return { best: window.SFLeaderboardLogic.bestEntryScore(data) };
-      },
-      function () { return null; } // board unknown, not empty — card still renders
-    );
-  }
-
-  // Show the catalogue `page` cards at a time: hide every card, reveal the first page, and let
-  // "Show more" reveal the next page on each click. The button hides itself once all are shown,
-  // and never appears when a single page already covers the whole catalogue.
-  function revealCardsInBatches(cardsNode, moreNode, page) {
-    var cards = cardsNode.children;
-    var shown = 0;
-    for (var i = 0; i < cards.length; i++) cards[i].hidden = true;
-    function revealNext() {
-      for (var end = Math.min(shown + page, cards.length); shown < end; shown++) {
-        cards[shown].hidden = false;
-      }
-      moreNode.hidden = shown >= cards.length;
-    }
-    moreNode.addEventListener("click", revealNext);
-    revealNext();
-  }
-
-  function initIndex() {
-    var statusNode = document.getElementById("benchmark-status");
-    var cardsNode = document.getElementById("benchmark-cards");
-    var moreNode = document.getElementById("benchmark-more");
-    showLoading(statusNode, "Loading benchmarks…");
-    cardsNode.hidden = true;
-    moreNode.hidden = true;
-
-    fetchJson("/v1/benchmarks").then(
-      function (data) {
-        // Filter BEFORE the per-board fetches below, so the page does not request a
-        // board it will never draw. `/v1/benchmarks` deliberately keeps returning every board —
-        // `sf.leaderboards` needs the private ones so challenge participants can submit against
-        // them — so the catalogue is trimmed here rather than at the API.
-        var listed = SFLeaderboardLogic.listedBenchmarks((data && data.benchmarks) || []);
-        // Same curated shortlist as the tab strip, surfaced first here too: the featured cards
-        // lead (in FEATURED_BENCHMARK_IDS order), then the rest in catalogue order. Every listed
-        // board still renders — the catalogue is exhaustive; only the order and the first-page
-        // cutoff change.
-        var split = SFLeaderboardLogic.partitionFeatured(listed);
-        var benchmarks = split.featured.concat(split.rest);
-        if (benchmarks.length === 0) {
-          showEmpty(statusNode, "No listed benchmarks yet. The API is live; cards will appear here as soon as benchmark specs are registered.");
-          return;
-        }
-        return Promise.all(benchmarks.map(function (b) { return fetchBoard(b.id); })).then(
-          function (boards) {
-            clear(cardsNode);
-            benchmarks.forEach(function (b, i) { cardsNode.appendChild(benchmarkCard(b, boards[i])); });
-            setStatus(statusNode, null);
-            cardsNode.hidden = false;
-            // Show 9 at first; "Show more" reveals the next 9 per click (a 9 fills a 3-column grid
-            // evenly, and the long tail stays folded so the catalogue reads tight).
-            revealCardsInBatches(cardsNode, moreNode, 9);
-          }
-        );
-      },
-      function (err) {
-        showError(statusNode, describeError(err, { generic: "Could not load benchmarks — try again later." }));
-      }
-    ).catch(function (err) {
-      // WHY: the handler above is the second argument to the *first* `.then`, so it
-      // only sees a `/v1/benchmarks` rejection. Anything thrown later — a malformed
-      // benchmark entry, a DOM failure, a rejection inside the Promise.all
-      // continuation — would otherwise become an unhandled rejection and leave the
-      // page stuck on "Loading benchmarks…" with the cards hidden and no error state.
-      showError(statusNode, describeError(err, { generic: "Could not load benchmarks — try again later." }));
-    });
-  }
-
   /* ---- public surface -------------------------------------------------- */
   var api = {
     getApiBase: getApiBase,
@@ -533,15 +451,10 @@ window.ScorePortal = (function () {
     createVerifiedBadge: createVerifiedBadge,
     createCopyButton: createCopyButton,
     renderTabStrip: renderTabStrip,
+    benchmarkCard: benchmarkCard,
     ready: ready,
     EM_DASH: EM_DASH,
   };
-
-  // Self-bootstrap the index page when its container is present. benchmark.html
-  // and spec.html have no #benchmark-cards, so this is a no-op there.
-  ready(function () {
-    if (document.getElementById("benchmark-cards")) initIndex();
-  });
 
   return api;
 })();
