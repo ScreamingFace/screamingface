@@ -46,8 +46,7 @@ const GITHUB = 'https://github.com/ScreamingFace'
       <p class="lead">
         ScreamingFace is an open toolkit for composing model <em>fusions</em>: any multi-model
         orchestration graded as one against a real benchmark. Every fusion can be expressed as a
-        single line. Calls already in the shared cache re-run for free; all other calls run on your
-        own keys.
+        single line, re-runnable for free from cache or on your own keys.
       </p>
 
       <div class="actions">

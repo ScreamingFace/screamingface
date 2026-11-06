@@ -125,9 +125,9 @@ const health = `screamingface status`
       <code>use_cache=False</code> on <code>sf.evaluate</code> opts one evaluation out, and
       <RouterLink to="/sf-client/api/cache"><code>sf.cache.pull_from_remote()</code></RouterLink>
       loads the hosted community cache into it. A local engine started with
-      <code>screamingface up</code> serves <code>medxpert</code>, and
-      <code>screamingface prepare</code> accepts one: <code>medxpert</code>. The hosted engine
-      serves the other benchmarks, DRACO included. A repository checkout can serve them locally: run
+      <code>screamingface up</code> comes with <code>medxpert</code> ready to run, and other
+      benchmarks can run locally too. The hosted engine serves the full set, DRACO included, with no
+      setup. To run more benchmarks on a local engine from a repository checkout, run
       <code>just local-stack-notebooks</code> from <code>packages/screamingface/</code>.
     </p>
 

@@ -160,13 +160,11 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
 
         <p>
           <strong>Prepare the benchmark you will run:</strong> The engine reads datasets from disk
-          rather than downloading them mid-run, so a run cannot silently use a different revision.
-          <code>medxpert</code> is the one benchmark a local engine started with
-          <code>screamingface up</code> serves (2,450 questions), so
-          <code>screamingface prepare medxpert</code>, or <code>--all</code>, runs once.
-          <code>screamingface prepare --list</code> shows each benchmark as <code>prepared</code> or
-          <code>missing</code>. DRACO, IFEval and the other leaderboard benchmarks run on the hosted
-          engine, or locally from a repository checkout: run
+          rather than downloading them mid-run, so a run cannot silently use a different revision. A
+          local engine started with <code>screamingface up</code> comes with <code>medxpert</code>
+          (2,450 questions) ready to run, a fine default to start with. The hosted engine serves the
+          full set (DRACO, IFEval and the other leaderboard benchmarks) with no setup, and those
+          benchmarks can run on a local engine from a repository checkout: run
           <code>just local-stack-notebooks</code> from <code>packages/screamingface/</code> (<a
             href="https://github.com/casey/just"
             target="_blank"
@@ -174,7 +172,8 @@ const certs = `SSL_CERT_FILE=$(python -c "import certifi;print(certifi.where())"
             >just</a
           >
           is the command runner). The pip package does not install <code>inspect-ai</code>, which
-          those benchmarks need, so <code>screamingface up</code> lists <code>medxpert</code> only.
+          those benchmarks need, so a local engine ships with <code>medxpert</code> ready out of the
+          box.
         </p>
 
         <CodeBlock :code="prepare" language="bash" />

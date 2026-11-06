@@ -57,7 +57,7 @@ const synthesizeSig = `sf.Synthesize(
 
 <template>
   <DocLayout
-    title="Fusions"
+    title="Fanout fusion"
     description="Combine members into one answer through a synthesizer."
     :navigation="navigation"
     :version="version"
@@ -361,33 +361,15 @@ const synthesizeSig = `sf.Synthesize(
     </p>
 
     <p>
-      A synthesizer is one way to close the block. A reducer closes it with a rule instead:
-      <code>sf.Vote</code>, <code>sf.Median</code>, <code>sf.Mean</code>, <code>sf.ArgMax</code>,
-      <code>sf.ArgMin</code>, <code>sf.First</code>, <code>sf.Merge</code>,
-      <code>sf.JudgePick</code> or <code>sf.Gate</code>. An optional <code>sf.Judge</code> and the
-      narrow steps <code>sf.Rank</code>, <code>sf.Filter</code> and <code>sf.Concat</code> can come
-      before the last step. The
-      <a
-        href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/README.md"
-        target="_blank"
-        rel="noopener"
-        >package README</a
-      >
-      gives a recipe for each.
+      A model synthesizer is one way to close the block. A <strong>reducer</strong> closes it with a
+      rule instead of a newly written answer: <code>sf.Vote()</code>, for instance, returns the
+      answer most members agree on, unchanged. The
+      <RouterLink to="/sf-client/guides/map-reduce">map-reduce</RouterLink> guide covers the full set
+      of reducers, judges and narrow steps, and the
+      <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> has their signatures.
     </p>
 
     <p>
-      The synthesizer can also be a <strong>reducer</strong>, which combines the members' answers
-      without a model writing a new one. <code>sf.Vote()</code> returns the answer most members
-      agree on, as that member's text unchanged.
-    </p>
-
-    <p>
-      <code>sf.Median</code>, <code>sf.Mean</code>, <code>sf.ArgMax</code>, <code>sf.ArgMin</code>,
-      <code>sf.First</code>, <code>sf.JudgePick</code> and <code>sf.Merge</code> work the same way,
-      and <code>sf.Rank</code>, <code>sf.Concat</code> and <code>sf.Filter</code> keep some members
-      for a later step. The
-      <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> lists them all.
       <code>quorum</code> on <code>sf.Fanout</code> sets how many members must succeed, and a member
       built with <code>optional=True</code> may fail without stopping the fusion.
     </p>

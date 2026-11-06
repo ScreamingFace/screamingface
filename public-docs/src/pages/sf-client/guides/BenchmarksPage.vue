@@ -49,8 +49,9 @@ const hostedOut = `(91, ['draco', 'draco-3pass'])`
 
     <blockquote>
       <strong>What you can list depends on the engine.</strong> A local engine started with
-      <code>screamingface up</code> serves one benchmark, <code>medxpert</code>. The hosted engine
-      serves 91, including DRACO and IFEval. A repository checkout can serve the others locally: run
+      <code>screamingface up</code> comes with <code>medxpert</code> ready to run, and other
+      benchmarks can run locally too. The hosted engine serves the full set (including DRACO and
+      IFEval) with no setup. To run more benchmarks on a local engine from a repository checkout, run
       <code>just local-stack-notebooks</code> from <code>packages/screamingface/</code>. If there's
       a benchmark you'd want to run first,
       <a href="https://github.com/ScreamingFace/screamingface/issues" target="_blank" rel="noopener"
@@ -119,7 +120,7 @@ const hostedOut = `(91, ['draco', 'draco-3pass'])`
 
     <h3>1 · See what this engine publishes</h3>
 
-    <p>A local engine publishes one benchmark:</p>
+    <p>A local engine comes with <code>medxpert</code> ready to run:</p>
 
     <div class="not-prose">
       <NbCell :count="1" :code="listing"><NbTextOut :text="listingOut" /></NbCell>

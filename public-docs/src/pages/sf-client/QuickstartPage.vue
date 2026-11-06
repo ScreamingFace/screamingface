@@ -215,7 +215,7 @@ report.failures    # what failed, and why`
 
 <template>
   <DocLayout
-    title="Reproduce DRACO state-of-the-art"
+    title="Reproduce OpenRouter's DRACO results"
     description="Run a DRACO subset end to end to compare fusions with its solo models."
     :navigation="navigation"
     :version="version"
@@ -234,8 +234,8 @@ report.failures    # what failed, and why`
       an OpenRouter connection first. See
       <RouterLink to="/sf-client/installation">Installation</RouterLink>. Every model below is an
       OpenRouter route, so one connection covers everything. DRACO runs on the hosted engine, which
-      needs an account with access. A local engine does not serve DRACO, so with a local engine run
-      the same steps on <code>medxpert</code>.
+      needs an account with access. On a local engine, <code>medxpert</code> is ready by default, so
+      with a local engine run the same steps on <code>medxpert</code>.
     </blockquote>
 
     <h2>1 · Configure the engine</h2>
@@ -314,8 +314,8 @@ report.failures    # what failed, and why`
       an OpenRouter connection first. See
       <RouterLink to="/sf-client/installation">Installation</RouterLink>. Every model below is an
       OpenRouter route, so one connection covers everything. DRACO runs on the hosted engine, which
-      needs an account with access. A local engine does not serve DRACO, so with a local engine run
-      the same steps on <code>medxpert</code>.
+      needs an account with access. On a local engine, <code>medxpert</code> is ready by default, so
+      with a local engine run the same steps on <code>medxpert</code>.
     </blockquote>
 
     <h2>1 · Configure the engine</h2>
@@ -485,8 +485,9 @@ report.failures    # what failed, and why`
       protocol revision it is pinned to, so you can see what you are about to be graded against
       before spending anything. This call is free. It needs an engine that serves the benchmark: the
       hosted engine serves <code>draco-3pass</code>, and a local engine started with
-      <code>screamingface up</code> serves only <code>medxpert</code>. A repository checkout can
-      serve the others locally: run <code>just local-stack-notebooks</code> from
+      <code>screamingface up</code> comes with <code>medxpert</code> ready to run. To run more
+      benchmarks on a local engine from a repository checkout, run
+      <code>just local-stack-notebooks</code> from
       <code>packages/screamingface/</code>.
     </p>
 
@@ -507,8 +508,9 @@ report.failures    # what failed, and why`
 
     <p>
       <code>sf.benchmarks.list()</code> shows what this engine has. The hosted engine lists
-      <code>draco</code> and <code>draco-3pass</code> among its benchmarks. A local engine lists
-      only <code>medxpert</code>, so on a local engine run this tutorial on <code>medxpert</code>.
+      <code>draco</code> and <code>draco-3pass</code> among its benchmarks. On a local engine,
+      <code>medxpert</code> is ready by default, so on a local engine run this tutorial on
+      <code>medxpert</code>.
     </p>
 
     <p>
@@ -531,8 +533,8 @@ report.failures    # what failed, and why`
     </div>
 
     <p>
-      On a local engine started with <code>screamingface up</code>, use <code>medxpert</code>, the
-      benchmark it serves:
+      On a local engine started with <code>screamingface up</code>, use <code>medxpert</code>, which
+      is ready by default:
     </p>
 
     <div class="not-prose">

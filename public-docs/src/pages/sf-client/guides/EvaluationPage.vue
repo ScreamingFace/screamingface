@@ -473,7 +473,8 @@ client.close()`
       valid report. <code>EngineUnavailableError</code> means the engine was not reachable at all.
       <code>ReproductionError</code> means a replay could not start. A benchmark the engine does not
       publish raises <code>PlanningError</code>: a local engine started with
-      <code>screamingface up</code> serves only <code>medxpert</code>. Each carries a stable
+      <code>screamingface up</code> comes with <code>medxpert</code> ready to run, so a run against a
+      benchmark it has not prepared raises it. Each carries a stable
       <code>code</code> and a <code>hint</code>.
     </p>
 
