@@ -8,7 +8,7 @@
 
   function init() {
     var nodes = {};
-    ["status", "cards", "more", "search", "scored", "count", "clear", "include", "controls"].forEach(function (name) {
+    ["status", "cards", "more", "search", "scored", "count", "clear", "controls"].forEach(function (name) {
       nodes[name] = document.getElementById("benchmark-" + name);
     });
     if (!nodes.cards) return;
@@ -46,12 +46,11 @@
       P.clear(nodes.cards);
       nodes.cards.hidden = false;
       nodes.clear.hidden = !nodes.search.value;
-      nodes.include.hidden = !nodes.scored.checked || searched.length === matches.length;
       nodes.count.textContent = matches.length + " matching benchmark" + (matches.length === 1 ? "" : "s") +
         (nodes.scored.checked ? " with scores" : "");
       if (!matches.length) {
         P.showEmpty(nodes.status, searched.length ?
-          "Matching benchmarks have no scores yet. Include benchmarks without scores to see them." :
+          "Matching benchmarks have no scores yet. Uncheck “Has scores” to see them." :
           "No benchmarks match your search.");
       } else P.setStatus(nodes.status, null);
       showNext();
@@ -72,11 +71,6 @@
       nodes.search.value = "";
       applyFilters();
       nodes.search.focus();
-    });
-    nodes.include.addEventListener("click", function () {
-      nodes.scored.checked = false;
-      changeScoredFilter();
-      nodes.scored.focus();
     });
 
     P.fetchJson("/v1/benchmarks/summary").then(function (data) {

@@ -39,3 +39,18 @@ Storage failures cannot prevent loading or filtering. No extra API requests.
 - **Preview:** http://127.0.0.1:9185/ serves a captured public catalogue (90 boards, 43 scored). The preview is local and uses historical data.
 - **Review:** one tab-scoped boolean, no dependency/API/schema change, and no changes to previous tests. Catch blocks deliberately isolate optional browser persistence from filtering.
 - **Deviations:** ticket was filed at start under the shared checkout's earlier instructions; fetched main now specifies filing at PR-open. The existing issue is retained under OME-1282. Implementation complete; merge and deployment pending.
+
+## Checkbox-only follow-up
+
+Owner explicitly requested: "just the checkbox please, it's very weird to have the button".
+Remove the redundant button and handler, redirect empty-state guidance to the checkbox,
+and replace button-path tests with checkbox-path tests preserving search and refresh coverage.
+The existing JS test edits are authorized by that contract change. OME-1709 documents
+that the gate cannot yet recognize exact JS approvals; record a byte-exact manifest
+and run the full stack checks with the documented one-time append-only exception.
+No gate implementation or CI checks are weakened. All stack checks passed with
+`--skip-append-only` for this authorized contract change; the normal gate confirms
+the known unsupported-JS limitation. Eight catalogue tests pass. Chrome verifies
+checkbox-only search recovery, persistence and denied storage, with desktop/mobile
+light/dark screenshots inspected and no overflow or page errors. The button is absent
+from the DOM. Preview remains http://127.0.0.1:9185/.

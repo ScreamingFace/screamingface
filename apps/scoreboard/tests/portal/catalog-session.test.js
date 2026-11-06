@@ -23,7 +23,7 @@ function session(value) {
 
 async function load(storage, deniedAccess = false) {
   const nodes = Object.fromEntries(
-    ["status", "cards", "more", "search", "scored", "count", "clear", "include", "controls"].map(name => [name, {
+    ["status", "cards", "more", "search", "scored", "count", "clear", "controls"].map(name => [name, {
       children: [], listeners: {}, value: "", checked: true,
       appendChild(child) { this.children.push(child); },
       addEventListener(event, callback) { this.listeners[event] = callback; },
@@ -56,7 +56,6 @@ async function load(storage, deniedAccess = false) {
     nodes,
     ids: () => nodes.cards.children,
     toggle(checked) { nodes.scored.checked = checked; nodes.scored.listeners.change(); },
-    include() { nodes.include.listeners.click(); },
   };
 }
 
@@ -77,12 +76,12 @@ test("both checkbox choices survive reload; fresh sessions still default to scor
   assert.equal(fresh.nodes.scored.checked, true);
 });
 
-test("include unscored remembers the choice without persisting search", async () => {
+test("unchecking Has scores retains the query and remembers the choice without persisting search", async () => {
   const storage = session();
   const page = await load(storage);
   page.nodes.search.value = "empty";
   page.nodes.search.listeners.input();
-  page.include();
+  page.toggle(false);
   assert.equal(page.nodes.search.value, "empty");
   assert.deepEqual(page.ids(), ["empty"]);
   const refreshed = await load(storage);
@@ -102,7 +101,7 @@ test("only a valid saved false disables the scored default", async () => {
   assert.deepEqual(page.ids(), ["empty", "zero", "negative"]);
 });
 
-test("unavailable storage never blocks rendering or either filter action", async () => {
+test("unavailable storage never blocks rendering or checkbox changes", async () => {
   const fail = () => { throw new Error("storage unavailable"); };
   for (const [storage, denied] of [
     [session(), true],
@@ -114,7 +113,7 @@ test("unavailable storage never blocks rendering or either filter action", async
     assert.deepEqual(page.ids(), ["empty", "zero", "negative"]);
     page.toggle(true);
     assert.deepEqual(page.ids(), ["zero", "negative"]);
-    page.include();
+    page.toggle(false);
     assert.deepEqual(page.ids(), ["empty", "zero", "negative"]);
   }
 });

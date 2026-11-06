@@ -18,7 +18,7 @@ function element(tag) {
 const catalog = Array.from({length: 22}, (_, i) => ({id: `b-${i}`, display_name: `Board ${String(i).padStart(2,'0')}`, best_score: i === 0 ? 0 : i === 1 ? -2 : .5}));
 catalog.push({id: 'unscored', display_name: 'Empty', best_score: null});
 async function page(data = catalog, fail = false) {
-  const nodes = Object.fromEntries(['status','cards','more','search','scored','count','clear','include','controls'].map(k => [`benchmark-${k}`,element('div')]));
+  const nodes = Object.fromEntries(['status','cards','more','search','scored','count','clear','controls'].map(k => [`benchmark-${k}`,element('div')]));
   nodes['benchmark-scored'].checked = true;
   const requests=[];
   const context={window:{SFLeaderboardLogic:logic,location:{protocol:'http:',origin:'http://test'}},
@@ -47,10 +47,10 @@ test('search reaches beyond page one, trims/case-folds and clearing resets pagin
   assert.equal(p.nodes['benchmark-search'].value,'');
   assert.equal(p.nodes['benchmark-search'].focused,true);
 });
-test('include unscored retains query, filter applies before pagination',async()=>{
+test('checkbox reveals unscored matches and retains query, filter applies before pagination',async()=>{
   const p=await page();p.query('empty');assert.deepEqual(p.ids(),[]);
-  assert.equal(p.nodes['benchmark-include'].hidden,false);
-  p.nodes['benchmark-include'].fire('click');assert.deepEqual(p.ids(),['unscored']);
+  p.nodes['benchmark-scored'].checked=false;
+  p.nodes['benchmark-scored'].fire('change');assert.deepEqual(p.ids(),['unscored']);
   assert.equal(p.nodes['benchmark-search'].value,'empty');
   assert.equal(p.nodes['benchmark-scored'].checked,false);
   p.query('');assert.equal(p.ids().length,9);
@@ -58,7 +58,6 @@ test('include unscored retains query, filter applies before pagination',async()=
 test('no matches, empty catalog and failed summary have distinct states',async()=>{
   const p=await page();p.query('missing');assert.deepEqual(p.ids(),[]);
   assert.equal(p.nodes['benchmark-status'].className,'state state-empty');
-  assert.equal(p.nodes['benchmark-include'].hidden,true);
   const empty=await page([]);assert.equal(empty.nodes['benchmark-status'].className,'state state-empty');
   const failed=await page([],true);assert.equal(failed.nodes['benchmark-status'].className,'state state-error');
   assert.equal(failed.nodes['benchmark-controls'].hidden,true);

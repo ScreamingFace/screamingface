@@ -11,7 +11,7 @@ closed:
 
 # Remember the catalogue Has scores filter across session refreshes
 
-Parent: OME-1282. Persist checkbox changes and the include-unscored action for the
+Parent: OME-1282. Use just the checkbox and persist its changes for the
 current tab session, retaining the checked default for new sessions.
 
 Ledger: docs/work/2026-11-06-OME-1851-catalog-session.md
