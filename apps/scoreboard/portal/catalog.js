@@ -8,7 +8,7 @@
 
   function init() {
     var nodes = {};
-    ["status", "cards", "more", "search", "scored", "count", "clear", "controls"].forEach(function (name) {
+    ["status", "cards", "more", "search", "scored", "count", "controls"].forEach(function (name) {
       nodes[name] = document.getElementById("benchmark-" + name);
     });
     if (!nodes.cards) return;
@@ -45,7 +45,6 @@
       shown = 0;
       P.clear(nodes.cards);
       nodes.cards.hidden = false;
-      nodes.clear.hidden = !nodes.search.value;
       nodes.count.textContent = matches.length + " matching benchmark" + (matches.length === 1 ? "" : "s") +
         (nodes.scored.checked ? " with scores" : "");
       if (!matches.length) {
@@ -67,11 +66,6 @@
       applyFilters();
     }
     nodes.scored.addEventListener("change", changeScoredFilter);
-    nodes.clear.addEventListener("click", function () {
-      nodes.search.value = "";
-      applyFilters();
-      nodes.search.focus();
-    });
 
     P.fetchJson("/v1/benchmarks/summary").then(function (data) {
       // No fallback to 86 detailed requests: a failed summary has an explicit error state.

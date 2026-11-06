@@ -15,3 +15,5 @@ Parent: OME-1282. Use just the checkbox and persist its changes for the
 current tab session, retaining the checked default for new sessions.
 
 Ledger: docs/work/2026-11-06-OME-1851-catalog-session.md
+
+Remove the separate Clear search button; keep the search field's native clear control.

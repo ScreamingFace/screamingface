@@ -23,7 +23,7 @@ function session(value) {
 
 async function load(storage, deniedAccess = false) {
   const nodes = Object.fromEntries(
-    ["status", "cards", "more", "search", "scored", "count", "clear", "controls"].map(name => [name, {
+    ["status", "cards", "more", "search", "scored", "count", "controls"].map(name => [name, {
       children: [], listeners: {}, value: "", checked: true,
       appendChild(child) { this.children.push(child); },
       addEventListener(event, callback) { this.listeners[event] = callback; },

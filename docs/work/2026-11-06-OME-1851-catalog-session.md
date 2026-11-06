@@ -54,3 +54,16 @@ the known unsupported-JS limitation. Eight catalogue tests pass. Chrome verifies
 checkbox-only search recovery, persistence and denied storage, with desktop/mobile
 light/dark screenshots inspected and no overflow or page errors. The button is absent
 from the DOM. Preview remains http://127.0.0.1:9185/.
+
+## Native search-clear follow-up
+
+Owner requests removing Clear search because the field already has an ×. Remove
+the duplicate control and event handler, retain the existing input-based filtering,
+and update the authorized clear-path test. Verify native × clearing, paging reset,
+focus and unchanged scored preference in desktop/mobile light/dark previews.
+
+Native-clear validation: all scoreboard stack checks pass with the same documented
+JS contract-change exception. Eight catalogue tests pass. Chrome's actual native ×
+was clicked at desktop/mobile widths in both themes: query becomes empty, first nine
+cards return, focus stays in the field, and the scored preference stays unchanged.
+All four populated-search screenshots were inspected. No page errors or overflow.

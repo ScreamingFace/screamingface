@@ -3,15 +3,15 @@
   "branch": "OME-1851-catalog-session",
   "approver": "Filip Boltuzic (direct user instruction)",
   "date": "2026-11-06",
-  "reason": "Owner requested just the checkbox and removal of the redundant include-unscored button. Replace button-path tests with checkbox-path tests, retaining query preservation and reload coverage. JS approvals remain unsupported until OME-1709; this records the exact authorized edits.",
+  "reason": "Owner explicitly requested removing the redundant include-unscored and Clear search buttons. Exercise checkbox changes and empty search input instead, retaining query, paging and session coverage. JS approvals remain unsupported until OME-1709; record the exact authorized edits.",
   "files": {
     "apps/scoreboard/tests/portal/catalog.test.js": {
       "base_blob": "e75662735c8199d700ae26387e37266f436e4d4a",
-      "approved_blob": "0d9497c93fe88aecb858ac22741a7f82f344b110"
+      "approved_blob": "023bc478c9095494aa578ba59f2af06af018aae0"
     },
     "apps/scoreboard/tests/portal/catalog-session.test.js": {
       "base_blob": "7d2b95d561cbf9ca9fe0a5f3d40e934664d96f9a",
-      "approved_blob": "4d2fea8118419700463752499bef0e8601ebb4c3"
+      "approved_blob": "61cc98a8269d5dd0857d5c3ecd9dc6754809c7a9"
     }
   }
 }

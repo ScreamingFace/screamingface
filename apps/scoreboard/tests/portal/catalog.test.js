@@ -18,7 +18,7 @@ function element(tag) {
 const catalog = Array.from({length: 22}, (_, i) => ({id: `b-${i}`, display_name: `Board ${String(i).padStart(2,'0')}`, best_score: i === 0 ? 0 : i === 1 ? -2 : .5}));
 catalog.push({id: 'unscored', display_name: 'Empty', best_score: null});
 async function page(data = catalog, fail = false) {
-  const nodes = Object.fromEntries(['status','cards','more','search','scored','count','clear','controls'].map(k => [`benchmark-${k}`,element('div')]));
+  const nodes = Object.fromEntries(['status','cards','more','search','scored','count','controls'].map(k => [`benchmark-${k}`,element('div')]));
   nodes['benchmark-scored'].checked = true;
   const requests=[];
   const context={window:{SFLeaderboardLogic:logic,location:{protocol:'http:',origin:'http://test'}},
@@ -43,9 +43,10 @@ test('one summary request, alphabetical scores including zero/negative, nine per
 test('search reaches beyond page one, trims/case-folds and clearing resets paging',async()=>{
   const p=await page();p.query('  BOARD 21  ');assert.deepEqual(p.ids(),['b-21']);
   p.query('B-20');assert.deepEqual(p.ids(),['b-20']);
-  p.nodes['benchmark-clear'].fire('click');assert.equal(p.ids().length,9);
+  p.query('');assert.deepEqual(p.ids(),catalog.slice(0,9).map(b=>b.id));
   assert.equal(p.nodes['benchmark-search'].value,'');
-  assert.equal(p.nodes['benchmark-search'].focused,true);
+  assert.equal(p.nodes['benchmark-scored'].checked,true);
+  assert.equal(p.requests.length,1);
 });
 test('checkbox reveals unscored matches and retains query, filter applies before pagination',async()=>{
   const p=await page();p.query('empty');assert.deepEqual(p.ids(),[]);

@@ -10,3 +10,7 @@ Only this boolean is persisted. Search and page count retain their existing init
 No visual, API, database, dependency or permanent browser preference change.
 
 Approved scope: the user's request to remember the checkmark when refreshing a session.
+
+The search field uses its native clear control; remove the separate Clear search button.
+Clearing the field triggers the existing input handler, resets to the first nine matches,
+retains the scored preference and keeps keyboard focus in the search field.
