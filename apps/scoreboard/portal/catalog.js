@@ -4,6 +4,7 @@
   var P = window.ScorePortal;
   var L = window.SFLeaderboardLogic;
   var PAGE_SIZE = 9;
+  var SCORED_PREFERENCE = "sf_catalog_has_scores";
 
   function init() {
     var nodes = {};
@@ -11,6 +12,13 @@
       nodes[name] = document.getElementById("benchmark-" + name);
     });
     if (!nodes.cards) return;
+    // STORY: retain the visitor's filter across refreshes in this tab session.
+    nodes.scored.checked = true;
+    try {
+      nodes.scored.checked = window.sessionStorage.getItem(SCORED_PREFERENCE) !== "false";
+    } catch (_) {
+      // WHY: blocked storage must not prevent browsing with the default filter.
+    }
     var catalog = [];
     var matches = [];
     var shown = 0;
@@ -51,7 +59,15 @@
 
     nodes.more.addEventListener("click", showNext);
     nodes.search.addEventListener("input", applyFilters);
-    nodes.scored.addEventListener("change", applyFilters);
+    function changeScoredFilter() {
+      try {
+        window.sessionStorage.setItem(SCORED_PREFERENCE, String(nodes.scored.checked));
+      } catch (_) {
+        // WHY: filtering still works when storage is denied or full.
+      }
+      applyFilters();
+    }
+    nodes.scored.addEventListener("change", changeScoredFilter);
     nodes.clear.addEventListener("click", function () {
       nodes.search.value = "";
       applyFilters();
@@ -59,7 +75,7 @@
     });
     nodes.include.addEventListener("click", function () {
       nodes.scored.checked = false;
-      applyFilters();
+      changeScoredFilter();
       nodes.scored.focus();
     });
 
