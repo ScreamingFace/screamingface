@@ -293,13 +293,14 @@ async def _stop(request: Request, topic: str) -> None:
     job_runner = request.app.state.job_runner
     # No runner: this App schedules nothing, so nothing of the Run is on one.
     if job_runner is not None:
-        await stop_topic(job_runner, request.app.state.stream, topic)
+        await stop_topic(job_runner, request.app.state.stream, topic, bound=True)
 
 
-async def _stop_owed(request: Request, registry: RunRegistry, topics: list[str]) -> None:
+async def _stop_owed(request: Request, registry: RunRegistry, owner: OwnerKey, run_id: str) -> None:
     """Stop every owed topic, `_STOP_CONCURRENCY` at a time, and clear each obligation once its
-    stop succeeded (spec D12). Every stop is tried even when one fails; the first failure is
-    then raised as a private 503, and a retried cancel stops what is still owed."""
+    stop succeeded (spec D12). Every stop is tried even when one fails; a failure whose topic is
+    still owed is then raised as a private 503, and a retried cancel stops what is still owed."""
+    topics = await registry.owed_stops(owner, run_id)
     gate = asyncio.Semaphore(_STOP_CONCURRENCY)
 
     async def stop_one(topic: str) -> None:
@@ -308,8 +309,14 @@ async def _stop_owed(request: Request, registry: RunRegistry, topics: list[str])
         await registry.stop_done(topic)
 
     results = await asyncio.gather(*(stop_one(t) for t in topics), return_exceptions=True)
-    for result in results:
-        if isinstance(result, BaseException):
+    failed = [(t, r) for t, r in zip(topics, results, strict=True) if isinstance(r, BaseException)]
+    if not failed:
+        return
+    # WHY recheck: a concurrent cancel may have completed the same stop, so this one's failure
+    # leaves nothing owed and is not the caller's to retry.
+    still_owed = set(await registry.owed_stops(owner, run_id))
+    for topic, result in failed:
+        if topic in still_owed:
             raise _private_failure(result) from result
 
 
@@ -461,7 +468,7 @@ async def cancel_run(request: Request, run_id: str) -> Response:
         record = canceled
     # WHY owed and not derived from state: a stop that failed leaves its Candidate `stopped`
     # (or still running), and only the stored obligation tells it from one that ended on its own.
-    await _stop_owed(request, registry, await registry.owed_stops(owner, run_id))
+    await _stop_owed(request, registry, owner, run_id)
     if changed or not all(is_terminal_candidate(c.state) for c in record.candidates):
         return Response(status_code=202, headers=_PRIVATE_HEADERS)
     return Response(status_code=204, headers=_PRIVATE_HEADERS)

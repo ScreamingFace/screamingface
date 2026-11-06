@@ -77,3 +77,13 @@ class IdentityAwareJobRunner(JobRunner):
         capture: bool = False,
         replay_frozen_copy: str | None = None,
     ) -> str: ...
+
+    async def stop_bound(self, topic: str) -> None:
+        """Stop a topic a Run bound (E5 P1 spec D12): one this App queued, or is about to.
+
+        WHY its own method: the Run registry is the durable record that the topic was meant to
+        run, so a substrate that otherwise skips a topic it has no record of scheduling (the
+        queue after an App restart, or before its publish lands) must still keep it from
+        starting. Any other substrate stops it as usual.
+        """
+        await self.stop(topic)
