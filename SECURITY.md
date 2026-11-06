@@ -74,7 +74,7 @@ Please keep the details private until the fix is released or 90 days have passed
 
 ## Safe harbor
 
-We won't pursue or support legal action against anyone who researches and reports a vulnerability in good faith and in line with this policy. If you're not sure whether something you want to try is allowed, ask us first at security@screamingface.ai.
+We won’t pursue or support legal action against anyone who researches and reports a vulnerability in good faith and in line with this policy. We may still disclose reports where required by law or in response to a lawful request from law enforcement. If a third party takes action against you for activity that complied with this policy, we’ll make it known that you were acting in good faith. If you’re not sure whether something you want to try is allowed, ask us first at security@screamingface.ai.
 
 ## Recognition
 
