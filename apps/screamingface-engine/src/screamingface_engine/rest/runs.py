@@ -68,6 +68,9 @@ _LOCAL_OWNER = "local"
 # asks, so one at a time would take N times as long; unbounded, a 256-Candidate Run would open
 # 256 asks on the broker together.
 _STOP_CONCURRENCY = 16
+# WHY a bound on the start's two registry writes: a hung database must not hold every bound
+# start; past it the start runs unbound and its outcome still settles the Candidate (spec §8).
+_START_WRITE_TIMEOUT_S = 5.0
 
 
 # INVARIANT (spec D5, D6): a Run answer is its owner's alone, so a shared cache in front of the
@@ -502,7 +505,9 @@ def _start_binding(request: Request) -> tuple[RunRegistry, str, int] | None:
         request.headers.getlist(RUN_HEADER),
         request.headers.getlist(CANDIDATE_HEADER),
     )
-    if not runs and not candidates:
+    registry = getattr(request.app.state, "run_registry", None)
+    if registry is None or (not runs and not candidates):
+        # Runs off: the start runs unbound, as on an Engine without `/runs`.
         return None
     # WHY refuse a repeat: two field lines would bind whichever one `get` happened to return.
     run_id = runs[0] if len(runs) == 1 else None
@@ -524,9 +529,7 @@ def _start_binding(request: Request) -> tuple[RunRegistry, str, int] | None:
             "come together",
             code=MALFORMED_HEADER,
         )
-    registry = getattr(request.app.state, "run_registry", None)
-    # Runs off: the start runs unbound, as on an Engine without `/runs`.
-    return None if registry is None else (registry, run_id, int(raw))
+    return registry, run_id, int(raw)
 
 
 async def bind_start(request: Request, topic: str) -> Callable[[], Awaitable[None]]:
@@ -544,7 +547,8 @@ async def bind_start(request: Request, topic: str) -> Callable[[], Awaitable[Non
     if owner is None or not RUN_ID_PATTERN.fullmatch(run_id):
         raise _not_found(run_id)
     try:
-        await registry.bind(owner, run_id, candidate, topic)
+        async with asyncio.timeout(_START_WRITE_TIMEOUT_S):
+            await registry.bind(owner, run_id, candidate, topic)
     except tuple(_REFUSALS) as exc:
         status, title, code, detail = _REFUSALS[type(exc)]
         # Private: whether a Run is canceled or not yours depends on who asks.
@@ -564,7 +568,8 @@ async def confirm_scheduled(request: Request, topic: str) -> None:
     stopped the Candidate, so the start stops what it just scheduled and answers 409."""
     registry: RunRegistry = request.app.state.run_registry
     try:
-        stands = await registry.mark_scheduled(topic)
+        async with asyncio.timeout(_START_WRITE_TIMEOUT_S):
+            stands = await registry.mark_scheduled(topic)
     except Exception:
         # WHY carry on: the run is scheduled; its outcome still settles it (R4).
         _logger.warning("run mark_scheduled failed topic=%s", topic, exc_info=True)
