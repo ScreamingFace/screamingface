@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 20 1080 150" width="1080" height="150" font-family="Helvetica Neue, Arial, sans-serif">
+<title>A fusion is one chain: Fanout maps the question to answers, an optional mapper scores each, an optional selector narrows them, and a reducer collapses them to one answer.</title>
+<defs>
+<marker id="arw" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7a808a"/></marker>
+</defs>
+<rect width="1080" height="200" fill="#0c0f13"/>
+
+<g text-anchor="middle" font-size="12.5" fill="#8d939b">
+<text x="140" y="40">several answers</text>
+<text x="400" y="40">a score on each</text>
+<text x="660" y="40">fewer answers</text>
+<text x="920" y="40">one answer</text>
+</g>
+
+<rect x="40" y="56" width="200" height="84" rx="10" fill="#4f86e8" stroke="#6a9bf0" stroke-width="1.4"/>
+<text x="140" y="92" font-size="17" fill="#ffffff" text-anchor="middle" font-weight="500">Fanout</text>
+<text x="140" y="114" font-size="12.5" fill="#dce7fb" text-anchor="middle">map</text>
+
+<rect x="300" y="56" width="200" height="84" rx="10" fill="#15181c" stroke="#3a3e45" stroke-width="1.4" stroke-dasharray="6 5"/>
+<text x="400" y="92" font-size="17" fill="#e0e5eb" text-anchor="middle" font-weight="500">mapper</text>
+<text x="400" y="114" font-size="12.5" fill="#8d939b" text-anchor="middle">enrich · optional</text>
+
+<rect x="560" y="56" width="200" height="84" rx="10" fill="#15181c" stroke="#3a3e45" stroke-width="1.4" stroke-dasharray="6 5"/>
+<text x="660" y="92" font-size="17" fill="#e0e5eb" text-anchor="middle" font-weight="500">selector</text>
+<text x="660" y="114" font-size="12.5" fill="#8d939b" text-anchor="middle">narrow · optional</text>
+
+<rect x="820" y="56" width="200" height="84" rx="10" fill="#11231a" stroke="#4faa68" stroke-width="1.4"/>
+<text x="920" y="92" font-size="17" fill="#7cdf8c" text-anchor="middle" font-weight="500">reducer</text>
+<text x="920" y="114" font-size="12.5" fill="#5aa16f" text-anchor="middle">reduce</text>
+
+<line x1="240" y1="98" x2="296" y2="98" stroke="#7a808a" stroke-width="1.8" marker-end="url(#arw)"/>
+<line x1="500" y1="98" x2="556" y2="98" stroke="#7a808a" stroke-width="1.8" marker-end="url(#arw)"/>
+<line x1="760" y1="98" x2="816" y2="98" stroke="#7a808a" stroke-width="1.8" marker-end="url(#arw)"/>
+</svg>
