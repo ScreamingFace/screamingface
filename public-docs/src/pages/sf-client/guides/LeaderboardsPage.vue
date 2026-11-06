@@ -338,42 +338,57 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     <h3>4 · Publish a result</h3>
 
     <p>
-      <code>submit</code> takes the evaluated <code>CandidateResult</code> directly. It does not ask
-      you to re-enter the score. Pass <code>report.candidates.only</code> to publish a single
-      candidate, or iterate <code>report.candidates</code> to publish every candidate in the report.
+      <code>submit</code> takes the evaluated <code>CandidateResult</code> directly, so you never
+      re-enter the score. Pass <code>report.candidates.only</code> for a single candidate, or iterate
+      <code>report.candidates</code> to publish every candidate in the report.
     </p>
 
-    <p>
-      Pass <code>authors=[...]</code> to set the exact ordered credit line. It accepts one to ten
-      email addresses, preserves duplicates, and never adds the authenticated submitter for you.
-      Omit the argument to use the leaderboard's default credit line. Authorship grants credit, not
-      ownership or access to a private submission.
-    </p>
+    <p>Two optional arguments add credit and context:</p>
 
-    <p>
-      Pass <code>paper_url="https://…"</code> to link the paper that reports the result. It must be
-      an <code>http</code> or <code>https</code> link of at most 2048 characters, with a host, no
-      whitespace or control characters, and no user info. The Client checks it before HTTP. The
-      leaderboard does not check that the link is real or that the authors wrote the paper. If you
-      have no paper yet, leave the argument out and add the link later with <code>edit</code>.
-    </p>
+    <ul>
+      <li>
+        <strong><code>authors=[...]</code>:</strong> the exact, ordered credit line. One to ten email
+        addresses, duplicates preserved, in the order you give. It never adds the authenticated
+        submitter for you; omit it to use the leaderboard's default credit line. Authorship grants
+        credit, not ownership or access to a private submission.
+      </li>
+      <li>
+        <strong><code>paper_url="https://…"</code>:</strong> the paper that reports the result. An
+        <code>http</code> or <code>https</code> link of at most 2,048 characters, with a host and no
+        whitespace, control characters or user info. The Client checks the shape before any HTTP; the
+        leaderboard does not verify that the link resolves or that the authors wrote the paper. No
+        paper yet? Leave it out and add the link later with <code>edit</code>.
+      </li>
+    </ul>
 
     <h4>Author and paper metadata</h4>
+
+    <p>Two more arguments attach structured detail:</p>
+
+    <ul>
+      <li>
+        <strong><code>authors_metadata</code>:</strong> maps each credited author's full email address
+        to a flat object. Known keys: <code>full_name</code> and <code>institution</code>.
+      </li>
+      <li>
+        <strong><code>paper_metadata</code>:</strong> one flat object. Known keys: <code>title</code>,
+        <code>url</code> and <code>citation</code>.
+      </li>
+    </ul>
+
     <p>
-      <code>authors_metadata</code> maps each credited author's full email address to a flat object.
-      Known keys are <code>full_name</code> and <code>institution</code>.
-      <code>paper_metadata</code> is one flat object with known keys <code>title</code>,
-      <code>url</code> and <code>citation</code>. All five key names are reserved in either object:
-      they require text and follow the limits below, even when used outside their usual author or
-      paper context. Other keys are stored and returned but are not displayed by the portal. Their
-      values may be text, finite numbers or booleans; nested objects, lists and null values inside
-      an object are not accepted.
+      Those five key names are reserved in either object: they require text and follow the limits
+      below, even when used outside their usual author or paper context. Any other key is stored and
+      returned but not shown by the portal; its value may be text, a finite number or a boolean.
+      Nested objects, lists and null values are not accepted.
     </p>
+
     <p>
-      Each author metadata key must match a credited author, ignoring case. Removing an author also
-      removes their metadata. Public reads key metadata by the published author identifier: normally
-      the email's local part; full addresses are retained when two authors share that local part.
-      Keep the original full addresses when sending edits; public keys are not edit keys.
+      Each <code>authors_metadata</code> key must match a credited author, ignoring case, and removing
+      an author removes their metadata. The portal reads an author's metadata by the published
+      identifier: normally the email's local part, with the full address kept when two authors share
+      a local part. Keep the original full addresses when sending edits; public keys are not edit
+      keys.
     </p>
     <table>
       <thead>
@@ -414,10 +429,9 @@ replay.candidates.only.reproduction  # None: no published score to compare`
       </tbody>
     </table>
     <p>
-      The SDK checks object shapes; the board checks bounds, author matching and link rules.
-      Metadata keys and text must be valid Unicode and cannot contain the NUL character.
-      <code>paper_metadata.url</code> and <code>paper_url</code> refer to the same link; if you
-      supply both, they must agree.
+      The SDK checks object shapes; the board checks bounds, author matching and link rules. Keys and
+      text must be valid Unicode with no NUL character. <code>paper_metadata.url</code> and
+      <code>paper_url</code> are the same link; if you supply both, they must agree.
     </p>
 
     <div class="not-prose">

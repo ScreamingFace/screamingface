@@ -39,6 +39,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/guides/ConnectionsPage.vue'),
     },
     {
+      path: '/sf-client/guides/map-reduce',
+      name: 'sf-client-guides-map-reduce',
+      component: () => import('@/pages/sf-client/guides/MapReducePage.vue'),
+    },
+    {
       path: '/sf-client/guides/models',
       name: 'sf-client-guides-models',
       component: () => import('@/pages/sf-client/guides/ModelsPage.vue'),
@@ -52,6 +57,11 @@ const router = createRouter({
       path: '/sf-client/guides/pipelines',
       name: 'sf-client-guides-pipelines',
       component: () => import('@/pages/sf-client/guides/PipelinesPage.vue'),
+    },
+    {
+      path: '/sf-client/guides/community-cache',
+      name: 'sf-client-guides-community-cache',
+      component: () => import('@/pages/sf-client/guides/CommunityCachePage.vue'),
     },
     {
       path: '/sf-client/guides/benchmarks',

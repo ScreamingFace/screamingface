@@ -21,7 +21,7 @@ export const sfClientNavigation: NavEntry[] = [
     children: [
       { title: 'Installation', path: '/sf-client/installation' },
       { title: 'Your first fusion', path: '/sf-client/first-fusion' },
-      { title: 'Reproduce DRACO state-of-the-art', path: '/sf-client/reproduce-draco' },
+      { title: "Reproduce OpenRouter's DRACO results", path: '/sf-client/reproduce-draco' },
     ],
   },
   {
@@ -32,12 +32,14 @@ export const sfClientNavigation: NavEntry[] = [
         title: 'Compose a candidate',
         children: [
           { title: 'Models', path: '/sf-client/guides/models' },
-          { title: 'Fusions', path: '/sf-client/guides/fusions' },
+          { title: 'Map-reduce', path: '/sf-client/guides/map-reduce' },
+          { title: 'Fanout fusion', path: '/sf-client/guides/fusions' },
           { title: 'Pipelines', path: '/sf-client/guides/pipelines' },
         ],
       },
       { title: 'Choose a benchmark', path: '/sf-client/guides/benchmarks' },
       { title: 'Run an evaluation', path: '/sf-client/guides/running-an-evaluation' },
+      { title: "Use the community's cache", path: '/sf-client/guides/community-cache' },
       { title: 'Publish to the leaderboard', path: '/sf-client/guides/leaderboards' },
       { title: 'Reproduce & share', path: '/sf-client/guides/reproduce-and-share' },
       { title: 'Manage the Client', path: '/sf-client/guides/clients' },
