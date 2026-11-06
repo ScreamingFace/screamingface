@@ -207,3 +207,74 @@ async def test_a_cancelled_stop_is_never_swallowed() -> None:
 
     with pytest.raises(asyncio.CancelledError):
         await runs._stop_owed(request, cast(Any, _OwedOnce()), _ALICE_KEY, "run")
+
+
+class _UnreadableOnSecondRead(_FakePublisher):
+    def __init__(self) -> None:
+        super().__init__()
+        self.reads = 0
+
+    async def last_frame(self, topic: str) -> Any:
+        self.reads += 1
+        if self.reads > 1:
+            raise QueueReadError("stream tail unreadable")
+        return None
+
+
+async def test_an_unreadable_second_read_is_not_a_successful_stop() -> None:
+    """WHY: a stop that returned would let the cancel clear its debt with no tombstone."""
+    publisher = _UnreadableOnSecondRead()
+    runner = _runner(publisher, _FakeControl(reply=False))
+
+    with pytest.raises(QueueReadError):
+        await runner.stop_bound("t")
+
+    assert publisher.published == []
+
+
+_ALICE_IDENTITY = {"X-User-Email": "alice@example.org"}
+
+
+async def _stop_while_paused(runner: Any, paused: asyncio.Event, resume: asyncio.Event) -> None:
+    schedule = asyncio.create_task(runner.schedule("t", "'hi'", 60, identity=_ALICE_IDENTITY))
+    await asyncio.wait_for(paused.wait(), timeout=5)
+    await runner.stop_bound("t")
+    resume.set()
+    await asyncio.wait_for(schedule, timeout=5)
+
+
+async def test_a_stop_during_admission_queues_nothing_and_holds_no_slot() -> None:
+    runner = _runner(_FakePublisher(), _FakeControl(reply=False))
+    paused, resume = asyncio.Event(), asyncio.Event()
+    admit = runner._admit_or_raise
+
+    async def _paused_admit(*args: Any) -> Any:
+        reservation = await admit(*args)
+        paused.set()
+        await resume.wait()
+        return reservation
+
+    runner._admit_or_raise = _paused_admit  # type: ignore[method-assign]
+    await _stop_while_paused(runner, paused, resume)
+
+    assert runner._queue.published == []  # type: ignore[attr-defined]
+    assert runner._in_flight_by_caller == {}
+    assert runner._stopped_before_schedule == {}
+
+
+async def test_a_stop_during_the_publish_holds_no_slot() -> None:
+    runner = _runner(_FakePublisher(), _FakeControl(reply=False))
+    paused, resume = asyncio.Event(), asyncio.Event()
+    queue: Any = runner._queue
+    publish = queue.publish
+
+    async def _paused_publish(message: bytes, *, identity: Any = None) -> None:
+        paused.set()
+        await resume.wait()
+        await publish(message, identity=identity)
+
+    queue.publish = _paused_publish
+    await _stop_while_paused(runner, paused, resume)
+
+    assert runner._in_flight_by_caller == {}
+    assert runner._stopped_before_schedule == {}

@@ -314,10 +314,6 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 publish (503 + a constant `Retry-After` at the REST edge). Any other broker
                 error propagates unchanged (a 500): it would fail the same way on retry.
         """
-        if self._stopped_before_schedule.pop(topic, None) is not None:
-            # WHY no publish: the tombstone already ends the run, and a reservation taken now
-            # would be newer than it, so nothing would ever release it.
-            return job_name(topic)
         try:
             reservation = await self._admit_or_raise(identity, topic)
         except BROKER_UNAVAILABLE_ERRORS as exc:
@@ -325,6 +321,12 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # broker's exception hierarchy. Nothing was reserved yet — `_admit_or_raise`
             # reserves only after its last broker read — so there is nothing to release.
             raise RunQueueUnavailable("the run queue could not be read at admission") from exc
+        if self._stopped_before_schedule.pop(topic, None) is not None:
+            # WHY no publish: a bound stop already tombstoned the run (before this call or during
+            # admission), and the reservation is newer than the tombstone, so nothing else would
+            # ever release it.
+            await self._release_reservation(topic, caller_key(identity), reservation)
+            return job_name(topic)
         # FEATURE (OME-940): decide the run's traceparent HERE so the control plane can name the
         # run it is queueing, and so `job_env.TRACEPARENT` is always set on the worker's message
         # — left unset, the worker's whole log context (`logs.run_scope`) carries no trace id.
@@ -373,6 +375,11 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 # reservation refuses the caller's next run for a run that never queued).
                 raise RunQueueUnavailable("the run could not be durably queued") from exc
             raise
+        if self._stopped_before_schedule.pop(topic, None) is not None:
+            # A bound stop landed during the publish: the worker skips the message, so the slot
+            # would wait on a run that never executes.
+            await self._release_reservation(topic, caller_key(identity), reservation)
+            return job_name(topic)
         self._scheduled_at[topic] = self._clock()
         return job_name(topic)
 
@@ -457,7 +464,11 @@ class QueueJobRunner(IdentityAwareJobRunner):
         now, and a run that completed during the ask must keep its real outcome.
         """
         frame = await self._read_tail(topic)
-        if frame is _UNREADABLE_TAIL or isinstance(frame, TerminatedEvent):
+        if frame is _UNREADABLE_TAIL:
+            # WHY raise and not return: unknown is not "already ended". Returning would let the
+            # caller delete the stream and clear a Run's owed stop with no tombstone written.
+            raise QueueReadError(f"stream tail unreadable for {topic}: run state unknown")
+        if isinstance(frame, TerminatedEvent):
             return False
         if frame is None and not bound and topic not in self._scheduled_at:
             # Never scheduled by this App: nothing is queued, so there is nothing to cancel.
