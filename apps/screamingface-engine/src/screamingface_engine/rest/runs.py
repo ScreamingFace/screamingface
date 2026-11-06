@@ -278,7 +278,9 @@ def _owner(request: Request) -> OwnerKey:
 
 
 def _not_found(run_id: str) -> ProblemException:
-    return _problem(status=404, title="Not Found", detail=f"no run {run_id}", code=RUN_NOT_FOUND)
+    # WHY only a well-formed id is named: anything else is the caller's raw value, of any length.
+    detail = f"no run {run_id}" if RUN_ID_PATTERN.fullmatch(run_id) else "no run with that id"
+    return _problem(status=404, title="Not Found", detail=detail, code=RUN_NOT_FOUND)
 
 
 def _invalid(exc: ValueError) -> ProblemException:
