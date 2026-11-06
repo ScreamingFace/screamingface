@@ -2,6 +2,7 @@
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
@@ -56,6 +57,12 @@ except sf.cache.CachePullError as exc:
       your local runs answer every model call the community has already made for free. With your local
       stack running, it takes one command.
     </p>
+
+    <ThemedDiagram
+      name="sf-community-cache-pull"
+      alt="Your local cache fills from your own runs and from pulling the shared global community cache; calls already in the cache run for free."
+      caption="Your cache fills from your own runs and from the shared global cache. Calls already in it run for free."
+    />
 
     <h2>Before you start</h2>
 
