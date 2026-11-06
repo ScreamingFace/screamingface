@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import { SF_ENGINE_URL, SF_SCOREBOARD_URL } from '@/lib/engine'
@@ -9,49 +10,48 @@ import {
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
+const casesCode = `report = sf.evaluate(haiku, benchmark="medxpert", cases=[3, 17, 42])
+report.selected_cases, report.selection_fingerprint`
+const casesOut = `((3, 17, 42), 'sha256:31771f390aca49f97d87821e360188b2ff776fa5ff02c5fc63c4a6b943775352')`
+const casesRefused = `sf.evaluate(haiku, benchmark="medxpert", cases=[1], limit=1)`
+const casesRefusedOut = `TypeError: pass cases= or limit=, not both`
 const run = `import screamingface as sf
 
 haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")
-report = sf.evaluate(haiku, benchmark="ifeval", limit=3)
+report = sf.evaluate(haiku, benchmark="medxpert", limit=3)
 report`
-const runOut = `Report(benchmark='ifeval', candidates=['claude-haiku-4.5'], ok=True)`
+const runOut = `Report(benchmark='medxpert', candidates=['claude-haiku-4.5'], ok=True)`
 
 const score = `c = report.candidates.only
 c.name, c.score, report.case_count, report.benchmark`
-const scoreOut = `('claude-haiku-4.5', 1.0, 3, BenchmarkInfo(id='ifeval', revision='22ca96fe77b0f7de', case_count=541))`
+const scoreOut = `('claude-haiku-4.5', 0.0, 3, BenchmarkInfo(id='medxpert', revision='1e5a3b8a461a52f7', case_count=2450, inverted_grade=False))`
 
 const metrics = `dict(c.metrics)`
-const metricsOut = `{'inst_level_strict_accuracy': 1.0,
- 'prompt_level_loose_accuracy': 1.0,
- 'inst_level_loose_accuracy': 1.0,
- 'pass_rate': 1.0}`
+const metricsOut = `{'correct': 0, 'scored_cases': 3, 'answered': 3, 'answered_rate': 1.0}`
 
 const many = `opus = sf.Model("openrouter/anthropic/claude-opus-4.8")
 gpt = sf.Model("openrouter/openai/gpt-5.5")
 
 sf.evaluate(
     [opus, gpt, sf.Fanout([opus, gpt]) >> sf.Synthesize("openrouter/openai/gpt-5.5")],
-    benchmark="draco",
+    benchmark="medxpert",
     limit=1,
 )`
 
-const compare = `base = sf.evaluate(haiku, benchmark="ifeval", limit=3)
-corr = sf.evaluate(haiku, benchmark="ifeval/self-corrective", limit=3)
-
-{"canonical":       {"score": base.candidates.only.score, "tokens": base.usage.output_tokens},
- "self-corrective": {"score": corr.candidates.only.score, "tokens": corr.usage.output_tokens,
-                     "corrected": corr.candidates.only.metrics["corrected_cases"]}}`
-const compareOut = `{'canonical': {'score': 1.0, 'tokens': 1167},
- 'self-corrective': {'score': 1.0, 'tokens': 3686, 'corrected': 0.0}}`
-
 const usage = `report.usage`
-const usageOut = `Usage(input_tokens=3691, output_tokens=3686, cache_read_tokens=0,
-      cache_creation_tokens=0, reasoning_tokens=0, cost_usd=Decimal('0'))`
+const usageOut = `Usage(input_tokens=6218, output_tokens=2813, cache_read_tokens=0,
+      cache_creation_tokens=0, reasoning_tokens=0, cost_usd=Decimal('0.020283'))`
 
 const watch = `def observe(event: sf.Event) -> None:
     print(event.kind)
 
-sf.evaluate(haiku, benchmark="ifeval", limit=1, on_event=observe, progress=False)`
+sf.evaluate(haiku, benchmark="medxpert", limit=1, on_event=observe, progress=False)`
+
+const saved = `ids = sf.reports.list()          # one SavedReportInfo per saved report
+saved = sf.reports.get(ids[0].id)   # the full Report, reopened from disk
+sf.reports.delete(ids[0].id)        # remove it from disk`
+
+const noSave = `client = sf.Client(engine_url="${SF_ENGINE_URL}", save_results=False)`
 
 const clients = `# once, at the top: every later sf.evaluate() call uses it
 sf.configure(
@@ -61,7 +61,7 @@ sf.configure(
 
 # or hold a client yourself
 client = sf.Client(engine_url="${SF_ENGINE_URL}")
-report = client.evaluate(haiku, benchmark="ifeval", limit=3)
+report = client.evaluate(haiku, benchmark="medxpert", limit=3)
 client.close()`
 </script>
 
@@ -135,7 +135,7 @@ client.close()`
           <text x="92" y="78">models &amp; fusions</text>
           <text x="92" y="152">cases + rubric</text>
           <text x="350" y="114">run + grade</text>
-          <text x="350" y="158">answer keys + grading stay here</text>
+          <text x="350" y="158">grading stays here</text>
           <text x="600" y="112">score per candidate</text>
         </g>
       </svg>
@@ -158,8 +158,12 @@ client.close()`
 
     <ul>
       <li>Evaluate one candidate, or run several at once.</li>
-      <li>Cap the number of cases with <code>limit</code>.</li>
-      <li>Pick a protocol variant by naming its own benchmark id.</li>
+      <li>
+        Cap the number of cases with <code>limit</code>, or run a fixed list with
+        <code>cases</code>.
+      </li>
+      <li>Skip the request cache for one run with <code>use_cache=False</code>.</li>
+      <li>Reopen a saved report from disk.</li>
       <li>Watch the run live, or turn off the progress display.</li>
       <li>Use an explicit Client, sync or with <code>await</code>.</li>
     </ul>
@@ -188,17 +192,18 @@ client.close()`
         <tr>
           <td>
             <code
-              >sf.evaluate(candidates, *, benchmark, limit=None, on_event=None, progress=None,
-              answer_seed=None, capture=None)</code
+              >sf.evaluate(candidates, *, benchmark, limit=None, cases=None, on_event=None,
+              progress=None, answer_seed=None, capture=None, pinned_cache=None, score_id=None,
+              url4=None, record_reproduction=True, use_cache=True)</code
             >
           </td>
           <td>
             Runs one or more candidates against a benchmark's protocol concurrently, returning a
             single <code>sf.Report</code>. Validates everything before the first paid request.
-            Capture is off by default. With
-            <code>capture=True</code>
-            each run makes a pinned cache, so a score can be
-            <RouterLink to="/learn/caching">reproduced</RouterLink> later. A replay never captures.
+            Capture is off by default: with <code>capture=True</code> the run stores a pinned cache,
+            so a score can be <RouterLink to="/learn/caching">replayed</RouterLink> later. A replay
+            never captures. With <code>use_cache=False</code> every model call is made fresh instead
+            of being answered from the request cache.
           </td>
         </tr>
         <tr>
@@ -215,12 +220,15 @@ client.close()`
           <td>
             Repoints the shared Client so every later <code>sf.evaluate()</code> call uses that
             engine and its leaderboard. A non-default engine without its
-            <code>scoreboard_url</code> raises.
+            <code>scoreboard_url</code> raises <code>ValueError</code>.
           </td>
         </tr>
         <tr>
           <td><code>sf.close()</code></td>
-          <td>Releases the shared Client.</td>
+          <td>
+            Releases the shared Client and forgets the <code>sf.configure(...)</code> settings, so
+            call <code>sf.configure(...)</code> again before the next call.
+          </td>
         </tr>
       </tbody>
     </table>
@@ -256,8 +264,8 @@ client.close()`
 
     <p>
       Notice the two case counts: <code>report.case_count</code> is how many cases <em>ran</em>;
-      <code>report.benchmark.case_count</code> is how many the benchmark has. Running 3 of 541 is a
-      smoke test, and the report keeps both numbers visible so that stays obvious later.
+      <code>report.benchmark.case_count</code> is how many the benchmark has. Running 3 of 2,450 is
+      a smoke test, and the report keeps both numbers visible so that stays obvious later.
     </p>
 
     <p>
@@ -290,44 +298,31 @@ client.close()`
     </div>
 
     <p>
-      Results come back in declared order. Mind the cost here: this is DRACO, where every criterion
-      is graded by five judge passes, so even <code>limit=1</code> is a real spend.
+      Results come back in declared order. MedXpert grading is an exact match, so it is free and
+      this costs only the answers. On DRACO every criterion is graded by five judge passes, so even
+      <code>limit=1</code> is a real spend.
     </p>
 
-    <h3>4 · Compare two protocols</h3>
-
-    <p>
-      Because each protocol variant is a separate benchmark id, comparing them is two runs. This is
-      IFEval's canonical single-pass protocol against its self-corrective retry chain on the same
-      three cases:
-    </p>
+    <h3>4 · Read what it cost</h3>
 
     <div class="not-prose">
-      <NbCell :count="5" :code="compare"><NbTextOut :text="compareOut" /></NbCell>
+      <NbCell :count="4" :code="usage"><NbTextOut :text="usageOut" /></NbCell>
     </div>
 
     <p>
-      An honest result: identical scores, <strong>3.2× the output tokens</strong>. On this slice the
-      retry loop bought nothing. <code>corrected_cases</code>, a metric only the corrective variants
-      report, is <code>0.0</code>, meaning no case failed first and passed later. That is what a
-      three-case sample of a capable model looks like, and it is the reason to run more cases before
-      concluding anything.
+      <code>cost_usd</code> is the cost the provider reported, for example
+      <code>Decimal('0.020283')</code>. Any field is <code>None</code> if even one candidate run
+      failed to report it, rather than being silently summed as a partial total.
     </p>
-
-    <h3>5 · Read what it cost</h3>
-
-    <div class="not-prose">
-      <NbCell :count="6" :code="usage"><NbTextOut :text="usageOut" /></NbCell>
-    </div>
 
     <p>
-      <code>cost_usd</code> is <code>Decimal('0')</code> here because this engine has no pricing
-      data: a zero means "not reported", not "free". Token counts are the reliable measure. Any
-      field is <code>None</code> if even one candidate run failed to report it, rather than being
-      silently summed as a partial total.
+      The local gateway starts with the request cache on, so a repeated call can be answered from it
+      and report <code>cost_usd=Decimal('0')</code>. <code>use_cache=False</code> opts one
+      evaluation out: its calls are made fresh and the report shows them as cache
+      <code>bypass</code> with the reason <code>opted_out</code>.
     </p>
 
-    <h3>6 · Watch a run</h3>
+    <h3>5 · Watch a run</h3>
 
     <p>
       <code>on_event</code> receives typed events in sequence as the run executes, and
@@ -339,13 +334,16 @@ client.close()`
       <NbCell :count="7" :code="watch" />
     </div>
 
-    <h3>7 · Point at the engine</h3>
+    <h3>6 · Point at the engine</h3>
 
     <p>
-      <code>sf.evaluate()</code> never asks where the engine is. Left unconfigured it falls back to
-      <code>DEFAULT_ENGINE_URL</code>, a hosted engine, which is not what you want when the engine
-      you mean is your own, so name it once with <code>sf.configure()</code>, together with its
-      scoreboard, and every later call uses it.
+      <code>sf.evaluate()</code> never asks where the engine is. Left unconfigured and with no local
+      stack running, it falls back to <code>DEFAULT_ENGINE_URL</code>, a hosted engine, which is not
+      what you want when the engine you mean is your own, so name it once with
+      <code>sf.configure()</code>, together with its scoreboard, and every later call uses it. When
+      <code>screamingface up</code> is running and nothing is configured, the shared Client connects
+      to that stack instead. <code>sf.close()</code> forgets that setting, so name the engine again
+      before the next call.
     </p>
 
     <p>
@@ -358,13 +356,126 @@ client.close()`
       <NbCell :count="8" :code="clients" />
     </div>
 
+    <h3>7 · Reopen a saved report</h3>
+
+    <p>
+      Every completed evaluation is saved to <code>~/.screamingface/results</code> on your machine,
+      outside the engine's data directory and shared by every environment you use. A run that ends
+      with failures is saved too, so you can still fetch its report. The files hold the prompts and
+      outputs of the run.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="9" :code="saved" />
+    </div>
+
+    <p>
+      <code>sf.reports.get_async(report_id)</code> is the awaitable form. To stop a Client saving
+      reports, build it with <code>save_results=False</code>; <code>sf.configure()</code> does not
+      take that option.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="10" :code="noSave" />
+    </div>
+
+    <h3>8 · Run chosen cases</h3>
+
+    <p>
+      <code>cases=[3, 17, 42]</code> runs those Cases instead of the first <code>limit</code>, for
+      example a development set and a held-out set. A Case id is the position of the Case in the
+      benchmark, from 1 to the case count. The list is sorted before it runs, so
+      <code>[42, 3, 17]</code> is the same run as <code>[3, 17, 42]</code>.
+      <code>report.selected_cases</code> names the Cases scored, in ascending order, and
+      <code>report.selection_fingerprint</code> is the <code>sha256:</code> of the sorted ids joined
+      by commas, which a paper can cite. Both are <code>None</code> for a full run and for a
+      <code>limit</code> run, and a list equal to Cases 1 to N is the same run as
+      <code>limit=N</code>.
+    </p>
+
+    <CodeBlock :code="casesCode" language="python" />
+    <CodeBlock :code="casesOut" language="text" />
+
+    <p>The SDK refuses these before it sends anything:</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Call</th>
+          <th>Raises</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>cases</code> with <code>limit</code></td>
+          <td><code>TypeError</code>: <code>pass cases= or limit=, not both</code></td>
+        </tr>
+        <tr>
+          <td>an empty list</td>
+          <td><code>ValueError</code>: <code>cases must name at least one Case id</code></td>
+        </tr>
+        <tr>
+          <td>an id below 1, or an id twice</td>
+          <td><code>ValueError</code>: <code>Case ids must be distinct and at least 1</code></td>
+        </tr>
+        <tr>
+          <td>an id that is not a whole number (a float, a string or a bool)</td>
+          <td>
+            <code>TypeError</code>:
+            <code>Case ids must be whole numbers, e.g. cases=[3, 17, 42]</code>
+          </td>
+        </tr>
+        <tr>
+          <td>more than 1,000 ids</td>
+          <td>
+            <code>ValueError</code>:
+            <code>a run takes at most 1,000 Case ids; this list has 1,001</code>
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <code>cases</code> on a replay (<code>pinned_cache=</code> or <code>score_id=</code>)
+          </td>
+          <td>
+            <code>TypeError</code>:
+            <code>cases= is not supported when replaying; replay the run, or use limit=</code>
+          </td>
+        </tr>
+        <tr>
+          <td>an id above the benchmark's case count</td>
+          <td>
+            <code>PlanningError</code> with the code <code>invalid_benchmark_selection</code>:
+            <code>the Benchmark has 2450 Cases; 999999 out of range</code>. It is not retryable.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <CodeBlock :code="casesRefused" language="python" />
+    <CodeBlock :code="casesRefusedOut" language="text" />
+
+    <p>
+      A run on chosen Cases cannot be submitted to a leaderboard:
+      <code>sf.leaderboards.submit</code> raises <code>ValueError</code> with
+      <code>a run on selected Cases can't be submitted to the leaderboard; submit a full run</code>.
+      The hosted engine serves the selection route: it refuses an id above the case count with the
+      same <code>PlanningError</code>, before any model call. The SDK posts the list to the Engine's
+      selection route and refuses before any model call when the Engine does not echo the list back,
+      so an older Engine never runs and bills every Case. The report JSON written by
+      <code>to_json()</code> carries no <code>selected_cases</code> key.
+    </p>
+
     <h2>When it fails</h2>
 
     <p>
       <code>PlanningError</code> means the run never started: change the candidate, benchmark or
       configuration. <code>ExecutionError</code> means it reached the engine and ended without a
       valid report. <code>EngineUnavailableError</code> means the engine was not reachable at all.
-      Each carries a stable <code>code</code> and a <code>hint</code>.
+      <code>ReproductionError</code> means a replay could not start. A benchmark the engine does not
+      publish raises <code>PlanningError</code>: a local engine started with
+      <code>screamingface up</code> comes with <code>medxpert</code> ready to run, so a run against a
+      benchmark it has not prepared raises it. Each carries a stable
+      <code>code</code> and a <code>hint</code>.
     </p>
 
     <h2>Links</h2>
@@ -372,10 +483,10 @@ client.close()`
     <ul>
       <li>
         <a
-          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/05_draco_lite_e2e.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/06_draco.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook: <code>05_draco_lite_e2e.ipynb</code></a
+          >Companion notebook: <code>06_draco.ipynb</code></a
         >
       </li>
     </ul>

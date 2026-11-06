@@ -17,9 +17,9 @@ const pipelineSig = `sf.Pipeline(
 )`
 
 const pipelineExample = `pipeline = sf.Pipeline(
-    ["openrouter/deepseek/deepseek-v4-pro", "openrouter/z-ai/glm-5.2"],
+    ["openrouter/deepseek/deepseek-v4-flash", "openrouter/z-ai/glm-5.2"],
 )
-report = sf.evaluate(pipeline, benchmark="ifeval", limit=1)`
+report = sf.evaluate(pipeline, benchmark="medxpert", limit=1)`
 </script>
 
 <template>
@@ -70,6 +70,14 @@ report = sf.evaluate(pipeline, benchmark="ifeval", limit=1)`
           <td>
             The ordered steps, each refining the previous answer. At least one. A fusion block shows
             as its <code>Fanout</code> and <code>Synthesize</code> steps.
+          </td>
+        </tr>
+        <tr>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            Whether this Pipeline, as a Fusion member, may fail without stopping the Fusion while
+            its <RouterLink to="/sf-client/api/fusions">quorum</RouterLink> is met.
           </td>
         </tr>
       </tbody>
