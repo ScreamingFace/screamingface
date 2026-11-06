@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.auth import ProblemException
+from screamingface_engine.ports import IdentityAwareJobRunner
 from url4.streaming.interfaces import EventConsumer, JobRunner
 
 # WHY 5 and not the capacity path's constant 1: an unreachable broker is a reconnect or a
@@ -18,9 +19,16 @@ from url4.streaming.interfaces import EventConsumer, JobRunner
 QUEUE_UNAVAILABLE_RETRY_AFTER_S = 5
 
 
-async def stop_topic(job_runner: JobRunner, stream: EventConsumer, topic: str) -> None:
+async def stop_topic(
+    job_runner: JobRunner, stream: EventConsumer, topic: str, *, bound: bool = False
+) -> None:
+    """`bound`: the topic is a Run's Candidate, which the runner must stop even before it has
+    any record of the topic (`IdentityAwareJobRunner.stop_bound`)."""
     try:
-        await job_runner.stop(topic)
+        if bound and isinstance(job_runner, IdentityAwareJobRunner):
+            await job_runner.stop_bound(topic)
+        else:
+            await job_runner.stop(topic)
     except QueueReadError:
         # V-2: an unreadable tail used to make `stop()` a SILENT no-op, and this handler
         # fell through to deleting the stream of a possibly-live run while answering 204.

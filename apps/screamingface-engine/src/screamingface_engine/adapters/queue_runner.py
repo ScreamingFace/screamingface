@@ -369,6 +369,20 @@ class QueueJobRunner(IdentityAwareJobRunner):
         return job_name(topic)
 
     async def stop(self, topic: str) -> None:
+        await self._stop(topic, bound=False)
+
+    async def stop_bound(self, topic: str) -> None:
+        """As `stop`, but a topic with no frame is tombstoned even when this process has no
+        record of scheduling it (E5 P1 spec D12).
+
+        WHY: `_scheduled_at` is per process. A cancel can land before the publish, and an App
+        restart forgets every queued run, so plain `stop` would answer for a run that then
+        executes. The tombstone written first makes the worker's claim-time gate skip it
+        whenever the message lands; a message that never lands leaves one terminal frame.
+        """
+        await self._stop(topic, bound=True)
+
+    async def _stop(self, topic: str, *, bound: bool) -> None:
         """Stop the run: reach a running one over the control subject, else tombstone a
         queued one. Idempotent — unknown and already-terminal topics are no-ops.
 
@@ -421,13 +435,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # unreadable. Either way the marker is not written: a run that finished during the
         # ask keeps its real outcome, and an unknown tail is never trusted with a state
         # change.
-        if await self._tombstone_queued_run(topic):
+        if await self._tombstone_queued_run(topic, bound=bound):
             # The confirmation pass: a worker that claimed between the first ask and the
             # tombstone answers THIS ask (registration precedes spawn), enacts the cancel,
             # and skips its own terminal frame — the tombstone is the one frame either way.
             await self._request_control(topic)
 
-    async def _tombstone_queued_run(self, topic: str) -> bool:
+    async def _tombstone_queued_run(self, topic: str, *, bound: bool) -> bool:
         """Write the queued-cancel marker unless the run finished (or vanished, or went
         unreadable) in the ask window; True when a marker was written.
 
@@ -437,7 +451,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
         frame = await self._read_tail(topic)
         if frame is _UNREADABLE_TAIL or isinstance(frame, TerminatedEvent):
             return False
-        if frame is None and topic not in self._scheduled_at:
+        if frame is None and not bound and topic not in self._scheduled_at:
             # Never scheduled by this App: nothing is queued, so there is nothing to cancel.
             # (The former layout asked the broker whether the per-run stream existed; in a
             # shared stream an empty subject says nothing about the queue.)
