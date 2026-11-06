@@ -204,7 +204,9 @@ class _RunsLifecycle:
             return
         if self._local:
             ensure_sqlite_dir(self._url)
-            self._local_lock = hold_local_database(self._url)
+            # Only a SQLite file is this machine's alone; a server database has no file to lock.
+            if self._url.startswith("sqlite://"):
+                self._local_lock = hold_local_database(self._url)
         # A failure from here on is rolled back by the App's lifespan (`install_runs`).
         store = await open_run_store(
             self._url,
