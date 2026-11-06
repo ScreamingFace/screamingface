@@ -1,13 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 430" width="1060" height="430" font-family="Helvetica Neue, Arial, sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 76 1060 288" width="1060" height="288" font-family="Helvetica Neue, Arial, sans-serif">
 <title>Fusion with quorum and optional members</title>
 <defs><marker id="a-mid" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5a6069"/></marker><marker id="a-bad" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d0634a"/></marker><marker id="a-ok" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#58b36e"/></marker><marker id="a-accent" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#c9821f"/></marker></defs>
 <rect width="1060" height="430" fill="#ffffff"/>
-<text x="40" y="42" font-size="16" fill="#2c2f36" text-anchor="start" font-weight="600">Which members reach the last step</text>
-<text x="40" y="64" font-size="11" fill="#8b9096" text-anchor="start">sf.Fanout(members, quorum=...) &gt;&gt; reducer or sf.Synthesize · the quorum is checked after the members finish</text>
-<rect x="40" y="100" width="230" height="66" rx="10" fill="#f4f5f7" stroke="#58b36e" stroke-width="1"/>
+<rect x="40" y="100" width="230" height="66" rx="10" fill="#f1f9f3" stroke="#58b36e" stroke-width="1"/>
 <text x="155.0" y="124" font-size="12" fill="#2c2f36" text-anchor="middle" font-weight="500">Member A</text>
 <text x="155.0" y="146" font-size="10.5" fill="#5a6069" text-anchor="middle">required, succeeds</text>
-<rect x="40" y="190" width="230" height="66" rx="10" fill="#f4f5f7" stroke="#58b36e" stroke-width="1"/>
+<rect x="40" y="190" width="230" height="66" rx="10" fill="#f1f9f3" stroke="#58b36e" stroke-width="1"/>
 <text x="155.0" y="214" font-size="12" fill="#2c2f36" text-anchor="middle" font-weight="500">Member B</text>
 <text x="155.0" y="236" font-size="10.5" fill="#5a6069" text-anchor="middle">required, succeeds</text>
 <rect x="40" y="280" width="230" height="66" rx="10" fill="#f4f5f7" stroke="#d0634a" stroke-width="1" stroke-dasharray="5 4"/>
@@ -21,9 +19,7 @@
 <path d="M270 133 L335 133 L335 200 L400 200" fill="none" stroke="#58b36e" stroke-width="1.3" marker-end="url(#a-ok)"/>
 <path d="M270 223 L400 223" fill="none" stroke="#58b36e" stroke-width="1.3" marker-end="url(#a-ok)"/>
 <path d="M270 313 L335 313 L335 250 L400 250" fill="none" stroke="#d0634a" stroke-width="1.3" stroke-dasharray="5 4" marker-end="url(#a-bad)"/>
-<text x="40" y="372" font-size="10.5" fill="#d0634a" text-anchor="start">A failed optional member is a failed answer with reason missing,</text>
-<text x="40" y="389" font-size="10.5" fill="#d0634a" text-anchor="start">never a vote.</text>
-<rect x="780" y="100" width="240" height="90" rx="10" fill="#f4f5f7" stroke="#58b36e" stroke-width="1"/>
+<rect x="780" y="100" width="240" height="90" rx="10" fill="#f1f9f3" stroke="#58b36e" stroke-width="1"/>
 <text x="900.0" y="124" font-size="12" fill="#2c2f36" text-anchor="middle" font-weight="500">Reducer or Synthesize</text>
 <text x="900.0" y="146" font-size="10.5" fill="#5a6069" text-anchor="middle">combines the answers</text>
 <text x="900.0" y="163" font-size="10.5" fill="#5a6069" text-anchor="middle">that reached it</text>
@@ -35,5 +31,4 @@
 <path d="M670 250 L725 250 L725 295 L780 295" fill="none" stroke="#d0634a" stroke-width="1.3" marker-end="url(#a-bad)"/>
 <text x="676" y="192" font-size="10.5" fill="#58b36e" text-anchor="start">met</text>
 <text x="676" y="268" font-size="10.5" fill="#d0634a" text-anchor="start">not met</text>
-<text x="40" y="418" font-size="10" fill="#8b9096" text-anchor="start">A required member that fails fails the candidate, whatever the quorum. optional=True is valid on a sf.Fanout member only.</text>
 </svg>

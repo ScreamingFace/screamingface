@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 200" width="680" height="200" font-family="Helvetica Neue, Arial, sans-serif">
+<title>One signal, conf, scored 90, 60 and 75 on answers a, b and c, is read two ways: a selector narrows by it (Rank keeps a and c), and a reducer weighs by it (Vote counts a 90, c 75, b 60).</title>
+<defs>
+<marker id="arw" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7a808a"/></marker>
+</defs>
+<rect width="680" height="200" fill="#0c0f13"/>
+
+<!-- the signal -->
+<rect x="24" y="36" width="216" height="142" rx="10" fill="#15181c" stroke="#3a3e45" stroke-width="1.4"/>
+<text x="40" y="64" font-size="14" fill="#e0e5eb" font-weight="500">signal · conf</text>
+<text x="44" y="94" font-size="12.5" fill="#c8ccd2">a</text>
+<rect x="62" y="86" width="99" height="9" rx="2" fill="#3a5a8f"/>
+<text x="224" y="94" font-size="12.5" fill="#8d939b" text-anchor="end">90</text>
+<text x="44" y="120" font-size="12.5" fill="#c8ccd2">b</text>
+<rect x="62" y="112" width="66" height="9" rx="2" fill="#3a5a8f"/>
+<text x="224" y="120" font-size="12.5" fill="#8d939b" text-anchor="end">60</text>
+<text x="44" y="146" font-size="12.5" fill="#c8ccd2">c</text>
+<rect x="62" y="138" width="82" height="9" rx="2" fill="#3a5a8f"/>
+<text x="224" y="146" font-size="12.5" fill="#8d939b" text-anchor="end">75</text>
+
+<!-- two readers -->
+<rect x="330" y="44" width="326" height="54" rx="10" fill="#15181c" stroke="#3a3e45" stroke-width="1.4"/>
+<text x="348" y="70" font-size="13.5" fill="#e0e5eb" font-weight="500">narrow · Rank(2, by="conf")</text>
+<text x="348" y="88" font-size="12" fill="#8d939b">keeps a and c</text>
+
+<rect x="330" y="120" width="326" height="54" rx="10" fill="#15181c" stroke="#3a3e45" stroke-width="1.4"/>
+<text x="348" y="146" font-size="13.5" fill="#e0e5eb" font-weight="500">weigh · Vote(weights="conf")</text>
+<text x="348" y="164" font-size="12" fill="#8d939b">a counts 90, c 75, b 60</text>
+
+<path d="M240 108 C 284 108, 288 71, 326 71" fill="none" stroke="#7a808a" stroke-width="1.8" marker-end="url(#arw)"/>
+<path d="M240 108 C 284 108, 288 147, 326 147" fill="none" stroke="#7a808a" stroke-width="1.8" marker-end="url(#arw)"/>
+</svg>

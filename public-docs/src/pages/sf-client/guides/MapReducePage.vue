@@ -2,6 +2,7 @@
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import {
@@ -117,107 +118,11 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
       ends with a reducer; anything in between is optional.
     </p>
 
-    <figure class="not-prose" style="margin: var(--space-8) 0">
-      <svg
-        class="dg"
-        viewBox="0 0 860 186"
-        role="img"
-        aria-label="A fusion as a chain. sf.Fanout maps the question to three members and passes on three answers. An optional mapper scores each answer. An optional selector filters to the top two. A reducer collapses them to one answer, which the benchmark grades."
-      >
-        <defs>
-          <marker
-            id="mr-a"
-            viewBox="0 0 8 8"
-            refX="7"
-            refY="4"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto"
-          >
-            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
-          </marker>
-        </defs>
-        <g class="edge" marker-end="url(#mr-a)">
-          <path d="M150 115.0 H196" />
-          <path d="M346 115.0 H392" />
-          <path d="M542 115.0 H588" />
-          <path d="M738 115.0 H784" />
-        </g>
-        <rect class="box map" x="16" y="92" width="134" height="46" />
-        <rect class="box enrich optional" x="212" y="92" width="134" height="46" />
-        <rect class="box narrow optional" x="408" y="92" width="134" height="46" />
-        <rect class="box reduce" x="604" y="92" width="134" height="46" />
-        <rect class="box graded" x="784" y="92" width="76" height="46" />
-        <g class="lbl" text-anchor="middle">
-          <text x="83" y="119.5">sf.Fanout</text>
-          <text x="279" y="119.5">mapper</text>
-          <text x="475" y="119.5">selector</text>
-          <text x="671" y="119.5">reducer</text>
-          <text x="822" y="119.5">graded</text>
-        </g>
-        <g text-anchor="middle" style="fill: var(--text-2); font-size: 12.5px">
-          <text x="83" y="34">3 answers</text>
-          <text x="279" y="34">3 answers, scored</text>
-          <text x="475" y="34">top 2 kept</text>
-          <text x="671" y="34">1 answer</text>
-        </g>
-        <!-- dispatch: three plain answers -->
-        <g>
-          <rect x="28.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-azure-500);stroke-width:1.5" />
-          <text x="44.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">a</text>
-        </g>
-        <g>
-          <rect x="67.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-azure-500);stroke-width:1.5" />
-          <text x="83.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">b</text>
-        </g>
-        <g>
-          <rect x="106.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-azure-500);stroke-width:1.5" />
-          <text x="122.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">c</text>
-        </g>
-        <!-- map: each answer scored (teal bar) -->
-        <g>
-          <rect x="224.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-teal-500);stroke-width:1.5" />
-          <text x="240.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">a</text>
-          <rect x="224.0" y="68" width="32" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
-        </g>
-        <g>
-          <rect x="263.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-teal-500);stroke-width:1.5" />
-          <text x="279.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">b</text>
-          <rect x="263.0" y="68" width="13" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
-        </g>
-        <g>
-          <rect x="302.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-teal-500);stroke-width:1.5" />
-          <text x="318.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">c</text>
-          <rect x="302.0" y="68" width="23" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
-        </g>
-        <!-- filter: top two kept, b dropped -->
-        <g>
-          <rect x="420.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-orange-500);stroke-width:1.5" />
-          <text x="436.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">a</text>
-          <rect x="420.0" y="68" width="32" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
-        </g>
-        <g opacity="0.3">
-          <rect x="459.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-orange-500);stroke-width:1.5" stroke-dasharray="3 2" />
-          <text x="475.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">b</text>
-          <rect x="459.0" y="68" width="13" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
-        </g>
-        <g>
-          <rect x="498.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-orange-500);stroke-width:1.5" />
-          <text x="514.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">c</text>
-          <rect x="498.0" y="68" width="23" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
-        </g>
-        <!-- reduce: one final answer -->
-        <g>
-          <rect x="655.0" y="46" width="32" height="18" rx="3" style="fill:var(--data-green-500);stroke:var(--data-green-500);stroke-width:1.5" fill-opacity="0.18" />
-        </g>
-        <g class="sub" text-anchor="middle" style="font-size: 12px">
-          <a href="#dispatch"><text x="83" y="162">dispatch</text></a>
-          <a href="#map"><text x="279" y="162">map · optional</text></a>
-          <a href="#filter"><text x="475" y="162">filter · optional</text></a>
-          <a href="#reduce"><text x="671" y="162">reduce</text></a>
-        </g>
-      </svg>
-    </figure>
+    <ThemedDiagram
+      name="sf-mapreduce-spine"
+      alt="A fusion is one chain: Fanout maps the question to several answers, an optional mapper scores each, an optional selector narrows them, and a reducer collapses them to one answer."
+      caption="A fusion is one chain. Fanout maps the question to several answers; an optional mapper scores each and an optional selector narrows them; a reducer collapses them to one answer."
+    />
 
     <h2>The four stages at a glance</h2>
 
@@ -532,57 +437,11 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
       decide whether an answer survives, or how much it counts:
     </p>
 
-    <figure class="not-prose" style="margin: var(--space-7) 0">
-      <svg
-        class="dg"
-        viewBox="0 0 660 196"
-        role="img"
-        aria-label="One signal, conf, scores answers a, b and c at 90, 60 and 75. sf.Rank(2, by=conf) reads it to keep a and c and drop b. sf.Vote(weights=conf) reads it to let all three vote, weighted 90, 60 and 75."
-      >
-        <defs>
-          <marker
-            id="sg-a"
-            viewBox="0 0 8 8"
-            refX="7"
-            refY="4"
-            markerWidth="6"
-            markerHeight="6"
-            orient="auto"
-          >
-            <path d="M0 0 L8 4 L0 8 z" style="fill: var(--text-2)" />
-          </marker>
-        </defs>
-        <g class="edge" marker-end="url(#sg-a)">
-          <path d="M216 98 C 256 98, 256 54, 300 54" />
-          <path d="M216 98 C 256 98, 256 142, 300 142" />
-        </g>
-        <rect class="box enrich" x="20" y="38" width="196" height="120" />
-        <text x="36" y="62" class="lbl">signal "conf"</text>
-        <text x="40" y="88" style="fill:var(--text);font-size:12.5px">a</text>
-        <rect x="58" y="80" width="94.5" height="8" rx="2" style="fill:var(--data-teal-500)" />
-        <text x="196" y="88" text-anchor="end" style="fill:var(--text-2);font-size:12.5px">90</text>
-        <text x="40" y="112" style="fill:var(--text);font-size:12.5px">b</text>
-        <rect x="58" y="104" width="63.0" height="8" rx="2" style="fill:var(--data-teal-500)" />
-        <text x="196" y="112" text-anchor="end" style="fill:var(--text-2);font-size:12.5px">60</text>
-        <text x="40" y="136" style="fill:var(--text);font-size:12.5px">c</text>
-        <rect x="58" y="128" width="78.8" height="8" rx="2" style="fill:var(--data-teal-500)" />
-        <text x="196" y="136" text-anchor="end" style="fill:var(--text-2);font-size:12.5px">75</text>
-        <rect class="box narrow" x="300" y="24" width="344" height="60" />
-        <rect class="box reduce" x="300" y="112" width="344" height="60" />
-        <g class="lbl">
-          <text x="316" y="49">filter · sf.Rank(2, by="conf")</text>
-          <text x="316" y="137">reduce · sf.Vote(weights="conf")</text>
-        </g>
-        <g style="fill: var(--text-2); font-size: 12.5px">
-          <text x="316" y="70">keeps a and c, drops b</text>
-          <text x="316" y="158">all three vote: a counts 90, c 75, b 60</text>
-        </g>
-      </svg>
-      <figcaption class="dgcap">
-        One declared signal, two readers: <code>sf.Rank</code> uses it to decide which answers
-        survive, <code>sf.Vote</code> to decide how much each one counts.
-      </figcaption>
-    </figure>
+    <ThemedDiagram
+      name="sf-signal-two-ways"
+      alt="One signal, conf, scored 90, 60 and 75 on answers a, b and c, read two ways: a selector narrows by it (Rank keeps a and c) and a reducer weighs by it (Vote counts a 90, c 75, b 60)."
+      caption="One declared signal, read two ways: a selector narrows by it, a reducer weighs by it."
+    />
 
     <p>Keep the two most confident answers, then have a model write the final answer from just those two:</p>
 
