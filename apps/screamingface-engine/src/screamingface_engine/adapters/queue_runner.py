@@ -243,6 +243,10 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # scheduled/not_found boundary; pruned on each schedule so it stays bounded by the
         # topics accepted within one capability lifetime.
         self._scheduled_at: dict[str, datetime] = {}
+        # topic → when a bound stop tombstoned it before this replica scheduled it (E5 P1 spec
+        # D12): its later `schedule()` queues nothing, so no admission slot waits on a run the
+        # worker would skip. Pruned with `_scheduled_at`.
+        self._stopped_before_schedule: dict[str, datetime] = {}
         # FEATURE (OME-1091): the OME-1065 cache-plus-reservation shape, carried over. The
         # counted resource changed (quota headroom → queue depth); the race did not. `_reserved`
         # counts runs admitted since the last refresh — it closes the read-modify-write race
@@ -310,6 +314,10 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 publish (503 + a constant `Retry-After` at the REST edge). Any other broker
                 error propagates unchanged (a 500): it would fail the same way on retry.
         """
+        if self._stopped_before_schedule.pop(topic, None) is not None:
+            # WHY no publish: the tombstone already ends the run, and a reservation taken now
+            # would be newer than it, so nothing would ever release it.
+            return job_name(topic)
         try:
             reservation = await self._admit_or_raise(identity, topic)
         except BROKER_UNAVAILABLE_ERRORS as exc:
@@ -457,6 +465,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # shared stream an empty subject says nothing about the queue.)
             return False
         await self._publish_tombstone(topic)
+        if frame is None and topic not in self._scheduled_at:
+            self._stopped_before_schedule[topic] = self._clock()
         return True
 
     async def _read_tail(self, topic: str) -> TerminatedEvent | None | object:
@@ -894,6 +904,9 @@ class QueueJobRunner(IdentityAwareJobRunner):
         for topic in expired:
             del self._scheduled_at[topic]
             self._forget_in_flight(topic)
+        for topic, at in list(self._stopped_before_schedule.items()):
+            if (now - at).total_seconds() >= self._capability_lifetime_s:
+                del self._stopped_before_schedule[topic]
         # OME-1108: the lease is the shorter of the two bounds and is checked on the same
         # path, so a reservation cannot outlive its run by a capability lifetime.
         self._expire_leases()
