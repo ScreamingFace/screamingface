@@ -14,7 +14,11 @@ created: 2026-10-22
 The draft spec `docs/spec/2026-10-22-OME-1599-node-to-node-auth.md` covers url4 node-to-node
 authentication for remote blobs (C2) and remote-node calls (C6). It is waiting on Kevin's sign-off on
 Q1–Q6 (§10) and Ionésio's review of §5.5 (`url4/peer`). Until it is approved, spec #1450 F1/F1b stand:
-remote blobs and remote-node calls are refused before any I/O. Implementation follows sign-off: C6 on
+remote blobs and remote-node calls are refused before any I/O.
+
+Q1 is resolved (owner decision 2026-11-07, on Kevin's review): the authorization grant travels in a new
+`URL4-Authz-Token` header; `URL4-Auth-Token` keeps its url4 meaning (encrypted credential). The title
+keeps the Linear wording. Implementation follows sign-off: C6 on
 `main`, and C2 after #1482.
 
 Ledger: `docs/work/2026-10-22-node-auth-spec.md`.

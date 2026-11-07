@@ -16,8 +16,9 @@ otherwise.
 
 Tick or overrule; details, consequences and the alternative for each are in §10.
 
-- [ ] **Q1** `URL4-Auth-Token` carries only the delegation/share **grant** (JWS); node authentication is
-  the RFC 9421 `Signature` that covers it.
+- [x] **Q1** Resolved (owner decision, 2026-11-07, on Kevin's review): the grant travels in a new
+  `URL4-Authz-Token` header; `URL4-Auth-Token` keeps its url4 meaning (encrypted credential). Node
+  authentication is the RFC 9421 `Signature` that covers both.
 - [ ] **Q2** No grammar change for C2: a share grant never appears in the expression; C2 stays refused
   (`x.remote_blob_unsupported`) until grant delivery is specified, and C6 ships first.
 - [ ] **Q3** A node's identity **is** its canonical `url4://` authority; no separate node id.
@@ -148,19 +149,21 @@ mTLS may be layered on later for private deployments without changing this proto
 
 The caller builds the request, then signs it (RFC 9421) with label `url4`:
 
-- Covered components: `"@method"`, `"@authority"`, `"@path"`, `"@query"`, `"url4-auth-token"`,
-  `"content-digest"` (RFC 9530, `sha-256`, when there is a body), `"idempotency-key"` (when present).
+- Covered components: `"@method"`, `"@authority"`, `"@path"`, `"@query"`, `"url4-authz-token"`,
+  `"url4-auth-token"` (when present), `"content-digest"` (RFC 9530, `sha-256`, when there is a body),
+  `"idempotency-key"` (when present).
 - Parameters: `created` (now), `expires` (`created + 60`), `nonce` (128 random bits, base64url),
   `keyid`, `alg="ed25519"`, `tag="url4-peer"`.
-- Headers sent: `Signature-Input`, `Signature`, `URL4-Auth-Token` (§5.4), `Content-Digest` (if body).
+- Headers sent: `Signature-Input`, `Signature`, `URL4-Authz-Token` (§5.4), `URL4-Auth-Token` (only
+  when the request carries a credential for the destination, §5.4), `Content-Digest` (if body).
 - Every retry is re-signed (fresh `created` and `nonce`); the `Idempotency-Key` stays the same, so
   replay protection and idempotent retry do not interfere.
 - **Peer requests follow no redirects** (R6, T5). A 3xx answer to a peer request is
   `x.source_destination_blocked` (the existing #1521 code), and the `Location` is not contacted.
 
-### 5.4 `URL4-Auth-Token`: the grant
+### 5.4 `URL4-Authz-Token`: the authorization grant
 
-`URL4-Auth-Token` carries a **grant**: a compact JWS (`alg: EdDSA`, `typ: url4-grant+jwt`, `kid`). It
+`URL4-Authz-Token` carries a **grant**: a compact JWS (`alg: EdDSA`, `typ: url4-grant+jwt`, `kid`). It
 says *on whose behalf and for what*; the HTTP signature says *who is sending this exact request*. The
 token is covered by the signature, so it cannot be lifted onto another request. Two kinds:
 
@@ -174,6 +177,15 @@ A node never self-issues a `share` for another node's data: a share grant verifi
 issued n1 a share grant naming that digest (the `OME-1599` acceptance "A's blob can't be fetched by B
 without a grant").
 
+**Relation to `URL4-Auth-Token`.** The two headers are separate. `URL4-Auth-Token` keeps its url4
+meaning (Part B §3.5, Part H §31): an encrypted credential carried from the originating requestor to
+the destination node, which decrypts it and uses it, for example toward a non-url4 source. This spec
+neither defines nor verifies its contents; when present it is only covered by the signature (§5.3).
+`URL4-Authz-Token` is the authorization grant this spec defines, the receiver checks it before
+execution (§5.5), and it never carries a credential. Open note: Part H §31 still calls the
+credential header `ABC-Auth-Token`, a naming inconsistency in the url4 spec; this draft uses
+`URL4-Auth-Token` and leaves the fix to the spec owner.
+
 How a share grant reaches the reader is **open** (Q2). Working assumption: never in the expression;
 C2 stays refused until delivery is specified (§10).
 
@@ -182,8 +194,9 @@ C2 stays refused until delivery is specified (§10).
 For every request on the eval path, a data route or `/blob/…` that carries a signature, and for every
 request on a route the operator marks peer-only:
 
-1. **Parse** `Signature-Input`/`Signature` (label `url4`) and `URL4-Auth-Token`. Missing on a
-   peer-only route → `x.peer_auth_required`.
+1. **Parse** `Signature-Input`/`Signature` (label `url4`) and `URL4-Authz-Token`. Missing on a
+   peer-only route → `x.peer_auth_required`. `URL4-Auth-Token` is not needed for authorization; if
+   present it must be among the covered components, otherwise `x.peer_auth_failed`.
 2. **Allowlist before I/O** (R5, T7): the `keyid` authority must equal the grant's `iss` (delegation)
    or `aud` (share), and must be on the receiver's **inbound peer allowlist**. Otherwise
    `x.peer_not_authorized`. No key fetch happens for an unlisted authority.
@@ -247,10 +260,10 @@ the code and a generic message, never the token, signature or which component mi
 
 | Code | Owner | Status (proposed) | Class | When |
 |---|---|---|---|---|
-| `x.peer_auth_required` | receiving node | 401 | permanent | §5.5 step 1 |
+| `x.peer_auth_required` | receiving node | 401 | permanent | §5.5 step 1: signature or `URL4-Authz-Token` missing |
 | `x.peer_not_authorized` | receiving node | 403 | permanent | steps 2, 7 |
 | `x.peer_key_unavailable` | receiving node | 503 | retryable | step 3; nonce store down (step 6) |
-| `x.peer_auth_failed` | receiving node | 401 | permanent | step 4 |
+| `x.peer_auth_failed` | receiving node | 401 | permanent | step 4 (signature, `Content-Digest` or `URL4-Authz-Token` JWS); step 1 (`URL4-Auth-Token` present but not covered) |
 | `x.peer_auth_expired` | receiving node | 401 | retryable (re-signed; at most once) | step 5; repeated failure means clock skew |
 | `x.peer_replay` | receiving node | 401 | permanent | step 6 |
 | `x.peer_signing_unconfigured` | calling node | 500 | permanent | caller has a configured peer but no signing key; before any I/O |
@@ -321,7 +334,17 @@ Receiver side (one test per §5.5 step, in order):
 Each assumption is the conservative option consistent with spec #1450 (F1, F1b, F3, §4): it opens
 nothing #1450 keeps closed and changes no grammar. Overruling one changes only the sections named.
 
-**Q1 `URL4-Auth-Token` semantics.** Part B §3.5 names the header; locally only the v1 package spec's
+**Q1 `URL4-Auth-Token` semantics. Resolved** by owner decision (Sergey, 2026-11-07) on Kevin's review
+of PR #1647. `URL4-Auth-Token` keeps the url4 meaning: an encrypted credential carried from the
+originating requestor to the destination node (Part B §3.5, Part H §31). The §5.4 grant moves to a new
+`URL4-Authz-Token` header. This fills the authorization gap Kevin cites: Part B §5.4.2 (identity-based
+access control on every url4-aware fetch), §5.6.4 (authorize the effective requestor, never ambient
+authority), §5.6.9 (delegation never broadens access); Part C §11.6.2 (provenance in request headers,
+TBD); Part H §29.2.1 (consumer-set disclosure), §31 (sender identity in the token), §33 (identity model
+open), §35 (per-hop path header). Open note: Part H §31 still names the credential header
+`ABC-Auth-Token` (§5.4). The original question and its analysis follow, kept for the record.
+
+*Original question:* Part B §3.5 names the header; locally only the v1 package spec's
 deferral mentions it (`2026-07-11-url4-package-v1-spec.md` §13). May it carry the §5.4 grant, with node
 authentication in RFC 9421 `Signature` headers, or is the token meant to be the whole credential?
 - *Assumption:* the token carries only the grant; the HTTP signature authenticates the node and

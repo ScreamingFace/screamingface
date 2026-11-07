@@ -54,3 +54,12 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
   with only `Idempotency-Key`, and the `x.remote_*_unsupported` refusals all unchanged. Kevin has not
   answered Q1–Q6 (no Linear reply), so the spec stays DRAFT and implementation does not start:
   the six forks are open design decisions, below the 95% gate. Status remains `in_progress`.
+- **2026-11-07 review round (Kevin, PR #1647, CHANGES_REQUESTED 2026-11-06):** Kevin pointed out that
+  `URL4-Auth-Token` in the url4 spec is an encrypted credential carried from the originating requestor
+  to the destination node (Part B §3.5, Part H §31), not an authorization grant. Owner decision
+  (Sergey, 2026-11-07): adopt Kevin's split. The grant moves to a new `URL4-Authz-Token` header;
+  `URL4-Auth-Token` keeps its url4 meaning and is signature-covered when present. Updated §5.3
+  (covered components, headers sent), §5.4 (retitled, relation note), §5.5 step 1, §5.8 codes, the
+  Q1 checkbox and §10 Q1 (resolved, citing B §5.4.2, §5.6.4, §5.6.9; C §11.6.2; H §29.2.1, §31, §33,
+  §35). Open note, not changed: Part H §31 still calls the header `ABC-Auth-Token`. No other design
+  decision changed; Q2–Q6 stay open. Branch not synced with `main` (squash-merge absorbs the gap).
