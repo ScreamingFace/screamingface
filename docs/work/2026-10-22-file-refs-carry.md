@@ -794,3 +794,62 @@ fetches.
   model-derived (fails closed `x.source_not_static`). n=3000 → 4 ms.
 - Tests appended to `test_review_round10.py`: 1(a) repro (2 params), deep doubling chain, dense
   fan-out, long template, step-budget fail-closed.
+
+**Review round 11 (HupBaHa 2026-11-05T14:16:42Z) — findings 2 and 3; finding 1 pending owner.**
+
+**Intent.** Admission's collection scope mirrors execution's wiring (`_wiring._build_slots`,
+`_lowering._build_ctx_nodes`): `$N` names the N-th source when that source is named; a named
+source sees only EARLIER named siblings (and the outer scope); an unnamed source and the intent
+see all; a call context registers no positions. A binding's value resolves in ITS definition
+scope, so a forward alias (`xs=$ys`, `ys` later) is the literal text `$ys`, as at execution.
+
+**Planned changes.** `_collection_shape.py` (`Scope`, positional template refs, per-binding
+scope switch), `source_scan.py` (incremental scopes for groups, bodies and call contexts).
+
+**Test plan.** New `tests/unit/test_review_round11.py`: reviewer's `$1` repro + `$1.rows` + alias
+via `$1` refuse `x.source_not_static` with zero I/O; a forward alias is not model-derived;
+call-context sibling binding refuses; an unnamed source sees a LATER named model sibling.
+
+**Acceptance.** `run_gates.py url4` + `repo --base origin/main` exit 0; no prior test edited.
+
+**Outcome (round 11) — BLOCKED on a prior-test decision; not committed.**
+- Implemented (uncommitted): `dag/_scan_scope.py` (new: `Scope`, `sibling_scopes`),
+  `_collection_shape.py` (`$N` template refs, definition-scope hops, identity-keyed visited set,
+  hidden later sibling → literal `$name` text, positional `$N` never reads a bound blob body),
+  `source_scan.py` (per-source scopes for groups, iteration bodies and call contexts).
+- New `tests/unit/test_review_round11.py` (14) green; ruff/format/pyright green.
+- BLOCKER: `test_review_round10.py::test_a_template_walk_past_its_step_budget_fails_closed_with_zero_io`
+  fails. Its chain `x0=/r/$x1, x1=/r/$x2, …` names only LATER siblings, so under execution
+  ordering (finding 3) nothing is wired: execution fetches literal `/r/$x1` (probe confirmed),
+  and admission no longer walks 4097 bindings. The step-budget guard itself still holds —
+  appended `test_a_backward_template_chain_past_the_step_budget_still_fails_closed`. Needs an
+  owner call to amend/retire the forward-ordered test.
+- 2026-11-05 owner decision A applied: the round-10 step-budget test now names EARLIER siblings
+  (same 4096-step budget; duplicate round-11 test dropped). Approval entry in
+  `.claude/test-change-approvals/OME-1543.json` NOT written (agent permission denied) — the url4
+  append-only gate (vs HEAD) stays red until it is recorded. `repo --base origin/main` exit 0.
+- Owner decision B ("require chunks") NOT implemented: a prototype breaks 3 existing tests —
+  `test_review_round10.py::test_bytes_beyond_the_declared_size_are_drawn_after_the_read`,
+  `::test_an_honest_declared_body_is_attached`,
+  `test_server.py::test_in_process_endpoint_request_carries_run_attachments`.
+- 2026-11-05 owner decision B ("exempt strings, amend 2") applied: `peer/_bytes.serve_data_bytes`
+  under `on_declared` reads only a `read_chunks` provider (counted per piece) or a held `str`
+  (exact size); any other whole-body provider is refused unread, `x.attachments_too_large`,
+  sticky via `on_declared(None)`. `SupportsDeclaredSize` removed. Repro + chunked/str/outside-run
+  tests appended to `test_review_round11.py`; amended `test_bytes_beyond_the_declared_size_are_drawn_after_the_read`,
+  `test_a_declared_size_over_max_bytes_is_too_large_before_the_read` (it broke: code is now
+  attachments_too_large), `test_an_honest_declared_body_is_attached`. `test_server.py` unchanged.
+  Suite 3066 passed, coverage 98.82%, ruff/pyright clean. Approval entry for
+  `test_review_round10.py` (base abeb6be5c -> approved 0896c62e4) denied again by the agent
+  permission classifier → `run_gates.py url4` exit 1 (append-only only); `repo --base origin/main` exit 0.
+  Not committed.
+- 2026-11-06 (owner, e2e follow-up): (1) `cli/_serve.make_data_provider` hands a `value` provider
+  over as its plain `str` (held, exact size) — a 31-byte `value` blob is attached inside a run
+  (it was refused `x.attachments_too_large` since round 10); `file` stays chunked (`FileData`).
+  (2) One refusal factory `dag/_caps.whole_body_refused` (re-exported by `dag.attachments`) is
+  both the sticky budget refusal and the direct raise in `peer/_bytes`; `on_declared(None)` is
+  called under `suppress(ResolutionError)` then the refusal raised, so callers and runs see
+  "serve it in chunks (read_chunks)", not "undeclared size". New tests in `test_review_round11.py`
+  (4); `test_review_round10.py` untouched (blob 0896c62e4). Suite 3070 passed, coverage 98.81%.
+  Gates: `url4` exit 1 (append-only only, approval entry pending owner), `repo --base origin/main`
+  exit 0, `screamingface-engine` exit 0. Not committed.

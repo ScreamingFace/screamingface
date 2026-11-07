@@ -38,6 +38,9 @@ from url4.dag.source_scan import collect_file_refs as collect_file_refs  # isort
 from url4.dag.source_scan import refuse_remote as refuse_remote  # isort: skip
 from url4.dag.source_scan import scan_sources as scan_sources  # isort: skip
 
+# WHY public here: ``peer._bytes`` raises the same refusal the run's budget makes sticky.
+from url4.dag._caps import whole_body_refused as whole_body_refused  # isort: skip
+
 
 @dataclass(frozen=True)
 class CachedBlob:
@@ -212,4 +215,5 @@ __all__ = [
     "prefetch_key",
     "refuse_remote",
     "scan_sources",
+    "whole_body_refused",
 ]

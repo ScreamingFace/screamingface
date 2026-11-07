@@ -31,6 +31,7 @@ from url4.core.nodes import (
     walk,
 )
 from url4.core.parser import split_top_level_commas
+from url4.dag._scan_scope import sibling_scopes
 from url4.dag.attachment_sources import AttachmentIdentity, identity_of, non_literal_attachment
 
 # --- collection: which file refs the run's AST names, in source order -------------------
@@ -182,7 +183,7 @@ def _walk_iteration(
     # WHY the raw collection: its shape is decided ONLY by ``_collection_shape`` (finding 2),
     # which follows every ``$name`` hop and path; admission and the static check read it.
     guard = CollectionGuard(node.collection, bound, node.directives.slice)
-    _walk_source_list(node.body, bound, out, (*guards, guard))
+    _walk_source_list(node.body, bound, out, (*guards, guard), positional=True)
 
 
 def _add_attachment(node: Source, out: _Found, guards: _Guards) -> bool:
@@ -218,11 +219,13 @@ def reachable_order(
 def _walk_expression(
     node: Expression, bound: Mapping[str, Node], out: _Found, guards: _Guards
 ) -> None:
-    scope = dict(bound) | _bindings(node.sources)
-    for source in node.sources:
+    # INVARIANT (round 11, findings 2 and 3): each source walks in the scope execution wires
+    # for it (``_scan_scope``) — positions included, later siblings hidden from a named one.
+    scopes, full = sibling_scopes(node.sources, bound, positional=True)
+    for source, scope in zip(node.sources, scopes, strict=True):
         _walk(source, scope, False, out, guards)
     if node.intent is not None:
-        _walk(node.intent, scope, False, out, guards)
+        _walk(node.intent, full, False, out, guards)
 
 
 def _walk_call(
@@ -243,7 +246,8 @@ def _walk_rel_expr(node: RelExpr, bound: Mapping[str, Node], out: _Found, guards
     # context's opted-in attachment sources into text.
     if node.context is not None and not holds_holdings_ref(node.context):
         asked = len(out.occurrences) + len(out.non_literal)
-        skipped = _walk_source_list(node.context, bound, out, guards)
+        # WHY no positions: a context registers none (``_lowering._build_ctx_nodes``).
+        skipped = _walk_source_list(node.context, bound, out, guards, positional=False)
         opted_in = len(out.occurrences) + len(out.non_literal) > asked
         out.malformed.extend(s for s in skipped if opted_in or _looks_like_descriptor(s))
     if node.intent is not None:
@@ -289,10 +293,15 @@ def _walk_collection(items: Node, bound: Mapping[str, Node], out: _Found, guards
     if isinstance(items, Expression) and items.intent is None and not items.broadcast:
         _walk(items, bound, False, out, guards)  # an inline collection: its elements are values
         return
-    if isinstance(items, VarRef) and not items.path and items.name in bound:
-        # Plan §2.9: ``$x*(…)`` reads the bound file ref in collection position.
+    if isinstance(items, VarRef) and not items.path and _by_name(items.name, bound):
+        # Plan §2.9: ``$x*(…)`` reads the bound file ref in collection position (by NAME only:
+        # execution's ``_bound_blob`` reads ``bind:<name>``; a ``$N`` position reads ref text).
         items = bound[items.name]
     _walk(items, bound, True, out, guards)
+
+
+def _by_name(name: str, bound: Mapping[str, Node]) -> bool:
+    return not name.isdigit() and name in bound
 
 
 def _looks_like_descriptor(segment: str) -> bool:
@@ -325,7 +334,7 @@ def scan_source_list(text: str) -> SourceScan:
     walk scans an iteration body.
     """
     found = _Found()
-    _walk_source_list(text, {}, found, ())
+    _walk_source_list(text, {}, found, (), positional=True)
     return SourceScan(
         tuple(found.refs.values()),
         (),
@@ -337,7 +346,7 @@ def scan_source_list(text: str) -> SourceScan:
 
 
 def _walk_source_list(
-    text: str, bound: Mapping[str, Node], out: _Found, guards: _Guards
+    text: str, bound: Mapping[str, Node], out: _Found, guards: _Guards, *, positional: bool
 ) -> list[str]:
     """Walk each parsed segment; return the stripped segments that did not parse.
 
@@ -345,28 +354,20 @@ def _walk_source_list(
     a template that may parse only after row substitution), and only on an opt-in.
     """
     skipped: list[str] = []
+    parsed: list[Node | None] = []
     for segment in split_top_level_commas(text):
         if not segment.strip():
             continue
         try:
-            parsed = grammar_parse(segment.strip())
+            parsed.append(grammar_parse(segment.strip()))
         except ParseError:
             skipped.append(segment.strip())
-            continue
-        _walk(parsed, bound, False, out, guards)
+            parsed.append(None)  # keeps its position (``$N``), binds nothing
+    scopes, _ = sibling_scopes(parsed, bound, positional=positional)
+    for node, scope in zip(parsed, scopes, strict=True):
+        if node is not None:
+            _walk(node, scope, False, out, guards)
     return skipped
-
-
-def _bindings(sources: tuple[Node, ...]) -> dict[str, Node]:
-    named: dict[str, Node] = {}
-    for source in sources:
-        if isinstance(source, Binding):
-            named[source.name] = source.value
-        elif isinstance(source, Source) and source.name is not None:
-            # WHY the descriptor, not its value: ``$xs*(…)`` admission needs the binding's
-            # ``;retry=`` / ``;t=`` / ``;optional`` / ``;accept=`` (``_materialize._unwrap``).
-            named[source.name] = source
-    return named
 
 
 def _add_leaf(node: Node, collection: bool, out: _Found) -> bool:

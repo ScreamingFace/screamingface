@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from url4.core.blob_ref import address_of
 from url4.core.nodes import (
@@ -40,6 +40,7 @@ from url4.core.nodes import (
     Url,
     VarRef,
 )
+from url4.dag._scan_scope import definition_of, hidden_in
 
 MODEL = "model"  # a model's (or another node's) output: unknown until after a model call
 UNKNOWN = "unknown"  # cannot be resolved before the body runs: conservatively reachable
@@ -68,37 +69,74 @@ class CollectionShape:
     cycle: bool = False  # a ``$name`` chain that loops: execution raises, no body ever runs
 
 
-_TEMPLATE_REF = re.compile(r"\$\$|\$([A-Za-z_]\w*)", re.ASCII)  # ``$$`` is a literal ``$``
+# ``$$`` is a literal ``$``; ``$N`` a position (the interpolation scanner's head, ensemble.py).
+_TEMPLATE_REF = re.compile(r"\$\$|\$([A-Za-z_]\w*|[0-9]+)", re.ASCII)
 
 
 def resolve_collection(items: Node, bound: Mapping[str, Node]) -> CollectionShape:
     """Follow ``items`` through ``bound`` to the value it reads, and classify it."""
-    paths: list[str] = []
-    seen: set[str] = set()
-    node, descriptor, raw = items, None, items
-    while True:
+    chain = _follow_aliases(items, bound)
+    if isinstance(chain, CollectionShape):
+        return chain
+    node = chain.node
+    if _TemplateWalk(chain.bound, chain.seen).model_derived(node):
+        return CollectionShape(MODEL, node)
+    # WHY: execution reads a bound blob's body only through ``bind:<name>``
+    # (``_lowering._bound_blob``); a ``$N`` position reads the ref text.
+    by_name = not (chain.names and chain.names[0].isdigit())
+    hops = tuple(reversed(chain.paths))
+    return _classify(node, chain.descriptor, chain.raw, hops, by_name=by_name)
+
+
+@dataclass
+class _Chain:
+    """Where a ``$name`` alias chain lands: the value, its scope, and each hop's name and path."""
+
+    node: Node
+    raw: Node
+    bound: Mapping[str, Node]
+    descriptor: Source | None = None
+    seen: set[int] = field(default_factory=set)  # binding VALUES by identity (names may shadow)
+    names: list[str] = field(default_factory=list)
+    paths: list[str] = field(default_factory=list)
+
+
+def _follow_aliases(items: Node, bound: Mapping[str, Node]) -> _Chain | CollectionShape:
+    """The alias chain's landing value, or the shape that ends it early."""
+    chain = _Chain(items, items, bound)
+    node: Node = items
+    while isinstance(node, (Source, VarRef)):
         if isinstance(node, Source):
-            descriptor = descriptor or node
+            chain.descriptor = chain.descriptor or node
             node = node.value
             continue
-        if not isinstance(node, VarRef):
-            break
-        if node.name not in bound:
-            return CollectionShape(UNKNOWN, node)  # a row reference or holdings
-        if node.name in seen:
+        if node.name not in chain.bound:
+            return _unbound(node, chain)
+        value = chain.bound[node.name]
+        if id(value) in chain.seen:
             # INVARIANT (review round 10, owner 2026-11-05): a binding cycle never yields rows
             # (execution raises), so admission treats its body as unreachable — no fetch.
             return CollectionShape(UNKNOWN, node, cycle=True)
-        seen.add(node.name)
-        paths.append(_path_text(node.path))
-        node = raw = bound[node.name]
-        descriptor = None  # the next binding's own descriptor governs its fetch
-    hops = tuple(reversed(paths))
-    if _TemplateWalk(bound, seen).model_derived(node):
-        shape = CollectionShape(MODEL, node)
-    else:
-        shape = _classify(node, descriptor, raw, hops)
-    return shape
+        chain.seen.add(id(value))
+        chain.names.append(node.name)
+        chain.paths.append(_path_text(node.path))
+        # INVARIANT (round 11, finding 3): the value resolves where it was DEFINED.
+        chain.bound = definition_of(chain.bound, node.name)
+        node = chain.raw = value
+        chain.descriptor = None  # the next binding's own descriptor governs its fetch
+    chain.node = node
+    return chain
+
+
+def _unbound(node: VarRef, chain: _Chain) -> CollectionShape:
+    """A ``$name`` not in scope: a hidden later sibling reads as its literal text (execution
+    never binds it; a binding's text, no media type); anything else (a row reference, holdings)
+    is :data:`UNKNOWN`."""
+    if not hidden_in(chain.bound, node.name):
+        return CollectionShape(UNKNOWN, node)
+    text = f"${node.name}{_path_text(node.path)}"
+    paths = tuple(reversed(chain.paths))
+    return CollectionShape(TEXT, node, text=text, paths=paths, via_ref=True)
 
 
 MAX_TEMPLATE_STEPS = 4096  # names one collection's templates may follow before failing closed
@@ -122,9 +160,11 @@ class _TemplateWalk:
     model-free. A walk past :data:`MAX_TEMPLATE_STEPS` names fails closed as model-derived.
     """
 
-    def __init__(self, bound: Mapping[str, Node], chain: set[str]) -> None:
+    def __init__(self, bound: Mapping[str, Node], chain: set[int]) -> None:
         self._bound = bound
-        self._visited = set(chain)  # the alias chain already walked counts as visited
+        # Binding VALUES by identity: the alias chain already walked counts as visited. WHY not
+        # names: a nested group's ``xs`` may shadow an outer ``xs`` (round 11).
+        self._visited = set(chain)
         self._steps = 0
 
     def model_derived(self, node: Node) -> bool:
@@ -134,32 +174,41 @@ class _TemplateWalk:
             return True
 
     def _walk(self, node: Node) -> bool:
-        pending = [node]
+        pending: list[tuple[Node, Mapping[str, Node]]] = [(node, self._bound)]
         while pending:
-            for name in _template_names(pending.pop()):
-                target = self._follow(name)
-                if target is not None and _kind(target) == MODEL:
+            template, scope = pending.pop()
+            for name in _template_names(template):
+                target = self._follow(name, scope)
+                if target is not None and _kind(target[0]) == MODEL:
                     return True
                 if target is not None:
                     pending.append(target)
         return False
 
-    def _follow(self, name: str) -> Node | None:
-        """``name``'s value through its alias hops; ``None`` when unbound or already visited."""
+    def _follow(
+        self, name: str, scope: Mapping[str, Node]
+    ) -> tuple[Node, Mapping[str, Node]] | None:
+        """``name``'s value and its definition scope through its alias hops; ``None`` when
+        unbound (a hidden later sibling included: execution substitutes it verbatim) or
+        already visited."""
         node: Node = VarRef(name)
         while True:
             if isinstance(node, Source):
                 node = node.value
                 continue
             if not isinstance(node, VarRef):
-                return node
-            if node.name not in self._bound or node.name in self._visited:
+                return node, scope
+            if node.name not in scope:
+                return None
+            value = scope[node.name]
+            if id(value) in self._visited:
                 return None
             self._steps += 1
             if self._steps > MAX_TEMPLATE_STEPS:
                 raise _StepsExhausted
-            self._visited.add(node.name)
-            node = self._bound[node.name]
+            self._visited.add(id(value))
+            scope = definition_of(scope, node.name)
+            node = value
 
 
 def _template_names(node: Node) -> list[str]:
@@ -169,7 +218,7 @@ def _template_names(node: Node) -> list[str]:
 
 
 def _classify(
-    node: Node, descriptor: Source | None, raw: Node, paths: tuple[str, ...]
+    node: Node, descriptor: Source | None, raw: Node, paths: tuple[str, ...], *, by_name: bool
 ) -> CollectionShape:
     via_ref = bool(paths)
     kind = _kind(node)
@@ -179,7 +228,7 @@ def _classify(
     elif address is not None:
         # WHY: execution reads a blob body only directly or via ONE unpathed binding whose value
         # IS the ref (``_bound_blob``); any other route reads the ref text (F2).
-        direct = not via_ref or (paths == ("",) and raw is node)
+        direct = not via_ref or (by_name and paths == ("",) and raw is node)
         shape = (
             CollectionShape(BLOB, node, descriptor)
             if direct

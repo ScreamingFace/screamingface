@@ -54,10 +54,16 @@ def _too_large(total: int) -> ResolutionError:
     )
 
 
-def _undeclared() -> ResolutionError:
+def whole_body_refused() -> ResolutionError:
+    """The refusal of a body whose size cannot be drawn before its read (a whole-body provider).
+
+    WHY one factory for the direct raise (``peer._bytes``) and the sticky one (:meth:`reserve`):
+    the run surfaces the STICKY refusal, so both must name the remedy — serve in chunks (owner
+    2026-11-06; it read "undeclared size" before, which no operator could act on).
+    """
     return ResolutionError(
-        "an attachment body of undeclared size cannot be read within the run's "
-        f"{MAX_ATTACHMENT_BYTES}-byte budget",
+        "a data provider that hands over its body whole cannot be read within a run's live "
+        f"{MAX_ATTACHMENT_BYTES}-byte budget; serve it in chunks (read_chunks)",
         code=ErrorCode.ATTACHMENTS_TOO_LARGE,
         permanent=True,
     )
@@ -130,7 +136,7 @@ class CapBudget:
         """
         with self._lock:
             if size is None:
-                self._refused = self._refused or _undeclared
+                self._refused = self._refused or whole_body_refused
                 raise self._refused()
             self.charge_bytes(key, size)
 

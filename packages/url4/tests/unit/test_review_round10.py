@@ -186,9 +186,11 @@ async def test_bytes_beyond_the_declared_size_are_drawn_after_the_read() -> None
     request = FetchRequest(
         "/cat", relative=True, on_chunk=drawn.append, on_declared=declared.append
     )
-    got = await node.fetch_bytes(request)
-    assert got.body == PNG
-    assert (declared, drawn) == ([4], [len(PNG) - 4])  # each byte drawn once
+    # Round 11 (owner 2026-11-05): under a live cap a whole-body provider is refused unread.
+    with pytest.raises(ResolutionError) as caught:
+        await node.fetch_bytes(request)
+    assert caught.value.code == ErrorCode.ATTACHMENTS_TOO_LARGE
+    assert (declared, drawn, resident.reads) == ([None], [], [])
 
 
 @pytest.mark.asyncio
@@ -199,7 +201,8 @@ async def test_a_declared_size_over_max_bytes_is_too_large_before_the_read() -> 
     request = FetchRequest("/cat", relative=True, max_bytes=4, on_declared=lambda _: None)
     with pytest.raises(ResolutionError) as caught:
         await node.fetch_bytes(request)
-    assert caught.value.code == ErrorCode.SOURCE_TOO_LARGE
+    # Round 11 (owner 2026-11-05): under a live cap a whole-body provider is refused unread.
+    assert caught.value.code == ErrorCode.ATTACHMENTS_TOO_LARGE
     assert resident.reads == []
 
 
@@ -217,8 +220,11 @@ async def test_an_honest_declared_body_is_attached() -> None:
         seen.extend(len(x.body) for x in current_attachments())
         return "ok"
 
-    assert await run(f"(src=/blob/sha256/{hex_}, 'q')!'d'", node, process=model)
-    assert seen == [1000]
+    # Round 11 (owner 2026-11-05): under a live cap a whole-body provider is refused unread.
+    with pytest.raises(ResolutionError) as caught:
+        await run(f"(src=/blob/sha256/{hex_}, 'q')!'d'", node, process=model)
+    assert caught.value.code == ErrorCode.ATTACHMENTS_TOO_LARGE
+    assert (seen, resident.reads) == ([], [])
 
 
 # -- finding 2: a templated collection over a model's output ----------------------------------
@@ -384,11 +390,12 @@ async def test_a_template_walk_past_its_step_budget_fails_closed_with_zero_io() 
     from url4.dag._collection_shape import MAX_TEMPLATE_STEPS
 
     n = MAX_TEMPLATE_STEPS + 1
-    chain = ", ".join(f"x{i}=/r/$x{i + 1}" for i in range(n))
+    # Each binding names an EARLIER one (round 11: a later sibling is unbound at execution).
+    chain = ", ".join(f"x{i + 1}=/r/$x{i}" for i in range(n))
     io = _Tripwire()
     with pytest.raises(ResolutionError) as caught:
         await run(
-            f"(x{n}='a', {chain}, /rows/$x0*(src={IMG};accept=image/png)!'d')!'r'", io, process=_ok
+            f"(x0='a', {chain}, /rows/$x{n}*(src={IMG};accept=image/png)!'d')!'r'", io, process=_ok
         )
     assert caught.value.code == ErrorCode.SOURCE_NOT_STATIC
     assert io.calls == []
