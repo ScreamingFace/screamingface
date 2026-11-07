@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import cast
 
 from pydantic import ValidationError
@@ -26,6 +27,9 @@ def _baseline_to_schema(model: Baseline) -> BaselineSchema:
         source=model.source,
         source_url=model.source_url,
         imported_at=model.imported_at,
+        last_imported_at=model.last_imported_at,
+        metric_name=model.metric_name,
+        observed_at=model.observed_at,
         metadata=model.metadata,
         # WHY: tortoise-orm >=1.1.8 types CharField as `str | None`, which no longer
         # satisfies the schema's `Openness | None`. The DB column is a bare CharField, so
@@ -65,6 +69,12 @@ class BaselineStore:
                 "score": row.score,
                 "source_url": row.source_url,
                 "metadata": row.metadata,
+                # WHY: imports replace an observation, not patch it. Missing
+                # provenance must not carry an old read date onto a new score.
+                "metric_name": row.metric_name,
+                "observed_at": row.observed_at,
+                "attached_by": row.attached_by,
+                "last_imported_at": datetime.now(UTC),
             },
             using_db=using_db,
         )

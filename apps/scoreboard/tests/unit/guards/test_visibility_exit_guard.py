@@ -255,6 +255,11 @@ BASELINE_PUBLISHED_FIELDS = frozenset(
         "benchmark_id",
         "id",
         "imported_at",
+        # DECISION (owner, 2026-11-03, E20): publish source metric and dates,
+        # but keep the attaching person's attribution out of every public DTO.
+        "last_imported_at",
+        "metric_name",
+        "observed_at",
         "metadata",
         "model_name",
         "openness_override",
@@ -286,7 +291,7 @@ def test_a_baseline_publishes_nothing_participant_derived() -> None:
         "new field is visible to every participant — confirm it carries nothing derived from "
         "another participant's submission, then update BASELINE_PUBLISHED_FIELDS."
     )
-    for leak in ("submitted_by", "submitter", "url4_expression", "spec_id", "email"):
+    for leak in ("submitted_by", "submitter", "url4_expression", "spec_id", "email", "attached_by"):
         assert leak not in BaselineSchema.model_fields, (
             f"{leak!r} would be published on a private board through the baseline list"
         )
