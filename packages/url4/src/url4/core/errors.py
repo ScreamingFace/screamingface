@@ -89,6 +89,17 @@ class ErrorCode(StrEnum):
     BLOB_DIGEST_MISMATCH = "x.blob_digest_mismatch"
     """The bytes served for a content address do not hash to it. Permanent: a content
     address that returns other content is refused, never passed on."""
+    SOURCE_NOT_STATIC = "x.source_not_static"
+    """An ``https://`` attachment source (a media-range ``;accept=``, #1450 F1b) whose target
+    is not static: it depends on a model output, so it cannot be pre-materialized before the
+    first model call. Permanent, raised before any fetch or model call. Text sources are never
+    refused with it."""
+    ATTACHMENTS_TOO_MANY = "x.attachments_too_many"
+    """The run's ``attachments[]`` would hold more than 20 entries (#1450 F1b per-run cap).
+    Permanent, raised before any model call."""
+    ATTACHMENTS_TOO_LARGE = "x.attachments_too_large"
+    """The run's ``attachments[]`` would hold more than 8,000,000 decoded bytes in all (#1450
+    F1b per-run cap). Permanent, raised before any model call."""
     DIRECT_EVAL_REFUSED = "direct_eval_refused"
     """A direct call (one handler, `url4.peer.dispatch_direct`) targeted the eval path, which
     evaluates an expression — the one thing a direct call must never do."""

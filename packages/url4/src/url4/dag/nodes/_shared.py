@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from url4.core.context import Context
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.nodes import Params
+from url4.dag.attachments import current_run_files
 from url4.dag.semantics.ensemble import interpolate
 from url4.io.layer import FetchRequest, fetch_result
 from url4.wire.subrequest import strip_transport_params
@@ -145,8 +146,11 @@ class FetchedText(str):
 
 
 async def _fetch(ctx: ExecutionContext, request: FetchRequest) -> FetchedText:
-    """Resolve ``request`` through the port, preserving the media type (§5.3.7)."""
-    result = await fetch_result(ctx.io, request)
+    """Resolve ``request`` through the port, preserving the media type (§5.3.7); a collection
+    the run's attachment admission already fetched (F1b round 7) is replayed once instead."""
+    files = current_run_files()
+    replayed = None if files is None else files.take_prefetched(request)
+    result = replayed if replayed is not None else await fetch_result(ctx.io, request)
     return FetchedText(result.body, result.media_type)
 
 
