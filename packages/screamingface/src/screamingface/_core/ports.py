@@ -147,6 +147,32 @@ __all__: list[str] = []
 
 
 @runtime_checkable
+class _RunRegistration(Protocol):
+    """A transport that records each evaluation as a Run on the Engine (E5 P1 spec R1, D8).
+
+    A transport without it (a test fake) runs every evaluation without a Run.
+    """
+
+    def open_run(
+        self, benchmark: str, case_count: int, candidates: tuple[Candidate, ...]
+    ) -> str | None: ...
+
+    def abort_evaluation(self, candidates: tuple[Candidate, ...]) -> None: ...
+
+
+@runtime_checkable
+class _AsyncRunRegistration(Protocol):
+    """The async twin of `_RunRegistration`. AIDEV-NOTE: `isinstance` sees only the name, so
+    each caller checks the twin matching the transport it holds."""
+
+    async def open_run(
+        self, benchmark: str, case_count: int, candidates: tuple[Candidate, ...]
+    ) -> str | None: ...
+
+    async def abort_evaluation(self, candidates: tuple[Candidate, ...]) -> None: ...
+
+
+@runtime_checkable
 class _ResultPersistence(Protocol):
     def prepare_results(
         self, evaluation: _Evaluation, candidates: tuple[Candidate, ...]

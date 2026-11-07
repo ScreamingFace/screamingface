@@ -231,7 +231,8 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
   sweeper's pattern (`app.py:156-170`). It deletes Runs whose `created_at` is older than
   `run_retention_s`, default 30 days. The same code runs on both databases.
 - **R8. Cancel** follows D12. The Client also sends `DELETE /runs/{id}`, best-effort, when the
-  user aborts an `evaluate` (Ctrl-C, `cancel_active`), so a deliberate stop reads `canceled`.
+  user aborts an `evaluate` (Ctrl-C, task cancel), so a deliberate stop reads `canceled`. It cancels
+  only that `evaluate`'s Run; another `evaluate` on the same Client keeps its Run.
 - **R9. Schema.**
   - Hosted: migrations run in a pre-install/pre-upgrade Helm hook Job, modelled on aigateway's
     (`apps/aigateway/charts/aigateway/templates/job-migrate.yaml`). The Job, and the App's
@@ -282,6 +283,10 @@ class Run:                       # a frozen snapshot; methods re-read the Engine
 - `report()` on a Run that is still `running` raises `ExecutionError("run_not_finished")`. On any
   other non-`complete` state it follows the existing settlement rule:
   `ExecutionError("candidates_failed", partial_report=...)`.
+  On a machine without the Run's results (D9) it raises `ExecutionError("results_not_local")`.
+- `wait(timeout=…)` raises `TimeoutError` when the Run is still `running` at the timeout.
+- The one D7 notice is an `EvaluationWarning`. A raw-URL4 or replay evaluate registers as
+  benchmark `"URL4 replay"` with `case_count` 0, since neither is known before it runs.
 
 ## 5. Landings
 

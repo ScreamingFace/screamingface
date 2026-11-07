@@ -24,6 +24,7 @@ from screamingface._evaluation.model import (
     _without_cache,
 )
 from screamingface._evaluation.operators import Stage, _OperatorCatalog
+from screamingface._evaluation.outcome import with_run_id
 from screamingface._evaluation.results import report_from_url4_outcome
 from screamingface._evaluation.topology import (
     _operation_shape,
@@ -38,6 +39,10 @@ from screamingface.operation import OperationInfo
 from screamingface.report import Report
 from screamingface.url4 import _calls as _url4_calls
 from screamingface.url4 import _combine_operator_pairs, _validate_topology
+
+#: What a raw-URL4 or replay evaluation is called before it runs: in the progress output, and as
+#: its Run's benchmark, with 0 (unknown) Cases.
+URL4_RUN_LABEL = "URL4 replay"
 
 if TYPE_CHECKING:
     from screamingface._evaluation.runner import _AsyncOperatorLoading, _SyncOperatorLoading
@@ -61,6 +66,7 @@ def evaluate_url4_sync(
         _conclude_evaluation,
         _evaluation_options,
         _sync_event_observer,
+        open_run_sync,
     )
 
     _evaluation_options(on_event, progress)
@@ -82,12 +88,15 @@ def evaluate_url4_sync(
         progress,
         (candidate,),
         None,
-        "URL4 replay",
+        URL4_RUN_LABEL,
     )
+    # INVARIANT (spec D8): raw URL4 and replay register too, right before the first token, so
+    # `transport.run` always retires the binding.
+    run_id = open_run_sync(transport, URL4_RUN_LABEL, 0, (candidate,))
     try:
         bound = None if observer is None else observer.bind(candidate)
         outcome = transport.run(candidate, bound)
-        report = report_from_url4_outcome(candidate, outcome)
+        report = with_run_id(report_from_url4_outcome(candidate, outcome), run_id)
         _require_replay_statement(replay_frozen_copy, outcome, report)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
@@ -119,6 +128,7 @@ async def evaluate_url4_async(
         _async_event_observer,
         _conclude_evaluation,
         _evaluation_options,
+        open_run_async,
     )
 
     _evaluation_options(on_event, progress)
@@ -139,12 +149,13 @@ async def evaluate_url4_async(
         progress,
         (candidate,),
         None,
-        "URL4 replay",
+        URL4_RUN_LABEL,
     )
+    run_id = await open_run_async(transport, URL4_RUN_LABEL, 0, (candidate,))
     try:
         bound = None if observer is None else observer.bind(candidate)
         outcome = await transport.run(candidate, bound)
-        report = report_from_url4_outcome(candidate, outcome)
+        report = with_run_id(report_from_url4_outcome(candidate, outcome), run_id)
         _require_replay_statement(replay_frozen_copy, outcome, report)
     except BaseException as exc:
         _abort_event_observer(observer, exc)
