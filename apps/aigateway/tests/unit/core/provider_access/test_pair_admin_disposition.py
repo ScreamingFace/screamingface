@@ -22,6 +22,7 @@ from asyncpg import exceptions as asyncpg_exceptions
 from provider_access_harness import ANTHROPIC, PROVIDER, RealAppHarness
 from tortoise.exceptions import OperationalError
 
+from aigateway.core.credential_blob.store import ORMStore
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
 from aigateway.core.plugin_base import credential_service_provider_for
@@ -346,21 +347,27 @@ def test_the_inventory_writes_nothing_and_reads_no_credential(harness, monkeypat
     _api_key_connection(harness)
     before = _marker_rows(harness)
     reads: list[tuple[str, str]] = []
-    store = harness.client.app.state.credential_store
-    real_read = store.read
-    index_service = "aigateway:index"
+    # WHY the class, not the app's instance: a strategy built without `credential_store=` reads
+    # through its own `ORMStore()`, which an instance spy would never see.
+    assert type(harness.client.app.state.credential_store) is ORMStore
+    real_read = ORMStore.read
 
-    async def recording_read(service: str, account: str) -> Any:
+    async def recording_read(self: ORMStore, service: str, account: str) -> Any:
         reads.append((service, account))
-        return await real_read(service, account)
+        return await real_read(self, service, account)
 
-    monkeypatch.setattr(store, "read", recording_read)
+    monkeypatch.setattr(ORMStore, "read", recording_read)
 
     _inventory(harness)
 
     assert _marker_rows(harness) == before
-    # Only the account's metadata index is read — never a provider credential blob.
-    assert all(service.startswith(index_service) for service, _ in reads), reads
+    # The credential store is not read at all: the Profile index LIST once read is gone (E5c).
+    assert reads == []
+    # WHY the control: an empty log proves nothing unless the spy also records a read through a
+    # fresh `ORMStore()`, the path a strategy built without the app's store takes.
+    blob = credential_locator_for(CREDENTIAL_PROVIDER, harness.account_id, "default")
+    assert harness.call(ORMStore().read, blob["service"], blob["account"]) is not None
+    assert reads == [(blob["service"], blob["account"])]
 
 
 # --- review follow-ups: the unlisted migrated state, unknown providers, driver outages -----------

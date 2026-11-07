@@ -6,7 +6,6 @@ import pytest
 from connection_backed_harness import ConnectionBackedHarness
 from provider_access_harness import ANTHROPIC, PROVIDER
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
 from aigateway.core.provider_access import (
     CredentialStoreUnavailable,
@@ -17,6 +16,7 @@ from aigateway.core.provider_access import (
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
 from aigateway.plugins.anthropic_provider.settings import AnthropicPluginSettings
+from tests.credential_names import credential_name_for
 
 
 @pytest.fixture

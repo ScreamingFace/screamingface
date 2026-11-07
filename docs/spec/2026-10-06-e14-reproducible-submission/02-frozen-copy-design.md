@@ -51,6 +51,7 @@ header, the revisions endpoint) is removed from the stack. There is no publish s
 | Q29 | Per-case exact (review item 3) | The SDK computes a case digest from the graded cases. The board stores it at submit and compares it on reproduction. |
 | Q30 | Tavily retrieval cache (found in the review) | The cache key includes the caller's account. Cross-account sharing stops until the engine has a service identity. |
 | Q31 | Capture default (2026-10-29) | Reverses Q22. Capture is off by default; it is on only when the caller passes `capture=True`. |
+| Q32 | Exact replay is not partial (2026-10-29, OME-1775) | Narrows Q27's "no outcome is forgiven". A no-answer outcome (`error`, or `failed`/`refused`/`missing` on a non-2xx last response) is not counted when every Candidate/Attempt has a supported deterministic failure (`model_token_cap` only), the copy contains a matching stored failure response at that call's case/attempt key, and no later call of the same lane, digest and case key gave an answer. Unknown, temporary and time-based failures stay strict (2026-11-05 blocking-review correction). A `max-age` re-issue with a 2xx last response takes that response's status. A connect-phase transport failure is `error`, not `ambiguous`. Every other outcome keeps Q27. Spec: `docs/spec/2026-10-29-OME-1775-cancelled-call-not-partial.md` §4. |
 
 ## 3. Data model (AI Gateway, new)
 
@@ -186,16 +187,37 @@ present (pinned 2026-10-08, B3 review).
 4. At run end, `POST …/seal` with `{"provenance": {"engine_version": <installed screamingface-engine
    version>}}` (Q28). On failure the run is `partial` (reason `seal`).
 5. **Rule:** `capture.status = complete` only when the open and the seal worked, every chat and tool
-   outcome is `stored`, and the run is not on the local runtime. Anything else is `partial`. No outcome
-   is forgiven (Q27 removes D2): a call that left no entry at its key would be a replay miss.
+   outcome is `stored` or forgiven, and the run is not on the local runtime. Anything else is
+   `partial`. Q27 removes D2: a call that left no entry at its key would be a replay miss. Q32 forgives
+   only a no-answer outcome (`error`, or `failed`/`refused`/`missing` whose last response was not 2xx)
+   that meets all three of these conditions:
+   - Every final Case result and every Attempt failed with a supported deterministic failure.
+     Currently only a non-retryable candidate `model_token_cap` qualifies. Unknown, missing,
+     retryable and time-based failures stay strict; a data mount or outbound source can recover.
+   - The copy contains a stored response classified as `model_token_cap` at the unanswered call's
+     exact case/attempt key. A failed Case alone, or a response from another attempt, is not proof.
+   - No later call with the same lane, request digest and case key, at a higher occurrence, gave
+     the model an answer.
+
+   A replay of such a Case misses or never sends the call, and the Case fails again either way. A
+   no-answer outcome in a scored Case, or outside any Case, is never forgiven.
 6. Run summary attributes: `capture.frozen_copy_id`, `capture.status`, and
    `capture.partial.<reason>` counts (`failed`, `refused`, `missing`, `open`, `seal`, `error`,
-   `ambiguous`, `local`). A capture run always writes them, even with no model call and also when the run
-   fails.
+   `ambiguous`, `local`). A forgiven outcome (Q32) is not counted. A capture run always writes them,
+   even with no model call and also when the run fails.
 7. **`ambiguous` (pinned 2026-10-08, B3 review):** in capture mode, a call that the engine re-issued under a
    `max-age` bound, or a call whose transport attempt was retried, may leave a stored answer the model never
    used ahead of the one it used. Such a call records `ambiguous`, which is never forgiven, so the run is
    `partial`. A call whose every transport attempt lost its reply is `ambiguous` too (#1332 review).
+   Q32 narrows this:
+   - A `max-age` re-issue whose last response is 2xx takes that response's `X-AIGW-Capture` status.
+   - A transport failure in the connect phase (`ConnectError`, `ConnectTimeout`, `PoolTimeout`) sent
+     no request byte, so the gateway stored nothing for that try. It does not make the call
+     `ambiguous`; if every try failed that way and the call read no 2xx before, the call is
+     `error`.
+   - A call that read a 2xx response and then did not return stays `ambiguous`. Examples: its
+     `max-age` re-issue failed in the connect phase on every try, had no deadline left, or was
+     cancelled. The copy holds a 200 that the model never used, and a replay serves it.
 8. **`local` (Q23):** a capture on the local runtime (`create_local_app`) counts `capture.partial.local =
    1`. Its copy lives only in the local gateway, so a hosted board can never replay it.
 

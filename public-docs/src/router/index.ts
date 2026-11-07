@@ -39,6 +39,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/guides/ConnectionsPage.vue'),
     },
     {
+      path: '/sf-client/guides/map-reduce',
+      name: 'sf-client-guides-map-reduce',
+      component: () => import('@/pages/sf-client/guides/MapReducePage.vue'),
+    },
+    {
       path: '/sf-client/guides/models',
       name: 'sf-client-guides-models',
       component: () => import('@/pages/sf-client/guides/ModelsPage.vue'),
@@ -52,6 +57,11 @@ const router = createRouter({
       path: '/sf-client/guides/pipelines',
       name: 'sf-client-guides-pipelines',
       component: () => import('@/pages/sf-client/guides/PipelinesPage.vue'),
+    },
+    {
+      path: '/sf-client/guides/community-cache',
+      name: 'sf-client-guides-community-cache',
+      component: () => import('@/pages/sf-client/guides/CommunityCachePage.vue'),
     },
     {
       path: '/sf-client/guides/benchmarks',
@@ -114,6 +124,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/FusionsPage.vue'),
     },
     {
+      path: '/sf-client/api/reducers',
+      name: 'sf-client-api-reducers',
+      component: () => import('@/pages/sf-client/api/ReducersPage.vue'),
+    },
+    {
       path: '/sf-client/api/pipelines',
       name: 'sf-client-api-pipelines',
       component: () => import('@/pages/sf-client/api/PipelinesPage.vue'),
@@ -147,6 +162,21 @@ const router = createRouter({
       path: '/sf-client/api/leaderboards',
       name: 'sf-client-api-leaderboards',
       component: () => import('@/pages/sf-client/api/LeaderboardsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/classify',
+      name: 'sf-client-api-classify',
+      component: () => import('@/pages/sf-client/api/ClassifyPage.vue'),
+    },
+    {
+      path: '/sf-client/api/cache',
+      name: 'sf-client-api-cache',
+      component: () => import('@/pages/sf-client/api/CachePage.vue'),
+    },
+    {
+      path: '/sf-client/api/analytics',
+      name: 'sf-client-api-analytics',
+      component: () => import('@/pages/sf-client/api/AnalyticsPage.vue'),
     },
     {
       path: '/learn',

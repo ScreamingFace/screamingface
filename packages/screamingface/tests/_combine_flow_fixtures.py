@@ -96,8 +96,12 @@ def members3() -> list[str]:
     return ["provider/a", "provider/b", "provider/c"]
 
 
-def judge_fusion(returns: Literal["label", "scores"] = "label", **kw: Any) -> sf.Fusion:
-    """Three members under one judge on ``provider/j``; ``kw`` goes to ``sf.Judge``."""
+def judge_fusion(returns: Literal["label", "scores"] = "label", **kw: Any) -> sf.Recipe:
+    """Three members under one judge on ``provider/j``: a ``JudgePick`` (label), or a ``Judge``
+    and an ``ArgMax``/``ArgMin`` (scores, ``order=``); ``kw`` goes to the judge step."""
 
     options: dict[str, Any] = {"rubric": RUBRIC, **kw}
-    return sf.Fusion(members3(), synthesizer=sf.Judge("provider/j", returns=returns, **options))
+    if returns == "label":
+        return sf.Fanout(members3()) >> sf.JudgePick("provider/j", **options)
+    best = sf.ArgMin if options.pop("order", "max") == "min" else sf.ArgMax
+    return sf.Fanout(members3()) >> sf.Judge("provider/j", **options) >> best("score:judge")

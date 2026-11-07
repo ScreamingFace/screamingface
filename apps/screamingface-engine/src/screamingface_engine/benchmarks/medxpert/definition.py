@@ -54,6 +54,7 @@ from screamingface_engine.benchmarks.protocol import (
     preserve_candidate_outcome,
 )
 from screamingface_engine.benchmarks.provenance import FrontierScore, HumanBaseline
+from screamingface_engine.benchmarks.selection import CaseSelection
 from screamingface_engine.benchmarks.shared_grading.serving import (
     benchmark_routes,
     compute_benchmark_revision,
@@ -126,14 +127,18 @@ CASE_GRADE_ROUTE = _ROUTES.case_evaluation
 AGGREGATE_ROUTE = _ROUTES.aggregate
 
 
-def _build(case_count: int) -> Node:
+def _build(selection: int | CaseSelection) -> Node:
     """Build the two-turn MedXpertQA expression.
 
     Reading outside-in: fetch the Cases, and for each ask the Candidate to reason, then ask the
     SAME Candidate to commit against the bare trigger, then check the committed letter against
     the private key and roll the rows into the aggregate.
+
+    ``selection`` is the run's Cases (OME-1739): a count or explicit ids; the Candidate is
+    told the run's size (``selected.count``), never the highest id.
     """
 
+    selected: CaseSelection = CaseSelection.coerce(selection)
     # Turn 1 — free reasoning. The cases file prepares the ready-made CoT prompt.
     # INVARIANT: this node is bound at CASE-EXECUTION scope (via `bindings=` below), never
     # inside the grading scope. The protective iterate rebinds `$item` to the
@@ -143,7 +148,7 @@ def _build(case_count: int) -> Node:
         "$item.cot_prompt",
         case_id="$item.id",
         case_index="$index",
-        case_count=str(case_count),
+        case_count=str(selected.count),
         web_search=CANDIDATE_WEB_SEARCH,
         binding="$candidate",
     )
@@ -156,7 +161,7 @@ def _build(case_count: int) -> Node:
         {"question": "$item.input", "reasoning": "$reasoning", "trigger": "$item.trigger"},
         case_id="$item.id",
         case_index="$index",
-        case_count=str(case_count),
+        case_count=str(selected.count),
         web_search=CANDIDATE_WEB_SEARCH,
         binding="$candidate",
     )
@@ -198,9 +203,9 @@ def _build(case_count: int) -> Node:
                 bindings=(src(reasoning, name="reasoning", weight=0.0),),
             ),
             aggregate_route=AGGREGATE_ROUTE,
-            selected_case_count=case_count,
+            selected_case_count=selected,
         ),
-        selected_case_count=case_count,
+        selected_case_count=selected,
         available_case_count=CASE_COUNT,
         aggregate_route=AGGREGATE_ROUTE + "/graded",
     )

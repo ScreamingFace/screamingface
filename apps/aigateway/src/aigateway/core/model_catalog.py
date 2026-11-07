@@ -10,8 +10,10 @@ INVARIANT (hexagonal): core consults only the ``model_discovery_source`` /
 or which entries were seeds. The provider returns FINISHED rows.
 
 INVARIANT: live data changes what is LISTED, never what is dispatchable —
-nothing here touches admission, dispatch, or credentials, and the catalog is
-consulted off the chat critical path only.
+nothing here touches admission, dispatch, or credentials.
+INVARIANT (OME-1807, owner decision 2026-11-02): chat may READ a snapshot, never
+refresh one. ``snapshot_entries`` is the only catalog call on the chat path; it
+never dials, so a cold catalog costs chat nothing and reads as unknown.
 """
 
 from __future__ import annotations
@@ -158,6 +160,22 @@ class ModelCatalog:
             )
             for entry in entries
         )
+
+    def snapshot_entries(self, plugin: ModelListingProvider) -> tuple[ModelEntry, ...] | None:
+        """The provider's cached live listing, read without refreshing; ``None`` when absent.
+
+        # FEATURE: the chat modality backstop (OME-1807) reads published modalities here.
+        # INVARIANT: never calls ``discover_live_models`` and never opens a cache slot — a
+        # provider no listing request has warmed yet simply has no snapshot.
+        """
+        source = plugin.model_discovery_source()
+        if source is None:
+            return None
+        cache = self._caches.get(plugin.custom_llm_provider)
+        if cache is None:
+            return None
+        value = cache.peek(source.key, revision=source.revision)
+        return cast("tuple[ModelEntry, ...] | None", value)
 
     def _cache_for(self, provider: str, source: ModelDiscoverySource) -> ObservationCache:
         # WHY per provider: the cache policy (TTL/stale/damping) rides on each

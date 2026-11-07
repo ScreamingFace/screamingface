@@ -5,20 +5,29 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Any, cast
 from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
 
 from screamingface_engine import job_env
+from screamingface_engine.connections.aigateway_rows import (
+    MANAGED_LABEL,
+    ConnectionRow,
+    Plan,
+    Selection,
+    UpstreamConnectionStatus,
+    api_key_plan,
+    disconnect_plan,
+    oauth_start_plan,
+    select,
+)
 from screamingface_engine.connections.port import (
     AuthMethod,
     Caller,
     Connection,
-    ConnectionAlreadyConnected,
     ConnectionBadResponse,
-    ConnectionConflict,
     ConnectionMethodUnsupported,
     ConnectionNotFound,
     ConnectionStatus,
@@ -39,9 +48,6 @@ _CONNECTIONS_PATH = "/v1/oauth/connections"
 # The caller-scoped, read-only availability successor (D17): provider and status only.
 _PROVIDER_ACCESS_PATH = "/v1/provider-access"
 _API_KEY_PATH = f"{_CONNECTIONS_PATH}/api-key"
-# Inter-service contract: assigning this label explicitly designates a row for ScreamingFace
-# management. Rows under every other label remain outside this adapter's public projection.
-_MANAGED_LABEL = "screamingface"
 _MAX_OAUTH_EXPIRES_IN_SECONDS = 30 * 60
 
 
@@ -52,43 +58,31 @@ class _Provider:
     auth_methods: tuple[AuthMethod, ...]
 
 
-_UpstreamConnectionStatus = Literal["pending", "active", "expired", "revoked", "error"]
-
-
-@dataclass(frozen=True, slots=True)
-class _ConnectionRow:
-    id: UUID
-    provider: str
-    label: str
-    status: _UpstreamConnectionStatus
-    auth_type: AuthMethod
-    account_label: str | None
-
-
 class AigatewayConnections:
     """Combine AI Gateway provider capabilities with caller-scoped connection state."""
 
     def __init__(self, client: httpx.AsyncClient, *, mutable: bool = True) -> None:
-        # FEATURE (OME-1245, D15): one explicit flag decides both what this adapter lists and
-        # whether it may write. Hosted (`mutable=False`) reads the caller's provider-access
-        # availability and refuses every mutation before I/O; Local (`mutable=True`) lists and
-        # manages the caller's own rows under `/v1/oauth/connections`.
+        # FEATURE (OME-1245, D15): one explicit flag decides whether this adapter may write.
+        # Hosted (`mutable=False`) reports the caller's provider access and refuses every
+        # mutation before I/O; Local (`mutable=True`) also manages the Connection chat uses
+        # (OME-1138 L7b). Both take every status from `GET /v1/provider-access`.
         self._client = client
         self._mutable = mutable
 
     async def list(self, caller: Caller) -> tuple[Connection, ...]:
         providers = await self._providers(caller)
-        if not self._mutable:
-            statuses = await self._availability(caller)
-            return tuple(
-                _status_only(provider, statuses.get(provider.id, "not_connected"))
-                for provider in providers
-            )
-        rows = await self._rows(caller)
+        selections = (
+            select(await self._rows(caller), [provider.id for provider in providers])
+            if self._mutable
+            else {}
+        )
+        statuses = await self._availability(caller)
         return tuple(
-            _disconnected(provider)
-            if (selected := _select(rows, provider.id)) is None
-            else _public(selected, provider)
+            _connection(
+                provider,
+                statuses.get(provider.id, "not_connected"),
+                None if (selection := selections.get(provider.id)) is None else selection.effective,
+            )
             for provider in providers
         )
 
@@ -97,73 +91,59 @@ class AigatewayConnections:
         selected_provider = _provider(await self._providers(caller), provider)
         if "api_key" not in selected_provider.auth_methods:
             raise ConnectionMethodUnsupported()
-        rows = await self._rows(caller, provider=provider)
-        selected = _select(rows, provider)
-        if selected is None:
+        plan = api_key_plan(await self._selection(caller, provider))
+        await self._remove(caller, plan)
+        if plan.rekey is None:
             response = await self._request(
                 "POST",
                 _API_KEY_PATH,
                 caller,
-                json={"provider": provider, "label": _MANAGED_LABEL, "api_key": api_key},
+                json={"provider": provider, "label": MANAGED_LABEL, "api_key": api_key},
             )
             expected_status = 201
         else:
-            if selected.auth_type != "api_key":
-                raise ConnectionAlreadyConnected()
             response = await self._request(
                 "PUT",
-                f"{_CONNECTIONS_PATH}/{selected.id}/api-key",
+                f"{_CONNECTIONS_PATH}/{plan.rekey.id}/api-key",
                 caller,
                 json={"api_key": api_key},
             )
             expected_status = 200
         row = _decode_row(response)
+        # WHY no label check: an in-place PUT on a row the user named keeps that name (spec §3).
         if (
             response.status_code != expected_status
-            or row.label != _MANAGED_LABEL
+            or row.provider != provider
             or row.auth_type != "api_key"
             or row.status != "active"
         ):
             raise ConnectionBadResponse()
-        return _public(row, selected_provider)
+        # INVARIANT (spec §3): the status is the one the gateway lists once the write is done,
+        # never one derived from the written row; the row only supplies the method.
+        return _connection(selected_provider, await self._status(caller, provider), row)
 
     async def start_oauth(self, caller: Caller, provider: str) -> OAuthAuthorization:
         self._require_mutable()
         selected_provider = _provider(await self._providers(caller), provider)
         if "oauth" not in selected_provider.auth_methods:
             raise ConnectionMethodUnsupported()
-        rows = await self._rows(caller, provider=provider)
-        selected = _select(rows, provider)
-        if selected is not None:
-            raise ConnectionAlreadyConnected()
+        plan = oauth_start_plan(await self._selection(caller, provider))
+        await self._remove(caller, plan)
         response = await self._request(
             "POST",
             _CONNECTIONS_PATH,
             caller,
-            json={"provider": provider, "label": _MANAGED_LABEL},
+            json={"provider": provider, "label": MANAGED_LABEL},
         )
         return _decode_oauth_authorization(response, provider)
 
     async def disconnect(self, caller: Caller, provider: str) -> Connection:
         self._require_mutable()
         selected_provider = _provider(await self._providers(caller), provider)
-        rows = await self._rows(caller, provider=provider)
-        selected = _select(rows, provider)
-        if selected is None:
-            return _disconnected(selected_provider)
-        try:
-            response = await self._request(
-                "DELETE",
-                f"{_CONNECTIONS_PATH}/{selected.id}",
-                caller,
-            )
-        except ConnectionNotFound:
-            # The caller-visible operation is idempotent. A concurrent disconnect may revoke the
-            # row after our list but before our delete; that already achieved the requested state.
-            return _disconnected(selected_provider)
-        if response.status_code != 204:
-            raise ConnectionBadResponse()
-        return _disconnected(selected_provider)
+        await self._remove(caller, disconnect_plan(await self._selection(caller, provider)))
+        # WHY read after the writes: deleting `E` clears the pair's reference, so another active
+        # row of the user's may now be effective and keep the provider `connected`.
+        return _status_only(selected_provider, await self._status(caller, provider))
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -174,6 +154,34 @@ class AigatewayConnections:
         # reach any store. Refuse before any gateway request; the REST layer renders this as 400.
         if not self._mutable:
             raise ConnectionMethodUnsupported()
+
+    async def _selection(self, caller: Caller, provider: str) -> Selection:
+        # WHY by provider only, never by status: a status filter could hide a non-active `E`.
+        rows = await self._rows(caller, provider=provider)
+        return select(rows, [provider])[provider]
+
+    async def _remove(self, caller: Caller, plan: Plan) -> None:
+        # INVARIANT (spec §2a): a repair `DELETE` requires the status the listing showed, so the
+        # gateway refuses (409, `ConnectionConflict`) a row that started serving since — before
+        # any create or start, so the key never leaves. Only `E` is deleted without a condition.
+        targets: list[tuple[ConnectionRow, str | None]] = [(row, row.status) for row in plan.repair]
+        if plan.retire is not None:
+            targets.append((plan.retire, None))
+        for row, expected in targets:
+            params = None if expected is None else {"expected_status": expected}
+            try:
+                response = await self._request(
+                    "DELETE", f"{_CONNECTIONS_PATH}/{row.id}", caller, params=params
+                )
+            except ConnectionNotFound:
+                # The caller-visible operation is idempotent. A concurrent disconnect may revoke
+                # the row after our list but before our delete; that already met the goal.
+                continue
+            if response.status_code != 204:
+                raise ConnectionBadResponse()
+
+    async def _status(self, caller: Caller, provider: str) -> ConnectionStatus:
+        return (await self._availability(caller)).get(provider, "not_connected")
 
     async def _providers(self, caller: Caller) -> tuple[_Provider, ...]:
         response = await self._request("GET", _PROVIDERS_PATH, caller)
@@ -193,7 +201,7 @@ class AigatewayConnections:
         caller: Caller,
         *,
         provider: str | None = None,
-    ) -> list[_ConnectionRow]:
+    ) -> list[ConnectionRow]:
         response = await self._request(
             "GET",
             _CONNECTIONS_PATH,
@@ -250,19 +258,6 @@ def _provider(providers: tuple[_Provider, ...], provider: str) -> _Provider:
     return selected
 
 
-def _select(rows: list[_ConnectionRow], provider: str) -> _ConnectionRow | None:
-    managed = [row for row in rows if row.provider == provider and row.label == _MANAGED_LABEL]
-    if len(managed) == 1:
-        return managed[0]
-    if len(managed) > 1:
-        raise ConnectionConflict()
-    return None
-
-
-def _disconnected(provider: _Provider) -> Connection:
-    return _status_only(provider, "not_connected")
-
-
 def _status_only(provider: _Provider, status: ConnectionStatus) -> Connection:
     """A catalogue row carrying only a status: no credential method, no account label."""
     return Connection(
@@ -273,28 +268,21 @@ def _status_only(provider: _Provider, status: ConnectionStatus) -> Connection:
     )
 
 
-def _public(row: _ConnectionRow, provider: _Provider) -> Connection:
-    if row.provider != provider.id:
-        raise ConnectionBadResponse()
-    status = {
-        "active": "connected",
-        "pending": "pending",
-        "expired": "needs_reauth",
-        "revoked": "needs_reauth",
-        "error": "error",
-    }.get(row.status)
-    if status is None:
-        raise ConnectionBadResponse()
-    auth_method = row.auth_type
-    if auth_method not in provider.auth_methods:
+def _connection(
+    provider: _Provider, status: ConnectionStatus, row: ConnectionRow | None
+) -> Connection:
+    """The public row: the listed status, plus the method and safe account label of `row`."""
+    if row is None:
+        return _status_only(provider, status)
+    if row.auth_type not in provider.auth_methods:
         raise ConnectionBadResponse()
     return Connection(
         provider=provider.id,
         display_name=provider.display_name,
         auth_methods=provider.auth_methods,
-        status=cast(ConnectionStatus, status),
-        auth_method=auth_method,
-        account_label=row.account_label if auth_method == "oauth" else None,
+        status=status,
+        auth_method=row.auth_type,
+        account_label=row.account_label if row.auth_type == "oauth" else None,
     )
 
 
@@ -328,7 +316,7 @@ def _validate_provider(value: object) -> _Provider:
     )
 
 
-def _decode_row(response: httpx.Response) -> _ConnectionRow:
+def _decode_row(response: httpx.Response) -> ConnectionRow:
     return _validate_row(_decode_object(response))
 
 
@@ -405,7 +393,7 @@ def _decode_object(response: httpx.Response) -> dict[str, Any]:
     return body
 
 
-def _validate_row(value: object) -> _ConnectionRow:
+def _validate_row(value: object) -> ConnectionRow:
     if not isinstance(value, dict):
         raise ConnectionBadResponse()
     connection_id = value.get("id")
@@ -413,6 +401,9 @@ def _validate_row(value: object) -> _ConnectionRow:
     label = value.get("label")
     status = value.get("status")
     auth_type = value.get("auth_type")
+    # WHY absence is valid: a gateway older than L7a lists no flag, and a write's response never
+    # carries one; a present flag must be a boolean.
+    effective = value.get("effective")
     if (
         not isinstance(connection_id, str)
         or not _is_uuid(connection_id)
@@ -423,15 +414,17 @@ def _validate_row(value: object) -> _ConnectionRow:
         or status not in {"pending", "active", "expired", "revoked", "error"}
         or not isinstance(auth_type, str)
         or auth_type not in {"api_key", "oauth"}
+        or ("effective" in value and not isinstance(effective, bool))
     ):
         raise ConnectionBadResponse()
-    return _ConnectionRow(
+    return ConnectionRow(
         id=UUID(connection_id),
         provider=provider,
         label=label,
-        status=cast(_UpstreamConnectionStatus, status),
+        status=cast(UpstreamConnectionStatus, status),
         auth_type=cast(AuthMethod, auth_type),
         account_label=_account_label(value.get("account")),
+        effective=effective if "effective" in value else None,
     )
 
 

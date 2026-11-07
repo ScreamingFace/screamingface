@@ -27,6 +27,7 @@ from screamingface._core.ports import (
 from screamingface._environment import SDK_PACKAGE_ROOT
 from screamingface._evaluation.benchmark import _BenchmarkResource
 from screamingface._evaluation.candidate import recipes_need_operators
+from screamingface._evaluation.case_selection import selected_cases
 from screamingface._evaluation.completion import completion_callback
 from screamingface._evaluation.model import (
     Candidate,
@@ -65,8 +66,10 @@ type _SyncModelLoading = Callable[[], _ModelCatalog]
 type _AsyncModelLoading = Callable[[], Awaitable[_ModelCatalog]]
 type _SyncModelDetailsLoading = Callable[[str], ModelDetails]
 type _AsyncModelDetailsLoading = Callable[[str], Awaitable[ModelDetails]]
-type _SyncBenchmarkLoading = Callable[[str, int | None], _BenchmarkResource]
-type _AsyncBenchmarkLoading = Callable[[str, int | None], Awaitable[_BenchmarkResource]]
+type _SyncBenchmarkLoading = Callable[[str, int | None, tuple[int, ...] | None], _BenchmarkResource]
+type _AsyncBenchmarkLoading = Callable[
+    [str, int | None, tuple[int, ...] | None], Awaitable[_BenchmarkResource]
+]
 type _SyncOperatorLoading = Callable[[], _OperatorCatalog]
 type _AsyncOperatorLoading = Callable[[], Awaitable[_OperatorCatalog]]
 
@@ -89,6 +92,7 @@ def evaluate_sync(
     capture: bool = False,
     load_operators: _SyncOperatorLoading | None = None,
     use_cache: bool = True,
+    cases: object = None,
 ) -> Report:
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
@@ -98,12 +102,17 @@ def evaluate_sync(
 
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
-    resource = load_benchmark(benchmark, limit)
+    # FEATURE (OME-1739): a bad Case-id list fails here, before the Engine is asked anything.
+    resource = load_benchmark(benchmark, limit, selected_cases(cases, limit))
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     # extract="benchmark" resolves inside compile_evaluation from resource.answer_rule, before any
     # spend (GP-1).
     evaluation = compile_evaluation(
-        values, resource, limit, operators=_operators_sync(values, load_operators)
+        values,
+        resource,
+        limit,
+        operators=_operators_sync(values, load_operators),
+        warn_judge_writers=False,
     )
     # FEATURE (OME-1193, OME-1307): stamp the declared sitting (`answer_seed`) and the capture
     # request (`capture`) onto every compiled Candidate ONCE, so the transport, the progress
@@ -138,6 +147,8 @@ def evaluate_sync(
         )
         try:
             outcomes = _settled_sync(transport, evaluation, selected_candidates, observer)
+            # OME-1739 F6 (the roll-call check) runs per Candidate inside the decode, so a
+            # mismatch is a named Candidate failure and never reaches a Partial Report.
             report = completed_report(evaluation, outcomes)
         except BaseException as exc:
             _abort_event_observer(observer, exc)
@@ -160,6 +171,7 @@ async def evaluate_async(
     capture: bool = False,
     load_operators: _AsyncOperatorLoading | None = None,
     use_cache: bool = True,
+    cases: object = None,
 ) -> Report:
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
@@ -169,12 +181,17 @@ async def evaluate_async(
 
     _evaluation_options(on_event, progress)
     values = _evaluation_inputs(candidates, benchmark, limit)
-    resource = await load_benchmark(benchmark, limit)
+    # FEATURE (OME-1739): see the sync twin.
+    resource = await load_benchmark(benchmark, limit, selected_cases(cases, limit))
     check_disclosure = _validate_check_surface(values, benchmark, resource)
     # extract="benchmark" resolves inside compile_evaluation from resource.answer_rule, before any
     # spend (GP-1).
     evaluation = compile_evaluation(
-        values, resource, limit, operators=await _operators_async(values, load_operators)
+        values,
+        resource,
+        limit,
+        operators=await _operators_async(values, load_operators),
+        warn_judge_writers=False,
     )
     # FEATURE (OME-1193, OME-1307): see the sync twin — one stamped tuple (seed and capture) for
     # transport, observer and report alike.
@@ -208,6 +225,7 @@ async def evaluate_async(
         )
         try:
             outcomes = await _settled_async(transport, evaluation, selected_candidates, observer)
+            # OME-1739 F6: see the sync twin; the check lives in the per-Candidate decode.
             report = completed_report(evaluation, outcomes)
         except BaseException as exc:
             _abort_event_observer(observer, exc)
@@ -662,12 +680,16 @@ def _warn_fixed_seed(name: str, calls: tuple[str, ...]) -> None:
 
 
 def _own_seed_calls(candidate: Candidate) -> tuple[str, ...]:
-    """Each compiled model call whose resolved params carry a ``seed``, as ``id (label)``."""
-    labels = {operation.id: operation.label for operation in candidate.operations}
+    """Each compiled model call whose resolved params carry a ``seed``, as ``id (label)``.
+
+    A consistency sample call (kind ``sample``, E4b part 7 P18) is left out: its seed is part of
+    the method, so the author cannot drop it.
+    """
+    operations = {operation.id: operation for operation in candidate.operations}
     return tuple(
-        f"{assignment.operation_id} ({labels[assignment.operation_id]})"
+        f"{assignment.operation_id} ({operations[assignment.operation_id].label})"
         for assignment in candidate.parameter_assignments
-        if _SEED_PARAM in assignment.params
+        if _SEED_PARAM in assignment.params and operations[assignment.operation_id].kind != "sample"
     )
 
 

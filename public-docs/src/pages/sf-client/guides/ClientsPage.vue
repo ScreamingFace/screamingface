@@ -15,7 +15,7 @@ const shortcut = `import screamingface as sf
 
 report = sf.evaluate(
     sf.Model("openrouter/anthropic/claude-haiku-4.5"),
-    benchmark="ifeval",
+    benchmark="medxpert",
     limit=1,
 )
 sf.close()`
@@ -25,7 +25,7 @@ const explicit = `import screamingface as sf
 with sf.Client(engine_url="${SF_ENGINE_URL}") as client:
     report = client.evaluate(
         sf.Model("openrouter/anthropic/claude-haiku-4.5"),
-        benchmark="ifeval",
+        benchmark="medxpert",
         limit=1,
     )`
 
@@ -44,7 +44,11 @@ sf.configure(
     engine_url="http://127.0.0.1:9108",
     scoreboard_url="http://127.0.0.1:9106",
 )
-report = sf.evaluate(candidates, benchmark="draco", limit=1)
+report = sf.evaluate(
+    sf.Model("openrouter/anthropic/claude-haiku-4.5"),
+    benchmark="medxpert",
+    limit=1,
+)
 sf.close()`
 
 const multi = `import screamingface as sf
@@ -53,10 +57,13 @@ candidate = sf.Model("openrouter/anthropic/claude-haiku-4.5")
 
 with (
     sf.Client(engine_url="${SF_ENGINE_URL}") as hosted,
-    sf.Client(engine_url="http://127.0.0.1:9108") as local,
+    sf.Client(
+        engine_url="http://127.0.0.1:9108",
+        scoreboard_url="http://127.0.0.1:9106",
+    ) as local,
 ):
-    hosted_report = hosted.evaluate(candidate, benchmark="ifeval", limit=1)
-    local_report = local.evaluate(candidate, benchmark="ifeval", limit=1)`
+    hosted_report = hosted.evaluate(candidate, benchmark="medxpert", limit=1)
+    local_report = local.evaluate(candidate, benchmark="medxpert", limit=1)`
 
 const asyncCode = `import asyncio
 import screamingface as sf
@@ -65,11 +72,11 @@ async def main():
     async with sf.AsyncClient(engine_url="${SF_ENGINE_URL}") as client:
         return await client.evaluate(
             sf.Model("openrouter/anthropic/claude-haiku-4.5"),
-            benchmark="ifeval",
+            benchmark="medxpert",
             limit=1,
         )
 
-report = asyncio.run(main())`
+report = asyncio.run(main())   # in a notebook: report = await main()`
 
 const transport = `import screamingface as sf
 
@@ -92,8 +99,7 @@ client = sf.Client(
       Most of the time you'll reach for the <strong>module-level shortcuts</strong>:
       <code>sf.evaluate(...)</code>, <code>sf.connect(...)</code>, and the rest. They're the
       shortest to write, which is why the
-      <RouterLink to="/sf-client/first-fusion">Quickstart</RouterLink> and every notebook use
-      them.
+      <RouterLink to="/sf-client/first-fusion">Quickstart</RouterLink> and every notebook use them.
     </p>
 
     <p>
@@ -198,9 +204,12 @@ client = sf.Client(
     </div>
 
     <p>
-      Left alone, that default points at the hosted development engine. Point it somewhere else in
-      one of two ways. Set the environment before the first call, which suits a local engine you
-      already export elsewhere:
+      Left alone, that default points at the hosted engine,
+      <code>https://fusion.screamingface.ai</code>, and the public leaderboard,
+      <code>https://leaderboard.screamingface.ai</code>. When <code>screamingface up</code> is
+      running and no environment variable is set, the first call connects to that local stack
+      instead and prints the URL it chose. Point it somewhere else in one of two ways. Set the
+      environment before the first call, which suits a local engine you already export elsewhere:
     </p>
 
     <div class="not-prose">
@@ -215,12 +224,18 @@ client = sf.Client(
 
     <p>
       <code>sf.configure(...)</code> takes only <code>engine_url</code> and
-      <code>scoreboard_url</code>, and a non-default <code>engine_url</code> must come with its
-      <code>scoreboard_url</code> — the call raises otherwise, as does
-      <code>SCREAMINGFACE_ENGINE_URL</code> without <code>SCREAMINGFACE_SCOREBOARD_URL</code>. For
-      anything more, construct a <code>Client</code> yourself. <code>sf.close()</code> closes the
-      default and forgets it, so the next shortcut builds a fresh one; it is the tidy end to a
-      script.
+      <code>scoreboard_url</code>. A non-default <code>engine_url</code> requires its own
+      <code>scoreboard_url</code>; without it the call raises <code>ValueError</code>, so a local
+      run never publishes to the public leaderboard. <code>SCREAMINGFACE_ENGINE_URL</code> requires
+      <code>SCREAMINGFACE_SCOREBOARD_URL</code> the same way. A
+      <code>sf.Client(engine_url=...)</code> without <code>scoreboard_url</code> uses the public
+      leaderboard. For anything more, construct a <code>Client</code> yourself.
+      <code>sf.close()</code> closes the default and forgets it, so the next shortcut builds a fresh
+      one; it is the tidy end to a script. The fresh default does not keep your
+      <code>sf.configure(...)</code> settings: call <code>sf.configure(...)</code> again, or set
+      <code>SCREAMINGFACE_ENGINE_URL</code> together with <code>SCREAMINGFACE_SCOREBOARD_URL</code>,
+      before the next call, or it targets the local stack when one is running and the hosted engine
+      otherwise.
     </p>
 
     <Note>
@@ -266,6 +281,13 @@ client = sf.Client(
 
     <CodeBlock :code="asyncCode" language="python" />
 
+    <p>
+      A script starts the event loop with <code>asyncio.run(main())</code>. A notebook already runs
+      one, so there <code>asyncio.run</code> raises
+      <code>RuntimeError: asyncio.run() cannot be called from a running event loop</code>: call
+      <code>await main()</code> instead.
+    </p>
+
     <Note>
       There is deliberately <strong>no <code>await sf.evaluate(...)</code></strong
       >. A single process-wide async Client would bind its connection pool to one event loop. That
@@ -281,7 +303,9 @@ client = sf.Client(
       <code>run_transport</code>: the seam for tests and proxies. A mock transport lets a test drive
       the Client with no network at all. These are constructor-only: there is no way to reach them
       through the <code>sf.*</code> path, which is another reason a test suite builds its own
-      Client.
+      Client. The constructor also takes <code>save_results</code>, which controls whether completed
+      reports are saved to <code>~/.screamingface/results</code>; it is on by default. See
+      <RouterLink to="/sf-client/guides/running-an-evaluation">Running an evaluation</RouterLink>.
     </p>
 
     <CodeBlock :code="transport" language="python" />
@@ -334,7 +358,7 @@ client = sf.Client(
         >
       </li>
       <li>
-        <RouterLink to="/sf-client/guides/connections">Connections</RouterLink> — logging in and
+        <RouterLink to="/sf-client/guides/connections">Connections</RouterLink>: logging in and
         connecting a provider through whichever Client you chose
       </li>
       <li>

@@ -39,6 +39,10 @@ on:
 permissions:
   contents: read
 
+# INVARIANT: test and preparation commands never enroll runners in SDK analytics.
+env:
+  DO_NOT_TRACK: "1"
+
 jobs:
   paid-smoke:
     runs-on: ubuntu-latest

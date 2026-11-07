@@ -32,6 +32,10 @@ concurrency:
   group: screamingface-engine-tests-${{ github.ref }}
   cancel-in-progress: true
 
+# INVARIANT: test and preparation commands never enroll runners in SDK analytics.
+env:
+  DO_NOT_TRACK: "1"
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -205,9 +209,9 @@ jobs:
       # switch, so a broken one is a deployment that cannot run either half.
       - name: Smoke both modes
         run: |
-          docker run --rm screamingface-engine:ci screamingface-engine --help
-          docker run --rm screamingface-engine:ci screamingface-engine run --help
-          docker run --rm screamingface-engine-benchmark:ci screamingface-engine run --help
+          docker run --rm -e DO_NOT_TRACK=1 screamingface-engine:ci screamingface-engine --help
+          docker run --rm -e DO_NOT_TRACK=1 screamingface-engine:ci screamingface-engine run --help
+          docker run --rm -e DO_NOT_TRACK=1 screamingface-engine-benchmark:ci screamingface-engine run --help
 
   chart:
     name: Render the Helm chart

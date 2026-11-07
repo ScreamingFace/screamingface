@@ -13,12 +13,13 @@ INVARIANT (conservative subset): the inline ``/v1/models`` summary is the cross-
 INTERSECTION of the rule set — a subset of any single auth mode's enabled detail, NOT
 an exact copy. An api-key-only field is enabled in the api-key detail yet absent from
 the summary; that asymmetry is intentional (never overclaim an auth-specific field
-profile-independently), so the summary must never be "reconciled" to equal the detail.
+caller-independently), so the summary must never be "reconciled" to equal the detail.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Protocol, cast
 from urllib.parse import quote
 
 from .chat_parameters import (
@@ -27,9 +28,10 @@ from .chat_parameters import (
     supported_tool_types,
 )
 from .input_modalities import normalize_input_modalities
+from .plugin_base import ModelEntry
 
 if TYPE_CHECKING:
-    from .plugin_base import ModelEntry, ProviderPluginBase
+    from .plugin_base import ProviderPluginBase
 
 # INVARIANT: unsupported_parameter_behavior is the literal 'reject' in schema
 # version 1 (fail closed — unknown/disabled params never silently pass).
@@ -80,3 +82,50 @@ def model_row(plugin: ProviderPluginBase, entry: ModelEntry) -> dict[str, Any]:
         # OME-1537: the plugin owns the evidence; core owns the vocabulary.
         "input_modalities": list(normalize_input_modalities(plugin.model_input_modalities(entry))),
     }
+
+
+class _SnapshotReader(Protocol):
+    def snapshot_entries(self, plugin: Any) -> tuple[ModelEntry, ...] | None: ...
+
+
+def routed_model_modality_evidence(
+    plugin: Any,
+    model: str,
+    *,
+    catalog: _SnapshotReader | None,
+    admitted: Mapping[str, ModelEntry],
+) -> tuple[str, ...] | None:
+    """The routed model's PUBLISHED input modalities, or ``None`` when unknown (OME-1807).
+
+    Looks the model up the way ``/v1/models`` lists it — the cached live snapshot, then the
+    admitted models — and otherwise asks the plugin about the bare id, which a declared family
+    table can still answer.
+    # INVARIANT (owner decision (i)): the snapshot is READ, never refreshed — a cold catalog
+    # costs the chat path nothing and reads as unknown.
+    # WHY not ``register_models()``: Ollama's seeds dial ``/api/tags``, and every seed reads as
+    # unknown anyway (seeds carry no evidence), so they add a dial and no answer.
+    # WHY ``getattr``: the registry holds duck-typed providers and minimal test doubles; one
+    # without the port has nothing published.
+    """
+    evidence_of = getattr(plugin, "model_input_modality_evidence", None)
+    if evidence_of is None:
+        return None
+    entry = _routed_entry(plugin, model, catalog=catalog, admitted=admitted)
+    return cast("tuple[str, ...] | None", evidence_of(entry))
+
+
+def _routed_entry(
+    plugin: Any,
+    model: str,
+    *,
+    catalog: _SnapshotReader | None,
+    admitted: Mapping[str, ModelEntry],
+) -> ModelEntry:
+    provider = plugin.custom_llm_provider
+    snapshot = catalog.snapshot_entries(plugin) if catalog is not None else None
+    for entry in snapshot or ():
+        if canonical_model_id(custom_llm_provider=provider, model_name=entry.model_name) == model:
+            return entry
+    if model in admitted:
+        return admitted[model]
+    return ModelEntry(model_name=model, litellm_params={"model": model})

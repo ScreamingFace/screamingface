@@ -394,8 +394,11 @@ class BenchmarkAggregation:
         Only :meth:`aggregate_async`, which always takes every Case, marks concurrently.
         """
         case_ids = tuple(int(selected.case_id) for selected in selected_cases)
-        indexed = self.reader.index(raw_case_grades, case_ids)
+        # FEATURE (OME-1833): validate every row first, then file and mark one at a time, so
+        # only one Case's decoded row is held while it is marked.
+        rows: list[Any] = self.reader.validated_rows(raw_case_grades, case_ids)
         for index, selected in enumerate(selected_cases):
+            indexed: CaseGradeIndex = self.reader.index_position(rows, index, case_ids)
             result = await self.case_result(
                 selected, index, indexed, grading_material, case_metadata
             )
@@ -441,9 +444,11 @@ class BenchmarkAggregation:
 
         # Stage 1-2 — validate and file every row first.
         case_ids: tuple[int, ...] = tuple(int(selected.case_id) for selected in selected_cases)
-        indexed: CaseGradeIndex = self.reader.index(raw_case_grades, case_ids)
+        rows: list[Any] = self.reader.validated_rows(raw_case_grades, case_ids)
 
         async def mark(index: int) -> CaseResult | None:
+            # FEATURE (OME-1833): each seated Case files only its own row.
+            indexed: CaseGradeIndex = self.reader.index_position(rows, index, case_ids)
             return await self.case_result(
                 selected_cases[index], index, indexed, grading_material, case_metadata
             )
@@ -564,6 +569,8 @@ class BenchmarkAggregation:
         grading_failure: GradedAnswer | None = indexed.grading_failures.get(case_id)
         if grading_failure is not None:
             assert grading_failure.error is not None
+            # INVARIANT: a grading error always keeps its Candidate answer (OME-1833).
+            assert grading_failure.candidate is not None
             if grading_failure.candidate.abstained:
                 logger.warning(
                     "abstained Case %s: the grading step failed; the Case stays failed", case_id

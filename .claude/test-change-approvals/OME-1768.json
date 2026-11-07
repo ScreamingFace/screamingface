@@ -1,0 +1,15 @@
+{
+  "issue": "OME-1768",
+  "branch": "OME-1768-colab-recovery-tests",
+  "reason": "On 2026-11-06 Filip explicitly authorized extending Colab consent and delivery budgets to five seconds. These exact edits update timing and forwarded-budget assertions for that contract while retaining late-reply, cancellation and opt-out checks. See docs/work/2026-11-06-colab-analytics-recovery-tests.md.",
+  "files": {
+    "packages/screamingface/tests/test_analytics_colab.py": {
+      "base_blob": "e060455bf7ada055cb66db2d8cd54f412e667864",
+      "approved_blob": "2149fcc9777ef313e863c732ab7fec2dbc9cc156"
+    },
+    "packages/screamingface/tests/test_analytics_default_colab.py": {
+      "base_blob": "bc298b66b1f4af2fed7b9c7b849d1a334481f9cf",
+      "approved_blob": "9feda7eb5a5d86bd91ed73941c678da76bc35e56"
+    }
+  }
+}

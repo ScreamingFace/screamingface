@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import sys
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast, get_args
 
 from screamingface._candidate_policy import GenerationParams
@@ -14,7 +16,9 @@ from screamingface._immutable_json import freeze_mapping, thaw_mapping
 from screamingface._signals import FIELD_PATH, JUDGE_SIGNAL, Signal
 
 if TYPE_CHECKING:
-    from screamingface.judge import Judge
+    from screamingface.gate import GateNode
+    from screamingface.judge import JudgeNode
+    from screamingface.model import Model
 
 type _ReducerKind = Literal["answer", "selection", "projection"]
 type _ReducerName = Literal[
@@ -55,13 +59,35 @@ class _Steps:
 class _ModelSignal:
     """One model call whose reply the combine call reads as ``context.signals[key]``."""
 
-    key: str  # "judge" or "writer_<field>"
+    key: str  # "judge", "writer_<field>", "fallback_judge" or "fallback_writer"
     model: str  # the route as sf.Model stores it
     prompt: str  # the full system text in Python form ("\n" newlines)
     params: GenerationParams
     # The field a writer call writes. It marks a call fed by a projection of that field's values
     # (not by the Fusion context), so the compiler adds the projection combine call before it.
     field: str | None = None
+
+
+# The reducer signal keys of a gate fallback call (E4b part 5, P5). The topology maps them to the
+# judge and writer roles (_signal_role); the Engine `_SIGNAL` pattern accepts both (C6).
+_FALLBACK_JUDGE_KEY = "fallback_judge"
+_FALLBACK_WRITER_KEY = "fallback_writer"
+# The gate ``otherwise`` word -> the key of its fallback call ("abstain" has no call).
+_FALLBACK_KEYS: Mapping[Literal["judge", "writer"], str] = MappingProxyType(
+    {"judge": _FALLBACK_JUDGE_KEY, "writer": _FALLBACK_WRITER_KEY}
+)
+# The key of E4a's judge call: the one call that every step reading score:judge reads.
+_JUDGE_KEY = "judge"
+# The keys of the model calls that judge the members: E4a's "judge" and a vote gate's fallback
+# label judge (E4b part 5).
+_JUDGE_CALL_KEYS: frozenset[str] = frozenset({_JUDGE_KEY, _FALLBACK_JUDGE_KEY})
+# NR-S1 (narrow PRD, O10): the most narrow steps before one main step; the Engine ports the same
+# bound, and the SDK evidence decoder reads it.
+MAX_NARROW_STEPS = 4
+# The ONE table of the narrow steps (narrow PRD §2, NARROW_RULES): select op name -> the reducer
+# of that narrow step. The url4 rebuild reads a narrow item through it.
+_NARROW_SELECTS: Mapping[str, str] = MappingProxyType({"kept": "filter", "top_k": "rank"})
+_NARROW_REDUCERS: frozenset[str] = frozenset(_NARROW_SELECTS.values())
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +111,12 @@ class _ReducerPlan:
     # The signal a by_signal reduce step reads (Pick by signal; 10S adds Rank and Filter). A
     # weighted vote reads its signal through ``weights`` instead; see ``_read_signal``.
     reads: Signal | None = None
+    # E4b part 5 (P1): the vote's gate; combine_spec_text writes its _spec() as "gate".
+    gate: GateNode | None = None
+    # E4b narrow (narrow.md §6): the plans of the narrow steps that run before this step in the
+    # same combine call, in chain order; combine_spec_text writes them as the spec "narrow" list.
+    # Only ``Reducer._combine_plan`` fills it, so a step's own ``_plan()`` leaves it empty.
+    narrow: tuple[_ReducerPlan, ...] = ()
 
 
 _MAX_PATH_CHARS = 256
@@ -111,6 +143,88 @@ def _read_signal(plan: _ReducerPlan) -> Signal | None:
     return plan.weights if isinstance(plan.weights, Signal) else plan.reads
 
 
+def _step_plans(plan: _ReducerPlan) -> tuple[_ReducerPlan, ...]:
+    """The plan of each step of one combine call: the narrow steps in order, then the main step.
+
+    WHY per step: each step reads at most one signal (NR-S3), so a check that reads a plan's
+    signal or weights runs on each of these (narrow.md §5).
+    """
+
+    return (*plan.narrow, plan)
+
+
+def _with_narrow(plan: _ReducerPlan, narrow: tuple[Reducer, ...]) -> _ReducerPlan:
+    """``plan`` with the plans of its narrow steps, and the model calls of every step once.
+
+    INVARIANT (narrow.md §6): a judge that more than one step reads is ONE call, so the combine
+    call reads each signal key once. Two calls under one key that differ (a different prompt or
+    params) cannot be one call, so they are refused.
+    """
+
+    if not narrow:
+        return plan
+    plans = tuple(step._plan() for step in narrow)
+    calls: dict[str, _ModelSignal] = {}
+    for call in (*(call for step in plans for call in step.signal_calls), *plan.signal_calls):
+        known = calls.setdefault(call.key, call)
+        if known != call:
+            raise ValueError(
+                f"two steps of one combine call read the {call.key!r} call with a different "
+                "prompt or params, so it cannot be one call"
+            )
+    return replace(plan, narrow=plans, signal_calls=tuple(calls.values()))
+
+
+def _narrow_steps(reducer: Reducer) -> tuple[Reducer, ...]:
+    """The narrow steps a reducer carries (lowering §2.2, "the narrow carrier")."""
+
+    return reducer._narrow if reducer._carries_narrow else ()
+
+
+def _narrowed[R: Reducer](reducer: R, narrow: tuple[Reducer, ...]) -> R:
+    """A copy of ``reducer`` that runs ``narrow`` first, in the same combine call; ``reducer``
+    itself when ``narrow`` is empty.
+
+    INVARIANT: the ONE gate of the carrier. The lowering (``S/_surface/lowering.py``) and the url4
+    rebuild (``S/url4.py``) are its only callers, so a hand-edited url4 meets the same rules as a
+    chain: NR-S1 (at most ``MAX_NARROW_STEPS``), NR-C1 (no main step that makes its own call over
+    every member), only Rank and Filter as narrow steps, and one judge call.
+    WHY a copy: a lowered step can be a value that other steps share (the block's judge node is
+    the synthesizer of ``ArgMax("score:judge")``), so the carrier is never set on it in place.
+    """
+
+    if not narrow:
+        return reducer
+    if not reducer._carries_narrow:
+        raise ValueError(f"sf.{reducer._step_name()} cannot follow a narrow step")
+    if len(narrow) > MAX_NARROW_STEPS:
+        raise ValueError(f"a combine call takes 1 to {MAX_NARROW_STEPS} narrow steps")
+    whole = reducer._whole_context_call()
+    if whole is not None:  # NR-C1 (O11): it would see the members the narrow steps left out
+        raise ValueError(
+            f"{whole} makes its own call over every member, so it cannot follow a narrow step"
+        )
+    for step in narrow:
+        if step._plan().reducer not in _NARROW_REDUCERS or _narrow_steps(step):
+            raise ValueError(f"sf.{step._step_name()} is not a narrow step")
+    _with_narrow(reducer._plan(), narrow)
+    copied = copy.copy(reducer)
+    object.__setattr__(copied, "_narrow", narrow)
+    return copied
+
+
+def _refuse_judge_weights(signal: Signal, step: str) -> None:
+    """Refuse ``score:judge`` as the weights of a median or a mean (JU-1): the Engine reads a
+    judge's scores only through a vote or a judge pick. ``step`` is ``sf.Median`` or ``sf.Mean``.
+    WHY no "it has no judge": the user may have written a ``sf.Judge`` before the step."""
+
+    if signal.key == JUDGE_SIGNAL:
+        raise ValueError(
+            f"{step} does not read a judge's scores as weights; use "
+            f"sf.Vote(weights={JUDGE_SIGNAL!r}) or sf.ArgMax({JUDGE_SIGNAL!r})"
+        )
+
+
 def _refuse_judge_signal(signal: Signal, label: str, use: str) -> None:
     """Refuse ``score:judge`` on a reducer that has no judge: the Engine reads it strictly (GE15),
     so the case would fail after the member calls are paid. ``use`` names what to do instead."""
@@ -131,11 +245,39 @@ class Reducer(ABC):
     """
 
     name: str
+    # The narrow carrier (lowering §2.2): the narrow steps that run before this step in its combine
+    # call. A class that a narrow step can come before sets ``_carries_narrow`` and declares the
+    # private dataclass field ``_narrow`` (``init=False``, default ``()``, out of the repr), set
+    # in its ``__init__`` to ``()``. Only ``_narrowed`` gives it steps; it is not a parameter, so
+    # no public signature or field moves. Equality reads it: equal values compile to equal bytes.
+    _carries_narrow: ClassVar[bool] = False
+    _narrow: tuple[Reducer, ...]
+
+    def _step_name(self) -> str:
+        """The step a message names as ``sf.<name>``: the step this node lowers from.
+
+        The one mechanism: the class name without ``Node`` (``VoteNode`` is ``Vote``); a node that
+        lowers from more than one step overrides it. Any other reducer shows its class name.
+        """
+
+        return type(self).__name__.removesuffix("Node")
 
     @abstractmethod
     def _plan(self) -> _ReducerPlan:
         """The reducer name, kind (answer | selection | projection), unpinned operator steps and
         weights; the compiler pins the steps against the Engine catalog."""
+
+    def _whole_context_call(self) -> str | None:
+        """What makes its own model call over the whole Fusion context, so it cannot follow a
+        narrow step (NR-C1, O11), in the user's words; None for a step with no such call."""
+
+        return None
+
+    def _combine_plan(self) -> _ReducerPlan:
+        """The plan of the whole combine call: ``_plan()`` with the narrow steps this reducer
+        carries (narrow.md §6). Every compile place reads this one, never ``_plan()`` alone."""
+
+        return _with_narrow(self._plan(), _narrow_steps(self))
 
     @classmethod
     @abstractmethod
@@ -155,18 +297,9 @@ class Reducer(ABC):
             raise ValueError("URL4 Candidate has invalid Reducer topology metadata")
         return cls._from_spec(spec)
 
-    def _python(self) -> str:
-        """The ``sf.`` source that rebuilds this reducer (read by ``Url4.to_python``)."""
-        return f"sf.{self!r}"
-
     def _check_members(self, count: int) -> None:
         """Raise ValueError when this reducer cannot serve ``count`` members (Fusion build time)."""
         return None
-
-    def _compiles_to_combine(self) -> bool:
-        """Whether this reducer compiles to a combine call. sf.Reduce('context') does not: the
-        Fusion recipe rewrite removes it, so it needs no operators and has no member cap."""
-        return True
 
 
 # Concrete reducers register here (later units add more names beside vote and median).
@@ -176,10 +309,8 @@ _REDUCER_CLASSES: dict[str, type[Reducer]] = {}
 # The select ops of sf.Median and sf.Mean: the nearest member's text, or the number itself.
 _NUMERIC_SELECTS: frozenset[str] = frozenset({"nearest", "value"})
 
+
 # What sf.Mean tells an author who passed sf.signal("score:judge") (MN-E4).
-_MEAN_SIGNAL_USE = "a JSON field signal such as sf.signal('field:confidence')"
-
-
 def _op_name(op: str | None) -> str | None:
     return None if op is None else op.split("@", 1)[0]
 
@@ -278,12 +409,10 @@ def _vote_normalize(extract: str, normalize: str | None) -> str | None:
             _Step(normalize)  # TypeError for a non-str or blank name
         return None if normalize is None else str(normalize)
     if extract != BENCHMARK_EXTRACT:
-        raise ValueError(
-            "extract='benchmark' names the benchmark's answer rule and takes no version"
-        )
+        raise ValueError("over='benchmark' names the benchmark's answer rule and takes no version")
     if normalize is not _DEFAULT_NORMALIZE:
         raise ValueError(
-            "sf.Vote(extract='benchmark') takes the benchmark's own normalizer; "
+            "sf.Vote(over='benchmark') takes the benchmark's own normalizer; "
             "v1 does not let a recipe change it"
         )
     return None
@@ -319,7 +448,7 @@ def _weight(item: object, label: str) -> float:
 
 
 def _weights_type_error(label: str) -> TypeError:
-    return TypeError(f"{label} must be a sequence of numbers, one per member, or an sf.signal")
+    return TypeError(f"{label} must be a sequence of numbers, one per member, or a sf.signal")
 
 
 def _check_weight_count(name: str, weights: tuple[float, ...] | Signal | None, count: int) -> None:
@@ -330,20 +459,6 @@ def _check_weight_count(name: str, weights: tuple[float, ...] | Signal | None, c
 
 def _reads_judge(weights: object) -> bool:
     return isinstance(weights, Signal) and weights.key == JUDGE_SIGNAL
-
-
-def _refuse_min_order_judge(judge: Judge, label: str) -> None:
-    """JO-D1 (P6): a judge with order='min' is only a Fusion synthesizer.
-
-    Rank, Vote and Filter (unit 6) read the judge's scores with their own rule (Rank has its own
-    order=), so a second order would conflict. The message never echoes the rubric.
-    """
-
-    if judge.order == "min":
-        raise ValueError(
-            f"{label} cannot use sf.Judge(..., order='min'): a judge with order='min' works only "
-            "as the Fusion synthesizer; give this judge the default order='max'"
-        )
 
 
 def _check_judge_pair(
@@ -359,22 +474,18 @@ def _check_judge_pair(
 
     if judge is None:
         if reads_judge:
-            raise ValueError(
-                f"{unpaired} needs a judge on the same reducer: "
-                "add judge=sf.Judge(..., returns='scores')"
-            )
+            raise ValueError(f"{unpaired} needs a judge: put sf.Judge(...) after sf.Fanout")
         return
     # WHY lazy: judge.py imports this module (cycle)
-    from screamingface.judge import Judge
+    from screamingface.judge import JudgeNode
 
-    if not isinstance(judge, Judge):
-        raise TypeError(f"{label} judge must be an sf.Judge")
+    if not isinstance(judge, JudgeNode):
+        raise TypeError(f"{label} judge must be a sf.Judge")
     if judge.returns != "scores":
         raise ValueError(
-            f"{label} judge needs sf.Judge(..., returns='scores'): "
+            f"{label} judge must be a sf.Judge, not a sf.JudgePick: "
             f"the {reader} reads one score per member"
         )
-    _refuse_min_order_judge(judge, label)  # P6 / JO-D1: refuses order="min"
     if not reads_judge:
         raise ValueError(f"{label} judge is read only by {read_by}")
 
@@ -388,13 +499,34 @@ def _check_judge_weights(weights: object, judge: object, label: str) -> None:
     )
 
 
+def _vote_gate(gate: object) -> GateNode | None:
+    """``gate`` when it is None or a sf.Gate, else TypeError (GA-E3)."""
+
+    if gate is None:
+        return None
+    # WHY lazy: gate.py imports judge.py, which imports this module (cycle)
+    from screamingface.gate import GateNode
+
+    if not isinstance(gate, GateNode):
+        raise TypeError("sf.Vote gate must be a sf.Gate")
+    return gate
+
+
+def _check_verify(verify: object) -> None:
+    """The reserved verifier slot (ans:Q4, P15): only None now; a later part adds the check."""
+
+    if verify is not None:
+        raise ValueError("sf.Vote verify= is reserved for a later part; pass None or leave it out")
+
+
 def _vote_plan(
     extract: _Step | None,
     normalize: _Step | None,
     weights: tuple[float, ...] | Signal | None,
     *,
     benchmark_rule: bool,
-    judge: Judge | None = None,
+    judge: JudgeNode | None = None,
+    gate: GateNode | None = None,
 ) -> _ReducerPlan:
     """The one plan behind sf.Vote and sf.Reduce('plurality'|'weighted') (BK-1, BK#4)."""
 
@@ -405,13 +537,16 @@ def _vote_plan(
         extract=extract,
         normalize=normalize,
     )
+    calls = () if judge is None else (judge._signal_call(),)
+    fallback = None if gate is None else gate._signal_call()
     return _ReducerPlan(
         "vote",
         "answer",
         steps,
         weights,
         benchmark_rule=benchmark_rule,
-        signal_calls=() if judge is None else (judge._signal_call(),),
+        signal_calls=calls if fallback is None else (*calls, fallback),
+        gate=gate,
     )
 
 
@@ -452,13 +587,87 @@ def _recovered_member_weights(weights: object, members: object) -> tuple[float, 
     return tuple(values)
 
 
-def _as_python(value: object) -> str:
-    python = getattr(value, "_python", None)
-    return repr(value) if python is None else python()
+# The part 5 keys of a spec gate; E4b part 6 adds the optional "abstain_band" (C6).
+_GATE_SPEC_KEYS: frozenset[str] = frozenset({"cmp", "observe", "otherwise", "threshold"})
+_BAND_KEY = "abstain_band"
+
+
+def _rebuilt_fallback(fallback: _ModelSignal) -> JudgeNode | Model:
+    """The sf.Judge or sf.Model of a gate fallback call read back from url4 (C7)."""
+
+    if fallback.key == _FALLBACK_JUDGE_KEY:
+        # WHY lazy: judge.py imports this module (cycle)
+        from screamingface.judge import judge_from_signals
+
+        # judge_from_signals reads only the key "judge" (S/judge.py), so the key is renamed first;
+        # its signature does not change (C7).
+        return _decoded("vote", judge_from_signals, (replace(fallback, key="judge"),), "label")
+    # WHY lazy: the model module imports the recipe tree, which imports this module
+    from screamingface._evaluation.policy import DEFAULT_SYNTHESIS_PROMPT
+    from screamingface.model import Model
+
+    # The url4.py rule of a model synthesizer: the default prompt rebuilds as no prompt (GA-D3).
+    prompt = None if fallback.prompt == DEFAULT_SYNTHESIS_PROMPT else fallback.prompt
+    return _decoded(
+        "vote", Model, fallback.model, prompt=prompt, params=dict(fallback.params) or None
+    )
+
+
+def _rebuilt_band(raw: Mapping[str, object]) -> tuple[object, ...] | None:
+    """The spec gate band as the tuple sf.Gate checks; None when the key is absent.
+
+    WHY a present non-list (null included) is the vote's "cannot rebuild" here and never reaches
+    sf.Gate: the constructor takes abstain_band=None as "no band", so a hand-edited null would
+    rebuild as a gate with no band, which compiles to different bytes (BA-E2, BD-I2).
+    """
+
+    if _BAND_KEY not in raw:
+        return None
+    band = raw[_BAND_KEY]
+    if not isinstance(band, list):
+        raise _cannot_rebuild("vote")
+    return tuple(band)
+
+
+def _rebuilt_gate(spec: Mapping[str, object], fallback: _ModelSignal | None) -> GateNode | None:
+    """The gate of a decoded vote spec and its fallback call, else the vote's "cannot rebuild".
+
+    INVARIANT (C7): the spec ``otherwise`` and the fallback call agree: "abstain" has no call,
+    "judge" has the ``fallback_judge`` call, "writer" has the ``fallback_writer`` call. Any other
+    pair is a hand-edited url4 (GA-E4). The gate holds the four part 5 keys, or those four and
+    "abstain_band" (C6).
+    """
+
+    raw = spec.get("gate")
+    if raw is None:
+        if fallback is not None:
+            raise _cannot_rebuild("vote")  # a fallback call with no gate
+        return None
+    if not isinstance(raw, Mapping) or set(raw) - {_BAND_KEY} != _GATE_SPEC_KEYS:
+        raise _cannot_rebuild("vote")
+    expected: dict[str, str | None] = {"abstain": None, **_FALLBACK_KEYS}
+    wire = raw["otherwise"]
+    found = None if fallback is None else fallback.key
+    if not isinstance(wire, str) or wire not in expected or expected[wire] != found:
+        raise _cannot_rebuild("vote")
+    band = _rebuilt_band(raw)
+    # WHY lazy: gate.py imports this module (cycle)
+    from screamingface.gate import GateNode
+
+    otherwise: object = "abstain" if fallback is None else _rebuilt_fallback(fallback)
+    return _decoded(
+        "vote",
+        GateNode,
+        raw["observe"],
+        raw["cmp"],
+        raw["threshold"],
+        otherwise=otherwise,
+        abstain_band=band,
+    )
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Vote(Reducer):
+class VoteNode(Reducer):
     """Plurality vote: the first member (author order) holding the most common answer, verbatim.
 
     ``extract='benchmark'`` reads answers with the benchmark's own grading rule (resolved before any
@@ -468,13 +677,21 @@ class Vote(Reducer):
     ``judge=sf.Judge(..., returns='scores')`` goes with ``weights=sf.signal('score:judge')`` and
     never alone: the judge scores each member in one call, and each answer weighs the scores of its
     holders. A half pair raises ``ValueError`` when the vote is built.
+
+    ``gate=sf.Gate(...)`` keeps the majority only when one recorded number passes a threshold;
+    else the gate's fallback answers (see ``sf.Gate``). ``verify=`` is reserved for a later
+    verifier check and takes only None.
     """
 
     name: str
     extract: str
     normalize: str | None
     weights: tuple[float, ...] | Signal | None
-    judge: Judge | None
+    judge: JudgeNode | None
+    gate: GateNode | None
+    verify: None
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
+    _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
         self,
@@ -482,21 +699,34 @@ class Vote(Reducer):
         extract: str = "last_line",
         normalize: str | None = _DEFAULT_NORMALIZE,
         weights: Sequence[float] | Signal | None = None,
-        judge: Judge | None = None,
+        judge: JudgeNode | None = None,
+        gate: GateNode | None = None,
+        verify: None = None,
     ) -> None:
         _Step(extract)  # TypeError for a non-str or blank name
         object.__setattr__(self, "name", "vote")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "normalize", _vote_normalize(extract, normalize))
         object.__setattr__(
-            self, "weights", None if weights is None else _weights_option(weights, "Vote weights")
+            self,
+            "weights",
+            None if weights is None else _weights_option(weights, "sf.Vote weights"),
         )
-        _check_judge_weights(self.weights, judge, "Vote")
+        _check_judge_weights(self.weights, judge, "sf.Vote")
         object.__setattr__(self, "judge", judge)
+        object.__setattr__(self, "gate", _vote_gate(gate))
+        _check_verify(verify)
+        object.__setattr__(self, "verify", None)
 
     @property
     def _is_benchmark(self) -> bool:
         return self.extract == BENCHMARK_EXTRACT
+
+    def _whole_context_call(self) -> str | None:
+        if self.gate is not None and self.gate.otherwise != "abstain":
+            return "a gate with a model fallback"
+        return None
 
     def _plan(self) -> _ReducerPlan:
         benchmark = self._is_benchmark
@@ -506,29 +736,41 @@ class Vote(Reducer):
             self.weights,
             benchmark_rule=benchmark,
             judge=self.judge,
+            gate=self.gate,
         )
 
     def _check_members(self, count: int) -> None:
-        _check_weight_count(self.name, self.weights, count)
+        _check_weight_count(f"sf.{self._step_name()}", self.weights, count)
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Vote:
+    def _from_spec(cls, spec: Mapping[str, object]) -> VoteNode:
         return cls._from_spec_parts(spec, None)
 
     @classmethod
-    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Vote:
-        if not signals:
-            return cls._from_spec(spec)
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> VoteNode:
+        fallback_keys = frozenset(_FALLBACK_KEYS.values())
+        fallbacks = tuple(signal for signal in signals if signal.key in fallback_keys)
+        others = tuple(signal for signal in signals if signal.key not in fallback_keys)
+        if len(fallbacks) > 1:
+            raise _cannot_rebuild("vote")  # FC-I1: at most one fallback call
+        fallback = fallbacks[0] if fallbacks else None
+        if not others:
+            return cls._from_spec_parts(spec, None, fallback)
         # WHY lazy: judge.py imports this module (cycle)
         from screamingface.judge import judge_from_signals
 
-        judge = judge_from_signals(signals, "scores")
+        judge = judge_from_signals(others, "scores")
         if spec["weights"] != {"signal": JUDGE_SIGNAL}:
             raise _cannot_rebuild("vote")
-        return cls._from_spec_parts(spec, judge)
+        return cls._from_spec_parts(spec, judge, fallback)
 
     @classmethod
-    def _from_spec_parts(cls, spec: Mapping[str, object], judge: Judge | None) -> Vote:
+    def _from_spec_parts(
+        cls,
+        spec: Mapping[str, object],
+        judge: JudgeNode | None,
+        fallback: _ModelSignal | None = None,
+    ) -> VoteNode:
         ops = _spec_ops(spec, "vote")
         extract = ops["extract"]
         weights = _recovered_weights(spec)
@@ -540,29 +782,28 @@ class Vote(Reducer):
         if extract is None or pair != expected:
             raise _cannot_rebuild("vote")
         return _decoded(
-            "vote", cls, extract=extract, normalize=ops["normalize"], weights=weights, judge=judge
+            "vote",
+            cls,
+            extract=extract,
+            normalize=ops["normalize"],
+            weights=weights,
+            judge=judge,
+            gate=_rebuilt_gate(spec, fallback),
         )
 
     def __repr__(self) -> str:
-        return self._render("Vote", repr)
-
-    def _python(self) -> str:
-        return self._render("sf.Vote", _as_python)
-
-    def _render(self, head: str, show: Callable[[object], str]) -> str:
-        weights = "" if self.weights is None else f", weights={show(self.weights)}"
-        judge = "" if self.judge is None else f", judge={show(self.judge)}"
+        weights = "" if self.weights is None else f", weights={self.weights!r}"
+        judge = "" if self.judge is None else f", judge={self.judge!r}"
+        gate = "" if self.gate is None else f", gate={self.gate!r}"
         if self._is_benchmark:
-            return f"{head}(extract={self.extract!r}{weights}{judge})"
-        return f"{head}(extract={self.extract!r}, normalize={self.normalize!r}{weights}{judge})"
+            return f"Vote(extract={self.extract!r}{weights}{judge}{gate})"
+        return f"Vote(extract={self.extract!r}, normalize={self.normalize!r}{weights}{judge}{gate})"
 
     __hash__: ClassVar[Any] = None
 
 
-_MEDIAN_JUDGE_USE = "authored weights or another signal, such as sf.signal('field:confidence')"
-
 # sf.Median and sf.Mean share these helpers: the same options, plan, url4 rebuild and repr. Only
-# the name, the default select, the select-choices text and the score:judge advice are different.
+# the name, the default select and the select-choices text are different.
 
 
 def _numeric_weights(
@@ -572,26 +813,25 @@ def _numeric_weights(
     weights: Sequence[float] | Signal | None,
     *,
     selects: str,
-    judge_use: str,
 ) -> tuple[float, ...] | Signal | None:
     """Check the options of sf.Median or sf.Mean (``label``) and return the checked weights.
 
-    ``selects`` is the select choices as the error names them. ``judge_use`` is what to use in
-    place of a score:judge weight: a Median or a Mean has no judge.
+    ``selects`` is the select choices as the error names them. A score:judge weight is refused
+    (JU-1): a median or a mean does not read a judge's scores.
     """
 
     _Step(extract)
     _Step(select)
     if _op_name(extract) == BENCHMARK_EXTRACT:
         raise ValueError(
-            f"sf.{label} needs the numeric normalizer, so it cannot read extract='benchmark' "
+            f"sf.{label} needs the numeric normalizer, so it cannot read over='benchmark' "
             "(the benchmark brings its own normalizer)"
         )
     if _op_name(select) not in _NUMERIC_SELECTS:
-        raise ValueError(f"{label} select must be {selects}, not {select!r}")
-    checked = None if weights is None else _weights_option(weights, f"{label} weights")
+        raise ValueError(f"sf.{label} select must be {selects}, not {select!r}")
+    checked = None if weights is None else _weights_option(weights, f"sf.{label} weights")
     if isinstance(checked, Signal):
-        _refuse_judge_signal(checked, label, judge_use)
+        _refuse_judge_weights(checked, f"sf.{label}")
     return checked
 
 
@@ -633,13 +873,13 @@ def _numeric_from_spec[R: Reducer](cls: type[R], spec: Mapping[str, object], nam
     return _decoded(name, cls, extract=extract, select=select, weights=weights)
 
 
-def _numeric_render(reducer: Median | Mean, head: str, show: Callable[[object], str]) -> str:
-    weights = "" if reducer.weights is None else f", weights={show(reducer.weights)}"
+def _numeric_repr(reducer: MedianNode | MeanNode, head: str) -> str:
+    weights = "" if reducer.weights is None else f", weights={reducer.weights!r}"
     return f"{head}(extract={reducer.extract!r}, select={reducer.select!r}{weights})"
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Median(Reducer):
+class MedianNode(Reducer):
     """Median of the members' numeric answers: the nearest member's text, or the number itself.
 
     ``weights`` (one positive number per member, or ``sf.signal(key)``) makes it a weighted median:
@@ -652,6 +892,8 @@ class Median(Reducer):
     extract: str
     select: str
     weights: tuple[float, ...] | Signal | None
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
+    _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
         self,
@@ -666,9 +908,9 @@ class Median(Reducer):
             select,
             weights,
             selects="'nearest' or 'value'",
-            judge_use=_MEDIAN_JUDGE_USE,
         )
         object.__setattr__(self, "name", "median")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "select", select)
         object.__setattr__(self, "weights", checked)
@@ -677,23 +919,20 @@ class Median(Reducer):
         return _numeric_plan("median", self.extract, self.select, self.weights)
 
     def _check_members(self, count: int) -> None:
-        _check_weight_count(self.name, self.weights, count)
+        _check_weight_count(f"sf.{self._step_name()}", self.weights, count)
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Median:
+    def _from_spec(cls, spec: Mapping[str, object]) -> MedianNode:
         return _numeric_from_spec(cls, spec, "median")
 
     def __repr__(self) -> str:
-        return _numeric_render(self, "Median", repr)
-
-    def _python(self) -> str:
-        return _numeric_render(self, "sf.Median", _as_python)
+        return _numeric_repr(self, "Median")
 
     __hash__: ClassVar[Any] = None
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Mean(Reducer):
+class MeanNode(Reducer):
     """Mean of the members' numeric answers: the number itself, or the nearest member's text.
 
     ``weights`` is one positive number per member (author order) or ``sf.signal(key)``. A member
@@ -705,6 +944,8 @@ class Mean(Reducer):
     extract: str
     select: str
     weights: tuple[float, ...] | Signal | None
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
+    _narrow: tuple[Reducer, ...] = field(default=(), init=False, repr=False)
 
     def __init__(
         self,
@@ -719,9 +960,9 @@ class Mean(Reducer):
             select,
             weights,
             selects="'value' or 'nearest'",
-            judge_use=_MEAN_SIGNAL_USE,
         )
         object.__setattr__(self, "name", "mean")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "extract", extract)
         object.__setattr__(self, "select", select)
         object.__setattr__(self, "weights", checked)
@@ -730,21 +971,18 @@ class Mean(Reducer):
         return _numeric_plan("mean", self.extract, self.select, self.weights)
 
     def _check_members(self, count: int) -> None:
-        _check_weight_count(self.name, self.weights, count)
+        _check_weight_count(f"sf.{self._step_name()}", self.weights, count)
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Mean:
+    def _from_spec(cls, spec: Mapping[str, object]) -> MeanNode:
         return _numeric_from_spec(cls, spec, "mean")
 
     def __repr__(self) -> str:
-        return _numeric_render(self, "Mean", repr)
-
-    def _python(self) -> str:
-        return _numeric_render(self, "sf.Mean", _as_python)
+        return _numeric_repr(self, "Mean")
 
     __hash__: ClassVar[Any] = None
 
 
-_REDUCER_CLASSES.update(vote=Vote, median=Median, mean=Mean)
+_REDUCER_CLASSES.update(vote=VoteNode, median=MedianNode, mean=MeanNode)
 
-__all__ = ["Mean", "Median", "Reducer", "Vote"]
+__all__ = ["MeanNode", "MedianNode", "Reducer", "VoteNode"]

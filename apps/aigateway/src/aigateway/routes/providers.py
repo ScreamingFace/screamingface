@@ -32,7 +32,9 @@ async def list_providers(
         ):
             continue
         auth_methods = tuple(method for method in plugin.available_auth_modes() if method != "none")
-        if not auth_methods or not plugin.register_models():
+        # WHY models or classifiers: a provider is listed for any inference it serves, so an
+        # endpoint with classifiers only can still be connected.
+        if not auth_methods or not (plugin.register_models() or plugin.register_classifiers()):
             continue
         rows.append(
             {

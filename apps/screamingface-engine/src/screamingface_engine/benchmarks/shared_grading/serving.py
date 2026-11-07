@@ -180,12 +180,12 @@ def install_benchmark(node: Url4Node, root: Path, benchmark: ServedBenchmark) ->
     if benchmark.scoring is not None:
         scoring = benchmark.scoring
 
-        def load(count: int) -> Scoring:
+        def load(case_ids: tuple[int, ...]) -> Scoring:
             return scoring(
                 root,
                 benchmark_id=benchmark.benchmark_id,
                 benchmark_revision=benchmark.revision,
-                case_ids=tuple(range(1, count + 1)),
+                case_ids=case_ids,
             )
 
         endpoints = (
@@ -312,15 +312,17 @@ def candidate_record(
     return record
 
 
-def benchmark_aggregate(root: Path, benchmark: ServedBenchmark) -> Callable[[str, int], JsonObject]:
+def benchmark_aggregate(
+    root: Path, benchmark: ServedBenchmark
+) -> Callable[[str, tuple[int, ...]], JsonObject]:
     """Forward graded Cases plus benchmark identity to the benchmark's reducer.
 
-    INVARIANT: case_ids are 1..selected — the reducer scores exactly the benchmark that was
-    selected, and identity (id + revision) rides into the report.
+    INVARIANT: case_ids are exactly the run's selection (1..N for a ``limit``, or the explicit
+    ids, OME-1739) — the reducer scores exactly the Cases that were selected, and identity
+    (id + revision) rides into the report.
     """
 
-    def handler(case_evaluations: str, selected_case_count: int) -> JsonObject:
-        case_ids: tuple[int, ...] = tuple(range(1, selected_case_count + 1))
+    def handler(case_evaluations: str, case_ids: tuple[int, ...]) -> JsonObject:
         return benchmark.reduce(
             case_evaluations,
             root,

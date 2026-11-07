@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
+import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
 import {
@@ -8,15 +10,40 @@ import {
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
+const mediaCode = `report = sf.evaluate(model, benchmark="inspect-lab_bench_figqa", limit=1)
+case = report.candidates.only.cases[0]
+item = case.media[0]            # a CaseMedia, with no network call
+item, str(item)`
+const mediaOut = `(CaseMedia(kind='image', media_type='image/jpeg', size=1962250, sha256='3fcd47b91497d9cd78e49e90efc006bb54f74c2a8f4057c8b2424fa9d6ec1a5a', filename=None),
+ 'image/jpeg · 1.9 MB · sha256 3fcd47b9…')`
+const mediaFetch = `fetched = sf.fetch_media(item)   # checks size and sha256 against the placeholder
+len(fetched.data), fetched.save("picture.jpg")`
+const mediaFetchOut = `(1962250, PosixPath('picture.jpg'))`
+const textOnly = `m = sf.Model("openrouter/deepseek/deepseek-v4-flash")
+sf.evaluate(m, benchmark="inspect-lab_bench_figqa", limit=1)`
+const textOnlyOut = `ExecutionError: This Benchmark's Cases carry pictures, and these models cannot take images: openrouter/deepseek/deepseek-v4-flash. The gateway reports them as text-only; a model it knows nothing about counts as text-only too.`
+const narrowCode = `op = next(o for o in case.operations if o.combine is not None)
+evidence = op.combine
+evidence.narrow[0], [(m.member_id, m.status, m.reason) for m in evidence.members]`
+const narrowOut = `(CombineNarrow(reduce='scores@1', select='top_k@1', signal='score:judge',
+               kept=('member_1', 'member_2'), cut=CombineCut(k=2, order='max'),
+               scores={'member_1': 10.0, 'member_2': 10.0, 'member_3': 2.0},
+               ranks={'member_1': 1, 'member_2': 2, 'member_3': 3}),
+ [('member_1', 'answered', None), ('member_2', 'answered', None), ('member_3', 'excluded', 'not_selected')])`
+const gateEvidenceOut = `CombineGate(observe='agreement', observed=0.6666666666666666, cmp='>=', threshold=0.7,
+            passed=False, branch='fallback', otherwise='abstain', abstain_band=None)
+CombineResult(member_id=None, value=None, status='abstain', reason='gate_not_met')`
+const mediaGone = `sf.fetch_media(item)`
+const mediaGoneOut = `MediaUnavailableError: The engine no longer holds x.png · image/png · 10 B · sha256 00000000…; a local engine drops parked pictures and files after a while (48 hours by default). Run the Case again to see it.`
 const metrics = `dict(candidate.metrics)`
-const metricsOut = `{'inst_level_strict_accuracy': 1.0, 'prompt_level_loose_accuracy': 1.0, 'inst_level_loose_accuracy': 1.0, 'pass_rate': 1.0}`
+const metricsOut = `{'correct': 0, 'scored_cases': 1, 'answered': 1, 'answered_rate': 1.0}`
 
 const cases = `case = candidate.cases[0]
 case.status, case.grade.score, case.output[:40]`
-const casesOut = `('scored', 1.0, 'Raymond III, Count of Tripoli (c. 1140 –')`
+const casesOut = `('scored', 0.0, 'To determine the most appropriate indica')`
 
 const ops = `candidate.operations`
-const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haiku-4.5 answer', depends_on=()),)`
+const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='gemini-3.5-flash-lite answer', depends_on=()),)`
 </script>
 
 <template>
@@ -29,8 +56,8 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
     <p>
       A <code>CandidateResult</code> is one candidate's outcome inside a
       <RouterLink to="/sf-client/api/reports">Report</RouterLink>. The candidate is whatever
-      <RouterLink to="/sf-client/api/recipes">recipe</RouterLink> you evaluated — a Model, a Fusion,
-      or a Pipeline. This page covers <code>CandidateResult</code> itself, alongside
+      <RouterLink to="/sf-client/api/recipes">recipe</RouterLink> you evaluated: a Model, a fanout
+      block, or a Pipeline. This page covers <code>CandidateResult</code> itself, alongside
       <code>MemberResult</code> for one member of a fusion, <code>OperationInfo</code> for a step
       that ran, and <code>CaseResult</code> for one graded case. Every example below reads from a
       <code>candidate</code> pulled off a report with <code>report.candidates.only</code>.
@@ -162,7 +189,15 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>int&nbsp;|&nbsp;None</code></td>
           <td>
             The answer seed the run used. <code>None</code> for an unseeded run. <code>submit</code>
-            sends it with the score, and a reproduction runs with it.
+            sends it with the score.
+          </td>
+        </tr>
+        <tr>
+          <td><code>selected_cases</code></td>
+          <td><code>tuple[int,&nbsp;...]&nbsp;|&nbsp;None</code></td>
+          <td>
+            The Case ids this candidate scored on a <code>cases=</code> run, ascending.
+            <code>None</code> for a full run and for a <code>limit</code> run.
           </td>
         </tr>
         <tr>
@@ -170,7 +205,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
             The id of the pinned cache that the run opened. <code>None</code> when the run was not
-            captured (capture is off by default) or the copy did not open.
+            captured (the default) or the copy did not open.
           </td>
         </tr>
         <tr>
@@ -190,8 +225,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>"complete"&nbsp;|&nbsp;"partial"&nbsp;|&nbsp;None</code></td>
           <td>
             Whether the copy holds the whole run. <code>None</code> means unknown, not partial.
-            <code>submit</code> sends both fields with the score. See
-            <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
+            <code>submit</code> sends both fields with the score.
           </td>
         </tr>
         <tr>
@@ -200,9 +234,60 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td>
             The names of the partial reasons that have a count above zero, sorted. Empty when the
             run is complete or was not captured. A local capture shows <code>("local",)</code>.
-            <code>to_dict()</code> always includes it, as a list. See
-            <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
+            <code>to_dict()</code> always includes it, as a list.
           </td>
+        </tr>
+        <tr>
+          <td><code>trace_id</code> · <code>client_version</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            The trace id of the run, and the screamingface version the engine saw as the caller.
+            <code>None</code> when unavailable.
+          </td>
+        </tr>
+        <tr>
+          <td><code>run_cost_status</code></td>
+          <td><code>"complete"&nbsp;|&nbsp;"partial"&nbsp;|&nbsp;"unavailable"</code></td>
+          <td>
+            A fact about <code>usage.cost_usd</code>: <code>complete</code> says the amount is
+            exact, the other two say it is absent. It is sent with a leaderboard submission.
+          </td>
+        </tr>
+        <tr>
+          <td><code>cache_hits</code></td>
+          <td><code>int</code></td>
+          <td>How many gateway round trips the response cache served for this run.</td>
+        </tr>
+        <tr>
+          <td><code>cache_saved_cost_usd</code> · <code>cache_saved_cost_archive_usd</code></td>
+          <td><code>Decimal&nbsp;|&nbsp;None</code></td>
+          <td>
+            What the cache hits would have cost. The first is what the provider reported for the
+            call that filled the entry. The second is a measured amount from a different call of the
+            same model and kind. Never add the two together. <code>None</code> means none was
+            observed, which is not zero.
+          </td>
+        </tr>
+        <tr>
+          <td><code>cache_unpriced_hits</code></td>
+          <td><code>int&nbsp;|&nbsp;None</code></td>
+          <td>
+            The count of cache hits with no price at all, from the engine's run summary.
+            <code>None</code> when no summary arrived.
+          </td>
+        </tr>
+        <tr>
+          <td><code>abstained_count</code></td>
+          <td><code>int</code></td>
+          <td>
+            How many cases a reducer abstained on. See
+            <RouterLink to="/sf-client/api/reducers">Reducers</RouterLink>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>accounting</code></td>
+          <td><code>AccountingBreakdown</code></td>
+          <td>What each operation consumed. See Accounting, answers and trace below.</td>
         </tr>
       </tbody>
     </table>
@@ -356,12 +441,280 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td>The step's terminal output, or <code>None</code> when it was not attributed.</td>
         </tr>
         <tr>
+          <td><code>accounting</code></td>
+          <td><code>OperationAccounting&nbsp;|&nbsp;None</code></td>
+          <td>What the step consumed, or <code>None</code> when it was not attributed.</td>
+        </tr>
+        <tr>
+          <td><code>combine</code></td>
+          <td><code>CombineEvidence&nbsp;|&nbsp;None</code></td>
+          <td>
+            For a combine step, what it read and decided for the case. See
+            <a href="#combine-evidence">Combine evidence</a>. <code>None</code> for any other step.
+          </td>
+        </tr>
+        <tr>
           <td><code>finish_reason</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>Why that step stopped, or <code>None</code> when it was not attributed.</td>
         </tr>
       </tbody>
     </table>
+
+    <h2 id="case-media">Case media</h2>
+
+    <p>
+      <code>CaseResult.media</code> lists the pictures and files of a case as a tuple of
+      <code>CaseMedia</code>, in the case's order. It makes no network call, and it is empty for a
+      text case. A <code>CaseMedia</code> names what proves the bytes and not the bytes themselves.
+    </p>
+
+    <ThemedDiagram
+      name="sf-client-0-1-11-media-fetch"
+      alt="Sequence: the Case media item is read from the report with no network call; sf.fetch_media asks the engine for the bytes and returns FetchedMedia when the size and SHA-256 match, or raises MediaUnavailableError with the code media_not_kept when the engine does not hold the item."
+      caption="Reading a CaseMedia makes no call. Fetching it does, and fails with media_not_kept when the engine no longer holds it."
+    />
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>kind</code></td>
+          <td><code>"image"&nbsp;|&nbsp;"file"</code></td>
+          <td>Whether the item is a picture or a file.</td>
+        </tr>
+        <tr>
+          <td><code>media_type</code></td>
+          <td><code>str</code></td>
+          <td>The media type, such as <code>image/png</code>.</td>
+        </tr>
+        <tr>
+          <td><code>size</code></td>
+          <td><code>int</code></td>
+          <td>The size in bytes.</td>
+        </tr>
+        <tr>
+          <td><code>sha256</code></td>
+          <td><code>str</code></td>
+          <td>The SHA-256 digest of the bytes.</td>
+        </tr>
+        <tr>
+          <td><code>filename</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>The item's own name, when it has one.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      <code>str(item)</code> is the placeholder line that every view shows, for example
+      <code>image/png · 300 KB · sha256 9f86d081…</code>.
+    </p>
+
+    <p>
+      <code>sf.fetch_media(item)</code> and <code>Client.fetch_media(item)</code> fetch the bytes
+      from the engine and return a <code>FetchedMedia</code> only when the size and the SHA-256
+      match the placeholder. <code>AsyncClient</code> has no <code>fetch_media</code>. A
+      <code>FetchedMedia</code> has <code>media</code>, the <code>CaseMedia</code> it came from, and
+      <code>data</code>, the bytes. <code>save(path)</code> writes the bytes to <code>path</code>,
+      or into it under the item's name when <code>path</code> is a folder, and returns the
+      <code>Path</code>. An item with no name is saved under a name made from its SHA-256 and its
+      media type, for example <code>3fcd47b91497.jpg</code>. A picture shows inline in Jupyter, and
+      a file shows its placeholder line.
+    </p>
+
+    <p>
+      A local engine started with <code>screamingface up</code> comes with <code>medxpert</code>
+      ready to run, which has no pictures. The example below ran on the 0.1.11 engine from a
+      repository checkout, started with <code>just local-stack-notebooks</code> from
+      <code>packages/screamingface/</code>, which adds
+      <code>inspect-lab_bench_figqa</code>, whose cases each carry one picture.
+    </p>
+
+    <CodeBlock :code="mediaCode" language="python" />
+    <CodeBlock :code="mediaOut" language="text" />
+    <CodeBlock :code="mediaFetch" language="python" />
+    <CodeBlock :code="mediaFetchOut" language="text" />
+
+    <p>
+      A local engine keeps parked pictures and files for 48 hours by default. After that, or when
+      the engine never held the item, the fetch raises <code>MediaUnavailableError</code> with the
+      code <code>media_not_kept</code>. The error is permanent, so retrying does not help.
+    </p>
+
+    <CodeBlock :code="mediaGone" language="python" />
+    <CodeBlock :code="mediaGoneOut" language="text" />
+
+    <p>
+      A benchmark whose Cases carry pictures refuses a model that the gateway reports as text-only,
+      and a model the gateway knows nothing about counts as text-only. The call raises
+      <code>ExecutionError</code> with the code <code>intent_error</code>. The error is permanent
+      (<code>retryable</code> is <code>False</code>), and the message names the models. With two
+      candidates where one is text-only, the call raises <code>ExecutionError</code> with the code
+      <code>candidates_failed</code>.
+    </p>
+
+    <CodeBlock :code="textOnly" language="python" />
+    <CodeBlock :code="textOnlyOut" language="text" />
+
+    <h2>Accounting, answers and trace</h2>
+
+    <p>
+      <code>candidate.accounting</code> is a property, not a method. It returns an
+      <code>AccountingBreakdown</code> with <code>rows</code>,
+      <code>unattributed_cost_usd</code> and <code>consistent</code>. Each row is an
+      <code>AccountingRow</code> with <code>accounting</code>, <code>case_id</code>,
+      <code>label</code>, <code>member_id</code>, <code>model</code>, <code>operation_id</code> and
+      <code>stage</code>, one of <code>generation</code>, <code>synthesis</code> or
+      <code>grading</code>. The row's <code>accounting</code> is an
+      <code>OperationAccounting</code>: <code>provider</code>, <code>request_model</code>,
+      <code>response_model</code>, <code>usage</code>, <code>provider_latency_ms</code>,
+      <code>provider_attempts</code> and <code>cache</code>. Fields the engine did not report stay
+      unknown and are never filled in.
+    </p>
+
+    <p>
+      <code>OperationCache</code> counts the responses of one operation by how the cache treated
+      them: <code>hits</code>, <code>misses</code>, <code>bypasses</code> and <code>unknown</code>.
+      The four counts sum to the model-call responses the operation represents.
+    </p>
+
+    <p>A <code>CaseResult</code> also carries:</p>
+
+    <ul>
+      <li>
+        <code>abstained</code>: <code>True</code> when a reducer found no usable answer, so the
+        output is <code>''</code> and the score is <code>0.0</code>.
+      </li>
+      <li>
+        <code>attempts</code>: every attempt's own answer, finish reason, failures, grade and cost,
+        in order, for a benchmark that asks each case several times. <code>None</code> for every
+        other benchmark.
+      </li>
+      <li>
+        <code>answers(operation_id=None)</code>: one <code>sf.Answer</code> per member and one for
+        each combine step. An answer's <code>status</code> is <code>answered</code>,
+        <code>abstain</code>, <code>excluded</code> or <code>fail</code>. A case with no combine
+        step returns <code>()</code>. An unknown <code>operation_id</code> raises
+        <code>ValueError</code>.
+      </li>
+      <li>
+        <code>trace()</code>: <code>TraceEntry</code> values in operation order, of kind
+        <code>model_call</code>, <code>extract</code> and <code>reduce</code>.
+        <code>Report.trace_dict()</code> exports them.
+      </li>
+    </ul>
+
+    <h2 id="combine-evidence">Combine evidence</h2>
+
+    <p>
+      <code>CaseOperation.combine</code> is a <code>CombineEvidence</code> for a combine step. It
+      holds <code>kind</code>, <code>reducer</code>, <code>operators</code>, <code>members</code>,
+      <code>tally</code>, <code>judge</code>, <code>fields</code>, <code>chosen</code>,
+      <code>built</code>, <code>agreement</code>, <code>tie</code>, <code>median</code>,
+      <code>mean</code>, <code>presentation_order</code>, <code>separator_collision</code>,
+      <code>signal</code>, <code>cut</code>, <code>narrow</code>, <code>consistency</code>,
+      <code>declared</code>, <code>gate</code>, <code>result</code>, <code>dropped</code> and
+      <code>finish_reason</code>. A field that the step does not use is <code>None</code> or empty.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Type</th>
+          <th>Fields</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>CombineAnswerRow</code></td>
+          <td>
+            <code>member_id</code>, <code>raw</code>, <code>value</code>, <code>status</code>,
+            <code>reason</code>, <code>signals</code>, <code>weight</code>, <code>score</code>,
+            <code>rank</code>
+          </td>
+          <td>
+            One row per member. <code>status</code> is <code>answered</code> or
+            <code>excluded</code> in the runs above. <code>reason</code> is
+            <code>not_selected</code> for a member that a narrow step left out and
+            <code>no_signal</code> for a member with no value for the signal that a step reads.
+            <code>signals</code> holds each signal of the member, such as <code>score:judge</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>CombineNarrow</code></td>
+          <td>
+            <code>reduce</code>, <code>select</code>, <code>signal</code>, <code>kept</code>,
+            <code>cut</code>, <code>scores</code>, <code>ranks</code>
+          </td>
+          <td>
+            One record per narrow step: the select operator, the signal it read, the kept member ids
+            and, for a <code>sf.Rank</code>, the cut, the scores and the ranks (1 is the best, and
+            equal scores take author order).
+          </td>
+        </tr>
+        <tr>
+          <td><code>CombineCut</code></td>
+          <td><code>k</code>, <code>order</code></td>
+          <td>The <code>k</code> and the order of a <code>sf.Rank</code>.</td>
+        </tr>
+        <tr>
+          <td><code>CombineGate</code></td>
+          <td>
+            <code>observe</code>, <code>observed</code>, <code>cmp</code>, <code>threshold</code>,
+            <code>passed</code>, <code>branch</code>, <code>otherwise</code>,
+            <code>abstain_band</code>
+          </td>
+          <td>What a <code>sf.Gate</code> read, the comparison, and which branch ran.</td>
+        </tr>
+        <tr>
+          <td><code>CombineJudgeReading</code></td>
+          <td><code>raw</code>, <code>returns</code>, <code>parsed</code></td>
+          <td>The judge's reply as text and as one number per member.</td>
+        </tr>
+        <tr>
+          <td><code>CombineResult</code></td>
+          <td>
+            <code>member_id</code>, <code>value</code>, <code>status</code>, <code>reason</code>
+          </td>
+          <td>What the step decided.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      A chain
+      <code
+        >Fanout([1, 1, 2]) &gt;&gt; Judge(...) &gt;&gt; Rank(2, by="score:judge") &gt;&gt;
+        Vote()</code
+      >
+      leaves the third member out. These are the records it produced:
+    </p>
+
+    <CodeBlock :code="narrowCode" language="python" />
+    <CodeBlock :code="narrowOut" language="text" />
+
+    <p>A <code>sf.Gate</code> that does not hold records the comparison and abstains:</p>
+
+    <CodeBlock :code="gateEvidenceOut" language="text" />
+
+    <p>
+      The <code>reduce</code> entry of <code>case.trace()</code> has the keys
+      <code>operation_id</code>, <code>op</code>, <code>rule</code>, <code>mode</code>,
+      <code>tally</code>, <code>chosen</code>, <code>signal</code>, <code>result</code>,
+      <code>dropped</code>, <code>judge_operation_id</code> and <code>judge_model</code>. The two
+      judge keys name the judge call of a step that reads the judge directly. For
+      <code>Judge &gt;&gt; ArgMax("score:judge")</code> they are <code>op_judge_1</code> and
+      <code>openrouter/google/gemini-3.5-flash-lite</code>. For
+      <code>Judge &gt;&gt; Rank &gt;&gt; Vote</code> they are <code>None</code>.
+    </p>
 
     <h2>How a case is graded</h2>
 
@@ -559,7 +912,7 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
     <p>
       One exact observation a check accepted or rejected. When <code>valid</code> is
       <code>False</code> the observation could not be read, so it carries no
-      <code>outcome</code> and no <code>explanation</code> — that state records a gap rather than a
+      <code>outcome</code> and no <code>explanation</code>: that state records a gap rather than a
       verdict.
     </p>
 
@@ -604,6 +957,11 @@ const opsOut = `(OperationInfo(id='op_model_1', kind='model', label='claude-haik
           <td><code>raw_output</code></td>
           <td><code>object</code></td>
           <td>The producer's raw output, as it was returned.</td>
+        </tr>
+        <tr>
+          <td><code>accounting</code></td>
+          <td><code>OperationAccounting&nbsp;|&nbsp;None</code></td>
+          <td>What the producer consumed, or <code>None</code> for a deterministic producer.</td>
         </tr>
         <tr>
           <td><code>metadata</code></td>

@@ -36,9 +36,17 @@ class AccountingRow:
 
 
 # The model-call operation kinds and the stage each is accounted under. A judge or writer call is
-# reducer work, so it is a synthesis row. Any other kind (a combine step) makes no model call.
+# reducer work, so it is a synthesis row. A consistency sample call (E4b part 7) is one more answer
+# of a member's model, so it is a generation row. Any other kind (a combine step) makes no model
+# call.
 _ACCOUNTED_STAGES: Mapping[str, Literal["generation", "synthesis"]] = MappingProxyType(
-    {"model": "generation", "synthesis": "synthesis", "judge": "synthesis", "writer": "synthesis"}
+    {
+        "model": "generation",
+        "sample": "generation",
+        "synthesis": "synthesis",
+        "judge": "synthesis",
+        "writer": "synthesis",
+    }
 )
 
 

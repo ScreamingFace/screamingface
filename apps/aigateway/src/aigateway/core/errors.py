@@ -48,11 +48,3 @@ def is_reauth_refresh_failure(status_code: int, body: str) -> bool:
         except (ValueError, AttributeError):
             return False
     return False
-
-
-class ProfileNotFoundError(AigwError):
-    """No profile found for the given (provider, name)."""
-
-
-class ProfilePendingAuthError(AigwError):
-    """Profile exists but is still in 'pending' state — auth not complete."""

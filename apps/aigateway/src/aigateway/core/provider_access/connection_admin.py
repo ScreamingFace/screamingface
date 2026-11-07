@@ -28,9 +28,9 @@ from ..credential_strategy_cache import credential_strategy_cache
 from ..oauth.models import OAuthConnection
 from ..oauth.store import OAuthConnectionStore, credential_locator_for
 from ..plugin_base import credential_service_provider_for, credential_strategy_from
+from .connection_authorize import invalidate_session, oauth_connection_store
 from .connection_locator import credential_name_from_locator
 from .pair_authority import PairAuthority, PairAuthorityConflict, PairAuthorityStore
-from .profile_authorize import invalidate_session, oauth_connection_store
 from .types import CredentialStoreUnavailable, UnsupportedAuthMode, WriteConflict
 
 logger = logging.getLogger(__name__)

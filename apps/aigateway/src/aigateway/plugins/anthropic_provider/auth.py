@@ -22,21 +22,21 @@ from .settings import AnthropicPluginSettings
 logger = logging.getLogger(__name__)
 
 
-def credential_service_for(profile_name: str) -> str:
-    return f"aigateway:anthropic:{profile_name}"
+def credential_service_for(credential_name: str) -> str:
+    return f"aigateway:anthropic:{credential_name}"
 
 
 class AnthropicOAuth(BaseOAuthStrategy):
     def __init__(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
         settings: AnthropicPluginSettings | None = None,
         account: str | None = None,
         http_client_factory=None,
     ) -> None:
-        super().__init__(profile_name=profile_name)
+        super().__init__(credential_name=credential_name)
         self._settings = settings or AnthropicPluginSettings()
         self._store = credential_store or ORMStore()
         self._account = account if account is not None else self._settings.keychain_account
@@ -45,7 +45,7 @@ class AnthropicOAuth(BaseOAuthStrategy):
         )
 
     def credential_service(self) -> str:
-        return credential_service_for(self.profile_name)
+        return credential_service_for(self.credential_name)
 
     def credential_account(self) -> str:
         return self._account
@@ -54,14 +54,14 @@ class AnthropicOAuth(BaseOAuthStrategy):
         raw = await self._store.read(self.credential_service(), self.credential_account())
         if raw is None:
             raise CredentialNotFoundError(
-                f"No tokens for anthropic profile {self.profile_name!r}. "
+                f"No tokens for anthropic profile {self.credential_name!r}. "
                 "Re-authenticate via Electron."
             )
         try:
             creds = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise AuthError(
-                f"Token blob for {self.profile_name!r} is not valid JSON: {exc}"
+                f"Token blob for {self.credential_name!r} is not valid JSON: {exc}"
             ) from exc
         for key in ("access_token", "refresh_token", "expires_at_ms"):
             if key not in creds:
@@ -98,7 +98,7 @@ class AnthropicOAuth(BaseOAuthStrategy):
         if resp.status_code != 200:
             if is_reauth_refresh_failure(resp.status_code, resp.text):
                 raise ReauthRequiredError(
-                    f"Refresh token rejected for profile {self.profile_name!r} "
+                    f"Refresh token rejected for profile {self.credential_name!r} "
                     f"(HTTP {resp.status_code}). Re-auth required."
                 )
             raise AuthError(f"OAuth refresh failed status {resp.status_code}: {resp.text[:500]}")

@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1060 410" width="1060" height="410" font-family="IBM Plex Mono, Menlo, monospace">
+<title>A chain with a narrow step before a reducer</title>
+<defs><marker id="a-mid" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#9aa0aa"/></marker><marker id="a-bad" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e07a62"/></marker><marker id="a-ok" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5fbf86"/></marker><marker id="a-accent" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#e0a23c"/></marker></defs>
+<rect width="1060" height="410" fill="#0a0b0d"/>
+<text x="40" y="42" font-size="16" fill="#e8eaed" text-anchor="start" font-weight="600">One combine call: score, narrow, reduce</text>
+<text x="40" y="64" font-size="11" fill="#686e78" text-anchor="start" letter-spacing="0.04em">sf.Fanout(m) &gt;&gt; sf.Judge(...) &gt;&gt; sf.Rank(2, by=&quot;score:judge&quot;) &gt;&gt; sf.Vote()</text>
+<rect x="40" y="100" width="200" height="96" fill="#131519" stroke="#2c303a" stroke-width="1"/>
+<rect x="40" y="100" width="3" height="96" fill="#e0a23c"/>
+<text x="140.0" y="124" font-size="12" fill="#e8eaed" text-anchor="middle" font-weight="600" letter-spacing="0.04em">sf.Fanout</text>
+<text x="140.0" y="146" font-size="10.5" fill="#9aa0aa" text-anchor="middle">members a, b, c answer:</text>
+<text x="140.0" y="163" font-size="10.5" fill="#9aa0aa" text-anchor="middle">1, 1 and 2</text>
+<rect x="290" y="100" width="200" height="96" fill="#131519" stroke="#2c303a" stroke-width="1"/>
+<text x="390.0" y="124" font-size="12" fill="#e8eaed" text-anchor="middle" font-weight="600" letter-spacing="0.04em">sf.Judge</text>
+<text x="390.0" y="146" font-size="10.5" fill="#9aa0aa" text-anchor="middle">one call scores every</text>
+<text x="390.0" y="163" font-size="10.5" fill="#9aa0aa" text-anchor="middle">member: 10, 10 and 2</text>
+<rect x="540" y="100" width="220" height="96" fill="#131519" stroke="#2c303a" stroke-width="1"/>
+<text x="650.0" y="124" font-size="12" fill="#e8eaed" text-anchor="middle" font-weight="600" letter-spacing="0.04em">sf.Rank(2)</text>
+<text x="650.0" y="146" font-size="10.5" fill="#9aa0aa" text-anchor="middle">keeps the 2 best by</text>
+<text x="650.0" y="163" font-size="10.5" fill="#9aa0aa" text-anchor="middle">score:judge: a and b</text>
+<rect x="810" y="100" width="210" height="96" fill="#131519" stroke="#5fbf86" stroke-width="1"/>
+<text x="915.0" y="124" font-size="12" fill="#e8eaed" text-anchor="middle" font-weight="600" letter-spacing="0.04em">sf.Vote()</text>
+<text x="915.0" y="146" font-size="10.5" fill="#9aa0aa" text-anchor="middle">reads a and b only</text>
+<text x="915.0" y="163" font-size="10.5" fill="#9aa0aa" text-anchor="middle">answer: &#x27;1&#x27;</text>
+<path d="M240 148 L290 148" fill="none" stroke="#9aa0aa" stroke-width="1.3" marker-end="url(#a-mid)"/>
+<path d="M490 148 L540 148" fill="none" stroke="#9aa0aa" stroke-width="1.3" marker-end="url(#a-mid)"/>
+<path d="M760 148 L810 148" fill="none" stroke="#5fbf86" stroke-width="1.3" marker-end="url(#a-ok)"/>
+<rect x="540" y="250" width="220" height="70" fill="#131519" stroke="#e07a62" stroke-width="1" stroke-dasharray="5 4"/>
+<text x="650.0" y="274" font-size="12" fill="#e8eaed" text-anchor="middle" font-weight="600" letter-spacing="0.04em">Member c</text>
+<text x="650.0" y="296" font-size="10.5" fill="#9aa0aa" text-anchor="middle">status excluded</text>
+<text x="650.0" y="313" font-size="10.5" fill="#9aa0aa" text-anchor="middle">reason not_selected</text>
+<path d="M650 196 L650 250" fill="none" stroke="#e07a62" stroke-width="1.3" marker-end="url(#a-bad)"/>
+<text x="40" y="350" font-size="10.5" fill="#9aa0aa" text-anchor="start">The Judge, Rank and Vote steps run in one combine call on the engine.</text>
+<text x="40" y="368" font-size="10" fill="#686e78" text-anchor="start">A block takes at most one judge and at most 4 narrow steps, and ends in one reducer or sf.Synthesize.</text>
+<text x="40" y="384" font-size="10" fill="#686e78" text-anchor="start">The evidence is on CaseOperation.combine: narrow, members, tally and result.</text>
+</svg>

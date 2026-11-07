@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1831",
+  "branch": "OME-1831-ui-schema-effective",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-04",
+  "scope": "One prior test file, approved by the owner on 2026-11-04 (L9 ledger). client.test.ts: the table row [503, \"credential_write_conflict\", \"conflict\"] is deleted, with a one-line tombstone naming its successor in errors.test.ts, and the comment above it, which described the deleted row, now reads \"Retryable: the legacy index conflict, decoded for a gateway older than E5a.\" No other row or expectation changes; the profile_index_conflict row stays. The file is pinned byte-exact (1).",
+  "reason": "OME-1138 close-out L9 (spec docs/spec/2026-10-29-ome-1138-closeout.md section 4.9): the gateway stopped sending credential_write_conflict in E5a, so the UI drops its mapping to the conflict kind, and the prior test that pinned that mapping changes with it; errors.test.ts pins the new reading.",
+  "files": {
+    "apps/aigateway-ui/src/lib/aigateway/client.test.ts": {
+      "base_blob": "2793024a57565212ead49ce3fb5c3999c8c79bd8",
+      "approved_blob": "d13ec2dbbf32db34f3dcda97e8013b6dcfecebfb"
+    }
+  }
+}

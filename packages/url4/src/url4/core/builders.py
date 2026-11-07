@@ -41,6 +41,11 @@ from url4.core._annotations import (
     directives_from_fields,
 )
 from url4.core._lexical import _IDENT_RE, _STRUCT_KEY_RE, chained_bang
+
+# WHY: the renderer owns the canonical text forms; re-deriving quoting/number/
+# intent/source formatting here would let builders and renderer drift.
+from url4.core._render_values import format_number as _format_number
+from url4.core._render_values import quote as _quote
 from url4.core.errors import ParseError
 from url4.core.grammar import intent_atom, parse, parse_value
 from url4.core.nodes import (
@@ -60,10 +65,7 @@ from url4.core.nodes import (
     Url,
     VarRef,
 )
-
-# WHY: the renderer owns the canonical text forms; re-deriving quoting/number/
-# intent/source formatting here would let builders and renderer drift.
-from url4.core.render import _format_number, _quote, _render_intent, _render_source
+from url4.core.render import _render_intent, _render_source
 
 SourceLike = str | Node | Mapping[str, object]
 """Anything accepted in a source position: url4 text, an AST node, or a mapping."""

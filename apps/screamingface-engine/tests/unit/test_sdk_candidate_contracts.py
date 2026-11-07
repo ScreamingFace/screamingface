@@ -73,7 +73,7 @@ _JUDGE_ANSWERS = {
     "prov/judge": json.dumps({"member_1": 1, "member_2": 5, "member_3": 3}),
 }
 _JUDGE_MODELS = {model: (answer, "0.001") for model, answer in _JUDGE_ANSWERS.items()}
-_JUDGE_PREFIX = "judge-template@1 returns=scores"
+_JUDGE_PREFIX = "judge-template@2 returns=scores"
 
 
 def _assert_cheapest_member(record: dict[str, Any]) -> None:

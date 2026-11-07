@@ -1206,6 +1206,70 @@ _HISTORY_COLUMNS: tuple[str, ...] = (
 )
 
 
+_OWNED_COLUMNS: tuple[str, ...] = (
+    "spec_id",
+    "benchmark_revision",
+    "score",
+    "total_questions",
+    "ran_with_providers",
+    "submitted_at",
+    "submitted_by",
+    "authors",
+    "verified_by_screamingface",
+    "url4_expression",
+    "run_cost_usd",
+    "run_cost_status",
+    "cache_saved_cost_usd",
+    "cache_saved_cost_archive_usd",
+)
+
+
+async def _served_submission_rows(
+    benchmark_id: str,
+    columns: Sequence[str],
+    *,
+    owner: str | None = None,
+    spec_id: str | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    # WHY (OME-1517): ORM model/values reads decode money before we can degrade a
+    # malformed amount. Read only the served columns, then use the ranking decoder.
+    scores = Score.get_table()
+    query = Query.from_(scores).select(*(scores[name] for name in columns))
+    query = query.where(scores.benchmark_id == benchmark_id)
+    if owner is not None:
+        query = query.where(scores.submitted_by == owner)
+    if spec_id is not None:
+        query = query.where(scores.spec_id == spec_id)
+    query = query.orderby(scores.submitted_at, order=Order.desc)
+    if limit is not None:
+        query = query.limit(limit)
+    result = await execute_pypika(query, using_db=Tortoise.get_connection(DEFAULT_CONNECTION))
+    rows = _to_python_rows(result.rows)
+    for row in rows:
+        # WHY: preserve ORM interpretation of other fields too, especially legacy naive
+        # timestamps (UTC), while money has already taken the safe decode path.
+        row.update(
+            {
+                name: _decode_raw_column(name, row[name])
+                for name in columns
+                if name not in _RAW_ROW_FIELDS
+            }
+        )
+    return rows
+
+
+def _served_history_row(row: dict[str, Any]) -> SpecHistoryRow:
+    # INVARIANT: an unreadable saving cannot become an absent saving and expose
+    # only the spend. Keep valid stored parts; the history route still sums them.
+    if _serve_reproduction_cost(row.copy()) is None:
+        row["run_cost_usd"] = None
+    for field in _SAVING_RAW_FIELDS:
+        if row[field] is _UNREADABLE_SAVING:
+            row[field] = None
+    return SpecHistoryRow(**row)
+
+
 class ScoreStore:
     async def register_benchmark(
         self,
@@ -2245,21 +2309,12 @@ class ScoreStore:
         limit: int = 50,
         owner: str | None = None,
     ) -> list[SpecHistoryRow]:
-        # OME-894: `owner` scopes the history to one participant on a private board. Applied as
-        # a queryset filter, so the limit counts only rows the caller may see.
-        query = Score.filter(benchmark_id=benchmark_id, spec_id=spec_id)
-        if owner is not None:
-            query = query.filter(submitted_by=owner)
-        # OME-1596 (review round 2): only the columns the history serves. A MODEL projection, so
-        # each column decodes exactly as the whole-row read decoded it.
-        rows = await query.order_by("-submitted_at").limit(limit).only(*_HISTORY_COLUMNS)
-        return [
-            SpecHistoryRow(
-                **{name: getattr(row, name) for name in _HISTORY_COLUMNS if name != "authors"},
-                authors=_resolved_authors(row.authors, row.submitted_by),
-            )
-            for row in rows
-        ]
+        # INVARIANT: filter ownership before limiting; no other participant's rows
+        # consume this caller's history window. Never load recipe or metadata here.
+        rows = await _served_submission_rows(
+            benchmark_id, _HISTORY_COLUMNS, owner=owner, spec_id=spec_id, limit=limit
+        )
+        return [_served_history_row(row) for row in rows]
 
     async def list_owned_entries(self, benchmark_id: str, owner: str) -> list[LeaderboardEntry]:
         """Every submission `owner` made to `benchmark_id`, newest first, nothing collapsed.
@@ -2273,36 +2328,10 @@ class ScoreStore:
         down. Nothing here is ranked, so nothing is collapsed and nothing is capped: these are the
         caller's own rows and the caller is authenticated.
         """
-        rows = (
-            await Score.filter(benchmark_id=benchmark_id, submitted_by=owner)
-            .order_by("-submitted_at")
-            .all()
-        )
-        return [
-            LeaderboardEntry(
-                spec_id=row.spec_id,
-                benchmark_revision=row.benchmark_revision,
-                score=row.score,
-                total_questions=row.total_questions,
-                ran_with_providers=row.ran_with_providers,
-                submitted_at=row.submitted_at,
-                submitted_by=row.submitted_by,
-                # A private board is currently the ONLY surface where a participant sees a credit
-                # line at all (OME-894 D2 scopes reads to the submitter, and `entries` is empty
-                # for everyone), so omitting this dropped the feature exactly where it matters and
-                # degraded silently rather than raising, because the DTO field has a default.
-                authors=_resolved_authors(row.authors, row.submitted_by),
-                verified_by_screamingface=row.verified_by_screamingface,
-                url4_expression=row.url4_expression,
-                run_cost_usd=reproduction_cost(
-                    row.run_cost_usd,
-                    cast("RunCostStatus | None", row.run_cost_status),
-                    row.cache_saved_cost_usd,
-                    row.cache_saved_cost_archive_usd,
-                ),
-            )
-            for row in rows
-        ]
+        rows = await _served_submission_rows(benchmark_id, _OWNED_COLUMNS, owner=owner)
+        for row in rows:
+            _serve_reproduction_cost(row)
+        return [LeaderboardEntry(**row) for row in rows]
 
     async def list_all_for_benchmark(
         self,

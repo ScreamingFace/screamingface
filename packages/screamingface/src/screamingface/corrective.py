@@ -31,7 +31,7 @@ class CorrectiveLoop(Recipe):
     tie-selector it picks among passing drafts (never writes text), as coach it
     writes hints after a no-pass round (never answers). The role split lives in
     the loop's prompts and gates, not in this signature, so nobody smuggles a
-    synthesizer in. There is deliberately no ``stop_when=``: termination belongs
+    writer in. There is deliberately no ``stop_when=``: termination belongs
     to the benchmark's check, never to a caller predicate.
     """
 

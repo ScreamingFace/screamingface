@@ -1,0 +1,42 @@
+{
+  "issue": "OME-1478",
+  "branch": "OME-1478-pr2-import-hle",
+  "approver": "owner, to confirm on the PR (requested in the OME-1478 session)",
+  "date": "2026-11-02",
+  "scope": "Prior-test edits for the new HLE Benchmark and its judge, and nothing else: one table row each in test_benchmark_declaration.py (withhold, single_shot, hard), test_failure_policy_rows.py (Group A, plus the row counts 90→91 and 73→74 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (the revision literal d30effc2a0698079), and test_inspect_imported_benchmarks.py (family judged). The judge glm-5.3-flash adds one seed: the gateway's seed-pin list in test_openrouter_settings.py, and test_model_seeds.py's audited totals 116→117 ids and 87→88 routable, beside a new test that the HLE judge stays routable. No existing row or assertion changes otherwise. Re-pinned 2026-11-02 after the review round: the HLE row now sets redraw_repeats, which moves its revision to d30effc2a0698079; the edit is the same one row per table. Added 2026-11-03: test_picture_benchmarks_notebook.py lists the six picture Benchmarks (inspect-hle joins the five) and expects a local Mac to serve HLE beside FigQA and TableQA, since HLE's Case Digest seals the same on a Mac; nothing else in that file changes.",
+  "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as mmmu_open did); the rows are the review act for its declaration, family, policy and revision. The seed lists pin the gateway's model set by design, so a seeded judge moves them (as the HealthBench and DRACO judges did).",
+  "files": {
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_settings.py": {
+      "base_blob": "63ae785c88ef84634a4232200fb7ce59a83c2838",
+      "approved_blob": "1eec577bca7976a85f53f24e0e4199bdffb5e4c6"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "5495ef899ae3683ee3928b970da749cec861beea",
+      "approved_blob": "bbc2d7a63e43c7d7a745b297c57b6081085dd24d"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "d1a70ea72d7efe80c8b301d091dbcd2bdfb8b14a",
+      "approved_blob": "48d8d46317cf5764f58f077596f1293b1fcf4a9c"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
+      "base_blob": "7a3e803fde3c047c728cb5cb5a652e40db7ebacb",
+      "approved_blob": "545b6ee5d6d9bf5d0a033a42da43116789593c17"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "7f86d790132d1a8babb16d93379cce1df40d5cb3",
+      "approved_blob": "112a680b891951abc8edabf3196b09fd9af58dc0"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "2bbbd6c4251936ea5add74c8b405106fdc421a39",
+      "approved_blob": "93932073ab08b56ac45d04162baf662607877fef"
+    },
+    "apps/screamingface-engine/tests/unit/test_model_seeds.py": {
+      "base_blob": "c5d999bfd9e391958317119b18e70172d433ca4b",
+      "approved_blob": "e26ecc2ef94ade084504f9b188cd6847078e2e63"
+    },
+    "packages/screamingface/tests/test_picture_benchmarks_notebook.py": {
+      "base_blob": "84efdddc85eb7c117cb226fe8f5d0b571a5e6d4a",
+      "approved_blob": "7455dda54dfec1cb259faf2f0f4e990f69f5acf3"
+    }
+  }
+}

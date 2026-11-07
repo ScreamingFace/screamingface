@@ -25,4 +25,4 @@ Data-URI images and text-only requests are unchanged. The three `OME-1541` plugi
 
 ## Out of scope
 
-Converting PDFs to text for Ollama (that is `OME-1550`, office/PDF to text at run time).
+Converting PDFs to text for Ollama: not planned in v1. The v1 rule refuses a PDF sent to a file-blind model at engine run admission, keyed on the model's published `pdf` input modality (pending `OME-1803`; not on `main` yet); this plugin's 422 is the backstop and, until then, the only refusal (`OME-1760`, superseding the earlier hand-off to `OME-1550`, which now covers office formats only).

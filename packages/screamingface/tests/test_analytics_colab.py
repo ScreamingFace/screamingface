@@ -220,7 +220,7 @@ def test_exchange_uses_colab_timeout_and_serialized_payload(browser, monkeypatch
     )
     monkeypatch.setattr(sys.modules["google.colab"], "output", output, raising=False)
     assert colab.exchange("state") == {"choice": "unknown"}
-    assert calls[0][1] == 2
+    assert calls[0][1] == 5
     assert 'const command = "state", batch = null' in calls[0][0]
     assert "parent_origin=" in calls[0][0]
     assert "/v1/events" not in calls[0][0]
@@ -262,13 +262,13 @@ def test_control_steps_share_one_deadline(browser, monkeypatch):
 
     def exchange(command, event, *, timeout_sec):
         calls.append((command, timeout_sec))
-        now[0] += 1.25
+        now[0] += 3
         return accepted()
 
     monkeypatch.setattr(colab, "exchange", exchange)
     analytics.enable()
     wait_until(lambda: not browser.pending)
-    assert calls == [("accept", 2), ("id", 0.75)]
+    assert calls == [("accept", 5), ("id", 2)]
 
 
 def test_expired_control_never_requests_id(browser, monkeypatch):
@@ -278,7 +278,7 @@ def test_expired_control_never_requests_id(browser, monkeypatch):
 
     def exchange(command, event, **kwargs):
         calls.append(command)
-        now[0] += 2.1
+        now[0] += 5.1
         return accepted()
 
     monkeypatch.setattr(colab, "exchange", exchange)
@@ -327,7 +327,7 @@ def test_notebook_observer_forwards_adapter_deadline(browser, monkeypatch):
     assert namespace["event_ids"] == ["0", "1", "2", "3"]
     assert namespace["acknowledgements"] == [{"status": "upstream_accepted"}] * 4
     assert len(calls) == 4
-    assert all(0 < timeout <= 2 for _, timeout in calls)
+    assert all(0 < timeout <= 5 for _, timeout in calls)
 
 
 def notebook_opt_out_tail():
@@ -437,7 +437,7 @@ def test_enable_timeout_cancels_late_acceptance(browser, monkeypatch, capsys):
 
     def exchange(command, event, **kwargs):
         commands.append(command)
-        release.wait(5)
+        release.wait(10)
         completed.set()
         return accepted()
 
@@ -447,7 +447,7 @@ def test_enable_timeout_cancels_late_acceptance(browser, monkeypatch, capsys):
         analytics.enable()
         result = analytics.status()
         elapsed = time.monotonic() - start
-        assert 2 <= elapsed < 4
+        assert 4.5 <= elapsed < 5.75
         assert result["enabled"] is False
         assert result["pending"] is False
         assert "tracking remains off" in capsys.readouterr().out

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1776
 stack: repo
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-29
-finished:
+finished: 2026-10-30
 ---
 
 # release-notes-commit-depth — release notes cover every commit since each package's last release (OME-1138 close-out L2)
@@ -55,7 +55,8 @@ so the widened walk stops at its real tag instead of including AIGateway's entir
   since each last release`; `81255a177` `fix(release): anchor aigateway history at v0.2.0`;
   `82765a6cf` `docs(spec): add the quarantined-row remediation to the close-out precondition`;
   `aca136b6c` `docs(plan): name the server error a stored quarantined row causes after L4a`.
-  The final follow-up corrects the cross-leaf L10 ordering and this ledger's Outcome.
+  The final follow-up corrects the cross-leaf L10 ordering and this ledger's Outcome. Merged
+  as `f76cacf85` (#1607).
 - **Gates:** `run_gates.py repo --base origin/main`: ALL GATES GREEN (append-only,
   test_run_gates, test_check_mirror_status, test_pre_push, check_loop_parity,
   check_mirror_status). `verify_chart_wiring.py`: 121/121 checks passed. The config parses and
@@ -64,6 +65,9 @@ so the widened walk stops at its real tag instead of including AIGateway's entir
 - **Deviations:** review found that the untagged AIGateway 0.2.1 draft gives release-please no
   release SHA, so the manifest was corrected to the published 0.2.0 boundary. The owner then
   amended the close-out contract on 2026-10-30 with remediation for nonzero quarantined/noted
-  rows and the resulting merge order. Still open after merge: confirm the regenerated #512,
-  #1386 and #1385, then edit the aigateway 1.0.0 notes so the removed purge command is not listed
-  under Features.
+  rows and the resulting merge order. After merge (2026-11-02): the regenerated #512, #1386 and
+  #1385 carry the missing entries. The aigateway 1.0.0 notes are corrected through commit
+  overrides on the merged PRs: #1573 becomes a hidden `chore`, since E5c removed the purge
+  command before any release; #1491 and #1614 carry the final breaking entries (Profile-only
+  credentials no longer resolve; a stored quarantined marker is a data error, cleared before
+  upgrading). release-please applies them on its next run.

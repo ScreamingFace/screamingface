@@ -804,7 +804,7 @@ def _connection_label(pending: PendingAuthEntry, plugin, creds: dict, identity) 
     label = plugin.account_label_from_credentials(creds)
     if label:
         return label
-    return pending.profile_name
+    return pending.fallback_label
 
 
 async def _generic_callback(provider: str, code: str, state: str, request: Request):

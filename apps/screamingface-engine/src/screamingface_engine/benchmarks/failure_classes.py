@@ -25,15 +25,37 @@ retryable false — the researcher fixes the recipe instead of paying to re-run.
 from __future__ import annotations
 
 from screamingface_engine.benchmarks.contract import DECLARED_FAILURE_CODES
-from url4.core.errors import ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
 
 # WHY (owner decision, OME-1234): unknown upstream codes map to this class with the
 # original spelling preserved in metadata — routine gateway churn must never crash a
 # paid run with a ValidationError mid-flight.
 UPSTREAM_FALLBACK_CODE = "upstream_error"
+# FEATURE: OME-1775 (spec §4 R1). The failures that wall time caused: the engine's own and url4's
+# (an undeclared url4 code reaches a Case as `upstream_error` with its spelling in `source_code`).
+# WHY: a replay serves stored answers at once, so a Case that failed on time may score there.
+TIME_BASED_CODES: frozenset[str] = frozenset(
+    {
+        "provider_queue_timeout",
+        "provider_execution_timeout",
+        "caller_deadline_exceeded",
+        "aigateway_deadline_exceeded",
+        ErrorCode.TIMEOUT,
+        ErrorCode.ADMISSION_TIMEOUT,
+        ErrorCode.SOURCE_TIMEOUT,
+    }
+)
 # The code a verdict route raises when the Judge answered but the reply is not a usable verdict.
 # Named once because the connector keys its fresh-reply retry on it (world/fresh_judge_retry.py).
 JUDGE_REPLY_INVALID_CODE = "judge_reply_invalid"
+# The code and the fixed text of a member call refused for its logprobs (E4b part 3, ans:Q5, P13).
+# The text never carries upstream text, so `logprobs_unsupported` is an ENGINE_ERROR_CODES entry.
+LOGPROBS_UNSUPPORTED_CODE = "logprobs_unsupported"
+LOGPROBS_UNSUPPORTED_TEXT = (
+    "the model may not return token log-probabilities (sf.Logprob, sf.Entropy), or no endpoint for "
+    "the model supports another member parameter; choose another OpenRouter model or remove that "
+    "parameter"
+)
 
 
 def benchmark_contract_error(detail: str) -> ResolutionError:
@@ -64,6 +86,17 @@ def judge_failure(detail: str) -> ResolutionError:
     return ResolutionError(detail, code=JUDGE_REPLY_INVALID_CODE, permanent=False)
 
 
+def logprobs_unsupported() -> ResolutionError:
+    """The failure for a member call that asked for token log-probabilities and was refused.
+
+    Permanent: the same model refuses the same params again, and the engine never retries without
+    logprobs (ans:Q5). The text is fixed engine text (OME-941).
+    """
+    return ResolutionError(
+        LOGPROBS_UNSUPPORTED_TEXT, code=LOGPROBS_UNSUPPORTED_CODE, permanent=True
+    )
+
+
 # INVARIANT: a helper can never mint an undeclared code — checked at import time so a
 # typo here dies on the first test run, not in a report.
 for _helper in (benchmark_contract_error, benchmark_definition_error, judge_failure):
@@ -72,12 +105,18 @@ for _helper in (benchmark_contract_error, benchmark_definition_error, judge_fail
         raise AssertionError(f"failure class helper mints undeclared code {_code!r}")
 if UPSTREAM_FALLBACK_CODE not in DECLARED_FAILURE_CODES:
     raise AssertionError("upstream fallback code is not declared")
+if logprobs_unsupported().code not in DECLARED_FAILURE_CODES:
+    raise AssertionError("failure class helper mints undeclared code 'logprobs_unsupported'")
 del _helper, _code  # the self-check's loop variables are not module surface
 
 __all__ = [
     "JUDGE_REPLY_INVALID_CODE",
+    "LOGPROBS_UNSUPPORTED_CODE",
+    "LOGPROBS_UNSUPPORTED_TEXT",
+    "TIME_BASED_CODES",
     "UPSTREAM_FALLBACK_CODE",
     "benchmark_contract_error",
     "benchmark_definition_error",
     "judge_failure",
+    "logprobs_unsupported",
 ]

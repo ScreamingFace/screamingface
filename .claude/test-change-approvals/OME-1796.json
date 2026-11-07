@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1796",
+  "branch": "OME-1794-hosted-byom-unit3",
+  "approver": "owner",
+  "date": "2026-10-30",
+  "scope": "Hosted BYOM Unit 3, Phase C (SDK classify). The public-surface snapshot only adds entries: the top-level classify function and the Classification and LabelScore classes with their __init__ members, those three names in __all__, and the classify method among the Client members. Every existing entry is unchanged. No other test changes; tests/test_classify.py is a new file.",
+  "reason": "Owner approved in chat on 2026-10-30 (spec section 6, decision 4a: Client.classify and sf.classify with the public Classification and LabelScore types).",
+  "files": {
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "56e882a9d4e4858ff336c8f9a54060021356c3ce",
+      "approved_blob": "4e11d926a577917d41faaa2dcb952cfc987e4cd5"
+    }
+  }
+}

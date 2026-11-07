@@ -1,0 +1,22 @@
+{
+  "issue": "OME-430",
+  "branch": "OME-430-postgres-concurrency-tests",
+  "approver": "Filip Boltuzic",
+  "date": "2026-11-02",
+  "scope": "Repair the shared PostgreSQL database test fixture as authorized by selecting OME-430. Resolve the synchronous schema URL before the async fixture and initialize an isolated ORM context without creating a database. Existing test assertions and synchronous schema fixture are unchanged. Review follow-up: strengthen the index query, add negative controls, and correct only the stale concurrency-test comment.",
+  "reason": "User explicitly authorized OME-969, OME-430 and OME-1517 with “let’s go with all three” after OME-430 was described as repairing the PostgreSQL test setup so older concurrency tests actually run. The existing fixture errors before those tests execute. This exact fixture edit implements that request; it does not weaken tests. Filip authorized the reviewed fixes: “please fix the issues you feel are real ones”.",
+  "files": {
+    "apps/scoreboard/tests/conftest.py": {
+      "base_blob": "c8d301ef05f2b4c5a192ab4269c0f5772294c558",
+      "approved_blob": "58edd21a94c42e99f083d18e09584be7980e516e"
+    },
+    "apps/scoreboard/tests/unit/test_postgres_fixture_migrations.py": {
+      "base_blob": "2e2f1d54f5662e4a12bc4ed3e289d95e1d623314",
+      "approved_blob": "bad7e73dcb8fb63fc51ebc1dc04ecb25afa4f928"
+    },
+    "apps/scoreboard/tests/unit/scores/test_store.py": {
+      "base_blob": "8f03607ca13ed74df62239b5c6c50943943223c2",
+      "approved_blob": "586169afa3c1fb4cff1d4f33cdf30407fa9bbad8"
+    }
+  }
+}

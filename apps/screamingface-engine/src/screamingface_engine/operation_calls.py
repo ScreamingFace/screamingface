@@ -17,7 +17,11 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from screamingface_engine.combine.evidence import CombineEvidence
-from screamingface_engine.operation_accounting import OperationAccounting, SignalAccounting
+from screamingface_engine.operation_accounting import (
+    OperationAccounting,
+    ReplyLogprobs,
+    SignalAccounting,
+)
 from screamingface_engine.request_identity import ModelRequestKey, model_request_key
 
 
@@ -33,6 +37,9 @@ class OperationCall:
     (a cache hit keeps the numbers of the call it replays). In-process only: it is never part of
     ``accounting`` and never reaches the wire.
 
+    ``reply_logprobs`` is the token log-probability numbers of the TERMINAL round, when the call
+    asked for ``logprobs`` and the reply carried them (E4b part 3). In-process only, numbers only.
+
     ``params`` is the request's parameter set sorted by name — the half of the
     OME-843 attribution fingerprint that distinguishes two members on the same
     model route (e.g. different temperatures).
@@ -45,6 +52,7 @@ class OperationCall:
     accounting: OperationAccounting | None
     combine: CombineEvidence | None = None
     signal_accounting: SignalAccounting | None = None
+    reply_logprobs: ReplyLogprobs | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +162,7 @@ def record_operation_call(
     finish_reason: str | None,
     accounting: OperationAccounting | None = None,
     signal_accounting: SignalAccounting | None = None,
+    reply_logprobs: ReplyLogprobs | None = None,
 ) -> None:
     """Publish one terminal call to every active scope, if an identity is bound."""
 
@@ -171,6 +180,7 @@ def record_operation_call(
             finish_reason=finish_reason,
             accounting=accounting,
             signal_accounting=signal_accounting,
+            reply_logprobs=reply_logprobs,
         )
         for recorder in _recorders.get():
             recorder.append(call)

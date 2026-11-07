@@ -12,7 +12,12 @@ produced; the dataset owner's gating or drift cannot change a published benchmar
 
 Emits, per benchmark::
 
-    <out>/cases.json         [{"id", "case_id", "input"}] — ALL a client sees
+    <out>/board.json         {"schema", "case_count", "cases_bytes", "modalities",
+                             "cases_sha256"} — v3 (OME-1803): the sorted non-text input
+                             types the Cases need, bound to cases.json by its SHA-256
+    <out>/cases.offsets      (offset, length) of each cases.json row, 16 bytes per Case
+    <out>/cases.json         [{"id", "case_id", "input"}] — ALL a client sees; written
+                             last (the completion marker), after its index (OME-1790)
     <out>/targets/<id>.json  {"target": ..., "choices": [...]?} — private; read by the
                              aggregate (the scorer adapter's grading material) and the
                              draft-feedback offer
@@ -44,6 +49,13 @@ from importlib import import_module
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from screamingface_engine.benchmarks.board_store import (
+    BOARD_FILE,
+    CASES_FILE,
+    OFFSETS_FILE,
+    BoardFiles,
+    encode_board,
+)
 from screamingface_engine.benchmarks.deployment import BenchmarkAssetPreparationError
 
 if TYPE_CHECKING:
@@ -2119,6 +2131,71 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         #   (owner accepted on OME-1477, 2026-10-28, for MMMU as a whole).
         license="apache-2.0",
     ),
+    # hle — imported by Task replay on 2026-11-02 from
+    #   inspect_evals.hle.hle:hle.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face cais/hle
+    #     pin revision 5a81a4c7271a2a2a312b9a690f0c2fde837e4c29
+    "hle": TaskReplayCasesSpec(
+        task="inspect_evals.hle.hle:hle",
+        task_args={
+            "scorer": {
+                "scorer": "regex_judge",
+                "graders": ["grader"],
+                "args": {
+                    "template": "regex_judge_template",
+                    "instructions": "regex_judge_instructions",
+                    "max_grader_attempts": 3,
+                },
+            }
+        },
+        case_count=2500,
+        case_digest="7fb3221865f11a884c67725c198409271730424a692c4c8a0c34ec86282d135f",
+        case_set_digest="a6439340e64d020489c9a7678d24245c63c6cc834dc7d47244225991be3bf57a",
+        keep_sample_metadata=True,
+        keep_sample_input=True,
+        source_pins={
+            "cais/hle": "5a81a4c7271a2a2a312b9a690f0c2fde837e4c29",
+        },
+        needs_hf_token=True,
+        license="mit",
+    ),
+    # labbench2_figqa2_img — imported by Task replay on 2026-11-04 from
+    #   screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_figqa2_img.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face EdisonScientific/labbench2/figqa2-img
+    #     pin revision 3678e7e38748477d0606407468db9cd7e2f2e667
+    "labbench2_figqa2_img": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_figqa2_img",
+        case_count=101,
+        case_digest="14980c37ac16c1228c9556bcc5c803723ff9d441225c0bba3f81e4c3b54340c0",
+        case_set_digest="f4e5424845f67be7a203f84e12bbd8c76a71ca6e6966dacb66341a2a0eddd4e0",
+        keep_sample_metadata=True,
+        keep_sample_input=True,
+        source_pins={
+            "EdisonScientific/labbench2": "3678e7e38748477d0606407468db9cd7e2f2e667",
+        },
+        needs_hf_token=True,
+        license="cc-by-sa-4.0",
+    ),
+    # labbench2_tableqa2_img — imported by Task replay on 2026-11-04 from
+    #   screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_tableqa2_img.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face EdisonScientific/labbench2/tableqa2-img
+    #     pin revision 3678e7e38748477d0606407468db9cd7e2f2e667
+    "labbench2_tableqa2_img": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.lab_bench_2.lab_bench_2:lab_bench_2_tableqa2_img",
+        case_count=100,
+        case_digest="fee5764a5560ad68adf3625347e6819c0bf1a4d69f0890cb94c57b6eb70798cf",
+        case_set_digest="80c068cb4c7c6ff761cc58615990dd6b8d716bc5cebb101a44ffa70c4289f33e",
+        keep_sample_metadata=True,
+        keep_sample_input=True,
+        source_pins={
+            "EdisonScientific/labbench2": "3678e7e38748477d0606407468db9cd7e2f2e667",
+        },
+        needs_hf_token=True,
+        license="cc-by-sa-4.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
@@ -2448,10 +2525,12 @@ def _write_cases(prepared: Sequence[PreparedCase], out: Path) -> None:
             json.dumps(item["grading_material"], ensure_ascii=False, separators=(",", ":")),
             encoding="utf-8",
         )
-    (out / "cases.json").write_text(
-        json.dumps([item["case"] for item in prepared], ensure_ascii=False, separators=(",", ":")),
-        encoding="utf-8",
-    )
+    board: BoardFiles = encode_board([item["case"] for item in prepared])
+    # INVARIANT (OME-1790): the index goes down before cases.json, the completion marker, so a
+    # bundle that has cases.json has the index that matches it. cases.json bytes are unchanged.
+    (out / BOARD_FILE).write_bytes(board.board)
+    (out / OFFSETS_FILE).write_bytes(board.offsets)
+    (out / CASES_FILE).write_bytes(board.cases)
 
 
 def _available_hf_token() -> str | None:

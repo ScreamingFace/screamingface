@@ -20,30 +20,30 @@ const namedOut = `Model('openrouter/openai/gpt-5.5', name='gpt-run-2')`
 const policy = `sf.Model(
     "openrouter/openai/gpt-5.5",
     prompt="Answer concisely.",
-    params={"reasoning": "high"},
+    params={"max_tokens": 1024},
 )`
-const policyOut = `Model('openrouter/openai/gpt-5.5', prompt='Answer concisely.', params={'reasoning': 'high'})`
+const policyOut = `Model('openrouter/openai/gpt-5.5', prompt='Answer concisely.', params={'max_tokens': 1024})`
 
 const listing = `sf.models.list()`
-const listingOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=9, tools=2)
-ModelInfo('anthropic/claude-haiku-4-5', provider='anthropic', parameters=9, tools=2)
-ModelInfo('codex/gpt-5.5', provider='codex', parameters=4, tools=1)
-ModelInfo('gemini-cli/gemini-2.5-pro', provider='gemini-cli', parameters=4, tools=1)
-ModelInfo('huggingface/deepseek-ai/DeepSeek-R1:novita', provider='huggingface', parameters=7, tools=0)
-ModelInfo('openrouter/anthropic/claude-opus-4.8', provider='openrouter', parameters=12, tools=2)
-ModelInfo('openrouter/openai/gpt-5.5', provider='openrouter', parameters=12, tools=2)
-ModelInfo('openrouter/google/gemini-3.1-pro-preview', provider='openrouter', parameters=12, tools=2)
-…   # 29 entries across 6 providers on this engine`
+const listingOut = `ModelInfo('anthropic/claude-opus-5', provider='anthropic', parameters=5, tools=1)
+ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=5, tools=1)
+ModelInfo('anthropic/claude-opus-4-7', provider='anthropic', parameters=5, tools=1)
+ModelInfo('anthropic/claude-opus-4-6', provider='anthropic', parameters=5, tools=1)
+ModelInfo('anthropic/claude-opus-4-5', provider='anthropic', parameters=5, tools=1)
+ModelInfo('anthropic/claude-fable-5', provider='anthropic', parameters=5, tools=1)
+ModelInfo('anthropic/claude-sonnet-5', provider='anthropic', parameters=5, tools=1)
+ModelInfo('anthropic/claude-sonnet-4-6', provider='anthropic', parameters=7, tools=1)
+…   # 110 entries across 6 providers on a local engine`
 
 const details = `gpt = sf.models.get("openrouter/openai/gpt-5.5")
-gpt.parameters["reasoning"].enabled, "web_search" in gpt.tools`
-const detailsOut = `(True, True)`
+gpt.parameters["temperature"].enabled, sorted(gpt.tools)`
+const detailsOut = `(True, ['function'])`
 
 const discover = `gpt = sf.models.get("openrouter/openai/gpt-5.5")
 
 # What can I configure on this route?
 len(gpt.parameters), sorted(gpt.parameters)[:4]`
-const discoverOut = `(12, ['frequency_penalty', 'max_tokens', 'presence_penalty', 'reasoning'])`
+const discoverOut = `(23, ['frequency_penalty', 'logprobs', 'max_tokens', 'n'])`
 
 const inspect = `temp = gpt.parameters["temperature"]
 
@@ -78,7 +78,7 @@ const inspectOut = `('number', 0.0, 2.0, True)`
       <li>Name a Model so two samples of the same route stay distinguishable.</li>
       <li>Override the answer prompt and generation parameters.</li>
       <li>List the routes this engine can actually reach.</li>
-      <li>Read one route's profile to see which parameters and tools it supports.</li>
+      <li>Read one route's details to see which parameters and tools it supports.</li>
     </ul>
 
     <h2>Main APIs</h2>
@@ -108,8 +108,8 @@ const inspectOut = `('number', 0.0, 2.0, True)`
         <tr>
           <td><code>sf.models.get(model_id)</code></td>
           <td>
-            Returns one route's <code>sf.ModelDetails</code> profile: which parameters and tools it
-            supports, and whether the profile is current.
+            Returns one route's <code>sf.ModelDetails</code>: which parameters and tools it
+            supports, and whether the details are current.
           </td>
         </tr>
         <tr>
@@ -175,24 +175,27 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     <p>
       Two things to note. The catalogue spans <strong>every provider the engine knows</strong>, not
       only the ones you have connected: a route you have no credential for will fail at evaluation,
-      not here. And ID shapes differ per provider: <code>anthropic/claude-opus-4-8</code> against
+      not here. The hosted engine lists more routes than a local one (112 against 110). And ID
+      shapes differ per provider: <code>anthropic/claude-opus-4-8</code> against
       <code>openrouter/anthropic/claude-opus-4.8</code>. Copy the <code>id</code> rather than
       retyping it.
     </p>
 
     <blockquote>
-      <strong>The catalogue is fixed for now.</strong> The engine does not yet discover models
-      automatically, so only the routes listed here can be used to build fusions. A model missing
-      from the list can't be added from the Client. Automatic discovery is work in progress.
+      <strong>The catalogue is fixed.</strong> The engine does not discover models automatically, so
+      only the routes listed here can be used to build fusions, and a model missing from the list
+      can't be added from the Client.
     </blockquote>
 
     <h3>5 · Check that a route accepts your policy</h3>
 
     <p>
-      <code>sf.models.get(id)</code> returns the fuller <code>sf.ModelDetails</code> profile for one
-      route: each parameter with its schema and whether the gateway currently projects it, the tools
-      and transports it supports, and whether the profile is stale. Consulting it is how you learn
-      that <code>params={"reasoning": "high"}</code> will be honoured before a run spends anything.
+      <code>sf.models.get(id)</code> returns the fuller <code>sf.ModelDetails</code> for one route:
+      each parameter with its schema and whether the gateway currently projects it, the tools and
+      transports it supports, and whether the details are stale. Consulting it is how you learn that
+      <code>params={"max_tokens": 1024}</code> is available on a route before a run spends anything.
+      Which parameters a route accepts ultimately depends on the provider: a provider can reject a
+      parameter its details list, and the run then fails with <code>provider_error</code>.
     </p>
 
     <div class="not-prose">
@@ -202,9 +205,9 @@ const inspectOut = `('number', 0.0, 2.0, True)`
     <h3>6 · Discover a route's parameters</h3>
 
     <p>
-      The same <code>ModelDetails</code> profile is also how you find out <em>what</em> a route lets
-      you configure. <code>details.parameters</code> is a mapping keyed by parameter name, so
-      listing its keys enumerates every knob the route exposes.
+      The same <code>ModelDetails</code> is also how you find out <em>what</em> a route lets you
+      configure. <code>details.parameters</code> is a mapping keyed by parameter name, so listing
+      its keys enumerates every knob the route exposes.
     </p>
 
     <div class="not-prose">
@@ -213,8 +216,8 @@ const inspectOut = `('number', 0.0, 2.0, True)`
 
     <p>
       Each value is an <code>sf.ModelParameter</code>. Its <code>schema</code> gives the type and
-      the bounds the gateway enforces — a numeric <code>minimum</code>/<code>maximum</code>, an
-      <code>enum</code> of allowed values, a <code>max_length</code>, and so on — while
+      the bounds the gateway enforces (a numeric <code>minimum</code>/<code>maximum</code>, an
+      <code>enum</code> of allowed values, a <code>max_length</code>), while
       <code>enabled</code> says whether the gateway currently honours it. Reading the schema tells
       you a value's legal range before you set it in <code>params</code>.
     </p>
@@ -225,8 +228,10 @@ const inspectOut = `('number', 0.0, 2.0, True)`
 
     <p>
       A parameter that isn't listed isn't configurable on that route: setting it in
-      <code>params</code> is refused at pre-flight rather than silently dropped, so a typo costs you
-      nothing.
+      <code>params</code> is refused at pre-flight with <code>PlanningError</code> rather than
+      silently dropped, so a typo costs you nothing. For example,
+      <code>params={"reasoning": "high"}</code> on <code>openrouter/openai/gpt-5.5</code> raises
+      <code>PlanningError: Parameter 'reasoning' is not available</code>.
     </p>
 
     <h2>Links</h2>

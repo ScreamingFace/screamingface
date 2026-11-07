@@ -10,8 +10,6 @@ _UNIT_ROOT = Path(__file__).resolve().parent
 # so they exercise the real validation service unless they install an explicit test double.
 _LEGACY_API_KEY_ROUTE_MODULES = frozenset(
     {
-        "test_api_key_routes.py",
-        "test_auth_routes.py",
         "test_oauth_connection_api_key_routes.py",
         "huggingface/test_huggingface_gateway_acceptance.py",
         "openrouter/test_chat_debug_control_strip.py",
