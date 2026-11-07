@@ -69,16 +69,21 @@ Process: `task-management` skill + `sdlc-*` skills + cards `.claude/task-board.l
    already happened here (see `docs/work/2026-08-04-OME-743-*`). Remove with
    `git worktree remove` once merged.
 6. **Branches/commits/PR.** Branch `<slug>` at work start, renamed to `OME-N-<desc>` at
-   PR-open once the issue is filed; conventional commits; `Refs: OME-N` in the PR body (not
-   required on commits); never `Co-Authored-By`; never commit to `main` (`.githooks/pre-commit`
-   + protection). Every change lands via **PR** — green CI first, then squash-merge; never
-   `--admin`.
+   PR-open once the issue is filed; conventional commits; never `Co-Authored-By`, never
+   "🤖 Generated with [Claude Code]"; never commit to `main` (`.githooks/pre-commit` +
+   protection). PR body follows `.github/pull_request_template.md` exactly, plus `Refs:
+   OME-N` (not required on commits) — no added or invented sections. Every change lands
+   via **PR** — green CI first, then squash-merge; never `--admin`.
 7. **Asana is READ-ONLY** product/marketing input (`asana-product` skill). Technical work
    never goes to Asana.
 8. **Cross-cutting** (≥2 apps/packages) → one sub-issue per affected app/package under the
    epic. Never one mega-ticket. Single-landing work is still a leaf under an epic.
 9. **Linear via MCP only** (`/mcp` to activate). API tokens / raw GraphQL are forbidden;
    MCP-uncovered operations are owner actions in the Linear UI.
+10. **No narrative.** Commits, PR bodies, ticket descriptions, and docs artifacts state
+    facts directly. No self-referential commentary about process, no restating what was
+    asked, no explaining why a sentence was written. Cut a sentence if it narrates rather
+    than states.
 
 ## Architecture — MANDATORY
 
