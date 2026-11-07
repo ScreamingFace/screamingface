@@ -853,3 +853,18 @@ call-context sibling binding refuses; an unnamed source sees a LATER named model
   (4); `test_review_round10.py` untouched (blob 0896c62e4). Suite 3070 passed, coverage 98.81%.
   Gates: `url4` exit 1 (append-only only, approval entry pending owner), `repo --base origin/main`
   exit 0, `screamingface-engine` exit 0. Not committed.
+
+**2026-11-07 — round 11 committed, main merged, pushed.**
+- `cf7e3306a`: round-11 findings 1–3 (whole-body refusal under a live cap, positional `$N`,
+  sibling scope order), call-context scope, `value` as `str`, `read_chunks` refusal message.
+- `f2c0f9307`: normal merge of origin/main (`d21db9196`, #1687 / OME-1834 in-process dispatch).
+  `peer/server.py` conflict = imports only (`_bytes` + `_inprocess`, both delegates kept). Two
+  semantic fixes in the merge: `peer/_inprocess.py` fast path now sets
+  `Request.attachments=current_attachments()` (as `call_endpoint` does; 4 of our tests caught
+  it); `RunFiles.take_prefetched` skips a request carrying a structured `call` — reading
+  `SubrequestFetch.target` encoded the whole context (1.8 GB peak for 50 MB in #1687's memory
+  test); only bare `Url`/`RelUrl` reads are ever memoized, so no replay changes.
+- url4 3113 passed / 17 xfailed; engine unit 7920 passed; `url4` gate (vs HEAD and vs
+  origin/main) exit 0, `repo --base origin/main` exit 0; `url4 --base 490365ce0` exit 1 on
+  append-only only (`test_review_round10.py`, blob 0896c62e4) — owner approval entry follows
+  in a separate commit (owner decision 2026-11-07: push first).
