@@ -1,12 +1,12 @@
 ---
 id: OME-1760
 linear_url: https://linear.app/openmined/issue/OME-1760/refuse-pdfs-on-file-blind-models-by-name-in-the-file-input-spec-no-pdf
-status: in_review
+status: done
 type: docs
 priority: medium
 labels: [repo-dev-processes, agentic, autonomous]
 created: 2026-10-28
-closed:
+closed: 2026-11-05
 ---
 
 # Refuse PDFs on file-blind models by name in the file-input spec (no PDF-to-text in v1)

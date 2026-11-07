@@ -145,3 +145,5 @@ passthrough otherwise (the default).
   `task.cancelling() == 0`), and `aclose()` waits on shielded views of the run tasks. Run
   verdicts work as in round 2. The two new tests in `tests/unit/test_inprocess_aclose_runs.py`
   failed before the change (the stop-frame flush was cancelled) and pass after it.
+
+- **Merged:** PR #1570, squash `66b28ed23`, 2026-11-05 (approved by HupBaHa after three lifecycle rounds).
