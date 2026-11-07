@@ -383,3 +383,24 @@ as headroom: the maximum score on the headline metric minus the Frontier Score. 
 recorded. The Engine derives the verdict; nobody types it. Human-level performance does not make
 a Benchmark saturated, and a saturated Benchmark is not a solved problem.
 _Avoid_: Solved, beaten, superhuman (that is Frontier Score ≥ Human Baseline, a separate fact)
+
+**Fidelity Record**:
+One reviewed markdown file per Benchmark (`docs/benchmarks-fidelity/<id>.md`) that says how our
+exam compares with its references: the paper, the authors' original harness and, for an Imported
+Benchmark, inspect_evals. It lists the seven places an exam can differ (dataset, prompt, answer
+extraction, metric, roll-up, judge, sampling), the evidence checked for each, every deviation
+with its severity and bound, and one Fidelity Verdict. It carries a fingerprint of what the
+verdict rested on (our computed Benchmark fingerprint and the pinned harness link); when either
+moves, the record is stale. Written from the audit agent's report, reviewed in a PR, never
+generated at run time.
+_Avoid_: Audit file, parity report, fidelity test (a parity test is one piece of evidence a record cites)
+
+**Fidelity Verdict**:
+The one word a Fidelity Record gives a Benchmark: **comparable-to-paper** (our headline can sit
+beside the paper's: every deviation against the original harness is cosmetic or bounded, and the
+bounds sum to at most half a percentage point), **comparable-to-inspect** (ours matches
+inspect_evals, which itself differs from the paper beyond that), **not-comparable** (reproducible
+but a different number: an unbounded deviation, or grading the paper ran through a vendor, a
+human or a different judge model), or **unverified** (a dimension could not be checked, or a judge
+question waits on a paid run). A verdict never claims more than the evidence in its record.
+_Avoid_: Fidelity score, parity status, verified (that word is the opposite of `unverified`, not a verdict)
