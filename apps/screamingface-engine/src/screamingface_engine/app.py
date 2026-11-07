@@ -70,6 +70,7 @@ from screamingface_engine.rest import (
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.cache_entries import router as cache_entries_router
 from screamingface_engine.rest.mounts import install_mounts
+from screamingface_engine.rest.runs import router as runs_router
 from screamingface_engine.runs.wiring import install_runs
 from screamingface_engine.schemas import customize_openapi
 from screamingface_engine.tracing.loader import load_span_sink
@@ -96,6 +97,7 @@ _ROUTERS = (
     catalog_router,
     connection_router,
     cache_entries_router,
+    runs_router,
     ws_router,
     ops_router,
 )

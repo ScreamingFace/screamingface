@@ -243,6 +243,10 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # scheduled/not_found boundary; pruned on each schedule so it stays bounded by the
         # topics accepted within one capability lifetime.
         self._scheduled_at: dict[str, datetime] = {}
+        # topic → when a bound stop tombstoned it before this replica scheduled it (E5 P1 spec
+        # D12): its later `schedule()` queues nothing, so no admission slot waits on a run the
+        # worker would skip. Pruned with `_scheduled_at`.
+        self._stopped_before_schedule: dict[str, datetime] = {}
         # FEATURE (OME-1091): the OME-1065 cache-plus-reservation shape, carried over. The
         # counted resource changed (quota headroom → queue depth); the race did not. `_reserved`
         # counts runs admitted since the last refresh — it closes the read-modify-write race
@@ -317,6 +321,12 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # broker's exception hierarchy. Nothing was reserved yet — `_admit_or_raise`
             # reserves only after its last broker read — so there is nothing to release.
             raise RunQueueUnavailable("the run queue could not be read at admission") from exc
+        if self._stopped_before_schedule.pop(topic, None) is not None:
+            # WHY no publish: a bound stop already tombstoned the run (before this call or during
+            # admission), and the reservation is newer than the tombstone, so nothing else would
+            # ever release it.
+            await self._release_reservation(topic, caller_key(identity), reservation)
+            return job_name(topic)
         # FEATURE (OME-940): decide the run's traceparent HERE so the control plane can name the
         # run it is queueing, and so `job_env.TRACEPARENT` is always set on the worker's message
         # — left unset, the worker's whole log context (`logs.run_scope`) carries no trace id.
@@ -365,10 +375,29 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 # reservation refuses the caller's next run for a run that never queued).
                 raise RunQueueUnavailable("the run could not be durably queued") from exc
             raise
+        if self._stopped_before_schedule.pop(topic, None) is not None:
+            # A bound stop landed during the publish: the worker skips the message, so the slot
+            # would wait on a run that never executes.
+            await self._release_reservation(topic, caller_key(identity), reservation)
+            return job_name(topic)
         self._scheduled_at[topic] = self._clock()
         return job_name(topic)
 
     async def stop(self, topic: str) -> None:
+        await self._stop(topic, bound=False)
+
+    async def stop_bound(self, topic: str) -> None:
+        """As `stop`, but a topic with no frame is tombstoned even when this process has no
+        record of scheduling it (E5 P1 spec D12).
+
+        WHY: `_scheduled_at` is per process. A cancel can land before the publish, and an App
+        restart forgets every queued run, so plain `stop` would answer for a run that then
+        executes. The tombstone written first makes the worker's claim-time gate skip it
+        whenever the message lands; a message that never lands leaves one terminal frame.
+        """
+        await self._stop(topic, bound=True)
+
+    async def _stop(self, topic: str, *, bound: bool) -> None:
         """Stop the run: reach a running one over the control subject, else tombstone a
         queued one. Idempotent — unknown and already-terminal topics are no-ops.
 
@@ -421,13 +450,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # unreadable. Either way the marker is not written: a run that finished during the
         # ask keeps its real outcome, and an unknown tail is never trusted with a state
         # change.
-        if await self._tombstone_queued_run(topic):
+        if await self._tombstone_queued_run(topic, bound=bound):
             # The confirmation pass: a worker that claimed between the first ask and the
             # tombstone answers THIS ask (registration precedes spawn), enacts the cancel,
             # and skips its own terminal frame — the tombstone is the one frame either way.
             await self._request_control(topic)
 
-    async def _tombstone_queued_run(self, topic: str) -> bool:
+    async def _tombstone_queued_run(self, topic: str, *, bound: bool) -> bool:
         """Write the queued-cancel marker unless the run finished (or vanished, or went
         unreadable) in the ask window; True when a marker was written.
 
@@ -435,14 +464,20 @@ class QueueJobRunner(IdentityAwareJobRunner):
         now, and a run that completed during the ask must keep its real outcome.
         """
         frame = await self._read_tail(topic)
-        if frame is _UNREADABLE_TAIL or isinstance(frame, TerminatedEvent):
+        if frame is _UNREADABLE_TAIL:
+            # WHY raise and not return: unknown is not "already ended". Returning would let the
+            # caller delete the stream and clear a Run's owed stop with no tombstone written.
+            raise QueueReadError(f"stream tail unreadable for {topic}: run state unknown")
+        if isinstance(frame, TerminatedEvent):
             return False
-        if frame is None and topic not in self._scheduled_at:
+        if frame is None and not bound and topic not in self._scheduled_at:
             # Never scheduled by this App: nothing is queued, so there is nothing to cancel.
             # (The former layout asked the broker whether the per-run stream existed; in a
             # shared stream an empty subject says nothing about the queue.)
             return False
         await self._publish_tombstone(topic)
+        if frame is None and topic not in self._scheduled_at:
+            self._stopped_before_schedule[topic] = self._clock()
         return True
 
     async def _read_tail(self, topic: str) -> TerminatedEvent | None | object:
@@ -880,6 +915,9 @@ class QueueJobRunner(IdentityAwareJobRunner):
         for topic in expired:
             del self._scheduled_at[topic]
             self._forget_in_flight(topic)
+        for topic, at in list(self._stopped_before_schedule.items()):
+            if (now - at).total_seconds() >= self._capability_lifetime_s:
+                del self._stopped_before_schedule[topic]
         # OME-1108: the lease is the shorter of the two bounds and is checked on the same
         # path, so a reservation cannot outlive its run by a capability lifetime.
         self._expire_leases()

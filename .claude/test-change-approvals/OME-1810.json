@@ -1,0 +1,22 @@
+{
+  "issue": "OME-1810",
+  "branch": "OME-1810-e5-p1-e7-sweeps-runs-routes",
+  "approver": "Tauquir Ahmed (spec owner)",
+  "date": "2026-11-05",
+  "scope": "Exactly this edit in test_run_migrations.py: in test_the_migration_creates_the_tables_and_reruns_as_a_no_op, `assert applied == 1` becomes `assert applied == len(shipped)`, where `shipped` lists the migration files in src/screamingface_engine/runs/migrations. And in packages/screamingface/tests/e2e/harness/stack.py and inspect_stack.py: one added entry in the Engine child's environment, `URL4_CLOUD_DATABASE_URL` set to an `engine.sqlite3` in the stack's own work dir, with its comment.",
+  "reason": "E5 P1 spec D12 (PR #1648 review): a second Run registry migration, 0002_candidate_stop_owed, ships in this PR, so the applied count is the number of migrations that ship, not 1. The harness entries: a local Engine holds its Run database exclusively, so concurrent E2E stacks sharing the default `~/.screamingface-engine/engine.sqlite3` refused to start; each stack now has its own file.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_run_migrations.py": {
+      "base_blob": "dbf08f26954a4db46a986e4cf04be76fa2de921a",
+      "approved_blob": "4f4daecc2421ea20a03292ba019fff6fb09a1053"
+    },
+    "packages/screamingface/tests/e2e/harness/stack.py": {
+      "base_blob": "944721b6466004477232f6beef5cfb59fbd00128",
+      "approved_blob": "2a600b07a93215b8523fc0294c4cc87f99116196"
+    },
+    "packages/screamingface/tests/e2e/harness/inspect_stack.py": {
+      "base_blob": "67baecd5ebadc72bcd3a1f11cf379aedbb094ea5",
+      "approved_blob": "34d51c6b1701fad54535c47a7ef36351c5cc32de"
+    }
+  }
+}

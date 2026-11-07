@@ -41,7 +41,8 @@ async def test_the_migration_creates_the_tables_and_reruns_as_a_no_op(tmp_path: 
         }
         applied = conn.execute("select count(*) from tortoise_migrations").fetchone()[0]
     assert {"runs", "run_candidates"} <= tables
-    assert applied == 1
+    shipped = [m for m in (APP_DIR / "src/screamingface_engine/runs/migrations").glob("0*.py")]
+    assert applied == len(shipped)
 
 
 def test_the_autodetector_proposes_no_change() -> None:

@@ -115,6 +115,8 @@ def _candidate_names(candidates: tuple[str, ...]) -> tuple[str, ...]:
         raise ValueError("a Candidate name must not be blank")
     if any(len(name) > MAX_CANDIDATE_NAME_LENGTH for name in names):
         raise ValueError(f"a Candidate name is at most {MAX_CANDIDATE_NAME_LENGTH} characters")
+    if any("\x00" in name for name in names):
+        raise ValueError("a Candidate name has no NUL")
     # WHY compared stripped: names that differ only by surrounding space read as one name.
     if len(set(names)) != len(names):
         raise ValueError("Candidate names must be unique within a Run")
@@ -127,6 +129,9 @@ def _text(field: str, value: str, limit: int) -> str:
         raise ValueError(f"{field} must not be blank")
     if len(stripped) > limit:
         raise ValueError(f"{field} is at most {limit} characters")
+    # WHY: PostgreSQL text cannot hold a NUL, where SQLite can; one rule for both stores.
+    if "\x00" in stripped:
+        raise ValueError(f"{field} has no NUL")
     return stripped
 
 
@@ -155,6 +160,8 @@ class RunRecord:
     benchmark: str
     case_count: int
     candidates: tuple[CandidateRecord, ...]
+    # Whether a cancel has flagged the Run. Not on the wire: `state` says `canceled` once over.
+    canceled: bool = False
 
 
 # WHY a cap: one `GET /runs` page is one bounded query, never a scan of an owner's whole history.
