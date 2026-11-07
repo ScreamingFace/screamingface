@@ -72,6 +72,9 @@ data:
   URL4_CLOUD_EVENTS_MAX_MSGS_PER_SUBJECT: {{ .Values.events.maxMsgsPerSubject | quote }}
   URL4_CLOUD_EVENTS_MAX_AGE_S: {{ .Values.events.maxAgeS | quote }}
   URL4_CLOUD_EVENTS_REPLICAS: {{ .Values.events.replicas | quote }}
+  # The outcome stream (OME-1785, spec R11); the runner pool renders the same two values.
+  URL4_CLOUD_CANDIDATE_OUTCOMES_MAX_AGE_S: {{ .Values.candidateOutcomes.maxAgeS | quote }}
+  URL4_CLOUD_CANDIDATE_OUTCOMES_MAX_BYTES: {{ .Values.candidateOutcomes.maxBytes | int64 | quote }}
   {{- with .Values.config.aigatewayBaseUrl }}
   # Enables the App's own `GET /v1/models` catalog endpoint (OME-625), which reads aigateway
   # using the CALLER's forwarded credential — it needs no credential of its own. Unset =>

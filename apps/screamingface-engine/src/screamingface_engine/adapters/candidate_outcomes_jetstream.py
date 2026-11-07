@@ -14,9 +14,10 @@ LAYERING: a shared leaf, beside `adapters.jetstream`. It never imports the Run r
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from collections.abc import AsyncGenerator
+from dataclasses import dataclass, replace
 
 import nats
 from nats.aio.client import Client
@@ -35,6 +36,7 @@ from nats.js.errors import APIError, NotFoundError
 from screamingface_engine.adapters.jetstream import STREAM_NAME_IN_USE_ERR_CODE
 from screamingface_engine.candidate_outcomes import (
     DEFAULT_OUTCOMES_MAX_AGE_S,
+    MAX_OUTCOME_BYTES,
     CandidateOutcome,
     OutcomeDelivery,
     decode_outcome,
@@ -81,6 +83,7 @@ class CandidateOutcomesStreamConfig:
             # WHY `NEW`: a full stream refuses the publish, which the runner sees, instead of
             # silently dropping the oldest outcomes that are not written yet.
             discard=DiscardPolicy.NEW,
+            max_msg_size=MAX_OUTCOME_BYTES,
             num_replicas=self.replicas,
         )
 
@@ -92,6 +95,46 @@ class CandidateOutcomesStreamConfig:
             ack_policy=AckPolicy.EXPLICIT,
             ack_wait=self.ack_wait_s,
         )
+
+
+# The fields startup applies to a live stream; `retention`, `storage` and `subjects` are fixed.
+# WHY not `num_replicas`: no setting configures it, so an operator's own replica count is left
+# alone.
+_MUTABLE_FIELDS = ("max_age", "max_bytes", "discard", "max_msg_size")
+# The limits a caller without `update` may find widened but never narrowed: below this code's, an
+# outcome could expire or be refused before it is written (spec R4, R6).
+_FLOOR_FIELDS = ("max_age", "max_bytes", "max_msg_size")
+_IMMUTABLE_FIELDS = ("retention", "storage", "subjects")
+
+
+def _check_live_stream(
+    name: str, current: StreamConfig, wanted: StreamConfig, *, update: bool
+) -> None:
+    """Refuse a live stream this code cannot keep outcomes on (spec R4, R6, R11)."""
+    # WHY `discard` only without `update`: startup applies it (`_MUTABLE_FIELDS`); any other
+    # caller refuses a stream that would drop outcomes not yet written.
+    checked = _IMMUTABLE_FIELDS if update else (*_IMMUTABLE_FIELDS, "discard")
+    for field in checked:
+        if getattr(current, field) != getattr(wanted, field):
+            raise CandidateOutcomesStreamConfigError(
+                f"stream {name!r}: `{field}` is {getattr(current, field)}, "
+                f"expected {getattr(wanted, field)}; outcomes would not be kept until written"
+            )
+    if update:
+        return
+    for field in _FLOOR_FIELDS:
+        if _narrower(getattr(current, field), getattr(wanted, field)):
+            raise CandidateOutcomesStreamConfigError(
+                f"stream {name!r}: `{field}` is {getattr(current, field)}, below this "
+                f"Engine's {getattr(wanted, field)}; outcomes could be lost before they are written"
+            )
+
+
+def _narrower(current: float | None, wanted: float | None) -> bool:
+    """Whether a live limit is below this code's. JetStream reads 0 or -1 as unlimited."""
+    if current is None or current <= 0:
+        return False
+    return wanted is not None and wanted > 0 and current < wanted
 
 
 class CandidateOutcomesStreamConfigError(RuntimeError):
@@ -124,12 +167,13 @@ class JetStreamCandidateOutcomeStream:
                 self._js = self._nc.jetstream()
             return self._js
 
-    async def ensure_stream(self) -> None:
+    async def ensure_stream(self, *, update: bool = False) -> None:
         """Create the stream if it is missing (spec R11), and check what an existing one is.
 
-        INVARIANT: a live stream's limits are never rewritten here, so a process built with the
-        defaults cannot shrink a stream an operator widened. Applying changed limits is a
-        deliberate startup step for the App and the runner pool (E4), not every caller's.
+        ``update=True`` is for the App and the runner pool at startup: they own the chart's
+        `candidateOutcomes.*` values, so a changed limit, and the writer's `ack_wait`, are
+        applied. INVARIANT: without it a live stream is never rewritten, so a process built with
+        the defaults cannot shrink a stream an operator widened.
         """
         js = await self._jetstream()
         wanted = self.config.stream_config()
@@ -138,27 +182,31 @@ class JetStreamCandidateOutcomeStream:
         except NotFoundError:
             try:
                 await js.add_stream(wanted)
-                return
+                current = wanted
             except APIError as exc:
                 # WHY: the App and the runner pool declare it at the same startup; when the other
                 # created it first, reconcile against what it created.
                 if exc.err_code != STREAM_NAME_IN_USE_ERR_CODE:
                     raise
-            current = (await js.stream_info(self.config.name)).config
-        # WHY not the limits: an operator may widen `max_age` or `max_bytes` on purpose. These
-        # four decide whether an outcome is kept until written at all.
-        for field in ("retention", "storage", "discard", "subjects"):
-            if getattr(current, field) != getattr(wanted, field):
-                raise CandidateOutcomesStreamConfigError(
-                    f"stream {self.config.name!r}: `{field}` is {getattr(current, field)}, "
-                    f"expected {getattr(wanted, field)}; outcomes would not be kept until written"
-                )
+                current = (await js.stream_info(self.config.name)).config
+        _check_live_stream(self.config.name, current, wanted, update=update)
+        if not update:
+            return
+        if any(getattr(current, field) != getattr(wanted, field) for field in _MUTABLE_FIELDS):
+            # INVARIANT: only the fields startup owns change; everything else on the live stream,
+            # an operator's replica count included, is sent back as it is.
+            owned = {field: getattr(wanted, field) for field in _MUTABLE_FIELDS}
+            await js.update_stream(replace(current, **owned))
+            logger.info("stream %s: applied changed limits", self.config.name)
+        # WHY here: a durable consumer keeps the config it was created with, so a changed
+        # `ack_wait` reaches it only through this explicit update.
+        await js.add_consumer(self.config.name, self.config.consumer_config())
 
     async def publish(self, topic: str, outcome: CandidateOutcome) -> None:
         js = await self._jetstream()
         await js.publish(self.config.subject, encode_outcome(topic, outcome))
 
-    async def consume(self) -> AsyncIterator[OutcomeDelivery]:
+    async def consume(self) -> AsyncGenerator[OutcomeDelivery, None]:
         js = await self._jetstream()
         # WHY add first: `pull_subscribe` binds an existing durable as it is, so a changed
         # `ack_wait`, or a durable made by hand with a `max_deliver`, would silently stay. The
@@ -170,16 +218,23 @@ class JetStreamCandidateOutcomeStream:
             stream=self.config.name,
             config=self.config.consumer_config(),
         )
-        while True:
-            try:
-                msgs = await sub.fetch(_FETCH_BATCH, timeout=_FETCH_WINDOW_S)
-            except TimeoutError:
-                # An empty stream is a result, not an error: nats-py raises on an empty window.
-                continue
-            for msg in msgs:
-                delivery = await self._delivery(msg)
-                if delivery is not None:
-                    yield delivery
+        try:
+            while True:
+                try:
+                    msgs = await sub.fetch(_FETCH_BATCH, timeout=_FETCH_WINDOW_S)
+                except TimeoutError:
+                    # An empty stream is a result, not an error: nats-py raises on an empty window.
+                    continue
+                for msg in msgs:
+                    delivery = await self._delivery(msg)
+                    if delivery is not None:
+                        yield delivery
+        finally:
+            # WHY: the writer opens a new consumer after a failure; the old subscription goes.
+            # Suppressed, so a broker already gone never replaces the error or cancel that ended
+            # the consumer.
+            with contextlib.suppress(Exception):
+                await sub.unsubscribe()
 
     async def _delivery(self, msg: Msg) -> OutcomeDelivery | None:
         try:
