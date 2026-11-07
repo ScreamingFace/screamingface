@@ -38,6 +38,7 @@ def status() -> dict:
             "installation_id": None,
             "persistent_id": saved.installation_id,
             "pending": bridge().pending,
+            **bridge().diagnostics(),
         }
     saved = LocalConsentStore(config_path()).read()
     active = _consent()
@@ -50,7 +51,7 @@ def status() -> dict:
 
 
 def enable(*, persist: bool = True) -> None:
-    """Opt in and print confirmation; use status() for details. Colab waits up to 3s."""
+    """Opt in and print confirmation; use status() for details. Colab waits up to 5s."""
     result = _enable(persist=persist)
     print(
         "Analytics enabled."

@@ -57,7 +57,7 @@ const synthesizeSig = `sf.Synthesize(
 
 <template>
   <DocLayout
-    title="Fusions"
+    title="Fanout fusion"
     description="Combine members into one answer through a synthesizer."
     :navigation="navigation"
     :version="version"
@@ -296,8 +296,8 @@ const synthesizeSig = `sf.Synthesize(
 
     <p>
       The <strong>synthesizer</strong> decides how the members' answers become one. It is itself a
-      recipe. Give <code>sf.Synthesize</code> a route string or <code>sf.Model</code> to have a model
-      read the drafts and write the final answer. Or give it an
+      recipe. Give <code>sf.Synthesize</code> a route string or <code>sf.Model</code> to have a
+      model read the drafts and write the final answer. Or give it an
       <RouterLink to="/sf-client/guides/pipelines"><code>sf.Pipeline</code></RouterLink> or another
       fusion for multi-step synthesis. Swapping synthesizers is the main lever: same members,
       different synthesizer, different candidate.
@@ -361,19 +361,17 @@ const synthesizeSig = `sf.Synthesize(
     </p>
 
     <p>
-      A synthesizer is one way to close the block. A reducer closes it with a rule instead:
-      <code>sf.Vote</code>, <code>sf.Median</code>, <code>sf.Mean</code>, <code>sf.ArgMax</code>,
-      <code>sf.ArgMin</code>, <code>sf.First</code>, <code>sf.Merge</code>,
-      <code>sf.JudgePick</code> or <code>sf.Gate</code>. An optional <code>sf.Judge</code> and the
-      narrow steps <code>sf.Rank</code>, <code>sf.Filter</code> and <code>sf.Concat</code> can come
-      before the last step. The
-      <a
-        href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/README.md"
-        target="_blank"
-        rel="noopener"
-        >package README</a
-      >
-      gives a recipe for each.
+      A model synthesizer is one way to close the block. A <strong>reducer</strong> closes it with a
+      rule instead of a newly written answer: <code>sf.Vote()</code>, for instance, returns the
+      answer most members agree on, unchanged. The
+      <RouterLink to="/sf-client/guides/map-reduce">map-reduce</RouterLink> guide covers the full set
+      of reducers, judges and narrow steps, and the
+      <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> has their signatures.
+    </p>
+
+    <p>
+      <code>quorum</code> on <code>sf.Fanout</code> sets how many members must succeed, and a member
+      built with <code>optional=True</code> may fail without stopping the fusion.
     </p>
 
     <h3>4 · Nest a fusion</h3>
@@ -561,8 +559,8 @@ const synthesizeSig = `sf.Synthesize(
       resolved label of the <code>Fanout</code>. The <code>Fanout</code> step keeps
       <code>members</code> (a <code>tuple</code> in the order you gave, route strings become
       <code>Model</code>), <code>name</code>, <code>prompt</code>, <code>quorum</code> and
-      <code>signals</code>. The <code>Synthesize</code> step keeps <code>model</code> (a route string
-      becomes a <code>Model</code>) and <code>prompt</code>.
+      <code>signals</code>. The <code>Synthesize</code> step keeps <code>model</code> (a route
+      string becomes a <code>Model</code>) and <code>prompt</code>.
     </p>
 
     <h3>Raises</h3>
@@ -591,7 +589,9 @@ const synthesizeSig = `sf.Synthesize(
         <tr>
           <td>A member is not a route string or a supported recipe</td>
           <td>
-            <code>TypeError: sf.Fanout member must be a model route, a sf.Model or a sf.Pipeline</code>
+            <code
+              >TypeError: sf.Fanout member must be a model route, a sf.Model or a sf.Pipeline</code
+            >
           </td>
         </tr>
         <tr>
@@ -622,6 +622,12 @@ const synthesizeSig = `sf.Synthesize(
               >ValueError: the chain ends inside a sf.Fanout block: add a reducer or
               sf.Synthesize</code
             >
+          </td>
+        </tr>
+        <tr>
+          <td><code>quorum</code> is above the member count</td>
+          <td>
+            <code>ValueError: sf.Fanout quorum must be between zero and the member count</code>
           </td>
         </tr>
       </tbody>

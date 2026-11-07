@@ -104,7 +104,13 @@ class RunFiles:
 
         WHY one-shot: execution then performs exactly the fetches it performs today, minus the
         ones admission made for it — a collection is resolved once, not twice.
+        INVARIANT: only bare ``Url``/``RelUrl`` collection reads are ever memoized, as plain
+        requests; a relative expression call (one carrying a structured ``call``, OME-1834's
+        ``SubrequestFetch``) never is, so it skips the lookup — reading its ``target`` would
+        encode the whole context and undo the in-process dispatch's memory bound.
         """
+        if getattr(request, "call", None) is not None:
+            return None
         pending = self.prefetched.get(prefetch_key(request))
         if not pending:
             return None

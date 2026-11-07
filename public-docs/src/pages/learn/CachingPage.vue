@@ -1,18 +1,19 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
 import { learnNavigation as navigation } from '@/navigation/learn'
 </script>
 
 <template>
   <DocLayout
     title="Caching and compute"
-    description="Why runs, and especially reruns, stay cheap: call-level caching, a shared community cache, and where the compute comes from."
+    description="What a run bills: call-level caching, a shared community cache, and where the compute comes from."
     :navigation="navigation"
   >
     <p>
-      Evaluating a fusion means many model calls, and calls cost money and time. ScreamingFace keeps
-      that cost low in two ways: it caches calls to the providers that support it, and it gives you
+      Evaluating a fusion means many model calls, and calls cost money and time. ScreamingFace
+      addresses that in two ways: it caches calls to the providers that support it, and it gives you
       a choice of where the compute comes from.
     </p>
 
@@ -23,17 +24,28 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       supports caching, it stores the response keyed by the exact request. Reuse the same model in
       another candidate, or run the same evaluation again, and the stored response is served instead
       of paying for it twice. Only some providers support it; the Providers table below shows which.
+      A local engine starts with the request cache on: <code>screamingface up</code> sets
+      <code>AIGW_REQUEST_CACHE_ENABLED=true</code> unless the variable is already exported, so
+      <code>export AIGW_REQUEST_CACHE_ENABLED=false</code> before
+      <code>screamingface up</code> turns it off. Cache entries do not expire.
+      <code>use_cache=False</code> on <code>sf.evaluate</code>, <code>Client.evaluate</code> and
+      <code>AsyncClient.evaluate</code> opts one evaluation out: every model call is made fresh, and
+      the report shows those calls as cache <code>bypass</code> with the reason
+      <code>opted_out</code>.
     </p>
 
     <ul>
       <li>
-        <strong>Within a run:</strong> a model shared across several candidates is computed once, so
-        a fusion that reuses its members is far cheaper than the number of candidates suggests.
+        <strong>Within a run:</strong> with the cache on, an identical call from another candidate
+        is served from the cache. Calls are matched by a fingerprint of the route, prompt and
+        parameters, not by model object, so two identical model objects share one cached response.
+        The first candidate to run stores the response and the next one reuses it.
       </li>
       <li>
-        <strong>Across runs:</strong> re-running an evaluation pays only for the calls that are new
-        to it. A run that failed partway is worth restarting, because the calls that already
-        completed come back from the cache instead of being bought twice.
+        <strong>Across runs:</strong> with the cache on, a call that repeats exactly is served from
+        the cache. A call whose input changed, such as the second turn of a case whose first answer
+        differs, is paid again. A run that failed partway can be restarted: the calls that already
+        completed and repeat exactly come back from the cache.
       </li>
     </ul>
 
@@ -44,35 +56,43 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       model configuration against a benchmark, that call is a cache hit for you as well, at no cost.
       This sharing covers model calls. The gateway also caches web-search and web-fetch results, but
       only for each account: a result that one account stored is never given to another account.
-      Verifying a published result, or building on someone else's fusion, usually costs a fraction
-      of the original run, because the expensive part has already been paid for once.
     </p>
 
     <p>
-      This is what makes reproduction practical. A published result carries its
-      <RouterLink to="/learn/url4">url4</RouterLink>, and re-running that url4 mostly lands on
-      cached calls, so checking the work takes minutes and pennies rather than repeating the whole
-      run.
+      A published result carries its <RouterLink to="/learn/url4">url4</RouterLink>. A call from
+      that url4 that is already in the shared cache is served from it.
     </p>
 
     <p>
-      The shared cache belongs to the hosted engine. A local engine keeps its own cache, which makes
-      your reruns cheap but starts empty and stays yours. Running everything yourself means giving
-      up the community's hits, and that is the real trade against the local path's independence.
+      The shared cache belongs to the hosted engine. A local engine has its own cache, on by
+      default, which bills a rerun only for the calls not made before, but starts empty and stays
+      yours. Running everything yourself means giving up the community's hits unless you pull them,
+      as the next section shows.
+    </p>
+
+    <h3>Pull the community cache into a local engine</h3>
+
+    <p>
+      <code>sf.cache.pull_from_remote()</code> copies the shareable rows of the hosted community
+      cache into the local gateway database. A local run then answers from those rows, for free, the
+      calls the community has already made. <code>screamingface cache pull</code> does the same from
+      a shell. The pull opens a hosted sign-in in a browser, so it needs hosted access. The
+      <RouterLink to="/sf-client/api/cache">Cache reference</RouterLink> has the signatures, the
+      result type and the errors.
     </p>
 
     <h2>Reproducing a submission</h2>
 
     <p>
       A cache saves money, but it is not a record. Its rules can change between releases, and a
-      model can be retired. So a run can make a <strong>pinned cache</strong> of itself. A frozen
-      copy keeps every model answer and every web-tool result of the run. It is separate from the
-      cache. It does not use the cache's keys or rules, and it is kept forever.
+      model can be retired. So a run can make a <strong>pinned cache</strong> of itself. A pinned
+      cache keeps every model answer and every web-tool result of the run. It is separate from the
+      request cache. It does not use the cache's keys or rules, and it is kept forever.
     </p>
 
     <p>
-      <code>sf.evaluate(..., capture=True)</code> makes a pinned cache of the run. Capture is off by
-      default. A leaderboard submission keeps the copy id and the capture status.
+      A run makes a pinned cache of itself when you pass <code>capture=True</code>. Capture is off
+      by default. A leaderboard submission keeps the pinned cache id and the capture status.
       <code>sf.evaluate(pinned_cache="…")</code> reads the published score's
       <RouterLink to="/learn/url4">url4</RouterLink> and answer seed from the board and replays the
       captured answers. A replay never captures; explicit <code>capture=True</code> is an error. The
@@ -115,28 +135,35 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <p>
-      Capture adds no call to a provider, so a captured run costs the same as a normal run. It is
-      best effort. If the gateway cannot store something, the run still goes on and still returns
-      its result. The copy is then <code>partial</code>.
+      Capture adds no call to a provider. It is best effort. If the gateway cannot store something,
+      the run still goes on and still returns its result. The copy is then <code>partial</code>.
     </p>
 
     <p>
-      Keep one thing in mind. The copy id is part of a published score. Any authenticated gateway
-      account that has the id and sends the exact request can read the stored answer. On a private
-      board, only the submitter of a score can read it, so no one else gets its copy id. Capture is
-      off by default. Pass <code>capture=True</code> only to a run whose answers you want to share.
+      Keep one thing in mind. The pinned cache id is part of a published score. Any authenticated
+      gateway account that has the id and sends the exact request can read the stored answer. On a
+      private board, only the submitter of a score can read it, so no one else gets its pinned cache
+      id. Capture is off by default. Pass <code>capture=True</code> only to a run whose answers you
+      want to share.
     </p>
 
     <h3>Local runs</h3>
 
     <p>
       The local runtime starts a real AI gateway with its own SQLite database. A capture on the
-      local runtime is always <code>partial</code>, with the reason <code>local</code>. Its copy
-      lives only in that local gateway. A local capture is never reproducible on a board. To upload
-      a local copy to the hosted gateway is a planned follow-up.
+      local runtime is always <code>partial</code>, with the reason <code>local</code> (<code
+        >capture_partial_reasons == ('local',)</code
+      >). Its pinned cache lives only in that local gateway. A local capture is never reproducible
+      on a board.
     </p>
 
     <h3>Complete and partial</h3>
+
+    <ThemedDiagram
+      name="sf-client-0-1-11-pinned-cache-states"
+      alt="State diagram: a pinned cache is opened, filled, sealed and confirmed by the gateway, and the capture status is complete only when every call is stored and the run did not use the local runtime; a failure to open, a failed, refused, missing, error or ambiguous call, an unconfirmed seal or a local run gives the status partial."
+      caption="The states of a pinned cache and the reasons a capture is partial."
+    />
 
     <p>
       A captured run has a <code>capture_status</code> and, when the copy opened, a
@@ -159,7 +186,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
           <td>Open</td>
           <td>
             The Engine could not open the copy when the run started. The run went on without capture
-            and has no copy id.
+            and has no pinned cache id.
           </td>
         </tr>
         <tr>
@@ -186,8 +213,8 @@ import { learnNavigation as navigation } from '@/navigation/learn'
         <tr>
           <td>Missing</td>
           <td>
-            The gateway did not say whether it stored a call. An older gateway, from before frozen
-            copies, does this. So does a gateway that refused the call before it checked the copy,
+            The gateway did not say whether it stored a call. An older gateway, from before pinned
+            caches, does this. So does a gateway that refused the call before it checked the copy,
             for example because the request body was not valid.
           </td>
         </tr>
@@ -244,15 +271,13 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       answers each call with the answer that it stored for the same call. A call matches a stored
       answer when it has the same case, the same Attempt of that case, the same request, and the
       same position among identical calls in that case. In each case and Attempt, the first
-      identical call gets the first stored answer, the second gets the second, and so on. Nothing
-      calls a provider, and nothing calls the web-search service. A confirmed replay costs
-      <strong>$0</strong>.
+      identical call gets the first stored answer, the second gets the second, and so on.
     </p>
 
     <p>
       A replay does not depend on the cache or on the models of today. It works after a model is
       retired, after a provider plugin is removed, and after the cache rules change. A request that
-      the copy cannot answer fails its case. The replay never buys the answer.
+      the copy cannot answer fails its case.
     </p>
 
     <p>
@@ -342,12 +367,12 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <ul>
       <li>
-        <strong>Local.</strong> Run the engine on your own machine with your own provider keys. You
-        pay your providers directly, and there is no middleman on the local path.
+        <strong>Local:</strong> Run the engine on your own machine with your own provider keys. You
+        pay your providers directly.
       </li>
       <li>
-        <strong>Hosted.</strong> Use an engine we operate. It carries the shared cache, and we
-        subsidize compute for chosen cohorts so that verifying and exploring stays cheap.
+        <strong>Hosted:</strong> Use an engine we operate. It carries the shared cache, and we
+        subsidize compute for chosen cohorts.
       </li>
     </ul>
 
@@ -440,10 +465,10 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     <h2>Providers</h2>
 
     <p>
-      Whichever engine you run, these are the providers it can reach. Caching is opt-in per
-      provider, and only <code>anthropic</code> and <code>openrouter</code> are served from the
-      cache today; the rest bypass it and dispatch every time. How you connect each one varies (a
-      pasted key or a login through a CLI tool); the
+      A local engine advertises these seven providers. Caching is opt-in per provider:
+      <code>openrouter</code>, <code>anthropic</code>, <code>openai</code> and
+      <code>huggingface</code> are served from the cache; the CLI plugins bypass it and dispatch
+      every time. How you connect each one varies (a pasted key or a login through a CLI tool); the
       <RouterLink to="/sf-client/guides/connections">Connect a provider</RouterLink> guide has the
       specifics.
     </p>
@@ -474,9 +499,15 @@ import { learnNavigation as navigation } from '@/navigation/learn'
           <td>Claude models, direct.</td>
         </tr>
         <tr>
+          <td><code>openai</code></td>
+          <td>API key</td>
+          <td>Yes</td>
+          <td>OpenAI models, direct.</td>
+        </tr>
+        <tr>
           <td><code>huggingface</code></td>
           <td>API key</td>
-          <td>No</td>
+          <td>Yes</td>
           <td>Hugging Face inference endpoints.</td>
         </tr>
         <tr>

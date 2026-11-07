@@ -18,19 +18,24 @@ sf.Url4("(candidate='…compiled url4…')!'$model_0'")`
 const remix = `plan = report.candidates["frontier-trio"].url4   # or any url4 string you were given
 
 plan.to_python()    # editable sf.Model / sf.Fanout / sf.Synthesize / sf.Pipeline code, no spend
-sf.evaluate(plan)   # or run it again exactly as it ran, benchmark included`
+sf.evaluate(plan)   # a new paid run of the same recipe over the same benchmark`
+
+const oldJudge = `sf.Url4(url4_with_a_scoring_judge_from_0_1_10).to_python()`
+const oldJudgeOut = `ValueError: URL4 Candidate has an unsupported judge call`
+const oldPick = `sf.Url4(url4_with_a_max_field_pick_from_0_1_10).to_python()`
+const oldPickOut = `ValueError: URL4 Candidate has a pick spec this SDK version cannot rebuild`
 
 const ops = `c = report.candidates.only
 len(c.operations), [o.kind for o in c.operations]`
 const opsOut = `(1, ['model'])`
 
 const runId = `c.run_id`
-const runIdOut = `'z4DrOL5qGcURcfEVB6evxPDlHyg0T2Cwjso10dJ1p5O4TocWXK5FLcYgdbPcnSnQ'`
+const runIdOut = `'DgvSOveXycxBS37ACT3BZI5unjRvUDwSOoxtAwhtpZPGgfZZMfnckus48WesTk82'`
 
 const share = `report.to_dict()   # schema: screamingface.report.v1
 report.to_json()   # the same, as one string`
 
-const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperature=0&max_tokens=8192&q=($question)!'You are answering a research-quality prompt. …', recipe_result:0.0:{schema: 'screamingface.recipe-result.v1', members: {member_1: {model: 'openrouter/anthropic/claude-opus-4.8', answer: '$member_1'}}, answer: '$member_1'})!'$recipe_result'`
+const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'Answer the request accurately and completely. …', _sf_recipe:0.0:'{"recipe":{"binding":"model_1","kind":"model","name":"deepseek-v4-flash","named":false,"role":"model"},"schema":"screamingface.recipe.v1"}')!'$model_1'`
 </script>
 
 <template>
@@ -43,8 +48,8 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <p>
       Every candidate result carries a
       <RouterLink to="/learn/url4"><code>url4</code></RouterLink> string: the complete plan
-      <RouterLink to="/learn/engine">the engine</RouterLink> actually ran — your candidate, the
-      benchmark's routes, retry prompts, and protocol revision — written as a single line of text
+      <RouterLink to="/learn/engine">the engine</RouterLink> actually ran (your candidate, the
+      benchmark's routes, retry prompts, and protocol revision), written as a single line of text
       you can read, diff, and share.
     </p>
 
@@ -145,9 +150,10 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     </figure>
 
     <p>
-      Here is a real one, a single
-      <RouterLink to="/sf-client/guides/models">Model</RouterLink> answering one DRACO case (its
-      long answer prompt trimmed to <code>…</code>):
+      Here is a real one: the candidate part of the url4 of a single
+      <RouterLink to="/sf-client/guides/models">Model</RouterLink> evaluated on MedXpert (its answer
+      prompt trimmed to <code>…</code>). The full expression wraps it with the benchmark's routes
+      and pinned revision:
     </p>
 
     <CodeBlock :code="readable" language="text" />
@@ -156,33 +162,32 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
 
     <ul>
       <li>
-        The outer <code>( … )!'$recipe_result'</code> is the whole run: named sources inside the
-        parentheses, and a final intent that returns <code>$recipe_result</code>.
+        The outer <code>( … )!'$model_1'</code> is the candidate: named sources inside the
+        parentheses, and a final intent that returns <code>$model_1</code>.
       </li>
       <li>
-        <code>member_1</code> is the first source: a call to the model route
-        <code>/openrouter/anthropic/claude-opus-4.8</code> with its parameters
-        (<code>temperature</code>, <code>max_tokens</code>), the benchmark
-        <code>$question</code> bound as <code>q</code>, and its own intent, the answer prompt. The
-        <code>0.0</code> after the name is its weight.
+        <code>model_1</code> is the first source: a call to the model route
+        <code>/openrouter/deepseek/deepseek-v4-flash</code> with the case input
+        <code>$input</code> bound, and its own intent, the answer prompt. The <code>0.0</code> after
+        the name is its weight.
       </li>
       <li>
-        <code>recipe_result</code> is the second source: a structured value that collects the
-        members and names the final answer, here just <code>$member_1</code>.
+        <code>_sf_recipe</code> is the second source: a JSON value that records the recipe's kind
+        and names, so <code>to_python()</code> can rebuild the Python code.
       </li>
     </ul>
 
     <p>
       A <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink> reads the same way, with more
-      members (<code>member_2</code>, <code>member_3</code>, …) and a <code>recipe_answer</code>
-      step (the synthesizer that reads members and writes the synthesis) before
-      <code>recipe_result</code>. Nothing is held back from the line: the routes, the parameters,
-      the prompts, and the pinned protocol are all written into it. See
-      <RouterLink to="/learn/url4">url4</RouterLink> for the full grammar and protocol.
+      members (<code>model_2</code>, …) and a <code>synthesis_1</code> step that reads the members
+      as <code>outputs</code> and writes the synthesis, which the final intent returns. Nothing is
+      held back from the line: the routes, the parameters, the prompts, and the pinned protocol are
+      all written into it. See <RouterLink to="/learn/url4">url4</RouterLink> for the full grammar
+      and protocol.
     </p>
 
     <p>
-      This makes results auditable. A score alone is just a claim. A score with its url4 shows
+      This makes a result reproducible. A score alone is a claim. A score with its url4 shows
       exactly what produced it. And since the expression is also an address the engine can resolve,
       that same string reruns the evaluation or calls the fusion like a single model, in whatever
       workflow you use. See <RouterLink to="/learn/url4">url4</RouterLink> for the protocol itself.
@@ -221,8 +226,7 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
           <td>
             Reconstruct editable <code>sf.Model</code> / <code>sf.Fanout</code> /
             <code>sf.Synthesize</code> / <code>sf.Pipeline</code> code from an expression, including
-            the
-            <code>sf.evaluate(...)</code> line when the url4 embeds a benchmark. Local and free.
+            the <code>sf.evaluate(...)</code> line when the url4 embeds a benchmark. Local and free.
           </td>
         </tr>
         <tr>
@@ -277,8 +281,8 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
 
     <p>
       What you get back is the full expression in the shape annotated above: the routes, the
-      parameters, the answer prompt, and the pinned benchmark revision. Even a small run can produce
-      a few thousand characters, because everything the SDK filled in on your behalf is written out
+      parameters, the answer prompt, and the pinned benchmark revision. The single-Model run above
+      produces 1,888 characters, because everything the SDK filled in on your behalf is written out
       explicitly, but all of it is meant to be read.
     </p>
 
@@ -287,9 +291,9 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <p>
       Because a <code>url4</code> is a complete plan, it converts back into the recipe that produced
       it. <code>to_python()</code> reconstructs the <code>sf.Model</code>, <code>sf.Fanout</code>,
-      <code>sf.Synthesize</code> and <code>sf.Pipeline</code> calls, nested as they originally were,
-      so you can edit one part
-      and run the result as your own next attempt. It costs nothing, since it is a local
+      <code>sf.Synthesize</code>, <code>sf.Pipeline</code> and the judge, narrow and reducer steps
+      as a chain joined with <code>&gt;&gt;</code>, nested as they originally were, so you can edit
+      one part and run the result as your own next attempt. It costs nothing, since it is a local
       transformation rather than a run. Passing the expression to <code>sf.evaluate()</code> instead
       runs it again as it stands, which can spend.
     </p>
@@ -297,6 +301,36 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <div class="not-prose">
       <NbCell :count="2" :code="remix" />
     </div>
+
+    <p>
+      The generated code compiles back to the same url4: a plain fusion and a judge chain, each run
+      through <code>to_python()</code> and evaluated, gave the url4 they started with. A recipe with
+      no scoring judge and no field pick has the same url4 as on 0.1.10: the single-model run above
+      and a plain fusion (2,694 characters) are byte for byte equal. Two kinds of recipe have a new
+      url4, so their gateway calls miss the cache once:
+    </p>
+
+    <ul>
+      <li>
+        <strong>A scoring judge:</strong> <code>sf.Judge</code> uses the template
+        <code>judge-template@2</code>, where the rubric alone says which way is better. A judge
+        fusion that was 3,668 characters is 3,667.
+      </li>
+      <li>
+        <strong>A field pick:</strong> <code>sf.ArgMax("field:x")</code>,
+        <code>sf.ArgMin("field:x")</code> and <code>sf.Rank(k, by="field:x")</code> read a signal. A
+        max-field pick that was 2,771 characters is 2,725.
+      </li>
+    </ul>
+
+    <p><code>to_python()</code> refuses a url4 written by an older SDK for these two cases:</p>
+
+    <CodeBlock :code="oldJudge" language="python" />
+    <CodeBlock :code="oldJudgeOut" language="text" />
+    <CodeBlock :code="oldPick" language="python" />
+    <CodeBlock :code="oldPickOut" language="text" />
+
+    <p>Build the recipe again with the current names.</p>
 
     <h3>3 · Inspect the operation graph</h3>
 
@@ -339,17 +373,20 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
 
     <p>
       A url4 pins the run's <strong>definition</strong>. Pass it to <code>sf.evaluate()</code> and
-      you start a new run. That run goes through the cache like any other. A call that the cache
-      already holds is a hit and costs nothing, and the other calls are paid. A run that bypasses
-      the cache asks the same models the same questions under the same protocol. Models are not
-      deterministic, so a fresh run can diverge slightly.
+      you start a new run. With the cache on, that run goes through it like any other: a call that
+      the cache already holds is a hit and costs nothing, and the other calls are paid. The local
+      gateway starts with the request cache on. <code>sf.evaluate(..., use_cache=False)</code>
+      opts a run out of it, and every call is then paid. A run that bypasses the cache asks the same
+      models the same questions under the same protocol. Models are not deterministic, so a fresh
+      run can diverge slightly.
     </p>
 
     <p>
       To check a published score, use <code>sf.evaluate(pinned_cache="…")</code> or
       <code>sf.evaluate(score_id="…")</code>. The Client reads the original recipe and seed from the
       board, runs against the pinned cache, and returns a report with the verdict on its single
-      result's <code>reproduction</code> field. See the
+      result's <code>reproduction</code> field. A replay that cannot start raises
+      <code>sf.ReproductionError</code>. See the
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> and the
       <RouterLink to="/learn/caching">caching page</RouterLink>.
     </p>
@@ -359,11 +396,11 @@ const readable = `(member_1:0.0:/openrouter/anthropic/claude-opus-4.8?temperatur
     <ul>
       <li>
         <a
-          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/07_ifeval_e2e.ipynb"
+          href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"
           target="_blank"
           rel="noopener"
-          >Companion notebook: <code>07_ifeval_e2e.ipynb</code></a
-        >, which prints a full expression
+          >Companion notebook: <code>00_quickstart.ipynb</code></a
+        >, which reads a candidate's url4 and rebuilds it
       </li>
     </ul>
   </DocLayout>

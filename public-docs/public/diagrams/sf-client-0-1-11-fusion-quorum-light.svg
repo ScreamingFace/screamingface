@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 76 1060 288" width="1060" height="288" font-family="Helvetica Neue, Arial, sans-serif">
+<title>Fusion with quorum and optional members</title>
+<defs><marker id="a-mid" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5a6069"/></marker><marker id="a-bad" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d0634a"/></marker><marker id="a-ok" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#58b36e"/></marker><marker id="a-accent" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#c9821f"/></marker></defs>
+<rect width="1060" height="430" fill="#ffffff"/>
+<rect x="40" y="100" width="230" height="66" rx="10" fill="#f1f9f3" stroke="#58b36e" stroke-width="1"/>
+<text x="155.0" y="124" font-size="12" fill="#2c2f36" text-anchor="middle" font-weight="500">Member A</text>
+<text x="155.0" y="146" font-size="10.5" fill="#5a6069" text-anchor="middle">required, succeeds</text>
+<rect x="40" y="190" width="230" height="66" rx="10" fill="#f1f9f3" stroke="#58b36e" stroke-width="1"/>
+<text x="155.0" y="214" font-size="12" fill="#2c2f36" text-anchor="middle" font-weight="500">Member B</text>
+<text x="155.0" y="236" font-size="10.5" fill="#5a6069" text-anchor="middle">required, succeeds</text>
+<rect x="40" y="280" width="230" height="66" rx="10" fill="#f4f5f7" stroke="#d0634a" stroke-width="1" stroke-dasharray="5 4"/>
+<text x="155.0" y="304" font-size="12" fill="#2c2f36" text-anchor="middle" font-weight="500">Member C</text>
+<text x="155.0" y="326" font-size="10.5" fill="#5a6069" text-anchor="middle">optional=True, fails</text>
+<rect x="400" y="170" width="270" height="106" rx="10" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1"/>
+<text x="535.0" y="194" font-size="12" fill="#2c2f36" text-anchor="middle" font-weight="500">Quorum check</text>
+<text x="535.0" y="216" font-size="10.5" fill="#5a6069" text-anchor="middle">succeeded members &gt;= quorum</text>
+<text x="535.0" y="233" font-size="10.5" fill="#5a6069" text-anchor="middle">&quot;all&quot;: every member (default)</text>
+<text x="535.0" y="250" font-size="10.5" fill="#5a6069" text-anchor="middle">an integer: that many members</text>
+<path d="M270 133 L335 133 L335 200 L400 200" fill="none" stroke="#58b36e" stroke-width="1.3" marker-end="url(#a-ok)"/>
+<path d="M270 223 L400 223" fill="none" stroke="#58b36e" stroke-width="1.3" marker-end="url(#a-ok)"/>
+<path d="M270 313 L335 313 L335 250 L400 250" fill="none" stroke="#d0634a" stroke-width="1.3" stroke-dasharray="5 4" marker-end="url(#a-bad)"/>
+<rect x="780" y="100" width="240" height="90" rx="10" fill="#f1f9f3" stroke="#58b36e" stroke-width="1"/>
+<text x="900.0" y="124" font-size="12" fill="#2c2f36" text-anchor="middle" font-weight="500">Reducer or Synthesize</text>
+<text x="900.0" y="146" font-size="10.5" fill="#5a6069" text-anchor="middle">combines the answers</text>
+<text x="900.0" y="163" font-size="10.5" fill="#5a6069" text-anchor="middle">that reached it</text>
+<rect x="780" y="250" width="240" height="90" rx="10" fill="#f4f5f7" stroke="#d0634a" stroke-width="1"/>
+<text x="900.0" y="274" font-size="12" fill="#2c2f36" text-anchor="middle" font-weight="500">Candidate fails</text>
+<text x="900.0" y="296" font-size="10.5" fill="#5a6069" text-anchor="middle">quorum not met, or a</text>
+<text x="900.0" y="313" font-size="10.5" fill="#5a6069" text-anchor="middle">required member failed</text>
+<path d="M670 200 L725 200 L725 145 L780 145" fill="none" stroke="#58b36e" stroke-width="1.3" marker-end="url(#a-ok)"/>
+<path d="M670 250 L725 250 L725 295 L780 295" fill="none" stroke="#d0634a" stroke-width="1.3" marker-end="url(#a-bad)"/>
+<text x="676" y="192" font-size="10.5" fill="#58b36e" text-anchor="start">met</text>
+<text x="676" y="268" font-size="10.5" fill="#d0634a" text-anchor="start">not met</text>
+</svg>

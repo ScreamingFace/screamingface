@@ -1,0 +1,83 @@
+name: Feature request
+description: Suggest a new provider, benchmark, way to combine models, or improvement to ScreamingFace.
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping shape ScreamingFace. No single team can measure every model on every benchmark, so ideas from people using the toolkit matter.
+
+        Still forming the idea? Talk it through in [Slack](https://openmined.org/slack/) first, or file it here and let the discussion happen on the issue.
+
+        **Found a security vulnerability?** Please don't file it here. [Report it privately](https://github.com/ScreamingFace/screamingface/security/advisories/new) instead.
+
+  - type: dropdown
+    id: request-type
+    attributes:
+      label: What kind of request is this?
+      options:
+        - Support a new model provider
+        - Add a new benchmark
+        - A new way to combine models (synthesizer, selection, reducer, etc.)
+        - Client API or CLI improvement
+        - url4 protocol change
+        - Leaderboard feature
+        - Documentation or examples
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe what you're trying to do and what gets in the way today. Starting from the problem rather than the solution helps us find the best fix.
+      placeholder: I want to see how a fusion does against each of its members on a single case, but the report only shows totals.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to see?
+      description: Describe the change you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: example
+    attributes:
+      label: Example usage
+      description: Optional. Sketch the code you wish you could write. Rough is fine.
+      render: python
+
+  - type: textarea
+    id: provider-benchmark
+    attributes:
+      label: Provider or benchmark details
+      description: |
+        Only for new providers or benchmarks. Helpful to include:
+        - **Provider:** name, link to its API docs, and how authentication works.
+        - **Benchmark:** name, paper or source link, license and access terms, number of cases, whether the answer keys are public, and how answers are scored (exact match, rubric, LLM judge, etc.).
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: Optional. Other approaches you considered, or how you're working around this today.
+
+  - type: textarea
+    id: reproducibility
+    attributes:
+      label: Effect on existing runs
+      description: Optional. Would this change how existing url4 strings replay, or how published leaderboard results are scored? Leave blank if you're not sure.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched [existing issues](https://github.com/ScreamingFace/screamingface/issues) and didn't find this one.
+          required: true
+        - label: I'd be interested in helping build this.

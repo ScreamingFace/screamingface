@@ -1,0 +1,44 @@
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE);
+const fs=require('node:fs/promises');const path=require('node:path');const assert=require('node:assert/strict');
+(async()=>{
+ const browser=await chromium.launch({headless:true,channel:'chrome'});
+ const context=await browser.newContext();
+ await context.route('**/*',route=>new URL(route.request().url()).hostname==='127.0.0.1'?route.continue():route.abort());
+ const page=await context.newPage();const requests=[];page.on('request',r=>{if(r.url().includes('/v1/'))requests.push(r.url());});
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('http://127.0.0.1:8773/');await page.locator('#benchmark-cards .card').first().waitFor();
+ assert.equal(await page.locator('#benchmark-cards .card').count(),9);
+ assert.equal(await page.getByLabel('Has scores').isChecked(),true);
+ assert.equal(requests.length,1);
+ await page.getByRole('button',{name:'Show more benchmarks'}).click();assert.equal(await page.locator('#benchmark-cards .card').count(),18);
+ await page.getByLabel('Search benchmarks').fill('  CONTRACTEVAL  ');
+ assert.equal(await page.locator('#benchmark-cards .card').count(),1);
+ assert.equal(new URL(await page.locator('#benchmark-cards .card').getAttribute('href'),'http://local').searchParams.get('id'),'contracteval');
+ await page.getByRole('button',{name:'Clear search'}).click();assert.equal(await page.locator('#benchmark-cards .card').count(),9);
+ const summary=await (await context.request.get('http://127.0.0.1:8773/v1/benchmarks/summary')).json();
+ const empty=summary.benchmarks.find(b=>b.best_score===null);
+ await page.getByLabel('Search benchmarks').fill(empty.id);
+ await page.getByRole('button',{name:'Include benchmarks without scores'}).click();
+ assert.equal(await page.getByLabel('Search benchmarks').inputValue(),empty.id);
+ assert.equal(await page.getByLabel('Has scores').isChecked(),false);
+ assert.ok(await page.locator('#benchmark-cards .card').count()>0);
+ await page.getByLabel('Search benchmarks').fill('impossible-search-no-results');
+ assert.equal(await page.locator('#benchmark-status').getAttribute('role'),'status');
+ assert.equal(await page.locator('#benchmark-cards .card').count(),0);
+ await page.getByRole('button',{name:'Clear search'}).click();await page.getByLabel('Has scores').check();
+ for(const width of [1280,390]){
+  await page.setViewportSize({width,height:900});await page.locator('#benchmarks').scrollIntoViewIfNeeded();
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>window.innerWidth),false);
+  await page.screenshot({path:path.join(__dirname,`catalog-${width}.png`)});
+ }
+ await page.locator('#theme-toggle').click();
+ assert.equal(await page.locator('html').getAttribute('data-theme'),'dark');
+ await page.locator('#benchmarks').scrollIntoViewIfNeeded();
+ await page.screenshot({path:path.join(__dirname,'catalog-dark-mobile.png')});
+ assert.equal(requests.length,1);assert.deepEqual(errors,[]);
+ await page.route('**/v1/benchmarks/summary',route=>route.fulfill({status:503,body:'Unavailable'}));
+ await page.reload();await page.locator('#benchmark-status[role="alert"]').waitFor();
+ assert.equal(await page.locator('#benchmark-controls').isVisible(),false);
+ await fs.writeFile(path.join(__dirname,'smoke.json'),JSON.stringify({passed:true,checks:['default 9/scored','show more','case/whitespace search','clear resets','include unscored retains query','empty state','desktop/mobile no overflow','dark mobile','no page errors','one UI API request across all interactions','503 visible error']}));
+ await browser.close();console.log('Browser smoke passed');
+})().catch(e=>{console.error(e);process.exit(1)});

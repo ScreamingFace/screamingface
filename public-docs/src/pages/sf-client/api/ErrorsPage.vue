@@ -13,7 +13,7 @@ import {
 const catchAll = `import screamingface as sf
 
 try:
-    report = sf.evaluate(recipe, benchmark="ifeval", limit=1)
+    report = sf.evaluate(recipe, benchmark="medxpert", limit=1)
 except sf.ScreamingFaceError as exc:
     print(exc.code, exc.retryable, exc.hint)`
 
@@ -21,8 +21,8 @@ const attrs = `e = sf.PlanningError("boom", code="model_unavailable", permanent=
 e.code, e.retryable, e.permanent, e.hint`
 const attrsOut = `('model_unavailable', False, True, None)`
 
-const real = `client.models.get("antigravity/gemini-3-flash")`
-const realOut = `ProviderConnectionError: Antigravity profile 'default' is not connected`
+const real = `sf.evaluate(sf.Model("anthropic/claude-opus-4-8"), benchmark="medxpert", limit=1)`
+const realOut = `ProviderConnectionError: Provider 'anthropic' is not connected for Model 'anthropic/claude-opus-4-8'`
 
 const warn = `import warnings
 
@@ -45,15 +45,18 @@ else:
 <template>
   <DocLayout
     title="Errors"
-    description="What the Client raises, and the warnings it emits when a run completes with a caveat."
+    description="What the Client raises, and the warnings it emits when a run or a submission carries a caveat."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      Service and evaluation failures inherit from <code>ScreamingFaceError</code>. Its subclasses
-      say where the failure happened and carry a machine-readable code alongside the message.
-      Invalid argument types and values can instead raise <code>TypeError</code> or
-      <code>ValueError</code>.
+      Errors the Client raises about the engine, a provider, a leaderboard or an evaluation inherit
+      from <code>ScreamingFaceError</code>. Nine subclasses say where the failure happened, and each
+      carries a machine-readable code alongside its message. Argument validation raises
+      <code>ValueError</code>, <code>TypeError</code> or <code>KeyError</code> instead (for example
+      <code>limit=0</code> raises <code>ValueError</code>), and a closed Client raises
+      <code>RuntimeError</code>. Catch <code>ScreamingFaceError</code> for runtime failures and let
+      validation errors surface.
     </p>
 
     <div class="not-prose">
@@ -66,16 +69,22 @@ else:
       code="Exception
 └── ScreamingFaceError
     ├── AuthenticationError
+    ├── CachePullError
     ├── EngineUnavailableError
     ├── ExecutionError
     ├── LeaderboardError
+    ├── MediaUnavailableError
     ├── PlanningError
+    │   └── EngineCapabilityError
     ├── ProviderConnectionError
     └── ReproductionError
 
 Warning
 └── UserWarning
-    └── EvaluationWarning"
+    └── EvaluationWarning
+        ├── DuplicateMembersWarning
+        ├── FixedSeedSittingWarning
+        └── JudgeWriterWarning"
       language="text"
     />
 
@@ -134,10 +143,27 @@ Warning
           </td>
         </tr>
         <tr>
+          <td><code>CachePullError</code></td>
+          <td>
+            <code>sf.cache.pull_from_remote()</code> stopped before its last page. Its
+            <code>result</code> attribute is the <code>PullResult</code> that says how far it got.
+            See <RouterLink to="/sf-client/api/cache">Cache</RouterLink>.
+          </td>
+        </tr>
+        <tr>
           <td><code>LeaderboardError</code></td>
           <td>
             A <RouterLink to="/sf-client/api/leaderboards">leaderboard</RouterLink> operation could
             not be completed safely.
+          </td>
+        </tr>
+        <tr>
+          <td><code>MediaUnavailableError</code></td>
+          <td>
+            A picture or file of a case cannot be fetched from the engine. The code
+            <code>media_not_kept</code> means the engine no longer holds it, and the error is
+            permanent. See
+            <RouterLink to="/sf-client/api/candidate-result#case-media">Case media</RouterLink>.
           </td>
         </tr>
       </tbody>
@@ -216,6 +242,14 @@ Warning
       <NbCell :count="3" :code="attrs"><NbTextOut :text="attrsOut" /></NbCell>
     </div>
 
+    <p>
+      <code>EngineCapabilityError</code> is a <code>PlanningError</code> with the code
+      <code>engine_capability_missing</code>. It means the engine lacks a capability the evaluation
+      needs, for example the combine operators a
+      <RouterLink to="/sf-client/api/reducers">reducer</RouterLink> compiles to. It is raised before
+      anything is spent.
+    </p>
+
     <h2>Replay errors and verdicts</h2>
 
     <CodeBlock :code="replayError" language="python" />
@@ -278,6 +312,55 @@ Warning
       <code>UserWarning</code>, so it appears in normal warning output and
       <code>warnings.simplefilter</code> controls it.
     </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Warning</th>
+          <th>Emitted when</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>EvaluationWarning</code></td>
+          <td>
+            A submission carries a caveat. A run made with <code>limit</code> is a partial
+            submission, which is not directly comparable with a full run and does not enter the
+            ranking.
+          </td>
+        </tr>
+        <tr>
+          <td><code>DuplicateMembersWarning</code></td>
+          <td>
+            Two members of a reducer Fusion send the same request, so they may be one cached answer.
+            It is emitted once per group. Use <code>sf.samples()</code> for independent samples.
+          </td>
+        </tr>
+        <tr>
+          <td><code>FixedSeedSittingWarning</code></td>
+          <td>
+            A run sets <code>answer_seed</code> while some calls set their own
+            <code>seed</code> (every <code>sf.samples()</code> member does). Those calls send the
+            same request in every sitting, so the spread across sittings is not measured. The run
+            still goes on.
+          </td>
+        </tr>
+        <tr>
+          <td><code>JudgeWriterWarning</code></td>
+          <td>
+            A judge and the writer of the same block use one model, or a stage that reads a judge is
+            followed directly by a model stage with the judge's model. The writer is then also the
+            scorer. It is emitted when the SDK compiles the recipe, and the run still goes on. The
+            message names the stages and the model:
+            <code
+              >Stage 1 (a fanout block) uses the same model
+              'openrouter/google/gemini-3.5-flash-lite' for its judge and its writer</code
+            >. Give the judge or the writer another model to clear it. A judge on another model
+            emits nothing.
+          </td>
+        </tr>
+      </tbody>
+    </table>
 
     <Note>
       Read the warning alongside the report or exception. Promote warnings to errors if your

@@ -15,6 +15,10 @@ const clientSig = `sf.Client(
     *,
     engine_url: str = DEFAULT_ENGINE_URL,
     scoreboard_url: str = DEFAULT_SCOREBOARD_URL,
+    http_transport: httpx.BaseTransport | None = None,
+    scoreboard_transport: httpx.BaseTransport | None = None,
+    run_transport: SyncRunTransport | None = None,
+    save_results: bool = True,
 )`
 
 const basic = `import screamingface as sf
@@ -28,10 +32,12 @@ const evaluateSig = `Client.evaluate(
     *,
     benchmark: str | None = None,
     limit: int | None = None,
+    cases: Sequence[int] | None = None,
     on_event: Callable[[Event], None] | None = None,
     progress: bool | None = None,
     answer_seed: int | None = None,
     capture: bool | None = None,
+    use_cache: bool = True,
 ) -> Report`
 
 const replaySig = `Client.evaluate(
@@ -63,18 +69,18 @@ const asyncCode = `import asyncio
 import screamingface as sf
 
 async def main():
-    async with sf.AsyncClient(engine_url="${SF_ENGINE_URL}") as client:
+    async with sf.AsyncClient(engine_url="http://127.0.0.1:9108") as client:
         models = await client.models.list()
         return len(models), client.engine_url
 
-asyncio.run(main())`
-const asyncOut = `(29, '${SF_ENGINE_URL}')`
+asyncio.run(main())   # in a notebook: await main()`
+const asyncOut = `(110, 'http://127.0.0.1:9108')`
 </script>
 
 <template>
   <DocLayout
     title="Clients"
-    description="Client and AsyncClient — how you reach an engine."
+    description="Client and AsyncClient: how you reach an engine."
     :navigation="navigation"
     :version="version"
   >
@@ -82,8 +88,8 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
       A <code>Client</code> is the connection to one engine, and the object that every other page in
       this reference depends on: recipes are passed to it, and benchmarks and reports come back from
       it. This page covers <code>Client</code> itself and <code>AsyncClient</code> for the same
-      interface over <code>await</code>. The connection values it returns — <code>Connection</code>,
-      the OAuth flows, and <code>ConnectionPanel</code> — are documented under
+      interface over <code>await</code>. The connection values it returns (<code>Connection</code>,
+      the OAuth flows, and <code>ConnectionPanel</code>) are documented under
       <RouterLink to="/sf-client/api/connections">Connections</RouterLink>.
     </p>
 
@@ -101,13 +107,51 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
     </div>
 
     <Note>
-      <code>DEFAULT_ENGINE_URL</code> is a hosted engine, so a <code>Client()</code> with no
-      arguments talks to one we operate. To use a local engine, pass its address explicitly, or set
-      <code>SCREAMINGFACE_ENGINE_URL</code> together with <code>SCREAMINGFACE_SCOREBOARD_URL</code>
-      and use the module-level functions.
-      <code>DEFAULT_SCOREBOARD_URL</code> is the matching hosted ScreamingFace Leaderboard. Both
-      constants live in <code>screamingface.client</code>.
+      <code>DEFAULT_ENGINE_URL</code> is the hosted engine,
+      <code>https://fusion.screamingface.ai</code>, so a <code>Client()</code> with no arguments
+      talks to one we operate. To use a local engine, pass its address and its scoreboard
+      explicitly, or set <code>SCREAMINGFACE_ENGINE_URL</code> together with
+      <code>SCREAMINGFACE_SCOREBOARD_URL</code> and use the module-level functions.
+      <code>DEFAULT_SCOREBOARD_URL</code> is the public ScreamingFace Leaderboard,
+      <code>https://leaderboard.screamingface.ai</code>. Both constants live in
+      <code>screamingface.client</code>.
     </Note>
+
+    <h3>Constructor arguments</h3>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>engine_url</code> · <code>scoreboard_url</code></td>
+          <td>The engine and the leaderboard this Client talks to.</td>
+        </tr>
+        <tr>
+          <td>
+            <code>http_transport</code> · <code>scoreboard_transport</code> ·
+            <code>run_transport</code>
+          </td>
+          <td>
+            Transports for the engine, the leaderboard and the run stream. They are the seam for
+            tests and proxies, and constructor-only.
+          </td>
+        </tr>
+        <tr>
+          <td><code>save_results</code></td>
+          <td>
+            <code>True</code> by default: every completed report is saved to
+            <code>~/.screamingface/results</code>, and
+            <RouterLink to="/sf-client/api/reports">sf.reports</RouterLink> reopens it. Pass
+            <code>False</code> to keep reports in memory only.
+          </td>
+        </tr>
+      </tbody>
+    </table>
 
     <h3>Properties</h3>
 
@@ -153,7 +197,7 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td>catalogue</td>
           <td>
             <code>models.list()</code> returns the
-            <RouterLink to="/sf-client/api/benchmarks">ModelInfo</RouterLink> routes this engine can
+            <RouterLink to="/sf-client/api/models">ModelInfo</RouterLink> routes this engine can
             reach.
           </td>
         </tr>
@@ -204,10 +248,11 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td><code>benchmark</code></td>
           <td><code>str</code></td>
           <td>
-            The benchmark id, such as <code>ifeval</code>. A protocol variant is its own id, such as
-            <code>ifeval/self-corrective</code>, and it pins a different revision, so it changes
-            what the result is comparable to. Required for recipe candidates; omit it when
-            evaluating a complete url4 string or replaying a pinned cache.
+            The benchmark id: <code>medxpert</code> on a local engine, or any id from
+            <code>sf.benchmarks.list()</code> on the hosted engine, such as <code>ifeval</code>. A
+            protocol variant is its own id and pins a different revision, so it changes what the
+            result is comparable to. Required for recipe candidates; omit it when evaluating a
+            complete url4 string or replaying a pinned cache.
           </td>
         </tr>
         <tr>
@@ -216,6 +261,19 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td>
             Run only this many cases. <code>None</code> runs the whole benchmark. Use a small limit
             while you are still iterating.
+          </td>
+        </tr>
+        <tr>
+          <td><code>cases</code></td>
+          <td><code>Sequence[int]&nbsp;|&nbsp;None</code></td>
+          <td>
+            Run a fixed list of Case ids instead of the first <code>limit</code>. A Case id is the
+            position of the Case in the benchmark, from 1 to the case count. Pass
+            <code>cases</code> or <code>limit</code>, not both. The list must hold 1 to 1,000
+            distinct whole numbers, and a replay takes no <code>cases</code>. See
+            <RouterLink to="/sf-client/guides/running-an-evaluation"
+              >Running an evaluation</RouterLink
+            >.
           </td>
         </tr>
         <tr>
@@ -234,7 +292,18 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td>
             An integer that the engine sends to each model call as its <code>seed</code>, unless the
             call sets one. <code>None</code> (the default) runs unseeded. Not a <code>bool</code>.
-            The result keeps it, and a reproduction runs with it.
+            The result keeps it.
+          </td>
+        </tr>
+        <tr>
+          <td><code>use_cache</code></td>
+          <td><code>bool</code></td>
+          <td>
+            <code>True</code> by default: a model call may be answered from the request cache.
+            <code>False</code> makes every call of this evaluation fresh; the report marks them
+            cache <code>bypass</code> with the reason <code>opted_out</code>. Anything other than a
+            <code>bool</code> raises <code>TypeError</code>. A replay ignores it. See
+            <RouterLink to="/learn/caching">Caching</RouterLink>.
           </td>
         </tr>
         <tr>
@@ -242,8 +311,9 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
           <td><code>bool&nbsp;|&nbsp;None</code></td>
           <td>
             Defaults to <code>None</code>, which means off. <code>True</code> turns capture on for a
-            fresh evaluation; a replay never captures. When capture is on, the engine makes a pinned
-            cache of each run, so the score can be reproduced later. Best effort. Read
+            fresh evaluation. A replay never captures, and <code>capture=True</code> with a replay
+            raises <code>TypeError</code>. When capture is on, the engine makes a pinned cache of
+            each run, so the score can be replayed later. Best effort. Read
             <code>capture_status</code> on each
             <RouterLink to="/sf-client/api/candidate-result">CandidateResult</RouterLink>. See
             <RouterLink to="/learn/caching">Reproducing a submission</RouterLink>.
@@ -283,11 +353,10 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
       for a full replay.
     </p>
     <p>
-      A confirmed replay makes no provider or web-search call and costs $0. Only an exact full
-      replay records a reproduction, unless <code>record_reproduction=False</code>. A public score
-      needs leaderboard authentication only for recording; a private score may need it before
-      replay. Engine authentication is separate. Replay never captures, and explicit
-      <code>capture=True</code> is an error.
+      Only an exact full replay records a reproduction, unless
+      <code>record_reproduction=False</code>. A public score needs leaderboard authentication only
+      for recording; a private score may need it before replay. Engine authentication is separate.
+      Replay never captures, and explicit <code>capture=True</code> is an error.
     </p>
     <p>
       A partial or unknown published capture raises
@@ -304,14 +373,17 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
       <code>connect(provider, api_key=...)</code> stores a provider credential on the engine and
       returns the resulting <code>Connection</code>. <code>connect()</code> with no arguments
       returns a <code>ConnectionPanel</code> instead. <code>disconnect(provider)</code> removes the
-      credential and is safe to call repeatedly.
+      credential and is safe to call repeatedly on a local engine. A hosted engine raises
+      <code>ProviderConnectionError</code>. <code>connect(provider, method="oauth")</code> returns
+      an <code>OAuthFlow</code> for providers that offer OAuth.
     </p>
 
     <p>
       Passing a key requires a secure origin: an <code>https</code> engine, or a local one over
       <code>http</code>. Supplying <code>api_key</code> without a provider raises
       <code>TypeError</code>; a provider without <code>api_key</code> raises
-      <code>ValueError</code>.
+      <code>ValueError</code>. A provider the engine does not advertise raises
+      <code>ProviderConnectionError</code>.
     </p>
 
     <h3>Lifecycle</h3>
@@ -367,7 +439,7 @@ const asyncOut = `(29, '${SF_ENGINE_URL}')`
         </tr>
         <tr>
           <td><code>connect()</code> may open a panel</td>
-          <td><code>connect(provider, api_key=...)</code> always requires both</td>
+          <td><code>connect(provider, ...)</code> always requires a provider</td>
         </tr>
       </tbody>
     </table>

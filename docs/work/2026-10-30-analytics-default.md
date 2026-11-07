@@ -1,9 +1,9 @@
 ---
 ticket: OME-1768
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-10-30
-finished:
+finished: 2026-11-05
 ---
 
 # Default analytics in all environments
@@ -289,3 +289,13 @@ cookie and can race with other first-time creation; this known limit is document
 not claimed fixed by the two reported reaccept regressions. No new ticket or
 generation/identity field was introduced. Irina's reported approval is recorded
 separately from the unrecorded Kevin co-sign and pending deployed Colab smoke.
+
+## Closure — 2026-11-05
+
+Merged [PR #1633](https://github.com/ScreamingFace/screamingface/pull/1633)
+on 2026-11-04 as `52d9492aa8b51b34dd9d4ceea6dae1eed0a750ba`. Linear is Done.
+
+Not done by this closure: the deployed Colab browser smoke, upgrading the analytics
+service before the SDK release that carries this change, and Kevin's co-sign, which
+the Linear description still records as not given. The Studio notice/opt-out UI is
+follow-up OME-1805.

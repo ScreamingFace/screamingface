@@ -75,10 +75,10 @@ const pipelineSig = `sf.Pipeline(
     </p>
 
     <p>
-      A stage can be any recipe: a <code>Model</code>, a fusion
-      (<code>sf.Fanout(...) &gt;&gt; sf.Synthesize(...)</code>), or another <code>Pipeline</code>.
-      Refine, review, or re-rank as many times as your experiment needs. Like all recipes, a
-      Pipeline is immutable. Building one makes no requests.
+      A stage can be any recipe: a <code>Model</code>, a fusion (<code
+        >sf.Fanout(...) &gt;&gt; sf.Synthesize(...)</code
+      >), or another <code>Pipeline</code>. Refine, review, or re-rank as many times as your
+      experiment needs. Like all recipes, a Pipeline is immutable. Building one makes no requests.
     </p>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -172,7 +172,9 @@ const pipelineSig = `sf.Pipeline(
         </tr>
         <tr>
           <td><code>.name</code> · <code>.optional</code> · <code>.steps</code></td>
-          <td>Read back the resolved name, the optional flag and the ordered steps (as a tuple).</td>
+          <td>
+            Read back the resolved name, the optional flag and the ordered steps (as a tuple).
+          </td>
         </tr>
         <tr>
           <td><code>sf.Recipe</code></td>
@@ -351,7 +353,7 @@ const pipelineSig = `sf.Pipeline(
         </g>
       </svg>
       <figcaption class="dgcap">
-        The unnamed inner Pipeline flattens into the outer one — draft → review → final runs as a
+        The unnamed inner Pipeline flattens into the outer one: draft → review → final runs as a
         single sequence.
       </figcaption>
     </figure>
@@ -574,7 +576,17 @@ const pipelineSig = `sf.Pipeline(
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
             Defaults to the stage names joined with <code>-&gt;</code>, for example
-            <code>gpt-5.5-&gt;claude-opus-4.8</code>.
+            <code>gpt-5.5-&gt;claude-opus-4.8</code>. An empty string raises
+            <code>ValueError: pipeline name must not be empty</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            Marks this Pipeline as optional when it is a member of a
+            <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>, so the Fusion can
+            succeed without it when its quorum is met. Default <code>False</code>.
           </td>
         </tr>
         <tr>
@@ -625,7 +637,9 @@ const pipelineSig = `sf.Pipeline(
             recipe or a step
           </td>
           <td>
-            <code>TypeError: Pipeline stage must be a model route, a sf.Model or a sf.Pipeline</code>
+            <code
+              >TypeError: Pipeline stage must be a model route, a sf.Model or a sf.Pipeline</code
+            >
           </td>
         </tr>
       </tbody>

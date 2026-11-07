@@ -11,12 +11,12 @@ import {
 
 const modelsRun = `import screamingface as sf
 
-client = sf.Client()
+client = sf.Client(engine_url="http://127.0.0.1:9108")
 client.models.list()[0]`
-const modelsRunOut = `ModelInfo('anthropic/claude-opus-4-8', provider='anthropic', parameters=9, tools=2)`
+const modelsRunOut = `ModelInfo('anthropic/claude-opus-5', provider='anthropic', parameters=5, tools=1)`
 
-const detailsRun = `client.models.get("anthropic/claude-opus-4-8")`
-const detailsRunOut = `ModelDetails('anthropic/claude-opus-4-8', provider='anthropic', scope='chat', parameters=9, tools=2, transport=3)`
+const detailsRun = `client.models.get("anthropic/claude-opus-5")`
+const detailsRunOut = `ModelDetails('anthropic/claude-opus-5', provider='anthropic', scope='account_connection', parameters=5, tools=1, transport=1)`
 
 const modelSig = `sf.Model(
     model: str,
@@ -24,6 +24,7 @@ const modelSig = `sf.Model(
     name: str | None = None,
     prompt: str | None = None,
     params: Mapping[str, str | int | float | bool] | None = None,
+    optional: bool = False,
 )`
 </script>
 
@@ -42,7 +43,7 @@ const modelSig = `sf.Model(
     <h2 id="model">Model</h2>
 
     <p>
-      A <code>Model</code> is a single model route answering on its own — the simplest recipe, and
+      A <code>Model</code> is a single model route answering on its own: the simplest recipe, and
       the building block every <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink> and
       <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink> is made of. See the
       <RouterLink to="/sf-client/guides/models">Models guide</RouterLink> for help picking a route.
@@ -97,6 +98,14 @@ const modelSig = `sf.Model(
             <code>tools</code>, <code>web_search</code>) are reserved and will be rejected.
           </td>
         </tr>
+        <tr>
+          <td><code>optional</code></td>
+          <td><code>bool</code></td>
+          <td>
+            Whether this Model, as a Fusion member, may fail without stopping the Fusion while its
+            <RouterLink to="/sf-client/api/fusions">quorum</RouterLink> is met.
+          </td>
+        </tr>
       </tbody>
     </table>
 
@@ -147,8 +156,8 @@ const modelSig = `sf.Model(
       These are the read-only values model discovery returns.
       <code>client.models.list()</code> hands back a <code>ModelInfo</code> for every route the
       configured engine can currently reach, and <code>client.models.get(id)</code> returns the
-      fuller <code>ModelDetails</code> profile for one route. Consulting them before naming a route
-      in a <a href="#model">Model</a> is worthwhile: a route the engine does not carry raises a
+      fuller <code>ModelDetails</code> for one route. Consulting them before naming a route in a
+      <a href="#model">Model</a> is worthwhile: a route the engine does not carry raises a
       <code>PlanningError</code> at evaluation time rather than at construction time.
     </p>
 
@@ -209,10 +218,10 @@ const modelSig = `sf.Model(
     <h2>ModelDetails</h2>
 
     <p>
-      <code>client.models.get(id)</code> returns the fuller <code>ModelDetails</code> profile for
-      one route: every parameter with its schema and whether the gateway currently projects it, the
-      tool and transport capabilities, and whether the profile is stale or degraded. In a notebook
-      it renders as a card.
+      <code>client.models.get(id)</code> returns the fuller <code>ModelDetails</code> for one route:
+      every parameter with its schema and whether the gateway currently projects it, the tool and
+      transport capabilities, and whether the details are stale or degraded. In a notebook it
+      renders as a card.
     </p>
 
     <table>
@@ -242,25 +251,29 @@ const modelSig = `sf.Model(
         <tr>
           <td><code>contract_id</code></td>
           <td><code>str</code></td>
-          <td>Identifies the capability contract this profile was built from.</td>
+          <td>Identifies the capability contract these details were built from.</td>
         </tr>
         <tr>
           <td><code>scope</code></td>
           <td><code>str</code></td>
-          <td>What the route does, such as <code>chat</code>.</td>
+          <td>
+            Which connection this was built for. <code>'account_connection'</code> means the route
+            as your account's connection sees it, built from that connection's auth mode, rather
+            than the route in general.
+          </td>
         </tr>
         <tr>
           <td><code>auth_mode</code></td>
           <td><code>str</code></td>
           <td>
-            The authentication mode this profile applies under: <code>api_key</code>,
+            The authentication mode these details apply under: <code>api_key</code>,
             <code>oauth</code> or <code>none</code>.
           </td>
         </tr>
         <tr>
           <td><code>context_revision</code></td>
           <td><code>str</code></td>
-          <td>The revision of the discovery context this profile was resolved against.</td>
+          <td>The revision of the discovery context these details were resolved against.</td>
         </tr>
         <tr>
           <td><code>source_revision</code></td>
@@ -286,8 +299,8 @@ const modelSig = `sf.Model(
           <td><code>observed_at</code></td>
           <td><code>datetime&nbsp;|&nbsp;None</code></td>
           <td>
-            When the profile was observed, as a timezone-aware value. <code>None</code> on a
-            degraded profile.
+            When the details were observed, as a timezone-aware value. <code>None</code> on degraded
+            details and when the provider reports no observation time.
           </td>
         </tr>
         <tr>
@@ -301,14 +314,23 @@ const modelSig = `sf.Model(
         <tr>
           <td><code>stale</code></td>
           <td><code>bool</code></td>
-          <td>Whether the profile is past its observation window and should be refetched.</td>
+          <td>Whether the details are past their observation window and should be refetched.</td>
         </tr>
         <tr>
           <td><code>degraded</code></td>
           <td><code>bool</code></td>
           <td>
-            Whether the profile was served without a fresh observation. Mutually exclusive with
+            Whether the details were served without a fresh observation. Mutually exclusive with
             <code>stale</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>execution_access</code></td>
+          <td><code>'configured'&nbsp;|&nbsp;'missing'&nbsp;|&nbsp;None</code></td>
+          <td>
+            Whether your account has provider access to run this route:
+            <code>'configured'</code> when it does, <code>'missing'</code> when it does not.
+            <code>None</code> when the gateway is too old to report it.
           </td>
         </tr>
       </tbody>
