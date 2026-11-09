@@ -81,6 +81,8 @@ jobs:
         run: node --test tests/portal/benchmark-picker-keyboard.test.js
       - name: Catalog summary UI regressions
         run: node --test tests/portal/catalog.test.js
+      - name: Catalog session preference regressions
+        run: node --test tests/portal/catalog-session.test.js
 
       # The portal's pure logic (which row may be presented as SOTA, ordering, bar
       # scaling), under Node's built-in runner. No package.json, no vitest, no
