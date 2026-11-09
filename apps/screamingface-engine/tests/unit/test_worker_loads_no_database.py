@@ -29,9 +29,12 @@ _WORKER_MODULES = (
 _FORBIDDEN_ROOTS = ("tortoise", "asyncpg", "aiosqlite")
 _REGISTRY = "screamingface_engine.runs"
 
-_PROBE = f"""
+
+def _probe(modules: tuple[str, ...]) -> str:
+    """A script that imports ``modules`` and prints every database or registry module loaded."""
+    return f"""
 import importlib, json, sys
-for name in {_WORKER_MODULES!r}:
+for name in {modules!r}:
     importlib.import_module(name)
 print(json.dumps(sorted(
     name for name in sys.modules
@@ -54,15 +57,16 @@ def _loaded(probe: str, env: dict[str, str] | None = None) -> list[str]:
 
 
 def test_the_worker_loads_no_registry_and_no_database_stack() -> None:
-    assert _loaded(_PROBE) == []
+    assert _loaded(_probe(_WORKER_MODULES)) == []
 
 
 def test_the_probe_sees_a_database_module_loaded_one_hop_away(tmp_path: Path) -> None:
     # WHY: proves the probe would catch the drift it exists for, not just pass on an empty set.
-    # A stand-in `tortoise` package, imported the way a stray line in `adapters/factory.py` would.
+    # A stand-in worker module that imports a stand-in `tortoise`, the way a stray line in
+    # `adapters/factory.py` would; the probe imports only the worker module.
     (tmp_path / "tortoise").mkdir()
     (tmp_path / "tortoise" / "__init__.py").write_text("")
-    probe = _PROBE.replace("import importlib, json, sys", "import importlib, json, sys, tortoise")
+    (tmp_path / "stray_worker_module.py").write_text("import tortoise\n")
     env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(tmp_path), *sys.path])}
 
-    assert "tortoise" in _loaded(probe, env)
+    assert "tortoise" in _loaded(_probe((*_WORKER_MODULES, "stray_worker_module")), env)
