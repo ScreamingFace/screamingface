@@ -36,6 +36,7 @@ from screamingface_engine.benchmarks.graded_answer import (
 )
 from screamingface_engine.benchmarks.shared_grading.attempt_fold import (
     ATTEMPT_GRADE_NOT_PASS_FAIL,
+    MEAN_ATTEMPT_FOLD,
     MET_BY_ATTEMPTS_KEY,
     fold_case_attempts,
 )
@@ -370,3 +371,148 @@ def test_a_collected_attempt_error_is_kept_and_the_case_graded_from_the_rest() -
     case = result["cases"][0]
     assert case["status"] == "scored"
     assert [attempt["status"] for attempt in case["attempts"]] == ["failed", "scored"]
+
+
+# --- the mean over Attempts (inspect's pass@1), the second fold rule -----------------------
+#
+# FEATURE (OME-1458 amendment, docs/spec/2026-11-09-attempts-mean-fold.md): a row whose Task
+# declares inspect's pass_at(1) scores a Case as the share of its graded Attempts at full
+# marks, which is what pass_at(1) computes: 1 - C(n-c, 1)/C(n, 1) = c/n.
+
+
+def _marks(*marks: float) -> list[CaseResult]:
+    """One-Check Attempts with these own marks: 1 met, 0 missed, anything else partial."""
+
+    attempts: list[CaseResult] = []
+    for mark in marks:
+        if mark in (0.0, 1.0):
+            attempts.append(_attempt(str(mark), [_check("1", mark == 1.0)]))
+            continue
+        partial: Check = _check("1", None, score=mark)
+        attempts.append(
+            _attempt(
+                str(mark),
+                [partial],
+                grade=CaseGrade(method="inspect_scorer", score=mark, metrics={}, checks=[partial]),
+            )
+        )
+    return attempts
+
+
+@pytest.mark.parametrize(
+    ("marks", "score"), [((0, 0, 0, 0, 0), 0.0), ((1, 0, 1, 0, 0), 0.4), ((1, 1, 1, 1, 1), 1.0)]
+)
+def test_the_mean_fold_scores_the_share_of_attempts_fully_right(
+    marks: tuple[int, ...], score: float
+) -> None:
+    # INVARIANT: c right of 5 scores c/5, inspect's pass_at(1) over 5 epochs; any-of-5 would
+    # score 1.0 for the middle row.
+    folded = fold_case_attempts(_marks(*marks), fold=MEAN_ATTEMPT_FOLD)
+
+    assert folded.grade is not None
+    assert folded.grade.score == score
+    assert folded.grade.checks[0].score == score
+    assert folded.grade.checks[0].metadata[MET_BY_ATTEMPTS_KEY] == [
+        number for number, mark in enumerate(marks, start=1) if mark == 1
+    ]
+
+
+def test_the_mean_fold_counts_a_partial_attempt_as_not_right() -> None:
+    # WHY (D15): inspect's pass_at(1, value=1.0) counts an epoch right only at full marks, so
+    # [0.5, 1.0] is 1/2, not the 0.75 a plain average would give; the any rule fails this
+    # Case by name instead.
+    folded = fold_case_attempts(_marks(0.5, 1.0), fold=MEAN_ATTEMPT_FOLD)
+
+    assert folded.status == "scored"
+    assert folded.grade is not None
+    assert folded.grade.score == 0.5
+    assert folded.grade.checks[0].outcome is None
+
+
+def test_the_mean_fold_averages_over_the_graded_attempts_only() -> None:
+    # WHY: a failed Attempt filed no Score, and inspect's reducer sees only the Scores filed,
+    # so the tally and the fold both divide by the graded count (1 of 3 here, not 1 of 4).
+    results: list[CaseResult] = _marks(1.0, 0.0, 0.0)
+    results.insert(1, _failed_attempt())
+
+    folded = fold_case_attempts(results, fold=MEAN_ATTEMPT_FOLD)
+
+    assert folded.grade is not None
+    assert folded.grade.score == round(1 / 3, 4)
+    assert [attempt.status for attempt in folded.attempts or []] == [
+        "scored",
+        "failed",
+        "scored",
+        "scored",
+    ]
+
+
+def test_the_mean_fold_shows_the_first_attempt_that_earned_the_most() -> None:
+    folded = fold_case_attempts(_marks(0.0, 1.0, 1.0), fold=MEAN_ATTEMPT_FOLD)
+
+    assert folded.output == "1.0"
+    assert [attempt.output for attempt in folded.attempts or []] == ["0.0", "1.0", "1.0"]
+
+
+def test_the_mean_fold_marks_a_check_met_only_when_every_attempt_met_it() -> None:
+    all_met = fold_case_attempts(_marks(1.0, 1.0), fold=MEAN_ATTEMPT_FOLD)
+    none_met = fold_case_attempts(_marks(0.0, 0.0), fold=MEAN_ATTEMPT_FOLD)
+    some_met = fold_case_attempts(_marks(1.0, 0.0), fold=MEAN_ATTEMPT_FOLD)
+
+    assert all_met.grade is not None and all_met.grade.checks[0].outcome == "MET"
+    assert none_met.grade is not None and none_met.grade.checks[0].outcome == "UNMET"
+    assert some_met.grade is not None and some_met.grade.checks[0].outcome is None
+
+
+def test_the_any_fold_is_the_default_so_every_prior_caller_is_unchanged() -> None:
+    # INVARIANT: no caller that never named a rule changes its number.
+    marks: list[CaseResult] = _marks(1, 0, 1, 0, 0)
+
+    assert fold_case_attempts(marks) == fold_case_attempts(marks, fold="any")
+
+
+def _aggregate_mean(rows: list[object], expected: list[str]) -> dict[str, Any]:
+    """Run the shared marking room over one Case's Attempts row under the mean rule."""
+
+    aggregation = BenchmarkAggregation(
+        failure_policy="withhold",
+        reader=CaseGradeReader(
+            benchmark_label="Test", error_type=ValueError, decode_case_grade=_decode
+        ),
+        grade_case=_ExactMatch(),
+        failure_messages=MESSAGES,
+        method="inspect_scorer",
+        grading_failure_code="invalid_case_evaluation",
+        grading_failure_message="test",
+        attempt_fold=MEAN_ATTEMPT_FOLD,
+    )
+
+    def scorer(cases: Sequence[CaseResult]) -> CandidateScore:
+        scores: list[float] = [case.grade.score or 0.0 for case in cases if case.grade]
+        return CandidateScore(score=sum(scores) / len(scores), metrics={})
+
+    raw: str = json.dumps([{"schema": CASE_ATTEMPTS_SCHEMA, "case_id": 1, "attempts": rows}])
+    return asyncio.run(
+        aggregation.aggregate_async(
+            raw,
+            benchmark_id="attempts-mean-probe",
+            benchmark_revision="rev",
+            selected_cases=_selected(1),
+            grading_material=lambda _case_id: expected,
+            scorer=scorer,
+        )
+    )
+
+
+def test_the_marking_room_folds_by_the_mean_when_the_benchmark_says_so() -> None:
+    # STORY: five Attempts at "What is 6 times 7?", two answer 42: the Case scores 0.4 and
+    # shows 42; the any rule on the same rows scores 1.0 (the test above this section).
+    result = _aggregate_mean(
+        [_row(1, "41"), _row(1, "42"), _row(1, "40"), _row(1, "42"), _row(1, "43")], ["42"]
+    )
+
+    case = result["cases"][0]
+    assert result["score"] == 0.4
+    assert case["output"] == "42"
+    assert case["grade"]["score"] == 0.4
+    assert [attempt["grade"]["score"] for attempt in case["attempts"]] == [0.0, 1.0, 0.0, 1.0, 0.0]
