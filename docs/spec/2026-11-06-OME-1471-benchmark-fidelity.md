@@ -81,9 +81,11 @@ audited_at: 3499efbb8                  # main sha the audit read
 fingerprint:
   benchmark: ada07458a23c55ab          # the COMPUTED fingerprint, never the published revision
   harness_url: https://github.com/josejg/instruction_following_eval/tree/0c495b2f95155e8b10acb919ae283bfb4d5be6e2
-references:                            # evidence for the reader; the script does not compare these
+references:                            # evidence for the reader, each pinned; the script checks the pin, not the value
   paper: https://arxiv.org/abs/2311.07911v1
-  inspect_evals: 0.20.0                # the installed version the audit ran against
+  original_harness: https://github.com/josejg/instruction_following_eval/tree/0c495b2f95155e8b10acb919ae283bfb4d5be6e2
+  inspect_evals: https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0
+  inspect_ai: https://github.com/UKGovernmentBEIS/inspect_ai/tree/v0.3.263
 parity_test: tests/unit/inspect/test_local_task_ifeval_parity.py   # Engine-relative path, or `none`
 parity_test_reason: ""                 # required non-empty when parity_test is none
 ---
@@ -96,6 +98,13 @@ Rules a test can check (§3.4 tests them):
   `unverified`.
 - `fingerprint.benchmark` is 16 lower-case hex; `fingerprint.harness_url` is the declaration's
   string, byte for byte.
+- Every `references.*` value is an http(s) URL whose path carries a 7–40 hex sha or a `v`-tag
+  (the `harness_url` pin rule), so a reader lands on the exact code or paper version the audit
+  read. `original_harness` is the authors' code that produced the published number: for
+  `origin="screamingface"` it equals `fingerprint.harness_url`; for `origin="inspect_evals"` the
+  declared `harness_url` points at inspect_evals, so the agent finds the authors' code (from the
+  paper or the inspect_evals README) and records it here. `inspect_ai` is listed because the
+  answer-extraction and multiple-choice helpers live there, not in inspect_evals.
 - `parity_test` is a path relative to `apps/screamingface-engine/` (the records' own app) that exists, or the literal
   `none` with `parity_test_reason` non-empty ("judge-graded, parity needs a paid run" is a valid
   reason; "not written yet" is also valid and is what the sweep will show).
@@ -245,7 +254,7 @@ fingerprint equals `_FINGERPRINTS["ifeval"]` from the fingerprint test module.
 | a catalogue id with no file → `no record` | F7 |
 | a file whose id is not in the catalogue → `orphan record` | a renamed Benchmark leaves no ghost verdict |
 | `parity_test: none` with a reason → `none: <reason>`; a path that exists → `yes`; a path that does not → `MISSING` and exit 1 | the "no parity test" column is honest |
-| missing key / unknown verdict / stem ≠ `benchmark` / `unverified` without a reason → malformed, file and key named, exit 1, never `fresh` | a broken record cannot read as a good one |
+| missing key / unknown verdict / stem ≠ `benchmark` / `unverified` without a reason / an unpinned `references.*` URL → malformed, file and key named, exit 1, never `fresh` | a broken record cannot read as a good one |
 | `TEMPLATE.md` and `README.md` are skipped | the template is not a record |
 | `socket.socket` patched to raise → `main` still returns | offline by construction |
 | with the extra: `declared_today()` keys == `{spec.key → id}` ∪ `{medxpert}`, and `ifeval` fingerprint == the golden literal | the script and the fingerprint test agree on what a fingerprint is |
@@ -280,7 +289,7 @@ Benchmark's grading code, used by the planted-deviation calibration and by nothi
 
 | our origin | references, in order | what `comparable-to-inspect` means |
 |---|---|---|
-| `inspect_evals` | the inspect_evals task at the pinned version (installed, `importlib.resources`), the original harness at `harness_url`, the paper | ours == inspect_evals, inspect_evals ≠ harness beyond tolerance |
+| `inspect_evals` | the inspect_evals task at the pinned version (installed, `importlib.resources`) and inspect_ai's helpers it calls, the authors' original harness (not declared: `harness_url` is the inspect_evals tree for this origin, so the agent finds it from the paper or the inspect_evals README and records it as `references.original_harness`), the paper | ours == inspect_evals, inspect_evals ≠ harness beyond tolerance |
 | `screamingface` | the original harness at `harness_url`, the paper | not applicable; the verdict is against the harness |
 
 ### 4.3 The free checks
