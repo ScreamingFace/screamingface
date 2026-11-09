@@ -378,3 +378,23 @@ async def test_a_local_bound_stop_before_the_schedule_starts_no_task() -> None:
 
     assert not await runner.exists("t")
     assert built == []
+
+
+async def test_a_queue_at_capacity_still_answers_a_stopped_topic_as_stopped() -> None:
+    """WHY: a capacity refusal tells the client to retry a start that was canceled."""
+    runner = _runner(_FakePublisher(), _FakeControl(reply=False))
+    runner._caller_inflight_cap = 0
+
+    await runner.stop_bound("t")
+    await runner.schedule("t", "'hi'", 60, identity=_ALICE_IDENTITY)
+
+    assert runner._queue.published == []  # type: ignore[attr-defined]
+
+
+async def test_a_full_local_runner_still_answers_a_stopped_topic_as_stopped() -> None:
+    runner = InProcessJobRunner(InMemoryEventStream(), lambda env: None, max_concurrent_runs=0)  # type: ignore[arg-type,return-value]
+
+    await runner.stop_bound("t")
+    await runner.schedule("t", "'hi'", 60)
+
+    assert not await runner.exists("t")

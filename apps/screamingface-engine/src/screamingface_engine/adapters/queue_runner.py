@@ -323,6 +323,9 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 publish (503 + a constant `Retry-After` at the REST edge). Any other broker
                 error propagates unchanged (a 500): it would fail the same way on retry.
         """
+        if topic in self._stopped_before_schedule:
+            # Before admission: a canceled start answers as canceled, never "retry" at capacity.
+            return job_name(topic)
         with self._in_schedule(topic):
             try:
                 reservation = await self._admit_or_raise(identity, topic)
@@ -389,8 +392,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 # A bound stop landed during the publish: the worker skips the message, so the slot
                 # would wait on a run that never executes.
                 await self._release_reservation(topic, caller_key(identity), reservation)
-                return job_name(topic)
-            self._scheduled_at[topic] = self._clock()
+            else:
+                self._scheduled_at[topic] = self._clock()
             return job_name(topic)
 
     @contextlib.contextmanager

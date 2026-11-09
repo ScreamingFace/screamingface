@@ -354,11 +354,12 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             JobRunnerAtCapacity: too many runs already in flight.
             JobAlreadyExists: a run for this topic is still running.
         """
-        if self._active >= self._max_concurrent:
-            raise JobRunnerAtCapacity(self._active, self._max_concurrent)
         name = job_name(topic)
+        # Before the capacity check: a canceled start answers as canceled, never "retry".
         if topic in self._stopped_before_schedule:
             return name
+        if self._active >= self._max_concurrent:
+            raise JobRunnerAtCapacity(self._active, self._max_concurrent)
         existing = self._tasks.get(name)
         if existing is not None and not existing.done():
             raise JobAlreadyExists(name)
