@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 from typing import Annotated
+from unicodedata import category
 
 from pydantic import AwareDatetime, BaseModel, BeforeValidator, StringConstraints
 
 
 def _reject_control_characters(value: object) -> object:
-    if isinstance(value, str) and any(ord(char) < 32 or ord(char) == 127 for char in value):
-        raise ValueError("provenance text must not contain control characters")
+    # WHY: these are display labels/attribution, not free-form document text.
+    # Reject Unicode controls, invisible formatting (including bidi) and surrogates.
+    if isinstance(value, str) and any(category(char) in {"Cc", "Cf", "Cs"} for char in value):
+        raise ValueError(
+            "provenance text must not contain control or format characters or surrogates"
+        )
     return value
 
 
