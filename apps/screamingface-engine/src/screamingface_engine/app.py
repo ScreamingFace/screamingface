@@ -26,7 +26,12 @@ from screamingface_engine.artifacts import (
     ArtifactStore,
     S3ArtifactStore,
 )
-from screamingface_engine.artifacts.wiring import s3_config_from_values
+from screamingface_engine.artifacts.blobs import BlobPolicy, BlobStore
+from screamingface_engine.artifacts.wiring import (
+    BlobStoreNotConfigured,
+    blob_objects_from_values,
+    s3_config_from_values,
+)
 from screamingface_engine.auth import Clock, default_clock, install_problem_handlers
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
@@ -62,6 +67,7 @@ from screamingface_engine.rest import (
     SubscriberGate,
     artifact_router,
     benchmark_router,
+    blob_router,
     catalog_router,
     connection_router,
     operator_router,
@@ -89,6 +95,7 @@ _ROUTERS = (
     router,
     rest_router,
     artifact_router,
+    blob_router,
     benchmark_router,
     operator_router,
     catalog_router,
@@ -155,20 +162,7 @@ def create_app(
     _install_gateway_adapters(app, connections, community_cache)
     _install_discovery_registries(app, benchmarks, operators)
     app.state.metrics = build_metrics()
-    # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
-    # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
-    # (OME-929).
-    app.state.artifact_store = _build_artifact_reader(settings)
-    # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
-    # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
-    # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
-    # backlog immediately; the periodic task covers a hosted App that stays up for weeks
-    # between redeploys — startup-only would let parcels pool until the next
-    # restart (owner decision on OME-892).
-    #
-    # AIDEV-NOTE: with `artifact_store=s3` the sweeper is a no-op by design — expiry is the
-    # bucket's lifecycle rule. See `artifacts.s3.S3ArtifactStore.sweep`.
-    _install_artifact_sweeper(app, app.state.artifact_store, settings)
+    _install_storage(app, settings)
     _register_metrics(app)
     # FEATURE: the shared events stream's own signals — store use and publish conflicts
     # (uniform executor, PRD 01 §4 Observability). A stream that can refresh its own usage
@@ -352,6 +346,87 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
     return ArtifactStore(Path(settings.artifacts_dir))
 
 
+def _install_storage(app: FastAPI, settings: Settings) -> None:
+    """The result spill store, the run blob store on its own backend, and their TTL sweep."""
+    # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
+    # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
+    # (OME-929).
+    app.state.artifact_store = _build_artifact_reader(settings)
+    # FEATURE: the run blob store (OME-1540) — on its own backend (#1603 review).
+    app.state.blob_store = _build_blob_store(settings)
+    # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
+    # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
+    # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
+    # backlog immediately; the periodic task covers a hosted App that stays up for weeks
+    # between redeploys — startup-only would let parcels pool until the next
+    # restart (owner decision on OME-892).
+    #
+    # AIDEV-NOTE: with `artifact_store=s3` the sweeper is a no-op by design — expiry is the
+    # bucket's lifecycle rule. See `artifacts.s3.S3ArtifactStore.sweep`.
+    _install_artifact_sweeper(app, app.state.artifact_store, settings)
+
+
+def _build_blob_store(settings: Settings) -> BlobStore | None:
+    """The run blob store on ITS OWN backend (#1603 review, owner decision 2026-11-03).
+
+    WHY through `blob_objects_from_values`: the Runner resolves its blob store with the same
+    function from the same `job_env` names, so the two halves read one store.
+
+    INVARIANT: `runner="queue"` with a filesystem blob store is refused, for the reason
+    `_build_artifact_reader` refuses filesystem artifacts — the Runner reading a blob runs in
+    another pod, whose disk does not hold this App's uploads.
+
+    INVARIANT (#1603 review round 2, owner decision 2026-11-04): no blob store of its own →
+    None, and the blob routes answer 503 (`rest.blobs._store`) — the engine's shape for an
+    unconfigured optional dependency (the catalog, the community cache). Never the artifact store.
+    """
+    if settings.runner == "queue" and settings.blob_store == "filesystem":
+        raise ValueError(
+            f"runner='{settings.runner}' reads blobs from a worker pod that cannot see this "
+            f"App's disk. Set {job_env.BLOB_STORE}=s3 and the {job_env.BLOB_S3_BUCKET} "
+            f"settings, or use runner='none' for a single-process deployment."
+        )
+    try:
+        objects = blob_objects_from_values(_blob_values(settings))
+    except BlobStoreNotConfigured as exc:
+        _logger.warning("run blob store disabled: %s", exc)
+        return None
+    policy = BlobPolicy(
+        max_bytes=settings.blob_max_bytes,
+        media_types=frozenset(t.strip().lower() for t in settings.blob_media_types),
+        # FEATURE: #1603 review — every blob the App keeps opens with its type's signature.
+        verify_signature=True,
+    )
+    return BlobStore(objects, policy)
+
+
+def _blob_values(settings: Settings) -> dict[str, str]:
+    """`Settings` rendered into the env-named shape the shared wiring reads."""
+    return {
+        job_env.BLOB_STORE: settings.blob_store or "",
+        job_env.BLOBS_DIR: settings.blobs_dir,
+        job_env.BLOB_S3_ENDPOINT_URL: settings.blob_s3_endpoint_url,
+        job_env.BLOB_S3_BUCKET: settings.blob_s3_bucket,
+        job_env.BLOB_S3_REGION: settings.blob_s3_region,
+        job_env.BLOB_S3_ACCESS_KEY: settings.blob_s3_access_key,
+        job_env.BLOB_S3_SECRET_KEY: settings.blob_s3_secret_key,
+        job_env.ARTIFACT_STORE: settings.artifact_store,
+        job_env.ARTIFACTS_DIR: settings.artifacts_dir,
+        job_env.ARTIFACT_S3_ENDPOINT_URL: settings.artifact_s3_endpoint_url,
+        job_env.ARTIFACT_S3_BUCKET: settings.artifact_s3_bucket,
+        job_env.ARTIFACT_S3_REGION: settings.artifact_s3_region,
+        job_env.ARTIFACT_S3_ACCESS_KEY: settings.artifact_s3_access_key,
+        job_env.ARTIFACT_S3_SECRET_KEY: settings.artifact_s3_secret_key,
+    }
+
+
+async def _sweep_blobs(app: FastAPI, ttl_seconds: float) -> None:
+    """FEATURE (OME-1540, owner decision Q4a): blobs share the artifact TTL and its cadence."""
+    blobs: BlobStore | None = getattr(app.state, "blob_store", None)
+    if blobs is not None:
+        await asyncio.to_thread(blobs.sweep, ttl_seconds=ttl_seconds)
+
+
 def _install_artifact_sweeper(app: FastAPI, store: ArtifactReader, settings: Settings) -> None:
     """Wire the artifact TTL sweep: once at startup, then every sweep interval for life.
 
@@ -363,6 +438,7 @@ def _install_artifact_sweeper(app: FastAPI, store: ArtifactReader, settings: Set
 
     async def _sweep_once() -> None:
         await asyncio.to_thread(store.sweep, ttl_seconds=settings.artifact_ttl_s)
+        await _sweep_blobs(app, settings.artifact_ttl_s)
 
     async def _sweep_forever() -> None:
         while True:

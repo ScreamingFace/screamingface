@@ -93,6 +93,7 @@ spec:
         # (the same invariant as the App Deployment's checksum annotations).
         checksum/runner-env: {{ include (print $.Template.BasePath "/configmap-runner-env.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret-artifact-storage.yaml") . | sha256sum }}
+        checksum/blob-secret: {{ include (print $.Template.BasePath "/secret-blob-storage.yaml") . | sha256sum }}
         checksum/tavily: {{ include (print $.Template.BasePath "/secret-tavily.yaml") . | sha256sum }}
         {{- if include "screamingface-engine.worldConfigEnabled" . }}
         # OME-1770: the SAME supplied content revision as the App's — see `worldConfig`. Warm
@@ -141,6 +142,9 @@ spec:
             - name: metrics
               containerPort: {{ .Values.runnerPool.metricsPort }}
           env:
+            # The blob store's key pair (OME-1540; #1603 review), by NAMED key rather than envFrom:
+            # the blob Secret also holds the blob Garage's RPC secret, which must reach Garage only.
+            {{- include "screamingface-engine.blobCredentialEnv" . | nindent 12 }}
             # The worker's OWN settings, from `runnerPool` — the same values the
             # containerPort and the resource arithmetic above already consume. The
             # worker builds `Settings()` from its environment, and without these entries
