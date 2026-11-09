@@ -175,10 +175,11 @@ def inspect_grade_case(
             under its own Case id. None (every other row) keeps nothing. Memory only, so it
             never reaches the Report. A Case asked several times (Attempts, OME-1458) files
             one Score: its Attempt Scores reduced by ``epoch_reducer``.
-        epoch_reducer: the Task's own any-of-N reducer (inspect's ``max``, ``at_least(1)`` or
-            ``pass_at(N)``), which folds a Case's Attempt Scores into the one Score the
-            metric reads; None reduces with inspect's default ``mean``, as inspect does for a
-            Task that names no reducer.
+        epoch_reducer: the Task's own reducer (inspect's any-of-N ``max``, ``at_least(1)`` or
+            ``pass_at(N)``, or ``pass_at(1)`` for a row folding by the mean over Attempts),
+            which folds a Case's Attempt Scores into the one Score the metric reads; None
+            reduces with inspect's default ``mean``, as inspect does for a Task that names no
+            reducer.
 
     Returns:
         The async hook the shared grading code calls once per gradeable Case.

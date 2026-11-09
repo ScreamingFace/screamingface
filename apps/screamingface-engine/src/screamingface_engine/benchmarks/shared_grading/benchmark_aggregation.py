@@ -84,7 +84,11 @@ from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.graded_answer import GradedAnswer
 from screamingface_engine.benchmarks.media_parking import park_cases_media
 from screamingface_engine.benchmarks.progress import completed_case, grading_progress
-from screamingface_engine.benchmarks.shared_grading.attempt_fold import fold_case_attempts
+from screamingface_engine.benchmarks.shared_grading.attempt_fold import (
+    ANY_ATTEMPT_FOLD,
+    AttemptFold,
+    fold_case_attempts,
+)
 from screamingface_engine.benchmarks.shared_grading.case_grades import (
     CaseGradeIndex,
     CaseGradeReader,
@@ -238,6 +242,10 @@ class BenchmarkAggregation:
     # row, so marking side by side would buy it nothing. A Benchmark whose hook calls a
     # judge sets `CASE_GRADING_CONCURRENCY`.
     case_grading_concurrency: int = 1
+    # FEATURE (OME-1458 amendment): how a Case's Attempts fold into its score, `any` (a Check
+    # is met if any Attempt met it) or `mean` (the share of Attempts at full marks, inspect's
+    # pass_at(1)). The default keeps every Benchmark that never named a rule unchanged.
+    attempt_fold: AttemptFold = ANY_ATTEMPT_FOLD
     failure_policy: FailurePolicy = field(kw_only=True)
 
     def aggregate(
@@ -501,7 +509,8 @@ class BenchmarkAggregation:
         grading_material: Callable[[int], object | None],
         case_metadata: Callable[[int], Mapping[str, Any]] | None,
     ) -> CaseResult:
-        """Grade each Attempt row as its own one-Attempt Case, then fold them per Check."""
+        """Grade each Attempt row as its own one-Attempt Case, then fold them by the
+        Benchmark's rule (per Check under `any`, the share at full marks under `mean`)."""
 
         case_ids: tuple[int, ...] = (int(selected_case.case_id),)
         results: list[CaseResult] = []
@@ -513,7 +522,7 @@ class BenchmarkAggregation:
             # WHY: a Benchmark whose missing-case hook files nothing still owes this Attempt
             # a row in the Attempts list; it reads as the finalizer's own missing-row code.
             results.append(result if result is not None else _missing_attempt(selected_case))
-        return fold_case_attempts(results)
+        return fold_case_attempts(results, fold=self.attempt_fold)
 
     async def _answer_result(
         self,
