@@ -64,6 +64,13 @@ Print this checklist at the top of `## Checks run`, each line ticked with the ev
       pinned commit). A `match` with no evidence is forbidden; write `unchecked` with the reason
       instead. For `prompt`, `answer extraction`, `metric` and `roll-up` the free checks below
       are required wherever the reference installs.
+- [ ] **Every `file:line` is copied from command output, never recalled.** Take each line number
+      from `grep -n` or `sed -n '<a>,<b>p'` run on the pinned file, and write the path so a reader
+      can open it: repo-relative for ours (`apps/screamingface-engine/src/…/grading.py:101-132`),
+      `fork:<path>:<line>` for the cloned harness, `inspect_evals:<path>:<line>` for the installed
+      package. Never number lines of a concatenated or piped stream. List the `grep -n` commands
+      in `## Checks run`. (Why: a calibration run cited `grading.py:598-629` in a 200-line file;
+      a citation a reviewer cannot open is not evidence.)
 - [ ] **A verdict never claims more than its evidence.** Any of `prompt`, `answer extraction`,
       `metric`, `roll-up` left `unchecked` → `unverified`, with the reason.
 
@@ -157,7 +164,8 @@ to a sha or `v`-tag; `fingerprint.benchmark` = the **computed** fingerprint from
 `imported_benchmark(key).fingerprint` or `medxpert.FINGERPRINT`, never the published revision;
 `fingerprint.harness_url` = the declaration's string byte for byte), then the six sections in the
 template's order: Verdict · Dimensions · Deviations · Checks run · Recommended paid runs ·
-Upstream notes. The calling session writes it to
+Upstream notes. The calling session first opens every cited `file:line` (`sed -n`) and confirms it shows what
+the cell claims, fixing or striking any that do not, then writes it to
 `apps/screamingface-engine/docs/benchmarks-fidelity/<id>.md` and runs
 `just engine fidelity-check` to see it `fresh`.
 

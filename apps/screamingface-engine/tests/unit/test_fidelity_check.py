@@ -28,7 +28,7 @@ _IFEVAL_HARNESS = (
 )
 _FRONT_MATTER = """---
 benchmark: {benchmark}
-origin: screamingface
+origin: {origin}
 verdict: {verdict}
 verdict_reason: "{verdict_reason}"
 audited: 2026-11-06
@@ -66,6 +66,7 @@ def _write_record(
     records: Path,
     *,
     benchmark: str = "ifeval",
+    origin: str = "screamingface",
     stem: str | None = None,
     verdict: str = "comparable-to-paper",
     verdict_reason: str = "",
@@ -80,6 +81,7 @@ def _write_record(
 
     text: str = _FRONT_MATTER.format(
         benchmark=benchmark,
+        origin=origin,
         verdict=verdict,
         verdict_reason=verdict_reason,
         fingerprint=fingerprint,
@@ -260,6 +262,8 @@ def test_a_parity_path_that_does_not_exist_is_missing_and_fails_the_run(
         ({"parity_test": "none"}, "parity_test_reason"),
         ({"fingerprint": "ADA07458A23C55AB"}, "fingerprint.benchmark"),
         ({"paper": "https://arxiv.org/abs/2311.07911"}, "references.paper"),
+        ({"origin": "hand-built"}, "origin"),
+        ({"verdict": "comparable-to-inspect"}, "comparable-to-inspect"),
     ],
     ids=[
         "missing-key",
@@ -269,6 +273,8 @@ def test_a_parity_path_that_does_not_exist_is_missing_and_fails_the_run(
         "parity-none-without-reason",
         "fingerprint-not-lower-hex",
         "unpinned-reference-url",
+        "unknown-origin",
+        "comparable-to-inspect-on-a-screamingface-benchmark",
     ],
 )
 def test_a_malformed_record_is_named_with_file_and_key_and_never_reads_as_fresh(
@@ -345,3 +351,37 @@ def test_markdown_output_is_a_github_table_with_a_count_line(
     assert out.splitlines()[0].startswith("| benchmark | status |")
     assert "| ifeval | fresh |" in out
     assert "1 fresh" in out and "0 stale" in out and "0 no record" in out
+
+
+def test_a_record_whose_origin_differs_from_the_declaration_is_stale(
+    records: Path, engine_root: Path
+) -> None:
+    """The verdict vocabulary depends on origin (comparable-to-inspect is Imported-only), so a
+    record written for one origin is not current for a Benchmark that now declares the other."""
+
+    module = _module()
+    _write_record(records)
+
+    rows = _rows(module, records, engine_root, _declared(module, origin="inspect_evals"))
+
+    assert rows["ifeval"].status == "stale"
+    assert rows["ifeval"].moved == ("origin screamingface → inspect_evals",)
+
+
+def test_comparable_to_inspect_is_accepted_on_an_imported_benchmark(
+    records: Path, engine_root: Path
+) -> None:
+    module = _module()
+    _write_record(
+        records,
+        benchmark="inspect-gsm8k",
+        origin="inspect_evals",
+        verdict="comparable-to-inspect",
+        parity_test="none",
+        parity_test_reason="not written yet",
+    )
+
+    loaded, malformed = module.load_records(records, engine_root)
+
+    assert malformed == []
+    assert loaded["inspect-gsm8k"].verdict == "comparable-to-inspect"

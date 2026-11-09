@@ -52,6 +52,10 @@ VERDICTS: frozenset[str] = frozenset(
 #: Verdicts whose front matter must say why (spec §2.1).
 _VERDICTS_NEEDING_A_REASON: frozenset[str] = frozenset({"not-comparable", "unverified"})
 _REFERENCE_KEYS: tuple[str, ...] = ("paper", "original_harness", "inspect_evals", "inspect_ai")
+ORIGINS: frozenset[str] = frozenset({"screamingface", "inspect_evals"})
+# WHY: comparable-to-inspect says "ours matches inspect_evals, which differs from the paper";
+# a Benchmark that is not imported from inspect_evals has no inspect_evals to match (spec §2.3).
+_IMPORTED_ONLY_VERDICT: str = "comparable-to-inspect"
 _FINGERPRINT: re.Pattern[str] = re.compile(r"^[0-9a-f]{16}$")
 # WHY: a reference link must land the reader on the exact code or paper version the audit read,
 # so its path carries a commit sha or a `v`-tag (`.../tree/v0.20.0`, `.../tree/0c495b2…`,
@@ -183,13 +187,20 @@ def _record(stem: str, data: Mapping[str, Any]) -> Record:
     benchmark: str = _string(data, "benchmark")
     if benchmark != stem:
         raise _Malformed(f"benchmark {benchmark!r} does not equal the file stem {stem!r}")
+    origin: str = _string(data, "origin")
+    if origin not in ORIGINS:
+        raise _Malformed(f"origin {origin!r} is not one of {sorted(ORIGINS)}")
     verdict, verdict_reason = _verdict(data)
+    if verdict == _IMPORTED_ONLY_VERDICT and origin != "inspect_evals":
+        raise _Malformed(
+            f"verdict {_IMPORTED_ONLY_VERDICT} needs origin inspect_evals, not {origin}"
+        )
     fingerprint_benchmark, fingerprint_harness_url = _fingerprint(data)
     _check_references(data)
     parity_test, parity_test_reason = _parity_fields(data)
     return Record(
         benchmark=benchmark,
-        origin=_string(data, "origin"),
+        origin=origin,
         verdict=verdict,
         verdict_reason=verdict_reason,
         audited=str(_required(data, "audited")),
@@ -276,7 +287,8 @@ def compare(
 ) -> list[Row]:
     """Stage ③ — one Row per catalogue id, sorted, then one per orphan record.
 
-    INVARIANT: a record is `fresh` only when BOTH values it rested on equal today's; a record
+    INVARIANT: a record is `fresh` only when BOTH values it rested on (and its origin, which
+    decides which verdicts are allowed) equal today's; a record
     for an id the catalogue no longer has is an `orphan record`, never silently dropped.
     """
 
@@ -292,6 +304,8 @@ def compare(
             moved.append(f"fingerprint {record.fingerprint_benchmark} → {today.fingerprint}")
         if record.fingerprint_harness_url != (today.harness_url or "none"):
             moved.append(f"harness_url {record.fingerprint_harness_url} → {today.harness_url}")
+        if record.origin != today.origin:
+            moved.append(f"origin {record.origin} → {today.origin}")
         status: str = "stale" if moved else "fresh"
         rows.append(
             Row(

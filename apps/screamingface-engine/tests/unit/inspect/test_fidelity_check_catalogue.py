@@ -11,6 +11,7 @@ no golden pins. Runs only with the `inspect` extra installed.
 from __future__ import annotations
 
 import importlib.util
+import socket
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -55,3 +56,29 @@ def test_the_declared_fingerprint_is_the_golden_one() -> None:
     assert declared["ifeval"].origin == "screamingface"
     assert declared["ifeval"].harness_url is not None
     assert declared["medxpert"].fingerprint == _FINGERPRINTS["medxpert"]
+
+
+def test_the_real_catalogue_path_opens_no_network_connection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """INVARIANT: the whole check is offline, including the half that loads the plugin.
+
+    The extra-less socket test injects the catalogue, so it never runs `declared_today()`, the
+    only code that touches the plugin and its pins. This runs `main()` end to end with name
+    resolution and outbound connects refused, so a `declared_today` that fetched the Hub fails.
+    """
+
+    def _refuse(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("the fidelity check must not touch the network")
+
+    module = _module()
+    monkeypatch.setattr(socket, "getaddrinfo", _refuse)
+    monkeypatch.setattr(socket, "create_connection", _refuse)
+    monkeypatch.setattr(socket.socket, "connect", _refuse)
+    monkeypatch.setattr(socket.socket, "connect_ex", _refuse)
+
+    code: int = module.main(["--records", str(tmp_path)])
+
+    out: str = capsys.readouterr().out
+    assert code == 0
+    assert f"{len(module.declared_today())} no record" in out

@@ -96,6 +96,9 @@ Rules a test can check (§3.4 tests them):
 - `benchmark` equals the file stem; a mismatch is a malformed record.
 - `verdict` is one of the four words; `verdict_reason` non-empty when it is `not-comparable` or
   `unverified`.
+- `origin` is `screamingface` or `inspect_evals`; `comparable-to-inspect` requires
+  `inspect_evals`. A record whose `origin` differs from today's declaration reads `stale` (the
+  allowed verdicts depend on it).
 - `fingerprint.benchmark` is 16 lower-case hex; `fingerprint.harness_url` is the declaration's
   string, byte for byte.
 - Every `references.*` value is an http(s) URL whose path carries a 7–40 hex sha or a `v`-tag

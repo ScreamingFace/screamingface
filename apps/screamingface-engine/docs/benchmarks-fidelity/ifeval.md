@@ -40,7 +40,7 @@ parity_test_reason: ""
 ### D1 — non-a-z `letter_frequency` letters graded literally
 
 - **Declared.** README `local_tasks/ifeval/README.md:55-60` ("One deliberate difference from the official checker", owner decision 2026-08-10), `grading.py:10-14` module docstring, `_pinned_nonalpha_letter` (`grading.py:101-132`), and the parity test's carve-out (`test_local_task_ifeval_parity.py:19-23,131`).
-- **Where.** Ours: `grading.py:164-171` (`_build_instruction` overwrites `instruction._letter` with the dataset's literal character). Theirs: `instructions.py:1391` at `0c495b2f` (`LetterFrequencyChecker.build_description`: a letter outside a-z is replaced by `random.choice(string.ascii_letters)`).
+- **Where.** Ours: `grading.py:164-171` (`_build_instruction` overwrites `instruction._letter` with the dataset's literal character). Theirs: `instructions.py:1388` at `0c495b2f` (`LetterFrequencyChecker.build_description`: a letter outside a-z is replaced by `random.choice(string.ascii_letters)`).
 - **What differs.** Official keys 1122 (`letter: '#'`, "include at least 4 hashtags") and 1129 (`letter: '!'`, 6 exclamation marks) are the only two rows with such a letter. The fork grades them against a random letter the prompt never mentions (and a fresh one per instantiation); we grade against `#`/`!`.
 - **Severity / bound.** `score-changing`, `2/541` — Cases 20 and 23. Enumerated by the answer sheets (`identical 539 differing 2`, Checks run 11) and by a grep of the official file (`kwargs` with a one-character non-letter `letter`: exactly these two keys).
 
