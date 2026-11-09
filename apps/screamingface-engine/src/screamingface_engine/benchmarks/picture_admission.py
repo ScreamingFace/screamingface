@@ -76,6 +76,22 @@ before a Case is written (OME-1550), so they are never a modality.
 """
 
 
+def attachment_modality(media_type: str) -> str | None:
+    """The input type a url4 run file of ``media_type`` needs, or ``None`` for text.
+
+    WHY by media type: a url4 attachment carries no content-part type; its frozen media type is
+    what the connector turns into a part (`world/attachment_parts.py`), ``image/*`` an image part
+    and ``application/pdf`` a file part, so this is the same table seen from the url4 side.
+    """
+
+    bare = media_type.split(";", 1)[0].strip().lower()
+    if bare.startswith("image/"):
+        return IMAGE_MODALITY
+    if bare == "application/pdf":
+        return PDF_MODALITY
+    return None
+
+
 class ModelSightReader(Protocol):
     """What a node's gateway can say about the models it serves."""
 
@@ -289,6 +305,7 @@ __all__ = [
     "PART_MODALITIES",
     "PDF_MODALITY",
     "ModelSightReader",
+    "attachment_modality",
     "candidate_model_routes",
     "cases_need_modalities",
     "cases_need_pictures",
