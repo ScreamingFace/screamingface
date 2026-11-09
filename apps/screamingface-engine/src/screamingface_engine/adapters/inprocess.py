@@ -186,6 +186,9 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # patching the process environment.
         self._base_env = dict(base_env or {})
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        # Topics a bound stop reached before their task existed (E5 P1 spec D12): their
+        # `schedule()` spawns nothing. Never consumed, so a resent start of the topic cannot run.
+        self._stopped_before_schedule: set[str] = set()
         # INVARIANT (OME-1747 review): one entry per built span sink until its close has
         # finished. The runner, not the run's task, owns these: `stop()`/`aclose()` cancel the
         # run's task, and a close owned by that task was cancelled with it — never run at all
@@ -354,6 +357,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         if self._active >= self._max_concurrent:
             raise JobRunnerAtCapacity(self._active, self._max_concurrent)
         name = job_name(topic)
+        if topic in self._stopped_before_schedule:
+            return name
         existing = self._tasks.get(name)
         if existing is not None and not existing.done():
             raise JobAlreadyExists(name)
@@ -514,6 +519,17 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         task = self._tasks.get(job_name(topic))
         if task is not None:
             _stop_once(task)
+
+    async def stop_bound(self, topic: str) -> None:
+        """As `stop`, but a topic with no task yet never gets one (E5 P1 spec D12).
+
+        WHY: a cancel can land between a start's bind and its schedule. Plain `stop` would find
+        nothing to cancel, and the task spawned next would run until the start's confirmation
+        stopped it, which may already have called a provider.
+        """
+        if job_name(topic) not in self._tasks:
+            self._stopped_before_schedule.add(topic)
+        await self.stop(topic)
 
     async def exists(self, topic: str) -> bool:
         task = self._tasks.get(job_name(topic))

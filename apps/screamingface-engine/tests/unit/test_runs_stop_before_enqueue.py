@@ -8,7 +8,7 @@ runs afterwards, even if the Engine restarted or my cancel beat the Candidate's 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -33,7 +33,9 @@ from test_queue_runner_cancel import (
 )
 from test_runs_routes import ALICE, _Engine
 
+from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.adapters.jetstream import QueueReadError
+from screamingface_engine.adapters.memory import InMemoryEventStream
 from screamingface_engine.rest import runs
 from screamingface_engine.runner_queue import encode_message
 from screamingface_engine.runs.records import owner_key
@@ -358,3 +360,21 @@ async def test_a_bound_runs_deadline_counts_from_its_bind(registry: Registry) ->
 
     ((enqueued_at, scheduled_at),) = runner.started
     assert enqueued_at is not None and before_bind <= enqueued_at <= scheduled_at
+
+
+async def test_a_local_bound_stop_before_the_schedule_starts_no_task() -> None:
+    """WHY: in local mode the task spawned after the cancel would run until the start's
+    confirmation stopped it, possibly after calling a provider."""
+    built: list[Mapping[str, str]] = []
+
+    def factory(env: Mapping[str, str]) -> Any:
+        built.append(env)
+        raise AssertionError("a stopped topic must not build an executor")
+
+    runner = InProcessJobRunner(InMemoryEventStream(), factory)
+
+    await runner.stop_bound("t")
+    await runner.schedule("t", "'hi'", 60)
+
+    assert not await runner.exists("t")
+    assert built == []
