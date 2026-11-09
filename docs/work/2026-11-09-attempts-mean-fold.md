@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1856
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-11-09
-finished:
+finished: 2026-11-09
 ---
 
 # attempts-mean-fold — fold Attempts by their mean when the Task declares inspect's pass@1
@@ -43,7 +43,7 @@ mean over Attempts, so a later import of ZeroBench runs exactly as inspect_evals
   `tests/unit/inspect/test_whole_run_metric.py` (one parametrize row, approved),
   `tests/unit/inspect/test_attempts_mean_fold.py` (new), appended tests in
   `tests/unit/test_attempt_fold.py` and `tests/unit/inspect/test_imported_attempts.py`.
-- `.claude/test-change-approvals/OME-N.json`, `docs/tasks/2026-11-09-OME-N-attempts-mean-fold.md`.
+- `.claude/test-change-approvals/OME-1856.json`, `docs/tasks/2026-11-09-OME-1856-attempts-mean-fold.md`.
 
 ## Test plan
 
@@ -74,7 +74,8 @@ mean over Attempts, so a later import of ZeroBench runs exactly as inspect_evals
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus a shared `_aligned_checks` helper in `attempt_fold.py` (the two fold rules align Checks the same way) and `_refuse_unfoldable_reducers` / `_attempts_lines` helpers split out for ruff's complexity caps. `test_imported_attempts.py` was not appended: the row tests live in the new `test_attempts_mean_fold.py`. The SDK is untouched (the catalogue entry carries no fold rule, so its "any of N Attempts" phrase cannot be conditional yet; a known limitation on the ticket).
+- **Commits:** 9881795cf feat(screamingface-engine): fold Attempts by their mean when the Task declares inspect's pass@1 · (this commit) the records: ledger, mirror, test-change approval.
+- **Gates:** with the inspect extra, `tests/unit/test_attempt_fold.py tests/unit/inspect/test_attempts_mean_fold.py tests/unit/inspect/test_importer_refuses_epochs.py tests/unit/inspect/test_whole_run_metric.py tests/unit/inspect/test_imported_attempts.py tests/unit/inspect/test_task_replay_rows.py tests/unit/inspect/test_importer_whole_run_choice.py tests/unit/inspect/test_local_task_arc_agi_2.py` 178 passed; the whole `tests/unit/inspect/` lane 2954 passed; extra-less `test_attempt_fold.py` + the inspect files (skipped) + `test_span_export_wiring.py` + `test_cli.py` 43 passed, 3 skipped; ruff check, ruff format and pyright clean on the 13 touched Python files. Mutant check: a plain average in the fold fails `test_a_partial_attempt_counts_as_not_right_for_the_fold_and_the_reducer_alike` by the tally's own agreement error (reduce 0.4, fold 0.6). Pre-push `run_gates.py screamingface-engine` at push.
+- **Deviations:** (1) the mean counts full marks only (inspect's `pass_at(1, value=1.0)`), not a plain average of Attempt scores: a plain average disagrees with inspect on partial marks and the dispatch asked for agreement on partial marks, so inspect's rule wins (spec D15). (2) The worktree folder keeps the slug `attempts-mean-fold` while the branch is `OME-1856-attempts-mean-fold`: moving the worktree breaks its venv mid-run. (3) No SDK wording change: it needs a wire field the catalogue does not carry; recorded as a known limitation rather than a one-line edit that would guess.
+- **Owner-verify:** review the draft PR; the five-sample ZeroBench import is a later unit under OME-1299.
