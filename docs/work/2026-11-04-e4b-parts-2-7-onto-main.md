@@ -1,9 +1,9 @@
 ---
 ticket: OME-1652, OME-1653
 stack: screamingface, screamingface-engine, aigateway, repo
-status: in_progress
+status: done
 started: 2026-11-04
-finished:
+finished: 2026-11-05
 ---
 
 # e4b-parts-2-7-onto-main — land E4b parts 2 to 7 on main
@@ -42,7 +42,8 @@ owner chose one PR that reuses OME-1652 and OME-1653 on 2026-11-04.
   (`world/connector.py`, `CHANGELOG.md`, `README.md`, `build_notebooks.py`, `__init__.py`,
   `_scoreboard/leaderboards.py`, `public_surface_snapshot.json`); 17 files differ from the #1461
   tip because main changed them too.
-- **Commits:** `0755523da` — feat(screamingface): land E4b parts 2 to 7 on main; the ledger commits.
+- **Commits:** squash-merged to `main` as `ea79d69e4` (PR #1680) on 2026-11-05. On the branch:
+  `0755523da` (the change), the ledger commits, and `4f3f1577b` (the CodeQL test assertion fix).
 - **Gates (local, base `origin/main`):** aigateway and repo ALL GATES GREEN. screamingface: the
   append-only check (every pinned test file approved), ruff, ruff format and pyright pass; pytest
   6594 passed, 1 failed — `test_member_usage_memory_does_not_grow_with_lazy_cases` (tracemalloc
@@ -59,3 +60,8 @@ owner chose one PR that reuses OME-1652 and OME-1653 on 2026-11-04.
     `_refusal_detail`; the behavior does not change.
   - The CHANGELOG keeps the E4b bullets first in Features (the part 4, 5 and 6 doc tests pin their
     positions); main's `cases=` bullet follows the parts 2 to 7 bullets.
+  - CI: CodeQL flagged the existing `test_rich_display.py` URL assertion (alert #5); the owner
+    approved a stricter assertion (`4f3f1577b`).
+    `test_analytics.py::test_concurrent_processes_share_one_installation` failed once (a 0.25 s
+    lock timeout under load; not in this change) and passed on re-run. CI was green on
+    `4f3f1577b`.

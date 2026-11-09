@@ -32,6 +32,11 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # Held by hand with the Engine and the SDK's runtime extra, which pin the same version
+      # (test_tortoise_pin_conformance.py). aigateway's own CI does not run that test, so a bump
+      # here alone would merge green and fail the Engine and SDK lanes later.
+      - dependency-name: "tortoise-orm"
     groups:
       aigateway-python-security:
         applies-to: security-updates

@@ -17,6 +17,12 @@ class BaseBaseline(BaseScoreboardModel):
     source = fields.CharField(max_length=64)
     source_url = fields.CharField(max_length=2048, null=True)
     imported_at = fields.DatetimeField(auto_now_add=True)
+    # WHY: first import remains stable; a refresh records its own time separately.
+    # Unknown historical provenance stays null rather than being backfilled.
+    last_imported_at = fields.DatetimeField(null=True)
+    metric_name = fields.CharField(max_length=128, null=True)
+    observed_at = fields.DatetimeField(null=True)
+    attached_by = fields.CharField(max_length=255, null=True)
     metadata = fields.JSONField(null=True)
     # FEATURE: OME-323 — manual open/closed correction, mirrors Score.openness_override.
     # `null` defers to the classification registry; an explicit "open"/"closed" wins

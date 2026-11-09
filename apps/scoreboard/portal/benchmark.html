@@ -60,7 +60,7 @@
 
     <div id="leaderboard-summary" class="stats stats--two" aria-label="Leaderboard summary" hidden>
       <div class="s"><span class="k">Best score</span><div class="v gain" id="summary-best">—</div></div>
-      <div class="s"><span class="k">Submissions shown</span><div class="v" id="summary-specs">—</div></div>
+      <div class="s"><span class="k">Results shown</span><div class="v" id="summary-specs">—</div></div>
       <div class="s" id="summary-frontier-card" hidden><span class="k">Open frontier share</span><div class="v" id="summary-frontier">—</div></div>
     </div>
 
@@ -104,7 +104,7 @@
         <span class="pareto-mark" aria-hidden="true"></span>
         <span>on the Pareto frontier: no submission has an equal-or-higher score at an equal-or-lower cost, with one strict improvement</span>
       </span>
-      <span class="legend-item">gold row = highest score</span>
+      <span id="legend-highest" class="legend-item">gold row = highest score</span>
     </p>
 
     <!-- The Cost column pushes this table's min-content past the container at intermediate
@@ -142,6 +142,7 @@
   <script src="leaderboard-logic.js" defer></script>
   <script src="pareto-chart.js" defer></script>
   <script src="main.js" defer></script>
+  <script src="external-results.js" defer></script>
   <script src="benchmark.js" defer></script>
   <script src="subscribe.js" defer></script>
   <script src="theme.js" defer></script>
