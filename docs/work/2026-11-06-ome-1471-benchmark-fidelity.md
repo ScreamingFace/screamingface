@@ -1,9 +1,9 @@
 ---
 ticket: OME-1471
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-11-06
-finished:
+finished: 2026-11-09
 ---
 
 # ome-1471-benchmark-fidelity — Fidelity Records, check script, audit agent, IFEval calibration
@@ -53,7 +53,9 @@ OME-1455 (Benchmark Provenance fields, incl. the pinned `harness_url`) is Done.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned, plus `tests/unit/inspect/test_fidelity_check_catalogue.py` (the with-extra pin to the fingerprint golden) and the `fidelity-check` justfile recipe. Records live under `apps/screamingface-engine/docs/benchmarks-fidelity/` (owner, 2026-11-09, spec §1 S6).
+- **Commits:** d87c26f01 spec + plan + glossary · 00f57020c mirror link · 3227278d5 records under the Engine's docs · 8fee5948d pinned reference links · 3679db897 check script + tests + template + README · 064d3964f agent + Lane 2 + onboarding lines · 523f89e93 IFEval record · (this commit) ledger + mirror.
+- **Gates:** pre-push `run_gates.py screamingface-engine` green on every push (ruff, format, pyright, layering, pytest with coverage); `run_gates.py repo` green. Relevant tests: `tests/unit/test_fidelity_check.py` 19 passed; `tests/unit/inspect/test_fidelity_check_catalogue.py` + `test_benchmark_fingerprints.py` 97 passed with the extra; `just engine fidelity-check` → 1 fresh (ifeval), 93 no record, exit 0.
+- **Evidence from the audits:** real IFEval audit → `comparable-to-paper`, bound 2/541, all seven dimensions with evidence; blind planted run (CommaChecker accepting one comma in a scratch copy) → exactly one undeclared score-changing deviation naming CommaChecker, bound 66/541, verdict `not-comparable`, no key in the agent's environment (report in the PR #1700 body).
+- **Deviations:** six from the ticket, listed in spec §1 (S1 fingerprint = computed fingerprint + harness_url; S2 live table from the script; S3 one PR; S4 origin vocabulary; S5 IFEval's declared deviation; S6 records under the Engine's docs). Owner call pending: the published IFEval checker is non-deterministic on langdetect rows (record's Upstream notes); not a deviation, surfaced for a possible Named Deviation.
+- **Owner-verify:** review the record's evidence; merge; move OME-1471 to Done by hand (no automation here).

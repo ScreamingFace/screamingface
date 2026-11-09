@@ -1,13 +1,13 @@
 ---
 id: OME-1471
 linear_url: https://linear.app/openmined/issue/OME-1471/benchmark-fidelity-agent-checking-a-benchmark-against-its-paper-and
-status: in_progress
+status: done
 type: feature
 priority: medium
 labels: [screamingface-engine, agentic]
 parent: OME-1299
 created: 2026-10-05
-closed:
+closed: 2026-11-09
 ---
 
 # Benchmark fidelity agent: check a Benchmark against its paper and original code, and say whether our score is comparable
@@ -25,3 +25,6 @@ Plan: `docs/plan/2026-11-06-OME-1471-benchmark-fidelity.md`.
   same branch.
 - 2026-11-09: owner moved the records' home to `apps/screamingface-engine/docs/benchmarks-fidelity/`
   (spec §1 S6).
+- 2026-11-09: check script, agent, Lane 2 line and the IFEval record pushed to the same PR;
+  `just engine fidelity-check` → ifeval fresh, 93 no record; blind planted run caught the one
+  planted deviation. Ledger done. Pending the owner: review, merge, Linear → Done.
