@@ -688,3 +688,14 @@ td.col-open { white-space: nowrap; }
 .catalog-search input:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
 .catalog-scored { display: flex; align-items: center; gap: var(--space-2); padding-block: var(--space-3); }
 .catalog-count { flex-basis: 100%; margin: 0; }
+
+/* WHY: imported rows use the ordinary grid with neutral text, never a win highlight. */
+.external-result td { color: var(--ink-2); }
+.external-result .score-fill { background: var(--ink-2); }
+.external-result__source { color: var(--ink-2); text-decoration: underline; white-space: nowrap; }
+.external-result__source:hover { color: var(--ink); }
+.external-result__source:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
+.external-result__comparison { margin-top: var(--space-1); }
+.external-result__comparison summary { cursor: pointer; }
+.external-result__comparison summary:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
+.external-result__comparison p { margin: var(--space-1) 0 0; }
