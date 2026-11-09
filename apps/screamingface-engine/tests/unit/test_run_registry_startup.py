@@ -83,3 +83,32 @@ def test_the_local_runner_stops_before_the_runs_writer() -> None:
     runs = next(i for i, owner in enumerate(owners) if isinstance(owner, _RunsLifecycle))
 
     assert runner < runs
+
+
+@pytest.mark.asyncio
+async def test_a_database_that_never_answers_fails_the_start_within_the_probe_timeout(
+    tmp_path: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WHY: a blackholed host takes asyncpg's own 60 s, past the liveness kill; the probe gives
+    up first so the start fails with its reason."""
+    import asyncio
+
+    from screamingface_engine.runs import wiring
+
+    class _Silent:
+        async def execute_query(self, _sql: str) -> None:
+            await asyncio.Event().wait()
+
+    monkeypatch.setattr(wiring, "_PROBE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(wiring, "get_connection", lambda _name: _Silent())
+
+    with pytest.raises(DatabaseUnreachableError, match="TimeoutError"):
+        await asyncio.wait_for(
+            open_run_store(
+                f"sqlite://{tmp_path}/engine.sqlite3",
+                Settings(),
+                survives_restart=False,
+                migrate_first=False,
+            ),
+            timeout=5,
+        )
