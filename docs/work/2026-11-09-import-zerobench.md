@@ -59,8 +59,9 @@ terms go in the row comment and `license_note`; gold answers never appear in any
 - The importer's second replay reproduces the Case Digest; a Mac prepare is expected to differ
   (Pillow PNG bytes), as for MathVista and MMMU.
 - Size check: pictures per Case, largest Case bytes against the importer's 8 MB and the gateway's
-  2,000,000-byte frozen-copy cap, `cases.json` size, peak resident memory on read+parse against
-  the 2,560 MiB per-run budget.
+  frozen-copy entry cap (10 MiB since OME-1756: the 8 MiB request cap plus 2 MiB of response
+  headroom), `cases.json` size, peak resident memory on read+parse against the 2,560 MiB
+  per-run budget (a run reads only the selected Cases since OME-1790, so this is an upper bound).
 
 ## Acceptance
 
@@ -95,9 +96,9 @@ terms go in the row comment and `license_note`; gold answers never appear in any
   does for FigQA. No Mac seal was made.
 - **Size check (the Linux bundle):** 108 pictures over 100 Cases, 1 to 3 per Case (cap 20);
   101 JPEG, 7 PNG; largest picture 1,078,950 bytes. Largest Case 2,487,332 bytes, median
-  132,154; none over the importer's 8 MB; ONE Case over the gateway's 2,000,000-byte frozen-copy
-  entry cap, so a captured run cannot freeze that one call (the capture says `failed`, the run
-  goes on), as 17 of MMMU's Cases did. `cases.json` 18.5 MB, read and parsed at 92.5 MiB
+  132,154; none over the importer's 8 MB, and none over the gateway's 10 MiB frozen-copy entry
+  cap (OME-1756 sized it from the 8 MiB request cap; the first draft of this ledger cited the
+  old 2,000,000-byte cap, under which this one Case would not have been frozen). `cases.json` 18.5 MB, read and parsed at 92.5 MiB
   resident (budget 2,560 MiB), measured inside the Linux image.
 - **Byte check (outside judge), inside the Linux image against the Linux bundle:** inspect's own
   `eval()` of the zerobench Task with k=1 and the free `mockllm/model` over all 100 Samples:
