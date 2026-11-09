@@ -267,3 +267,31 @@ async def test_an_unreadable_model_list_fails_the_run_retryably_before_any_call(
     assert caught.value.permanent is False
     assert gw.model_reads == 1
     assert gw.chats == []
+
+
+# --- T8: the Benchmark path is unchanged ------------------------------------------------------
+
+
+async def test_a_benchmark_run_checks_only_its_candidate_never_the_grader() -> None:
+    # A Benchmark run's url4 also names the protocol's grader; a text-only judge never gets a
+    # file (spec D6), so only the linked Candidate's routes count.
+    from test_picture_admission import _AGGREGATE_ROUTE, _BLIND_ROUTE, _CASES_ROUTE, _single
+
+    from screamingface_engine.benchmarks.definition import link_candidate
+    from screamingface_engine.benchmarks.picture_admission import run_model_routes
+    from screamingface_engine.benchmarks.protocol import build_evaluation_protocol
+    from url4 import RelExpr, text
+
+    protocol = build_evaluation_protocol(
+        cases_route=_CASES_ROUTE,
+        case_evaluation=RelExpr(path=_BLIND_ROUTE, context="$item.input", intent=text("Grade.")),
+        selected_case_count=1,
+        available_case_count=1,
+        aggregate_route=_AGGREGATE_ROUTE,
+    )
+    run = link_candidate(_single(SEEING), protocol)
+
+    routes = run_model_routes(
+        run, frozenset({"/" + SEEING, _BLIND_ROUTE}), default_route=_BLIND_ROUTE
+    )
+    assert routes == frozenset({"/" + SEEING})
