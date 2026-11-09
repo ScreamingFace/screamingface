@@ -69,6 +69,8 @@ router = APIRouter(
             401: "A hosted call with no verified identity (`identity_required`).",
             422: "The request does not validate: its body, path or query.",
             404: "No such Run of the caller's (`run_not_found`), or Runs are off on this Engine.",
+            500: "An unexpected failure; retrying will not help.",
+            503: "The Run registry could not answer; retry after `Retry-After`.",
         }
     ),
 )

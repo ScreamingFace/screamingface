@@ -17,6 +17,7 @@ from screamingface_engine import job_env
 from screamingface_engine.auth import ProblemException
 from screamingface_engine.rest.gateway_route import problem_responses
 from screamingface_engine.rest.stopping import QUEUE_UNAVAILABLE_RETRY_AFTER_S, stop_topic
+from screamingface_engine.runs.db import UNAVAILABLE_ERRORS
 from screamingface_engine.runs.ids import RUN_ID_PATTERN
 from screamingface_engine.runs.records import (
     OwnerKey,
@@ -107,22 +108,33 @@ class RunsRoute(APIRoute):
                 ) from None
             except ProblemException:
                 raise
+            except UNAVAILABLE_ERRORS as exc:
+                # WHY inside the same envelope: the answer depends on who asks, so even a failure
+                # stays a private Problem rather than a shared plain-text 500 (spec §4.1).
+                raise _registry_unavailable(exc) from None
             except Exception as exc:
-                # WHY inside the same envelope: the answer depends on who asks, so even an
-                # unexpected failure (the database going away) stays a private, retryable Problem
-                # rather than a shared plain-text 500 (spec §4.1).
-                raise _registry_failure(exc) from None
+                # WHY not 503: retrying a bug fails the same way, so the Client is not told to.
+                raise _unexpected_failure(exc) from None
 
         return runs_route_handler
 
 
-def _registry_failure(exc: Exception) -> ProblemException:
-    _logger.warning("a /runs request failed; it can be retried", exc_info=exc)
+def _registry_unavailable(exc: Exception) -> ProblemException:
+    _logger.warning("the Run registry could not answer; the request can be retried", exc_info=exc)
     return ProblemException(
         status=503,
         title="Service Unavailable",
         detail="the Run registry could not answer; retry",
         headers={"Retry-After": str(QUEUE_UNAVAILABLE_RETRY_AFTER_S), **PRIVATE_HEADERS},
+    )
+
+
+def _unexpected_failure(exc: Exception) -> ProblemException:
+    _logger.error("a /runs request failed unexpectedly", exc_info=exc)
+    return problem(
+        status=500,
+        title="Internal Server Error",
+        detail="the request failed unexpectedly; retrying will not help",
     )
 
 

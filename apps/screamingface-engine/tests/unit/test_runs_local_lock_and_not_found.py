@@ -21,6 +21,7 @@ from run_registry_support import (
     postgres_server,  # noqa: F401  (a fixture the Postgres parameter requests)
 )
 from test_runs_routes import ALICE, _Engine
+from tortoise.exceptions import DBConnectionError, OperationalError, TransactionManagementError
 
 from screamingface_engine.adapters.memory import InMemoryCandidateOutcomeStream
 from screamingface_engine.config import Settings
@@ -105,3 +106,57 @@ async def test_an_unexpected_registry_failure_is_a_private_retryable_problem(
         assert resp.headers["Cache-Control"] == "private, no-store"
         assert resp.headers["Vary"] == "X-User-Email"
         assert "Retry-After" in resp.headers
+
+
+class _RegistryBug:
+    def __getattr__(self, name: str) -> object:
+        async def _fails(*args: object, **kwargs: object) -> object:
+            raise KeyError("a bug, not an outage")
+
+        return _fails
+
+
+async def test_a_registry_bug_is_a_private_500_not_a_retryable_503(registry: Registry) -> None:
+    """WHY: retrying a bug fails the same way, so the Client must not be told to retry it; the
+    answer still depends on who asks, so it stays private."""
+    engine = _Engine(registry)
+    engine.app.state.run_registry = _RegistryBug()
+
+    resp = await engine.client.get("/runs", headers=ALICE)
+
+    assert resp.status_code == 500
+    assert resp.headers["Content-Type"] == "application/problem+json"
+    assert (resp.headers["Cache-Control"], resp.headers["Vary"]) == (
+        "private, no-store",
+        "X-User-Email",
+    )
+    assert "Retry-After" not in resp.headers
+    assert "a bug" not in resp.text
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        OperationalError("database is locked"),
+        TransactionManagementError("the transaction was lost"),
+        DBConnectionError("could not connect"),
+        TimeoutError(),
+    ],
+)
+async def test_a_database_that_could_not_answer_is_a_retryable_503(
+    registry: Registry, error: Exception
+) -> None:
+    class _Unavailable:
+        def __getattr__(self, name: str) -> object:
+            async def _fails(*args: object, **kwargs: object) -> object:
+                raise error
+
+            return _fails
+
+    engine = _Engine(registry)
+    engine.app.state.run_registry = _Unavailable()
+
+    resp = await engine.client.get("/runs", headers=ALICE)
+
+    assert resp.status_code == 503
+    assert "Retry-After" in resp.headers
