@@ -84,9 +84,12 @@ _FINGERPRINTS: dict[str, str] = {
     "lab_bench_figqa": "7376109d25378310",
     "lab_bench_tableqa": "9990079555f06a35",
     # OME-1477: MMMU's multiple-choice task, the first picture Benchmark from a whole exam.
-    "mmmu_multiple_choice": "5b008891134ef4c1",
+    # OME-1853: HELD at 5b008891134ef4c1 after Pillow 13 re-encoded every picture (owner
+    # ruling 2026-11-09, no official leaderboard runs yet); the fingerprint moved with the Cases.
+    "mmmu_multiple_choice": "529307c7766f8252",
     # OME-1479: MathVista, maths over pictures, the last of the four picture Benchmarks.
-    "mathvista": "ca4cd0f692d18f0e",
+    # OME-1853: HELD at ca4cd0f692d18f0e, same Pillow 13 re-encode and the same ruling.
+    "mathvista": "77ce24e526f7e47a",
     # OME-1477 PR 2: MMMU's open-answer task, judged once the judge read inspect's question.
     "mmmu_open": "8ce88e420239ae4d",
     # OME-1478: Humanity's Last Exam, the full set with its pictures, judged by glm-5.3-flash.
@@ -143,7 +146,9 @@ _FINGERPRINTS: dict[str, str] = {
     "stereoset": "c2bf158bee6d5f8b",
     "cyse4_malware_analysis": "0a1c3a7364512973",
     "drop": "9be2d9ed4b5f1a67",
-    "cyse4_threat_intelligence": "92558cfb773e64d2",
+    # OME-1853: HELD at 92558cfb773e64d2 after pypdf 6.21.4 changed the extracted report text
+    # (owner ruling 2026-11-09, no official leaderboard runs yet).
+    "cyse4_threat_intelligence": "4ca831c2f849fef9",
     "bbh": "467f06b54836a6f8",
     "medmcqa": "60e9f16fbe7c0227",
     # The hand-built Benchmark (screamingface_engine.benchmarks.medxpert).
