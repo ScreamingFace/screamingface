@@ -6,7 +6,7 @@
   of work, not separate PRs.
 - Numbers ① to ⑥ are the ticket's Architecture boxes. Every step names its file and the test
   that proves it; RED before GREEN per `sdlc-python`.
-- Paths: `E = apps/screamingface-engine`, `R = docs/benchmarks-fidelity`.
+- Paths: `E = apps/screamingface-engine`, `R = E/docs/benchmarks-fidelity`.
 
 ## Part 1 — spec, plan, glossary, record format, check script
 
@@ -68,7 +68,7 @@
    `## Lane 2` section grows by that one bullet and nothing else.
 3. One line each in `E/docs/adding-a-benchmark-manually.md` and
    `E/docs/adding-an-imported-benchmark.md`: the record ships with the onboarding PR or the PR
-   body says when it follows. Verify: both files link `docs/benchmarks-fidelity/README.md`.
+   body says when it follows. Verify: both files link `apps/screamingface-engine/docs/benchmarks-fidelity/README.md`.
 4. Gates: `run_gates.py repo`. Commit.
 
 ## Part 3 — the IFEval record and the planted deviation

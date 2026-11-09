@@ -23,3 +23,5 @@ Plan: `docs/plan/2026-11-06-OME-1471-benchmark-fidelity.md`.
   entries (Fidelity Record, Fidelity Verdict) drafted; draft PR [#1700](https://github.com/ScreamingFace/screamingface/pull/1700) opened from branch
   `OME-1471-benchmark-fidelity`. Check script, audit agent and the IFEval record follow on the
   same branch.
+- 2026-11-09: owner moved the records' home to `apps/screamingface-engine/docs/benchmarks-fidelity/`
+  (spec §1 S6).

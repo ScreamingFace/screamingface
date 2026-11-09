@@ -1,9 +1,9 @@
 # Spec — a Fidelity Record per Benchmark says which published number ours is comparable to
 
 - Status: draft for owner review (one PR, owner decision 2026-11-06). Design decisions D1 to D7 on the ticket (owner,
-  2026-10-05); the five deviations in §1 are this spec's, for owner review on this PR.
-- Component: `apps/screamingface-engine` (the check script, the records' subject). The records
-  and the agent live at the repo root (`docs/benchmarks-fidelity/`, `.claude/agents/`).
+  2026-10-05); the six deviations in §1 are this spec's, for owner review on this PR.
+- Component: `apps/screamingface-engine` (the check script, the records under its `docs/`). The
+  agent lives at the repo root (`.claude/agents/`), like `sf-code-review`.
 - Ticket: [OME-1471](https://linear.app/openmined/issue/OME-1471/benchmark-fidelity-agent-checking-a-benchmark-against-its-paper-and).
   Parent epic: OME-1299. Was blocked by OME-1455 (Benchmark Provenance), Done 2026-10-06.
 - Ledger: `docs/work/2026-11-06-ome-1471-benchmark-fidelity.md`.
@@ -22,7 +22,7 @@ harness produced the published number, and for an Imported Benchmark inspect_eva
 translation between the paper and us. Benchmark Provenance (OME-1455) already pins the paper and
 the harness on every row. Nothing yet says whether our translation gives the same marks.
 
-A **Fidelity Record** is one reviewed markdown file per Benchmark, `docs/benchmarks-fidelity/<id>.md`,
+A **Fidelity Record** is one reviewed markdown file per Benchmark, `apps/screamingface-engine/docs/benchmarks-fidelity/<id>.md`,
 that answers that: every place the exam could differ (seven dimensions), the evidence checked
 for each, every deviation found, and one **Fidelity Verdict**: `comparable-to-paper`,
 `comparable-to-inspect`, `not-comparable` or `unverified`. The record also carries a fingerprint
@@ -59,11 +59,12 @@ Rules that hold:
 | S3 | Tasks: "Spec in `docs/spec/`, then plan in `docs/plan/`" as the first step; D7 implies the tooling and the record ship in separate PRs | one PR carries spec, plan, record format, check script, agent, reviewer line and the IFEval record | Owner decision 2026-11-06. The only code is the script and its tests (~400 lines); the rest is prose. Design lives on the ticket, no spec-only PR (owner rule since 2026-10-22). |
 | S4 | TLDR: "Hand-built ones (IFEval, HealthBench, DRACO, GDPval, MedXpert, ContractEval)" | the two kinds are `origin="screamingface"` (18 local Tasks + MedXpert) and `origin="inspect_evals"` (75) | OME-1527 moved every hand-built Benchmark but MedXpert into the inspect plugin as a local Task. The audit path is the same for both origins; only the reference chain differs (§4.2). |
 | S5 | Acceptance: the planted deviation yields "exactly one undeclared `score-changing` deviation" | IFEval already carries one **declared** deviation (official keys 1122 and 1129 graded against the literal character; `local_tasks/ifeval/README.md`), so the calibration record lists one declared entry, and the planted run must report exactly one **undeclared** entry **in addition** | The ticket was written before that README; the invariant is unchanged (declared entries are listed, not findings). |
+| S6 | Box ⑤: records in repo-root `docs/benchmarks-fidelity/` | records in `apps/screamingface-engine/docs/benchmarks-fidelity/` | Owner, 2026-11-09. The records describe Engine Benchmarks and the check script lives in the Engine; an app script reading repo-root `docs/` would cross the app boundary (today only the SDK-notebook check does, flagged as the exception). Repo-root `docs/` is SDLC artifacts; the Engine's `docs/` already holds the Benchmark how-tos that will point at the records. |
 
 ## 2. The Fidelity Record
 
-One file per Benchmark, named by the catalogue id: `docs/benchmarks-fidelity/ifeval.md`,
-`docs/benchmarks-fidelity/inspect-gsm8k.md`, `docs/benchmarks-fidelity/medxpert.md`.
+One file per Benchmark, named by the catalogue id: `apps/screamingface-engine/docs/benchmarks-fidelity/ifeval.md`,
+`apps/screamingface-engine/docs/benchmarks-fidelity/inspect-gsm8k.md`, `apps/screamingface-engine/docs/benchmarks-fidelity/medxpert.md`.
 `TEMPLATE.md` and `README.md` sit beside them and are not records (the script skips every
 upper-case file name).
 
@@ -95,7 +96,7 @@ Rules a test can check (§3.4 tests them):
   `unverified`.
 - `fingerprint.benchmark` is 16 lower-case hex; `fingerprint.harness_url` is the declaration's
   string, byte for byte.
-- `parity_test` is a path relative to `apps/screamingface-engine/` that exists, or the literal
+- `parity_test` is a path relative to `apps/screamingface-engine/` (the records' own app) that exists, or the literal
   `none` with `parity_test_reason` non-empty ("judge-graded, parity needs a paid run" is a valid
   reason; "not written yet" is also valid and is what the sweep will show).
 - Any missing key, wrong type or unknown verdict is **malformed**: the script names the file and
@@ -174,7 +175,7 @@ the command that enumerated them.
 
 ### 3.1 What it reads
 
-- **Records:** every `docs/benchmarks-fidelity/*.md` whose stem is not upper-case, front matter
+- **Records:** every `docs/benchmarks-fidelity/*.md` under the Engine root whose stem is not upper-case, front matter
   per §2.1.
 - **Declarations:** the catalogue. For every `BenchmarkSpec` in `screamingface_engine_inspect.benchmarks.BENCHMARKS`,
   `imported_benchmark(spec.key)` gives the catalogue id (`.benchmark.id`), `.fingerprint`,
@@ -260,7 +261,7 @@ Benchmark's grading code, used by the planted-deviation calibration and by nothi
 - **Read-only on the checkout.** It never writes under the repo; every file it creates lives
   under one scratch folder it names at the start (`$SCRATCH`), deleted at the end. It returns
   the record body (§2.2) and the front-matter values (§2.1) as its report; the calling session
-  writes `docs/benchmarks-fidelity/<id>.md`.
+  writes `apps/screamingface-engine/docs/benchmarks-fidelity/<id>.md`.
 - **No keys, no model.** Every command that runs third-party code runs as
   `env -i PATH="$PATH" HOME="$SCRATCH" UV_CACHE_DIR="$SCRATCH/uv-cache" …`, and before the first
   such command the agent prints `env | grep -iE 'key|token|secret'` and requires it empty. It
@@ -310,7 +311,7 @@ verdict by the §2.3 rule and shows the arithmetic of the bound in `## Verdict`.
 ### 4.5 One line in `sf-code-review` Lane 2
 
 After the "manually onboarded benchmark cites its paper and its original harness" rule: *a PR
-that onboards a Benchmark ships its Fidelity Record (`docs/benchmarks-fidelity/<id>.md`), or
+that onboards a Benchmark ships its Fidelity Record (`apps/screamingface-engine/docs/benchmarks-fidelity/<id>.md`), or
 states in its body why the record follows (`sf-benchmark-fidelity` is the auditor; this lane
 only asks for the file)*. The two Lane 2 rules stay where they are; the new agent links to them
 and never copies them.
@@ -338,7 +339,7 @@ and is not committed as a record. It goes in the PR body under a collapsed block
 ## 6. Delivery
 
 One PR, branch `OME-1471-benchmark-fidelity`, in this order so each step has what it needs:
-glossary → spec + plan → `docs/benchmarks-fidelity/README.md` + `TEMPLATE.md` → the check
+glossary → spec + plan → `apps/screamingface-engine/docs/benchmarks-fidelity/README.md` + `TEMPLATE.md` → the check
 script with its tests (RED first) and the `just engine fidelity-check` recipe → the agent file,
 the Lane 2 line, one line in each onboarding doc → the agent run on IFEval and the record →
 the planted-deviation run (evidence in the PR body) → ledger, mirror, ticket Scope patched. The

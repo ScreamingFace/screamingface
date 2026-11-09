@@ -19,16 +19,18 @@ OME-1455 (Benchmark Provenance fields, incl. the pinned `harness_url`) is Done.
 
 ## Planned changes
 
+- Records live under the Engine's `docs/` (owner, 2026-11-09), not repo-root `docs/`.
+
 - `docs/spec/2026-11-06-OME-1471-benchmark-fidelity.md` — record format, fingerprint rule,
   verdict/severity vocabulary, check-script contract, agent contract.
 - `docs/plan/2026-11-06-OME-1471-benchmark-fidelity.md` — the three-PR carve, step by step.
-- `docs/benchmarks-fidelity/README.md` — index: verdict table + how to read a record.
-- `docs/benchmarks-fidelity/TEMPLATE.md` — record skeleton (front matter + dimension table).
+- `apps/screamingface-engine/docs/benchmarks-fidelity/README.md` — index: verdict table + how to read a record.
+- `apps/screamingface-engine/docs/benchmarks-fidelity/TEMPLATE.md` — record skeleton (front matter + dimension table).
 - `apps/screamingface-engine/scripts/fidelity_check.py` + `tests/unit/test_fidelity_check.py` +
   `tests/unit/inspect/test_fidelity_check_catalogue.py` + a `fidelity-check` justfile recipe.
 - `.claude/agents/sf-benchmark-fidelity.md` — the audit agent.
 - `.claude/agents/sf-code-review.md` — one Lane 2 line; one line in each Engine onboarding doc.
-- `docs/benchmarks-fidelity/ifeval.md` — the calibration record.
+- `apps/screamingface-engine/docs/benchmarks-fidelity/ifeval.md` — the calibration record.
 - `CONTEXT.md` — Fidelity Record, Fidelity Verdict.
 - `docs/tasks/2026-10-05-OME-1471-benchmark-fidelity.md` — mirror.
 

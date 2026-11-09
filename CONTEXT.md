@@ -385,7 +385,7 @@ a Benchmark saturated, and a saturated Benchmark is not a solved problem.
 _Avoid_: Solved, beaten, superhuman (that is Frontier Score ≥ Human Baseline, a separate fact)
 
 **Fidelity Record**:
-One reviewed markdown file per Benchmark (`docs/benchmarks-fidelity/<id>.md`) that says how our
+One reviewed markdown file per Benchmark (`apps/screamingface-engine/docs/benchmarks-fidelity/<id>.md`) that says how our
 exam compares with its references: the paper, the authors' original harness and, for an Imported
 Benchmark, inspect_evals. It lists the seven places an exam can differ (dataset, prompt, answer
 extraction, metric, roll-up, judge, sampling), the evidence checked for each, every deviation
