@@ -1,12 +1,12 @@
 ---
 id: OME-1601
 linear_url: https://linear.app/openmined/issue/OME-1601/add-mean-weighted-median-judge-order-filter-by-judge-and-pick-output
-status: in_progress
+status: done
 type: feature
 priority: 3
 labels: [client-sf, agentic, autonomous]
 created: 2026-10-13
-closed:
+closed: 2026-11-05
 ---
 
 # Add mean, weighted median, judge order, Filter by judge and Pick output to combine
@@ -21,3 +21,8 @@ judge score; `sf.Pick(output=...)`; a refactor that removes repeated code. The s
 
 Design: `docs/spec/2026-10-13-e4b-combine-extensions/`, `docs/plan/2026-10-13-e4b-combine-extensions.md`.
 Ledgers: `docs/work/2026-10-13-e4b-*.md`. Test approvals: `.claude/test-change-approvals/OME-1601.json`.
+
+## Close
+
+- 2026-11-05: E4b part 1 squash-merged to `main` as `d6f3073b7` (PR #1409) on 2026-10-30, and it is
+  in the `screamingface-v0.1.10` release. Close in Linear is an owner action.
