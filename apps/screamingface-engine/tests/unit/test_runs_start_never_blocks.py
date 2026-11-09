@@ -22,7 +22,7 @@ from run_registry_support import (
 )
 from test_runs_routes import _Engine
 
-from screamingface_engine.rest import runs
+from screamingface_engine.rest import runs_start
 
 pytestmark = pytest.mark.asyncio
 
@@ -62,7 +62,7 @@ class _Hangs:
 async def test_a_hung_database_does_not_hold_a_bound_start(
     registry: Registry, hung: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(runs, "_START_WRITE_TIMEOUT_S", 0.05)
+    monkeypatch.setattr(runs_start, "_START_WRITE_TIMEOUT_S", 0.05)
     engine = _Engine(registry)
     run_id = (await engine.create(candidates=["a"])).json()["id"]
     engine.app.state.run_registry = _Hangs(registry.store, hung)

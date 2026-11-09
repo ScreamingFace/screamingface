@@ -51,8 +51,8 @@ from screamingface_engine.request_scope import (
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
-from screamingface_engine.rest.runs import (
-    PRIVATE_HEADERS_DOC,
+from screamingface_engine.rest.runs_boundary import PRIVATE_HEADERS_DOC
+from screamingface_engine.rest.runs_start import (
     StartBinding,
     bind_start,
     canceled_before_schedule,
@@ -821,7 +821,7 @@ async def start_run(
     ] = None,
     # Documents the refusal in OpenAPI; `refuse_selector` below is what decides.
     _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
-    # Documented here; `rest.runs.bind_start` reads and checks them (E5 P1 spec R2).
+    # Documented here; `rest.runs_start.bind_start` reads and checks them (E5 P1 spec R2).
     _x_sf_run: Annotated[
         str | None,
         Header(

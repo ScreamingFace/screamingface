@@ -22,7 +22,8 @@ One app, one image, two modes — `apps/screamingface-engine/`, package `screami
 `ghcr.io/screamingface/screamingface-engine`. The mode is chosen by **argv**, never sniffed from
 the environment:
 
-- **`screamingface-engine serve`** — the stateless control-plane App (REST + WebSocket). The **default** when
+- **`screamingface-engine serve`** — the control-plane App (REST + WebSocket). It is stateful only for Runs:
+  with `URL4_CLOUD_DATABASE_URL` set it keeps the Run registry there (E5 P1). It is the **default** when
   no subcommand is given, which is what keeps the image's `CMD ["screamingface-engine"]` and the chart's
   Deployment command working.
 - **`screamingface-engine run`** — the one-shot run mode (`screamingface_engine/runner/`) that executes one url4

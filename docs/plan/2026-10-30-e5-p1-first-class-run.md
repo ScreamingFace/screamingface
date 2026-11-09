@@ -229,7 +229,8 @@ Tests:
 
 ### E8. `/runs` routes, start binding and docs
 
-- New `rest/runs.py`:
+- New `rest/runs.py` (the routes), `rest/runs_start.py` (start binding) and `rest/runs_boundary.py`
+  (owner, private Problems, the Candidate stop), split to keep each module small:
   - `POST /runs`, `GET /runs`, `GET /runs/{id}` and `DELETE /runs/{id}` (spec §4.1).
   - The owner is resolved by the same local/hosted switch as the mounts' `require_identity`
     (`rest/mounts.py`), set by `install_runs`.
