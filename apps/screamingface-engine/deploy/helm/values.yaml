@@ -199,6 +199,23 @@ events:
   # outright (ServerError 10074). Raise it only against a real NATS cluster (OME-1093).
   replicas: 1
 
+# The outcome stream `url4-candidate-outcomes` (OME-1785, E5 P1 spec R11): every terminal writer
+# publishes a Candidate's outcome here, and the App's one writer records it in the Run registry.
+# Rendered to BOTH the App and the runner pool, which each apply these values at startup, like
+# `events.*`. When the stream is full a publish is refused, never an older outcome dropped.
+candidateOutcomes:
+  # Past this an unwritten outcome is dropped. Below 172800 (the schema refuses more): reconcile
+  # settles a Candidate `lost` after `run_lost_after_s` (48 h), which must outlast it.
+  maxAgeS: 86400
+  maxBytes: 67108864
+
+# The Run registry's database (OME-1785, E5 P1 spec D2, R9, R10). Unset, the App runs with Runs
+# off and no migrate Job renders. Set it to a Secret holding the `engine` database's URL
+# (DEPLOYMENT.md: turn Runs on); the App alone reads it, never the runner pool.
+database:
+  existingSecret: ""
+  existingSecretKey: database-url
+
 # Where over-cap Evaluation results are parked between the worker that produces one and the
 # App that serves it back (OME-929).
 #

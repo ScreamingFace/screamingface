@@ -47,8 +47,17 @@ from nats.errors import NoRespondersError
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import QueueReadError
+from screamingface_engine.candidate_outcomes import (
+    CandidateOutcome,
+    CandidateOutcomeStream,
+    publish_outcome,
+)
 from screamingface_engine.ports import IdentityAwareJobRunner
-from screamingface_engine.run_evidence import adopt_or_mint_traceparent, log_scheduled
+from screamingface_engine.run_evidence import (
+    adopt_or_mint_traceparent,
+    log_scheduled,
+    publish_landed,
+)
 from screamingface_engine.runner_queue import (
     BROKER_UNAVAILABLE_ERRORS,
     DEFAULT_CALLER_INFLIGHT_CAP,
@@ -210,9 +219,12 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # FEATURE (OME-1770 review): the digest of the world config this App serves, stamped on
         # every run so a worker serving another revision refuses it instead of running it.
         world_digest: str | None = None,
+        # FEATURE (OME-1785): where the queued-cancel tombstone's Candidate outcome goes.
+        outcomes: CandidateOutcomeStream | None = None,
     ) -> None:
         self._queue = queue
         self._publisher = publisher
+        self._outcomes = outcomes
         self._control = control
         self._clock = clock
         self._capability_lifetime_s = capability_lifetime_s
@@ -572,7 +584,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         terminal frames.
         """
         await self._publisher.ensure_stream(topic)
-        await self._publisher.publish(
+        landed = await publish_landed(
+            self._publisher,
             topic,
             TerminatedEvent(
                 id=uuid.uuid4().hex,
@@ -589,6 +602,9 @@ class QueueJobRunner(IdentityAwareJobRunner):
             ),
         )
         await self._publisher.flush()
+        # INVARIANT (spec R3): the outcome follows the frame only when this frame is the run's.
+        if landed:
+            await publish_outcome(self._outcomes, topic, CandidateOutcome("stopped", CANCELLED))
 
     # --- depth-based admission (OME-1091) ---------------------------------------------------
 

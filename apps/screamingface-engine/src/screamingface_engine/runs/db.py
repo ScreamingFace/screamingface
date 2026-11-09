@@ -13,10 +13,13 @@ disagree.
 from __future__ import annotations
 
 import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from tortoise import Tortoise
-from tortoise.migrations.api import migrate as run_migrations
+from tortoise.context import TortoiseContext, _current_context
+from tortoise.migrations.executor import MigrationExecutor
 
 APP_LABEL = "runs"
 CONNECTION = "runs"
@@ -44,12 +47,48 @@ def build_tortoise_config(database_url: str) -> dict[str, Any]:
 TORTOISE_CONFIG = build_tortoise_config(_CLI_DATABASE_URL)
 
 
-async def migrate(database_url: str) -> None:
-    """Apply every pending migration (spec R9), then close the connections it opened."""
+async def open_context(database_url: str) -> TortoiseContext:
+    """The Engine's own Tortoise context, connected to its database.
+
+    INVARIANT: never Tortoise's process-wide state. The Client's local runtime serves aigateway
+    and the Engine in one process, and aigateway owns that global context; the Engine's queries
+    run inside this context instead (`using`).
+    """
+    context = TortoiseContext()
+    with using(context):
+        await context.init(config=build_tortoise_config(database_url))
+    return context
+
+
+@contextmanager
+def using(context: TortoiseContext) -> Iterator[None]:
+    """Run the enclosed queries in ``context``.
+
+    AIDEV-NOTE: sets Tortoise's context variable directly rather than `with context:`, whose one
+    token slot is shared by every task that enters it; the writer and the routes enter the same
+    context concurrently.
+    """
+    token = _current_context.set(context)
     try:
-        await run_migrations(config=build_tortoise_config(database_url))
+        yield
     finally:
-        await Tortoise.close_connections()
+        _current_context.reset(token)
+
+
+async def migrate(database_url: str) -> None:
+    """Apply every pending migration (spec R9), in a context of its own that it then closes."""
+    context = TortoiseContext()
+    with using(context):
+        try:
+            await context.init(config=build_tortoise_config(database_url))
+            executor = MigrationExecutor(context.connections.get(CONNECTION), apps(database_url))
+            await executor.migrate()
+        finally:
+            await context.close_connections()
+
+
+def apps(database_url: str) -> dict[str, dict[str, Any]]:
+    return {APP_LABEL: build_tortoise_config(database_url)["apps"][APP_LABEL]}
 
 
 async def init_db(database_url: str) -> None:

@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 import nats
 
+from screamingface_engine.candidate_outcomes import CandidateOutcomeStream
 from screamingface_engine.config import Settings
 
 if (
@@ -138,6 +139,7 @@ class Worker:
         ownership_probe_timeout_s: float = OWNERSHIP_PROBE_TIMEOUT_S,
         metrics: WorkerMetrics | None = None,
         world_digest: str | None = None,
+        outcomes: CandidateOutcomeStream | None = None,
     ) -> None:
         if slots < 1:
             raise ValueError(f"worker slots must be >= 1, got {slots}")
@@ -238,6 +240,7 @@ class Worker:
             ownership_probe_timeout_s=ownership_probe_timeout_s,
             metrics=self._metrics,
             world_digest=world_digest,
+            outcomes=outcomes,
         )
 
     async def run(self) -> None:
@@ -610,7 +613,10 @@ def run_worker(settings: Settings | None = None) -> None:
     ``Settings()`` read the environment.
     """
     settings = settings if settings is not None else Settings()
+    from screamingface_engine.adapters.factory import build_candidate_outcome_stream
+
     queue, publisher = worker_composition(settings)
+    outcomes = build_candidate_outcome_stream(settings)
     metrics = build_worker_metrics()
     metrics.started.inc()
     # The worker's own publish-conflict signal (uniform executor, PRD 01 §4 Observability,
@@ -632,6 +638,8 @@ def run_worker(settings: Settings | None = None) -> None:
         try:
             # The worker owns the configured limits too; it may start before the App.
             await publisher.declare_events_stream()
+            # FEATURE (OME-1785, spec R11): the outcome stream, declared with the chart's limits.
+            await outcomes.ensure_stream(update=True)
             worker = Worker(
                 queue=queue,
                 publisher=publisher,
@@ -661,9 +669,11 @@ def run_worker(settings: Settings | None = None) -> None:
                 # it never changes under a running pod and this one read is what every child of
                 # the pod loads.
                 world_digest=config_file_digest(os.environ),
+                outcomes=outcomes,
             )
             await worker.run()
         finally:
+            await outcomes.close()
             await nc.close()
 
     asyncio.run(_main())

@@ -78,7 +78,7 @@ with `packages/`.
 | # | Decision | Why |
 |---|---|---|
 | D1 | **The Engine owns the Run record. The Client is an interface to it.** | A Client-local index cannot be reopened from another machine. A "local = disk, cloud = server" split would be two code paths. |
-| D2 | **Storage is one Tortoise ORM adapter behind a `RunRegistry` port.** Local: a SQLite file in the Engine data dir, the default under `serve --local`. Hosted: a new database, `engine`, on the existing `charts/db` Postgres server, with its own role and Secret, given as `URL4_CLOUD_DATABASE_URL`. A hosted App with no URL runs with **Runs off**: it logs a warning at start and `/runs*` answer 404, so the Client falls back (D7). A hosted App given a SQLite URL refuses to start. | The same pattern aigateway uses (`apps/aigateway/src/aigateway/db.py:9-43`): one code path, plain SQL for the queries, no new pod or volume. SQLite in a pod would be wiped on every restart. Runs off lets the code ship to an environment before its database exists. *Rejected:* JetStream KV plus SQLite (two adapters that can drift apart); aigateway's database (crosses the app boundary). |
+| D2 | **Storage is one Tortoise ORM adapter behind a `RunRegistry` port.** Local: `engine.sqlite3`, the Engine's own database file, which the Client's runtime passes in its data dir as it does `aigateway.sqlite3`; without a URL the Engine keeps it at `~/.screamingface-engine/engine.sqlite3`, since its default artifacts dir is a temp path. Hosted: a new database, `engine`, on the existing `charts/db` Postgres server, with its own role and Secret, given as `URL4_CLOUD_DATABASE_URL`. A hosted App with no URL runs with **Runs off**: it logs a warning at start and `/runs*` answer 404, so the Client falls back (D7). A hosted App given a SQLite URL refuses to start. | The same pattern aigateway uses (`apps/aigateway/src/aigateway/db.py:9-43`): one code path, plain SQL for the queries, no new pod or volume. SQLite in a pod would be wiped on every restart. Runs off lets the code ship to an environment before its database exists. *Rejected:* JetStream KV plus SQLite (two adapters that can drift apart); aigateway's database (crosses the app boundary). |
 | D3 | **Every database write goes through the App. Runners and url4 hold no database connection.** | The owner condition (§9): one writer is easy to reason about, and runners stay free to run anywhere, for example on AWS Lambda. |
 | D4 | **Outcomes travel on a `CandidateOutcomeStream` port.** It has a JetStream adapter (stream `url4-candidate-outcomes`) and an in-memory adapter (`InMemoryCandidateOutcomeStream`), like `EventStream` and `InMemoryEventStream`. Every producer publishes to it, and one App consumer writes them. | One write path in both modes: no "local writes directly" branch, and no runner holds database access. |
 | D5 | **`Run.id` is `run_` + a random UUID in hex, minted by the Engine. It is not a secret.** Access is checked by owner, and a foreign or unknown id answers 404. Runs list by `created_at`, newest first, with the id breaking ties. | Ordering comes from a timestamp column, not the id, so the id needs no clock or counter and any number of App replicas can mint it. Safe to paste anywhere (`OME-966`). |
@@ -176,15 +176,22 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
   extends `TerminalWatch`) and the existing `run_evidence.outcome_of`, which returns a
   `CandidateOutcome` carrying the summary's cost.
   - **A producer publishes an outcome only when its own terminal frame is the one that landed on
-    `url4-events`.** So the registry always agrees with the terminal frame the Client reads.
+    `url4-events`.** So the registry always agrees with the terminal frame the Client reads. A
+    writer that is not the run learns it from `JetStreamPublisher.publish_next`, which writes
+    nothing after another terminal frame and returns whether it wrote. The run child learns it
+    from `JetStreamPublisher.dropped(topic)`: its frames were dropped when the subject had already
+    ended at its first frame.
   - The producers, all publishing to `CandidateOutcomeStream`:
     - **in-process runner:** `_on_done`.
-    - **queue run, executed:** the child sends `SETTLED {json}` on the control pipe, and its
-      supervisor publishes it after `_publish_if_needed`. If the child died first, the supervisor
-      publishes its own classification instead, with no cost. The encoder and decoder go in
-      `child_protocol.py`, which stays stdlib-only, so cost travels as a decimal string.
+    - **queue run, executed:** the child keeps its control pipe open through the run and sends
+      `SETTLED {json}` before it exits; its supervisor publishes it after `_publish_if_needed`.
+      If the child died first, the supervisor publishes its own classification instead, with no
+      cost. The encoder and decoder go in `child_protocol.py`, which stays stdlib-only, so cost
+      travels as a decimal string.
     - **queue run, never executed:** `_publish_terminal`.
     - **App terminal writers:** `_publish_tombstone` and `_publish_failure`.
+  - Publishing an outcome is best effort: a failed publish is logged and never fails the run, its
+    terminal frame or its ack. A lost outcome leaves the Candidate live until reconcile (R6).
   - A topic with no binding is acked as a no-op at the consumer.
 - **R4. One writer.** The App's consumer calls `settle` and acks only after the commit. A
   database outage delays outcomes but loses none: they are redelivered within the stream's 24 h
@@ -223,7 +230,8 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
 - **R6. Reconcile** runs at App start and hourly. **It only ever writes `lost`**; a terminal
   state and a cost come only from a real outcome.
   - **A stream that survives a restart** (JetStream). A Candidate still live
-    `run_lost_after_s` (default 48 h) after it was bound settles as `lost`. P1 runs stop when
+    `run_lost_after_s` (default 48 h; the chart caps `candidateOutcomes.maxAgeS` below it) after
+    it was bound settles as `lost`. P1 runs stop when
     nobody listens, so no real run comes near that, and it is longer than both
     `url4-candidate-outcomes` and `url4-runq` keep a message (24 h each), so no outcome can still
     arrive.
@@ -243,20 +251,27 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
 - **R9. Schema.**
   - Hosted: migrations run in a pre-install/pre-upgrade Helm hook Job, modelled on aigateway's
     (`apps/aigateway/charts/aigateway/templates/job-migrate.yaml`). The Job, and the App's
-    database variable, render only when `database.existingSecret` is set, and the App's secret
-    reference is `optional: true`. Without the Secret the chart renders and installs, and the App
-    runs with Runs off (D2).
+    database variable, render only when `database.existingSecret` is set (key
+    `database.existingSecretKey`, default `database-url`, as for aigateway). Both references are
+    required, so a named Secret that does not exist fails the release; with no
+    `database.existingSecret` the App runs with Runs off (D2). The Job runs under the namespace's default ServiceAccount with no
+    token, because a pre-install hook runs before the chart's own ServiceAccount exists.
   - Local: `serve --local` applies pending migrations at start.
   - The App refuses to start on a schema older than its code.
+  - The App refuses to start when its database does not answer, with an error that names the
+    database (password hidden), not the schema (§9, 2026-11-05).
 - **R10. Create the database once per environment.** This is an owner action, because
   `charts/db`'s `POSTGRES_DB` init runs only on an empty volume. It is
   `CREATE ROLE engine LOGIN PASSWORD '…'; CREATE DATABASE engine OWNER engine;`, then the
   `engine-db` Secret, then `database.existingSecret` in the environment's values. The runbook goes
   in `apps/screamingface-engine/DEPLOYMENT.md`.
 - **R11. The outcome stream is ensured in code, like `url4-events`.** Both the App and the runner
-  pool call `ensure_stream()` at startup, from the same rendered `candidateOutcomes.*` values
-  (max age 24 h, max bytes), declared in `values.schema.json` and rendered to both Deployments.
-  A worker can therefore publish even if it starts before the App.
+  pool call `ensure_stream(update=True)` at startup, from the same rendered `candidateOutcomes.*`
+  values (`maxAgeS` 24 h, `maxBytes` 64 MiB), declared in `values.schema.json` and rendered to
+  both Deployments. `update=True` applies a changed limit and the writer's `ack_wait` to the live
+  stream; every other caller only creates a missing stream. A worker can therefore publish even
+  if it starts before the App. When the stream is full a publish is refused, never an older
+  outcome dropped (`discard=new`).
 
 ### 4.4 Client API
 
@@ -299,7 +314,7 @@ covering C1–C4 for P1b) under `OME-1785`, each with its own sub-issue. The pla
 | Landing | Component | Change |
 |---|---|---|
 | P1a | `screamingface-engine` | Both ports and their adapters, the first migration, and the new dependencies at aigateway's pins (`tortoise-orm[asyncpg]==1.1.8`, `asyncpg==0.31.0`, dev `testcontainers[postgres]==4.15.0`). All R3 producers, the App consumer, the sweeps, `/runs` and start binding. Helm: the gated database Secret on the App Deployment only, the gated migrate Job, and the shared `candidateOutcomes.*` values. CI: a Postgres step on testcontainers, like aigateway's (`.github/workflows/aigateway-tests.yml:82-85`). |
-| P1b | `client-sf` | `client_key` and `POST /runs` before spend, the binding headers, `Report.run_id`, cancel on abort. `sf.runs`, `Run`, `CandidateRun`, `RunProgress`. The manifest keyed by `Run.id`. `attempt_id` and the deprecation. The D7 fallback. |
+| P1b | `client-sf` | `client_key` and `POST /runs` before spend, the binding headers, `Report.run_id`, cancel on abort. `sf.runs`, `Run`, `CandidateRun`, `RunProgress`. The manifest keyed by `Run.id`. `attempt_id` and the deprecation. The D7 fallback. The runtime passes the local Engine `sqlite://<data_dir>/engine.sqlite3` (D2). |
 
 P1b works against an Engine without `/runs` (D7), so the landings can ship in either order.
 
@@ -436,3 +451,8 @@ P1b works against an Engine without `/runs` (D7), so the landings can ship in ei
   is no NFC step. `str.lower()` maps the Kelvin sign to `k` in text, but over HTTP the edge's
   UTF-8 bytes arrive as Latin-1 text, which lowercases to no ASCII letter, so a request never
   reaches that merge; a `/runs` route test pins it.
+- **2026-11-05, Tauquir (spec owner), on the #1639 review.** A hosted App whose database does not
+  answer at start fails fast, naming the database, rather than starting with Runs degraded. Runs
+  become a hard dependency in P2, so degrading would only postpone the failure; a database that is
+  never configured still means Runs off. "History never blocks a run" (§1) describes this
+  phase's Client fallback (D7), not a promise about the App's start.
