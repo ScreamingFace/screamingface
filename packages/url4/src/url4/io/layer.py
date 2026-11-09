@@ -74,8 +74,9 @@ class FetchRequest:
     engine-side by GuardNode, so it never reaches the port.)
     ``max_bytes`` / ``on_chunk`` bound a ``fetch_bytes`` read (the stricter of ``max_bytes`` and
     an adapter's own cap wins; ``on_chunk`` is told each decoded chunk's size as it arrives and
-    raises to abort); ``on_declared`` is told a whole body's declared size (or ``None``) BEFORE
-    its read and raises to refuse it (round 10). None is part of the request's identity.
+    raises to abort); ``on_declared`` is told a held body's exact size, or ``None`` for a whole
+    body that cannot be counted before its read, and raises to refuse it (round 11).
+    None is part of the request's identity.
     """
 
     target: str

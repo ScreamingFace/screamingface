@@ -868,3 +868,9 @@ call-context sibling binding refuses; an unnamed source sees a LATER named model
   origin/main) exit 0, `repo --base origin/main` exit 0; `url4 --base 490365ce0` exit 1 on
   append-only only (`test_review_round10.py`, blob 0896c62e4) — owner approval entry follows
   in a separate commit (owner decision 2026-11-07: push first).
+- Self-review before round 12 (2026-11-09): a text-only io (no `fetch_bytes`) still read a
+  `/blob/sha256/<hex>` body whole before the live cap counted it (two 7 MB blobs both held).
+  `dag/nodes/blob.py` `_fetch_bytes` now refuses that fallback unread under `on_declared`,
+  exactly like `peer._bytes` (decision B). New `test_review_round12.py` (RED: reads==[7e6,7e6]
+  → GREEN: zero reads). Round-10 docstrings in `_caps.reserve`, `_run_files`, `io/layer`
+  updated to decision B. `url4 --base 3200a73f7` and `repo --base origin/main` exit 0.

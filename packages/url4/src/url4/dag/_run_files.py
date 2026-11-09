@@ -167,9 +167,10 @@ async def _verify(
     blob reads never hold more than about the cap plus one chunk each. A failed read gives its
     bytes back at once.
     A collection blob is not an attachment (D4) and is never charged.
-    INVARIANT (review round 10, owner 2026-11-05): a provider that can only hand over its body
-    whole draws its DECLARED size first (``on_declared`` → :meth:`CapBudget.reserve`); an
-    undeclared or over-budget size is refused ``x.attachments_too_large`` before the read.
+    INVARIANT (review round 11, decision B, owner 2026-11-05): a held ``str`` draws its exact
+    size first (``on_declared`` → :meth:`CapBudget.reserve`); any other whole-body read (a
+    whole-body provider, a text-only io) reports ``None`` and is refused
+    ``x.attachments_too_large`` unread.
     INVARIANT (review round 10 1(a), owner 2026-11-05): a ref whose digest is a verified Case
     attachment's (``held``) reuses those bytes and never reads the store copy — one resident copy,
     no I/O, nothing past the cap (the Case bytes are already counted).

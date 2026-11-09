@@ -127,12 +127,12 @@ class CapBudget:
             self._check()
 
     def reserve(self, key: Hashable, size: int | None) -> None:
-        """Draw a NON-streaming body's declared ``size`` BEFORE it is read (``on_declared``).
+        """Draw an EXACT ``size`` (a held ``str``) BEFORE the body is kept (``on_declared``).
 
-        INVARIANT (PR #1587 review round 10, owner 2026-11-05 — FAIL CLOSED): a body the
-        provider can only hand over whole is never read past the shared live budget: its
-        declared size is drawn first, and a body of unknown size is refused unread, stickily
-        (an ``;optional`` guard cannot swallow it).
+        INVARIANT (PR #1587 review round 11, decision B, owner 2026-11-05 — FAIL CLOSED): a
+        provider's declared size is its word, not a count, so only an exact size is drawn. A
+        whole-body read reports ``None`` and is refused unread, stickily (an ``;optional``
+        guard cannot swallow it).
         """
         with self._lock:
             if size is None:

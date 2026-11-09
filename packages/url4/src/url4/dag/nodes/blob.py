@@ -22,11 +22,13 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass, field
 
 from url4.core.blob_ref import BlobAddress, address_of, token_address
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.nodes import RelUrl, Url
+from url4.dag._caps import whole_body_refused
 from url4.dag.attachment import OCTET_STREAM, Attachment
 from url4.dag.attachments import CachedBlob, current_run_files
 from url4.dag.semantics.collection import DECLARED_MEDIA_TYPES
@@ -200,6 +202,13 @@ async def _fetch_bytes(ctx: ExecutionContext, request: FetchRequest) -> tuple[by
         if fetch is not None:
             got = await fetch(request)
             return got.body, got.media_type
+        if request.on_declared is not None:
+            # INVARIANT (decision B, PR #1587 round 11 finding 1 — FAIL CLOSED): under a run's
+            # live cap a body is counted BEFORE it is held; a text adapter can only count after
+            # its read, so it is refused unread, as ``peer._bytes`` refuses a whole-body provider.
+            with suppress(ResolutionError):
+                request.on_declared(None)  # makes the run's refusal sticky
+            raise whole_body_refused()
         result = await fetch_result(ctx.io, request)
         return _read_whole(request, result.body.encode("utf-8")), result.media_type
     except ResolutionError as exc:
