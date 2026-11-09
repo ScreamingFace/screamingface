@@ -188,6 +188,10 @@ jobs:
             tests/unit/test_delete_scores_postgres.py \
             tests/unit/test_readyz_pool_postgres.py \
             tests/unit/test_score_text_validation.py \
+            tests/unit/scores/test_baseline_review_fixes.py \
+            tests/unit/scores/test_baseline_metadata.py \
+            tests/unit/scores/test_baseline_store.py \
+            tests/unit/test_import_baselines.py \
             -v
 
   cost:

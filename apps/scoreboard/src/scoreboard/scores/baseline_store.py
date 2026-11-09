@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import cast
 
 from pydantic import ValidationError
@@ -26,6 +27,9 @@ def _baseline_to_schema(model: Baseline) -> BaselineSchema:
         source=model.source,
         source_url=model.source_url,
         imported_at=model.imported_at,
+        last_imported_at=model.last_imported_at,
+        metric_name=model.metric_name,
+        observed_at=model.observed_at,
         metadata=model.metadata,
         # WHY: tortoise-orm >=1.1.8 types CharField as `str | None`, which no longer
         # satisfies the schema's `Openness | None`. The DB column is a bare CharField, so
@@ -57,17 +61,32 @@ class BaselineStore:
         if not exists:
             raise ValueError(f"unknown benchmark_id: {row.benchmark_id!r}")
 
-        baseline, _ = await Baseline.update_or_create(
-            benchmark_id=row.benchmark_id,
-            model_name=row.model_name,
-            source=row.source,
-            defaults={
-                "score": row.score,
-                "source_url": row.source_url,
-                "metadata": row.metadata,
-            },
-            using_db=using_db,
-        )
+        # INVARIANT: the upsert's row lock survives until its timestamp is saved.
+        # Stamp after locking, never while building defaults before a contended write.
+        connection_name = using_db.connection_name if using_db else DEFAULT_CONNECTION
+        async with in_transaction(connection_name=connection_name) as connection:
+            baseline, _ = await Baseline.update_or_create(
+                benchmark_id=row.benchmark_id,
+                model_name=row.model_name,
+                source=row.source,
+                defaults={
+                    "score": row.score,
+                    "source_url": row.source_url,
+                    "metadata": row.metadata,
+                    # WHY: imports replace an observation, not patch it. Missing
+                    # provenance must not carry an old read date onto a new score.
+                    "metric_name": row.metric_name,
+                    "observed_at": row.observed_at,
+                    "attached_by": row.attached_by,
+                },
+                using_db=connection,
+            )
+            baseline.last_imported_at = max(
+                datetime.now(UTC),
+                baseline.imported_at,
+                baseline.last_imported_at or baseline.imported_at,
+            )
+            await baseline.save(using_db=connection, update_fields=["last_imported_at"])
         return _baseline_to_schema(baseline)
 
     async def import_many(self, rows: Sequence[BaselineImportRow]) -> list[BaselineSchema]:
