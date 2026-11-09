@@ -39,6 +39,7 @@ PDF_SEEING = "acme/omni-1"
 BLIND = "meta-llama/llama-3.3-70b-instruct"
 BLIND_2 = "acme/text-2"
 UNLISTED = "acme/ghost-1"
+PRIVATE = "endpoint/acme-private-1"
 _LISTED: dict[str, list[str]] = {
     SEEING: ["text", "image"],
     PDF_SEEING: ["text", "image", "pdf"],
@@ -95,6 +96,7 @@ class _Gateway:
 
 
 _ALL = (SEEING, PDF_SEEING, BLIND, BLIND_2, UNLISTED)
+_PRIVATE = (PRIVATE,)
 
 
 async def _run(
@@ -106,7 +108,11 @@ async def _run(
     scoped: bool = True,
 ) -> str:
     cfg = AigatewayConfig(
-        models=tuple(ModelSpec(id=m, web_search=False) for m in _ALL), default_model=default_model
+        models=(
+            *(ModelSpec(id=m, web_search=False) for m in _ALL),
+            *(ModelSpec(id=m, web_search=False, public_schema=False) for m in _PRIVATE),
+        ),
+        default_model=default_model,
     )
     async with gw.client() as client:
         world = await build_aigateway_world(cfg, client=client)
@@ -295,3 +301,21 @@ async def test_a_benchmark_run_checks_only_its_candidate_never_the_grader() -> N
         run, frozenset({"/" + SEEING, _BLIND_ROUTE}), default_route=_BLIND_ROUTE
     )
     assert routes == frozenset({"/" + SEEING})
+
+
+# --- T10: OME-1770 masking — a private route the caller cannot see is never named --------------
+
+
+async def test_an_unlisted_private_route_is_never_named_in_the_refusal() -> None:
+    # The caller's /v1/models does not list PRIVATE (a non-public route it is not granted).
+    # Naming it would tell the caller this Engine declares it; the per-call path answers it as
+    # url4's undeclared route instead (OME-1770), so only the listed blind model is named.
+    gw = _Gateway()
+    with pytest.raises(ResolutionError) as caught:
+        await _run(_members(SEEING, PRIVATE, BLIND), (_png(),), gw)
+
+    message = str(caught.value)
+    assert BLIND in message
+    assert PRIVATE not in message
+    assert "acme-private-1" not in message
+    assert gw.chats == []

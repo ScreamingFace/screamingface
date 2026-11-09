@@ -33,7 +33,6 @@ from screamingface_engine.benchmarks.case_context import (
 )
 from screamingface_engine.benchmarks.failure_classes import logprobs_unsupported
 from screamingface_engine.benchmarks.picture_admission import (
-    ModelSightReader,
     admit_run_attachments,
     register_model_sight,
 )
@@ -129,6 +128,7 @@ from screamingface_engine.world.web_tools import (
     tavily_key,
     truncate_tool_result,
 )
+from url4 import Attachment
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag import GuardRetry, current_guard_retry
 from url4.io.static import StaticIOLayer
@@ -428,10 +428,8 @@ class _ModelEndpoint:
 
     __slots__ = (
         "_cfg",
-        "_default_route",
         "_http_client",
         "_routes",
-        "_sight",
         "_tavily_api_key",
         "_tavily_http",
     )
@@ -444,18 +442,33 @@ class _ModelEndpoint:
         routes: dict[str, ModelSpec],
         tavily_http: httpx.AsyncClient | None,
         tavily_api_key: str | None,
-        sight: ModelSightReader | None = None,
-        default_route: str | None = None,
     ) -> None:
         self._http_client = http_client
         self._cfg = cfg
         self._routes = routes
         self._tavily_http = tavily_http
         self._tavily_api_key = tavily_api_key
-        # OME-1809: the world's ONE model-list reader (also registered for the Cases route)
-        # and the node's reduce route; None in a bare handler, which then admits nothing.
-        self._sight = sight
-        self._default_route = default_route
+
+    async def _admit_run_files(self, attachments: Sequence[Attachment]) -> None:
+        """OME-1809: admit the run's files once for the whole run (``admit_run_attachments``).
+
+        WHY a reader built here rather than held: `_GatewayModelSight` is stateless over the
+        world-level client and routes this handler already holds, and the run's one shared check
+        (not the reader) is what keeps the model list to one read per run. The handler's slots
+        stay the world-level allowlist (`test_request_scope_hardening`).
+        """
+        sight = _GatewayModelSight(
+            self._http_client,
+            {path: decode_route_id(spec.id) for path, spec in self._routes.items()},
+        )
+        await admit_run_attachments(
+            sight,
+            attachments,
+            default_route="/" + self._cfg.default_model,
+            private_routes=frozenset(
+                path for path, spec in self._routes.items() if not spec.public_schema
+            ),
+        )
 
     async def __call__(self, request: Request) -> str:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
@@ -503,10 +516,8 @@ class _ModelEndpoint:
             # FEATURE (OME-1809): a url4 run's files are admitted ONCE for the whole run before
             # any call is sent: one blind model fails the run by name, nothing paid. A grading
             # call keeps its own refusal below (judges read text only, spec D6).
-            if request.attachments and self._sight is not None and current_grading_case() is None:
-                await admit_run_attachments(
-                    self._sight, request.attachments, default_route=self._default_route
-                )
+            if request.attachments and current_grading_case() is None:
+                await self._admit_run_files(request.attachments)
             # FEATURE (OME-1545, spec F2/F3): the run's url4 files, read and verified before the
             # request is formed; empty for a text-only call, which then stays byte-identical.
             parts = await _attachment_parts(request)
@@ -621,20 +632,12 @@ async def build_aigateway_world(
         tavily_client,
     )
 
-    # WHY built before the handler: the handler has no node to look its reader up by, so the
-    # world builds ONE reader and hands it to both the handler and the Cases route (OME-1809).
-    sight = _GatewayModelSight(
-        http_client, {path: decode_route_id(spec.id) for path, spec in routes.items()}
-    )
-    default_route = "/" + cfg.default_model
     call_model = _ModelEndpoint(
         http_client=http_client,
         cfg=cfg,
         routes=routes,
         tavily_http=tavily_http,
         tavily_api_key=normalized_tavily_key,
-        sight=sight,
-        default_route=default_route,
     )
 
     # WHY: `outbound=StaticIOLayer()` denies every absolute-URL fetch: an unmapped target raises
@@ -642,13 +645,18 @@ async def build_aigateway_world(
     # fetch any URL — which is what a token-bearing run has always been able to do.
     node = Url4Node(
         _NODE_NAME,
-        default_processor=default_route,
+        default_processor="/" + cfg.default_model,
         outbound=None if cfg.allow_outbound else StaticIOLayer(),
     )
     for path in routes:
         node.endpoint(path)(call_model)
     _GATEWAY_CLIENTS[node] = http_client
-    register_model_sight(node, sight)
+    register_model_sight(
+        node,
+        _GatewayModelSight(
+            http_client, {path: decode_route_id(spec.id) for path, spec in routes.items()}
+        ),
+    )
     return AigatewayWorld(
         node=node,
         _client=http_client,

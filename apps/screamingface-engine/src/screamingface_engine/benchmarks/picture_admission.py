@@ -343,6 +343,7 @@ async def admit_run_attachments(
     attachments: Sequence[Attachment],
     *,
     default_route: str | None,
+    private_routes: frozenset[str] = frozenset(),
 ) -> None:
     """Refuse a url4 run whose files reach a model that cannot take them, before any call.
 
@@ -374,21 +375,35 @@ async def admit_run_attachments(
         # INVARIANT: created before this coroutine's first await, so a sibling call scheduled
         # in the same run finds it and never starts a second read of the model list.
         holder.check = asyncio.ensure_future(
-            _check_run(reader, url4, needs, default_route=default_route)
+            _check_run(
+                reader, url4, needs, default_route=default_route, private_routes=private_routes
+            )
         )
     # WHY shield: one cancelled member must not cancel the check its siblings await.
     await asyncio.shield(holder.check)
 
 
 async def _check_run(
-    reader: ModelSightReader, url4: str, needs: frozenset[str], *, default_route: str | None
+    reader: ModelSightReader,
+    url4: str,
+    needs: frozenset[str],
+    *,
+    default_route: str | None,
+    private_routes: frozenset[str],
 ) -> None:
     model_ids: Mapping[str, str] = reader.model_routes()
     routes = run_model_routes(url4, frozenset(model_ids), default_route=default_route)
     if not routes:
         return
     listed: Mapping[str, Sequence[str]] = await reader.input_modalities()
-    models = [model_ids[route] for route in routes]
+    # INVARIANT (OME-1770): a non-public route the caller's list does not carry is one the
+    # caller may not know exists. Naming it would confirm it; it is left to its own call, which
+    # answers url4's undeclared-route error (`world/connector.py` `_undeclared_route`).
+    models = [
+        model_ids[route]
+        for route in routes
+        if route not in private_routes or model_ids[route] in listed
+    ]
     reasons: list[str] = [
         _refusal(modality, ", ".join(lacking), _RUN_REFUSALS)
         for modality in sorted(needs)
