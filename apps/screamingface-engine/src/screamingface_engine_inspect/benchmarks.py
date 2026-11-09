@@ -7591,6 +7591,106 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,
     ),
+    BenchmarkSpec(
+        key="zerobench",
+        published_revision="b0afce4bf40156bf",
+        title="ZeroBench",
+        description=(
+            "100 hand-written visual reasoning questions, each over one or more pictures, "
+            "curated across many domains, reasoning types and image types and calibrated so "
+            "that every frontier model scored 0 at release: ZeroBench's main set, imported from "
+            "inspect_evals (the 334 easier sub-questions are a separate split and are not "
+            "imported). The pictures are saved inside the Case at import, so the Candidate must "
+            "read images and nothing is fetched at run time. The Candidate is shown the "
+            "question with the eval's own instruction line, 'Let's think step by step and give "
+            "the final answer in curly braces, like this: {final answer}', then the question's "
+            "pictures in the dataset's order, and is graded by the eval's own scorer: the text "
+            "inside the last pair of curly braces in the reply, lower-cased, must equal the "
+            "answer exactly, and a reply with no braces is wrong, so no judge tokens are spent. "
+            "Benchmark score = plain accuracy over the cases run, one reply per Case. "
+            "inspect_evals asks each question five times and reports pass@1 as the mean over "
+            "the five samplings, pass@5 and 5-of-5 reliability; those reducers cannot be "
+            "imported, so the Task is imported with k=1 and this score is a single-sample "
+            "pass@1, not like-for-like with the official board's five-sample pass@1 or its "
+            "pass@5. inspect_evals runs the model at seed 42 with no retries; this benchmark "
+            "imposes no generation settings. Serving order is pinned by a policy seed "
+            "(inspect_evals shuffles per run). No mid-run check surface."
+        ),
+        focus="Hard multi-step reasoning over pictures, exact-match answer in braces",
+        dataset_url="https://huggingface.co/datasets/jonathan-roberts1/zerobench",
+        # Built so that every frontier model scored 0 pass@1 at release; the best official
+        # pass@1 today is 0.432 (below), well under half (OME-1257).
+        difficulty="hard",
+        # A per-Case mean over the eval's own exact-match scorer (no whole-run metric, not
+        # inverted, a decline is never the right answer): Group A, as for MathVista.
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.zerobench.zerobench:zerobench.
+        # License: none stated (the prepare.py row has the terms); the dataset is gated behind
+        #   the authors' no-public-answers, no-training terms (owner decision on OME-1855,
+        #   2026-11-09).
+        # Benchmark Provenance (OME-1455): eval.yaml via the importer; arXiv answered the
+        # importer with no entry, so the author line and BibTeX are copied by hand from arXiv's
+        # own BibTeX export for 2502.09696; the baselines by hand from the sources named
+        # beside them.
+        paper_url="https://arxiv.org/abs/2502.09696",
+        authors="Roberts et al., 2025",
+        citation=(
+            "@misc{roberts2026zerobenchimpossiblevisualbenchmark,\n"
+            "      title={ZeroBench: An Impossible Visual Benchmark for Contemporary Large Mu"
+            "ltimodal Models}, \n"
+            "      author={Jonathan Roberts and Mohammad Reza Taesiri and Ansh Sharma and Aka"
+            "sh Gupta and Samuel Roberts and Ioana Croitoru and Simion-Vlad Bogolin and Jialu"
+            " Tang and Florian Langer and Vyas Raina and Vatsal Raina and Hanyi Xiong and Vis"
+            "haal Udandarao and Jingyi Lu and Shiyang Chen and Sam Purkis and Tianshuo Yan an"
+            "d Wenye Lin and Gyungin Shin and Qiaochu Yang and Anh Totti Nguyen and David I. "
+            "Atkinson and Aaditya Baranwal and Alexandru Coca and Mikah Dang and Sebastian Dz"
+            "iadzio and Jakob D. Kunz and Kaiqu Liang and Alexander Lo and Brian Pulfer and S"
+            "teven Walton and Charig Yang and Kai Han and Samuel Albanie},\n"
+            "      year={2026},\n"
+            "      eprint={2502.09696},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CV},\n"
+            "      url={https://arxiv.org/abs/2502.09696}, \n"
+            "}"
+        ),
+        inspect_contributors=("ItsTania",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/zerobench",
+        license=NotPublished(
+            reason=(
+                "the jonathan-roberts1/zerobench card at the pinned revision and the project "
+                "page state no licence; access is gated behind the authors' terms (owner "
+                "decision on OME-1855, 2026-11-09)"
+            ),
+        ),
+        license_note=(
+            "gated on the Hub: the authors ask that ZeroBench answers are never posted or "
+            "disclosed publicly and that no part of it is used for training, with a canary "
+            "string in the card; the answers stay Grading Material here and a Hub token gates "
+            "the build"
+        ),
+        # Human baseline: the questions are human-written and human-reviewed, but no human
+        # accuracy figure is published.
+        human_baseline=NotPublished(
+            reason=(
+                "neither eval.yaml, the project page nor the paper's abstract publishes a "
+                "human accuracy figure for the main questions"
+            ),
+        ),
+        # Frontier score: the official leaderboard's best pass@1 on the main questions, read
+        # from the board on 2026-11-09; the board dates no entry, so as_of is the read month.
+        # NOT like-for-like: the board's pass@1 for this entry is the mean over five
+        # samplings per question (its pass@5 is 0.520), while this Benchmark asks once.
+        frontier_score=FrontierScore(
+            score=0.432,
+            model="GPT-6 Astra (max)",
+            source_url="https://zerobench.github.io/",
+            as_of="2026-11",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=100,
+        scorer="inspect_evals.zerobench.zerobench:zerobench_scorer",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

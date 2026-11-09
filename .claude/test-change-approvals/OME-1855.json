@@ -1,0 +1,34 @@
+{
+  "issue": "OME-1855",
+  "branch": "OME-1855-import-zerobench",
+  "approver": "owner, to confirm on the PR (requested in the OME-1855 dispatch)",
+  "date": "2026-11-09",
+  "scope": "Prior-test edits for the new ZeroBench Benchmark, and nothing else: one table row each in test_benchmark_declaration.py (withhold, single_shot, hard), test_failure_policy_rows.py (Group A, plus the row counts 93→94 and 76→77 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (the revision literal b0afce4bf40156bf), and test_inspect_imported_benchmarks.py (family free_text, and the seeded set since the eval shuffles with no seed). test_picture_benchmarks_notebook.py lists the nine picture Benchmarks (inspect-zerobench joins the eight, the tuple renamed _ALL_EIGHT→_ALL_NINE) and expects a local Mac to skip it, since its pictures are re-saved by Pillow and its Case Digest is sealed on Linux like MMMU's and MathVista's. No existing row or assertion changes otherwise.",
+  "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as hle and labbench2 did); the rows are the review act for its declaration, family, policy and revision. The picture notebook's test pins which picture Benchmarks it runs and where.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "e7c6debff42d2276040c135db23e0455b73b41b8",
+      "approved_blob": "58ed801eaf385304bb4a1a3249667b9b7752602b"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "f19182eb63fb097fbb24fb535ca560d92e6d8a13",
+      "approved_blob": "88e77c6ed444dfc82225a92bd5b09cbe1126ca74"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
+      "base_blob": "51c4ef8fce63774d5c687e22c0209fbb82d55a24",
+      "approved_blob": "311e32190891d8257d0482c49c61df2193133a09"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "5ea4a3b4b9f9aca867a034ed1593274a397b1a10",
+      "approved_blob": "f0c4894e8143543153e3a9c107be29ab1338b581"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "447fd8aef5373d03976718022bdf42ecb92cbe88",
+      "approved_blob": "202138feda30fcc92bbe62c0bdab7a3ebfc73cd9"
+    },
+    "packages/screamingface/tests/test_picture_benchmarks_notebook.py": {
+      "base_blob": "5d228975023246f1cf0da3f82b245f7cbc618713",
+      "approved_blob": "0057110bbecc45941e172f81582f377fd82918fd"
+    }
+  }
+}
