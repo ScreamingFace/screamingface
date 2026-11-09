@@ -21,6 +21,10 @@ model is refused by name before any chat call. Spec: `docs/spec/2026-11-09-blind
 - `world/connector.py` — `call_model` awaits that admission before building parts.
 - Tests under `apps/screamingface-engine/tests/` (RED list in the spec §6).
 
+## Progress
+
+- 2026-11-09: spec approved (Q1–Q3 = a); plan `docs/plan/2026-11-09-blind-model-admission.md` (9 TDD tasks, 3 code-forced deviations flagged).
+
 ## Test plan
 
 - See spec §6.
