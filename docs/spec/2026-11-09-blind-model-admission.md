@@ -2,9 +2,9 @@
 
 Epic OME-1529 · blocked by OME-1545 (#1588) · related OME-1548, OME-1803, OME-1807, OME-1551 F4.
 Branch `blind-model-admission`, cut from `OME-1545-engine-attachment-parts` (1f4cad23f). **The PR
-opens only after #1588 merges; this branch then rebases onto main.** That rebase also brings
-#1645 (OME-1803: `PDF_MODALITY`, `PART_MODALITIES`, `models_lacking`), which the #1588 branch is
-129 commits behind and lacks; this spec is written against main's admission module.
+opens only after #1588 merges; this branch then rebases onto main.** Since 2026-11-09 the
+#1588 branch carries main through #1587, so #1645 (OME-1803: `PDF_MODALITY`, `PART_MODALITIES`,
+`models_lacking`) is already present here.
 
 ## 1. Problem
 
