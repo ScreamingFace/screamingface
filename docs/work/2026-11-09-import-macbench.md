@@ -79,7 +79,7 @@ OME-1330. Onboarding only: no paid run.
   the importer (eval-owned scorer). Sealed on the laptop: the eval wraps each row's own `data:`
   URI in a `ContentImage` and opens no picture, so no Pillow re-save and no platform split; the
   build path's `prepare_replayed_cases` on the same bundle reproduced count and digest (151 s,
-  1,492 MiB peak). Published revision `f6cb6e028f58c0f2` from `benchmark_bump.py` (the
+  1,492 MiB peak). Published revision `a8d8e6ccc379924f` from `benchmark_bump.py` (moved from `f6cb6e028f58c0f2` on 2026-11-09 when the deviation header gained the upstream comment link; never published; the
   fingerprint on the day the row was added; `c1b519147b8b2bdc` before the deviation's header
   gained the Case counts, never published).
 - **Size check:** one picture per Case (cap 20), all PNG. Largest Case 1,692,138 bytes (Case

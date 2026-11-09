@@ -7593,7 +7593,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="macbench",
-        published_revision="f6cb6e028f58c0f2",
+        published_revision="a8d8e6ccc379924f",
         title="MaCBench",
         description=(
             "1,153 chemistry and materials science questions from MaCBench, every one about "

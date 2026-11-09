@@ -126,7 +126,7 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "labbench2_figqa2_img": "770667413b4b1e51",
     "labbench2_tableqa2_img": "742c148e87b15f69",
     # OME-1854: MaCBench, chemistry and materials pictures, letters graded as a set.
-    "macbench": "f6cb6e028f58c0f2",
+    "macbench": "a8d8e6ccc379924f",
     "frontierscience": "826050de44778515",
     "pubmedqa": "15e20f21d0a78fd9",
     "xstest_unsafe": "fad9dd3ebabd84a5",

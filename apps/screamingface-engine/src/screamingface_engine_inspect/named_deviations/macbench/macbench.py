@@ -15,7 +15,10 @@ letters, and the scorer compares them to the key ("A,C") as a STRING, so "A, C",
 other 374 Cases are numeric). That is the bug inspect_evals issue #2586 names for chembench
 (https://github.com/UKGovernmentBEIS/inspect_evals/issues/2586), whose open fix is PR #2591
 (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2591); macbench reuses chembench's
-regex and its string compare, and has no fix of its own. We checked on 2026-11-09 with the
+regex and its string compare, and has no fix of its own. Reported for macbench on that
+issue on 2026-11-09 (https://github.com/UKGovernmentBEIS/inspect_evals/issues/2586#issuecomment-6734254126),
+offering to extend PR #2591; when the pin reaches a fix, this module goes and the tripwire
+test says so. We checked on 2026-11-09 with the
 pinned scorer: `[ANSWER]C, A[/ANSWER]` against the key "A,C" scores 0. On the one-letter
 Cases the two rules agree on every reply except one that repeats the letter: "B,B" or "B B"
 against the key "B" was wrong and is now right, because as sets {B} is {B}. The MaCBench
@@ -24,7 +27,7 @@ so they mark it right too.
 
 COPIED VERBATIM: `multiple_choice_letters` below is PR #2591's own function, name and body
 unchanged, at its head commit 3bfc894a:
-https://github.com/UKGovernmentBEIS/inspect_evals/blob/3bfc894aabb0ebde7593c4e36e781b591c619c0b/src/inspect_evals/chembench/chembench.py#L223-L240
+https://github.com/UKGovernmentBEIS/inspect_evals/blob/3bfc894aabb0ebde7593c4e36e781b591c619c0b/src/inspect_evals/chembench/chembench.py#L223-L248
 `macbench_scorer` below is v0.20.0's own, with that function in place of `pattern(...)`; the
 regexes and `pattern_mae` are imported from the pinned v0.20.0. Ours is only where they live:
 v0.20.0's Task cannot be edited, so the row names this module's `macbench_scorer` instead of

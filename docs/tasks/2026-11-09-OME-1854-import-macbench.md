@@ -22,7 +22,7 @@ as the task `macbench`; the importer replays it and writes `inspect-macbench`.
   Digest `d265b015…`, one PNG per Case, largest Case 1,692,138 bytes, licence MIT (the card;
   evaluation-only terms, canary string). 779 multiple choice (19 with several right letters),
   374 numeric (146 with the dataset's own window, 228 on the 1% fallback). Published revision
-  `f6cb6e028f58c0f2`, tier medium, policy withhold, no judge.
+  `a8d8e6ccc379924f`, tier medium, policy withhold, no judge.
 - Named Deviation: the eval's pinned scorer compares multi-letter answers as text, so
   `[ANSWER]C, A[/ANSWER]` against `A,C` scores 0 (chembench's bug, inspect_evals issue #2586,
   fix PR #2591); `named_deviations/macbench/macbench.py` grades the set of letters, numbers
