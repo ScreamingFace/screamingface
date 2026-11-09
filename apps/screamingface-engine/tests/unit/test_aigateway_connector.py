@@ -6,18 +6,24 @@ from unittest import mock
 import httpx
 import pytest
 
-from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA
+from screamingface_engine.benchmarks.contract import (
+    CANDIDATE_INPUT_SCHEMA,
+    CANDIDATE_INPUT_V2_SCHEMA,
+)
 from screamingface_engine.error_text import ENGINE_RESERVED_CODES
-from screamingface_engine.world.config import ModelSpec, WorldConfigError
+from screamingface_engine.grading_call_scope import grading_call_scope
+from screamingface_engine.world.config import ModelSpec, WorldConfigError, routes_for
 from screamingface_engine.world.connector import (
     AigatewayConfig,
     _messages,
+    _ModelEndpoint,
     _raise_for_status,
     build_aigateway_world,
 )
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import ObservationEvent, Usage
+from url4.peer.server import Request
 
 pytestmark = pytest.mark.asyncio
 
@@ -1117,3 +1123,115 @@ async def test_an_upstream_code_outside_the_reserved_set_is_still_adopted() -> N
 
     assert caught.value.code == "rate_limited"
     assert caught.value.permanent is False
+
+
+# FEATURE (OME-1678): a picture Benchmark's Case carries its pictures inline as data: URIs in
+# the v2 candidate-input envelope; the connector sends them to the gateway as content parts.
+_PNG_DATA_URI = "data:image/png;base64,iVBORw0KGgo="
+
+
+def _picture_case() -> str:
+    """A v2 Case: one user message holding a question and one PNG, as the importer writes it."""
+
+    return json.dumps(
+        {
+            "schema": CANDIDATE_INPUT_V2_SCHEMA,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "What is the height of the tallest bar?"},
+                        {"type": "image_url", "image_url": {"url": _PNG_DATA_URI}},
+                    ],
+                }
+            ],
+        },
+        separators=(",", ":"),
+    )
+
+
+async def test_a_picture_case_reaches_the_gateway_as_content_parts() -> None:
+    # STORY: as a Benchmark author importing MMMU, I need the model to see the chart, not a
+    # refusal and not base64 pasted into the prompt as text.
+    gw = _MockAigateway((_MODEL,), responses={_MODEL: "42"}, web_search=False)
+    cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
+    async with gw.client() as client:
+        handler = _ModelEndpoint(
+            http_client=client,
+            cfg=cfg,
+            routes=routes_for(gw.models),
+            tavily_http=None,
+            tavily_api_key=None,
+        )
+
+        answer = await handler(
+            Request(path=f"/{_MODEL}", context=_picture_case(), intent="Answer briefly.", params={})
+        )
+
+    assert answer == "42"
+    assert json.loads(gw.posts_to(_MODEL)[0].content)["messages"] == [
+        {"role": "system", "content": "Answer briefly."},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "What is the height of the tallest bar?"},
+                {"type": "image_url", "image_url": {"url": _PNG_DATA_URI}},
+            ],
+        },
+    ]
+
+
+async def test_a_picture_case_with_a_remote_url_is_refused_before_any_gateway_call() -> None:
+    # INVARIANT: only data: URIs pass. A Case naming an https:// picture must never make the
+    # gateway, or Codex behind it, fetch a URL the Case picked.
+    context = _picture_case().replace(_PNG_DATA_URI, "https://insecure-website.com/a.png")
+    gw = _MockAigateway((_MODEL,), responses={_MODEL: "42"}, web_search=False)
+    cfg = AigatewayConfig(models=gw.models, default_model=_MODEL)
+    async with gw.client() as client:
+        handler = _ModelEndpoint(
+            http_client=client,
+            cfg=cfg,
+            routes=routes_for(gw.models),
+            tavily_http=None,
+            tavily_api_key=None,
+        )
+
+        with pytest.raises(ResolutionError, match="message 0 part 1") as caught:
+            await handler(Request(path=f"/{_MODEL}", context=context, intent="", params={}))
+
+    assert gw.posts_to(_MODEL) == []
+    assert caught.value.code == "invalid_candidate_input"
+    assert caught.value.permanent is True
+    assert "insecure-website.com" not in str(caught.value)
+
+
+async def test_judge_call_with_v2_context_is_refused() -> None:
+    # INVARIANT (spec D6): judges grade text. A picture reaching a grading call fails by name
+    # instead of being dropped by whichever judge writer happens to read only text.
+    with (
+        grading_call_scope("case-1"),
+        pytest.raises(ResolutionError, match="judges read text") as caught,
+    ):
+        _messages(_picture_case(), None)
+
+    assert caught.value.code == "invalid_candidate_input"
+    assert caught.value.permanent is True
+
+
+async def test_judge_call_with_text_context_still_reaches_the_gateway() -> None:
+    # WHY: the refusal is for pictures only; a v1 judge conversation keeps its messages.
+    context = json.dumps(
+        {"schema": CANDIDATE_INPUT_SCHEMA, "messages": [{"role": "user", "content": "Grade this."}]}
+    )
+
+    with grading_call_scope("case-1"):
+        assert _messages(context, None) == [{"role": "user", "content": "Grade this."}]
+
+
+async def test_an_unknown_candidate_input_version_is_still_refused() -> None:
+    context = json.dumps({"schema": "screamingface.candidate-input.v3", "messages": []})
+
+    with pytest.raises(ResolutionError, match="unsupported schema") as caught:
+        _messages(context, None)
+
+    assert caught.value.code == "invalid_candidate_input"

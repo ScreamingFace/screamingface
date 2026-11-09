@@ -117,6 +117,7 @@ __THEME_RULES__
 .sf-lb-list__row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;
   align-items:start;padding:12px 20px;border-bottom:1px solid var(--sf-lb-line)}
 .sf-lb-list__row:last-child{border-bottom:0}
+.sf-lb-list__row[hidden]{display:none}
 .sf-lb-list__name{font-weight:600;color:var(--sf-lb-ink)}
 .sf-lb-list__description{margin-top:4px;color:var(--sf-lb-ink-2)}
 .sf-lb-list__meta{display:flex;align-items:center;justify-content:flex-end;gap:8px;

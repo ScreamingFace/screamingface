@@ -39,6 +39,7 @@ def _spec(**overrides: Any) -> BenchmarkSpec:
         "focus": "test",
         "dataset_url": "https://example.test/ds",
         "difficulty": "easy",
+        "failure_policy": "coverage_declare",
         "scorer": "inspect_ai.scorer:f1",
     }
     values.update(overrides)

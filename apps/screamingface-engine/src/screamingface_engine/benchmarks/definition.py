@@ -17,6 +17,7 @@ from screamingface_engine.benchmarks.provenance import (
     provenance_metadata,
     validate_provenance,
 )
+from screamingface_engine.benchmarks.selection import CaseSelection
 from screamingface_engine.retrieval_policy import normalize_excluded_domains
 from url4 import Node, RelExpr, build, expr, render, src, struct, text
 from url4.peer.server import Url4Node
@@ -32,8 +33,9 @@ type DraftFeedbackCost = Literal["free", "paid"]
 # missing) does to the published score. Picture a benchmark of 157 questions where 33 answer
 # sheets got lost in the mail:
 #   "withhold"         — the lost sheets count against the candidate: score = earned / all
-#                        157. Coverage always reads 100%; failures are silently priced in,
-#                        so an infra outage makes the model look WORSE.
+#                        157, each lost sheet a 0. Coverage still reads "graded 124 of 157"
+#                        (OME-1642), so the outage stays visible beside the score; an infra
+#                        outage makes the model look WORSE.
 #   "coverage_declare" — the lost sheets are excluded and the report says so: score =
 #                        earned / the 124 actually graded, published next to a visible
 #                        "scored 124 of 157" coverage figure. An outage makes the score
@@ -147,9 +149,10 @@ class BenchmarkDeclaration:
     benchmark, a reader can see how a failed paper counts. Three axes today:
 
     ``failure_policy`` — what a Case that never got a valid grade does to the published
-    score. ``withhold``: the case counts against the candidate (all-or-nothing).
+    score. ``withhold``: the case counts 0 and every selected case stays in the denominator.
     ``coverage_declare``: the case is excluded from the score and the report's coverage
-    figure drops, so a reader sees "scored 124 of 157".
+    figure drops, so a reader sees "scored 124 of 157". Under both policies coverage stays
+    "graded / selected" (OME-1642).
 
     ``interaction`` — how the Candidate is exercised. ``single_shot`` and ``multi_turn``
     today; any other value is refused by name before any paid request.
@@ -251,9 +254,10 @@ class AnswerRule:
 class Benchmark:
     """Immutable metadata plus one complete URL4 protocol builder.
 
-    ``build`` is pure: it specializes the protocol to an exact selected case count and returns a
-    structured URL4 node. ``install`` owns any private routes and validates immutable assets
-    against the explicitly injected root before a run can spend money.
+    ``build`` is pure: it specializes the protocol to an exact Case selection (the first N, or
+    explicit Case ids, OME-1739) and returns a structured URL4 node. ``install`` owns any
+    private routes and validates immutable assets against the explicitly injected root before
+    a run can spend money.
     """
 
     id: str
@@ -261,7 +265,7 @@ class Benchmark:
     description: str
     revision: str
     case_count: int
-    build: Callable[[int], Node]
+    build: Callable[[int | CaseSelection], Node]
     # INVARIANT: `declaration` is required with NO default — a benchmark that never
     # declared its failure policy fails registration before any paid request (OME-1039).
     declaration: BenchmarkDeclaration
@@ -288,6 +292,14 @@ class Benchmark:
     # INVARIANT: published only when true, so every other Benchmark's catalogue entry and
     # resource stay byte-identical.
     inverted_grade: bool = False
+    # FEATURE: Unlisted Benchmark (OME-1714) — off the catalogue index, still served by id.
+    # Like an unlisted video: `GET /v1/benchmarks` skips it, so the SDK listing and the
+    # Scoreboard seed never see it; `GET /v1/benchmarks/{id}` and a run by id keep working.
+    # INVARIANT: never on the wire and never in `revision` — the mark is a listing decision,
+    # not catalogue data, so every listed entry stays byte-identical and no Score moves.
+    # WHY declared here in code, not in deployment configuration: a fresh deploy cannot expose
+    # the row by forgetting a setting. Product's request names the rows (OME-1714).
+    unlisted: bool = False
     # FEATURE: Benchmark Provenance, Human Baseline, Frontier Score (OME-1455). The facts on
     # the exam's cover sheet: who wrote it, who brought it here, where the original code and
     # data live, may you use it, how humans and the best published model scored, and which
@@ -394,10 +406,17 @@ class Benchmark:
             metadata["answer_rule"] = self.answer_rule.as_block()
         return metadata
 
-    def protocol(self, selected_case_count: int) -> Node:
-        """Build and type-check one exact selection without rendering it prematurely."""
+    def protocol(self, selected_case_count: int | CaseSelection) -> Node:
+        """Build and type-check one exact selection without rendering it prematurely.
 
-        if (
+        ``selected_case_count`` is a count N (Cases 1 to N) or an explicit
+        :class:`CaseSelection` (OME-1739); ``build`` always receives a ``CaseSelection``,
+        whose ``str()`` is the count for 1..N, so a count-only builder renders as before.
+        """
+
+        if isinstance(selected_case_count, CaseSelection):
+            selection: CaseSelection = selected_case_count.require_within(self.case_count)
+        elif (
             isinstance(selected_case_count, bool)
             or not isinstance(selected_case_count, int)
             or selected_case_count < 1
@@ -407,23 +426,39 @@ class Benchmark:
                 f"Benchmark limit must be between 1 and {self.case_count}, "
                 f"got {selected_case_count!r}"
             )
-        protocol = self.build(selected_case_count)
+        else:
+            selection = CaseSelection.first(selected_case_count)
+        protocol = self.build(selection)
         if not isinstance(protocol, Node):
             raise TypeError("Benchmark build must return a URL4 Node")
         return protocol
 
-    def resource(self, limit: int | None = None) -> dict[str, object]:
-        """Build one flat, independently executable public resource."""
+    def resource(
+        self, limit: int | None = None, *, cases: CaseSelection | None = None
+    ) -> dict[str, object]:
+        """Build one flat, independently executable public resource.
 
-        selected = self.case_count if limit is None else limit
+        ``cases`` (OME-1739) selects explicit Case ids instead of a ``limit``; the resource
+        then echoes them as ``selected_case_ids``, so the SDK can refuse an Engine that ran a
+        different set. INVARIANT: a ``limit`` resource carries no such key and is unchanged.
+        """
+
+        if limit is not None and cases is not None:
+            raise ValueError("select Cases by limit or by Case ids, not both")
+        selected: int | CaseSelection = (
+            cases if cases is not None else self.case_count if limit is None else limit
+        )
         protocol = self.protocol(selected)
-        return {
+        resource: dict[str, object] = {
             "schema": "screamingface.benchmark.v1",
             **self._metadata(),
-            "selected_case_count": selected,
+            "selected_case_count": selected if isinstance(selected, int) else selected.count,
             "candidate_binding": CANDIDATE_BINDING,
             "url4": render(protocol),
         }
+        if cases is not None:
+            resource["selected_case_ids"] = list(cases.case_ids)
+        return resource
 
 
 def candidate_call(

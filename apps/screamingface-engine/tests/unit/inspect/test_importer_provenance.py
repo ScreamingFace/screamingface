@@ -121,7 +121,7 @@ def test_eval_metadata_is_read_for_the_imported_task_by_name(tmp_path: Path) -> 
         package="mmlu",
         paper_url="https://arxiv.org/abs/2009.03300",
         inspect_contributors=("jjallaire", "domdomegg"),
-        upstream_case_count=14042,
+        inspect_evals_case_count=14042,
         human_baseline=(0.898, "https://arxiv.org/abs/2009.03300"),
         safeguards=False,
     )
@@ -134,7 +134,7 @@ def test_a_task_without_a_baseline_reads_none_for_it(tmp_path: Path) -> None:
 
     assert metadata is not None
     assert metadata.human_baseline is None
-    assert metadata.upstream_case_count == 14042
+    assert metadata.inspect_evals_case_count == 14042
 
 
 def test_a_safeguards_eval_is_marked_for_a_content_warning_review(tmp_path: Path) -> None:
@@ -155,7 +155,7 @@ def test_a_task_name_the_file_does_not_list_reads_no_size_and_no_baseline(
 
     assert metadata is not None
     assert metadata.paper_url == "https://arxiv.org/abs/2009.03300"
-    assert metadata.upstream_case_count is None
+    assert metadata.inspect_evals_case_count is None
     assert metadata.human_baseline is None
 
 
@@ -302,7 +302,7 @@ def _mmlu_metadata(**overrides: Any) -> EvalMetadata:
         "package": "mmlu",
         "paper_url": "https://arxiv.org/abs/2009.03300",
         "inspect_contributors": ("jjallaire", "domdomegg"),
-        "upstream_case_count": 14042,
+        "inspect_evals_case_count": 14042,
         "human_baseline": (0.898, "https://arxiv.org/abs/2009.03300"),
         "safeguards": False,
     }
@@ -330,7 +330,7 @@ def test_the_generated_row_carries_everything_the_importer_could_read() -> None:
         in row
     )
     assert 'notebook="12_inspect_evals_benchmarks",' in row
-    assert "upstream_case_count=14042," in row
+    assert "inspect_evals_case_count=14042," in row
     # Only a human can say what the best published score is. No "who typed this row" field:
     # git holds that, and the importer must not generate a TODO nobody needs (2026-10-06).
     assert 'frontier_score=NotPublished(reason="TODO"),' in row
@@ -366,7 +366,7 @@ def test_without_metadata_or_arxiv_every_field_is_a_todo_the_review_resolves() -
     assert "inspect_contributors" not in row
     assert 'harness_url="TODO",' in row
     assert 'license="TODO",' in row
-    assert "upstream_case_count" not in row
+    assert "inspect_evals_case_count" not in row
 
 
 def test_a_row_rendered_without_provenance_facts_is_unchanged_from_before() -> None:

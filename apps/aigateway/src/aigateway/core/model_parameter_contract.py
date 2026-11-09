@@ -1,6 +1,6 @@
 """OME-479 detailed ``/v1/model-parameters`` document composition (app layer).
 
-FEATURE: profile-bound detailed parameter contract. Overlays a provider plugin's
+FEATURE: connection-bound detailed parameter contract. Overlays a provider plugin's
 OWN observations with its OWN gateway rules (the SAME rule source as the
 ``/v1/models`` summary) into the locked v1 document, and derives the opaque
 ``contract_id`` / ``context.revision`` digests.
@@ -142,7 +142,7 @@ def build_model_parameter_document(
     freshness: dict[str, Any],
     source_revision: str | None = None,
 ) -> dict[str, Any]:
-    """Compose the locked v1 detailed contract for one (model, profile) context.
+    """Compose the locked v1 detailed contract for one (model, connection) context.
 
     ``source_revision`` is the discovered snapshot's SOURCE identity — which
     documents were read, under which gateway-side reading. It is optional because a

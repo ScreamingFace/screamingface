@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 from aigateway.core.provider_access import (
-    ProfileBackedProviderAccess,
+    ConnectionBackedProviderAccess,
     Selector,
     TargetPending,
     provider_access_for,
@@ -23,7 +23,7 @@ from aigateway.core.provider_access import (
 from aigateway.routes import chat, chat_dispatch
 
 # WHY parents[3]: <src>/aigateway/core/provider_access/<module>.py — three package dirs up.
-_SRC = Path(inspect.getfile(ProfileBackedProviderAccess)).resolve().parents[3]
+_SRC = Path(inspect.getfile(ConnectionBackedProviderAccess)).resolve().parents[3]
 
 
 def _account_id(client) -> str:
@@ -46,12 +46,12 @@ def test_the_chat_namespace_binds_the_accessor_the_suites_patch() -> None:
 # --- wiring ---------------------------------------------------------------------------------
 
 
-def test_the_app_holds_the_profile_backed_implementation_next_to_the_index(client) -> None:
-    assert isinstance(client.app.state.provider_access, ProfileBackedProviderAccess)
+def test_the_app_holds_the_connection_backed_implementation(client) -> None:
+    assert isinstance(client.app.state.provider_access, ConnectionBackedProviderAccess)
 
 
 class _PendingEverything:
-    """A substitute implementation no empty Profile store could be mistaken for."""
+    """A substitute implementation no empty credential store could be mistaken for."""
 
     async def resolve(self, account_id, provider, selector, *, plugin, policy=None):
         raise TargetPending(provider, selector.name)
@@ -59,7 +59,7 @@ class _PendingEverything:
 
 def test_provider_access_for_honours_a_substituted_implementation(authenticated_client) -> None:
     """# INVARIANT (F2): `app.state.provider_access` is THE port; a fake or a future backing put
-    there must be what callers reach, never silently replaced by the Profile-backed default."""
+    there must be what callers reach, never silently replaced by the Connection-backed default."""
     substitute = _PendingEverything()
     authenticated_client.app.state.provider_access = substitute
     plugin = authenticated_client.app.state.providers.get("anthropic")
@@ -75,47 +75,14 @@ def test_provider_access_for_honours_a_substituted_implementation(authenticated_
         )
 
 
-def test_provider_access_for_creates_the_profile_backed_default_only_when_absent() -> None:
+def test_provider_access_for_creates_the_connection_backed_default_only_when_absent() -> None:
     app = SimpleNamespace(state=SimpleNamespace())
 
     created = provider_access_for(app)
 
-    assert isinstance(created, ProfileBackedProviderAccess)
+    assert isinstance(created, ConnectionBackedProviderAccess)
     assert app.state.provider_access is created
     assert provider_access_for(app) is created
-
-
-# --- the context stamp ----------------------------------------------------------------------
-
-
-def test_the_context_stamp_is_byte_identical_to_the_legacy_context_identity(
-    authenticated_client, credential_blobs, monkeypatch
-) -> None:
-    from provider_access_harness import ProfileBackedHarness
-
-    harness = ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
-    harness.seed_profile()
-    plugin = authenticated_client.app.state.providers.get("anthropic")
-
-    target = harness.call(
-        harness.access.resolve,
-        harness.account_id,
-        "anthropic",
-        Selector.from_header(None),
-        plugin=plugin,
-    )
-    profile = harness.call(
-        authenticated_client.app.state.profile_index.get, harness.account_id, "anthropic", "default"
-    )
-
-    # OME-1207: A1 pinned this against `model_parameters._context_identity`. A2 deleted that
-    # helper, so the pin is now the FORMULA itself — stronger than agreeing with a function that
-    # could have drifted with it. These bytes feed the contract/context digests: changing them
-    # silently re-identifies every published contract.
-    assert target.context_stamp == (
-        f"acct:{harness.account_id}|"
-        f"prof:{profile.id}:{profile.state.value}:{profile.last_refreshed_at or '-'}"
-    )
 
 
 # --- size and layering --------------------------------------------------------------------------

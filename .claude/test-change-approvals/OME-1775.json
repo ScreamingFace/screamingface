@@ -1,0 +1,32 @@
+{
+  "issue": "OME-1775",
+  "branch": "OME-1775-replay-exact-not-partial",
+  "approver": "Ionesio Junior (owner)",
+  "date": "2026-10-29",
+  "scope": "test_frozen_copy_ambiguous.py: test_a_call_reissued_under_a_max_age_bound_is_ambiguous is renamed to ..._takes_the_reissue_status and expects `stored` with no `capture.partial.ambiguous` (R2); in three tests the first transport step changes from httpx.ConnectError to httpx.ReadError with their assertions unchanged (R3). test_frozen_copy_calls.py: the ConnectError row of the transport table expects `error` instead of `ambiguous` (R3), and a ReadError row expecting `ambiguous` is added. Each changed line carries an `OME-1775 (owner-approved, D5)` note. All other edits to these files only add tests. Review fix 2026-11-05: test_benchmark_aggregation.py now keeps missing, unknown, or retryable failures strict (True); test_capture_outcomes.py supplies stored token-cap evidence to the existing guard tests. New tests cover missing and mismatched proof explicitly.",
+  "reason": "OME-1775 (spec docs/spec/2026-10-29-OME-1775-cancelled-call-not-partial.md \u00a74): a max-age re-issue whose last response is 2xx takes that response's capture status (R2), and a connect-phase transport failure (ConnectError, ConnectTimeout, PoolTimeout) sent no byte, so it no longer makes a call ambiguous (R3). Owner decision D5 (2026-10-29) approved every prior test that asserts `ambiguous` after a connect-phase failure or after a max-age re-issue with a 2xx stored last response; plan P2 approved these five.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_frozen_copy_ambiguous.py": {
+      "base_blob": "640c78b669002423f574a7ed9fdb3729b96cc7d4",
+      "approved_blob": "d309c4b9b6d1268b35908a67021b98e037e6c5a6"
+    },
+    "apps/screamingface-engine/tests/unit/test_frozen_copy_calls.py": {
+      "base_blob": "cebe69b9257c251b17fd9345d0553acc046c4bd2",
+      "approved_blob": "08e86a64b3aacf0964f2a3e5c1049151a7221710"
+    },
+    "apps/screamingface-engine/tests/unit/test_benchmark_aggregation.py": {
+      "base_blob": "1dd4aef46194b4b4f5819a3e7003d3dda24ffe53",
+      "approved_blob": "191cd6a21aba01de233164a5f0c8eecee3cf8ae7"
+    },
+    "apps/screamingface-engine/tests/unit/test_capture_outcomes.py": {
+      "base_blob": "ee1e0fa31ff29ddd77c9e85e88ab88f4641071fd",
+      "approved_blob": "2a80c1e092849bfde90a32388519d444007a6bb6"
+    }
+  },
+  "review_fix_authorization": {
+    "date": "2026-11-05",
+    "requester": "FilipBolt",
+    "request": "can we make the fix and then merge",
+    "scope": "Fix the blocking review: replace broad failed-case eligibility with positive replay-stability evidence. Test changes below strengthen that contract; this is task authorization, not an independent code-review approval."
+  }
+}

@@ -46,6 +46,9 @@
    "expect": {"error": "combine_spec_invalid"}},
   {"name": "equals with unknown normalizer", "args": {"order": "equals", "value": "1", "normalize": "identity"},
    "input": {"readings": [{"member": "member_1", "raw": "1", "value": "1", "status": "voted", "weight": null}]},
-   "expect": {"error": "combine_spec_invalid"}}
+   "expect": {"error": "combine_spec_invalid"}},
+  {"name": "output returns the winner's field", "args": {"order": "max", "output": "answer"}, "input": {"readings": [{"member": "member_1", "raw": "0.9", "value": "0.9", "status": "voted", "weight": null}, {"member": "member_2", "raw": "0.6", "value": "0.6", "status": "voted", "weight": null}], "outputs": {"member_1": "{\"answer\": 42, \"confidence\": 0.9}", "member_2": "{\"answer\": 40, \"confidence\": 0.6}"}}, "expect": {"chosen": ["member_1"], "output": "42", "tie": false, "agreement": null}},
+  {"name": "output missing on the winner abstains", "args": {"order": "max", "output": "answer"}, "input": {"readings": [{"member": "member_1", "raw": "0.9", "value": "0.9", "status": "voted", "weight": null}, {"member": "member_2", "raw": "0.6", "value": "0.6", "status": "voted", "weight": null}], "outputs": {"member_1": "{\"confidence\": 0.9}", "member_2": "{\"answer\": 40, \"confidence\": 0.6}"}}, "expect": {"abstain": "output_missing"}},
+  {"name": "args: output is not a field name", "args": {"order": "max", "output": "a.b"}, "input": {"readings": [{"member": "member_1", "raw": "0.9", "value": "0.9", "status": "voted", "weight": null}, {"member": "member_2", "raw": "0.6", "value": "0.6", "status": "voted", "weight": null}]}, "expect": {"error": "combine_spec_invalid"}}
  ]
 }

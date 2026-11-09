@@ -1,13 +1,12 @@
 import type { NavEntry } from '@/composables/useDocNavigation'
 
-// The SDK version these pages were written and verified against, shown once in the
-// sidebar footer. A commit for now because screamingface is not on PyPI yet; when it
-// ships this becomes { prefix: 'Version', label: '1.0.0', url: <PyPI release> } and
-// nothing else changes.
+// The screamingface release these pages were built at, shown once in the sidebar footer.
+// `__SF_CLIENT_VERSION__` is the newest release tag, injected at build time by
+// vite.config.ts, so the label follows each release without an edit here.
 export const sfClientVersion = {
-  prefix: 'Based on state at commit',
-  label: '90a104e3',
-  url: 'https://github.com/ScreamingFace/screamingface/commit/90a104e39186801553103b9342b60dcd64677562',
+  prefix: 'Based on state at',
+  label: __SF_CLIENT_VERSION__,
+  url: `https://pypi.org/project/screamingface/${__SF_CLIENT_VERSION__}/`,
 }
 
 // The "Get started with SF Client" navbar tab: everything but the reference —
@@ -22,7 +21,7 @@ export const sfClientNavigation: NavEntry[] = [
     children: [
       { title: 'Installation', path: '/sf-client/installation' },
       { title: 'Your first fusion', path: '/sf-client/first-fusion' },
-      { title: 'Reproduce DRACO state-of-the-art', path: '/sf-client/reproduce-draco' },
+      { title: "Reproduce OpenRouter's DRACO results", path: '/sf-client/reproduce-draco' },
     ],
   },
   {
@@ -33,12 +32,14 @@ export const sfClientNavigation: NavEntry[] = [
         title: 'Compose a candidate',
         children: [
           { title: 'Models', path: '/sf-client/guides/models' },
-          { title: 'Fusions', path: '/sf-client/guides/fusions' },
+          { title: 'Map-reduce', path: '/sf-client/guides/map-reduce' },
+          { title: 'Fanout fusion', path: '/sf-client/guides/fusions' },
           { title: 'Pipelines', path: '/sf-client/guides/pipelines' },
         ],
       },
       { title: 'Choose a benchmark', path: '/sf-client/guides/benchmarks' },
       { title: 'Run an evaluation', path: '/sf-client/guides/running-an-evaluation' },
+      { title: "Use the community's cache", path: '/sf-client/guides/community-cache' },
       { title: 'Publish to the leaderboard', path: '/sf-client/guides/leaderboards' },
       { title: 'Reproduce & share', path: '/sf-client/guides/reproduce-and-share' },
       { title: 'Manage the Client', path: '/sf-client/guides/clients' },
@@ -61,6 +62,7 @@ export const sfClientReferenceNavigation: NavEntry[] = [
           { title: 'Recipe', path: '/sf-client/api/recipes' },
           { title: 'Model', path: '/sf-client/api/models' },
           { title: 'Fusion', path: '/sf-client/api/fusions' },
+          { title: 'Reducers', path: '/sf-client/api/reducers' },
           { title: 'Pipeline', path: '/sf-client/api/pipelines' },
           { title: 'Url4', path: '/sf-client/api/url4' },
         ],
@@ -78,6 +80,14 @@ export const sfClientReferenceNavigation: NavEntry[] = [
       { title: 'Leaderboard', path: '/sf-client/api/leaderboards' },
       { title: 'Run events', path: '/sf-client/api/events' },
       { title: 'Errors & warnings', path: '/sf-client/api/errors' },
+    ],
+  },
+  {
+    title: 'Modules & types',
+    children: [
+      { title: 'Cache', path: '/sf-client/api/cache' },
+      { title: 'Classify', path: '/sf-client/api/classify' },
+      { title: 'Analytics', path: '/sf-client/api/analytics' },
     ],
   },
 ]

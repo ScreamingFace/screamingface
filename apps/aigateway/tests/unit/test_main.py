@@ -12,7 +12,8 @@ async def test_create_app_fake_anthropic_oauth_factory(monkeypatch) -> None:
     from aigateway.main import create_app
 
     app = create_app()
-    assert app.state.credential_store is app.state.profile_index._store
+    # WHY no index (OME-1209 E4b): the app wires none; the credential store stands alone.
+    assert not hasattr(app.state, "profile_index")
 
     async with app.state.anthropic_http_factory() as client:
         token = await client.post("https://platform.claude.com/oauth/token")

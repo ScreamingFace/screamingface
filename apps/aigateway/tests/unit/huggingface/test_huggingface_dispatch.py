@@ -80,7 +80,7 @@ def test_get_api_key_falls_back_to_openai_env_when_absent(
 def test_plugin_disallows_keyless_dispatch() -> None:
     # No stored profile/connection => the chat route 404s before dispatch, so the
     # env-key fallback above is never reachable through the gateway.
-    assert PLUGIN.allows_chatless_profile() is False
+    assert PLUGIN.allows_chatless_credential() is False
 
 
 @pytest.mark.asyncio

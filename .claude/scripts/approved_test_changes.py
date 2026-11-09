@@ -6,7 +6,7 @@ before and after Git blob identities of each affected file. Any other edit fails
 
 Two entry points, one matcher (OME-1468):
 - `approved_unsupported_change` — files the range parser cannot read: TS/TSX tests, and
-  JSON fixtures under a `tests/` directory.
+  JSON and url4 fixtures under a `tests/` directory (url4: OME-1653).
 - `approved_python_test_change` — `.py` files under a `tests/` directory whose edit the
   Python AST range check has already rejected.
 """
@@ -51,6 +51,11 @@ def _approved_file(
     )
 
 
+# WHY url4: a compiled recipe fixture is a text artifact like a JSON fixture; an owner who
+# approves a new compile output (e.g. a new judge template) pins its exact bytes (OME-1653).
+_FIXTURE_SUFFIXES = frozenset({".json", ".url4"})
+
+
 def _under_tests(path: str) -> bool:
     # WHY: scoped to a `tests` directory component, never a whole stack: approvals
     # cover Python tests and JSON fixtures under tests/**, nothing wider (OME-1468).
@@ -58,14 +63,16 @@ def _under_tests(path: str) -> bool:
 
 
 def approved_unsupported_change(root: pathlib.Path, base: str, path: str) -> str | None:
-    """Return an issue ID only for the *exact* owner-approved TS/TSX test edit or JSON
-    fixture edit under `tests/`.
+    """Return an issue ID only for the *exact* owner-approved TS/TSX test edit or JSON or
+    url4 fixture edit under `tests/`.
 
     Unlisted files, other branches, changed baseline and subsequent edits fail
     closed. This never exempts Python tests, deletes, renames or type changes.
     """
     suffix = pathlib.PurePosixPath(path).suffix
-    if suffix not in {".ts", ".tsx"} and not (suffix == ".json" and _under_tests(path)):
+    if suffix not in {".ts", ".tsx"} and not (
+        suffix in _FIXTURE_SUFFIXES and _under_tests(path)
+    ):
         return None
     return _approved_blob_transition(root, base, path)
 

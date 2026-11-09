@@ -2,13 +2,9 @@
 
 WHY a module rather than a copy per suite: three cohesive suites drive the SAME app, the
 same in-memory store and the same dispatch double — the ordinary miss/store/replay lane
-and its refusals, the key-material proofs (profile defaults in, identity out), and the
-ambient modifier end to end. They are only comparable while they arrange the world
+and its refusals, the key-material proofs (the caller's parameters in, identity out), and
+the ambient modifier end to end. They are only comparable while they arrange the world
 identically; three copies of a recording store would drift.
-
-INVARIANT: the store double records READS as well as rows. "Did not store" and "never
-looked" are different failures, and a bypass must do neither — only the read log can tell
-a bypass apart from a miss that stored nothing.
 """
 
 from __future__ import annotations
@@ -52,9 +48,9 @@ class ValidValidationService:
 class Store:
     """The frozen store contract in memory, recording every read and write.
 
-    WHY the reads are recorded and not just the rows: "did not store" and "never
-    looked" are different failures. A bypass must do NEITHER, and only the read log
-    can tell a bypass apart from a miss that stored nothing.
+    INVARIANT: the store double records READS as well as rows. "Did not store" and "never
+    looked" are different failures, and a bypass must do NEITHER — only the read log can tell
+    a bypass apart from a miss that stored nothing.
     """
 
     def __init__(self) -> None:
@@ -127,11 +123,17 @@ def dispatching(client: TestClient, dispatch: Any):
     return patch.object(plugin, "chat_completion", new=dispatch)
 
 
-def seed_profile(client: TestClient, *, name: str = "default") -> None:
-    """Give the caller a dispatchable direct-OpenAI profile (no writer takes defaults, D2)."""
+def seed_profile(client: TestClient) -> None:
+    """Give the caller a dispatchable direct-OpenAI key (no writer takes defaults, D2).
+
+    # WHY the native create: the Profile api-key route answers 410 since OME-1209 Stage E3, and
+    # these suites only need a dispatchable key, not a particular backing.
+    """
     cast(Any, client.app).state.api_key_validation_service = ValidValidationService()
-    created = client.put(f"/v1/auth/openai/profiles/{name}/api-key", json={"api_key": KEY})
-    assert created.status_code == 200, created.text
+    created = client.post(
+        "/v1/oauth/connections/api-key", json={"provider": "openai", "api_key": KEY}
+    )
+    assert created.status_code == 201, created.text
 
 
 def body(
@@ -145,13 +147,8 @@ def body(
     return body
 
 
-def post(client: TestClient, body: dict[str, Any], *, profile: str | None = None):
-    headers = {"X-Profile": profile} if profile is not None else {}
-    return client.post(CHAT_PATH, json=body, headers=headers)
-
-
-def system_contents(body: dict[str, Any]) -> list[str]:
-    return [m["content"] for m in body.get("messages", []) if m.get("role") == "system"]
+def post(client: TestClient, body: dict[str, Any]):
+    return client.post(CHAT_PATH, json=body)
 
 
 def listed_models(client: TestClient) -> set[str]:

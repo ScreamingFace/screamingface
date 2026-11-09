@@ -1,0 +1,384 @@
+"""Schema v1 of the remote-endpoint config, validated into immutable definitions.
+
+# FEATURE: hosted BYOM — an operator approves an endpoint once; the gateway serves it as an
+# ordinary provider whose keys live in the existing per-account Connections.
+# INVARIANT: this module never reads a file. Any reader (TOML today) hands it a plain document, so
+# the same definitions and grants come out whatever the source format is.
+# INVARIANT: a refusal names the location and the rule, never the offending value, so a rejected
+# private origin or account list does not land in startup logs.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
+from ipaddress import IPv6Address, ip_address
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Annotated, Any, Literal
+from urllib.parse import urlsplit
+from uuid import UUID
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Discriminator,
+    Field,
+    Tag,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+
+SCHEMA_VERSION = 1
+CHAT_CONTRACT = "openai-chat-basic-v1"
+CLASSIFICATION_TASK = "text-classification"
+CLASSIFICATION_CONTRACT = "hf-text-classification-v1"
+_TASKS = ("chat", CLASSIFICATION_TASK)
+_UNKNOWN_TASK = "unknown-task"
+
+_ENDPOINT_ID = re.compile(r"^byom_[0-9a-f]{32}$")
+_DEFAULT_PORT = {"http": 80, "https": 443}
+# WHY `_` inside a label: Docker service names use it, and a single label is a service name.
+_LABEL = r"[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?"
+_HOSTNAME = re.compile(rf"^(?=.{{1,253}}$){_LABEL}(?:\.{_LABEL})*$")
+_NUMERIC_LABEL = re.compile(r"^(?:[0-9]+|0x[0-9a-f]*)$")
+_ALIAS = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$")
+_SEGMENT = r"[A-Za-z0-9._~-]+"
+_REQUEST_PATH = re.compile(rf"^/(?:{_SEGMENT}(?:/{_SEGMENT})*)?$")
+_UPSTREAM_MODEL = re.compile(r"^[\x21-\x7e]{1,256}$")
+_URL_TEXT = re.compile(r"^[\x21-\x7e]+$")
+
+
+class RemoteEndpointConfigError(ValueError):
+    """The remote-endpoint config is unusable; the message carries locations and rules only."""
+
+
+@dataclass(frozen=True, slots=True)
+class ChatTarget:
+    alias: str
+    request_path: str
+    upstream_model: str
+    task: Literal["chat"] = "chat"
+    contract: Literal["openai-chat-basic-v1"] = CHAT_CONTRACT
+
+
+@dataclass(frozen=True, slots=True)
+class ClassificationTarget:
+    alias: str
+    request_path: str
+    response_envelope: Literal["flat", "single-batch"]
+    score_semantics: Literal["bounded-score"] = "bounded-score"
+    task: Literal["text-classification"] = CLASSIFICATION_TASK
+    contract: Literal["hf-text-classification-v1"] = CLASSIFICATION_CONTRACT
+
+
+@dataclass(frozen=True, slots=True)
+class EndpointDefinition:
+    """What an instance needs to call its endpoint — and deliberately nothing about who may."""
+
+    id: str
+    display_name: str
+    origin: str
+    validation_target: str
+    targets: tuple[ChatTarget | ClassificationTarget, ...]
+
+    def target(self, alias: str) -> ChatTarget | ClassificationTarget | None:
+        return next((target for target in self.targets if target.alias == alias), None)
+
+    @property
+    def chat_targets(self) -> tuple[ChatTarget, ...]:
+        return tuple(target for target in self.targets if isinstance(target, ChatTarget))
+
+    @property
+    def classifier_targets(self) -> tuple[ClassificationTarget, ...]:
+        return tuple(target for target in self.targets if isinstance(target, ClassificationTarget))
+
+    def model_id(self, target: ChatTarget | ClassificationTarget) -> str:
+        return f"{self.id}/{target.alias}"
+
+
+@dataclass(frozen=True, slots=True)
+class EndpointGrant:
+    enabled: bool
+    account_ids: frozenset[str]
+
+
+@dataclass(frozen=True)
+class RemoteEndpointConfig:
+    endpoints: tuple[EndpointDefinition, ...]
+    grants: Mapping[str, EndpointGrant]
+
+
+class _Strict(BaseModel):
+    # WHY strict: a TOML document already carries real booleans and integers, so a string where a
+    # boolean belongs is an operator mistake to report, not a value to coerce.
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+
+class _TargetDoc(_Strict):
+    alias: str
+    request_path: str
+
+    @field_validator("alias")
+    @classmethod
+    def _alias(cls, value: str) -> str:
+        if not _ALIAS.fullmatch(value):
+            raise ValueError("must be 1-64 lowercase letters, digits, '.', '_' or '-'")
+        return value
+
+    @field_validator("request_path")
+    @classmethod
+    def _request_path(cls, value: str) -> str:
+        # INVARIANT: a fixed same-origin path — never absolute, network-path, templated or
+        # dot-segmented — so the origin alone decides where a key is sent.
+        segments = value.split("/")[1:]
+        if not _REQUEST_PATH.fullmatch(value) or any(s in {".", ".."} for s in segments):
+            raise ValueError("must be a fixed absolute path of unreserved characters")
+        return value
+
+
+class _ChatTargetDoc(_TargetDoc):
+    task: Literal["chat"]
+    contract: Literal["openai-chat-basic-v1"]
+    upstream_model: str
+
+    @field_validator("upstream_model")
+    @classmethod
+    def _upstream_model(cls, value: str) -> str:
+        if not _UPSTREAM_MODEL.fullmatch(value):
+            raise ValueError("must be 1-256 printable ASCII characters without spaces")
+        return value
+
+
+class _ClassificationTargetDoc(_TargetDoc):
+    task: Literal["text-classification"]
+    contract: Literal["hf-text-classification-v1"]
+    response_envelope: Literal["flat", "single-batch"]
+    score_semantics: Literal["bounded-score"]
+
+
+class _TaskProbe(BaseModel):
+    # WHY a probe of its own: an unknown task is refused once, at `task`, by a rule that lists the
+    # known tasks, before either kind judges fields that would mean nothing for it.
+    model_config = ConfigDict(extra="ignore", strict=True, frozen=True)
+
+    task: Literal["chat", "text-classification"]
+
+
+def _target_kind(value: Any) -> str:
+    task = value.get("task") if isinstance(value, Mapping) else None
+    return task if isinstance(task, str) and task in _TASKS else _UNKNOWN_TASK
+
+
+if TYPE_CHECKING:
+    # WHY: the probe never validates, so a parsed target is always one of the two kinds.
+    _AnyTargetDoc = _ChatTargetDoc | _ClassificationTargetDoc
+else:
+    _AnyTargetDoc = Annotated[
+        Annotated[_ChatTargetDoc, Tag("chat")]
+        | Annotated[_ClassificationTargetDoc, Tag(CLASSIFICATION_TASK)]
+        | Annotated[_TaskProbe, Tag(_UNKNOWN_TASK)],
+        Discriminator(_target_kind),
+    ]
+
+
+class _EndpointDoc(_Strict):
+    id: str
+    display_name: str
+    enabled: bool
+    origin: str
+    allowed_account_ids: list[str]
+    validation_target: str
+    targets: list[_AnyTargetDoc] = Field(min_length=1)
+
+    @field_validator("id")
+    @classmethod
+    def _id(cls, value: str) -> str:
+        if not _ENDPOINT_ID.fullmatch(value):
+            raise ValueError("must be 'byom_' followed by 32 lowercase hex digits")
+        return value
+
+    @field_validator("display_name")
+    @classmethod
+    def _display_name(cls, value: str) -> str:
+        if not (0 < len(value) <= 128 and value == value.strip() and value.isprintable()):
+            raise ValueError("must be 1-128 printable characters without edge spaces")
+        return value
+
+    @field_validator("origin")
+    @classmethod
+    def _origin(cls, value: str) -> str:
+        return _canonical_origin(value)
+
+    @field_validator("allowed_account_ids")
+    @classmethod
+    def _accounts(cls, value: list[str]) -> list[str]:
+        if not all(_is_canonical_uuid(item) for item in value):
+            raise ValueError("must list canonical lowercase account UUIDs")
+        if len(set(value)) != len(value):
+            raise ValueError("must not repeat an account")
+        return value
+
+    @model_validator(mode="after")
+    def _targets_resolve(self) -> _EndpointDoc:
+        aliases = [target.alias for target in self.targets]
+        if len(set(aliases)) != len(aliases):
+            raise ValueError("duplicate target alias")
+        if self.validation_target not in aliases:
+            raise ValueError("validation_target must name a declared target alias")
+        return self
+
+
+class _Document(_Strict):
+    schema_version: int
+    endpoints: list[_EndpointDoc] = Field(default_factory=list)
+
+    @field_validator("schema_version")
+    @classmethod
+    def _version(cls, value: int) -> int:
+        if value != SCHEMA_VERSION:
+            raise ValueError(f"must be {SCHEMA_VERSION}")
+        return value
+
+    @model_validator(mode="after")
+    def _unique_ids(self) -> _Document:
+        ids = [endpoint.id for endpoint in self.endpoints]
+        if len(set(ids)) != len(ids):
+            raise ValueError("duplicate endpoint id")
+        return self
+
+
+def parse_remote_endpoint_config(document: Any) -> RemoteEndpointConfig:
+    """Validate a whole config document; nothing is returned unless every endpoint is valid."""
+    if not isinstance(document, Mapping):
+        raise RemoteEndpointConfigError("remote endpoint config document must be a table")
+    try:
+        parsed = _Document.model_validate(document)
+    except ValidationError as exc:
+        raise RemoteEndpointConfigError(_sanitized(exc)) from None
+    return RemoteEndpointConfig(
+        endpoints=tuple(_definition(endpoint) for endpoint in parsed.endpoints),
+        grants=MappingProxyType(
+            {
+                endpoint.id: EndpointGrant(
+                    enabled=endpoint.enabled, account_ids=frozenset(endpoint.allowed_account_ids)
+                )
+                for endpoint in parsed.endpoints
+            }
+        ),
+    )
+
+
+def _definition(endpoint: _EndpointDoc) -> EndpointDefinition:
+    return EndpointDefinition(
+        id=endpoint.id,
+        display_name=endpoint.display_name,
+        origin=endpoint.origin,
+        validation_target=endpoint.validation_target,
+        targets=tuple(_target(target) for target in endpoint.targets),
+    )
+
+
+def _target(target: _AnyTargetDoc) -> ChatTarget | ClassificationTarget:
+    if isinstance(target, _ChatTargetDoc):
+        return ChatTarget(
+            alias=target.alias,
+            request_path=target.request_path,
+            upstream_model=target.upstream_model,
+        )
+    return ClassificationTarget(
+        alias=target.alias,
+        request_path=target.request_path,
+        response_envelope=target.response_envelope,
+        score_semantics=target.score_semantics,
+    )
+
+
+def _canonical_origin(value: str) -> str:
+    """`http(s)://<host>[:<port>]` in its one canonical spelling; a default port is dropped."""
+    if not _URL_TEXT.fullmatch(value):
+        raise ValueError("must be an http or https origin of printable ASCII")
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        # WHY replace the parser's error: it quotes a bracketed host, i.e. the private value.
+        raise ValueError(
+            "must use a DNS name, an IPv4 address or a bracketed IPv6 address"
+        ) from None
+    if parts.scheme not in _DEFAULT_PORT or not value.startswith(f"{parts.scheme}://"):
+        raise ValueError("must be an http or https origin of printable ASCII")
+    try:
+        port = parts.port
+    except ValueError:
+        raise ValueError("must use a port from 1 to 65535") from None
+    if port == 0:
+        raise ValueError("must use a port from 1 to 65535")
+    if "@" in parts.netloc or parts.path or "?" in value or "#" in value:
+        raise ValueError("must not carry userinfo, path, query or fragment")
+    host = _host_spelling(parts.hostname or "")
+    # WHY compare the netloc: `hostname` and `port` parse leniently (case folded, brackets and
+    # leading zeros dropped), so any other spelling differs from the rebuilt one and is refused
+    # rather than rewritten.
+    if parts.netloc != (host if port is None else f"{host}:{port}"):
+        raise ValueError("must use a canonical lowercase host and a decimal port")
+    if port is None or port == _DEFAULT_PORT[parts.scheme]:
+        return f"{parts.scheme}://{host}"
+    return f"{parts.scheme}://{host}:{port}"
+
+
+def _host_spelling(host: str) -> str:
+    """A DNS name, a dotted IPv4 address or a bracketed IPv6 address, as an origin writes it."""
+    try:
+        address = ip_address(host)
+    except ValueError:
+        # WHY refuse a numeric last label: a resolver reads `10.1`, `2130706433` or `0x7f000001`
+        # as an IPv4 address in another spelling, so such a name is no DNS name.
+        if not _HOSTNAME.fullmatch(host) or _NUMERIC_LABEL.fullmatch(host.rsplit(".", 1)[-1]):
+            raise ValueError(
+                "must use a DNS name, an IPv4 address or a bracketed IPv6 address"
+            ) from None
+        return host
+    if address.is_unspecified:
+        raise ValueError("must not be an unspecified address")
+    if isinstance(address, IPv6Address):
+        # WHY a format limit, not a reachability rule: IPv4-mapped IPv6 does name a host, but the
+        # prototype accepts each IPv4 host in its dotted form only. The parsed address is checked,
+        # so the hexadecimal spelling is refused as well.
+        if address.ipv4_mapped is not None:
+            raise ValueError("must write an IPv4 address in dotted form, not IPv4-mapped IPv6")
+        # WHY no zone: httpx keeps `%25<zone>` in the host as written, so the zone it would pass
+        # on is not the interface the operator named.
+        if address.scope_id is not None:
+            raise ValueError("must not carry an IPv6 zone")
+        return f"[{address}]"
+    return str(address)
+
+
+def _is_canonical_uuid(value: str) -> bool:
+    try:
+        return str(UUID(value)) == value
+    except ValueError:
+        return False
+
+
+def _location(loc: tuple[int | str, ...]) -> str:
+    # WHY drop the kind: the tagged union inserts the kind it chose right after a target's index.
+    # That is the parser's choice, not a place in the operator's document.
+    kinds = {*_TASKS, _UNKNOWN_TASK}
+    parts = [
+        part
+        for i, part in enumerate(loc)
+        if not (
+            i >= 2 and loc[i - 2] == "targets" and isinstance(loc[i - 1], int) and part in kinds
+        )
+    ]
+    return ".".join(str(part) for part in parts) or "<document>"
+
+
+def _sanitized(exc: ValidationError) -> str:
+    problems = [
+        f"{_location(error['loc'])}: {error['msg']}"
+        for error in exc.errors(include_url=False, include_input=False, include_context=False)
+    ]
+    return "remote endpoint config is invalid: " + "; ".join(problems)

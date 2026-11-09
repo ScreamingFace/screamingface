@@ -121,7 +121,7 @@ async def test_garbled_replies_past_the_redraw_budget_fail_the_item_by_name_neve
     run_scope: RequestScope,
 ) -> None:
     """After the budget the item raises, naming itself — a silent "not met" would be a
-    silently wrong score (upstream healthbench's default)."""
+    silently wrong score (the default in inspect_evals' healthbench)."""
 
     fetch: _ScriptedFetch = _ScriptedFetch(*[GARBLED] * (1 + MAX_JUDGE_REDRAWS))
     with pytest.raises(JudgeReplyUnparseable, match="case 7 rubric r2") as raised:

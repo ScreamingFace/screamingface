@@ -4,7 +4,9 @@ import math
 import time
 from dataclasses import dataclass, field
 
+from screamingface_engine.benchmarks.aggregation import gradeable_cases, policy_cases
 from screamingface_engine.benchmarks.contract import CaseId, CaseResult
+from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.progress import ScoreCases
 from screamingface_engine.observations import LogEmitter
 
@@ -25,6 +27,8 @@ class Progress:
         result: CaseResult,
         scorer: ScoreCases,
         emit: LogEmitter,
+        *,
+        failure_policy: FailurePolicy,
     ) -> None:
         result = scoring_projection(result)
         if self.cases.get(result.case_id) == result:
@@ -40,15 +44,24 @@ class Progress:
         # INVARIANT: an unscored terminal failure still advances completed coverage.
         if not terminal_failure and now - self.emitted_at < PROGRESS_INTERVAL_SECONDS:
             return
-        self.flush(benchmark, revision, scorer, emit)
+        self.flush(benchmark, revision, scorer, emit, failure_policy=failure_policy)
 
-    def flush(self, benchmark: str, revision: str, scorer: ScoreCases, emit: LogEmitter) -> None:
+    def flush(
+        self,
+        benchmark: str,
+        revision: str,
+        scorer: ScoreCases,
+        emit: LogEmitter,
+        *,
+        failure_policy: FailurePolicy,
+    ) -> None:
         if self.revision == self.emitted_revision:
             return
-        graded = tuple(
-            c for c in self.cases.values() if c.grade is not None and c.grade.score is not None
-        )
-        score = scorer(graded).score if graded else None
+        observed = tuple(self.cases.values())
+        graded = gradeable_cases(observed)
+        # INVARIANT (OME-1642): the same Case selection as the finalized result.
+        scoring_cases = policy_cases(observed, failure_policy)
+        score = scorer(scoring_cases).score if scoring_cases is not None else None
         if score is not None and not math.isfinite(score):
             return
         emit(

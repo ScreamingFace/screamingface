@@ -49,6 +49,7 @@ from url4.core.nodes import Expression, Iteration, Node, Params, RemoteExpr, Sou
 from url4.core.parser import build
 from url4.core.render import _render_source, render, verify
 from url4.dag import DEFAULT_RUN_CONCURRENCY, ExecutionContext, ProcessFn, default_process, run
+from url4.dag.remote_nodes import allow_one_remote_hop
 from url4.io.layer import IOLayer
 from url4.peer._owned import _OwnedIO
 
@@ -109,7 +110,8 @@ class Client:
     ``io`` is the outbound :class:`~url4.io.layer.IOLayer` — or, string-first,
     a node target: ``Client("url4://host/v1")`` is ``Client(node=...)`` with
     an owned httpx adapter. With ``io`` omitted, that adapter is created
-    lazily and owned (closed by :meth:`aclose` / ``async with``). ``node``
+    lazily and owned (closed by :meth:`aclose` / ``async with``); its ``url4://`` peer
+    allowlist is empty (spec F1b), so a remote node needs ``io=HttpIOLayer(guard=…)``. ``node``
     sets a default remote target (``"url4://host/path"`` / ``"host"``);
     without one, expressions evaluate locally against ``io``. ``processor``
     is the endpoint local intent execution dispatches to (spec: the node's
@@ -269,6 +271,7 @@ class Client:
                 expression = _with_params(root, proto)
             else:
                 expression = _passthrough(_as_remote(root, target, path or self._path, proto))
+        hop = None if target is None else _split_target(target, path or self._path)
         ctx = ExecutionContext(
             self._effective_io(),
             processor=self._processor,
@@ -276,9 +279,13 @@ class Client:
             scope=_scope(env),
             strict_fields=self._strict_fields,
         )
-        return await _evaluate_front_door(
-            expression, lambda request: run(request, ctx=ctx, concurrency=self._concurrency)
-        )
+
+        def run_text(request: str) -> Awaitable[str]:
+            ran = run(request, ctx=ctx, concurrency=self._concurrency)
+            # INVARIANT (#1450 F1b, C6): with a node target, only the hop built here may pass.
+            return ran if hop is None else allow_one_remote_hop(ran, hop)
+
+        return await _evaluate_front_door(expression, run_text)
 
 
 def _scope(env: Mapping[str, object] | None) -> Context | None:

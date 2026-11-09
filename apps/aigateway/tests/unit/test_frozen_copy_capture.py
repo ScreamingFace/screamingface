@@ -438,31 +438,6 @@ def test_a_non_dict_success_is_failed_and_still_stamped(
     assert stored_entries(capture_client, open_copy) == []
 
 
-def test_a_mutation_conflict_is_captured_as_the_503_the_app_renders(
-    capture_client: TestClient, open_copy: str, monkeypatch
-) -> None:
-    from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
-
-    async def _conflict(*_args: Any, **_kwargs: Any) -> None:
-        raise CredentialBlobMutationConflict
-
-    monkeypatch.setattr("aigateway.routes.chat._resolve_credential_target", _conflict)
-
-    live = _chat(capture_client, open_copy)
-
-    assert live.status_code == 503
-    assert live.json()["detail"]["code"] == "profile_index_conflict"
-    assert live.headers[CAPTURE_HEADER] == "stored"
-    (entry,) = stored_entries(capture_client, open_copy)
-    assert entry["status_code"] == 503
-    # INVARIANT: the stored detail IS the body the app handler renders (drift guard).
-    assert entry["response"] == {"detail": live.json()["detail"]}
-    seal_copy(capture_client, open_copy)
-    replay = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
-    assert replay.status_code == 503
-    assert replay.json()["detail"] == live.json()["detail"]
-
-
 def test_an_unexpected_exception_is_captured_as_a_generic_500_and_not_swallowed(
     capture_client: TestClient, open_copy: str, monkeypatch
 ) -> None:
@@ -596,6 +571,33 @@ def test_each_attempt_replays_its_own_answer(capture_client: TestClient, open_co
         "live-2",
         "live-3",
     ]
+
+
+# --- OME-1775 R2: a use-cache re-issue at the same key is the answer a replay serves -------
+
+
+def test_a_use_cache_reissue_at_the_same_key_is_the_answer_a_replay_serves(
+    capture_client: TestClient, open_copy: str
+) -> None:
+    # INVARIANT: the Engine's R2 (OME-1775) depends on this. A `max-age` re-issue is the same call
+    # with only `cache: {"use-cache": false}` added. The key digest drops the `cache` object, so
+    # the re-issue stores at the same key as the call it re-issues, and `find` serves the later 200
+    # to a replay that sends no `cache` field.
+    first = _chat(capture_client, open_copy, chat_body())
+    reissue = _chat(capture_client, open_copy, chat_body(cache={"use-cache": False}))
+
+    assert first.status_code == 200 and reissue.status_code == 200
+    assert first.headers[CAPTURE_HEADER] == "stored"
+    assert reissue.headers[CAPTURE_HEADER] == "stored"
+    entries = stored_entries(capture_client, open_copy)
+    assert [entry["digest"] for entry in entries] == [entries[0]["digest"]] * 2
+    assert entries[0]["seq"] < entries[1]["seq"]
+
+    seal_copy(capture_client, open_copy)
+    replayed = capture_client.post(_replay_path(open_copy), json=chat_body(), headers=call_key())
+
+    assert replayed.status_code == 200
+    assert replayed.json()["id"] == reissue.json()["id"] == "live-2"
 
 
 # --- review round 2: a client disconnect is never captured ---------------------------------

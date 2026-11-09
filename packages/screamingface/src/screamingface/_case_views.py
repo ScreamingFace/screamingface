@@ -10,6 +10,7 @@ from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from screamingface._signals import JUDGE_SIGNAL
 from screamingface.answer import Answer
 from screamingface.report_trace import TraceEntry
 
@@ -86,7 +87,9 @@ def _output(case: CaseResult, operation_id: str | None) -> str | None:
 # --- the trace -----------------------------------------------------------------------------------
 
 _EMPTY_FIELDS = ("provider", "model", "cost_usd", "latency_ms", "tokens_in", "tokens_out")
-_UNTRACED_KINDS = frozenset({"judge", "writer"})  # not members: never part of a member's closure
+# not members: never part of a member's closure. A sample call is a step row with no member (N8):
+# an outer combine that reads its Fusion must not give it that Fusion's label (review P7 #1).
+_UNTRACED_KINDS = frozenset({"judge", "writer", "sample"})
 _REDUCE_MODES = MappingProxyType(
     {
         "vote": "select",
@@ -109,26 +112,43 @@ def case_trace(
     if case.operations is None:
         return ()
     member_of = _member_ids(case.operations, graph)
+    accounting_of = accounting_index(case.operations)
     entries: list[TraceEntry] = []
     for operation in case.operations:
-        entries.extend(_operation_entries(operation, graph, member_of))
+        entries.extend(_operation_entries(operation, graph, member_of, accounting_of))
     return tuple(entries)
+
+
+def accounting_index(
+    operations: Sequence[CaseOperation],
+) -> dict[str, OperationAccounting | None]:
+    """Operation id -> its accounting, built once per trace or Case pane; the first operation of
+    an id wins. ``judge_link`` reads it."""
+
+    index: dict[str, OperationAccounting | None] = {}
+    for operation in operations:
+        index.setdefault(operation.operation_id, operation.accounting)
+    return index
 
 
 def _operation_entries(
     operation: CaseOperation,
     graph: Mapping[str, OperationInfo] | None,
     member_of: Mapping[str, str],
+    accounting_of: Mapping[str, OperationAccounting | None],
 ) -> list[TraceEntry]:
     if operation.combine is not None:
-        return _combine_entries(operation.operation_id, operation.combine)
+        link = judge_link(operation.operation_id, operation.combine, graph, accounting_of)
+        return _combine_entries(operation.operation_id, operation.combine, link)
     node = None if graph is None else graph.get(operation.operation_id)
     if node is not None and node.kind == "combine":
         return []  # a combine step of a pre-E4a Engine: no evidence, and it makes no model call
     return [_model_call(operation, member_of.get(operation.operation_id))]
 
 
-def _combine_entries(operation_id: str, evidence: CombineEvidence) -> list[TraceEntry]:
+def _combine_entries(
+    operation_id: str, evidence: CombineEvidence, link: Mapping[str, str | None]
+) -> list[TraceEntry]:
     rule = list(evidence.operators[:-2])
     entries = [
         TraceEntry(
@@ -145,11 +165,13 @@ def _combine_entries(operation_id: str, evidence: CombineEvidence) -> list[Trace
         )
         for row in evidence.members
     ]
-    entries.append(TraceEntry("reduce", _reduce_data(operation_id, evidence)))
+    entries.append(TraceEntry("reduce", _reduce_data(operation_id, evidence, link)))
     return entries
 
 
-def _reduce_data(operation_id: str, evidence: CombineEvidence) -> dict[str, object]:
+def _reduce_data(
+    operation_id: str, evidence: CombineEvidence, link: Mapping[str, str | None]
+) -> dict[str, object]:
     return {
         "operation_id": operation_id,
         "op": evidence.reducer,
@@ -160,13 +182,64 @@ def _reduce_data(operation_id: str, evidence: CombineEvidence) -> dict[str, obje
         "signal": _signal_data(evidence),
         "result": evidence.result.to_dict(),
         "dropped": evidence.dropped,
+        "judge_operation_id": link["judge_operation_id"],
+        "judge_model": link["judge_model"],
     }
 
 
 def _reduce_mode(evidence: CombineEvidence) -> str:
-    if evidence.reducer == "median":
+    if evidence.reducer in ("median", "mean"):
         return "compute" if evidence.operators[-1].split("@")[0] == "value" else "select"
+    # WHY: a Pick with output= returns a field of the winner, a new value with no member id
+    # (AR-3), so it computes. `output_missing` is the abstain only that Pick has (E4b PO-E1).
+    if evidence.reducer == "pick" and (
+        evidence.built or evidence.result.reason == "output_missing"
+    ):
+        return "compute"
     return _REDUCE_MODES[evidence.reducer]
+
+
+def _reads_judge(evidence: CombineEvidence) -> bool:
+    """Rule J1-J4 (judge-model PRD, P9; E4b part 5 P16): the evidence shows the step read a judge.
+
+    J1 the judge reducer; J2 scores@1 with a judge reading (source="values" writes none);
+    J3 a signal read of score:judge (Vote, Filter or Pick by the judge score);
+    J4 a gate that took its fallback judge (the judge reply was read only on that branch).
+    """
+
+    return (
+        evidence.reducer == "judge"
+        or ("scores@1" in evidence.operators and evidence.judge is not None)
+        or (evidence.signal is not None and evidence.signal.key == JUDGE_SIGNAL)
+        or (
+            evidence.gate is not None
+            and evidence.gate.branch == "fallback"
+            and evidence.gate.otherwise == "judge"
+        )
+    )
+
+
+def judge_link(
+    operation_id: str,
+    evidence: CombineEvidence,
+    graph: Mapping[str, OperationInfo] | None,
+    accounting_of: Mapping[str, OperationAccounting | None],
+) -> dict[str, str | None]:
+    """The judge operation of a combine step and its request model (P8); null, never a guess.
+
+    WHY a view and not a wire key (ans:Q4): the judge's own operation record already holds the
+    model, so the combine spec, the evidence and every url4 keep their bytes.
+    """
+
+    node = None if graph is None else graph.get(operation_id)
+    if graph is None or node is None or not _reads_judge(evidence):
+        return {"judge_operation_id": None, "judge_model": None}
+    judges = [item for item in node.depends_on if item in graph and graph[item].kind == "judge"]
+    if len(judges) != 1:
+        return {"judge_operation_id": None, "judge_model": None}
+    accounting = accounting_of.get(judges[0])
+    model = None if accounting is None else accounting.request_model
+    return {"judge_operation_id": judges[0], "judge_model": model}
 
 
 def _signal_data(evidence: CombineEvidence) -> dict[str, object] | None:
@@ -240,7 +313,7 @@ def _label_members(
 
 
 def _closure(graph: Mapping[str, OperationInfo], producer: str) -> set[str]:
-    """The producer plus its ancestors; judge and writer operations are never entered."""
+    """The producer plus its ancestors; judge, writer and sample operations are never entered."""
 
     seen = {producer}
     pending = [producer]

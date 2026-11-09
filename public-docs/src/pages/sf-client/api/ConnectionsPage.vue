@@ -19,11 +19,28 @@ panel.connections`
     :version="version"
   >
     <p>
-      The values the connections API hands back — from <code>sf.connections</code> /
+      The values the connections API hands back, from <code>sf.connections</code> /
       <code>client.connections</code> and
       <RouterLink to="/sf-client/api/modules">sf.connect() / sf.disconnect()</RouterLink>. For the
       walkthrough, see the
       <RouterLink to="/sf-client/guides/connections">Connections guide</RouterLink>.
+    </p>
+
+    <p>
+      A hosted engine takes no provider keys of its own:
+      <code>connect(provider, api_key=…)</code> and <code>disconnect(provider)</code> raise
+      <code>ProviderConnectionError</code> with the code <code>connection_method_unsupported</code>,
+      and <code>list()</code> reports the providers the OpenMined team has enabled for your account.
+      A hosted engine can list <code>api_key</code> in <code>auth_methods</code> for a provider and
+      still refuse <code>connect(provider, api_key=…)</code>: observed for <code>openrouter</code>.
+      On a local engine <code>login()</code> raises <code>AuthenticationError</code>.
+    </p>
+
+    <p>
+      A local engine advertises seven providers: <code>anthropic</code>, <code>antigravity</code>,
+      <code>codex</code>, <code>gemini-cli</code>, <code>huggingface</code>, <code>openai</code> and
+      <code>openrouter</code>. <code>get(provider)</code> on a provider the engine does not
+      advertise raises <code>ProviderConnectionError</code>.
     </p>
 
     <h2>Connection</h2>

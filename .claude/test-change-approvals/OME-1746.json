@@ -1,0 +1,30 @@
+{
+  "issue": "OME-1746",
+  "branch": "OME-1746-openrouter-refusal-metadata",
+  "approver": "IonesioJunior (owner)",
+  "date": "2026-10-27",
+  "scope": "Deletions only: the format-only cases of the two OpenRouter zero proofs are removed from their negative (stays-unknown) tests. Removed: refusal `unknown-field`, `bad-scalar`; proven_zero `malformed-current-chat-server-tool-usage`, `conflicting-byok`, `malformed-byok`, `non-boolean-byok` and test_error_code_must_agree_with_native_429; fail_closed pipeline-cost `null`/`mapping`, `malformed-output-details`, `mapping-byok-cost`, `decimal-code-equal-to-integer`, `wrong-error-type`, `unknown-pipeline-stage`, test_missing_pipeline_is_not_evidence_that_no_billable_stage_ran, test_malformed_pipeline_is_not_zero_charge_evidence, test_router_attempt_chain_must_contain_only_integer_429, test_router_byok_evidence_must_be_exact_false; metadata_shapes `router-attempt-bool`, test_unknown_server_tool_counts_are_not_zero; strict_evidence `unknown-zero-cost-field`, `null-cost`, `boolean-prompt-tokens`. Each removed input is asserted certified in test_openrouter_proven_zero_billing_facts.py or test_openrouter_pre_output_refusal_metadata.py. No other edit.",
+  "reason": "Owner decision 2026-10-27: an OpenRouter zero proof checks only the facts that tell if OpenRouter billed the call, never the reply format, so the cost is unknown only in rare cases. The strict field checks rejected every prod pre-output refusal (the gateway's router metadata) and made the 429 proof depend on fields that carry no money. Specs: docs/spec/2026-10-26-openrouter-pre-output-refusal-zero.md section 8; docs/spec/2026-10-06-OME-1446-proven-zero-retry-accounting.md amendment 2026-10-27.",
+  "files": {
+    "apps/aigateway/tests/unit/usage_accounting/test_openrouter_pre_output_refusal.py": {
+      "base_blob": "29b58999be994625f9dbd17ca2c0dade31975a65",
+      "approved_blob": "30ab549975d82b92ddc859559a1f582c5612972a"
+    },
+    "apps/aigateway/tests/unit/usage_accounting/test_openrouter_proven_zero.py": {
+      "base_blob": "b29723588e981751b4e90922e00e7bad836962cc",
+      "approved_blob": "dda759d2403dff6b9e18e389c710f3a60f11cb20"
+    },
+    "apps/aigateway/tests/unit/usage_accounting/test_openrouter_proven_zero_fail_closed.py": {
+      "base_blob": "c4ccc53d15aa313aaa07442d1e682a8f02889a21",
+      "approved_blob": "fc1fb4108fd5d9df9d4c7dd8a98f4609c4e53169"
+    },
+    "apps/aigateway/tests/unit/usage_accounting/test_openrouter_proven_zero_metadata_shapes.py": {
+      "base_blob": "c1560c85644ff819ef7921701457994a9316a21c",
+      "approved_blob": "e7287cd0ee9f31bcfba7594930b7a3c8c8b6fd82"
+    },
+    "apps/aigateway/tests/unit/usage_accounting/test_openrouter_proven_zero_strict_evidence.py": {
+      "base_blob": "657fa595df78cfb47de8eff5f91d95017da55a99",
+      "approved_blob": "b6a018f4c14f3f344b79e3b319211910a258e935"
+    }
+  }
+}

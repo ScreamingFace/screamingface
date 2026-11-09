@@ -35,20 +35,25 @@ import json
 import math
 import re
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from decimal import ROUND_HALF_EVEN, Context, Decimal
 from types import MappingProxyType
-from typing import ClassVar, Literal, Protocol, cast
+from typing import ClassVar, Literal, Protocol, cast, get_args
 
 Stage = Literal["extract", "normalize", "reduce", "select"]
-Reducer = Literal["vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter"]
+Reducer = Literal[
+    "vote", "median", "judge", "pick", "merge", "project", "rank", "concat", "filter", "mean"
+]
 EvidenceKind = Literal["answer", "selection", "projection"]
 ReadingStatus = Literal[
     "voted", "empty", "not_numeric", "not_json", "field_missing", "too_large", "no_match"
 ]
 AnswerStatus = Literal["answered", "abstain", "fail"]
 MemberStatus = Literal["answered", "fail"]  # I-A3: a member is never "abstain"
-AbstainReason = Literal["no_votes", "cut_not_met"]
+# E4b part 5 (P13): gate_not_met = the vote gate took the abstain fallback. E4b part 6 (P12):
+# in_band = the gate number was inside the abstain band. Both are scored declines, never a failure
+# code (E4c's fail_closed will be a failure code, so they never share a status).
+AbstainReason = Literal["no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band"]
 AnswerReason = Literal[
     "empty",
     "not_numeric",
@@ -60,13 +65,37 @@ AnswerReason = Literal[
     "missing",
     "no_votes",
     "cut_not_met",
+    "output_missing",
+    "gate_not_met",
+    "in_band",
 ]
-ABSTAIN_REASONS: tuple[AbstainReason, ...] = ("no_votes", "cut_not_met")
+ABSTAIN_REASONS: tuple[AbstainReason, ...] = (
+    "no_votes",
+    "cut_not_met",
+    "output_missing",
+    "gate_not_met",
+    "in_band",
+)
+# E4b part 5 (gate-record PRD): the words of a vote gate. ``GateCmp`` is the PASS condition: when
+# ``observed cmp threshold`` holds, the step keeps the majority (P4).
+GateCmp = Literal[">=", ">", "<=", "<"]
+GateOtherwise = Literal["abstain", "judge", "writer"]
+# E4b part 6 (P10): "band" = the number was inside the abstain band; no comparison was made.
+GateBranch = Literal["majority", "fallback", "band"]
 SignalOrder = Literal["max", "min"]
+# E4b part 2 (ans:Q3, P2): the status of an evidence record. "excluded" exists only in the
+# record: the core Answer keeps MemberStatus (I-A3), so no operator ever sees it.
+RecordStatus = Literal["answered", "fail", "excluded"]
+# Why a rule of the step left an answered member out (erd §6, X1 and X2). "not_selected" (E4b
+# map-reduce surface, narrow.md §4.1): a narrow step before the main step did not choose it.
+ExcludeReason = Literal["no_signal", "no_weight", "not_selected"]
+EXCLUDE_REASONS = cast("tuple[ExcludeReason, ...]", get_args(ExcludeReason))
 OpArgs = Mapping[str, object]
 
 STAGES: tuple[Stage, ...] = ("extract", "normalize", "reduce", "select")
 MAX_JSON_DEPTH = 64
+# The most text the core reads from one member output (extract, field signals, a select output).
+MAX_OUTPUT_READ_BYTES = 1024 * 1024
 # WHY an explicit context: the decimal module's default context is thread-global and any caller
 # may change it. Every operator that does Decimal arithmetic runs inside
 # ``localcontext(DECIMAL_CONTEXT)`` (which works on a copy), so a sum or a mean never depends on
@@ -215,11 +244,25 @@ class Answer:
 @dataclass(frozen=True, slots=True)
 class CombineInput:
     """Everything a reduce or select step may read. ``outputs`` holds every member's original
-    text (also members marked too_large); never iterate it for order -- use ``answers``."""
+    text (also members marked too_large); never iterate it for order -- use ``answers``.
+
+    ``input`` is the combine context ``input``, verbatim (E4b CI-I1). The endpoint always sets it;
+    ``None`` means a test built the value without a context.
+    ``judged`` (narrow.md §3.2): the members a judge reply scores, the ``present`` set of the call
+    BEFORE any narrow step, the same for every step. A narrow step makes ``answers`` smaller, but
+    the judge saw every answered member, so ``scores@1`` parses the reply over ``judged``. When it
+    is not given (empty), it is filled from ``present``: with no narrow step the two are the same.
+    """
 
     answers: tuple[Answer, ...]
     outputs: Mapping[str, str]
     signals: Mapping[str, str]
+    input: str | None = None
+    judged: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.judged:
+            object.__setattr__(self, "judged", self.present)
 
     @property
     def members(self) -> tuple[str, ...]:
@@ -273,10 +316,12 @@ class Reduction:
     """What a reduce step found. Each reducer family fills its own part; the rest stay None.
 
     tally: vote families, rows sorted by score (high first) then first-holder position.
-    statistic: median. scores: member -> score (judge scores, rank, numeric field, signal values,
-    filter pass marks).
+    statistic: median or mean (the reducer names which).
+    scores: member -> score (judge scores, rank, numeric field, signal values, filter pass marks).
     judge: judge reducers. fields: pick and merge. text: a text this step built for select to
     emit (merge JSON, projection JSON, joined text). separator_collision: concat only.
+    participants: the members a weighted reduce step used, in author order (None: every voter).
+    nearest@1 picks only among them (E4b P9, ans:Q2).
     """
 
     tally: tuple[TallyRow, ...] | None = None
@@ -286,6 +331,7 @@ class Reduction:
     fields: tuple[FieldReading, ...] | None = None
     text: str | None = None
     separator_collision: bool | None = None
+    participants: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -345,6 +391,13 @@ class OperatorDescriptor:
     ``args_schema`` is published as-is: ``{}`` for an operator without args, a JSON Schema object
     otherwise. ``check_args`` is what enforces the args, once per call, before any output is read.
     ``signal_read`` (reduce only) tells the core which signal these args read; it is not published.
+    ``envelope`` (select only) says the output is the selection envelope, so an abstain of the
+    call hands on the empty envelope (E4b fix 2026-10-14); it is not published.
+    ``ranks`` and ``cut`` (select only) give the evidence each scored member's rank and the cut of
+    the step (E4b part 2, P6, P7); they are not published.
+    ``reads_weights`` (reduce only) says the operator counts each member's weight, so a member
+    with no usable signal weight is left out and its record says ``excluded`` / ``no_weight``
+    (E4b part 2, X1); it is not published.
     """
 
     name: str
@@ -355,6 +408,10 @@ class OperatorDescriptor:
     args_schema: Mapping[str, object] = field(default_factory=_empty_schema)
     check_args: ArgsCheck = no_args
     signal_read: Callable[[OpArgs], SignalRead | None] | None = None
+    envelope: bool = False
+    reads_weights: bool = False
+    ranks: Callable[[Reduction, CombineInput, OpArgs], Mapping[str, int]] | None = None
+    cut: Callable[[OpArgs], Cut] | None = None
 
     def __post_init__(self) -> None:
         version_ok = not isinstance(self.version, bool) and 1 <= self.version <= 999_999
@@ -364,6 +421,12 @@ class OperatorDescriptor:
             raise ValueError(f"invalid combine operator stage {self.stage!r}")
         if self.signal_read is not None and self.stage != "reduce":
             raise ValueError("only a reduce operator may declare a signal_read")
+        if self.envelope and self.stage != "select":
+            raise ValueError("only a select operator may hand on the envelope")
+        if self.reads_weights and self.stage != "reduce":
+            raise ValueError("only a reduce operator may read the member weights")
+        if (self.ranks is not None or self.cut is not None) and self.stage != "select":
+            raise ValueError("only a select operator may declare ranks or a cut")
 
     @property
     def id(self) -> str:
@@ -378,6 +441,23 @@ class OperatorDescriptor:
             "args_schema": copy.deepcopy(dict(self.args_schema)),
             "summary": self.summary,
         }
+
+
+SourceRead = Callable[[str, OpArgs], float | None]
+
+
+@dataclass(frozen=True, slots=True)
+class SourceDescriptor:
+    """A declared signal source that reads one member text (E4b part 3, P7): ``verbalized``.
+
+    ``check_args`` raises ``SpecInvalid`` for args the source refuses (once per call, before any
+    output is read). ``read`` is pure and linear in the text, like an extractor, and returns a
+    number or None. Not published in ``GET /v1/operators``.
+    """
+
+    name: str
+    check_args: ArgsCheck
+    read: SourceRead
 
 
 # --- signals ----------------------------------------------------------------------------------
@@ -417,9 +497,29 @@ def walk_field_path(node: object, path: str) -> tuple[bool, object]:
     return True, node
 
 
+def field_value_text(value: object) -> str:
+    """A JSON field value as answer text: a string as it is, ``null`` as ``""``, any other value
+    as canonical JSON. ValueError: a number with no canonical form (``1e999`` decodes to inf).
+
+    The one field-text rule of ``json_field@1`` and of a select step's ``output`` field.
+    """
+    if value is None or isinstance(value, str):
+        return value or ""
+    return canonical_json(value)
+
+
 ACCOUNTING_SIGNALS: tuple[str, ...] = ("cost_usd", "latency_ms", "tokens_in", "tokens_out")
 FIELD_SIGNAL_PREFIX = "field:"
 JUDGE_SIGNAL = "score:judge"  # the SDK's S/_signals.py JUDGE_SIGNAL (STU conformance)
+DECLARED_NAME = re.compile(r"[a-z][a-z0-9_]{0,31}")
+RESERVED_NAME_PREFIXES: tuple[str, ...] = ("logprob", "entropy", "verbalized", "consistency")
+MAX_DECLARED_SIGNALS = 8
+# E4b map-reduce surface (narrow.md §2 NR-S1, O10): the most narrow steps of one spec, and so the
+# most narrow records of one evidence. The spec and the evidence both read it from here.
+MAX_NARROW_STEPS = 4
+# E4b part 5: what a gate reads: the agreement, or a declared name of the chosen member or of the
+# mean over the members. The name part is DECLARED_NAME; the spec checks the name is declared.
+GATE_OBSERVE = re.compile(r"agreement|(chosen|mean):[a-z][a-z0-9_]{0,31}")
 
 
 def is_signal_key(key: object) -> bool:
@@ -430,6 +530,17 @@ def is_signal_key(key: object) -> bool:
         return True
     return key.startswith(FIELD_SIGNAL_PREFIX) and (
         FIELD_PATH.fullmatch(key[len(FIELD_SIGNAL_PREFIX) :]) is not None
+    )
+
+
+def is_signal_name(key: object) -> bool:
+    """E4b P1: a declared name: [a-z][a-z0-9_]{0,31}, not an E4a key, no reserved prefix."""
+
+    return (
+        isinstance(key, str)
+        and DECLARED_NAME.fullmatch(key) is not None
+        and key not in ACCOUNTING_SIGNALS
+        and not key.startswith(RESERVED_NAME_PREFIXES)
     )
 
 
@@ -456,24 +567,105 @@ def field_signal_value(text: str, path: str) -> float | None:
     return float(value) if isinstance(value, bool) else finite_float(value)
 
 
+# --- the selection envelope (E4b selection-input) -------------------------------------------
+
+
+def selection_envelope(chosen: Sequence[str], combine_input: CombineInput) -> str:
+    """The selection JSON: the Fusion's input and the chosen members' original texts, in order.
+
+    ``chosen`` empty gives the empty envelope ``{"input":"...","selected":[]}`` that an abstained
+    Rank or Filter hands to the next stage (E4b fix, 2026-10-14).
+    WHY ``None`` is left out: a ``CombineInput`` built without a context (a test helper) has no
+    input. The endpoint always sets it, so every combine call writes the ``input`` key.
+    """
+    selected = [{"id": member, "text": combine_input.outputs[member]} for member in chosen]
+    envelope: dict[str, object] = {"selected": selected}
+    if combine_input.input is not None:
+        envelope["input"] = combine_input.input
+    return canonical_json(envelope)
+
+
+# --- select output (E4b pick-output) ---------------------------------------------------------
+OUTPUT_FIELD = re.compile(r"[A-Za-z_][A-Za-z0-9_]{0,63}")  # the SDK's S/fields.py _FIELD_NAME
+
+
+def check_output_arg(args: OpArgs, op_id: str) -> None:
+    """The optional ``output`` arg of a select step: absent, or a top-level field name (CS-I3)."""
+    if "output" not in args:
+        return
+    output = args["output"]
+    if not isinstance(output, str) or OUTPUT_FIELD.fullmatch(output) is None:
+        raise SpecInvalid(f"{op_id} output must be a top-level field name of 1 to 64 characters")
+
+
+def output_field_text(text: str, name: str) -> str | None:
+    """The top-level field ``name`` of one member reply, as answer text; None when it is missing.
+
+    Read with the json_field@1 reader (``decode_json_reply``) after the 1 MiB read cap, and turned
+    into text by ``field_value_text``. Over the cap, not JSON, no key, ``null``, a blank text, or a
+    value ``field_value_text`` refuses is None.
+    """
+    value = ""
+    if not utf8_exceeds(text, MAX_OUTPUT_READ_BYTES):
+        # ValueError: not JSON, or a number with no canonical form (1e999).
+        with contextlib.suppress(ValueError):
+            _, found = walk_field_path(decode_json_reply(text), name)
+            value = field_value_text(found)
+    return value if value.strip() else None
+
+
+def with_output(
+    selection: Selection, combine_input: CombineInput, args: OpArgs, op_id: str
+) -> Selection:
+    """``selection`` with ``output`` set to the chosen member's ``output`` field (E4b, P5).
+
+    No ``output`` arg: ``selection`` unchanged, so the answer stays the member's own text.
+    INVARIANT (ans:Q12): only the ONE chosen member is read. A missing field abstains with
+    ``output_missing``; the runner-up is never used.
+    """
+    name = args.get("output")
+    if name is None:
+        return selection
+    value = output_field_text(combine_input.outputs[selection.chosen[0]], str(name))
+    if value is None:
+        raise NoVotes(
+            f"{op_id}: the chosen member has no usable output field", reason="output_missing"
+        )
+    return replace(selection, output=value)
+
+
 # --- judge replies ----------------------------------------------------------------------------
 MAX_JUDGE_REPLY_BYTES = 64 * 1024
 _SCORES_INVALID = "the judge reply is not one JSON object with a finite score for each member"
 _JUDGE_REPLY_TOO_LARGE = "the judge reply exceeds 64 KiB"
 _JUDGE_FENCE = "```"  # the strict rule; decode_json_reply keeps its own loose _FENCE_CLOSE
+_LABEL_INVALID = "the judge reply is not exactly one member id"
 
 
-def judge_reply(signals: Mapping[str, str], owner: str) -> str:
-    """The context's ``judge`` text that ``owner`` (an op id, or score:judge) reads.
+def judge_reply(signals: Mapping[str, str], owner: str, *, key: str = "judge") -> str:
+    """The context's ``key`` text (``judge`` by default) that ``owner`` reads.
 
-    SpecInvalid(f"{owner} needs the judge signal") when absent; JudgeReplyInvalid over 64 KiB.
+    ``key`` is ``fallback_judge`` for the gate fallback (E4b part 5). SpecInvalid(f"{owner} needs
+    the {key} signal") when absent; JudgeReplyInvalid over 64 KiB.
     """
-    raw = signals.get("judge")
+    raw = signals.get(key)
     if raw is None:
-        raise SpecInvalid(f"{owner} needs the judge signal")
+        raise SpecInvalid(f"{owner} needs the {key} signal")
     if utf8_exceeds(raw, MAX_JUDGE_REPLY_BYTES):
         raise JudgeReplyInvalid(_JUDGE_REPLY_TOO_LARGE)
     return raw
+
+
+def parse_label(raw: str, members: Sequence[str]) -> str:
+    """The one member id ``raw`` names. Only surrounding whitespace is trimmed (``str.strip``).
+
+    WHY in ports (E4b part 5): the core reads the gate fallback label with it, and the core never
+    imports a plugin (part 3 erratum E1). ``operators/judge.py`` re-exports it.
+    """
+    label = raw.strip()
+    if label not in members:
+        raise JudgeReplyInvalid(_LABEL_INVALID)
+    return label
 
 
 def _unfenced_judge_reply(text: str) -> str:
@@ -523,13 +715,39 @@ class SignalRead:
     order: SignalOrder | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class Cut:
+    """The cut of a ``top_k@1`` step: keep the first ``k`` scored members in ``order``.
+
+    The ``cut`` hook of a select operator returns it (E4b part 2, unit 3). The endpoint writes it
+    as the evidence ``CutRecord``. ``order`` is always filled in: "max" when the args omit it.
+    """
+
+    k: int
+    order: SignalOrder
+
+
 # Same shape as ``benchmarks/operation_outputs._Fingerprint``: (call.path, call.params).
 CallFingerprint = tuple[str, tuple[tuple[str, str], ...]]
 MemberSources = Mapping[str, Mapping[str, CallFingerprint]]
 
 
+# The reply log-probability keys of the member reader (E4b part 3, C5): the token count, the exact
+# sum of the token log-probabilities, and the mean token entropy of a member's one terminal reply.
+# Port keys only: never a signal key, never on the wire. The `logprob` and `entropy` prefixes are
+# reserved for declared names (P1), so no declared name can be equal to one of them.
+REPLY_TOKENS = "logprob_tokens"
+REPLY_LOGPROB_SUM = "logprob_sum"
+REPLY_ENTROPY_MEAN = "entropy_mean"
+REPLY_LOGPROB_KEYS: tuple[str, str, str] = (REPLY_TOKENS, REPLY_LOGPROB_SUM, REPLY_ENTROPY_MEAN)
+
+
 class AccountingReader(Protocol):
-    """A port the adapter implements: member -> accounting key -> number (None: unknown)."""
+    """A port the adapter implements: member -> key -> number (None: unknown).
+
+    The keys are the accounting signals (``ACCOUNTING_SIGNALS``) and the reply log-probability keys
+    (``REPLY_LOGPROB_KEYS``). A reader may omit a key; the core reads a missing key as None.
+    """
 
     def __call__(self, sources: MemberSources, /) -> Mapping[str, Mapping[str, float | None]]: ...
 
@@ -616,12 +834,24 @@ __all__ = [
     "ABSTAIN_REASONS",
     "ACCOUNTING_SIGNALS",
     "DECIMAL_CONTEXT",
+    "DECLARED_NAME",
+    "EXCLUDE_REASONS",
     "FIELD_PATH",
     "FIELD_SIGNAL_PREFIX",
+    "GATE_OBSERVE",
     "JUDGE_SIGNAL",
+    "MAX_DECLARED_SIGNALS",
     "MAX_JSON_DEPTH",
     "MAX_JUDGE_REPLY_BYTES",
+    "MAX_NARROW_STEPS",
+    "MAX_OUTPUT_READ_BYTES",
+    "OUTPUT_FIELD",
     "READING_TO_ANSWER",
+    "REPLY_ENTROPY_MEAN",
+    "REPLY_LOGPROB_KEYS",
+    "REPLY_LOGPROB_SUM",
+    "REPLY_TOKENS",
+    "RESERVED_NAME_PREFIXES",
     "STAGES",
     "AbstainReason",
     "AccountingReader",
@@ -632,9 +862,14 @@ __all__ = [
     "CallFingerprint",
     "CombineError",
     "CombineInput",
+    "Cut",
     "EvidenceKind",
+    "ExcludeReason",
     "Extractor",
     "FieldReading",
+    "GateBranch",
+    "GateCmp",
+    "GateOtherwise",
     "InputTooLarge",
     "JudgeReading",
     "JudgeReplyInvalid",
@@ -647,6 +882,7 @@ __all__ = [
     "OperatorDescriptor",
     "OperatorUnknown",
     "ReadingStatus",
+    "RecordStatus",
     "ReduceOp",
     "Reducer",
     "Reduction",
@@ -654,6 +890,8 @@ __all__ = [
     "Selection",
     "SignalOrder",
     "SignalRead",
+    "SourceDescriptor",
+    "SourceRead",
     "SpecInvalid",
     "Stage",
     "StageResult",
@@ -662,16 +900,23 @@ __all__ = [
     "answer_status",
     "canonical_decimal",
     "canonical_json",
+    "check_output_arg",
     "decode_json_reply",
     "field_signal_value",
+    "field_value_text",
     "finite_float",
     "is_signal_key",
+    "is_signal_name",
     "json_depth",
     "judge_reply",
     "loads_bounded",
     "no_args",
+    "output_field_text",
+    "parse_label",
     "parse_scores",
     "rejected",
+    "selection_envelope",
     "utf8_exceeds",
     "walk_field_path",
+    "with_output",
 ]

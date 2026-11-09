@@ -386,3 +386,45 @@ async def test_validation_session_sanitizes_non_httperror_httpx_exceptions(
     async with ValidationHttpSession(transport=httpx.MockTransport(handler)) as session:
         with pytest.raises(ApiKeyValidationTransportError):
             await session.request_json("GET", "https://provider.example/key")
+
+
+@pytest.mark.parametrize(
+    "status, body",
+    [
+        (429, b"Too Many Requests"),
+        (401, b"<html>unauthorized</html>"),
+        (503, b"upstream connect error"),
+        (429, b"[" * 60_000),
+    ],
+    ids=["plaintext-429", "html-401", "plaintext-503", "too-deep-429"],
+)
+@pytest.mark.asyncio
+async def test_validation_session_leaves_an_undecodable_error_body_to_the_status(
+    status: int, body: bytes
+) -> None:
+    # INVARIANT: an error body that is not JSON carries no evidence either way, so the status and
+    # Retry-After still reach the provider's classifier, exactly as with an empty body.
+    transport = httpx.MockTransport(
+        lambda _request: httpx.Response(status, headers={"retry-after": "30"}, content=body)
+    )
+
+    async with ValidationHttpSession(transport=transport) as session:
+        response = await session.request_json("GET", "https://provider.example/key")
+
+    assert (response.status_code, response.payload, response.retry_after_seconds) == (
+        status,
+        None,
+        30,
+    )
+
+
+@pytest.mark.parametrize("status", [201, 206])
+@pytest.mark.asyncio
+async def test_validation_session_still_rejects_a_success_body_that_is_not_json(
+    status: int,
+) -> None:
+    transport = httpx.MockTransport(lambda _request: httpx.Response(status, content=b"not-json"))
+
+    async with ValidationHttpSession(transport=transport) as session:
+        with pytest.raises(ApiKeyValidationTransportError):
+            await session.request_json("GET", "https://provider.example/key")

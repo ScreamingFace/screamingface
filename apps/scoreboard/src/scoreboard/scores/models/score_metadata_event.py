@@ -25,6 +25,12 @@ class BaseScoreMetadataEvent(BaseScoreboardModel):
     new_authors = fields.JSONField(null=True)
     old_paper_url = fields.TextField(null=True)
     new_paper_url = fields.TextField(null=True)
+    # FEATURE: OME-1596 — the metadata objects as stored, before and after. `paper_metadata` here
+    # never carries `url`: a change of the link is the `paper_url` pair above.
+    old_authors_metadata = fields.JSONField(null=True)
+    new_authors_metadata = fields.JSONField(null=True)
+    old_paper_metadata = fields.JSONField(null=True)
+    new_paper_metadata = fields.JSONField(null=True)
 
 
 class ScoreMetadataEvent(BaseScoreMetadataEvent):

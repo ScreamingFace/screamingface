@@ -49,10 +49,7 @@ def test_validation_endpoint_returns_stable_non_persisting_result(
     async def forbidden_async(*_args, **_kwargs):
         raise AssertionError("validation endpoint must not persist state")
 
-    monkeypatch.setattr(
-        authenticated_client.app.state.pending_auth, "pop_for_profile", forbidden_sync
-    )
-    monkeypatch.setattr(authenticated_client.app.state.profile_index, "upsert", forbidden_async)
+    monkeypatch.setattr(authenticated_client.app.state.pending_auth, "pop_for_pair", forbidden_sync)
     monkeypatch.setattr(authenticated_client.app.state.credential_store, "write", forbidden_async)
     monkeypatch.setattr(
         credential_strategy_cache(authenticated_client.app), "evict", forbidden_sync
@@ -187,26 +184,6 @@ def test_replace_non_valid_key_preserves_existing_connection_and_blob(
     assert credential_blobs.read(locator["service"], locator["account"]) == before
     after = authenticated_client.get(f"/v1/oauth/connections/{created['id']}").json()
     assert after == created
-
-
-def test_profile_non_valid_key_does_not_create_profile(authenticated_client) -> None:
-    service = _install(
-        authenticated_client,
-        ApiKeyValidationResult(
-            state=ApiKeyValidationState.UNAVAILABLE,
-            stage=ApiKeyValidationStage.AUTHENTICATION,
-        ),
-    )
-
-    response = authenticated_client.put(
-        "/v1/auth/anthropic/profiles/invalid/api-key",
-        json={"api_key": _KEY},
-    )
-
-    assert response.status_code == 503
-    assert response.json()["detail"]["code"] == "api_key_validation_unavailable"
-    assert authenticated_client.get("/v1/auth/anthropic/profiles/invalid").status_code == 404
-    assert service.calls == [("anthropic", _KEY)]
 
 
 def test_validation_endpoint_requires_authentication(client) -> None:

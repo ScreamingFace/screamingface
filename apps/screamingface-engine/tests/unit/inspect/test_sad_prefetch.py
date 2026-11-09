@@ -5,7 +5,7 @@
 
 INVARIANT: before a SAD replay's task function runs, its cache already holds the five zips
 at exactly the paths SAD's own loader checks, fetched from raw.githubusercontent.com at the
-pinned commit and verified against upstream's checksums. The loader's download() then finds
+pinned commit and verified against inspect_evals' checksums. The loader's download() then finds
 a matching file and never calls GitHub's contents API, whose 60-calls-an-hour anonymous
 limit failed image builds with HTTP 403. Every other eval is left alone.
 
@@ -55,8 +55,8 @@ def _record_downloads(monkeypatch: pytest.MonkeyPatch, target: Any) -> list[tupl
 def test_a_sad_replay_prefetches_the_five_zips_where_sad_looks_for_them(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, no_network: None
 ) -> None:
-    """WHY compared with upstream's own loader: a path or checksum that differs by a byte
-    would leave the file unfound, and the loader would call the rate-limited API anyway."""
+    """WHY compared with inspect_evals' own loader: a path or checksum that differs by a
+    byte would leave the file unfound, and the loader would call the rate-limited API anyway."""
 
     import inspect_ai.util
 

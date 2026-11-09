@@ -1,7 +1,7 @@
 """The combine evidence the SDK decodes is the evidence the Engine writes (OME-1289 E4a, unit 12).
 
 FEATURE: ``data/combine_contract/evidence_cases.json`` holds the canonical JSON of the evidence the
-real combine core produces for 25 fixed scenarios: every reducer, every evidence kind, both abstain
+real combine core produces for 26 fixed scenarios: every reducer, every evidence kind, both abstain
 reasons, a failed and an empty member, and the three signal families.
 STORY: as a maintainer, I change the evidence model on one side and a test on the other side fails,
 instead of the SDK decoder and its hand-copied test wire drifting from the Engine silently.
@@ -262,6 +262,35 @@ def _merge_abstain() -> CombineEvidence:
     return _evidence(merge_spec(3, rules), ['{"x":1}', '{"y":2}', '{"z":3}'])
 
 
+def _mean_weighted_value() -> CombineEvidence:
+    # member_2 has confidence 0, so it is dropped (weight null); (10*0.25 + 30*0.75) / 1.00 = 25.
+    spec = vote_spec(
+        3,
+        reducer="mean",
+        extract=step("json_field@1", path="answer"),
+        normalize=step("numeric@1"),
+        reduce=step("weighted_mean@1"),
+        select=step("value@1"),
+        weights={"signal": "field:confidence"},
+    )
+    texts = [
+        '{"answer":10,"confidence":0.25}',
+        '{"answer":99,"confidence":0}',
+        '{"answer":30,"confidence":0.75}',
+    ]
+    return _evidence(spec, texts)
+
+
+def _pick_output() -> CombineEvidence:
+    texts = ['{"answer": 42, "confidence": 0.9}', '{"answer": 40, "confidence": 0.6}']
+    return _evidence(pick_spec(2, step("by_field@1", order="max", output="answer")), texts)
+
+
+def _pick_output_missing() -> CombineEvidence:
+    texts = ['{"confidence": 0.9}', '{"answer": 40, "confidence": 0.6}']
+    return _evidence(pick_spec(2, step("by_field@1", order="max", output="answer")), texts)
+
+
 SCENARIOS: dict[str, Callable[[], CombineEvidence]] = {
     "vote_tie": _plain_vote,
     "vote_weighted": _weighted_vote,
@@ -288,7 +317,130 @@ SCENARIOS: dict[str, Callable[[], CombineEvidence]] = {
     "filter_pattern": _filter_pattern,
     "filter_none_pass": _filter_none_pass,
     "merge_abstain": _merge_abstain,
+    "mean_weighted_value": _mean_weighted_value,
 }
+SCENARIOS["pick_output"] = _pick_output
+SCENARIOS["pick_output_missing"] = _pick_output_missing
+
+
+def _vote_weight_excluded() -> CombineEvidence:
+    # E4b part 2 X1: member_3 has no confidence, so it has no weight and is excluded (no_weight).
+    spec = vote_spec(
+        3,
+        extract=step("json_field@1", path="answer"),
+        normalize=step("text@1"),
+        reduce=step("weighted_mode@1"),
+        select=step("max_weight_holder@1"),
+        weights={"signal": "field:confidence"},
+    )
+    texts = [
+        '{"answer":"A","confidence":0.9}',
+        '{"answer":"A","confidence":0.4}',
+        '{"answer":"B"}',
+    ]
+    return _evidence(spec, texts)
+
+
+def _filter_signal_excluded() -> CombineEvidence:
+    # E4b part 2 X2 with P5: member_3 has no confidence, so it is excluded (no_signal), mark 0.
+    spec = filter_spec(3, {"key": "field:confidence", "cmp": "ge", "value": 0.5})
+    texts = [
+        canonical_json({"confidence": 0.8}),
+        canonical_json({"confidence": 0.2}),
+        canonical_json({}),
+    ]
+    return _evidence(spec, texts)
+
+
+SCENARIOS["vote_weight_excluded"] = _vote_weight_excluded
+SCENARIOS["filter_signal_excluded"] = _filter_signal_excluded
+
+
+def _rank_min_cost() -> CombineEvidence:
+    # RK-1: costs 0.03, 0.01, 0.02, 0.01, cheapest first -> ranks 4, 1, 3, 2.
+    # The cut keeps member_2 and member_4.
+    return _evidence(
+        rank_signal_spec(4, 2, "cost_usd", "min"),
+        ["alpha", "beta", "gamma", "delta"],
+        sources=sources(4),
+        accounting=costs(0.03, 0.01, 0.02, 0.01),
+    )
+
+
+def _rank_reduce_abstain() -> CombineEvidence:
+    # RK-D5: no member has the signal, so the reduce step abstains; the cut is written, no rank.
+    return _evidence(rank_signal_spec(3, 2, "field:score", "max"), _score_texts(None, None, None))
+
+
+SCENARIOS["rank_min_cost"] = _rank_min_cost  # E4b part 2 unit 3
+SCENARIOS["rank_reduce_abstain"] = _rank_reduce_abstain  # E4b part 2 unit 3
+
+
+# E4b part 5 unit 2 (GD-D9, P19): the five gate paths over one vote, two of three agree (2/3).
+_GATE_TEXTS = ["The answer is 9", "So 9", "I get 12"]
+
+
+def _agreement_gate(threshold: float, otherwise: str) -> dict[str, Any]:
+    return {"observe": "agreement", "cmp": ">=", "threshold": threshold, "otherwise": otherwise}
+
+
+def _vote_gate(
+    gate: dict[str, Any], texts: list[str] | None = None, signals: dict[str, str] | None = None
+) -> CombineEvidence:
+    spec = {**builtin_vote_spec(3), "gate": gate}
+    return _evidence(spec, _GATE_TEXTS if texts is None else texts, signals)
+
+
+def _vote_gate_majority() -> CombineEvidence:
+    return _vote_gate(_agreement_gate(0.6, "abstain"))
+
+
+def _vote_gate_abstain() -> CombineEvidence:
+    return _vote_gate(_agreement_gate(0.7, "abstain"))
+
+
+def _vote_gate_judge() -> CombineEvidence:
+    return _vote_gate(_agreement_gate(0.7, "judge"), signals={"fallback_judge": "member_3"})
+
+
+def _vote_gate_writer() -> CombineEvidence:
+    return _vote_gate(_agreement_gate(0.7, "writer"), signals={"fallback_writer": "It is 10"})
+
+
+def _vote_gate_not_run() -> CombineEvidence:
+    return _vote_gate(_agreement_gate(0.6, "abstain"), ["none", "no number", "nothing"])
+
+
+SCENARIOS["vote_gate_majority"] = _vote_gate_majority  # E4b part 5 unit 2
+SCENARIOS["vote_gate_abstain"] = _vote_gate_abstain  # E4b part 5 unit 2
+SCENARIOS["vote_gate_judge"] = _vote_gate_judge  # E4b part 5 unit 2
+SCENARIOS["vote_gate_writer"] = _vote_gate_writer  # E4b part 5 unit 2
+SCENARIOS["vote_gate_not_run"] = _vote_gate_not_run  # E4b part 5 unit 2
+
+
+# E4b part 6 unit 1 (SM-2, SM-5): a pick reads a declared sum; member_3 has no sev_b, so no risk.
+_SUM_SIGNALS: dict[str, Any] = {
+    "risk": {"source": "sum", "coefficients": {"sev_a": 0.5, "sev_b": 0.3}},
+    "sev_a": {"source": "verbalized", "pattern": "A: ([0-9]+)"},
+    "sev_b": {"source": "verbalized", "pattern": "B: ([0-9]+)"},
+}
+
+
+def _pick_sum_min() -> CombineEvidence:
+    spec = {**argmax_spec(3, "risk", "min"), "signals": _SUM_SIGNALS}
+    return _evidence(spec, ["A: 4\nB: 10\nThe answer is 9", "A: 2\nB: 5\nSo 9", "A: 6\nI get 12"])
+
+
+SCENARIOS["pick_sum_min"] = _pick_sum_min  # E4b part 6 unit 1
+
+
+# E4b part 6 unit 4 (AB-2, P17): fixture B with a band around 2/3. The number is inside the closed
+# band [0.6, 0.7], so the Case abstains with in_band and no comparison is made.
+def _vote_gate_band() -> CombineEvidence:
+    return _vote_gate({**_agreement_gate(0.7, "abstain"), "abstain_band": [0.6, 0.7]})
+
+
+SCENARIOS["vote_gate_band"] = _vote_gate_band  # E4b part 6 unit 4
 
 
 def canonical_evidence(evidence: CombineEvidence) -> str:

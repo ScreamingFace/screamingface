@@ -81,13 +81,6 @@ def _record_for_raw(raw_response: dict[str, Any]):
         pytest.param(
             {
                 "error": {"code": 429, "metadata": {"error_type": "rate_limit_exceeded"}},
-                "openrouter_metadata": {"attempt": True, "is_byok": False, "pipeline": []},
-            },
-            id="router-attempt-bool",
-        ),
-        pytest.param(
-            {
-                "error": {"code": 429, "metadata": {"error_type": "rate_limit_exceeded"}},
                 "openrouter_metadata": {
                     "attempt": 1,
                     "is_byok": False,
@@ -206,31 +199,6 @@ def test_complete_evidence_keeps_the_previous_supplement_signature_compatible() 
     )
 
     assert called is True
-
-
-@pytest.mark.parametrize(
-    "usage",
-    [
-        pytest.param(
-            {"server_tool_use": {"web_search_requests": None}},
-            id="server-tool-use-null",
-        ),
-        pytest.param(
-            {"server_tool_use_details": {"tool_calls_executed": None}},
-            id="server-tool-details-null",
-        ),
-    ],
-)
-def test_unknown_server_tool_counts_are_not_zero(usage: dict[str, Any]) -> None:
-    record = _record_for_raw(
-        {
-            "error": {"code": 429, "metadata": {"error_type": "rate_limit_exceeded"}},
-            "openrouter_metadata": {"attempt": 1, "is_byok": False, "pipeline": []},
-            "usage": usage,
-        }
-    )
-
-    assert record.direct_cost.status == "unavailable"
 
 
 def _insured_metadata() -> dict[str, Any]:

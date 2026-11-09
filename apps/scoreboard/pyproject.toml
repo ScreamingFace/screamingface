@@ -10,7 +10,7 @@ dependencies = [
     "httpx>=0.28.1",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
-    "tortoise-orm[asyncpg]==1.1.8",
+    "tortoise-orm[asyncpg]==1.1.9",
     "uvicorn[standard]>=0.52.1",
 ]
 

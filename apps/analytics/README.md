@@ -66,7 +66,7 @@ and requires explicit hostname/controller/TLS. Configure controller-specific abu
 and log redaction before enabling it. No live hostname or cloud infrastructure is created.
 
 Production gates remaining: dedicated test-project smoke (payload/personless/no enrichment and
-eventual duplicates), verified **90-day raw-event retention** in the selected PostHog project,
+eventual duplicates), accurate disclosure of PostHog-managed retention without a fixed deletion deadline,
 operator ownership, ingress protections, and a historical-deletion procedure. This service
 stores no event payloads/backups and cannot enforce PostHog's retention remotely. Longer-lived
 aggregates must omit browser/installation/session IDs. SDK opt-out arrives in its later slice.
@@ -116,8 +116,9 @@ logging, and apply edge rate/body limits. No new PostHog key or database is requ
   or `declined`. Choice has no unique value. Decline expires ID in the same response;
   fresh consent also expires any orphan/stale ID. Repeated acceptance preserves ID.
 - `POST /bridge/id`: empty JSON object; accepted cookie required. Returns
-  `choice`, `consent_version`, `id_scope:browser`, `persistent_id`. Renews both
-  cookies without rotating a valid ID.
+  `choice`, `consent_version`, `id_scope:browser`, `persistent_id`. Renews consent.
+  Returns a valid existing ID without rewriting its cookie; creates an ID only
+  if missing or invalid. ID lifetime runs from creation, not the latest read.
 - `POST /bridge/id/revoke`: empty JSON object; declined cookie required; idempotent
   ID expiry. Normal decline already expires ID, so no second request is necessary.
 - `POST /bridge/id/events`: the existing four-event envelope. Requires accepted
@@ -130,9 +131,14 @@ Mutations require the configured same-origin Origin header and, when present,
 at 1 KiB with a 1.5-second deadline. They have a separate admission budget using the
 same configured limits so event delivery being disabled does not prevent opt-out.
 All successful/handled-error bridge responses have no-store/no-referrer/nosniff.
-The consent cookie is scoped to `/bridge`; the ID to `/bridge/id`. Both are Secure,
+The consent and opt-out cookies are scoped to `/bridge`; the ID to `/bridge/id`. All are Secure,
 HttpOnly, SameSite=None, Partitioned and host-only. Cookie retention is independent
-of the 90-day event retention; browser eviction may end continuity earlier.
+of PostHog-managed event retention; browser eviction may end continuity earlier.
+The non-identifying `__Secure-sf_bridge_optout=1` flag takes precedence over the
+legacy consent cookie. Explicit decline sets it with the same configured lifetime;
+only explicit accept clears it. Enrollment and identity refresh never write it.
+Enrollment never writes or deletes the ID cookie. A delayed enrollment or an
+existing-ID read cannot delete or restore an ID after explicit reaccept.
 
 The parent waits for iframe load and sends `postMessage` to the exact service origin:
 `{version:1,nonce:<16–128 ASCII letters/digits/_/->,command:<command>}`. Commands are
@@ -152,11 +158,18 @@ state on failure, and never block evaluation on iframe or kernel initialization.
 
 Other active notebooks send the browser's current shared partition cookies on each
 batch. After a decline response updates the cookie jar, subsequent requests are
-rejected by any replica. Requests already sent may complete; concurrent cookie
-responses are applied in browser order. This is not globally instantaneous
+rejected by any upgraded replica, even if an older enrollment or identity-refresh
+response arrives afterward. The separate opt-out flag prevents those responses
+from restoring permission. Requests already sent may complete; concurrent explicit
+accept/decline responses are applied in browser order. This is not globally instantaneous
 revocation. No capability or product credential is copied into a Python runtime.
 The anonymous `/v1/events` endpoint still trusts explicit client consent affirmation;
 this system cannot prove human consent from a modified client.
+Concurrent first-time ID requests can still mint different fresh IDs whose
+cookies apply in response order, including across reaccept. This can invalidate
+another frame's cached ID; it is not the old-ID restoration fixed by making
+existing-ID reads leave the ID cookie untouched. Explicit-action races also
+retain browser response ordering.
 
 Automated tests cover synthetic cookie jars, two independent replicas, stale-ID
 rejection, request validation and the actual shipped script's message boundary.
@@ -202,3 +215,24 @@ redacted. The actual SDK integration and deployed browser tests remain separate.
 Live origin probe on 25 September verified a changing output host across a page
 reload and the Colab top-level ancestor. See the origin-policy spec/work ledger
 for evidence and remaining Chrome/Safari end-to-end acceptance.
+
+## Default-on SDK enrollment (OME-1768)
+
+The SDK enables analytics by default while making a best-effort disclosure attempt,
+including in headless environments. Every explicit opt-out is preserved. The additive
+`enroll` browser command posts `{"consent_version":"1"}` to
+`/bridge/consent/enroll`. It accepts only when both consent and opt-out cookies are absent.
+Existing accepted/declined or unrecognized cookies are preserved; no identity
+is minted by enrollment. The SDK requests an ID separately after confirmed acceptance.
+Explicit `accept` remains the only command that can reverse a stored decline.
+
+Upgrade every service replica before the new SDK. Old replicas do not enforce the
+opt-out flag, so mixed deployments cannot guarantee the response-order protection.
+Older SDKs retain their explicit opt-in flow;
+new SDKs against older services stay off if enrollment is unavailable. The version-1
+wire shape is unchanged: accepted/consent_granted now permits explicit enable or a
+default-on policy. Existing opt-outs are not migrated to acceptance.
+This amends the opt-in-only policy described in the original implementation notes.
+The existing limitation for browser requests already in flight still applies.
+Source changes are not rollout approval; see
+`docs/spec/2026-10-30-analytics-default.md`.

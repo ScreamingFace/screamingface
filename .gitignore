@@ -65,3 +65,6 @@ release/
 # multi-hundred-MB working data produced and loaded out-of-band by an operator; the gateway ships
 # only the support for the metadata such a package carries, never the package itself.
 draco-cache-seed-*/
+
+# Local browser review captures; do not ship these in the repository.
+/output/playwright/

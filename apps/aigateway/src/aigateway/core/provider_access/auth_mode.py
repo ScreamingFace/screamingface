@@ -11,26 +11,19 @@ from typing import Any, cast
 
 from ..auth_types import AuthMode, AuthType
 from ..oauth.models import OAuthConnection
-from ..profile_models import Profile
 from .types import CredentialTarget, UnsupportedAuthMode
 
 
-def auth_type_of(profile: Profile | None, connection: OAuthConnection | None) -> AuthType:
+def auth_type_of(connection: OAuthConnection) -> AuthType:
     """The PERSISTED credential type of a stored target.
 
     # INVARIANT: the auth type is never caller-declared — it is derived solely from the stored
-    # connection/profile. A connection's own `auth_type` wins; a bare profile uses its
-    # `auth_type`; with neither resolved, oauth is the safe default. Single source so chat
-    # dispatch and the detailed contract cannot disagree about which mode a target uses.
+    # Connection; an empty stored value falls back to oauth. Single source so chat dispatch and
+    # the detailed contract cannot disagree about which mode a target uses.
     """
-    if connection is not None:
-        # WHY: tortoise-orm >=1.1.8 types CharField as `str`; the stored column is a bare
-        # CharField, so narrowing it back to AuthType is ours to assert. `or "oauth"` keeps the
-        # documented fallback for an empty stored value.
-        return cast(AuthType, connection.auth_type or "oauth")
-    if profile is not None:
-        return profile.auth_type
-    return "oauth"
+    # WHY: tortoise-orm >=1.1.8 types CharField as `str`; the stored column is a bare CharField,
+    # so narrowing it back to AuthType is ours to assert.
+    return cast(AuthType, connection.auth_type or "oauth")
 
 
 def available_auth_modes(plugin: Any) -> tuple[AuthMode, ...]:
@@ -40,13 +33,13 @@ def available_auth_modes(plugin: Any) -> tuple[AuthMode, ...]:
     return cast("tuple[AuthMode, ...]", tuple(cast(Any, modes)()))
 
 
-def profileless_auth_mode(plugin: Any) -> AuthMode | None:
-    hook = getattr(plugin, "profileless_auth_mode", None)
+def credentialless_auth_mode(plugin: Any) -> AuthMode | None:
+    hook = getattr(plugin, "credentialless_auth_mode", None)
     return cast("AuthMode | None", hook()) if callable(hook) else None
 
 
 def allows_chatless(plugin: Any) -> bool:
-    checker = getattr(plugin, "allows_chatless_profile", None)
+    checker = getattr(plugin, "allows_chatless_credential", None)
     return bool(checker()) if callable(checker) else False
 
 
@@ -67,9 +60,9 @@ def auth_mode_for(auth_type: AuthType | None, *, plugin: Any) -> AuthMode:
     # silently drop a credentialed provider into no-auth.
     """
     if auth_type is None:
-        profileless = profileless_auth_mode(plugin)
-        if profileless is not None:
-            return profileless
+        credentialless = credentialless_auth_mode(plugin)
+        if credentialless is not None:
+            return credentialless
         if available_auth_modes(plugin) == ("none",):
             return "none"
     mode: AuthMode = auth_type or "oauth"
@@ -86,17 +79,17 @@ def auth_mode(target: CredentialTarget, *, plugin: Any) -> AuthMode:
 def contract_auth_mode(target: CredentialTarget, *, plugin: Any) -> AuthMode:
     """The auth mode the published contract is bound to, keyless case included.
 
-    With any stored target — or a provider that permits a chatless profile — this is exactly
+    With any stored target — or a provider that permits a chatless request — this is exactly
     `auth_mode`. The added branch (OME-1167) covers only the target-less answer that used to
     404: the datasheet is published under the provider's own declared preference — its
-    profileless mode when it names one, else its FIRST declared auth mode.
+    credentialless mode when it names one, else its FIRST declared auth mode.
 
     # WHY not `auth_mode` for that case: its target-less fallback is `"oauth"`, which refuses
     # an api-key-only provider — correct for a dispatch target, wrong for a datasheet that
     # merely needs A mode to be published under.
     """
     if target.kind != "stored" and not allows_chatless(plugin):
-        keyless = profileless_auth_mode(plugin)
+        keyless = credentialless_auth_mode(plugin)
         if keyless is not None:
             return keyless
         return available_auth_modes(plugin)[0]

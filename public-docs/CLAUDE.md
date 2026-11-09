@@ -36,7 +36,7 @@ There is no automated test setup in this project.
 - `src/components/layout/TheNavbar.vue` — sticky top nav (brand, product links [Home / SF Client / SDK], theme toggle, GitHub)
 - `src/components/layout/DocLayout.vue` — sidebar (`NavTree`) + optional page header + content slot + prev/next buttons + an optional sidebar version footer (`version` prop). `title` is optional; the header is skipped when omitted.
 - `src/components/layout/NavTree.vue` — renders one level of a navigation tree and recurses for children. A group renders as a label (uppercase at depth 0, muted below), a link as a `RouterLink`. Depth drives styling only, so nesting is unbounded.
-- `src/components/ui/` — reusable content components: `CodeBlock`, `TabbedCodeBlock`, `ApiBlock`, `Collapsible`, `ImageCarousel`, `NotebookViewer`
+- `src/components/ui/` — reusable content components: `CodeBlock`, `TabbedCodeBlock`, `ApiBlock`, `Collapsible`, `ImageCarousel`, `NotebookViewer`, `ThemedDiagram` (light/dark SVG from `public/diagrams/`)
 - `src/components/nb/` — notebook-cell primitives for docs pages: `NbCell` (input + output chrome), `NbTextOut` (plain repr output), `NbStateCarousel`, plus the panel kit (`NbPanel`, `NbRowList`, `NbProgress`, `NbStatGrid`, `NbCheckList`, `NbScoreList`, `ProviderConnections`, `EvaluationReport`, `CandidateScores`) and `tokens.css`. A page wraps each cell in `<div class="not-prose">`.
 - `src/composables/` — reusable logic: `useCopy` (clipboard + "Copied!" feedback), `useHighlight` (central Prism setup + `highlight()`), `useDocNavigation` (sidebar active-state + prev/next from a nav tree), `useCarousel` (index + auto-advance)
 - `src/stores/` — Pinia stores for shared reactive state: `theme` (`isDark` state, `theme` getter, dark/light + localStorage persistence) and `codeLang` (shared code-tab language across `TabbedCodeBlock`s)
@@ -53,7 +53,8 @@ There is no automated test setup in this project.
 | `/sf-client`                              | `src/pages/sf-client/Index.vue`                   |
 | `/sf-client/installation`                 | `src/pages/sf-client/InstallationPage.vue`        |
 | `/sf-client/first-fusion`                 | `src/pages/sf-client/FirstFusionPage.vue`         |
-| `/sf-client/quickstartPage`               | `src/pages/sf-client/QuickstartPage.vue`          |
+| `/sf-client/reproduce-draco`              | `src/pages/sf-client/QuickstartPage.vue`          |
+| `/sf-client/guides/clients`               | `src/pages/sf-client/guides/ClientsPage.vue`      |
 | `/sf-client/guides/connections`           | `src/pages/sf-client/guides/ConnectionsPage.vue`  |
 | `/sf-client/guides/models`                | `src/pages/sf-client/guides/ModelsPage.vue`       |
 | `/sf-client/guides/fusions`               | `src/pages/sf-client/guides/FusionsPage.vue`      |
@@ -63,10 +64,14 @@ There is no automated test setup in this project.
 | `/sf-client/guides/leaderboards`          | `src/pages/sf-client/guides/LeaderboardsPage.vue` |
 | `/sf-client/guides/reproduce-and-share`   | `src/pages/sf-client/guides/Url4Page.vue`         |
 | `/sf-client/api/recipes`                  | `src/pages/sf-client/api/RecipesPage.vue`         |
+| `/sf-client/api/models`                   | `src/pages/sf-client/api/ModelsCatalogPage.vue`   |
 | `/sf-client/api/benchmarks`               | `src/pages/sf-client/api/BenchmarksPage.vue`      |
 | `/sf-client/api/reports`                  | `src/pages/sf-client/api/ReportsPage.vue`         |
+| `/sf-client/api/candidate-result`         | `src/pages/sf-client/api/CandidateResultPage.vue` |
+| `/sf-client/api/usage`                    | `src/pages/sf-client/api/UsagePage.vue`           |
 | `/sf-client/api/clients`                  | `src/pages/sf-client/api/ClientsPage.vue`         |
 | `/sf-client/api/fusions`                  | `src/pages/sf-client/api/FusionsPage.vue`         |
+| `/sf-client/api/reducers`                 | `src/pages/sf-client/api/ReducersPage.vue`        |
 | `/sf-client/api/pipelines`                | `src/pages/sf-client/api/PipelinesPage.vue`       |
 | `/sf-client/api/url4`                     | `src/pages/sf-client/api/Url4Page.vue`            |
 | `/sf-client/api/connections`              | `src/pages/sf-client/api/ConnectionsPage.vue`     |
@@ -74,10 +79,14 @@ There is no automated test setup in this project.
 | `/sf-client/api/errors`                   | `src/pages/sf-client/api/ErrorsPage.vue`          |
 | `/sf-client/api/events`                   | `src/pages/sf-client/api/EventsPage.vue`          |
 | `/sf-client/api/leaderboards`             | `src/pages/sf-client/api/LeaderboardsPage.vue`    |
+| `/sf-client/api/cache`                    | `src/pages/sf-client/api/CachePage.vue`           |
+| `/sf-client/api/classify`                 | `src/pages/sf-client/api/ClassifyPage.vue`        |
+| `/sf-client/api/analytics`                | `src/pages/sf-client/api/AnalyticsPage.vue`       |
 | `/learn`                                  | `src/pages/learn/ArchitecturePage.vue`            |
 | `/learn/url4`                             | `src/pages/learn/Url4Page.vue`                    |
-| `/learn/url4-sdk`                         | `src/pages/learn/Url4SdkPage.vue`                 |
 | `/learn/engine`                           | `src/pages/learn/EnginePage.vue`                  |
+| `/learn/url4-sdk`                         | `src/pages/learn/Url4SdkPage.vue`                 |
+| `/learn/url4-files`                       | `src/pages/learn/Url4FilesPage.vue`               |
 | `/learn/caching`                          | `src/pages/learn/CachingPage.vue`                 |
 | `/learn/ai-gateway`                       | `src/pages/learn/GatewayPage.vue`                 |
 | `/learn/leaderboard`                      | `src/pages/learn/LeaderboardPage.vue`             |
@@ -133,8 +142,10 @@ export const sfClientNavigation: NavEntry[] = [
 
 **Versioning.** `sf-client.ts` also exports `sfClientVersion`
 (`{ prefix, label, url }`), rendered once in the sidebar footer rather than on
-each page. It is a commit while `screamingface` is unpublished; when the package
-ships to PyPI only that object changes.
+each page. Its label is the newest non-rc `screamingface-v*` git tag reachable from
+HEAD, injected at build time as `__SF_CLIENT_VERSION__` by `vite.config.ts`, and the
+link is that release's PyPI page. The build fails when no tag is reachable, so a CI
+checkout needs `fetch-depth: 0`.
 
 **How pages consume it:**
 

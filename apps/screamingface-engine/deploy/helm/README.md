@@ -148,8 +148,9 @@ What the pool's pods get:
   the pod limit and each run's RESIDENT budget. The worker reads the run's process-tree RSS and
   stops a run over it with a permanent `memory_budget_exceeded` (not redelivered), before the
   pod's cgroup OOM-kills it or a co-tenant. The child's `RLIMIT_AS` stays a runaway backstop at
-  `addressSpaceFactor ×` the budget (default 2 — the code's long-standing 2 GiB — and the chart
-  refuses < 2).
+  `addressSpaceFactor ×` the budget (default 2, and the chart refuses < 2). The default budget is
+  2,560 Mi (OME-1648): every ContractEval run parses its whole 192 MiB case file, which peaked at
+  1,828 MiB resident in kind. With 4 slots the pod limit is 10,496 Mi; the request is unchanged.
 - `ARROW_DEFAULT_MEMORY_POOL=system` and one OpenBLAS/OpenMP/MKL thread for every child: pyarrow's
   default pool reserves a 1 GiB arena and OpenBLAS a buffer per node CPU, address space a run
   never uses but `RLIMIT_AS` counts (a `draco-3pass` run died at 459 MiB resident without them).
@@ -203,6 +204,73 @@ adds each warm child's excess over its slot's charge (`runnerPool.warmChildCharg
   to start, timed out before READY, or died idle
 - `screamingface_engine_worker_handoff_latency_s` (histogram) — claim to the child's ACK
 - `screamingface_engine_worker_child_boot_s` (histogram) — child spawn to its READY
+
+## A private world config (OME-1770)
+
+By default the App and the pool read the image's public `url4.toml`. A deployment that declares
+private routes, such as configured-endpoint chat models, needs a complete world config that never
+enters the image, the chart values or Git. The chart mounts it from ONE ConfigMap or Secret the
+operator already created, read-only, into the App AND every runner pod, and points
+`URL4_RUNNER_CONFIG` at it. The App's catalog and mount table and the worker's execution parse
+the same file, so the two pod templates always carry the same source, key, path and checksum.
+
+The checksum comes from the publication review. `check-publication` reads this world file and
+the Gateway's configured-endpoints file, and refuses every Gateway target the world declares
+without both `public_schema = false` and `web_search = false`. With `--print-checksum` it prints
+the reviewed file's sha256 and nothing else, and only when the review passes; its findings go to
+stderr. A failed review leaves `contentChecksum` empty, and the render refuses. Run it where
+both files are, with the Engine version this chart deploys.
+
+```sh
+kubectl create secret generic url4-world --from-file=url4.toml=./world.toml
+helm upgrade url4-cloud apps/screamingface-engine/deploy/helm \
+  --reuse-values \
+  --set worldConfig.existingSecret=url4-world \
+  --set-string worldConfig.key=url4.toml \
+  --set-string worldConfig.contentChecksum="$(URL4_RUNNER_CONFIG=./world.toml screamingface-engine admin check-publication --endpoints ./endpoints.toml --print-checksum)"
+```
+
+- **The file is complete.** It replaces the image's `url4.toml`; it is not an overlay. Copy the
+  public file and add the private stanzas to the copy.
+- **`contentChecksum` is required with a source.** The chart never reads an object it did not
+  render, so it cannot hash the file itself. Pass a revision of the file's CONTENT: changing it
+  rolls the App and the pool together, and warm children go with their worker pod, because they
+  inherit its environment. The review prints the file's sha256, so the App's `/healthz`
+  `config_digest` is the post-rollout check that the App loaded that exact file.
+- **Rerun the review when either file changes.** A new Gateway target that this world declares
+  without the two flags would otherwise appear in `/openapi.json` and in `/metrics` under its
+  own path.
+- **Each pod keeps the file it started with.** The file is mounted by `subPath`, which the
+  kubelet never live-updates, so the warm and cold children of one worker always run the same
+  file. A new revision reaches a pod only through the rollout its checksum starts.
+- **Publish a changed file under a new Secret name.** A pod that starts reads the Secret as it
+  is at that moment, so a Secret edited in place reaches restarted and scaled-up pods before
+  the review and the rollout. Create each revision as a new Secret and point `existingSecret`
+  at it in the same upgrade.
+- **The rollout window fails fast once every worker checks the stamp.** The App and the pool
+  roll as two Deployments. The App stamps its file's sha256 on every run it queues, and a worker
+  serving another file refuses that run with the retryable `world_config_mismatch` and starts no
+  child. A run in the window fails instead of running under a world the App that accepted it
+  never served; the caller retries it.
+- **Upgrade to the stamp check readers first.** A worker of an earlier version ignores the stamp
+  and runs the job under its own file, so a changed file is unprotected while one such worker is
+  left. Upgrade a release whose pool predates the check in three steps, and keep the world file
+  it runs now through the first two; the App's `/healthz` `config_digest` must not change:
+  1. The pool alone: `--set-string image.tag=<running tag> --set-string runner.image.tag=<new tag>`.
+     The App keeps its image.
+  2. Once `kubectl rollout status deployment/<fullname>-runner` reports done, the App:
+     `--set-string image.tag=<new tag> --set-string runner.image.tag=`. The empty value pairs
+     the two images again, and the pool, already on that tag, does not roll.
+  3. Only then a changed file, the first `worldConfig` source included, in an upgrade of its own.
+
+  A rollback below this version also keeps the file unchanged.
+- **`podAnnotations` cannot set `checksum/world-config`.** The render refuses it: the key would
+  replace the chart's revision on both pod templates, and a changed file would roll neither.
+- **`key`** names the file inside the source (default `url4.toml`); it is always mounted as
+  `url4.toml`. Set it explicitly on the first upgrade that adds `worldConfig`: `--reuse-values`
+  keeps the previous release's values, which have no `worldConfig` block and so no default.
+- The render refuses both sources at once, an empty `key`, a checksum without a source, and a
+  missing or malformed checksum.
 
 ## Events stream (uniform executor, PRD 01)
 
@@ -314,6 +382,37 @@ Objects expire by **bucket lifecycle rule**, not by the App's sweeper — which 
 mode, because listing objects would need query-string signing beyond what the adapter's signer
 supports. **A bucket with no lifecycle rule never expires artifacts.**
 
+The **run blob store** (OME-1540) has its own store — see [Blob storage](#blob-storage-ome-1540)
+— and in `s3` mode its bucket needs **its own** lifecycle rule: the App never deletes blobs
+there either. Blobs live under `blobs/<tenant>/<run>/<hex>` (plus a `.json` metadata object
+beside each). Without a rule on the blob bucket every upload stays until the blob volume fills,
+and from then on every upload is refused with a 503.
+
+One rule with no prefix filter, expiring after the artifact TTL (`URL4_CLOUD_ARTIFACT_TTL_S`,
+default 48 h, rounded up to whole days because lifecycle rules count in days), serves both
+buckets — apply it to the results bucket and to the blob bucket:
+
+```json
+{
+  "Rules": [
+    {
+      "ID": "expire-after-artifact-ttl",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "Expiration": { "Days": 2 }
+    }
+  ]
+}
+```
+
+Save it as `lifecycle.json` and apply it with any S3 client, once per bucket, e.g.
+`aws s3api put-bucket-lifecycle-configuration --endpoint-url <endpoint> --bucket <bucket>
+--lifecycle-configuration file://lifecycle.json`. With the bundled stores that is the results
+Garage (`<fullname>-garage`, bucket `artifactStorage.s3.bucket`) and the blob Garage
+(`<fullname>-garage-blobs`, bucket `blobs.storage.s3.bucket`), each with its own key pair from
+its own Secret. Check that your store supports lifecycle expiry before relying on it; without
+it, objects grow until removed by hand.
+
 ### Using storage you already run
 
 Set `artifactStorage.s3.endpointUrl` (plus `accessKey`/`secretKey` or `existingSecret`) and leave
@@ -324,6 +423,64 @@ That works with Garage, MinIO, SeaweedFS, Ceph RGW and Cloudflare R2. AWS S3 pro
 path-style in favour of virtual-hosted-style (`bucket.s3.region.amazonaws.com`), so pointing this
 at real AWS S3 may fail — and it fails as a signing/404 error that looks like a credential
 problem. Azure Blob is **not** S3-compatible at all and would need a new adapter behind the port.
+
+## Blob storage (OME-1540)
+
+Files a client uploads over `PUT /blob/sha256/<hex>` for its run's model calls are kept in a
+store **separate from the artifact store** (owner decision 2026-11-03, #1603 review). Upload
+volume is driven by clients — on a self-hosted engine with Access off, by anyone who can mint
+a token — so sharing one store would let uploads fill the space a paid run needs to park its
+result. Separated, **a full blob store fails uploads (503 with `Retry-After`) and never result
+delivery.**
+
+```yaml
+blobs:
+  storage:
+    backend: ""        # "" = the same KIND as artifactStorage.backend, never the same store
+    filesystemDir: ""  # filesystem mode; empty = <tmp>/screamingface-engine/blobs
+    s3:
+      endpointUrl: ""  # empty = the chart's second bundled Garage, below
+      bucket: screamingface-blobs
+      existingSecret: ""
+    garage:
+      persistence:
+        size: 5Gi      # the blob quota
+```
+
+With `artifactStorage.backend: s3` and nothing else set, the chart renders **two** Garages:
+`<fullname>-garage` for results and `<fullname>-garage-blobs` for blobs, each a single-node
+StatefulSet with **its own volume** (`garage.persistence.size` and
+`blobs.storage.garage.persistence.size`) and **its own key pair** (`<fullname>-artifact-storage`
+and `<fullname>-blob-storage`, generated and adopted on first boot exactly as described above).
+The blob Garage's cluster RPC secret is
+**random** (`GARAGE_RPC_SECRET` in `<fullname>-blob-storage`, kept across upgrades by `lookup`),
+not derived from the release name, and only the Garage pod receives it: the App and the runner
+pool read the blob key pair by named `secretKeyRef`, not `envFrom`. With
+`blobs.storage.s3.existingSecret`, that Secret must carry `GARAGE_RPC_SECRET` as well.
+Set `blobs.storage.s3.endpointUrl` to use storage you already run; no blob Garage is rendered
+then, and the render **fails** unless you also supply its credentials —
+`blobs.storage.s3.existingSecret` (recommended; it must carry `URL4_CLOUD_BLOB_S3_ACCESS_KEY` and
+`URL4_CLOUD_BLOB_S3_SECRET_KEY`) or both `accessKey` and `secretKey` — because a generated pair is
+adopted only by the bundled blob Garage. Use a bucket, ideally a volume or quota, distinct from
+the results store's, or the isolation is lost. Both the App and the runner pool carry a
+`checksum/blob-secret` pod annotation, so a chart-owned key rotation rolls both.
+
+**Concurrent first uploads.** The store's first metadata write is create-exclusive: an exclusive
+`link` on the filesystem, a PUT with `If-None-Match: *` on S3. Garage v2.3.0 ignores that
+condition (probed 2026-11-04: a second conditional PUT overwrote and answered 200), so on the
+bundled Garage two uploads of the same new file racing within milliseconds can both answer `201`;
+both hold the same verified bytes and the same record. A conforming S3 (AWS, MinIO) answers `412`
+to the loser, which then answers `200`.
+
+**Network policy.** The blob Garage's pods carry `app.kubernetes.io/component: garage-blobs`, not
+`garage` (a shared value would put them behind the results Garage's Service). A platform
+NetworkPolicy that admits App/runner ↔ Garage traffic by `component: garage` must also admit
+`component: garage-blobs` on port 3900 (S3; and 3901, RPC, if your policy lists it), or every
+blob request times out and uploads answer 503.
+
+**Filesystem mode** is single-process only, like the artifact store: with `config.runner: queue`
+the App refuses to start on a filesystem blob store, because the runner pool cannot read the
+App's disk.
 
 ## Workload hardening
 

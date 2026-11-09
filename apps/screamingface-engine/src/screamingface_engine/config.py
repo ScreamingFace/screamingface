@@ -8,6 +8,7 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env, runner_queue, subjects
+from screamingface_engine.artifacts.blobs import ATTACHMENT_MEDIA_TYPES, DEFAULT_BLOB_MAX_BYTES
 
 RunnerBackend = Literal["none", "queue"]
 ArtifactStoreBackend = Literal["filesystem", "s3"]
@@ -127,6 +128,40 @@ class Settings(BaseSettings):
     # decision on OME-892). Hourly is far finer than the 48h TTL it enforces, and one
     # directory scan an hour costs nothing.
     artifact_sweep_interval_s: float = 3600.0
+    # FEATURE: the run blob store (OME-1540; spec OME-1535 F1b, §4). Owner decision 2026-10-28
+    # (Q4a): one blob is at most the spec's per-run attachment total, and only the five spec
+    # attachment types are kept. Over the cap → 413 `x.blob_too_large`; any other type → 415
+    # `x.blob_unsupported_media_type`. Blobs share `artifact_ttl_s` and its sweep.
+    # INVARIANT (#1603 review round 3): never above DEFAULT_BLOB_MAX_BYTES. The Runner's
+    # `blob_store_from_env` reads with the default policy, so a larger App cap would store a
+    # blob the Runner then refuses as `x.blob_digest_mismatch`; it is refused at config load.
+    blob_max_bytes: int = Field(default=DEFAULT_BLOB_MAX_BYTES, gt=0, le=DEFAULT_BLOB_MAX_BYTES)
+    blob_media_types: list[str] = Field(
+        default_factory=lambda: [
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+            "application/pdf",
+        ]
+    )
+    # FEATURE: the run blob store's OWN storage (#1603 review, owner decision 2026-11-03) — a
+    # client filling it fails uploads and never touches result delivery. Every field reads the
+    # `job_env.BLOB_*` name (`URL4_CLOUD_` + field name), so the App and the Runner resolve one
+    # store through `artifacts.wiring.blob_objects_from_values`.
+    #
+    # INVARIANT (#1603 review round 2, owner decision 2026-11-04): `None` = NO blob store — blob
+    # upload and fetch are off (the App's blob routes answer 503). Never the artifact store. The
+    # chart always sets it.
+    # INVARIANT: an explicit "s3" never borrows the artifact bucket or credentials.
+    blob_store: ArtifactStoreBackend | None = None
+    blobs_dir: str = ""
+    blob_s3_endpoint_url: str = ""
+    blob_s3_bucket: str = ""
+    blob_s3_region: str = job_env.DEFAULT_ARTIFACT_S3_REGION
+    blob_s3_access_key: str = ""
+    # AIDEV-NOTE: credential material — Secret only, never logged, never in a ConfigMap.
+    blob_s3_secret_key: str = ""
     # FEATURE: tie a run's lifetime to its audience (OME-890).
     #
     # WHY 120s: a run whose last WebSocket subscriber disconnects gets this long to get one back
@@ -380,6 +415,31 @@ class Settings(BaseSettings):
     # exit codes) on this port. The chart exposes it on the runner pool Deployment. 0 disables
     # the endpoint.
     worker_metrics_port: int = Field(default=9109, ge=0)
+
+    @field_validator("blob_store", mode="before")
+    @classmethod
+    def _empty_blob_store_is_unset(cls, value: object) -> object:
+        # WHY: an env var rendered empty means "not set", not an invalid backend name.
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("blob_media_types")
+    @classmethod
+    def _blob_media_types_are_attachment_types(cls, value: list[str]) -> list[str]:
+        """Refuse any type outside `ATTACHMENT_MEDIA_TYPES` (#1603 review, owner 2026-11-03).
+
+        INVARIANT: the setting can only NARROW the five attachment types. `text/html` or
+        `image/svg+xml` would have the engine serve uploaded script from its own origin, and
+        every type here has a magic-byte signature the store verifies at ingest.
+        """
+        normalized = [t.strip().lower() for t in value]
+        unknown = [t for t in normalized if t not in ATTACHMENT_MEDIA_TYPES]
+        if unknown:
+            raise ValueError(
+                f"blob_media_types may only list attachment types "
+                f"({', '.join(sorted(ATTACHMENT_MEDIA_TYPES))}); refused: "
+                + ", ".join(repr(t) for t in unknown)
+            )
+        return normalized
 
     @field_validator("run_queue_stream")
     @classmethod

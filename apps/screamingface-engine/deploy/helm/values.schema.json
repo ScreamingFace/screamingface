@@ -300,6 +300,25 @@
       },
       "additionalProperties": false
     },
+    "worldConfig": {
+      "type": "object",
+      "description": "A complete private world config (OME-1770) mounted read-only into the App and the runner pool from ONE operator-owned ConfigMap or Secret, exposed as URL4_RUNNER_CONFIG. contentChecksum is the file's supplied content revision; it rolls both pod templates together.",
+      "properties": {
+        "existingConfigMap": {
+          "type": "string"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "contentChecksum": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
     "tavily": {
       "type": "object",
       "properties": {
@@ -717,6 +736,50 @@
         },
         "resources": {
           "type": "object"
+        }
+      },
+      "additionalProperties": false
+    },
+    "blobs": {
+      "type": "object",
+      "description": "The run blob store's own storage (OME-1540, #1603 review). Separate from artifactStorage so a full blob store fails uploads, never result delivery. backend '' follows artifactStorage.backend; with s3 and no endpointUrl a second bundled Garage with its own volume and credentials is rendered.",
+      "properties": {
+        "storage": {
+          "type": "object",
+          "properties": {
+            "backend": {"type": "string", "enum": ["", "filesystem", "s3"]},
+            "filesystemDir": {"type": "string"},
+            "s3": {
+              "type": "object",
+              "properties": {
+                "endpointUrl": {"type": "string"},
+                "bucket": {"type": "string", "minLength": 1},
+                "region": {"type": "string", "minLength": 1},
+                "accessKey": {"type": "string"},
+                "secretKey": {"type": "string"},
+                "existingSecret": {"type": "string"}
+              },
+              "additionalProperties": false
+            },
+            "garage": {
+              "type": "object",
+              "properties": {
+                "persistence": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {"type": "boolean"},
+                    "accessModes": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                    "size": {"type": "string", "minLength": 1},
+                    "storageClass": {"type": "string"}
+                  },
+                  "additionalProperties": false
+                },
+                "resources": {"type": "object"}
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

@@ -7,6 +7,7 @@ reaching into the individual route modules.
 
 from screamingface_engine.rest.artifacts import router as artifact_router
 from screamingface_engine.rest.benchmarks import router as benchmark_router
+from screamingface_engine.rest.blobs import router as blob_router
 from screamingface_engine.rest.catalog import router as catalog_router
 from screamingface_engine.rest.connections import router as connection_router
 from screamingface_engine.rest.interest import DenyAllGate, SubscriberGate
@@ -18,6 +19,7 @@ __all__ = [
     "SubscriberGate",
     "artifact_router",
     "benchmark_router",
+    "blob_router",
     "catalog_router",
     "connection_router",
     "operator_router",

@@ -42,7 +42,7 @@ def _parameters(auth_mode: AuthType = "api_key", *, without: str | None = None) 
         canonical_id=_MODEL,
         gateway_provider="openrouter",
         auth_mode=auth_mode,
-        scope="account_profile",
+        scope="account_connection",
         context_identity="acct:test|prof:1",
         rules=rules,
         observations=plugin.chat_parameter_observations(model=_MODEL, auth_type=auth_mode),
@@ -174,7 +174,7 @@ def _document(auth_mode: AuthType = "api_key") -> dict[str, Any]:
         canonical_id=_MODEL,
         gateway_provider="openrouter",
         auth_mode=auth_mode,
-        scope="account_profile",
+        scope="account_connection",
         context_identity="acct:test|prof:1",
         rules=plugin.chat_parameter_rules(model=_MODEL, auth_type=auth_mode),
         observations=plugin.chat_parameter_observations(model=_MODEL, auth_type=auth_mode),
@@ -263,3 +263,18 @@ def test_logprobs_and_top_logprobs_are_enabled_with_evidence() -> None:
         assert entry["gateway"]["status"] == "enabled", path
         assert entry["provider"]["support"] == "supported", path
         assert entry["provider"]["source"] == "openrouter:static", path
+
+
+def test_object_reasoning_effort_is_enabled_in_the_detailed_contract() -> None:
+    entry = _parameters()["reasoning.effort"]
+    assert entry["gateway"]["status"] == "enabled"
+    assert entry["schema"] == {
+        "type": "string",
+        "enum": ["max", "xhigh", "high", "medium", "low", "minimal", "none"],
+    }
+    assert entry["provider"] == {
+        "support": "supported",
+        "source": "openrouter:static",
+        "stale": False,
+        "deprecated": None,
+    }

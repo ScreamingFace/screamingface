@@ -1,0 +1,529 @@
+"""The rebuild of a url4 as a chain of the new surface, and the chain repr (E4b surface unit 6).
+
+FEATURE (rebuild-display §1, §2): ``screamingface._surface.rebuild.rebuild(url4)`` gives the chain
+value a url4 describes and the code that builds it, with the steps named through the alias
+``sf``. The rebuild reads today's url4 decode (one decode path) and converts today's values with
+the inverse of the lowering table (lowering §2.2).
+STORY: as a researcher, I take the url4 of a run and get back the ``Fanout >> ... >> Vote()`` code
+I wrote, run it, and it compiles to the same url4.
+INVARIANT defended (RB-1): the rebuilt value and the rebuilt code each compile to the same url4
+bytes; a url4 that the new surface cannot express is refused with the "cannot rebuild" message.
+RB-3: a chain repr joins its steps with ``>>``; a named or optional chain uses the explicit form;
+a step shows only the arguments that differ from their defaults.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+
+import pytest
+from _combine_contract import COMBINE_CONTRACT
+from _combine_flow_fixtures import flow_operators
+from _fusion_doc_examples import EXAMPLES, compile_example
+from _nodes import frozen_url4, fusion_node
+from test_narrow_contract_fixtures import FIXTURES
+from test_surface_parity import _NEW_FORM, _NOTEBOOK, _STEPS
+
+import screamingface as sf
+from screamingface._evaluation.benchmark import _CheckSurface
+from screamingface._evaluation.candidate import compile_candidate
+from screamingface._surface import rebuild as rebuild_module
+from screamingface._surface.rebuild import rebuild
+
+_EXAMPLES = {example.slug: example for example in EXAMPLES}
+_ROUTES = ["prov/alpha", "prov/beta", "prov/gamma"]
+
+
+def _url4(recipe: sf.Recipe) -> str:
+    return compile_candidate(recipe, operators=flow_operators()).url4
+
+
+def _executed(code: str) -> sf.Recipe:
+    namespace: dict[str, object] = {"sf": sf}
+    exec(code, namespace)  # the rebuilt code names every step through the alias sf
+    candidate = namespace["candidate"]
+    assert isinstance(candidate, sf.Recipe)
+    return candidate
+
+
+def _round_trip(url4: str, compile_: Callable[[sf.Recipe], str]) -> None:
+    rebuilt = rebuild(url4)
+
+    assert rebuilt.python.startswith("candidate = ")
+    assert compile_(rebuilt.value) == url4
+    assert compile_(_executed(rebuilt.python)) == url4
+
+
+# ---------------------------------------------------------------- RB-1: the parity rows
+
+
+_ROWS: dict[str, Callable[[], sf.Recipe]] = {**_NOTEBOOK, **_STEPS}
+
+
+@pytest.mark.parametrize("case", sorted(_ROWS))
+def test_rb1_a_notebook_row_round_trips(case: str) -> None:
+    _round_trip(_url4(_ROWS[case]()), _url4)
+
+
+@pytest.mark.parametrize("slug", sorted(_NEW_FORM))
+def test_rb1_a_doc_example_round_trips(slug: str) -> None:
+    example = _EXAMPLES[slug]
+
+    _round_trip(
+        compile_example(example, _NEW_FORM[slug]()), lambda value: compile_example(example, value)
+    )
+
+
+@pytest.mark.parametrize("name", sorted(FIXTURES))
+def test_rb1_a_narrow_fixture_round_trips(name: str) -> None:
+    url4 = (COMBINE_CONTRACT / name).read_text(encoding="utf-8").removesuffix("\n")
+
+    _round_trip(url4, _url4)
+
+
+def _pinned_vote(weights: str | None = None) -> sf.Vote:
+    """The url4 pins every rule id, and the rebuild keeps the pins (rebuild-display §1): a vote
+    over the default rule rebuilds as ``Vote(over="last_line@1", normalize="text@1")``."""
+
+    return sf.Vote(over="last_line@1", normalize="text@1", weights=weights)
+
+
+_JUDGED = ["prov/alpha", "prov/beta", "prov/gamma", "prov/delta"]
+_REBUILT: dict[str, Callable[[], sf.Recipe]] = {
+    "narrow_filter_mean_candidate.url4": FIXTURES["narrow_filter_mean_candidate.url4"],
+    "narrow_rank_vote_candidate.url4": lambda: (
+        sf.Fanout(_JUDGED)
+        >> sf.Judge("prov/judge", rubric="Score each draft from 0 to 10.")
+        >> sf.Rank(2, by="score:judge")
+        >> _pinned_vote(weights="score:judge")
+    ),
+    "narrow_judge_rank_vote_candidate.url4": lambda: (
+        sf.Fanout(_JUDGED)
+        >> sf.Judge("prov/judge", rubric="Score each draft from 0 to 10.")
+        >> sf.Rank(2, by="score:judge")
+        >> _pinned_vote()
+    ),
+}
+
+
+@pytest.mark.parametrize("name", sorted(FIXTURES))
+def test_rb1_a_narrow_fixture_rebuilds_as_the_chain_it_was_compiled_from(name: str) -> None:
+    url4 = (COMBINE_CONTRACT / name).read_text(encoding="utf-8").removesuffix("\n")
+
+    assert rebuild(url4).value == _REBUILT[name]()
+
+
+def test_rb1_the_code_names_the_steps_in_the_new_form() -> None:
+    chain = (
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("prov/judge", rubric="Score it.")
+        >> sf.Rank(2, by="score:judge")
+        >> sf.Vote(weights="score:judge")
+    )
+
+    assert rebuild(_url4(chain)).python == (
+        "candidate = sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma'])"
+        " >> sf.Judge('prov/judge', rubric='Score it.')"
+        " >> sf.Rank(2, by='score:judge')"
+        " >> sf.Vote(over='last_line@1', normalize='text@1', weights='score:judge')"
+    )
+
+
+def test_rb1_a_gate_rebuilds_with_its_references() -> None:
+    chain = sf.Fanout(_ROUTES, signals={"conf": sf.Verbalized("C: ([0-9]+)")}) >> sf.Gate(
+        when=sf.signal("conf").mean() >= 3.0,
+        then=_pinned_vote(),
+        otherwise=sf.Synthesize("prov/writer"),
+        abstain_if=sf.signal("conf").mean().between(2.0, 4.0),
+    )
+
+    rebuilt = rebuild(_url4(chain))
+
+    assert rebuilt.value == chain
+    assert rebuilt.python == (
+        "candidate = sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma'], "
+        "signals={'conf': sf.Verbalized('C: ([0-9]+)')}) >> sf.Gate(when=sf.signal('conf').mean() "
+        ">= 3.0, then=sf.Vote(over='last_line@1', normalize='text@1'), "
+        "otherwise=sf.Synthesize('prov/writer'), "
+        "abstain_if=sf.signal('conf').mean().between(2.0, 4.0))"
+    )
+
+
+def test_rb1_an_optional_member_block_rebuilds_in_the_explicit_form() -> None:
+    inner = sf.Pipeline([sf.Fanout(["prov/a", "prov/b"]), _pinned_vote()], optional=True)
+    chain = sf.Fanout([inner, "prov/c"], quorum=1) >> _pinned_vote()
+
+    rebuilt = rebuild(_url4(chain))
+
+    assert rebuilt.value == chain
+    assert (
+        "sf.Pipeline([sf.Fanout(['prov/a', 'prov/b']), sf.Vote(over='last_line@1', "
+        "normalize='text@1')], optional=True)"
+    ) in rebuilt.python
+
+
+def test_rb1_a_selection_and_its_writer_rebuild_as_one_block() -> None:
+    chain = (
+        sf.Fanout(_ROUTES)
+        >> sf.Filter(where=sf.signal("cost_usd") < 1)
+        >> sf.Rank(2, by="cost_usd", order="min")
+        >> sf.Synthesize("prov/writer", prompt="Write it.")
+    )
+
+    rebuilt = rebuild(_url4(chain))
+
+    assert rebuilt.value == chain
+    assert rebuilt.python.endswith(
+        " >> sf.Filter(where=sf.signal('cost_usd') < 1.0) >> sf.Rank(2, by='cost_usd', "
+        "order='min') >> sf.Synthesize('prov/writer', prompt='Write it.')"
+    )
+
+
+def test_rb1_a_pinned_rule_rebuilds_as_its_rule_name() -> None:
+    chain = sf.Fanout(_ROUTES) >> sf.Vote(over="json")
+
+    # E2: the operator id json_object@1 rebuilds as the rule name, with its pin
+    assert rebuild(_url4(chain)).python.endswith(" >> sf.Vote(over='json@1', normalize='text@1')")
+
+
+@pytest.mark.parametrize(
+    ("row", "name"),
+    [
+        # today's Fusion of _ROUTES with Pick("confidence", order="max")
+        ("surface_rebuild:field-pick", "pick"),
+        # today's Fusion of _ROUTES with Rank(2, by_field="score"), then "prov/next"
+        ("surface_rebuild:rank-by-field", "rank"),
+    ],
+    ids=["field-pick", "rank-by-field"],
+)
+def test_rb1_a_url4_the_new_surface_cannot_express_is_refused(row: str, name: str) -> None:
+    # D3: a field pick reads a signal in the new surface, so today's json_field pick has no form
+    with pytest.raises(
+        ValueError, match=rf"^URL4 Candidate has a {name} spec this SDK version cannot rebuild$"
+    ):
+        rebuild(frozen_url4(row))
+
+
+def test_rb1_a_hand_edited_unknown_extract_op_cannot_rebuild() -> None:
+    url4 = _url4(sf.Fanout(_ROUTES) >> sf.Vote())
+    edited = url4.replace('"op":"last_line@1"', '"op":"zzz@1"')
+    assert edited != url4
+
+    with pytest.raises(
+        ValueError, match=r"^URL4 Candidate has a vote spec this SDK version cannot rebuild$"
+    ):
+        rebuild(edited)
+
+
+def test_rb1_a_byte_mismatch_of_the_converted_chain_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    url4 = _url4(sf.Fanout(_ROUTES) >> sf.Vote())
+    # the same operators (the url4 pins only these), but another name: other bytes
+    other = sf.Fanout(_ROUTES, name="other") >> sf.Vote()
+    monkeypatch.setattr(rebuild_module, "surface_value", lambda _value: other)
+
+    with pytest.raises(
+        ValueError, match=r"^URL4 Candidate has a recipe this SDK version cannot rebuild$"
+    ):
+        rebuild(url4)
+
+
+def test_rb1_a_statistic_select_rebuilds_with_no_pin() -> None:
+    # the step's select= takes "nearest" or "value"; the spec pins value@1
+    chain = sf.Fanout(_ROUTES) >> sf.Median(select="value")
+
+    assert rebuild(_url4(chain)).python.endswith(
+        " >> sf.Median(over='last_number@1', select='value')"
+    )
+
+
+# ---------------------------------------------------------------- the corrective loops
+
+_CHECK = _CheckSurface(
+    check_route="/benchmarks/ifeval/revision-1/check-surface",
+    feedback_intent="feedback",
+    expected_check_cost="free",
+)
+
+
+def _models(value: object) -> list[sf.Model]:
+    """Every Model of a value, in order: a member, a stage, a judge or a writer."""
+
+    if isinstance(value, sf.Model):
+        return [value]
+    children: list[object] = []
+    for name in ("members", "stages", "steps"):
+        children.extend(getattr(value, name, ()))
+    for name in ("judge", "member", "synthesizer", "model"):
+        child = getattr(value, name, None)
+        if isinstance(child, sf.Recipe):
+            children.append(child)
+    return [model for child in children for model in _models(child)]
+
+
+@pytest.mark.parametrize(
+    "loop",
+    [
+        lambda: sf.CorrectiveLoop(["prov/a", "prov/b"], judge="prov/j"),
+        lambda: sf.CorrectiveLoop(
+            [fusion_node(["prov/a", "prov/b"], "prov/w"), "prov/c"],
+            judge=sf.Pipeline(["prov/j", "prov/k"]),
+            max_rounds=2,
+        ),
+        lambda: sf.SelfCorrective(sf.Model("prov/a", prompt="Draft carefully."), max_rounds=4),
+    ],
+    ids=["models", "nested", "self"],
+)
+def test_rb1_a_corrective_loop_rebuilds_its_models_as_to_python_does(
+    loop: Callable[[], sf.Recipe],
+) -> None:
+    url4 = compile_candidate(loop(), check_surface=_CHECK).url4
+    namespace: dict[str, object] = {}
+    exec(sf.Url4(url4).to_python(), namespace)  # today's editable Python, with the real sf
+
+    rebuilt = rebuild(url4)
+
+    assert _models(rebuilt.value) == _models(namespace["candidate"])
+    assert "Answer the request" not in rebuilt.python  # no default prompt is written out
+    assert compile_candidate(_executed(rebuilt.python), check_surface=_CHECK).url4 == url4
+
+
+def test_rb1_a_url4_that_is_not_url4_is_refused() -> None:
+    with pytest.raises(ValueError, match=r"^URL4 must be valid URL4"):
+        rebuild("((")
+
+
+# ---------------------------------------------------------------- RB-3: repr
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [
+        (
+            lambda: (
+                sf.Fanout(["p/a", "p/b"]) >> sf.Judge("p/j", rubric="r") >> sf.ArgMax("score:judge")
+            ),
+            "Fanout(['p/a', 'p/b']) >> Judge('p/j', rubric='r') >> ArgMax('score:judge')",
+        ),
+        (
+            lambda: sf.Pipeline([sf.Fanout(["p/a", "p/b"]), sf.Vote()], name="x"),
+            "Pipeline([Fanout(['p/a', 'p/b']), Vote()], name='x')",
+        ),
+        (
+            lambda: sf.Pipeline([sf.Fanout(["p/a", "p/b"]), sf.Vote()], optional=True),
+            "Pipeline([Fanout(['p/a', 'p/b']), Vote()], optional=True)",
+        ),
+        (
+            lambda: sf.Pipeline([sf.Model("p/a"), sf.Model("p/b")]),
+            "Pipeline([Model('p/a'), Model('p/b')])",
+        ),
+        (
+            lambda: sf.Model("p/a") >> sf.Fanout(["p/b", "p/c"]) >> sf.Mean(),
+            "Model('p/a') >> Fanout(['p/b', 'p/c']) >> Mean()",
+        ),
+        (lambda: sf.Fanout(["p/a"]), "Fanout(['p/a'])"),
+    ],
+    ids=["judge-argmax", "named", "optional", "two-models", "model-first", "open-block"],
+)
+def test_rb3_a_chain_repr_uses_the_chain_operator(value: Callable[[], object], text: str) -> None:
+    assert repr(value()) == text
+
+
+@pytest.mark.parametrize(
+    ("step", "text"),
+    [
+        (lambda: sf.Vote(), "Vote()"),
+        (
+            lambda: sf.Vote(over="json", normalize="identity", weights="cost_usd"),
+            "Vote(over='json', normalize='identity', weights='cost_usd')",
+        ),
+        (lambda: sf.Vote(weights=(1, 2)), "Vote(weights=(1.0, 2.0))"),
+        (lambda: sf.Vote(over="benchmark"), "Vote(over='benchmark')"),
+        (
+            lambda: sf.Vote(over=sf.Extract("regex", pattern="A: (.*)")),
+            "Vote(over=Extract('regex', pattern='A: (.*)'))",
+        ),
+        (lambda: sf.Median(), "Median()"),
+        (
+            lambda: sf.Median(over="field:answer", select="value"),
+            "Median(over='field:answer', select='value')",
+        ),
+        (lambda: sf.Mean(select="nearest"), "Mean(select='nearest')"),
+        (lambda: sf.Rank(2, by="cost_usd"), "Rank(2, by='cost_usd')"),
+        (lambda: sf.Rank(1, by="p", order="min"), "Rank(1, by='p', order='min')"),
+        (
+            lambda: sf.Filter(where=sf.signal("p") >= 0.5),
+            "Filter(where=signal('p') >= 0.5)",
+        ),
+        (
+            lambda: sf.Filter(where=sf.matches("^A"), over="last_line"),
+            "Filter(where=matches('^A'), over='last_line')",
+        ),
+        (lambda: sf.Concat(), "Concat()"),
+        (lambda: sf.Concat(" | ", label=False), "Concat(' | ', label=False)"),
+        (lambda: sf.ArgMin("cost_usd", output="answer"), "ArgMin('cost_usd', output='answer')"),
+        (
+            lambda: sf.First(where=sf.field("ok", normalize="text") == "yes"),
+            "First(where=field('ok', normalize='text') == 'yes')",
+        ),
+        (
+            lambda: sf.JudgePick("p/j", rubric="r", params={"temperature": 0}),
+            "JudgePick('p/j', rubric='r', params={'temperature': 0})",
+        ),
+        (lambda: sf.Synthesize("p/w"), "Synthesize('p/w')"),
+        (
+            lambda: sf.Synthesize("p/w", prompt="Write it."),
+            "Synthesize('p/w', prompt='Write it.')",
+        ),
+        (
+            lambda: sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote()),
+            "Gate(when=agreement() >= 0.7, then=Vote())",
+        ),
+        (
+            lambda: sf.Merge({"answer": sf.FieldRule.from_member(1)}),
+            "Merge({'answer': FieldRule.from_member(1)})",
+        ),
+    ],
+)
+def test_rb3_a_step_repr_shows_only_the_arguments_that_differ(
+    step: Callable[[], object], text: str
+) -> None:
+    assert repr(step()) == text
+
+
+def test_rb3_a_member_with_options_shows_as_a_model() -> None:
+    fanout = sf.Fanout([sf.Model("p/a", prompt="Be brief."), "p/b"], quorum=1, name="pair")
+
+    assert (
+        repr(fanout) == "Fanout([Model('p/a', prompt='Be brief.'), 'p/b'], quorum=1, name='pair')"
+    )
+
+
+def test_rb3_to_python_is_the_import_and_the_rebuild_code() -> None:
+    # The swap (unit 7e): Url4.to_python is the import line and the rebuilt chain; a line over
+    # 100 characters is laid out one stage per line.
+    url4 = frozen_url4("surface_rebuild:vote")  # the Fusion of _ROUTES with Vote() before the swap
+
+    assert rebuild(url4).python == (
+        "candidate = sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma']) >> "
+        "sf.Vote(over='last_line@1', normalize='text@1')"
+    )
+    assert sf.Url4(url4).to_python() == (
+        "import screamingface as sf\n"
+        "\n"
+        "candidate = (\n"
+        "    sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma'])\n"
+        "    >> sf.Vote(over='last_line@1', normalize='text@1')\n"
+        ")"
+    )
+    short = _url4(sf.Fanout(["p/a", "p/b"]) >> sf.Vote())
+    assert sf.Url4(short).to_python() == (
+        "import screamingface as sf\n"
+        "\n"
+        "candidate = sf.Fanout(['p/a', 'p/b']) >> sf.Vote(over='last_line@1', normalize='text@1')"
+    )
+
+
+def test_rb3_to_python_rebuilds_a_narrow_url4() -> None:
+    # U5d lifted at the swap: a narrow step has its new-surface spelling
+    url4 = (COMBINE_CONTRACT / "narrow_filter_mean_candidate.url4").read_text(encoding="utf-8")
+    url4 = url4.removesuffix("\n")
+
+    source = sf.Url4(url4).to_python()
+
+    assert source.startswith("import screamingface as sf\n\ncandidate = ")
+    assert ">> sf.Filter(" in source
+    assert _url4(_executed(source)) == url4
+
+
+def test_rb3_to_python_lays_a_long_chain_out_one_stage_per_line() -> None:
+    chain = (
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("prov/judge", rubric="Score it.")
+        >> sf.Rank(2, by="score:judge")
+        >> sf.Vote(weights="score:judge")
+    )
+
+    assert sf.Url4(_url4(chain)).to_python() == (
+        "import screamingface as sf\n"
+        "\n"
+        "candidate = (\n"
+        "    sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma'])\n"
+        "    >> sf.Judge('prov/judge', rubric='Score it.')\n"
+        "    >> sf.Rank(2, by='score:judge')\n"
+        "    >> sf.Vote(over='last_line@1', normalize='text@1', weights='score:judge')\n"
+        ")"
+    )
+
+
+def test_rb3_to_python_lays_a_long_named_chain_out_one_step_per_line() -> None:
+    chain = sf.Pipeline(
+        [sf.Fanout(_ROUTES), sf.Judge("prov/judge", rubric="Score it."), sf.ArgMax("score:judge")],
+        name="judged",
+    )
+
+    assert sf.Url4(_url4(chain)).to_python() == (
+        "import screamingface as sf\n"
+        "\n"
+        "candidate = sf.Pipeline(\n"
+        "    [\n"
+        "        sf.Fanout(['prov/alpha', 'prov/beta', 'prov/gamma']),\n"
+        "        sf.Judge('prov/judge', rubric='Score it.'),\n"
+        "        sf.ArgMax('score:judge'),\n"
+        "    ],\n"
+        "    name='judged',\n"
+        ")"
+    )
+
+
+# ---------------------------------------------------------------- RB-1b, RB-2 (unit 7e)
+
+
+def _through_to_python(url4: str) -> sf.Recipe:
+    """The candidate that ``Url4.to_python()`` builds when it runs on its own (it imports sf)."""
+
+    namespace: dict[str, object] = {}
+    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
+    candidate = namespace["candidate"]
+    assert isinstance(candidate, sf.Recipe)
+    return candidate
+
+
+@pytest.mark.parametrize("slug", sorted(_NEW_FORM))
+def test_rb1b_every_doc_example_round_trips_through_to_python(slug: str) -> None:
+    # the judge rows (scores, label, judge-weighted, ranked) included: judge-template@2 rebuilds
+    example = _EXAMPLES[slug]
+    url4 = compile_example(example, _NEW_FORM[slug]())
+
+    assert compile_example(example, _through_to_python(url4)) == url4
+
+
+@pytest.mark.parametrize("case", sorted(_ROWS))
+def test_rb1b_every_parity_row_round_trips_through_to_python(case: str) -> None:
+    url4 = _url4(_ROWS[case]())
+
+    assert _url4(_through_to_python(url4)) == url4
+
+
+def test_rb1b_a_judge_chain_comes_back_as_the_chain_it_was_compiled_from() -> None:
+    chain = (
+        sf.Fanout(_ROUTES)
+        >> sf.Judge("prov/judge", rubric="Score it.", params={"temperature": 0})
+        >> sf.Filter(where=sf.signal("score:judge") >= 7)
+        >> sf.ArgMin("score:judge")
+    )
+
+    assert _through_to_python(_url4(chain)) == chain
+
+
+def test_rb2_a_judge_template_v1_scores_url4_is_refused() -> None:
+    # A0: a url4 compiled before judge-template@2 (its scores judge says @1) does not rebuild
+    url4 = _url4(
+        sf.Fanout(_ROUTES) >> sf.Judge("prov/judge", rubric="R") >> sf.ArgMax("score:judge")
+    )
+    old = url4.replace("judge-template@2 returns=scores", "judge-template@1 returns=scores")
+    assert old != url4
+
+    with pytest.raises(ValueError, match=r"^URL4 Candidate has an unsupported judge call$"):
+        sf.Url4(old).to_python()

@@ -18,7 +18,10 @@ Stages, in execution order (``main``):
               by this module's readers), seals the declaration, and replays it once more as
               every build will.
     Stage 2 — the card: the one Hugging Face Case Source's dataset card gives a cleared
-              licence, else ``TODO`` for the owner (D13). Network, import side only.
+              licence, else ``TODO`` for the owner (D13). Network, import side only. A
+              dataset that looks like a bundle of other datasets (many configs, a card
+              listing several source datasets, or a per-row source column) is ``TODO`` with
+              a warning, even when the card's licence is cleared (OME-1757).
     Stage 3 — write: the declaration and the BenchmarkSpec row are inserted at their
               files' anchor comments (task_replay_rows.py), using this module's renderers.
 
@@ -37,13 +40,14 @@ from __future__ import annotations
 
 import argparse
 import ast
+import inspect
 import json
 import re
 import sys
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from inspect import BoundArguments, Parameter, Signature
 from pathlib import Path
 from types import CodeType, FunctionType
@@ -54,6 +58,7 @@ from screamingface_engine.benchmarks.nltk_data import (
     NltkDataError,
     download_nltk_data,
 )
+from screamingface_engine_inspect.function_references import function_reference_problem
 from screamingface_engine_inspect.judge_shape import (
     JUDGE_PARAMETERS,
     UNKNOWN_ROLE,
@@ -232,6 +237,9 @@ class ScorerFacts:
     #: The model role the headline scorer asks inspect for in its body (simpleqa's
     #: ``get_model(role="grader")``), so the row's judge must fill it (OME-1602, F2).
     judge_role: str | None = None
+    #: Headline-scorer arguments that are module-level functions (drop's ``answer_fn=
+    #: extract_answer``), each as a dotted ``module:attribute`` reference (OME-1602, F1).
+    scorer_function_kwargs: dict[str, str] = field(default_factory=dict)
 
 
 #: The importing agent's per-Benchmark choice for a headline metric that is not a plain mean.
@@ -239,13 +247,16 @@ type WholeRunMetricChoice = Literal["honour", "mean"]
 
 
 def _scorer_facts(
-    task: Any, module: Any, whole_run_metric: WholeRunMetricChoice | None = None
+    task: Any,
+    module: Any,
+    whole_run_metric: WholeRunMetricChoice | None = None,
+    drop_scorers: tuple[str, ...] = (),
 ) -> ScorerFacts:
     """Every scorer the Task declares, kept or dropped by name (OME-1268).
 
     Stage 1 — list the declared scorers; none is a refusal.
     Stage 2 — one scorer: resolve it exactly as before (a judged one takes the judged row).
-    Stage 3 — several: keep each one that grades without a judge, in upstream order; a
+    Stage 3 — several: keep each one that grades without a judge, in inspect_evals' order; a
               judged one cannot be seated (only a single-scorer row pins a judge), so it is
               written to ``dropped_scorers`` by name. None kept is a refusal.
     Stage 4 — the tripwire: the headline scorer's first declared metric must be a plain mean
@@ -258,6 +269,11 @@ def _scorer_facts(
     a role asked in the scorer's body becomes the row's ``judge_role``; a panel of judges,
     or a ``get_model()`` that grades with the model under test, is refused on a single
     scorer and dropped by name beside others (:func:`judge_shape`).
+
+    ``drop_scorers`` are extra scorers the importing agent leaves out by registry name, a
+    Named Deviation the owner decided per Benchmark (stereoset's bias score, OME-1602): they
+    join ``dropped_scorers`` before Stage 4's checks. The headline scorer, or a name the Task
+    does not declare, is refused.
     """
 
     from screamingface_engine_inspect.scorer_metrics import (
@@ -275,6 +291,7 @@ def _scorer_facts(
         _resolve_scorer(scorer, module) for scorer in declared
     ]
     kept, judge_role = _kept_scorers(resolved)
+    kept = _without_dropped_by_name(resolved, kept, drop_scorers)
     if not kept:
         dropped_names: list[str] = [name for _, _, name in resolved]
         raise ImporterError(
@@ -317,6 +334,7 @@ def _scorer_facts(
             whole_run_metric=honoured,
             mean_instead_of=kept_mean,
             judge_role=judge_role,
+            scorer_function_kwargs=_function_arguments(headline_scorer),
         )
     _check_kept_scorers(declared, resolved, kept)
     dropped_metrics: list[str] = []
@@ -327,7 +345,10 @@ def _scorer_facts(
         scorer_kwargs=headline_kwargs,
         scorer_name=headline_name,
         extra_scorers=tuple(resolved[index][0] for index in kept[1:]),
-        named_scores=tuple(resolved[index][2] for index in kept),
+        # WHY none for one kept scorer: a lone Named Score tells the grader the scorer returns
+        # a dict keyed by it (simpleqa's), so a plain "C" would fail every Case. With the rest
+        # dropped, the row grades like a single-scorer row and still names the drop.
+        named_scores=(tuple(resolved[index][2] for index in kept) if len(kept) > 1 else ()),
         dropped_scorers=tuple(
             resolved[index][2] for index in range(len(declared)) if index not in kept
         ),
@@ -335,6 +356,7 @@ def _scorer_facts(
         dropped_metrics=tuple(dropped_metrics),
         whole_run_metric=honoured,
         mean_instead_of=kept_mean,
+        scorer_function_kwargs=_function_arguments(headline_scorer),
     )
 
 
@@ -413,8 +435,11 @@ def _unseen_judge_role(name: str, params: Mapping[str, Any], shape: JudgeShape) 
             "grades differently by the Candidate's name, so Candidates would not be graded "
             "alike. Add the row by hand (OME-1602)"
         )
-    unread: list[str] = [where for role, where in shape.roles if role == UNKNOWN_ROLE]
-    if unread:
+    # WHY given by the kwargs (OME-1478): hle asks for the role its own ``grader_role``
+    # argument holds, and the kwargs this row is written with fill that argument.
+    given: tuple[str, ...] = shape.roles_given(params)
+    if UNKNOWN_ROLE in given:
+        unread: list[str] = [where for role, where in shape.roles if role == UNKNOWN_ROLE]
         raise ImporterError(
             f"scorer {name} asks for a model role held in a variable (get_model(role=...) in "
             f"{unread[0]}), so no row can name the judge that fills it. Add the row by hand "
@@ -425,7 +450,7 @@ def _unseen_judge_role(name: str, params: Mapping[str, Any], shape: JudgeShape) 
             f"scorer {name} could not be read in full ({shape.unread[0]}), so the importer "
             "cannot tell whether it reaches a judge. Add the row by hand (OME-1602)"
         )
-    roles: list[str] = [role for role, _ in shape.roles]
+    roles: list[str] = list(given)
     if len(roles) > 1 or (roles and roles[0] != _GRADER_ROLE):
         raise ImporterError(
             f"scorer {name} asks for the model role(s) {', '.join(map(repr, roles))}; a row "
@@ -471,6 +496,34 @@ def _whole_run_choice(
     return reference, None
 
 
+def _without_dropped_by_name(
+    resolved: list[tuple[str, dict[str, Any], str]], kept: list[int], drop_scorers: tuple[str, ...]
+) -> list[int]:
+    """The kept scorers minus the extra ones the agent drops by name (OME-1602).
+
+    Worked example, stereoset: kept [0, 1] (multiple_choice_scorer, stereoset_scorer) and
+    ``drop_scorers=("stereoset_scorer",)`` → [0]. Dropping ``multiple_choice_scorer``, the
+    headline, is refused: the Benchmark would grade by something else under the eval's name.
+    """
+
+    names: list[str] = [name for _, _, name in resolved]
+    kept_names: list[str] = [names[index] for index in kept]
+    for name in drop_scorers:
+        if name not in names:
+            raise ImporterError(f"--drop-scorer {name}: the task declares no scorer {name!r}")
+        if name not in kept_names:
+            raise ImporterError(
+                f"--drop-scorer {name}: it is already left out, because it grades with a judge "
+                "a multi-scorer row cannot pin; drop the flag"
+            )
+        if kept and names[kept[0]] == name:
+            raise ImporterError(
+                f"--drop-scorer {name}: that is the headline scorer; only an extra scorer can "
+                "be left out by name"
+            )
+    return [index for index in kept if names[index] not in drop_scorers]
+
+
 def _check_kept_scorers(
     declared: list[Any], resolved: list[tuple[str, dict[str, Any], str]], kept: list[int]
 ) -> None:
@@ -481,7 +534,7 @@ def _check_kept_scorers(
     WHY refuse arguments on an extra scorer: it is constructed bare at grading time
     (benchmarks.py keeps kwargs for the headline scorer only), so `match(numeric=True)`
     written as `match()` would pin the wrong configuration into the Revision as faithful —
-    "1,889" grades C upstream and I here. Never truncated, never silent.
+    "1,889" grades C in inspect_evals and I here. Never truncated, never silent.
     WHY refuse an extra scorer whose whole-run metric is not a mean (OME-1602, F5): a Named
     Score column is the mean of that scorer's per-Case scores, so stereoset's formula would
     be published as a mean under its name. Only the headline's metric was checked before.
@@ -536,19 +589,75 @@ def _resolve_scorer(scorer: Any, module: Any) -> tuple[str, dict[str, Any], str]
     passed: dict[str, Any] | None = getattr(scorer, _PASSED_ARGUMENTS, None)
     if passed is not None:
         _refuse_unwritable_arguments(name, logged, passed)
-    params: dict[str, Any] = {key: value for key, value in logged.items() if _is_literal(value)}
+    # WHY skip a function: inspect logs it as its name, a literal string that would rebuild
+    # the scorer with that string; the row names it by reference instead (OME-1602, PR 6).
+    functions: set[str] = set(_function_arguments(scorer))
+    params: dict[str, Any] = {
+        key: value for key, value in logged.items() if _is_literal(value) and key not in functions
+    }
+    reference: str
     if package == "inspect_ai":
         import inspect_ai.scorer as scorer_module
 
         if not hasattr(scorer_module, name):
             raise ImporterError(f"scorer {registry_name!r} is not exported by inspect_ai.scorer")
-        return f"inspect_ai.scorer:{name}", params, name
-    if hasattr(module, name):
-        return f"{module.__name__}:{name}", params, name
-    raise ImporterError(
-        f"cannot resolve scorer {registry_name!r} to an importable constructor — "
-        "add the row by hand with the eval's own scorer reference"
+        reference = f"inspect_ai.scorer:{name}"
+    elif hasattr(module, name):
+        reference = f"{module.__name__}:{name}"
+    else:
+        home: str | None = _home_in_eval_package(registry_name, name, module)
+        if home is None:
+            raise ImporterError(
+                f"cannot resolve scorer {registry_name!r} to an importable constructor — "
+                "add the row by hand with the eval's own scorer reference"
+            )
+        reference = f"{home}:{name}"
+    _refuse_foreign_functions(name, reference, module, scorer)
+    return reference, params, name
+
+
+def _home_in_eval_package(registry_name: str, name: str, module: Any) -> str | None:
+    """The module that defines a scorer the Task module does not bind, when it sits inside the
+    eval's own package; None otherwise.
+
+    FEATURE (OME-1478): HLE's Task builds ``regex_judge`` from a spec, and the factory lives in
+    ``inspect_evals.hle.scorers``, which ``inspect_evals.hle.hle`` never binds by that name.
+    WHY the eval's package only: a row names its own eval's code, and assembly reads a scorer
+    from its source inside that package; a factory from another eval is refused as before.
+    WHY the factory's own module: it is where ``module:name`` imports the same object back,
+    which is checked, so the row never names a re-export that could drift.
+    """
+
+    import importlib
+
+    from inspect_ai._util.registry import registry_lookup
+
+    factory: Any = registry_lookup("scorer", registry_name)
+    home: str | None = getattr(factory, "__module__", None)
+    # WHY the module itself when it has a __path__: a Task in a package's __init__ IS the
+    # eval's package; its parent would be every eval (``inspect_evals``).
+    package: str = (
+        module.__name__ if hasattr(module, "__path__") else module.__name__.rpartition(".")[0]
     )
+    if home is None or not package or not home.startswith(f"{package}."):
+        return None
+    return home if getattr(importlib.import_module(home), name, None) is factory else None
+
+
+def _refuse_foreign_functions(name: str, reference: str, module: Any, scorer: Any) -> None:
+    """Refuse a function argument from outside the eval's own package, here at import, by the
+    rule assembly applies to the row (`function_reference_problem`), so no row is written that
+    assembly would refuse. Example: ``keyed(answer_fn=textwrap.dedent)`` is refused."""
+
+    for argument, function in _function_arguments(scorer).items():
+        problem: str | None = function_reference_problem(
+            function, task=module.__name__, scorer=reference
+        )
+        if problem is not None:
+            raise ImporterError(
+                f"scorer {name} is created with {argument}={function}, which {problem}. Add "
+                "the row by hand (OME-1602)"
+            )
 
 
 #: The attribute the recorder sets on each scorer it sees: the creation arguments as passed.
@@ -664,11 +773,51 @@ def _refuse_unwritable_arguments(
         value: Any = passed.get(argument, _NOT_RECORDED)
         if _is_literal(value) and _as_logged(value) == logged_value:
             continue
+        if _function_reference(value) is not None:
+            # A module-level function the row can name and grading can import (OME-1602,
+            # PR 6): written as a reference beside the literal kwargs, never as its name.
+            continue
         raise ImporterError(
             f"scorer {scorer_name} is created with {argument}={logged_value!r}, but that is how "
             f"inspect logs a {type(value).__name__} it cannot write down; the row would "
             "rebuild the scorer with a different value. Add the row by hand (OME-1602)"
         )
+
+
+def _function_reference(value: Any) -> str | None:
+    """A function's dotted ``module:attribute`` reference when importing that name gives back
+    this very function, else None.
+
+    Worked example: drop's ``extract_answer`` → ``inspect_evals.drop.drop:extract_answer``. A
+    lambda, a function defined inside another (``<locals>`` in its qualified name), a bound
+    method, or a name that now points elsewhere gives None, so the scorer stays refused: the
+    row could not rebuild the same argument.
+    """
+
+    if not inspect.isfunction(value):
+        return None
+    qualified: str = value.__qualname__
+    module: Any = sys.modules.get(value.__module__)
+    nameable: bool = (
+        "<" not in qualified
+        and "." not in qualified
+        and module is not None
+        and getattr(module, qualified, None) is value
+    )
+    return f"{value.__module__}:{qualified}" if nameable else None
+
+
+def _function_arguments(scorer: Any) -> dict[str, str]:
+    """The headline scorer's function arguments as references, from the recorder's record;
+    empty when the recorder did not see the scorer (an in-process caller)."""
+
+    passed: dict[str, Any] = getattr(scorer, _PASSED_ARGUMENTS, None) or {}
+    references: dict[str, str] = {}
+    for argument, value in passed.items():
+        reference: str | None = _function_reference(value)
+        if reference is not None:
+            references[argument] = reference
+    return references
 
 
 def _as_logged(value: Any) -> Any:
@@ -717,6 +866,25 @@ def _hub_dataset_info(dataset: str, revision: str | None) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _function_argument_lines(scorer_function_kwargs: Mapping[str, str]) -> list[str]:
+    """The row's function arguments by reference, or nothing when the scorer takes none.
+
+    WHY its own field: a real string argument (a regex) may contain a colon, so a function
+    reference must never share scorer_kwargs (OME-1602, PR 6).
+    """
+
+    if not scorer_function_kwargs:
+        return []
+    rendered: str = ", ".join(
+        f"{json.dumps(name)}: {json.dumps(reference)}"
+        for name, reference in sorted(scorer_function_kwargs.items())
+    )
+    return [
+        "        # Functions the eval passes its scorer, resolved by reference at grading.",
+        f"        scorer_function_kwargs={{{rendered}}},",
+    ]
+
+
 def _scorer_lines(
     scorer: str,
     scorer_kwargs: Mapping[str, Any],
@@ -733,6 +901,7 @@ def _scorer_lines(
     mean_instead_of: str | None = None,
     whole_run_headline: str | None = None,
     judge_role: str | None = None,
+    scorer_function_kwargs: Mapping[str, str] | None = None,
 ) -> list[str]:
     """The scorer, metric, judge and check-surface lines of a BenchmarkSpec row.
 
@@ -747,12 +916,13 @@ def _scorer_lines(
         # WHY json.dumps for str values AND names: repr's single quotes fail the
         # emitted file's ruff-format gate; json escaping is as injection-safe as
         # repr's. Names are registry_params keys — identifiers in practice, but
-        # a **kwargs-taking scorer could carry arbitrary upstream strings.
+        # a **kwargs-taking scorer could carry arbitrary inspect_evals strings.
         rendered_kwargs: str = ", ".join(
             f"{json.dumps(name)}: {_python_literal_source(value)}"
             for name, value in sorted(scorer_kwargs.items())
         )
         benchmark_lines.append(f"        scorer_kwargs={{{rendered_kwargs}}},")
+    benchmark_lines.extend(_function_argument_lines(scorer_function_kwargs or {}))
     benchmark_lines.extend(
         _named_score_lines(
             extra_scorers, named_scores, dropped_scorers, headline_differs, dropped_metrics
@@ -844,13 +1014,21 @@ def _named_score_lines(
             "        # Named Deviation (OME-1268): the Task also declares "
             f"{', '.join(dropped_scorers)}, left out"
         )
-        lines.append("        # because it grades with a judge model, and a multi-scorer row pins")
-        lines.append("        # no judge. Name the drop and its effect in the description; the")
-        lines.append("        # dropped name is part of the Benchmark Revision.")
-        lines.append(f"        dropped_scorers={_tuple_literal(dropped_scorers)},")
-    if headline_differs and named_scores:
         lines.append(
-            f"        # TODO(review): the Headline Score is {named_scores[0]}, not upstream's"
+            "        # because it grades with a judge model a multi-scorer row cannot pin,"
+        )
+        lines.append(
+            "        # or because the importing agent dropped it (--drop-scorer). Name the"
+        )
+        lines.append("        # drop and its effect in the description; the dropped name is part")
+        lines.append("        # of the Benchmark Revision.")
+        lines.append(f"        dropped_scorers={_tuple_literal(dropped_scorers)},")
+    if headline_differs:
+        # WHY not only beside Named Scores: with one scorer left after drops the row writes
+        # none, and the moved headline still needs a reviewer's eye (OME-1602, PR 5 review).
+        headline: str = named_scores[0] if named_scores else "the one scorer kept"
+        lines.append(
+            f"        # TODO(review): the Headline Score is {headline}, not inspect_evals'"
         )
         lines.append("        # first scorer — confirm the description names which column ranks.")
     for metric_name in dropped_metrics:
@@ -931,6 +1109,23 @@ def _is_judged_by(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
     if scorer.rpartition(":")[2].startswith("model_graded_"):
         return True
     return any(name in _JUDGE_MODEL_KWARG_NAMES for name in scorer_kwargs)
+
+
+def _grades_with_a_judge(
+    scorer: str, scorer_kwargs: Mapping[str, Any], judge_role: str | None
+) -> bool:
+    """Whether the imported row is written judged: its scorer takes a judge by name or kwarg,
+    asks for a model role, or leaves a judge parameter at its default (OME-1602, F2).
+
+    The one home for the rule: the row writer emits the TODO judge on it, and the import
+    child keeps each Case's Sample input for that judge on it (OME-1755).
+    """
+
+    return (
+        _is_judged_by(scorer, scorer_kwargs)
+        or judge_role is not None
+        or _leaves_a_judge_parameter_unpassed(scorer, scorer_kwargs)
+    )
 
 
 def _leaves_a_judge_parameter_unpassed(scorer: str, scorer_kwargs: Mapping[str, Any]) -> bool:
@@ -1040,6 +1235,8 @@ class TaskReplayImporter(Protocol):
         keep_sample_metadata: bool,
         whole_run_metric: WholeRunMetricChoice | None = None,
         empty_answer_key_allowed: bool = False,
+        letter_list_key: bool = False,
+        drop_scorers: tuple[str, ...] = (),
     ) -> TaskReplayImport:
         """Seal the Cases by two replays, as import_replay.import_by_task_replay does."""
         ...
@@ -1116,7 +1313,7 @@ def _add_task_replay_arguments(parser: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         metavar="ID",
-        help="an upstream Sample id to leave out (repeatable), a Named Deviation whose "
+        help="an inspect_evals Sample id to leave out (repeatable), a Named Deviation whose "
         "reason the row must state, e.g. stages_full:14",
     )
     # WHY exclusive: one says no Sample has an answer key, the other that some do.
@@ -1135,10 +1332,25 @@ def _add_task_replay_arguments(parser: argparse.ArgumentParser) -> None:
         "Samples with a key are checked as usual",
     )
     parser.add_argument(
+        "--letter-list-key",
+        action="store_true",
+        help="multiple-choice Samples key several options by letter, as a list (stereoset) "
+        "or one comma-joined string (chembench's A,D); each letter is checked against the "
+        "options instead of the key being refused",
+    )
+    parser.add_argument(
         "--keep-sample-metadata",
         action="store_true",
         help="keep the Sample metadata although the scorer is inspect's own, because a "
         "Judge template reads it (coconot's rubric)",
+    )
+    parser.add_argument(
+        "--drop-scorer",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="an extra scorer to leave out by its registry name (repeatable), a Named "
+        "Deviation the row shows, e.g. stereoset_scorer (OME-1602)",
     )
     parser.add_argument(
         "--whole-run-metric",
@@ -1201,6 +1413,7 @@ def _import_by_task_replay_cli(
         import_by_task_replay as replay_both_times,
     )
     from screamingface_engine_inspect.task_replay_rows import (
+        AGGREGATE_DATASET_WARNING,
         CardLicense,
         card_license_of,
         write_task_replay_rows,
@@ -1217,6 +1430,12 @@ def _import_by_task_replay_cli(
     empty_key_option: dict[str, Any] = (
         {"empty_answer_key_allowed": True} if args.empty_answer_key_allowed else {}
     )
+    # WHY only when given, like the empty-key option: a command without these flags passes the
+    # import exactly the options it always did (OME-1602).
+    letter_option: dict[str, Any] = {"letter_list_key": True} if args.letter_list_key else {}
+    drop_option: dict[str, Any] = (
+        {"drop_scorers": tuple(args.drop_scorer)} if args.drop_scorer else {}
+    )
     imported: TaskReplayImport = (import_by_task_replay or replay_both_times)(
         args.task_ref,
         _parse_task_args(args.task_arg),
@@ -1229,6 +1448,8 @@ def _import_by_task_replay_cli(
         # passes the import exactly the options it always did.
         **({} if args.whole_run_metric is None else {"whole_run_metric": args.whole_run_metric}),
         **empty_key_option,
+        **letter_option,
+        **drop_option,
     )
     imported = _with_nltk_data(imported, args.nltk_resource)
     card: CardLicense = card_license_of(
@@ -1243,6 +1464,7 @@ def _import_by_task_replay_cli(
         provenance=read_provenance_facts(args.task_ref, fetch=arxiv_fetch),
         whole_run_headline=args.whole_run_headline,
         retrieval_policy=retrieval_policy,
+        aggregate_signal=card.aggregate_signal,
     )
     sources: str = "\n".join(f"  {source.as_comment()}" for source in imported.case_sources)
     print(
@@ -1255,6 +1477,11 @@ def _import_by_task_replay_cli(
         "a human decides the license and reviews the diff before merge.",
         file=sys.stderr,
     )
+    if card.aggregate_signal is not None:
+        # WHY not a refusal: the shape only hints at a bundle (OME-1757). The import still
+        # succeeds; its licence is TODO, which the licence gate refuses until a human who
+        # checked each source writes the line.
+        print(f"WARNING: {AGGREGATE_DATASET_WARNING} ({card.aggregate_signal}).", file=sys.stderr)
 
 
 def _with_nltk_data(imported: TaskReplayImport, resources: list[str]) -> TaskReplayImport:

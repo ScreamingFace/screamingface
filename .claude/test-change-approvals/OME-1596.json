@@ -1,0 +1,29 @@
+{
+  "issue": "OME-1596",
+  "branch": "OME-1596-reproducible-row-mark",
+  "approver": "owner (Filip), approved through the coordinator on 2026-10-15; to confirm in PR review",
+  "date": "2026-10-15",
+  "scope": "Two prior tests the approved spec breaks in the storage commit. test_metadata_migration_applies_to_a_populated_database migrated to HEAD and pinned the exact score_metadata_events column set; spec section 2 adds four columns there, so it now migrates to 0019_score_metadata and asserts what 0019 adds (0021 has its own test). test_the_same_run_id_on_another_score_is_a_new_record and test_score_read_shows_the_count_and_the_last_time submitted two scores naming the same frozen copy; spec section 5 (one copy, one score) refuses the second, so the second score and its reproduction record use OTHER_COPY_ID. In the rows and portal commit, apps/scoreboard/tests/portal/reproduced-count.test.js (blob 5cfa7d111b352582a2ec7a468deb912b8890a9be) is deleted with the 'Reproduced N times' line it asserted (spec section 6), dropped from scoreboard-tests.yml and the sdlc card's gate line, and replaced by tests/portal/spec-meta-lines.test.js, which compares the whole list of lines the page renders.",
+  "reason": "The tests pinned a schema and a shared frozen copy that the owner-approved OME-1596 spec changes; every assertion keeps its shape and meaning.",
+  "visibility_guard_approval": {
+    "date": "2026-10-19",
+    "approver": "owner (Filip), explicit yes in conversation",
+    "scope": "Two documented EXPECTED_UNGUARDED entries: pinned-cache malformed-id/error raises and initial store-helper returns. No successful-response exemption or analyzer change.",
+    "reason": "Corrected visibility docstrings bring these functions into the static survey. The route now revalidates before its successful return; only safe errors and non-response helper returns remain unguarded."
+  },
+  "files": {
+    "apps/scoreboard/tests/unit/guards/test_visibility_exit_guard.py": {
+      "base_blob": "64a8c78673631efc7d40d0bee474c3e839b5a67b",
+      "approved_blob": "ab76c6c0e5b6cdee1ff333393bf4618122ddda92"
+    },
+    "apps/scoreboard/tests/unit/test_score_metadata_events.py": {
+      "base_blob": "99da8d88fede51bd6f6650f2ccb130fbc0f8b703",
+      "approved_blob": "da8b7d2e37c13fb005d1489afbdb74c2a9e1accf"
+    },
+    "apps/scoreboard/tests/unit/test_score_reproductions.py": {
+      "base_blob": "52eae1f530ac113d0b9e780c7e620000624240ea",
+      "approved_blob": "38122f82d7076a0f04c9468eeccb09ae862e936c"
+    }
+  },
+  "note": "Owner approved all three changes on 2026-10-15. The deleted file cannot be blob-approved (the manifest pins before and after blobs, and a deletion has no after), so, as with OME-1460's deleted files, it rides the owner's --skip-append-only press; the append-only check reports exactly that one deletion and nothing else."
+}

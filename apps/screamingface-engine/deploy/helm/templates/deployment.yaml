@@ -39,6 +39,10 @@ spec:
         # updated, running pod kept the OLD env, silently wrong behavior).
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        # The blob store's key pair (OME-1540; #1603 review round 2): the App reads it by named
+        # secretKeyRef, which a running pod never re-reads — so a rotation must roll the App, as
+        # it already rolls the runner pool.
+        checksum/blob-secret: {{ include (print $.Template.BasePath "/secret-blob-storage.yaml") . | sha256sum }}
         {{- if include "screamingface-engine.artifactSigningConfigured" . }}
         # FX-81: the App SIGNS a mount result's 303 and VERIFIES it with this same key (OQ-3.2),
         # so a rotated signing Secret must roll the App — without this annotation the App keeps
@@ -46,6 +50,11 @@ spec:
         # The checksum hashes the key's SOURCE — see the `artifactSigningChecksum` helper.
         checksum/artifact-signing: {{ include "screamingface-engine.artifactSigningChecksum" . }}
         {{- end }}
+        {{- if include "screamingface-engine.worldConfigEnabled" . }}
+        # OME-1770: the SAME supplied content revision as the pool's — see `worldConfig`.
+        checksum/world-config: {{ .Values.worldConfig.contentChecksum | quote }}
+        {{- end }}
+        {{- include "screamingface-engine.guardPodAnnotations" . }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -122,12 +131,18 @@ spec:
                 name: {{ include "screamingface-engine.tracingSecretName" . }}
             {{- end }}
           env:
+            # The blob store's key pair (OME-1540; #1603 review), by NAMED key rather than envFrom:
+            # the blob Secret also holds the blob Garage's RPC secret, which must reach Garage only.
+            {{- include "screamingface-engine.blobCredentialEnv" . | nindent 12 }}
             # HS256 topic-capability signing secret (spec §4). Never logged.
             - name: URL4_CLOUD_JWT_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ include "screamingface-engine.authSecretName" . }}
                   key: {{ .Values.auth.jwtSecretKey }}
+            {{- if include "screamingface-engine.worldConfigEnabled" . }}
+            {{- include "screamingface-engine.worldConfigEnv" . | nindent 12 }}
+            {{- end }}
           lifecycle:
             preStop:
               exec:
@@ -144,9 +159,15 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if include "screamingface-engine.worldConfigEnabled" . }}
+            {{- include "screamingface-engine.worldConfigMount" . | nindent 12 }}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if include "screamingface-engine.worldConfigEnabled" . }}
+        {{- include "screamingface-engine.worldConfigVolume" . | nindent 8 }}
+        {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

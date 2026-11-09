@@ -97,21 +97,22 @@ def test_the_client_threads_capture_to_the_transport() -> None:
 
     assert transport.candidate is not None
     assert transport.candidate.capture is True
-    assert (result.frozen_copy_id, result.capture_status) == (COPY, "complete")
+    assert (result.pinned_cache, result.capture_status) == (COPY, "complete")
 
 
-def test_the_client_captures_by_default() -> None:
+def test_the_client_does_not_capture_by_default() -> None:
     transport = _ReplayTransport()
     with sf.Client(
         engine_url="https://engine.example",
         http_transport=httpx.MockTransport(_engine),
         run_transport=transport,
     ) as client:
-        with pytest.warns(sf.EvaluationWarning, match="did not capture"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", sf.EvaluationWarning)
             client.evaluate(REPLAY_URL4, progress=False)
 
     assert transport.candidate is not None
-    assert transport.candidate.capture is True
+    assert transport.candidate.capture is False
     assert transport.candidate.replay_frozen_copy is None
 
 
@@ -212,7 +213,9 @@ async def test_the_async_recipe_path_stamps_capture_on_every_compiled_candidate(
 def test_every_evaluate_door_takes_capture_and_none_takes_a_replay(target: object) -> None:
     parameters = inspect.signature(target).parameters  # type: ignore[arg-type]
 
-    assert parameters["capture"].default is True
+    # OME-1613 (S6, owner 2026-10-21): None means "on" (see test_evaluate_doors.py); only an
+    # explicit capture=True can be refused on a pinned-cache replay.
+    assert parameters["capture"].default is None
     assert "replay_frozen_copy" not in parameters
     assert "frozen_copy_id" not in parameters
 
@@ -241,7 +244,7 @@ def test_module_level_evaluate_forwards_capture_on_both_branches(
     assert [kwargs["capture"] for _, kwargs in fake.calls] == [capture, capture]
 
 
-def test_module_level_evaluate_captures_by_default(
+def test_module_level_evaluate_does_not_capture_by_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake = _RecordingDefaultClient()
@@ -250,7 +253,7 @@ def test_module_level_evaluate_captures_by_default(
     sf.evaluate(REPLAY_URL4)
     sf.evaluate(sf.Model("provider/opus"), benchmark="draco")
 
-    assert [kwargs["capture"] for _, kwargs in fake.calls] == [True, True]
+    assert [kwargs["capture"] for _, kwargs in fake.calls] == [False, False]
 
 
 # --- a capture the Engine did not make ------------------------------------------------------------
@@ -262,7 +265,7 @@ def test_capture_without_a_capture_status_warns_and_keeps_the_fields_none() -> N
         report = evaluate_url4_sync(_ReplayTransport(), REPLAY_URL4, None, False, capture=True)
 
     (result,) = report.candidates
-    assert (result.frozen_copy_id, result.capture_status) == (None, None)
+    assert (result.pinned_cache, result.capture_status) == (None, None)
     assert "it cannot be reproduced" in str(caught[0].message)
     assert result.name in str(caught[0].message)
 

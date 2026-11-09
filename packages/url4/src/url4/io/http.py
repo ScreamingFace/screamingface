@@ -3,19 +3,48 @@
 The only module in the package that imports httpx. It owns a single, lazily
 created :class:`httpx.AsyncClient` so the many fetches of one expression (a
 fan-out's N sources plus its reducer) share one connection pool via keep-alive,
-instead of paying a fresh TCP+TLS handshake per fetch.
+instead of paying a fresh TCP+TLS handshake per fetch. Its private helpers
+``_guarded_transport`` / ``_source_policy`` hold the destination guard (spec F1b).
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
+from collections.abc import Callable
 from email.utils import parsedate_to_datetime
 
 import httpx
 
-from url4.core.errors import ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
+from url4.core.url_display import display_url
+from url4.io._guarded_transport import (
+    FETCH_STATE,
+    FetchState,
+    GuardedTransport,
+    Origin,
+    Resolver,
+    deadline_in,
+    origin_of,
+    past,
+    system_resolver,
+)
+from url4.io._hops import fetch_following
+from url4.io._redacted_status import redacted_status_error
+from url4.io._source_policy import (
+    SourceGuard,
+    check_url,
+    has_userinfo,
+    redirect_limit,
+    source_timeout,
+)
+from url4.io.close_once import CloseOnce
 from url4.io.idempotency import idempotency_key, mark_answered
 from url4.io.layer import FetchRequest, FetchResult
+from url4.io.media import FetchedBytes, bare_media_type, require_text
+
+# Headers that describe the wire encoding of a body this adapter has already decoded.
+_DECODED_AWAY = frozenset({"content-encoding", "content-length", "transfer-encoding"})
 
 
 class HttpIOLayer:
@@ -28,7 +57,10 @@ class HttpIOLayer:
     ``url4://`` target is translated to ``https://`` for transport (spec §3.5 —
     the URL4 scheme rides HTTPS on the wire). :meth:`fetch_ex` additionally
     reports the response's media type so collection parsing can be
-    Content-Type-driven (spec §5.3.7).
+    Content-Type-driven (spec §5.3.7), and :meth:`fetch_bytes` returns the raw
+    body unmodified for binary sources (PNG, PDF). The text paths refuse a binary
+    media type with ``unsupported_content_type`` rather than decode it. A
+    request's ``;accept=`` annotation is sent as the ``Accept`` header.
 
     A single :class:`httpx.AsyncClient` is created on the first fetch and reused
     for the adapter's lifetime, so pooling / keep-alive apply across a fan-out.
@@ -42,6 +74,23 @@ class HttpIOLayer:
     Inside a retrying guard every request carries the guard's ``Idempotency-Key``
     header, and every received response marks its target answered, so the next
     request to it gets a new key (:mod:`url4.io.idempotency`, "reuse until answered").
+
+    The OWNED client is built on the destination guard (spec F1b, ``OME-1544``) configured by
+    ``guard`` (:class:`SourceGuard`; strict defaults): ``https`` only, no loopback / private /
+    link-local / CGNAT / metadata address after DNS and on any redirect hop, connections
+    pinned to the vetted IP (SNI and ``Host`` kept), at most ``guard.max_redirects`` hops, no
+    ``https``→``http`` downgrade, no embedded credentials (``user:pass@`` userinfo) on any hop,
+    environment proxies ignored, and a ``url4://`` peer only when its host is in
+    ``guard.peer_hosts`` (empty by default: no remote-node calls).
+    ``resolver`` replaces the system DNS lookup. Only the FIRST hop of a relative fetch against
+    the operator-set ``base_url`` origin is trusted; every redirect hop, and an absolute target
+    that spells that origin out, is checked. The whole owned fetch, redirects included, runs
+    under ``guard.total_timeout`` seconds. The owned client asks for ``Accept-Encoding:
+    identity`` and decodes at most one gzip/deflate layer in bounded steps, refusing stacked or
+    other codings (``x.source_too_large``), so its cap on ``guard.max_bytes`` decoded bytes holds
+    with bounded memory. Each refusal is a typed ``x.source_*`` ResolutionError.
+    AIDEV-NOTE: an injected ``client`` is used as-is — its owner chose its destinations,
+    timeouts and decoding, so only the size cap applies to it (checked after httpx decodes).
     """
 
     def __init__(
@@ -50,12 +99,18 @@ class HttpIOLayer:
         *,
         timeout: float = 30.0,
         client: httpx.AsyncClient | None = None,
+        guard: SourceGuard | None = None,
+        resolver: Resolver | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._client = client
+        self._guard = guard if guard is not None else SourceGuard()
+        self._resolver = resolver if resolver is not None else system_resolver
+        self._trusted = _trusted_origins(self._base_url)
         self._owned: httpx.AsyncClient | None = None  # lazily created when no client is injected
         self._closed = False
+        self._closer = CloseOnce()
 
     def _get_client(self) -> httpx.AsyncClient:
         if self._closed:
@@ -65,46 +120,166 @@ class HttpIOLayer:
         if self._owned is None:
             # follow_redirects: a source that 301/302s (http->https, trailing
             # slash, auth bounce) must resolve to the real body, not the empty
-            # redirect response — raise_for_status never fires on a 3xx.
-            self._owned = httpx.AsyncClient(timeout=self._timeout, follow_redirects=True)
+            # redirect response — raise_for_status never fires on a 3xx. Every hop
+            # goes through the GuardedTransport, which re-checks it (spec F1b).
+            # WHY trust_env=False: an environment proxy would carry the request to an
+            # address the guard never vetted.
+            self._owned = httpx.AsyncClient(
+                timeout=httpx.Timeout(self._timeout, connect=self._guard.connect_timeout),
+                follow_redirects=True,
+                max_redirects=self._guard.max_redirects,
+                trust_env=False,
+                transport=GuardedTransport(
+                    self._guard, resolver=self._resolver, trusted=self._trusted
+                ),
+            )
         return self._owned
 
     async def fetch(self, target: str, *, relative: bool) -> str:
-        response = await self._get(self._transport_url(target, relative))
-        return response.text
+        _response, text = await self._get(
+            self._transport_url(target, relative),
+            relative=relative,
+            read=lambda response: _text(target, response),
+        )
+        return text
 
     async def fetch_ex(self, request: FetchRequest) -> FetchResult:
-        response = await self._get(self._transport_url(request.target, request.relative))
-        content_type = response.headers.get("content-type", "")
-        media_type = content_type.split(";", 1)[0].strip().lower() or None
-        return FetchResult(response.text, media_type=media_type)
+        response, text = await self._get(
+            self._transport_url(request.target, request.relative),
+            relative=request.relative,
+            accept=request.accept,
+            read=lambda response: _text(request.target, response),
+        )
+        return FetchResult(text, media_type=_media_type(request.target, response))
+
+    async def fetch_bytes(self, request: FetchRequest) -> FetchedBytes:
+        """``GET`` the target and return its body exactly as received, plus its media type.
+
+        Goes through :meth:`_get`, so the destination guard, the size cap and the deadline apply.
+        A 404 / 410 is ``source_not_found`` (C5).
+        """
+        response, body = await self._get(
+            self._transport_url(request.target, request.relative),
+            relative=request.relative,
+            accept=request.accept,
+            read=_raw_body,
+            typed=True,
+            bound=request,
+        )
+        return FetchedBytes(body, media_type=_media_type(request.target, response))
 
     def _transport_url(self, target: str, relative: bool) -> str:
-        url = f"{self._base_url}{target}" if relative else target
-        if url.startswith("url4://"):
-            return "https://" + url.removeprefix("url4://")
-        return url
+        # A url4:// target stays url4:// here: _get needs the scheme to know a peer call.
+        return f"{self._base_url}{target}" if relative else target
 
-    async def _get(self, url: str) -> httpx.Response:
+    async def _get[T](
+        self,
+        target: str,
+        *,
+        relative: bool,
+        read: Callable[[httpx.Response], T],
+        accept: str | None = None,
+        typed: bool = False,
+        bound: FetchRequest | None = None,
+    ) -> tuple[httpx.Response, T]:
+        """The response and ``read(response)``, both produced within the fetch's deadline.
+
+        AIDEV-NOTE: ``read`` is the body handling — text paths (``fetch``/``fetch_ex``) pass a
+        decoder, ``fetch_bytes`` passes :func:`_raw_body`. WHY not decode here: ``response.text``
+        decodes binary content; the bytes path must never touch it. Either way the final
+        ``past(deadline)`` check runs AFTER ``read``.
+        """
+        peer = target.startswith("url4://")
+        url = "https://" + target.removeprefix("url4://") if peer else target
+        headers: dict[str, str] = {}
         key = idempotency_key(url)
-        headers = {"Idempotency-Key": key} if key is not None else None
+        if key is not None:
+            headers["Idempotency-Key"] = key
+        if accept is not None:
+            # WHY: `;accept=` (spec §4.2) is the caller's content negotiation; sent verbatim.
+            headers["Accept"] = accept
+        # WHY owned only: an injected client keeps the timeouts its owner chose.
+        total = self._guard.total_timeout if self._client is None else None
+        # INVARIANT (OME-1720): ONE absolute deadline per fetch, carried to every hop's body.
+        deadline = None if total is None else deadline_in(total)
+        late = f"GET {display_url(url)!r} passed the {self._guard.total_timeout}s total deadline"
         try:
-            response = await self._get_client().get(url, headers=headers)
-            # A reply came back (any status): the next request to url is a new one.
-            mark_answered(url)
-            response.raise_for_status()
-        except httpx.HTTPStatusError as exc:
-            raise ResolutionError(
-                f"GET {url!r} failed: {exc}",
-                permanent=_permanent_status(exc.response),
-                retry_after=_retry_after(exc.response),
-            ) from exc
+            async with asyncio.timeout(total):
+                response = await self._send(
+                    url,
+                    headers or None,
+                    peer=peer,
+                    relative=relative,
+                    deadline=deadline,
+                    typed=typed,
+                    bound=bound,
+                )
+        except TimeoutError as exc:
+            raise source_timeout(late) from exc
+        # WHY here: body handling (charset decoding on the text paths) is synchronous work no
+        # asyncio.timeout can interrupt, so it runs BEFORE the final check (PR #1555 review: a
+        # slow codec succeeded late).
+        body = read(response)
+        if past(deadline):
+            # INVARIANT: never a success after the deadline, even one no checkpoint caught —
+            # body handling included.
+            raise source_timeout(late)
+        return response, body
+
+    async def _send(
+        self,
+        url: str,
+        headers: dict[str, str] | None,
+        *,
+        peer: bool,
+        relative: bool,
+        deadline: float | None,
+        typed: bool = False,
+        bound: FetchRequest | None = None,
+    ) -> httpx.Response:
+        client = self._get_client()
+        guarded = client is self._owned
+        # WHY relative only: the operator chose base_url; an expression that spells its origin
+        # out (or redirects into it) is checked like any other destination.
+        trusted = relative and self._is_trusted(url)
+        try:
+            if guarded and not trusted:
+                check_url(url, self._guard, peer=peer)
+            # WHY bound: a bytes request's own ceiling and live hook (FetchRequest.max_bytes).
+            cap, on_chunk = (None, None) if bound is None else (bound.max_bytes, bound.on_chunk)
+            limit = self._guard.max_bytes if cap is None else min(self._guard.max_bytes, cap)
+            state = FetchState(
+                peer=peer,
+                trusted_first_hop=trusted,
+                deadline=deadline,
+                max_bytes=limit,
+                on_chunk=on_chunk,
+            )
+            extensions = {FETCH_STATE: state} if guarded else None
+            request = client.build_request("GET", url, headers=headers, extensions=extensions)
+            # INVARIANT: on_chunk is told each byte once — by the guarded transport (which sees
+            # every hop's body), else by fetch_following for an injected client. URL4 walks the
+            # redirects so no hop's body is buffered before the limiter saw it (PR #1482 review).
+            response, body = await fetch_following(
+                client,
+                request,
+                limit=limit,
+                on_chunk=None if guarded else on_chunk,
+                # A reply came back (any status): the next request to url is a new one.
+                answered=lambda: mark_answered(url),
+            )
         except (httpx.HTTPError, httpx.InvalidURL) as exc:
-            # WHY: httpx.InvalidURL is not an HTTPError subclass; catch it too so a
-            # malformed target (e.g. control chars in a reducer query) still
-            # surfaces as ResolutionError rather than a raw httpx exception.
-            raise ResolutionError(f"GET {url!r} failed: {exc}") from exc
-        return response
+            failure, cause = _failure(url, exc, self._guard.max_redirects, typed=typed)
+        else:
+            return _buffered(response, body)
+        # WHY raised outside the handler: the only chained error is the one _failure names.
+        raise failure from cause
+
+    def _is_trusted(self, url: str) -> bool:
+        try:
+            return origin_of(httpx.URL(url)) in self._trusted
+        except httpx.InvalidURL:
+            return False
 
     async def aclose(self) -> None:
         """Close the internally created client, if any (an injected client is left alone).
@@ -112,15 +287,105 @@ class HttpIOLayer:
         After ``aclose`` the adapter is closed for good; a later fetch raises.
         """
         self._closed = True
-        owned, self._owned = self._owned, None
-        if owned is not None:
-            await owned.aclose()
+        # INVARIANT (PR #1555 review 4): the owned client is dropped only AFTER its close ends,
+        # inside one shielded close a cancelled caller cannot abandon — so a retry still
+        # reports a pool-close failure (httpx marks the client closed before it awaits).
+        await self._closer.run(self._close_owned)
+
+    async def _close_owned(self) -> None:
+        try:
+            if self._owned is not None:
+                await self._owned.aclose()
+        finally:
+            self._owned = None
 
     async def __aenter__(self) -> HttpIOLayer:
         return self
 
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
+
+
+def _failure(
+    url: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int, *, typed: bool
+) -> tuple[ResolutionError, Exception | None]:
+    """The :class:`ResolutionError` a failed ``GET url`` surfaces as, and the error it chains.
+
+    INVARIANT (push security review, #1482): the message, and the chained error's text, show
+    ``url`` through :func:`display_url` — a signed source's userinfo, query and fragment reach
+    no log line when an optional source is omitted. Codes and cause types are unchanged.
+    """
+    shown = display_url(url)
+    if isinstance(exc, httpx.InvalidURL) and has_userinfo(url):
+        # INVARIANT (PR #1605 review 1): a credentialed malformed target is reported redacted,
+        # without httpx's detail and with nothing chained — the credentials reach no message.
+        return ResolutionError(f"GET {shown!r} failed: invalid URL"), None
+    if isinstance(exc, httpx.HTTPStatusError):
+        exc = redacted_status_error(exc)
+    # AIDEV-NOTE: of httpx's own errors only HTTPStatusError puts a URL in its text; InvalidURL
+    # names a host or port at most (the credentialed case is handled above), and the guarded
+    # transport's errors name the host.
+    return _wrapped(shown, exc, max_redirects, typed=typed), exc
+
+
+def _wrapped(
+    shown: str, exc: httpx.HTTPError | httpx.InvalidURL, max_redirects: int, *, typed: bool
+) -> ResolutionError:
+    message = f"GET {shown!r} failed: {exc}"
+    if isinstance(exc, httpx.HTTPStatusError):
+        return ResolutionError(
+            message,
+            # WHY typed only on the bytes path: a 404's code on every other URI stays as it was.
+            code=ErrorCode.SOURCE_NOT_FOUND
+            if typed and exc.response.status_code in (404, 410)
+            else None,
+            permanent=_permanent_status(exc.response),
+            retry_after=_retry_after(exc.response),
+        )
+    if isinstance(exc, httpx.TooManyRedirects):
+        return redirect_limit(f"GET {shown!r} passed the {max_redirects}-hop redirect limit")
+    # WHY InvalidURL too: it is not an HTTPError subclass, so a malformed target (e.g. control
+    # chars in a reducer query) still surfaces as ResolutionError, not a raw httpx exception.
+    timeout = isinstance(exc, httpx.ConnectTimeout)
+    return source_timeout(message) if timeout else ResolutionError(message)
+
+
+def _trusted_origins(base_url: str) -> frozenset[Origin]:
+    if not base_url:
+        return frozenset()
+    try:
+        return frozenset({origin_of(httpx.URL(base_url))})
+    except httpx.InvalidURL:
+        return frozenset()
+
+
+def _buffered(response: httpx.Response, body: bytes) -> httpx.Response:
+    """``response`` with its already-decoded ``body`` in memory (``.text`` / ``.content`` work)."""
+    headers = [(k, v) for k, v in response.headers.multi_items() if k.lower() not in _DECODED_AWAY]
+    return httpx.Response(
+        response.status_code, headers=headers, content=body, request=response.request
+    )
+
+
+def _media_type(target: str, response: httpx.Response) -> str | None:
+    """The one bare, lower-cased media type of ``response``, else ``None``.
+
+    A duplicate (comma-joined by HTTPX) or malformed ``Content-Type`` raises
+    ``unsupported_content_type`` rather than leaking a joined value to the caller.
+    """
+    return bare_media_type(target, response.headers.get("content-type"))
+
+
+def _raw_body(response: httpx.Response) -> bytes:
+    """The buffered body exactly as received (content-coding undone) — never decoded to text."""
+    # INVARIANT: response.content, never .text — the bytes are the origin's bytes.
+    return response.content
+
+
+def _text(target: str, response: httpx.Response) -> str:
+    """``response.text`` for a text body; a binary body is refused, never decoded."""
+    require_text(target, response.headers.get("content-type"))
+    return response.text
 
 
 # Spec C §13.2.1: 4xx is permanent except these; 5xx is transient except the others.
@@ -163,4 +428,4 @@ def _delta_seconds(raw: str) -> float | None:
         return None
 
 
-__all__ = ["HttpIOLayer"]
+__all__ = ["HttpIOLayer", "SourceGuard"]

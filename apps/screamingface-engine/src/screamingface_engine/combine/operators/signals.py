@@ -36,8 +36,11 @@ from screamingface_engine.combine.ports import (
     SignalOrder,
     SignalRead,
     SpecInvalid,
+    check_output_arg,
     finite_float,
     is_signal_key,
+    is_signal_name,
+    with_output,
 )
 
 _ORDERS = get_args(SignalOrder)
@@ -50,11 +53,12 @@ _THRESHOLD_KEYS = frozenset({"key", "cmp", "value"})
 def _check_by_signal_args(args: OpArgs) -> None:
     if (
         set(args) != {"key", "order"}
-        or not is_signal_key(args["key"])
+        or not (is_signal_key(args["key"]) or is_signal_name(args["key"]))
         or args["order"] not in _ORDERS
     ):
         raise SpecInvalid(
-            'by_signal@1 takes exactly {"key": a known signal key, "order": "max" | "min"}'
+            'by_signal@1 takes exactly {"key": a known signal key or a declared name, '
+            '"order": "max" | "min"}'
         )
 
 
@@ -80,8 +84,11 @@ def by_signal(combine_input: CombineInput, args: OpArgs, /) -> Reduction:
 
 
 def _check_best_holder_args(args: OpArgs) -> None:
-    if set(args) != {"order"} or args["order"] not in _ORDERS:
-        raise SpecInvalid('best_holder@1 takes exactly {"order": "max" | "min"}')
+    check_output_arg(args, "best_holder@1")
+    if set(args) - {"output"} != {"order"} or args["order"] not in _ORDERS:
+        raise SpecInvalid(
+            'best_holder@1 takes {"order": "max" | "min"} and an optional "output": <field name>'
+        )
 
 
 def best_holder(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
@@ -93,12 +100,13 @@ def best_holder(reduction: Reduction, combine_input: CombineInput, args: OpArgs,
     scores = [score for _, score in ranked]
     best = max(scores) if args["order"] == "max" else min(scores)
     holders = [member for member, score in ranked if score == best]
-    return Selection(chosen=(holders[0],), tie=len(holders) > 1)
+    selection = Selection(chosen=(holders[0],), tie=len(holders) > 1)
+    return with_output(selection, combine_input, args, "best_holder@1")
 
 
 def _check_threshold(args: OpArgs) -> None:
-    if not is_signal_key(args["key"]):
-        raise SpecInvalid("filter@1 key must be a known signal key")
+    if not (is_signal_key(args["key"]) or is_signal_name(args["key"])):
+        raise SpecInvalid("filter@1 key must be a known signal key or a declared name")
     cmp, value = args["cmp"], args["value"]
     if not isinstance(cmp, str) or cmp not in _COMPARE:
         raise SpecInvalid("filter@1 cmp must be gt, ge, lt, le or eq")
@@ -180,7 +188,10 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         args_schema=MappingProxyType(
             {
                 "type": "object",
-                "properties": {"order": {"enum": _ORDERS}},
+                "properties": {
+                    "order": {"enum": _ORDERS},
+                    "output": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]{0,63}$"},
+                },
                 "required": ("order",),
                 "additionalProperties": False,
             }

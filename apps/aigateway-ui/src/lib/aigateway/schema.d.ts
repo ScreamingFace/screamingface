@@ -117,82 +117,6 @@ export interface paths {
         patch: operations["patch_account_v1_admin_accounts__account_id__patch"];
         trace?: never;
     };
-    "/v1/admin/accounts/{account_id}/profiles": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * List Account Profiles
-         * @description List one tenant's credential profiles.
-         *
-         *     No new store code was needed: `ProfileIndexStore.list` has always taken the account as an
-         *     argument — the tenant-facing route simply always passes the caller's own id. Cross-account
-         *     access is a different argument, not a different store.
-         */
-        get: operations["list_account_profiles_v1_admin_accounts__account_id__profiles_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/admin/accounts/{account_id}/profiles/{provider}/{name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /**
-         * Delete Account Profile
-         * @description Remove a tenant's profile and its stored credential.
-         *
-         *     Delegates to the same implementation as the tenant-facing delete, which publishes the index
-         *     removal and the credential deletion in one transaction so a committed delete never leaves an
-         *     orphaned blob.
-         */
-        delete: operations["delete_account_profile_v1_admin_accounts__account_id__profiles__provider___name__delete"];
-        options?: never;
-        head?: never;
-        /** Patch Account Profile */
-        patch: operations["patch_account_profile_v1_admin_accounts__account_id__profiles__provider___name__patch"];
-        trace?: never;
-    };
-    "/v1/admin/accounts/{account_id}/profiles/{provider}/{name}/api-key": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set Account Api Key
-         * @description Attach or replace a tenant's provider API key. This is the point of the whole console.
-         *
-         *     Delegates to `upsert_api_key_profile`, the SAME implementation the tenant-facing route uses.
-         *     That function carries the OME-307 transaction-ordering invariants (index CAS first, credential
-         *     write second, rollback as the sole atomicity mechanism); a second copy written for this path
-         *     would be a second place for them to rot.
-         *
-         *     The raw key is never echoed back — the response carries only the masked `account_label`.
-         */
-        put: operations["set_account_api_key_v1_admin_accounts__account_id__profiles__provider___name__api_key_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/accounts/{account_id}/connections": {
         parameters: {
             query?: never;
@@ -321,6 +245,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/cache/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Community Cache Entries */
+        get: operations["community_cache_entries_v1_cache_entries_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/oauth/connections/api-key/validate": {
         parameters: {
             query?: never;
@@ -341,63 +282,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/auth/profiles": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Profiles */
-        get: operations["list_profiles_v1_auth_profiles_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/auth/{provider}/profiles": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Provider Profiles */
-        get: operations["list_provider_profiles_v1_auth__provider__profiles_get"];
-        put?: never;
-        /** Start Oauth */
-        post: operations["start_oauth_v1_auth__provider__profiles_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/auth/{provider}/profiles/{name}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Profile */
-        get: operations["get_profile_v1_auth__provider__profiles__name__get"];
-        put?: never;
-        post?: never;
-        /**
-         * Delete Profile
-         * @description Delete the CALLER's own profile. Thin wrapper over the shared implementation.
-         */
-        delete: operations["delete_profile_v1_auth__provider__profiles__name__delete"];
-        options?: never;
-        head?: never;
-        /** Patch Profile */
-        patch: operations["patch_profile_v1_auth__provider__profiles__name__patch"];
-        trace?: never;
-    };
     "/callback": {
         parameters: {
             query?: never;
@@ -412,7 +296,7 @@ export interface paths {
          *     This route intentionally does not require a JWT because OAuth providers
          *     redirect browser tabs here after the user leaves the app. The pending-auth
          *     state nonce is the callback credential; it maps back to the initiating
-         *     account and profile.
+         *     account and Connection.
          *
          *     Some public OAuth clients require a fixed localhost callback path. We
          *     dispatch to the correct provider by looking up the ``state`` value in the
@@ -496,63 +380,6 @@ export interface paths {
          *     authorization code on screen instead of redirecting.
          */
         post: operations["exchange_code_v1_auth__provider__exchange_code_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/auth/{provider}/profiles/{name}/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Profile Status */
-        get: operations["profile_status_v1_auth__provider__profiles__name__status_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/auth/{provider}/profiles/{name}/api-key": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Set Profile Api Key
-         * @description Create or update the CALLER's own API-key profile.
-         *
-         *     A thin wrapper over :func:`upsert_api_key_profile`; the tenant-facing contract is simply
-         *     "whatever that does, to my own account".
-         */
-        put: operations["set_profile_api_key_v1_auth__provider__profiles__name__api_key_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/auth/{provider}/profiles/{name}/refresh": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Refresh Profile */
-        post: operations["refresh_profile_v1_auth__provider__profiles__name__refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -872,6 +699,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/classifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Classification */
+        post: operations["create_classification_v1_classifications_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/classifiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Classifiers */
+        get: operations["list_classifiers_v1_classifiers_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/classifiers/details": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Classifier Details */
+        get: operations["classifier_details_v1_classifiers_details_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/frozen-copies/{copy_id}/chat/completions": {
         parameters: {
             query?: never;
@@ -1151,39 +1029,6 @@ export interface components {
             /** Last Refreshed At */
             last_refreshed_at: string | null;
         };
-        /** AdminProfileList */
-        AdminProfileList: {
-            /** Profiles */
-            profiles: components["schemas"]["AdminProfileOut"][];
-        };
-        /**
-         * AdminProfileOut
-         * @description One credential profile belonging to a tenant.
-         *
-         *     `account_label` is the MASKED display form (`"API key ····WXYZ"`). The raw key is never present
-         *     in this model — there is no field for it, which is the point.
-         */
-        AdminProfileOut: {
-            /** Id */
-            id: string;
-            /** Account Id */
-            account_id: string;
-            /** Provider */
-            provider: string;
-            /** Name */
-            name: string;
-            /** Account Label */
-            account_label?: string | null;
-            state: components["schemas"]["ProfileState"];
-            /**
-             * Auth Type
-             * @enum {string}
-             */
-            auth_type: "oauth" | "api_key";
-            defaults: components["schemas"]["ProfileDefaults"];
-            /** Last Refreshed At */
-            last_refreshed_at?: string | null;
-        };
         /** ApiKeyValidationResponse */
         ApiKeyValidationResponse: {
             /** Provider */
@@ -1323,7 +1168,64 @@ export interface components {
         /** OAuthConnectionListResponse */
         OAuthConnectionListResponse: {
             /** Connections */
-            connections?: components["schemas"]["OAuthConnectionResponse"][];
+            connections?: components["schemas"]["OAuthConnectionListRow"][];
+        };
+        /**
+         * OAuthConnectionListRow
+         * @description A listed Connection, with whether it is the one the default chat resolve serves.
+         *
+         *     # FEATURE: OME-1138 close-out, L7a — the Local Engine manages the row chat uses; at most one
+         *     # row per provider is effective. Only the listing carries the flag.
+         */
+        OAuthConnectionListRow: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Account Id
+             * Format: uuid
+             */
+            account_id: string;
+            /** Provider */
+            provider: string;
+            /** Label */
+            label: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "active" | "expired" | "revoked" | "error";
+            /**
+             * Auth Type
+             * @default oauth
+             * @enum {string}
+             */
+            auth_type: "oauth" | "api_key";
+            account?: components["schemas"]["AccountIdentity"] | null;
+            /** Credential Locator */
+            credential_locator: {
+                [key: string]: unknown;
+            };
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Last Used At */
+            last_used_at?: string | null;
+            /** Last Refreshed At */
+            last_refreshed_at?: string | null;
+            /** Error Message */
+            error_message?: string | null;
+            /**
+             * Is Duplicate
+             * @default false
+             */
+            is_duplicate: boolean;
+            /** Effective */
+            readonly effective: boolean;
         };
         /** OAuthConnectionResponse */
         OAuthConnectionResponse: {
@@ -1405,44 +1307,11 @@ export interface components {
             /** Is Active */
             is_active?: boolean | null;
         };
-        /** PatchAdminProfileRequest */
-        PatchAdminProfileRequest: {
-            /** Account Label */
-            account_label?: string | null;
-        };
         /** PatchOAuthConnectionRequest */
         PatchOAuthConnectionRequest: {
             /** Label */
             label?: string | null;
         };
-        /** PatchProfileRequest */
-        PatchProfileRequest: {
-            /** Account Label */
-            account_label?: string | null;
-        };
-        /**
-         * ProfileDefaults
-         * @description Per-profile fallback values applied when the chat body omits a field.
-         */
-        ProfileDefaults: {
-            /** Model */
-            model?: string | null;
-            /** System Prompt */
-            system_prompt?: string | null;
-            /** Max Tokens */
-            max_tokens?: number | null;
-            /** Temperature */
-            temperature?: number | null;
-            /** Timeout Seconds */
-            timeout_seconds?: number | null;
-            /** Reasoning Effort */
-            reasoning_effort?: string | null;
-        };
-        /**
-         * ProfileState
-         * @enum {string}
-         */
-        ProfileState: "pending" | "authenticated" | "error";
         /**
          * Provenance
          * @description Q28: the engine's version, stored on the copy at seal.
@@ -1477,28 +1346,6 @@ export interface components {
             provenance?: components["schemas"]["Provenance"] | null;
         };
         /**
-         * SetAdminApiKeyRequest
-         * @description Attach or replace a provider API key on a tenant's profile.
-         *
-         *     `hide_input_in_errors` matters here more than anywhere else in the app: without it a validation
-         *     failure echoes the offending value back in the 422 body, which for this model is the API key.
-         */
-        SetAdminApiKeyRequest: {
-            /**
-             * Api Key
-             * Format: password
-             */
-            api_key: string;
-        };
-        /** SetApiKeyRequest */
-        SetApiKeyRequest: {
-            /**
-             * Api Key
-             * Format: password
-             */
-            api_key: string;
-        };
-        /**
          * SetConnectionApiKeyRequest
          * @description Replace the stored API key on an existing api-key connection.
          */
@@ -1508,13 +1355,6 @@ export interface components {
              * Format: password
              */
             api_key: string;
-        };
-        /** StartAuthRequest */
-        StartAuthRequest: {
-            /** Name */
-            name: string;
-            /** Redirect Uri */
-            redirect_uri?: string | null;
         };
         /** StartOAuthConnectionResponse */
         StartOAuthConnectionResponse: {
@@ -1853,142 +1693,6 @@ export interface operations {
             };
         };
     };
-    list_account_profiles_v1_admin_accounts__account_id__profiles_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                account_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminProfileList"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_account_profile_v1_admin_accounts__account_id__profiles__provider___name__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                account_id: string;
-                provider: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    patch_account_profile_v1_admin_accounts__account_id__profiles__provider___name__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                account_id: string;
-                provider: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PatchAdminProfileRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminProfileOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_account_api_key_v1_admin_accounts__account_id__profiles__provider___name__api_key_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                account_id: string;
-                provider: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetAdminApiKeyRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AdminProfileOut"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_admin_account_connections: {
         parameters: {
             query?: never;
@@ -2196,6 +1900,38 @@ export interface operations {
             };
         };
     };
+    community_cache_entries_v1_cache_entries_get: {
+        parameters: {
+            query?: {
+                after?: string | null;
+                limit?: number;
+                count?: boolean;
+                model?: string[];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     validate_api_key_v1_oauth_connections_api_key_validate_post: {
         parameters: {
             query?: never;
@@ -2216,200 +1952,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiKeyValidationResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_profiles_v1_auth_profiles_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-        };
-    };
-    list_provider_profiles_v1_auth__provider__profiles_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    start_oauth_v1_auth__provider__profiles_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["StartAuthRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_profile_v1_auth__provider__profiles__name__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    delete_profile_v1_auth__provider__profiles__name__delete: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    patch_profile_v1_auth__provider__profiles__name__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["PatchProfileRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
                 };
             };
             /** @description Validation Error */
@@ -2590,112 +2132,6 @@ export interface operations {
             };
         };
     };
-    profile_status_v1_auth__provider__profiles__name__status_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    set_profile_api_key_v1_auth__provider__profiles__name__api_key_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetApiKeyRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    refresh_profile_v1_auth__provider__profiles__name__refresh_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                provider: string;
-                name: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     list_connections_v1_oauth_connections_get: {
         parameters: {
             query?: {
@@ -2794,7 +2230,9 @@ export interface operations {
     };
     delete_connection_v1_oauth_connections__connection_id__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                expected_status?: ("pending" | "error") | null;
+            };
             header?: never;
             path: {
                 connection_id: string;
@@ -3226,6 +2664,83 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    create_classification_v1_classifications_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    list_classifiers_v1_classifiers_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    classifier_details_v1_classifiers_details_get: {
+        parameters: {
+            query: {
+                model: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

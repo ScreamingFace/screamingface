@@ -27,8 +27,9 @@ from screamingface_engine.benchmarks.medxpert.runtime import _cases, _check, pre
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
-# Captured 2026-09-21 from the pre-migration benchmark (base of this branch).
-_GOLDEN_REVISION = "791a7d5b2e961f1c"
+# Captured 2026-09-21 from the pre-migration benchmark (base of this branch); moved once on
+# 2026-10-19 when medxpert declared withhold (OME-1642: the failure policy is identity).
+_GOLDEN_REVISION = "1e5a3b8a461a52f7"
 
 _OPTIONS = {"A": "aspirin", "B": "heparin", "C": "warfarin", "D": "apixaban", "E": "alteplase"}
 _QUESTION = "Which agent is indicated? Answer Choices: " + " ".join(

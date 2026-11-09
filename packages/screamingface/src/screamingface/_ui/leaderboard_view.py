@@ -147,8 +147,10 @@ def leaderboard_html(board: Leaderboard) -> str:
 
 def _catalog_row(value: LeaderboardInfo) -> str:
     description = escape(value.description or "No description published.")
+    # WHY: lower(), not casefold(): the filter lowers the typed query with JS toLowerCase(),
+    # the same Unicode mapping, while casefold() rewrites letters such as "ß" to "ss".
     search = escape(
-        f"{value.id} {value.display_name} {value.description or ''}".casefold(),
+        f"{value.id} {value.display_name} {value.description or ''}".lower(),
         quote=True,
     )
     identifier = escape(value.id)

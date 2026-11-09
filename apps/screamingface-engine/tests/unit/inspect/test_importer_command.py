@@ -191,6 +191,36 @@ def test_the_empty_answer_key_flag_reaches_the_import(engine_src_copy: Path) -> 
     assert recording.calls[0][2]["has_answer_key"] is True
 
 
+def test_the_letter_list_key_flag_reaches_the_import(engine_src_copy: Path) -> None:
+    """OME-1602 F6: the dev says the Samples key several options by letter; the import (and
+    through it both replays) hears exactly that."""
+
+    recording: _RecordingImport = _RecordingImport()
+
+    main(
+        [_TASK, "--key", "csqa", "--letter-list-key"] + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=recording,
+        dataset_info=lambda repo_id, revision: type("Info", (), {"card_data": {}})(),
+    )
+
+    assert recording.calls[0][2]["letter_list_key"] is True
+
+
+def test_the_drop_scorer_flag_reaches_the_import(engine_src_copy: Path) -> None:
+    """OME-1602: each extra scorer named with --drop-scorer reaches the import, in order."""
+
+    recording: _RecordingImport = _RecordingImport()
+
+    main(
+        [_TASK, "--key", "csqa", "--drop-scorer", "bias", "--drop-scorer", "extra"]
+        + ["--engine-src", str(engine_src_copy)],
+        import_by_task_replay=recording,
+        dataset_info=lambda repo_id, revision: type("Info", (), {"card_data": {}})(),
+    )
+
+    assert recording.calls[0][2]["drop_scorers"] == ("bias", "extra")
+
+
 def test_no_answer_key_and_empty_answer_key_allowed_cannot_both_be_said() -> None:
     """One flag says no Sample has a key, the other that some do; the command refuses the
     contradiction before any replay runs."""

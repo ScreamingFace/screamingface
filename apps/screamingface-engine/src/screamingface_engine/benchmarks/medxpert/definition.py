@@ -31,6 +31,7 @@ from screamingface_engine.benchmarks.contract import CANDIDATE_RESULT_SCHEMA
 from screamingface_engine.benchmarks.definition import (
     Benchmark,
     BenchmarkDeclaration,
+    FailurePolicy,
     candidate,
     candidate_call,
 )
@@ -53,6 +54,7 @@ from screamingface_engine.benchmarks.protocol import (
     preserve_candidate_outcome,
 )
 from screamingface_engine.benchmarks.provenance import FrontierScore, HumanBaseline
+from screamingface_engine.benchmarks.selection import CaseSelection
 from screamingface_engine.benchmarks.shared_grading.serving import (
     benchmark_routes,
     compute_benchmark_revision,
@@ -67,6 +69,11 @@ DATASET_URL = "https://huggingface.co/datasets/TsinghuaC3I/MedXpertQA"
 # INVARIANT: grading is retrieval-free — the answer key is a fixed letter, and a model that
 # searched would be answering a different question from the one the leaderboard asks.
 CANDIDATE_WEB_SEARCH = False
+# WHY "withhold" (OME-1642): a Case that never got a valid grade counts 0 over every selected
+# Case, the same as an empty ANSWER, which the official empty-prediction verdict grades 0.0
+# (`aggregate._scored`). Coverage still shows the graded count beside the score. One constant,
+# read by the declaration and by the revision, so the two cannot drift.
+FAILURE_POLICY: FailurePolicy = "withhold"
 
 
 def compute_revision(
@@ -74,13 +81,15 @@ def compute_revision(
     dataset_revision: str = DATASET_REVISION,
     cot_template: str = COT_PROMPT_TEMPLATE,
     trigger_template: str = COT_TRIGGER_TEMPLATE,
+    failure_policy: FailurePolicy = FAILURE_POLICY,
 ) -> str:
     """Fingerprint this benchmark into the 16 hex characters its routes carry.
 
     WHY the prompt templates are hashed: this benchmark has no judge, so the prompt is the only
     thing between a model and its score. A changed template is a changed benchmark and must
     re-address every route — otherwise already-recorded submissions would silently become
-    incomparable.
+    incomparable. The failure policy is hashed for the same reason (OME-1642): a ``withhold``
+    score is a different number from the same answers, so it gets its own revision.
     """
 
     return compute_benchmark_revision(
@@ -94,10 +103,21 @@ def compute_revision(
         CANDIDATE_RESULT_SCHEMA,
         cot_template,
         trigger_template,
+        # WHY conditional (OME-1642): only withhold moves the revision, the same rule as the
+        # imported rows' fingerprint pin.
+        *(("failure_policy=withhold",) if failure_policy == "withhold" else ()),
     )
 
 
-REVISION = compute_revision()
+#: The hash of everything that defines this Benchmark (OME-1610): an alarm, never published.
+#: ``tests/unit/inspect/test_benchmark_fingerprints.py`` pins it.
+FINGERPRINT = compute_revision()
+#: The id this Benchmark publishes, hand-set (OME-1610): what submissions and the leaderboard
+#: key on. AIDEV-NOTE: the same rule as a catalogue row's ``published_revision`` — never
+#: edited to make a red fingerprint test green; it moves only on a fundamental change, after
+#: ``just engine benchmark-bump medxpert`` and with the owner's sign-off
+#: (``docs/adding-an-imported-benchmark.md``, "Changing a Benchmark's published revision").
+REVISION = "1e5a3b8a461a52f7"
 
 _ROUTES = benchmark_routes(BENCHMARK_ID, REVISION)
 ROUTE_PREFIX = _ROUTES.prefix
@@ -107,14 +127,18 @@ CASE_GRADE_ROUTE = _ROUTES.case_evaluation
 AGGREGATE_ROUTE = _ROUTES.aggregate
 
 
-def _build(case_count: int) -> Node:
+def _build(selection: int | CaseSelection) -> Node:
     """Build the two-turn MedXpertQA expression.
 
     Reading outside-in: fetch the Cases, and for each ask the Candidate to reason, then ask the
     SAME Candidate to commit against the bare trigger, then check the committed letter against
     the private key and roll the rows into the aggregate.
+
+    ``selection`` is the run's Cases (OME-1739): a count or explicit ids; the Candidate is
+    told the run's size (``selected.count``), never the highest id.
     """
 
+    selected: CaseSelection = CaseSelection.coerce(selection)
     # Turn 1 — free reasoning. The cases file prepares the ready-made CoT prompt.
     # INVARIANT: this node is bound at CASE-EXECUTION scope (via `bindings=` below), never
     # inside the grading scope. The protective iterate rebinds `$item` to the
@@ -124,7 +148,7 @@ def _build(case_count: int) -> Node:
         "$item.cot_prompt",
         case_id="$item.id",
         case_index="$index",
-        case_count=str(case_count),
+        case_count=str(selected.count),
         web_search=CANDIDATE_WEB_SEARCH,
         binding="$candidate",
     )
@@ -137,7 +161,7 @@ def _build(case_count: int) -> Node:
         {"question": "$item.input", "reasoning": "$reasoning", "trigger": "$item.trigger"},
         case_id="$item.id",
         case_index="$index",
-        case_count=str(case_count),
+        case_count=str(selected.count),
         web_search=CANDIDATE_WEB_SEARCH,
         binding="$candidate",
     )
@@ -179,9 +203,9 @@ def _build(case_count: int) -> Node:
                 bindings=(src(reasoning, name="reasoning", weight=0.0),),
             ),
             aggregate_route=AGGREGATE_ROUTE,
-            selected_case_count=case_count,
+            selected_case_count=selected,
         ),
-        selected_case_count=case_count,
+        selected_case_count=selected,
         available_case_count=CASE_COUNT,
         aggregate_route=AGGREGATE_ROUTE + "/graded",
     )
@@ -202,8 +226,8 @@ MEDXPERT = Benchmark(
         "2,450 expert-level medical multiple-choice questions (MedXpertQA Text). The model "
         "reasons step by step, then commits to one lettered choice; grading is an exact match "
         "against the published key, so no judge tokens are spent. Benchmark score = plain "
-        "accuracy over the cases run, reported beside the fraction actually answered — a model "
-        "that returns nothing on some rows is scored over fewer of them. "
+        "accuracy over every case run, reported beside the fraction actually answered — a case "
+        "the model leaves unanswered, or that fails, counts as wrong. "
         "The two-turn exchange is applied at the candidate boundary, which reproduces the "
         "official protocol for a single model; for a fusion the exchange wraps the whole "
         "ensemble rather than each member, so those numbers are not comparable to a per-member "
@@ -216,13 +240,8 @@ MEDXPERT = Benchmark(
     focus="Expert medical multiple choice",
     dataset_url=DATASET_URL,
     declaration=BenchmarkDeclaration(
-        # WHY "coverage_declare" and NOT "withhold": this axis governs a Case that never got a
-        # valid grade, and those are infrastructure failures, which this benchmark hands to the
-        # shared `finalize_candidate_result` — it scores the gradeable subset and publishes
-        # coverage. An empty ANSWER is a different thing: it does get a grade, of 0.0, per the
-        # official empty-prediction verdict. That behaviour lives in `aggregate._scored`, not
-        # here, and declaring `withhold` for it would misdescribe what the reducer does.
-        failure_policy="coverage_declare",
+        # See FAILURE_POLICY (OME-1642).
+        failure_policy=FAILURE_POLICY,
         # WHY "multi_turn": the benchmark invokes the Candidate twice per Case — reason, then
         # commit. Declared because it doubles the invocation cost and changes what a Fusion entrant
         # is asked to do (the exchange wraps the ensemble, not each member).

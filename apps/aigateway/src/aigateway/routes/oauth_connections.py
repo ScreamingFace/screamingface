@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Literal
 from urllib.parse import urlencode
 from uuid import UUID, uuid4
 
@@ -10,6 +11,7 @@ from tortoise.transactions import in_transaction
 
 from aigateway.core.auth.middleware import CurrentAccount
 from aigateway.core.credential_strategy_cache import credential_strategy_cache
+from aigateway.core.endpoint_access import EndpointOperation, accessible_plugin
 from aigateway.core.errors import AuthError, CredentialNotFoundError, RefreshSuperseded
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.schemas import (
@@ -25,6 +27,7 @@ from aigateway.core.oauth.schemas import (
 from aigateway.core.oauth.store import (
     OAuthConnectionStore,
     credential_key_for,
+    list_row_from_connection,
     response_from_connection,
 )
 from aigateway.core.oauth.token_service import (
@@ -41,8 +44,11 @@ from aigateway.core.provider_access import (
     claim_native_write,
     credential_has_other_owner,
     credential_name_of,
+    effective_pair_of,
     effective_to_replace,
+    flagged_connections,
     guard_refresh,
+    lock_if_status,
     lock_lower_addressers,
     replaced_label,
     republish_effective_api_key,
@@ -61,6 +67,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# WHY these two (OME-1138 close-out, L7c): a row in `pending` or `error` serves nothing yet keeps
+# its label, so a caller repairing its rows removes it. A conditional delete never targets a
+# working row.
+ExpectedDeleteStatus = Literal["pending", "error"]
+
 
 @router.get("/v1/oauth/connections", response_model=OAuthConnectionListResponse)
 async def list_connections(
@@ -69,10 +80,17 @@ async def list_connections(
     provider: str | None = None,
     status: str | None = None,
 ) -> OAuthConnectionListResponse:
-    store = _store(request)
-    connections = await store.list(str(current.id), provider=provider, status=status)
+    # FEATURE: OME-1138 close-out, L7a — each row says whether it is the one chat uses; the rule
+    # and the filters live in the core (`flagged_connections`).
+    with refusals_as_http():
+        listed = await flagged_connections(
+            request.app, str(current.id), provider=provider, status=status
+        )
     return OAuthConnectionListResponse(
-        connections=[response_from_connection(connection) for connection in connections]
+        connections=[
+            list_row_from_connection(connection, effective=effective)
+            for connection, effective in listed
+        ]
     )
 
 
@@ -92,7 +110,11 @@ async def start_connection_oauth(
     request: Request,
     current: CurrentAccount,
 ) -> StartOAuthConnectionResponse:
-    plugin = request.app.state.providers.get(body.provider)
+    # WHY VIEW: a provider this account may not see must answer as unregistered here too, not
+    # with the "does not use OAuth" refusal that would confirm it is configured.
+    plugin = accessible_plugin(
+        request.app, body.provider, account_id=str(current.id), operation=EndpointOperation.VIEW
+    )
     if plugin is None:
         raise HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": body.provider}
@@ -116,8 +138,8 @@ async def start_connection_oauth(
             request, body.provider, cfg, state, body.redirect_uri
         )
     store = _store(request)
-    # FEATURE (OME-1497, G0): the start is an ownership change on a legacy-owned pair; its
-    # callback claims the pair this start published.
+    # FEATURE (OME-1497, G0): the start is an ownership change on a `none` or unmarked pair, which
+    # its Connections own; its callback claims the pair this start published.
     observed = await PairAuthorityStore().read(account_id, body.provider)
     # FEATURE (OME-1209, E1b, R6): on a migrated pair this flow may replace the effective row.
     replaces_effective = await effective_to_replace(observed, requested_label=body.label)
@@ -169,8 +191,7 @@ async def start_connection_oauth(
         PendingAuthEntry(
             account_id=account_id,
             provider=body.provider,
-            profile_name=label,
-            profile_id=str(connection_id),
+            fallback_label=label,
             code_verifier=code_verifier,
             redirect_uri=redirect_uri,
             connection_id=str(connection_id),
@@ -214,7 +235,9 @@ async def create_api_key_connection(
     chat path reads for this connection, so it is usable on a real chat call
     immediately. The key is never echoed back or logged.
     """
-    plugin = request.app.state.providers.get(body.provider)
+    plugin = accessible_plugin(
+        request.app, body.provider, account_id=str(current.id), operation=EndpointOperation.ATTACH
+    )
     if plugin is None:
         raise HTTPException(
             status_code=404, detail={"code": "unknown_provider", "provider": body.provider}
@@ -326,7 +349,9 @@ async def set_connection_api_key(
             },
         )
     api_key = normalize_api_key(body.api_key)
-    plugin = request.app.state.providers.get(connection.provider)
+    plugin = accessible_plugin(
+        request.app, connection.provider, account_id=account_id, operation=EndpointOperation.ATTACH
+    )
     if plugin is None:
         raise HTTPException(
             status_code=404,
@@ -377,7 +402,7 @@ async def _replace_api_key(
     strategy,
     api_key: str,
 ) -> OAuthConnection:
-    """The publication boundary of a key replacement — marker → index → row → blob."""
+    """The publication boundary of a key replacement — marker → row → blob."""
     latest_connection = await store.get(account_id, connection_id)
     if (
         latest_connection is None
@@ -391,11 +416,11 @@ async def _replace_api_key(
                 "message": "Connection changed during API-key validation",
             },
         )
-    # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed here, after the validation.
+    # INVARIANT (OME-1497, G0): a `none` or unmarked pair is claimed here, after the validation.
     await claim_for_connection(latest_connection)
-    # INVARIANT (D14, S2'b4): a migrated pair's effective row fences the pair and mirrors the
-    # compat document FIRST (marker, index), then the row, then the blob — a no-op otherwise.
-    await republish_effective_api_key(request.app, latest_connection, raw_api_key=api_key)
+    # INVARIANT (D14, S2'b4): a migrated pair's effective row fences the pair FIRST (marker),
+    # then the row, then the blob — a no-op otherwise.
+    await republish_effective_api_key(latest_connection)
     connection = await store.reactivate(latest_connection)
     if connection is None:
         raise HTTPException(
@@ -440,11 +465,18 @@ async def patch_connection(
 
 
 @router.delete("/v1/oauth/connections/{connection_id}", status_code=204)
-async def delete_connection(connection_id: UUID, request: Request, current: CurrentAccount) -> None:
+async def delete_connection(
+    connection_id: UUID,
+    request: Request,
+    current: CurrentAccount,
+    expected_status: ExpectedDeleteStatus | None = None,
+) -> None:
     store = _store(request)
     with refusals_as_http():
         async with in_transaction():
-            connection = await _delete_connection(request, store, str(current.id), connection_id)
+            connection = await _delete_connection(
+                request, store, str(current.id), connection_id, expected_status
+            )
     # Evict the shared cached strategy so a deleted connection's still-valid token
     # can't keep being served from memory (SF-282) — under the name the locator derives, which
     # for a migrated pair's effective row is the Profile address (S2'b4).
@@ -455,19 +487,27 @@ async def delete_connection(connection_id: UUID, request: Request, current: Curr
 
 
 async def _delete_connection(
-    request: Request, store: OAuthConnectionStore, account_id: str, connection_id: UUID
+    request: Request,
+    store: OAuthConnectionStore,
+    account_id: str,
+    connection_id: UUID,
+    expected_status: ExpectedDeleteStatus | None,
 ) -> OAuthConnection:
     connection = await store.get(account_id, connection_id)
     if connection is None:
         raise HTTPException(status_code=404, detail={"code": "connection_not_found"})
-    # INVARIANT (OME-1497, G0): a legacy-owned pair is claimed FIRST (marker → row → blob).
+    # INVARIANT (OME-1497, G0): a `none` or unmarked pair is claimed FIRST (marker → row → blob).
     await claim_for_connection(connection)
+    # INVARIANT (L7c): a conditional delete re-checks the row only after the claim, inside this
+    # transaction — a callback or key write that committed since the caller listed it is seen.
+    if expected_status is not None and await effective_pair_of(connection) is not None:
+        raise _changed_since_listed()
     # INVARIANT (D14, S2'b4): a migrated pair's effective row retires the pair FIRST — marker
-    # (effective → None) and compat document — before the row and the blob; no-op otherwise.
-    await retire_effective(request.app, connection)
-    # WHY (D-R1-2): several rows — and, after an R1 rollback, the legacy Profile — may address ONE
-    # blob; the blob goes with its LAST live addresser. The pair's live rows lock in ascending id
-    # order around the revoke (lower here, own in mark_revoked, higher in the owner check).
+    # (effective → None) — before the row and the blob; no-op otherwise.
+    await retire_effective(connection)
+    # WHY (D-R1-2): several rows may address ONE blob; the blob goes with its LAST live
+    # addresser. The pair's live rows lock in ascending id order around the revoke (lower here,
+    # own in mark_revoked, higher in the owner check).
     await lock_lower_addressers(connection)
     # INVARIANT (OME-307 Blocker 3): mark the ALWAYS-PRESENT connection row revoked FIRST
     # (mark_revoked UPDATEs by PK and takes its row lock, held until commit), THEN delete the
@@ -475,12 +515,26 @@ async def _delete_connection(
     # The credential row may be ABSENT; a missing-row delete takes no lock under READ
     # COMMITTED, so it cannot serialize a concurrent set. Locking the connection row first
     # forces a racing set to observe the revoke (its reactivate CAS matches 0 rows and 409s),
-    # so nothing is orphaned or resurrected.
+    # so nothing is orphaned or resurrected. A conditional delete takes that lock first, in
+    # `lock_if_status`, and only while the row still has the expected status.
+    if expected_status is not None and not await lock_if_status(connection, expected_status):
+        raise _changed_since_listed()
     await store.mark_revoked(connection)
-    keep_blob = await credential_has_other_owner(request.app, connection)
+    keep_blob = await credential_has_other_owner(connection)
     if not keep_blob:
         await _delete_credentials(request, connection.credential_locator)
     return connection
+
+
+def _changed_since_listed() -> HTTPException:
+    # WHY raised inside the transaction: the claim and every write so far roll back with it.
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "connection_conflict",
+            "message": "Connection is effective or no longer has the expected status",
+        },
+    )
 
 
 @router.get(

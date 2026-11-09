@@ -16,6 +16,9 @@ import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+
+# WHY the alias: Pick has a field named ``field``, which shadows the name in its class body.
+from dataclasses import field as dataclass_field
 from types import MappingProxyType
 from typing import Any, ClassVar, Literal, cast
 
@@ -23,7 +26,6 @@ from screamingface import _candidate_policy
 from screamingface._candidate_policy import GenerationParams
 from screamingface._evaluation.topology import _writer_key
 from screamingface._signals import Signal
-from screamingface.blocks import _BLOCK_FORMS, _BlockForm
 from screamingface.recipe import _model_route
 from screamingface.reducer import (
     _REDUCER_CLASSES,
@@ -270,35 +272,14 @@ def _member_position(value: object) -> int:
 def _field_name(name: object) -> str:
     if not isinstance(name, str) or _FIELD_NAME.fullmatch(name) is None:
         raise ValueError(
-            f"Merge field name {name!r} must start with a letter or underscore, then use only "
+            f"sf.Merge field name {name!r} must start with a letter or underscore, then use only "
             "letters, digits and underscores (at most 64 characters)"
         )
     return name
 
 
-@dataclass(frozen=True, slots=True)
-class _FieldRules:
-    """The canonical ``fields=`` value of an ``sf.Reduce('merge')`` block: the rules in order.
-
-    WHY not a mapping: it must hash (the block is a hashable value), and the field order is the
-    spec order, so it is part of the value.
-    """
-
-    items: tuple[tuple[str, FieldRule], ...]
-
-    def __repr__(self) -> str:
-        return self._render("")
-
-    def _python(self) -> str:
-        return self._render("sf.")
-
-    def _render(self, prefix: str) -> str:
-        shown = ", ".join(f"{field!r}: {rule._render(prefix)}" for field, rule in self.items)
-        return f"{{{shown}}}"
-
-
 @dataclass(frozen=True, slots=True, init=False)
-class Merge(Reducer):
+class MergeNode(Reducer):
     """One JSON object with exactly the declared fields, each built by its own rule.
 
     A member that is not a JSON object is skipped and the report says so. A model-written field
@@ -310,16 +291,16 @@ class Merge(Reducer):
 
     def __init__(self, fields: Mapping[str, FieldRule]) -> None:
         if not isinstance(fields, Mapping):
-            raise TypeError("Merge fields must be a mapping of field name to FieldRule")
+            raise TypeError("sf.Merge fields must be a mapping of field name to FieldRule")
         if not fields:
-            raise ValueError("Merge needs at least one field")
+            raise ValueError("sf.Merge needs at least one field")
         if len(fields) > _MAX_FIELDS:
-            raise ValueError(f"Merge takes at most {_MAX_FIELDS} fields, not {len(fields)}")
+            raise ValueError(f"sf.Merge takes at most {_MAX_FIELDS} fields, not {len(fields)}")
         selected: dict[str, FieldRule] = {}
         for field, rule in fields.items():
             selected[_field_name(field)] = rule
             if not isinstance(rule, FieldRule):
-                raise TypeError(f"Merge field {field!r} must be a FieldRule")
+                raise TypeError(f"sf.Merge field {field!r} must be a FieldRule")
         object.__setattr__(self, "name", "merge")
         object.__setattr__(self, "fields", MappingProxyType(selected))
 
@@ -337,15 +318,15 @@ class Merge(Reducer):
             if rule.member is not None and rule.member > count:
                 raise ValueError(
                     f"FieldRule.from_member({rule.member}) for field {field!r} needs "
-                    f"{rule.member} members; the Fusion has {count}"
+                    f"{rule.member} members; the sf.Fanout has {count}"
                 )
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Merge:
+    def _from_spec(cls, spec: Mapping[str, object]) -> MergeNode:
         return cls._rebuild(spec, ())
 
     @classmethod
-    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> Merge:
+    def _rebuild(cls, spec: Mapping[str, object], signals: tuple[_ModelSignal, ...]) -> MergeNode:
         entries = _merge_entries(spec)
         writers = {signal.key: signal for signal in signals}
         if len(writers) != len(signals):
@@ -367,19 +348,13 @@ class Merge(Reducer):
 
     def __eq__(self, other: object) -> bool:
         # WHY order counts: the field order is the spec order, so it changes the compiled bytes.
-        return isinstance(other, Merge) and list(self.fields.items()) == list(other.fields.items())
-
-    def _render(self, prefix: str) -> str:
-        items = ", ".join(
-            f"{field!r}: {rule._render(prefix)}" for field, rule in self.fields.items()
+        return isinstance(other, MergeNode) and list(self.fields.items()) == list(
+            other.fields.items()
         )
-        return f"{prefix}Merge(fields={{{items}}})"
-
-    def _python(self) -> str:
-        return self._render("sf.")
 
     def __repr__(self) -> str:
-        return self._render("")
+        items = ", ".join(f"{field!r}: {rule._render('')}" for field, rule in self.fields.items())
+        return f"Merge(fields={{{items}}})"
 
     __hash__: ClassVar[Any] = None
 
@@ -432,31 +407,22 @@ def _target_text(value: object) -> str:
 
     if isinstance(value, str):
         return value
-    if isinstance(value, float) and not math.isfinite(value):
-        raise ValueError(f"Pick equals must be finite, not {value!r}")
-    if isinstance(value, (bool, int, float)):
-        return json.dumps(value)
-    raise TypeError("Pick equals must be a string, number or boolean")
+    # INVARIANT: sf.field(...) == value refused any other type and a non-finite number (refs.py),
+    # and a url4 rebuild passes text.
+    assert isinstance(value, bool | int | float) and math.isfinite(value)
+    return json.dumps(value)
 
 
-def _check_pick_mode(order: object, equals: object, normalize: object) -> str | None:
+def _check_pick_equals(order: object, equals: object, normalize: object) -> str:
     """Refuse a Pick the Engine would only refuse after the paid member calls; the target text."""
 
-    if order is not None and order not in ("max", "min"):
-        raise ValueError(f"Pick order must be 'max' or 'min', not {order!r}")
-    if order is not None and equals is not None:
-        raise ValueError("Pick takes order='max'|'min' or equals=<value>, not both")
-    if order is None and equals is None:
-        raise ValueError("Pick takes order='max'|'min' or equals=<value>")
-    if normalize is not None and equals is None:
-        raise ValueError("Pick normalize applies to equals only")
-    if equals is None:
-        return None
-    if isinstance(equals, bool) and normalize == "numeric":
-        raise ValueError("Pick equals=True or False cannot be compared with normalize='numeric'")
+    # INVARIANT: the one field pick is sf.First, whose sf.field(...) == value refused a bool with
+    # normalize="numeric"; the order form went in unit 7f (swap D7-8).
+    assert order is None and equals is not None
+    assert not (isinstance(equals, bool) and normalize == "numeric")
     target = _target_text(equals)
-    if not target.strip():
-        raise ValueError("Pick equals must not be blank")
+    if not target.strip():  # a hand-edited url4 only: sf.field refuses a blank value
+        raise ValueError("a field pick must not compare with a blank value")
     return target
 
 
@@ -466,29 +432,53 @@ def _check_pick_signal(
     """Refuse a Pick by signal the Engine would only refuse after the paid member calls; the order
     it stores (``max`` unless told otherwise)."""
 
-    if not isinstance(by_signal, Signal):
-        raise TypeError("Pick by_signal must be an sf.signal")
-    if equals is not None or normalize is not None:
-        raise ValueError("Pick(by_signal=...) takes order only")
-    if order is not None and order not in ("max", "min"):
-        raise ValueError(f"Pick order must be 'max' or 'min', not {order!r}")
+    # INVARIANT: sf.ArgMax / sf.ArgMin and the url4 rebuild give a signal and an order only.
+    assert isinstance(by_signal, Signal) and equals is None and normalize is None
+    assert order in (None, "max", "min")
     _refuse_judge_signal(
-        by_signal, "Pick", "sf.Judge(..., returns='scores'), which picks the highest judge score"
+        by_signal, "sf.ArgMax", "sf.Judge(...) after sf.Fanout, then sf.ArgMax('score:judge')"
     )
     return "max" if order is None else cast("Literal['max', 'min']", order)
 
 
-@dataclass(frozen=True, slots=True, init=False)
-class Pick(Reducer):
-    """The member whose JSON field is the largest, the smallest or equal to a value, unchanged.
+def _output_field(value: object) -> str | None:
+    """``value`` if it is None or a top-level field name, else TypeError or ValueError (PO-E3)."""
 
-    ``order="max"|"min"`` compares numbers. ``equals=<value>`` compares text; ``normalize`` applies
-    the same ``text`` or ``numeric`` normalizer to every member's value and to the target. A member
-    that is not JSON, or lacks the field, is skipped and the report says so.
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError("a pick output= must be a string")
+    if _FIELD_NAME.fullmatch(value) is None:
+        raise ValueError(
+            f"a pick output={value!r} must be a top-level field name like 'answer' "
+            "(a letter or _, then letters, digits or _; at most 64 characters)"
+        )
+    return value
+
+
+def _output_arg(output: str | None) -> dict[str, str]:
+    """``{"output": output}`` for a select step's args, or ``{}`` when there is no output."""
+
+    return {} if output is None else {"output": output}
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class PickNode(Reducer):
+    """The first member whose JSON field equals a value (``sf.First``), or the member whose named
+    signal is the highest or the lowest (``sf.ArgMax`` / ``sf.ArgMin``), unchanged.
+
+    ``equals=<value>`` compares text; ``normalize`` applies the same ``text`` or ``numeric``
+    normalizer to every member's value and to the target. A member that is not JSON, or lacks the
+    field, is skipped and the report says so.
 
     ``Pick(by_signal=sf.signal(key), order="max"|"min")`` (argmax) picks the member whose named
     signal is the highest or the lowest; ``order`` is ``"max"`` when left out. A member with no
     value for the signal is skipped. Give a field or ``by_signal=``, not both.
+
+    ``output="<field>"`` makes the answer that top-level field of the winner's JSON reply (a string
+    as it is, any other value as canonical JSON). When the winner's field is missing, null or blank,
+    or its reply is not a JSON object, the Case abstains with ``output_missing``; the next member is
+    never used. Works with a field and with ``by_signal=``.
     """
 
     name: str
@@ -497,6 +487,9 @@ class Pick(Reducer):
     order: Literal["max", "min"] | None
     equals: str | None
     normalize: FieldNormalizer | None
+    output: str | None
+    _carries_narrow: ClassVar[bool] = True  # the narrow carrier: see Reducer._carries_narrow
+    _narrow: tuple[Reducer, ...] = dataclass_field(default=(), init=False, repr=False)
 
     def __init__(
         self,
@@ -506,38 +499,39 @@ class Pick(Reducer):
         order: Literal["max", "min"] | None = None,
         equals: str | int | float | bool | None = None,
         normalize: FieldNormalizer | None = None,
+        output: str | None = None,
     ) -> None:
-        if (field is None) == (by_signal is None):
-            raise ValueError(
-                "Pick needs a field or by_signal=, not both"
-                if field is not None
-                else "Pick needs a field or by_signal="
-            )
+        assert (field is None) != (by_signal is None)  # a field or a signal, never both
         target, chosen = None, None
         if by_signal is not None:
             order = _check_pick_signal(by_signal, order, equals, normalize)
         else:
-            _field_path(field, "Pick field")
-            target = _check_pick_mode(order, equals, normalize)
-            chosen = _normalizer(normalize, "Pick")
+            _field_path(field, "sf.field path")
+            target = _check_pick_equals(order, equals, normalize)
+            chosen = _normalizer(normalize, "sf.field")
+        chosen_output = _output_field(output)
         object.__setattr__(self, "name", "pick")
+        object.__setattr__(self, "_narrow", ())
         object.__setattr__(self, "field", field)
         object.__setattr__(self, "by_signal", by_signal)
         object.__setattr__(self, "order", order)
         object.__setattr__(self, "equals", target)
         object.__setattr__(self, "normalize", chosen)
+        object.__setattr__(self, "output", chosen_output)
 
     def _plan(self) -> _ReducerPlan:
         if self.by_signal is not None:
-            return _signal_plan(self.by_signal, cast("str", self.order))
+            return _signal_plan(self.by_signal, cast("str", self.order), self.output)
         assert self.field is not None  # a Pick holds a field or a signal
         # WHY exact ids for the normalizer: by_field@1 assumes the v1 output form of text@1 and
         # numeric@1, so a newer normalizer in the catalog must never change what a Pick means.
-        if self.order is not None:
-            normalizer, select = "numeric", {"order": self.order}
-        else:
-            normalizer = self.normalize
-            select = {"order": "equals", "value": self.equals, "normalize": self.normalize}
+        normalizer = self.normalize
+        select = {
+            "order": "equals",
+            "value": self.equals,
+            "normalize": self.normalize,
+            **_output_arg(self.output),
+        }
         steps = _Steps(
             extract=_Step("json_field", {"path": self.field}),
             normalize=None if normalizer is None else _Step(f"{normalizer}@1"),
@@ -547,67 +541,75 @@ class Pick(Reducer):
         return _ReducerPlan("pick", "answer", steps)
 
     @classmethod
-    def _from_spec(cls, spec: Mapping[str, object]) -> Pick:
-        reduce = _spec_steps(spec)["reduce"]
+    def _from_spec(cls, spec: Mapping[str, object]) -> PickNode:
+        steps = _spec_steps(spec)
+        reduce = steps["reduce"]
         if reduce is not None and _op_name(reduce[0]) == "by_signal":
-            return cls._from_signal_spec(spec, reduce[1])
+            return cls._from_signal_spec(spec, reduce[1], steps["select"])
         return cls._from_field_spec(spec)
 
     @classmethod
-    def _from_signal_spec(cls, spec: Mapping[str, object], args: Mapping[str, object]) -> Pick:
+    def _from_signal_spec(
+        cls,
+        spec: Mapping[str, object],
+        args: Mapping[str, object],
+        select: tuple[str, Mapping[str, object]] | None,
+    ) -> PickNode:
         key, order = args.get("key"), args.get("order")
         if not isinstance(key, str) or order not in ("max", "min"):
             raise _cannot_rebuild("pick")
         signal = _decoded("pick", Signal, key)  # a key this SDK does not know is a hand edit
-        pick = _decoded("pick", cls, by_signal=signal, order=order)
+        output = None if select is None else select[1].get("output")
+        pick = _decoded("pick", cls, by_signal=signal, order=order, output=output)
         _require_steps(spec, pick._plan().steps, "pick")
         return pick
 
     @classmethod
-    def _from_field_spec(cls, spec: Mapping[str, object]) -> Pick:
+    def _from_field_spec(cls, spec: Mapping[str, object]) -> PickNode:
         field, normalizer, args = _pick_parts(spec)
+        output = args.pop("output", None)
         order, value, chosen = args.get("order"), args.get("value"), args.get("normalize")
-        if order in ("max", "min") and set(args) == {"order"} and normalizer == "numeric@1":
-            pick = _decoded("pick", cls, field, order=order)
-        elif (
+        # WHY no order form: a pick by the largest or smallest field has no step since the
+        # map/select/reduce surface (sf.ArgMax("field:<path>") is a pick by signal), so it cannot
+        # rebuild.
+        if (
             order == "equals"
             and set(args) == {"order", "value", "normalize"}
             and isinstance(value, str)
             and chosen in (None, *_NORMALIZERS)
             and normalizer == (None if chosen is None else f"{chosen}@1")
         ):
-            pick = _decoded("pick", cls, field, equals=value, normalize=chosen)
+            pick = _decoded("pick", cls, field, equals=value, normalize=chosen, output=output)
         else:
             raise _cannot_rebuild("pick")
         _require_steps(spec, pick._plan().steps, "pick")
         return pick
 
-    def __repr__(self) -> str:
-        if self.by_signal is not None:
-            return f"Pick(by_signal={self.by_signal!r}, order={self.order!r})"
-        if self.order is not None:
-            return f"Pick({self.field!r}, order={self.order!r})"
-        normalize = "" if self.normalize is None else f", normalize={self.normalize!r}"
-        return f"Pick({self.field!r}, equals={self.equals!r}{normalize})"
+    def _step_name(self) -> str:
+        if self.by_signal is None:
+            return "First"
+        return "ArgMax" if self.order == "max" else "ArgMin"
 
-    def _python(self) -> str:
+    def __repr__(self) -> str:
+        suffix = "" if self.output is None else f", output={self.output!r}"
         if self.by_signal is not None:
-            return f"sf.Pick(by_signal={self.by_signal._python()}, order={self.order!r})"
-        return f"sf.{self!r}"
+            return f"Pick(by_signal={self.by_signal!r}, order={self.order!r}{suffix})"
+        normalize = "" if self.normalize is None else f", normalize={self.normalize!r}"
+        return f"Pick({self.field!r}, equals={self.equals!r}{normalize}{suffix})"
 
     __hash__: ClassVar[Any] = None
 
 
-def _signal_plan(signal: Signal, order: str) -> _ReducerPlan:
+def _signal_plan(signal: Signal, order: str, output: str | None = None) -> _ReducerPlan:
     """The plan of an argmax: ``by_signal@1`` scores each member, ``best_holder@1`` picks one.
 
     INVARIANT (10E F3): the SAME order goes in both steps; the Engine does not cross-check them,
-    and the select step's order decides the pick.
+    and the select step's order decides the pick. ``output`` goes in the select step only.
     """
 
     steps = _Steps(
         reduce=_Step("by_signal", {"key": signal.key, "order": order}),
-        select=_Step("best_holder", {"order": order}),
+        select=_Step("best_holder", {"order": order, **_output_arg(output)}),
     )
     return _ReducerPlan("pick", "answer", steps, reads=signal)
 
@@ -641,52 +643,6 @@ def _pick_parts(spec: Mapping[str, object]) -> tuple[str, str | None, dict[str, 
     return field, None if normalize is None else normalize[0], dict(select[1])
 
 
-def _pick_from_options(options: Mapping[str, object]) -> Pick:
-    return Pick(
-        cast("str", options["field"]),
-        order=cast("Literal['max', 'min'] | None", options.get("order")),
-        equals=cast("str | int | float | bool | None", options.get("equals")),
-        normalize=cast("FieldNormalizer | None", options.get("normalize")),
-    )
+_REDUCER_CLASSES.update(pick=PickNode, merge=MergeNode)
 
-
-def _pick_options(named: Reducer) -> Mapping[str, object]:
-    """The canonical options of a pick_field block, in op-table row order (F5)."""
-
-    pick = cast("Pick", named)
-    if pick.order is not None:
-        return {"field": pick.field, "order": pick.order}
-    normalize = {} if pick.normalize is None else {"normalize": pick.normalize}
-    return {"field": pick.field, **normalize, "equals": pick.equals}
-
-
-def _merge_from_options(options: Mapping[str, object]) -> Merge:
-    fields = options["fields"]
-    if isinstance(fields, _FieldRules):
-        return Merge(dict(fields.items))
-    return Merge(cast("Mapping[str, FieldRule]", fields))
-
-
-def _argmax_from_options(options: Mapping[str, object]) -> Pick:
-    return Pick(
-        by_signal=cast("Signal", options["by_signal"]),
-        order=cast("Literal['max', 'min'] | None", options.get("order")),
-    )
-
-
-def _argmax_options(named: Reducer) -> Mapping[str, object]:
-    """The canonical options of an argmax block: the default order ``max`` is not stored."""
-
-    pick = cast("Pick", named)
-    return {"by_signal": pick.by_signal, **({"order": "min"} if pick.order == "min" else {})}
-
-
-_REDUCER_CLASSES.update(pick=Pick, merge=Merge)
-_BLOCK_FORMS["argmax"] = _BlockForm(build=_argmax_from_options, options=_argmax_options)
-_BLOCK_FORMS["pick_field"] = _BlockForm(build=_pick_from_options, options=_pick_options)
-_BLOCK_FORMS["merge"] = _BlockForm(
-    build=_merge_from_options,
-    options=lambda named: {"fields": _FieldRules(tuple(cast("Merge", named).fields.items()))},
-)
-
-__all__ = ["FieldNormalizer", "FieldRule", "Merge", "Pick"]
+__all__ = ["FieldNormalizer", "FieldRule", "MergeNode", "PickNode"]

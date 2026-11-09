@@ -30,7 +30,7 @@ def test_signal_key_outside_e4a_set_is_rejected_at_construction() -> None:
         sf.signal("field:a..b")
     with pytest.raises(ValueError, match="JSON path"):
         sf.signal("field:")
-    for bad in ("cost", "", "Cost_usd"):
+    for bad in ("", "Cost_usd"):
         with pytest.raises(ValueError, match="E4b"):
             sf.signal(bad)
     for not_text in (3, None, b"cost_usd"):

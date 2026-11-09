@@ -98,6 +98,12 @@ def test_wire_uses_attempt_semantics_and_separate_evidence_statuses() -> None:
                 "source": "openrouter.usage.cost",
             }
         ],
+        "succeeded_attempt_direct_cost": {
+            "status": "reported",
+            "amount": "0.0012",
+            "unit": "openrouter_credits",
+            "source": "openrouter.usage.cost",
+        },
     }
 
 

@@ -7,6 +7,13 @@ from pathlib import Path
 
 import pytest
 
+# INVARIANT: disable analytics before collection imports the SDK, not just in fixtures.
+# Analytics tests explicitly clear this only with isolated preferences and mocked sinks.
+os.environ["DO_NOT_TRACK"] = "1"
+
+from screamingface._runtime import cli, engine_env  # noqa: E402 -- after DO_NOT_TRACK on purpose
+from screamingface._runtime import source as runtime_source  # noqa: E402
+
 _PAID_FLAG = "SCREAMINGFACE_TEST_PAID"
 _PAID_LANE: Path = Path(__file__).resolve().parent / "paid"
 
@@ -57,4 +64,54 @@ def _isolated_screamingface_data_dir(
     monkeypatch.delenv("SCREAMINGFACE_ACCESS_TOKEN", raising=False)
 
 
+# FEATURE (OME-1620): `up`, `restart` and `prepare` BUILD a pip user's Engine environment when
+# none is set — a 700 MB install. Captured at import, before any test patches it.
+_REAL_ENGINE_BUILD = cli._with_built_engine_environment
+
+
+@pytest.fixture(autouse=True)
+def _no_engine_environment_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    # INVARIANT: the suite never builds a real Engine environment. Runtime tests force the
+    # bundled source to exercise `up` with stubbed apps; without this guard every one of them
+    # would start a real `uv venv` + pip install into its temp dir. The in-process Engine is
+    # what those tests expect, which is exactly what "no build" leaves them with.
+    monkeypatch.setattr(cli, "_with_built_engine_environment", lambda config, source: config)
+
+
+@pytest.fixture
+def real_engine_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Opt back in to the real decision; stub `ensure_engine_environment`, never install."""
+    monkeypatch.setattr(cli, "_with_built_engine_environment", _REAL_ENGINE_BUILD)
+
+
+# FEATURE (OME-1620): with no interpreter named, `screamingface up` starts the Engine from the
+# checkout's own Engine venv when it finds one. Captured at import, before any test patches it.
+_REAL_CHECKOUT = runtime_source.checkout_root()
+_REAL_CHECKOUT_ENGINE_VENV = engine_env.checkout_engine_venv
+
+
+@pytest.fixture(autouse=True)
+def _no_real_engine_venv(monkeypatch: pytest.MonkeyPatch) -> None:
+    # INVARIANT: the suite never reads the developer's real Engine venv, like their real data
+    # dir above. Otherwise every test that reaches `_config` in the checkout it runs from
+    # depends on that venv: red on a box whose venv lacks the benchmarks extra ("serves only
+    # medxpert"), a real 4 s Engine child on one that has it, green in CI only because CI has
+    # none. Fake checkouts under tmp_path keep their default, so the rung stays testable.
+    def isolated(source: runtime_source.RuntimeSource) -> Path | None:
+        if _REAL_CHECKOUT is not None and source.root is not None:
+            if source.root.resolve() == _REAL_CHECKOUT.resolve():
+                return None
+        return _REAL_CHECKOUT_ENGINE_VENV(source)
+
+    monkeypatch.setattr(engine_env, "checkout_engine_venv", isolated)
+    # Same invariant for an interpreter exported in the developer's shell.
+    monkeypatch.delenv(engine_env.ENGINE_PYTHON_ENV, raising=False)
+
+
 __all__: list[str] = []
+
+
+@pytest.fixture(autouse=True)
+def _isolated_analytics_preferences(tmp_path, monkeypatch):
+    # WHY: isolate explicit preference tests as well as the collection-time opt-out above.
+    monkeypatch.setenv("SCREAMINGFACE_ANALYTICS_CONFIG", str(tmp_path / "analytics.json"))

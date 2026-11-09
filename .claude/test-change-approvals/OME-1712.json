@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1712",
+  "branch": "OME-1712-remote-endpoint-instances",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-10-22",
+  "scope": "Two one-line edits to prior tests. (1) Hosted BYOM Unit 0 adds a provider plugin, RemoteEndpointPlugin, under aigateway.plugins. The E4c guard test discovers every provider plugin there and requires one OVERRIDES row per plugin. One row is added, \"RemoteEndpointPlugin\": set(), because the plugin overrides none of the four neutral hooks. (2) test_codex_plan_unsupported.py calls the hook should_mark_profile_error_on_dispatch_status, which E4c renamed; the call now uses should_mark_credential_error_on_dispatch_status. Rename only: the subject, argument and expected value are unchanged. In both files no other line changes; reverting the one line reproduces the base blob byte for byte.",
+  "reason": "(1) The guard test landed in main (E4c) after this branch was cut, and its table comment says a new plugin adds its row there. Without the row, test_every_provider_plugin_has_an_override_row and the per-plugin override test fail. (2) The Codex change merged after E4c and still used the old hook name, so main fails pyright and this test with AttributeError; the CI run on main reports the same error. Owner approval 2026-10-22: both lines, with this manifest, in this PR.",
+  "files": {
+    "apps/aigateway/tests/unit/core/test_neutral_plugin_hooks.py": {
+      "base_blob": "ed019a835f6a101b20e372398cd86993c5dc9809",
+      "approved_blob": "5846dd3369f4e90e8a3cf55916ef96ee55e4410c"
+    },
+    "apps/aigateway/tests/unit/test_codex_plan_unsupported.py": {
+      "base_blob": "4bb5f6ed8dae8f78c1d85dc35e2903772ad428af",
+      "approved_blob": "b13c9709e508a5039e61301560fa620574cda94e"
+    }
+  }
+}

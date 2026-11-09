@@ -28,6 +28,10 @@ on:
 permissions:
   contents: read
 
+# INVARIANT: test and preparation commands never enroll runners in SDK analytics.
+env:
+  DO_NOT_TRACK: "1"
+
 jobs:
   golden-replay:
     runs-on: ubuntu-latest
@@ -58,7 +62,13 @@ jobs:
       - name: Prepare benchmark assets
         # --extra runtime: `screamingface prepare` imports the embedded-server module,
         # whose deps (uvicorn et al.) live in the user-facing runtime extra.
-        run: uv run --extra runtime screamingface prepare --all --data-dir /tmp/screamingface-data
+        # WHY medxpert by name, not --all (OME-1620): since `screamingface up` and `prepare`
+        # run the Engine from its own environment in a checkout too, `--all` means every
+        # Benchmark the Engine serves (~2.9 GB, and gated ones need a Hugging Face token).
+        # Before, `--all` meant medxpert alone (the one Benchmark the in-process Engine knew),
+        # so naming it keeps this step exactly as it was. The bundles the goldens replay are
+        # prepared by name in the next two steps.
+        run: uv run --extra runtime screamingface prepare medxpert --data-dir /tmp/screamingface-data
 
       # The reducer and fusion lanes (OME-1289 E4a, test_reducer_replay.py and test_fusion_replay.py)
       # replay the IMPORTED board `inspect-gsm8k`, whose bundle is built by the Engine's own
@@ -108,4 +118,26 @@ jobs:
         env:
           SCREAMINGFACE_TEST_E2E: "1"
           SCREAMINGFACE_E2E_ASSETS: /tmp/screamingface-data/benchmark-assets
-        run: uv run pytest tests/e2e -rs -v
+          # The workbench sub-lane (tests/e2e/workbench) writes one evidence bundle per
+          # notebook here; uploaded below on pass AND fail, since a failing run's bundle is
+          # the thing a reviewer opens.
+          SCREAMINGFACE_WORKBENCH_OUT: ${{ runner.temp }}/workbench-out
+          # A skipped workbench notebook fails the run (spec §3.4): the hook only guards
+          # tests/e2e/workbench test_notebook, so the other lanes' loud skips stay skips.
+          SCREAMINGFACE_WORKBENCH_REQUIRE_ALL: "1"
+        # --extra runtime: test_local_boot (tests/e2e/workbench) runs the real `screamingface up`,
+        # whose servers live in that extra. Declared here rather than inherited from the prepare
+        # step's `uv run --extra runtime`, which only left them installed by an inexact sync.
+        # --junitxml lands inside the evidence dir, so the upload below carries it; the
+        # workbench conftest redacts every report before it reaches JUnit.
+        run: uv run --extra runtime pytest tests/e2e -rs -v -o junit_family=legacy --junitxml=$SCREAMINGFACE_WORKBENCH_OUT/junit.xml
+
+      - name: Upload workbench evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: workbench-evidence
+          path: ${{ runner.temp }}/workbench-out
+          # Bundles + summary.md + junit.xml (the whole e2e run). REQUIRE_ALL means every
+          # notebook ran and wrote a bundle, or setup_error.txt says why; none is a broken lane.
+          if-no-files-found: error

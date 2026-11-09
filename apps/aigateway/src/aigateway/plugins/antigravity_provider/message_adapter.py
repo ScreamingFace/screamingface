@@ -23,6 +23,10 @@ from litellm.llms.custom_llm import CustomLLMError
 from litellm.types.utils import ModelResponse
 
 from aigateway.core.content_parts import gemini_parts, parse_content, text_only
+from aigateway.core.usage_modalities import (
+    IMAGE_AND_FILE_KEY,
+    bounded_image_and_file_tokens_from_gemini,
+)
 
 PROVIDER = "antigravity"
 
@@ -223,7 +227,7 @@ def _tool_to_gemini(tool: dict[str, Any]) -> dict[str, Any] | None:
     return declaration
 
 
-def _usage_from_response(data: dict[str, Any]) -> dict[str, int] | None:
+def _usage_from_response(data: dict[str, Any]) -> dict[str, Any] | None:
     usage = data.get("usageMetadata")
     if not isinstance(usage, dict):
         return None
@@ -233,4 +237,14 @@ def _usage_from_response(data: dict[str, Any]) -> dict[str, int] | None:
         total = int(usage.get("totalTokenCount") or prompt + completion)
     except (TypeError, ValueError):
         return None
-    return {"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total}
+    return {
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": total,
+        # FEATURE (OME-1546): image/file input tokens from `promptTokensDetails`; `None` when
+        # the response carries no per-modality breakdown, or no valid `promptTokenCount` that
+        # bounds it. A subset of `prompt_tokens`, which keeps its existing parsing.
+        "prompt_tokens_details": {
+            IMAGE_AND_FILE_KEY: bounded_image_and_file_tokens_from_gemini(usage),
+        },
+    }

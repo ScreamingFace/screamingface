@@ -19,6 +19,7 @@ def build_job_runner(
     settings: Settings,
     *,
     extra_models: Callable[[], Sequence[str]] | None = None,
+    world_digest: str | None = None,
 ) -> JobRunner | None:
     """Selects the `JobRunner` adapter for `settings.runner`.
 
@@ -27,6 +28,9 @@ def build_job_runner(
 
     ``extra_models`` (OME-880) is the dynamically-admitted-model overlay, read at schedule
     time and written onto each run as ``URL4_CLOUD_EXTRA_MODELS``.
+
+    ``world_digest`` (OME-1770 review) is the App's one read of its world config, stamped on each
+    run as ``URL4_CLOUD_WORLD_DIGEST``.
     """
     if settings.runner == "queue":
         # The OME-1086 substrate (OME-1090): one durable queue + a fixed worker pool. The
@@ -64,6 +68,7 @@ def build_job_runner(
             capability_lifetime_s=settings.capability_lifetime_s,
             io_concurrency=settings.runner_io_concurrency,
             extra_models=extra_models,
+            world_digest=world_digest,
             depth_ceiling=settings.run_queue_depth_ceiling,
             caller_inflight_cap=settings.run_queue_caller_inflight_cap,
         )

@@ -18,9 +18,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from ipaddress import ip_address
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urlsplit
 
 import httpx
@@ -89,6 +90,32 @@ class DiscoveryHttpClient(Protocol):
     """
 
     async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse: ...
+
+
+@runtime_checkable
+class DiscoveryPostClient(Protocol):
+    """The bounded POST sibling of ``DiscoveryHttpClient`` (OME-1537).
+
+    Some fixed discovery sources answer only a POST (Ollama ``/api/show``). The
+    adapter obeys the SAME envelope as ``get``: no followed redirect, identity
+    encoding, a byte cap counted before retained, a TOTAL deadline, and every fault
+    a sanitized ``DiscoveryError``.
+
+    # WHY a sibling Protocol, not a new member of ``DiscoveryHttpClient``: every
+    # GET-only transport (and test double) would stop satisfying the listing port.
+    # A plugin that needs POST narrows the injected client with ``isinstance`` and
+    # fails the attempt (``unsupported_transport``) when it cannot — core still
+    # owns the port, and core still never imports the plugin.
+    """
+
+    async def post(
+        self,
+        url: str,
+        *,
+        json_body: Mapping[str, object],
+        timeout_s: float,
+        max_bytes: int,
+    ) -> RawResponse: ...
 
 
 def _origin_of(url: str) -> tuple[str, str]:
@@ -169,13 +196,51 @@ class HttpxDiscoveryClient:
     # fixed reason and no ``__cause__`` chained out — a raw transport message can
     # carry a host/path, and must never reach API output.
     # AIDEV-NOTE: ``transport`` is injectable ONLY so tests drive it with
-    # ``httpx.MockTransport``; production constructs it with no arguments.
+    # ``httpx.MockTransport``; production constructs it with no transport.
+    # INVARIANT (OME-1634): ``headers`` are fixed at construction by the provider
+    # that owns them (Codex builds a per-call client carrying the caller's own
+    # token). The app-lifetime runtime client is built WITHOUT headers, so the
+    # injected discovery client every provider receives stays credential-free.
     """
 
-    def __init__(self, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        transport: httpx.AsyncBaseTransport | None = None,
+        headers: Mapping[str, str] | None = None,
+    ) -> None:
         self._transport = transport
+        # WHY identity last: a provider header must never reopen the compressed
+        # transfer the byte cap is defined against.
+        self._headers = {
+            name: value
+            for name, value in (headers or {}).items()
+            if name.lower() != "accept-encoding"
+        } | _IDENTITY_ENCODING
 
     async def get(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
+        return await self._bounded("GET", url, None, timeout_s=timeout_s, max_bytes=max_bytes)
+
+    async def post(
+        self,
+        url: str,
+        *,
+        json_body: Mapping[str, object],
+        timeout_s: float,
+        max_bytes: int,
+    ) -> RawResponse:
+        # OME-1537: the same envelope as ``get``; only the method and a JSON body differ.
+        return await self._bounded("POST", url, json_body, timeout_s=timeout_s, max_bytes=max_bytes)
+
+    async def _bounded(
+        self,
+        method: str,
+        url: str,
+        json_body: Mapping[str, object] | None,
+        *,
+        timeout_s: float,
+        max_bytes: int,
+    ) -> RawResponse:
         # WHY: ``httpx.Timeout`` bounds each connect/read/write/pool INTERVAL, and
         # every interval resets on activity — a source that keeps dribbling small
         # chunks stays "busy" and never trips it. Only an outer deadline bounds the
@@ -183,11 +248,21 @@ class HttpxDiscoveryClient:
         # as ``timeout`` rather than reclassified by httpx's own error translation.
         try:
             async with asyncio.timeout(timeout_s):
-                return await self._read_bounded(url, timeout_s=timeout_s, max_bytes=max_bytes)
+                return await self._read_bounded(
+                    method, url, json_body, timeout_s=timeout_s, max_bytes=max_bytes
+                )
         except TimeoutError:
             raise DiscoveryError("timeout") from None
 
-    async def _read_bounded(self, url: str, *, timeout_s: float, max_bytes: int) -> RawResponse:
+    async def _read_bounded(
+        self,
+        method: str,
+        url: str,
+        json_body: Mapping[str, object] | None,
+        *,
+        timeout_s: float,
+        max_bytes: int,
+    ) -> RawResponse:
         try:
             async with httpx.AsyncClient(
                 follow_redirects=False,
@@ -195,7 +270,12 @@ class HttpxDiscoveryClient:
                 timeout=httpx.Timeout(timeout_s),
                 transport=self._transport,
             ) as client:
-                async with client.stream("GET", url, headers=_IDENTITY_ENCODING) as response:
+                async with client.stream(
+                    method,
+                    url,
+                    headers=self._headers,
+                    json=dict(json_body) if json_body is not None else None,
+                ) as response:
                     return RawResponse(
                         status=response.status_code,
                         content_type=response.headers.get("content-type", ""),

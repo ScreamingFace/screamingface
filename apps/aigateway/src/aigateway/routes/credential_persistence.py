@@ -14,10 +14,6 @@ class SupportsCredentialPersistence(Protocol):
     def credential_service(self) -> str: ...
 
 
-class SupportsCredentialSlot(SupportsCredentialPersistence, Protocol):
-    def credential_account(self) -> str: ...
-
-
 async def persist_credentials_or_503(
     strategy: SupportsCredentialPersistence,
     credentials: dict[str, Any],

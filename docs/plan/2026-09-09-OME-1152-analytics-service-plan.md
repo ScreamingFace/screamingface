@@ -4,7 +4,7 @@ Status: review proposal. Prerequisite: [service spec](../spec/2026-09-09-OME-115
 
 ## Before code
 
-1. Review the endpoint/schema and bounded forwarding contract with eventual duplicate semantics, applying the owner-confirmed measurement decisions. Select service owner, hostname/port, PostHog test destination and enforceable 90-day raw-event retention. No deployment values fabricated in this draft.
+1. Review the endpoint/schema and bounded forwarding contract with eventual duplicate semantics, applying the owner-confirmed measurement decisions. Select service owner, hostname/port, PostHog test destination and disclosure of PostHog-managed raw-event retention (owner-approved revision, 20 October 2026). No deployment values fabricated in this draft.
 2. Completed: owner-created analytics label applied and registered in the task-board card. Design-session/agentic describes docs work, not autonomous implementation approval.
 3. Start a fresh OME-1152 implementation worktree from updated origin/main after docs merge. Invoke sdlc-python and create a new implementation ledger. Do not carry unreviewed changes from the earlier SDK design branch.
 

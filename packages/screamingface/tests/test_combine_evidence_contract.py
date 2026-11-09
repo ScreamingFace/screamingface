@@ -29,6 +29,7 @@ _EXPECTED_NAMES = {
     "filter_threshold",
     "judge_label",
     "judge_scores",
+    "mean_weighted_value",
     "median_nearest",
     "median_value",
     "merge_abstain",
@@ -48,6 +49,18 @@ _EXPECTED_NAMES = {
     "vote_tie",
     "vote_weighted",
 }
+_EXPECTED_NAMES |= {"pick_output", "pick_output_missing"}  # E4b pick-output
+_EXPECTED_NAMES |= {"vote_weight_excluded", "filter_signal_excluded"}  # E4b part 2 X1, X2
+_EXPECTED_NAMES |= {"rank_min_cost", "rank_reduce_abstain"}  # E4b part 2 unit 3 rank and cut
+_EXPECTED_NAMES |= {  # E4b part 5 unit 2: the five gate cases
+    "vote_gate_abstain",
+    "vote_gate_judge",
+    "vote_gate_majority",
+    "vote_gate_not_run",
+    "vote_gate_writer",
+}
+_EXPECTED_NAMES |= {"pick_sum_min"}  # E4b part 6 unit 1: a pick reads a declared sum
+_EXPECTED_NAMES |= {"vote_gate_band"}  # E4b part 6 unit 4: the abstain band case
 
 
 def _cases() -> dict[str, Any]:
@@ -69,3 +82,30 @@ def test_an_engine_evidence_decodes_and_round_trips_exactly(name: str) -> None:
 
     assert isinstance(decoded, CombineEvidence)
     assert decoded.to_dict() == wire
+
+
+@requires_engine_app
+def test_sdk_decodes_every_engine_evidence_case_with_an_excluded_row() -> None:
+    # E4b part 2 unit 2 (ES#5): the four excluded rows of the Engine fixture decode and round-trip.
+    cases = _cases()
+    excluded = {
+        (name, row["member_id"], row["reason"])
+        for name, wire in cases.items()
+        for row in wire["members"]
+        if row["status"] == "excluded"
+    }
+    assert excluded >= {
+        ("filter_signal_excluded", "member_3", "no_signal"),
+        ("mean_weighted_value", "member_2", "no_weight"),
+        ("rank_cut_not_met", "member_2", "no_signal"),
+        ("vote_weight_excluded", "member_3", "no_weight"),
+    }
+    for name in (
+        "filter_signal_excluded",
+        "mean_weighted_value",
+        "rank_cut_not_met",
+        "vote_weight_excluded",
+    ):
+        decoded = decode_combine_evidence(cases[name], f"Engine evidence {name}")
+        assert decoded is not None
+        assert decoded.to_dict() == cases[name]

@@ -1,7 +1,7 @@
 ---
 id: OME-1449
 linear_url: https://linear.app/openmined/issue/OME-1449/remove-the-retired-profile-selector-carrier-from-engine-runtime
-status: in_progress
+status: done
 type: task
 priority: high
 labels: [screamingface-engine, agentic, autonomous]
@@ -9,7 +9,7 @@ parent: OME-1138
 related: [OME-1381, OME-1394, OME-1398]
 blocked_by: []
 created: 2026-10-01
-closed:
+closed: 2026-10-07
 ---
 
 # Remove the retired Profile selector carrier from Engine runtime
@@ -42,4 +42,5 @@ not a production census claim.
 ## Implementation status
 
 Implementation, review and local quality gates are complete on `OME-1449-remove-profile-carrier`.
-The issue remains in progress until the coordinated landing is merged.
+The coordinated landing squash-merged to `main` on 2026-10-05 as `641601f37` (PR #1231), together
+with `OME-1450`. Linear closed the issue Done on 2026-10-07.

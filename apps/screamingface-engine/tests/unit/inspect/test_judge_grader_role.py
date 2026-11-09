@@ -98,6 +98,7 @@ def _role_spec(**overrides: Any) -> BenchmarkSpec:
         "focus": "test",
         "dataset_url": "https://example.test/ds",
         "difficulty": "easy",
+        "failure_policy": "coverage_declare",
         "scorer": "inspect_ai.scorer:model_graded_qa",
         "scorer_kwargs": {},
         "judge": JudgeSpec(model="judge-4", params=(("temperature", "0"),), model_role="grader"),

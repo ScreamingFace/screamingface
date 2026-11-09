@@ -7,6 +7,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 from screamingface_engine.benchmarks.case_grading_report import report_case_grading
+from screamingface_engine.benchmarks.case_result_store import (
+    CaseResultStoreError,
+    bound_case_results,
+)
 from screamingface_engine.benchmarks.contract import (
     CaseId,
     decode_candidate_invocation,
@@ -29,6 +33,10 @@ _FIELDS = frozenset({"case_id", "candidate_invocation", "grading"})
 # into one row so the per-Case fan-out still yields exactly one row per Case.
 CASE_ATTEMPTS_ROUTE = "/benchmarks/case-attempts"
 CASE_ATTEMPTS_SCHEMA = "screamingface.case-attempts.v1"
+# FEATURE (OME-1833): what the route hands url4 when the run has a Case-result store, e.g.
+# {"schema":"screamingface.case-execution-ref.v1","case_id":7,"key":"6"} (~90 B, not ~12.5 KB).
+CASE_EXECUTION_REF_SCHEMA = "screamingface.case-execution-ref.v1"
+_REF_FIELDS = frozenset({"schema", "case_id", "key"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,7 +44,9 @@ class GradedAnswer:
     """One preserved Candidate answer plus either grading output or a grading error."""
 
     case_id: CaseId
-    candidate: CandidateAnswer
+    # None only for a graded row read back from the Case-result store, which is parked
+    # without its Candidate Invocation (OME-1833). Every grading error keeps it.
+    candidate: CandidateAnswer | None
     grading: object | None
     error: Mapping[str, object] | None
 
@@ -92,9 +102,21 @@ def graded_answer_payload(
 
 
 def graded_answer(value: object) -> GradedAnswer:
-    """Decode the shared envelope without interpreting Benchmark-owned grading data."""
+    """Decode the shared envelope without interpreting Benchmark-owned grading data.
 
+    A reference row (OME-1833) is resolved through the run's Case-result store first. This is
+    the one decoder of a case-execution row, so every reader (the aggregate, the Attempts
+    join, an early per-Case grade) resolves references without knowing they exist.
+    """
+
+    reference: Mapping[str, object] | None = _reference(value)
+    if reference is not None:
+        return _stored_graded_answer(reference)
     case_id, candidate, grading = _decode_graded_answer(value)
+    return _outcome(case_id, candidate, grading)
+
+
+def _outcome(case_id: CaseId, candidate: CandidateAnswer | None, grading: object) -> GradedAnswer:
     if isinstance(grading, Mapping) and "error" in grading:
         error = grading["error"]
         if set(grading) != {"error"} or not isinstance(error, Mapping):
@@ -149,10 +171,76 @@ def _graded_answer_route(request: Request) -> str:
             raise ValueError("Case execution grading must contain exactly one outcome")
     except (TypeError, ValueError) as exc:
         raise _contract_error(str(exc)) from exc
-    result = compact_json(graded_answer_payload(case_id, invocation, grading))
+    envelope: dict[str, object] = graded_answer_payload(case_id, invocation, grading)
     failed = isinstance(grading[0], Mapping) and "error" in grading[0]
     report_case_grading(case_id, "failed" if failed else "completed")
-    return result
+    store = bound_case_results()
+    if store is None:
+        # WHY inline without a store: a test, a remote peer or a world outside a run keeps
+        # today's envelope byte for byte.
+        return compact_json(envelope)
+    # WHY drop the Candidate Invocation from a graded row: the grading already re-records the
+    # answer, and only a grading error is read with its Candidate (OME-1833 dedup).
+    parked: dict[str, object] = (
+        envelope
+        if failed
+        else {name: value for name, value in envelope.items() if name != "candidate_invocation"}
+    )
+    key: str = store.append(parked)
+    return compact_json({"schema": CASE_EXECUTION_REF_SCHEMA, "case_id": case_id, "key": key})
+
+
+def _reference(value: object) -> Mapping[str, object] | None:
+    """The reference row ``value`` is, or None for anything else (an inline envelope)."""
+
+    decoded: object = value
+    # WHY a cheap prefix test first: an inline envelope is large JSON text, and decoding it
+    # twice just to learn it is not a reference would double the reader's work.
+    if isinstance(value, str) and CASE_EXECUTION_REF_SCHEMA in value[:80]:
+        try:
+            decoded = json.loads(value)
+        except ValueError:
+            decoded = None
+    if not isinstance(decoded, Mapping) or decoded.get("schema") != CASE_EXECUTION_REF_SCHEMA:
+        return None
+    if set(decoded) != _REF_FIELDS or not isinstance(decoded.get("key"), str):
+        raise ValueError("Case execution reference has an invalid shape")
+    return decoded
+
+
+def _stored_graded_answer(reference: Mapping[str, object]) -> GradedAnswer:
+    """Resolve one reference to the envelope its route parked; fail closed on anything else.
+
+    INVARIANT: a reference resolves to its own Case's row or raises ``CaseResultStoreError``.
+    It never resolves to an empty row or to another Case's row.
+    """
+
+    store = bound_case_results()
+    if store is None:
+        raise CaseResultStoreError("no Case-result store is bound to resolve this reference")
+    claimed: object = reference.get("case_id")
+    if not isinstance(claimed, int | str):
+        raise ValueError("Case execution reference must name its Case")
+    case_id = validate_case_id(claimed)
+    record: dict[str, object] = store.read(str(reference["key"]))
+    if record.get("schema") != GRADED_ANSWER_SCHEMA or not {"schema", "case_id", "grading"} <= set(
+        record
+    ) <= {"schema", *_FIELDS}:
+        raise CaseResultStoreError("parked Case execution has an invalid shape")
+    if record.get("case_id") != case_id:
+        raise CaseResultStoreError("parked Case execution belongs to another Case")
+    grading: object = record["grading"]
+    if isinstance(grading, str | bytes) or not isinstance(grading, Sequence) or len(grading) != 1:
+        raise CaseResultStoreError("parked Case execution grading must hold one outcome")
+    invocation: object = record.get("candidate_invocation")
+    if invocation is not None and not isinstance(invocation, str):
+        raise CaseResultStoreError("parked Candidate Invocation must be JSON text")
+    assert case_id is not None
+    candidate: CandidateAnswer | None = None if invocation is None else candidate_answer(invocation)
+    outcome: GradedAnswer = _outcome(case_id, candidate, grading[0])
+    if outcome.error is not None and outcome.candidate is None:
+        raise CaseResultStoreError("a parked grading error lost its Candidate Invocation")
+    return outcome
 
 
 def case_attempts(value: object) -> tuple[CaseId, list[object]] | None:
@@ -198,6 +286,7 @@ def _case_attempts_route(request: Request) -> str:
 
 
 __all__ = [
+    "CASE_EXECUTION_REF_SCHEMA",
     "CASE_ATTEMPTS_ROUTE",
     "CASE_ATTEMPTS_SCHEMA",
     "case_attempts",

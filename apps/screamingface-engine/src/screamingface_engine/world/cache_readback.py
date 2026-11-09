@@ -112,11 +112,11 @@ class CacheOutcome:
     the gateway — so a lost attempt may have been billed (OME-1220). A connect-phase failure,
     which proves nothing was sent, does not set it (`connector._NEVER_SENT`).
 
-    A retried attempt may ALREADY have been processed and billed upstream with only its response
-    lost, so a hit that follows one cannot prove the cache avoided anything — the row it hit may
-    be the one the lost attempt just paid for and wrote — and a miss's own price covers only the
-    attempt that answered. Both are reported unpriced. Carried here rather than derived later
-    because only the posting function knows it happened, and the fact dies with the response.
+    AIDEV-NOTE (OME-1687): a recorded fact only — no price reads it. The price of a call is the
+    successful request's (cost of intelligence), so a retry before it changes nothing. OME-1220
+    once made a retried hit and miss unpriced on this flag; that rule is gone. Carried here rather
+    than derived later because only the posting function knows it happened, and the fact dies
+    with the response.
 
     Defaulted `False` so every existing construction site keeps its meaning: absent evidence of a
     retry is not evidence of one.

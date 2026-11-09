@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1678",
+  "branch": "OME-1678-candidate-input-envelope",
+  "approver": "Khoa Duy Nguyen (owner-approved in session)",
+  "date": "2026-10-22",
+  "scope": "Two one-line edits. test_codex_plan_unsupported.py: in test_plan_refusal_does_not_mark_the_credential_errored the call should_mark_profile_error_on_dispatch_status(403) becomes should_mark_credential_error_on_dispatch_status(403); the assertion (is False) is unchanged. tests/live/test_provider_matrix.py: the codex ProviderCase model codex/gpt-5.4-mini becomes codex/gpt-6-astra. No other edits to either file.",
+  "reason": "PR #1523 renamed the provider hook should_mark_profile_error_on_dispatch_status to should_mark_credential_error_on_dispatch_status; PR #1441 merged after it with a new test still calling the old name, so main's aigateway pyright and pytest fail and every PR touching apps/aigateway is blocked. #1441 also retired codex/gpt-5.4-mini, which the opt-in live matrix still called. OME-1678 adds an aigateway test file, so its gates run into both; the owner chose to fix them here.",
+  "files": {
+    "apps/aigateway/tests/unit/test_codex_plan_unsupported.py": {
+      "base_blob": "4bb5f6ed8dae8f78c1d85dc35e2903772ad428af",
+      "approved_blob": "b13c9709e508a5039e61301560fa620574cda94e"
+    },
+    "apps/aigateway/tests/live/test_provider_matrix.py": {
+      "base_blob": "c224334fccbe5b6f8879108f4179e9b65405405a",
+      "approved_blob": "a27b70c6fd82b5de260b19d9df80912188278b99"
+    }
+  }
+}

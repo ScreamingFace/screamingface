@@ -1,4 +1,4 @@
-"""Per-profile DB-backed API-key credential strategy.
+"""Per-connection DB-backed API-key credential strategy.
 
 Implements the :class:`CredentialStrategy` port directly rather than
 subclassing :class:`~aigateway.core.oauth_base.BaseOAuthStrategy`: API keys
@@ -33,14 +33,14 @@ class ApiKeyStrategy(CredentialStrategy):
 
     def __init__(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         service: str,
         account: str,
         header_builder: Callable[[str], dict[str, str]],
         credential_store: CredentialBlobStore | None = None,
     ) -> None:
-        self.profile_name = profile_name
+        self.credential_name = credential_name
         self._service = service
         self._account = account
         self._header_builder = header_builder
@@ -67,7 +67,7 @@ class ApiKeyStrategy(CredentialStrategy):
 
     async def refresh_credentials(self) -> None:
         """Raw API keys cannot be refreshed, only replaced — but a refresh
-        must not report success for a profile whose blob is gone or corrupt
+        must not report success for a connection whose blob is gone or corrupt
         (SF-244 audit F09), so re-validate that a well-formed key exists."""
         await self._read_api_key()
 
@@ -75,21 +75,21 @@ class ApiKeyStrategy(CredentialStrategy):
         raw = await self._store.read(self._service, self._account)
         if raw is None:
             raise CredentialNotFoundError(
-                f"No API key stored for {self.profile_name!r}. "
-                "Set or replace the key for this profile or connection."
+                f"No API key stored for {self.credential_name!r}. "
+                "Set or replace the key for this connection."
             )
         try:
             creds = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise AuthError(
-                f"API-key blob for {self.profile_name!r} is not valid JSON: {exc}"
+                f"API-key blob for {self.credential_name!r} is not valid JSON: {exc}"
             ) from exc
         if not isinstance(creds, dict) or creds.get("auth_type") != API_KEY_AUTH_TYPE:
             raise AuthError(
-                f"Credential blob for {self.profile_name!r} is not an API-key blob; "
+                f"Credential blob for {self.credential_name!r} is not an API-key blob; "
                 "re-set the key or re-authenticate via OAuth."
             )
         api_key = creds.get("api_key")
         if not isinstance(api_key, str) or not api_key:
-            raise AuthError(f"API-key blob for {self.profile_name!r} missing 'api_key'")
+            raise AuthError(f"API-key blob for {self.credential_name!r} missing 'api_key'")
         return api_key

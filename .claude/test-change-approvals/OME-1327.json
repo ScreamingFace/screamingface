@@ -1,0 +1,34 @@
+{
+  "issue": "OME-1327",
+  "branch": "OME-1327-lab-bench-figqa-tableqa",
+  "approver": "owner, to confirm on the PR (requested in the OME-1327 session)",
+  "date": "2026-10-26",
+  "scope": "Prior-test edits for the two new Benchmarks lab_bench_figqa and lab_bench_tableqa, and nothing else: one table row each in test_benchmark_declaration.py (withhold, single_shot, medium), test_failure_policy_rows.py (Group A, plus the row counts 85→87 and 68→70 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (their revision literals), and test_inspect_imported_benchmarks.py (family mcq, the seeded set, the LAB-Bench set and its count 6→8, and the stale comment and docstring that said the picture subsets stay out); in test_inspect_task_replay_benchmarks.py the eight stand-in LAB-Bench rows gain a figure and a tables field, because the new rows' loaders read them. No existing row or assertion changes.",
+  "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as bbh and medmcqa did); the rows are the review act for its declaration, family, policy and revision. The LAB-Bench choice-order test parametrizes over every lab_bench row, so its shared stand-in rows must carry the fields the picture subsets read.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "4d20d9f6d4bbac16aab0cf3dfeb73d2d58c39440",
+      "approved_blob": "b8d0329bc612d90c04878922bdfff0cafa6aed4d"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "27583a55d9e3d74508401ae51fdf1210ed0119ec",
+      "approved_blob": "f4cea20ce982a11314537497c33b1bbdf5ffde93"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
+      "base_blob": "be5c3acb44a600818d14289850e09c18dcd929d8",
+      "approved_blob": "7b2ee4e74a03877b92d71ef3a0fbbd323faf1450"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "e65216db07e03af90b5259a4e45c39fff8d1c1c5",
+      "approved_blob": "7d373bb6e49e2a9903814df614bf47c54af70632"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_task_replay_benchmarks.py": {
+      "base_blob": "bbdba73432abc34d60dd7b401bdaf213dc87ca7f",
+      "approved_blob": "6444edd576d1332cd7844d6ded5b8a5962f3483f"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "4d1426ba148e5aa993128255f6e0d463ffbc3f1b",
+      "approved_blob": "8c9234d20067f6fbda6ff250640a3199ad0fd4ac"
+    }
+  }
+}

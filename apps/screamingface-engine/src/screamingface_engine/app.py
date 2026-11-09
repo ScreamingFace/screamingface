@@ -19,13 +19,19 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 
 from screamingface_engine import job_env
+from screamingface_engine.access_log import install_access_log_filter
 from screamingface_engine.adapters.factory import build_job_runner
 from screamingface_engine.artifacts import (
     ArtifactReader,
     ArtifactStore,
     S3ArtifactStore,
 )
-from screamingface_engine.artifacts.wiring import s3_config_from_values
+from screamingface_engine.artifacts.blobs import BlobPolicy, BlobStore
+from screamingface_engine.artifacts.wiring import (
+    BlobStoreNotConfigured,
+    blob_objects_from_values,
+    s3_config_from_values,
+)
 from screamingface_engine.auth import Clock, default_clock, install_problem_handlers
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
@@ -39,6 +45,7 @@ from screamingface_engine.config import INSECURE_DEFAULT_JWT_SECRET, Settings
 if TYPE_CHECKING:  # the adapter is imported lazily at runtime; only the annotation needs the name
     from screamingface_engine.adapters.jetstream import JetStreamConsumer
 
+from screamingface_engine.community_cache import CommunityCache, build_community_cache
 from screamingface_engine.connections import build_connections
 from screamingface_engine.connections.port import Connections
 from screamingface_engine.cors import install_cors
@@ -60,16 +67,19 @@ from screamingface_engine.rest import (
     SubscriberGate,
     artifact_router,
     benchmark_router,
+    blob_router,
     catalog_router,
     connection_router,
     operator_router,
 )
 from screamingface_engine.rest import router as rest_router
+from screamingface_engine.rest.cache_entries import router as cache_entries_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.schemas import customize_openapi
 from screamingface_engine.tracing.loader import load_span_sink
 from screamingface_engine.tracing.relay import SpanSink
 from screamingface_engine.unclaimed import QueuedRuns, UnclaimedRunWarner
+from screamingface_engine.world.config import WorldConfigError, WorldFile, read_world_file
 from screamingface_engine.world.serving import derive_mount_table, engine_route_paths
 from screamingface_engine.ws import ConnectionRegistry
 from screamingface_engine.ws import router as ws_router
@@ -85,10 +95,12 @@ _ROUTERS = (
     router,
     rest_router,
     artifact_router,
+    blob_router,
     benchmark_router,
     operator_router,
     catalog_router,
     connection_router,
+    cache_entries_router,
     ws_router,
     ops_router,
 )
@@ -116,6 +128,7 @@ def create_app(
     catalog: CatalogService | None = None,
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
+    community_cache: CommunityCache | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     span_sink: SpanSink | None = None,
     operators: OperatorRegistry = BUILTIN_OPERATORS,
@@ -138,7 +151,7 @@ def create_app(
     # this one installs exactly one, and a process that builds two Apps does not double every
     # line. FIRST statement in the builder, because a failure while building `Settings` below
     # is precisely the failure whose log line the operator needs.
-    configure_logging()
+    _configure_logs()
     settings = settings or Settings()
     app = FastAPI(title="screamingface-engine", version="0.1.0", docs_url=None, redoc_url=None)
     app.state.settings = settings
@@ -146,23 +159,10 @@ def create_app(
     app.state.job_runner = job_runner
     app.state.catalog = catalog
     app.state.model_parameters = model_parameters
-    app.state.connections = connections
+    _install_gateway_adapters(app, connections, community_cache)
     _install_discovery_registries(app, benchmarks, operators)
     app.state.metrics = build_metrics()
-    # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
-    # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
-    # (OME-929).
-    app.state.artifact_store = _build_artifact_reader(settings)
-    # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
-    # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
-    # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
-    # backlog immediately; the periodic task covers a hosted App that stays up for weeks
-    # between redeploys — startup-only would let parcels pool until the next
-    # restart (owner decision on OME-892).
-    #
-    # AIDEV-NOTE: with `artifact_store=s3` the sweeper is a no-op by design — expiry is the
-    # bucket's lifecycle rule. See `artifacts.s3.S3ArtifactStore.sweep`.
-    _install_artifact_sweeper(app, app.state.artifact_store, settings)
+    _install_storage(app, settings)
     _register_metrics(app)
     # FEATURE: the shared events stream's own signals — store use and publish conflicts
     # (uniform executor, PRD 01 §4 Observability). A stream that can refresh its own usage
@@ -189,6 +189,16 @@ def create_app(
         app.state.clock = clock
     _install_surfaces(app, span_sink)
     return app
+
+
+def _configure_logs() -> None:
+    """The App process's logging: the App's own handler, then the access-log redaction.
+
+    WHY a helper: `create_app` sits at the statement limit.
+    """
+    configure_logging()
+    # FEATURE (OME-1795, E10): no request query reaches an access line, from any start path.
+    install_access_log_filter()
 
 
 control_plane_span_sink = load_span_sink
@@ -224,6 +234,14 @@ def _install_discovery_registries(
     """
     app.state.benchmarks = benchmarks
     app.state.operators = operators
+
+
+def _install_gateway_adapters(
+    app: FastAPI, connections: Connections | None, community_cache: CommunityCache | None
+) -> None:
+    """Park the AI Gateway-backed ports on the App; a route answers 503 for one that is None."""
+    app.state.connections = connections
+    app.state.community_cache = community_cache
 
 
 def _install_middleware(app: FastAPI, settings: Settings) -> None:
@@ -328,6 +346,87 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
     return ArtifactStore(Path(settings.artifacts_dir))
 
 
+def _install_storage(app: FastAPI, settings: Settings) -> None:
+    """The result spill store, the run blob store on its own backend, and their TTL sweep."""
+    # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
+    # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
+    # (OME-929).
+    app.state.artifact_store = _build_artifact_reader(settings)
+    # FEATURE: the run blob store (OME-1540) — on its own backend (#1603 review).
+    app.state.blob_store = _build_blob_store(settings)
+    # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
+    # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
+    # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
+    # backlog immediately; the periodic task covers a hosted App that stays up for weeks
+    # between redeploys — startup-only would let parcels pool until the next
+    # restart (owner decision on OME-892).
+    #
+    # AIDEV-NOTE: with `artifact_store=s3` the sweeper is a no-op by design — expiry is the
+    # bucket's lifecycle rule. See `artifacts.s3.S3ArtifactStore.sweep`.
+    _install_artifact_sweeper(app, app.state.artifact_store, settings)
+
+
+def _build_blob_store(settings: Settings) -> BlobStore | None:
+    """The run blob store on ITS OWN backend (#1603 review, owner decision 2026-11-03).
+
+    WHY through `blob_objects_from_values`: the Runner resolves its blob store with the same
+    function from the same `job_env` names, so the two halves read one store.
+
+    INVARIANT: `runner="queue"` with a filesystem blob store is refused, for the reason
+    `_build_artifact_reader` refuses filesystem artifacts — the Runner reading a blob runs in
+    another pod, whose disk does not hold this App's uploads.
+
+    INVARIANT (#1603 review round 2, owner decision 2026-11-04): no blob store of its own →
+    None, and the blob routes answer 503 (`rest.blobs._store`) — the engine's shape for an
+    unconfigured optional dependency (the catalog, the community cache). Never the artifact store.
+    """
+    if settings.runner == "queue" and settings.blob_store == "filesystem":
+        raise ValueError(
+            f"runner='{settings.runner}' reads blobs from a worker pod that cannot see this "
+            f"App's disk. Set {job_env.BLOB_STORE}=s3 and the {job_env.BLOB_S3_BUCKET} "
+            f"settings, or use runner='none' for a single-process deployment."
+        )
+    try:
+        objects = blob_objects_from_values(_blob_values(settings))
+    except BlobStoreNotConfigured as exc:
+        _logger.warning("run blob store disabled: %s", exc)
+        return None
+    policy = BlobPolicy(
+        max_bytes=settings.blob_max_bytes,
+        media_types=frozenset(t.strip().lower() for t in settings.blob_media_types),
+        # FEATURE: #1603 review — every blob the App keeps opens with its type's signature.
+        verify_signature=True,
+    )
+    return BlobStore(objects, policy)
+
+
+def _blob_values(settings: Settings) -> dict[str, str]:
+    """`Settings` rendered into the env-named shape the shared wiring reads."""
+    return {
+        job_env.BLOB_STORE: settings.blob_store or "",
+        job_env.BLOBS_DIR: settings.blobs_dir,
+        job_env.BLOB_S3_ENDPOINT_URL: settings.blob_s3_endpoint_url,
+        job_env.BLOB_S3_BUCKET: settings.blob_s3_bucket,
+        job_env.BLOB_S3_REGION: settings.blob_s3_region,
+        job_env.BLOB_S3_ACCESS_KEY: settings.blob_s3_access_key,
+        job_env.BLOB_S3_SECRET_KEY: settings.blob_s3_secret_key,
+        job_env.ARTIFACT_STORE: settings.artifact_store,
+        job_env.ARTIFACTS_DIR: settings.artifacts_dir,
+        job_env.ARTIFACT_S3_ENDPOINT_URL: settings.artifact_s3_endpoint_url,
+        job_env.ARTIFACT_S3_BUCKET: settings.artifact_s3_bucket,
+        job_env.ARTIFACT_S3_REGION: settings.artifact_s3_region,
+        job_env.ARTIFACT_S3_ACCESS_KEY: settings.artifact_s3_access_key,
+        job_env.ARTIFACT_S3_SECRET_KEY: settings.artifact_s3_secret_key,
+    }
+
+
+async def _sweep_blobs(app: FastAPI, ttl_seconds: float) -> None:
+    """FEATURE (OME-1540, owner decision Q4a): blobs share the artifact TTL and its cadence."""
+    blobs: BlobStore | None = getattr(app.state, "blob_store", None)
+    if blobs is not None:
+        await asyncio.to_thread(blobs.sweep, ttl_seconds=ttl_seconds)
+
+
 def _install_artifact_sweeper(app: FastAPI, store: ArtifactReader, settings: Settings) -> None:
     """Wire the artifact TTL sweep: once at startup, then every sweep interval for life.
 
@@ -339,6 +438,7 @@ def _install_artifact_sweeper(app: FastAPI, store: ArtifactReader, settings: Set
 
     async def _sweep_once() -> None:
         await asyncio.to_thread(store.sweep, ttl_seconds=settings.artifact_ttl_s)
+        await _sweep_blobs(app, settings.artifact_ttl_s)
 
     async def _sweep_forever() -> None:
         while True:
@@ -676,6 +776,20 @@ def build_stream_consumer(settings: Settings) -> JetStreamConsumer:
     return JetStreamConsumer(settings.nats_url, events=events_stream_config(settings))
 
 
+def _read_world_once() -> WorldFile | None:  # pragma: no cover - env wiring (INFRA rule)
+    """The App's one read of its world file, or None when it cannot be read.
+
+    INVARIANT (OME-1770 review): the catalog, the private set, the mounts, the `/healthz` digest
+    and the digest stamped on every run all come from this ONE read. A failed read leaves each
+    consumer to its own fallback: the catalog degrades and the mount derivation fails startup
+    (C7), exactly as before.
+    """
+    try:
+        return read_world_file(os.environ)
+    except WorldConfigError:
+        return None
+
+
 def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INFRA rule, spec §11)
     """Production entrypoint (used by `cli.py` via uvicorn's factory mode).
 
@@ -686,12 +800,16 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     settings = Settings()
     _require_prod_secret(settings)
     stream = build_stream_consumer(settings)
+    world_file = _read_world_once()
     # Catalog first (OME-880): the job runner needs the admitted-model overlay so a
     # dynamically admitted model is routable by the very next scheduled run.
-    catalog = build_executable_catalog_service(settings, os.environ)
+    catalog = build_executable_catalog_service(
+        settings, os.environ, world=None if world_file is None else world_file.config
+    )
     job_runner = build_job_runner(
         settings,
         extra_models=None if catalog is None else (lambda: catalog.admitted_model_ids),
+        world_digest=None if world_file is None else world_file.digest,
     )
     if job_runner is None:
         logging.warning(
@@ -701,6 +819,8 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     # gateway publishes it (`GET /v1/provider-access`); this Engine owns none of it and refuses
     # every mutation (D15). The provider catalogue describes capability, not what this caller holds.
     connections = build_connections(settings, mutable=False)
+    # FEATURE (OME-1311): the hosted door to the gateway's community-cache pages.
+    community_cache = build_community_cache(settings)
     app = create_app(
         settings,
         stream=stream,
@@ -708,6 +828,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         catalog=catalog,
         model_parameters=catalog.model_parameter_source if catalog is not None else None,
         connections=connections,
+        community_cache=community_cache,
         benchmarks=BUILTIN_BENCHMARKS,
         span_sink=control_plane_span_sink(os.environ),
     )
@@ -726,10 +847,14 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         app.router.on_shutdown.append(catalog.aclose)
     if connections is not None:
         app.router.on_shutdown.append(connections.aclose)
+    if community_cache is not None:
+        app.router.on_shutdown.append(community_cache.aclose)
     # FEATURE (uniform executor PRD 04): every declared mount is a route of its own, projected
     # into /openapi.json, and every call runs as a DIRECT run on the worker pool.
     install_mounts(
         app,
-        lambda: derive_mount_table(env=os.environ, engine_routes=engine_route_paths(app)),
+        lambda: derive_mount_table(
+            env=os.environ, engine_routes=engine_route_paths(app), world=world_file
+        ),
     )
     return app

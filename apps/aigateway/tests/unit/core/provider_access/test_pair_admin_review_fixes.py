@@ -6,7 +6,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
-from provider_access_harness import PROVIDER, ProfileBackedHarness
+from provider_access_harness import PROVIDER, RealAppHarness
 
 from aigateway.core.oauth.models import OAuthConnection
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
@@ -28,16 +28,16 @@ UNKNOWN = "gone-plugin"
 
 
 @pytest.fixture
-def harness(authenticated_client, credential_blobs, monkeypatch) -> ProfileBackedHarness:
-    return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+def harness(authenticated_client, credential_blobs, monkeypatch) -> RealAppHarness:
+    return RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
-def _inventory(harness: ProfileBackedHarness) -> PairInventory:
+def _inventory(harness: RealAppHarness) -> PairInventory:
     return harness.call(pair_inventory, harness.client.app, harness.account_id)
 
 
 def _mark(
-    harness: ProfileBackedHarness,
+    harness: RealAppHarness,
     provider: str,
     state: MigrationState,
     *,
@@ -57,7 +57,7 @@ def _mark(
 
 
 def _unknown_connection(
-    harness: ProfileBackedHarness,
+    harness: RealAppHarness,
     *,
     locator: dict[str, str] | None = None,
 ) -> str:
@@ -75,11 +75,22 @@ def _unknown_connection(
 
 
 def test_an_unknown_quarantined_pair_is_never_hidden_as_empty(harness) -> None:
-    _mark(harness, UNKNOWN, "quarantined")
+    # WHY a raw row: no writer publishes the retired `quarantined` state since the OME-1138
+    # close-out (L4a); an install may still hold one, and it is refused, never listed as empty.
+    async def plant() -> None:
+        await ProviderCredentialSlot.create(
+            account_id=UUID(harness.account_id),
+            provider=UNKNOWN,
+            generation=1,
+            migration_state="quarantined",
+        )
 
-    assert _inventory(harness) == PairInventory(
-        credentials=(), conflicts=(PairConflict(UNKNOWN, "unresolved"),)
-    )
+    harness.call(plant)
+
+    with pytest.raises(CredentialAuthorityUnavailable) as refused:
+        _inventory(harness)
+
+    assert refused.value.provider == UNKNOWN
 
 
 def test_an_unknown_migrated_pair_with_a_dangling_reference_is_unavailable(harness) -> None:
@@ -131,7 +142,6 @@ def test_an_unregistered_shipped_provider_keeps_its_stable_credential_namespace(
 
     disposition = classify_pair(
         marker,
-        [],
         [connection],
         credential_provider=None,
     )
@@ -143,11 +153,10 @@ def test_an_unregistered_shipped_provider_keeps_its_stable_credential_namespace(
 def test_inventory_retries_a_generation_move_instead_of_rendering_a_false_active(
     harness, monkeypatch
 ) -> None:
-    harness.seed_profile()
     harness.seed_connection(label="shadow")
-    _mark(harness, PROVIDER, "none")
-    real_list = harness.client.app.state.profile_index.list
-    profile_reads = 0
+    _mark(harness, PROVIDER, "migrated")
+    real_list = OAuthConnectionStore.list
+    connection_reads = 0
     snapshots = iter(
         [
             (),
@@ -157,21 +166,21 @@ def test_inventory_retries_a_generation_move_instead_of_rendering_a_false_active
         ]
     )
 
-    async def moving_profiles(*args: Any, **kwargs: Any):
-        nonlocal profile_reads
-        profile_reads += 1
-        return [] if profile_reads == 1 else await real_list(*args, **kwargs)
+    async def moving_connections(self: OAuthConnectionStore, *args: Any, **kwargs: Any):
+        nonlocal connection_reads
+        connection_reads += 1
+        return [] if connection_reads == 1 else await real_list(self, *args, **kwargs)
 
     async def generations(_self: PairAuthorityStore, _account_id: str):
         return next(snapshots)
 
-    monkeypatch.setattr(harness.client.app.state.profile_index, "list", moving_profiles)
+    monkeypatch.setattr(OAuthConnectionStore, "list", moving_connections)
     monkeypatch.setattr(PairAuthorityStore, "generations", generations, raising=False)
 
     assert _inventory(harness) == PairInventory(
         credentials=(), conflicts=(PairConflict(PROVIDER, "unresolved"),)
     )
-    assert profile_reads == 2
+    assert connection_reads == 2
 
 
 def test_inventory_refuses_persistently_moving_generations(harness, monkeypatch) -> None:

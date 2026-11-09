@@ -1,12 +1,12 @@
 ---
 id: OME-1434
 linear_url: https://linear.app/openmined/issue/OME-1434/add-the-e14-frozen-copy-capture-and-replay-to-the-ai-gateway
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [aigateway, agentic, autonomous]
 created: 2026-09-30
-closed:
+closed: 2026-10-20
 ---
 
 # Add the E14 frozen copy (capture and replay) to the AI Gateway

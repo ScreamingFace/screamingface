@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from provider_access_harness import ProfileBackedHarness
+from provider_access_harness import RealAppHarness
 
 from aigateway.core.provider_access import Selector
 from aigateway.core.provider_access.connection_backed import ConnectionBackedProviderAccess
@@ -14,10 +14,10 @@ class _NoCredentialPlugin:
     def available_auth_modes(self) -> tuple[str, ...]:
         return ("none",)
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return True
 
-    def profileless_auth_mode(self) -> None:
+    def credentialless_auth_mode(self) -> None:
         return None
 
 
@@ -31,8 +31,8 @@ def test_no_auth_provider_bypasses_profile_and_connection_rows(
     credential_blobs,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    harness = ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
-    harness.seed_profile()
+    harness = RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
+    harness.seed_blob()
     harness.seed_connection(label="work")
     selector = Selector.from_header(None)
 

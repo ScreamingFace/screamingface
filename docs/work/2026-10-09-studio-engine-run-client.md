@@ -1,0 +1,532 @@
+---
+ticket: OME-1554
+stack: studio frontend (apps/screamingface-studio/frontend; not on the sdlc card, gates per the plan)
+status: done
+started: 2026-10-09
+finished: 2026-10-09
+---
+
+# studio-engine-run-client — Studio's Engine run client, url4 linking and recipe fixes
+
+## Intent
+
+Slice B of `docs/plan/2026-10-09-studio-compose-fusion-run.md` (umbrella ledger
+`docs/work/2026-10-01-studio-compose-fusion-run.md`, epic OME-1308). **Stacked on
+`studio-benchmark-picker` (slice A)**: this branch starts from `origin/studio-benchmark-picker`,
+not `origin/main`, and its PR must merge after slice A's.
+
+Studio cannot run a fusion yet: it has no client for the Engine's run protocol, it cannot link a
+Candidate into a Benchmark, its `recipeToUrl4` renders params in a form url4 cannot parse
+(`?k=v(<context>)`), and `?recipe=` import accepts a `url4://name?models=` form that Copy never
+produces. This unit adds the run client (no UI; slice C wires it), the SDK-identical link, the
+param fix, and a parser for exactly what `recipeToUrl4` emits (spec D4, D8, D9; plan U4, U5).
+
+## Planned changes
+
+All under `apps/screamingface-studio/frontend/`:
+
+- `src/lib/engine/url4.ts` (new): `quoteText`, `linkCandidate` (T-B1)
+- `src/lib/engine/__fixtures__/linked.json` (new): SDK-generated golden links
+- `scripts/gen-link-fixtures.py` (new): regenerates the fixtures from the SDK
+- `src/lib/recipe.ts`: `paramQuery` emits `?k=v&…&q=`; `parseRecipe` (T-B2)
+- `src/app/(studio)/ensembles/new/page.tsx`: drop the old `parseRecipe`, import via `recipe.ts`
+- `src/lib/engine/run-types.ts`, `src/lib/engine/run.ts` (new): `startRun`, `RunError` (T-B3)
+- `src/lib/engine/__fixtures__/frames.ts` (new): run frames in the live wire shape
+- `vitest.config.ts`: coverage include `src/lib/recipe.ts`
+- Tests: `url4.test.ts`, `recipe.test.ts`, `run.test.ts`, `ensembles/new/page.test.tsx`
+
+## Test plan
+
+- T-B1: `linkCandidate(candidate, benchmark)` equals the SDK's `link_candidate` for a fusion with
+  and without params, a pipeline and a solo; `quoteText` escapes `'` and `\`.
+- T-B2: `recipeToUrl4` equals the SDK's compiled candidate text (param golden
+  `/openai/gpt-4o?temperature=0.7&seed=3&q=($input)!'…'`); round trip
+  `recipeToUrl4 → parseRecipe → recipeToUrl4` for fusion, pipeline and solo, with and without
+  params and prompts; the old `url4://` form and a truncated string are rejected with a message.
+- T-B3: the ten cases in the plan (happy path + event order; attach `from_sequence: null` and
+  cache intent; `useCache: false`; 428 retry; artifact fetch; `failed benchmark_unavailable`;
+  reorder / duplicate / unfilled gap; 120 s silence; abort → stop → `DELETE` after 5 s; the
+  token never in an error message).
+- Page: the recipe-import tests reach their fusion through canonical `recipeToUrl4` output.
+
+## Acceptance
+
+- `startRun` drives the Engine's real protocol (frames as checked live 2026-10-05) to a
+  `CandidateResult` or a typed `RunError`; Studio's link matches the SDK byte for byte; a copied
+  recipe imports back to the same url4. All frontend gates green.
+
+## Outcome (fill at the end — required before COMMIT)
+
+- **Actual files:** as planned, all under `apps/screamingface-studio/frontend/`, plus:
+  `scripts/gen-run-frames.py` and `src/lib/engine/__fixtures__/frames.json` (frame fixtures);
+  `src/lib/engine/client.ts` (exports `problemDetail` for reuse); `src/app/(studio)/ensembles/page.tsx`
+  (import box) and `src/app/(studio)/models/page.tsx` + `page.test.tsx` (Compose link) — see
+  Deviations.
+- **Commits:**
+  - 392421bb1 — feat(studio): link a candidate into a benchmark exactly as the SDK does
+  - 09d863a13 — fix(studio): render params in url4 query form and import exactly what Share url4 copies
+  - ad4e0621a — feat(studio): Engine run client for one benchmark run
+  - 619b09edc — fix(studio): encode prompt text as url4 text the way the SDK does
+- **Gates (after the prompt-encoding fix):** lint, typecheck, `npm test -- --coverage`
+  (14 files / 225 tests; statements 95.64%, branches 90.77%, functions 96.39%, lines 97.22%;
+  `recipe.ts` 99.56%) and `npm run build` green.
+- **Gates (first three commits):** `npm ci && npm run lint && npm run typecheck && npm test -- --coverage && npm run
+  build` all green. 14 files / 209 tests passed; coverage statements 95.63%, branches 90.77%,
+  functions 96.38%, lines 97.21% (threshold 80). `recipe.ts` 99.56% / 96.02% branches, `run.ts`
+  93.6% / 85.63% branches, `url4.ts` 100%. `next build` produced every route statically. Both
+  fixture scripts reproduce the committed JSON byte for byte; `uv run --frozen` left `uv.lock`
+  untouched.
+- **Deviations:**
+  - **Other producers of the old form.** The Models page's "Compose a Fusion" link and the
+    Ensembles page's import box also used `url4://name?models=`. Deleting that parser would have
+    broken Models → Compose, so the link now emits `recipeToUrl4(fusionOf(models))` (members =
+    the checked models, synthesizer unset, as the old import produced) and the import box
+    validates with `parseRecipe`. The leaderboard (still the mock) is unchanged: its Remix link
+    and copy still emit the old form, which now shows the import's rejection message. It goes
+    with the leaderboard un-mock.
+  - **Name and unknown models on import.** Canonical url4 carries no fusion name, so an imported
+    recipe is named `fusion-1` (the builder's default). A model the catalog lacks is left as an
+    unset model in place (structure kept) and named in the existing "Left out models" status,
+    instead of being removed. An unparseable `?recipe=` now shows its message in an alert.
+    Page tests reach their fusion through `recipeToUrl4(fusionOf(...))`; the "shared" name
+    assertions became the equivalent model-count assertions, and a new test covers the refused
+    old form.
+  - **Frames are generated, not captured.** No runtime was running here, so the run fixtures are
+    built with url4's own protocol models and codec (exact field names, aliases and the string
+    `sequence` + `sequencetype: "Integer"`), in the order and with the attributes of the live
+    IFEval check. The wire `sequence` is a positive-integer string; `run.ts` accepts a string or
+    a number.
+  - **Error mapping.** HTTP refusals (benchmark 404/422, start 4xx) reject as `failed` with
+    `code: "http_<status>"` and the Engine's detail. Any `ai.url4.error` frame (`invalid_frame`,
+    `unsupported`, `stream_reclaimed`, `stream_failed`) rejects as `stream_failed` with the
+    Engine's code. An unsequenced log (the SDK's "advisory" case) is reported at once.
+  - **Artifact redemption.** Fetched with the run's capability, as the plan says. The SDK mints a
+    fresh token for this because tokens once lived ~60 s; the Engine's capability lifetime is now
+    58 800 s (`config.py` `capability_lifetime_s`), so the run's token is valid. Size and sha256
+    are verified before decoding, as the SDK does.
+  - `deps` also takes `clearTimeout` and `engineUrl` (default `getEngineUrl()`); every dep is
+    optional. `RunEvent.cost.totalUsd` is a number parsed from the decimal-string
+    `cost.total_usd`; `started` carries no payload.
+  - Covering `recipe.ts` needed tests for its pre-existing helpers too (`convertKind`,
+    `describeRecipe*`, `memberSolos`, `rootSynthesizerSolo`, `fusionFromSlots`); added, none
+    changed.
+  - TDD order: the url4 tests were run RED first; the recipe and run tests were written with
+    their code and run together, not observed failing first.
+  - **Prompt encoding (fixed in 619b09edc, approved follow-up; TDD order followed).** The SDK
+    goldens gained prompts with a newline, `$USD`, `$input`, `$$`, `'` and `\` (fusion member,
+    synthesizer, solo); those tests and the round-trip tests were run and seen failing (10
+    failures) before the fix. Rules now implemented, from source:
+    - encode = SDK `_url4_text`, `packages/screamingface/src/screamingface/_evaluation/candidate.py:436-447`:
+      CR LF and CR → LF (:437); LF → U+2028, tab → space (:438); other control characters
+      (< U+0020, U+007F) are refused by the SDK (:439-446) and dropped by Studio; `$` → `$$`
+      (:447). Then url4 `_quote`, `packages/url4/src/url4/core/render.py:367-368`: `\` → `\\`,
+      then `'` → `\'`.
+    - decode = SDK `_python_text`, `packages/screamingface/src/screamingface/url4.py:446-447`:
+      U+2028 → LF, `$$` → `$`; the Engine collapses `$$` the same way when it substitutes
+      (`packages/url4/src/url4/dag/semantics/ensemble.py:20,45`).
+    - Behaviour change for prompts without those characters: runs of spaces and leading or
+      trailing spaces are no longer collapsed or trimmed (the SDK keeps them); a blank prompt
+      renders the default prompt (it used to render `''`). Tabs, CRs and a literal U+2028 in a
+      prompt do not survive a round trip, exactly as in the SDK.
+
+## Review follow-up (PR #1327)
+
+HupBaHa's six blocking items. I checked each one against the source before changing anything,
+and all six held. Item 6 turned out stricter than the review said. Tests were written first and
+seen failing: 20 recipe tests, 1 page test and 33 run-client tests went RED, then GREEN. All
+fixes land in one commit.
+
+1. **The run's root node.** Verified: the SDK takes as root the `started` frame whose
+   `data.url4` equals the url4 it sent. It keeps that frame's `source`, accepts result and
+   terminated frames only from it, counts subtree cost only from it, and fails a `terminated`
+   that arrives before the root is known (`packages/screamingface/src/screamingface/_engine/contract.py:191-199,246-279`).
+   `run.ts` `dispatch` now does the same. Fixtures: `gen-run-frames.py` puts the SDK's
+   `link_candidate` url4 in the root `started` frame and adds child frames
+   (`childStarted/Result/Cost/Terminated`).
+   - RED→GREEN: "takes the result and terminal state only from the root node", "fails a run
+     whose root never started", "does not take a started frame for another url4 as the root".
+   - Test setup change: "rejects a run the Engine timed out" now sends the root `started` frame
+     before its `terminated` frame. Its assertion is unchanged.
+2. **Bounded, cancellation-safe phases.** Each phase now has its own deadline, taken from the
+   SDK:
+   - A start request gets 30 s, the SDK's HTTP client timeout (`transport.py:141`). If no
+     answer comes, Studio sends `DELETE` in case the run began, then rejects as `unreachable`.
+     If the user had already aborted, it rejects as `stopped`, or `stop_unconfirmed` when the
+     `DELETE` fails.
+   - A start accepted after an abort is stopped.
+   - `DELETE` gets 5 s (`_STOP_TIMEOUT_SECONDS`, `transport.py:62`). A 2xx, 404, 409 or 410
+     answer counts as `stopped` (`_ALREADY_STOPPED_STATUSES`, `transport.py:64`). Any other
+     answer, or no answer in time, gives the new kind `stop_unconfirmed`.
+   - An artifact fetch gets 30 s per attempt, with the SDK's retry delays 0 / 200 / 800 ms
+     (`transport.py:1265`). That bounds a stalled artifact at about 91 s.
+   - RED→GREEN: "gives up on a start the Engine never answers and deletes the run in case it
+     began", "settles an abort whose start never answers once the start deadline passes",
+     "reports a stop it could not confirm when the DELETE refuses it / never answers", "does
+     not wait forever on an artifact the Engine never sends".
+   - These two tests passed before the fix too. They pin behaviour that was already right:
+     "stops a run the Engine accepts after the user aborted" and "treats a DELETE for a run
+     that is already gone as stopped".
+3. **Artifact memory.** The cap is `MAX_ARTIFACT_BYTES` = 256 MiB. It is large enough for a full
+   ContractEval result: 4,182 cases from a 209 MB dataset (spec D10). It also keeps the decoded
+   text well below V8's maximum string length (about 512 Mi UTF-16 units), so decoding and
+   `JSON.parse` cannot throw a RangeError. The Engine sets no artifact cap of its own.
+   - `size_bytes` is checked before fetching.
+   - If the response has a `Content-Length` and no `Content-Encoding`, the length must equal
+     `size_bytes`.
+   - The body is read in chunks, and the read is cancelled as soon as it passes `size_bytes`.
+   - The bytes are checked against the sha256, then decoded with
+     `TextDecoder("utf-8", {fatal: true})`.
+   - RED→GREEN: "refuses an artifact above the browser-safe maximum without fetching it",
+     "refuses a Content-Length that disagrees with the ticket before reading", "stops reading
+     once the body passes the ticket's size", "refuses an artifact that is not UTF-8".
+4. **Runtime check of `CandidateResult`.** The new `src/lib/engine/run-result.ts` checks the
+   fields Studio reads against the Engine's models
+   (`apps/screamingface-engine/src/screamingface_engine/benchmarks/contract.py:205-219,234-242,262-278,431-479`):
+   - top level: `schema` v1, `benchmark_id`, `benchmark_revision`, `case_count`, `score`,
+     `coverage`, `metrics`, `failures[]` (`code`, `message`), `cases[]`;
+   - each case: `status`, `case_id` (integer or string), `input` (non-empty), `output`,
+     `grade` (null, or `method`, `score`, `metrics`, `checks`), `failures`.
+   - A bad field rejects with `RunError` kind `invalid_result` (code `invalid_result`), and the
+     message names the field.
+   - RED→GREEN: "rejects a result with a bad <field>, naming it" (21 cases). "accepts a null
+     score and an ungraded case" is a positive control.
+5. **Fusion context.** Verified: the SDK compiles a fusion's members against the fusion's own
+   input, and puts that input in the synthesizer context as url4 text
+   (`_evaluation/candidate.py:176-186,394-406,313-318`). `recipeToUrl4` now passes the current
+   context to the members and writes `input: quoteText(context)`. The parser rebuilds chains
+   against that input; this rewrote `buildTree`. There is a new SDK golden,
+   `pipeline_into_fusion`.
+   - RED→GREEN: "renders the SDK's compiled candidate text (pipeline_into_fusion)", "round-trips
+     a pipeline into a fusion", "… with a pipeline synthesizer", "round-trips a fusion whose
+     synthesizer is a fusion".
+   - Not SDK-identical: in a fusion whose synthesizer is another fusion, the SDK numbers the
+     outer fusion's synthesis first (`synthesis_2` for the inner synthesizer). Studio numbers in
+     emit order. The context text matches. Names and topology were agreed out of scope.
+6. **Parameter validation.** Verified, and stricter than the review said. url4's `param-value`
+   allows only letters, digits and `. - _ , : /` (`packages/url4/src/url4/core/_annotations.py:63-67`,
+   `validate_param` :107-136). The renderer refuses `,` in a query value (`url4/core/render.py:504-511`),
+   and the SDK refuses `';(),&` and control characters (`_candidate_policy.py:68-77`). Because
+   the SDK renders through url4 and re-parses the result (`render.py:85`), a parameter value the
+   SDK can send is `[A-Za-z0-9._\-:/]+`. A value with a space, `=` or `\n` cannot be sent.
+   - Keys must match `[A-Za-z0-9._]+` and must not be reserved (`_candidate_policy.py:12-28`).
+   - `recipeIssues(root)` lists every bad value or key. `recipeToUrl4` throws a typed
+     `RecipeError` that carries the issues. `renderRecipe(root)` returns them for the UI.
+   - The builder shows the issues in place of the url4 preview and disables Share url4.
+     `parseRecipe` rejects them.
+   - New SDK golden `params_text`: `stop=END:of/answer-1.0_x&reasoning_effort=high&logprobs=true`.
+   - RED→GREEN: "reports a value with an ampersand / a comma / parentheses / a semicolon / a
+     quote / a space / a backslash escape / a newline / a control character / an equals sign
+     instead of emitting it", "reports a name with a space / a dash / a reserved name / another
+     reserved name", "accepts every value url4 carries unquoted, and skips unfinished rows",
+     "refuses to import a parameter value url4 cannot carry", and the page test "shows a
+     parameter url4 cannot carry and will not share the recipe".
+   - Product note: because of these url4 rules, the builder's `stop` field cannot hold a
+     typical stop sequence such as `\n\n` or a phrase with spaces. Supporting that would need
+     quoted parameter values in the SDK or the url4 grammar.
+
+**Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 288 tests; statements 95.09%,
+branches 90.34%, functions 96.56%, lines 96.78%; `recipe.ts` 98.9%, `run.ts` 92.0%,
+`run-result.ts` 98.2%) and `npm run build` all pass. Both fixture scripts regenerate the
+committed JSON byte for byte, and `uv run --frozen` left every lockfile untouched.
+
+## Byte-identical to the SDK (owner decision 2026-10-20)
+
+The owner's decision: "there should be no difference from the SDK". `recipeToUrl4(root)` now
+equals the SDK's `compile_candidate(<same Recipe>).url4` byte for byte, `_sf_recipe` included.
+`parseRecipe` reads that text back. Spec D4 is amended to say so.
+
+**TDD.** I extended `scripts/gen-link-fixtures.py` to 25 SDK-generated shapes and added tests
+for the metadata and for what the SDK refuses. 62 recipe tests failed before the change: 25
+byte-equality goldens, 25 import round-trips, 7 metadata checks and 5 SDK-refusal checks. All
+pass after it.
+
+**Differences found and how each was resolved.** All sources are under
+`packages/screamingface/src/screamingface/`.
+
+1. **Default prompts.** Studio used `Answer.` and `Synthesize the member answers…`. It now uses
+   the SDK's `DEFAULT_ANSWER_PROMPT` and `DEFAULT_SYNTHESIS_PROMPT` (`_evaluation/policy.py:7-15`).
+2. **`_sf_recipe` source.** Studio now emits it last, exactly as `topology.py` `_encode_*`
+   does, through `json.dumps(sort_keys=True, separators=(",", ":"), ensure_ascii=False)`. The
+   keys are written in sorted order.
+3. **Synthesis numbering.** The SDK spends a `synthesis_N` number as soon as it compiles a
+   fusion (`candidate.py:255-256`), even when the synthesizer is a whole Recipe. A fusion
+   synthesizing another fusion therefore yields `synthesis_2`, and a pipeline synthesizer
+   leaves a gap. Studio does the same.
+4. **Synthesis role.** In a fusion's Recipe synthesizer, only a Pipeline's first stage takes the
+   synthesis role and its default prompt (`candidate.py:351-356`). Members of a fusion inside a
+   synthesizer go back to the model role. Studio does the same.
+5. **Pipeline flattening.** An unnamed nested Pipeline is flattened into its parent; a named one
+   keeps its grouping (`pipeline.py` `_stages`). Studio does the same.
+6. **Names.** The SDK infers a Model's name from its route's last segment (`model.py`), joins
+   member names with `+` for a Fusion (`fusion.py`), and joins stage names with `->` for a
+   Pipeline (`pipeline.py`). A given name is trimmed (`recipe.py` `_name`).
+   - Studio's node name maps to the SDK's `name=`. Model and Pipeline topology record it with
+     `named: true`.
+   - Fusion topology has no `named` flag. On import, a fusion name that differs from the
+     inferred one comes back as a given name.
+7. **Things the SDK refuses.** These are now reported by `recipeIssues`. The builder shows
+   them, and they are never emitted:
+   - a model id outside `_MODEL_ROUTE_RE`, such as `ollama/llama3:8b`;
+   - a prompt with a control character other than tab, CR or LF (`candidate.py:439-446`).
+     Studio used to drop these silently;
+   - a name with a Unicode category-C character;
+   - a fusion with no members, or a pipeline with no stages (`fusion.py`, `pipeline.py`).
+   - The Models page's Compose link is disabled for a selection the SDK could not compile.
+8. **Import.** `parseRecipe` now rebuilds the tree from `_sf_recipe`, which replaces the old
+   structural inference. The metadata is checked as strictly as `topology.py` `_decode_*`
+   (exact key sets, schema, kinds, roles, bindings). Then the rebuilt recipe must compile back
+   to the same text. Each failure has its own message: metadata missing, metadata malformed,
+   or metadata that doesn't match the model calls.
+9. **Cannot be identical.** The one remaining difference is a solo with no model chosen. Studio
+   writes `/‹model›` for it, and the SDK cannot compile a Model without a route. Such a recipe
+   can be previewed and shared, but never run.
+
+**Shapes covered by goldens** (with and without params and encoded prompts): solo
+(defaults, params, text params, encoded prompt, named); fusion (defaults, prompts, params,
+encoded prompts, named, single member, fusion inside a member, two fusion members, fusion as
+synthesizer, pipeline as synthesizer, pipeline as a member); pipeline (prompts, defaults,
+single stage, named, nested unnamed and flattened, nested named, pipeline into a fusion,
+fusion into a pipeline, two fusions in a row).
+
+**Prior tests changed.** These hand-written exact strings had no `_sf_recipe` and used the old
+default prompts, so the owner decision changes their expected text:
+- "leaves a call without params unchanged", "skips params without a key or a value" and "uses
+  the default prompt for a blank one" now compare against the SDK golden `solo`.
+- "puts params in url4's query form…" and "encodes newlines as U+2028…" now assert the exact
+  model-call source.
+- "drops control characters the SDK refuses" became "reports control characters the SDK
+  refuses".
+- "renders an empty pipeline as its input" became "refuses an empty pipeline".
+- "rejects a prompt with a single $" now edits a real SDK golden.
+
+**Also changed:**
+- The `stop` placeholder now reads `e.g. END (letters, digits, . - _ : /)`. The old `\n\n`
+  can't be written in url4's parameter grammar.
+- The url4 preview caption now reads "The exact url4 the ScreamingFace SDK compiles for this
+  recipe".
+
+**Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 359 tests; statements 94.49%,
+branches 89.5%, functions 96.6%, lines 96.66%; `recipe.ts` 95.96%) and `npm run build` all
+pass. The goldens regenerate byte for byte, and no lockfile was touched.
+
+## Code review follow-up (PR #1327, owner-approved items 1, 2, 3, 5, 6, 7, 9, 10)
+
+I checked every finding against the code first, and all eight held. Items 4 and 8 (accepting
+only a 202 start, and a guard for `crypto.subtle`) were skipped by owner decision. TDD: 16 tests
+went RED, then GREEN: 12 run-client tests, 2 recipe tests and 2 page tests. Three more tests
+were added as guards and passed already.
+
+1. **Orphaned runs after a local failure.** Before, `fail()` only settled the promise.
+   - Now, if the Engine has accepted the run (`started`) and the root has not terminated, any
+     failure Studio detects first issues the bounded `DELETE /?topic=` before rejecting. That
+     covers the socket closing, 120 s of silence, a gap that never fills, an `ai.url4.error`
+     frame, and a duplicate root `started` or `result`. The `DELETE` has the same 5 s deadline
+     and the same 2xx/404/409/410 rule as a user stop. While it runs, frames and stop requests
+     are ignored.
+   - **Design:** the rejection keeps its original `kind`, `code` and `detail`, and gains
+     `RunError.cleanup: "stopped" | "unconfirmed"`. The field is unset when no cleanup was
+     needed: before the start was accepted, after the root terminated, or when a user stop
+     already ran the `DELETE`. A start the Engine accepts after Studio has already given up
+     also gets a `DELETE`.
+   - RED→GREEN: "stops the Engine's run when the socket closes / the Engine sends an error frame
+     / the root sends a second result / the root starts twice / a frame never arrives / the
+     stream goes silent after the start", "says when the Engine would not confirm the cleanup",
+     "stops a run the Engine accepts after the stream already failed".
+   - Guards that already passed: "does not clean up a run the Engine never accepted", "does not
+     clean up after the root has terminated".
+2. **A stop overwriting success.** The root `terminated` frame now clears the stop timer, and
+   `stopOverHttp` does nothing once the root has terminated. After that, `requestStop` is a
+   no-op, so no stop frame and no `DELETE` are sent.
+   - **Decision:** if the caller aborts after the root has terminated, the artifact download is
+     cancelled and the run rejects as `stopped`. No `DELETE` is sent, because the run already
+     ended on the Engine.
+   - RED→GREEN: "keeps a successful result when a stop was pending", "cancels the download and
+     rejects stopped, without a DELETE, on an abort after it ended".
+3. **Artifact deadline.** It is now an inactivity deadline, matching the SDK's httpx
+   `timeout=30.0`, which applies per connect and per read: 30 s to receive the headers, then
+   30 s between chunks, reset on every chunk. A stall counts as a transport failure, so the
+   SDK's retry delays (0 / 200 / 800 ms) apply.
+   - RED→GREEN: "accepts a slow but steady download that takes longer than 30 seconds".
+   - Guard that already passed: "gives up on a download that stalls for 30 seconds mid-read".
+5. **Duplicate parameter names.** A name set twice on one model is now a `RecipeIssue`, because
+   SDK params are a mapping. The issue list is keyed `nodeId-key-index`.
+   - RED→GREEN: "reports a parameter set twice on one model instead of emitting both", page "lists
+     two issues of the same kind on one model without a duplicate key".
+   - Guard that already passed: "allows the same parameter on different models".
+6. **Imported name.** `?recipe=` now names the ensemble `recipeName(root)`. That is the SDK's
+   name: the given one, or the one inferred from members and stages.
+   - RED→GREEN: "recipeName is the SDK's name…", plus the import test now asserts `llama3+qwen`.
+7. **Non-JSON inline body.** Now rejects as `invalid_result` (code `invalid_result`, "The
+   Engine's result is not JSON.").
+   - RED→GREEN: "reports a result with an unreadable body". This test's expected kind changed
+     from `stream_failed` to `invalid_result`, as the finding asked.
+9. **One request and redaction path.** `client.ts` now exports `engineRequest` (problem+json
+   detail, secret redaction, fetch failure → `unreachable`) and `redact`. `createEngineClient`
+   and `startRun`'s `call()` both use them. `EngineError.engineDetail` keeps the Engine's own
+   detail. `run.ts`'s `scrub` is gone; rejections redact the token through `redact`. This is a
+   refactor with no behaviour change, and the "token never appears" tests stay green.
+10. **Mismatch path.** `parseRecipe` uses `rendered.url4` instead of compiling a second time.
+    This is a refactor.
+
+**Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 377 tests; statements 94.43%,
+branches 89.82%, functions 95.98%, lines 96.81%) and `npm run build` all pass. Both SDK fixture
+scripts regenerate byte for byte, and no lockfile was touched.
+
+## Second code review follow-up (PR #1327, 2026-10-20)
+
+1. **A stream failure during a user stop.** An error frame, an unreadable frame or a missing
+   frame during a stop used to settle at once and cancel the stop's `DELETE` fallback, which
+   left the Engine's run going. It now sends that `DELETE` straight away (once) and reports
+   `stopped` / `stop_unconfirmed`. RED→GREEN: "deletes the run at once when … while stopping"
+   (3 cases).
+2. **Frames after a local failure.** `drain()` now stops dispatching once cleanup has begun, so
+   a queued root `terminated: succeeded` cannot resolve a run that already failed. RED→GREEN:
+   "ignores a queued success once a local failure has started the cleanup".
+3. **Benchmark and token deadlines.** Both requests now have the SDK's 30 s request timeout.
+   RED→GREEN: "gives up on a benchmark / token request the Engine never answers".
+4. **Artifact token.** Each artifact fetch attempt mints a fresh token, as the SDK's
+   `_materialize_*` does, because the run's own token expires after about 60 s. A mint that
+   cannot reach the Engine is retried like the fetch. RED→GREEN: "redeems an artifact with a
+   token minted after the run, not the run's own", "retries a mint that cannot reach the
+   Engine before fetching the artifact".
+5. **Size mismatch message.** A `Content-Length` that disagrees with the ticket now says the
+   result "is not the size its claim ticket said", not that it is larger. RED→GREEN: "names a
+   Content-Length below the ticket as a size mismatch, not an oversize".
+6. **Compose on the models page.** When the selection cannot compile (for example an Ollama id
+   such as `ollama/llama3:8b`, whose `:` is outside `MODEL_ROUTE`), the page now lists the
+   recipe issues instead of only disabling the button. RED→GREEN: "says why a fusion of the
+   checked models can't be composed".
+7. **Tidy-ups.** `sdkName` is folded into `recipeName`, and the builder reads `rendered.url4`
+   in place of an empty-string `recipe` fallback.
+
+Not changed: the artifact fetch still does not retry HTTP error answers, which matches the
+SDK (`transport.py`). `limit` is not validated either, because nothing calls `startRun` outside
+the tests yet.
+
+**Gates:** lint, typecheck and `npm test` (14 files / 387 tests) pass.
+
+## Second review follow-up (PR #1327, HupBaHa 2026-10-20)
+
+I checked all five findings against the code and the SDK and Engine sources, and all five held.
+TDD: 39 tests went RED, then GREEN.
+
+1. **A start lost in transport.** In `begin()`, a failed start request settled with `started`
+   still false, so no `DELETE` went out, even though the Engine may already have accepted the
+   GET.
+   - Every start that went out but got no answer is now handled the same way, whether the
+     deadline passed or the connection broke: Studio sends the bounded `DELETE`, then settles
+     as `unreachable` with `cleanup` set. If the user aborted in that window, it settles as
+     `stopped` or `stop_unconfirmed`.
+   - The timeout branch now reports `cleanup` too.
+   - RED→GREEN: "deletes a run whose start was sent but whose answer never arrived", "reports
+     the cleanup of a start that never answered", "deletes the run and reports stopped when the
+     user aborts and the start then resets".
+2. **The artifact capability.** Every request that carries a capability (the start, the
+   `DELETE` and the artifact fetch) now sets `redirect: "error"`. The artifact response is also
+   refused when it is `redirected`, or when its URL's origin is not the Engine's. The artifact
+   error detail is redacted with that attempt's fresh capability; the run's own token is still
+   redacted on every rejection.
+   - RED→GREEN: "never follows a redirect with a capability", "refuses an artifact answered
+     from another origin", "redacts the fresh artifact token from an error the Engine echoes".
+3. **Error bodies read without a deadline.** A refused start or artifact body is now read by
+   `boundedProblemDetail`:
+   - Each chunk read has a deadline: the 30 s request deadline for the start, which a caller
+     abort also ends, and the artifact's per-chunk inactivity deadline.
+   - The cap is **`PROBLEM_MAX_BYTES` = 64 KiB**. An Engine problem+json body is a few hundred
+     bytes, so anything larger is discarded, as is a body that stalls. The run then reports its
+     generic detail.
+   - RED→GREEN: "settles a refused start whose body never ends within the deadline", "lets an
+     abort cancel a refused start's body read", "settles a refused artifact whose body never
+     ends within the deadline", "discards a problem body larger than 64 KiB".
+4. **The full `CandidateResult` contract.** Checked against `benchmarks/contract.py`:
+   - every `Failure` field (`stage`, `code`, `message`, `retryable`, `case_id`, `metadata`).
+     A case's failures must name that case, and Candidate-level failures name none;
+   - the case's `finish_reason`, `refusal` (non-empty text or null) and `metadata`;
+   - `Check` (`type`, `id`, `label`, `outcome`, `score` in [0, 1], `evidence`, `metadata`);
+   - `operations[]` (`operation_id`, `output`, `finish_reason`, `accounting`);
+   - unique `case_id`, and `case_count === cases.length`.
+   - RED→GREEN: 22 new "rejects a result with a bad <field>, naming it" cases, for example
+     `case_count` (2 with one case), `cases[1].case_id` (a duplicate), and
+     `cases[0].failures[0].stage` (a `{code, message}`-only failure).
+   - Two existing cases (`cases[0].failures[0].code`, `failures[0].message`) now build
+     otherwise-complete failures, so they still fail on the field they name.
+5. **Empty parameter values.** Confirmed with `compile_candidate`: `params={"stop": ""}` →
+   `?stop=&q=`, and an empty name is refused (`_candidate_policy.py:54-56`).
+   - `filledParams` is gone. An empty value is emitted (`PARAM_VALUE` now allows it), and an
+     empty name is a `RecipeIssue` with or without a value. Nothing is dropped silently.
+   - New SDK golden: `params_empty_value`.
+   - "skips params without a key or a value" became "emits a param with an empty value, as the
+     SDK does" and "reports a param with an empty name with / without a value instead of
+     dropping it". The "accepts every value…" test no longer has an empty-name row.
+   - Page tests: "keeps a parameter with a name and an empty value in the url4", "shows an
+     issue for a parameter with no name and will not share the recipe".
+
+**Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 426 tests; statements 93.43%,
+branches 89.42%, functions 94%, lines 96.23%) and `npm run build` all pass. Both SDK fixture
+scripts regenerate byte for byte; the only golden change is the new `params_empty_value`, an
+addition. No lockfile was touched. Committed locally, not pushed.
+
+## Third review follow-up (PR #1327, HupBaHa 2026-10-21)
+
+I checked all four findings first. All four held, but one requested check is pushed back
+(item 3, unique Check ids). TDD: 31 tests went RED, then GREEN (30 run-client tests, 1 page
+test). One guard test passed already.
+
+1. **Uncertain-start cleanup lost ownership of the outcome.** Before, `unansweredStart()`
+   awaited the `DELETE` with nothing reserving the outcome, so a socket close in the meantime
+   settled the run as `stream_failed` with no cleanup.
+   - It now sets `closing` before it awaits, and it settles the run itself afterwards. While
+     the `DELETE` is pending, a socket close, a timer or a frame cannot settle the run. A
+     caller abort still makes the result `stopped` / `stop_unconfirmed`.
+   - RED→GREEN: "keeps the outcome until the DELETE answers when the socket closes after the
+     start's connection broke / the start never answered", "still lets an abort during that
+     cleanup choose stopped".
+2. **The refused-start body budget.** Each attempt now has one `budget(30 s)` that covers the
+   start request and its whole diagnostic body, and a caller abort still ends the body read.
+   - **Artifact error bodies keep the per-read inactivity deadline** (30 s between chunks),
+     the same as the artifact download, and are bounded by the 64 KiB cap.
+   - RED→GREEN: "settles a refused start whose body trickles within the start's own deadline".
+3. **The Engine's producer invariants, mirrored for parity.** Sources are
+   `apps/screamingface-engine/src/screamingface_engine/benchmarks/contract.py` and
+   `operation_accounting.py`:
+   - closed models: every model is `extra="forbid"`, so an unknown key is refused;
+   - the declared failure codes (:55-168);
+   - `Evidence` (:189-210), including that invalid Evidence cannot claim an outcome or an
+     explanation;
+   - `Check` (:213-231), `CaseGrade` with named `scores` (:234-260), `Failure` (:263-288);
+   - `CaseResult` (:291-346): `stop_reason` and `rounds_executed` together, `abstained`, and
+     `attempts`;
+   - `OperationOutput` (:349-373), and `combine` as a schema-tagged object (see below);
+   - `CaseAttempt` (:374-395);
+   - `_require_scored_case` (:474-486), `_require_case_attempts` (:489-512),
+     `_require_case_outcome` (:515-523), `_require_abstained_case` (:526-536),
+     `_require_failed_case` (:539-547);
+   - `_enforce_result_contract` (:614-626);
+   - `candidate_coverage`, with Python's `round(x, 4)` reproduced half-to-even (:633-642);
+   - `_candidate_outcome` and `_unscored_candidate_outcome` (:645-675);
+   - `validate_case_id` (:678-685), `validate_finish_reason` (:688-695), finite JSON values
+     recursively (:698-716), `_finite_score` (:719-724), `_named_scores` (:727-738);
+   - `OperationAccounting`, `OperationUsage` and `OperationCache`, including the fixed-point
+     `cost_usd` and at least one cache response (operation_accounting.py:22-75).
+   - A broken rule names its path, and the message gives the rule.
+   - RED→GREEN: 25 "rejects <rule>, naming `<field>`" cases, plus "rejects metadata holding a
+     non-finite number". Guard that already passed: "accepts attempts, named scores and the
+     inverted-grade mark when they follow the rules".
+   - **Pushed back: unique Check ids per case.** `contract.py` has no such rule. Its only
+     uniqueness check is on `case_id` (:614-626), so this would narrow the producer instead
+     of mirroring it.
+   - **Not mirrored deeply: `CombineEvidence`** (`combine/evidence.py`). It is checked as an
+     object carrying `schema: "screamingface.combine-evidence.v1"`. It only appears on a
+     reducer's combine step, and Studio recipes have no reducers (spec D6).
+   - **Prior test setups changed** to stay valid under the producer's rules:
+     - failure fixtures now use a declared code (`upstream_error` instead of `c`);
+     - "accepts a null score and an ungraded case" now also sets `metrics: {}` and
+       `coverage: 0`, as an unscored Candidate must.
+4. **A recipe issue blocked Share but not Run.** `RunsPanel` now receives the recipe issues.
+   While there are any, Next: Run, New Run and Run Evaluation are disabled, and the Runs panel
+   lists them under "Fix the recipe before running".
+   - RED→GREEN: "will not go on to Run or start a run while the recipe has an issue".
+
+**Gates:** lint, typecheck, `npm test -- --coverage` (14 files / 462 tests; statements 92.53%,
+branches 87.68%, functions 93.33%, lines 95.4%) and `npm run build` all pass. Both SDK fixture
+scripts regenerate byte for byte, and no lockfile was touched.

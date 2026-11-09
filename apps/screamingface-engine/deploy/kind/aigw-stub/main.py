@@ -91,12 +91,16 @@ def _usage_accounting(model: str) -> dict[str, object]:
             "rendered_attempts": 1,
             "omitted_attempts": 0,
             "attempts": [attempt],
+            # FEATURE (OME-1686): the successful attempt's tokens; the engine counts these.
+            "succeeded_attempt_usage": attempt["usage"],
         },
         "request_economics": {
             "schema": "aigw.request_economics",
             "observed_new_attempts": 1,
             "direct_cost_status": "unavailable",
             "known_direct_cost_subtotals": [],
+            # FEATURE (OME-1686): the successful attempt's cost; the engine prices from it.
+            "succeeded_attempt_direct_cost": attempt["direct_cost"],
         },
     }
 

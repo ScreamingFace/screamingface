@@ -80,8 +80,8 @@ def test_runner_children_reserve_no_address_space_they_never_use() -> None:
 
 def test_the_per_slot_charge_is_each_run_s_resident_budget_and_sets_its_backstop() -> None:
     env = _worker_env(_render())
-    assert env["URL4_CLOUD_WORKER_RESIDENT_BUDGET_BYTES"] == str(1024 * _MIB)
-    assert env["URL4_CLOUD_WORKER_MEMORY_BUDGET_BYTES"] == str(2 * 1024 * _MIB)
+    assert env["URL4_CLOUD_WORKER_RESIDENT_BUDGET_BYTES"] == str(2560 * _MIB)
+    assert env["URL4_CLOUD_WORKER_MEMORY_BUDGET_BYTES"] == str(2 * 2560 * _MIB)
 
 
 def test_one_per_slot_value_moves_the_budget_the_backstop_and_the_pod_limit_together() -> None:
@@ -102,3 +102,32 @@ def test_a_backstop_at_or_below_the_resident_budget_is_refused() -> None:
     the exact failure this change removes."""
     message = _refusal("runnerPool.perRunCharge.addressSpaceFactor=1")
     assert "addressSpaceFactor" in message
+
+
+# ContractEval's peak resident memory, measured on kind on 2026-10-19 (OME-1648): every run
+# parses the whole 192 MiB `cases.json` (4,182 full contracts, all non-ASCII, so 2 bytes a
+# character in CPython), whatever its `limit`. At the old 1 GiB budget a 3-case run stopped at
+# 1,382 MiB before its first model call; at 2 GiB it completed with this peak.
+_CONTRACTEVAL_PEAK_MIB = 1828
+_HEADROOM = 1.25
+
+
+def test_the_default_budget_fits_contracteval_s_measured_case_load() -> None:
+    """FEATURE (OME-1648): the default pool can run ContractEval at all.
+
+    INVARIANT: the default per-run budget stays at or above ContractEval's measured peak plus
+    25% headroom (the resident watch polls every 2 s and can miss a short spike), until
+    selective case loading removes the fixed cost of the full case file.
+    WHY 4 slots: the owner kept the pool's concurrency and will grow the node VMs instead, so
+    the pod limit grows with the budget while the request (what the scheduler reserves) holds.
+    """
+    docs = _render()
+    env = _worker_env(docs)
+    resident = int(env["URL4_CLOUD_WORKER_RESIDENT_BUDGET_BYTES"])
+    assert resident >= _CONTRACTEVAL_PEAK_MIB * _HEADROOM * _MIB
+    assert resident == 2560 * _MIB
+    assert env["URL4_CLOUD_WORKER_MEMORY_BUDGET_BYTES"] == str(2 * 2560 * _MIB)
+    assert env["URL4_CLOUD_RUN_QUEUE_WORKER_SLOTS"] == "4"
+    resources = _runner_container(docs)["resources"]
+    assert resources["limits"]["memory"] == f"{4 * 2560 + 256}Mi"
+    assert resources["requests"]["memory"] == f"{4 * 256 + 128 + 2 * (450 - 256)}Mi"

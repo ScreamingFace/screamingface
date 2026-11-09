@@ -210,6 +210,7 @@ def _benchmark(
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="easy",
+        failure_policy="coverage_declare",
         whole_run_metric_factory=metric_factory,
     )
 
@@ -570,6 +571,7 @@ def _arc_benchmark(key: str, row: BenchmarkSpec) -> ImportedBenchmark:
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="hard",
+        failure_policy="coverage_declare",
         whole_run_metric_factory=benchmarks._whole_run_metric_factory(row),
         epoch_reducer_factory=benchmarks._epoch_reducer_factory(row),
         attempts=row.attempts,
@@ -753,6 +755,7 @@ async def test_a_dict_valued_named_score_case_is_read_by_its_headline_column(
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="easy",
+        failure_policy="coverage_declare",
         whole_run_metric_factory=strict_rate,
     )
 
@@ -843,7 +846,9 @@ def _spec(key: str = "gsm8k", **overrides: Any) -> BenchmarkSpec:
     test. gsm8k drops its Sample metadata; aime24 keeps it."""
 
     row: BenchmarkSpec = next(spec for spec in BENCHMARKS if spec.key == key)
-    return replace(row, **overrides)
+    # WHY coverage_declare by default: the factory refuses a withhold row that names a whole-run
+    # metric (OME-1642), and a test may still override the policy to probe that refusal.
+    return replace(row, **{"failure_policy": "coverage_declare", **overrides})
 
 
 def _assembled(spec: BenchmarkSpec, monkeypatch: pytest.MonkeyPatch) -> ImportedBenchmark:
@@ -855,12 +860,12 @@ def _assembled(spec: BenchmarkSpec, monkeypatch: pytest.MonkeyPatch) -> Imported
 
 def test_naming_a_metric_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     # WHY aime24: a row honouring a metric must keep its Sample metadata, and aime24 does.
-    plain: str = _assembled(_spec("aime24"), monkeypatch).benchmark.revision
+    plain: str = _assembled(_spec("aime24"), monkeypatch).fingerprint
     honoured: ImportedBenchmark = _assembled(
         _spec("aime24", whole_run_metric="inspect_evals.hle.metrics:accuracy"), monkeypatch
     )
 
-    assert honoured.benchmark.revision != plain
+    assert honoured.fingerprint != plain
     assert benchmarks._whole_run_metric_pins(_spec(whole_run_metric="m:x")) == (
         "whole_run_metric=m:x",
     )
@@ -1050,6 +1055,7 @@ def _dict_benchmark(
         install=lambda node, assets: None,
         with_check_surface=False,
         difficulty="easy",
+        failure_policy="coverage_declare",
         whole_run_metric_factory=metric_factory,
         whole_run_headline=headline,
     )
@@ -1146,10 +1152,10 @@ def test_a_headline_key_is_benchmark_identity(monkeypatch: pytest.MonkeyPatch) -
     another key must never keep a revision its published scores hang off."""
 
     honoured: BenchmarkSpec = _spec("aime24", whole_run_metric="inspect_evals.hle.metrics:accuracy")
-    plain: str = _assembled(honoured, monkeypatch).benchmark.revision
+    plain: str = _assembled(honoured, monkeypatch).fingerprint
     keyed: ImportedBenchmark = _assembled(replace(honoured, whole_run_headline="f1"), monkeypatch)
 
-    assert keyed.benchmark.revision != plain
+    assert keyed.fingerprint != plain
     assert keyed.whole_run_headline == "f1"
     assert benchmarks._whole_run_metric_pins(replace(honoured, whole_run_headline="f1")) == (
         "whole_run_metric=inspect_evals.hle.metrics:accuracy",

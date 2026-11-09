@@ -23,13 +23,15 @@ def test_the_shipped_world_declares_every_compiled_provider() -> None:
 
 
 def test_the_shipped_world_totals_match_the_audited_gap() -> None:
-    # INVARIANT: 117 compiled ids, 29 of them colon-bearing (24 HuggingFace + 5 OpenRouter
+    # INVARIANT: 116 compiled ids, 29 of them colon-bearing (24 HuggingFace + 5 OpenRouter
     # `:batch`/`:free`). Audited 2026-08-17 against the plugin seeds at f4684a83; the equality
     # guard is what keeps this true, this test is what makes a change visible.
     #
     # AIDEV-NOTE: these totals move whenever aigateway lands a seed PR — three did on 2026-08-17
     # alone (OME-816/817/818 via #581/#583, then OME-856). Do NOT relax this test to stop it
     # failing; the equality guard names the exact ids to add to a seeds/ module.
+    # 2026-10-22: 117 -> 116, codex's five retired ids replaced by its live four (#1441).
+    # 2026-11-02: 116 -> 117 and routable 87 -> 88, the HLE judge glm-5.3-flash (OME-1478).
     assert len(BUILTIN_MODEL_WORLD) == 117
     assert len(BUILTIN_MODEL_WORLD.routable) == 88
     assert len(BUILTIN_MODEL_WORLD.aigateway_only) == 29
@@ -46,6 +48,12 @@ def test_the_pinned_benchmark_judges_are_routable() -> None:
     # §4.2 pins its judge; the healthbench rows' JudgeSpec pins theirs). Both must stay routes.
     assert "openrouter/google/gemini-3.1-pro-preview" in BUILTIN_MODEL_WORLD.routable
     assert "openrouter/openai/gpt-5.4" in BUILTIN_MODEL_WORLD.routable
+
+
+def test_the_hle_judge_is_routable() -> None:
+    # INVARIANT (OME-1478): the HLE row's JudgeSpec pins inspect_evals' default.yaml grader;
+    # a different judge materially changes HLE's scores, so it must stay a route.
+    assert "openrouter/z-ai/glm-5.3-flash" in BUILTIN_MODEL_WORLD.routable
 
 
 def test_every_huggingface_id_is_aigateway_only() -> None:

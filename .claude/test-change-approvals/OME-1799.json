@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1799",
+  "branch": "OME-1799-engine-mount-test-hermetic-gateway",
+  "approver": "Khoa Nguyen (owner request)",
+  "date": "2026-11-02",
+  "scope": "Setup only: in test_a_direct_hit_on_a_benchmark_endpoint_gets_the_engines_404, the Settings(...) call gains aigateway_base_url=\"http://aigateway.test\" plus a WHY comment above it. No assertion, other test or helper in the file changes.",
+  "reason": "Unnamed, the local App falls back to the loopback gateway 127.0.0.1:9105. When a developer's own gateway there lists a local model (ollama/...), the run behind /corpus builds its own world and logs the holdings-shelf line a second time, so the test fails on that laptop only and the pre-push hook blocks every Engine push from it. Naming the address the test's own url4.toml already uses keeps the test offline on every machine; the assertion it defends is unchanged.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_local_node_mount.py": {
+      "base_blob": "1eabad581ea70a71cf628356e2e3875f70a4bfb9",
+      "approved_blob": "e48f4c1438d7097f228a5827099c9adb2d1b2e39"
+    }
+  }
+}

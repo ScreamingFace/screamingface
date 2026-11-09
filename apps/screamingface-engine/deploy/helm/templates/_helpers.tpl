@@ -268,6 +268,81 @@ one of the two is set (`artifactSigningConfigured`); the chart never generates a
 {{- end -}}
 
 {{/*
+FEATURE (hosted BYOM, OME-1770): the one private world config both pod templates read.
+`worldConfigEnabled` validates `worldConfig` and answers "true" when a source is set; every other
+helper below renders one piece of the wiring, and BOTH Deployments include the same helpers, so
+the App and the pool cannot drift apart.
+*/}}
+{{- define "screamingface-engine.worldConfigEnabled" -}}
+{{- $world := .Values.worldConfig -}}
+{{- if and $world.existingConfigMap $world.existingSecret -}}
+{{- fail "worldConfig: set only one of existingConfigMap or existingSecret" -}}
+{{- end -}}
+{{- if or $world.existingConfigMap $world.existingSecret -}}
+{{- if not $world.key -}}
+{{- fail "worldConfig.key must name the world config file inside the source" -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9._:+=-]{1,128}$" (toString $world.contentChecksum)) -}}
+{{- fail "worldConfig.contentChecksum is required with a source: the file's content revision, 1-128 characters from A-Z a-z 0-9 . _ : + = -" -}}
+{{- end -}}
+true
+{{- else if $world.contentChecksum -}}
+{{- fail "worldConfig.contentChecksum is set but there is no source: set existingConfigMap or existingSecret" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigDir" -}}
+/etc/screamingface-engine/world
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigPath" -}}
+{{ include "screamingface-engine.worldConfigDir" . }}/url4.toml
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigEnv" -}}
+- name: URL4_RUNNER_CONFIG
+  value: {{ include "screamingface-engine.worldConfigPath" . | quote }}
+{{- end -}}
+
+{{/*
+INVARIANT (OME-1770 review): a running pod never sees the file change. The kubelet live-updates a
+projected ConfigMap or Secret directory, so a cold child could read a newer file than its pod's
+warm child and the App; a `subPath` mount is never updated, and a new revision reaches a pod only
+through the rollout `contentChecksum` starts.
+*/}}
+{{- define "screamingface-engine.worldConfigMount" -}}
+- name: world-config
+  mountPath: {{ include "screamingface-engine.worldConfigPath" . | quote }}
+  subPath: url4.toml
+  readOnly: true
+{{- end -}}
+
+{{/*
+INVARIANT (OME-1770 review): `podAnnotations` renders after the chart's own keys on both pod
+templates, so a user key of the same name would silently replace the world-config revision and a
+changed file would roll nothing. Renders nothing; refuses the render instead.
+*/}}
+{{- define "screamingface-engine.guardPodAnnotations" -}}
+{{- if hasKey (.Values.podAnnotations | default dict) "checksum/world-config" -}}
+{{- fail "podAnnotations must not set checksum/world-config: the chart writes it from worldConfig.contentChecksum" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "screamingface-engine.worldConfigVolume" -}}
+- name: world-config
+  {{- if .Values.worldConfig.existingSecret }}
+  secret:
+    secretName: {{ .Values.worldConfig.existingSecret | quote }}
+  {{- else }}
+  configMap:
+    name: {{ .Values.worldConfig.existingConfigMap | quote }}
+  {{- end }}
+    items:
+      - key: {{ .Values.worldConfig.key | quote }}
+        path: url4.toml
+{{- end -}}
+
+{{/*
 Where the object store lives. Explicit `artifactStorage.s3.endpointUrl` wins; otherwise, with the
 bundled instance enabled, its in-cluster Service. Failing render is deliberate: an empty endpoint
 would leave the App to refuse startup with a less specific message than this one.
@@ -280,4 +355,74 @@ would leave the App to refuse startup with a less specific message than this one
 {{- else -}}
 {{- fail "artifactStorage.backend=s3 needs either artifactStorage.s3.endpointUrl or garage.enabled=true" -}}
 {{- end -}}
+{{- end -}}
+
+{{/*
+The run blob store's backend (OME-1540; #1603 review, owner decision 2026-11-03).
+`blobs.storage.backend: ""` takes the SAME backend as `artifactStorage.backend` — the same KIND
+of store, never the same store: every blob setting below points at its own directory, bucket,
+endpoint and Secret.
+*/}}
+{{- define "screamingface-engine.blobBackend" -}}
+{{- $backend := .Values.blobs.storage.backend | default .Values.artifactStorage.backend -}}
+{{- if not (has $backend (list "filesystem" "s3")) -}}
+{{- fail (printf "blobs.storage.backend resolved to %q; it must be filesystem or s3" $backend) -}}
+{{- end -}}
+{{- $backend -}}
+{{- end -}}
+
+{{/*
+Whether the chart renders its SECOND bundled Garage for blobs: an s3 blob backend with no
+endpoint of the operator's own. That is the default S3 shape, so blobs and results land on two
+Garages with two volumes — a full blob volume fails uploads and nothing else.
+*/}}
+{{- define "screamingface-engine.blobGarageEnabled" -}}
+{{- if and (eq (include "screamingface-engine.blobBackend" .) "s3") (not .Values.blobs.storage.s3.endpointUrl) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{- define "screamingface-engine.blobEndpointUrl" -}}
+{{- if .Values.blobs.storage.s3.endpointUrl -}}
+{{- .Values.blobs.storage.s3.endpointUrl -}}
+{{- else -}}
+{{- printf "http://%s-garage-blobs:3900" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The Secret holding the blob store's key pair. Same shape as `artifactSecretName`: an
+`existingSecret` wins, else the chart creates `<fullname>-blob-storage`.
+INVARIANT: its keys are `URL4_CLOUD_BLOB_S3_ACCESS_KEY` / `URL4_CLOUD_BLOB_S3_SECRET_KEY` —
+distinct from the artifact pair, so the two `envFrom` Secrets on one pod cannot shadow each other.
+*/}}
+{{- define "screamingface-engine.blobSecretName" -}}
+{{- if .Values.blobs.storage.s3.existingSecret -}}
+{{- .Values.blobs.storage.s3.existingSecret -}}
+{{- else -}}
+{{- printf "%s-blob-storage" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The blob store's key pair as two NAMED env entries (OME-1540), for the App and the runner pool.
+Empty unless the blob backend is s3.
+
+WHY `secretKeyRef` and not `envFrom` like the artifact pair: the chart's blob Secret also carries
+`GARAGE_RPC_SECRET` for the bundled blob Garage. `envFrom` would hand that cluster secret to every
+App and runner process; naming the two keys keeps it on the Garage pod alone.
+*/}}
+{{- define "screamingface-engine.blobCredentialEnv" -}}
+{{- if eq (include "screamingface-engine.blobBackend" .) "s3" }}
+- name: URL4_CLOUD_BLOB_S3_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "screamingface-engine.blobSecretName" . }}
+      key: URL4_CLOUD_BLOB_S3_ACCESS_KEY
+- name: URL4_CLOUD_BLOB_S3_SECRET_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "screamingface-engine.blobSecretName" . }}
+      key: URL4_CLOUD_BLOB_S3_SECRET_KEY
+{{- end }}
 {{- end -}}

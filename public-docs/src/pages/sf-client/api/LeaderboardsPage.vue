@@ -12,18 +12,22 @@ import {
 const listRun = `import screamingface as sf
 
 client = sf.Client()
-[(b.id, b.display_name) for b in client.leaderboards.list()]`
-const listRunOut = `[('draco/smoke', 'DRACO Smoke')]`
+[(b.id, b.display_name) for b in client.leaderboards.list()][:3]`
+const listRunOut = `[('air_bench', 'AIR-Bench 2024'), ('arc_agi_2', 'ARC-AGI-2'), ('bbh', 'BIG-Bench Hard (BBH)')]`
 
-const submit = `report = client.evaluate(recipe, benchmark="ifeval", limit=1)
-client.leaderboards.submit(
+const submit = `# Without limit=, this is a paid run over every case of the benchmark.
+report = client.evaluate(recipe, benchmark="ifeval")
+score = client.leaderboards.submit(
     report.candidates.only,
     authors=["alice@example.com", "bob@example.org"],
-    paper_url="https://arxiv.org/abs/2601.00001",
+    authors_metadata={"alice@example.com": {"full_name": "Alice Smith"}},
+    paper_metadata={"title": "Our ensemble", "url": "https://arxiv.org/abs/2601.00001"},
 )`
 
-const reproduce = `reproduction = client.reproduce(score)
-reproduction.outcome, reproduction.reason, reproduction.recorded`
+const reproduce = `replay = client.evaluate(score_id=score.id)
+result = replay.candidates.only
+if result.reproduction is not None:
+    print(result.reproduction.outcome, result.reproduction.reason, result.reproduction.recorded)`
 </script>
 
 <template>
@@ -39,13 +43,16 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
       identity, <code>LeaderboardEntry</code> for a ranked row, <code>LeaderboardBaseline</code> for
       a published number to measure against, and <code>LeaderboardScore</code> for the full record a
       submission creates. <code>ScoreMetadataEvent</code> is one row of a score's edit log, and
-      <code>Reproduction</code> is what <code>reproduce()</code> returns.
+      <code>Reproduction</code> is the verdict attached to a replayed <code>CandidateResult</code>.
     </p>
 
     <Note>
-      These are the only values that do not come from the engine. They come from the leaderboard, a
-      separate service set by <code>scoreboard_url</code> on a
-      <RouterLink to="/sf-client/api/clients">Client</RouterLink>.
+      Leaderboard values come from a separate service set by <code>scoreboard_url</code> on a
+      <RouterLink to="/sf-client/api/clients">Client</RouterLink>. The SDK creates
+      <code>Reproduction</code> by comparing a replayed result with the published score. A local
+      Scoreboard accepts <code>submit()</code> and <code>get_score()</code>; <code>edit()</code> and
+      <code>metadata_events()</code> need the identity of a signed-in submitter and raise
+      <code>LeaderboardError</code> (HTTP 401) without it.
     </Note>
 
     <div class="not-prose">
@@ -158,7 +165,7 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>score</code></td>
           <td><code>float</code></td>
           <td>
-            The benchmark-native score it is ranked by — exactly what the benchmark's grading
+            The benchmark-native score it is ranked by: exactly what the benchmark's grading
             produced, fractional or negative included.
           </td>
         </tr>
@@ -177,7 +184,9 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>Url4</code></td>
           <td>
             The expression that produced it. Pass it to
-            <RouterLink to="/sf-client/api/clients">evaluate()</RouterLink> to reproduce the entry.
+            <RouterLink to="/sf-client/api/clients">evaluate()</RouterLink> for a fresh run that may
+            incur provider costs. To replay the captured answers, use
+            <code>evaluate(pinned_cache=...)</code> or <code>evaluate(score_id=...)</code>.
           </td>
         </tr>
         <tr>
@@ -188,7 +197,10 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
         <tr>
           <td><code>authors</code></td>
           <td><code>tuple[str, ...]&nbsp;|&nbsp;None</code></td>
-          <td>The ordered credit line, with email domains removed by the public leaderboard.</td>
+          <td>
+            The ordered public credit line. Email domains are normally omitted; full addresses
+            distinguish authors whose local parts collide.
+          </td>
         </tr>
         <tr>
           <td><code>verified_by_screamingface</code></td>
@@ -255,18 +267,27 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
     </div>
 
     <p>
-      <code>submit(candidate_result, *, authors=None, paper_url=None)</code> accepts one to ten
-      email addresses. A supplied list is exact: order and duplicates are preserved, and the
-      authenticated submitter is not added automatically. Omit it to use the leaderboard's default
-      credit line. <code>paper_url</code> is an <code>http</code> or <code>https</code> link of at
-      most 2048 characters, with a host, no whitespace or control characters, and no user info.
+      <code
+        >submit(candidate_result, *, authors=None, paper_url=None, authors_metadata=None,
+        paper_metadata=None)</code
+      >
+      accepts one to ten email addresses in <code>authors</code>. A supplied list is exact: order
+      and duplicates are preserved, and the authenticated submitter is not added automatically. Omit
+      it to use the leaderboard's default credit line. <code>paper_url</code> is an
+      <code>http</code> or <code>https</code> link of at most 2048 characters, with a host, no
+      whitespace or control characters, and no user info.
     </p>
 
     <p>
-      <code>edit(score_id, *, authors=..., paper_url=...)</code> changes those two fields of a score
-      you submitted and returns the updated <code>LeaderboardScore</code>. An argument you leave out
-      stays as it is, and you must pass at least one. <code>paper_url=None</code> removes the link.
-      <code>authors</code> cannot be cleared. <code>metadata_events(score_id)</code>
+      <code
+        >edit(score_id, *, authors=..., paper_url=..., authors_metadata=...,
+        paper_metadata=...)</code
+      >
+      changes those fields of a score you submitted and returns the updated
+      <code>LeaderboardScore</code>. An argument you leave out stays as it is, and you must pass at
+      least one. <code>paper_url=None</code> removes the link. <code>authors</code> cannot be
+      cleared: <code>authors=None</code> raises <code>ValueError</code>.
+      <code>metadata_events(score_id)</code>
       returns the score's edit log, newest first, as a tuple of
       <code>ScoreMetadataEvent</code> values. Only the submitter can call either one. The
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows them in
@@ -301,7 +322,7 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>total_questions</code> · <code>correct_questions</code></td>
           <td><code>int</code> / <code>int&nbsp;|&nbsp;None</code></td>
           <td>
-            How many cases ran, and — only for binary-graded benchmarks — how many were correct.
+            How many cases ran, and, only for binary-graded benchmarks, how many were correct.
           </td>
         </tr>
         <tr>
@@ -335,8 +356,9 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>authors</code></td>
           <td><code>tuple[str, ...]&nbsp;|&nbsp;None</code></td>
           <td>
-            The ordered, privacy-trimmed credit line. This is separate from
-            <code>submitted_by</code>, which records who sent the result.
+            The ordered public credit line, using local parts unless full addresses are needed to
+            distinguish authors. This is separate from <code>submitted_by</code>, which records who
+            sent the result.
           </td>
         </tr>
         <tr>
@@ -355,18 +377,53 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td>The link to the paper that reports the result, when one was set.</td>
         </tr>
         <tr>
-          <td><code>metadata_updated_at</code></td>
-          <td><code>datetime&nbsp;|&nbsp;None</code></td>
+          <td><code>authors_metadata</code></td>
+          <td><code>Mapping[str, Mapping[str, object]]&nbsp;|&nbsp;None</code></td>
           <td>
-            When the authors or the paper link last changed. <code>None</code> if never. The portal
-            shows it as "Metadata edited &lt;date&gt;" next to the paper link.
+            Immutable metadata for each author, keyed by their public author identifier. Usually the
+            email's local part; full addresses disambiguate matching local parts. Submit and edit
+            use full email addresses instead.
           </td>
         </tr>
         <tr>
-          <td><code>frozen_copy_id</code></td>
+          <td><code>paper_metadata</code></td>
+          <td><code>Mapping[str, object]&nbsp;|&nbsp;None</code></td>
+          <td>
+            Immutable paper metadata, with <code>url</code> filled from <code>paper_url</code>.
+            <code>None</code> when no object is stored; <code>{}</code> is an empty object.
+          </td>
+        </tr>
+        <tr>
+          <td><code>metadata_updated_at</code></td>
+          <td><code>datetime&nbsp;|&nbsp;None</code></td>
+          <td>
+            When the authors, paper link or metadata last changed. <code>None</code> if never. The
+            portal shows it as "Metadata edited &lt;date&gt;" next to the paper link.
+          </td>
+        </tr>
+        <tr>
+          <td><code>scoreboard_url</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>The Scoreboard that stored the score.</td>
+        </tr>
+        <tr>
+          <td><code>ranking_notice</code></td>
+          <td><code>LeaderboardRankingNotice&nbsp;|&nbsp;None</code></td>
+          <td>Why the score does not enter the ranking. <code>None</code> when it does.</td>
+        </tr>
+        <tr>
+          <td><code>reproduction_count</code> · <code>last_reproduced_at</code></td>
+          <td><code>int</code> / <code>datetime&nbsp;|&nbsp;None</code></td>
+          <td>
+            How many exact reproductions the board stored for the score, and when the latest one
+            ran. <code>last_reproduced_at</code> is <code>None</code> when the count is 0.
+          </td>
+        </tr>
+        <tr>
+          <td><code>pinned_cache</code></td>
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
-            The id of the frozen copy that the run made. <code>None</code> when the run was not
+            The id of the pinned cache that the run made. <code>None</code> when the run was not
             captured.
           </td>
         </tr>
@@ -374,7 +431,7 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>capture_status</code></td>
           <td><code>"complete"&nbsp;|&nbsp;"partial"&nbsp;|&nbsp;None</code></td>
           <td>
-            Whether the frozen copy holds the whole run. <code>"partial"</code> scores cannot be
+            Whether the pinned cache holds the whole run. <code>"partial"</code> scores cannot be
             replayed. A local capture is always <code>"partial"</code>. <code>None</code> means
             unknown.
           </td>
@@ -384,41 +441,37 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>str&nbsp;|&nbsp;None</code></td>
           <td>
             A digest of the graded cases of the run: 64 lowercase hex characters. It is set only
-            with a <code>capture_status</code>. When it is set, a reproduction must give the same
-            digest. <code>LeaderboardEntry</code> rows do not carry it.
+            with a <code>capture_status</code>. <code>LeaderboardEntry</code> rows do not carry it.
           </td>
         </tr>
         <tr>
           <td><code>answer_seed</code> · <code>benchmark_revision</code></td>
           <td><code>int&nbsp;|&nbsp;None</code> / <code>str&nbsp;|&nbsp;None</code></td>
-          <td>
-            The answer seed of the run and the revision of the benchmark it ran on. A replay uses
-            the seed, and it must match the revision.
-          </td>
-        </tr>
-        <tr>
-          <td><code>reproduction_count</code> · <code>last_reproduced_at</code></td>
-          <td><code>int</code> / <code>datetime&nbsp;|&nbsp;None</code></td>
-          <td>
-            How many exact reproductions are recorded, and when the last one was. The count is
-            <code>0</code> on a board that does not report it.
-          </td>
+          <td>The answer seed of the run and the revision of the benchmark it ran on.</td>
         </tr>
       </tbody>
     </table>
 
+    <p>Boards that predate a field leave it absent, and it reads as <code>None</code>.</p>
+
+    <h2>LeaderboardRankingNotice</h2>
+
     <p>
-      Boards that predate a field leave it absent, and it reads as <code>None</code> (the count
-      reads <code>0</code>).
+      <code>LeaderboardScore.ranking_notice</code> explains why a successfully published score will
+      not enter the current ranking, and is <code>None</code> when it will. A
+      <code>LeaderboardRankingNotice</code> has a <code>code</code>, always
+      <code>"benchmark_revision_mismatch"</code>, the <code>submitted_benchmark_revision</code> and
+      the <code>registered_benchmark_revision</code>
+      of the board.
     </p>
 
     <h2>ScoreMetadataEvent</h2>
 
     <p>
       One row of a score's edit log, returned by <code>metadata_events(score_id)</code>. Each change
-      to the authors or the paper link writes one row. The log can hold author emails that were
-      removed on purpose, so it is not public: only the submitter and the board's operators can read
-      it.
+      to the authors, paper link or metadata writes one row. The log can hold author emails that
+      were removed on purpose, so it is not public: only the submitter and the board's operators can
+      read it.
     </p>
 
     <table>
@@ -464,12 +517,14 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
     <h2>Reproduction</h2>
 
     <p>
-      What <code>client.reproduce(score, *, record=True)</code> returns. It runs a score against its
-      frozen copy and judges the replay against the stored numbers. <code>score</code> is a
-      <code>LeaderboardScore</code> or its id. The same method is on
-      <code>AsyncClient</code> (awaited) and as <code>sf.reproduce</code>. A replay that does not
-      match is a value here, not an exception. The
-      <RouterLink to="/learn/caching">caching page</RouterLink> explains how a frozen copy is made
+      The verdict on <code>report.candidates.only.reproduction</code> after
+      <code>client.evaluate(pinned_cache=…)</code> or <code>client.evaluate(score_id=…)</code>. The
+      same calls work with <code>AsyncClient</code> (awaited) and module-level
+      <code>sf.evaluate</code>. A partial replay or a capture without a public score has
+      <code>reproduction=None</code>. A partial or unknown published capture, or an Engine that does
+      not acknowledge replay, raises <code>ReproductionError</code>; its
+      <code>.reproduction</code> carries the verdict. The
+      <RouterLink to="/learn/caching">caching page</RouterLink> explains how a pinned cache is made
       and replayed.
     </p>
 
@@ -488,13 +543,16 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
       <tbody>
         <tr>
           <td><code>outcome</code></td>
-          <td><code>"exact"&nbsp;|&nbsp;"failed"&nbsp;|&nbsp;"not_reproducible"</code></td>
+          <td>
+            <code>sf.ReproductionOutcome</code>, one of <code>"exact"</code>,
+            <code>"failed"</code> or <code>"not_reproducible"</code>
+          </td>
           <td>
             <code>"exact"</code>: the replay gave the stored score and case count on the same
             benchmark revision, and the same case digest when the score has one.
             <code>"failed"</code>: it ran, or tried to, and did not match.
-            <code>"not_reproducible"</code>: the score has no complete frozen copy, so no run
-            started.
+            <code>"not_reproducible"</code>: the score has no complete pinned cache, so no run
+            started; this outcome is carried by <code>ReproductionError</code>.
           </td>
         </tr>
         <tr>
@@ -508,16 +566,8 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>missed_cases</code></td>
           <td><code>tuple[int&nbsp;|&nbsp;str, ...]</code></td>
           <td>
-            The ids of cases the frozen copy could not answer. Filled only when
+            The ids of cases the pinned cache could not answer. Filled only when
             <code>reason</code> is <code>"frozen_copy_miss"</code>.
-          </td>
-        </tr>
-        <tr>
-          <td><code>result</code></td>
-          <td><code>CandidateResult&nbsp;|&nbsp;None</code></td>
-          <td>
-            The replayed result. <code>None</code> when no run started, or when the Engine did not
-            confirm the run as a replay (<code>replay_unsupported</code>).
           </td>
         </tr>
         <tr>
@@ -564,7 +614,7 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>not_reproducible</code></td>
           <td><code>unknown</code></td>
           <td>
-            The score has no <code>capture_status</code>, no <code>frozen_copy_id</code> or no
+            The score has no <code>capture_status</code>, no <code>pinned_cache</code> or no
             benchmark revision. No run starts.
           </td>
         </tr>
@@ -592,7 +642,7 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
           <td><code>failed</code></td>
           <td><code>frozen_copy_unavailable</code></td>
           <td>
-            The copy is unknown or not sealed, or the gateway has no frozen copies (an older
+            The copy is unknown or not sealed, or the gateway has no pinned caches (an older
             gateway), or the gateway did not serve a model call or a web-tool lookup of the replay.
             The cases fail, and the run finishes.
           </td>
@@ -627,18 +677,20 @@ reproduction.outcome, reproduction.reason, reproduction.recorded`
     </table>
 
     <p>
-      Only an <code>"exact"</code> replay is recorded, and only when <code>record=True</code>. A
-      failed record never changes the outcome.
+      Only an <code>"exact"</code> full replay is recorded, and only when
+      <code>record_reproduction=True</code> (the default). A failed record never changes the
+      outcome.
     </p>
 
     <p>
-      Some problems still raise. A <code>score</code> that is not a <code>LeaderboardScore</code>, a
-      <code>UUID</code> or a string raises <code>TypeError</code>. Passing an id makes the Client
-      read the score first, and that read raises
+      Pass <code>score_id</code> as a <code>UUID</code> or string, not a
+      <code>LeaderboardScore</code>. Bad argument types raise <code>TypeError</code>; conflicting
+      ids, recipes or seeds raise <code>ValueError</code>. The Client reads the published score
+      first, and that read raises
       <RouterLink to="/sf-client/api/errors"><code>LeaderboardError</code></RouterLink> if it fails.
-      Any <code>ExecutionError</code> other than <code>replay_unsupported</code> also raises. When
-      the Client cannot stop a run that the Engine did not confirm as a replay, it emits an
-      <code>EvaluationWarning</code>. The
+      <code>replay_unsupported</code> becomes <code>ReproductionError</code>; other
+      <code>ExecutionError</code> instances propagate. When the Client cannot stop a run that the
+      Engine did not confirm as a replay, it emits an <code>EvaluationWarning</code>. The
       <RouterLink to="/learn/caching">caching page</RouterLink> explains what makes a score
       <code>"partial"</code>.
     </p>

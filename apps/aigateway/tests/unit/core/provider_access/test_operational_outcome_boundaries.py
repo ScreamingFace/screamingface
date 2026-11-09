@@ -6,16 +6,17 @@ import pytest
 from connection_backed_harness import ConnectionBackedHarness
 from provider_access_harness import ANTHROPIC, PROVIDER
 
-from aigateway.core.credential_names import credential_name_for
 from aigateway.core.oauth.store import credential_key_for
 from aigateway.core.provider_access import (
     CredentialStoreUnavailable,
+    PairAuthorityStore,
     Selector,
     TargetReauthRequired,
 )
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
 from aigateway.plugins.anthropic_provider.settings import AnthropicPluginSettings
+from tests.credential_names import credential_name_for
 
 
 @pytest.fixture
@@ -38,7 +39,7 @@ def _resolve(harness: ConnectionBackedHarness, *, plugin: Any = ANTHROPIC) -> An
 def test_operational_register_uses_the_strategy_credential_slot(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(auth_type="api_key", credential="tok")
+    migrated.seed_credential(auth_type="api_key", credential="tok")
     name = credential_name_for(migrated.account_id, "default")
     service = credential_service_for(name)
     raw = migrated.blobs.read_raw(service, "default")
@@ -67,7 +68,7 @@ def test_operational_register_uses_the_strategy_credential_slot(
 def test_operational_state_read_failure_becomes_a_typed_store_refusal(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    migrated.seed_profile(auth_type="api_key", credential="tok")
+    migrated.seed_credential(auth_type="api_key", credential="tok")
 
     async def unavailable(_service: str, _account: str) -> None:
         raise RuntimeError("database secret")
@@ -83,7 +84,7 @@ def test_operational_state_read_failure_becomes_a_typed_store_refusal(
 def test_needs_reauth_evicts_the_strategy_and_invalidates_its_session(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(auth_type="api_key", credential="tok")
+    migrated.seed_credential(auth_type="api_key", credential="tok")
     target = _resolve(migrated)
     observation = migrated.call(
         migrated.access.begin_dispatch, target, plugin=ANTHROPIC, provider=PROVIDER
@@ -108,15 +109,44 @@ def test_needs_reauth_evicts_the_strategy_and_invalidates_its_session(
 def test_dispatch_observation_requires_the_effective_connection(
     migrated: ConnectionBackedHarness,
 ) -> None:
-    migrated.seed_profile(auth_type="api_key", credential="tok")
-    other_id = migrated.seed_connection(label="other", auth_type="api_key", credential="other")
-    target = migrated.call(
-        migrated.access.resolve,
+    # WHY a migrated pair whose marker names no effective Connection: the default resolve serves
+    # its one active row by label (spec §9 Q9), a row that is not the pair's effective credential
+    # (OME-1138 close-out, L4a: the default is the only selector).
+    migrated.call(
+        PairAuthorityStore().advance,
         migrated.account_id,
         PROVIDER,
-        Selector.from_header("other"),
-        plugin=ANTHROPIC,
+        expected_generation=0,
+        migration_state="migrated",
     )
+    other_id = migrated.seed_connection(label="other", auth_type="api_key", credential="other")
+    target = _resolve(migrated)
+    assert target.credential_name == credential_key_for(migrated.account_id, other_id)
+
+    observation = migrated.call(
+        migrated.access.begin_dispatch, target, plugin=ANTHROPIC, provider=PROVIDER
+    )
+    other_state = migrated.call(
+        migrated.client.app.state.credential_store.operational_state,
+        credential_service_for(credential_key_for(migrated.account_id, other_id)),
+        "default",
+    )
+
+    assert observation is None
+    assert other_state is not None
+    assert other_state.next_dispatch_sequence == 0
+
+
+def test_dispatch_observation_refuses_a_row_the_marker_moved_away_from(
+    migrated: ConnectionBackedHarness,
+) -> None:
+    # WHY resolve before the marker moves: the target names the pair's one active row, then another
+    # writer publishes a different effective Connection while the request is in flight. The
+    # observation must compare against the marker's reference, not merely require one.
+    other_id = migrated.seed_connection(label="other", auth_type="api_key", credential="other")
+    target = _resolve(migrated)
+    assert target.credential_name == credential_key_for(migrated.account_id, other_id)
+    migrated.seed_authority(auth_type="api_key")
 
     observation = migrated.call(
         migrated.access.begin_dispatch, target, plugin=ANTHROPIC, provider=PROVIDER
@@ -135,7 +165,7 @@ def test_dispatch_observation_requires_the_effective_connection(
 def test_oauth_listing_never_reads_the_api_key_operational_register(
     migrated: ConnectionBackedHarness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    migrated.seed_profile(auth_type="oauth", credential="tok")
+    migrated.seed_credential(auth_type="oauth", credential="tok")
 
     async def forbidden(_service: str, _account: str) -> None:
         raise AssertionError("OAuth listing read the API-key operational register")

@@ -4,9 +4,9 @@
 # parameters, admission and dispatch-failure marking onto `core/provider_access`; this test is
 # what keeps them there, and what stops a NEW module from reaching around the port.
 # INVARIANT: outside the owners listed in `_OWNERS`, no module under `src/aigateway/` imports
-# `Profile`, `ProfileState`, `ProfileIndexStore` or `OAuthConnection`. Since E2a (OME-1209) the
-# credential vocabulary — `AuthMode`, `AuthType`, `credential_name_for`, `profile_id_for` — lives in
-# `core/auth_types.py` and `core/credential_names.py`, and no non-owner imports `profile_models`.
+# `OAuthConnection`, nor any Profile name OME-1138 Stage E, E5c deleted (`Profile`, `ProfileState`,
+# `ProfileIndexStore`) should one come back. The credential vocabulary — `AuthMode`, `AuthType` —
+# lives in `core/auth_types.py`.
 # AIDEV-NOTE: this checks the SOURCE, not runtime behaviour. A module that imports the row lazily
 # inside a function is still a direct dependency, and the AST walk sees it.
 """
@@ -30,30 +30,14 @@ _BANNED = frozenset({"Profile", "ProfileState", "ProfileIndexStore", "OAuthConne
 # WHY an allow-list keyed by path, with a reason each: every entry is a promise about WHEN it
 # goes away, so the boundary cannot quietly widen. Paths are relative to `src/aigateway/`.
 _OWNERS: dict[str, str] = {
-    # The boundary itself and the legacy modules it adapts — these ARE the compatibility window.
-    "core/provider_access/": "the port and its Profile-backed implementation; Stage B swaps it",
-    "core/profile_models.py": "the legacy row and its value types",
-    "core/profile_index.py": "the legacy index store",
+    # The boundary itself and the Connection row it reads.
+    "core/provider_access/": "the port and its Connection-backed implementation",
     "core/oauth/": "the Connection row, its store and the OAuth flows",
-    # Management surfaces reduced to shells at A3 and retired at Stage E (OME-1209).
-    "routes/auth.py": "legacy Profile management routes; shells at A3, retired at Stage E",
-    "routes/admin.py": "tenant admin listing; moves onto the admin port at A3",
     "routes/oauth_connections.py": "Connection-native management routes; owner of that row",
-    "core/admin_schemas.py": (
-        "the legacy admin listing's WIRE schema — `AdminProfileOut.state` is `ProfileState`, so "
-        "changing it would change OpenAPI; moves onto the admin port at A3 with `routes/admin.py`"
-    ),
-    # Wiring and bootstrap: they CONSTRUCT the store, they do not resolve credentials with it.
-    "main.py": "builds `app.state.profile_index` at startup; moves with the backing at Stage B",
-    "core/plugin_base/": "the provider contract's own type surface",
-    "plugins/anthropic_provider/bootstrap.py": (
-        "seeds a Profile for the bundled Anthropic credential; migrates with the backing at Stage B"
-    ),
-    "plugins/anthropic_provider/plugin.py": (
-        "calls its own bootstrap with an injected index store; same removal point as the "
-        "bootstrap above"
-    ),
-    "migrations/": "schema history — the rows as they were when each migration ran",
+    # WHY no wiring or bootstrap owner (OME-1209 E4b): `main.py`, `core/plugin_base/`, the
+    # Anthropic plugin and `routes/auth.py` no longer name the store or the row.
+    # WHY no admin or migrations owner (OME-1138 close-out, L4b): `routes/admin.py`,
+    # `core/admin_schemas.py` and `migrations/` import none of these names since Stage E.
 }
 
 # The four consumers this unit migrated. Listed explicitly so the test fails loudly if one is
@@ -123,11 +107,23 @@ def test_no_module_outside_the_documented_owners_imports_a_legacy_profile_row() 
     assert {name: names for name, names in offenders.items() if names} == {}
 
 
+def _owned_modules(owner: str) -> list[Path]:
+    path = _SRC / owner
+    return sorted(path.rglob("*.py")) if owner.endswith("/") else [path]
+
+
 def test_every_owner_exemption_names_a_real_file_and_a_reason() -> None:
-    """An allow-list entry that no longer matches anything is a stale promise — delete it."""
+    """An allow-list entry that no longer matches anything is a stale promise — delete it.
+
+    # INVARIANT: an exemption stays only while its path still imports a banned name. One that
+    # imports none exempts nothing today and would silently admit the next module placed there.
+    """
     for owner, reason in _OWNERS.items():
         assert reason.strip(), f"{owner} is exempted without a reason"
         assert (_SRC / owner).exists(), f"{owner} no longer exists — drop its exemption"
+        assert any(_banned_imports(path) for path in _owned_modules(owner)), (
+            f"{owner} imports no banned name — drop its exemption"
+        )
 
 
 def _imports_profile_models(path: Path) -> bool:
@@ -148,9 +144,9 @@ def _imports_profile_models(path: Path) -> bool:
 
 
 def test_no_module_outside_the_documented_owners_imports_profile_models() -> None:
-    """# INVARIANT (OME-1209 E2a): `profile_models` holds only the legacy Profile row. The
-    credential vocabulary lives in `core/auth_types.py` and `core/credential_names.py`, so a
-    module that is not a Profile owner has no reason to import the row's module at all."""
+    """# INVARIANT (OME-1209 E2a): `profile_models` held only the legacy Profile row. The
+    credential vocabulary lives in `core/auth_types.py`, so a module that is not a Profile owner
+    has no reason to import the row's module at all."""
     offenders = sorted(
         str(path.relative_to(_SRC))
         for path in _modules()

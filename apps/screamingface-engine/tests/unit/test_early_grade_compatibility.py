@@ -70,7 +70,7 @@ async def test_old_and_early_protocol_requests_and_results_match(
 def _verify_scoring(monkeypatch):
     graded = {}
 
-    def verify_projection(benchmark, revision, result, scorer):
+    def verify_projection(benchmark, revision, result, scorer, *, failure_policy):
         from screamingface_engine.activity.progress import scoring_projection
 
         graded[result.case_id] = result

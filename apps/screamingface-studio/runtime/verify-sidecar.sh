@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# INVARIANT: packaging smoke tests must not enroll the verification machine.
+export DO_NOT_TRACK=1
+
 runtime_dir="$(cd "$(dirname "$0")" && pwd)"
 executable="$runtime_dir/dist/screamingface-runtime/screamingface-runtime"
 verification_dir="$(mktemp -d "${TMPDIR:-/tmp}/screamingface-sidecar.XXXXXX")"

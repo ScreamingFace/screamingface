@@ -36,7 +36,7 @@ pytestmark = pytest.mark.anyio
 # so the caller receives less than it could have, never more.
 #   _private_leaderboard / get_leaderboard   the private response itself
 #   get_spec_history / get_frontier          the 404s a private board answers with
-#   get_score                                404 for a private row, 404 unknown id, 503 store down
+#   _read_score                              404 for a private row, 404 unknown id, 503 store down
 #   submit                                   PrivateBoardRequiresIdentity
 #
 # PURE — no request, no I/O, nothing to go stale between.
@@ -69,7 +69,10 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("leaderboard.py::get_leaderboard", "Return"): 1,
     ("leaderboard.py::get_spec_history", "Raise"): 2,
     ("leaderboard.py::get_frontier", "Raise"): 1,
-    ("scores.py::get_score", "Raise"): 3,
+    ("scores.py::_read_score", "Raise"): 3,
+    # OME-1596, owner approved 2026-10-19: malformed-id 404 and database-error 503 carry no
+    # score data. The successful return is revalidated and must NEVER be exempted here.
+    ("scores.py::get_score_by_pinned_cache", "Raise"): 2,
     ("store.py::benchmark_to_schema", "Return"): 1,
     ("store.py::_content_hash", "Return"): 1,
     ("store.py::_scoped_idempotency_key", "Return"): 3,
@@ -81,6 +84,9 @@ EXPECTED_UNGUARDED: dict[tuple[str, str], int] = {
     ("store.py::_resolve_owned", "Return"): 3,
     ("store.py::_readable_by", "Return"): 3,
     ("store.py::_links_to_a_private_board", "Return"): 1,
+    # OME-1596: initial private/unknown refusal, or a candidate passed to the route whose
+    # final turned_private check guards serialization. Neither helper return is an HTTP response.
+    ("store.py::public_score_for_pinned_cache", "Return"): 2,
     ("store.py::submit", "Raise"): 1,
     ("seed.py::_apply_orphan_visibility", "Return"): 1,
     ("seed.py::_classify_configured", "Return"): 1,
@@ -249,6 +255,13 @@ BASELINE_PUBLISHED_FIELDS = frozenset(
         "benchmark_id",
         "id",
         "imported_at",
+        # DECISION (owner, 2026-11-03, E20): publish source metric and dates,
+        # but keep the attaching person's attribution out of every public DTO.
+        "last_imported_at",
+        "metric_name",
+        "observed_at",
+        # Owner-approved E20 comparison policy: eligibility is public, attribution is not.
+        "ranking_eligible",
         "metadata",
         "model_name",
         "openness_override",
@@ -280,7 +293,7 @@ def test_a_baseline_publishes_nothing_participant_derived() -> None:
         "new field is visible to every participant — confirm it carries nothing derived from "
         "another participant's submission, then update BASELINE_PUBLISHED_FIELDS."
     )
-    for leak in ("submitted_by", "submitter", "url4_expression", "spec_id", "email"):
+    for leak in ("submitted_by", "submitter", "url4_expression", "spec_id", "email", "attached_by"):
         assert leak not in BaselineSchema.model_fields, (
             f"{leak!r} would be published on a private board through the baseline list"
         )

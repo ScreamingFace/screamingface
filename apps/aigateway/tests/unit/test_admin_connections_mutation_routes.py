@@ -134,19 +134,30 @@ def test_delete_disconnects_and_a_repeated_delete_is_also_204(client, admin_clie
 def test_a_committed_mutation_drops_only_the_pairs_pending_flows(client, admin_client) -> None:
     tenant = _tenant(admin_client)
     pending = client.app.state.pending_auth
+    # WHY a pending row (E5a, history cleanup): the drop follows the pair's captured Connection,
+    # and a native OAuth start creates its pending row before it registers the flow.
+    connection_id = uuid4()
+    _call(
+        client,
+        OAuthConnectionStore().create_pending,
+        account_id=tenant,
+        provider="anthropic",
+        label=f"conn-{connection_id}",
+        connection_id=connection_id,
+    )
 
-    def entry(provider: str) -> PendingAuthEntry:
+    def entry(provider: str, connection: str) -> PendingAuthEntry:
         return PendingAuthEntry(
             account_id=tenant,
             provider=provider,
-            profile_name="default",
-            profile_id=f"{provider}:default",
+            fallback_label="default",
             code_verifier="v",
             redirect_uri="https://example.invalid/cb",
+            connection_id=connection,
         )
 
-    pending.put("this-pair", entry("anthropic"))
-    pending.put("other-pair", entry("openai"))
+    pending.put("this-pair", entry("anthropic", str(connection_id)))
+    pending.put("other-pair", entry("openai", "openai-unrelated"))
 
     assert _put(admin_client, tenant).status_code == 200
 
@@ -282,43 +293,22 @@ def test_an_ambiguous_pair_is_a_409_pair_detail(client, admin_client, operation)
     assert resp.headers["cache-control"] == NO_STORE
 
 
-@pytest.mark.parametrize(
-    ("kind", "status", "detail"),
-    [
-        (
-            "superseded",
-            409,
-            {
-                "code": "credential_publication_superseded",
-                "message": "Credential state changed. Reload before submitting another change.",
-                "provider": "anthropic",
-            },
-        ),
-        (
-            "retry_exhausted",
-            503,
-            {
-                "code": "credential_write_conflict",
-                "message": "Credential update conflicted. Try again.",
-                "provider": "anthropic",
-            },
-        ),
-    ],
-)
-@pytest.mark.parametrize("subject", ["profile", "connection"])
-def test_a_lost_write_renders_the_successor_conflict(
-    client, admin_client, monkeypatch, kind, status, detail, subject
-) -> None:
+def test_a_lost_write_renders_the_successor_conflict(client, admin_client, monkeypatch) -> None:
     tenant = _tenant(admin_client)
+    detail = {
+        "code": "credential_publication_superseded",
+        "message": "Credential state changed. Reload before submitting another change.",
+        "provider": "anthropic",
+    }
 
     async def lost(*_args: Any, **_kwargs: Any) -> Any:
-        raise WriteConflict(kind, subject=subject, provider="anthropic", requested="default")
+        raise WriteConflict("superseded", subject="connection", provider="anthropic")
 
     monkeypatch.setattr(admin_connections, "set_pair_api_key", lost)
     monkeypatch.setattr(admin_connections, "delete_pair", lost)
 
     for resp in (_put(admin_client, tenant), _delete(admin_client, tenant)):
-        assert resp.status_code == status
+        assert resp.status_code == 409
         assert resp.json() == {"detail": detail}
         assert resp.headers["cache-control"] == NO_STORE
 
@@ -336,6 +326,23 @@ def test_an_unknown_provider_or_account_is_404(client, admin_client, operation) 
     assert unknown_account.status_code == 404
     assert unknown_account.json()["detail"] == {"code": "account_not_found"}
     assert unknown_provider.headers["cache-control"] == NO_STORE
+
+
+def test_a_put_for_a_provider_without_api_keys_is_a_400_that_writes_nothing(
+    client, admin_client
+) -> None:
+    # OME-1209 E3b: the publication's `api_key_not_supported` refusal, pinned on the D18 PUT
+    # after the Profile-era admin op that carried it retired.
+    tenant = _tenant(admin_client)
+
+    resp = _put(admin_client, tenant, "codex")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == {"code": "api_key_not_supported", "provider": "codex"}
+    assert KEY not in resp.text
+    assert resp.headers["cache-control"] == NO_STORE
+    assert _list(admin_client, tenant)["connections"] == []
+    assert _call(client, PairAuthorityStore().list, tenant) == ()
 
 
 @pytest.mark.parametrize("operation", ["put", "delete"])
@@ -369,7 +376,7 @@ def test_the_audit_line_names_the_actor_and_the_final_status(client, admin_clien
     assert not any(KEY in line for line in lines)
 
 
-def test_the_openapi_contract_declares_both_mutations_and_keeps_the_legacy_ones(
+def test_the_openapi_contract_declares_both_mutations_and_drops_the_legacy_ones(
     client, admin_client
 ) -> None:
     schema = admin_client.get("/openapi.json").json()
@@ -388,9 +395,11 @@ def test_the_openapi_contract_declares_both_mutations_and_keeps_the_legacy_ones(
     delete = paths["/v1/admin/accounts/{account_id}/connections/{provider}"]["delete"]
     assert delete["operationId"] == "delete_admin_account_connection"
     assert "204" in delete["responses"]
-    # The legacy Profile operations are unchanged.
-    assert "put" in paths["/v1/admin/accounts/{account_id}/profiles/{provider}/{name}/api-key"]
-    assert "delete" in paths["/v1/admin/accounts/{account_id}/profiles/{provider}/{name}"]
+    # The legacy Profile operations are retired (OME-1209 Stage E3): no admin Profile path, no
+    # Profile schema.
+    assert "/v1/admin/accounts/{account_id}/profiles/{provider}/{name}/api-key" not in paths
+    assert "/v1/admin/accounts/{account_id}/profiles/{provider}/{name}" not in paths
+    assert "AdminProfileOut" not in schema["components"]["schemas"]
 
 
 # --- review follow-ups --------------------------------------------------------------------------

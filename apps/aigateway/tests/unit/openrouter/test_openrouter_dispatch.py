@@ -123,7 +123,7 @@ def test_capability_matrix() -> None:
     plugin = _plugin(enabled=True)
     assert plugin.supports_api_key() is True
     assert plugin.supports_chat_streaming() is False
-    assert plugin.allows_chatless_profile() is False
+    assert plugin.allows_chatless_credential() is False
     assert plugin.oauth_config() is None
 
 
@@ -142,7 +142,7 @@ def test_capability_matrix() -> None:
 )
 def test_only_401_marks_credential_errored(status_code: int, should_mark: bool) -> None:
     plugin = _plugin(enabled=True)
-    assert plugin.should_mark_profile_error_on_dispatch_status(status_code) is should_mark
+    assert plugin.should_mark_credential_error_on_dispatch_status(status_code) is should_mark
 
 
 @pytest.mark.parametrize(
@@ -487,6 +487,7 @@ def test_unclassified_openrouter_401_falls_back_to_legacy_connection_handling(
     assert response.json()["detail"] == {
         "code": "provider_policy",
         "message": "provider rejected the key",
+        "reauth_url": f"/v1/oauth/connections/{created['id']}/api-key",
     }
     connection = authenticated_client.portal.call(
         OAuthConnectionStore().get, account_id, UUID(created["id"])

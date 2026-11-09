@@ -30,7 +30,7 @@ def test_loader_discovers_codex_provider() -> None:
     assert plugin.custom_llm_provider == "codex"
     models = plugin.register_models()
     names = {m.model_name for m in models}
-    assert "codex/gpt-5.4-mini" in names
+    assert "codex/gpt-6-astra" in names
     assert "codex/codex-auto-review" not in names
     for m in models:
         assert m.litellm_params["model"].startswith("codex/")

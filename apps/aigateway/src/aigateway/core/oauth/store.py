@@ -12,7 +12,7 @@ from aigateway.core.auth_types import AuthType
 
 from .identity import AccountIdentity
 from .models import OAuthConnection
-from .schemas import OAuthConnectionResponse, OAuthConnectionStatus
+from .schemas import OAuthConnectionListRow, OAuthConnectionResponse, OAuthConnectionStatus
 
 DEFAULT_CREDENTIAL_ACCOUNT = "default"
 
@@ -39,13 +39,16 @@ class OAuthConnectionStore:
         *,
         provider: str | None = None,
         status: str | None = None,
+        include_revoked: bool = False,
     ) -> list[OAuthConnection]:
+        # WHY `include_revoked` (OME-1138 close-out, L7a): the effective-row listing reads every
+        # status in one query, then filters itself; every other caller keeps `revoked` hidden.
         query = OAuthConnection.filter(account_id=account_id)
         if provider is not None:
             query = query.filter(provider=provider)
         if status is not None:
             query = query.filter(status=status)
-        else:
+        elif not include_revoked:
             query = query.exclude(status="revoked")
         return await query.order_by("provider", "label", "created_at")
 
@@ -69,9 +72,9 @@ class OAuthConnectionStore:
     ) -> OAuthConnection:
         """Create a pending Connection; `credential_locator` defaults to today's UUID address.
 
-        WHY the keyword (OME-1208, S2'b2): a MIGRATED pair's Profile-facade OAuth flow opens its
-        fresh pending row on the requested name's Profile blob address, so an R1 rollback reads
-        the credential exactly where the legacy path expects it.
+        WHY the keyword (OME-1208, S2'b2): a caller that already owns a blob address passes it,
+        so the Connection reads the credential where it is stored. No request path passes one
+        today; the OAuth start route takes the default.
         """
         await ensure_anonymous_account(account_id)
         return await OAuthConnection.create(
@@ -103,8 +106,8 @@ class OAuthConnectionStore:
         explicitly here; auth_type is set to "api_key" (the column defaults to
         "oauth"). By default the credential_locator points at the same blob slot
         the chat path reads via credential_key_for(account_id, connection_id); a
-        caller that owns another blob address (OME-1208: the Connection-backed
-        authority re-keying a migrated pair at its Profile address) passes it."""
+        caller that already holds the locator it writes the key under (the D18
+        admin API-key write) passes it, so the row and the write cannot disagree."""
         await ensure_anonymous_account(account_id)
         connection = await OAuthConnection.create(
             id=connection_id,
@@ -383,6 +386,12 @@ class OAuthConnectionStore:
         connection.last_refreshed_at = datetime.now(UTC)
         await connection.save(update_fields=["last_refreshed_at"])
         return connection
+
+
+def list_row_from_connection(
+    connection: OAuthConnection, *, effective: bool
+) -> OAuthConnectionListRow:
+    return OAuthConnectionListRow(**dict(response_from_connection(connection)), effective=effective)
 
 
 def response_from_connection(

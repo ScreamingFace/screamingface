@@ -15,6 +15,11 @@ from aigateway.core.google_code_assist import (
     account_label_from_credentials,
     extract_account_identity,
 )
+from aigateway.core.input_modalities import (
+    TEXT_IMAGE_PDF,
+    InputModality,
+    declared_family_evidence,
+)
 from aigateway.core.oauth.identity import AccountIdentity
 from aigateway.core.parameter_discovery import DiscoverySourceRef
 from aigateway.core.plugin_base import (
@@ -102,6 +107,12 @@ def _detail_for_error(exc: CustomLLMError, *, forbidden: Iterable[str] = ()) -> 
     }
 
 
+# OME-1537: Gemini models take image and PDF input (Gemini API inline data).
+_INPUT_MODALITY_FAMILIES: tuple[tuple[str, tuple[InputModality, ...]], ...] = (
+    ("gemini-", TEXT_IMAGE_PDF),
+)
+
+
 class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
     custom_llm_provider = "gemini-cli"
     provider_display_name = "Gemini CLI"
@@ -112,6 +123,13 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
 
     def register_models(self) -> list[ModelEntry]:
         return list(MODELS)
+
+    def model_input_modality_evidence(self, entry: ModelEntry) -> tuple[str, ...] | None:
+        # OME-1537: declared family table. Outside it the model is unknown (None), which
+        # publishes as text-only and passes the chat backstop (OME-1807).
+        return declared_family_evidence(
+            entry.model_name.removeprefix("gemini-cli/"), _INPUT_MODALITY_FAMILIES
+        )
 
     def oauth_config(self) -> OAuthConfig:
         return OAuthConfig(
@@ -125,13 +143,13 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
 
     def oauth_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy:
         return GeminiOAuth(
-            profile_name=profile_name,
+            credential_name=credential_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
         )
@@ -141,7 +159,7 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
 
     def api_key_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
     ) -> CredentialStrategy:
@@ -150,8 +168,8 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
         # BEFORE the gateway merges strategy headers, so only the gateway-owned
         # key survives) and selects the generativelanguage API-key path there.
         return ApiKeyStrategy(
-            profile_name,
-            service=credential_service_for(profile_name),
+            credential_name,
+            service=credential_service_for(credential_name),
             account="default",
             header_builder=lambda api_key: {"x-goog-api-key": api_key},
             credential_store=credential_store,
@@ -193,10 +211,10 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
             raw=identity.as_dict(),
         )
 
-    def allows_chatless_profile(self) -> bool:
+    def allows_chatless_credential(self) -> bool:
         return True
 
-    def profileless_auth_mode(self) -> AuthMode | None:
+    def credentialless_auth_mode(self) -> AuthMode | None:
         # INVARIANT: this is the same selector the handler consults before
         # dispatching to the public generativelanguage endpoint.
         return "api_key" if _env_api_key() is not None else None
@@ -204,11 +222,11 @@ class GeminiProviderPlugin(ProviderPluginBase[GeminiPluginSettings]):
     def supports_chat_streaming(self) -> bool:
         return False
 
-    def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
+    def should_mark_credential_error_on_dispatch_status(self, status_code: int) -> bool:
         return status_code in (401, 403)
 
-    def invalidate_profile_session(self, profile_name: str) -> None:
-        get_litellm_gemini_handler().invalidate_session(profile_name)
+    def invalidate_credential_session(self, credential_name: str) -> None:
+        get_litellm_gemini_handler().invalidate_session(credential_name)
 
     def chat_parameter_rules(
         self, *, model: str, auth_type: AuthMode | None = None

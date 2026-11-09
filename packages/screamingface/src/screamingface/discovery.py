@@ -96,7 +96,7 @@ class ModelParameterSchema:
 
 @dataclass(frozen=True, slots=True)
 class ModelParameter:
-    """One profile-specific model parameter, with provider evidence and gateway policy."""
+    """One Connection-specific model parameter, with provider evidence and gateway policy."""
 
     name: str
     request_path: str
@@ -142,7 +142,7 @@ class ModelParameter:
 
 @dataclass(frozen=True, slots=True)
 class ModelCapability:
-    """One tool or transport capability in a profile-specific Model contract."""
+    """One tool or transport capability in a Connection-specific Model contract."""
 
     provider_support: str
     gateway_status: str
@@ -162,7 +162,7 @@ class ModelCapability:
 
 @dataclass(frozen=True, slots=True)
 class ModelDetails:
-    """Profile-specific parameters and capabilities for one canonical Model id."""
+    """Connection-specific parameters and capabilities for one canonical Model id."""
 
     id: str
     provider: str
@@ -219,7 +219,7 @@ class ModelDetails:
             f"transport={len(self.transport)}",
         ]
         # INVARIANT: _validate_freshness makes stale/degraded mutually exclusive, so at most
-        # one flag is ever appended; a fresh profile shows neither.
+        # one flag is ever appended; a fresh contract shows neither.
         if self.stale:
             arguments.append("stale=True")
         if self.degraded:

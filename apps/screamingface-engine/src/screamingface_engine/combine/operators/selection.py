@@ -3,13 +3,19 @@
 FEATURE: rank and concat hand the NEXT stage original member texts, never a rewrite. ``top_k``
 keeps the k best-scored members in score order (the highest, or with ``order`` "min" the lowest);
 ``kept`` keeps the members that passed a filter, in author order; ``join`` and ``all`` join every
-member, in author order, with visible boundaries.
+member, in author order, with visible boundaries. ``top_k`` and ``kept`` also copy the combine
+context ``input`` into their JSON (E4b ans:Q7), so the next stage sees the question; ``join`` and
+``all`` do not (ans:Q13). ``top_k`` and ``kept`` declare ``envelope``: when the call abstains, the
+endpoint hands on the empty envelope ``{"input": ..., "selected": []}`` (E4b fix 2026-10-14).
+``top_k`` also declares ``ranks`` and ``cut``: the endpoint writes each scored member's rank and
+the cut into the evidence, from the one order of ``_ranked`` (E4b part 2, P6, P7).
 STORY: as a researcher, "focus on the best three" is enforced by the engine and not asked of a
 prompt, and a multi-document hand-off does not go through a model that summarizes.
 
 Mental model: a clerk who photocopies. Rank photocopies the k best pages in rank order, and a filter
-the pages that passed, and staples them in one JSON envelope; concat photocopies every page in the
-order of the recipe and tapes a divider between them. The clerk never rewords a page.
+the pages that passed, and staples them under a copy of the question in one JSON envelope; concat
+photocopies every page in the order of the recipe and tapes a divider between them. The clerk never
+rewords a page.
 
 INVARIANT: each operator is pure and holds no mutable state; no model call. Order comes from the
 author order of the members -- ties at a score keep it (a stable sort), and ``join`` walks
@@ -19,17 +25,21 @@ no ``DECIMAL_CONTEXT``, and a Decimal comparison is exact. Negating a score woul
 thread's default 28-digit context, and two long numeric field values could then compare equal.
 ``reverse=True`` keeps equal scores in author order, and the "min" sort is stable too.
 AIDEV-NOTE: the selection JSON shape, the cut-tie rule and the collision rule are v1 behavior
-pinned by the golden fixtures. A change is a new ``@version``, never an edit.
+pinned by the golden fixtures. A change is a new ``@version``, never an edit. The one exception
+(E4b P4, ans:Q5): ``input`` was added to the ``top_k@1`` and ``kept@1`` JSON in place while E4a
+was unreleased. A ``CombineInput`` without ``input`` (the flow golden fixtures) gives the E4a shape.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from decimal import Decimal
 from types import MappingProxyType
 from typing import cast, get_args
 
 from screamingface_engine.combine.ports import (
     CombineInput,
+    Cut,
     NoVotes,
     OpArgs,
     OperatorDescriptor,
@@ -37,19 +47,13 @@ from screamingface_engine.combine.ports import (
     Selection,
     SignalOrder,
     SpecInvalid,
-    canonical_json,
+    selection_envelope,
 )
 
 _MAX_K = 256
 _ORDERS = get_args(SignalOrder)
 _MARKS = frozenset({Decimal(0), Decimal(1)})
 _MAX_SEPARATOR_CHARS = 1024
-
-
-def _selection_text(chosen: tuple[str, ...], combine_input: CombineInput) -> str:
-    """The selection JSON: the chosen members' original texts, in the order given."""
-    selected = [{"id": member, "text": combine_input.outputs[member]} for member in chosen]
-    return canonical_json({"selected": selected})
 
 
 def _check_top_k_args(args: OpArgs) -> None:
@@ -67,6 +71,25 @@ def _check_top_k_args(args: OpArgs) -> None:
         )
 
 
+def _ranked(
+    reduction: Reduction, combine_input: CombineInput, args: OpArgs
+) -> list[tuple[str, Decimal]]:
+    """The scored members in the ``top_k@1`` order: ``(member, score)``, best first.
+
+    ``order`` "max" (the default) puts the highest score first, "min" the lowest. Equal scores keep
+    author order (a stable sort). The cut and the ranks both read this one order (E4b part 2, P6),
+    so they can never disagree.
+    """
+    scores = reduction.scores
+    if scores is None:
+        raise SpecInvalid("top_k@1 needs scores")
+    return sorted(
+        ((member, scores[member]) for member in combine_input.members if member in scores),
+        key=lambda pair: pair[1],
+        reverse=args.get("order", "max") == "max",
+    )
+
+
 def top_k(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
     """The k best-scored members in score order; the output is the selection JSON.
 
@@ -75,14 +98,7 @@ def top_k(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) ->
     member and the first dropped one have the same score.
     """
     k = cast("int", args["k"])  # check_args ran first
-    scores = reduction.scores
-    if scores is None:
-        raise SpecInvalid("top_k@1 needs scores")
-    ranked = sorted(
-        ((member, scores[member]) for member in combine_input.members if member in scores),
-        key=lambda pair: pair[1],
-        reverse=args.get("order", "max") == "max",
-    )
+    ranked = _ranked(reduction, combine_input, args)
     if len(ranked) < k:
         raise NoVotes(
             f"top_k@1 needs {k} scored members, {len(ranked)} have a score", reason="cut_not_met"
@@ -90,9 +106,28 @@ def top_k(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) ->
     chosen = tuple(member for member, _ in ranked[:k])
     return Selection(
         chosen=chosen,
-        output=_selection_text(chosen, combine_input),
+        output=selection_envelope(chosen, combine_input),
         tie=len(ranked) > k and ranked[k - 1][1] == ranked[k][1],
     )
+
+
+def top_k_ranks(
+    reduction: Reduction, combine_input: CombineInput, args: OpArgs, /
+) -> Mapping[str, int]:
+    """The 1-based rank of each scored member in the ``top_k@1`` order (ordinal: no two equal).
+
+    A member with no score has no rank. A reduction with no scores (the reduce step abstained)
+    gives no ranks, so an abstain still writes its evidence.
+    """
+    if reduction.scores is None:
+        return MappingProxyType({})
+    ranked = _ranked(reduction, combine_input, args)
+    return MappingProxyType({member: rank for rank, (member, _) in enumerate(ranked, start=1)})
+
+
+def top_k_cut(args: OpArgs) -> Cut:
+    """The cut of a ``top_k@1`` step: its ``k``, and its ``order`` (the default "max" filled in)."""
+    return Cut(k=cast("int", args["k"]), order=cast("SignalOrder", args.get("order", "max")))
 
 
 def kept(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> Selection:
@@ -109,7 +144,7 @@ def kept(reduction: Reduction, combine_input: CombineInput, args: OpArgs, /) -> 
     chosen = tuple(member for member in combine_input.members if marks.get(member) == 1)
     if not chosen:
         raise NoVotes("no member passed the filter", reason="no_votes")
-    return Selection(chosen=chosen, output=_selection_text(chosen, combine_input))
+    return Selection(chosen=chosen, output=selection_envelope(chosen, combine_input))
 
 
 def _check_join_args(args: OpArgs) -> None:
@@ -190,6 +225,9 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
             }
         ),
         check_args=_check_top_k_args,
+        envelope=True,
+        ranks=top_k_ranks,
+        cut=top_k_cut,
     ),
     OperatorDescriptor(
         "kept",
@@ -197,6 +235,7 @@ OPERATORS: tuple[OperatorDescriptor, ...] = (
         "select",
         "Every member that passed, in author order, as the selection JSON.",
         kept,
+        envelope=True,
     ),
     OperatorDescriptor(
         "join",

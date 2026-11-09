@@ -20,6 +20,7 @@ from collections.abc import Callable, Mapping, Sequence
 import pytest
 from _combine_contract import COMBINE_CONTRACT, ENGINE_APP, engine_operators, requires_engine_app
 from _combine_flow_fixtures import flow_operators
+from _nodes import ReduceNode, VoteNode, fusion_node
 from _reducer_fixtures import FixtureVote, _entry
 
 import screamingface as sf
@@ -63,22 +64,19 @@ def _catalog(names: Mapping[str, Sequence[str]]) -> _OperatorCatalog:
 def argmax_cost_url4() -> str:
     """Three members, the first with a param; the cheapest member's answer is the answer."""
 
-    recipe = sf.Fusion(
-        [sf.Model("prov/alpha", params={"temperature": 0.5}), "prov/beta", "prov/gamma"],
-        synthesizer=sf.Pick(by_signal=sf.signal("cost_usd"), order="min"),
-    )
+    recipe = sf.Fanout(
+        [sf.Model("prov/alpha", params={"temperature": 0.5}), "prov/beta", "prov/gamma"]
+    ) >> sf.ArgMin("cost_usd")
     return compile_candidate(recipe, operators=flow_operators()).url4
 
 
 def two_reducers_url4() -> str:
     recipe = sf.Pipeline(
         [
-            sf.Fusion(
-                ["provider/alpha", "provider/beta", "provider/gamma"], synthesizer=FixtureVote()
-            ),
-            sf.Fusion(
+            fusion_node(["provider/alpha", "provider/beta", "provider/gamma"], FixtureVote()),
+            fusion_node(
                 ["provider/delta", "provider/epsilon"],
-                synthesizer=FixtureVote(extract="last_line", normalize="text"),
+                FixtureVote(extract="last_line", normalize="text"),
             ),
         ]
     )
@@ -92,7 +90,7 @@ def corrective_vote_url4() -> str:
     assert match is not None, "corrective_loop_candidate.url4 lost the IFEval check route"
     recipe = sf.CorrectiveLoop(
         [
-            sf.Fusion(["prov/member-a", "prov/member-b", "prov/member-c"], synthesizer=sf.Vote()),
+            sf.Fanout(["prov/member-a", "prov/member-b", "prov/member-c"]) >> sf.Vote(),
             "prov/member-d",
         ],
         judge="prov/judge",
@@ -107,14 +105,10 @@ def corrective_vote_url4() -> str:
 def filter_pipeline_url4() -> str:
     """Four members, a confidence filter, then a writer that sees only the members that pass."""
 
-    recipe = sf.Pipeline(
-        [
-            sf.Fusion(
-                ["prov/alpha", "prov/beta", "prov/gamma", "prov/delta"],
-                synthesizer=sf.Filter(where=sf.signal("field:confidence") >= 0.6),
-            ),
-            "prov/writer",
-        ]
+    recipe = (
+        sf.Fanout(["prov/alpha", "prov/beta", "prov/gamma", "prov/delta"])
+        >> sf.Filter(where=sf.signal("field:confidence") >= 0.6)
+        >> sf.Synthesize("prov/writer")
     )
     return compile_candidate(recipe, operators=flow_operators()).url4
 
@@ -122,20 +116,16 @@ def filter_pipeline_url4() -> str:
 def judge_vote_url4() -> str:
     """Three members voting on a number, each answer weighed by the judge's score for its member."""
 
-    recipe = sf.Fusion(
-        ["prov/alpha", "prov/beta", "prov/gamma"],
-        synthesizer=sf.Vote(
-            extract="last_number",
-            normalize="numeric",
-            weights=sf.signal("score:judge"),
-            judge=sf.Judge("prov/judge", returns="scores", rubric="Score each answer."),
-        ),
+    recipe = (
+        sf.Fanout(["prov/alpha", "prov/beta", "prov/gamma"])
+        >> sf.Judge("prov/judge", rubric="Score each answer.")
+        >> sf.Vote(over="last_number", normalize="numeric", weights=sf.signal("score:judge"))
     )
     return compile_candidate(recipe, operators=flow_operators()).url4
 
 
 def _samples_url4(synthesizer: Reducer) -> str:
-    recipe = sf.Fusion(sf.samples("prov/member-a", 5, temperature=0.7), synthesizer=synthesizer)
+    recipe = fusion_node(sf.samples("prov/member-a", 5, temperature=0.7), synthesizer)
     return compile_candidate(recipe, operators=_catalog(_SAMPLES_OPERATORS)).url4
 
 
@@ -146,10 +136,9 @@ def samples_vote_url4() -> str:
 def signal_vote_url4() -> str:
     """Three members, the first with a param, voting with weights = each member's own cost."""
 
-    recipe = sf.Fusion(
-        [sf.Model("prov/alpha", params={"temperature": 0.5}), "prov/beta", "prov/gamma"],
-        synthesizer=sf.Vote(extract="last_line", normalize="text", weights=sf.signal("cost_usd")),
-    )
+    recipe = sf.Fanout(
+        [sf.Model("prov/alpha", params={"temperature": 0.5}), "prov/beta", "prov/gamma"]
+    ) >> sf.Vote(over="last_line", normalize="text", weights=sf.signal("cost_usd"))
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
@@ -185,8 +174,8 @@ def test_engine_url4_fixture_matches_the_sdk_compiler(name: str) -> None:
 @pytest.mark.parametrize(
     "synthesizer",
     [
-        sf.Reduce("plurality", extract=sf.Extract("last_number", normalize="numeric")),
-        sf.Vote(extract="last_number", normalize="numeric"),
+        ReduceNode("plurality", extract=sf.Extract("last_number", normalize="numeric")),
+        VoteNode(extract="last_number", normalize="numeric"),
     ],
     ids=["reduce-plurality", "vote"],
 )

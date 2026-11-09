@@ -217,16 +217,42 @@ window.ScorePortal = (function () {
   // clipboard — the exact string pasted into the desktop app's Eval Studio
   // "URL4 expression" field. We copy it verbatim (no encoding, no sf://run
   // wrapper): a url4 spec can contain / ( ) ! $ # : and must survive intact.
+  var copyStatus = null;
   function createCopyButton(specId, expression, opts) {
     opts = opts || {};
     var label = opts.label || "Copy";
     var btn = el("button", opts.compact ? "btn ghost" : "btn", label);
     btn.type = "button";
-    btn.setAttribute("aria-label", "Copy the URL4 expression for " + specId);
+    // `ariaLabel` and `title` let another copy action (the Reproduce button) reuse this one, with
+    // the same copied/failed feedback, while naming what it copies.
+    var ariaLabel = opts.ariaLabel || "Copy the URL4 expression for " + specId;
+    btn.setAttribute("aria-label", ariaLabel);
+    // Mount an empty live region before interaction so clipboard outcomes can be announced
+    // without moving focus. Share it across all copy buttons on the page.
+    if (!copyStatus && document.body) {
+      copyStatus = el("span", "sr-only", "");
+      copyStatus.setAttribute("role", "status");
+      copyStatus.setAttribute("aria-live", "polite");
+      copyStatus.setAttribute("aria-atomic", "true");
+      document.body.appendChild(copyStatus);
+    }
+    if (opts.title) btn.title = opts.title;
     btn.addEventListener("click", function () {
       function done(ok) {
+        var feedback = ok ? "copied" : "copy failed";
         btn.textContent = ok ? "✓ copied" : "copy failed";
-        setTimeout(function () { btn.textContent = label; }, 1600);
+        btn.setAttribute("aria-label", feedback + ": " + ariaLabel);
+        if (copyStatus) {
+          // A separate update lets an identical outcome be announced on a second click too.
+          copyStatus.textContent = "";
+          setTimeout(function () {
+            copyStatus.textContent = label + " for " + specId + ": " + feedback;
+          }, 50);
+        }
+        setTimeout(function () {
+          btn.textContent = label;
+          btn.setAttribute("aria-label", ariaLabel);
+        }, 1600);
       }
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(expression).then(
@@ -259,7 +285,7 @@ window.ScorePortal = (function () {
       container.appendChild(a);
     });
     if (split.rest.length) {
-      container.appendChild(buildMoreMenu(split.rest, activeId));
+      container.appendChild(buildMoreMenu(split.rest, listed, activeId));
     }
   }
 
@@ -275,7 +301,7 @@ window.ScorePortal = (function () {
   // Returns a fragment of [button, panel]; the panel is positioned relative to the .tabstrip
   // (see portal.css .tabstrip-more-panel). It is a disclosure, not a menu: the button carries
   // aria-expanded + aria-controls, and Escape / a click or tab away from the control closes it.
-  function buildMoreMenu(rest, activeId) {
+  function buildMoreMenu(rest, listed, activeId) {
     var activeBoard = null;
     rest.forEach(function (b) { if (b.id === activeId) activeBoard = b; });
 
@@ -299,7 +325,9 @@ window.ScorePortal = (function () {
 
     function renderList(query) {
       clear(list);
-      var matches = window.SFLeaderboardLogic.filterBenchmarks(rest, query);
+      // WHY: featured tabs must be searchable too; blank queries retain the overflow list.
+      var pool = query.trim() ? listed : rest;
+      var matches = window.SFLeaderboardLogic.filterBenchmarks(pool, query);
       if (!matches.length) {
         list.appendChild(el("div", "tabstrip-more-empty", "No benchmark matches."));
         return;
@@ -329,7 +357,8 @@ window.ScorePortal = (function () {
     // Escape closes from anywhere in the control and returns focus to the button.
     function onKeydown(e) { if (e.key === "Escape" && !panel.hidden) { close(); button.focus(); } }
     button.addEventListener("keydown", onKeydown);
-    search.addEventListener("keydown", onKeydown);
+    // WHY: result links bubble to the panel, not to their sibling search input.
+    panel.addEventListener("keydown", onKeydown);
     // Close when focus leaves the control entirely — e.g. tabbing past the last link — so the overlay
     // never lingers over the page.
     function onFocusOut(e) {
@@ -395,88 +424,6 @@ window.ScorePortal = (function () {
     return card;
   }
 
-  // One leaderboard request per benchmark, for the card's "Best reproducible" figure only. Entries
-  // arrive ranked by score descending, so `top=1` is enough to read the best — the card no longer
-  // shows a fusion count, so there is nothing to scan the full board for.
-  //
-  // The entries-not-baselines decision lives in leaderboard-logic.js so it stays assertable without
-  // a browser — see bestEntryScore there.
-  function fetchBoard(benchmarkId) {
-    return fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "?top=1").then(
-      function (data) {
-        return { best: window.SFLeaderboardLogic.bestEntryScore(data) };
-      },
-      function () { return null; } // board unknown, not empty — card still renders
-    );
-  }
-
-  // Show the catalogue `page` cards at a time: hide every card, reveal the first page, and let
-  // "Show more" reveal the next page on each click. The button hides itself once all are shown,
-  // and never appears when a single page already covers the whole catalogue.
-  function revealCardsInBatches(cardsNode, moreNode, page) {
-    var cards = cardsNode.children;
-    var shown = 0;
-    for (var i = 0; i < cards.length; i++) cards[i].hidden = true;
-    function revealNext() {
-      for (var end = Math.min(shown + page, cards.length); shown < end; shown++) {
-        cards[shown].hidden = false;
-      }
-      moreNode.hidden = shown >= cards.length;
-    }
-    moreNode.addEventListener("click", revealNext);
-    revealNext();
-  }
-
-  function initIndex() {
-    var statusNode = document.getElementById("benchmark-status");
-    var cardsNode = document.getElementById("benchmark-cards");
-    var moreNode = document.getElementById("benchmark-more");
-    showLoading(statusNode, "Loading benchmarks…");
-    cardsNode.hidden = true;
-    moreNode.hidden = true;
-
-    fetchJson("/v1/benchmarks").then(
-      function (data) {
-        // Filter BEFORE the per-board fetches below, so the page does not request a
-        // board it will never draw. `/v1/benchmarks` deliberately keeps returning every board —
-        // `sf.leaderboards` needs the private ones so challenge participants can submit against
-        // them — so the catalogue is trimmed here rather than at the API.
-        var listed = SFLeaderboardLogic.listedBenchmarks((data && data.benchmarks) || []);
-        // Same curated shortlist as the tab strip, surfaced first here too: the featured cards
-        // lead (in FEATURED_BENCHMARK_IDS order), then the rest in catalogue order. Every listed
-        // board still renders — the catalogue is exhaustive; only the order and the first-page
-        // cutoff change.
-        var split = SFLeaderboardLogic.partitionFeatured(listed);
-        var benchmarks = split.featured.concat(split.rest);
-        if (benchmarks.length === 0) {
-          showEmpty(statusNode, "No listed benchmarks yet. The API is live; cards will appear here as soon as benchmark specs are registered.");
-          return;
-        }
-        return Promise.all(benchmarks.map(function (b) { return fetchBoard(b.id); })).then(
-          function (boards) {
-            clear(cardsNode);
-            benchmarks.forEach(function (b, i) { cardsNode.appendChild(benchmarkCard(b, boards[i])); });
-            setStatus(statusNode, null);
-            cardsNode.hidden = false;
-            // Show 9 at first; "Show more" reveals the next 9 per click (a 9 fills a 3-column grid
-            // evenly, and the long tail stays folded so the catalogue reads tight).
-            revealCardsInBatches(cardsNode, moreNode, 9);
-          }
-        );
-      },
-      function (err) {
-        showError(statusNode, describeError(err, { generic: "Could not load benchmarks — try again later." }));
-      }
-    ).catch(function (err) {
-      // WHY: the handler above is the second argument to the *first* `.then`, so it
-      // only sees a `/v1/benchmarks` rejection. Anything thrown later — a malformed
-      // benchmark entry, a DOM failure, a rejection inside the Promise.all
-      // continuation — would otherwise become an unhandled rejection and leave the
-      // page stuck on "Loading benchmarks…" with the cards hidden and no error state.
-      showError(statusNode, describeError(err, { generic: "Could not load benchmarks — try again later." }));
-    });
-  }
-
   /* ---- public surface -------------------------------------------------- */
   var api = {
     getApiBase: getApiBase,
@@ -504,15 +451,10 @@ window.ScorePortal = (function () {
     createVerifiedBadge: createVerifiedBadge,
     createCopyButton: createCopyButton,
     renderTabStrip: renderTabStrip,
+    benchmarkCard: benchmarkCard,
     ready: ready,
     EM_DASH: EM_DASH,
   };
-
-  // Self-bootstrap the index page when its container is present. benchmark.html
-  // and spec.html have no #benchmark-cards, so this is a no-op there.
-  ready(function () {
-    if (document.getElementById("benchmark-cards")) initIndex();
-  });
 
   return api;
 })();

@@ -12,7 +12,7 @@ directly — the split between files is an implementation detail.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,6 +33,30 @@ class ModelEntry:
 
     model_name: str
     litellm_params: dict[str, Any]
+    # OME-1537: per-model input-modality EVIDENCE a provider's discovery carried in
+    # (e.g. a catalogue's ``architecture.input_modalities``), already mapped onto the
+    # core vocabulary by the plugin. ``None`` = no evidence -> the row says text-only.
+    # INVARIANT: ``compare=False`` — evidence is not identity. Two listings of the
+    # same model stay equal whether or not a refresh learned its modalities.
+    input_modalities: tuple[str, ...] | None = field(default=None, compare=False)
+
+
+# FEATURE: hosted BYOM Unit 3 — the one result contract every classification answers with.
+CLASSIFICATION_RESULT_CONTRACT = "classification-scores-v1"
+
+
+@dataclass(frozen=True)
+class ClassifierEntry:
+    """One text classifier a provider serves; never a chat model.
+
+    ``model_name`` is the canonical ``<provider>/<alias>`` ID. ``task`` and ``contract`` name what
+    the classifier is asked and how its upstream answers, so a catalog can describe it without
+    reading the provider's own definitions.
+    """
+
+    model_name: str
+    task: str
+    contract: str
 
 
 @dataclass(frozen=True)

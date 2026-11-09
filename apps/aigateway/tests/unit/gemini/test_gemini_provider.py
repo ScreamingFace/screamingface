@@ -28,11 +28,11 @@ def test_gemini_provider_loads_with_oauth_config_and_models() -> None:
     assert plugin is not None
     assert plugin.custom_llm_provider == "gemini-cli"
     assert plugin.credential_service_provider() == "gemini"
-    assert plugin.allows_chatless_profile() is True
+    assert plugin.allows_chatless_credential() is True
     assert plugin.supports_chat_streaming() is False
-    assert plugin.should_mark_profile_error_on_dispatch_status(401) is True
-    assert plugin.should_mark_profile_error_on_dispatch_status(403) is True
-    assert plugin.should_mark_profile_error_on_dispatch_status(429) is False
+    assert plugin.should_mark_credential_error_on_dispatch_status(401) is True
+    assert plugin.should_mark_credential_error_on_dispatch_status(403) is True
+    assert plugin.should_mark_credential_error_on_dispatch_status(429) is False
     cfg = plugin.oauth_config()
     assert cfg is not None
     assert cfg.authorize_url == GEMINI_AUTHORIZE_URL
@@ -57,7 +57,7 @@ def test_gemini_provider_creates_gemini_oauth_strategy() -> None:
     strategy = plugin.oauth_strategy_for("default")
 
     assert isinstance(strategy, GeminiOAuth)
-    assert strategy.profile_name == "default"
+    assert strategy.credential_name == "default"
 
 
 def test_prepare_chat_body_strips_caller_supplied_auth_headers() -> None:

@@ -59,6 +59,10 @@ class Candidate:
     # a normal run, and they are never set together.
     capture: bool
     replay_frozen_copy: str | None
+    # FEATURE (OME-1311): whether the run may use the request cache. Carried like `capture`, so the
+    # run-transport protocol never widens; `False` is the caller's `use_cache=False`, sent as
+    # `Cache-Control: no-cache`. True (the Engine's own default) is a normal run.
+    use_cache: bool
 
     def __init__(self) -> NoReturn:
         raise TypeError("Candidate values are derived internally; they are not constructed")
@@ -92,6 +96,8 @@ class _Evaluation:
     case_count: int
     candidates: _Candidates
     required_models: tuple[str, ...]
+    # FEATURE (OME-1739): the Case ids a `cases=` run asked for, ascending; None for `limit=`.
+    selected_cases: tuple[int, ...] | None
 
     def __init__(self) -> NoReturn:
         raise TypeError("Evaluation values are derived internally; they are not constructed")
@@ -161,6 +167,7 @@ def _compiled_candidate(
     object.__setattr__(candidate, "answer_seed", None)
     object.__setattr__(candidate, "capture", False)
     object.__setattr__(candidate, "replay_frozen_copy", None)
+    object.__setattr__(candidate, "use_cache", True)
     return candidate
 
 
@@ -206,6 +213,11 @@ def _with_capture(candidate: Candidate) -> Candidate:
     return _stamped(candidate, capture=True)
 
 
+def _without_cache(candidate: Candidate) -> Candidate:
+    """Copy one compiled Candidate with the run opted out of the request cache."""
+    return _stamped(candidate, use_cache=False)
+
+
 def _with_replay_frozen_copy(candidate: Candidate, frozen_copy_id: str) -> Candidate:
     """Copy one compiled Candidate with the frozen copy it must replay from stamped on."""
     return _stamped(candidate, replay_frozen_copy=frozen_copy_id)
@@ -221,9 +233,9 @@ def _candidate_members(
     if kind == "model" and selected:
         raise ValueError("a planned Model Candidate cannot contain members")
     if kind == "pipeline" and selected:
-        raise ValueError("a planned Pipeline Candidate cannot contain direct Fusion members")
+        raise ValueError("a planned Pipeline Candidate cannot contain direct fanout members")
     if kind == "fusion" and not selected:
-        raise ValueError("a planned Fusion Candidate requires at least one direct member")
+        raise ValueError("a planned fanout Candidate requires at least one direct member")
     return selected
 
 
@@ -279,14 +291,21 @@ def _compiled_evaluation(
     case_count: int,
     candidates: Sequence[Candidate],
     required_models: Sequence[str],
+    selected_cases: tuple[int, ...] | None = None,
 ) -> _Evaluation:
     """Build one validated private Evaluation after no-spend compilation."""
 
     if not isinstance(benchmark, BenchmarkInfo):
-        raise TypeError("Evaluation benchmark must be an sf.BenchmarkInfo")
+        raise TypeError("Evaluation benchmark must be a sf.BenchmarkInfo")
     _validate_limit(limit)
     selected_count = _positive_count(case_count, "Evaluation case_count")
-    expected_count = benchmark.case_count if limit is None else min(limit, benchmark.case_count)
+    expected_count = (
+        len(selected_cases)
+        if selected_cases is not None
+        else benchmark.case_count
+        if limit is None
+        else min(limit, benchmark.case_count)
+    )
     if selected_count != expected_count:
         raise ValueError("Evaluation case_count must match its Benchmark and limit")
     evaluation = object.__new__(_Evaluation)
@@ -299,6 +318,7 @@ def _compiled_evaluation(
             required_models,
             "Evaluation required_models",
         ),
+        "selected_cases": selected_cases,
     }
     for name, value in values.items():
         object.__setattr__(evaluation, name, value)
@@ -310,29 +330,44 @@ def _reject_reducers(value: object) -> None:
         value if isinstance(value, Sequence) and not isinstance(value, str | bytes) else (value,)
     )
     if any(isinstance(item, Reducer) for item in items):
-        raise TypeError(
-            "a reducer is not a complete Candidate: a reducer must be a Fusion synthesizer"
-        )
+        raise TypeError("a reducer is not a complete Candidate: it closes a sf.Fanout block")
 
 
 def _candidate_values(value: Recipe | Sequence[Recipe]) -> tuple[Recipe, ...]:
+    """The Candidates of an Evaluation, checked and lowered: the first compile entry.
+
+    WHY the lowering runs here (E4b surface lowering §2.4): the operator check, the check-surface
+    check and the compile all read these values, so each one reads the lowered value. The
+    judge-writer warning reads the user's own values (``entry_recipe``).
+    """
+
+    # WHY lazy: candidate.py imports this module
+    from screamingface._evaluation.candidate import entry_recipe
+    from screamingface._surface.chain import refuse_step
+
     _reject_reducers(value)
+    refuse_step(value)  # a step or an open chain names its own rule (CH-8, CH-11)
     if isinstance(value, Recipe):
-        values = (value,)
+        given = (value,)
     elif isinstance(value, Sequence) and not isinstance(value, str | bytes):
-        values = tuple(value)
+        given = tuple(value)
     else:
         raise TypeError("candidates must be a complete sf.Recipe or an ordered sequence of Recipes")
-    if not values:
+    if not given:
         raise ValueError("an Evaluation requires at least one Candidate")
+    values = tuple(entry_recipe(candidate) for candidate in given)
     if any(not isinstance(candidate, Recipe) for candidate in values):
         raise TypeError("candidates must contain only complete sf.Recipe values")
+    _check_candidate_names(values)
+    return values
+
+
+def _check_candidate_names(values: tuple[Recipe, ...]) -> None:
     names: set[str] = set()
     for candidate in values:
         if candidate.name in names:
             raise ValueError(f"duplicate Candidate name {candidate.name!r}")
         names.add(candidate.name)
-    return values
 
 
 def _validate_limit(limit: int | None) -> None:

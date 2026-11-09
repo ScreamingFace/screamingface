@@ -85,6 +85,7 @@ OPENROUTER = ProviderSeed(
         "openrouter/deepseek/deepseek-v4-flash",
         "openrouter/mistralai/ministral-3b-2512",
         "openrouter/microsoft/phi-4",
+        "openrouter/z-ai/glm-5.3-flash",
     ),
 )
 

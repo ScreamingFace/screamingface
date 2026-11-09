@@ -6,10 +6,10 @@ plugins implement four hooks: read, is_expired, refresh, build_headers (plus
 an optional header_override for hybrid api-key paths).
 
 This base does NOT detect auth failures. Upstream HTTP auth failures are a
-transport concern handled in the chat route (`routes/chat.py`):
+transport concern handled in the chat route (`routes/chat_dispatch.py`):
 `_dispatch_failure_response` consults the provider plugin's
-`should_mark_profile_error_on_dispatch_status` (`core/plugin_base.py`; anthropic
-401, gemini/antigravity 401+403, base default never) and evicts the SHARED
+`should_mark_credential_error_on_dispatch_status` (`core/plugin_base/_provider.py`; each
+provider names its own statuses, the base default marks none) and evicts the SHARED
 strategy instance from the process-wide `CredentialStrategyCache`
 (`core/credential_strategy_cache.py`) via its `evict()`. Credential read/refresh
 errors raised before dispatch are also handled in the chat route's
@@ -80,8 +80,8 @@ class BaseOAuthStrategy(CredentialStrategy):
     refresh_window_seconds: int = 60
     _store: CredentialBlobStore
 
-    def __init__(self, profile_name: str) -> None:
-        self.profile_name = profile_name
+    def __init__(self, credential_name: str) -> None:
+        self.credential_name = credential_name
         self._cached: dict | None = None
         # WHY beside `_cached`: the observation of the stored credential `_cached` came from; a
         # refresh publishes only while the store still holds exactly that credential. It is
@@ -190,11 +190,11 @@ class BaseOAuthStrategy(CredentialStrategy):
 
     @abstractmethod
     def credential_service(self) -> str:
-        """Credential blob `service` string for this profile's tokens."""
+        """Credential blob `service` string for this connection's tokens."""
 
     @abstractmethod
     def credential_account(self) -> str:
-        """Credential blob `account` string for this profile's tokens."""
+        """Credential blob `account` string for this connection's tokens."""
 
     @abstractmethod
     async def _write_to_store(self, creds: dict[str, Any]) -> None:

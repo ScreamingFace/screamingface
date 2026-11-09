@@ -16,6 +16,7 @@ projection consumes `AdmittedModels`.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
@@ -102,9 +103,35 @@ class ModelAdmissionSource(Protocol):
         ...
 
 
+@runtime_checkable
+class RunModelAdmission(Protocol):
+    """Anything that can make the models a run names routable BEFORE the run is scheduled.
+
+    FEATURE: run any OpenRouter model (OME-878), for a client that never probes. The App
+    snapshots the admitted overlay into a run's env when it schedules the run, so the scheduling
+    route asks this port first — same request, same replica — instead of relying on an earlier
+    ``GET /v1/model-parameters`` lookup having admitted the model (OME-880's only trigger).
+
+    INVARIANT (best-effort): never raises for a model the gateway refuses or cannot answer for.
+    Such a model stays out of the overlay, and the run reports the failure on its own stream —
+    where the caller is listening — exactly as it did before this port existed.
+    """
+
+    async def admit_run_models(
+        self,
+        credential: Credential,
+        model_ids: Sequence[str],
+        *,
+        traceparent: str | None = None,
+    ) -> None:
+        """Admit each of ``model_ids`` (real gateway ids) the world cannot route yet."""
+        ...
+
+
 __all__ = [
     "AdmissionAnswer",
     "AdmittedModels",
     "ModelAdmissionSource",
+    "RunModelAdmission",
     "is_dynamically_admissible",
 ]

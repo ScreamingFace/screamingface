@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1537",
+  "branch": "OME-1537-input-modalities",
+  "approver": "owner (Sergey), decision 2026-10-21 on PR #1451 review round 2",
+  "date": "2026-10-21",
+  "scope": "One edit to this PR's own test test_rows_publish_ollama_vision_as_image_only: it drives the async Ollama listing source (discover_live_models with a fake bounded POST client) instead of asserting that register_models() carries /api/show evidence. Same model ids and the same expected modalities; adds the asyncio and ShowClient imports only.",
+  "reason": "HupBaHa findings 1-2: /api/show probes move off register_models() into the catalog-run async model_discovery_source, so register_models() returns probe-free seeds and the old assertion no longer describes the contract.",
+  "files": {
+    "apps/aigateway/tests/unit/ollama/test_ollama_input_modalities.py": {
+      "base_blob": "1022330933a84c53bff237ba376432712a065388",
+      "approved_blob": "0e0c759274b8bb4ec1b63e63ad17a0b6e048b838"
+    }
+  }
+}

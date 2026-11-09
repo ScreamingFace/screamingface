@@ -1,11 +1,11 @@
 /* ScreamingFace Leaderboard Portal — benchmark (top-N) page.
  *
  * Reads ?id=<benchmark_id>, fetches /v1/leaderboard/{id}, and renders a
- * client-side sortable table. Default sort is score DESC. The Rank column
- * always shows the backend-provided rank (best-per-spec), even when the user
- * sorts by another column — we only reorder rows for display, never recompute
- * the backend's best-per-spec selection (which breaks score ties by newest
- * submission).
+ * client-side sortable table. Default sort is score DESC. Community top-N results
+ * and imported baselines are merged before selecting the displayed top N. Ranks
+ * describe that score ordering and stay fixed when another column is sorted.
+ * The backend still selects the best submission per spec; imported references
+ * supply no recipe and do not participate in cost-based frontier claims.
  */
 (function (P) {
   "use strict";
@@ -36,11 +36,17 @@
     // generic numeric sort: it arrives as a fixed-precision string, and absent cost sorts last
     // rather than as zero. See compare() and leaderboard-logic.js.
     { key: "run_cost_usd", label: "Cost", sort: "cost", dir: "asc", cls: "num" },
-    { key: "submitted_at", label: "Submitted", sort: "date", dir: "desc" },
+    { key: "submitted_at", label: "Added", sort: "date", dir: "desc" },
     { key: "__run", label: "Run Locally", sort: null, cls: "col-run" },
   ];
 
-  var state = { entries: [], benchmarkId: null, sortKey: "score", sortDir: "desc" };
+  var state = { entries: [], rows: [], benchmarkId: null, sortKey: "score", sortDir: "desc" };
+
+  // The Reproduce button's switch, on since the SDK release whose `evaluate(pinned_cache=...)` runs
+  // the copied snippet. WHY a constant and not a server setting: the page cannot read server
+  // settings, and this flips exactly once.
+  var SHOW_REPRODUCE_BUTTON = true;
+  var REPRODUCE_HOVER = "Replays recorded answers and checks the published score; requires a replay-capable Engine and Gateway";
 
   function compare(a, b, key, type, dir) {
     // Cost never reaches the generic numeric branch below. That branch is
@@ -64,8 +70,8 @@
 
   function sortedEntries() {
     var col = COLUMNS.filter(function (c) { return c.key === state.sortKey; })[0];
-    if (!col || !col.sort) return state.entries.slice();
-    var copy = state.entries.slice();
+    if (!col || !col.sort) return state.rows.slice();
+    var copy = state.rows.slice();
     copy.sort(function (a, b) { return compare(a, b, state.sortKey, col.sort, state.sortDir); });
     return copy;
   }
@@ -184,11 +190,47 @@
     return td;
   }
 
+  // The Run column: Copy url4 for reusing the recipe live, and, for a fully captured run when the
+  // switch is on, Reproduce stacked under it, copying the replay snippet. Same button recipe and
+  // the same copied/failed feedback for both; no new colour.
+  function renderRunCell(entry, showReproduce) {
+    var runTd = document.createElement("td");
+    runTd.className = "col-run";
+    // Guard like spec.js: a missing expression renders as absence, never as
+    // a Copy button that would put "undefined" on the clipboard.
+    if (!entry.url4_expression) {
+      runTd.textContent = P.EM_DASH;
+      return runTd;
+    }
+    var copy = P.createCopyButton(entry.spec_id, entry.url4_expression, { compact: true });
+    var cache = L.reproduceCache(entry, showReproduce);
+    if (cache === null) {
+      runTd.appendChild(copy);
+      return runTd;
+    }
+    var stack = P.el("div", "run-actions");
+    stack.appendChild(copy);
+    stack.appendChild(P.createCopyButton(entry.spec_id, L.reproduceSnippet(cache), {
+      compact: true,
+      label: "Reproduce",
+      // The accessible name starts with the visible label (WCAG 2.5.3), so "click Reproduce" works.
+      ariaLabel: "Reproduce " + entry.spec_id + ": copy the replay code",
+      title: REPRODUCE_HOVER,
+    }));
+    runTd.appendChild(stack);
+    return runTd;
+  }
+
   function renderBody(bodyNode) {
     P.clear(bodyNode);
-    var barMax = bestScore(state.entries);
-    var barMin = lowestScore(state.entries);
+    var barMax = bestScore(state.rows);
+    var barMin = lowestScore(state.rows);
     sortedEntries().forEach(function (entry) {
+      if (entry.external) {
+        bodyNode.appendChild(window.SFExternalResults.renderRow(entry,
+          renderScoreCell(entry.score, barMin, barMax)));
+        return;
+      }
       var tr = document.createElement("tr");
       // Gold marks the row with the highest score on screen, not a reproduction claim. The
       // accessible text below uses the same precise wording rather than promising verification.
@@ -225,16 +267,7 @@
       tr.appendChild(costTd);
       tr.appendChild(P.el("td", null, P.formatDate(entry.submitted_at)));
 
-      var runTd = document.createElement("td");
-      runTd.className = "col-run";
-      // Guard like spec.js: a missing expression renders as absence, never as
-      // a Copy button that would put "undefined" on the clipboard.
-      if (entry.url4_expression) {
-        runTd.appendChild(P.createCopyButton(entry.spec_id, entry.url4_expression, { compact: true }));
-      } else {
-        runTd.textContent = P.EM_DASH;
-      }
-      tr.appendChild(runTd);
+      tr.appendChild(renderRunCell(entry, SHOW_REPRODUCE_BUTTON));
 
       bodyNode.appendChild(tr);
     });
@@ -249,7 +282,7 @@
     }
 
     var best = bestScore(entries);
-    // Bare numbers: the .stats cell labels ("Submissions shown") already carry the words.
+    // Bare numbers: the .stats cell labels ("Results shown") already carry the words.
     document.getElementById("summary-best").textContent = P.formatScore(best);
     document.getElementById("summary-specs").textContent = entries.length.toLocaleString();
     summaryNode.hidden = false;
@@ -302,7 +335,7 @@
         var row = P.el("div", "row");
         row.appendChild(P.el("span", "lbl", entry.spec_id));
         var track = P.el("span", "track");
-        var fill = P.el("span", "fill " + (entry.score === best ? "sota" : "base"));
+        var fill = P.el("span", "fill " + (entry.score === best && !entry.external ? "sota" : "base"));
         fill.style.width = L.barWidth(entry.score, floor, best).toFixed(1).replace(/\.0$/, "") + "%";
         track.appendChild(fill);
         row.appendChild(track);
@@ -403,24 +436,31 @@
           document.title = name + " — screamingface";
         }
         state.entries = (data && data.entries) || [];
-        if (state.entries.length === 0) {
+        // Keep the fetched community points even when imports displace table rows.
+        var chartEntries = state.entries;
+        state.rows = window.SFExternalResults
+          ? window.SFExternalResults.selectRows(state.entries, data && data.baselines, 50)
+          : state.entries;
+        // Cost-based comparisons still require recorded runs, not imported reference numbers.
+        state.entries = state.rows.filter(function (row) { return !row.external; });
+        if (state.rows.length === 0) {
           // The table shell renders on the zero-entry path too, so a benchmark with no
           // submissions still shows the column structure. renderSummary/renderClimb
           // hide themselves when passed an empty list, so the reader gets the
           // column headers plus the empty-state line and nothing misleading.
-          renderSummary(state.entries);
-          renderClimb(state.entries);
+          renderSummary(state.rows);
+          renderClimb(state.rows);
           renderHead(document.getElementById("leaderboard-head"));
           P.clear(document.getElementById("leaderboard-body"));
           P.showEmpty(statusNode, "No submissions yet. Be the first.");
           wrap.hidden = false;
           // No rows at all: the key would point at nothing.
           legend.hidden = true;
-          renderParetoChart(state.entries);
+          renderParetoChart(chartEntries);
           return;
         }
-        renderSummary(state.entries);
-        renderClimb(state.entries);
+        renderSummary(state.rows);
+        renderClimb(state.rows);
         renderHead(document.getElementById("leaderboard-head"));
         renderBody(document.getElementById("leaderboard-body"));
         P.setStatus(statusNode, null);
@@ -430,9 +470,13 @@
         // marked — and a key for a symbol that appears nowhere reads as 'no submission
         // here is good value', which is the opposite of what the gate is saying.
         legendPareto.hidden = !state.entries.some(L.isParetoMarked);
-        legend.hidden = false;
+        legend.hidden = state.entries.length === 0;
+        var leaderKey = document.getElementById("legend-highest");
+        if (leaderKey) leaderKey.hidden = !state.entries.some(function (row) {
+          return row.score === bestScore(state.rows);
+        });
         // Last, after the table is visible: the chart can only ever add to the page.
-        renderParetoChart(state.entries);
+        renderParetoChart(chartEntries);
       },
       function (err) {
         if (err && err.status === 404) {
@@ -453,6 +497,12 @@
       function () {}
     );
   }
+
+  // Read by the portal's tests: the switch's shipped value and the Run cell for either setting.
+  window.SFBenchmarkPage = {
+    SHOW_REPRODUCE_BUTTON: SHOW_REPRODUCE_BUTTON,
+    renderRunCell: renderRunCell,
+  };
 
   P.ready(init);
 })(window.ScorePortal);

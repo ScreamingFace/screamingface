@@ -29,6 +29,7 @@ from typing import Literal
 
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.parser import build
+from url4.dag.remote_nodes import check_remote_node
 from url4.io.layer import IOLayer, SupportsProcessorRoutes
 
 ProcessorForm = Literal["expression", "uri", "route", "id"]
@@ -68,10 +69,27 @@ async def resolve_processor_target(
         value = await _evaluate(value, spawn)
         form = classify_processor(value)
     if form == "uri":
+        _check_remote_processor(value.strip())
         return value, False
     if form == "route":
         return value, True
     return _route_for_id(value, io), True
+
+
+def _check_remote_processor(uri: str) -> None:
+    """Refuse a ``url4://`` processor in a node context (#1450 F1b, Gap A).
+
+    INVARIANT: the reduce sends ``<processor>?q=()!<input>``, so a ``url4://`` processor is an
+    intent-processor call at another node: the same remote-node call a remote expression is. It is
+    checked HERE, after Form-3 reclassification and before the fetch, so a caller's ``processor=``,
+    a node's ``default_processor`` and a computed processor are all refused before any DNS lookup.
+    WHY only ``url4://``: F1b names ``url4://`` remote-node calls; an ``https://`` processor is a
+    plain fetch the transport guard governs.
+    """
+    scheme, sep, rest = uri.partition("://")
+    if sep and scheme.lower() == "url4":
+        authority, slash, path = rest.split("?", 1)[0].partition("/")
+        check_remote_node(authority, f"/{path}" if slash else "/")
 
 
 async def _evaluate(value: str, spawn: Callable[[str], Awaitable[str]] | None) -> str:
@@ -111,9 +129,10 @@ def _route_for_id(processor_id: str, io: IOLayer) -> str:
     for candidate in (processor_id, f"/{processor_id}"):
         if candidate in routes:
             return candidate
+    # WHY no route list (OME-1777): this message reaches the caller's run frames, and a node may
+    # declare routes a caller must not learn about, such as private configured endpoints.
     raise ResolutionError(
-        f"unknown processor {processor_id!r} — this node declares "
-        f"{sorted(routes) if routes else 'no routes'}",
+        f"unknown processor {processor_id!r}: this node declares no such route",
         code=ErrorCode.UNKNOWN_PROCESSOR,
         permanent=True,
     )

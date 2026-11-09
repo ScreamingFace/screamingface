@@ -31,6 +31,7 @@ from ..chat_parameters import (
     overlay_tool_capabilities,
     stream_transport_capability,
 )
+from ..input_modalities import TEXT_ONLY
 from ._ports import ModelEntry, PluginSettings
 from ._provider import ProviderPluginCore
 
@@ -92,9 +93,9 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         never creates or enables one.
 
         ``auth_type=None`` requests every rule the provider owns for the model
-        and is used SOLELY to derive the conservative profile-independent
+        and is used SOLELY to derive the conservative caller-independent
         summary; it must never be read as permission for every auth mode. A
-        concrete auth mode filters rules for the profile-bound detailed
+        concrete auth mode filters rules for the caller-bound detailed
         contract and for dispatch.
         """
         return ()
@@ -316,6 +317,22 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         """
         return None
 
+    def configure_discovery(self, *, enabled: bool) -> None:
+        """Receive the deployment's discovery kill switch (``AIGW_DISCOVERY_ENABLED``).
+
+        For a provider whose discovery dials OUTSIDE the injected runtime — a credentialed,
+        per-account read the shared runtime cannot carry (Codex, OME-1634). ``create_app``
+        calls this on every registered plugin with the setting, so
+        ``AIGW_DISCOVERY_ENABLED=false`` still audits to zero discovery egress of any kind.
+
+        INVARIANT: with ``enabled=False`` the provider opens no discovery connection at all
+        and reports its discovered data as unknown — never as an error.
+
+        Default: no-op — a provider whose discovery only uses the injected runtime is
+        already silenced by its absence.
+        """
+        del enabled
+
     def chat_transport_capabilities(
         self, *, model: str, auth_type: AuthMode | None = None
     ) -> tuple[TransportCapability, ...]:
@@ -335,8 +352,40 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         """
         return (stream_transport_capability(gateway_enabled=self.supports_chat_streaming()),)
 
+    def model_input_modalities(self, entry: ModelEntry) -> tuple[str, ...]:
+        """Which inputs this model takes, for the ``/v1/models`` row (OME-1537).
+
+        Default: the entry's discovered evidence when a listing carried it, else
+        ``("text",)``. A provider with a reviewed per-model/family table overrides
+        this; a provider with catalogue evidence attaches it to the entry instead.
+
+        INVARIANT: unknown is text-only — never vision. Core normalizes whatever this
+        returns onto the closed vocabulary, so an override cannot publish a word
+        outside it or drop ``text``.
+
+        WHY the gateway backstop doesn't refuse on this: for an unknown model the
+        ``("text",)`` here is a listing default, not admission evidence (owner ruling
+        2026-11-03, OME-1807). Engine admission reads this list and is the strict,
+        fail-closed check; the gateway refuses only on
+        ``model_input_modality_evidence``.
+        """
+        evidence = self.model_input_modality_evidence(entry)
+        return evidence if evidence is not None else TEXT_ONLY
+
+    def model_input_modality_evidence(self, entry: ModelEntry) -> tuple[str, ...] | None:
+        """The inputs this model is PUBLISHED to take, or ``None`` when nothing is known.
+
+        FEATURE: the chat modality backstop (OME-1807) refuses a media part only on this
+        evidence; ``None`` admits the request as before (owner decision, 2026-11-02).
+        ``model_input_modalities`` publishes the same answer with unknown as text-only.
+
+        Default: the entry's discovered evidence (a catalogue field). A provider with a
+        reviewed per-family table overrides this and returns ``None`` outside the table.
+        """
+        return entry.input_modalities
+
     def available_auth_modes(self) -> tuple[AuthMode, ...]:
-        """Auth modes a client could use with this provider (profile-independent).
+        """Auth modes a client could use with this provider (caller-independent).
 
         Drives the conservative summary intersection on ``/v1/models``. Derived
         from declared capability: api-key iff ``supports_api_key()``, oauth iff
@@ -350,8 +399,8 @@ class ProviderPluginBase[TSettings: PluginSettings](ProviderPluginCore[TSettings
         # could never advertise a parameter until it had a mode of its own to
         # prove them under.
         # INVARIANT: "none" is derived HERE, from the provider's own declaration —
-        # never from an absent profile. A provider that merely permits a
-        # profile-less request (``allows_chatless_profile``) still declares real
+        # never from an absent credential. A provider that merely permits a
+        # credential-less request (``allows_chatless_credential``) still declares real
         # credential types and keeps them.
         """
         modes: list[AuthMode] = []

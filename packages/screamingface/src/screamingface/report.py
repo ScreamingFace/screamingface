@@ -10,11 +10,15 @@ from decimal import Decimal
 from os import PathLike
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal, cast, overload
+from typing import TYPE_CHECKING, Literal, cast, overload
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from screamingface._reproduction import Reproduction
 
 from screamingface._case_views import case_trace
 from screamingface._client_provenance import client_version as _client_version
+from screamingface._evaluation.case_selection import selection_fingerprint, selection_of
 from screamingface._evaluation.model import _canonical_url4
 from screamingface._immutable_json import freeze_mapping, thaw_mapping
 from screamingface._named_values import _NamedValues
@@ -40,7 +44,13 @@ from screamingface.case_result import (
     _bind_operation_graph,
     named_scores,
 )
-from screamingface.combine_evidence import CombineEvidence
+from screamingface.combine_evidence import (
+    CombineCut,
+    CombineEvidence,
+    CombineGate,
+    CombineNarrow,
+    CombineSampleCount,
+)
 from screamingface.discovery import BenchmarkInfo
 from screamingface.operation import OperationInfo, _operation_dag
 from screamingface.operation_accounting import OperationAccounting, OperationCache
@@ -61,7 +71,7 @@ type RunCostStatus = Literal["complete", "partial", "unavailable"]
 
 @dataclass(frozen=True, slots=True, init=False)
 class MemberResult:
-    """Compact outcome for one direct Fusion member.
+    """Compact outcome for one direct member of a fanout block.
 
     Usage is derived only from retained accounting uniquely attributed to this member's
     operation ID in every Case; unsupported ownership remains ``None``.
@@ -230,7 +240,7 @@ def _answer_seed(value: object) -> int | None:
 
 
 def _capture(
-    frozen_copy_id: object, capture_status: object
+    pinned_cache: object, capture_status: object
 ) -> tuple[str | None, Literal["complete", "partial"] | None]:
     """Validate the frozen copy pair; stricter than the Scoreboard on the spelling of the id.
 
@@ -239,14 +249,14 @@ def _capture(
     spellings of a UUID and normalises them; the Client refuses those instead, so the id it stores
     and sends is exactly the id the Engine stated.
     """
-    if frozen_copy_id is not None and (
-        not isinstance(frozen_copy_id, str) or not _is_canonical_uuid(frozen_copy_id)
+    if pinned_cache is not None and (
+        not isinstance(pinned_cache, str) or not _is_canonical_uuid(pinned_cache)
     ):
-        raise ValueError("Candidate frozen_copy_id must be a UUID string or None")
+        raise ValueError("Candidate pinned_cache must be a UUID string or None")
     status = capture_status_value(capture_status)
-    if frozen_copy_id is not None and status is None:
-        raise ValueError("Candidate frozen_copy_id requires capture_status")
-    return frozen_copy_id, status
+    if pinned_cache is not None and status is None:
+        raise ValueError("Candidate pinned_cache requires capture_status")
+    return pinned_cache, status
 
 
 def _partial_reasons(value: Sequence[str]) -> tuple[str, ...]:
@@ -261,6 +271,13 @@ def _partial_reasons(value: Sequence[str]) -> tuple[str, ...]:
     if not all(value):
         raise ValueError("Candidate capture_partial_reasons must not name an empty reason")
     return tuple(sorted(set(value)))
+
+
+def _require_reproduction(value: object) -> None:
+    from screamingface._reproduction import Reproduction
+
+    if value is not None and not isinstance(value, Reproduction):
+        raise TypeError("Candidate reproduction must be a sf.Reproduction or None")
 
 
 def _is_canonical_uuid(value: str) -> bool:
@@ -316,16 +333,21 @@ class CandidateResult:
     cache_unpriced_hits: int | None
     # FEATURE (OME-1307): the frozen copy this run captured (`capture=True`) and whether it holds
     # every call of the run. None is "not captured" or "unknown" (an older Engine), never `partial`.
-    frozen_copy_id: str | None
+    pinned_cache: str | None
     capture_status: Literal["complete", "partial"] | None
     # FEATURE (Q23, design §7): the partial reasons the run counted, sorted; `("local",)` for a
     # local capture. Empty when complete, not captured or unknown. Only the submitter sees them:
     # the board does not store them.
     capture_partial_reasons: tuple[str, ...]
+    # FEATURE (OME-1613): the verdict of a replay from a pinned cache against the published
+    # score; None for every other run, and for a replay with no published score (S4). Not
+    # exported: it judges the run, it is not part of the run's data.
+    reproduction: Reproduction | None
     _metric_items: tuple[tuple[str, object], ...] = field(repr=False)
     # FEATURE (OME-1268): the Benchmark's Named Scores for this Candidate, each the mean of
-    # its column over the graded Cases, headline first; `score` IS the headline. Empty on a
-    # single-scorer Benchmark. Shown in the report; never submitted, never ranked.
+    # its column over the Cases the Benchmark's failure policy counts (OME-1642), headline
+    # first; `score` IS the headline. Empty on a single-scorer Benchmark. Shown in the report;
+    # never submitted, never ranked.
     _scores: Mapping[str, float | None] = field(repr=False)
 
     def __init__(
@@ -356,14 +378,16 @@ class CandidateResult:
         cache_saved_cost_archive_usd: Decimal | str | None = None,
         cache_unpriced_hits: int | None = None,
         scores: Mapping[str, float | None] | None = None,
-        frozen_copy_id: str | None = None,
+        pinned_cache: str | None = None,
         capture_status: Literal["complete", "partial"] | None = None,
         capture_partial_reasons: Sequence[str] = (),
+        reproduction: Reproduction | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
-            raise TypeError("Candidate benchmark must be an sf.BenchmarkInfo")
+            raise TypeError("Candidate benchmark must be a sf.BenchmarkInfo")
+        _require_reproduction(reproduction)
         _check_cache_counts(cache_hits, cache_unpriced_hits)
-        selected_copy, selected_capture = _capture(frozen_copy_id, capture_status)
+        selected_copy, selected_capture = _capture(pinned_cache, capture_status)
         selected_score = _optional_number(score, "Candidate score")
         selected_coverage = _coverage(coverage)
         metric_items = _metrics(metrics)
@@ -444,9 +468,10 @@ class CandidateResult:
             "cache_hits": cache_hits,
             "cache_saved_cost_archive_usd": selected_archive,
             "cache_unpriced_hits": cache_unpriced_hits,
-            "frozen_copy_id": selected_copy,
+            "pinned_cache": selected_copy,
             "capture_status": selected_capture,
             "capture_partial_reasons": _partial_reasons(capture_partial_reasons),
+            "reproduction": reproduction,
             "_metric_items": metric_items,
             "_scores": selected_scores,
         }
@@ -468,6 +493,16 @@ class CandidateResult:
         return sum(case.abstained for case in self.cases)
 
     @property
+    def selected_cases(self) -> tuple[int, ...] | None:
+        """The Case ids a `cases=` run graded, ascending; None for a full or `limit=` run.
+
+        FEATURE (OME-1739): derived from the roll call, so a run rebuilt from its result body (a
+        replay, a saved report) names its selection too, and still can't be submitted.
+        """
+
+        return selection_of([case.case_id for case in self.cases])
+
+    @property
     def metrics(self) -> Mapping[str, object]:
         return MappingProxyType(dict(self._metric_items))
 
@@ -480,8 +515,31 @@ class CandidateResult:
     def duration_ms(self) -> int:
         return round((self.completed_at - self.started_at).total_seconds() * 1000)
 
+    def _operation_graph(self) -> dict[str, OperationInfo]:
+        """This Candidate's operations by id: the graph its traces and Combine views read."""
+        return {operation.id: operation for operation in self.operations}
+
     def to_dict(self) -> dict[str, object]:
-        return self._export_fields(cases=[case.to_dict() for case in self.cases])
+        return self._export_fields(cases=list(self._export_cases()))
+
+    def _export_cases(self) -> Iterator[dict[str, object]]:
+        """Each Case as report.v1 exports it: ``case.to_dict()``, then ``trace`` (E4b part 4).
+
+        WHY not in ``CaseResult.to_dict``: that dict mirrors the Engine wire, and the strict
+        decoder refuses an unknown key (P2). WHY the Candidate graph: the same rule as
+        ``trace_dict``. WHY ``case.operations`` only: Attempt operations are not traced (P15).
+        """
+
+        graph = self._operation_graph()
+        for case in self.cases:
+            selected = case.to_dict()
+            # INVARIANT (P1): the key appears only with combine evidence, so every other Case
+            # exports byte-identically, and it is the last key (after ``abstained``).
+            if case.operations is not None and any(
+                operation.combine is not None for operation in case.operations
+            ):
+                selected["trace"] = _case_entries(case, graph)
+            yield selected
 
     def _export_fields(self, *, cases: object) -> dict[str, object]:
         return {
@@ -536,7 +594,8 @@ class CandidateResult:
             ),
             "cache_unpriced_hits": self.cache_unpriced_hits,
             # OME-1307: always emitted (null = not captured or unknown), like the cache fields.
-            "frozen_copy_id": self.frozen_copy_id,
+            # OME-1613: the wire and the export keep the `frozen_copy_id` key (spec Q12).
+            "frozen_copy_id": self.pinned_cache,
             "capture_status": self.capture_status,
             "capture_partial_reasons": list(self.capture_partial_reasons),
         }
@@ -571,7 +630,7 @@ class Report:
         candidates: Sequence[CandidateResult],
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
-            raise TypeError("Report benchmark must be an sf.BenchmarkInfo")
+            raise TypeError("Report benchmark must be a sf.BenchmarkInfo")
         benchmark._result_dict(case_count)
         selected_candidates = _CandidateResults(candidates)
         for candidate in selected_candidates:
@@ -588,6 +647,21 @@ class Report:
         }
         for attribute, value in values.items():
             object.__setattr__(self, attribute, value)
+
+    @property
+    def selected_cases(self) -> tuple[int, ...] | None:
+        """The Case ids a `cases=` run scored, ascending; None for a full or `limit=` run."""
+
+        # INVARIANT: every Candidate graded the same Cases (the runner refuses a Report whose roll
+        # call differs from the request), so the first Candidate speaks for the Report.
+        return self.candidates[0].selected_cases
+
+    @property
+    def selection_fingerprint(self) -> str | None:
+        """`sha256:` of the sorted selected ids (e.g. of `3,17,42`), for a paper to cite."""
+
+        selected: tuple[int, ...] | None = self.selected_cases
+        return None if selected is None else selection_fingerprint(selected)
 
     @property
     def started_at(self) -> datetime:
@@ -641,7 +715,10 @@ class Report:
         return "".join(iter_report_json(self))
 
     def trace_dict(self) -> dict[str, object]:
-        """The per-Case traces as ``screamingface.report-trace.v1`` (derived; not report.v1)."""
+        """The per-Case traces as ``screamingface.report-trace.v1``.
+
+        Derived; the export also holds each Case's entries as its ``trace`` key (E4b part 4).
+        """
 
         return {
             "schema": TRACE_SCHEMA,
@@ -842,12 +919,12 @@ def _validate_model_candidate(models: Sequence[str], members: Sequence[MemberRes
 
 def _validate_fusion_candidate(models: Sequence[str], members: Sequence[MemberResult]) -> None:
     if not members:
-        raise ValueError("a Fusion Candidate requires at least one direct member")
+        raise ValueError("a fanout block Candidate requires at least one direct member")
 
 
 def _validate_pipeline_candidate(models: Sequence[str], members: Sequence[MemberResult]) -> None:
     if members:
-        raise ValueError("a Pipeline Candidate cannot contain direct Fusion members")
+        raise ValueError("a Pipeline Candidate cannot contain direct fanout members")
 
 
 def _validate_corrective_loop_candidate(
@@ -963,16 +1040,22 @@ def _optional_number(value: object, label: str) -> float | None:
     return selected
 
 
+def _case_entries(case: CaseResult, graph: Mapping[str, OperationInfo]) -> list[dict[str, object]]:
+    """One Case's report-trace.v1 entries: the one builder of trace_dict and the export (P20)."""
+
+    return [entry.to_dict() for entry in case_trace(case, graph)]
+
+
 def _candidate_trace(candidate: CandidateResult) -> dict[str, object]:
     # WHY the graph is passed explicitly: it is always the Candidate's own, whatever a shared
     # Case happens to be bound to.
-    graph = {operation.id: operation for operation in candidate.operations}
+    graph = candidate._operation_graph()
     return {
         "candidate": candidate.name,
         "cases": [
             {
                 "case_id": case.case_id,
-                "entries": [entry.to_dict() for entry in case_trace(case, graph)],
+                "entries": _case_entries(case, graph),
             }
             for case in candidate.cases
         ],
@@ -1076,7 +1159,11 @@ __all__ = [
     "CaseResult",
     "CandidateResult",
     "Check",
+    "CombineCut",
     "CombineEvidence",
+    "CombineGate",
+    "CombineNarrow",
+    "CombineSampleCount",
     "Evidence",
     "EvidenceProducer",
     "Failure",

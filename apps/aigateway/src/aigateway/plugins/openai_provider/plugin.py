@@ -10,6 +10,12 @@ from openai import AsyncOpenAI, Omit
 from aigateway.core.api_key_strategy import ApiKeyStrategy
 from aigateway.core.api_key_validation import ApiKeyValidator
 from aigateway.core.cache_ports import CacheBypass
+from aigateway.core.input_modalities import (
+    TEXT_IMAGE_PDF,
+    TEXT_ONLY,
+    InputModality,
+    declared_family_evidence,
+)
 from aigateway.core.plugin_base import CredentialStrategy, ModelEntry, ProviderPluginBase
 from aigateway.core.request_hardening import strip_dispatch_controls
 from aigateway.core.standard_parameters import direct_parameter_observations
@@ -37,8 +43,8 @@ if TYPE_CHECKING:
 _OBSERVATION_SOURCE = "openai:locked-runtime"
 
 
-def _credential_service_for(profile_name: str) -> str:
-    return f"aigateway:openai:{profile_name}"
+def _credential_service_for(credential_name: str) -> str:
+    return f"aigateway:openai:{credential_name}"
 
 
 def _openai_http_client() -> httpx.AsyncClient:
@@ -77,6 +83,19 @@ def _unsafe_environment_error() -> HTTPException:
     return error
 
 
+# OME-1537: OpenAI documents image and PDF (``file`` part) input for these families.
+# Older families (gpt-3.5, o1-mini) are not declared and report text-only.
+_INPUT_MODALITY_FAMILIES: tuple[tuple[str, tuple[InputModality, ...]], ...] = (
+    ("gpt-5", TEXT_IMAGE_PDF),
+    ("gpt-4.1", TEXT_IMAGE_PDF),
+    ("gpt-4o", TEXT_IMAGE_PDF),
+    # WHY first: o3-mini is text-only, and the first matching prefix wins.
+    ("o3-mini", TEXT_ONLY),
+    ("o3", TEXT_IMAGE_PDF),
+    ("o4", TEXT_IMAGE_PDF),
+)
+
+
 class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
     custom_llm_provider = "openai"
     provider_display_name = "OpenAI"
@@ -88,6 +107,13 @@ class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
             for model in self.settings.default_models
         ]
 
+    def model_input_modality_evidence(self, entry: ModelEntry) -> tuple[str, ...] | None:
+        # OME-1537: declared family table. Outside it the model is unknown (None), which
+        # publishes as text-only and passes the chat backstop (OME-1807).
+        return declared_family_evidence(
+            entry.model_name.removeprefix("openai/"), _INPUT_MODALITY_FAMILIES
+        )
+
     def supports_api_key(self) -> bool:
         return True
 
@@ -96,19 +122,19 @@ class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
 
     def api_key_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
     ) -> CredentialStrategy:
         return ApiKeyStrategy(
-            profile_name,
-            service=_credential_service_for(profile_name),
+            credential_name,
+            service=_credential_service_for(credential_name),
             account="default",
             header_builder=lambda api_key: {"Authorization": f"Bearer {api_key}"},
             credential_store=credential_store,
         )
 
-    def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
+    def should_mark_credential_error_on_dispatch_status(self, status_code: int) -> bool:
         return status_code == 401
 
     def api_key_validator(self) -> ApiKeyValidator:
@@ -185,8 +211,8 @@ class OpenAIProviderPlugin(ProviderPluginBase[OpenAIPluginSettings]):
         # OME-884 cycle 2: the PRECISE half of the modifier asymmetry — see
         # ``runtime_guard.modifier_refuses_dispatch``. What matters HERE is the position:
         # both refusals precede API-key removal, client construction and ``acompletion``,
-        # so a refused request does no upstream work and builds no client. The effective
-        # body is what gets inspected, so a profile-defaulted ceiling counts.
+        # so a refused request does no upstream work and builds no client. The body inspected
+        # is the one dispatched, so any ceiling it carries counts.
         if modifier_refuses_dispatch(litellm, body.get("max_tokens")):
             raise _unsafe_environment_error()
 

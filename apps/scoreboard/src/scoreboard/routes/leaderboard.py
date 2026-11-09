@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, cast
+from typing import Annotated, Self, cast
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scoreboard.classification.openness import EntryVerdict
 from scoreboard.routes.dependencies import (
@@ -14,6 +14,7 @@ from scoreboard.routes.dependencies import (
     turned_private,
 )
 from scoreboard.scores.baseline_store import BaselineStore
+from scoreboard.scores.comparison_profiles import PROFILES
 from scoreboard.scores.frontier import (
     FrontierReplay,
     classify_members,
@@ -32,6 +33,7 @@ from scoreboard.scores.schemas import (
     LeaderboardEntry,
     RunCostUsd,
     ScoreSchema,
+    SpecHistoryRow,
     SubmittedBy,
 )
 from scoreboard.scores.store import ScoreStore, benchmark_to_schema
@@ -109,6 +111,19 @@ class RankedLeaderboardEntry(BaseModel):
     # anyone re-ran it (OME-1146, OME-1319); the portal renders it without success green.
     openness: EntryVerdict
 
+    # FEATURE: OME-1596 — the pinned cache (frozen copy) a researcher replays this row from, with
+    # `sf.evaluate(pinned_cache=...)`. The portal's Reproduce button copies exactly that.
+    #
+    # INVARIANT: set only when the row's `capture_status` is `complete` (a `partial` copy cannot
+    # answer every call of a replay); null otherwise. Computed per request in the same snapshot as
+    # the rows, like `on_pareto_frontier`, and absent from `LeaderboardEntry`, so private
+    # `my_submissions` and the staff export never carry it.
+    #
+    # WHY excluded when null rather than served as `null`: a row with nothing to replay then reads
+    # exactly as it did before the field existed (the public board's row shape is pinned), and a
+    # client reads "absent" and "null" the same way: no Reproduce.
+    pinned_cache: str | None = Field(default=None, exclude_if=lambda value: value is None)
+
 
 class LeaderboardResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -133,6 +148,21 @@ class LeaderboardResponse(BaseModel):
     # Artificial Analysis), surfaced alongside community entries. Empty until a
     # baseline is imported via `python -m scoreboard.import_baselines`.
     baselines: list[BaselineSchema]
+
+    @model_validator(mode="after")
+    def align_baseline_eligibility_with_response_scope(self) -> Self:
+        # WHY: the community snapshot can observe a revision change after the earlier
+        # baseline read. Never serve an old approval beside a new board revision.
+        profile = PROFILES.get(self.benchmark.id)
+        scope_matches = profile is not None and (
+            self.benchmark.revision,
+            self.benchmark.case_count,
+        ) == (profile.revision, profile.case_count)
+        for row in self.baselines:
+            row.ranking_eligible = (
+                row.ranking_eligible and scope_matches and row.benchmark_id == self.benchmark.id
+            )
+        return self
 
 
 class HistorySubmission(BaseModel):
@@ -188,16 +218,18 @@ def _ranked_entry(
     *,
     on_pareto_frontier: bool,
     openness: EntryVerdict,
+    pinned_cache: str | None = None,
 ) -> RankedLeaderboardEntry:
     return RankedLeaderboardEntry(
         rank=rank,
         on_pareto_frontier=on_pareto_frontier,
         openness=openness,
+        pinned_cache=pinned_cache,
         **entry.model_dump(),
     )
 
 
-def _history_submission(score: ScoreSchema) -> HistorySubmission:
+def _history_submission(score: SpecHistoryRow | ScoreSchema) -> HistorySubmission:
     return HistorySubmission(
         id=score.id,
         benchmark_revision=score.benchmark_revision,
@@ -358,6 +390,10 @@ async def get_leaderboard(
         members = await store.frontier_member_models(
             [row.source_id for row in rows], connection=snapshot
         )
+        # OME-1596: the page's pinned caches, bounded by the page and read in the same snapshot.
+        pinned_caches = await store.pinned_caches_for_score_ids(
+            [row.source_id for row in rows], connection=snapshot
+        )
     # The response describes the revision its rows were filtered by.
     benchmark = benchmark.model_copy(update={"revision": revision, "case_count": case_count})
     if await turned_private(benchmark_id):
@@ -394,6 +430,7 @@ async def get_leaderboard(
                 # A row the verdict read did not return (deleted between the reads) is
                 # unidentified, never guessed, exactly as the card treats it.
                 openness=verdicts.get(row.source_id, ("unidentified", ()))[0],
+                pinned_cache=pinned_caches.get(row.source_id),
             )
             for index, row in enumerate(rows, start=1)
         ],

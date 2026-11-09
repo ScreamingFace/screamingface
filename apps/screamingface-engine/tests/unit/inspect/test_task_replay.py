@@ -540,7 +540,7 @@ def test_a_hub_fetch_with_no_pin_is_skipped_at_build_with_the_f1_reason(
 
 
 def test_the_image_side_child_forces_the_declared_shuffle_seed(fake_hub_eval: str) -> None:
-    """R3: an unseeded upstream shuffle replays in one order at every build."""
+    """R3: an unseeded inspect_evals shuffle replays in one order at every build."""
 
     spec: TaskReplayCasesSpec = TaskReplayCasesSpec(
         task=f"{fake_hub_eval}:unseeded_shuffle",
@@ -705,7 +705,7 @@ def test_the_block_names_the_pinned_commit_and_the_forced_seed(
 
 def test_excluded_samples_are_counted(fake_hub_eval: str, tmp_path: Path) -> None:
     """A declaration that drops Samples (sad_stages_full 800 → 797) shows both counts, so
-    an upstream row change reads as a count change, not only as a digest change."""
+    a row change in the authors' dataset reads as a count change, not only as a digest change."""
 
     probe: TaskReplayCasesSpec = TaskReplayCasesSpec(
         task=f"{fake_hub_eval}:unpinned_fetch",

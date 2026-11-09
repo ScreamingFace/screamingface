@@ -13,7 +13,7 @@ import {
 const catchAll = `import screamingface as sf
 
 try:
-    report = sf.evaluate(recipe, benchmark="ifeval", limit=1)
+    report = sf.evaluate(recipe, benchmark="medxpert", limit=1)
 except sf.ScreamingFaceError as exc:
     print(exc.code, exc.retryable, exc.hint)`
 
@@ -21,27 +21,42 @@ const attrs = `e = sf.PlanningError("boom", code="model_unavailable", permanent=
 e.code, e.retryable, e.permanent, e.hint`
 const attrsOut = `('model_unavailable', False, True, None)`
 
-const real = `client.models.get("antigravity/gemini-3-flash")`
-const realOut = `ProviderConnectionError: Antigravity profile 'default' is not connected`
+const real = `sf.evaluate(sf.Model("anthropic/claude-opus-4-8"), benchmark="medxpert", limit=1)`
+const realOut = `ProviderConnectionError: Provider 'anthropic' is not connected for Model 'anthropic/claude-opus-4-8'`
 
 const warn = `import warnings
 
 with warnings.catch_warnings():
     warnings.simplefilter("error", sf.EvaluationWarning)
     report = sf.evaluate(recipe, benchmark="draco", limit=1)`
+
+const replayError = `import screamingface as sf
+
+try:
+    replay = sf.evaluate(pinned_cache="<pinned-cache-id>")
+except sf.ReproductionError as exc:
+    print(exc.code, exc.reproduction.outcome, exc.reproduction.reason)
+else:
+    reproduction = replay.candidates.only.reproduction
+    if reproduction is not None:
+        print(reproduction.outcome, reproduction.reason)`
 </script>
 
 <template>
   <DocLayout
     title="Errors"
-    description="What the Client raises, and the warnings it emits when a run completes with a caveat."
+    description="What the Client raises, and the warnings it emits when a run or a submission carries a caveat."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      Everything the Client raises on purpose inherits from <code>ScreamingFaceError</code>, so one
-      <code>except</code> catches the lot. Six subclasses say where the failure happened, and each
-      carries a machine-readable code alongside its message.
+      Errors the Client raises about the engine, a provider, a leaderboard or an evaluation inherit
+      from <code>ScreamingFaceError</code>. Nine subclasses say where the failure happened, and each
+      carries a machine-readable code alongside its message. Argument validation raises
+      <code>ValueError</code>, <code>TypeError</code> or <code>KeyError</code> instead (for example
+      <code>limit=0</code> raises <code>ValueError</code>), and a closed Client raises
+      <code>RuntimeError</code>. Catch <code>ScreamingFaceError</code> for runtime failures and let
+      validation errors surface.
     </p>
 
     <div class="not-prose">
@@ -54,15 +69,22 @@ with warnings.catch_warnings():
       code="Exception
 └── ScreamingFaceError
     ├── AuthenticationError
+    ├── CachePullError
     ├── EngineUnavailableError
     ├── ExecutionError
     ├── LeaderboardError
+    ├── MediaUnavailableError
     ├── PlanningError
-    └── ProviderConnectionError
+    │   └── EngineCapabilityError
+    ├── ProviderConnectionError
+    └── ReproductionError
 
 Warning
 └── UserWarning
-    └── EvaluationWarning"
+    └── EvaluationWarning
+        ├── DuplicateMembersWarning
+        ├── FixedSeedSittingWarning
+        └── JudgeWriterWarning"
       language="text"
     />
 
@@ -113,10 +135,35 @@ Warning
           </td>
         </tr>
         <tr>
+          <td><code>ReproductionError</code></td>
+          <td>
+            A published capture cannot be replayed, or the Engine did not confirm replay mode.
+            <code>.reproduction</code> carries the refusal or failure verdict. No report is
+            returned.
+          </td>
+        </tr>
+        <tr>
+          <td><code>CachePullError</code></td>
+          <td>
+            <code>sf.cache.pull_from_remote()</code> stopped before its last page. Its
+            <code>result</code> attribute is the <code>PullResult</code> that says how far it got.
+            See <RouterLink to="/sf-client/api/cache">Cache</RouterLink>.
+          </td>
+        </tr>
+        <tr>
           <td><code>LeaderboardError</code></td>
           <td>
             A <RouterLink to="/sf-client/api/leaderboards">leaderboard</RouterLink> operation could
             not be completed safely.
+          </td>
+        </tr>
+        <tr>
+          <td><code>MediaUnavailableError</code></td>
+          <td>
+            A picture or file of a case cannot be fetched from the engine. The code
+            <code>media_not_kept</code> means the engine no longer holds it, and the error is
+            permanent. See
+            <RouterLink to="/sf-client/api/candidate-result#case-media">Case media</RouterLink>.
           </td>
         </tr>
       </tbody>
@@ -134,8 +181,8 @@ Warning
     <h2>What an error carries</h2>
 
     <p>
-      The six subclasses share a diagnostic shape, so you can branch on a stable value rather than
-      on message text.
+      The subclasses share a diagnostic shape, so you can branch on a stable value rather than on
+      message text.
     </p>
 
     <table>
@@ -195,18 +242,129 @@ Warning
       <NbCell :count="3" :code="attrs"><NbTextOut :text="attrsOut" /></NbCell>
     </div>
 
+    <p>
+      <code>EngineCapabilityError</code> is a <code>PlanningError</code> with the code
+      <code>engine_capability_missing</code>. It means the engine lacks a capability the evaluation
+      needs, for example the combine operators a
+      <RouterLink to="/sf-client/api/reducers">reducer</RouterLink> compiles to. It is raised before
+      anything is spent.
+    </p>
+
+    <h2>Replay errors and verdicts</h2>
+
+    <CodeBlock :code="replayError" language="python" />
+    <table>
+      <thead>
+        <tr>
+          <th>Exception and code</th>
+          <th>Meaning</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>ReproductionError: not_reproducible</code></td>
+          <td>
+            No run starts. <code>exc.reproduction.outcome</code> is <code>"not_reproducible"</code>;
+            its reason is <code>"partial"</code> or <code>"unknown"</code> for a missing capture
+            status, pinned cache id or benchmark revision.
+          </td>
+        </tr>
+        <tr>
+          <td><code>ReproductionError: replay_unsupported</code></td>
+          <td>
+            The Engine did not confirm replay mode. <code>exc.reproduction.outcome</code> is
+            <code>"failed"</code> and its reason is <code>"replay_unsupported"</code>. The Client
+            tries to stop an unacknowledged run; if that stop fails, it also emits an
+            <code>EvaluationWarning</code>.
+          </td>
+        </tr>
+        <tr>
+          <td><code>PlanningError: partial_replay_unavailable</code></td>
+          <td>
+            The Engine cannot rebuild the published recipe and a compatible subset for
+            <code>limit=n</code>. No run starts; use a full replay.
+          </td>
+        </tr>
+        <tr>
+          <td><code>LeaderboardError: invalid_leaderboard</code></td>
+          <td>
+            The board returned a malformed response, including a score id that differs from the
+            requested one. No replay starts.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    <p>
+      A completed replay that differs from the published score returns
+      <code>result.reproduction.outcome == "failed"</code>. Read <code>.reason</code> and
+      <code>.missed_cases</code>; this verdict does not itself raise an exception. Partial replays
+      and captures with no public score return <code>reproduction=None</code>. Wrong seed, recipe or
+      id combinations raise <code>ValueError</code> before execution. Other service and execution
+      errors still propagate.
+    </p>
+
     <h2>Warnings</h2>
 
     <p>
-      A warning means the run <em>completed</em>. It produced a report you can read, but something
-      about its quality needs attention. <code>EvaluationWarning</code> is the one the Client emits,
-      and it subclasses <code>UserWarning</code>, so it appears in normal warning output and
+      A warning usually accompanies a completed run whose quality needs attention. Replay can also
+      warn when every case misses an unsubmitted capture, or when an unacknowledged run could not be
+      stopped. <code>EvaluationWarning</code> is the one the Client emits, and it subclasses
+      <code>UserWarning</code>, so it appears in normal warning output and
       <code>warnings.simplefilter</code> controls it.
     </p>
 
+    <table>
+      <thead>
+        <tr>
+          <th>Warning</th>
+          <th>Emitted when</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>EvaluationWarning</code></td>
+          <td>
+            A submission carries a caveat. A run made with <code>limit</code> is a partial
+            submission, which is not directly comparable with a full run and does not enter the
+            ranking.
+          </td>
+        </tr>
+        <tr>
+          <td><code>DuplicateMembersWarning</code></td>
+          <td>
+            Two members of a reducer Fusion send the same request, so they may be one cached answer.
+            It is emitted once per group. Use <code>sf.samples()</code> for independent samples.
+          </td>
+        </tr>
+        <tr>
+          <td><code>FixedSeedSittingWarning</code></td>
+          <td>
+            A run sets <code>answer_seed</code> while some calls set their own
+            <code>seed</code> (every <code>sf.samples()</code> member does). Those calls send the
+            same request in every sitting, so the spread across sittings is not measured. The run
+            still goes on.
+          </td>
+        </tr>
+        <tr>
+          <td><code>JudgeWriterWarning</code></td>
+          <td>
+            A judge and the writer of the same block use one model, or a stage that reads a judge is
+            followed directly by a model stage with the judge's model. The writer is then also the
+            scorer. It is emitted when the SDK compiles the recipe, and the run still goes on. The
+            message names the stages and the model:
+            <code
+              >Stage 1 (a fanout block) uses the same model
+              'openrouter/google/gemini-3.5-flash-lite' for its judge and its writer</code
+            >. Give the judge or the writer another model to clear it. A judge on another model
+            emits nothing.
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
     <Note>
-      A warning does not invalidate a report. It means the score is less well supported than the
-      same benchmark would normally give. Promote it to an error if that matters to you.
+      Read the warning alongside the report or exception. Promote warnings to errors if your
+      workflow must stop on these caveats.
     </Note>
 
     <div class="not-prose">

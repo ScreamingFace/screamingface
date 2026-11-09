@@ -26,10 +26,8 @@ from .core.auth.log_filter import (
     RedactProvisioningTokenFilter,
     install_provisioning_token_redaction,
 )
-from .core.auth.middleware import ANONYMOUS_ACCOUNT_ID
-from .core.credential_blob.store import CredentialBlobMutationConflict, ORMStore
+from .core.credential_blob.store import ORMStore
 from .core.discovery_runtime import DiscoveryRuntime
-from .core.frozen_copy.headers import published_capture_headers
 from .core.loader import load_plugins
 from .core.model_catalog import build_model_catalog
 from .core.parameter_discovery import DiscoveryLimits, HttpxDiscoveryClient
@@ -39,13 +37,7 @@ from .core.parameter_discovery_cache import (
     SystemMonotonicClock,
 )
 from .core.pending_auth import PendingAuthTable
-from .core.profile_index import ProfileIndexStore
-from .core.provider_access import (
-    ConnectionBackedCredentialAdmin,
-    ConnectionBackedProviderAccess,
-    SelectorPolicy,
-    bootstrap_under_the_floor,
-)
+from .core.provider_access import ConnectionBackedProviderAccess
 from .core.registry import ProviderRegistry
 from .core.request_cache.store import ConfiguredCacheAvailability, TortoiseRequestCacheStore
 from .core.request_cache.tavily_store import TavilyRetrievalCacheStore
@@ -54,8 +46,9 @@ from .core.secrets.factory import build_secret_store, set_active_secret_store
 from .core.snapshot_publish import build_snapshot_scheduler
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
-from .middleware import CallIdMiddleware
+from .middleware import BodyCapMiddleware, CallIdMiddleware
 from .plugins.taxonomy.plugin import TaxonomyPlugin
+from .provider_composition import close_remote_endpoints, compose_providers
 from .routes import (
     accounts,
     admin,
@@ -64,9 +57,13 @@ from .routes import (
     api_key_validation,
     auth,
     auth_session,
+    cache_entries,
     chat,
+    classifications,
+    classifiers,
     frozen_copies,
     health,
+    legacy_profiles_retired,
     model_admission,
     model_parameters,
     models,
@@ -190,8 +187,8 @@ async def _lifespan(app):
     await init_db(database_url)
     try:
         # Install the encryption-at-rest provider BEFORE any credential read/write.
-        # The JWT-secret bootstrap and provider bootstrap below both go through the
-        # now-encrypting ORMStore, so the active secret store must exist first.
+        # The JWT-secret bootstrap below goes through the now-encrypting ORMStore, so the
+        # active secret store must exist first.
         secret_store = await build_secret_store(
             app.state.settings.secret_provider,
             app.state.settings.secret_key,
@@ -209,36 +206,7 @@ async def _lifespan(app):
         # this keeps its behavior for `jwt` and extends the same treatment to `cloudflare_headers`.
         authenticating = app.state.settings.auth_mode != "disabled"
         if authenticating or app.state.settings.admin_password is not None:
-            # Named `admin_account`, not `admin`: the `admin` ROUTER module is imported at module
-            # scope, and a local of that name shadows it for the rest of this function.
-            admin_account = await ensure_admin_account(app.state.settings.admin_password)
-            bootstrap_account_id = (
-                str(admin_account.id) if authenticating else str(ANONYMOUS_ACCOUNT_ID)
-            )
-        else:
-            bootstrap_account_id = str(ANONYMOUS_ACCOUNT_ID)
-
-        # Provider startup bootstrap is opt-in.
-        # By default the gateway boots with an empty profile index so the user
-        # explicitly authenticates via the UI rather than seeing a "default"
-        # profile they did not authorize through the gateway.
-        #
-        # Bootstrap uses the same DB-backed store as normal runtime credentials.
-        if os.getenv("AIGATEWAY_BOOTSTRAP_FROM_CLAUDE_CODE") == "1":
-            for plugin in app.state.providers.all():
-                try:
-                    # FEATURE (OME-1497, G0): the import is a legacy writer on its pair.
-                    await bootstrap_under_the_floor(
-                        plugin,
-                        account_id=bootstrap_account_id,
-                        credential_store=credential_store,
-                        index_store=app.state.profile_index,
-                    )
-                except Exception:
-                    logger.exception(
-                        "bootstrap failed for provider %s; gateway will continue",
-                        plugin.custom_llm_provider,
-                    )
+            await ensure_admin_account(app.state.settings.admin_password)
 
         # OME-303 U3: ONE app-lifetime observed LiteLLM handler. App-lifetime, not
         # per-request, so connection pooling and the default aiohttp transport are
@@ -263,23 +231,36 @@ async def _lifespan(app):
 
         yield
     finally:
-        # The scheduler's owned task must never outlive the app: cancel and await it.
-        scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
-        if scheduler is not None:
-            await scheduler.stop()
-        # §9.12: closed explicitly here rather than left to __del__, which is not
-        # guaranteed to run and cannot await. An unclosed handler leaks its connection
-        # pool across TestClient lifecycles and across a reload in dev.
+        # WHY nested `finally` blocks: a cancelled shutdown raises past `except Exception`, and
+        # it must skip none of the steps after the one it hit; each still runs once, in order.
         try:
-            await app.state.taxonomy_plugin.close()
-        except Exception:
-            logger.warning("usage accounting handler did not close cleanly")
-        app.state.usage_accounting_handler = None
-        await auth.close_loopback_callbacks(app)
-        # Clear the process-wide active store so it does not leak across app
-        # instances (e.g. multiple TestClient lifecycles in one process).
-        set_active_secret_store(None)
-        await close_db()
+            # The scheduler's owned task must never outlive the app: cancel and await it.
+            scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
+            if scheduler is not None:
+                await scheduler.stop()
+        finally:
+            # §9.12: closed explicitly here rather than left to __del__, which is not
+            # guaranteed to run and cannot await. An unclosed handler leaks its connection
+            # pool across TestClient lifecycles and across a reload in dev.
+            try:
+                await app.state.taxonomy_plugin.close()
+            except Exception:
+                logger.warning("usage accounting handler did not close cleanly")
+            finally:
+                app.state.usage_accounting_handler = None
+                # FEATURE (hosted BYOM): each configured endpoint's client closes with the app.
+                try:
+                    await close_remote_endpoints(app.state.providers)
+                except Exception:
+                    logger.warning("a remote endpoint client did not close cleanly")
+                finally:
+                    try:
+                        await auth.close_loopback_callbacks(app)
+                    finally:
+                        # Clear the process-wide active store so it does not leak across app
+                        # instances (e.g. multiple TestClient lifecycles in one process).
+                        set_active_secret_store(None)
+                        await close_db()
 
 
 async def _redact_validation_errors(_request: Request, exc: Exception) -> JSONResponse:
@@ -312,25 +293,6 @@ async def _accounted_http_exception(request: Request, exc: Exception) -> Respons
     return await http_exception_handler(request, cast(StarletteHTTPException, exc))
 
 
-async def _profile_index_conflict(request: Request, _exc: Exception) -> JSONResponse:
-    # FEATURE: OME-1307 — the capture outcome of a call whose route raised after the copy check.
-    headers = published_capture_headers(request)
-    exc = HTTPException(
-        status_code=503,
-        detail={
-            "code": "profile_index_conflict",
-            "message": "Profile metadata update conflicted. Try again.",
-        },
-        headers=headers or None,
-    )
-    accounted = accounting_error_response(request, exc)
-    if accounted is not None:
-        return accounted
-    return JSONResponse(
-        status_code=exc.status_code, content={"detail": exc.detail}, headers=headers
-    )
-
-
 def _build_discovery_runtime(settings: Settings) -> DiscoveryRuntime | None:
     """Construct the ONE bounded discovery runtime the detailed contract reads from.
 
@@ -340,7 +302,7 @@ def _build_discovery_runtime(settings: Settings) -> DiscoveryRuntime | None:
     # WHY ``None`` when disabled rather than an unbounded stub: the absence of a
     # runtime is the honest "no dynamic evidence", and it leaves no object that
     # could later be handed limits nobody configured.
-    # AIDEV-NOTE: ``HttpxDiscoveryClient`` opens (and closes) its connection per
+    # WHY: ``HttpxDiscoveryClient`` opens (and closes) its connection per
     # fetch, so there is nothing to shut down in the lifespan.
     """
     if not settings.discovery_enabled:
@@ -390,7 +352,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _attach_log_filter()
     app = FastAPI(title="aigateway", version="0.1.0", lifespan=_lifespan)
     app.add_exception_handler(RequestValidationError, _redact_validation_errors)
-    app.add_exception_handler(CredentialBlobMutationConflict, _profile_index_conflict)
     app.add_exception_handler(StarletteHTTPException, _accounted_http_exception)
     # OME-939: the last resort for anything no route handled — one class-name-only record with
     # the call id, and a structured 500. See `unhandled_errors` for why it re-binds the ids.
@@ -415,6 +376,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "(e.g. your cluster's Pod CIDR)"
         )
 
+    # FEATURE (OME-1542): the body cap. Registered just before CallIdMiddleware, so it sits INSIDE
+    # it (a refusal still carries the call id) and outside everything else, auth included — an
+    # oversized body is refused before any layer reads it.
+    # WHY the snapshot path keeps its own bound: it is an admin multipart upload with its own,
+    # larger cap; the extra MiB is the multipart envelope around the archive.
+    app.add_middleware(
+        BodyCapMiddleware,
+        max_bytes=settings.max_request_bytes,
+        path_limits={"/v1/admin/cache/snapshots": settings.cache_upload_max_bytes + 1024 * 1024},
+    )
+
     # FEATURE (OME-938): correlation is app-wide plumbing, not a feature of usage accounting.
     # INVARIANT: added LAST so it is the OUTERMOST layer. `add_middleware` does
     # `user_middleware.insert(0, ...)` and the stack is built by wrapping that list in reverse,
@@ -430,24 +402,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     registry = ProviderRegistry()
     load_plugins(registry)
+    # FEATURE (hosted BYOM): configured remote endpoints join here, before any auth router mounts.
+    endpoint_access = compose_providers(registry, config_path=settings.remote_endpoints_config)
     app.state.providers = registry
+    app.state.endpoint_access = endpoint_access
     app.state.api_key_validation_service = ApiKeyValidationService()
 
     # Test-only OAuth endpoint hooks are gated by env vars so they only activate
     # in e2e harnesses. Credential storage itself is always DB-backed.
     credential_store = ORMStore()
     app.state.credential_store = credential_store
-    app.state.profile_index = ProfileIndexStore(credential_store=credential_store)
-    # OME-1394: the selector sunset is configured once; HTTP boundaries consume this policy through
-    # ``selector_from_request`` and provider-access implementations never inspect it.
-    app.state.selector_policy = SelectorPolicy.REJECT_EXPLICIT
     # OME-1200: the provider-access port (read/resolve), on which the A2 consumers depend.
-    # OME-1208 (Stage B, D14): the Connection-backed authority serves a pair whose marker is
-    # `migrated` from its effective Connection and inherits the Profile-backed path for the rest.
+    # OME-1209 (Stage E, E4a): the Connection-backed authority resolves every pair from its marker
+    # and its Connections; no Profile document is read.
     app.state.provider_access = ConnectionBackedProviderAccess(app)
-    # OME-1230: the provider-credential admin interface (writes + listings); the Profile management
-    # routes are shells over it. Stage B swaps both backings here, without touching a route.
-    app.state.provider_credential_admin = ConnectionBackedCredentialAdmin(app)
     app.state.request_cache_store = TortoiseRequestCacheStore(
         availability=ConfiguredCacheAvailability(settings.request_cache_enabled)
     )
@@ -465,6 +433,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # discovery egress of ANY kind. The catalog owns no transport; the models
     # route passes the runtime's client/limits per call.
     app.state.model_catalog = build_model_catalog(enabled=settings.discovery_enabled)
+    # OME-1634: a provider that dials discovery outside the runtime (Codex's credentialed
+    # per-account list on its refusal path) receives the same kill switch here.
+    # WHY getattr: the registry holds duck-typed providers (and minimal test doubles) — a
+    # provider without the hook has no out-of-runtime discovery to silence.
+    for plugin in registry.all():
+        configure = getattr(plugin, "configure_discovery", None)
+        if configure is not None:
+            configure(enabled=settings.discovery_enabled)
     # OME-952: the admin cache-snapshot upload runner. app-state-only by the same reasoning
     # as `admitted_models` above: job REPORTS are deployment-lifetime, the loaded data and
     # the audit log are the durable truth.
@@ -475,6 +451,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # lifetime): a restart forgets every admission and nothing is persisted.
     app.state.admitted_models = {}
     app.state.admission_catalog_cache = {}
+
+    # WHY first: a retired Profile path answers 410 before any live router can match it (E3).
+    app.include_router(legacy_profiles_retired.router)
 
     for plugin in registry.all():
         auth_router = plugin.auth_router()
@@ -487,6 +466,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_connections.router)
     _describe_admin_security(app)
     app.include_router(admin_cache.router)
+    app.include_router(cache_entries.router)
     app.include_router(api_key_validation.router)
     app.include_router(auth.router)
     app.include_router(oauth_connections.router)
@@ -499,6 +479,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(model_parameters.router)
     app.include_router(tavily_retrieval_cache.router)
     app.include_router(chat.router)
+    # FEATURE: hosted BYOM Unit 3 — classifier inference and its catalog.
+    app.include_router(classifications.router)
+    app.include_router(classifiers.router)
     app.include_router(frozen_copies.router)
 
     logger.info("aigateway ready (port=%d, providers=%d)", settings.port, len(registry.all()))

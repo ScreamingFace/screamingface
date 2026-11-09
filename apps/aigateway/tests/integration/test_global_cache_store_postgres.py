@@ -384,7 +384,7 @@ async def test_0010_replaces_the_preflight_schema_on_postgres() -> None:
         finally:
             await conn.close()
 
-        _migrate(database_url)
+        _migrate(database_url, "models", "0010_simplify_request_cache")
 
         conn = await asyncpg.connect(database_url)
         try:

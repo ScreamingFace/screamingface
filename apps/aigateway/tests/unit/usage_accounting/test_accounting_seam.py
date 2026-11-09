@@ -11,15 +11,12 @@ from __future__ import annotations
 
 import json
 from decimal import Decimal
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
 from fastapi import HTTPException
 
-from aigateway.core.credential_blob.store import CredentialBlobMutationConflict
-from aigateway.main import _profile_index_conflict
 from aigateway.plugins.anthropic_provider.plugin import AnthropicProviderPlugin
 from aigateway.plugins.openrouter_provider.plugin import OpenRouterProviderPlugin
 from aigateway.plugins.taxonomy import (
@@ -441,45 +438,6 @@ class TestSuccessAttachment:
         assert attached["_aigw"]["usage_accounting"]["cache"] == {
             "status": "miss",
             "reference": None,
-        }
-
-
-class TestSpecializedErrorHandlers:
-    @pytest.mark.asyncio
-    async def test_profile_conflict_carries_default_on_accounting(self) -> None:
-        request = SimpleNamespace(state=SimpleNamespace())
-        begin_accounting(
-            request,  # type: ignore[arg-type]
-            plugin=AnthropicProviderPlugin(),
-            provider="anthropic",
-            model="anthropic/claude-haiku-4-5",
-        )
-
-        response = await _profile_index_conflict(
-            request,  # type: ignore[arg-type]
-            CredentialBlobMutationConflict("forced contention"),
-        )
-        body = json.loads(bytes(response.body))
-
-        assert response.status_code == 503
-        assert body["detail"]["code"] == "profile_index_conflict"
-        assert body["_aigw"]["usage_accounting"]["schema"] == "aigw.chat_usage_accounting"
-
-    @pytest.mark.asyncio
-    async def test_profile_conflict_without_session_keeps_existing_shape(self) -> None:
-        request = SimpleNamespace(state=SimpleNamespace())
-
-        response = await _profile_index_conflict(
-            request,  # type: ignore[arg-type]
-            CredentialBlobMutationConflict("forced contention"),
-        )
-
-        assert response.status_code == 503
-        assert json.loads(bytes(response.body)) == {
-            "detail": {
-                "code": "profile_index_conflict",
-                "message": "Profile metadata update conflicted. Try again.",
-            }
         }
 
 

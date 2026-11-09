@@ -24,7 +24,7 @@ One user message per test grid: the ARC Prize harness's own template
 (`arcprize/arc-agi-benchmarking@9e2828fb`, `prompts/system_prompt.txt`) with every example pair
 and the test input written as JSON. It is restated in `arc_agi_2.py` rather than copied, because
 the template file ends with no newline and the repo's whitespace hooks would add one; the test
-pins the template's sha256 to the upstream file's and one fixture prompt to the upstream builder's
+pins the template's sha256 to the harness file's and one fixture prompt to the harness builder's
 own output.
 
 ## Scoring
@@ -60,10 +60,11 @@ Answers run to 2,760 characters before any reasoning: give the Candidate a high 
 
 ## Identity
 
-The Benchmark revision hashes the Case Digest, the Task reference, the two
+The fingerprint hashes the Case Digest, the Task reference, the two
 Attempts with their `max` reducer, the honoured metric **and the sha256 of every `.py` file in
-this package** (`task_source=…`). Editing `arc_agi_2.py` or `vendor/` is a new Benchmark: update
-the literal in `tests/unit/inspect/test_published_revisions.py` and say why in the PR.
+this package** (`task_source=…`). Editing any of them moves only the fingerprint: `tests/unit/inspect/test_benchmark_fingerprints.py`
+goes red and the Benchmark keeps publishing its hand-set `published_revision` (OME-1610).
+Whether that id moves too is the owner's call, under [Changing a Benchmark's published revision](../../../../docs/adding-an-imported-benchmark.md#changing-a-benchmarks-published-revision).
 
 ## Running it locally
 

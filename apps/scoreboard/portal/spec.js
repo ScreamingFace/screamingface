@@ -2,10 +2,12 @@
  *
  * Reads ?benchmark=<id>&spec=<spec_id>. The history endpoint deliberately
  * omits url4_expression, so the top "Run Locally" link is built from the most
- * recent submission's score detail via GET /v1/scores/{submissions[0].id}
+ * recent submission's score detail via GET /v1/public/scores/{submissions[0].id}
  * (submissions are newest-first). That id is the same Score UUID the scores
- * route accepts. This link intentionally uses the newest submission, which may
- * differ from the best-per-spec url4 shown on the leaderboard row.
+ * route accepts. `/v1/scores/*` is behind Cloudflare Access in production, so an
+ * anonymous page must not call it. This link intentionally uses the newest
+ * submission, which may differ from the best-per-spec url4 shown on the
+ * leaderboard row.
  */
 (function (P) {
   "use strict";
@@ -55,24 +57,11 @@
     }
   }
 
-  // The reproduced count comes from the same score detail. It is API data, so it is shown only
-  // when it is a positive whole number, and only as text.
-  function renderReproduced(contentNode, score) {
-    var count = score && score.reproduction_count;
-    if (typeof count !== "number" || !isFinite(count) || count < 1 || Math.floor(count) !== count) return;
-    var text = "Reproduced " + count + (count === 1 ? " time" : " times");
-    // `formatDate` answers the dash for a value it cannot parse; a dash after "last" says nothing.
-    var when = score.last_reproduced_at ? P.formatDate(score.last_reproduced_at) : P.EM_DASH;
-    if (when !== P.EM_DASH) text += " \u00b7 last " + when;
-    contentNode.insertBefore(P.el("p", "meta mono", text), contentNode.querySelector("h2"));
-  }
-
   function renderRunLink(contentNode, regionNode, specId, latestId) {
-    P.fetchJson("/v1/scores/" + encodeURIComponent(latestId)).then(
+    P.fetchJson("/v1/public/scores/" + encodeURIComponent(latestId)).then(
       function (score) {
         renderPaperLink(contentNode, score);
         renderMetadataEdited(contentNode, score);
-        renderReproduced(contentNode, score);
         if (score && score.url4_expression) {
           P.clear(regionNode);
           regionNode.appendChild(P.createCopyButton(specId, score.url4_expression));

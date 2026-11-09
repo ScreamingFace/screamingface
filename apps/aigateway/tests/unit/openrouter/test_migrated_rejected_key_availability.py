@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, cast
 from unittest.mock import patch
@@ -29,6 +30,7 @@ from aigateway.core.oauth.store import (
 from aigateway.core.provider_access import PairAuthorityStore
 from aigateway.plugins.openrouter_provider import plugin as openrouter_plugin_module
 from aigateway.plugins.openrouter_provider.settings import OpenRouterPluginSettings
+from tests.credential_names import credential_name_for
 
 PROVIDER = "openrouter"
 KEY = "sk-or-v1-ome-1389-profile-key"
@@ -53,12 +55,18 @@ def _account(client: Any) -> str:
 def _migrated_profile_slot(
     client: Any, *, status: str = "active", effective: bool = True
 ) -> str | None:
-    """A legacy api-key Profile, then the backfill's `profile_only` migration onto its blob."""
-    resp = client.put(f"/v1/auth/{PROVIDER}/profiles/default/api-key", json={"api_key": KEY})
-    assert resp.status_code in (200, 201), resp.text
+    """A legacy Profile's api-key blob, then the backfill's `profile_only` migration onto it."""
     account_id = _account(client)
 
     async def migrate() -> str | None:
+        # WHY store seeding: the Profile api-key route answers 410 since OME-1209 Stage E3, and
+        # the native create would write the blob at a Connection address, not the Profile one
+        # this migration points its locator at.
+        await client.app.state.credential_store.write(
+            f"aigateway:{PROVIDER}:{credential_name_for(account_id, 'default')}",
+            "default",
+            json.dumps({"auth_type": "api_key", "api_key": KEY}),
+        )
         store = OAuthConnectionStore()
         connection: OAuthConnection = await store.create_pending(
             account_id=account_id,
@@ -77,6 +85,10 @@ def _migrated_profile_slot(
         if status == "error":
             # WHY: what the pre-#1240 op 5 left behind on the ticket's account.
             connection = await store.mark_error(connection, PROVIDER_TEXT) or connection
+        if not effective:
+            # WHY revoked: a null reference with a live row resolves that row by label (spec §9
+            # Q9); a disconnected pair is what a D18 DELETE leaves — no effective row, none live.
+            connection = await store.mark_revoked(connection)
         markers = PairAuthorityStore()
         current = await markers.read(account_id, PROVIDER)
         await markers.advance(
@@ -85,7 +97,6 @@ def _migrated_profile_slot(
             expected_generation=current.generation,
             migration_state="migrated",
             effective_connection_id=connection.id if effective else None,
-            migration_note="profile_only",
         )
         return str(connection.id) if effective else None
 
@@ -296,8 +307,8 @@ def test_an_allowed_resolve_logs_no_refusal(
 def test_a_refusal_without_a_document_logs_the_refused_connection_not_the_effective_one(
     authenticated_client: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # WHY: with no legacy document the pair resolves its single ACTIVE Connection, which need not
-    # be the effective one; the record must point the operator at the row that was refused.
+    # WHY: with no effective reference the pair resolves its single ACTIVE Connection by label;
+    # the record must point the operator at the row that was refused, not at the errored one.
     client = authenticated_client
     account_id = _account(client)
     created: dict[str, str] = {}
@@ -309,7 +320,7 @@ def test_a_refusal_without_a_document_logs_the_refused_connection_not_the_effect
         assert resp.status_code == 201, resp.text
         created[label] = cast(str, resp.json()["id"])
 
-    async def errored_effective_and_a_lost_blob() -> None:
+    async def an_errored_row_and_a_lost_blob() -> None:
         store = OAuthConnectionStore()
         old = await store.get(account_id, created["old"])
         assert old is not None
@@ -321,13 +332,13 @@ def test_a_refusal_without_a_document_logs_the_refused_connection_not_the_effect
             PROVIDER,
             expected_generation=current.generation,
             migration_state="migrated",
-            effective_connection_id=old.id,
+            effective_connection_id=None,
         )
         await CredentialBlob.filter(
             service=f"aigateway:{PROVIDER}:{credential_key_for(account_id, created['work'])}"
         ).delete()
 
-    client.portal.call(errored_effective_and_a_lost_blob)
+    client.portal.call(an_errored_row_and_a_lost_blob)
     caplog.set_level(logging.WARNING, logger=LOGGER)
 
     with patch(_CHAT_COMPLETION, _RejectingProvider().method):

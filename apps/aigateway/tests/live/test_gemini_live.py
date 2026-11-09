@@ -1,7 +1,8 @@
 """Live Gemini gateway smoke test pinned to gemini-2.5-flash.
 
-Skipped unless AIGW_LIVE=1. Uses a gateway-owned gemini-cli:default OAuth
-profile when present, otherwise falls back to GEMINI_API_KEY / GOOGLE_API_KEY.
+Skipped unless AIGW_LIVE=1. Runs as is when GEMINI_API_KEY or GOOGLE_API_KEY is set; otherwise
+requires the logged-in admin account's gemini-cli access to read `connected` in
+`GET /v1/provider-access` (a gemini-cli Connection).
 """
 
 from __future__ import annotations
@@ -74,21 +75,18 @@ def _gemini_request_headers(client: TestClient) -> dict[str, str]:
     if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
         return {}
 
-    listing = client.get("/v1/auth/profiles")
+    # WHY the availability listing: the Profile listing answers 410 since OME-1209 Stage E3, and
+    # `GET /v1/provider-access` is its backing-neutral successor for "can this caller dispatch".
+    listing = client.get("/v1/provider-access")
     assert listing.status_code == 200, listing.text
-    profile = next(
-        (
-            p
-            for p in listing.json()["profiles"]
-            if p["provider"] == "gemini-cli" and p["name"] == "default"
-        ),
+    status = next(
+        (row["status"] for row in listing.json()["providers"] if row["provider"] == "gemini-cli"),
         None,
     )
-    if profile is None:
-        pytest.skip("Gemini live test requires GEMINI_API_KEY/GOOGLE_API_KEY or gemini-cli:default")
-    assert profile is not None
-    if profile["state"] != "authenticated":
-        pytest.skip(f"gemini-cli:default profile is {profile['state']!r}, not 'authenticated'")
+    if status is None:
+        pytest.skip("Gemini live test requires GEMINI_API_KEY/GOOGLE_API_KEY or gemini-cli access")
+    if status != "connected":
+        pytest.skip(f"gemini-cli access is {status!r}, not 'connected'")
     return {}
 
 

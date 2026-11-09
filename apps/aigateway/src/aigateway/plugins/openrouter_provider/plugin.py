@@ -68,6 +68,7 @@ from .dispatch_errors import (
     _online_model_suffix_error,
     _response_conversion_exception,
     _unsafe_litellm_state_error,
+    _unsupported_parameters_error,
 )
 
 # AIDEV-NOTE: ``X as X`` is an explicit RE-EXPORT, not a redundant alias. OME-305
@@ -83,13 +84,18 @@ from .litellm_controls import (
 )
 from .live_models import (
     LIVE_MODELS_DISCOVERY_SOURCE,
-    fetch_live_model_ids,
+    fetch_live_model_catalog,
     live_listing_entries,
     publishable_upstream_ids,
 )
 from .observations import ROUTING_POLICY_OBSERVATIONS
 from .parameters import openrouter_chat_parameter_rules, openrouter_chat_parameter_tools
-from .provenance import converter_error_message, converter_error_status, is_http200_body_error
+from .provenance import (
+    converter_error_message,
+    converter_error_status,
+    is_http200_body_error,
+    is_parameter_refusal,
+)
 from .response_errors import (
     _embedded_error_status as _embedded_error_status,
 )
@@ -131,9 +137,9 @@ if TYPE_CHECKING:
     from aigateway.core.parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
 
 
-def _credential_service_for(profile_name: str) -> str:
+def _credential_service_for(credential_name: str) -> str:
     """Namespace the stored credential slot by provider + profile/connection."""
-    return f"aigateway:openrouter:{profile_name}"
+    return f"aigateway:openrouter:{credential_name}"
 
 
 def _upstream_model_for_discovery(model: str) -> str | None:
@@ -226,8 +232,12 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
         """
         if not (self.settings.enabled and self.settings.live_models):
             return None
-        raw_ids = await fetch_live_model_ids(client=client, limits=limits)
-        return live_listing_entries(self.settings, publishable_upstream_ids(raw_ids))
+        catalog = await fetch_live_model_catalog(client=client, limits=limits)
+        return live_listing_entries(
+            self.settings,
+            publishable_upstream_ids(catalog.ids),
+            input_modalities=catalog.input_modalities,
+        )
 
     async def admit_model(
         self,
@@ -259,7 +269,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
 
     def api_key_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
     ) -> CredentialStrategy | None:
@@ -269,8 +279,8 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             # credentials, without any provider branch in core.
             return None
         return ApiKeyStrategy(
-            profile_name,
-            service=_credential_service_for(profile_name),
+            credential_name,
+            service=_credential_service_for(credential_name),
             account="default",
             header_builder=lambda api_key: {"Authorization": f"Bearer {api_key}"},
             credential_store=credential_store,
@@ -281,7 +291,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             return None
         return OpenRouterApiKeyValidator(settings=self.settings)
 
-    def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
+    def should_mark_credential_error_on_dispatch_status(self, status_code: int) -> bool:
         # D9: only 401 proves the stored key is bad. 402 (credits), 403
         # (policy), 408/429/5xx (transient) must not invalidate a valid key.
         return status_code == 401
@@ -315,6 +325,14 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             raise IncompatibleParametersError(
                 ("logprobs", "top_logprobs"),
                 reason="top_logprobs_requires_logprobs_true",
+            )
+        reasoning = body.get("reasoning")
+        if "reasoning_effort" in body and isinstance(reasoning, Mapping) and "effort" in reasoning:
+            # INVARIANT: OpenRouter accepts two effort spellings, but one request never sends both;
+            # provider precedence is not a stable substitute for an explicit caller choice.
+            raise IncompatibleParametersError(
+                ("reasoning_effort", "reasoning.effort"),
+                reason="reasoning_effort_spellings_conflict",
             )
         if WEB_SEARCH_EXCLUDED_DOMAINS_PARAM in body and body.get(WEB_SEARCH_PARAM) is not True:
             raise IncompatibleParametersError(
@@ -362,6 +380,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                     "n",
                     "logprobs",
                     "top_logprobs",
+                    "reasoning.effort",
                     "web_search",
                     "web_search_excluded_domains",
                 ),
@@ -578,6 +597,11 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
                     converter_error_message(exc),
                     forbidden=credential_values(body),
                 ) from exc
+            # E4b part 3 (LC-E5): a proven transport 404 that is OpenRouter's refusal of
+            # an unsupported parameter gets its own gateway code; any other error is
+            # re-raised unchanged for the route's generic mapping.
+            if is_parameter_refusal(exc):
+                raise _unsupported_parameters_error() from exc
             raise
         try:
             payload: Any = response.model_dump() if hasattr(response, "model_dump") else response

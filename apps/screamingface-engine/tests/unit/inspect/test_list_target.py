@@ -142,3 +142,81 @@ async def test_the_scorer_gets_back_the_key_inspect_would_have_given_it(
     await inspect_grade_case(recording)(request)
 
     assert seen == [list(Target(sample_target))]
+
+
+# --- OME-1602 F6: a row whose multiple-choice keys name several options by letter ---
+
+
+def _letter_case(target: Any, choices: list[str]) -> dict[str, Any]:
+    """Prepare one multiple-choice Case under a row that declares several-letter keys."""
+
+    spec = replace(TASK_REPLAY_CASES["gsm8k"], letter_list_key=True)
+    sample = Sample(input="Which options are true?", target=target, choices=choices)
+    return prepared_case(sample, 1, "Which options are true?", spec)
+
+
+_FOUR: list[str] = ["red", "green", "blue", "grey"]
+
+
+@pytest.mark.parametrize("key", [["B", "D"], ["B"], "A,D"])
+def test_a_several_letter_key_is_frozen_as_the_eval_wrote_it(key: Any) -> None:
+    """truthfulqa's ``["B"]``, stereoset's two letters, chembench's ``"A,D"`` (which its
+    pattern scorer compares as text, so it must stay one string)."""
+
+    assert _letter_case(key, _FOUR)["grading_material"] == {"target": key, "choices": _FOUR}
+
+
+def test_a_single_letter_key_still_takes_the_one_option_path_on_such_a_row() -> None:
+    assert _letter_case("C", _FOUR)["grading_material"] == {"target": "C", "choices": _FOUR}
+
+
+@pytest.mark.parametrize(
+    ("bad", "reason"),
+    [
+        (["B", "E"], "each within 4 choices"),
+        ("A,", "each within 4 choices"),
+        ([], "must name options by letter"),
+        (["Paris"], "each within 4 choices"),
+        (["b"], "each within 4 choices"),
+        (["B", "B"], "names an option twice"),
+        ("A,D,A", "names an option twice"),
+    ],
+)
+def test_a_several_letter_key_naming_no_real_option_is_refused(bad: Any, reason: str) -> None:
+    """INVARIANT: the opt-in widens the shape, never the trust boundary; every letter names an
+    option the Case shows, once."""
+
+    with pytest.raises(PrepareError, match=reason):
+        _letter_case(bad, _FOUR)
+
+
+def test_without_the_opt_in_a_comma_joined_key_is_still_refused() -> None:
+    with pytest.raises(PrepareError, match="neither a letter"):
+        _case("A,D", choices=_FOUR)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reply", "correct"),
+    [("ANSWER: B, D", True), ("ANSWER: B", False), ("ANSWER: A, B, D", False)],
+)
+async def test_inspects_choice_scorer_grades_a_several_letter_key_when_several_are_allowed(
+    reply: str, correct: bool
+) -> None:
+    """The frozen list reaches inspect's own choice() as the Target it would have built, and
+    with multiple_correct the reply's every letter is read: B and D exactly is right."""
+
+    from inspect_ai.scorer import choice
+
+    material: object = json.loads(json.dumps(_letter_case(["B", "D"], _FOUR)["grading_material"]))
+    request: GradeRequest = GradeRequest(
+        case_id=1,
+        input=TextPayload(text="Which options are true?"),
+        answer=TextPayload(text=reply),
+        row={"case": {"status": "answered"}},
+        material=material,
+    )
+
+    outcome = await inspect_grade_case(choice(), multiple_correct=True)(request)
+
+    assert outcome.score == (1.0 if correct else 0.0)

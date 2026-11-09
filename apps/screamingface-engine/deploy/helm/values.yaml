@@ -266,6 +266,60 @@ garage:
     limits:
       memory: 1Gi
 
+# The run blob store's OWN storage (OME-1540; #1603 review, owner decision 2026-11-03): the
+# files clients upload over `PUT /blob/sha256/<hex>` for a run's model calls to read.
+#
+# WHY separate from `artifactStorage`: upload volume is driven by clients, and on a self-hosted
+# engine with Access off, by anyone who can mint a token. Sharing one store would let uploads
+# fill the space a paid run needs to park its result. Here a full blob store fails UPLOADS (a
+# 503 with Retry-After) and never result delivery.
+#
+# Both halves — the App (upload/fetch) and the runner pool (model-call reads) — are rendered
+# from this one stanza, exactly as `artifactStorage` is.
+blobs:
+  storage:
+    # "" — the same backend as `artifactStorage.backend` (but NEVER the same store).
+    # "filesystem" — single-process only, like the artifact store: the App refuses it with
+    #               `config.runner: queue`, because the pool cannot read the App's disk.
+    # "s3" — any S3-compatible endpoint; by default the bundled blob Garage below.
+    backend: ""
+    # Blob directory for filesystem mode. Empty => the code's default, a sibling of the
+    # artifact default (`<tmp>/screamingface-engine/blobs`), never inside the artifact tree.
+    filesystemDir: ""
+    s3:
+      # Empty => the chart's SECOND bundled Garage (`<fullname>-garage-blobs`), with its own
+      # volume and its own credentials. Set it to use storage you already run instead; no blob
+      # Garage is rendered then.
+      endpointUrl: ""
+      bucket: screamingface-blobs
+      region: garage
+      # With the bundled blob Garage (`endpointUrl` empty) both may be left empty: the chart
+      # generates a stable pair (reused across upgrades via `lookup`) and the blob Garage adopts
+      # it on first boot. With an external `endpointUrl` the render FAILS unless both are set or
+      # `existingSecret` is (#1603 review). NEVER commit a real secret key to a values file.
+      accessKey: ""
+      secretKey: ""
+      # Bring your own Secret. It must carry `URL4_CLOUD_BLOB_S3_ACCESS_KEY` and
+      # `URL4_CLOUD_BLOB_S3_SECRET_KEY` (read by those key names), and — whenever the bundled
+      # blob Garage is rendered (`endpointUrl` empty) — `GARAGE_RPC_SECRET` too: 64 hex chars,
+      # e.g. `openssl rand -hex 32`. The chart-owned Secret generates all three.
+      existingSecret: ""
+    # The bundled blob Garage: same image and security posture as `garage`, its own volume.
+    garage:
+      persistence:
+        enabled: true
+        accessModes: [ReadWriteOnce]
+        # THE blob quota: when this volume is full, uploads fail with a 503 and nothing else
+        # does. Uploads are capped at 8 MB each and expire with the artifact TTL.
+        size: 5Gi
+        storageClass: ""
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+
 # Tavily web tools (spec 2026-07-23) — lets the aigateway connector declare web_search/web_fetch
 # and run its bounded tool-calling loop. Disabled => the Runner never sees TAVILY_API_KEY and the
 # connector stays deny-by-default (dec:W5), with a request body identical to the no-tools shape.
@@ -600,14 +654,21 @@ runnerPool:
     # run whose process tree goes past it (`memory_budget_exceeded`, not redelivered) before the
     # pod's cgroup OOM-kills it or a co-tenant. One value, so the pod limit and the run budget
     # cannot disagree at any `workerSlots`.
-    memoryLimitMi: 1024
+    # WHY 2560 (OME-1648, 2026-10-19): every ContractEval run parses its whole 192 MiB case file
+    # (4,182 full contracts), whatever its `limit`. Measured in kind: a 3-case run stopped at
+    # 1,382 MiB under the old 1 Gi, and completed under 2 Gi with a 1,828 MiB peak — too little
+    # headroom for a 2 s watch. 2.5 Gi is that peak + 40%. The owner kept 4 slots, so the pod
+    # LIMIT grows (10,496 Mi) while the REQUEST holds; the node VMs grow to match.
+    # AIDEV-NOTE: lower this again once selective case loading lands (the OME-1648 follow-up);
+    # `test_the_default_budget_fits_contracteval_s_measured_case_load` holds the floor until then.
+    memoryLimitMi: 2560
     # The address-space backstop (the child's RLIMIT_AS) as a multiple of `memoryLimitMi`. It
     # only stops a runaway allocation; it must sit well above the resident budget, because
     # native libraries reserve address space they never touch. The chart refuses < 2.
-    # WHY 2: it keeps the 2 GiB the code has always defaulted to at the 1 Gi charge, and a
-    # `draco-3pass` run measured 849 MiB of address space at its 444 MiB resident peak once the
-    # runner env stopped the native reservations — while a bigger factor would let one runaway
-    # child grow toward the whole pod limit before the 2 s resident watch sees it.
+    # WHY 2 (a 5 GiB backstop at the 2.5 Gi charge): a `draco-3pass` run measured 849 MiB of
+    # address space at its 444 MiB resident peak once the runner env stopped the native
+    # reservations — while a bigger factor would let one runaway child grow toward the whole
+    # pod limit before the 2 s resident watch sees it.
     addressSpaceFactor: 2
   overhead:
     # The worker process's own footprint (the claim loop, the NATS clients, the supervisor).
@@ -644,6 +705,25 @@ artifactSigning:
   # Dev-only convenience for a chart-created Secret. NEVER commit a real key to a values file;
   # pass it with `--set` / `--set-file`, or use `existingSecret`.
   signingKey: ""
+
+# FEATURE (hosted BYOM, OME-1770): a privately supplied COMPLETE world config for the App AND the
+# runner pool, replacing the image's public `url4.toml` for both. Needed when the world declares a
+# configured-endpoint route (`[[aigateway.models]]` with `public_schema = false`), which must not
+# go into the repository's `url4.toml` or an image. Empty: both pods read the image's file, as
+# before.
+# INVARIANT: both pod templates get the same source, key, read-only mount, `URL4_RUNNER_CONFIG`
+# path and `checksum/world-config` annotation, so the catalog the App serves and the routes a
+# worker executes come from one file. The chart never renders the file itself.
+worldConfig:
+  # The existing ConfigMap OR Secret holding the complete world config. Set at most one.
+  existingConfigMap: ""
+  existingSecret: ""
+  # The file's key inside that ConfigMap or Secret.
+  key: url4.toml
+  # REQUIRED with a source: the file's content revision, for example its sha256. The chart cannot
+  # read an object it did not render, so this value is what rolls both pod templates when the
+  # file changes; 1-128 characters from `A-Z a-z 0-9 . _ : + = -`.
+  contentChecksum: ""
 
 # Runner image (spec §9). The pool Deployment runs this image in `worker` mode; the worker
 # forks each run as a child from its own image, so this is the image that must carry the

@@ -30,6 +30,7 @@ from aigateway.core.parameter_discovery import DiscoverySourceRef
 from aigateway.core.parameter_projection import IncompatibleParametersError
 from aigateway.core.plugin_base import (
     CredentialStrategy,
+    ModelDiscoverySource,
     ModelEntry,
     ProviderPluginBase,
 )
@@ -41,10 +42,12 @@ from aigateway.core.standard_parameters import (
 from .api_key_validation import HuggingFaceApiKeyValidator
 from .discovery import (
     HF_STATIC_PARAM_OBSERVATIONS,
+    LIVE_MODALITIES_DISCOVERY_SOURCE,
     ROUTER_SOURCE,
     ROUTER_SOURCE_REVISION,
     STATIC_SOURCE,
     discover_huggingface_snapshot,
+    discover_router_input_modalities,
 )
 from .global_cache import project_global_cache_request
 from .parameters import huggingface_chat_parameter_rules, huggingface_chat_parameter_tools
@@ -71,9 +74,9 @@ if TYPE_CHECKING:
 _CLIENT_AUTH_HEADER_NAMES = {"authorization", "x-api-key", "proxy-authorization"}
 
 
-def _credential_service_for(profile_name: str) -> str:
+def _credential_service_for(credential_name: str) -> str:
     """Namespace the stored credential slot by provider + profile/connection."""
-    return f"aigateway:huggingface:{profile_name}"
+    return f"aigateway:huggingface:{credential_name}"
 
 
 class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
@@ -88,18 +91,49 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
             for slug in self.settings.default_models
         ]
 
+    def model_discovery_source(self) -> ModelDiscoverySource | None:
+        # OME-1537: the SAME flag gates both listing hooks, so "declared a source,
+        # then reported NOT ATTEMPTED" is unreachable.
+        return LIVE_MODALITIES_DISCOVERY_SOURCE if self.settings.live_modalities else None
+
+    async def discover_live_models(
+        self,
+        *,
+        client: DiscoveryHttpClient,
+        limits: DiscoveryLimits | None = None,
+    ) -> tuple[ModelEntry, ...] | None:
+        """The configured entries, enriched with router-catalogue modalities (OME-1537).
+
+        INVARIANT: never changes WHAT is listed — exactly ``register_models()``, in
+        order; only the evidence field is filled. A model the catalogue does not list
+        keeps ``None`` (text-only).
+        """
+        if not self.settings.live_modalities:
+            return None
+        evidence = await discover_router_input_modalities(client=client, limits=limits)
+        return tuple(
+            ModelEntry(
+                model_name=entry.model_name,
+                litellm_params=entry.litellm_params,
+                input_modalities=evidence.get(
+                    entry.model_name.removeprefix("huggingface/").partition(":")[0]
+                ),
+            )
+            for entry in self.register_models()
+        )
+
     def supports_api_key(self) -> bool:
         return True
 
     def api_key_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
     ) -> CredentialStrategy:
         return ApiKeyStrategy(
-            profile_name,
-            service=_credential_service_for(profile_name),
+            credential_name,
+            service=_credential_service_for(credential_name),
             account="default",
             header_builder=lambda api_key: {"Authorization": f"Bearer {api_key}"},
             credential_store=credential_store,
@@ -108,7 +142,7 @@ class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):
     def api_key_validator(self) -> ApiKeyValidator:
         return HuggingFaceApiKeyValidator(settings=self.settings)
 
-    def should_mark_profile_error_on_dispatch_status(self, status_code: int) -> bool:
+    def should_mark_credential_error_on_dispatch_status(self, status_code: int) -> bool:
         # 401 => bad/missing token (invalidate). 403 is ambiguous (model-access vs
         # token permission) and must not invalidate a valid stored credential.
         return status_code == 401

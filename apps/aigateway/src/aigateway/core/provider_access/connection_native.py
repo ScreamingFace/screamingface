@@ -3,16 +3,17 @@
 # FEATURE: Stage B Target — a migrated pair's effective Connection is addressed at its
 # `credential_locator` (the Profile blob) by EVERY path, and its two authority-changing writes
 # keep the pair coherent: delete retires the pair (op 9 shape), key replacement fences the
-# generation and mirrors the compat document (op 8 shape).
-# INVARIANT (D14): the marker and the index are written inside the CALLER's transaction BEFORE
-# the connection row and the blob — marker → index → connection row → blob, the one lock order
-# of the backing (`connection_admin`, `connection_oauth`).
+# generation (op 8 shape).
+# INVARIANT (D14): the marker is written inside the CALLER's transaction BEFORE the connection
+# row and the blob — marker → connection row → blob, the one lock order of the backing
+# (`connection_admin`). Since OME-1209 E4b no Profile document is written or removed here.
 # AIDEV-NOTE: a row that is not a migrated pair's effective row is a plain Connection — every
 # function here is a no-op for it and the route behaves exactly as before S2'b4. Nothing here
 # reads for a response; the routes keep their own HTTP vocabulary.
-# FEATURE (OME-1497, G0 writer floor §5.3): on a `none`/`quarantined` pair a native create, OAuth
-# start, key replacement or delete is an ownership change — `claim_native_write` claims the pair
-# it observed, keeping the state (no auto-promotion, D14), as the FIRST write of its transaction.
+# FEATURE (OME-1497, G0 writer floor §5.3): on a `none` or unmarked pair — owned by its Connections
+# (OME-1209 §9 Q8) — a native create, OAuth start, key replacement or delete is an ownership
+# change: `claim_native_write` claims the pair it observed, keeping the state (no
+# auto-promotion, D14), as the FIRST write of its transaction.
 # FEATURE (OME-1209, E1b, spec R6): a native OAuth flow started while a `migrated` pair's
 # effective row was unusable takes the pair over at its callback — `replace_effective` moves the
 # marker to the new row, `retire_replaced` revokes the old one. Connection side only, so the
@@ -28,15 +29,13 @@ from tortoise.expressions import Q
 from tortoise.queryset import QuerySet
 
 from aigateway.core.oauth.models import OAuthConnection
-from aigateway.core.oauth.store import OAuthConnectionStore, credential_locator_for
+from aigateway.core.oauth.store import OAuthConnectionStore
 from aigateway.core.plugin_base import credential_service_provider_for
-from aigateway.core.profile_index import ProfileIndexStore, ProfileTransitionConflict
 
-from .connection_admin import api_key_mirror
 from .connection_locator import credential_name_from_locator
 from .pair_authority import PairAuthority, PairAuthorityConflict, PairAuthorityStore
 from .types import WriteConflict
-from .writer_floor import claim_observed
+from .writer_floor import claim_observed, hold_pair
 
 
 def credential_name_of(plugin: Any, connection: OAuthConnection, *, account_id: str) -> str:
@@ -50,14 +49,18 @@ def credential_name_of(plugin: Any, connection: OAuthConnection, *, account_id: 
 
 
 async def claim_native_write(observed: PairAuthority, *, requested: str) -> PairAuthority | None:
-    """Claim the legacy-owned pair a native writer observed; the published pair, else None.
+    """Fence the pair a native writer observed; the published Connection-owned pair, else None.
 
     Runs inside the caller's transaction as its FIRST write (marker → row → blob). A `migrated`
-    pair is a no-op: its effective row is fenced by `retire_effective` and
-    `republish_effective_api_key`, and its other rows keep their fences (owner decision
-    2026-10-06). A lost claim is the native superseded conflict (409 `connection_conflict`).
+    pair is held without advancing its generation: this serializes a new native row with D18's
+    live-set recheck, while effective-row writes still advance through `retire_effective` and
+    `republish_effective_api_key`. A lost claim or hold is the native superseded conflict (409
+    `connection_conflict`).
     """
     try:
+        if observed.migration_state == "migrated":
+            await hold_pair(observed)
+            return None
         return await claim_observed(observed)
     except PairAuthorityConflict as exc:
         raise WriteConflict(
@@ -80,9 +83,10 @@ async def effective_pair_of(connection: OAuthConnection) -> PairAuthority | None
     return pair
 
 
-# WHY these two: a row in `error` or `revoked` serves nothing — a new OAuth flow replaces it
-# whatever its auth type, as the Profile facade did.
-UNUSABLE_EFFECTIVE = frozenset({"error", "revoked"})
+# WHY these three: a row in `error`, `expired` or `revoked` serves nothing — a new flow replaces
+# it whatever its auth type. `expired` joined at the OME-1138 close-out, L7a (spec §8.1); only
+# `active` and `pending` are usable (R6), so a `pending` effective row is never displaced.
+UNUSABLE_EFFECTIVE = frozenset({"error", "expired", "revoked"})
 
 
 # WHY: `mark_error`, `mark_revoked` and a pending start park a row under these — never a name.
@@ -215,44 +219,48 @@ async def lock_lower_addressers(connection: OAuthConnection) -> None:
     await _live_rows(connection).filter(id__lt=connection.id).order_by("id").select_for_update()
 
 
-async def credential_has_other_owner(app: Any, connection: OAuthConnection) -> bool:
-    """Delete time, AFTER `mark_revoked`: does another live addresser still serve this row's blob?
+async def lock_if_status(connection: OAuthConnection, status: str) -> bool:
+    """Conditional delete time (L7c), BEFORE `mark_revoked`: lock this row only while it still
+    has `status`; False when it has moved since the caller listed it.
+
+    # INVARIANT: under READ COMMITTED the locking read waits for a writer holding the row and then
+    # re-checks the status on what it committed, so a row an activation turned `active` first is
+    # neither locked nor revoked. A locked row keeps its status until commit, so `mark_revoked`
+    # revokes the row as the caller listed it. This is the own-row lock of the one id order.
+    # WHY no FOR UPDATE on SQLite: its single writer serializes the transactions anyway.
+    """
+    row = (
+        await OAuthConnection.filter(
+            id=connection.id, account_id=str(connection.account_id), status=status
+        )
+        .select_for_update()
+        .first()
+    )
+    return row is not None
+
+
+async def credential_has_other_owner(connection: OAuthConnection) -> bool:
+    """Delete time, AFTER `mark_revoked`: does another live row still serve this row's blob?
 
     True when another non-revoked row of the pair has the same locator (a superseded `error` row
-    beside the row a re-auth opened), or when the legacy Profile owns the pair (marker `none` or
-    `quarantined`) and one of its documents is addressed there — the shape an R1 rollback leaves.
-    The caller then keeps the blob.
+    beside the row a re-auth opened). The caller then keeps the blob.
     # INVARIANT (D5, D11): a blob is deleted only when its LAST live addresser goes — never destroy
     # what another owner serves, never guess which one the user meant.
-    # WHY a migrated pair's documents do not count: they are mirrors of the effective row, not
-    # owners; `retire_effective` removes them when the effective row itself is deleted.
+    # WHY no Profile document counts (OME-1209 E4b): since E4a no reader resolves a document, so
+    # none serves a blob; one left at this address is history for E5, not an addresser.
     """
-    account_id = str(connection.account_id)
     locator = connection.credential_locator
     await _live_rows(connection).filter(id__gt=connection.id).order_by("id").select_for_update()
     rows = await _live_rows(connection).exclude(id=connection.id)
-    if any(row.credential_locator == locator for row in rows):
-        return True
-    pair = await PairAuthorityStore().read(account_id, connection.provider)
-    if pair.migration_state == "migrated":
-        return False
-    credential_provider = credential_service_provider_for(
-        app.state.providers.get(connection.provider), connection.provider
-    )
-    index: ProfileIndexStore = app.state.profile_index
-    return any(
-        credential_locator_for(credential_provider, account_id, document.name) == locator
-        for document in await index.list(account_id, provider=connection.provider)
-    )
+    return any(row.credential_locator == locator for row in rows)
 
 
-async def retire_effective(app: Any, connection: OAuthConnection) -> None:
-    """Delete time: the pair keeps no effective Connection and no compat document.
+async def retire_effective(connection: OAuthConnection) -> None:
+    """Delete time: the pair keeps no effective Connection.
 
     Runs inside the caller's transaction, BEFORE `mark_revoked` and the blob delete.
-    # WHY remove the document: after an R1 rollback the legacy path must not find a document
-    # for a credential the user deleted — "delete removes only one → old credential later
-    # reappears" is the state the transition forbids. Post-delete shape = op 9's.
+    # WHY no document removal (OME-1209 E4b): no runtime path writes or removes a Profile
+    # document. A pair changed after E4b is not coherent for an R1 rollback (spec §8 Q7).
     # INVARIANT (D14): the marker is held before any row lock — advanced when this row is the
     # pair's effective one, else held at the generation observed — and a writer that moved it
     # first makes the delete lose (409 `connection_conflict`).
@@ -272,38 +280,21 @@ async def retire_effective(app: Any, connection: OAuthConnection) -> None:
             raise _superseded(connection) from exc
         return
     await _advance(pair, connection, effective_connection_id=None)
-    index: ProfileIndexStore = app.state.profile_index
-    for document in await index.list(pair.account_id, provider=pair.provider):
-        await index.remove(document.id)
 
 
-async def republish_effective_api_key(
-    app: Any, connection: OAuthConnection, *, raw_api_key: str
-) -> None:
-    """Key replacement: fence the pair and mirror the compat document, as op 8 does.
+async def republish_effective_api_key(connection: OAuthConnection) -> None:
+    """Key replacement: fence the pair when this row is its effective one, as op 8 does.
 
     Runs inside the caller's transaction, BEFORE `reactivate` and the blob write.
-    # INVARIANT: the generation moves (same effective id) so a Profile-facade OAuth callback
-    # still in flight loses its fence instead of publishing tokens over the key just set —
-    # never last-write-wins between two secrets.
+    # INVARIANT: the generation moves (same effective id) so a native repair callback still in
+    # flight loses its `replace_effective` compare-and-set instead of publishing tokens over the
+    # key just set — never last-write-wins between two secrets.
+    # WHY no compat-document mirror (OME-1209 E4b): no runtime path writes a Profile document.
     """
     pair = await effective_pair_of(connection)
     if pair is None:
         return
     await _advance(pair, connection, effective_connection_id=connection.id)
-    index: ProfileIndexStore = app.state.profile_index
-    for document in await index.list(pair.account_id, provider=pair.provider):
-        mirror = api_key_mirror(
-            document,
-            account_id=pair.account_id,
-            provider=pair.provider,
-            name=document.name,
-            raw_api_key=raw_api_key,
-        )
-        try:
-            await index.upsert(mirror, require_present=True)
-        except ProfileTransitionConflict as exc:
-            raise _superseded(connection) from exc
 
 
 async def _advance(

@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from ..api_key_validation import ApiKeyValidator
 from ..cache_ports import PROJECTION_BYPASS_REASON, CacheBypass
 from ._ports import (
+    ClassifierEntry,
     CredentialStrategy,
     ModelAdmission,
     ModelEntry,
@@ -40,7 +41,6 @@ if TYPE_CHECKING:
     from ..credential_blob.store import CredentialBlobStore
     from ..oauth.identity import AccountIdentity
     from ..parameter_discovery import DiscoveryHttpClient, DiscoveryLimits
-    from ..profile_index import ProfileIndexStore
 
 
 class ProviderPluginCore[TSettings: PluginSettings](ABC):
@@ -53,6 +53,12 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     custom_llm_provider: str
     provider_display_name: str
     settings_cls: ClassVar[type[PluginSettings]] = PluginSettings
+    # FEATURE (OME-1542): the chat route refuses every remote image/file reference before the cache
+    # stage, so our process never dials a caller's URL. A provider sets this ONLY when its upstream,
+    # not the gateway, fetches `http(s)` image URLs (Codex: OpenAI does). It relaxes images only.
+    # INVARIANT: a provider that sets it keeps the base `global_cache_projection` (always a bypass),
+    # so no cache entry is ever keyed by a URL instead of the bytes behind it.
+    forwards_remote_image_urls: ClassVar[bool] = False
 
     def __init__(self, settings: TSettings | None = None) -> None:
         self.settings = settings if settings is not None else cast(TSettings, self.settings_cls())
@@ -60,6 +66,14 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
     @abstractmethod
     def register_models(self) -> list[ModelEntry]:
         """Return the model_list entries this plugin contributes."""
+
+    def register_classifiers(self) -> list[ClassifierEntry]:
+        """Return the text classifiers this plugin serves; none by default.
+
+        FEATURE: hosted BYOM Unit 3. INVARIANT: a classifier is never a chat model, so no entry
+        here is also in ``register_models``; only ``classify`` dispatches it.
+        """
+        return []
 
     async def admit_model(
         self,
@@ -105,21 +119,21 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
 
     def oauth_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy | None:
-        """Return a per-profile OAuth strategy. Default: no auth."""
+        """Return a per-credential OAuth strategy. Default: no auth."""
         return None
 
     def api_key_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         credential_store: CredentialBlobStore | None = None,
     ) -> CredentialStrategy | None:
-        """Return a per-profile API-key strategy, or None when the provider
+        """Return a per-credential API-key strategy, or None when the provider
         does not support API-key auth (e.g. codex subscription endpoints)."""
         return None
 
@@ -129,17 +143,17 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
 
     def credential_strategy_for(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         auth_type: AuthType = "oauth",
         credential_store: CredentialBlobStore | None = None,
         http_client_factory: Any | None = None,
     ) -> CredentialStrategy | None:
-        """Resolve the credential strategy for ``profile_name`` by auth type."""
+        """Resolve the credential strategy for ``credential_name`` by auth type."""
         if auth_type == "api_key":
-            return self.api_key_strategy_for(profile_name, credential_store=credential_store)
+            return self.api_key_strategy_for(credential_name, credential_store=credential_store)
         return self.oauth_strategy_for(
-            profile_name,
+            credential_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
         )
@@ -198,6 +212,19 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         # as defense in depth). Default: identity — a provider opts in by override.
         """
         return body
+
+    def refuse_inadmissible_media(self, body: dict[str, Any]) -> None:
+        """Raise the typed 422 for media this provider can never carry (OME-1542 review 2).
+
+        # FEATURE: image and file input (OME-1529). The chat route calls this at its media
+        # boundary, next to the provider-neutral data:-only guard.
+        # INVARIANT: called BEFORE the cache stage and credential resolution, so a profile or
+        # auth error can never preempt the media 422 and a refused body never reaches the cache.
+        # WHY a hook: which slots hold text only is the provider's wire knowledge (Anthropic's
+        # top-level ``system``); core states the seam, the plugin fills it, and core never
+        # imports the plugin. Default: admit everything.
+        """
+        return None
 
     def prepare_chat_body(self, body: dict[str, Any]) -> dict[str, Any]:
         """Apply provider-specific request normalization before dispatch."""
@@ -328,20 +355,20 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         del model
         return True
 
-    def allows_chatless_profile(self) -> bool:
-        """Whether chat may proceed when no gateway OAuth profile exists."""
+    def allows_chatless_credential(self) -> bool:
+        """Whether chat may proceed when no stored credential exists."""
         return False
 
-    def profileless_auth_mode(self) -> AuthMode | None:
+    def credentialless_auth_mode(self) -> AuthMode | None:
         """Return the runtime-selected auth mode when no stored target exists."""
         return None
 
-    def invalidate_profile_session(self, _profile_name: str) -> None:
-        """Drop provider-owned per-profile chat/session cache, if any."""
+    def invalidate_credential_session(self, _credential_name: str) -> None:
+        """Drop provider-owned per-credential chat/session cache, if any."""
         return None
 
-    def should_mark_profile_error_on_dispatch_status(self, _status_code: int) -> bool:
-        """Whether a provider dispatch failure means stored profile auth is unusable."""
+    def should_mark_credential_error_on_dispatch_status(self, _status_code: int) -> bool:
+        """Whether a provider dispatch failure means the stored credential is unusable."""
         return False
 
     async def chat_completion(self, body: dict[str, Any]) -> Any:
@@ -358,20 +385,19 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         async for chunk in stream:
             yield chunk
 
+    async def classify(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Dispatch one text classification of a model from ``register_classifiers``.
+
+        Default: unsupported. The route admits only a listed classifier, so a plugin without
+        classifiers is never asked.
+        """
+        del body
+        raise NotImplementedError("this provider serves no classifiers")
+
     def auth_router(self):
         """Provider-specific auth routes.
 
         Handlers should require `CurrentAccount` unless they are OAuth callback
         targets protected by a pending-auth state nonce.
         """
-        return None
-
-    async def bootstrap_profiles(
-        self,
-        *,
-        account_id: str,
-        credential_store: CredentialBlobStore | None = None,
-        index_store: ProfileIndexStore | None = None,
-    ) -> None:
-        """Populate provider-owned profile metadata at startup, if any."""
         return None

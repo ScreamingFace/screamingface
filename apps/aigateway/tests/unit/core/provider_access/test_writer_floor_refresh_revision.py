@@ -17,11 +17,12 @@ from typing import Any
 import pytest
 from connection_backed_admin_probes import (
     blob_at_connection_address,
-    blob_at_profile_address,
+    blob_at_name_address,
     marker,
 )
+from connection_backed_harness import ConnectionBackedHarness
 from connection_backed_oauth_probes import access_token_of
-from provider_access_harness import ProfileBackedHarness
+from provider_access_harness import RealAppHarness
 from test_writer_floor_refresh import (
     Intrusion,
     an_ownership_claim,
@@ -39,8 +40,13 @@ from aigateway.plugins.anthropic_provider.auth import AnthropicOAuth
 
 
 @pytest.fixture
-def legacy(authenticated_client, credential_blobs, monkeypatch) -> ProfileBackedHarness:
-    return ProfileBackedHarness(authenticated_client, credential_blobs, monkeypatch)
+def legacy(authenticated_client, credential_blobs, monkeypatch) -> RealAppHarness:
+    return RealAppHarness(authenticated_client, credential_blobs, monkeypatch)
+
+
+@pytest.fixture
+def migrated(authenticated_client, credential_blobs, monkeypatch) -> ConnectionBackedHarness:
+    return ConnectionBackedHarness(authenticated_client, credential_blobs, monkeypatch)
 
 
 def valid_blob(token: str) -> str:
@@ -90,13 +96,13 @@ def test_a_dispatch_refresh_survives_an_ownership_change_elsewhere_on_the_pair(l
     # INVARIANT (§5.3, owner decision 2026-10-07): another writer's claim on the pair does not
     # touch this blob, so the rotated refresh token is published and not burned.
     h = legacy
-    h.seed_profile()
-    h.blobs.write(profile_service(h), "default", expired_blob())
+    connection_id = h.seed_connection(label="work")
+    h.blobs.write(connection_service(h, connection_id), "default", expired_blob())
     use_intruding_tokens(h, "fresh-tok", an_ownership_claim(h))
 
     resolve_and_authorize(h)
 
-    assert access_token_of(blob_at_profile_address(h)) == "fresh-tok"
+    assert access_token_of(blob_at_connection_address(h, connection_id)) == "fresh-tok"
     assert marker(h).generation == 1
 
 
@@ -129,10 +135,10 @@ def test_a_token_refresh_loses_to_a_rewrite_of_its_own_blob(legacy) -> None:
     assert access_token_of(blob_at_connection_address(h, connection_id)) == "new"
 
 
-def test_a_dispatch_refresh_loses_to_a_recreated_blob_at_its_address(legacy) -> None:
+def test_a_dispatch_refresh_loses_to_a_recreated_blob_at_its_address(migrated) -> None:
     # WHY: a recreated row starts again at revision 1, so the row id is part of the observation.
-    h = legacy
-    h.seed_profile()
+    h = migrated
+    h.seed_credential()
     service = profile_service(h)
     h.blobs.write(service, "default", expired_blob())
     use_intruding_tokens(h, "fresh-tok", a_blob_recreation(h, service))
@@ -140,7 +146,7 @@ def test_a_dispatch_refresh_loses_to_a_recreated_blob_at_its_address(legacy) -> 
     with pytest.raises(WriteConflict):
         resolve_and_authorize(h)
 
-    assert access_token_of(blob_at_profile_address(h)) == "other"
+    assert access_token_of(blob_at_name_address(h)) == "other"
 
 
 def test_a_cached_strategy_does_not_resurrect_a_blob_deleted_before_its_refresh(legacy) -> None:

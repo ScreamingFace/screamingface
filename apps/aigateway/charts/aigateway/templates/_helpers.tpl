@@ -170,3 +170,51 @@ from starting, turning "I needed no credential" into an outage.
 true
 {{- end -}}
 {{- end -}}
+
+{{/*
+Hosted BYOM (OME-1771): the private endpoints file `AIGW_REMOTE_ENDPOINTS_CONFIG` names, mounted
+read-only from ONE ConfigMap or Secret the operator owns. `remoteEndpointsEnabled` validates
+`remoteEndpoints` and answers "true" when a source is set. This chart has no values schema, so
+these `fail`s are the only guard against a pod that starts without the file it was promised.
+*/}}
+{{- define "aigateway.remoteEndpointsEnabled" -}}
+{{- $endpoints := .Values.remoteEndpoints -}}
+{{- if and $endpoints.existingConfigMap $endpoints.existingSecret -}}
+{{- fail "remoteEndpoints: set only one of existingConfigMap or existingSecret" -}}
+{{- end -}}
+{{- if or $endpoints.existingConfigMap $endpoints.existingSecret -}}
+{{- if not $endpoints.key -}}
+{{- fail "remoteEndpoints.key must name the endpoints file inside the source" -}}
+{{- end -}}
+{{- if not (regexMatch "^[A-Za-z0-9._:+=-]{1,128}$" (toString $endpoints.contentChecksum)) -}}
+{{- fail "remoteEndpoints.contentChecksum is required with a source: the file's content revision, 1-128 characters from A-Z a-z 0-9 . _ : + = -" -}}
+{{- end -}}
+true
+{{- else if $endpoints.contentChecksum -}}
+{{- fail "remoteEndpoints.contentChecksum is set but there is no source: set existingConfigMap or existingSecret" -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+INVARIANT (OME-1771 review): values cannot replace the wiring above. `podAnnotations` and
+`extraEnv` render after the chart's own entries, so a user `checksum/remote-endpoints` would
+replace the content revision, and a user `AIGW_REMOTE_ENDPOINTS_CONFIG` would point the process at
+a file the chart never mounted. Renders nothing; refuses the render instead. Without a source the
+chart writes no path, so an operator's own `extraEnv` entry stays allowed.
+*/}}
+{{- define "aigateway.guardRemoteEndpointsWiring" -}}
+{{- if hasKey (.Values.podAnnotations | default dict) "checksum/remote-endpoints" -}}
+{{- fail "podAnnotations must not set checksum/remote-endpoints: the chart writes it from remoteEndpoints.contentChecksum" -}}
+{{- end -}}
+{{- if include "aigateway.remoteEndpointsEnabled" . -}}
+{{- range .Values.extraEnv -}}
+{{- if eq (toString .name) "AIGW_REMOTE_ENDPOINTS_CONFIG" -}}
+{{- fail "extraEnv must not set AIGW_REMOTE_ENDPOINTS_CONFIG while remoteEndpoints has a source: the chart points it at the mounted file" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "aigateway.remoteEndpointsDir" -}}
+/etc/aigateway/remote-endpoints
+{{- end -}}

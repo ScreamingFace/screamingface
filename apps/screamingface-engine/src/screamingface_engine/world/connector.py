@@ -7,7 +7,6 @@ resolves and runs an expression against.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import math
 import random
@@ -21,8 +20,18 @@ from weakref import WeakKeyDictionary
 import httpx
 
 from screamingface_engine import engine_version, job_env
-from screamingface_engine.benchmarks.case_context import current_case_attempt, current_case_key
-from screamingface_engine.benchmarks.contract import CANDIDATE_INPUT_SCHEMA, CANDIDATE_MESSAGE_ROLES
+from screamingface_engine.benchmarks.candidate_input import (
+    CandidateInputError,
+    CandidateMessage,
+    parse_candidate_input,
+)
+from screamingface_engine.benchmarks.case_context import (
+    current_capture_case,
+    current_case_attempt,
+    current_case_key,
+)
+from screamingface_engine.benchmarks.failure_classes import logprobs_unsupported
+from screamingface_engine.benchmarks.picture_admission import register_model_sight
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.capture_outcomes import (
     CAPTURE_FIELD,
@@ -43,12 +52,13 @@ from screamingface_engine.capture_outcomes import (
     seal_path,
 )
 from screamingface_engine.error_text import ENGINE_RESERVED_CODES
-from screamingface_engine.grading_call_scope import grading_call_log_suffix
+from screamingface_engine.grading_call_scope import current_grading_case, grading_call_log_suffix
 from screamingface_engine.model_outcomes import bind_model_outcome, record_model_outcome
 from screamingface_engine.network_policy import is_numeric_loopback_url
 from screamingface_engine.observations import ModelCall, current_model_call
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
+    ReplyLogprobs,
     SignalAccounting,
     combine_operation_accounting,
     combine_signal_accounting,
@@ -73,15 +83,18 @@ from screamingface_engine.world.cache_readback import (
     read_cache_outcome,
     requires_revalidation,
 )
+from screamingface_engine.world.capture_proof import replay_failure_code
 from screamingface_engine.world.config import ModelSpec, WorldConfigError, provider_of, routes_for
 from screamingface_engine.world.errors import RunnerRequestError
 from screamingface_engine.world.fresh_judge_retry import scope_for_this_send
+from screamingface_engine.world.fusion_context import fusion_picture_messages
 from screamingface_engine.world.model_response import (
     Choice,
     parse_choice,
     raise_if_unusable,
 )
 from screamingface_engine.world.models.registry import decode_route_id
+from screamingface_engine.world.reply_logprobs import reply_logprobs
 from screamingface_engine.world.reply_origin import record_reply_origin, round_trip_origin
 from screamingface_engine.world.request_parameters import (
     WEB_SEARCH_PARAM,
@@ -103,7 +116,7 @@ from screamingface_engine.world.web_tools import (
     tavily_key,
     truncate_tool_result,
 )
-from url4.core.errors import ResolutionError
+from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag import GuardRetry, current_guard_retry
 from url4.io.static import StaticIOLayer
 from url4.observe import current_log_sink, current_response_sink, current_usage_sink
@@ -138,7 +151,8 @@ _TRANSPORT_RETRIES = 1  # one retry → two attempts; url4's retry= adds more if
 # INVARIANT (OME-1220): the transport failures that prove no request byte left the Engine.
 # httpcore raises these only while opening the connection (TCP connect, TLS handshake) or while
 # waiting for a pooled one; the request is written strictly after. A retry that follows one of
-# them is the only billed attempt, so its price is exact. Every other failure is ambiguous:
+# them does not set the `possibly_billed` fact. Since OME-1687 that fact changes no price — a call
+# is priced from its successful request whatever preceded it. Every other failure is ambiguous:
 # httpcore swallows a mid-request `WriteError` and surfaces the outcome as a read-side error,
 # so only "connect phase vs the rest" separates sent from unsent, never "write vs read".
 # AIDEV-NOTE: `_post_attempt`'s own `asyncio.timeout` raises `ReadTimeout` whatever the phase —
@@ -156,6 +170,11 @@ _TRANSPORT_BACKOFF_JITTER_S = 0.25
 # not 20 — the log stays legible while still proving the call is alive.
 _IN_FLIGHT_HEARTBEAT_S = 60.0
 _IN_FLIGHT_HEARTBEAT_MAX_S = 600.0
+
+# The aigateway code for OpenRouter's refusal of a request whose model has no endpoint for every
+# requested parameter (E4b part 3 unit 1, C4b). Only with HTTP 404: a 400 with this code is the
+# gateway's own parameter-catalog refusal, which keeps its mapping.
+_PARAMETER_REFUSAL_CODE = "unsupported_parameters"
 
 
 async def _in_flight_heartbeat(model_id: str, started: float) -> None:
@@ -183,6 +202,7 @@ async def _logged_round_trip(
     operation_accounting: list[OperationAccounting | None],
     replay_frozen_copy: str | None = None,
     signal_accounting: list[SignalAccounting] | None = None,
+    reply_logprobs: list[ReplyLogprobs | None] | None = None,
 ) -> Choice:
     # FEATURE: OME-1161 exposes execution facts to optional, node-associated observers.
     async with ModelCall(real_model_id, current_log_sink()) as observation:
@@ -197,6 +217,7 @@ async def _logged_round_trip(
             signal_accounting=signal_accounting,
             observation=observation,
             replay_frozen_copy=replay_frozen_copy,
+            reply_logprobs=reply_logprobs,
         )
 
 
@@ -212,6 +233,7 @@ async def _observed_round_trip(
     observation: ModelCall,
     replay_frozen_copy: str | None,
     signal_accounting: list[SignalAccounting] | None = None,
+    reply_logprobs: list[ReplyLogprobs | None] | None = None,
 ) -> Choice:
     """One gateway round trip with its lifecycle in the log.
 
@@ -235,8 +257,15 @@ async def _observed_round_trip(
         # this reply is live or a recording (cache hit, frozen-copy replay); a recording is
         # never redrawn. Recorded only once the gateway answered with a body.
         record_reply_origin(round_trip_origin(outcome, replay_frozen_copy))
-        _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
-        _retain_accounting(data, outcome, real_model_id, operation_accounting, signal_accounting)
+        _retain_reply_facts(
+            data,
+            body,
+            outcome,
+            real_model_id=real_model_id,
+            operation_accounting=operation_accounting,
+            signal_accounting=signal_accounting,
+            reply_logprobs=reply_logprobs,
+        )
         choice = parse_choice(data)
         # INVARIANT: report BEFORE classifying. A refused turn is the case a reviewer most
         # needs to audit, and raising first would lose exactly the event OME-679 exists to
@@ -410,8 +439,8 @@ class _ModelEndpoint:
     async def __call__(self, request: Request) -> str:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
         # with travel together — the call can never run one route's model under another's flags.
+        spec = self._routes[request.path]
         try:
-            spec = self._routes[request.path]
             # INVARIANT (F2): the caller's state is read HERE, per call, from the request scope —
             # never held on `self`. Two concurrent callers through this one handler each observe
             # their own scope because each runs in its own context (AC2), and a spawned model
@@ -471,11 +500,31 @@ class _ModelEndpoint:
                     retrieval_policy=retrieval_policy,
                     cache_attempt=egress.cache_attempt,
                 )
+        except _GatewayRefusal as exc:
+            # INVARIANT (OME-1770 review): the Gateway refuses an ungranted account a private
+            # target as an unknown provider. Relayed, that refusal tells the caller this Engine
+            # declares the route; url4's own answer for an undeclared route does not.
+            if spec.public_schema or not exc.refuses_provider(provider_of(spec.id)):
+                raise
+            raise _undeclared_route(request.path) from None
         except RunnerRequestError as exc:
             error = ResolutionError(str(exc), code=exc.code, permanent=exc.permanent)
             if exc.outcome is not None:
                 bind_model_outcome(error, exc.outcome)
             raise error from exc
+
+
+_NODE_NAME = "aigateway"
+"""The world node's name, which url4's undeclared-route error quotes."""
+
+
+def _undeclared_route(path: str) -> ResolutionError:
+    """url4's own error for a path the node does not declare (`url4.peer._dispatch`), verbatim."""
+    return ResolutionError(
+        f"node {_NODE_NAME!r} has no endpoint, eval path, or data route at {path!r}",
+        code=ErrorCode.ENDPOINT_NOT_FOUND,
+        permanent=True,
+    )
 
 
 _GATEWAY_CLIENTS: WeakKeyDictionary[Url4Node, httpx.AsyncClient] = WeakKeyDictionary()
@@ -551,13 +600,19 @@ async def build_aigateway_world(
     # instead of reaching HttpIOLayer. Left None, the node lazily builds HttpIOLayer and can
     # fetch any URL — which is what a token-bearing run has always been able to do.
     node = Url4Node(
-        "aigateway",
+        _NODE_NAME,
         default_processor="/" + cfg.default_model,
         outbound=None if cfg.allow_outbound else StaticIOLayer(),
     )
     for path in routes:
         node.endpoint(path)(call_model)
     _GATEWAY_CLIENTS[node] = http_client
+    register_model_sight(
+        node,
+        _GatewayModelSight(
+            http_client, {path: decode_route_id(spec.id) for path, spec in routes.items()}
+        ),
+    )
     return AigatewayWorld(
         node=node,
         _client=http_client,
@@ -623,6 +678,61 @@ def _gateway_client(node: object) -> httpx.AsyncClient | None:
     return _GATEWAY_CLIENTS.get(node) if isinstance(node, Url4Node) else None
 
 
+_MODEL_LIST_PATH = "/v1/models"
+_MODEL_LIST_UNREADABLE = (
+    "the gateway's model list could not be read, so this run cannot check that its models "
+    "take its pictures or PDFs; nothing was sent to a model"
+)
+
+
+class _GatewayModelSight:
+    """Read each declared model's input types from aigateway's ``/v1/models``, as the caller.
+
+    FEATURE (OME-1548): the `ModelSightReader` a picture Benchmark's Cases route asks before any
+    paid call (`benchmarks/picture_admission.py`). Read once per picture run, never cached: the
+    list is per caller, and one local node serves many callers' runs.
+
+    INVARIANT (trust): sent with the run's own identity headers, as its chat calls are, so a caller
+    is checked against the models the gateway lists for THEM.
+    """
+
+    __slots__ = ("_client", "_routes")
+
+    def __init__(self, client: httpx.AsyncClient, routes: Mapping[str, str]) -> None:
+        self._client = client
+        self._routes = routes
+
+    def model_routes(self) -> Mapping[str, str]:
+        """The world's declared model routes (``"/" + route id``), each to its gateway id."""
+        return self._routes
+
+    async def input_modalities(self) -> Mapping[str, Sequence[str]]:
+        """Each listed model's input types, keyed by gateway id; retryable when unreadable."""
+        try:
+            response = await self._client.get(_MODEL_LIST_PATH, headers=_headers(current_scope()))
+            response.raise_for_status()
+            body: object = response.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            # WHY retryable (owner, 2026-10-28): nothing was spent, and a later run may find the
+            # gateway answering. The error type only, never a body (the open_frozen_copy rule).
+            logger.warning("model list read failed error=%s", type(exc).__name__)
+            raise ResolutionError(
+                _MODEL_LIST_UNREADABLE, code=ErrorCode.RESOLUTION_FAILED, permanent=False
+            ) from exc
+        rows: object = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(rows, list):
+            raise ResolutionError(
+                _MODEL_LIST_UNREADABLE, code=ErrorCode.RESOLUTION_FAILED, permanent=False
+            )
+        modalities: dict[str, tuple[str, ...]] = {}
+        for row in rows:
+            model_id: object = row.get("id") if isinstance(row, dict) else None
+            listed: object = row.get("input_modalities") if isinstance(row, dict) else None
+            if isinstance(model_id, str) and isinstance(listed, list):
+                modalities[model_id] = tuple(value for value in listed if isinstance(value, str))
+        return modalities
+
+
 def _report_response(choice: Choice, cache: CacheOutcome, aigw: object = None) -> None:
     """Report how one model round trip ended — whether the gateway served it from its response
     cache, and what that hit avoided — onto the currently-resolving node's span.
@@ -640,10 +750,10 @@ def _report_response(choice: Choice, cache: CacheOutcome, aigw: object = None) -
     hit and re-issue the call, returning the SECOND trip's outcome; deriving from that same
     returned pair is what keeps the discarded hit's cost out of the run total (PRD test 17).
 
-    INVARIANT: a hit whose round trip was RETRIED is never priced. A transport retry can follow
-    an attempt the provider already processed and billed, so pricing the hit would report money
-    saved that was in fact spent — the one direction of error this whole feature exists to
-    remove.
+    FEATURE: cost of intelligence (OME-1687). A hit whose round trip was RETRIED claims its saving
+    like any hit. The leaderboard's reproduction cost is spend plus saving, and in a perfect world
+    — every model answering on the first attempt — the hit replaces the original call, whose cost
+    the reference holds. A retry is an infrastructure event and changes no price.
     """
     sink = current_response_sink()
     if sink is None:
@@ -671,8 +781,31 @@ def _token_count(*candidates: object) -> int:
     return 0
 
 
-def _report_served_from_cache(model: str, call: CallAccounting | None, *, retried: bool) -> None:
-    """Report a cache hit: zero tokens consumed, and priced at zero unless a retry preceded it.
+_MAX_TOKEN_COUNT = 2**53 - 1
+"""The gateway's own bound on a token count (`aigateway.core.usage_modalities`)."""
+
+
+def _image_and_file_tokens(usage: object) -> int | None:
+    """The image/file subset of the prompt, as aigateway states it, or `None` for unknown.
+
+    FEATURE: image/file token accounting (OME-1744). aigateway writes it at
+    `usage.prompt_tokens_details.image_and_file_tokens` — under `usage`, NOT under `_aigw` — so this
+    reads `usage` even when `_aigw` is authoritative for every other class.
+
+    INVARIANT: anything that is not a bounded non-negative int is unknown (`None`), never 0 — unlike
+    `_token_count`, whose zero fallback predates any wire spelling of "unknown". A known 0 passes
+    through: the provider broke the input down and it held no media.
+    """
+    details = usage.get("prompt_tokens_details") if isinstance(usage, dict) else None
+    value = details.get("image_and_file_tokens") if isinstance(details, dict) else None
+    # WHY `type(...) is int`: bool is an int subclass, and `True` is not a token count.
+    if type(value) is not int or not 0 <= value <= _MAX_TOKEN_COUNT:
+        return None
+    return value
+
+
+def _report_served_from_cache(model: str, call: CallAccounting | None) -> None:
+    """Report a cache hit: zero tokens consumed, and priced at zero.
 
     WHY zero rather than the numbers the response carries: a hit replays a STORED response, whose
     body still contains the original call's `usage`. aigateway says so explicitly — it labels the
@@ -685,22 +818,15 @@ def _report_served_from_cache(model: str, call: CallAccounting | None, *, retrie
     gateway reported something definite — nothing was consumed — and a run total must be able to
     add that in rather than treat it as a gap.
 
-    INVARIANT: an UNRETRIED hit stays `Decimal("0")` and never `None`. Zero is a real claim about
-    a real saving; a dash would hide it. `usd_from_aigw` derives it from the SAME hit, so the two
-    agree.
+    INVARIANT: a hit stays `Decimal("0")` and never `None`, retried or not. Zero is a real claim
+    about a real saving; a dash would hide it. `usd_from_aigw` derives it from the SAME hit, so
+    the two agree.
 
-    INVARIANT: a RETRIED hit is `None` — "not priced" — because nobody can know what it cost.
-    `_post_completion` retries a lost reply, and the attempt whose reply was lost may already have
-    been processed and billed upstream, in which case the row this attempt hit is the very one it
-    paid for and wrote. `avoided_usd_for_outcome` already withdraws the SAVING on exactly this
-    evidence; withdrawing the saving while still asserting a spend of zero would state two
-    opposite confidences about one ambiguous fact, and the zero is the more misleading half —
-    a run total sums it in as certainty. `_fold_usage` latches the run UNPRICED on it instead.
-
-    AIDEV-NOTE (OME-1220): a retried MISS is unpriced too — `_report_usage` applies the same
-    rule. Its figure covers only the attempt that answered, and the owner chose "unknown" over a
-    confident undercount. The trade this note once guarded against (one transport blip costs a
-    run its total) is bounded by `_NEVER_SENT`: a connect-phase failure keeps the exact price.
+    FEATURE: cost of intelligence (OME-1687). A transport retry before the hit changes nothing
+    here. The price is the successful request's, and a hit's successful request cost nothing.
+    AIDEV-NOTE: this reverses OME-1220, which made a retried hit (and miss) unpriced to protect
+    the actual spend. The owner chose the model price instead (2026-10-20). `CacheOutcome.retried`
+    is still recorded; no price reads it.
 
     AIDEV-NOTE: hit-ness is decided by the caller from the published `CacheOutcome` (the response
     headers), NOT from `_aigw`. That is deliberate — an older gateway emits the header and no
@@ -719,13 +845,16 @@ def _report_served_from_cache(model: str, call: CallAccounting | None, *, retrie
         cache_read_tokens=0,
         cache_creation_tokens=0,
         reasoning_tokens=0,
-        cost_usd=None if retried else _hit_cost(call),
+        cost_usd=_hit_cost(call),
+        # WHY unknown and not the zero its siblings get (owner decision, OME-1744): the stored
+        # body's breakdown is the ORIGINAL call's, so a hit makes no claim about this class.
+        image_and_file_tokens=None,
     )
 
 
 def _hit_cost(call: CallAccounting | None) -> Decimal:
-    """A non-retried hit's price: the gateway's own figure, or an explicit zero when it reported
-    no accounting at all. Never `None` — see the invariant above."""
+    """A hit's price: the gateway's own figure, or an explicit zero when it reported no
+    accounting at all. Never `None` — see the invariant above."""
     return call.cost_usd if call is not None and call.cost_usd is not None else Decimal(0)
 
 
@@ -747,6 +876,11 @@ def _report_usage(
     CONTRADICTION, and this is the seam that keeps them consistent. A hit is served from the
     gateway's store, so the provider consumed nothing this request — see
     `_report_served_from_cache`.
+
+    WHY a reported 0 is not a measured zero (OME-1770): when neither `_aigw` nor `usage` states a
+    count, `_token_count` falls back to 0, because the wire's `TokenUsage` cannot say "unknown". A
+    configured endpoint may omit `usage`, so its 0 tokens mean "not stated", never "nothing spent".
+    A truthful unknown is the later accounting integration's job, not this seam's.
     """
     sink = current_usage_sink()
     if sink is None:
@@ -755,7 +889,7 @@ def _report_usage(
     if call is None and usage is None:
         return
     if cache is not None and cache.status == "hit":
-        _report_served_from_cache(model, call, retried=cache.retried)
+        _report_served_from_cache(model, call)
         return
     reported = usage or {}
     sink(
@@ -775,10 +909,38 @@ def _report_usage(
         cache_read_tokens=call.cache_read_tokens if call is not None else None,
         cache_creation_tokens=call.cache_creation_tokens if call is not None else None,
         reasoning_tokens=call.reasoning_tokens if call is not None else None,
-        # INVARIANT (OME-1220): a round trip retried after a possibly billed failure is unpriced.
-        # The gateway's figure covers only the attempt that answered; the lost one may have been
-        # billed in full upstream, and nobody on this side learns that price. Tokens stay.
-        cost_usd=(None if (cache is not None and cache.retried) or call is None else call.cost_usd),
+        # FEATURE: cost of intelligence (OME-1687). The price is the successful request's, so a
+        # transport retry before it changes nothing. `None` when there is no `_aigw` to read, when
+        # the successful request's own cost is unknown (R3), and for an older gateway's non-complete
+        # status (`usd_from_aigw`).
+        cost_usd=None if call is None else call.cost_usd,
+        image_and_file_tokens=_image_and_file_tokens(reported),
+    )
+
+
+def _report_unpriced_call(provider: str, model: str) -> None:
+    """Report one dispatched Gateway call whose cost the Engine cannot know.
+
+    FEATURE: hosted BYOM, Unit 3 (spec E8 as amended, OME-1795). A classification answer carries
+    no price, and a call that reports nothing is simply absent from the run total, so a run that
+    also made a priced chat call would publish a priced total without it. This one record latches
+    the total unpriced (`executor._RunState._fold_usage`).
+
+    INVARIANT: aggregate honesty only, not Taxonomy accounting: no price and no token measurement.
+    WHY the two zero counts: the sink requires them and the wire's `TokenUsage` cannot say
+    "unknown" (OME-1770, as in `_report_usage`), so they are not measured values. The optional
+    token classes are left unset.
+    """
+    sink = current_usage_sink()
+    if sink is None:
+        return
+    sink(
+        provider=provider,
+        model=model,
+        input_tokens=0,
+        output_tokens=0,
+        cost_usd=None,
+        image_and_file_tokens=None,
     )
 
 
@@ -795,10 +957,13 @@ async def _post_completion(
     Other HTTP errors remain owned by the caller's declared URL4 retry policy.
     The caller deadline bounds each attempt and must fit a full attempt before retry.
     The bool marks a retry that followed a failure which may have reached the gateway, and so
-    may have been billed. A known queue refusal never dispatched and must not make subsequent
-    usage unknown; neither does a connect-phase failure (`_NEVER_SENT`).
-    Independently, a capture ``probe`` learns every lost reply as it happens, including a
-    connect-phase failure: capture ordering is ambiguous after any retry even when billing is not.
+    may have been billed. A known queue refusal never dispatched and does not set it; neither
+    does a connect-phase failure (`_NEVER_SENT`). AIDEV-NOTE (OME-1687): it is a recorded fact
+    only — no price reads it, because the price is the successful request's.
+    Independently, a capture ``probe`` learns every lost reply as it happens: capture ordering is
+    ambiguous after a retry that followed a request which may have been sent. A connect-phase
+    failure (`_NEVER_SENT`) is not a lost reply: no request byte left the Engine, so the gateway
+    stored nothing for that try (OME-1775 R3).
     """
     deadline = _current_deadline()
     configured = _transport_budget(http_client, headers)
@@ -812,8 +977,9 @@ async def _post_completion(
             )
         except httpx.TransportError as exc:
             last = exc
-            if probe is not None:
+            if probe is not None and not isinstance(exc, _NEVER_SENT):
                 # Told now, not at the answer: a call whose every attempt fails never gets one.
+                # WHY: a connect-phase failure sent nothing, so it is no lost reply (OME-1775 R3).
                 probe.lost_reply()
             possibly_billed = possibly_billed or not isinstance(exc, _NEVER_SENT)
             if isinstance(exc, httpx.TimeoutException) and _deadline_bound(timeout, configured):
@@ -1049,7 +1215,7 @@ async def _fetch_completion(
     )
     if probe is not None:
         probe.read(resp)
-    _raise_for_status(resp)
+    _raise_for_status(resp, logprobs_requested=_asks_logprobs(body))
     outcome = read_cache_outcome(resp.headers, retried=retried)
     if not requires_revalidation(cache, outcome):
         return resp, outcome
@@ -1064,9 +1230,9 @@ async def _fetch_completion(
     )
     if probe is not None:
         probe.read(resp)
-    _raise_for_status(resp)
-    # INVARIANT (OME-1220): a possibly billed attempt lost on the FIRST round trip is still spend
-    # this call cannot price, even though the re-issue that replaced it ran cleanly.
+    _raise_for_status(resp, logprobs_requested=_asks_logprobs(body))
+    # WHY carry the first round trip's flag: it records that a possibly billed attempt was lost
+    # before the re-issue. A recorded fact only — no price reads it (OME-1687).
     return resp, read_cache_outcome(resp.headers, retried=retried or reissue_retried)
 
 
@@ -1075,33 +1241,46 @@ class _CaptureProbe:
     """What the last gateway response of one logical chat call said about its capture.
 
     Filled BEFORE `_raise_for_status`, so an error response still says what the gateway stored.
-    `lost_reply` is called by `_post_completion` at each lost transport reply, even when no
-    response follows. One per call: the run's tally is shared by concurrent calls, a field on it
-    would race.
+    `lost_reply` is called by `_post_completion` at each lost transport reply that may have reached
+    the gateway (not a connect-phase failure, OME-1775 R3), even when no response follows. One per
+    call: the run's tally is shared by concurrent calls, a field on it would race.
     """
 
     responded: bool = False
     header: str | None = None
     responses: int = 0
     retried: bool = False
+    last_ok: bool = False
+    """The last response read was 2xx, so the gateway holds a 200 at this key."""
 
     def read(self, resp: httpx.Response) -> None:
         self.responded = True
         self.header = resp.headers.get(CAPTURE_FIELD)
         self.responses += 1
+        self.last_ok = resp.is_success
 
     def lost_reply(self) -> None:
         self.retried = True
 
-    def status(self) -> Status:
-        """What the gateway said, or `ambiguous` when more than one answer may have been stored.
+    def status(self, *, answered: bool = False) -> Status:
+        """What the gateway said, or `ambiguous` when the copy may serve an answer the model never
+        used.
 
-        FEATURE: OME-1307 (design §5.2 item 7). A call re-issued under a `max-age` bound has two
-        responses, and a call whose transport attempt was retried may have been processed — and
-        stored — before its reply was lost. Either can leave an answer the model never used AHEAD
-        of the one it used, in capture order, which a replay would then serve.
+        FEATURE: OME-1307 (design §5.2 item 7). A call whose transport attempt was retried may have
+        been processed — and stored — before its reply was lost, AHEAD of the answer the model used
+        in capture order, which a replay would serve.
+
+        FEATURE: OME-1775 (R2). A `max-age` re-issue that RETURNED has a 2xx last response, and that
+        is the entry a replay serves: the gateway stores before it responds (a higher `seq`) and
+        strips `cache` from the key digest, so `find` serves the highest-`seq` 200. A re-issue that
+        did not return stays `ambiguous`, because `find` would prefer the unused first 200.
+
+        ``answered`` says whether the call returned, so the model used its last response.
+        INVARIANT: a call that did NOT return after it read a 2xx is `ambiguous`: the copy holds a
+        200 the model never used (a re-issue that failed before it was sent, or a call cancelled
+        during its re-issue). The default is the strict one.
         """
-        if self.responses > 1 or self.retried:
+        if self.retried or (not answered and (self.responses > 1 or self.last_ok)):
             return "ambiguous"
         return _CAPTURE_STATUSES.get((self.header or "").strip().lower(), "missing")
 
@@ -1143,7 +1322,7 @@ async def _recorded_completion(
     # Q27 (design §5.4): the call takes its occurrence ONCE, when it is first sent. Every transport
     # attempt of the call sends the same key, and the value is never given back, so a call that
     # stores nothing keeps its place and replay never reads an entry twice.
-    case_key = current_case_key()
+    case_id, case_key = current_capture_case()
     occurrence = tally.next_occurrence(case_key, "chat", digest)
     key_headers = {FROZEN_COPY_HEADER: copy_id, **call_key_headers(case_key, occurrence)}
     probe = _CaptureProbe()
@@ -1157,13 +1336,34 @@ async def _recorded_completion(
         )
     except BaseException as exc:
         # A cancelled call left no answer the copy can serve (D1); an error response says itself.
-        # A lost transport reply may have been stored all the same, so it stays `ambiguous`, which
-        # no later call forgives (D2), cancelled or not.
+        # A lost transport reply, or a 2xx the call never used, may be served all the same, so it
+        # stays `ambiguous`, which no later call forgives (D2), cancelled or not.
         cancelled = isinstance(exc, asyncio.CancelledError)
-        said = probe.retried or (probe.responded and not cancelled)
-        record_capture_outcome(CaptureOutcome("chat", probe.status() if said else "error", digest))
+        said = probe.retried or probe.last_ok or (probe.responded and not cancelled)
+        record_capture_outcome(
+            CaptureOutcome(
+                "chat",
+                probe.status(answered=False) if said else "error",
+                digest,
+                case_id=case_id,
+                case_key=case_key,
+                occurrence=occurrence,
+                answered=False,
+            )
+        )
         raise
-    record_capture_outcome(CaptureOutcome("chat", probe.status(), digest))
+    record_capture_outcome(
+        CaptureOutcome(
+            "chat",
+            probe.status(answered=True),
+            digest,
+            case_id=case_id,
+            case_key=case_key,
+            occurrence=occurrence,
+            answered=True,
+            replay_failure=replay_failure_code(resp),
+        )
+    )
     return resp, outcome
 
 
@@ -1208,7 +1408,7 @@ async def _fetch_replay(
         raise _replay_unavailable()
     # Any other failure status is the captured original error (it carries X-AIGW-Replay), raised as
     # the original run raised it.
-    _raise_for_status(resp)
+    _raise_for_status(resp, logprobs_requested=_asks_logprobs(body))
     return resp, _REPLAYED
 
 
@@ -1295,6 +1495,7 @@ async def _chat_completion_loop(
     sampling = model_params(params)
     operation_accounting: list[OperationAccounting | None] = []
     signal_accounting: list[SignalAccounting] = []
+    reply_rounds: list[ReplyLogprobs | None] = []
     for _ in range(cfg.web_tool_max_iterations):
         # FEATURE (OME-1458): Attempt 2+ names itself to the gateway's cache on every round
         # trip of the turn; Attempt 1 adds nothing, so its body is byte-identical to before.
@@ -1315,6 +1516,7 @@ async def _chat_completion_loop(
             operation_accounting=operation_accounting,
             replay_frozen_copy=scope.replay_frozen_copy,
             signal_accounting=signal_accounting,
+            reply_logprobs=reply_rounds,
         )
         content, tool_calls = choice.content, choice.tool_calls
         if not tool_calls:
@@ -1328,6 +1530,7 @@ async def _chat_completion_loop(
                 choice.finish_reason,
                 combine_operation_accounting(operation_accounting),
                 combine_signal_accounting(signal_accounting),
+                reply_logprobs=reply_rounds[-1] if reply_rounds else None,
             )
             return content or ""
         messages.append({"role": "assistant", "content": content, "tool_calls": tool_calls})
@@ -1394,6 +1597,56 @@ def _signal_accounting(aigw: object, cache: CacheOutcome) -> SignalAccounting:
         # already-consumed response, and the log names the exception type only.
         logger.warning("signal accounting unavailable after %s", type(exc).__name__)
         return SignalAccounting()
+
+
+def _asks_logprobs(body: Mapping[str, object]) -> bool:
+    """Whether the call asked for token log-probabilities: ``logprobs`` is exactly ``true``."""
+    return body.get("logprobs") is True
+
+
+def _retain_reply_facts(
+    data: Mapping[str, Any],
+    body: dict[str, object],
+    outcome: CacheOutcome,
+    *,
+    real_model_id: str,
+    operation_accounting: list[OperationAccounting | None],
+    signal_accounting: list[SignalAccounting] | None,
+    reply_logprobs: list[ReplyLogprobs | None] | None,
+) -> None:
+    """Report the usage of one answered round trip and keep its accounting and log-probabilities."""
+    _report_usage(real_model_id, data.get("usage"), data.get("_aigw"), outcome)
+    _retain_accounting(data, outcome, real_model_id, operation_accounting, signal_accounting)
+    _retain_reply_logprobs(data, body, reply_logprobs)
+
+
+def _retain_reply_logprobs(
+    data: Mapping[str, Any],
+    body: Mapping[str, object],
+    rounds: list[ReplyLogprobs | None] | None,
+) -> None:
+    """Keep one consumed response's reply log-probability numbers, when the caller collects them."""
+    if rounds is not None:
+        rounds.append(_reply_logprobs(data, body))
+
+
+def _reply_logprobs(data: Mapping[str, Any], body: Mapping[str, object]) -> ReplyLogprobs | None:
+    """Fail-open: the reply's log-probability numbers when the call asked for them, else None.
+
+    WHY only when asked: a call without `logprobs: true` keeps its exact cost and behavior (LC-D4).
+    """
+    if not _asks_logprobs(body):
+        return None
+    top_k = body.get("top_logprobs")
+    try:
+        return reply_logprobs(
+            data, top_k if isinstance(top_k, int) and not isinstance(top_k, bool) else None
+        )
+    except Exception as exc:
+        # INVARIANT: same as `_signal_accounting` -- optional bookkeeping over an already-consumed
+        # response, and the log names the exception type only (never token text, OME-990).
+        logger.warning("reply logprobs unavailable after %s", type(exc).__name__)
+        return None
 
 
 def _raise_if_unusable_with_accounting(
@@ -1479,65 +1732,54 @@ def _frozen_tool_results(
     return FrozenToolResults(http_client, headers, target[1], replay=False)
 
 
-def _messages(context: str | None, intent: str | None) -> list[dict[str, str]]:
-    messages: list[dict[str, str]] = []
+def _messages(context: str | None, intent: str | None) -> list[dict[str, Any]]:
+    if not context and intent:
+        # FIX (OME-1808): a default-route reduce with no attachments has an empty context, and
+        # `system=<intent>` + `user=""` is a 400 on Anthropic ("at least one message is
+        # required": the system message is lifted out and the empty turn dropped). The intent is
+        # then the only content, so it travels as the one user turn. A non-empty context keeps
+        # today's bytes exactly; the request identity hashes context and intent, not messages.
+        return [{"role": "user", "content": intent}]
+    messages: list[dict[str, Any]] = []
     if intent:
         messages.append({"role": "system", "content": intent})
     native = _native_messages(context)
     if native is None:
         messages.append({"role": "user", "content": context or ""})
     else:
-        messages.extend(native)
+        # WHY a shallow copy of each message: the gateway loop's chat is wider than a Case's (it
+        # appends assistant tool calls and tool results), so it holds plain dicts.
+        messages.extend(dict(message) for message in native)
     return messages
 
 
-def _native_messages(context: str | None) -> list[dict[str, str]] | None:
-    envelope = _candidate_input_envelope(context)
-    if envelope is None:
-        return None
-    return _candidate_messages(envelope["messages"])
+def _native_messages(context: str | None) -> list[CandidateMessage] | None:
+    """The Case's own chat messages, or ``None`` when its input is a plain prompt.
 
+    FEATURE (OME-1678): the candidate-input envelope module owns the rules, so this connector and
+    the inspect plugin read one rule. A v2 Case's pictures come back as content parts and travel
+    to the gateway verbatim.
 
-def _candidate_input_envelope(context: str | None) -> dict[str, object] | None:
-    value = _json_object(context)
-    if value is None:
-        return None
-    schema = value.get("schema")
-    if schema == CANDIDATE_INPUT_SCHEMA:
-        if set(value) != {"schema", "messages"}:
-            _invalid_candidate_input("the chat envelope must contain only schema and messages")
-        return value
-    if isinstance(schema, str) and schema.startswith("screamingface.candidate-input."):
-        _invalid_candidate_input(f"unsupported schema {schema!r}")
-    return None
-
-
-def _json_object(context: str | None) -> dict[str, object] | None:
-    if not context:
-        return None
+    FEATURE (OME-1679): a Fusion's synthesizer context is not an envelope but holds one under
+    ``input``; on a picture Case the synthesizer gets the same pictures as the members.
+    """
     try:
-        value = json.loads(context)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    return value if isinstance(value, dict) else None
-
-
-def _candidate_messages(raw_messages: object) -> list[dict[str, str]]:
-    if not isinstance(raw_messages, list) or not raw_messages:
-        _invalid_candidate_input("messages must be a non-empty array")
-    return [_candidate_message(index, value) for index, value in enumerate(raw_messages)]
-
-
-def _candidate_message(index: int, value: object) -> dict[str, str]:
-    if not isinstance(value, dict) or set(value) != {"role", "content"}:
-        _invalid_candidate_input(f"message {index} must contain exactly role and content")
-    role = value.get("role")
-    content = value.get("content")
-    if not isinstance(role, str) or role not in CANDIDATE_MESSAGE_ROLES:
-        _invalid_candidate_input(f"message {index} has unsupported role {role!r}")
-    if not isinstance(content, str):
-        _invalid_candidate_input(f"message {index} content must be text")
-    return {"role": role, "content": content}
+        messages: list[CandidateMessage] | None = parse_candidate_input(context)
+        # WHY under grading too: a Fusion context holding a picture Case must reach the refusal
+        # below, not a judge as base64 text; a text-only one still comes back None.
+        if messages is None:
+            messages = fusion_picture_messages(context)
+    except CandidateInputError as exc:
+        _invalid_candidate_input(str(exc))
+    # INVARIANT (spec D6): a judge grades the text answer only. A picture reaching a grading call
+    # is refused by name here, not dropped by whichever judge writer happens to read text.
+    if (
+        messages is not None
+        and current_grading_case() is not None
+        and any(not isinstance(message["content"], str) for message in messages)
+    ):
+        _invalid_candidate_input("a grading call carries a picture or file; judges read text only")
+    return messages
 
 
 def _invalid_candidate_input(detail: str) -> NoReturn:
@@ -1600,7 +1842,47 @@ def _json_or_raise(resp: httpx.Response) -> dict:
         ) from exc
 
 
-def _raise_for_status(resp: httpx.Response) -> None:
+class _GatewayRefusal(ResolutionError):
+    """A non-2xx aigateway answer, with its status and the plain-text `detail` it carried."""
+
+    def __init__(
+        self, message: str, *, code: str, permanent: bool, status: int, detail: str | None
+    ) -> None:
+        super().__init__(message, code=code, permanent=permanent)
+        self.status = status
+        self.detail = detail
+
+    def refuses_provider(self, provider: str) -> bool:
+        """Whether this is the Gateway's refusal of `provider` as unknown to the caller."""
+        return self.status == 400 and self.detail == f"unknown provider: {provider}"
+
+
+def _refusal_detail(resp: httpx.Response) -> tuple[str, str, str | None]:
+    """The `code`, `message` and plain-text `detail` of a 4xx/5xx aigateway answer.
+
+    A `detail` object gives the code (never one in `ENGINE_RESERVED_CODES`) and the message; a
+    `detail` string is kept as the plain text. Anything else keeps the status-based defaults.
+    """
+    code = f"aigateway_http_{resp.status_code}"
+    message = f"aigateway request failed with status {resp.status_code}"
+    try:
+        payload = resp.json()
+    except ValueError:
+        payload = None
+    text: str | None = None
+    if isinstance(payload, dict):
+        detail = payload.get("detail")
+        if isinstance(detail, dict):
+            upstream_code = detail.get("code")
+            if isinstance(upstream_code, str) and upstream_code not in ENGINE_RESERVED_CODES:
+                code = upstream_code
+            message = detail.get("message", message)
+        elif isinstance(detail, str):
+            text = detail
+    return code, message, text
+
+
+def _raise_for_status(resp: httpx.Response, *, logprobs_requested: bool = False) -> None:
     """Turn a non-2xx (or redirected) aigateway response into a `ResolutionError`.
 
     A redirect is treated as an interception by a fronting proxy, not a real aigateway response.
@@ -1616,6 +1898,12 @@ def _raise_for_status(resp: httpx.Response) -> None:
     `{"detail": {"code": "malformed_source", …}}` keeps the engine-authored
     `aigateway_http_<status>` code instead, and its text stays unvouched. Every other upstream
     code still passes through unchanged — that vocabulary is what the failure report reads.
+
+    FEATURE (E4b part 3, C4): a call that asked for token log-probabilities (`logprobs_requested`)
+    and that the gateway refused with HTTP 404 `unsupported_parameters` fails as
+    `logprobs_unsupported`, with fixed engine text and never the upstream text. Only the 404 maps.
+    WHY here and not in `_observed_round_trip`: the rule needs the HTTP status, and only this
+    function sees it; each caller holds the request body.
     """
     if 300 <= resp.status_code < 400:
         raise ResolutionError(
@@ -1626,21 +1914,13 @@ def _raise_for_status(resp: httpx.Response) -> None:
         )
     if resp.status_code < 400:
         return
-    code = f"aigateway_http_{resp.status_code}"
-    message = f"aigateway request failed with status {resp.status_code}"
-    try:
-        payload = resp.json()
-    except ValueError:
-        payload = None
-    if isinstance(payload, dict):
-        detail = payload.get("detail")
-        if isinstance(detail, dict):
-            upstream_code = detail.get("code")
-            if isinstance(upstream_code, str) and upstream_code not in ENGINE_RESERVED_CODES:
-                code = upstream_code
-            message = detail.get("message", message)
+    code, message, text = _refusal_detail(resp)
+    if logprobs_requested and resp.status_code == 404 and code == _PARAMETER_REFUSAL_CODE:
+        raise logprobs_unsupported()
     permanent = not (resp.status_code == 429 or 500 <= resp.status_code < 600)
-    raise ResolutionError(message, code=code, permanent=permanent)
+    raise _GatewayRefusal(
+        message, code=code, permanent=permanent, status=resp.status_code, detail=text
+    )
 
 
 __all__ = [

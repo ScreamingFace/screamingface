@@ -91,7 +91,7 @@ def _model_details() -> sf.ModelDetails:
         provider="openrouter",
         upstream_id="openai/gpt-5.5",
         contract_id="pc_fixture",
-        scope="account_profile",
+        scope="account_connection",
         auth_mode="api_key",
         context_revision="ctx_fixture",
         source_revision=None,
@@ -147,7 +147,7 @@ def _panels() -> list[tuple[str, str]]:
         ("model card", cast(Any, opus)._repr_html_()),
         (
             "fusion card",
-            cast(Any, sf.Fusion([opus, "provider/sonnet"], synthesizer=opus))._repr_html_(),
+            cast(Any, sf.Fanout([opus, "provider/sonnet"]) >> sf.Synthesize(opus))._repr_html_(),
         ),
         ("pipeline card", cast(Any, sf.Pipeline([opus, "provider/sonnet"]))._repr_html_()),
         ("benchmark card", cast(Any, _benchmark())._repr_html_()),

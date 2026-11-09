@@ -18,7 +18,7 @@ def test_ollama_provider_loads_without_oauth() -> None:
     assert plugin.custom_llm_provider == "ollama"
     assert plugin.oauth_config() is None
     assert plugin.oauth_strategy_for("default") is None
-    assert plugin.allows_chatless_profile() is True
+    assert plugin.allows_chatless_credential() is True
 
 
 def test_register_models_exposes_public_ollama_names(monkeypatch) -> None:
@@ -84,13 +84,6 @@ def test_prepare_chat_body_leaves_ollama_chat_prefix_unchanged(monkeypatch) -> N
 
     assert out["model"] == "ollama_chat/llama3:8b"
     assert out["api_base"] == "http://localhost:11434"
-
-
-def test_auth_start_for_ollama_returns_no_oauth_400(authenticated_client) -> None:
-    response = authenticated_client.post("/v1/auth/ollama/profiles", json={"name": "default"})
-
-    assert response.status_code == 400
-    assert response.json()["detail"]["code"] == "provider_does_not_use_oauth"
 
 
 def test_public_ollama_chat_prefix_is_not_a_route_level_provider(authenticated_client) -> None:

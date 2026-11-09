@@ -1,0 +1,22 @@
+{
+  "issue": "OME-1686",
+  "branch": "OME-1686-succeeded-attempt-cost",
+  "approver": "Ionesio Junior (owner)",
+  "date": "2026-10-20",
+  "scope": "Expected-value updates only, caused by two always-present additive keys (request_economics.succeeded_attempt_direct_cost and usage_accounting.succeeded_attempt_usage). test_release_fixtures.py: the 18 values of _EXPECTED_FIXTURE_SHA256 and the one sha256 literal in test_release_fixture_exercises_private_input_without_publishing_it (8a72010b...e3a5 -> 2a38f24e...ece5); no fixture builder or other assertion changes. test_handoff_contract.py: the exact request_economics dict in test_wire_uses_attempt_semantics_and_separate_evidence_statuses gains the succeeded_attempt_direct_cost entry; nothing else. fixtures/cache_hit_contract/openrouter_hit.json: regenerated with SF_REGENERATE_CONTRACT_FIXTURES=1; the only diff is the two new keys set to null.",
+  "reason": "OME-1686 (cost of intelligence): the gateway reports the direct cost and token usage of the successful attempt so the Engine (OME-1687) prices a call as if it answered on the first attempt. The keys are part of the fixed wire contract and are always emitted, so every exact-shape fixture hash and the generated cache-hit contract fixture change. The owner approved these changes on 2026-10-20 (spec docs/spec/2026-10-20-OME-1686-succeeded-attempt-cost.md, section 5 and section 7).",
+  "files": {
+    "apps/aigateway/tests/unit/usage_accounting/test_release_fixtures.py": {
+      "base_blob": "1db8a43fb581bc43eb437ea473a216a37a7273e4",
+      "approved_blob": "1d6d1060acd413e7f5a57bbff1d9af7b7739ae47"
+    },
+    "apps/aigateway/tests/unit/usage_accounting/test_handoff_contract.py": {
+      "base_blob": "aae4d6b6674a6a8f54c6c9414ed79c385b38873d",
+      "approved_blob": "aff26dbd972c2d2f8fa421b188e83b857fd1e3a8"
+    },
+    "apps/aigateway/tests/fixtures/cache_hit_contract/openrouter_hit.json": {
+      "base_blob": "196b52947866b51619975ca9ee92849c50630ab5",
+      "approved_blob": "f935a58399c713cbf6c6ff6976e29ec399206baa"
+    }
+  }
+}

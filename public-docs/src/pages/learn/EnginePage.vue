@@ -14,8 +14,8 @@ sf.configure(
 )`
 
 const runLocal = `pip install "screamingface[runtime]"
-screamingface prepare draco   # benchmark data, once
-screamingface up              # engine, gateway, leaderboard on loopback`
+screamingface prepare medxpert  # benchmark data, once
+screamingface up              # engine, gateway, scoreboard on loopback`
 
 const health = `screamingface status`
 </script>
@@ -29,11 +29,11 @@ const health = `screamingface status`
     <p>
       The engine is the runtime that runs
       <RouterLink to="/learn/url4">url4</RouterLink> expressions. The
-      <RouterLink to="/sf-client">Client</RouterLink> never calls a model provider itself. It hands
-      a url4 expression to an engine. The engine does the work: schedules the graph, reaches the
-      providers, and streams back usage and the result. Because it sits between you and the
-      providers, it is also the system's <strong>trust boundary</strong>, the one place that holds
-      both your credentials and the benchmark answer keys.
+      <RouterLink to="/sf-client">Client</RouterLink> hands a url4 expression to an engine. The
+      engine does the work: schedules the graph, reaches the providers, and streams back usage and
+      the result. Because it sits between you and the providers, it is also the system's
+      <strong>trust boundary</strong>, the one place that holds your credentials and does the
+      grading.
     </p>
 
     <p>
@@ -47,10 +47,11 @@ const health = `screamingface status`
     <p>
       At its core is a <strong>demand-driven, memoized DAG executor</strong>. Demand-driven means it
       works backwards from the result, so it only runs the nodes that result actually needs.
-      Memoized means a value shared by several branches is computed exactly once, not repeated.
-      Independent nodes run at the same time. The first failure cancels the others rather than
-      letting a broken run drift on. The number of calls running at once is capped so a wide fan-out
-      can't overwhelm the providers.
+      Memoized means a value shared by several branches is computed once, not repeated: model calls
+      are matched by a fingerprint of the route, prompt and parameters, and with the cache on a call
+      that was made before is served from it. Independent nodes run at the same time. The first
+      failure cancels the others rather than letting a broken run drift on. The number of calls
+      running at once is capped so a wide fan-out can't overwhelm the providers.
     </p>
 
     <p>
@@ -69,13 +70,15 @@ const health = `screamingface status`
     <p>
       The engine holds what must not leak. Provider credentials are handed to it once and stored
       encrypted at rest (AES-256-GCM) by the AI gateway's credential store, and are never returned
-      to the Client. Benchmark answer keys, rubrics, and grading stay engine-side. That separation
-      is what makes a score mean something: the code being graded cannot read the answers it is
-      being graded against, and neither can the person who wrote it.
+      to the Client. Benchmark cases and grading stay engine-side. The run report does return each
+      graded case's rubric criteria and the judge that scored it, so you can see how a score was
+      reached, but nothing about the grading can be changed from the Client. That separation is what
+      makes a score mean something: the code being graded cannot alter the grader, and neither can
+      the person who wrote it.
     </p>
 
     <p>
-      Be clear about the direction this runs, though. The boundary protects the answer keys and your
+      Be clear about the direction this runs, though. The boundary protects the grading and your
       credentials, not the content of your prompts. Whatever you put into a prompt is sent to the
       model provider you chose, exactly as any other API call would send it. If you are evaluating
       against sensitive material, that material reaches the provider.
@@ -109,13 +112,24 @@ const health = `screamingface status`
 
     <p>
       That serves the engine on <code>127.0.0.1:9108</code>, alongside the gateway that holds your
-      provider keys and a local leaderboard. <code>screamingface status</code> reports each of the
+      provider keys and a local scoreboard. <code>screamingface status</code> reports each of the
       three, and <code>screamingface down</code> stops them. The
       <RouterLink to="/sf-client/installation">Installation</RouterLink> guide covers the rest,
       including when a local engine needs its own web-search key.
     </p>
 
     <CodeBlock :code="health" language="bash" />
+
+    <p>
+      A local engine starts with the request cache on, and cache entries do not expire.
+      <code>use_cache=False</code> on <code>sf.evaluate</code> opts one evaluation out, and
+      <RouterLink to="/sf-client/api/cache"><code>sf.cache.pull_from_remote()</code></RouterLink>
+      loads the hosted community cache into it. A local engine started with
+      <code>screamingface up</code> comes with <code>medxpert</code> ready to run, and other
+      benchmarks can run locally too. The hosted engine serves the full set, DRACO included, with no
+      setup. To run more benchmarks on a local engine from a repository checkout, run
+      <code>just local-stack-notebooks</code> from <code>packages/screamingface/</code>.
+    </p>
 
     <p>
       Point the Client at an engine with one call. Its default is a hosted engine, so a local one is

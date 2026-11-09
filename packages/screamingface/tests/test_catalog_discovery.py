@@ -317,3 +317,79 @@ def test_catalogue_http_and_json_failures_are_typed(
 
     assert exc_info.value.code == code
     assert exc_info.value.permanent is permanent
+
+
+# --- an Unlisted Benchmark: off the listing, still read by id (OME-1714) ------------------
+
+_UNLISTED_RESOURCE: dict[str, Any] = {
+    # The resource spreads the same catalogue keys as a listing entry, plus the run-time
+    # extras (`schema`, `selected_case_count`, `candidate_binding`, `url4`) and no `object`.
+    "schema": "screamingface.benchmark.v1",
+    "id": "inspect-wmdp_bio",
+    "title": "WMDP-Bio",
+    "description": "1,273 four-option questions probing hazardous biosecurity knowledge.",
+    "revision": "557c21ed4fcf926e",
+    "case_count": 1273,
+    "origin": "inspect_evals",
+    "saturation": "open",
+    "selected_case_count": 1273,
+    "candidate_binding": "candidate",
+    "url4": "benchmark(...)",
+}
+
+
+def _listing_without_wmdp(request: httpx.Request) -> httpx.Response:
+    if request.url.path == "/v1/benchmarks":
+        return _benchmarks(request)
+    if request.url.path == "/v1/benchmarks/inspect-wmdp_bio":
+        return httpx.Response(200, json=_UNLISTED_RESOURCE)
+    return httpx.Response(404, json={"title": "Unknown benchmark"})
+
+
+def test_get_reads_an_unlisted_benchmark_by_id_when_the_listing_omits_it() -> None:
+    # INVARIANT (OME-1714): "unlisted, not removed" — the listing hides the Benchmark, so
+    # `get` must not stop at the listing. It falls back to the Engine's resource by id, which
+    # still serves it, and returns the same typed Benchmark a listed id would.
+    with _sync_client(_listing_without_wmdp) as client:
+        assert [b.id for b in client.benchmarks.list()] == ["draco"]
+        unlisted = client.benchmarks.get("inspect-wmdp_bio")
+
+    assert unlisted.id == "inspect-wmdp_bio"
+    assert unlisted.title == "WMDP-Bio"
+    assert unlisted.revision == "557c21ed4fcf926e"
+    assert unlisted.case_count == 1273
+    assert unlisted.origin == "inspect_evals"
+
+
+def test_get_of_an_id_the_engine_does_not_serve_still_says_not_installed() -> None:
+    # INVARIANT: the fallback changes nothing for a wrong id — the Engine's 404 on the resource
+    # becomes the same `unknown_benchmark` error callers matched before this fallback existed.
+    with _sync_client(_listing_without_wmdp) as client:
+        with pytest.raises(sf.PlanningError, match="not installed") as caught:
+            client.benchmarks.get("inspect-wmdp_typo")
+
+    assert caught.value.code == "unknown_benchmark"
+
+
+def test_get_refuses_a_resource_whose_id_is_not_the_one_asked_for() -> None:
+    # WHY: the fallback trusts the id in the body, so an Engine answering the wrong resource
+    # must be refused as an invalid catalogue, not returned under the requested name.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/benchmarks":
+            return _benchmarks(request)
+        return httpx.Response(200, json={**_UNLISTED_RESOURCE, "id": "inspect-wmdp_chem"})
+
+    with _sync_client(handler) as client:
+        with pytest.raises(sf.PlanningError, match="inspect-wmdp_chem") as caught:
+            client.benchmarks.get("inspect-wmdp_bio")
+
+    assert caught.value.code == "invalid_catalogue"
+
+
+@pytest.mark.asyncio
+async def test_async_get_reads_an_unlisted_benchmark_by_id_too() -> None:
+    async with _async_client(_listing_without_wmdp) as client:
+        unlisted = await client.benchmarks.get("inspect-wmdp_bio")
+
+    assert unlisted.id == "inspect-wmdp_bio"
+    assert unlisted.case_count == 1273

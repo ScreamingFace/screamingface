@@ -14,7 +14,7 @@ import httpx
 import screamingface as sf
 from screamingface._evaluation.operators import _OperatorCatalog, decode_operator_catalog
 
-# (id, stage) sorted by id: EXACTLY the Engine built-ins (`BUILTIN_OPERATORS`), 37 ids. A literal
+# (id, stage) sorted by id: EXACTLY the Engine built-ins (`BUILTIN_OPERATORS`), 40 ids. A literal
 # on purpose: a drift in the Engine's names must show as a diff here, not be computed away.
 FLOW_OPERATOR_IDS: tuple[tuple[str, str], ...] = (
     ("all@1", "select"),
@@ -40,6 +40,7 @@ FLOW_OPERATOR_IDS: tuple[tuple[str, str], ...] = (
     ("last_number@1", "extract"),
     ("max_score@1", "select"),
     ("max_weight_holder@1", "select"),
+    ("mean@1", "reduce"),
     ("median@1", "reduce"),
     ("mode@1", "reduce"),
     ("nearest@1", "select"),
@@ -52,6 +53,8 @@ FLOW_OPERATOR_IDS: tuple[tuple[str, str], ...] = (
     ("top_k@1", "select"),
     ("value@1", "select"),
     ("values@1", "reduce"),
+    ("weighted_mean@1", "reduce"),
+    ("weighted_median@1", "reduce"),
     ("weighted_mode@1", "reduce"),
     ("whole@1", "extract"),
 )
@@ -93,8 +96,12 @@ def members3() -> list[str]:
     return ["provider/a", "provider/b", "provider/c"]
 
 
-def judge_fusion(returns: Literal["label", "scores"] = "label", **kw: Any) -> sf.Fusion:
-    """Three members under one judge on ``provider/j``; ``kw`` goes to ``sf.Judge``."""
+def judge_fusion(returns: Literal["label", "scores"] = "label", **kw: Any) -> sf.Recipe:
+    """Three members under one judge on ``provider/j``: a ``JudgePick`` (label), or a ``Judge``
+    and an ``ArgMax``/``ArgMin`` (scores, ``order=``); ``kw`` goes to the judge step."""
 
     options: dict[str, Any] = {"rubric": RUBRIC, **kw}
-    return sf.Fusion(members3(), synthesizer=sf.Judge("provider/j", returns=returns, **options))
+    if returns == "label":
+        return sf.Fanout(members3()) >> sf.JudgePick("provider/j", **options)
+    best = sf.ArgMin if options.pop("order", "max") == "min" else sf.ArgMax
+    return sf.Fanout(members3()) >> sf.Judge("provider/j", **options) >> best("score:judge")

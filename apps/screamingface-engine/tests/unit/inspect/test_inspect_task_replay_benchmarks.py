@@ -62,7 +62,7 @@ _MCQ_KEYS: tuple[str, ...] = (
 #: Two hand-written Cases per family, in the shape the shared writer prepares. WHY by hand:
 #: the real Cases need the network to fetch; these stand in for any two Cases of the family
 #: and prove the grading path, not the content of the real ones. Case ids are 1..N (the
-#: writer numbers them; upstream Sample ids never reach a Case).
+#: writer numbers them; inspect_evals' Sample ids never reach a Case).
 _MCQ_CASES: list[PreparedCase] = [
     {
         "case": {"id": 1, "case_id": "1", "input": "Which seat is free?\n\nA) 1\nB) 2"},
@@ -374,8 +374,8 @@ async def test_sad_reads_only_the_start_of_a_reply(tmp_path: Path, no_network: N
 
 
 def test_sad_stages_full_leaves_out_exactly_the_three_empty_samples() -> None:
-    """Spec R18: upstream records 15, 59 and 103 have an empty body; the Named Deviation names
-    those three and nothing else, and it rides the Benchmark Revision."""
+    """Spec R18: in the authors' dataset, records 15, 59 and 103 have an empty body; the Named
+    Deviation names those three and nothing else, and it rides the Benchmark Revision."""
 
     spec = TASK_REPLAY_CASES["sad_stages_full"]
 
@@ -620,7 +620,9 @@ async def test_every_judge_less_benchmark_grades_with_no_network(
 
 #: Eight stand-in LAB-Bench rows. WHY these fields: lab_bench's row rules read the question,
 #: the ideal answer (always placed FIRST among the choices) and the distractors; suppqa also
-#: reads the paper's title and source, protocolqa the protocol.
+#: reads the paper's title and source, protocolqa the protocol, figqa the figure's bytes and
+#: tableqa each table's bytes (OME-1327). The pictures are bare file signatures: capture reads
+#: a picture's type from its first bytes, so a JPEG and a PNG start are all it needs.
 _LAB_BENCH_ROWS: list[dict[str, object]] = [
     {
         "id": f"row-{index}",
@@ -630,6 +632,8 @@ _LAB_BENCH_ROWS: list[dict[str, object]] = [
         "paper-title": "A stand-in paper",
         "source": "https://example.invalid/paper",
         "protocol": "Step 1: stand-in protocol.",
+        "figure": {"bytes": b"\xff\xd8\xff\xe0" + b"\x00" * 8},
+        "tables": [{"bytes": b"\x89PNG\r\n\x1a\n" + b"\x00" * 8}],
     }
     for index in range(1, 9)
 ]

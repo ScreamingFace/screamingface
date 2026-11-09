@@ -23,7 +23,7 @@ _FOUR = ["A", "B", "C", "D"]
 
 
 def _selected(*pairs: tuple[str, str]) -> str:
-    return canonical_json({"selected": [{"id": m, "text": t} for m, t in pairs]})
+    return canonical_json({"input": "q", "selected": [{"id": m, "text": t} for m, t in pairs]})
 
 
 def _rank_by_judge(texts: list[str], scores: list[float], k: int) -> Any:
@@ -70,8 +70,8 @@ def _args_error(spec: dict[str, Any], op_id: str) -> None:
 def test_top_k_by_judge_scores_passes_k_originals_in_rank_order() -> None:
     outcome = _rank_by_judge(_FOUR, [0.1, 0.8, 0.3, 0.9], 2)
 
-    assert (
-        outcome.output == '{"selected":[{"id":"member_4","text":"D"},{"id":"member_2","text":"B"}]}'
+    assert outcome.output == (
+        '{"input":"q","selected":[{"id":"member_4","text":"D"},{"id":"member_2","text":"B"}]}'
     )
     evidence = outcome.evidence
     assert evidence.kind == "selection"

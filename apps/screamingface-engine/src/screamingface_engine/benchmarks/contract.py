@@ -30,6 +30,9 @@ CANDIDATE_ROUTE = "/benchmarks/candidate"
 # resolves. Published in every Benchmark resource: a client cannot be expected to infer it.
 CANDIDATE_BINDING = "candidate"
 CANDIDATE_INPUT_SCHEMA = "screamingface.candidate-input.v1"
+# FEATURE (OME-1678): v2 lets a user message carry pictures and PDFs as inline data: URIs.
+# A text-only Case stays v1, so each Case has exactly one valid encoding.
+CANDIDATE_INPUT_V2_SCHEMA = "screamingface.candidate-input.v2"
 CANDIDATE_INVOCATION_SCHEMA = "screamingface.candidate-invocation.v1"
 CANDIDATE_RESULT_SCHEMA = "screamingface.candidate-result.v1"
 CANDIDATE_MESSAGE_ROLES = frozenset({"system", "developer", "user", "assistant"})
@@ -73,6 +76,7 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # Check met if any Attempt met it, which only means something for a Check graded 0
         # or 1. An Attempt whose Check scored anything else fails its Case by this name.
         "attempt_grade_not_pass_fail",
+        # AIDEV-NOTE: keep time-based additions in failure_classes.TIME_BASED_CODES too.
         "provider_queue_timeout",
         "provider_execution_timeout",
         "caller_deadline_exceeded",
@@ -154,6 +158,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "combine_spec_invalid",
         "combine_operator_unknown",
         "combine_input_too_large",
+        # WHY declared (E4b part 3, ans:Q5): a member call that asked for token log-probabilities
+        # and that the gateway refused for its parameters (HTTP 404 `unsupported_parameters`).
+        # Engine-authored fixed text, permanent (no retry without logprobs).
+        "logprobs_unsupported",
     }
 )
 # WHY a pattern beside the set: the connector mints one code PER HTTP status
@@ -561,7 +569,8 @@ class CandidateResult(_StrictWireModel):
       numeric Benchmark grade. Generic `metrics.coverage` is forbidden because
       Benchmarks had used it for incompatible meanings.
     - with any numeric Case grade, the Candidate publishes the Benchmark score
-      over exactly those Cases and may retain ungradeable failed Cases alongside it.
+      over the selected Cases the declared failure policy counts (OME-1642) and may retain
+      ungradeable failed Cases alongside it.
       Benchmark-specific metrics remain deliberately open.
     - with no numeric Case grade, `score is None`, `coverage == 0`, and
       `metrics == {}` — infrastructure failure never becomes a plausible zero.
@@ -593,7 +602,7 @@ class CandidateResult(_StrictWireModel):
     # for every Benchmark would break every SDK that predates the mark.
     inverted_grade: bool = Field(default=False, exclude_if=lambda value: not value)
     # FEATURE (OME-1268): the Benchmark's Named Scores for this Candidate — each the mean of
-    # its column over the graded Cases, headline first; `score` IS the headline.
+    # its column over the Cases the failure policy counts, headline first; `score` IS the headline.
     # INVARIANT: absent unless set, for the same reason as the mark above.
     scores: dict[str, float | None] = Field(
         default_factory=dict, exclude_if=lambda value: not value
@@ -850,6 +859,7 @@ def decode_loop_outcome(value: str) -> CorrectiveLoopOutcome | None:
 __all__ = [
     "CANDIDATE_BINDING",
     "CANDIDATE_INPUT_SCHEMA",
+    "CANDIDATE_INPUT_V2_SCHEMA",
     "CANDIDATE_INVOCATION_SCHEMA",
     "CANDIDATE_MESSAGE_ROLES",
     "CANDIDATE_RESULT_SCHEMA",

@@ -94,7 +94,7 @@ async function renderSpecPage(score) {
         },
       ],
     },
-    "/v1/scores/11111111-1111-1111-1111-111111111111": score,
+    "/v1/public/scores/11111111-1111-1111-1111-111111111111": score,
   };
   const context = {
     URL,
