@@ -401,8 +401,8 @@ def _validate_row(value: object) -> ConnectionRow:
     label = value.get("label")
     status = value.get("status")
     auth_type = value.get("auth_type")
-    # WHY absence is valid: a gateway older than L7a lists no flag, and a write's response never
-    # carries one; a present flag must be a boolean.
+    # WHY absence passes here: a write's response never carries the flag, and `select` refuses a
+    # listed row without it; a present flag must be a boolean.
     effective = value.get("effective")
     if (
         not isinstance(connection_id, str)
