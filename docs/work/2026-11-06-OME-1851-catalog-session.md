@@ -1,9 +1,9 @@
 ---
 ticket: OME-1851
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-11-06
-finished:
+finished: 2026-11-09
 ---
 
 # Remember the catalogue filter during a session
@@ -67,3 +67,7 @@ JS contract-change exception. Eight catalogue tests pass. Chrome's actual native
 was clicked at desktop/mobile widths in both themes: query becomes empty, first nine
 cards return, focus stays in the field, and the scored preference stays unchanged.
 All four populated-search screenshots were inspected. No page errors or overflow.
+
+## Closure — 2026-11-09
+
+Merged [PR #1702](https://github.com/ScreamingFace/screamingface/pull/1702) on 2026-11-09 as `28a98758e4d5f42aee2c12c37056c26d82f0fcbc`. Linear is Done.
