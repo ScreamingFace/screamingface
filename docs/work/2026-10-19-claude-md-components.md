@@ -1,9 +1,9 @@
 ---
 ticket: OME-1661
 stack: repo
-status: in_progress
+status: done
 started: 2026-10-19
-finished:
+finished: 2026-11-09
 ---
 
 # claude-md-components — list the current components in CLAUDE.md
@@ -40,8 +40,8 @@ so the stale list misroutes work. Found while building the 2026-10-18 engineerin
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** `CLAUDE.md` (Monorepo section), this ledger, the OME-1661 mirror.
+- **Commits:** 217ac9a22, 0f1338baf, plus this close-out commit.
+- **Gates:** repo gates (CI) green on PR #1465. On 2026-11-09 the component list was re-checked against `origin/main`: it still matches `apps/*` and `packages/*`.
 - **Deviations:** docs-only unit; no spec/plan artifact (single-file wording fix requested
   directly by the owner).

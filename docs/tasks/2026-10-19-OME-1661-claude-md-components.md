@@ -1,13 +1,13 @@
 ---
 id: OME-1661
 linear_url: https://linear.app/openmined/issue/OME-1661/list-the-current-components-in-claudemd
-status: in_progress
+status: done
 type: task
 priority: Low
 labels: [repo-dev-processes, agentic, autonomous]
 parent: OME-1660
 created: 2026-10-19
-closed:
+closed: 2026-11-09
 ---
 
 # List the current components in CLAUDE.md
