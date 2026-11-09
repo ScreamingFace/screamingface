@@ -200,6 +200,9 @@ def _validate_bounded_metadata(value: dict[str, Any] | None) -> dict[str, Any] |
         )
     if len(json.dumps(value)) > _METADATA_MAX_BYTES:
         raise ValueError(f"metadata must serialize to at most {_METADATA_MAX_BYTES} bytes")
+    # INVARIANT: imported evidence must round-trip through SQLite, PostgreSQL JSONB
+    # and the public UTF-8 response. Check keys and nested values before persistence.
+    validate_storable_json(value)
     return value
 
 

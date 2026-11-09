@@ -128,3 +128,5 @@ and are held out automatically once the guarded portal is deployed. Qualifying
 these reported results requires historical replies regraded with matching rules
 and complete coverage evidence, or a newly measured compatible run. No paid run
 or production data change is part of this audit.
+
+Comparison notes and other baseline metadata must be storable on every supported database. Imports reject NUL characters and lone Unicode surrogates in nested keys or values before any write. Normal Unicode and multiline notes remain supported.
