@@ -142,19 +142,40 @@ Show the arithmetic in `## Verdict`: `bounds vs original harness = 2/541 = 0.003
 
 ## Worked example — IFEval (`origin="screamingface"`)
 
-Our side: `src/screamingface_engine_inspect/local_tasks/ifeval/` (`ifeval.py` the Task,
-`grading.py` the protocol, `vendor/` the checkers byte-identical to the fork, `README.md` the
-declared deviation on official keys 1122 and 1129). Reference: `harness_url` =
-`josejg/instruction_following_eval` at `0c495b2f…`; the paper arXiv 2311.07911. The parity test
-`tests/unit/inspect/test_local_task_ifeval_parity.py` already runs every official row through both
-checkers; running it (`uv run --isolated --extra inspect pytest <that file> -q`) is the metric
-dimension's evidence, and `diff -r vendor/ "$SCRATCH/harness/instruction_following_eval/"` (ignoring
-the two rewritten import lines and the banner `vendor/__init__.py` documents) is the evidence that
-the checkers are the fork's. Expected: dataset match (541 rows, official file wins on key 2785,
-already resolved), prompt match (sent untouched; `test_every_prompt_is_the_hand_built_one_with_the_official_text`),
-answer extraction not applicable, metric match on 539 + one declared deviation bound `2/541`,
-roll-up match (four published numbers, pooled instruction accuracy), judge not applicable,
-sampling: record what each side fixes. Verdict `comparable-to-paper`.
+**Our side:** `apps/screamingface-engine/src/screamingface_engine_inspect/local_tasks/ifeval/`
+
+- `ifeval.py`: the Task (dataset loader, scorer, whole-run metric).
+- `grading.py`: the strict and loose checking protocol.
+- `vendor/`: the instruction checkers, byte-identical to the fork.
+- `README.md`: the one declared deviation, official keys 1122 and 1129.
+
+**References:**
+
+- Original harness: `harness_url` = `josejg/instruction_following_eval` at `0c495b2f…`.
+- Paper: arXiv 2311.07911.
+
+**Evidence the audit can reuse:**
+
+- **Metric:** run the parity test, which already sends every official row through both checkers.
+  `uv run --isolated --extra inspect pytest tests/unit/inspect/test_local_task_ifeval_parity.py -q`
+- **Checkers are the fork's:** `diff -r vendor/ "$SCRATCH/harness/instruction_following_eval/"`.
+  Ignore the two rewritten import lines and the banner that `vendor/__init__.py` documents.
+- **Prompt:** `test_every_prompt_is_the_hand_built_one_with_the_official_text` pins that the prompt
+  is sent untouched.
+
+**Expected result per dimension:**
+
+| dimension | expected |
+|---|---|
+| dataset | match: 541 rows; the official file wins on key 2785, already resolved |
+| prompt | match: sent untouched |
+| answer extraction | not applicable: the checker reads the whole reply |
+| metric | match on 539 rows, plus one declared deviation with bound `2/541` |
+| roll-up | match: the four published numbers, instruction accuracy pooled |
+| judge | not applicable |
+| sampling | record what each side fixes |
+
+**Verdict:** `comparable-to-paper`.
 
 ## Output
 
