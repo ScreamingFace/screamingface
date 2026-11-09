@@ -1,7 +1,8 @@
 """Turning Runs on in an App (OME-1785, E5 P1 spec D2, R4, R9, R11).
 
 FEATURE: first-class Runs. `install_runs` opens the registry at startup and runs its one writer:
-- local mode: a SQLite file beside the artifacts dir, migrated at start;
+- local mode: a SQLite file under `~/.screamingface-engine/` (or the configured URL), migrated
+  at start;
 - hosted: `URL4_CLOUD_DATABASE_URL`, migrated by the chart's Job before the App starts. With no
   URL the App runs with Runs off, as before this feature; a SQLite URL refuses to start.
 
@@ -45,6 +46,12 @@ class SchemaBehindError(RuntimeError):
 
 class DatabaseUnreachableError(RuntimeError):
     """The Run registry's database did not answer. Startup fails (spec R9, §9 2026-11-05)."""
+
+
+# How long the startup probe waits for the database. WHY bounded: a blackholed host takes asyncpg's
+# own 60 s to fail, past the ~50 s after which the liveness probe kills the pod, so the start would
+# be killed instead of failing with the reason.
+_PROBE_TIMEOUT_S = 10.0
 
 
 def _utc_now() -> datetime:
@@ -106,7 +113,9 @@ async def _require_a_reachable_database(url: str) -> None:
     # WHY before the schema check: Tortoise reads an unreachable database's migration history as
     # empty, so without this probe a down database would be reported as an unmigrated one.
     try:
-        await get_connection(db.CONNECTION).execute_query("SELECT 1")
+        await asyncio.wait_for(
+            get_connection(db.CONNECTION).execute_query("SELECT 1"), timeout=_PROBE_TIMEOUT_S
+        )
     except Exception as exc:
         raise DatabaseUnreachableError(
             f"the Run registry's database at {redacted_url(url)} did not answer "
@@ -214,6 +223,7 @@ def install_runs(
 __all__ = [
     "LOCAL_DATABASE_NAME",
     "MIGRATE_COMMAND",
+    "DatabaseUnreachableError",
     "RunsConfigError",
     "SchemaBehindError",
     "ensure_sqlite_dir",
