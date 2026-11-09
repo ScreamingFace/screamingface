@@ -24,6 +24,7 @@ from run_registry_support import (
     open_registry,
     postgres_server,  # noqa: F401  (a fixture the Postgres parameter requests)
 )
+from test_inprocess_outcomes import _Executor
 from test_queue_runner_cancel import (
     CAPABILITY_LIFETIME_S,
     _FakeControl,
@@ -520,3 +521,60 @@ async def test_a_start_is_one_attempt_from_its_bind_through_its_schedule(
 
     assert runner.seen == [("topic-a", True)]
     assert runner.open == []
+
+
+async def test_a_delayed_second_local_start_cannot_replace_a_canceled_task() -> None:
+    """WHY: the stop found A's task, so without a marker B would replace it once A was done."""
+    built: list[str] = []
+
+    def factory(env: Mapping[str, str]) -> Any:
+        built.append("executor")
+        return _Executor(block=True)
+
+    runner = InProcessJobRunner(InMemoryEventStream(), factory)
+    with runner.start_attempt("t"), runner.start_attempt("t"):  # A and B both in flight
+        await runner.schedule("t", "'hi'", 60)  # A
+        await runner.stop_bound("t")  # the cancel stops A
+        await asyncio.wait_for(_until_done(runner, "t"), timeout=5)
+        with pytest.raises(StoppedBeforeSchedule):
+            await runner.schedule("t", "'hi'", 60)  # B, delayed
+
+    assert built == ["executor"]
+
+
+async def _until_done(runner: InProcessJobRunner, topic: str) -> None:
+    while await runner.exists(topic):
+        await asyncio.sleep(0.01)
+
+
+class _PausingTombstone(_FakePublisher):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started, self.release = asyncio.Event(), asyncio.Event()
+
+    async def publish(self, topic: str, event: Any) -> None:
+        self.started.set()
+        await self.release.wait()
+        await super().publish(topic, event)
+
+
+async def test_a_schedule_finishing_while_the_tombstone_is_written_reports_stopped() -> None:
+    """WHY: a marker set only after the tombstone's await let the schedule report success."""
+    publisher = _PausingTombstone()
+    runner = _runner(publisher, _FakeControl(reply=False))
+    queue: Any = runner._queue
+    publish = queue.publish
+
+    async def _publish_once_the_tombstone_started(message: bytes, **kwargs: Any) -> None:
+        await publish(message, **kwargs)
+        await publisher.started.wait()
+
+    queue.publish = _publish_once_the_tombstone_started
+    schedule = asyncio.create_task(runner.schedule("t", "'hi'", 60, identity=_ALICE_IDENTITY))
+    stop = asyncio.create_task(runner.stop_bound("t"))
+
+    with pytest.raises(StoppedBeforeSchedule):
+        await asyncio.wait_for(schedule, timeout=5)
+    publisher.release.set()
+    await asyncio.wait_for(stop, timeout=5)
+    assert runner._in_flight_by_caller == {}

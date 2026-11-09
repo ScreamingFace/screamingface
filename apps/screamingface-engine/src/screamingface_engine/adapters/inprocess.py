@@ -544,7 +544,9 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         nothing to cancel, and the task spawned next would run until the start's confirmation
         stopped it, which may already have called a provider.
         """
-        if topic in self._starting and job_name(topic) not in self._tasks:
+        # Whether or not a task exists: another start of the topic may still be on its way to
+        # `schedule()`, and would otherwise replace the stopped task once it is done.
+        if topic in self._starting:
             self._stopped_before_schedule.add(topic)
         await self.stop(topic)
 

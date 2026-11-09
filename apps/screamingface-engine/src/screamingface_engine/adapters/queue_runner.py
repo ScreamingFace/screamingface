@@ -500,9 +500,11 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # (The former layout asked the broker whether the per-run stream existed; in a
             # shared stream an empty subject says nothing about the queue.)
             return False
-        await self._publish_tombstone(topic)
-        if frame is None and topic not in self._scheduled_at:
+        if frame is None and bound:
+            # BEFORE the tombstone's await: a schedule finishing its publish meanwhile must see
+            # the stop, or it would report as scheduled a run the worker will skip.
             self._stopped_before_schedule[topic] = self._clock()
+        await self._publish_tombstone(topic)
         return True
 
     async def _read_tail(self, topic: str) -> TerminatedEvent | None | object:

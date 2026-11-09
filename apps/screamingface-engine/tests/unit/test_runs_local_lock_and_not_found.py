@@ -1,8 +1,9 @@
-"""E5 P1 spec D5, R9: a local Engine locks only a SQLite file, and a 404 names only a
+"""E5 P1 spec D5, R9: a local Engine keeps Runs only in a SQLite file, and a 404 names only a
 well-formed Run id (OME-1785).
 
-FEATURE: first-class Runs. STORY: as a researcher, a local Engine on my own Postgres starts, and
-an answer never repeats a malformed id back at any length.
+FEATURE: first-class Runs. STORY: as a researcher, a local Engine pointed at a shared server
+database refuses to start instead of settling another Engine's live Candidates, and an answer
+never repeats a malformed id back at any length.
 """
 
 from __future__ import annotations
@@ -34,32 +35,32 @@ async def registry(request: pytest.FixtureRequest, tmp_path: Path) -> AsyncItera
         yield opened
 
 
-async def test_a_local_engine_on_a_server_database_takes_no_file_lock(
+async def test_a_local_engine_refuses_a_server_database(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """WHY: a second local Engine on the same server database settles the first one's live
+    Candidates `lost` at its start; only a SQLite file can be held by one Engine."""
     monkeypatch.chdir(tmp_path)
     opened: list[str] = []
 
     async def _open(url: str, *args: object, **kwargs: object) -> object:
         opened.append(url)
-        raise RuntimeError("stop after the lock")
+        raise AssertionError("a refused database is never opened")
 
     monkeypatch.setattr(wiring, "open_run_store", _open)
-    url = "postgres://engine@db.example/engine"
     lifecycle = wiring._RunsLifecycle(
         FastAPI(),
         Settings(),
         InMemoryCandidateOutcomeStream(),
-        url=url,
+        url="postgres://engine@db.example/engine",
         local=True,
         writer_retry_s=1.0,
     )
 
-    with pytest.raises(RuntimeError, match="stop after the lock"):
+    with pytest.raises(wiring.RunsConfigError, match="sqlite://"):
         await lifecycle.start()
 
-    assert opened == [url]
-    assert list(tmp_path.iterdir()) == []
+    assert opened == []
 
 
 async def test_a_malformed_run_id_is_not_echoed(registry: Registry) -> None:
@@ -72,3 +73,35 @@ async def test_a_malformed_run_id_is_not_echoed(registry: Registry) -> None:
     for resp in (start, read):
         assert resp.status_code == 404
         assert long_id not in resp.text
+
+
+class _DatabaseGone:
+    """A registry whose every call fails the way a lost database connection does."""
+
+    def __getattr__(self, name: str) -> object:
+        async def _fails(*args: object, **kwargs: object) -> object:
+            raise ConnectionResetError("the database went away")
+
+        return _fails
+
+
+async def test_an_unexpected_registry_failure_is_a_private_retryable_problem(
+    registry: Registry,
+) -> None:
+    """WHY: the answer depends on who asks, so even an unexpected failure must not be a shared
+    plain-text 500 (spec §4.1)."""
+    engine = _Engine(registry)
+    engine.app.state.run_registry = _DatabaseGone()
+
+    answers = [
+        await engine.create(),
+        await engine.client.get("/runs", headers=ALICE),
+        await engine.client.get("/runs/run_" + "0" * 32, headers=ALICE),
+    ]
+
+    for resp in answers:
+        assert resp.status_code == 503
+        assert resp.headers["Content-Type"] == "application/problem+json"
+        assert resp.headers["Cache-Control"] == "private, no-store"
+        assert resp.headers["Vary"] == "X-User-Email"
+        assert "Retry-After" in resp.headers

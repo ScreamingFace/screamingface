@@ -139,8 +139,25 @@ class _RunsRoute(APIRoute):
                     detail="the request body could not be read as JSON",
                     code=MALFORMED_BODY,
                 ) from None
+            except ProblemException:
+                raise
+            except Exception as exc:
+                # WHY inside the same envelope: the answer depends on who asks, so even an
+                # unexpected failure (the database going away) stays a private, retryable Problem
+                # rather than a shared plain-text 500 (spec §4.1).
+                raise _registry_failure(exc) from None
 
         return runs_route_handler
+
+
+def _registry_failure(exc: Exception) -> ProblemException:
+    _logger.warning("a /runs request failed; it can be retried", exc_info=exc)
+    return ProblemException(
+        status=503,
+        title="Service Unavailable",
+        detail="the Run registry could not answer; retry",
+        headers={"Retry-After": str(QUEUE_UNAVAILABLE_RETRY_AFTER_S), **_PRIVATE_HEADERS},
+    )
 
 
 # The cache headers every `/runs` answer carries, as OpenAPI documents a response's headers.
