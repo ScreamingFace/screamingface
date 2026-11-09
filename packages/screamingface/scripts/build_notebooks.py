@@ -2101,16 +2101,17 @@ def _picture_benchmarks_e2e() -> NotebookNode:
         nbformat.v4.new_markdown_cell("""\
 # Picture Benchmarks — two Cases each, on the local stack or dev
 
-Eight Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
+Nine Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
 TableQA (biology tables), MMMU multiple choice and MMMU open (college exam questions about
-charts, diagrams and photos), MathVista (maths over plots and figures) and LABBench2's FigQA2
-and TableQA2 image (harder biology figures and tables, free answers) with every question, and
-Humanity's Last Exam (HLE, expert questions across 100+ subjects) with 342 of its 2,500
+charts, diagrams and photos), MathVista (maths over plots and figures), LABBench2's FigQA2
+and TableQA2 image (harder biology figures and tables, free answers) and MaCBench (chemistry
+and materials science: molecules, crystal structures, spectra, lab photos) with every question,
+and Humanity's Last Exam (HLE, expert questions across 100+ subjects) with 342 of its 2,500
 questions. Each picture is saved inside its Case when the Benchmark is imported, so
 nothing is fetched at run time.
 
 This notebook is a smoke test for the picture path, not a ranking. It points at **either** the
-local stack **or** dev with one variable, lists which of the eight that Engine serves, and runs
+local stack **or** dev with one variable, lists which of the nine that Engine serves, and runs
 two Cases of each with one cheap model that reads pictures. Two Cases are enough to catch a run
 that breaks on pictures, for example one that goes over its memory budget.
 
@@ -2129,20 +2130,20 @@ once).
 **HLE's and LABBench2's datasets are gated.** cais/hle and EdisonScientific/labbench2 on
 Hugging Face each ask you to accept their terms once; then set `HF_TOKEN` (or run
 `huggingface-cli login`) before `just local-stack-notebooks`. Without a token the local stack
-skips those three Benchmarks with a warning and serves the other five.
+skips those three Benchmarks with a warning and serves the other six.
 
 **Hosted.** fusion.screamingface.ai, behind a Cloudflare Access login. `sf.connect()` opens that
 login in your browser. **Dev** is the team's test deployment, fusion.dev, behind the same login.
 
 Two things differ between local and the deployed targets:
 
-- **On a Mac, the local stack serves FigQA, TableQA, HLE and the two LABBench2 Benchmarks.**
-  MMMU and MathVista have
+- **On a Mac, the local stack serves FigQA, TableQA, HLE, the two LABBench2 Benchmarks and
+  MaCBench.** MMMU and MathVista have
   their Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
   Pillow writes different PNG bytes on macOS, so a Mac's own prepared Cases cannot match it, and
-  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE and LABBench2
-  keep each picture's bytes as the dataset ships them, so their Case Digest seals the same on a
-  Mac.
+  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE, LABBench2 and
+  MaCBench keep each picture's bytes as the dataset ships them, so their Case Digest seals the
+  same on a Mac.
 - **The per-run memory budget is enforced only on a Linux deployment.** A local Engine watches
   no memory, so a run that uses too much memory fails on dev and never locally (section 7)."""),
         nbformat.v4.new_markdown_cell("""\
@@ -2185,7 +2186,7 @@ sf.connect()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 2. Which picture Benchmarks this Engine serves
 
-The eight ids below are the catalogue ids of the eight picture Benchmarks. The cell lists the
+The nine ids below are the catalogue ids of the nine picture Benchmarks. The cell lists the
 ones this Engine serves and names each one it can't run with its likely reason:
 
 - the local stack runs on a Mac, and the Benchmark's Case Digest is sealed on Linux. A local
@@ -2206,6 +2207,8 @@ PICTURE_BENCHMARKS = {
     "inspect-hle": "judge (HLE's regex_judge compares the final answer with the reference)",
     "labbench2_figqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
     "labbench2_tableqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
+    "inspect-macbench": "the eval's own answer-tag parser: letters as a set for multiple "
+    "choice, a tolerance window for numbers, no judge",
 }
 # Their pictures are re-saved by Pillow at preparation, so their Case Digest is sealed on Linux.
 SEALED_ON_LINUX = {"inspect-mmmu_multiple_choice", "inspect-mmmu_open", "inspect-mathvista"}
@@ -2233,7 +2236,7 @@ for benchmark_id in PICTURE_BENCHMARKS:
 
 The Case count, the revision (the pin on the imported Cases: two Engines showing the same
 revision ask the same questions) and how the Benchmark is graded. `inspect-mmmu_open`,
-`inspect-hle` and the two LABBench2 Benchmarks spend judge tokens; the other four grade by
+`inspect-hle` and the two LABBench2 Benchmarks spend judge tokens; the other five grade by
 matching the answer, for free."""),
         nbformat.v4.new_code_cell("""\
 for benchmark_id in served:
@@ -2318,6 +2321,16 @@ near saturation (frontier models score about 0.94); FigQA2 is not (about 0.61)."
 run_two_cases("labbench2_figqa2_img")"""),
         nbformat.v4.new_code_cell("""\
 run_two_cases("labbench2_tableqa2_img")"""),
+        nbformat.v4.new_markdown_cell("""\
+### MaCBench: chemistry and materials pictures, letters or a number
+
+Each Case is one picture (a hand-drawn molecule, a crystal structure, an adsorption isotherm, a
+spectrum, a patent plot, a lab photo) and a question about it. Most Cases are multiple choice,
+often with several correct letters the model lists together; the rest ask for a number, graded
+inside the question's own tolerance window. The eval's answer-tag parser grades both, so no
+judge tokens are spent: the run costs only the model's own calls."""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("inspect-macbench")"""),
         nbformat.v4.new_markdown_cell("""\
 ## 6. Inspect the results
 

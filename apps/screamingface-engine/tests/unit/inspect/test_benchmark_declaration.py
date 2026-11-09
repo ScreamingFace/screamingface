@@ -211,6 +211,9 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # the paper is 0.614, so "hard". TableQA2 image reads at 0.94 there, so "easy".
         "labbench2_figqa2_img": ("withhold", "single_shot", "hard"),
         "labbench2_tableqa2_img": ("withhold", "single_shot", "easy"),
+        # OME-1854: MaCBench, chemistry and materials questions over pictures, letters or
+        # a number; inspect_evals' own runs put gpt-5.2 at 0.726, so headroom, not hard.
+        "inspect-macbench": ("withhold", "single_shot", "medium"),
         # OME-1269: Thai grade-12 national benchmark MCQ, the first question-filter benchmark.
         "inspect-onet_m6": ("withhold", "single_shot", "medium"),
         # OME-1269: biomedical yes/no/maybe MCQ over a given abstract (question filter).

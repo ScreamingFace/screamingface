@@ -94,6 +94,8 @@ _FINGERPRINTS: dict[str, str] = {
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, a local Task judged by Sonnet 4.5.
     "labbench2_figqa2_img": "770667413b4b1e51",
     "labbench2_tableqa2_img": "742c148e87b15f69",
+    # OME-1854: MaCBench, chemistry and materials pictures, letters graded as a set.
+    "macbench": "f6cb6e028f58c0f2",
     "frontierscience": "826050de44778515",
     "onet_m6": "cfc5f0da9f9418bd",
     "pubmedqa": "15e20f21d0a78fd9",
