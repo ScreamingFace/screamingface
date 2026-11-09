@@ -12,7 +12,7 @@ from aigateway.core.auth_types import AuthType
 
 from .identity import AccountIdentity
 from .models import OAuthConnection
-from .schemas import OAuthConnectionResponse, OAuthConnectionStatus
+from .schemas import OAuthConnectionListRow, OAuthConnectionResponse, OAuthConnectionStatus
 
 DEFAULT_CREDENTIAL_ACCOUNT = "default"
 
@@ -39,13 +39,16 @@ class OAuthConnectionStore:
         *,
         provider: str | None = None,
         status: str | None = None,
+        include_revoked: bool = False,
     ) -> list[OAuthConnection]:
+        # WHY `include_revoked` (OME-1138 close-out, L7a): the effective-row listing reads every
+        # status in one query, then filters itself; every other caller keeps `revoked` hidden.
         query = OAuthConnection.filter(account_id=account_id)
         if provider is not None:
             query = query.filter(provider=provider)
         if status is not None:
             query = query.filter(status=status)
-        else:
+        elif not include_revoked:
             query = query.exclude(status="revoked")
         return await query.order_by("provider", "label", "created_at")
 
@@ -383,6 +386,12 @@ class OAuthConnectionStore:
         connection.last_refreshed_at = datetime.now(UTC)
         await connection.save(update_fields=["last_refreshed_at"])
         return connection
+
+
+def list_row_from_connection(
+    connection: OAuthConnection, *, effective: bool
+) -> OAuthConnectionListRow:
+    return OAuthConnectionListRow(**dict(response_from_connection(connection)), effective=effective)
 
 
 def response_from_connection(

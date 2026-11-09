@@ -8,10 +8,12 @@ Review of PR #1478 (HupBaHa, 2026-11-02).
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import pytest
 
 from url4.core.errors import ErrorCode, ResolutionError
-from url4.io.media import bare_media_type, is_text_media_type
+from url4.io.media import bare_media_type, is_text_media_type, require_text
 
 CAP = 1_024
 
@@ -77,3 +79,51 @@ def test_within_cap_header_is_stripped_normally() -> None:
     # The guard above is not vacuous: a within-cap header does reach strip.
     with pytest.raises(AssertionError, match="stripped"):
         is_text_media_type(_NoStrip(" text/plain"))
+
+
+class _NoRepr(str):
+    """A header whose repr would be a failure: an over-cap diagnostic must not echo it."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        raise AssertionError("an over-cap header was repr'd into an error message")
+
+
+def _bare_error(content_type: str) -> ResolutionError:
+    with pytest.raises(ResolutionError) as caught:
+        bare_media_type("https://x/f", content_type)
+    return caught.value
+
+
+def _text_error(content_type: str) -> ResolutionError:
+    with pytest.raises(ResolutionError) as caught:
+        require_text("https://x/f", content_type)
+    return caught.value
+
+
+_RaiseFor = Callable[[str], ResolutionError]
+_BOTH_PATHS = [_bare_error, _text_error]
+
+
+@pytest.mark.parametrize("raise_for", _BOTH_PATHS)
+def test_over_cap_header_is_never_repr_d_into_the_error(raise_for: _RaiseFor) -> None:
+    # INVARIANT: over the cap the diagnostic is length-only (review of PR #1478, HupBaHa).
+    error = raise_for(_NoRepr("x" * (CAP + 1)))
+    assert error.code == ErrorCode.UNSUPPORTED_CONTENT_TYPE
+    assert error.permanent is True
+    assert f"{CAP + 1} characters, over the {CAP} cap" in str(error)
+
+
+@pytest.mark.parametrize("raise_for", _BOTH_PATHS)
+def test_one_megabyte_header_yields_a_bounded_error_message(raise_for: _RaiseFor) -> None:
+    error = raise_for(" " * 500_000 + "image/png" + "\t" * 499_991)
+    assert len(str(error)) < 300
+    assert "1000000 characters" in str(error)
+
+
+@pytest.mark.parametrize("raise_for", _BOTH_PATHS)
+def test_within_cap_header_is_still_quoted_in_the_error(raise_for: _RaiseFor) -> None:
+    # The guard above is not vacuous: a within-cap value keeps today's repr'd message.
+    with pytest.raises(AssertionError, match="repr'd"):
+        raise_for(_NoRepr("text/"))

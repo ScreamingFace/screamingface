@@ -46,9 +46,9 @@ import { learnNavigation as navigation } from '@/navigation/learn'
 
     <p>
       Every provider the gateway can reach is a <strong>plugin</strong>. Each one adapts a provider,
-      OpenRouter, Anthropic, the Codex and Gemini CLIs, Hugging Face, and so on, to the gateway's
-      single OpenAI-shaped interface, so supporting a new provider means adding a plugin, not
-      changing the engine or the Client.
+      OpenRouter, Anthropic, OpenAI, the Codex and Gemini CLIs, Hugging Face, and so on, to the
+      gateway's single OpenAI-shaped interface, so supporting a new provider means adding a plugin,
+      not changing the engine or the Client.
     </p>
 
     <p>
@@ -60,17 +60,34 @@ import { learnNavigation as navigation } from '@/navigation/learn'
     </p>
 
     <p>
-      A plugin may also ship <strong>disabled</strong>. The OpenRouter plugin, for example, refuses
-      a valid key until you turn it on with <code>AIGW_OPENROUTER_ENABLED=true</code>. Worth
-      knowing, because the error names the credential rather than the configuration, and it is easy
-      to spend a while checking a key that was never the problem.
+      A provider's plugin can be switched off. <code>screamingface up</code> enables the OpenRouter
+      plugin for you. If you set <code>AIGW_OPENROUTER_ENABLED=false</code>, OpenRouter no longer
+      appears among the providers a local engine advertises,
+      <code>sf.connect("openrouter", …)</code> raises <code>unknown_provider</code>, and an
+      evaluation of an OpenRouter route raises <code>model_not_found</code>.
+    </p>
+
+    <h2>The request cache</h2>
+
+    <p>
+      The gateway stores model responses keyed by the exact request and serves a repeat of that
+      request from the store.
+      <RouterLink to="/learn/caching">Caching and compute</RouterLink> covers what a hit saves. A
+      local gateway has the cache on by default (<code>AIGW_REQUEST_CACHE_ENABLED=true</code>, set
+      by <code>screamingface up</code> unless you export another value), and
+      <code>use_cache=False</code> on an evaluation opts that run out. The gateway also stores the
+      pinned cache of a run that captures. Rows of the hosted community cache load into the local
+      gateway database with
+      <RouterLink to="/sf-client/api/cache"><code>sf.cache.pull_from_remote()</code></RouterLink
+      >.
     </p>
 
     <h2>Running it</h2>
 
     <p>
-      On a hosted engine the gateway runs for you. If you run the engine yourself, you run the
-      gateway too, and it needs its database schema migrated before the first start. The
+      On a hosted engine the gateway runs for you. If you run the engine yourself,
+      <code>screamingface up</code> starts the gateway too, with its own SQLite database in the data
+      directory, and needs no migration step. The
       <RouterLink to="/sf-client/installation">Installation</RouterLink> guide has the commands.
     </p>
   </DocLayout>

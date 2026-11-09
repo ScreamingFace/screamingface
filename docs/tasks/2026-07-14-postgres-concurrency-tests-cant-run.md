@@ -1,12 +1,12 @@
 ---
 id: OME-430
 linear_url: https://linear.app/openmined/issue/OME-430/scoreboard-postgres-concurrency-tests-cant-run-asynciorun-inside-an
-status: backlog
+status: done
 type: task
 priority: P2
 labels: [scoreboard, agentic, autonomous]
 created: 2026-07-14
-closed:
+closed: 2026-11-05
 ---
 
 Found while addressing PR #390 review (OME-391): `postgres_schema_database_url` in
@@ -18,3 +18,10 @@ pytest-asyncio event loop, which raises immediately — and CI never sets
 Fix: convert the fixture to async, add a `postgres:16` CI service, and ideally a
 migration-chain-vs-model-drift check (assert `content_hash`'s unique index exists after
 running real migrations, not `generate_schemas()`). See the Linear issue for full detail.
+
+Implementation: retain synchronous schema URL callers, resolve that fixture before
+entering the async ORM context, and reuse the existing PostgreSQL 17 CI job.
+Ledger: `docs/work/2026-10-30-postgres-concurrency-tests.md`.
+
+Merged [PR #1625](https://github.com/ScreamingFace/screamingface/pull/1625)
+on 2026-11-05, commit `4b2ca3e656f52d6b0ed721e48203013a6ae71cbe`. Linear is Done.

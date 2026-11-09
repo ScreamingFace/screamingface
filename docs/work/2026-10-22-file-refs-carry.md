@@ -658,3 +658,213 @@ tests (settle once per key, exact boundary, release, sticky refusal). Existing c
 **Gates.** `run_gates.py url4 --base origin/OME-1539-url4-file-refs` ALL GATES GREEN;
 `check_module_size.py` within baseline (`dag/_context.py` untouched at 455/455);
 `check_suppressions.py` 3/3; hygiene ratchets green.
+
+## Round 2026-11-04 — HupBaHa CHANGES_REQUESTED on `c9230710b` (six findings): DONE
+
+Merged `origin/main` normally first (no conflicts). Owner decisions (Sergey, 2026-11-04) per
+finding; each lands as its own commit with an append-only test file.
+
+**Planned.**
+1. Local/relative blob reads draw from the shared live `CapBudget` (`max_bytes` / `on_chunk`
+   through `BlobRefNode.verified`, the text-only fallback, the node's relative bytes dispatch and
+   a chunked `[data]` file read). Repro: two 7 MB blobs refused without holding 14 MB.
+2. One shared collection-shape resolver (`dag/_collection_shape.py`) decides model vs model-free
+   for both the scan and admission: follows `$a -> $b -> …` chains and field paths with cycle
+   protection; verified blob collections are parsed from the run-start cache before
+   reachability and slot order. Repros: `$xs.rows` from a model result, `$zs -> $ys -> $xs`,
+   a blob collection holding `[]` sends no nested image.
+3. `run(Graph | DagNode)`: FAIL CLOSED — any attachment-capable source in a pre-built graph
+   (attachment opt-in, blob ref, `url4://` blob ref, malformed opt-in context, non-literal
+   attachment target) is refused before any I/O; text-only graphs unchanged.
+4. Remote-node calls (`url4://` remote expressions) are found by the scan and refused
+   (`x.remote_node_unsupported`) before any run-start I/O, without consuming a client's hop.
+5. Only `https://` is an attachment source; `http://` stays on the text path.
+6. After concurrent flights / blob reads fail, a sticky byte-cap refusal is re-raised so
+   `x.attachments_too_large` always wins.
+
+**Outcome.** One commit per finding (tests append-only, all new files; no prior test edited):
+
+| # | Commit | Change | Tests |
+|---|---|---|---|
+| 5 | `6513a68c6` | `attachment_sources.identity_of`: `https://` only | `test_attachment_http_text_path.py` (5) |
+| 6 | `a9cd4a45b` | `_caps.gather_charged`: after a failed gather, a sticky refusal is re-raised; used for flights and run-start blob reads | `test_attachment_cap_refusal_wins.py` (4); the blob-read race test is in `test_blob_live_budget.py` (committed with 1) |
+| 1 | `246bb49c7` | `_run_files._verify` reads attached blobs with `max_bytes=remaining()` / `on_chunk=charge_bytes`, gives back on failure; `BlobRefNode.verified` passes both (text fallback too); peer relative bytes honour the request; `[data]` files read in 64 KiB pieces (`FileData.read_chunks`, `SupportsReadChunks`) | `test_blob_live_budget.py` (13) |
+| 4 | `132821f8d` | scan records every `url4://` remote call; `_run_start` prechecks them (`remote_nodes.precheck_remote_nodes`, read-only) before any I/O when the run has run-start I/O | `test_remote_node_before_attachment_io.py` (13) |
+| 2 | `a58bceb7a` | `dag/_collection_shape.resolve_collection`: one resolver for `check_static` and admission; follows every `$name` hop + path, cycle-safe; mirrors execution (a `$name` collection is the binding text with each hop's path, no media type; only a direct unpathed `$x` bound to a blob ref reads the body); blob collections read from the verified run-start cache | `test_attachment_reachability_resolver.py` (21) |
+| 3 | `3b41f9aea` | `dag/_graph_admission.refuse_prebuilt` (fail closed, before any I/O); non-literal attachment targets lower to `NotStaticNode` | `test_prebuilt_graph_fail_closed.py` (33) |
+| — | (this commit) | edge/error paths of 1–3 | `test_attachment_round9_edges.py` (6) |
+
+**Shortcuts and limits (stated plainly).**
+- F1: ~~a blob whose digest is already counted (a Case attachment) is read without the budget
+  hooks~~ CLOSED in the follow-up below. A text-only io, a whole-bytes `[data]` provider and a node's
+  endpoint/eval bytes cannot stream: they are charged (and `max_bytes`-checked) right after the
+  read, as `io.media.read_whole` already does, so one such body is held before the refusal.
+- F2: still conservatively reachable (fetched, attached): a row reference (`$item`), holdings, a
+  templated source, a bound inline group, a cycle. A `;optional` collection binding that fails is
+  unreachable at admission; execution would then substitute `$xs` verbatim — if that ever runs a
+  body, its attachment source is not in the manifest and fails `x.source_not_static` (closed).
+- F3: an attachment opt-in or non-literal target in a pre-built graph keeps `x.source_not_static`
+  (the code two existing tests pin since round 7), now before any I/O; blob refs, malformed contexts
+  and opt-ins hidden in kept text are `malformed_source` (a `url4://` blob ref
+  `x.remote_blob_unsupported`). The `NotStaticNode` lowering also refuses `src=$v;accept=<type>`
+  for an executor that bypasses `run()` (it read as text before) — owner decision C.
+- F4: gated on run-start I/O, so a text-only run keeps the execution-time refusal unchanged.
+  ~~A `url4://` reduce PROCESSOR is refused only when the reduce runs~~ CLOSED in the follow-up
+  below (a Form-3 computed processor is still checked when it resolves: its value is unknown
+  before it is evaluated).
+
+**Gates.** `run_gates.py url4 --base origin/main` and `run_gates.py screamingface-engine --base
+origin/main`: ALL GATES GREEN (exit 0; append-only check green on both). `check_module_size.py`:
+all capped modules within baseline (`source_scan.py` 417, `_materialize.py` 397 lines).
+
+### Follow-up 2026-11-04 — owner: close both disclosed gaps before re-review: DONE
+
+1. **`url4://` reduce processor.** `processor.remote_processor_hop` reads a LITERAL `url4://`
+   processor (`run(processor=…)` or a node's `default_processor`, i.e. `run_ctx.processor`);
+   `_run_files._precheck_remote` adds it to the same `precheck_remote_nodes` call as the AST's
+   remote expressions, before any run-start I/O. `_check_remote_processor` uses the same parser.
+   It is refused even when the expression has no reduce (fail closed). A Form-3 expression
+   processor is only known once evaluated and keeps its resolve-time check.
+2. **Case-attachment blob reads.** `CapBudget` keeps each counted key's size; `charge_bytes` on a
+   counted key draws only the bytes BEYOND that size (an honest re-read adds nothing — the list
+   dedups it — so `test_a_blob_equal_to_a_case_attachment_is_not_counted_twice` stays green
+   unedited), `charge` on a counted key gives its live bytes back, and `ceiling(key)` =
+   `remaining()` + its counted size is the read's `max_bytes`. `_verify` no longer bypasses the
+   hooks. Measured: Case 4 MB + 4 MB with the store serving 9 MB per digest → refused
+   `x.attachments_too_large` after 62 + 1 chunks = 4,128,768 bytes streamed (before: each read ran
+   to the io's own cap). Residual: an honest re-read of a Case digest still holds one more copy of
+   that body while it is verified (the run's list does not grow).
+
+Tests (new file, append-only): `tests/unit/test_review_gaps_closed.py` (10).
+
+### Review round 10 (HupBaHa, 2026-11-05, head `0b562f450`) — owner decisions Sergey 2026-11-05: DONE
+
+**Intent.** Close the three remaining High findings, append-only tests, each repro RED first.
+
+**Planned changes.**
+1. Whole-body reads. (a) A blob ref whose digest equals a verified Case attachment reuses the Case
+   bytes, no store read (`_run_files._verify`). (b) A peer data provider that cannot stream draws
+   its DECLARED size from the run budget before the read (`FetchRequest.on_declared`,
+   `CapBudget.reserve`, `peer/_bytes.serve_data_bytes`); unknown or over budget →
+   `x.attachments_too_large`, no read.
+2. Templated model-derived collections. `_collection_shape`: a templated `RelUrl` whose `$name`
+   resolves to a model is `MODEL` (→ `x.source_not_static`, zero I/O); a binding cycle is marked
+   unreachable (admission fetches nothing), kind kept `UNKNOWN`.
+3. Form-3 processor expressions. `_run_files._precheck_remote` parses an expression-valued
+   processor and adds its structural remote calls to the pre-I/O precheck.
+
+**Test plan.** New file `tests/unit/test_review_round10.py`: 2 × 7,000,000-byte synchronized
+whole-body providers peak ≤ cap; unknown size refused with no read; lying size refused; honest
+declared size passes; 8 MB Case + same-digest store body → no store read; the templated repro
+makes zero fetches and refuses; a cycle fetches nothing; the Form-3 processor repro makes zero
+fetches.
+
+**Acceptance.** Both gate runs green (exit 0); no prior test edited.
+
+**Outcome.**
+- 1(b) DONE. `FetchRequest.on_declared` (io/layer.py); `CapBudget.reserve` draws a declared size
+  through `charge_bytes`, refuses an undeclared one stickily; `peer/_bytes.serve_data_bytes`
+  reserves before `read_bytes()` / a callable text provider and draws only bytes past the declared
+  size after; a plain `str` provider's size is known. `_verify` passes
+  `on_declared=partial(budget.reserve, key)`. Repro: 2 × 7,000,000 B synchronized → refused,
+  peak 7,000,000 ≤ 8,000,000 (was 14,000,000).
+- 2 DONE. `_template_kind`: a `RelUrl` template whose `$name` resolves to `MODEL` is `MODEL`
+  (→ `x.source_not_static`, zero I/O); `CollectionShape.cycle` makes admission treat a cycle as
+  unreachable (kind stays `UNKNOWN`, so `test_a_binding_cycle_terminates_as_unknown` is untouched).
+  No other UNKNOWN-reachable case changed.
+- 3 DONE. `_processor_expression_calls`: a Form-3 processor is parsed and `scan_sources`'
+  `remote_nodes` join the pre-I/O precheck.
+- 1(a) STOPPED. Reusing the Case bytes (trial) breaks exactly one prior test,
+  `test_review_gaps_closed.py::test_case_attachment_blobs_served_past_the_cap_are_refused_within_a_chunk`
+  (it asserts the oversized store copy IS read and refused); needs an owner call to amend it.
+- Tests: `tests/unit/test_review_round10.py` (15, new; no prior test edited).
+- Gates: `run_gates.py url4` and `run_gates.py screamingface-engine` (`--base origin/main`) exit 0;
+  `check_module_size.py` exit 0.
+- Deviations: a whole-body provider that declares no size (incl. a callable text provider) is now
+  refused for a run's attached blob read (fail closed, by decision).
+
+**Follow-up 2026-11-05 (owner: amend the 1(a) test; security review of `567f33e57`).**
+- 1(a) DONE. `_run_files._verify` answers a ref whose digest is a Case attachment's from the
+  Case bytes (no store read, one resident copy). Owner-approved amendment of
+  `test_case_attachment_blobs_served_past_the_cap_are_refused_within_a_chunk` (now: never read,
+  one copy, within the cap), recorded in `.claude/test-change-approvals/OME-1543.json`.
+- DoS DONE. `_template_kind` re-walked bindings per path (`seen` per branch): 2^n on a doubling
+  chain (n=18 → 1.26 s). Replaced by `_TemplateWalk`: one shared visited set (each binding
+  followed once, linear) plus `MAX_TEMPLATE_STEPS = 4096`, past which the collection is
+  model-derived (fails closed `x.source_not_static`). n=3000 → 4 ms.
+- Tests appended to `test_review_round10.py`: 1(a) repro (2 params), deep doubling chain, dense
+  fan-out, long template, step-budget fail-closed.
+
+**Review round 11 (HupBaHa 2026-11-05T14:16:42Z) — findings 2 and 3; finding 1 pending owner.**
+
+**Intent.** Admission's collection scope mirrors execution's wiring (`_wiring._build_slots`,
+`_lowering._build_ctx_nodes`): `$N` names the N-th source when that source is named; a named
+source sees only EARLIER named siblings (and the outer scope); an unnamed source and the intent
+see all; a call context registers no positions. A binding's value resolves in ITS definition
+scope, so a forward alias (`xs=$ys`, `ys` later) is the literal text `$ys`, as at execution.
+
+**Planned changes.** `_collection_shape.py` (`Scope`, positional template refs, per-binding
+scope switch), `source_scan.py` (incremental scopes for groups, bodies and call contexts).
+
+**Test plan.** New `tests/unit/test_review_round11.py`: reviewer's `$1` repro + `$1.rows` + alias
+via `$1` refuse `x.source_not_static` with zero I/O; a forward alias is not model-derived;
+call-context sibling binding refuses; an unnamed source sees a LATER named model sibling.
+
+**Acceptance.** `run_gates.py url4` + `repo --base origin/main` exit 0; no prior test edited.
+
+**Outcome (round 11) — BLOCKED on a prior-test decision; not committed.**
+- Implemented (uncommitted): `dag/_scan_scope.py` (new: `Scope`, `sibling_scopes`),
+  `_collection_shape.py` (`$N` template refs, definition-scope hops, identity-keyed visited set,
+  hidden later sibling → literal `$name` text, positional `$N` never reads a bound blob body),
+  `source_scan.py` (per-source scopes for groups, iteration bodies and call contexts).
+- New `tests/unit/test_review_round11.py` (14) green; ruff/format/pyright green.
+- BLOCKER: `test_review_round10.py::test_a_template_walk_past_its_step_budget_fails_closed_with_zero_io`
+  fails. Its chain `x0=/r/$x1, x1=/r/$x2, …` names only LATER siblings, so under execution
+  ordering (finding 3) nothing is wired: execution fetches literal `/r/$x1` (probe confirmed),
+  and admission no longer walks 4097 bindings. The step-budget guard itself still holds —
+  appended `test_a_backward_template_chain_past_the_step_budget_still_fails_closed`. Needs an
+  owner call to amend/retire the forward-ordered test.
+- 2026-11-05 owner decision A applied: the round-10 step-budget test now names EARLIER siblings
+  (same 4096-step budget; duplicate round-11 test dropped). Approval entry in
+  `.claude/test-change-approvals/OME-1543.json` NOT written (agent permission denied) — the url4
+  append-only gate (vs HEAD) stays red until it is recorded. `repo --base origin/main` exit 0.
+- Owner decision B ("require chunks") NOT implemented: a prototype breaks 3 existing tests —
+  `test_review_round10.py::test_bytes_beyond_the_declared_size_are_drawn_after_the_read`,
+  `::test_an_honest_declared_body_is_attached`,
+  `test_server.py::test_in_process_endpoint_request_carries_run_attachments`.
+- 2026-11-05 owner decision B ("exempt strings, amend 2") applied: `peer/_bytes.serve_data_bytes`
+  under `on_declared` reads only a `read_chunks` provider (counted per piece) or a held `str`
+  (exact size); any other whole-body provider is refused unread, `x.attachments_too_large`,
+  sticky via `on_declared(None)`. `SupportsDeclaredSize` removed. Repro + chunked/str/outside-run
+  tests appended to `test_review_round11.py`; amended `test_bytes_beyond_the_declared_size_are_drawn_after_the_read`,
+  `test_a_declared_size_over_max_bytes_is_too_large_before_the_read` (it broke: code is now
+  attachments_too_large), `test_an_honest_declared_body_is_attached`. `test_server.py` unchanged.
+  Suite 3066 passed, coverage 98.82%, ruff/pyright clean. Approval entry for
+  `test_review_round10.py` (base abeb6be5c -> approved 0896c62e4) denied again by the agent
+  permission classifier → `run_gates.py url4` exit 1 (append-only only); `repo --base origin/main` exit 0.
+  Not committed.
+- 2026-11-06 (owner, e2e follow-up): (1) `cli/_serve.make_data_provider` hands a `value` provider
+  over as its plain `str` (held, exact size) — a 31-byte `value` blob is attached inside a run
+  (it was refused `x.attachments_too_large` since round 10); `file` stays chunked (`FileData`).
+  (2) One refusal factory `dag/_caps.whole_body_refused` (re-exported by `dag.attachments`) is
+  both the sticky budget refusal and the direct raise in `peer/_bytes`; `on_declared(None)` is
+  called under `suppress(ResolutionError)` then the refusal raised, so callers and runs see
+  "serve it in chunks (read_chunks)", not "undeclared size". New tests in `test_review_round11.py`
+  (4); `test_review_round10.py` untouched (blob 0896c62e4). Suite 3070 passed, coverage 98.81%.
+  Gates: `url4` exit 1 (append-only only, approval entry pending owner), `repo --base origin/main`
+  exit 0, `screamingface-engine` exit 0. Not committed.
+
+**2026-11-07 — round 11 committed, main merged, pushed.**
+- `cf7e3306a`: round-11 findings 1–3 (whole-body refusal under a live cap, positional `$N`,
+  sibling scope order), call-context scope, `value` as `str`, `read_chunks` refusal message.
+- `f2c0f9307`: normal merge of origin/main (`d21db9196`, #1687 / OME-1834 in-process dispatch).
+  `peer/server.py` conflict = imports only (`_bytes` + `_inprocess`, both delegates kept). Two
+  semantic fixes in the merge: `peer/_inprocess.py` fast path now sets
+  `Request.attachments=current_attachments()` (as `call_endpoint` does; 4 of our tests caught
+  it); `RunFiles.take_prefetched` skips a request carrying a structured `call` — reading
+  `SubrequestFetch.target` encoded the whole context (1.8 GB peak for 50 MB in #1687's memory
+  test); only bare `Url`/`RelUrl` reads are ever memoized, so no replay changes.
+- url4 3113 passed / 17 xfailed; engine unit 7920 passed; `url4` gate (vs HEAD and vs
+  origin/main) exit 0, `repo --base origin/main` exit 0; `url4 --base 490365ce0` exit 1 on
+  append-only only (`test_review_round10.py`, blob 0896c62e4) — owner approval entry follows
+  in a separate commit (owner decision 2026-11-07: push first).

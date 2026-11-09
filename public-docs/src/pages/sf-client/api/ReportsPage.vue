@@ -11,30 +11,33 @@ import {
 
 const runIt = `import screamingface as sf
 
-client = sf.Client()
+client = sf.Client(
+    engine_url="http://127.0.0.1:9108",
+    scoreboard_url="http://127.0.0.1:9106",
+)
 report = client.evaluate(
-    sf.Model("openrouter/anthropic/claude-haiku-4.5"),
-    benchmark="ifeval",
+    sf.Model("openrouter/google/gemini-3.5-flash-lite"),
+    benchmark="medxpert",
     limit=1,
 )
 report`
-const runItOut = `Report(benchmark='ifeval', candidates=['claude-haiku-4.5'], ok=True)`
+const runItOut = `Report(benchmark='medxpert', candidates=['gemini-3.5-flash-lite'], ok=True)`
 
 const summary = `report.ok, report.case_count, report.duration_ms`
-const summaryOut = `(True, 1, 5248)`
+const summaryOut = `(True, 1, 7187)`
 
 const only = `candidate = report.candidates.only
 candidate.name, candidate.kind, candidate.score, candidate.coverage`
-const onlyOut = `('claude-haiku-4.5', 'model', 1.0, 1.0)`
+const onlyOut = `('gemini-3.5-flash-lite', 'model', 0.0, 1.0)`
 
-const byName = `report.candidates["claude-haiku-4.5"] is candidate`
+const byName = `report.candidates["gemini-3.5-flash-lite"] is candidate`
 const byNameOut = `True`
 
 const dict = `sorted(report.to_dict())`
 const dictOut = `['benchmark', 'candidates', 'completed_at', 'schema', 'started_at', 'usage']`
 
 const bench = `report.benchmark`
-const benchOut = `BenchmarkInfo(id='ifeval', revision='047f1de449639c61', case_count=541)`
+const benchOut = `BenchmarkInfo(id='medxpert', revision='1e5a3b8a461a52f7', case_count=2450, inverted_grade=False)`
 </script>
 
 <template>
@@ -66,7 +69,7 @@ const benchOut = `BenchmarkInfo(id='ifeval', revision='047f1de449639c61', case_c
       <svg
         viewBox="0 0 720 348"
         role="img"
-        aria-label="A Report holds one BenchmarkInfo and many CandidateResult values. Each CandidateResult holds many OperationInfo (the plan DAG), many CaseResult (per-case grades), a Usage, its url4 expression, and — for a fusion — many MemberResult values."
+        aria-label="A Report holds one BenchmarkInfo and many CandidateResult values. Each CandidateResult holds many OperationInfo (the plan DAG), many CaseResult (per-case grades), a Usage, its url4 expression, and, for a fusion, many MemberResult values."
         style="width: 100%; height: auto; font-family: var(--f-mono)"
       >
         <defs>
@@ -261,6 +264,23 @@ const benchOut = `BenchmarkInfo(id='ifeval', revision='047f1de449639c61', case_c
           <td>One entry per candidate you evaluated, in the order you passed them.</td>
         </tr>
         <tr>
+          <td><code>selected_cases</code></td>
+          <td><code>tuple[int,&nbsp;...]&nbsp;|&nbsp;None</code></td>
+          <td>
+            The Case ids a <code>cases=</code> run scored, ascending. <code>None</code> for a full
+            run and for a <code>limit</code> run.
+          </td>
+        </tr>
+        <tr>
+          <td><code>selection_fingerprint</code></td>
+          <td><code>str&nbsp;|&nbsp;None</code></td>
+          <td>
+            The <code>sha256:</code> of the sorted selected ids joined by commas, for example of
+            <code>3,17,42</code>. <code>None</code> when <code>selected_cases</code> is
+            <code>None</code>.
+          </td>
+        </tr>
+        <tr>
           <td><code>ok</code></td>
           <td><code>bool</code></td>
           <td>
@@ -303,11 +323,7 @@ const benchOut = `BenchmarkInfo(id='ifeval', revision='047f1de449639c61', case_c
       <NbCell :count="3" :code="bench"><NbTextOut :text="benchOut" /></NbCell>
     </div>
 
-    <p>
-      Each protocol variant is a benchmark id of its own, so <code>ifeval</code> and
-      <code>ifeval/self-corrective</code> pin different revisions. Two reports are only comparable
-      when both the id and the revision match.
-    </p>
+    <p>Two reports are only comparable when both the id and the revision match.</p>
 
     <h3>candidates</h3>
 
@@ -343,11 +359,62 @@ const benchOut = `BenchmarkInfo(id='ifeval', revision='047f1de449639c61', case_c
       <code>screamingface.report.v1</code>, so a consumer can tell what it is reading.
       <code>export(path="report.json")</code> writes that same document to disk, creating parent
       directories and replacing an existing file, and returns the path it wrote.
+      <code>export(path, *, format="json", candidate=None)</code> also takes
+      <code>format="inspect"</code>, which writes one candidate's run, named by
+      <code>candidate=</code>, as an inspect <code>.eval</code> log. That format needs the
+      <code>inspect</code> extra (<code>pip install "screamingface[inspect]"</code>), which does not
+      install in the same environment as the <code>runtime</code> extra.
+      <code>trace_dict()</code> returns the per-operation trace as a dictionary with a
+      <code>schema</code> and a <code>candidates</code> key.
     </p>
 
     <div class="not-prose">
       <NbCell :count="6" :code="dict"><NbTextOut :text="dictOut" /></NbCell>
     </div>
+
+    <h2>Saved reports</h2>
+
+    <p>
+      A Client saves every completed report to <code>~/.screamingface/results</code> unless it was
+      built with <code>save_results=False</code>. That folder is outside the engine's data directory
+      and shared by every environment on the machine, and the files hold the prompts and outputs of
+      each run. A run that ends with failures is saved too. The <code>sf.reports</code>
+      module reopens them.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Function</th>
+          <th>Returns</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>sf.reports.list(*, directory=None)</code></td>
+          <td>
+            A list of <code>SavedReportInfo</code>, one per saved report, with <code>id</code>,
+            <code>candidates</code>, <code>directory</code>, <code>downloaded</code> and
+            <code>size_bytes</code>. The order is not guaranteed.
+          </td>
+        </tr>
+        <tr>
+          <td>
+            <code>sf.reports.get(report_id, *, directory=None, destination=None)</code>
+          </td>
+          <td>The saved <code>Report</code>. <code>get_async</code> is the awaitable form.</td>
+        </tr>
+        <tr>
+          <td><code>sf.reports.delete(report_id, *, directory=None)</code></td>
+          <td><code>None</code>. Removes the saved report from disk.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      <code>directory=</code> points the call at a different folder than
+      <code>~/.screamingface/results</code>.
+    </p>
 
     <h2>Beyond the report</h2>
 

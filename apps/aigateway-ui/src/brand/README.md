@@ -22,7 +22,7 @@ aliases; **the app register is the default**, and this console takes it.
 | `--accent-*` | **blue** `#4b91f0` | every interaction — buttons, links, focus rings |
 | `--brand-*` / `--gain-*` | gold | **nothing.** Gold is "rationed to the win" — the leading leaderboard row, the SOTA counter. An admin console has no win. |
 | `--success-*` | green | account active, credential attached |
-| `--danger-*` | red | deactivate, delete profile |
+| `--danger-*` | red | deactivate, detach a connection |
 | `--bg` `--surface` `--surface-2` `--border` `--border-2` `--text` `--text-2` | neutrals | everything else |
 
 `design-system.test.ts` asserts the zero-gold rule mechanically, because "a comment says not to"

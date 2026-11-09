@@ -111,6 +111,7 @@ uv run screamingface-engine   # serve on :9108 (`serve` is the default subcomman
 
 ```sh
 uv run screamingface-engine serve --local     # loopback only, :9108
+uv run screamingface-engine serve --local --port 9111   # another loopback port (local only)
 ```
 
 Local mode expects aigateway to run with authentication **disabled** (`AIGW_AUTH_MODE=disabled`),

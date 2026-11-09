@@ -452,11 +452,11 @@ def test_record_runs_the_signal_vote_first_and_the_plain_vote_second(
 
     reports = reducer_lane._record_run("http://engine.invalid", _SPEC, 2)
 
-    signal_vote = sf.Vote(extract="last_number", normalize="numeric", weights=sf.signal("cost_usd"))
-    plain_vote = sf.Vote(extract="last_number", normalize="numeric")
-    assert [candidate.synthesizer for candidate in fake.candidates] == [signal_vote, plain_vote]
+    signal_vote = sf.Vote(over="last_number", normalize="numeric", weights=sf.signal("cost_usd"))
+    plain_vote = sf.Vote(over="last_number", normalize="numeric")
+    assert [candidate.steps[1] for candidate in fake.candidates] == [signal_vote, plain_vote]
     # Same members, so the plain vote's requests are the signal vote's, served from the live cache.
-    assert fake.candidates[0].members == fake.candidates[1].members
+    assert fake.candidates[0].steps[0].members == fake.candidates[1].steps[0].members
     assert reports == ("report-1", "report-2")
     assert fake.calls == ["connect", "models.get", "evaluate", "evaluate"]
 

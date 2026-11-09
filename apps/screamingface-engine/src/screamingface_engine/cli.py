@@ -56,13 +56,18 @@ def _serve() -> None:
     )
 
 
-def _serve_local() -> None:
+def _serve_local(port: int = _PORT) -> None:
     """Serve the fused local-mode App — in-process runner, in-memory stream, loopback only.
 
     A sibling of :func:`_serve` rather than a flag on it: the two share only the word "serve".
     They resolve different factories, bind different addresses, and differ on whether the
     insecure default JWT secret is tolerated — a boolean parameter switching all of that would
     be a second function wearing the first one's name.
+
+    `port` is the one thing local mode lets a caller choose that the deployed mode does not:
+    FEATURE (OME-1620) — `screamingface up --engine-port N` starts this process as a child from
+    the Engine's own environment and owns the stack's port plan, so it must be able to say
+    which port this server binds. The default keeps a plain `serve --local` on 9108.
     """
     import uvicorn  # WHY: lazy — same cold-start discipline as `_serve`
 
@@ -72,7 +77,7 @@ def _serve_local() -> None:
 
     # INVARIANT: the WS ping defaults matter here too — see the note in `_serve` (OME-890).
     uvicorn.run(
-        "screamingface_engine.local:create_local_app", factory=True, host=LOCAL_HOST, port=_PORT
+        "screamingface_engine.local:create_local_app", factory=True, host=LOCAL_HOST, port=port
     )
 
 
@@ -182,6 +187,17 @@ def _check_publication(endpoints: str, *, print_checksum: bool = False) -> None:
         print(world_file.digest)
 
 
+def _tcp_port(value: str) -> int:
+    """Parse a port the way a user types it, refusing anything outside 1–65535 at the parser."""
+    try:
+        port = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"port must be an integer, got {value!r}") from None
+    if not 1 <= port <= 65535:
+        raise argparse.ArgumentTypeError(f"port must be between 1 and 65535, got {port}")
+    return port
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="screamingface-engine",
@@ -191,7 +207,9 @@ def _parser() -> argparse.ArgumentParser:
     # since that is the image CMD and the chart's Deployment command.
     # WHY a top-level default: bare `screamingface-engine` parses no subparser, so
     # `args.local` would not exist at all without one.
-    parser.set_defaults(local=False)
+    # WHY `port=None` too: same reason — bare argv never reaches the serve subparser, and the
+    # dispatch reads `args.port` to decide whether a port was asked for.
+    parser.set_defaults(local=False, port=None)
     sub = parser.add_subparsers(dest="mode")
     serve_parser = sub.add_parser(
         "serve", help="serve the REST + WebSocket control plane (default)"
@@ -203,6 +221,15 @@ def _parser() -> argparse.ArgumentParser:
             "run the whole protocol in one process — runs execute as asyncio tasks and frames "
             "travel an in-memory stream, so neither Kubernetes nor NATS is needed. Binds "
             "loopback only."
+        ),
+    )
+    serve_parser.add_argument(
+        "--port",
+        type=_tcp_port,
+        default=None,
+        help=(
+            f"with --local only: the loopback port to bind (default {_PORT}). The deployed "
+            "serve keeps its fixed port, which is the chart's containerPort."
         ),
     )
     run_parser = sub.add_parser(
@@ -270,7 +297,24 @@ def main(argv: list[str] | None = None) -> None:
         _worker()
     elif args.mode == "run":
         _run(warm=args.warm)
-    elif args.local:
-        _serve_local()
+    else:
+        _dispatch_serve(parser, args)
+
+
+def _dispatch_serve(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """Pick the deployed or the local server, and let only the local one take a port."""
+    if args.local:
+        # WHY two calls and not `_serve_local(port=args.port or _PORT)`: with no flag given the
+        # call stays exactly what it was, so the port is a caller's choice, never a parser
+        # default restated here.
+        if args.port is not None:
+            _serve_local(port=args.port)
+        else:
+            _serve_local()
+    elif args.port is not None:
+        # INVARIANT: the deployed port is hardcoded on purpose (see `_serve`) — honouring the
+        # flag here would move the server off the chart's containerPort and leave the probes
+        # and the Service pointing at a port nothing listens on.
+        parser.error("--port is accepted only with --local; the deployed serve port is fixed")
     else:
         _serve()

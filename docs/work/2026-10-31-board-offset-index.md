@@ -92,6 +92,9 @@ selected prefix through the index, and picture admission reads `has_pictures` fr
   - writer time, back to back, best of 3: before 698-739 ms, after 699-726 ms (no
     measurable delta); `cases.json` sha256 unchanged (`dae6e6db...afe0`).
 - **Deviations:**
+  - *(Amended by OME-1803, 2026-11-03: `has_pictures` became `modalities()`, and `board.json`
+    moved to schema `screamingface.board.v2` with a sorted `modalities` list in place of
+    `has_pictures`; see `docs/work/2026-11-02-pdf-admission.md`.)*
   - The port exposes `case_count`, `has_pictures`, `head(count)` only. The spec's id-keyed
     `rows(ids)`/`row(id)` (aggregation, OME-1789) and `id_for_input` (check surface) are out of
     this scope, so they are not built yet.
@@ -139,3 +142,4 @@ selected prefix through the index, and picture admission reads `has_pictures` fr
 - **Deviation:** `case_id` is checked as a string, not against the position: the writer spells
   it `str(id)`, but prior tests build rows with `case_id="c1"`, so binding it would change them.
 - Owner decision (Sergey, 2026-11-02): keep the weaker `case_id` check (it must be a string; its value is not tied to the row position), so existing tests stay unedited.
+- Merged: #1629 squash `a91ef6709` (2026-11-02, approved by HupBaHa at `c623fa37f` after two review rounds). Linear OME-1790 → Done.

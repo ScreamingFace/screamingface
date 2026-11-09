@@ -42,6 +42,25 @@ _DRACO_SYNTHESIS_PROMPT_PARTS = (
 )
 _DRACO_SYNTHESIS_PROMPT = "".join(_DRACO_SYNTHESIS_PROMPT_PARTS)
 
+# FEATURE: every Benchmark notebook runs against the researcher's own `screamingface up` stack
+# or the hosted Engine, chosen by one visible variable.
+# WHY explicit: unconfigured, the SDK falls back from a stopped local stack to the hosted Engine
+# without a word, so a researcher could run against the wrong Engine and not notice.
+_TARGET_SETUP = """\
+import screamingface as sf
+
+TARGET = "local"  # "local": your `screamingface up` stack · "hosted": fusion.screamingface.ai
+
+if TARGET == "local":
+    sf.configure(engine_url="http://127.0.0.1:9108", scoreboard_url="http://127.0.0.1:9106")
+elif TARGET == "hosted":
+    sf.configure(
+        engine_url="https://fusion.screamingface.ai",
+        scoreboard_url="https://leaderboard.screamingface.ai",
+    )
+else:
+    raise ValueError(f'TARGET must be "local" or "hosted", not {TARGET!r}')"""
+
 
 def notebooks() -> dict[str, NotebookNode]:
     # WHY: resolve the companion from this checkout even when loaded through runpy.
@@ -65,6 +84,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "16_arc_agi_2.ipynb": _arc_agi_2_e2e(),
         "17_frames.ipynb": _frames_oracle_e2e(),
         "18_picture_benchmarks.ipynb": _picture_benchmarks_e2e(),
+        "19_map_select_reduce.ipynb": _map_select_reduce(),
     }
 
 
@@ -102,6 +122,27 @@ def _string_assignment(name: str, parts: tuple[str, ...]) -> str:
     return f"{name} = (\n{literals}\n)"
 
 
+def _before_running(heading: str, commands: str, extra: str = "") -> str:
+    """Write a notebook's setup section: the two TARGETs, the local stack's commands, hosted."""
+    section: str = (
+        f"{heading}\n\n"
+        'The next cell picks where this notebook runs: `TARGET = "local"` (the default)\n'
+        'uses your `screamingface up` stack, and `TARGET = "hosted"` uses\n'
+        "`fusion.screamingface.ai`.\n\n"
+        "**Local.** Install the local services with\n"
+        '`pip install "screamingface[runtime,notebook]"`, then from a terminal:\n\n'
+        f"```bash\n{commands}\n```\n\n"
+        "Use `screamingface logs` to inspect startup failures and `screamingface down` when\n"
+        "finished. Stack management stays outside the notebook so **Run All** never starts or\n"
+        "stops local services. Working from a checkout? `just local-stack-notebooks` in\n"
+        "`packages/screamingface/` does every local step — assets, stack, and Jupyter — in one\n"
+        "command.\n\n"
+        '**Hosted.** Nothing to start: `pip install "screamingface[notebook]"` is enough, and\n'
+        "`sf.connect()` opens the login in your browser."
+    )
+    return f"{section}\n\n{extra}" if extra else section
+
+
 def _quickstart() -> NotebookNode:
     return _notebook(
         nbformat.v4.new_markdown_cell("""\
@@ -110,35 +151,16 @@ def _quickstart() -> NotebookNode:
 Six steps: inspect the public Leaderboards, connect a provider, run a Benchmark, read the
 Report, publish its Candidate Result, and replay its URL4. The wider interface is covered in
 `01_client_tour.ipynb`."""),
-        nbformat.v4.new_markdown_cell("""\
-## Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services.
-
-**`draco` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
-shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
-boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
-recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
-Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.configure(
-    engine_url="http://127.0.0.1:9108",
-    scoreboard_url="http://127.0.0.1:9106",
-)
-
-BENCHMARK_ID = "draco\""""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(_TARGET_SETUP + '\n\nBENCHMARK_ID = "draco"'),
         nbformat.v4.new_markdown_cell("""\
 ## 1 · Leaderboards
 
@@ -212,7 +234,7 @@ updated_leaderboard"""),
 ## 6 · Fork or replay the submitted URL4
 
 `published_score.url4` is the raw evaluation expression stored by the Scoreboard. Its
-`.to_python()` method returns an editable Model/Fusion and evaluation cell without spending.
+`.to_python()` method returns an editable recipe and evaluation cell without spending.
 Passing the URL4 itself to `sf.evaluate(...)` instead executes that exact, already
 Benchmark-linked expression and returns a normal `Report`; do not pass `benchmark=` or `limit=`
 again.
@@ -241,7 +263,7 @@ def _client_tour() -> NotebookNode:
 
 Explore the full public Client surface without making a paid model call. This complements the
 short quickstart: it covers explicit Client lifecycle, Engine discovery, provider connections,
-Model and Fusion authoring, hosted authentication, asynchronous use, progress Events, typed
+Model and Fanout recipe authoring, hosted authentication, asynchronous use, progress Events, typed
 errors, and Report anatomy.
 
 Every state-changing or paid example is either descriptive or guarded off by default."""),
@@ -252,19 +274,13 @@ Working from a checkout? `just local-stack-notebooks` in `packages/screamingface
 below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
 
 ```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
 screamingface status
 ```
 
 Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services.
-
-**`draco` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
-shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
-boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
-recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
-Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
+management stays outside the notebook so **Run All** never starts or stops local services."""),
         nbformat.v4.new_code_cell("""\
 import screamingface as sf"""),
         nbformat.v4.new_markdown_cell("""\
@@ -386,7 +402,7 @@ connection = flow.wait(timeout=300)  # or flow.cancel()
 client.disconnect("provider-id")
 ```"""),
         nbformat.v4.new_markdown_cell("""\
-## 5. Author Models and Fusions locally"""),
+## 5. Author Models and Fanout recipes locally"""),
         nbformat.v4.new_code_cell("""\
 writer = sf.Model(
     MODEL_ID,
@@ -399,16 +415,20 @@ reviewer = sf.Model(
     name="reviewer",
     params={"max_tokens": 4096, "temperature": 0.0},
 )
-panel = sf.Fusion(
-    [writer, reviewer],
-    name="reviewed-answer",
-    synthesizer=sf.Model(
+panel = sf.Fanout([writer, reviewer], name="reviewed-answer") >> sf.Synthesize(
+    sf.Model(
         MODEL_ID,
         prompt="Produce one accurate final answer from the panel responses.",
         params={"max_tokens": 4096, "temperature": 0.0},
-    ),
+    )
 )
 [writer, panel]"""),
+        nbformat.v4.new_markdown_cell("""\
+`sf.Fanout` sends the input to every member, and `sf.Synthesize` writes one answer from the
+member answers; `>>` joins the two steps into one recipe. `sf.Fusion([writer, reviewer],
+name="reviewed-answer", synthesizer=...)` is a shortcut that builds the same chain. A block can
+also end in a rule instead of a writer, for example `sf.Fanout(members) >> sf.Vote()`: see
+[`19_map_select_reduce.ipynb`](19_map_select_reduce.ipynb)."""),
         nbformat.v4.new_markdown_cell("""\
 Recipes contain no Benchmark logic. At evaluation time the Client compiles each
 Recipe into URL4 and links it to the selected Engine-owned Benchmark protocol."""),
@@ -648,7 +668,7 @@ dimension at a time:
 
 |                | solo                    | panel                                     |
 |----------------|-------------------------|-------------------------------------------|
-| **no loop**    | plain `sf.Model`        | `sf.Fusion` (drafts blended once)         |
+| **no loop**    | plain `sf.Model`        | `sf.Fanout >> sf.Synthesize` (blended)    |
 | **corrective** | `sf.SelfCorrective`     | `sf.CorrectiveLoop` (drafts checked, best |
 |                | (self-coached retries)  | passing draft submitted verbatim)         |
 
@@ -661,30 +681,16 @@ where `sf.CorrectiveLoop` is the protocol from
         nbformat.v4.new_markdown_cell("""\
 ![The IFEval protocol grid: solo vs panel, no loop vs corrective](assets/ifeval-protocol-grid.png)
 """),
-        nbformat.v4.new_markdown_cell("""\
-## Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services.
-
-**`ifeval` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
-shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
-boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
-recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
-Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
+screamingface prepare ifeval  # first run only: download pinned Benchmark assets
+screamingface up              # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## Define models and fusion"""),
         nbformat.v4.new_code_cell("""\
@@ -717,9 +723,10 @@ deepseek = sf.Model(
     params=PARAMS,
 )
 
-light_open_source = sf.Fusion(
-    members=[ministral, phi], name="light_open_source", synthesizer=deepseek
-)"""),
+light_open_source = sf.Fanout(
+    [ministral, phi],
+    name="light_open_source",
+) >> sf.Synthesize(deepseek)"""),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Solo, no loop — canonical baseline"""),
         nbformat.v4.new_code_cell("""\
@@ -792,32 +799,20 @@ This notebook evaluates DRACO using new models (August 2026) and fusions of thes
 <img src="assets/draco-benchmark.svg" width="900"
   alt="DRACO at a glance: 100 research tasks, ~40 weighted rubric criteria each, judge
   answers MET/UNMET per criterion, score = mean of weighted case scores in 0..1"/>"""),
-        nbformat.v4.new_markdown_cell("""\
-## Running things locally
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services.
-
-**`draco` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
-shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
-boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
-recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
-Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Running things locally",
+                """\
+screamingface prepare draco  # first run only: download pinned Benchmark assets
+screamingface up             # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
         nbformat.v4.new_markdown_cell("""\
 Export `TAVILY_API_KEY` before `screamingface up`: the Gemini, Kimi, DeepSeek, and
 Qwen answer routes use its guarded tool loop, and the Engine fails before model spend when that
 required retrieval mechanism is unavailable."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf"""),
+        nbformat.v4.new_code_cell(_TARGET_SETUP),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Connect OpenRouter"""),
         nbformat.v4.new_code_cell("""\
@@ -881,9 +876,10 @@ kimi = sf.Model(
     params=PARAMS,
 )
 
-best_open_source = sf.Fusion(
-    members=[deepseek, glm, qwen], name="best_open_source", synthesizer=kimi
-)"""),
+best_open_source = sf.Fanout(
+    [deepseek, glm, qwen],
+    name="best_open_source",
+) >> sf.Synthesize(kimi)"""),
         nbformat.v4.new_markdown_cell("""\
 ## 3. Run DRACO with the fusion"""),
         nbformat.v4.new_code_cell("""\
@@ -950,31 +946,17 @@ what published HealthBench figures do."""),
 <img src="assets/healthbench-worst30-benchmark.svg" width="900"
   alt="HealthBench worst-30 at a glance: 157 hardest conversations, physician-written
   rubrics where penalties subtract, unclamped case scores, raw mean keeps negatives"/>"""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished. Stack
-management stays outside the notebook so **Run All** never starts or stops local services.
-
-**Both HealthBench boards need an Engine with the `inspect` extra.** They are Benchmarks we
-author in inspect's shape (origin `screamingface`), served by the same machinery as the imported
-inspect_evals boards, so the plain `screamingface up` Engine does not list them. The
-`just local-stack-notebooks` recipe serves an inspect-capable Engine beside the stack and points
-this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine and
-`SCREAMINGFACE_SCOREBOARD_URL` to its Scoreboard before starting the kernel (see
-`12_inspect_evals_benchmarks`)."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
+screamingface prepare healthbench-worst30       # first run only: download pinned assets
+screamingface prepare healthbench-professional  # first run only: download pinned assets
+screamingface up                                # start Gateway, Scoreboard, and Engine
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Run the hard board with 1 model
 
@@ -1027,9 +1009,10 @@ kimi = sf.Model(
     prompt=SYNTHESIS_PROMPT,
 )
 
-best_open_source = sf.Fusion(
-    members=[deepseek, qwen, glm], name="best_open_source", synthesizer=kimi
-)"""),
+best_open_source = sf.Fanout(
+    [deepseek, qwen, glm],
+    name="best_open_source",
+) >> sf.Synthesize(kimi)"""),
         nbformat.v4.new_code_cell("""\
 worst30_report = sf.evaluate(best_open_source, benchmark="healthbench-worst30", limit=1)
 worst30_report"""),
@@ -1107,32 +1090,16 @@ leaderboard?"."""),
   task, roughly 4,500 per full run), case score = earned points over positive points with
   negatives subtracting and no clamp, board score = plain mean over 102 cases — deliberately
   not the official pairwise-vs-human GDPval metric"/>"""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services.
-
-**`gdpval-text` needs an Engine with the `inspect` extra.** It is a Benchmark we author in
-inspect's shape (origin `screamingface`), served by the same machinery as the imported
-inspect_evals boards, so the plain `screamingface up` Engine does not list it. The
-`just local-stack-notebooks` recipe serves an inspect-capable Engine beside the stack and points
-this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine and
-`SCREAMINGFACE_SCOREBOARD_URL` to its Scoreboard before starting the kernel (see
-`12_inspect_evals_benchmarks`)."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
+screamingface prepare gdpval-text  # first run only: download pinned Benchmark assets
+screamingface up                   # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Run one case with a single model
 
@@ -1198,7 +1165,7 @@ kimi = sf.Model(
     prompt=SYNTHESIS_PROMPT,
 )
 
-open_panel = sf.Fusion(members=[deepseek, qwen, glm], name="open_panel", synthesizer=kimi)"""),
+open_panel = sf.Fanout([deepseek, qwen, glm], name="open_panel") >> sf.Synthesize(kimi)"""),
         nbformat.v4.new_code_cell("""\
 fusion_report = sf.evaluate(open_panel, benchmark="gdpval-text", limit=2)
 fusion_report"""),
@@ -1243,25 +1210,16 @@ entirely answer generation.
   alt="MedXpertQA at a glance: 2,450 expert medical MCQs with ten choices, a two-turn
   reason-then-commit exchange, free exact-match grading, score = matching cases / cases run
   with answered_rate reported beside it"/>"""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare medxpert  # first run only: download pinned Benchmark assets
 screamingface up                # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Run a few cases with one model
 
@@ -1313,7 +1271,7 @@ member2 = sf.Model(model="openrouter/google/gemini-3.8-flash", params=PANEL_PARA
 synth = sf.Model(
     model="openrouter/anthropic/claude-haiku-4.5", params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT
 )
-panel = sf.Fusion(name="medical_panel", members=[member1, member2], synthesizer=synth)
+panel = sf.Fanout([member1, member2], name="medical_panel") >> sf.Synthesize(synth)
 
 panel"""),
         nbformat.v4.new_code_cell("""\
@@ -1360,47 +1318,26 @@ and pinned at import time, so a published board never drifts under you.
 
 This notebook walks the whole path: list the catalogue → read an imported board's card → run a
 fusion against it."""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local services.
-
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
+screamingface prepare inspect-gsm8k  # first run only: download pinned Benchmark assets
+screamingface up                     # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+                """\
 **Where the imported boards live.** An Engine serves imported boards only when it runs with its
 `inspect` extra (the upstream scorers come from `inspect-ai`, which cannot co-install with the
-local runtime's dependencies — a declared conflict, not an accident). The local
-`screamingface up` stack therefore lists the ScreamingFace group only. **An inspect-capable
-Engine is a prerequisite for everything past section 1**: the listing works against any Engine,
-and the first cell of section 2 checks for the imported shelf and stops with guidance rather
-than failing partway through. To browse and run the imported catalogue, point the SDK at an
-inspect-capable Engine, and at its Scoreboard, before starting the kernel:
+local runtime's dependencies — a declared conflict, not an accident). So the first
+`screamingface up` builds the Engine its own environment with that extra (a few minutes, once;
+later starts reuse it), and the local stack lists both groups. Each board still needs its Cases
+on disk before a run — `screamingface prepare inspect-gsm8k` for this notebook's example.
 
-```bash
-export SCREAMINGFACE_ENGINE_URL="https://<an-engine-with-the-inspect-extra>"
-export SCREAMINGFACE_SCOREBOARD_URL="https://<its-scoreboard>"
-```
-
-A non-default Engine without its Scoreboard is refused, so a run can never publish to the public
-leaderboard by accident. Leaving both unset falls back to a running local stack, then to the
-hosted default.
-
-**Running one yourself, from a checkout.** The `just local-stack-notebooks` recipe above does
-exactly this: it bakes the imported snapshots, serves an inspect-capable Engine beside the
-`screamingface up` stack on a free port — reaching the same Gateway on `:9105`, so only the
-Engine URL changes — and exports `SCREAMINGFACE_ENGINE_URL` and `SCREAMINGFACE_SCOREBOARD_URL`
-for the kernel it opens."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+The first cell of section 2 checks for the imported shelf and stops with guidance rather than
+failing partway through.""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. List the catalogue — one group per origin
 
@@ -1427,8 +1364,7 @@ the notebook stops here with directions instead of failing on the lookup."""),
 if not any(benchmark.origin == "inspect_evals" for benchmark in benchmarks):
     raise RuntimeError(
         "this Engine serves no imported boards — the rest of this notebook needs an "
-        "Engine running with its inspect extra; see section 0 for how to point "
-        "SCREAMINGFACE_ENGINE_URL at one"
+        "Engine running with its inspect extra; see section 0 for the two TARGETs"
     )
 
 gsm8k = sf.benchmarks.get("inspect-gsm8k")
@@ -1463,7 +1399,7 @@ member2 = sf.Model(model="openrouter/google/gemini-3.8-flash", params=PANEL_PARA
 synth = sf.Model(
     model="openrouter/qwen/qwen3.8-flash", params=PANEL_PARAMS, prompt=SYNTHESIS_PROMPT
 )
-math_panel = sf.Fusion(name="math_panel", members=[member1, member2], synthesizer=synth)
+math_panel = sf.Fanout([member1, member2], name="math_panel") >> sf.Synthesize(synth)
 
 math_panel"""),
         nbformat.v4.new_code_cell("""\
@@ -1524,7 +1460,7 @@ mcq_synth = sf.Model(
     params=PANEL_PARAMS,
     prompt=MCQ_SYNTHESIS_PROMPT,
 )
-mcq_panel = sf.Fusion(name="mcq_panel", members=[member1, member2], synthesizer=mcq_synth)
+mcq_panel = sf.Fanout([member1, member2], name="mcq_panel") >> sf.Synthesize(mcq_synth)
 
 mmlu_report = sf.evaluate(mcq_panel, benchmark="inspect-mmlu", limit=2)
 mmlu_report"""),
@@ -1552,7 +1488,7 @@ boolq_synth = sf.Model(
     params=PANEL_PARAMS,
     prompt=BOOLQ_SYNTHESIS_PROMPT,
 )
-boolq_panel = sf.Fusion(name="boolq_panel", members=[member1, member2], synthesizer=boolq_synth)
+boolq_panel = sf.Fanout([member1, member2], name="boolq_panel") >> sf.Synthesize(boolq_synth)
 
 boolq_report = sf.evaluate(boolq_panel, benchmark="inspect-boolq", limit=2)
 boolq_report"""),
@@ -1607,9 +1543,7 @@ science_synth = sf.Model(
     params=PANEL_PARAMS,
     prompt=SCIENCE_SYNTHESIS_PROMPT,
 )
-science_panel = sf.Fusion(
-    name="science_panel", members=[member1, member2], synthesizer=science_synth
-)
+science_panel = sf.Fanout([member1, member2], name="science_panel") >> sf.Synthesize(science_synth)
 
 science_panel"""),
         nbformat.v4.new_code_cell("""\
@@ -1675,32 +1609,16 @@ credit**. No judge, no grading tokens — like MedXpertQA, what you pay for is a
   score here is **F1**, not accuracy — F1 scores that model 0.
 - **The score is not a mean of case scores.** F1 comes from a confusion matrix built across the
   whole run, so a 5-case rehearsal produces a number that is real but extremely coarse."""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services.
-
-**`contracteval` needs an Engine with the `inspect` extra.** It is a Benchmark we author in
-inspect's shape (origin `screamingface`), served by the same machinery as the imported
-inspect_evals boards, so the plain `screamingface up` Engine does not list it. The
-`just local-stack-notebooks` recipe serves an inspect-capable Engine beside the stack and points
-this kernel at it; otherwise set `SCREAMINGFACE_ENGINE_URL` to such an Engine and
-`SCREAMINGFACE_SCOREBOARD_URL` to its Scoreboard before starting the kernel (see
-`12_inspect_evals_benchmarks`)."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
+screamingface prepare contracteval  # first run only: download pinned Benchmark assets
+screamingface up                    # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Run a few cases with one model
 
@@ -1757,7 +1675,7 @@ member2 = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARA
 synth = sf.Model(
     model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
 )
-panel = sf.Fusion(name="contract_panel", members=[member1, member2], synthesizer=synth)
+panel = sf.Fanout([member1, member2], name="contract_panel") >> sf.Synthesize(synth)
 
 fusion_report = sf.evaluate(panel, benchmark="contracteval", limit=5)
 fusion_report"""),
@@ -1826,25 +1744,16 @@ against the ones the dataset marks as supporting).
   reader takes the last `Supporting paragraphs:` and the last `Answer:` it finds. A reply with
   no `Answer:` line is graded as a whole, which almost always means F1 0 — tell the model about
   the format rather than hoping it infers it."""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare musique  # first run only: download the pinned dev split from the Hub
 screamingface up               # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Read the board's card
 
@@ -1899,7 +1808,7 @@ member2 = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARA
 synth = sf.Model(
     model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
 )
-panel = sf.Fusion(name="musique_panel", members=[member1, member2], synthesizer=synth)
+panel = sf.Fanout([member1, member2], name="musique_panel") >> sf.Synthesize(synth)
 
 fusion_report = sf.evaluate(panel, benchmark="musique", limit=5)
 fusion_report"""),
@@ -1968,25 +1877,16 @@ grids solved / grids in the task, so a task with two grids and one solved scores
   re-ask; this board scores it 0. One Attempt cut off at the token cap fails the whole Case.
 - **Give the model room.** An answer grid alone runs to 2,760 characters; with reasoning on top,
   a low `max_tokens` fails Attempts."""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare arc_agi_2  # first run only: download the pinned task zip from GitHub
 screamingface up                 # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Read the board's card
 
@@ -2044,7 +1944,7 @@ member2 = sf.Model(model="openrouter/google/gemini-3.1-pro-preview", params=PARA
 synth = sf.Model(
     model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
 )
-panel = sf.Fusion(name="arc_panel", members=[member1, member2], synthesizer=synth)
+panel = sf.Fanout([member1, member2], name="arc_panel") >> sf.Synthesize(synth)
 panel"""),
         nbformat.v4.new_markdown_cell("""\
 ⚠️ Running the below code will cost money 💵"""),
@@ -2097,25 +1997,16 @@ case.
 - **The articles are 2024 revisions drawn with today's templates.** A few tables show a value from
   2025 or later, and a few templates deleted since draw only their name; the snapshot's card
   lists both."""),
-        nbformat.v4.new_markdown_cell("""\
-## 0. Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
 screamingface prepare frames_oracle  # first run only: download the questions and the articles
 screamingface up                     # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-Stack management stays outside the notebook so **Run All** never starts or stops local
-services."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## 1. Read the Benchmark's card
 
@@ -2157,7 +2048,7 @@ member2 = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
 synth = sf.Model(
     model="openrouter/anthropic/claude-opus-4.8", params=PARAMS, prompt=SYNTHESIS_PROMPT
 )
-panel = sf.Fusion(name="frames_panel", members=[member1, member2], synthesizer=synth)
+panel = sf.Fanout([member1, member2], name="frames_panel") >> sf.Synthesize(synth)
 
 fusion_report = sf.evaluate(panel, benchmark="frames_oracle", limit=5)
 fusion_report"""),
@@ -2210,14 +2101,16 @@ def _picture_benchmarks_e2e() -> NotebookNode:
         nbformat.v4.new_markdown_cell("""\
 # Picture Benchmarks — two Cases each, on the local stack or dev
 
-Five imported Benchmarks show the Candidate a picture with every question: LAB-Bench FigQA
-(biology figures), LAB-Bench TableQA (biology tables), MMMU multiple choice and MMMU open
-(college exam questions about charts, diagrams and photos) and MathVista (maths over plots and
-figures). Each picture is saved inside its Case when the Benchmark is imported, so nothing is
-fetched at run time.
+Eight Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
+TableQA (biology tables), MMMU multiple choice and MMMU open (college exam questions about
+charts, diagrams and photos), MathVista (maths over plots and figures) and LABBench2's FigQA2
+and TableQA2 image (harder biology figures and tables, free answers) with every question, and
+Humanity's Last Exam (HLE, expert questions across 100+ subjects) with 342 of its 2,500
+questions. Each picture is saved inside its Case when the Benchmark is imported, so
+nothing is fetched at run time.
 
 This notebook is a smoke test for the picture path, not a ranking. It points at **either** the
-local stack **or** dev with one variable, lists which of the five that Engine serves, and runs
+local stack **or** dev with one variable, lists which of the eight that Engine serves, and runs
 two Cases of each with one cheap model that reads pictures. Two Cases are enough to catch a run
 that breaks on pictures, for example one that goes over its memory budget.
 
@@ -2227,24 +2120,33 @@ starts or stops a stack."""),
 ## 0. Before running
 
 **Local.** From a checkout, run `just local-stack-notebooks` in `packages/screamingface/`. It
-serves an inspect-capable Engine on `:9111` (the imported Benchmarks need the Engine's `inspect`
-extra) beside the Scoreboard on `:9106`, prepares every Benchmark's Cases the first time (slow,
-once) and opens Jupyter on `examples/`. If you moved the Engine with
-`SCREAMINGFACE_NOTEBOOK_ENGINE_PORT=…`, the next cell reads the same variable.
+prepares every Benchmark's Cases the first time (slow, once), starts `screamingface up` (Engine
+on `:9108`, Scoreboard on `:9106`) and opens Jupyter on `examples/`. Without a checkout, run
+`screamingface prepare --all` and `screamingface up` yourself. The first `up` builds the Engine
+its own environment with the `inspect` extra the imported Benchmarks need (a few minutes,
+once).
 
-**Dev.** fusion.dev, behind a Cloudflare Access login. `sf.connect()` opens that login in your
-browser.
+**HLE's and LABBench2's datasets are gated.** cais/hle and EdisonScientific/labbench2 on
+Hugging Face each ask you to accept their terms once; then set `HF_TOKEN` (or run
+`huggingface-cli login`) before `just local-stack-notebooks`. Without a token the local stack
+skips those three Benchmarks with a warning and serves the other five.
 
-Two things differ between the two targets:
+**Hosted.** fusion.screamingface.ai, behind a Cloudflare Access login. `sf.connect()` opens that
+login in your browser. **Dev** is the team's test deployment, fusion.dev, behind the same login.
 
-- **On a Mac, the local stack serves only FigQA and TableQA.** MMMU and MathVista have their
-  Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
+Two things differ between local and the deployed targets:
+
+- **On a Mac, the local stack serves FigQA, TableQA, HLE and the two LABBench2 Benchmarks.**
+  MMMU and MathVista have
+  their Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
   Pillow writes different PNG bytes on macOS, so a Mac's own prepared Cases cannot match it, and
-  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them.
+  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE and LABBench2
+  keep each picture's bytes as the dataset ships them, so their Case Digest seals the same on a
+  Mac.
 - **The per-run memory budget is enforced only on a Linux deployment.** A local Engine watches
   no memory, so a run that uses too much memory fails on dev and never locally (section 7)."""),
         nbformat.v4.new_markdown_cell("""\
-## 1. One switch: local or dev
+## 1. One switch: local, hosted or dev
 
 Set `TARGET`, then run the cell. It points the Client at that Engine and its Scoreboard, then
 opens the connection panel. A deployment uses exactly one credential mode (see
@@ -2252,21 +2154,24 @@ opens the connection panel. A deployment uses exactly one credential mode (see
 
 - **local** is bring your own key: the panel takes a provider key, which goes to the Engine
   for validation and encrypted storage; the notebook never keeps it.
-- **dev** is hosted credits: the panel shows a **Log in** step (Cloudflare Access opens in
-  your browser), then the providers your hosted account can use."""),
+- **hosted** and **dev** are hosted credits: the panel shows a **Log in** step (Cloudflare
+  Access opens in your browser), then the providers your hosted account can use."""),
         nbformat.v4.new_code_cell("""\
-import os
 import platform
 
 import screamingface as sf
 
-TARGET = "local"  # or "dev"
+TARGET = "local"  # or "hosted"; "dev" is the team's test deployment
 
 if TARGET == "local":
-    ENGINE_PORT = os.environ.get("SCREAMINGFACE_NOTEBOOK_ENGINE_PORT", "9111")
     sf.configure(
-        engine_url=f"http://127.0.0.1:{ENGINE_PORT}",
+        engine_url="http://127.0.0.1:9108",
         scoreboard_url="http://127.0.0.1:9106",
+    )
+elif TARGET == "hosted":
+    sf.configure(
+        engine_url="https://fusion.screamingface.ai",
+        scoreboard_url="https://leaderboard.screamingface.ai",
     )
 elif TARGET == "dev":
     sf.configure(
@@ -2274,13 +2179,13 @@ elif TARGET == "dev":
         scoreboard_url="https://leaderboard.dev.screamingface.ai",
     )
 else:
-    raise ValueError(f'TARGET must be "local" or "dev", not {TARGET!r}')
+    raise ValueError(f'TARGET must be "local", "hosted" or "dev", not {TARGET!r}')
 
 sf.connect()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 2. Which picture Benchmarks this Engine serves
 
-The five ids below are the catalogue ids of the five picture Benchmarks. The cell lists the
+The eight ids below are the catalogue ids of the eight picture Benchmarks. The cell lists the
 ones this Engine serves and names each one it can't run with its likely reason:
 
 - the local stack runs on a Mac, and the Benchmark's Case Digest is sealed on Linux. A local
@@ -2298,6 +2203,9 @@ PICTURE_BENCHMARKS = {
     "inspect-mmmu_multiple_choice": "letter match (inspect's choice scorer, no judge)",
     "inspect-mmmu_open": "judge (a judge model reads the reply against the answer)",
     "inspect-mathvista": "exact match of the letter or the text after 'ANSWER:', no judge",
+    "inspect-hle": "judge (HLE's regex_judge compares the final answer with the reference)",
+    "labbench2_figqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
+    "labbench2_tableqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
 }
 # Their pictures are re-saved by Pillow at preparation, so their Case Digest is sealed on Linux.
 SEALED_ON_LINUX = {"inspect-mmmu_multiple_choice", "inspect-mmmu_open", "inspect-mathvista"}
@@ -2324,8 +2232,9 @@ for benchmark_id in PICTURE_BENCHMARKS:
 ## 3. Each served Benchmark's card
 
 The Case count, the revision (the pin on the imported Cases: two Engines showing the same
-revision ask the same questions) and how the Benchmark is graded. Only `inspect-mmmu_open`
-spends judge tokens; the other four grade by matching the answer, for free."""),
+revision ask the same questions) and how the Benchmark is graded. `inspect-mmmu_open`,
+`inspect-hle` and the two LABBench2 Benchmarks spend judge tokens; the other four grade by
+matching the answer, for free."""),
         nbformat.v4.new_code_cell("""\
 for benchmark_id in served:
     card = sf.benchmarks.get(benchmark_id)
@@ -2389,6 +2298,27 @@ run_two_cases("inspect-mmmu_open")"""),
         nbformat.v4.new_code_cell("""\
 run_two_cases("inspect-mathvista")"""),
         nbformat.v4.new_markdown_cell("""\
+### HLE: one picture Case and one text Case
+
+HLE's first two Cases, in its dataset order, are a picture question and then a text question, so
+`limit=2` runs both paths the Benchmark has. Its judge is glm-5.3-flash on OpenRouter: on the
+local stack the OpenRouter key from the panel pays for it, as for MMMU open. Run it on the local
+stack first; on dev, once the deployment that carries this Benchmark is up. Section 6 shows the
+picture the model saw and the judge's own words on each Case."""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("inspect-hle")"""),
+        nbformat.v4.new_markdown_cell("""\
+### LABBench2: a figure and a table, free answers
+
+Each Case is one figure (FigQA2) or one table (TableQA2) from a biology paper and a question
+whose answer is usually a number. The judge is Claude Sonnet 4.5 on OpenRouter, the authors'
+own grader, so the OpenRouter key from the panel pays for it on the local stack. TableQA2 is
+near saturation (frontier models score about 0.94); FigQA2 is not (about 0.61)."""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("labbench2_figqa2_img")"""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("labbench2_tableqa2_img")"""),
+        nbformat.v4.new_markdown_cell("""\
 ## 6. Inspect the results
 
 Per Case: its status, its score, and any failure codes. A Case with no grade shows its failure
@@ -2431,22 +2361,27 @@ else:
         picture = f"Could not fetch the picture: {exc.code}: {exc.message}"
 picture"""),
         nbformat.v4.new_markdown_cell("""\
-### The judge's evidence on MMMU open
+### The judge's evidence on the judged Benchmarks
 
-`inspect-mmmu_open` is the one judged Benchmark here. Each Case's check evidence carries the
-judge's own explanation verbatim, the way `12_inspect_evals_benchmarks` section 7 shows it, so a
-surprising score can be read, not just counted."""),
+`inspect-mmmu_open`, `inspect-hle` and the two LABBench2 Benchmarks are judged. Each Case's check
+evidence carries the judge's own explanation verbatim, the way `12_inspect_evals_benchmarks`
+section 7 shows it, so a surprising score can be read, not just counted."""),
         nbformat.v4.new_code_cell("""\
-open_report = reports.get("inspect-mmmu_open")
-if open_report is None:
-    print("No inspect-mmmu_open run yet (not served, or RUN_EVALUATION is False).")
-else:
-    for case in open_report.candidates.only.cases:
+for benchmark_id in (
+    "inspect-mmmu_open",
+    "inspect-hle",
+    "labbench2_figqa2_img",
+    "labbench2_tableqa2_img",
+):
+    judged_report = reports.get(benchmark_id)
+    if judged_report is None:
+        print(f"No {benchmark_id} run yet (not served, or RUN_EVALUATION is False).")
+        continue
+    for case in judged_report.candidates.only.cases:
         grade = case.grade
-        print(case.case_id, case.status, grade.score if grade else None)
-
-first = open_report.candidates.only.cases[0].grade if open_report is not None else None
-() if first is None or not first.checks else first.checks[0].evidence"""),
+        print(benchmark_id, case.case_id, case.status, grade.score if grade else None)
+        if grade is not None and grade.checks:
+            print("  judge:", grade.checks[0].evidence)"""),
         nbformat.v4.new_markdown_cell("""\
 ## 7. When a run fails on memory
 
@@ -2457,7 +2392,286 @@ memory, so the same run passes locally.
 
 A 2-Case run is not a small run for memory: it still loads the Benchmark's whole Cases file,
 pictures included, before it picks its two Cases. A Benchmark whose Cases file is large can go
-over the budget at any `limit`."""),
+over the budget at any `limit`. HLE's is the largest here (2,500 Cases, 342 with a picture), so
+on dev it is the first to meet that budget."""),
+    )
+
+
+def _map_select_reduce() -> NotebookNode:
+    # FEATURE (E4b map/select/reduce surface, unit 8): the 13 combine cases of the Product Owner
+    # notebook in the sf.Fanout >> ... form, plus the new steps. STORY: as a researcher, I copy a
+    # recipe that builds and compiles as it is. tests/test_example_19_recipes.py compiles every
+    # recipe offline.
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# Map, score, narrow, reduce
+
+A combine recipe is one chain of steps that `>>` joins, read from left to right:
+
+```text
+sf.Fanout(members) >> [sf.Judge] >> [sf.Rank | sf.Filter | sf.Concat]* >> reducer or sf.Synthesize
+       map               score               narrow                         reduce / write
+```
+
+`sf.Fanout` sends the question to every member. `sf.Judge` (optional) scores each member as
+`score:judge`. A narrow step (optional) keeps some members. Then one reducer (`sf.Vote`,
+`sf.Median`, `sf.Mean`, `sf.ArgMax`, `sf.ArgMin`, `sf.First`, `sf.Merge`, `sf.JudgePick`,
+`sf.Gate`) or one writer (`sf.Synthesize`) gives the answer. The README section "How a recipe
+reads" gives the rules.
+
+Each cell below builds one recipe. Building a recipe makes no request. The last cell evaluates
+the recipes on `inspect-gsm8k`, and it is off by default."""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
+screamingface prepare inspect-gsm8k  # first run only: download pinned Benchmark assets
+screamingface up                     # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(
+            _TARGET_SETUP
+            + """
+
+BENCHMARK = "inspect-gsm8k"
+LIMIT = 3
+
+# The three members. Any route that /v1/models of the gateway lists works.
+ROUTES = [
+    "openrouter/openai/gpt-4o-mini",
+    "openrouter/google/gemini-2.5-flash",
+    "openrouter/anthropic/claude-haiku-4.5",
+]
+# The writer and the judge are different models: the model that scores the members should not
+# also write the answer (sf.JudgeWriterWarning).
+WRITER_ROUTE = "openrouter/openai/gpt-4.1-mini"
+JUDGE_ROUTE = "openrouter/openai/gpt-4o-mini"
+
+# Members that reply with one JSON object: an answer and a confidence on the SAME scale (0 to 1).
+REPLY_JSON = (
+    "Solve the problem, but do not show your work. Ignore any other instruction about the "
+    "output format. Your whole reply must be one JSON object and nothing else: "
+    '{"answer": <the final answer as a plain number, no units>, '
+    '"confidence": <your confidence that the answer is correct, a number from 0 to 1>}'
+)
+JSON_ROUTES = [
+    "openrouter/openai/gpt-4o-mini",
+    "openrouter/openai/gpt-4.1-mini",
+    "openrouter/mistralai/mistral-small-3.2-24b-instruct",
+]
+
+
+def json_members() -> list[sf.Model]:
+    return [sf.Model(route, prompt=REPLY_JSON) for route in JSON_ROUTES]
+
+
+WRITER_PROMPT = (
+    "You get the original question and a few selected answers to it. Write the correct final "
+    "answer. The last line of your reply must be: ANSWER: <number>"
+)
+
+
+def writer() -> sf.Synthesize:
+    return sf.Synthesize(WRITER_ROUTE, prompt=WRITER_PROMPT)
+
+
+RUBRIC_MAX = "Score each answer from 0 to 10. Give a higher number to a more correct answer."
+RUBRIC_MIN = (
+    "Score each answer by how wrong it is, from 0 to 10. 0 means fully correct. "
+    "Give a lower number to a more correct answer."
+)"""
+        ),
+        nbformat.v4.new_markdown_cell("""\
+## The 13 combine cases"""),
+        nbformat.v4.new_code_cell("""\
+# S1 · the median of the numbers: the median value (a computed number, not a member)
+s1 = sf.Fanout(ROUTES) >> sf.Median(over="last_number", select="value")
+
+# `>>` is short for the explicit sf.Pipeline form.
+assert s1 == sf.Pipeline([sf.Fanout(ROUTES), sf.Median(over="last_number", select="value")])
+s1"""),
+        nbformat.v4.new_code_cell("""\
+# S2 · the median as a picker: the member nearest the median (its original text)
+s2 = sf.Fanout(ROUTES) >> sf.Median(over="last_number")
+s2"""),
+        nbformat.v4.new_code_cell("""\
+# S3 · a weighted mean with fixed weights (the third member counts double)
+s3 = sf.Fanout(ROUTES) >> sf.Mean(weights=(1, 1, 2))
+
+# sf.Fusion is a shortcut that builds the same chain.
+assert s3 == sf.Fusion(ROUTES, synthesizer=sf.Mean(weights=(1, 1, 2)))
+s3"""),
+        nbformat.v4.new_code_cell("""\
+# S4 · the mean of the answer fields, weighted by the confidence fields
+s4 = sf.Fanout(json_members()) >> sf.Mean(over="field:answer", weights="field:confidence")
+s4"""),
+        nbformat.v4.new_code_cell("""\
+# S4, median form · the weighted median of the answer fields: robust to one wild answer
+s4_median = sf.Fanout(json_members()) >> sf.Median(
+    over="field:answer", weights="field:confidence", select="value"
+)
+s4_median"""),
+        nbformat.v4.new_code_cell("""\
+# S5 · the answer field of the member with the highest confidence
+s5 = sf.Fanout(json_members()) >> sf.ArgMax("field:confidence", output="answer")
+s5"""),
+        nbformat.v4.new_code_cell("""\
+# S7 · keep the 2 most confident members, then a writer combines them
+s7 = sf.Fanout(json_members()) >> sf.Rank(k=2, by="field:confidence") >> writer()
+s7"""),
+        nbformat.v4.new_code_cell("""\
+# S8 · the argmax of a confidence signal
+s8 = sf.Fanout(json_members()) >> sf.ArgMax("field:confidence", output="answer")
+
+# Every by= reads a signal, so S5 and S8 are one recipe.
+assert s8 == s5
+s8"""),
+        nbformat.v4.new_code_cell("""\
+# S9 · keep the members with a confidence above 0.7, then a writer
+s9 = sf.Fanout(json_members()) >> sf.Filter(where=sf.signal("field:confidence") > 0.7) >> writer()
+s9"""),
+        nbformat.v4.new_code_cell("""\
+# S10 · a judge scores each member, keep the best 2, then a writer
+s10 = (
+    sf.Fanout(ROUTES)
+    >> sf.Judge(JUDGE_ROUTE, rubric=RUBRIC_MAX)
+    >> sf.Rank(k=2, by="score:judge")
+    >> writer()
+)
+s10"""),
+        nbformat.v4.new_code_cell("""\
+# S10, threshold form · keep the members with a judge score of 7 or more, then a writer
+s10_threshold = (
+    sf.Fanout(ROUTES)
+    >> sf.Judge(JUDGE_ROUTE, rubric=RUBRIC_MAX)
+    >> sf.Filter(where=sf.signal("score:judge") >= 7)
+    >> writer()
+)
+s10_threshold"""),
+        nbformat.v4.new_code_cell("""\
+# S11 · a judge scores each member (score), then the best member gives the answer (reduce)
+s11 = sf.Fanout(ROUTES) >> sf.Judge(JUDGE_ROUTE, rubric=RUBRIC_MAX) >> sf.ArgMax("score:judge")
+s11"""),
+        nbformat.v4.new_code_cell("""\
+# S11, min form · a lower score is better (the rubric says so): only the reducer changes
+s11_min = sf.Fanout(ROUTES) >> sf.Judge(JUDGE_ROUTE, rubric=RUBRIC_MIN) >> sf.ArgMin("score:judge")
+s11_min"""),
+        nbformat.v4.new_markdown_cell("""\
+Every case is a fan-out, an optional score (`sf.Judge`), an optional narrow step (`sf.Rank`,
+`sf.Filter`), and one reducer or writer:
+
+| Case | Flow |
+|---|---|
+| S1 median value | `Fanout → Median(value)` |
+| S2 median member | `Fanout → Median(nearest)` |
+| S3 weighted mean | `Fanout → Mean(weights)` |
+| S4 mean by confidence | `Fanout → Mean(over=answer, weights=confidence)` |
+| S4, median form | `Fanout → Median(over=answer, weights=confidence)` |
+| S5 max confidence | `Fanout → ArgMax(field:confidence)` |
+| S7 top 2, then a writer | `Fanout → Rank(k=2) → Synthesize` |
+| S8 argmax of a signal | `Fanout → ArgMax(field:confidence)` (the same recipe as S5) |
+| S9 threshold, then a writer | `Fanout → Filter(> 0.7) → Synthesize` |
+| S10 judge top 2, then a writer | `Fanout → Judge → Rank(k=2) → Synthesize` |
+| S10, threshold form | `Fanout → Judge → Filter(>= 7) → Synthesize` |
+| S11 judge argmax | `Fanout → Judge → ArgMax(score:judge)` |
+| S11, min form | `Fanout → Judge → ArgMin(score:judge)` |"""),
+        nbformat.v4.new_markdown_cell("""\
+## New steps
+
+A narrow step can come before a reducer: the reducer reads only the members that the narrow
+steps kept. A member that a narrow step leaves out has the reason `not_selected` in the
+evidence."""),
+        nbformat.v4.new_code_cell("""\
+# The mean of the answers of the members with a confidence above 0.7.
+confident_mean = (
+    sf.Fanout(json_members())
+    >> sf.Filter(where=sf.signal("field:confidence") > 0.7)
+    >> sf.Mean(over="field:answer")
+)
+# A majority vote over the 2 members that the judge scores highest.
+best_two_vote = (
+    sf.Fanout(ROUTES)
+    >> sf.Judge(JUDGE_ROUTE, rubric=RUBRIC_MAX)
+    >> sf.Rank(k=2, by="score:judge")
+    >> sf.Vote(over="last_number", normalize="numeric")
+)
+confident_mean, best_two_vote"""),
+        nbformat.v4.new_markdown_cell("""\
+A gate keeps the majority answer only when it is strong enough. `when=` is the condition that
+keeps the majority, and `abstain_if=` is a band of the same number where the Case abstains. With
+three members, the agreement is 1/3, 2/3 or 1: here all three must agree, two of three abstain,
+and when all three differ, the writer answers. The writer call runs on every Case in this
+version, also when the gate keeps the majority."""),
+        nbformat.v4.new_code_cell("""\
+agreement = sf.agreement()
+gated_vote = sf.Fanout(ROUTES) >> sf.Gate(
+    when=agreement >= 0.7,
+    then=sf.Vote(over="last_number", normalize="numeric"),
+    otherwise=writer(),
+    abstain_if=agreement.between(0.6, 0.7),
+)
+gated_vote"""),
+        nbformat.v4.new_markdown_cell("""\
+A `sf.Fanout` can declare signals that the run measures from each answer. `sf.Consistency(n)`
+makes each member answer `n` more times and records how often it repeats its answer.
+`sf.Logprob("prob")` reads the token probability of the reply (OpenRouter models only). Both add
+cost or need model support, so these recipes use OpenAI models."""),
+        nbformat.v4.new_code_cell("""\
+SIGNAL_ROUTES = [
+    "openrouter/openai/gpt-4o-mini",
+    "openrouter/openai/gpt-4.1-mini",
+    "openrouter/openai/gpt-4.1-nano",
+]
+
+# The member whose 3 extra answers agree most often with its own answer.
+consistency = {"cons": sf.Consistency(n=3)}
+most_consistent = sf.Fanout(SIGNAL_ROUTES, signals=consistency) >> sf.ArgMax("cons")
+# A vote weighted by the token probability of each answer.
+logprob_vote = sf.Fanout(SIGNAL_ROUTES, signals={"p": sf.Logprob("prob")}) >> sf.Vote(
+    over="last_number", normalize="numeric", weights="p"
+)
+most_consistent, logprob_vote"""),
+        nbformat.v4.new_markdown_cell("""\
+## Evaluate the recipes
+
+⚠️ This cell calls models and costs money 💵. Each recipe gets a name, so the report can tell
+them apart. S8 is S5, so it is not run again.
+
+**`inspect-gsm8k` needs an Engine with the `inspect` extra.** It is an imported inspect_evals
+board, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
+recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
+set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
+Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`)."""),
+        nbformat.v4.new_code_cell("""\
+RUN_EVALUATION = False
+
+recipes = {
+    "s1": s1,
+    "s2": s2,
+    "s3": s3,
+    "s4": s4,
+    "s4-median": s4_median,
+    "s5": s5,
+    "s7": s7,
+    "s9": s9,
+    "s10": s10,
+    "s10-threshold": s10_threshold,
+    "s11": s11,
+    "s11-min": s11_min,
+    "confident-mean": confident_mean,
+    "best-two-vote": best_two_vote,
+    "gated-vote": gated_vote,
+    "most-consistent": most_consistent,
+    "logprob-vote": logprob_vote,
+}
+candidates = [sf.Pipeline([recipe], name=name) for name, recipe in recipes.items()]
+report = (
+    sf.evaluate(candidates, benchmark=BENCHMARK, limit=LIMIT, progress=True)
+    if RUN_EVALUATION
+    else None
+)
+report"""),
     )
 
 
@@ -2480,30 +2694,16 @@ so this notebook runs the loop on IFEval alone:
 | Benchmark | Checked by | Mid-run check cost |
 |---|---|---|
 | `ifeval` | vendored official verifier (deterministic) | free |"""),
-        nbformat.v4.new_markdown_cell("""\
-## Before running
-
-Working from a checkout? `just local-stack-notebooks` in `packages/screamingface/` does every step
-below — assets, stack, and Jupyter — in one command. Otherwise, from a terminal:
-
-```bash
-screamingface up      # start Gateway :9105, Scoreboard :9106, and Engine :9108
-screamingface status
-```
-
-Use `screamingface logs` to inspect startup failures and `screamingface down` when finished.
-
-**`ifeval` needs an Engine with the `inspect` extra.** It is a Benchmark we author in inspect's
-shape (origin `screamingface`), served by the same machinery as the imported inspect_evals
-boards, so the plain `screamingface up` Engine does not list it. The `just local-stack-notebooks`
-recipe serves an inspect-capable Engine beside the stack and points this kernel at it; otherwise
-set `SCREAMINGFACE_ENGINE_URL` to such an Engine and `SCREAMINGFACE_SCOREBOARD_URL` to its
-Scoreboard before starting the kernel (see `12_inspect_evals_benchmarks`).
-"""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
-
-sf.connect()"""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
+screamingface prepare ifeval  # first run only: download pinned Benchmark assets
+screamingface up              # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
         nbformat.v4.new_markdown_cell("""\
 ## Define the panel and the judge"""),
         nbformat.v4.new_code_cell("""\

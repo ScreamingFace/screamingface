@@ -48,12 +48,66 @@ const saveSidebarScroll = () => {
   if (sidebarScroll.value) sessionStorage.setItem(scrollKey, String(sidebarScroll.value.scrollTop))
 }
 
+// Deep-linkable headings: give every section heading in the prose a stable slug
+// id (from its text, kept if the author already set one), and append a hover "#"
+// anchor so a reader can grab the link. Scrolling uses scrollIntoView because the
+// doc content lives in a nested overflow container, not the window.
+const content = ref<HTMLElement | null>(null)
+
+const slugify = (text: string) =>
+  text
+    .toLowerCase()
+    .trim()
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+
+const enhanceHeadings = () => {
+  const root = content.value
+  if (!root) return
+  const used = new Set<string>()
+  root.querySelectorAll<HTMLElement>('h2, h3, h4').forEach((h) => {
+    if (h.closest('.not-prose')) return
+    if (!h.id) {
+      const base = slugify(h.textContent ?? '') || 'section'
+      let id = base
+      let n = 2
+      while (used.has(id) || document.getElementById(id)) id = `${base}-${n++}`
+      h.id = id
+    }
+    used.add(h.id)
+    if (!h.querySelector('.heading-anchor')) {
+      const a = document.createElement('a')
+      a.className = 'heading-anchor'
+      a.href = `#${h.id}`
+      a.textContent = '#'
+      a.setAttribute('aria-label', 'Link to this section')
+      h.appendChild(a)
+    }
+  })
+}
+
+const scrollToHash = () => {
+  const id = route.hash ? decodeURIComponent(route.hash.slice(1)) : ''
+  if (!id) return
+  document.getElementById(id)?.scrollIntoView()
+}
+
 onMounted(async () => {
   document.addEventListener('keydown', onKeydown)
   await nextTick()
   const saved = sessionStorage.getItem(scrollKey)
   if (saved !== null && sidebarScroll.value) sidebarScroll.value.scrollTop = Number(saved)
+  enhanceHeadings()
+  scrollToHash()
 })
+
+// A hash-only navigation (e.g. a cross-page link to #section) does not remount the
+// layout, so re-run the scroll when the hash changes.
+watch(
+  () => route.hash,
+  () => scrollToHash(),
+)
 onBeforeUnmount(() => {
   document.removeEventListener('keydown', onKeydown)
   saveSidebarScroll()
@@ -144,7 +198,7 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
         </header>
 
         <!-- Content slot -->
-        <div class="prose max-w-none prose-content">
+        <div ref="content" class="prose max-w-none prose-content">
           <slot />
         </div>
 
@@ -347,5 +401,35 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
   font-family: var(--font-sans);
   color: var(--color-foreground);
   font-weight: 500;
+}
+
+/* Deep-linkable headings: offset the scroll target below the sticky navbar, and
+   reveal a "#" anchor on hover for grabbing the section link. */
+.prose-content :deep(h2),
+.prose-content :deep(h3),
+.prose-content :deep(h4) {
+  scroll-margin-top: 5rem;
+}
+
+.prose-content :deep(a.heading-anchor) {
+  margin-left: 0.4em;
+  color: var(--color-muted-foreground);
+  text-decoration: none;
+  font-weight: 400;
+  opacity: 0;
+  transition: opacity 0.12s ease-in-out;
+}
+
+.prose-content :deep(h2:hover a.heading-anchor),
+.prose-content :deep(h3:hover a.heading-anchor),
+.prose-content :deep(h4:hover a.heading-anchor),
+.prose-content :deep(a.heading-anchor:focus) {
+  opacity: 0.55;
+}
+
+.prose-content :deep(a.heading-anchor:hover) {
+  opacity: 0.95;
+  color: var(--accent-text-low);
+  text-decoration: none;
 }
 </style>

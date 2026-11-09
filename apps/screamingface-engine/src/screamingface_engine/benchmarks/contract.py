@@ -76,6 +76,7 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # Check met if any Attempt met it, which only means something for a Check graded 0
         # or 1. An Attempt whose Check scored anything else fails its Case by this name.
         "attempt_grade_not_pass_fail",
+        # AIDEV-NOTE: keep time-based additions in failure_classes.TIME_BASED_CODES too.
         "provider_queue_timeout",
         "provider_execution_timeout",
         "caller_deadline_exceeded",
@@ -157,6 +158,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         "combine_spec_invalid",
         "combine_operator_unknown",
         "combine_input_too_large",
+        # WHY declared (E4b part 3, ans:Q5): a member call that asked for token log-probabilities
+        # and that the gateway refused for its parameters (HTTP 404 `unsupported_parameters`).
+        # Engine-authored fixed text, permanent (no retry without logprobs).
+        "logprobs_unsupported",
     }
 )
 # WHY a pattern beside the set: the connector mints one code PER HTTP status

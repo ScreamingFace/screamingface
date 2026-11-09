@@ -27,6 +27,7 @@ from .credit_metadata import (
     author_identity,
     authors_metadata_problems,
     paper_metadata_problems,
+    validate_storable_json,
 )
 from .credit_metadata import (
     PAPER_URL_MAX_CHARS as _PAPER_URL_MAX_CHARS,
@@ -174,10 +175,12 @@ _METADATA_MAX_BYTES = 4096
 
 
 def _metadata_depth(value: object, current: int = 0) -> int:
-    if isinstance(value, dict):
-        return max((_metadata_depth(v, current + 1) for v in value.values()), default=current)
-    if isinstance(value, list):
-        return max((_metadata_depth(v, current + 1) for v in value), default=current)
+    # WHY: stop at the rejection boundary, never recurse through hostile input.
+    if current <= _METADATA_MAX_DEPTH:
+        if isinstance(value, dict):
+            return max((_metadata_depth(v, current + 1) for v in value.values()), default=current)
+        if isinstance(value, list):
+            return max((_metadata_depth(v, current + 1) for v in value), default=current)
     return current
 
 
@@ -189,10 +192,33 @@ def _validate_bounded_metadata(value: dict[str, Any] | None) -> dict[str, Any] |
     if value is None:
         return value
     if _metadata_depth(value) > _METADATA_MAX_DEPTH:
-        raise ValueError(f"metadata must not be nested past {_METADATA_MAX_DEPTH} levels deep")
+        raise PydanticCustomError(
+            "metadata_too_deep",
+            "metadata must not be nested past {max_depth} levels deep",
+            {"max_depth": _METADATA_MAX_DEPTH},
+        )
     if len(json.dumps(value)) > _METADATA_MAX_BYTES:
         raise ValueError(f"metadata must serialize to at most {_METADATA_MAX_BYTES} bytes")
     return value
+
+
+def _expanded_metadata_size(value: dict[str, Any]) -> int:
+    # WHY: keep the existing ASCII-JSON budget and also account for JSONB's fixed
+    # decimal notation. This runs only after the shared depth/size check passes.
+    try:
+        size = len(json.dumps(value, allow_nan=False))
+    except ValueError as exc:
+        raise PydanticCustomError("metadata_non_finite", "metadata numbers must be finite") from exc
+    pending: list[Any] = [value]
+    while pending and size <= _METADATA_MAX_BYTES:
+        item = pending.pop()
+        if isinstance(item, dict):
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+        elif isinstance(item, float):
+            size += max(0, len(format(Decimal(str(item)), "f")) - len(json.dumps(item)))
+    return size
 
 
 def _publish_submitter(value: str | None) -> str | None:
@@ -450,6 +476,7 @@ def _validate_bounded_authors(value: list[str] | None) -> list[str] | None:
     """
     if value is None:
         return value
+    validate_storable_json(value)
     if len({_author_identity(author) for author in value}) > _AUTHORS_MAX_DISTINCT:
         raise ValueError(f"authors must credit at most {_AUTHORS_MAX_DISTINCT} distinct people")
     encoded = json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
@@ -699,6 +726,15 @@ class ScoreSubmission(BaseModel):
     # FEATURE: OME-1307 / Q29 — the case digest. Needs `capture_status`, like the copy id.
     case_digest: CaseDigest | None = None
 
+    @field_validator("metadata")
+    @classmethod
+    def validate_bounded_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        _validate_bounded_metadata(value)
+        # INVARIANT: PostgreSQL expands exponent numbers when storing JSONB.
+        if value is not None and _expanded_metadata_size(value) > _METADATA_MAX_BYTES:
+            raise ValueError(f"metadata must expand to at most {_METADATA_MAX_BYTES} bytes")
+        return value
+
     @model_validator(mode="after")
     def validate_frozen_copy_id_has_a_capture_status(self) -> ScoreSubmission:
         """INVARIANT (I1): a copy id or a case digest without a status is incoherent, so refused."""
@@ -788,6 +824,12 @@ class ScoreSubmission(BaseModel):
                 f"run_cost_usd must be absent when run_cost_status is {self.run_cost_status!r}"
             )
         return self
+
+    @field_validator("metadata")
+    @classmethod
+    def _storable_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        validate_storable_json(value)
+        return value
 
     @field_validator("authors")
     @classmethod

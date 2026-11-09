@@ -23,7 +23,7 @@ from aigateway.core.errors import AuthError, CredentialNotFoundError
 class OriginBoundApiKeyStrategy(ApiKeyStrategy):
     def __init__(
         self,
-        profile_name: str,
+        credential_name: str,
         *,
         origin: str,
         service: str,
@@ -32,7 +32,7 @@ class OriginBoundApiKeyStrategy(ApiKeyStrategy):
         credential_store: CredentialBlobStore | None = None,
     ) -> None:
         super().__init__(
-            profile_name,
+            credential_name,
             service=service,
             account=account,
             header_builder=header_builder,
@@ -68,6 +68,6 @@ class OriginBoundApiKeyStrategy(ApiKeyStrategy):
         # stored for another origin is not a rejected key. If that origin comes back, the key
         # serves again. The message names no origin: the configured origins are private.
         raise CredentialNotFoundError(
-            f"No API key stored for {self.profile_name!r} matches this endpoint. "
+            f"No API key stored for {self.credential_name!r} matches this endpoint. "
             "Replace the key for this connection."
         )

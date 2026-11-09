@@ -1,0 +1,12 @@
+# Set to `true` to enable "Blank issue" and disable requiring one of the templates.
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://openmined.org/slack/
+    about: Questions and open-ended ideas are best in the community Slack.
+  - name: Read the docs
+    url: https://docs.screamingface.ai
+    about: Installation, guides, and the client reference.
+#  - name: Report a security vulnerability
+#    url: https://github.com/ScreamingFace/screamingface/security/advisories/new
+#    about: Please report security problems privately here, not in a public issue.

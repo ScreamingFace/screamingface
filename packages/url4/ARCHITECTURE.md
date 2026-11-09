@@ -111,6 +111,8 @@ names no transport.
 | the in-memory test adapter | `io/static.py` | io |
 | the httpx adapter | `io/http.py` | io |
 | the node's registration or dispatch order | `peer/server.py`, `peer/_dispatch.py` | node |
+| the lazily encoded relative call request | `dag/nodes/_subrequest_fetch.py` | engine |
+| the in-process endpoint fast path (no `?q=` round trip) | `peer/_inprocess.py` | node |
 | the node's code mounts (`@node.code`) | `peer/_code.py` | node |
 | the requestor `Client` | `peer/client.py` | node |
 | `url4.toml` or the `serve` flags | `cli/_config.py`, `cli/_serve.py` | node |
@@ -160,7 +162,11 @@ extra (`url4[streaming]`) because it is pydantic models.
   whole list) are charged on every adding path while the list is built
   (`dag/_caps.py`); nothing adds after the run starts. The byte cap is one live
   budget the concurrent flights draw from as bytes arrive (`FetchRequest.on_chunk`),
-  so a breach stops every read within about one chunk per flight.
+  so a breach stops every read within about one chunk per flight; run-start blob reads
+  draw from the same budget. Reachability is decided by one collection-shape resolver
+  (`dag/_collection_shape.py`) shared by the static check and admission. A pre-built
+  `Graph`/`DagNode` has no AST to admit files from, so `run()` refuses one that names
+  any attachment-capable source before any I/O (`dag/_graph_admission.py`, fail closed).
 - **The engine names no transport at module scope.** `HttpIOLayer` is imported
   lazily in `dag/_run.py`.
 

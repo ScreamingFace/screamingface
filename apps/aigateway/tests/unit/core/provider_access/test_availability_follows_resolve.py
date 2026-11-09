@@ -35,7 +35,7 @@ from aigateway.core.provider_access import (
     TargetPending,
     TargetReauthRequired,
 )
-from aigateway.core.provider_access import profile_authorize as authorize_module
+from aigateway.core.provider_access import connection_authorize as authorize_module
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
 
 DEFAULT = Selector.from_header(None)

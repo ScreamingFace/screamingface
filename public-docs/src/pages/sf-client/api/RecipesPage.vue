@@ -47,20 +47,20 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
     :version="version"
   >
     <p>
-      A recipe tells ScreamingFace how to produce one answer — that's what a benchmark grades. This
+      A recipe tells ScreamingFace how to produce one answer: that's what a benchmark grades. This
       page documents <code>Recipe</code>, the abstract base every candidate shares. The three
       concrete types each have their own home: a single model route in
       <RouterLink to="/sf-client/api/models">Models</RouterLink>, several members combined by a
-      synthesizer in the <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink>, and
-      stages chained in series in the
-      <RouterLink to="/sf-client/guides/pipelines">Pipelines guide</RouterLink>.
+      synthesizer (<code>sf.Fanout(...) &gt;&gt; sf.Synthesize(...)</code>) in the
+      <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink>, and stages chained in
+      series in the <RouterLink to="/sf-client/guides/pipelines">Pipelines guide</RouterLink>.
     </p>
 
     <p>
       Every constructible recipe is frozen and holds no client. Building one makes no network
-      requests, so you can compose them before connecting to anything. Recipes nest: a
-      <code>Fusion</code> or <code>Pipeline</code> can contain a <code>Model</code>, another
-      <code>Fusion</code>, or another <code>Pipeline</code>, in any combination.
+      requests, so you can compose them before connecting to anything. Recipes nest: a fusion or a
+      <code>Pipeline</code> can contain a <code>Model</code>, another fusion, or another
+      <code>Pipeline</code>, in any combination.
     </p>
 
     <Note>
@@ -78,14 +78,15 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
 
     <p>
       <code>Recipe</code> is the abstract base the concrete types inherit from. You can't
-      instantiate it directly. It exists for type annotations and so a <code>Fusion</code> or
+      instantiate it directly. It exists for type annotations and so a <code>Fanout</code> or a
       <code>Pipeline</code> can hold a mixed list of members.
     </p>
 
     <p>
-      Every recipe has one public attribute: <code>name</code> (a <code>str</code>). It also
-      provides <code>.then()</code>, which appends a stage and returns a
-      <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink>.
+      Every recipe has one public attribute: <code>name</code> (a <code>str</code>).
+      <code>a &gt;&gt; b</code> joins two recipes and returns a
+      <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink>. A corrective loop is a
+      whole candidate: it cannot be a stage.
     </p>
 
     <p>Calling <code>sf.Recipe()</code> directly raises:</p>
@@ -105,7 +106,8 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
       </li>
       <li>
         <strong><RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink></strong
-        >: members combined by a synthesizer. The Fusions guide carries its full reference.
+        >: members combined by a synthesizer, built with <code>sf.Fanout</code> and
+        <code>sf.Synthesize</code>. The Fusions guide carries its full reference.
       </li>
       <li>
         <strong><RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink></strong
@@ -118,10 +120,10 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
     <p>
       Two further recipes, documented here, draft under the benchmark's own check and retry until a
       draft passes. Members draft in parallel; the benchmark marks each draft; the first passing
-      draft is submitted word for word. A round where nothing passes buys one judge coaching call
-      and a retry, up to <code>max_rounds</code> — a cost cap, not a target. The whole loop compiles
-      into one candidate expression on the client, so it runs on any benchmark that advertises a
-      check.
+      draft is submitted word for word. A round where nothing passes makes one judge coaching call
+      and a retry, up to <code>max_rounds</code>, which is a cost cap and not a target. The whole
+      loop compiles into one candidate expression on the client, so it runs on any benchmark that
+      advertises a check.
     </p>
 
     <p>
@@ -141,7 +143,7 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
         <tr>
           <td><strong>No loop</strong></td>
           <td><code>Model</code></td>
-          <td><code>Fusion</code></td>
+          <td><code>Fanout &gt;&gt; Synthesize</code></td>
         </tr>
         <tr>
           <td><strong>Corrective</strong></td>
@@ -152,11 +154,18 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
     </table>
 
     <Note>
+      <code>medxpert</code>, the benchmark a local engine started with
+      <code>screamingface up</code> serves, does not support mid-run checking: a corrective
+      candidate on it raises <code>PlanningError</code>. Run corrective candidates on a hosted
+      benchmark that advertises a check, such as <code>ifeval</code>.
+    </Note>
+
+    <Note>
       What a correction round costs depends on the benchmark's check surface. A deterministic
-      verifier such as <code>ifeval</code> checks every draft for free, so only the correction
-      rounds add model spend. A rubric-graded benchmark such as <code>healthbench-worst30</code> or
-      <code>draco</code> spends a judge call per draft on every round, first-round pass included,
-      and <code>max_rounds</code> caps that.
+      verifier such as <code>ifeval</code> checks every draft without a model call, so only the
+      correction rounds add model calls. A rubric-graded benchmark such as
+      <code>healthbench-worst30</code> or <code>draco</code> makes a judge call per draft on every
+      round, first-round pass included, and <code>max_rounds</code> caps that.
     </Note>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -234,7 +243,7 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
           first pass
         </text>
         <text x="227" y="150" text-anchor="middle" style="fill: var(--text-2); font-size: 10px">
-          no pass — judge coaches, retry ≤ max_rounds
+          no pass: judge coaches, retry up to max_rounds
         </text>
       </svg>
     </figure>

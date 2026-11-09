@@ -1,0 +1,198 @@
+"""The judge-writer warning on a chain (E4b surface unit 2, lowering §2.4, WJ-1).
+
+FEATURE: the warning keeps today's text and names the stages of the chain the user wrote: a
+closed block counts as one stage. It runs before the lowering, once per compile, and once per
+evaluation (the evaluation entry lowers the values, so the compile does not warn again).
+STORY: as a researcher, the warning points at the stages I can see in my own chain.
+"""
+
+from __future__ import annotations
+
+import warnings
+
+import pytest
+from _combine_flow_fixtures import RUBRIC, flow_operators
+from _nodes import FusionNode, JudgeNode, fusion_node
+from test_pipeline_compilation import _whole_candidate_benchmark
+
+import screamingface as sf
+from screamingface._evaluation.candidate import compile_candidate
+from screamingface._evaluation.compilation import compile_evaluation
+from screamingface._evaluation.model import _candidate_values
+from screamingface.warnings import JudgeWriterWarning
+
+_JUDGE_ROUTE = "openrouter/a/b"
+_MEMBERS = ["provider/m1", "provider/m2", "provider/m3"]
+
+
+def _message(name: str, first: int) -> str:
+    second = first + 1
+    return (
+        f"Pipeline {name!r}: stages {first} and {second} use the same model 'openrouter/a/b': "
+        f"stage {first} scores the members as the judge, and stage {second} writes the answer, "
+        "so the writer is also the scorer. Give one of the two stages another model, or keep "
+        "both and ignore this warning."
+    )
+
+
+def _judge_block() -> FusionNode:
+    """A judge stage of today: unit 3 brings sf.Judge to the chain."""
+
+    return fusion_node(_MEMBERS, JudgeNode(_JUDGE_ROUTE, returns="label", rubric=RUBRIC))
+
+
+def _chain() -> sf.Pipeline:
+    """Stage 1 is a closed block, stage 2 the judge, stage 3 the writer on the judge's model."""
+
+    return sf.Pipeline(
+        [
+            sf.Fanout(["provider/a", "provider/b"]),
+            sf.Synthesize("provider/s"),
+            _judge_block(),
+            sf.Model(_JUDGE_ROUTE),
+        ],
+        name="judged",
+    )
+
+
+def _messages(recorded: pytest.WarningsRecorder) -> list[str]:
+    return [str(w.message) for w in recorded if issubclass(w.category, JudgeWriterWarning)]
+
+
+def test_wj1_compile_names_the_users_chain_positions() -> None:
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        compile_candidate(_chain(), operators=flow_operators())
+
+    assert _messages(recorded) == [_message("judged", 2)]
+    judge_writer = [w for w in recorded if issubclass(w.category, JudgeWriterWarning)]
+    assert judge_writer[0].filename == __file__
+
+
+def _unnamed_message(first: int) -> str:
+    """The text for an unnamed chain: no Pipeline name, so no inferred name (final review 3)."""
+
+    second = first + 1
+    return (
+        f"Stages {first} and {second} use the same model 'openrouter/a/b': stage {first} scores "
+        f"the members as the judge, and stage {second} writes the answer, so the writer is also "
+        "the scorer. Give one of the two stages another model, or keep both and ignore this "
+        "warning."
+    )
+
+
+def test_wj1_an_unnamed_chain_names_its_stages_only() -> None:
+    # the inferred name ("x->a+b->m1+m2+m3->b") lists the member routes, so it is never shown
+    chain = (
+        "provider/x"
+        >> (sf.Fanout(["provider/a", "provider/b"]) >> sf.Vote())
+        >> _judge_block()
+        >> sf.Model(_JUDGE_ROUTE)
+    )
+
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        compile_candidate(chain, operators=flow_operators())
+
+    assert _messages(recorded) == [_unnamed_message(3)]
+
+
+def test_wj1_the_evaluation_entry_warns_once_with_the_users_positions() -> None:
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        values = _candidate_values(_chain())
+        compile_evaluation(
+            values,
+            _whole_candidate_benchmark(),
+            1,
+            operators=flow_operators(),
+            warn_judge_writers=False,
+        )
+
+    assert _messages(recorded) == [_message("judged", 2)]
+
+
+def test_wj1_a_chain_with_another_writer_model_is_quiet() -> None:
+    chain = sf.Pipeline(
+        [sf.Fanout(["provider/a", "provider/b"]), sf.Vote(), _judge_block(), "provider/w"],
+        name="judged",
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", JudgeWriterWarning)
+        compile_candidate(chain, operators=flow_operators())
+
+
+def _narrowed_writer_block(writer: str) -> sf.Pipeline:
+    """One user stage that lowers to two: Pipeline([Fusion(Rank by judge), writer])."""
+
+    return (
+        sf.Fanout(["provider/a", "provider/b"])
+        >> sf.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
+        >> sf.Rank(1, by="score:judge")
+        >> sf.Synthesize(writer)
+    )
+
+
+def test_e6_the_warning_numbers_the_users_stages_when_a_block_lowers_to_two() -> None:
+    chain = sf.Pipeline(
+        [
+            _narrowed_writer_block("provider/w"),
+            sf.Fanout(_MEMBERS) >> sf.JudgePick(_JUDGE_ROUTE, rubric=RUBRIC),
+            sf.Model(_JUDGE_ROUTE),
+        ],
+        name="judged",
+    )
+
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        compile_candidate(chain, operators=flow_operators())
+
+    # the lowered Pipeline has 4 stages (Fusion, writer, Fusion, writer); the user wrote 3
+    assert _messages(recorded) == [_message("judged", 2)]
+
+
+def test_e6_the_judge_and_writer_inside_one_block_still_warn() -> None:
+    chain = sf.Pipeline(
+        [sf.Model("provider/x"), _narrowed_writer_block(_JUDGE_ROUTE)], name="judged"
+    )
+
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        compile_candidate(chain, operators=flow_operators())
+
+    # product gap b: the block is named by its stage in the user's chain, not by "a+b->b"
+    assert _messages(recorded) == [
+        "Pipeline 'judged': stage 2 (a fanout block) uses the same model 'openrouter/a/b' for its "
+        "judge and its writer: the judge scores the members, and the writer writes the answer, "
+        "so the writer is also the scorer. Give the judge or the writer another model, or keep "
+        "both and ignore this warning."
+    ]
+
+
+def test_wj1_a_two_stage_unnamed_chain_shows_no_member_route() -> None:
+    chain = (
+        sf.Fanout(_MEMBERS)
+        >> sf.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
+        >> sf.ArgMax("score:judge")
+        >> sf.Model(_JUDGE_ROUTE)
+    )
+
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        compile_candidate(chain, operators=flow_operators())
+
+    messages = _messages(recorded)
+    assert messages == [_unnamed_message(1)]
+    assert not any(route in messages[0] for route in ("m1", "m2", "m3", "->"))
+
+
+def test_wj1_a_named_two_stage_chain_keeps_its_name() -> None:
+    chain = sf.Pipeline(
+        [
+            sf.Fanout(_MEMBERS)
+            >> sf.Judge(_JUDGE_ROUTE, rubric=RUBRIC)
+            >> sf.ArgMax("score:judge"),
+            sf.Model(_JUDGE_ROUTE),
+        ],
+        name="judged",
+    )
+
+    with pytest.warns(JudgeWriterWarning) as recorded:
+        compile_candidate(chain, operators=flow_operators())
+
+    assert _messages(recorded) == [_message("judged", 1)]

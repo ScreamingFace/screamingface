@@ -74,7 +74,8 @@ class FetchRequest:
     engine-side by GuardNode, so it never reaches the port.)
     ``max_bytes`` / ``on_chunk`` bound a ``fetch_bytes`` read (the stricter of ``max_bytes`` and
     an adapter's own cap wins; ``on_chunk`` is told each decoded chunk's size as it arrives and
-    raises to abort). Neither is part of the request's identity.
+    raises to abort); ``on_declared`` is told a whole body's declared size (or ``None``) BEFORE
+    its read and raises to refuse it (round 10). None is part of the request's identity.
     """
 
     target: str
@@ -83,6 +84,7 @@ class FetchRequest:
     accept: str | None = None
     max_bytes: int | None = field(default=None, compare=False)
     on_chunk: Callable[[int], None] | None = field(default=None, compare=False)
+    on_declared: Callable[[int | None], None] | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)

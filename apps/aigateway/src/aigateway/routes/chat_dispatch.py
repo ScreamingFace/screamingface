@@ -112,7 +112,6 @@ async def _safe_dispatch_failure_response(
     plugin: Any,
     provider: str,
     account_id: str,
-    profile_name: str,
     target: CredentialTarget,
     observation: DispatchObservation | None = None,
     error_type: str | None = None,
@@ -142,7 +141,6 @@ async def _safe_dispatch_failure_response(
         provider=provider,
         error_type=error_type,
         account_id=account_id,
-        profile_name=profile_name,
         handler_error_type=handler_error_type,
     )
     return final
@@ -167,7 +165,6 @@ def log_dispatch_failure(
     provider: str,
     error_type: str | None,
     account_id: str,
-    profile_name: str,
     handler_error_type: str | None = None,
 ) -> None:
     """Emit the terminal record of a failed non-streaming dispatch (OME-968).
@@ -187,14 +184,12 @@ def log_dispatch_failure(
     classification = failure_classification(exc.detail)
     logger.log(
         _record_level(exc.status_code, classification),
-        "dispatch failed provider=%s classification=%s status=%d type=%s account=%s profile=%s "
-        "outcome=%s%s",
+        "dispatch failed provider=%s classification=%s status=%d type=%s account=%s outcome=%s%s",
         provider,
         classification,
         exc.status_code,
         error_type or "HTTPException",
         account_id,
-        profile_name,
         outcome,
         suffix,
     )
@@ -206,7 +201,6 @@ async def _record_dispatch_success(
     plugin: Any,
     provider: str,
     account_id: str,
-    profile_name: str,
     target: CredentialTarget,
     observation: DispatchObservation | None,
 ) -> None:
@@ -219,11 +213,10 @@ async def _record_dispatch_success(
         await access.record_dispatch_outcome(target, observation, "connected", None, plugin=plugin)
     except Exception as failure:
         logger.error(
-            "dispatch success observation error type=%s provider=%s account=%s profile=%s",
+            "dispatch success observation error type=%s provider=%s account=%s",
             type(failure).__name__,
             provider,
             account_id,
-            profile_name,
         )
 
 

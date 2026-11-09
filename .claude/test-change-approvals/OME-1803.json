@@ -1,0 +1,26 @@
+{
+  "issue": "OME-1803",
+  "branch": "OME-1803-pdf-admission",
+  "approver": "Sergey Bershadsky (owner, 2026-11-03: \"modalities set, drop has_pictures (schema 2)\", then the widened list)",
+  "date": "2026-11-03",
+  "scope": "test_board_cases_route.py: the _admit helper (its refuse_blind_candidate call maps needs_pictures True/False to needs=frozenset({\"image\"})/frozenset(); its callers test_a_picture_board_refuses_a_blind_model_by_name, test_a_picture_board_admits_a_seeing_model, test_a_text_board_never_reads_the_model_list and test_a_picture_board_with_no_model_in_the_candidate_reads_no_model_list are unchanged), test_without_a_bound_run_nothing_is_checked (needs_pictures=True -> needs=frozenset({\"image\"})), and test_admission_takes_the_boards_flag (the spy takes needs and records \"image\" in needs; the _Flagged fake's has_pictures() becomes modalities() returning {\"image\"} or the empty set). test_board_store.py: test_board_json_records_count_pictures_and_cases_size (the exact dict moves to the v2 shape with \"modalities\": [\"image\"] after cases_bytes, and the text board asserts modalities == [] instead of has_pictures is False), test_head_equals_the_legacy_slice (\"image\" not in modalities()), test_a_picture_board_says_so_without_reading_the_rows (\"image\" in modalities()), test_legacy_store_serves_the_same_rows_and_scans_for_pictures ((\"image\" in modalities()) is cases_need_pictures(rows) is True). Every other line of both files is unchanged; test_a_broken_board_json_is_refused is deliberately left unedited, and new tests go in the new file test_board_modalities.py.",
+  "reason": "Owner decision (Sergey, 2026-11-03) for the #1629/#1645 merge: board.json moves to schema screamingface.board.v2 with a sorted modalities list in place of has_pictures, because a picture flag cannot carry the PDF admission decision. BoardStore.has_pictures() is replaced by modalities() and refuse_blind_candidate(node, *, needs_pictures) by refuse_blind_candidate(node, *, needs: frozenset[str]), with no compatibility shims. These OME-1790 tests spelled the removed names; each edit is the mechanical rename (needs_pictures True/False -> {\"image\"}/empty set, has_pictures() -> \"image\" in modalities()) and each test keeps its intent: the board flag reaches admission, a picture board refuses a blind model and admits a seeing one, a text board never reads the model list.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_board_cases_route.py": {
+      "base_blob": "71263e1749d604d3f6473dd65c9060c3413cc579",
+      "approved_blob": "1b2f08e68dbdad5a726024238479112f12a00e3c"
+    },
+    "apps/screamingface-engine/tests/unit/test_board_store.py": {
+      "base_blob": "342e5cf65d25964b0cb859ac70b13bf0c93c42df",
+      "approved_blob": "116fa9d9f1d6b3c3013b741215d418bad89e0a90"
+    }
+  },
+  "amendments": [
+    {
+      "date": "2026-11-04",
+      "approver": "Sergey Bershadsky (owner, 2026-11-04)",
+      "reason": "v3 required cases.json digest (Dmitry #1645 blocker 2)",
+      "scope": "(1) test_board_store.py test_board_json_records_count_pictures_and_cases_size: exact dict gains \"cases_sha256\": hashlib.sha256(files.cases).hexdigest(), plus the `import hashlib` it needs; files entry re-pinned. (2) test_board_modalities.py test_the_build_records_the_modalities_the_cases_need: schema v3; key list adds cases_sha256. (3) test_board_modalities.py test_an_unknown_board_schema_fails_closed: unknown schema is screamingface.board.v99. test_board_modalities.py is new in this PR (absent on origin/main), so no blob pin."
+    }
+  ]
+}

@@ -35,7 +35,7 @@ from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.layer import resolve_shelf
 from url4.peer._asgi import lifespan as _lifespan
 from url4.peer._asgi import send_error as _send_error
-from url4.peer.server import Request, Url4Node
+from url4.peer.server import DataProvider, Request, Url4Node
 
 EndpointHandler = Callable[[Request], Awaitable[str]]
 HoldingsHandler = Callable[[str | None], Awaitable[str]]
@@ -156,14 +156,19 @@ async def _provide(spec: ProviderSpec, timeout: float, collection: str | None = 
     raise ResolutionError("provider declares no source")  # pragma: no cover
 
 
-def make_data_provider(spec: ProviderSpec, timeout: float) -> DataCallable:
+def make_data_provider(spec: ProviderSpec, timeout: float) -> DataProvider:
     """A ``Url4Node.data`` provider backed by a :class:`ProviderSpec`.
 
-    A ``file`` provider also reads binary-safe (:class:`~url4.cli._files.FileData`); ``value`` and
-    ``command`` providers are text only.
+    A ``file`` provider also reads binary-safe, in chunks (:class:`~url4.cli._files.FileData`);
+    a ``value`` provider is its ``str``; a ``command`` provider is text only.
+    INVARIANT (PR #1587 round 11, owner 2026-11-06): a ``value`` is handed over as the plain
+    ``str`` it is — held in memory, exact size — so a run's live byte cap admits it as an
+    attached blob (``peer._bytes``); wrapped in a callable it was a refused whole-body read.
     """
     if spec.file is not None:
         return FileData(spec.file)
+    if spec.value is not None:
+        return spec.value
 
     async def provider() -> str:
         return await _provide(spec, timeout)

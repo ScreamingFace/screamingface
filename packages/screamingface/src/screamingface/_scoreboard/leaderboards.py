@@ -783,7 +783,13 @@ def _submission(
     paper_metadata: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     if not isinstance(candidate_result, CandidateResult):
-        raise TypeError("candidate_result must be an sf.CandidateResult")
+        raise TypeError("candidate_result must be a sf.CandidateResult")
+    # INVARIANT (OME-1739, F4): the leaderboard ranks full runs; it has no column for a Case set,
+    # so a `cases=` run is refused here, before any request, and its Cases never reach it.
+    if candidate_result.selected_cases is not None:
+        raise ValueError(
+            "a run on selected Cases can't be submitted to the leaderboard; submit a full run"
+        )
     selected_authors = _submission_authors(authors)
     selected_paper_url = None if paper_url is None else _paper_url(paper_url)
     selected_credit = _credit_fields(authors_metadata, paper_metadata)

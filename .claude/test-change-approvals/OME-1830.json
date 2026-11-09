@@ -1,0 +1,26 @@
+{
+  "issue": "OME-1830",
+  "branch": "OME-1830-effective-row-engine",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-04",
+  "scope": "The prior tests listed at RED and approved by the owner on 2026-11-04 (L7b ledger, owner decision 1), each fake now answering GET /v1/provider-access, which the Local Engine reads for every Local status. test_connections_aigateway.py: the shared _get and the handlers of 12 tests. test_connections_provider_access_availability.py: test_an_explicitly_mutable_adapter_keeps_the_local_listing_and_its_mutations, its INVARIANT and the expected paths. test_profile_env_characterisation.py: the fake, test_a_single_non_active_managed_row_is_not_a_conflict, and the docstring naming the label rule's new home. test_traceparent_propagation.py: _RecordingUpstream, which three tests share, and its docstring. No test is retired. Every changed prior test file is pinned byte-exact (4).",
+  "reason": "OME-1138 close-out L7b (spec docs/spec/2026-10-29-local-engine-effective-row.md sections 3-5): the Local Engine selects the effective Connection and takes every Local status from GET /v1/provider-access, so a prior test whose fake answered only the labelled-row reads changes with it.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_connections_aigateway.py": {
+      "base_blob": "d7e28071c733f3668454794d0c3e2800cc010518",
+      "approved_blob": "44bb2a5793d7469aee44b9c33083586a8ee7bbf3"
+    },
+    "apps/screamingface-engine/tests/unit/test_connections_provider_access_availability.py": {
+      "base_blob": "ee3e23458467915dd53815cad90f3e0ca602516a",
+      "approved_blob": "fcce1a1261eec4e037dd979503ae11428ac303a2"
+    },
+    "apps/screamingface-engine/tests/unit/test_profile_env_characterisation.py": {
+      "base_blob": "6fa7f3c95ad9239d4ea11a5b44bc76a113be23a9",
+      "approved_blob": "9982a40958fa0eee54da035f6ca0f620fe52f7d1"
+    },
+    "apps/screamingface-engine/tests/unit/test_traceparent_propagation.py": {
+      "base_blob": "a6bc75d44eb6789cfe46ddaf27635520790f270f",
+      "approved_blob": "1e7a97e423c542be71b9a142dbade7989fdaed7b"
+    }
+  }
+}
