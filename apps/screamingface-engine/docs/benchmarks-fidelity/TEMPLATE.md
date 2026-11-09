@@ -63,5 +63,5 @@ What a judge run would settle, how many Cases, which judge; `none` when nothing 
 ## Upstream notes
 
 Where the original harness and the paper disagree (the harness wins; recorded, not counted as
-ours), and where inspect_evals disagrees with the original harness (the `comparable-to-inspect`
+ours), and where [inspect_evals](https://github.com/UKGovernmentBEIS/inspect_evals) disagrees with the original harness (the `comparable-to-inspect`
 evidence), each with its own bound.

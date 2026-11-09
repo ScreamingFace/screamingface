@@ -9,7 +9,7 @@ One file per Benchmark, named by its catalogue id (`ifeval.md`, `inspect-gsm8k.m
 
 Every Benchmark we serve is a translation of someone else's exam: the paper describes it, the
 authors' original harness produced the published number, and for an Imported Benchmark
-inspect_evals is a second translation between the paper and us. Benchmark Provenance pins the
+[inspect_evals](https://github.com/UKGovernmentBEIS/inspect_evals) is a second translation between the paper and us. Benchmark Provenance pins the
 paper and the harness on every row; a Fidelity Record says whether our translation gives the
 same marks. When the Leaderboard shows our score beside the paper's Frontier Score, the record
 is what says the two numbers come from the same exam.

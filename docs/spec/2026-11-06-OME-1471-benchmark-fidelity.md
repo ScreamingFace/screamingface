@@ -18,7 +18,7 @@
 
 A Benchmark is one exam: a fixed set of Cases plus the Grading that marks them. Every Benchmark we
 serve is a translation of someone else's exam: the paper describes it, the authors' original
-harness produced the published number, and for an Imported Benchmark inspect_evals is a second
+harness produced the published number, and for an Imported Benchmark [inspect_evals](https://github.com/UKGovernmentBEIS/inspect_evals) is a second
 translation between the paper and us. Benchmark Provenance (OME-1455) already pins the paper and
 the harness on every row. Nothing yet says whether our translation gives the same marks.
 
@@ -106,7 +106,7 @@ Rules a test can check (§3.4 tests them):
   read. `original_harness` is the authors' code that produced the published number: for
   `origin="screamingface"` it equals `fingerprint.harness_url`; for `origin="inspect_evals"` the
   declared `harness_url` points at inspect_evals, so the agent finds the authors' code (from the
-  paper or the inspect_evals README) and records it here. `inspect_ai` is listed because the
+  paper or the inspect_evals README) and records it here. [inspect_ai](https://github.com/UKGovernmentBEIS/inspect_ai) is listed because the
   answer-extraction and multiple-choice helpers live there, not in inspect_evals.
 - `parity_test` is a path relative to `apps/screamingface-engine/` (the records' own app) that exists, or the literal
   `none` with `parity_test_reason` non-empty ("judge-graded, parity needs a paid run" is a valid
@@ -330,8 +330,8 @@ and never copies them.
 
 ## 5. Calibration on IFEval
 
-Expected outcome, from what is already known: `dataset` match (541 rows, `google/IFEval` at
-`966cd895` cross-checked against the vendored official file; official key 2785's prompt
+Expected outcome, from what is already known: `dataset` match (541 rows, [`google/IFEval` at
+`966cd895`](https://huggingface.co/datasets/google/IFEval/tree/966cd89545d6b6acfd7638bc708b98261ca58e84) cross-checked against the vendored official file; official key 2785's prompt
 difference is already resolved in the official file's favour); `prompt` match (the prompt is sent
 untouched); `answer extraction` not applicable (the checker reads the whole reply); `metric`
 match on 539 of 541 and one declared deviation on keys 1122 and 1129 (bound `2/541`);

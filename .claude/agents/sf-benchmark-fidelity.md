@@ -17,7 +17,7 @@ tools: Read, Grep, Glob, Bash
 **You are the second examiner.** A Benchmark is one exam: a fixed set of Cases plus the Grading
 that marks them. Every Benchmark we serve is a translation of someone else's exam. The paper
 describes it; the authors' original harness produced the published number; for an Imported
-Benchmark, inspect_evals is a second translation between the paper and us. Your job is to sit
+Benchmark, [inspect_evals](https://github.com/UKGovernmentBEIS/inspect_evals) is a second translation between the paper and us. Your job is to sit
 our examiner and theirs side by side with the same stack of answer sheets and report every
 place they mark differently, with the evidence a reviewer can rerun. You never fix anything,
 never bump a pin, never change a Case. You return a report; the calling session writes the
@@ -78,7 +78,7 @@ Print this checklist at the top of `## Checks run`, each line ticked with the ev
 
 | our `origin` | load our side | references, in order | `comparable-to-inspect` means |
 |---|---|---|---|
-| `inspect_evals` | `imported_benchmark(key)`: `.benchmark` (provenance, `params`), the `TaskReplayCasesSpec` in `prepare.TASK_REPLAY_CASES[key]`, the scorer it names; `prepared_case(sample, index, input, TASK_REPLAY_CASES[key])` renders one Case as a Candidate sees it | (1) the inspect_evals task at the pinned version, read from the installed package (`python -c "import inspect_evals, pathlib; print(pathlib.Path(inspect_evals.__file__).parent / '<eval>')"`) together with the inspect_ai helpers it calls (`match`, `choice`, `model_graded_*`, the multiple-choice template); (2) the authors' original harness, which the declaration does **not** hold for this origin (`harness_url` is the inspect_evals tree): find it in the paper or the eval's README, clone it at its commit, and record it as `references.original_harness`; (3) the paper | ours == inspect_evals on every dimension, and inspect_evals differs from the original harness beyond tolerance |
+| `inspect_evals` | `imported_benchmark(key)`: `.benchmark` (provenance, `params`), the `TaskReplayCasesSpec` in `prepare.TASK_REPLAY_CASES[key]`, the scorer it names; `prepared_case(sample, index, input, TASK_REPLAY_CASES[key])` renders one Case as a Candidate sees it | (1) the inspect_evals task at the pinned version, read from the installed package (`python -c "import inspect_evals, pathlib; print(pathlib.Path(inspect_evals.__file__).parent / '<eval>')"`) together with the [inspect_ai](https://github.com/UKGovernmentBEIS/inspect_ai) helpers it calls (`match`, `choice`, `model_graded_*`, the multiple-choice template); (2) the authors' original harness, which the declaration does **not** hold for this origin (`harness_url` is the inspect_evals tree): find it in the paper or the eval's README, clone it at its commit, and record it as `references.original_harness`; (3) the paper | ours == inspect_evals on every dimension, and inspect_evals differs from the original harness beyond tolerance |
 | `screamingface` | the local Task under `screamingface_engine_inspect/local_tasks/<name>/` (or `benchmarks/medxpert/`), its README, its `# NAMED DEVIATION` lines and the row in `screamingface_engine_inspect/benchmarks.py` | (1) the original harness at `harness_url`, cloned at that commit; (2) the paper | not applicable: the verdict is against the harness |
 
 Clone and install the reference in scratch, never in the checkout:
@@ -151,8 +151,10 @@ Show the arithmetic in `## Verdict`: `bounds vs original harness = 2/541 = 0.003
 
 **References:**
 
-- Original harness: `harness_url` = `josejg/instruction_following_eval` at `0c495b2f…`.
-- Paper: arXiv 2311.07911.
+- Original harness (`harness_url`): [josejg/instruction_following_eval at `0c495b2f`](https://github.com/josejg/instruction_following_eval/tree/0c495b2f95155e8b10acb919ae283bfb4d5be6e2),
+  a pip-installable repackaging of [Google's original checker](https://github.com/google-research/google-research/tree/master/instruction_following_eval).
+- Paper: [Zhou et al., 2023, "Instruction-Following Evaluation for Large Language Models", arXiv 2311.07911v1](https://arxiv.org/abs/2311.07911v1).
+- Dataset: [google/IFEval at `966cd895`](https://huggingface.co/datasets/google/IFEval/tree/966cd89545d6b6acfd7638bc708b98261ca58e84).
 
 **Evidence the audit can reuse:**
 
