@@ -1,9 +1,9 @@
 ---
 ticket: OME-1644
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-10-16
-finished:
+finished: 2026-11-09
 ---
 
 # e2e-workbench-u2-core — notebooks driven by pytest, evidence by trace id (replay + local)
