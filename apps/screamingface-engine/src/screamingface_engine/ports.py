@@ -20,8 +20,9 @@ the abstract port, so both the control plane and the run mode may import it
 
 from __future__ import annotations
 
+import contextlib
 from abc import abstractmethod
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from datetime import datetime
 
 from screamingface_engine.job_env import RunShape
@@ -90,6 +91,17 @@ class IdentityAwareJobRunner(JobRunner):
         replay_frozen_copy: str | None = None,
         enqueued_at: datetime | None = None,
     ) -> str: ...
+
+    @contextlib.contextmanager
+    def start_attempt(self, topic: str) -> Iterator[None]:
+        """Wrap one start of `topic`, from before its bind until it has scheduled or failed.
+
+        WHY: a substrate that keeps a stop for a topic not yet scheduled (`stop_bound`) needs
+        it only while a start that bound before the cancel can still reach `schedule()`. A
+        start that binds after the cancel is refused at the bind (E5 P1 spec R2). The queue
+        keeps its stop as a tombstone instead, so the default records nothing.
+        """
+        yield
 
     async def stop_bound(self, topic: str) -> None:
         """Stop a topic a Run bound (E5 P1 spec D12): one this App queued, or is about to.

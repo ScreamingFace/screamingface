@@ -11,8 +11,8 @@ observe the run) lives elsewhere; this module only schedules work onto it via
 import asyncio
 import logging
 import math
-from collections.abc import Awaitable, Callable, Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Any
@@ -297,11 +297,14 @@ async def _refuse_existing(deps: _Deps, topic: str) -> None:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists")
 
 
-async def _claim_topic(deps: _Deps, request: Request, topic: str) -> StartBinding:
+@asynccontextmanager
+async def _claim_topic(deps: _Deps, request: Request, topic: str) -> AsyncIterator[StartBinding]:
     """Refuse a topic already used, then bind it to its Run's Candidate before anything is
-    scheduled (OME-1785, E5 P1 spec R2)."""
-    await _refuse_existing(deps, topic)
-    return await bind_start(request, topic)
+    scheduled (OME-1785, E5 P1 spec R2). The whole start counts as one attempt of the topic, so
+    the runner keeps a cancel's stop for as long as this start could still reach `schedule()`."""
+    with deps.job_runner.start_attempt(topic):
+        await _refuse_existing(deps, topic)
+        yield await bind_start(request, topic)
 
 
 def _named_dynamic_models(url4: str) -> tuple[str, ...]:
@@ -915,42 +918,42 @@ async def start_run(
             if len(request.headers.getlist("User-Agent")) == 1
             else None
         )
-        binding = await _claim_topic(deps, request, topic)
+        async with _claim_topic(deps, request, topic) as binding:
 
-        async def schedule() -> None:
-            await _schedule(
-                deps,
-                topic,
-                url4,
-                # WHY the accept span's traceparent when one is open (owner decision, option
-                # 1): `url4.run` becomes its child. With no sink, the inbound one, as before.
-                traceparent=accept.traceparent if accept is not None else inbound_traceparent,
-                identity=identity,
-                cache=_converge_cache(deps, topic, cache_control, clock),
-                answer_seed=answer_seed,
-                client_version=client_version,
-                capture=capture,
-                replay_frozen_copy=replay_frozen_copy,
-                enqueued_at=binding.bound_at,
-            )
-            # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
-            # hold is not accept latency, and counting it would hide the queue-wait gap. So it
-            # also ends before a bound start's registry write.
-            _enqueued(accept)
-            await binding.on_scheduled()
+            async def schedule() -> None:
+                await _schedule(
+                    deps,
+                    topic,
+                    url4,
+                    # WHY the accept span's traceparent when one is open (owner decision, option
+                    # 1): `url4.run` becomes its child. With no sink, the inbound one, as before.
+                    traceparent=accept.traceparent if accept is not None else inbound_traceparent,
+                    identity=identity,
+                    cache=_converge_cache(deps, topic, cache_control, clock),
+                    answer_seed=answer_seed,
+                    client_version=client_version,
+                    capture=capture,
+                    replay_frozen_copy=replay_frozen_copy,
+                    enqueued_at=binding.bound_at,
+                )
+                # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
+                # hold is not accept latency, and counting it would hide the queue-wait gap. So it
+                # also ends before a bound start's registry write.
+                _enqueued(accept)
+                await binding.on_scheduled()
 
-        if pref.respond_async:
-            await schedule()
-            return _accepted(topic, capture, replay_frozen_copy)
-        # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps
-        # the reaper disarmed while it waits. ONE block covers gate, schedule and wait, so
-        # every exit — a 503 from admission, the bound, a disconnect, an error — releases it.
-        async with deps.sessions.hold_sync(topic):
-            await _require_subscriber(deps.interest, topic)
-            await schedule()
-            return await _run_sync(
-                deps, topic, pref.wait_s, request.is_disconnected, capture, replay_frozen_copy
-            )
+            if pref.respond_async:
+                await schedule()
+                return _accepted(topic, capture, replay_frozen_copy)
+            # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps
+            # the reaper disarmed while it waits. ONE block covers gate, schedule and wait, so
+            # every exit — a 503 from admission, the bound, a disconnect, an error — releases it.
+            async with deps.sessions.hold_sync(topic):
+                await _require_subscriber(deps.interest, topic)
+                await schedule()
+                return await _run_sync(
+                    deps, topic, pref.wait_s, request.is_disconnected, capture, replay_frozen_copy
+                )
 
 
 def _open_accept(request: Request, traceparent: str | None, topic: str) -> AcceptSpan | None:

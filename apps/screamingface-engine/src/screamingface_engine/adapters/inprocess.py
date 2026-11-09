@@ -21,8 +21,10 @@ and `aclose()` returns only after every flush has finished.
 """
 
 import asyncio
+import contextlib
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from collections import Counter
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from functools import partial
@@ -186,10 +188,12 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # patching the process environment.
         self._base_env = dict(base_env or {})
         self._tasks: dict[str, asyncio.Task[None]] = {}
-        # Topics a bound stop reached before their task existed (E5 P1 spec D12): their
-        # `schedule()` spawns nothing. Not consumed, so a resent start of the topic cannot run;
-        # bounded oldest-first by `max_history`, the same bound as the single-use task registry.
-        self._stopped_before_schedule: dict[str, None] = {}
+        # Topics a bound stop reached while a start of them was still on its way to `schedule()`
+        # (E5 P1 spec D12): their `schedule()` spawns nothing. Kept until the topic's last start
+        # attempt ends, so every racing or delayed start is covered and nothing outlives them.
+        self._stopped_before_schedule: set[str] = set()
+        # topic → how many starts of it are between their bind and the end of `schedule()`.
+        self._starting: Counter[str] = Counter()
         # INVARIANT (OME-1747 review): one entry per built span sink until its close has
         # finished. The runner, not the run's task, owns these: `stop()`/`aclose()` cancel the
         # run's task, and a close owned by that task was cancelled with it — never run at all
@@ -522,6 +526,17 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         if task is not None:
             _stop_once(task)
 
+    @contextlib.contextmanager
+    def start_attempt(self, topic: str) -> Iterator[None]:
+        self._starting[topic] += 1
+        try:
+            yield
+        finally:
+            self._starting[topic] -= 1
+            if not self._starting[topic]:
+                del self._starting[topic]
+                self._stopped_before_schedule.discard(topic)
+
     async def stop_bound(self, topic: str) -> None:
         """As `stop`, but a topic with no task yet never gets one (E5 P1 spec D12).
 
@@ -529,10 +544,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         nothing to cancel, and the task spawned next would run until the start's confirmation
         stopped it, which may already have called a provider.
         """
-        if job_name(topic) not in self._tasks:
-            self._stopped_before_schedule[topic] = None
-            while len(self._stopped_before_schedule) > self._max_history:
-                del self._stopped_before_schedule[next(iter(self._stopped_before_schedule))]
+        if topic in self._starting and job_name(topic) not in self._tasks:
+            self._stopped_before_schedule.add(topic)
         await self.stop(topic)
 
     async def exists(self, topic: str) -> bool:

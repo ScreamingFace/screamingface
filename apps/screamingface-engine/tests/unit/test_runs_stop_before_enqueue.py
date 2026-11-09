@@ -8,7 +8,8 @@ runs afterwards, even if the Engine restarted or my cancel beat the Candidate's 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator, Mapping
+import contextlib
+from collections.abc import AsyncIterator, Iterator, Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -379,9 +380,10 @@ async def test_a_local_bound_stop_before_the_schedule_starts_no_task() -> None:
 
     runner = InProcessJobRunner(InMemoryEventStream(), factory)
 
-    await runner.stop_bound("t")
-    with pytest.raises(StoppedBeforeSchedule):
-        await runner.schedule("t", "'hi'", 60)
+    with runner.start_attempt("t"):
+        await runner.stop_bound("t")
+        with pytest.raises(StoppedBeforeSchedule):
+            await runner.schedule("t", "'hi'", 60)
 
     assert not await runner.exists("t")
     assert built == []
@@ -402,9 +404,10 @@ async def test_a_queue_at_capacity_still_answers_a_stopped_topic_as_stopped() ->
 async def test_a_full_local_runner_still_answers_a_stopped_topic_as_stopped() -> None:
     runner = InProcessJobRunner(InMemoryEventStream(), lambda env: None, max_concurrent_runs=0)  # type: ignore[arg-type,return-value]
 
-    await runner.stop_bound("t")
-    with pytest.raises(StoppedBeforeSchedule):
-        await runner.schedule("t", "'hi'", 60)
+    with runner.start_attempt("t"):
+        await runner.stop_bound("t")
+        with pytest.raises(StoppedBeforeSchedule):
+            await runner.schedule("t", "'hi'", 60)
 
     assert not await runner.exists("t")
 
@@ -462,10 +465,58 @@ async def test_a_start_stopped_before_its_schedule_answers_canceled_even_unbound
     assert "run scheduled" not in caplog.text
 
 
-async def test_local_stop_markers_are_bounded_by_the_task_history() -> None:
+async def test_a_local_stop_holds_while_its_start_is_delayed_behind_many_others() -> None:
+    """WHY: a count-based eviction let a delayed start of a canceled topic build its executor."""
     runner = InProcessJobRunner(InMemoryEventStream(), lambda env: None, max_history=2)  # type: ignore[arg-type,return-value]
 
-    for topic in ("a", "b", "c"):
-        await runner.stop_bound(topic)
+    with runner.start_attempt("a"):
+        for topic in ("a", "b", "c"):
+            with runner.start_attempt(topic):
+                await runner.stop_bound(topic)
+        with pytest.raises(StoppedBeforeSchedule):
+            await runner.schedule("a", "'hi'", 60)
 
-    assert list(runner._stopped_before_schedule) == ["b", "c"]
+
+async def test_a_local_stop_ends_with_the_last_start_of_its_topic() -> None:
+    """WHY: a start that binds after the cancel is refused at the bind, so nothing needs it."""
+    runner = InProcessJobRunner(InMemoryEventStream(), lambda env: None)  # type: ignore[arg-type,return-value]
+
+    with runner.start_attempt("t"):
+        with runner.start_attempt("t"):
+            await runner.stop_bound("t")
+        assert runner._stopped_before_schedule == {"t"}
+    await runner.stop_bound("u")  # no start of it in flight
+
+    assert runner._stopped_before_schedule == set()
+
+
+class _AttemptRecorder(RecordingJobRunner):
+    def __init__(self) -> None:
+        super().__init__()
+        self.open: list[str] = []
+        self.seen: list[tuple[str, bool]] = []
+
+    @contextlib.contextmanager
+    def start_attempt(self, topic: str) -> Iterator[None]:
+        self.open.append(topic)
+        try:
+            yield
+        finally:
+            self.open.remove(topic)
+
+    async def schedule(self, topic: str, *args: Any, **kwargs: Any) -> str:
+        self.seen.append((topic, topic in self.open))
+        return await super().schedule(topic, *args, **kwargs)
+
+
+async def test_a_start_is_one_attempt_from_its_bind_through_its_schedule(
+    registry: Registry,
+) -> None:
+    runner = _AttemptRecorder()
+    engine = _Engine(registry, runner=runner)
+    run_id = (await engine.create(candidates=["a"])).json()["id"]
+
+    assert (await engine.start("topic-a", run_id)).status_code == 202
+
+    assert runner.seen == [("topic-a", True)]
+    assert runner.open == []
