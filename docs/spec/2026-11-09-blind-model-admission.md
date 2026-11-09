@@ -67,25 +67,11 @@ Cases route (C9, #1645); the new check sees the same models and the same answer.
 - Office formats: become text before a run (OME-1550); never a modality here.
 - The sync local eval path (no Runner, no bound url4) stays unchecked, as today.
 
-## 5. Open questions (owner)
+## 5. Owner decisions (2026-11-09)
 
-Q1. **Where does the once-per-run check live?**
-  (a) Engine connector, first model call admits the run, others await it — *recommended*: no url4
-      change, uses the frozen list exactly as calls will see it.
-  (b) A generic `on_start(attachments)` hook in `url4.run()` called after `_run_start` —
-      cleaner "before any node" point, but a url4 API change (Kevin's surface) for one consumer.
-
-Q2. **A url4 with no explicit model route (bare prompt → node's `default_processor`)?**
-  (a) Check the default processor model too — *recommended*: it is the model that gets the file.
-  (b) Only check routes the url4 names literally — simpler, but a blind default model slips past.
-
-Q3. **A route the walk cannot see (a model route chosen at run time, e.g. inside text a model
-  produced)?**
-  (a) Fail closed only for what is enumerable; an unseen route still hits the gateway backstop
-      (#1651) — *recommended*: url4 already forbids model-derived attachment targets, and
-      refusing every dynamic expression would break valid text-routing runs.
-  (b) Refuse any attachment-carrying run whose routes are not fully enumerable — strictest, but
-      refuses runs that would have worked.
+- **Q1 → (a)** the engine connector: the first model call of a run admits the whole run, and every other call awaits that result. No url4 change.
+- **Q2 → (a)** the node's `default_processor` model is checked for a bare prompt.
+- **Q3 → (a)** fail closed for every route that can be enumerated; an unseen dynamic route still meets the #1651 gateway backstop.
 
 ## 6. Tests (RED first)
 
@@ -100,6 +86,6 @@ Q3. **A route the walk cannot see (a model route chosen at run time, e.g. inside
 - `test_a_capable_lineup_runs_unchanged` (requests byte-identical to today's)
 - `test_a_text_run_never_reads_the_model_list`
 - `test_the_reducer_and_synthesizer_routes_are_checked` (blind reducer refused)
-- `test_the_default_processor_is_checked_for_a_bare_prompt` (if Q2 = a)
+- `test_the_default_processor_is_checked_for_a_bare_prompt`
 - `test_a_benchmark_picture_run_is_still_refused_at_the_cases_route` (C9 regression)
 Live: re-run `refusal_text_only_member.url4` in the OME-1551 e2e; expect `intent_error`, $0 spend.
