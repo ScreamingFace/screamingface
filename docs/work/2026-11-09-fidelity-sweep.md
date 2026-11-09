@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1858
 stack: screamingface-engine
 status: done
 started: 2026-11-09
@@ -84,6 +84,5 @@ already has Leaderboard entries, then the rest.
     the agent's example and the regex together.
   - The authors' HellaSwag repository is DMCA-blocked on GitHub (HTTP 451), so that record's
     `original_harness` points at the Software Heritage archive of the same commit.
-- **Owner verify at PR-open:** file the sweep ticket under an epic and backfill `ticket:` here
-  and in the three PR bodies; the two `fewshot=0` rows and the medxpert turn-2 layout are
+- **Owner verify:** ticket `OME-1858` under `OME-1299`, filed 2026-11-09 at PR-open; the two `fewshot=0` rows and the medxpert turn-2 layout are
   owner decisions (declare or change), not sweep edits.
