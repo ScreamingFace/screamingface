@@ -22,8 +22,9 @@ Paths under `apps/screamingface-engine/`:
 
 E7, sweeps:
 - `src/screamingface_engine/runs/sweeps.py` (new): one sweep is `reconcile()` then
-  `expire(now - run_retention_s)`; run once at start and every `run_sweep_interval_s`; a failed
-  sweep is logged and the cadence kept.
+  `expire(now - run_retention_s)`; run once at start and every `run_sweep_interval_s`. The
+  startup sweep is awaited and a failure there fails the start (spec §9, 2026-11-05); a failed
+  periodic sweep is logged and the cadence kept.
 - `src/screamingface_engine/runs/wiring.py`: start the sweeper with the registry, stop it at
   shutdown. `install_runs` is the one call both `app.py` and `local.py` already make, so both
   modes get it from there.
@@ -60,16 +61,34 @@ E8, routes and binding:
 ## Acceptance
 
 - Every test above green on SQLite (Postgres in CI); targeted runs locally, CI runs the gates.
-- No prior test edited.
+- No prior test edited without a byte-pinned owner approval
+  (`.claude/test-change-approvals/OME-1810.json`).
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned, plus `rest/stopping.py` (the stop path both `DELETE /` and
-  `DELETE /runs/{id}` use). Tests: `test_run_sweeps.py`, `test_run_registry_start.py`,
-  `test_runs_routes.py` (new), one test appended to `test_run_wiring.py`.
-- **Commits:** one commit on `e5-p1-e7-sweeps-runs-routes`.
-- **Gates:** targeted locally: ruff and pyright clean on `rest/`, `runs/`, `app.py` and the new
-  tests; the layering check OK; the engine unit suite passed (6774). CI runs the full gates.
+- **Actual files** (under `src/screamingface_engine/`):
+  - Routes and binding: `rest/runs.py` (the routes), `rest/runs_start.py` (start binding),
+    `rest/runs_boundary.py` (owner, private Problems, the Candidate stop), `rest/stopping.py`
+    (the stop path `DELETE /` and `DELETE /runs/{id}` share), `rest/routes.py`, `app.py`,
+    `schemas/openapi.py`.
+  - Registry and sweeps: `runs/sweeps.py`, `runs/wiring.py`, `runs/registry.py`, `runs/store.py`,
+    `runs/records.py`, `runs/models/candidate.py`, migration `0002_candidate_stop_owed`.
+  - Cancel safety (review rounds, D12): `ports.py` (`stop_bound`, `start_attempt`,
+    `StoppedBeforeSchedule`, `enqueued_at`), `adapters/queue_runner.py`, `adapters/inprocess.py`,
+    `runner_queue.py`, `config.py` (events retention must exceed the job deadline).
+  - Tests: new `test_run_sweeps.py`, `test_run_registry_start.py`, `test_runs_routes.py`,
+    `test_runs_cancel_and_binding_edges.py`, `test_runs_cancel_once_and_body_bounds.py`,
+    `test_runs_cancel_retry_and_lifecycle.py`, `test_runs_local_lock_and_not_found.py`,
+    `test_runs_owed_stops_and_boundary.py`, `test_runs_start_never_blocks.py`,
+    `test_runs_stop_before_enqueue.py`, `test_events_retention_outlasts_queue.py`; tests appended
+    to `test_run_wiring.py` and `test_run_queue_stream_config.py`.
+  - Prior tests edited, each byte-pinned in `.claude/test-change-approvals/OME-1810.json`:
+    `test_run_migrations.py` (a second migration ships), the two E2E harness files (one SQLite
+    file per stack), and 17 runner/queue stand-ins that gained the `enqueued_at` parameter.
+- **Commits:** the initial commit plus one per review round on `OME-1810-e5-p1-e7-sweeps-runs-routes`.
+- **Gates:** targeted locally: ruff and pyright clean; the layering check OK; the append-only
+  check OK for the Engine and the package; the engine unit suite passed (8597). CI runs the full
+  gates.
 - **Deviations:**
   - The sweeps start from `install_runs`, the one call `app.py` and `local.py` both make, not from
     each file.
@@ -80,3 +99,8 @@ E8, routes and binding:
   - Not in the spec: an `X-SF-Run-Candidate` that is not an index of the Run answers 400
     `malformed_header`; a hosted `/runs` call without identity answers 401 `identity_required`;
     the sweep interval is a setting, `run_sweep_interval_s` (1 h).
+  - `rest/routes.py` and `adapters/queue_runner.py` grew beyond call sites: cancel safety (D12)
+    needed the bind-time deadline, the stop markers and the start attempt.
+  - A local Engine refuses a non-SQLite `URL4_CLOUD_DATABASE_URL` (spec D5).
+  - Deferred: a JetStream publish whose outcome is unknown (stored, then a timeout) is treated as
+    failed. It predates this PR; tracked in its own issue.

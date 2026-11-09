@@ -2,9 +2,9 @@
   "issue": "OME-1810",
   "branch": "OME-1810-e5-p1-e7-sweeps-runs-routes",
   "approver": "Tauquir Ahmed (spec owner)",
-  "date": "2026-11-05",
-  "scope": "Exactly this edit in test_run_migrations.py: in test_the_migration_creates_the_tables_and_reruns_as_a_no_op, `assert applied == 1` becomes `assert applied == len(shipped)`, where `shipped` lists the migration files in src/screamingface_engine/runs/migrations. And in packages/screamingface/tests/e2e/harness/stack.py and inspect_stack.py: one added entry in the Engine child's environment, `URL4_CLOUD_DATABASE_URL` set to an `engine.sqlite3` in the stack's own work dir, with its comment.",
-  "reason": "E5 P1 spec D12 (PR #1648 review): a second Run registry migration, 0002_candidate_stop_owed, ships in this PR, so the applied count is the number of migrations that ship, not 1. The harness entries: a local Engine holds its Run database exclusively, so concurrent E2E stacks sharing the default `~/.screamingface-engine/engine.sqlite3` refused to start; each stack now has its own file.",
+  "date": "2026-11-09",
+  "scope": "Exactly this edit in test_run_migrations.py: in test_the_migration_creates_the_tables_and_reruns_as_a_no_op, `assert applied == 1` becomes `assert applied == len(shipped)`, where `shipped` lists the migration files in src/screamingface_engine/runs/migrations. And in packages/screamingface/tests/e2e/harness/stack.py and inspect_stack.py: one added entry in the Engine child's environment, `URL4_CLOUD_DATABASE_URL` set to an `engine.sqlite3` in the stack's own work dir, with its comment. Also (2026-11-09): Exactly the stand-ins of the job runner and the run queue in these files: each `schedule()` or `publish()` stand-in gains an `enqueued_at` keyword parameter (default None) that it accepts and ignores, plus the typing import it needs (test_queue_metrics.py, _fakes.py). In test_queue_admission.py the inline `refresh_then_fail` publish stand-in gains the same parameter. No assertion, fixture value or behaviour changes.",
+  "reason": "E5 P1 spec D12 (PR #1648 review): a second Run registry migration, 0002_candidate_stop_owed, ships in this PR, so the applied count is the number of migrations that ship, not 1. The harness entries: a local Engine holds its Run database exclusively, so concurrent E2E stacks sharing the default `~/.screamingface-engine/engine.sqlite3` refused to start; each stack now has its own file. Also (2026-11-09): E5 P1 spec D12 (PR #1648 review): a bound start's run deadline counts from its bind, so the job runner's `schedule()` and the run queue's `publish()` gained an optional `enqueued_at`. Every stand-in of those two methods must accept the new keyword or the production call raises TypeError; nothing else in these tests changes.",
   "files": {
     "apps/screamingface-engine/tests/unit/test_run_migrations.py": {
       "base_blob": "dbf08f26954a4db46a986e4cf04be76fa2de921a",
@@ -17,6 +17,74 @@
     "packages/screamingface/tests/e2e/harness/inspect_stack.py": {
       "base_blob": "67baecd5ebadc72bcd3a1f11cf379aedbb094ea5",
       "approved_blob": "34d51c6b1701fad54535c47a7ef36351c5cc32de"
+    },
+    "apps/screamingface-engine/tests/integration/test_e2e_compose_flow.py": {
+      "base_blob": "483009e685ae0a6b4970ad745a2be0e5aa08559d",
+      "approved_blob": "ff997a88a5df6d6da3e9bd9d3738237d839e8549"
+    },
+    "apps/screamingface-engine/tests/integration/test_run_control_resilience.py": {
+      "base_blob": "5c61441a24d63d8ea84f627493d406294d8b8121",
+      "approved_blob": "a6109d549431e5790ce7a08ef15fc72c2bea1256"
+    },
+    "apps/screamingface-engine/tests/unit/_fakes.py": {
+      "base_blob": "c9c337345ac990f9078eedb8792c5b44a61e1c62",
+      "approved_blob": "168fe77c18ca114102acd14a06e99c812b89d356"
+    },
+    "apps/screamingface-engine/tests/unit/test_answer_seed_threading.py": {
+      "base_blob": "be0910f22cba59dc2b09a89270d9b90cafea6b56",
+      "approved_blob": "3188cc63085eaadf84d3e1ef8686674daae9b0e4"
+    },
+    "apps/screamingface-engine/tests/unit/test_app_terminal_writer_outcomes.py": {
+      "base_blob": "4988546a6f2ae0c68ee346ba490505714486d670",
+      "approved_blob": "e8b6a697ef2e778916bb1acead85e0b8d587182e"
+    },
+    "apps/screamingface-engine/tests/unit/test_cache_policy_threading.py": {
+      "base_blob": "2924a9ea58ef40b35f9becf7f45e85af0725097e",
+      "approved_blob": "e295b809e3024aef2e8d597878391ab65f9d85f3"
+    },
+    "apps/screamingface-engine/tests/unit/test_queue_admission.py": {
+      "base_blob": "94d77a0d00329adcf7829652b11c8bab2284d6e0",
+      "approved_blob": "d16796b04294c0571f43347f48dc34fe1265895f"
+    },
+    "apps/screamingface-engine/tests/unit/test_queue_admission_release.py": {
+      "base_blob": "2fed9ff325e8d4795c42af3182883dd883514a27",
+      "approved_blob": "6d39649b38f37158da19bc3cda6d8b6d00071446"
+    },
+    "apps/screamingface-engine/tests/unit/test_queue_metrics.py": {
+      "base_blob": "869a0f181bc0b4a5cf5136cbd8d64e2333161b1c",
+      "approved_blob": "0ce78aa68702f92ed1d05f45f600e772f44ff19f"
+    },
+    "apps/screamingface-engine/tests/unit/test_queue_runner_accepted_ages.py": {
+      "base_blob": "9c8f8e7c1b1980353f2b053ed4ef0325beeb1a82",
+      "approved_blob": "6dd78adc679f21d81e7658e0dd3e00cd4700e0fe"
+    },
+    "apps/screamingface-engine/tests/unit/test_queue_runner_cancel.py": {
+      "base_blob": "e5e38433f83eceea68144923e4aa6ecc2a70ae98",
+      "approved_blob": "0a2f19a45da3d1c78897b7a27341668dc48ee078"
+    },
+    "apps/screamingface-engine/tests/unit/test_queue_runner_status.py": {
+      "base_blob": "d86958a8ff24be5b45a4c40380600953595342eb",
+      "approved_blob": "64c304e2794e2f4b379c8ba8b48d7a2f134a9810"
+    },
+    "apps/screamingface-engine/tests/unit/test_queue_schedule_broker_failure.py": {
+      "base_blob": "c53dbfec08e2e9e728838d7fda131ba4c4464504",
+      "approved_blob": "446706c8ab957983ba3aa13cd2563173efbe0637"
+    },
+    "apps/screamingface-engine/tests/unit/test_reaper.py": {
+      "base_blob": "2b348b70fbd8682be1af6ea08b9c6b664665e0cd",
+      "approved_blob": "76f5a0c7fe301e28214ce3550f108d5407b49341"
+    },
+    "apps/screamingface-engine/tests/unit/test_schedule_time_admission_rest.py": {
+      "base_blob": "6ef50182fbe9dcacda320422870edf3d700b919d",
+      "approved_blob": "da6ae9269f223fdf470ec8c3da040e75b4627869"
+    },
+    "apps/screamingface-engine/tests/unit/test_unclaimed_run_warner.py": {
+      "base_blob": "208a7705355e363c85593aa3d6fca82f2476317c",
+      "approved_blob": "727a4b3be96f03d3bd76a54e7a9e35fcd287d458"
+    },
+    "apps/screamingface-engine/tests/unit/test_world_config_revision.py": {
+      "base_blob": "d75bbaecda913ab3f648a6bee76547dab8ae3a0b",
+      "approved_blob": "64ff4a53d2750fcaa940aeaae5dbbfcc238202dc"
     }
   }
 }
