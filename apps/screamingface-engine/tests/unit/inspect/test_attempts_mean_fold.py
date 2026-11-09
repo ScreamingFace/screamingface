@@ -342,3 +342,25 @@ async def test_a_partial_attempt_counts_as_not_right_for_the_fold_and_the_reduce
     assert case["grade"]["score"] == 0.4
     assert [attempt["grade"]["score"] for attempt in case["attempts"]] == [0.5, 1.0, 0.0, 1.0, 0.5]
     assert result["score"] == 0.4
+
+
+def test_the_mean_rule_rides_the_attempts_pins_on_a_row_with_no_whole_run_metric() -> None:
+    """A row folded by the mean pins its reducer into the revision even when it honours no
+    whole-run metric, and an any-of-N row beside a metric pins it where it always did.
+
+    WHY (D17): 2/5 and 1.0 are different numbers for the same five answers, so the fold rule is
+    Attempts identity; before this, a reducer was pinned only beside a whole-run metric, and a
+    mean row with none (ZeroBench) would have kept its revision while changing its number.
+    INVARIANT: a row honouring no metric pins nothing under the metric pins
+    (test_whole_run_metric's rule), and ARC-AGI-2's revision does not move.
+    """
+
+    mean_row: BenchmarkSpec = _spec("gsm8k", attempts=5, epoch_reducer="pass_at_1")
+    assert mean_row.whole_run_metric is None
+    assert benchmarks._attempts_pins(mean_row) == ("attempts=5", "epoch_reducer=pass_at_1")
+    assert benchmarks._whole_run_metric_pins(mean_row) == ()
+
+    arc_row: BenchmarkSpec = next(spec for spec in benchmarks.BENCHMARKS if spec.key == "arc_agi_2")
+    assert arc_row.whole_run_metric is not None
+    assert benchmarks._attempts_pins(arc_row) == ("attempts=2",)
+    assert "epoch_reducer=max" in benchmarks._whole_run_metric_pins(arc_row)
