@@ -53,7 +53,7 @@ from screamingface_engine.candidate_outcomes import (
     CandidateOutcomeStream,
     publish_outcome,
 )
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
 from screamingface_engine.run_evidence import (
     adopt_or_mint_traceparent,
     log_scheduled,
@@ -325,7 +325,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
         """
         if topic in self._stopped_before_schedule:
             # Before admission: a canceled start answers as canceled, never "retry" at capacity.
-            return job_name(topic)
+            raise StoppedBeforeSchedule(topic)
         with self._in_schedule(topic):
             try:
                 reservation = await self._admit_or_raise(identity, topic)
@@ -339,7 +339,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 # during admission), and the reservation is newer than the tombstone, so nothing
                 # else would ever release it.
                 await self._release_reservation(topic, caller_key(identity), reservation)
-                return job_name(topic)
+                raise StoppedBeforeSchedule(topic)
             # FEATURE (OME-940): decide the run's traceparent HERE so the control plane can name the
             # run it is queueing, and so `job_env.TRACEPARENT` is always set on the worker's message
             # — left unset, the worker's whole log context (`logs.run_scope`) carries no trace id.
@@ -392,8 +392,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 # A bound stop landed during the publish: the worker skips the message, so the slot
                 # would wait on a run that never executes.
                 await self._release_reservation(topic, caller_key(identity), reservation)
-            else:
-                self._scheduled_at[topic] = self._clock()
+                raise StoppedBeforeSchedule(topic)
+            self._scheduled_at[topic] = self._clock()
             return job_name(topic)
 
     @contextlib.contextmanager

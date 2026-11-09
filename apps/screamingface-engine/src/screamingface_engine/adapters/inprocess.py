@@ -31,7 +31,7 @@ from typing import cast
 from screamingface_engine import job_env
 from screamingface_engine.candidate_outcomes import CandidateOutcomeStream, publish_outcome
 from screamingface_engine.client_provenance import ProvenanceExecutor
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
 from screamingface_engine.run_evidence import (
     SettlementWatch,
     adopt_or_mint_traceparent,
@@ -187,8 +187,9 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         self._base_env = dict(base_env or {})
         self._tasks: dict[str, asyncio.Task[None]] = {}
         # Topics a bound stop reached before their task existed (E5 P1 spec D12): their
-        # `schedule()` spawns nothing. Never consumed, so a resent start of the topic cannot run.
-        self._stopped_before_schedule: set[str] = set()
+        # `schedule()` spawns nothing. Not consumed, so a resent start of the topic cannot run;
+        # bounded oldest-first by `max_history`, the same bound as the single-use task registry.
+        self._stopped_before_schedule: dict[str, None] = {}
         # INVARIANT (OME-1747 review): one entry per built span sink until its close has
         # finished. The runner, not the run's task, owns these: `stop()`/`aclose()` cancel the
         # run's task, and a close owned by that task was cancelled with it — never run at all
@@ -357,7 +358,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         name = job_name(topic)
         # Before the capacity check: a canceled start answers as canceled, never "retry".
         if topic in self._stopped_before_schedule:
-            return name
+            raise StoppedBeforeSchedule(topic)
         if self._active >= self._max_concurrent:
             raise JobRunnerAtCapacity(self._active, self._max_concurrent)
         existing = self._tasks.get(name)
@@ -529,7 +530,9 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         stopped it, which may already have called a provider.
         """
         if job_name(topic) not in self._tasks:
-            self._stopped_before_schedule.add(topic)
+            self._stopped_before_schedule[topic] = None
+            while len(self._stopped_before_schedule) > self._max_history:
+                del self._stopped_before_schedule[next(iter(self._stopped_before_schedule))]
         await self.stop(topic)
 
     async def exists(self, topic: str) -> bool:
@@ -556,6 +559,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         the default executor would otherwise never run, and the done callback would drop it
         from `_sink_closes` before any other `aclose()` could wait for it.
         """
+        self._stopped_before_schedule.clear()
         pending = [task for task in self._tasks.values() if not task.done()]
         for task in pending:
             _stop_once(task)

@@ -41,7 +41,7 @@ from screamingface_engine.error_text import (
     ENGINE_ERROR_CODES,
     public_message,
 )
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
 from screamingface_engine.request_scope import (
     CAPTURE_HEADER,
     REPLAY_FROZEN_COPY_HEADER,
@@ -51,7 +51,12 @@ from screamingface_engine.request_scope import (
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
-from screamingface_engine.rest.runs import PRIVATE_HEADERS_DOC, StartBinding, bind_start
+from screamingface_engine.rest.runs import (
+    PRIVATE_HEADERS_DOC,
+    StartBinding,
+    bind_start,
+    canceled_before_schedule,
+)
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from screamingface_engine.rest.sessions import RunSessions
 from screamingface_engine.rest.stopping import QUEUE_UNAVAILABLE_RETRY_AFTER_S, stop_topic
@@ -398,6 +403,10 @@ async def _schedule(
             len(url4),
             cache,
         )
+    except StoppedBeforeSchedule as exc:
+        # Before the "scheduled" log and the accept span's enqueue: nothing was scheduled. Also
+        # the only signal when the bind's outcome was unknown, so no confirmation follows.
+        raise canceled_before_schedule() from exc
     except JobAlreadyExists as exc:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
     except JobRunnerAtCapacity as exc:

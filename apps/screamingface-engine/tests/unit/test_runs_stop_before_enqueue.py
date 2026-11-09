@@ -36,6 +36,7 @@ from test_runs_routes import ALICE, _Engine
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.adapters.memory import InMemoryEventStream
+from screamingface_engine.ports import StoppedBeforeSchedule
 from screamingface_engine.rest import runs
 from screamingface_engine.runner_queue import encode_message
 from screamingface_engine.runs.records import owner_key
@@ -75,7 +76,8 @@ async def test_a_bound_stop_before_the_publish_keeps_the_run_from_running() -> N
     runner = _runner(publisher, _FakeControl(reply=False))
 
     await runner.stop_bound("t")
-    await runner.schedule("t", "'hi'", 60)
+    with pytest.raises(StoppedBeforeSchedule):
+        await runner.schedule("t", "'hi'", 60)
 
     msg = _FakeMsg(encode_message("t", "'hi'", 60))
     await _supervisor(publisher).supervise(msg)  # never spawns
@@ -148,7 +150,8 @@ async def test_a_run_stopped_before_its_schedule_queues_nothing_and_holds_no_slo
     runner = _runner(publisher, _FakeControl(reply=False))
 
     await runner.stop_bound("t")
-    await runner.schedule("t", "'hi'", 60, identity={"X-User-Email": "alice@example.org"})
+    with pytest.raises(StoppedBeforeSchedule):
+        await runner.schedule("t", "'hi'", 60, identity={"X-User-Email": "alice@example.org"})
 
     assert runner._queue.published == []  # type: ignore[attr-defined]
     assert all("t" not in topics for topics in runner._in_flight_by_caller.values())
@@ -244,7 +247,8 @@ async def _stop_while_paused(runner: Any, paused: asyncio.Event, resume: asyncio
     await asyncio.wait_for(paused.wait(), timeout=5)
     await runner.stop_bound("t")
     resume.set()
-    await asyncio.wait_for(schedule, timeout=5)
+    with pytest.raises(StoppedBeforeSchedule):
+        await asyncio.wait_for(schedule, timeout=5)
 
 
 async def test_a_stop_during_admission_queues_nothing_and_holds_no_slot() -> None:
@@ -306,7 +310,8 @@ async def test_one_stop_releases_every_racing_schedule_of_its_topic() -> None:
     await asyncio.wait_for(admitted.wait(), timeout=5)
     await runner.stop_bound("t")
     resume.set()
-    await asyncio.wait_for(asyncio.gather(*schedules), timeout=5)
+    results = await asyncio.wait_for(asyncio.gather(*schedules, return_exceptions=True), timeout=5)
+    assert all(isinstance(result, StoppedBeforeSchedule) for result in results)
 
     assert runner._queue.published == []  # type: ignore[attr-defined]
     assert runner._in_flight_by_caller == {}
@@ -332,7 +337,8 @@ async def test_a_schedule_paused_past_the_marker_lifetime_still_queues_nothing()
     runner._clock.now += timedelta(seconds=CAPABILITY_LIFETIME_S + 1)  # type: ignore[attr-defined]
     await runner.schedule("other", "'hi'", 60)  # its admission prunes
     resume.set()
-    await asyncio.wait_for(schedule, timeout=5)
+    with pytest.raises(StoppedBeforeSchedule):
+        await asyncio.wait_for(schedule, timeout=5)
 
     assert len(runner._queue.published) == 1  # type: ignore[attr-defined]  # only "other"
     assert all("t" not in topics for topics in runner._in_flight_by_caller.values())
@@ -374,7 +380,8 @@ async def test_a_local_bound_stop_before_the_schedule_starts_no_task() -> None:
     runner = InProcessJobRunner(InMemoryEventStream(), factory)
 
     await runner.stop_bound("t")
-    await runner.schedule("t", "'hi'", 60)
+    with pytest.raises(StoppedBeforeSchedule):
+        await runner.schedule("t", "'hi'", 60)
 
     assert not await runner.exists("t")
     assert built == []
@@ -386,7 +393,8 @@ async def test_a_queue_at_capacity_still_answers_a_stopped_topic_as_stopped() ->
     runner._caller_inflight_cap = 0
 
     await runner.stop_bound("t")
-    await runner.schedule("t", "'hi'", 60, identity=_ALICE_IDENTITY)
+    with pytest.raises(StoppedBeforeSchedule):
+        await runner.schedule("t", "'hi'", 60, identity=_ALICE_IDENTITY)
 
     assert runner._queue.published == []  # type: ignore[attr-defined]
 
@@ -395,7 +403,8 @@ async def test_a_full_local_runner_still_answers_a_stopped_topic_as_stopped() ->
     runner = InProcessJobRunner(InMemoryEventStream(), lambda env: None, max_concurrent_runs=0)  # type: ignore[arg-type,return-value]
 
     await runner.stop_bound("t")
-    await runner.schedule("t", "'hi'", 60)
+    with pytest.raises(StoppedBeforeSchedule):
+        await runner.schedule("t", "'hi'", 60)
 
     assert not await runner.exists("t")
 
@@ -426,3 +435,37 @@ async def test_a_bind_with_an_unknown_outcome_keeps_its_bind_moment(registry: Re
 
     ((enqueued_at, _),) = runner.started
     assert enqueued_at is not None and enqueued_at >= before_bind
+
+
+class _StoppedTopic(RecordingJobRunner):
+    """A runner whose topic a bound stop already reached: its schedule starts nothing."""
+
+    async def schedule(self, topic: str, *args: Any, **kwargs: Any) -> str:
+        raise StoppedBeforeSchedule(topic)
+
+
+async def test_a_start_stopped_before_its_schedule_answers_canceled_even_unbound(
+    registry: Registry, caplog: pytest.LogCaptureFixture
+) -> None:
+    """WHY: with the bind's outcome unknown no confirmation follows, so the runner's signal is
+    the only thing that keeps the start from answering 202 for a run that never started."""
+    engine = _Engine(registry, runner=_StoppedTopic())
+    run_id = (await engine.create(candidates=["a"])).json()["id"]
+    engine.app.state.run_registry = _BindsThenLosesTheAck(registry.store)
+
+    with caplog.at_level("INFO"):
+        resp = await engine.start("topic-a", run_id)
+
+    assert resp.status_code == 409
+    assert resp.json()["code"] == "run_canceled"
+    assert resp.headers["Cache-Control"] == "private, no-store"
+    assert "run scheduled" not in caplog.text
+
+
+async def test_local_stop_markers_are_bounded_by_the_task_history() -> None:
+    runner = InProcessJobRunner(InMemoryEventStream(), lambda env: None, max_history=2)  # type: ignore[arg-type,return-value]
+
+    for topic in ("a", "b", "c"):
+        await runner.stop_bound(topic)
+
+    assert list(runner._stopped_before_schedule) == ["b", "c"]

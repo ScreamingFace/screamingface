@@ -29,6 +29,12 @@ from url4.streaming.interfaces import JobRunner
 from url4.streaming.protocol import CachePolicy
 
 
+class StoppedBeforeSchedule(Exception):
+    """`schedule()` found its topic already stopped by a bound stop (E5 P1 spec D12): nothing
+    runs. WHY an error and not a normal return: the start must answer as canceled, and must not
+    log or trace the run as scheduled."""
+
+
 class IdentityAwareJobRunner(JobRunner):
     """A :class:`JobRunner` whose ``schedule`` also carries the caller's verified
     identity and the run's cache policy.

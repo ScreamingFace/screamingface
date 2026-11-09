@@ -575,6 +575,17 @@ async def bind_start(request: Request, topic: str) -> StartBinding:
     return StartBinding(functools.partial(confirm_scheduled, request, topic), bound_at)
 
 
+def canceled_before_schedule() -> ProblemException:
+    """A start whose topic a cancel stopped before it was scheduled: nothing runs (D12)."""
+    # Private: whether a Run is canceled depends on who asks.
+    return _problem(
+        status=409,
+        title="Conflict",
+        detail="the run was canceled before this Candidate started",
+        code=RUN_CANCELED,
+    )
+
+
 async def _unbound() -> None:
     """An unbound start has nothing to confirm."""
 
