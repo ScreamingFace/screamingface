@@ -1,12 +1,12 @@
 ---
 id: OME-1215
 linear_url: https://linear.app/openmined/issue/OME-1215/gate-docstasks-mirror-status-against-the-ledger-then-sweep-the-stale
-status: in_progress
+status: done
 type: task
 priority: medium
 labels: [repo]
 created: 2026-09-17
-closed:
+closed: 2026-11-09
 ---
 
 # Gate docs/tasks mirror status against the ledger, then sweep the stale ones

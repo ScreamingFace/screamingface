@@ -28,6 +28,10 @@ on:
 permissions:
   contents: read
 
+# INVARIANT: test and preparation commands never enroll runners in SDK analytics.
+env:
+  DO_NOT_TRACK: "1"
+
 jobs:
   golden-replay:
     runs-on: ubuntu-latest
@@ -58,7 +62,13 @@ jobs:
       - name: Prepare benchmark assets
         # --extra runtime: `screamingface prepare` imports the embedded-server module,
         # whose deps (uvicorn et al.) live in the user-facing runtime extra.
-        run: uv run --extra runtime screamingface prepare --all --data-dir /tmp/screamingface-data
+        # WHY medxpert by name, not --all (OME-1620): since `screamingface up` and `prepare`
+        # run the Engine from its own environment in a checkout too, `--all` means every
+        # Benchmark the Engine serves (~2.9 GB, and gated ones need a Hugging Face token).
+        # Before, `--all` meant medxpert alone (the one Benchmark the in-process Engine knew),
+        # so naming it keeps this step exactly as it was. The bundles the goldens replay are
+        # prepared by name in the next two steps.
+        run: uv run --extra runtime screamingface prepare medxpert --data-dir /tmp/screamingface-data
 
       # The reducer and fusion lanes (OME-1289 E4a, test_reducer_replay.py and test_fusion_replay.py)
       # replay the IMPORTED board `inspect-gsm8k`, whose bundle is built by the Engine's own

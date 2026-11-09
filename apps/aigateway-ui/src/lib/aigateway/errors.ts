@@ -13,8 +13,9 @@
  *   local development without the header.
  * - `unavailable` — the gateway cannot serve this API at all: no allowlist configured, or it is
  *   running in `jwt` mode. A DEPLOYMENT problem, not a request problem.
- * - `conflict` — a concurrent write lost a CAS (`profile_index_conflict`,
- *   `credential_write_conflict`). Genuinely retryable: "try again" is the right advice.
+ * - `conflict` — a concurrent write lost a CAS (`profile_index_conflict`, decoded for a gateway
+ *   older than E5a, which removed its last emitter). Genuinely retryable: "try again" is the
+ *   right advice.
  * - `superseded` — the credential changed between read and write. Reload; never resubmit the key.
  * - `ambiguous` / `unresolved` — the pair cannot be addressed, or managed safely, from here.
  * - `temporary` — credential storage or authority is briefly unreadable, or the provider's key
@@ -74,7 +75,6 @@ function codeOf(detail: unknown): string | undefined {
  */
 const CODE_KINDS: Readonly<Record<string, AdminErrorKind>> = {
   profile_index_conflict: "conflict",
-  credential_write_conflict: "conflict",
   credential_publication_superseded: "superseded",
   credential_pair_ambiguous: "ambiguous",
   credential_pair_unresolved: "unresolved",

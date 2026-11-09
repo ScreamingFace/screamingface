@@ -111,6 +111,8 @@ names no transport.
 | the in-memory test adapter | `io/static.py` | io |
 | the httpx adapter | `io/http.py` | io |
 | the node's registration or dispatch order | `peer/server.py`, `peer/_dispatch.py` | node |
+| the lazily encoded relative call request | `dag/nodes/_subrequest_fetch.py` | engine |
+| the in-process endpoint fast path (no `?q=` round trip) | `peer/_inprocess.py` | node |
 | the node's code mounts (`@node.code`) | `peer/_code.py` | node |
 | the requestor `Client` | `peer/client.py` | node |
 | `url4.toml` or the `serve` flags | `cli/_config.py`, `cli/_serve.py` | node |

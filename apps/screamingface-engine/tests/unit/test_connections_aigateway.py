@@ -64,8 +64,20 @@ def _provider(
     }
 
 
-def _get(request: httpx.Request, *rows: dict[str, object]) -> httpx.Response:
-    payload = _providers() if request.url.path == "/v1/providers" else _list(*rows)
+def _access(**statuses: str) -> dict[str, object]:
+    """`GET /v1/provider-access`: the status the gateway lists per provider (OME-1138 L7b)."""
+    return {"providers": [{"provider": key, "status": value} for key, value in statuses.items()]}
+
+
+def _get(
+    request: httpx.Request, *rows: dict[str, object], access: dict[str, str] | None = None
+) -> httpx.Response:
+    if request.url.path == "/v1/providers":
+        payload = _providers()
+    elif request.url.path == "/v1/provider-access":
+        payload = _access(**(access or {}))
+    else:
+        payload = _list(*rows)
     return httpx.Response(200, json=payload)
 
 
@@ -122,7 +134,9 @@ async def test_provider_catalog_rejects_ids_that_are_not_one_path_segment(
 
 
 async def test_connected_state_is_sanitized_and_identity_is_forwarded() -> None:
-    adapter, seen = _adapter(lambda request: _get(request, _row()))
+    adapter, seen = _adapter(
+        lambda request: _get(request, _row(), access={"openrouter": "connected"})
+    )
 
     (connection,) = await adapter.list(Caller(IDENTITY))
 
@@ -149,8 +163,11 @@ async def test_oauth_account_exposes_only_the_safe_display_label() -> None:
     )
 
     def handler(request: httpx.Request) -> httpx.Response:
-        payload = _providers(provider) if request.url.path == "/v1/providers" else _list(row)
-        return httpx.Response(200, json=payload)
+        if request.url.path == "/v1/providers":
+            return httpx.Response(200, json=_providers(provider))
+        if request.url.path == "/v1/provider-access":
+            return httpx.Response(200, json=_access(anthropic="connected"))
+        return httpx.Response(200, json=_list(row))
 
     adapter, _ = _adapter(handler)
 
@@ -179,7 +196,7 @@ async def test_malformed_oauth_account_is_rejected(account: object) -> None:
 async def test_connect_creates_a_validated_connection_without_leaking_the_key() -> None:
     def handler(request: httpx.Request) -> httpx.Response:  # noqa: PLR0911
         if request.method == "GET":
-            return _get(request)
+            return _get(request, access={"openrouter": "connected"})
         assert request.url.path == "/v1/oauth/connections/api-key"
         assert json.loads(request.content) == {
             "provider": "openrouter",
@@ -337,7 +354,7 @@ async def test_connect_does_not_adopt_a_single_unmanaged_api_key_connection() ->
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
-            return _get(request, existing)
+            return _get(request, existing, access={"openrouter": "connected"})
         assert request.method == "POST"
         assert request.url.path == "/v1/oauth/connections/api-key"
         assert json.loads(request.content) == {
@@ -357,7 +374,7 @@ async def test_connect_replaces_only_the_existing_managed_api_key_connection() -
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
-            return _get(request, existing)
+            return _get(request, existing, access={"openrouter": "connected"})
         assert request.method == "PUT"
         assert request.url.path.endswith("/00000000-0000-0000-0000-000000000001/api-key")
         assert json.loads(request.content) == {"api_key": SECRET}
@@ -427,7 +444,7 @@ async def test_managed_row_is_selected_without_mutating_unmanaged_rows() -> None
         _row(connection_id="00000000-0000-0000-0000-000000000002"),
     ]
 
-    adapter, _ = _adapter(lambda request: _get(request, *rows))
+    adapter, _ = _adapter(lambda request: _get(request, *rows, access={"openrouter": "connected"}))
 
     (connection,) = await adapter.list(Caller())
     assert connection.status == "connected"
@@ -571,8 +588,11 @@ async def test_lists_every_provider_and_keeps_credentials_provider_scoped() -> N
     rows = [_row(provider="anthropic", auth_type="oauth")]
 
     def handler(request: httpx.Request) -> httpx.Response:
-        payload = providers if request.url.path == "/v1/providers" else _list(*rows)
-        return httpx.Response(200, json=payload)
+        if request.url.path == "/v1/providers":
+            return httpx.Response(200, json=providers)
+        if request.url.path == "/v1/provider-access":
+            return httpx.Response(200, json=_access(anthropic="connected"))
+        return httpx.Response(200, json=_list(*rows))
 
     adapter, _ = _adapter(handler)
     connections = await adapter.list(Caller())

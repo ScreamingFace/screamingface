@@ -38,6 +38,7 @@ from .connection_native import (
     credential_name_of,
     effective_pair_of,
     effective_to_replace,
+    lock_if_status,
     lock_lower_addressers,
     replace_effective,
     replaced_label,
@@ -46,6 +47,7 @@ from .connection_native import (
     retire_replaced,
     take_over_effective,
 )
+from .effective_connection import effective_connection_ids, flagged_connections
 from .pair_admin import (
     CredentialState,
     PairConflict,
@@ -144,11 +146,14 @@ __all__ = [
     "context_stamp",
     "contract_auth_mode",
     "credential_has_other_owner",
+    "lock_if_status",
     "lock_lower_addressers",
     "credential_name_of",
     "effective_pair_of",
+    "effective_connection_ids",
     "effective_to_replace",
     "fences_writer",
+    "flagged_connections",
     "guard_refresh",
     "invalidate_session",
     "oauth_connection_store",

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1761
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-10-30
-finished:
+finished: 2026-11-03
 ---
 
 # Featured benchmark search
@@ -51,3 +51,8 @@ overflow list, private boards stay excluded, and navigation/active indication wo
 - **Deviations:** isolated worktree is under /tmp to preserve the user's existing checkout.
   Existing ticket and explicit go-ahead provided scope approval. Implementation complete;
   ledger remains in progress until PR review/merge and ticket closure.
+
+## Closure — 2026-11-05
+
+Merged [PR #1619](https://github.com/ScreamingFace/screamingface/pull/1619) on 2026-11-03 as
+`107de3281f356d40bb7eab73c9ee4f251ee38053`. Linear is Done.

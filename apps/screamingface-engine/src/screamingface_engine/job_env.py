@@ -542,6 +542,41 @@ AIDEV-NOTE: not yet in :data:`DEPLOY_TIME`, though the chart does render this Se
 (`deploy/helm/templates/secret-artifact-signing.yaml`). An unset key means the tier refuses to
 sign (a 502 at spill time, never an unsigned redirect)."""
 
+# --- run blob store backend (OME-1540; #1603 review, owner decision 2026-11-03) -------------
+# FEATURE: uploaded blobs get their OWN store, so a client filling it fails uploads and never the
+# result delivery a paid run depends on. Same shape as the artifact names above, same INVARIANT:
+# each equals `Settings`' env alias for the field (`URL4_CLOUD_` + field name, uppercased).
+BLOB_STORE = "URL4_CLOUD_BLOB_STORE"
+"""filesystem" or "s3": the blob store's OWN backend, read by the App (upload/fetch) and the
+Runner (model-call reads) alike.
+
+Absent means "follow the artifact store" — blobs under the `blobs/` prefix of the artifact
+directory or bucket, the pre-review layout. The chart always renders it, so a deployment always
+gets a separate store; the follow mode remains for a bare local process."""
+
+BLOBS_DIR = "URL4_CLOUD_BLOBS_DIR"
+"""Directory of the filesystem blob store when :data:`BLOB_STORE` is "filesystem"."""
+
+DEFAULT_BLOBS_DIR = str(Path(tempfile.gettempdir()) / "screamingface-engine" / "blobs")
+"""Fallback for an unset :data:`BLOBS_DIR`: a sibling of :data:`DEFAULT_ARTIFACTS_DIR`, never
+inside it, so the two stores never share a directory tree."""
+
+BLOB_S3_ENDPOINT_URL = "URL4_CLOUD_BLOB_S3_ENDPOINT_URL"
+"""Base URL of the blob store's S3 endpoint — by default the chart's second bundled Garage."""
+
+BLOB_S3_BUCKET = "URL4_CLOUD_BLOB_S3_BUCKET"
+"""Bucket holding the run blobs."""
+
+BLOB_S3_REGION = "URL4_CLOUD_BLOB_S3_REGION"
+"""Signing region of the blob endpoint; defaults to :data:`DEFAULT_ARTIFACT_S3_REGION`."""
+
+BLOB_S3_ACCESS_KEY = "URL4_CLOUD_BLOB_S3_ACCESS_KEY"
+"""Access key id of the blob store. Travels by Secret, like :data:`ARTIFACT_S3_ACCESS_KEY`."""
+
+BLOB_S3_SECRET_KEY = "URL4_CLOUD_BLOB_S3_SECRET_KEY"
+"""Secret access key of the blob store. INVARIANT: Secret only — never a ConfigMap, never
+logged."""
+
 RESULT_INLINE_CAP_BYTES = "URL4_CLOUD_RESULT_INLINE_CAP_BYTES"
 """Largest result body (UTF-8 bytes) that rides the result frame inline; anything larger is
 spilled whole to :data:`ARTIFACTS_DIR`. Replaces the pre-OME-892 truncation cap."""
@@ -669,6 +704,13 @@ DEPLOY_TIME = frozenset(
         ARTIFACT_S3_REGION,
         ARTIFACT_S3_ACCESS_KEY,
         ARTIFACT_S3_SECRET_KEY,
+        BLOB_STORE,
+        BLOBS_DIR,
+        BLOB_S3_ENDPOINT_URL,
+        BLOB_S3_BUCKET,
+        BLOB_S3_REGION,
+        BLOB_S3_ACCESS_KEY,
+        BLOB_S3_SECRET_KEY,
     }
 )
 """Helm owns these end-to-end. The App writing one would make it two sources of truth again."""
@@ -693,7 +735,15 @@ __all__ = [
     "ARTIFACT_S3_SECRET_KEY",
     "ARTIFACT_SIGNING_KEY",
     "ARTIFACT_STORE",
+    "BLOBS_DIR",
+    "BLOB_S3_ACCESS_KEY",
+    "BLOB_S3_BUCKET",
+    "BLOB_S3_ENDPOINT_URL",
+    "BLOB_S3_REGION",
+    "BLOB_S3_SECRET_KEY",
+    "BLOB_STORE",
     "DEFAULT_ARTIFACT_S3_REGION",
+    "DEFAULT_BLOBS_DIR",
     "DEPLOY_TIME",
     "EXPRESSION",
     "EXTRA_MODELS",

@@ -81,7 +81,5 @@ async def test_engine_runs_sdk_judge_order_min_and_returns_the_lowest_member_tex
     assert system["role"] == "system"
     # WHY U+2028: url4 carries a newline of the intent text as a line separator; see
     # test_sdk_candidate_contracts.py.
-    assert system["content"].startswith(
-        "judge-template@1 returns=scores order=min You are a judge."
-    )
-    assert "A lower number means a better answer." in system["content"]
+    assert system["content"].startswith("judge-template@2 returns=scores You are a judge.")
+    assert "Score each member as the rubric says." in system["content"]

@@ -20,6 +20,7 @@ from pydantic import (
 )
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
+from .baseline_metadata import BaselineObservation, BaselineProvenance
 from .credit_metadata import (
     MAX_AUTHORS,
     AuthorEmail,
@@ -175,10 +176,12 @@ _METADATA_MAX_BYTES = 4096
 
 
 def _metadata_depth(value: object, current: int = 0) -> int:
-    if isinstance(value, dict):
-        return max((_metadata_depth(v, current + 1) for v in value.values()), default=current)
-    if isinstance(value, list):
-        return max((_metadata_depth(v, current + 1) for v in value), default=current)
+    # WHY: stop at the rejection boundary, never recurse through hostile input.
+    if current <= _METADATA_MAX_DEPTH:
+        if isinstance(value, dict):
+            return max((_metadata_depth(v, current + 1) for v in value.values()), default=current)
+        if isinstance(value, list):
+            return max((_metadata_depth(v, current + 1) for v in value), default=current)
     return current
 
 
@@ -190,10 +193,36 @@ def _validate_bounded_metadata(value: dict[str, Any] | None) -> dict[str, Any] |
     if value is None:
         return value
     if _metadata_depth(value) > _METADATA_MAX_DEPTH:
-        raise ValueError(f"metadata must not be nested past {_METADATA_MAX_DEPTH} levels deep")
+        raise PydanticCustomError(
+            "metadata_too_deep",
+            "metadata must not be nested past {max_depth} levels deep",
+            {"max_depth": _METADATA_MAX_DEPTH},
+        )
     if len(json.dumps(value)) > _METADATA_MAX_BYTES:
         raise ValueError(f"metadata must serialize to at most {_METADATA_MAX_BYTES} bytes")
+    # INVARIANT: imported evidence must round-trip through SQLite, PostgreSQL JSONB
+    # and the public UTF-8 response. Check keys and nested values before persistence.
+    validate_storable_json(value)
     return value
+
+
+def _expanded_metadata_size(value: dict[str, Any]) -> int:
+    # WHY: keep the existing ASCII-JSON budget and also account for JSONB's fixed
+    # decimal notation. This runs only after the shared depth/size check passes.
+    try:
+        size = len(json.dumps(value, allow_nan=False))
+    except ValueError as exc:
+        raise PydanticCustomError("metadata_non_finite", "metadata numbers must be finite") from exc
+    pending: list[Any] = [value]
+    while pending and size <= _METADATA_MAX_BYTES:
+        item = pending.pop()
+        if isinstance(item, dict):
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+        elif isinstance(item, float):
+            size += max(0, len(format(Decimal(str(item)), "f")) - len(json.dumps(item)))
+    return size
 
 
 def _publish_submitter(value: str | None) -> str | None:
@@ -700,6 +729,15 @@ class ScoreSubmission(BaseModel):
     answer_seed: AnswerSeed | None = None
     # FEATURE: OME-1307 / Q29 — the case digest. Needs `capture_status`, like the copy id.
     case_digest: CaseDigest | None = None
+
+    @field_validator("metadata")
+    @classmethod
+    def validate_bounded_metadata(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
+        _validate_bounded_metadata(value)
+        # INVARIANT: PostgreSQL expands exponent numbers when storing JSONB.
+        if value is not None and _expanded_metadata_size(value) > _METADATA_MAX_BYTES:
+            raise ValueError(f"metadata must expand to at most {_METADATA_MAX_BYTES} bytes")
+        return value
 
     @model_validator(mode="after")
     def validate_frozen_copy_id_has_a_capture_status(self) -> ScoreSubmission:
@@ -1439,7 +1477,7 @@ class LeaderboardStoreEntry(LeaderboardEntry):
     source_id: str = Field(exclude=True)
 
 
-class BaselineSchema(BaseModel):
+class BaselineSchema(BaselineObservation):
     """Read DTO for an imported single-model baseline ('line to beat')."""
 
     model_config = ConfigDict(extra="forbid")
@@ -1451,7 +1489,10 @@ class BaselineSchema(BaseModel):
     source: str
     source_url: str | None
     imported_at: datetime
+    last_imported_at: datetime | None = None
     metadata: dict[str, Any] | None
+    # WHY: computed from the current board scope and evidence, never accepted from import JSON.
+    ranking_eligible: bool = False
     # FEATURE: OME-323 — manual open/closed correction, mirrors ScoreSchema's field.
     openness_override: Literal["open", "closed"] | None = None
 
@@ -1517,7 +1558,7 @@ class FrontierResponse(FrontierResult):
     benchmark_id: str
 
 
-class BaselineImportRow(BaseModel):
+class BaselineImportRow(BaselineProvenance):
     """Input DTO for importing a single-model baseline score (e.g. from LMArena /
     Artificial Analysis). Re-importing the same (benchmark_id, model_name, source)
     updates the existing row rather than duplicating it (see BaselineStore).

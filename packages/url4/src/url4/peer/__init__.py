@@ -9,7 +9,8 @@ Owns
 - ``direct`` — ``dispatch_direct``, ``describe_routes``: the PUBLIC one-handler call a host
   uses for mount calls; it refuses the eval path (spec D1).
 - ``_dispatch`` / ``_http`` / ``_asgi`` / ``_owned`` — the dispatch order and
-  the framework-free ASGI adapter.
+  the framework-free ASGI adapter; ``_inprocess`` — the fast path that hands an in-process
+  endpoint call its context without the ``?q=`` round trip.
 
 May import: everything below it — ``url4.core``, ``url4.wire``, ``url4.dag``,
 ``url4.io``, ``url4.observe``.

@@ -104,3 +104,18 @@ from the innermost PyInstaller libraries outward so later bundle steps do not in
 - Studio currently uses the default runtime ports.
 - Provider credentials and downloaded benchmark assets remain user data and are never bundled.
 - Target-triple naming and additional platform validation remain release-pipeline work.
+
+
+## SDK analytics preferences
+
+When the sidecar bundles the default-on SDK, startup may enroll a new installation.
+The SDK notice goes to runtime logs; startup/import itself sends no analytics event.
+Saved opt-outs and DO_NOT_TRACK remain effective. Preferences are shared with Python
+in ~/.screamingface/analytics.json (or SCREAMINGFACE_ANALYTICS_CONFIG), independently
+of the runtime --data-dir. Use the SDK's `screamingface analytics status` and
+`screamingface analytics disable` commands, or set DO_NOT_TRACK=1 before launching
+Studio. The frozen runtime exposes the same `analytics` subcommand.
+
+Studio currently has no dedicated visible analytics notice or settings control.
+This is a known limitation, with no UI follow-up planned for now. The packaging
+verification script remains opted out regardless of the product default.

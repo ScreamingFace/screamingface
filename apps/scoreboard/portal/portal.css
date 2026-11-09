@@ -246,9 +246,6 @@ table .btn { white-space: nowrap; }
 /* The subtitle: one line naming what the board is. Quiet, constrained measure, snug to read, and
    pulled close under the title so the two read as one unit. */
 .hero-lead { max-width: 58ch; margin-top: var(--space-3); color: var(--ink-2); line-height: var(--leading-snug); }
-/* The three terms sit directly under the title as the key to reading any board; the button follows
-   close beneath them. */
-.hero-defs { margin-bottom: var(--space-6); }
 /* One monochrome, bold button — softer than a gold fill, still a clear call to start. */
 .hero-cta { margin-bottom: var(--space-11); }
 .benchmarks-section { margin-top: 0; scroll-margin-top: var(--space-8); }
@@ -267,6 +264,10 @@ table .btn { white-space: nowrap; }
 .landing .eyebrow { color: var(--gain-text-low); }
 .landing a:not([class]) { color: var(--info-text-low); }
 .landing a:not([class]):hover { color: var(--info-text-high); }
+/* Lead copy runs a notch smaller on the marketing pages (the hero subtitle). Scoped as a token
+   override on `.landing` — tokens.css is generated (never hand-edited), and this keeps the board,
+   spec and data leads at the brand default. */
+.landing { --text-lead: 18px; }
 
 /* ---- about page ------------------------------------------------------ */
 /* Sections under a gold .section-label, prose at a readable measure, with the Thesis "needs to"
@@ -280,6 +281,60 @@ table .btn { white-space: nowrap; }
 .about-bullets li:last-child { margin-bottom: 0; }
 .about-bullets li::marker { color: var(--ink-3); }
 .about-links { display: flex; flex-wrap: wrap; gap: var(--space-5); margin: var(--space-5) 0 0; }
+
+/* ---- evidence: intro prose under the subtitle ----------------------- */
+.about-evidence {
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-10);
+}
+.about-evidence__text p:last-child { margin-bottom: 0; }
+
+/* A rule the width of the text measure (shorter than full-width), the same length under the page
+   subtitle and under each section header. The section headers already carry the base h2
+   border-bottom — just constrain it to the text; the subtitle gets a matching rule at the top of
+   the evidence text. No second/duplicate line. */
+.about-section > .section-label { max-width: 37rem; }
+.about-evidence__text::before {
+  content: "";
+  display: block;
+  width: 100%;
+  max-width: 37rem;
+  margin: 0 0 var(--space-5);
+  border-top: var(--border-hairline) solid var(--line);
+}
+
+/* The About hero title fits one line on the roomy desktop column; it wraps on narrow screens. */
+.hero-title--oneline { font-size: clamp(var(--text-title), 3.4vw, 2rem); line-height: var(--leading-tight); }
+
+/* ---- landing frontier figure ----------------------------------------- */
+/* The hero's companion: a borderless schematic of the quality–cost frontier. The fusion frontier
+   (gold) sits above the single-model frontier (grey); the gold band between them is the accuracy
+   gained at every budget, with sample runs plotted as points. No box, no title — just the two
+   labelled axes (accuracy, cost). Inline currentColor SVG, so it needs no vendored asset. */
+.hero-title--index { font-size: clamp(1.6rem, 4vw, 2.4rem); }
+/* Footnote tying the frontier figure's `accuracy*` label to the illustrative disclaimer — the
+   same small mono as the subscribe fine print, set italic with a little breathing room. */
+.fine-print { font-family: var(--f-mono); font-size: var(--text-micro); font-style: italic; color: var(--ink-3); margin: var(--space-6) 0 0; }
+.frontier { margin: 0; width: 100%; border: 0; background: transparent; }
+.frontier svg { display: block; width: 100%; height: auto; }
+/* Academic / LaTeX-ish lettering: italic serif axis titles and series labels, small serif ticks.
+   (Overrides the base `figure svg text` mono rule for this figure only.) */
+.frontier svg text { font-family: 'Latin Modern Roman', Georgia, 'Times New Roman', serif; font-size: 11px; }
+.frontier svg .ax, .frontier svg .sl { font-style: italic; }
+.frontier svg .tk { font-size: 9px; fill: var(--ink-3); }
+
+/* Landing top band: hero + CTA share a compact row with the Colab cell; the Browse grid follows
+   right below so it clears the fold. Stacks on narrow screens. */
+.la-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 23rem;
+  gap: var(--space-8);
+  align-items: center;
+  margin: var(--space-5) 0 var(--space-4);
+}
+.la-top .hero { padding-top: 0; margin: 0; }
+.la-top .hero-cta { margin-top: var(--space-7); }
+@media (max-width: 760px) { .la-top { grid-template-columns: 1fr; } }
 
 /* The catalogue is led by ONE small, subtle label — the same treatment as the hero eyebrow
    ("SCREAMINGFACE · OPEN LEADERBOARD"), not a big heading. It stays a semantic <h2> for
@@ -438,9 +493,6 @@ html { scroll-padding-top: calc(var(--rail-h) + var(--space-4)); }
    Everything else the landing page needs (.kv, .note, .o-mark, .btn, .eyebrow)
    comes from style.css. `.defs` carries no rule by design; it is a hook. */
 
-/* The glossary's first key. Green because green means verified in this system
-   and gold is reserved for the win. */
-.kv .dt-repro { color: var(--success-text-low); }
 
 /* The rail's last link, so nothing sits under the theme glyph. */
 .rail .rail-link--end { margin-right: var(--space-7); }
@@ -626,3 +678,24 @@ td.col-open { white-space: nowrap; }
    pinning" above), so positioning the toggle against the rail keeps the same offset inside
    the rail at every scroll position, on desktop and on the wrapped mobile rail. */
 .rail .toggle { position: absolute; }
+
+/* Catalog controls retain the portal's typography, borders and keyboard focus. */
+.catalog-controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-4); margin-bottom: var(--space-5); }
+.catalog-controls[hidden], .catalog-controls [hidden] { display: none; }
+.catalog-search { flex: 1 1 16rem; }
+.catalog-search label { display: block; margin-bottom: var(--space-2); }
+.catalog-search input { box-sizing: border-box; width: 100%; padding: var(--space-3); font: inherit; color: var(--ink); background: var(--bg); border: var(--border-hairline) solid var(--line); border-radius: 0; }
+.catalog-search input:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
+.catalog-scored { display: flex; align-items: center; gap: var(--space-2); padding-block: var(--space-3); }
+.catalog-count { flex-basis: 100%; margin: 0; }
+
+/* WHY: imported rows use the ordinary grid with neutral text, never a win highlight. */
+.external-result td { color: var(--ink-2); }
+.external-result .score-fill { background: var(--ink-2); }
+.external-result__source { color: var(--ink-2); text-decoration: underline; white-space: nowrap; }
+.external-result__source:hover { color: var(--ink); }
+.external-result__source:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
+.external-result__comparison { margin-top: var(--space-1); }
+.external-result__comparison summary { cursor: pointer; }
+.external-result__comparison summary:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
+.external-result__comparison p { margin: var(--space-1) 0 0; }

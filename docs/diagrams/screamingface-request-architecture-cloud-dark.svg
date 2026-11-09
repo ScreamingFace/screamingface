@@ -1,16 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 515" width="1240" height="515" font-family="IBM Plex Mono, Menlo, monospace">
-<title>ScreamingFace request architecture — subsidized cloud</title>
+<title>ScreamingFace request architecture, subsidized cloud</title>
 <defs>
 <marker id="arw" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#9aa0aa"/></marker>
 </defs>
 <rect width="1240" height="515" fill="#0a0b0d"/>
 <text x="40" y="46" font-size="17" fill="#e8eaed" font-weight="600">ScreamingFace · request architecture</text>
-<text x="40" y="70" font-size="11" fill="#686e78" letter-spacing="0.06em">SUBSIDIZED CLOUD · OPENMINED RUNS THE ENGINE · YOU JUST COMPOSE</text>
+<text x="40" y="70" font-size="11" fill="#686e78" letter-spacing="0.06em">HOSTED · THE OPENMINED TEAM RUNS THE ENGINE</text>
 <rect x="326" y="120" width="892" height="305" fill="none" stroke="#2c303a" stroke-width="1.4" stroke-dasharray="6 5"/>
 <text x="338" y="112" font-size="11" fill="#686e78" letter-spacing="0.1em">OPENMINED CLOUD · SUBSIDIZED COMPUTE + TOKENS</text>
 <rect x="40" y="150" width="228" height="122" fill="#131519" stroke="#2c303a" stroke-width="1"/>
 <text x="154.0" y="140" font-size="11" fill="#686e78" text-anchor="middle" letter-spacing="0.1em">ON YOUR MACHINE</text>
-<text x="154.0" y="180" font-size="12" fill="#e8eaed" text-anchor="middle" font-weight="600" letter-spacing="0.08em">RESEARCHER CLIENT</text>
+<text x="154.0" y="180" font-size="12" fill="#e8eaed" text-anchor="middle" font-weight="600" letter-spacing="0.08em">SCREAMINGFACE CLIENT</text>
 <text x="154.0" y="200" font-size="10.5" fill="#686e78" text-anchor="middle">notebook / Python SDK</text>
 <text x="154.0" y="224" font-size="10.5" fill="#9aa0aa" text-anchor="middle">composes an ensemble,</text>
 <text x="154.0" y="241" font-size="10.5" fill="#9aa0aa" text-anchor="middle">reads the report back</text>
@@ -52,5 +52,5 @@
 <line x1="160" y1="470" x2="190" y2="470" stroke="#9aa0aa" stroke-width="1.4" stroke-dasharray="5 4"/>
 <text x="198" y="474" font-size="10" fill="#686e78">response</text>
 <rect x="288" y="464" width="10" height="12" fill="#e0a23c"/>
-<text x="304" y="474" font-size="10" fill="#686e78">the engine — what we build · subsidized compute, funded by OpenMined · no keys of your own needed</text>
+<text x="304" y="474" font-size="10" fill="#686e78">the ScreamingFace Engine · subsidized compute · no keys of your own needed</text>
 </svg>

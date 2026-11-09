@@ -1,9 +1,9 @@
 ---
 ticket: OME-1762
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-10-30
-finished:
+finished: 2026-11-03
 ---
 
 # Close benchmark search with Escape from results
@@ -64,3 +64,8 @@ safety rules are untouched.
 Resolve the test-command merge conflict with OME-1761 by registering the keyboard suite as a separate explicit command/CI step. Preserve both suites without stacking PRs or changing picker behavior. Verify the combined tree and local scoreboard gates.
 
 Authorized by Filip: “please fix the issues you feel are real ones”. Run regression tests and full scoreboard gates before committing. Outcome: All scoreboard gates green, including all ten keyboard regressions. The keyboard suite now has a separate explicit command in local gates and CI, away from the shared search-test list. No application or test assertion changes in this follow-up.
+
+## Closure — 2026-11-05
+
+Merged [PR #1621](https://github.com/ScreamingFace/screamingface/pull/1621) on 2026-11-03 as
+`ffdc7e93f8f17e7622db0148c51982eca1e6a720`. Linear is Done.

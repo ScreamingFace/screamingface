@@ -35,10 +35,14 @@ from screamingface_engine.client_provenance import (
 from screamingface_engine.evidence_retention import subject_retained
 from screamingface_engine.logs import run_scope
 from screamingface_engine.observations import ObserverFactory
+from screamingface_engine.process_memory import log_process_memory
 from screamingface_engine.request_scope import RequestScope
 from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
-from screamingface_engine.runner.operation_capture import OperationCapturingExecutor
+from screamingface_engine.runner.operation_capture import (
+    OperationCapturingExecutor,
+    new_case_result_store,
+)
 from screamingface_engine.runner.summary import RunSummary
 from screamingface_engine.subjects import RUN_ROOT_NODE
 from screamingface_engine.tracing.loader import load_span_sink
@@ -504,6 +508,8 @@ def build_executor(
         ),
         observers=observers,
         media_writer=artifact_store,
+        # WHY local and not the artifact store: see `benchmarks.case_result_store`.
+        case_results=new_case_result_store,
     )
 
 
@@ -621,6 +627,9 @@ async def _run_and_log(
     """
 
     started = time.monotonic()
+    # FEATURE (memory diagnostics, OME-1314): the process baseline before any work, and what it
+    # holds at the end — inside `run_scope`, so both lines carry the run's topic and trace id.
+    log_process_memory("run_start")
     try:
         await run(
             publisher,
@@ -633,6 +642,7 @@ async def _run_and_log(
         )
     finally:
         _log_terminal(executor, params.topic, started)
+        log_process_memory("run_end")
 
 
 @dataclass(frozen=True)

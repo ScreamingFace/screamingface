@@ -3,19 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>screamingface — leaderboard</title>
+  <title>screamingface · leaderboard</title>
   <meta name="description" content="A screamingface benchmark leaderboard with scores, question counts, providers, and local rerun links.">
   <!-- Link previews (Slack, X, LinkedIn, iMessage): crawlers need absolute URLs. -->
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="ScreamingFace">
-  <meta property="og:title" content="screamingface — leaderboard">
+  <meta property="og:title" content="screamingface · leaderboard">
   <meta property="og:description" content="A screamingface benchmark leaderboard with scores, question counts, providers, and local rerun links.">
   <meta property="og:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="The ScreamingFace mark above the wordmark ScreamingFace.ai, on black.">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="screamingface — leaderboard">
+  <meta name="twitter:title" content="screamingface · leaderboard">
   <meta name="twitter:description" content="A screamingface benchmark leaderboard with scores, question counts, providers, and local rerun links.">
   <meta name="twitter:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
@@ -60,7 +60,7 @@
 
     <div id="leaderboard-summary" class="stats stats--two" aria-label="Leaderboard summary" hidden>
       <div class="s"><span class="k">Best score</span><div class="v gain" id="summary-best">—</div></div>
-      <div class="s"><span class="k">Submissions shown</span><div class="v" id="summary-specs">—</div></div>
+      <div class="s"><span class="k">Results shown</span><div class="v" id="summary-specs">—</div></div>
       <div class="s" id="summary-frontier-card" hidden><span class="k">Open frontier share</span><div class="v" id="summary-frontier">—</div></div>
     </div>
 
@@ -104,7 +104,7 @@
         <span class="pareto-mark" aria-hidden="true"></span>
         <span>on the Pareto frontier: no submission has an equal-or-higher score at an equal-or-lower cost, with one strict improvement</span>
       </span>
-      <span class="legend-item">gold row = highest score</span>
+      <span id="legend-highest" class="legend-item">gold row = highest score</span>
     </p>
 
     <!-- The Cost column pushes this table's min-content past the container at intermediate
@@ -142,6 +142,7 @@
   <script src="leaderboard-logic.js" defer></script>
   <script src="pareto-chart.js" defer></script>
   <script src="main.js" defer></script>
+  <script src="external-results.js" defer></script>
   <script src="benchmark.js" defer></script>
   <script src="subscribe.js" defer></script>
   <script src="theme.js" defer></script>

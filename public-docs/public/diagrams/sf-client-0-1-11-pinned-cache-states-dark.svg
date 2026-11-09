@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 24 1000 282" width="1000" height="282" font-family="Helvetica Neue, Arial, sans-serif">
+<title>A pinned cache moves Opening, Open, Sealing, Sealed; capture_status is 'complete' only when every result stored and the gateway confirmed the seal, otherwise 'partial'.</title>
+<defs>
+<marker id="a-mid" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#7a808a"/></marker>
+<marker id="a-ok" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#4faa68"/></marker>
+<marker id="a-bad" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d9735c"/></marker>
+</defs>
+<rect width="1000" height="310" fill="#0c0f13"/>
+
+<!-- success spine -->
+<rect x="36" y="44" width="152" height="72" rx="10" fill="#15181c" stroke="#3a3e45" stroke-width="1.4"/>
+<text x="112" y="78" font-size="14" fill="#e0e5eb" text-anchor="middle" font-weight="500">Opening</text>
+<text x="112" y="98" font-size="11" fill="#c8ccd2" text-anchor="middle">the run starts</text>
+
+<rect x="228" y="44" width="152" height="72" rx="10" fill="#15181c" stroke="#3a3e45" stroke-width="1.4"/>
+<text x="304" y="74" font-size="14" fill="#e0e5eb" text-anchor="middle" font-weight="500">Open</text>
+<text x="304" y="92" font-size="11" fill="#c8ccd2" text-anchor="middle">stores each answer</text>
+<text x="304" y="107" font-size="11" fill="#c8ccd2" text-anchor="middle">and web-tool result</text>
+
+<rect x="420" y="44" width="152" height="72" rx="10" fill="#15181c" stroke="#3a3e45" stroke-width="1.4"/>
+<text x="496" y="78" font-size="14" fill="#e0e5eb" text-anchor="middle" font-weight="500">Sealing</text>
+<text x="496" y="98" font-size="11" fill="#c8ccd2" text-anchor="middle">the run ends</text>
+
+<rect x="612" y="44" width="172" height="72" rx="10" fill="#11231a" stroke="#4faa68" stroke-width="1.4"/>
+<text x="698" y="78" font-size="14" fill="#7cdf8c" text-anchor="middle" font-weight="500">Sealed</text>
+<text x="698" y="98" font-size="11" fill="#5aa16f" text-anchor="middle">the gateway confirmed it</text>
+
+<rect x="824" y="44" width="150" height="72" rx="10" fill="#11231a" stroke="#4faa68" stroke-width="1.4"/>
+<text x="899" y="74" font-size="13" fill="#7cdf8c" text-anchor="middle" font-weight="500">capture_status</text>
+<text x="899" y="94" font-size="12" fill="#7cdf8c" text-anchor="middle">'complete'</text>
+
+<line x1="188" y1="80" x2="224" y2="80" stroke="#7a808a" stroke-width="1.8" marker-end="url(#a-mid)"/>
+<line x1="380" y1="80" x2="416" y2="80" stroke="#7a808a" stroke-width="1.8" marker-end="url(#a-mid)"/>
+<line x1="572" y1="80" x2="608" y2="80" stroke="#4faa68" stroke-width="1.8" marker-end="url(#a-ok)"/>
+<line x1="784" y1="80" x2="820" y2="80" stroke="#4faa68" stroke-width="1.8" marker-end="url(#a-ok)"/>
+
+<!-- partial outcome -->
+<rect x="36" y="214" width="200" height="72" rx="10" fill="#15181c" stroke="#d9735c" stroke-width="1.4"/>
+<text x="136" y="248" font-size="13" fill="#e0e5eb" text-anchor="middle" font-weight="500">capture_status</text>
+<text x="136" y="268" font-size="12" fill="#e0e5eb" text-anchor="middle">'partial'</text>
+<path d="M430 116 V170 H136 V214" fill="none" stroke="#d9735c" stroke-width="1.8" stroke-dasharray="6 4" marker-end="url(#a-bad)"/>
+<text x="300" y="162" font-size="11.5" fill="#d9735c" text-anchor="middle">any of these</text>
+
+<text x="272" y="222" font-size="12" fill="#c8ccd2">A capture is partial when:</text>
+<text x="286" y="244" font-size="11.5" fill="#c8ccd2">· the copy did not open</text>
+<text x="286" y="262" font-size="11.5" fill="#c8ccd2">· a result is Failed, Refused, Missing, Error or Ambiguous</text>
+<text x="286" y="280" font-size="11.5" fill="#c8ccd2">· the seal was not confirmed (a cancelled run is never sealed), or it ran on the local runtime</text>
+</svg>

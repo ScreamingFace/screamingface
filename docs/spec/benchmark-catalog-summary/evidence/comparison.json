@@ -1,0 +1,309 @@
+{
+  "profiles": {
+    "local": "Loopback browser + actual PostgreSQL app",
+    "rtt150": "150ms added per API request, both variants",
+    "traceReplay": "Old requests padded to recorded live durations; summary assumes catalog delay plus actual work"
+  },
+  "results": [
+    {
+      "profile": "local",
+      "variant": "baseline",
+      "run": 0,
+      "cardsMs": 239,
+      "apiToCardsMs": 188,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "local",
+      "variant": "baseline",
+      "run": 1,
+      "cardsMs": 142,
+      "apiToCardsMs": 127,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "local",
+      "variant": "baseline",
+      "run": 2,
+      "cardsMs": 143,
+      "apiToCardsMs": 126,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "local",
+      "variant": "baseline",
+      "run": 3,
+      "cardsMs": 142,
+      "apiToCardsMs": 124,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "local",
+      "variant": "baseline",
+      "run": 4,
+      "cardsMs": 137,
+      "apiToCardsMs": 123,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "local",
+      "variant": "summary",
+      "run": 0,
+      "cardsMs": 50,
+      "apiToCardsMs": 19,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "local",
+      "variant": "summary",
+      "run": 1,
+      "cardsMs": 26,
+      "apiToCardsMs": 12,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "local",
+      "variant": "summary",
+      "run": 2,
+      "cardsMs": 25,
+      "apiToCardsMs": 8,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "local",
+      "variant": "summary",
+      "run": 3,
+      "cardsMs": 26,
+      "apiToCardsMs": 9,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "local",
+      "variant": "summary",
+      "run": 4,
+      "cardsMs": 25,
+      "apiToCardsMs": 11,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "rtt150",
+      "variant": "baseline",
+      "run": 0,
+      "cardsMs": 456,
+      "apiToCardsMs": 438,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "rtt150",
+      "variant": "baseline",
+      "run": 1,
+      "cardsMs": 454,
+      "apiToCardsMs": 432,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "rtt150",
+      "variant": "baseline",
+      "run": 2,
+      "cardsMs": 453,
+      "apiToCardsMs": 439,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "rtt150",
+      "variant": "baseline",
+      "run": 3,
+      "cardsMs": 461,
+      "apiToCardsMs": 444,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "rtt150",
+      "variant": "baseline",
+      "run": 4,
+      "cardsMs": 471,
+      "apiToCardsMs": 449,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "rtt150",
+      "variant": "summary",
+      "run": 0,
+      "cardsMs": 222,
+      "apiToCardsMs": 169,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "rtt150",
+      "variant": "summary",
+      "run": 1,
+      "cardsMs": 179,
+      "apiToCardsMs": 160,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "rtt150",
+      "variant": "summary",
+      "run": 2,
+      "cardsMs": 177,
+      "apiToCardsMs": 159,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "rtt150",
+      "variant": "summary",
+      "run": 3,
+      "cardsMs": 194,
+      "apiToCardsMs": 164,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "rtt150",
+      "variant": "summary",
+      "run": 4,
+      "cardsMs": 197,
+      "apiToCardsMs": 162,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "trace-replay",
+      "variant": "baseline",
+      "run": 0,
+      "cardsMs": 1847,
+      "apiToCardsMs": 1821,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "trace-replay",
+      "variant": "baseline",
+      "run": 1,
+      "cardsMs": 1857,
+      "apiToCardsMs": 1825,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "trace-replay",
+      "variant": "baseline",
+      "run": 2,
+      "cardsMs": 1868,
+      "apiToCardsMs": 1827,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "trace-replay",
+      "variant": "baseline",
+      "run": 3,
+      "cardsMs": 1856,
+      "apiToCardsMs": 1832,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "trace-replay",
+      "variant": "baseline",
+      "run": 4,
+      "cardsMs": 1850,
+      "apiToCardsMs": 1833,
+      "requests": 87,
+      "decodedBytes": 452717,
+      "visible": 9
+    },
+    {
+      "profile": "trace-replay",
+      "variant": "summary",
+      "run": 0,
+      "cardsMs": 333,
+      "apiToCardsMs": 311,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "trace-replay",
+      "variant": "summary",
+      "run": 1,
+      "cardsMs": 326,
+      "apiToCardsMs": 307,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "trace-replay",
+      "variant": "summary",
+      "run": 2,
+      "cardsMs": 332,
+      "apiToCardsMs": 306,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "trace-replay",
+      "variant": "summary",
+      "run": 3,
+      "cardsMs": 335,
+      "apiToCardsMs": 309,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    },
+    {
+      "profile": "trace-replay",
+      "variant": "summary",
+      "run": 4,
+      "cardsMs": 328,
+      "apiToCardsMs": 303,
+      "requests": 1,
+      "decodedBytes": 78453,
+      "visible": 9
+    }
+  ]
+}
