@@ -51,7 +51,7 @@ from screamingface_engine.request_scope import (
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
-from screamingface_engine.rest.runs import PRIVATE_HEADERS_DOC, bind_start
+from screamingface_engine.rest.runs import PRIVATE_HEADERS_DOC, StartBinding, bind_start
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from screamingface_engine.rest.sessions import RunSessions
 from screamingface_engine.rest.stopping import QUEUE_UNAVAILABLE_RETRY_AFTER_S, stop_topic
@@ -292,9 +292,9 @@ async def _refuse_existing(deps: _Deps, topic: str) -> None:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists")
 
 
-async def _claim_topic(deps: _Deps, request: Request, topic: str) -> Callable[[], Awaitable[None]]:
+async def _claim_topic(deps: _Deps, request: Request, topic: str) -> StartBinding:
     """Refuse a topic already used, then bind it to its Run's Candidate before anything is
-    scheduled (OME-1785, E5 P1 spec R2). Returns the bound start's step after scheduling."""
+    scheduled (OME-1785, E5 P1 spec R2)."""
     await _refuse_existing(deps, topic)
     return await bind_start(request, topic)
 
@@ -356,6 +356,7 @@ async def _schedule(
     deadline_s: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    enqueued_at: datetime | None = None,
 ) -> None:
     """Schedule the run on the job runner; raise 409 if the runner reports it already exists.
 
@@ -387,6 +388,7 @@ async def _schedule(
             shape=shape,
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
+            enqueued_at=enqueued_at,
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
@@ -904,7 +906,7 @@ async def start_run(
             if len(request.headers.getlist("User-Agent")) == 1
             else None
         )
-        on_scheduled = await _claim_topic(deps, request, topic)
+        binding = await _claim_topic(deps, request, topic)
 
         async def schedule() -> None:
             await _schedule(
@@ -920,12 +922,13 @@ async def start_run(
                 client_version=client_version,
                 capture=capture,
                 replay_frozen_copy=replay_frozen_copy,
+                enqueued_at=binding.bound_at,
             )
             # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
             # hold is not accept latency, and counting it would hide the queue-wait gap. So it
             # also ends before a bound start's registry write.
             _enqueued(accept)
-            await on_scheduled()
+            await binding.on_scheduled()
 
         if pref.respond_async:
             await schedule()

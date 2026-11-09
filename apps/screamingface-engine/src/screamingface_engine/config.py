@@ -523,14 +523,15 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _tombstone_outlasts_a_runnable_message(self) -> Self:
         """INVARIANT (E5 P1 spec D12): a cancel's tombstone is the only thing that keeps a queued
-        run from executing, so the events stream must keep it while the queue can still hand
-        the message to a worker: until the run's deadline, or the queue's own retention."""
-        runnable = min(self.job_deadline_s, self.run_queue_max_age_s)
-        if self.events_max_age_s <= runnable:
+        run from executing, so the events stream must keep it until the run's deadline. A bound
+        run's deadline counts from its bind, which precedes any cancel of it, so the deadline
+        alone is the bound. WHY not the queue's retention: it counts from the publish, which can
+        come after the tombstone."""
+        if self.events_max_age_s <= self.job_deadline_s:
             raise ValueError(
-                f"events_max_age_s={self.events_max_age_s} must exceed how long a queued run "
-                f"can still start ({runnable} s), or a canceled run can execute after its "
-                f"tombstone expires"
+                f"events_max_age_s={self.events_max_age_s} must exceed job_deadline_s "
+                f"({self.job_deadline_s} s), or a canceled run can execute after its tombstone "
+                f"expires"
             )
         return self
 

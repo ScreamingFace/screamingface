@@ -217,7 +217,9 @@ class _Clock:
 
 
 class _Queue:
-    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None, enqueued_at: Any = None
+    ) -> None:
         pass
 
     async def depth(self) -> int:

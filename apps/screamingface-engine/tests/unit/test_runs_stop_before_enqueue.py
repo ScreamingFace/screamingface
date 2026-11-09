@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -23,6 +24,7 @@ from run_registry_support import (
     postgres_server,  # noqa: F401  (a fixture the Postgres parameter requests)
 )
 from test_queue_runner_cancel import (
+    CAPABILITY_LIFETIME_S,
     _FakeControl,
     _FakeMsg,
     _FakePublisher,
@@ -267,10 +269,10 @@ async def test_a_stop_during_the_publish_holds_no_slot() -> None:
     queue: Any = runner._queue
     publish = queue.publish
 
-    async def _paused_publish(message: bytes, *, identity: Any = None) -> None:
+    async def _paused_publish(message: bytes, **kwargs: Any) -> None:
         paused.set()
         await resume.wait()
-        await publish(message, identity=identity)
+        await publish(message, **kwargs)
 
     queue.publish = _paused_publish
     await _stop_while_paused(runner, paused, resume)
@@ -306,3 +308,53 @@ async def test_one_stop_releases_every_racing_schedule_of_its_topic() -> None:
 
     assert runner._queue.published == []  # type: ignore[attr-defined]
     assert runner._in_flight_by_caller == {}
+
+
+async def test_a_schedule_paused_past_the_marker_lifetime_still_queues_nothing() -> None:
+    """WHY: pruning by age alone would drop the marker while this schedule still needs it."""
+    runner = _runner(_FakePublisher(), _FakeControl(reply=False))
+    paused, resume = asyncio.Event(), asyncio.Event()
+    admit = runner._admit_or_raise
+
+    async def _paused_admit(identity: Any, topic: str) -> Any:
+        reservation = await admit(identity, topic)
+        if topic == "t":
+            paused.set()
+            await resume.wait()
+        return reservation
+
+    runner._admit_or_raise = _paused_admit  # type: ignore[method-assign]
+    schedule = asyncio.create_task(runner.schedule("t", "'hi'", 60, identity=_ALICE_IDENTITY))
+    await asyncio.wait_for(paused.wait(), timeout=5)
+    await runner.stop_bound("t")
+    runner._clock.now += timedelta(seconds=CAPABILITY_LIFETIME_S + 1)  # type: ignore[attr-defined]
+    await runner.schedule("other", "'hi'", 60)  # its admission prunes
+    resume.set()
+    await asyncio.wait_for(schedule, timeout=5)
+
+    assert len(runner._queue.published) == 1  # type: ignore[attr-defined]  # only "other"
+    assert all("t" not in topics for topics in runner._in_flight_by_caller.values())
+
+
+class _RecordsDeadlineStart(RecordingJobRunner):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started: list[tuple[datetime | None, datetime]] = []
+
+    async def schedule(self, *args: Any, enqueued_at: datetime | None = None, **kw: Any) -> str:
+        self.started.append((enqueued_at, datetime.now(UTC)))
+        return await super().schedule(*args, **kw)
+
+
+async def test_a_bound_runs_deadline_counts_from_its_bind(registry: Registry) -> None:
+    """WHY: a cancel's tombstone is written only after the bind, so a deadline counted from the
+    later publish could outlast it."""
+    runner = _RecordsDeadlineStart()
+    engine = _Engine(registry, runner=runner)
+    run_id = (await engine.create(candidates=["a"])).json()["id"]
+    before_bind = datetime.now(UTC)
+
+    assert (await engine.start("topic-a", run_id)).status_code == 202
+
+    ((enqueued_at, scheduled_at),) = runner.started
+    assert enqueued_at is not None and before_bind <= enqueued_at <= scheduled_at

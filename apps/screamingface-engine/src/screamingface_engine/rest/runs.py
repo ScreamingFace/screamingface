@@ -14,9 +14,9 @@ import asyncio
 import functools
 import logging
 from collections.abc import Awaitable, Callable, Coroutine
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Annotated, Any
+from typing import Annotated, Any, NamedTuple
 
 from fastapi import APIRouter, Depends, Request, Response
 from fastapi.exceptions import RequestValidationError
@@ -534,20 +534,32 @@ def _start_binding(request: Request) -> tuple[RunRegistry, str, int] | None:
     return registry, run_id, int(raw)
 
 
-async def bind_start(request: Request, topic: str) -> Callable[[], Awaitable[None]]:
+class StartBinding(NamedTuple):
+    """What a start learns from binding its topic."""
+
+    # The step the start runs once scheduled: `confirm_scheduled`, or a no-op when unbound.
+    on_scheduled: Callable[[], Awaitable[None]]
+    # When the bind began, for a bound start: its run's deadline counts from here (D12).
+    bound_at: datetime | None = None
+
+
+async def bind_start(request: Request, topic: str) -> StartBinding:
     """Bind the start's topic to its Run's Candidate, before anything is scheduled.
 
-    Returns the step the start runs once scheduled: `confirm_scheduled`, or a no-op for an
-    unbound start. A start without `X-SF-Run` is unchanged. A bind that fails on the database is
-    logged and the start proceeds unbound (spec §8): history never blocks an evaluation.
+    Returns the step the start runs once scheduled and, for a bound start, when the bind began.
+    WHY the bind moment: a cancel can tombstone the topic only after the bind, so a deadline
+    counted from it ends before the tombstone expires (E5 P1 spec D12). A start without
+    `X-SF-Run` is unchanged. A bind that fails on the database is logged and the start proceeds
+    unbound (spec §8): history never blocks an evaluation.
     """
     binding = _start_binding(request)
     if binding is None:
-        return _unbound
+        return StartBinding(_unbound)
     registry, run_id, candidate = binding
     owner = _caller(request)
     if owner is None or not RUN_ID_PATTERN.fullmatch(run_id):
         raise _not_found(run_id)
+    bound_at = datetime.now(UTC)
     try:
         async with asyncio.timeout(_START_WRITE_TIMEOUT_S):
             await registry.bind(owner, run_id, candidate, topic)
@@ -557,8 +569,8 @@ async def bind_start(request: Request, topic: str) -> Callable[[], Awaitable[Non
         raise _problem(status=status, title=title, detail=detail, code=code) from exc
     except Exception:
         _logger.warning("run bind failed topic=%s; starting unbound", topic, exc_info=True)
-        return _unbound
-    return functools.partial(confirm_scheduled, request, topic)
+        return StartBinding(_unbound)
+    return StartBinding(functools.partial(confirm_scheduled, request, topic), bound_at)
 
 
 async def _unbound() -> None:

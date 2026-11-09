@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from abc import abstractmethod
 from collections.abc import Mapping
+from datetime import datetime
 
 from screamingface_engine.job_env import RunShape
 from url4.streaming.interfaces import JobRunner
@@ -58,6 +59,11 @@ class IdentityAwareJobRunner(JobRunner):
     ``capture`` and ``replay_frozen_copy`` (OME-1307) are the run's frozen-copy mode: capture a new
     copy, or replay the copy with that id. Both default to a normal run, are never both set, and
     are per RUN for the same reason; they ride the same path as ``answer_seed``.
+
+    ``enqueued_at`` (E5 P1 spec D12) is when the run's deadline starts; ``None`` means when it is
+    queued. A bound start passes its bind moment, which precedes any cancel of it, so the cancel's
+    tombstone outlives every moment the run could still start. A substrate that starts the run at
+    once has no queue wait and ignores it.
     """
 
     @abstractmethod
@@ -76,6 +82,7 @@ class IdentityAwareJobRunner(JobRunner):
         shape: RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        enqueued_at: datetime | None = None,
     ) -> str: ...
 
     async def stop_bound(self, topic: str) -> None:

@@ -23,6 +23,7 @@ and `aclose()` returns only after every flush has finished.
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from datetime import datetime
 from decimal import Decimal
 from functools import partial
 from typing import cast
@@ -342,6 +343,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         shape: job_env.RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        enqueued_at: datetime | None = None,
     ) -> str:
         """Spawn the run as a task and return its job name.
 

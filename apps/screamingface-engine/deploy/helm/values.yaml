@@ -192,9 +192,8 @@ events:
   # rollover because a purge always keeps the last message.
   maxMsgsPerSubject: 20000
   # Storage backstop: a subject nobody ever purges (a crashed runner, EV-D13) still clears
-  # itself after 24h — no sweep is needed. It must exceed how long a queued run can still start
-  # (the 16 h job deadline, or the run queue's retention if shorter): a cancel's tombstone lives
-  # here, and the App and runners refuse to start with a shorter value.
+  # itself after 24h — no sweep is needed. It must exceed the 16 h job deadline: a cancel's
+  # tombstone lives here, and the App and runners refuse to start with a shorter value.
   maxAgeS: 86400
   # 1 on purpose, also where NATS runs as a 3-node cluster (owner decision, 2026-09-26: no
   # replicated events store yet). The bundled SINGLE-NODE subchart refuses `replicas > 1`
