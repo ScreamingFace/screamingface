@@ -103,4 +103,4 @@ E8, routes and binding:
     needed the bind-time deadline, the stop markers and the start attempt.
   - A local Engine refuses a non-SQLite `URL4_CLOUD_DATABASE_URL` (spec D5).
   - Deferred: a JetStream publish whose outcome is unknown (stored, then a timeout) is treated as
-    failed. It predates this PR; tracked in its own issue.
+    failed. It predates this PR; tracked in OME-1859.
