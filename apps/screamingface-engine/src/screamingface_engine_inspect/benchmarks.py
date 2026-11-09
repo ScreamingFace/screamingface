@@ -7602,9 +7602,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "NMR or mass spectrum, a table or plot from a US patent, a photo of a lab bench "
             "or of glassware. 34 subsets in three groups (data extraction, lab and in-silico "
             "experiments, data interpretation), imported from inspect_evals. Most questions "
-            "are multiple choice, often with several correct options the model must list "
-            "together (for example A,C); the rest ask for a number. The Candidate is shown "
-            "the eval's instruction, the question with its picture where the dataset places "
+            "are multiple choice, a few (19 of 779) with several correct options the model "
+            "must list together (for example A,C); the rest ask for a number. The Candidate "
+            "is shown the eval's instruction, the question with its picture where the dataset "
+            "places "
             "it, the options lettered in the dataset's order, and the eval's request for the "
             "answer inside [ANSWER]...[/ANSWER] tags; the pictures are saved inside the Case "
             "at import and nothing is fetched at run time. A multiple-choice answer is right "
@@ -7672,11 +7673,13 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         # Frontier score: the paper (v2, 2025-02) reports per-task averages and no whole-set
         # number; the Hugging Face leaderboard space was asleep when checked (2026-11-09).
-        # inspect_evals' own README puts gpt-5.2 at 0.726 over all 1,153, but under v0.20.0's
-        # letters-as-text grading, so not this Benchmark's rule.
+        # inspect_evals' README reports gpt-5.2 at 0.7259 over all 1,153 as a parity check
+        # against the authors' own codebase (same figure to four digits), not a published
+        # board, so it is cited here as a reference point and not as the frontier score.
         frontier_score=NotPublished(
             reason="the paper reports per-task averages only and the leaderboard space is "
-            "asleep; inspect_evals' own gpt-5.2 run (0.726) grades letters as text",
+            "asleep; inspect_evals' README gives gpt-5.2 0.7259 over all 1,153 as a parity "
+            "check against the authors' codebase, not a published board",
         ),
         notebook="12_inspect_evals_benchmarks",
         inspect_evals_case_count=1153,
