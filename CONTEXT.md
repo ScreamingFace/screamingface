@@ -402,5 +402,6 @@ bounds sum to at most half a percentage point), **comparable-to-inspect** (ours 
 inspect_evals, which itself differs from the paper beyond that), **not-comparable** (reproducible
 but a different number: an unbounded deviation, or grading the paper ran through a vendor, a
 human or a different judge model), or **unverified** (a dimension could not be checked, or a judge
-question waits on a paid run). A verdict never claims more than the evidence in its record.
+question waits on a paid run, while the differences measured so far still fit within tolerance;
+once they exceed it the verdict is not-comparable, whatever is still open). A verdict never claims more than the evidence in its record.
 _Avoid_: Fidelity score, parity status, verified (that word is the opposite of `unverified`, not a verdict)

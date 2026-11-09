@@ -155,7 +155,9 @@ Fixed section order, so two records compare side by side:
 | `comparable-to-paper` | our headline number can sit beside the paper's | every dimension is `match` or `not applicable`, or a `deviation` whose severity is `cosmetic` or `score-changing` with a stated bound, and the bounds against the **original harness** sum to at most `COMPARABLE_TOLERANCE` |
 | `comparable-to-inspect` | ours matches inspect_evals; inspect_evals differs from the paper beyond tolerance | same rule as above against **inspect_evals**, and the inspect-vs-harness gap is recorded in `## Upstream notes` with its own bound; Imported Benchmarks only |
 | `not-comparable` | the number is reproducible but not the paper's | any `score-changing` deviation without a bound, or bounds summing above tolerance, or a published number produced by a different process by design (vendor- or human-run grading, a judge model other than the one the paper's number used) |
-| `unverified` | the audit could not settle it | any of `prompt`, `answer extraction`, `metric`, `roll-up` is `unchecked`, or a `possibly-score-changing` deviation is open (judge agreement pending a paid run) |
+| `unverified` | the audit could not settle it | any of `prompt`, `answer extraction`, `metric`, `roll-up` is `unchecked`, or a `possibly-score-changing` deviation is open (judge agreement pending a paid run), and the measured bounds do not already settle `not-comparable` |
+
+**Precedence (added 2026-11-09, after the MaCBench audit).** `not-comparable` is decided first: when the measured bounds already exceed tolerance, open items cannot rescue a comparable verdict, so the verdict is `not-comparable` and the open items stay listed with bound `unknown`. Only when the measured bounds fit within tolerance does an open item make the verdict `unverified`.
 
 `COMPARABLE_TOLERANCE = 0.005` of the headline metric: half a percentage point, because papers
 and our Leaderboard report one decimal, so a deviation that cannot move the first decimal cannot
