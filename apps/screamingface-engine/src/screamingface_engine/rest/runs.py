@@ -569,7 +569,9 @@ async def bind_start(request: Request, topic: str) -> StartBinding:
         raise _problem(status=status, title=title, detail=detail, code=code) from exc
     except Exception:
         _logger.warning("run bind failed topic=%s; starting unbound", topic, exc_info=True)
-        return StartBinding(_unbound)
+        # WHY keep `bound_at`: the bind may have committed with its acknowledgement lost, so a
+        # cancel can still tombstone the topic (D12). An earlier deadline only shortens the run.
+        return StartBinding(_unbound, bound_at)
     return StartBinding(functools.partial(confirm_scheduled, request, topic), bound_at)
 
 

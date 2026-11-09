@@ -398,3 +398,31 @@ async def test_a_full_local_runner_still_answers_a_stopped_topic_as_stopped() ->
     await runner.schedule("t", "'hi'", 60)
 
     assert not await runner.exists("t")
+
+
+class _BindsThenLosesTheAck:
+    """A registry whose bind commits but whose acknowledgement is lost."""
+
+    def __init__(self, store: Any) -> None:
+        self._store = store
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+    async def bind(self, *args: Any) -> None:
+        await self._store.bind(*args)
+        raise ConnectionError("commit acknowledgement lost")
+
+
+async def test_a_bind_with_an_unknown_outcome_keeps_its_bind_moment(registry: Registry) -> None:
+    """WHY: the bind may have committed, so a cancel can tombstone the topic all the same."""
+    runner = _RecordsDeadlineStart()
+    engine = _Engine(registry, runner=runner)
+    run_id = (await engine.create(candidates=["a"])).json()["id"]
+    engine.app.state.run_registry = _BindsThenLosesTheAck(registry.store)
+    before_bind = datetime.now(UTC)
+
+    assert (await engine.start("topic-a", run_id)).status_code == 202
+
+    ((enqueued_at, _),) = runner.started
+    assert enqueued_at is not None and enqueued_at >= before_bind
