@@ -18,8 +18,10 @@ reducer computes that same any-of-N rule; everything else is refused by name.
 The rule that must hold: the Case score we publish is the number the Task's own reducer
 computes over the same Attempt marks, or the Task is refused.
 
-The one gap: ZeroBench asks each question five times and publishes pass@1, which inspect
-computes with `pass_at(1)` over the five epochs. That is 1 − C(5−c, 1)/C(5, 1) = c/5, the mean
+The one gap: inspect_evals' ZeroBench Task asks each question five times and reports pass@1
+as inspect's `pass_at(1)` over the five epochs (the live ZeroBench board scores its current
+rows the same way, the mean of 5 samplings at default settings; the paper's Table 2 and the
+board's release-era rows are one greedy sample, a different protocol). That is 1 − C(5−c, 1)/C(5, 1) = c/5, the mean
 of the five marks, not any-of-5, so the importer refused it and ZeroBench was imported at one
 sampling per question (OME-1855), a number the card has to caveat.
 
@@ -42,7 +44,7 @@ flowchart TB
   end
   subgraph TODAY["TODAY — a five-sample pass@1 Task is refused, so ZeroBench runs once per question"]
     direction LR
-    a1["inspect Task<br/>epochs=5, reducers pass_at_1, pass_at_5, 5_of_5_reliability"]:::plain --> a2["⚠️ importer: pass_at_1 is not any-of-5<br/>refused by name"]:::bad --> a3["⚠️ row imported with k=1<br/>one answer per question, card caveats the number"]:::bad --> a4["👤 researcher compares a single-sample score<br/>with the board's five-sample pass@1"]:::bad
+    a1["inspect Task<br/>epochs=5, reducers pass_at_1, pass_at_5, 5_of_5_reliability"]:::plain --> a2["⚠️ importer: pass_at_1 is not any-of-5<br/>refused by name"]:::bad --> a3["⚠️ row imported with k=1<br/>one answer per question, card caveats the number"]:::bad --> a4["👤 researcher compares a single-sample score<br/>with inspect_evals' five-sample pass@1, which is also the live board's current protocol"]:::bad
   end
   subgraph AFTER["AFTER — the first declared reducer pass_at_1 imports as the mean over 5 Attempts"]
     direction LR
@@ -65,7 +67,7 @@ flowchart TB
 | D2 | **Revised.** Two fold rules: any-of-N (OME-1458) and the **mean over Attempts**, taken when the Task's headline reducer is inspect's own `pass_at(1)` over N > 1 epochs. pass@1 estimated from N samples IS that mean (§2). All-must-match (ZeroBench's `5_of_5_reliability`, inspect's `pass_k`) still waits for a Benchmark that needs it as its headline. | OME-1458 D2 |
 | D4 | **Extended.** The catalogue says "any of N Attempts" for the any-of-N rule and **"mean over N Attempts"** for the mean rule, never a bare "pass@N" or "pass@1": inspect's `pass_at(k)` names an estimator, and the card must say what the published number is. | OME-1458 D4 |
 | D15 | **The mean counts full marks only, over the graded Attempts.** inspect's `pass_at(1, value=1.0)` counts an epoch correct when its score is at least 1.0 and reduces over the epochs that have a Score; the fold does the same, so a partial-credit Attempt counts as not right and a failed Attempt leaves the mean over the rest. Under the any-of-N rule a partial-credit Check still fails the Case by name (D7, §2.4 of OME-1458); under the mean rule it is a defined number, so no refusal. | — |
-| D16 | **The first declared reducer is the headline; the rest are recorded as not reproduced.** inspect publishes one set of metrics per declared reducer in declaration order, and the tally already replays the first declared one for an honoured whole-run metric. A `pass_at_1` headline imports and names the others as dropped; an any-of-N headline keeps OME-1458's rule that every declared reducer must be any-of-N, so `Epochs(2, ["max", "pass_at_1"])` is refused naming `pass_at_1` (two different published numbers, the row carries one). No new importer flag: the Task's own order decides. | OME-1458 D11 |
+| D16 | **The first declared reducer is the headline; the rest are recorded as not reproduced.** This is OUR convention: inspect publishes one set of metrics per declared reducer, side by side, with no headline of its own (`EvalScore.reducer` selects a view). The tally already replays the first declared one for an honoured whole-run metric. For ZeroBench that order comes from a Python set literal (`TOP_N = {1, 5}`), so `pass_at_1` is first by small-int hashing; a `top_n` override could reorder it, and the importer would then refuse by name. A `pass_at_1` headline imports and names the others as dropped; an any-of-N headline keeps OME-1458's rule that every declared reducer must be any-of-N, so `Epochs(2, ["max", "pass_at_1"])` is refused naming `pass_at_1` (two different published numbers, the row carries one). No new importer flag: the Task's own order decides. | OME-1458 D11 |
 | D17 | **`epoch_reducer="pass_at_1"` is Benchmark identity and is admitted on a row with or without a whole-run metric.** The fold reads it, so it changes the published number on every Attempts row that names it; an any-of-N name is still admitted only beside an honoured whole-run metric (the fold does not read it, so on any other row it would move the revision while changing no number). | OME-1458 §2.6 |
 
 ## 2. What inspect computes, and what the fold computes

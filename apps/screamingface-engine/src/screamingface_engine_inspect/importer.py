@@ -189,8 +189,10 @@ def task_attempts(task: Any) -> TaskAttempts:
     ]
     own_reducers: dict[str, Any] = attempts_reducers(epochs)
     any_match: frozenset[str] = frozenset(any_match_reducers(epochs))
-    # WHY the first declared: inspect publishes one set of metrics per reducer in declaration
-    # order, and the tally already replays the first for an honoured metric (import_replay).
+    # WHY the first declared (our convention, not inspect's): inspect publishes one set of
+    # metrics per reducer, side by side, with no headline of its own; the tally already replays
+    # the first declared one for an honoured whole-run metric (import_replay), so the importer
+    # keys on the same one. For ZeroBench that order comes from a set literal (TOP_N = {1, 5}).
     mean_fold: bool = names[0] == MEAN_OVER_ATTEMPTS_REDUCER
     _refuse_unfoldable_reducers(epochs, names, any_match, mean_fold)
     # WHY only the kept names from here: a dropped reducer computes nothing on our side, so

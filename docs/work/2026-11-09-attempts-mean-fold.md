@@ -12,8 +12,9 @@ finished: 2026-11-09
 
 OME-1458 gave a Benchmark N Attempts per Case with one fold: a Check is met if any Attempt met
 it. Its D2 parked "mean over Attempts" until a Benchmark needed it. ZeroBench needs it: inspect_evals
-asks each question five times and publishes pass@1 as the mean of the five marks (inspect's
-`pass_at(1)` over 5 epochs is c/5). Today the importer refuses that Task by name, so the
+asks each question five times and reports pass@1 as the mean of the five marks (inspect's
+`pass_at(1)` over 5 epochs is c/5); the live board scores its current rows the same way, while
+the paper's Table 2 and the release-era rows are one greedy sample. Today the importer refuses that Task by name, so the
 Benchmark was imported at k=1 (OME-1855), a single-sample number the card has to explain. This
 unit lets the Engine and its importer accept inspect's `pass_at(1)` as a second fold rule, the
 mean over Attempts, so a later import of ZeroBench runs exactly as inspect_evals does. Spec:
