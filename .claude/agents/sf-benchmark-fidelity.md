@@ -181,16 +181,76 @@ Show the arithmetic in `## Verdict`: `bounds vs original harness = 2/541 = 0.003
 
 ## Output
 
-Return one markdown document and nothing else: the front-matter block of `TEMPLATE.md` with
-every value filled (`audited_at` = `git rev-parse --short HEAD`; every `references.*` URL pinned
-to a sha or `v`-tag; `fingerprint.benchmark` = the **computed** fingerprint from
-`imported_benchmark(key).fingerprint` or `medxpert.FINGERPRINT`, never the published revision;
-`fingerprint.harness_url` = the declaration's string byte for byte), then the six sections in the
-template's order: Verdict · Dimensions · Deviations · Checks run · Recommended paid runs ·
-Upstream notes. The calling session first opens every cited `file:line` (`sed -n`) and confirms it shows what
-the cell claims, fixing or striking any that do not, then writes it to
-`apps/screamingface-engine/docs/benchmarks-fidelity/<id>.md` and runs
-`just engine fidelity-check` to see it `fresh`.
+Return **one markdown document and nothing else**. It has two parts.
+
+**1. The front matter**, copied from `TEMPLATE.md` with every value filled:
+
+| key | value |
+|---|---|
+| `audited_at` | `git rev-parse --short HEAD` of the checkout you audited |
+| `fingerprint.benchmark` | the **computed** fingerprint: `imported_benchmark(key).fingerprint`, or `medxpert.FINGERPRINT`; never the published revision |
+| `fingerprint.harness_url` | the declaration's `harness_url`, byte for byte |
+| `references.*` | each URL pinned to a commit sha or a `v`-tag |
+
+**2. The six sections**, in the template's order:
+
+1. Verdict
+2. Dimensions
+3. Deviations
+4. Checks run
+5. Recommended paid runs
+6. Upstream notes
+
+## For the calling session: from report to pushed branch
+
+The agent never writes files, so the session that called it does the steps below. Every rule
+here is the repo's own (`CLAUDE.md`, the `working-in-this-repo` skill); this section only says
+how they apply to a record.
+
+**Step 0: pick the checkout before the audit.** The agent audits whatever checkout it is pointed
+at, and `audited_at` records that checkout's HEAD.
+
+| situation | checkout to audit and commit in | branch |
+|---|---|---|
+| the Benchmark is being onboarded in an open PR (e.g. ZeroBench in #1706) | that PR's worktree | that PR's branch; the record rides the onboarding PR (Lane 2) |
+| the Benchmark is already on main (a sweep, a re-audit after `stale`) | a **new** worktree from `upstream/main` | `OME-N-<desc>` when a ticket exists, else `fidelity-record-<id>`; worktree folder = branch name |
+| a calibration run with the `ours` override | none | nothing is committed; the report goes in a PR body as evidence |
+
+New worktree, from the repo root (the remote is `upstream`, never `origin`):
+
+```sh
+git fetch upstream
+git worktree add .claude/worktrees/fidelity-record-<id> -b fidelity-record-<id> upstream/main
+```
+
+**Step 1: check every citation.** Open each cited `file:line` with `sed -n '<a>,<b>p'` and
+confirm it shows what the cell claims. Fix or strike any that do not; never keep a wrong one.
+
+**Step 2: write the record.** Save the report as
+`apps/screamingface-engine/docs/benchmarks-fidelity/<id>.md` in the worktree from Step 0.
+
+**Step 3: check it is fresh.** From the worktree root run `just engine fidelity-check`. The row
+for `<id>` must read `fresh`; `stale` means the audit read a different checkout, so audit again.
+
+**Step 4: commit and push the branch.** Stage the one path by name (never `git add -A`), use a
+conventional message, and push. A pushed branch needs no ticket.
+
+```sh
+git add apps/screamingface-engine/docs/benchmarks-fidelity/<id>.md
+git commit -m "docs(screamingface-engine): <id> Fidelity Record, <verdict> (OME-N)"
+git push -u upstream <branch>
+```
+
+**Step 5: stop before the PR.** Opening a PR needs the owner's confirmation and a Linear issue
+under an epic (the `task-management` skill). Report back: the branch, the verdict, the
+`fidelity-check` line, and the one command that opens the draft:
+
+```sh
+gh pr create --draft --base main --head <branch> --title "docs(screamingface-engine): <id> Fidelity Record (OME-N)"
+```
+
+When the record rides an onboarding PR, Steps 4 and 5 are just a commit and push to that PR's
+branch.
 
 ## What you never do
 

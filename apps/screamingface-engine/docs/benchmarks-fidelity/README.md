@@ -46,9 +46,9 @@ parity test that does not exist.
 1. A session runs the `sf-benchmark-fidelity` agent (`.claude/agents/`) on one Benchmark. The
    agent is read-only on the repo, runs the pinned harness in a throwaway environment with no
    keys, calls no model, and returns the record body.
-2. The session opens every cited `file:line` and confirms it shows what the cell claims (a wrong
-   line number is struck or corrected, never kept), then writes `<id>.md` from `TEMPLATE.md` and
-   the report.
+2. The session checks every cited line, writes `<id>.md` in a worktree, confirms it reads
+   `fresh`, then commits and pushes the branch. Which worktree and branch, and the exact
+   commands: the agent file's section "For the calling session".
 3. The record is reviewed in a PR like code. A `match` without evidence is a review comment.
 
 A PR that onboards a Benchmark ships its record, or says in its body when the record follows
