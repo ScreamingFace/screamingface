@@ -43,7 +43,7 @@ OME-1330. Onboarding only: no paid run.
 - RED: the five table rows fail until the rows exist; the picture-cases test fails until the
   rows exist; the tripwire asserts v0.20.0's wrong verdict and ours.
 - Size check (the MMMU method): pictures per Case vs 20, largest Case vs 8 MB and the
-  gateway's 2,000,000-byte frozen-copy cap, `cases.json` size, peak resident memory on read
+  gateway's 10 MiB frozen-copy entry cap (OME-1756), `cases.json` size, peak resident memory on read
   and parse vs 2,560 MiB; numeric vs multiple-choice counts; licence from the card.
 - Byte check (outside judge, the MathVista method): inspect's own `eval()` with the free
   `mockllm/model` over all 1,153 Samples; each sent message matched to exactly one Case and
@@ -83,7 +83,7 @@ OME-1330. Onboarding only: no paid run.
   fingerprint on the day the row was added; `c1b519147b8b2bdc` before the deviation's header
   gained the Case counts, never published).
 - **Size check:** one picture per Case (cap 20), all PNG. Largest Case 1,692,138 bytes (Case
-  98), median 78,653; none over the importer's 8 MB nor the gateway's 2,000,000-byte frozen-copy
+  98), median 78,653; none over the importer's 8 MB nor the gateway's 10 MiB (OME-1756) frozen-copy
   cap. `cases.json` 196 MB; read and parsed at 598 MiB resident (budget 2,560 MiB). 779
   multiple-choice Cases (19 with several right letters), 374 numeric (146 carry the dataset's
   precomputed window, read as absolute; 228 fall back to 1% relative). Licence on the card: MIT,
