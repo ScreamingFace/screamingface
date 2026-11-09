@@ -245,7 +245,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         self._scheduled_at: dict[str, datetime] = {}
         # topic → when a bound stop tombstoned it before this replica scheduled it (E5 P1 spec
         # D12): its later `schedule()` queues nothing, so no admission slot waits on a run the
-        # worker would skip. Pruned with `_scheduled_at`.
+        # worker would skip. Kept, not consumed, so every racing schedule of the topic releases
+        # its own reservation; pruned with `_scheduled_at`.
         self._stopped_before_schedule: dict[str, datetime] = {}
         # FEATURE (OME-1091): the OME-1065 cache-plus-reservation shape, carried over. The
         # counted resource changed (quota headroom → queue depth); the race did not. `_reserved`
@@ -321,7 +322,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # broker's exception hierarchy. Nothing was reserved yet — `_admit_or_raise`
             # reserves only after its last broker read — so there is nothing to release.
             raise RunQueueUnavailable("the run queue could not be read at admission") from exc
-        if self._stopped_before_schedule.pop(topic, None) is not None:
+        if topic in self._stopped_before_schedule:
             # WHY no publish: a bound stop already tombstoned the run (before this call or during
             # admission), and the reservation is newer than the tombstone, so nothing else would
             # ever release it.
@@ -375,7 +376,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 # reservation refuses the caller's next run for a run that never queued).
                 raise RunQueueUnavailable("the run could not be durably queued") from exc
             raise
-        if self._stopped_before_schedule.pop(topic, None) is not None:
+        if topic in self._stopped_before_schedule:
             # A bound stop landed during the publish: the worker skips the message, so the slot
             # would wait on a run that never executes.
             await self._release_reservation(topic, caller_key(identity), reservation)

@@ -259,7 +259,6 @@ async def test_a_stop_during_admission_queues_nothing_and_holds_no_slot() -> Non
 
     assert runner._queue.published == []  # type: ignore[attr-defined]
     assert runner._in_flight_by_caller == {}
-    assert runner._stopped_before_schedule == {}
 
 
 async def test_a_stop_during_the_publish_holds_no_slot() -> None:
@@ -277,4 +276,33 @@ async def test_a_stop_during_the_publish_holds_no_slot() -> None:
     await _stop_while_paused(runner, paused, resume)
 
     assert runner._in_flight_by_caller == {}
-    assert runner._stopped_before_schedule == {}
+
+
+async def test_one_stop_releases_every_racing_schedule_of_its_topic() -> None:
+    """WHY: a client retry can race its own first attempt, each with its own reservation."""
+    runner = _runner(_FakePublisher(), _FakeControl(reply=False))
+    admitted, resume = asyncio.Event(), asyncio.Event()
+    admit = runner._admit_or_raise
+    waiting = 0
+
+    async def _paused_admit(*args: Any) -> Any:
+        nonlocal waiting
+        reservation = await admit(*args)
+        waiting += 1
+        if waiting == 2:
+            admitted.set()
+        await resume.wait()
+        return reservation
+
+    runner._admit_or_raise = _paused_admit  # type: ignore[method-assign]
+    schedules = [
+        asyncio.create_task(runner.schedule("t", "'hi'", 60, identity=_ALICE_IDENTITY))
+        for _ in range(2)
+    ]
+    await asyncio.wait_for(admitted.wait(), timeout=5)
+    await runner.stop_bound("t")
+    resume.set()
+    await asyncio.wait_for(asyncio.gather(*schedules), timeout=5)
+
+    assert runner._queue.published == []  # type: ignore[attr-defined]
+    assert runner._in_flight_by_caller == {}
