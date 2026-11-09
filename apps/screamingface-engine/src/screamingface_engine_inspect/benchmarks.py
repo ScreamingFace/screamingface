@@ -8373,7 +8373,17 @@ def _attempts_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
 
     # WHY: any-of-2 and any-of-1 are different numbers for the same answers, so a change
     # of N must never keep a revision its published scores hang off.
-    return (f"attempts={spec.attempts}",) if spec.attempts > 1 else ()
+    if spec.attempts <= 1:
+        return ()
+    pins: list[str] = [f"attempts={spec.attempts}"]
+    # WHY here (2026-11-09 amendment of OME-1458, D17): on a row with no whole-run metric the
+    # reducer names the fold rule (pass_at_1, the mean over Attempts), so it is Attempts
+    # identity: 2/5 and 1.0 are different numbers for the same answers. Beside an honoured
+    # metric it stays pinned with that metric (_whole_run_metric_pins), so ARC-AGI-2's
+    # revision does not move.
+    if spec.epoch_reducer is not None and spec.whole_run_metric is None:
+        pins.append(f"epoch_reducer={spec.epoch_reducer}")
+    return tuple(pins)
 
 
 def _multiple_correct_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
@@ -8486,7 +8496,10 @@ def _whole_run_metric_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     # WHY identity: the key decides which of the dict's numbers is the published headline.
     if spec.whole_run_headline is not None:
         pins.append(f"whole_run_headline={spec.whole_run_headline}")
-    if spec.epoch_reducer is not None:
+    # WHY only beside a metric: a reducer on a row with no whole-run metric names the fold
+    # rule (the mean over Attempts) and is pinned by _attempts_pins instead, so a row that
+    # honours no metric pins nothing here (test_whole_run_metric's invariant).
+    if spec.whole_run_metric is not None and spec.epoch_reducer is not None:
         pins.append(f"epoch_reducer={spec.epoch_reducer}")
     return tuple(pins)
 
