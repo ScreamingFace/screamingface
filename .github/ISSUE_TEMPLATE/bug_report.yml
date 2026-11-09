@@ -1,0 +1,129 @@
+name: Bug report
+description: Something in ScreamingFace is broken, gives a wrong result, or doesn't match the docs.
+title: "[Bug]: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting this. ScreamingFace is early and rough in places, and a report we can reproduce is the most useful thing you can give us.
+
+        **Before you start**
+        - Questions and open-ended discussion are best in [Slack](https://openmined.org/slack/), and the [docs](https://docs.screamingface.ai) may already have the answer.
+        - **Found a security vulnerability?** Please don't file it here. [Report it privately](https://github.com/ScreamingFace/screamingface/security/advisories/new) instead.
+        - **Never paste API keys or access tokens.** Logs and url4 strings can also contain prompt text, so review them before you share.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Where is the problem?
+      description: Pick the closest match. "Not sure" is a fine answer.
+      options:
+        - Python client (screamingface package)
+        - Local runtime (screamingface up, doctor, logs, cache)
+        - Engine (running a fusion or an evaluation)
+        - url4 (parsing, compiling, or replaying a url4 string)
+        - Benchmark (cases, judge, rubric, or scoring)
+        - AI gateway or model provider (keys, routing, provider errors)
+        - Shared cache
+        - Leaderboard (leaderboard.screamingface.ai)
+        - Documentation (docs.screamingface.ai)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. Name the call or command that failed, and link the leaderboard entry or docs page if that's where you saw it.
+      placeholder: sf.evaluate() raised a TimeoutError on the third case of a three-model fusion on ifeval.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+      placeholder: The evaluation finishes and returns a report with a score for each candidate.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: The smallest code or sequence of commands that shows the problem. Smaller is better.
+      placeholder: |
+        ```python
+        import screamingface as sf
+
+        gpt = sf.Model("openrouter/openai/gpt-5.5")
+        flash = sf.Model("openrouter/google/gemini-3-flash-preview")
+        fusion = sf.Fusion([gpt, flash], synthesizer="openrouter/openai/gpt-5.5")
+
+        report = sf.evaluate([gpt, fusion], benchmark="ifeval", limit=3)
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: url4
+    attributes:
+      label: url4 string
+      description: |
+        If the problem happened during a run, paste its url4 string. It's the fastest way for us to replay exactly what you ran. You can get it with `report.candidates["<name>"].url4`, or copy it from the leaderboard entry. Leave blank if it doesn't apply.
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error output or logs
+      description: |
+        The full traceback or error message. For local runtime problems, `screamingface doctor` and `screamingface logs --service engine --tail 100 --no-follow` are a good start. This box is formatted as code automatically.
+      render: shell
+
+  - type: dropdown
+    id: engine
+    attributes:
+      label: Which engine were you using?
+      options:
+        - Local engine (screamingface up)
+        - Self-hosted engine (my own deployment)
+        - Hosted ScreamingFace engine
+        - Not applicable (docs, leaderboard, etc.)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        Needed for client, runtime, and engine problems. Get your client version with `python -c "import screamingface as sf; print(sf.__version__)"`.
+      value: |
+        - screamingface version:
+        - Python version:
+        - OS:
+        - Installed extras (e.g. notebook, runtime):
+        - Running in (terminal, Jupyter, Colab, other):
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: How often does this happen?
+      options:
+        - Every time
+        - Sometimes
+        - It happened once
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched [existing issues](https://github.com/ScreamingFace/screamingface/issues) and didn't find this one.
+          required: true
+        - label: I removed API keys, tokens, and any private prompts or data from everything above.
+          required: true

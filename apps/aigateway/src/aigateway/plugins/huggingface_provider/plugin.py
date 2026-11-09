@@ -74,9 +74,9 @@ if TYPE_CHECKING:
 _CLIENT_AUTH_HEADER_NAMES = {"authorization", "x-api-key", "proxy-authorization"}
 
 
-def _credential_service_for(profile_name: str) -> str:
+def _credential_service_for(credential_name: str) -> str:
     """Namespace the stored credential slot by provider + profile/connection."""
-    return f"aigateway:huggingface:{profile_name}"
+    return f"aigateway:huggingface:{credential_name}"
 
 
 class HuggingFaceProviderPlugin(ProviderPluginBase[HuggingFacePluginSettings]):

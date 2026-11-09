@@ -38,6 +38,9 @@ from url4.dag.source_scan import collect_file_refs as collect_file_refs  # isort
 from url4.dag.source_scan import refuse_remote as refuse_remote  # isort: skip
 from url4.dag.source_scan import scan_sources as scan_sources  # isort: skip
 
+# WHY public here: ``peer._bytes`` raises the same refusal the run's budget makes sticky.
+from url4.dag._caps import whole_body_refused as whole_body_refused  # isort: skip
+
 
 @dataclass(frozen=True)
 class CachedBlob:
@@ -101,7 +104,13 @@ class RunFiles:
 
         WHY one-shot: execution then performs exactly the fetches it performs today, minus the
         ones admission made for it — a collection is resolved once, not twice.
+        INVARIANT: only bare ``Url``/``RelUrl`` collection reads are ever memoized, as plain
+        requests; a relative expression call (one carrying a structured ``call``, OME-1834's
+        ``SubrequestFetch``) never is, so it skips the lookup — reading its ``target`` would
+        encode the whole context and undo the in-process dispatch's memory bound.
         """
+        if getattr(request, "call", None) is not None:
+            return None
         pending = self.prefetched.get(prefetch_key(request))
         if not pending:
             return None
@@ -212,4 +221,5 @@ __all__ = [
     "prefetch_key",
     "refuse_remote",
     "scan_sources",
+    "whole_body_refused",
 ]

@@ -21,12 +21,14 @@ should) and hands on only the ref text. The engine may import only ``io.layer``
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from contextlib import suppress
 from dataclasses import dataclass, field
 
 from url4.core.blob_ref import BlobAddress, address_of, token_address
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.core.nodes import RelUrl, Url
+from url4.dag._caps import whole_body_refused
 from url4.dag.attachment import OCTET_STREAM, Attachment
 from url4.dag.attachments import CachedBlob, current_run_files
 from url4.dag.semantics.collection import DECLARED_MEDIA_TYPES
@@ -79,13 +81,24 @@ class BlobRefNode:
             return _collection_text(self.address.ref, body, media_type)
         return str(self.address.ref)
 
-    async def verified(self, ctx: ExecutionContext) -> tuple[bytes, str | None]:
+    async def verified(
+        self,
+        ctx: ExecutionContext,
+        *,
+        max_bytes: int | None = None,
+        on_chunk: Callable[[int], None] | None = None,
+        on_declared: Callable[[int | None], None] | None = None,
+    ) -> tuple[bytes, str | None]:
         """The bytes and reported media type, sha256-verified; from the run cache on a hit.
 
         INVARIANT (plan §2.8): inside a ``run()`` the run-start resolver already fetched and
         verified every file the AST names, so a node reads the cache and never fetches again,
         whatever the fan-out width, row count or retries. A miss (a ref only a row template
         names after substitution, or a node evaluated outside ``run()``) fetches as before.
+        INVARIANT (PR #1587 review finding 1): ``max_bytes`` / ``on_chunk`` ride on the read's
+        :class:`FetchRequest` (and the text-only fallback), so the run-start read of an attached
+        blob draws from the run's live byte budget as its bytes arrive; ``on_declared`` rides the
+        same way (a whole-body provider's declared size, drawn before its read — round 10).
         """
         address = self.address
         if address.form == "remote":
@@ -111,9 +124,15 @@ class BlobRefNode:
         cached = None if files is None else files.cache.get(f"sha256:{digest}")
         if isinstance(cached, CachedBlob):
             return cached.body, cached.media_type
-        body, media_type = await _fetch_bytes(
-            ctx, FetchRequest(address.target, relative=True, kind="relative")
+        request = FetchRequest(
+            address.target,
+            relative=True,
+            kind="relative",
+            max_bytes=max_bytes,
+            on_chunk=on_chunk,
+            on_declared=on_declared,
         )
+        body, media_type = await _fetch_bytes(ctx, request)
         # INVARIANT: a content address that returns other content never resolves.
         if hashlib.sha256(body).hexdigest() != digest:
             raise ResolutionError(
@@ -156,6 +175,9 @@ def _collection_text(ref: str, body: bytes, media_type: str | None) -> FetchedTe
     )
 
 
+collection_text = _collection_text  # the one D4 read admission mirrors (review finding 2)
+
+
 def _required(address: BlobAddress | None, ref: str) -> BlobAddress:
     if address is None:
         raise ValueError(f"{ref!r} is not a file ref")
@@ -180,12 +202,36 @@ async def _fetch_bytes(ctx: ExecutionContext, request: FetchRequest) -> tuple[by
         if fetch is not None:
             got = await fetch(request)
             return got.body, got.media_type
+        if request.on_declared is not None:
+            # INVARIANT (decision B, PR #1587 round 11 finding 1 — FAIL CLOSED): under a run's
+            # live cap a body is counted BEFORE it is held; a text adapter can only count after
+            # its read, so it is refused unread, as ``peer._bytes`` refuses a whole-body provider.
+            with suppress(ResolutionError):
+                request.on_declared(None)  # makes the run's refusal sticky
+            raise whole_body_refused()
         result = await fetch_result(ctx.io, request)
-        return result.body.encode("utf-8"), result.media_type
+        return _read_whole(request, result.body.encode("utf-8")), result.media_type
     except ResolutionError as exc:
         if exc.code == ErrorCode.ENDPOINT_NOT_FOUND:
             raise _not_found(request.target) from exc
         raise
+
+
+def _read_whole(request: FetchRequest, body: bytes) -> bytes:
+    """``body`` checked against ``request``'s byte hook — a text adapter cannot stream.
+
+    WHY a copy of ``url4.io.media.read_whole``: the engine may import only ``io.layer``
+    (``test_layering``). Same order: the caller's budget (``on_chunk``) refuses first.
+    """
+    if request.on_chunk is not None:
+        request.on_chunk(len(body))
+    if request.max_bytes is not None and len(body) > request.max_bytes:
+        raise ResolutionError(
+            f"source body exceeds the {request.max_bytes}-byte cap",
+            code=ErrorCode.SOURCE_TOO_LARGE,
+            permanent=True,
+        )
+    return body
 
 
 __all__ = ["BlobRefNode", "as_collection"]

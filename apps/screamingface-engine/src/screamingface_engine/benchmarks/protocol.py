@@ -9,6 +9,7 @@ from screamingface_engine.benchmarks.case_request import CASE_ATTEMPT_PARAM
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE
 from screamingface_engine.benchmarks.graded_answer import CASE_ATTEMPTS_ROUTE, GRADED_ANSWER_ROUTE
 from screamingface_engine.benchmarks.grading_endpoints import positive_count
+from screamingface_engine.benchmarks.selection import CaseSelection
 from url4 import Node, RelExpr, Text, expr, iterate, render, src, struct
 from url4.core.nodes import Expression, Iteration, RemoteExpr, Source, StructObject, walk
 
@@ -244,19 +245,30 @@ def build_evaluation_protocol(
     *,
     cases_route: str,
     case_evaluation: Node,
-    selected_case_count: int,
+    selected_case_count: int | CaseSelection,
     available_case_count: int,
     aggregate_route: str,
     bindings: tuple[Node, ...] = (),
 ) -> Node:
-    """Compose ordered Case evaluation and typed Aggregation around one Case node."""
+    """Compose ordered Case evaluation and typed Aggregation around one Case node.
+
+    ``selected_case_count`` is the run's selection: a bare count ``N`` (Cases 1 to N, the
+    historic form) or a :class:`CaseSelection` naming explicit Case ids (OME-1739). Its text
+    form rides the Cases step and the aggregate, e.g. ``3`` or ``[3,17,42]``; the Cases step
+    serves exactly those rows, so url4 slices ``0:selection.count``.
+    """
 
     _route(cases_route, "cases_route")
     _route(aggregate_route, "aggregate_route")
     positive_count(available_case_count, "available_case_count")
-    positive_count(selected_case_count, "selected_case_count")
-    if selected_case_count > available_case_count:
-        raise ValueError("selected_case_count cannot exceed available_case_count")
+    if not isinstance(selected_case_count, CaseSelection):
+        positive_count(selected_case_count, "selected_case_count")
+        # WHY before coerce: never expand a count above the Benchmark into ids.
+        if selected_case_count > available_case_count:
+            raise ValueError("selected_case_count cannot exceed available_case_count")
+    selection: CaseSelection = CaseSelection.coerce(selected_case_count).require_within(
+        available_case_count
+    )
     if not isinstance(case_evaluation, Node):
         raise TypeError("case_evaluation must be a URL4 Node")
     if any(not isinstance(binding, Node) for binding in bindings):
@@ -267,11 +279,12 @@ def build_evaluation_protocol(
     # sibling sources and may run side by side; when one fails the run's TaskGroup cancels
     # its in-flight siblings, whose provider spend is not recorded (spec §4).
     case_evaluations = iterate(
-        RelExpr(path=cases_route, intent=Text(str(selected_case_count))),
+        RelExpr(path=cases_route, intent=Text(str(selection))),
         body=(src(case_evaluation, name="evaluated", weight=0.0),),
         intent=Text("$evaluated"),
         concurrency=1,
-        slice=(0, selected_case_count),
+        # WHY 0..count, never 0..max id: the Cases step already served only the selection.
+        slice=(0, selection.count),
         on_error="collect",
     )
     selected_case_evaluations = expr(
@@ -285,7 +298,7 @@ def build_evaluation_protocol(
             RelExpr(
                 path=aggregate_route,
                 context="$case_evaluations",
-                intent=Text(f"aggregate:{selected_case_count}"),
+                intent=Text(f"aggregate:{selection}"),
             ),
             name="result",
             weight=0.0,
@@ -308,15 +321,22 @@ __all__ = [
 ]
 
 
-def early_result(execution: Node, *, aggregate_route: str, selected_case_count: int) -> Node:
-    """Carry the canonical grade into aggregation before admitting the next case."""
+def early_result(
+    execution: Node, *, aggregate_route: str, selected_case_count: int | CaseSelection
+) -> Node:
+    """Carry the canonical grade into aggregation before admitting the next case.
+
+    The intent is ``<served position>:<selection>``, e.g. ``$index:[3,17,42]``: url4 fills
+    ``$index`` with the 0-based position, so position 1 is Case 17.
+    """
+    selection: CaseSelection = CaseSelection.coerce(selected_case_count)
     return expr(
         src(execution, name="execution", weight=0.0),
         src(
             RelExpr(
                 path=aggregate_route + "/case-result",
                 context="$execution",
-                intent=Text(f"$index:{selected_case_count}"),
+                intent=Text(f"$index:{selection}"),
             ),
             name="graded",
             weight=0.0,

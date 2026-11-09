@@ -25,51 +25,64 @@ from _combine_contract import (
     requires_engine_app,
     rule,
 )
+from _nodes import FusionNode
 
 import screamingface as sf
 from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_spec import combine_spec_text
+from screamingface._surface.chain import Step
+from screamingface._surface.lowering import lower
 from screamingface.reducer import Reducer
 
 _MEMBERS = ["prov/member-a", "prov/member-b", "prov/member-c"]
-_NUMBER_VOTE = sf.Vote(extract="last_number", normalize="numeric")
+_NUMBER_VOTE = sf.Vote(over="last_number", normalize="numeric")
 
-# name -> (reducer, member count, the benchmark rule an extract="benchmark" reducer reads)
-_SPECS: dict[str, tuple[Reducer, int, _BenchmarkAnswerRule | None]] = {
+# name -> (reducer, member count, the benchmark rule an over="benchmark" reducer reads)
+_SPECS: dict[str, tuple[Step, int, _BenchmarkAnswerRule | None]] = {
     "vote_number_5": (_NUMBER_VOTE, 5, None),
     "vote_number_4": (_NUMBER_VOTE, 4, None),
     "vote_number_1": (_NUMBER_VOTE, 1, None),
-    "vote_boxed_3": (sf.Vote(extract="boxed", normalize="numeric"), 3, None),
+    "vote_boxed_3": (sf.Vote(over="boxed", normalize="numeric"), 3, None),
     "vote_default_3": (sf.Vote(), 3, None),
     "vote_benchmark_gsm8k_3": (
-        sf.Vote(extract="benchmark"),
+        sf.Vote(over="benchmark"),
         3,
         _BenchmarkAnswerRule("inspect-gsm8k", rule(GSM8K_RULE_WIRE)),
     ),
-    "median_nearest_3": (sf.Median(extract="last_number", select="nearest"), 3, None),
-    "median_nearest_1": (sf.Median(extract="last_number", select="nearest"), 1, None),
-    "median_value_4": (sf.Median(extract="last_number", select="value"), 4, None),
-    "median_line_value_3": (sf.Median(extract="last_line", select="value"), 3, None),
+    "median_nearest_3": (sf.Median(over="last_number", select="nearest"), 3, None),
+    "median_nearest_1": (sf.Median(over="last_number", select="nearest"), 1, None),
+    "median_value_4": (sf.Median(over="last_number", select="value"), 4, None),
+    "median_line_value_3": (sf.Median(over="last_line", select="value"), 3, None),
 }
 
 
 def vote_candidate_url4() -> str:
-    recipe = sf.Fusion(_MEMBERS, synthesizer=_NUMBER_VOTE)
+    recipe = sf.Fanout(_MEMBERS) >> _NUMBER_VOTE
     return compile_candidate(recipe, operators=engine_operators()).url4
 
 
 def model_synthesizer_candidate_url4() -> str:
-    return compile_candidate(sf.Fusion(_MEMBERS, synthesizer="prov/synth")).url4
+    return compile_candidate(sf.Fanout(_MEMBERS) >> sf.Synthesize("prov/synth")).url4
+
+
+def _reducer(step: Step) -> Reducer:
+    """The internal reducer that ``step`` lowers to: the spec writer reads that node."""
+
+    lowered = lower(sf.Fanout(_MEMBERS) >> step)
+    assert isinstance(lowered, FusionNode)
+    reducer = lowered.synthesizer
+    assert isinstance(reducer, Reducer)
+    return reducer
 
 
 def reducer_specs() -> dict[str, str]:
     operators = engine_operators()
     return {
         name: combine_spec_text(
-            reducer, member_count=count, operators=operators, benchmark_rule=benchmark_rule
+            _reducer(step), member_count=count, operators=operators, benchmark_rule=benchmark_rule
         )
-        for name, (reducer, count, benchmark_rule) in _SPECS.items()
+        for name, (step, count, benchmark_rule) in _SPECS.items()
     }
 
 

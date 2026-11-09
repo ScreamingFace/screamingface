@@ -158,6 +158,14 @@ async def run(
     head of the run's fixed ``attachments[]`` side-channel
     (:func:`~url4.dag.attachments.current_attachments`), for every model call this run makes.
     A nested ``run()`` inherits the outer list; binding a different one raises ``ValueError``.
+
+    A pre-built ``Graph`` / ``DagNode`` FAILS CLOSED on files (owner decision 2026-11-04): it
+    has no source text to build the run's frozen attachment manifest from, so one that names an
+    attachment-capable source — an attachment opt-in (``src=https://…;accept=image/png``), a
+    blob ref, a ``url4://`` blob ref, a non-literal attachment target, or a malformed call
+    context beside an opt-in — is refused before any I/O, permanent (``malformed_source``, or
+    ``x.remote_blob_unsupported`` / ``x.source_not_static`` where those apply). Pass the
+    expression text instead. A text-only graph runs exactly as before.
     """
     if ctx is not None and (
         io is not None or processor is not None or process is not default_process

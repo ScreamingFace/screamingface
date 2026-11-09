@@ -170,6 +170,39 @@ class CaseGradeReader:
             self._file_case_grade(entry, position, case_ids[position], index)
         return index
 
+    def validated_rows(self, raw_case_grades: str, case_ids: tuple[int, ...]) -> list[Any]:
+        """Stages 1-5 for every position, keeping only the raw rows, not what they decode to.
+
+        FEATURE (OME-1833): the streamed aggregate's first pass. Every row is resolved and
+        decoded exactly as :meth:`index` would, so a corrupt row still aborts BEFORE any Case
+        is marked. Each decoded row is then dropped, and :meth:`index_position` files it again
+        when its Case's turn comes. Only the raw rows stay in memory: a list of ~90 B
+        references when the run parks its Case results.
+        """
+
+        rows: list[Any] = self._decoded_case_grades(raw_case_grades)
+        if len(rows) > len(case_ids):
+            raise self.error_type(
+                f"aggregate received {len(rows)} rows for {len(case_ids)} selected Cases"
+            )
+        for position, entry in enumerate(rows):
+            self._file_case_grade(entry, position, case_ids[position], _empty_index())
+        return rows
+
+    def index_position(
+        self, rows: list[Any], position: int, case_ids: tuple[int, ...]
+    ) -> CaseGradeIndex:
+        """The index of ONE position: what :meth:`index` files for that Case, and nothing else.
+
+        INVARIANT: position is identity, and each position files only under its own Case id.
+        So for that Case this index answers exactly what the whole-run index would.
+        """
+
+        index: CaseGradeIndex = _empty_index()
+        if position < len(rows):
+            self._file_case_grade(rows[position], position, case_ids[position], index)
+        return index
+
     def _decoded_case_grades(self, raw: str) -> list[Any]:
         """Stage 1 — the collected array, still opaque, one entry per Case that ran."""
 
@@ -260,6 +293,10 @@ class CaseGradeReader:
         else:
             index.case_grades[expected_case_id] = dict(row)
         return True
+
+
+def _empty_index() -> CaseGradeIndex:
+    return CaseGradeIndex(case_grades={}, collected_errors={}, grading_failures={})
 
 
 def read_selected_cases(

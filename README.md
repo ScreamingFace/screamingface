@@ -58,8 +58,10 @@ pip install "screamingface[notebook]"
 > `pip install "screamingface[runtime]"`
 >
 > `ifeval`, the Benchmark below, is a local inspect Task: the plain `screamingface up` Engine
-> does not list it. From a checkout, `just local-stack-notebooks` serves an Engine with the
-> `inspect` extra beside the stack; otherwise point `engine_url` at such an Engine.
+> does not list it. From a checkout, `uv sync --extra benchmarks` in `apps/screamingface-engine`
+> and `screamingface up` starts the Engine from that venv with every Benchmark; elsewhere set
+> `SCREAMINGFACE_ENGINE_PYTHON` to such an environment's interpreter, or point `engine_url` at a
+> running Engine that has it.
 
 ```python
 import screamingface as sf

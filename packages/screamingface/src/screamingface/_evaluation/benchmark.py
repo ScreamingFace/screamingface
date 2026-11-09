@@ -39,6 +39,8 @@ class _BenchmarkResource:
     url4: str
     check_surface: _CheckSurface | None = None
     answer_rule: _AnswerRule | None = None
+    # FEATURE (OME-1739): the Case ids the Engine echoed for `cases=`; None for a `limit=` run.
+    selected_case_ids: tuple[int, ...] | None = None
 
 
 def _decode_benchmark_resource(
@@ -46,6 +48,7 @@ def _decode_benchmark_resource(
     *,
     requested_id: str,
     requested_limit: int | None,
+    requested_cases: tuple[int, ...] | None = None,
 ) -> _BenchmarkResource:
     """Validate the one executable resource selected by its complete Benchmark id."""
 
@@ -73,17 +76,46 @@ def _decode_benchmark_resource(
     except (TypeError, ValueError) as exc:
         _invalid(str(exc))
 
+    selected_case_ids: tuple[int, ...] | None = _echoed_selection(
+        resource.get("selected_case_ids"), requested_cases
+    )
     return _BenchmarkResource(
         info=info,
         case_count=(
-            installed_case_count
+            len(selected_case_ids)
+            if selected_case_ids is not None
+            else installed_case_count
             if requested_limit is None
             else min(requested_limit, installed_case_count)
         ),
         url4=url4,
         check_surface=_check_surface(resource.get("check_surface")),
         answer_rule=decode_answer_rule(resource.get("answer_rule"), _invalid),
+        selected_case_ids=selected_case_ids,
     )
+
+
+def _echoed_selection(echo: object, requested: tuple[int, ...] | None) -> tuple[int, ...] | None:
+    """The Case ids the Engine says its recipe serves, refused unless they are the requested ids.
+
+    INVARIANT (OME-1739, F2): the SDK never runs a recipe for a Case set other than the one it
+    asked for. An Engine that ignored the list would run and bill every Case, so a missing or
+    different echo is refused here, before any model call.
+    """
+
+    if requested is None:
+        return None
+    if (
+        not isinstance(echo, list)
+        or any(type(case_id) is not int for case_id in echo)
+        or tuple(echo) != requested
+    ):
+        _invalid(
+            "The SF Engine did not select the requested Cases "
+            f"(asked for {list(requested)}, the resource names {echo!r}); "
+            "this Engine may be too old to run a fixed list of Case ids"
+        )
+    return requested
 
 
 def _inverted_grade(value: object) -> bool:

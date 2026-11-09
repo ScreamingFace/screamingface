@@ -36,12 +36,20 @@ class RuntimeConfig:
     # FEATURE (spec D10): a separate, possibly read-only datasets folder — Studio points it at
     # the bundle inside the signed app. None keeps the datasets under the data directory.
     benchmark_assets_dir: Path | None = None
+    # FEATURE (OME-1620): the interpreter of an Engine environment of its own — `up` starts the
+    # Engine from it as a child process and `prepare` runs its preparer. None means the Engine
+    # runs in this process, as before. Resolved by `engine_env.resolve_engine_python`.
+    engine_python: Path | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "data_dir", self.data_dir.expanduser().resolve())
         if self.benchmark_assets_dir is not None:
             resolved = self.benchmark_assets_dir.expanduser().resolve()
             object.__setattr__(self, "benchmark_assets_dir", resolved)
+        if self.engine_python is not None:
+            # WHY absolute, not resolve: a venv's python is a symlink into the base interpreter;
+            # following it would start an Engine with none of the venv's packages.
+            object.__setattr__(self, "engine_python", self.engine_python.expanduser().absolute())
         selected = self.runner_config or Path(
             os.getenv("URL4_RUNNER_CONFIG") or bundled_runner_config()
         )

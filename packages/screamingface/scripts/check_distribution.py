@@ -58,6 +58,13 @@ def _validate(paths: tuple[PurePosixPath, ...], *, source: bool) -> None:
             PurePosixPath("url4/__init__.py"),
             PurePosixPath("screamingface_engine/__init__.py"),
             PurePosixPath("screamingface/_runtime/resources/url4.toml"),
+            # OME-1620: what `screamingface up` builds a pip user's Engine environment from.
+            PurePosixPath("screamingface_engine_inspect/__init__.py"),
+            PurePosixPath("screamingface/_runtime/engine_dist/screamingface-engine/pyproject.toml"),
+            PurePosixPath("screamingface/_runtime/engine_dist/url4/pyproject.toml"),
+            PurePosixPath("screamingface/_runtime/engine_dist/url4/README.md"),
+            PurePosixPath("screamingface/_runtime/engine_dist/url4/LICENSE"),
+            PurePosixPath("screamingface/_runtime/resources/engine-requirements.txt"),
             PurePosixPath("screamingface/_runtime/scoreboard_portal/index.html"),
         }
         missing_runtime = sorted(map(str, required_runtime_files - set(paths)))

@@ -7,7 +7,7 @@
 <text x="40" y="46" font-size="17" fill="#e8eaed" font-weight="600">ScreamingFace · request architecture</text>
 <text x="40" y="70" font-size="11" fill="#686e78" letter-spacing="0.06em">LOCAL · RUNS ON YOUR MACHINE · YOUR KEYS, YOUR SUBSCRIPTIONS</text>
 <rect x="40" y="150" width="228" height="122" fill="#131519" stroke="#2c303a" stroke-width="1"/>
-<text x="154.0" y="180" font-size="12" fill="#e8eaed" text-anchor="middle" font-weight="600" letter-spacing="0.08em">RESEARCHER CLIENT</text>
+<text x="154.0" y="180" font-size="12" fill="#e8eaed" text-anchor="middle" font-weight="600" letter-spacing="0.08em">SCREAMINGFACE CLIENT</text>
 <text x="154.0" y="200" font-size="10.5" fill="#686e78" text-anchor="middle">notebook / Python SDK</text>
 <text x="154.0" y="224" font-size="10.5" fill="#9aa0aa" text-anchor="middle">composes an ensemble,</text>
 <text x="154.0" y="241" font-size="10.5" fill="#9aa0aa" text-anchor="middle">reads the report back</text>
@@ -49,5 +49,5 @@
 <line x1="160" y1="470" x2="190" y2="470" stroke="#9aa0aa" stroke-width="1.4" stroke-dasharray="5 4"/>
 <text x="198" y="474" font-size="10" fill="#686e78">response</text>
 <rect x="288" y="464" width="10" height="12" fill="#e0a23c"/>
-<text x="304" y="474" font-size="10" fill="#686e78">the engine — what we build · your keys stay in the gateway</text>
+<text x="304" y="474" font-size="10" fill="#686e78">the ScreamingFace Engine · your keys stay in the gateway</text>
 </svg>

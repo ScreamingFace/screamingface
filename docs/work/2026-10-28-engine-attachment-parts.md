@@ -1,9 +1,9 @@
 ---
 ticket: OME-1545
 stack: screamingface-engine
-status: done   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-10-28
-finished: 2026-10-28
+finished:
 ---
 
 # engine-attachment-parts — build image and file content parts in the engine connector

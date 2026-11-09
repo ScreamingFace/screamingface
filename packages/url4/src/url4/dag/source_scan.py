@@ -31,6 +31,7 @@ from url4.core.nodes import (
     walk,
 )
 from url4.core.parser import split_top_level_commas
+from url4.dag._scan_scope import sibling_scopes
 from url4.dag.attachment_sources import AttachmentIdentity, identity_of, non_literal_attachment
 
 # --- collection: which file refs the run's AST names, in source order -------------------
@@ -109,6 +110,8 @@ class SourceScan:
     occurrences: tuple[Occurrence, ...] = ()
     non_literal: tuple[str, ...] = ()  # owner decision C: refused, x.source_not_static
     malformed: tuple[str, ...] = ()  # owner 2026-11-02: refused, malformed_source
+    # PR #1587 review finding 4: every url4:// remote-node call, (authority, path), in preorder.
+    remote_nodes: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass
@@ -118,6 +121,7 @@ class _Found:
     occurrences: list[Occurrence] = field(default_factory=list)
     non_literal: list[str] = field(default_factory=list)
     malformed: list[str] = field(default_factory=list)
+    remote_nodes: list[tuple[str, str]] = field(default_factory=list)
 
 
 _Guards = tuple[CollectionGuard, ...]
@@ -131,7 +135,12 @@ def scan_sources(ast: Node) -> SourceScan:
     attached = {ref.key for ref in refs if not ref.collection}
     order = tuple(key for key in found.order if isinstance(key, OccurrenceSlot) or key in attached)
     return SourceScan(
-        refs, order, tuple(found.occurrences), tuple(found.non_literal), tuple(found.malformed)
+        refs,
+        order,
+        tuple(found.occurrences),
+        tuple(found.non_literal),
+        tuple(found.malformed),
+        tuple(found.remote_nodes),
     )
 
 
@@ -149,10 +158,10 @@ def _walk(
             _walk_source(node, bound, collection, out, guards)
         case Iteration():
             _walk_iteration(node, bound, out, guards)
-        case RelExpr():
-            _walk_rel_expr(node, bound, out, guards)
+        case RelExpr() | RemoteExpr():
+            _walk_call(node, bound, out, guards)
         case _:
-            pass  # Text, RemoteExpr (C6), holdings, VarRef in scalar use, struct, ...
+            pass  # Text, holdings, VarRef in scalar use, struct, ...
 
 
 def _walk_source(
@@ -171,11 +180,10 @@ def _walk_iteration(
     node: Iteration, bound: Mapping[str, Node], out: _Found, guards: _Guards
 ) -> None:
     _walk_collection(node.collection, bound, out, guards)
-    items = node.collection
-    if isinstance(items, VarRef) and not items.path and items.name in bound:
-        items = bound[items.name]  # ``$xs*(…)`` reads its enclosing binding's value
-    guard = CollectionGuard(items, bound, node.directives.slice)
-    _walk_source_list(node.body, bound, out, (*guards, guard))
+    # WHY the raw collection: its shape is decided ONLY by ``_collection_shape`` (finding 2),
+    # which follows every ``$name`` hop and path; admission and the static check read it.
+    guard = CollectionGuard(node.collection, bound, node.directives.slice)
+    _walk_source_list(node.body, bound, out, (*guards, guard), positional=True)
 
 
 def _add_attachment(node: Source, out: _Found, guards: _Guards) -> bool:
@@ -211,11 +219,24 @@ def reachable_order(
 def _walk_expression(
     node: Expression, bound: Mapping[str, Node], out: _Found, guards: _Guards
 ) -> None:
-    scope = dict(bound) | _bindings(node.sources)
-    for source in node.sources:
+    # INVARIANT (round 11, findings 2 and 3): each source walks in the scope execution wires
+    # for it (``_scan_scope``) — positions included, later siblings hidden from a named one.
+    scopes, full = sibling_scopes(node.sources, bound, positional=True)
+    for source, scope in zip(node.sources, scopes, strict=True):
         _walk(source, scope, False, out, guards)
     if node.intent is not None:
-        _walk(node.intent, scope, False, out, guards)
+        _walk(node.intent, full, False, out, guards)
+
+
+def _walk_call(
+    node: RelExpr | RemoteExpr, bound: Mapping[str, Node], out: _Found, guards: _Guards
+) -> None:
+    if isinstance(node, RelExpr):
+        _walk_rel_expr(node, bound, out, guards)
+    else:
+        # C6: a remote call's context is the remote node's business (never walked); the CALL
+        # itself is recorded so a node context refuses it before any run-start I/O (finding 4).
+        out.remote_nodes.append((node.authority, node.path))
 
 
 def _walk_rel_expr(node: RelExpr, bound: Mapping[str, Node], out: _Found, guards: _Guards) -> None:
@@ -225,7 +246,8 @@ def _walk_rel_expr(node: RelExpr, bound: Mapping[str, Node], out: _Found, guards
     # context's opted-in attachment sources into text.
     if node.context is not None and not holds_holdings_ref(node.context):
         asked = len(out.occurrences) + len(out.non_literal)
-        skipped = _walk_source_list(node.context, bound, out, guards)
+        # WHY no positions: a context registers none (``_lowering._build_ctx_nodes``).
+        skipped = _walk_source_list(node.context, bound, out, guards, positional=False)
         opted_in = len(out.occurrences) + len(out.non_literal) > asked
         out.malformed.extend(s for s in skipped if opted_in or _looks_like_descriptor(s))
     if node.intent is not None:
@@ -271,10 +293,15 @@ def _walk_collection(items: Node, bound: Mapping[str, Node], out: _Found, guards
     if isinstance(items, Expression) and items.intent is None and not items.broadcast:
         _walk(items, bound, False, out, guards)  # an inline collection: its elements are values
         return
-    if isinstance(items, VarRef) and not items.path and items.name in bound:
-        # Plan §2.9: ``$x*(…)`` reads the bound file ref in collection position.
+    if isinstance(items, VarRef) and not items.path and _by_name(items.name, bound):
+        # Plan §2.9: ``$x*(…)`` reads the bound file ref in collection position (by NAME only:
+        # execution's ``_bound_blob`` reads ``bind:<name>``; a ``$N`` position reads ref text).
         items = bound[items.name]
     _walk(items, bound, True, out, guards)
+
+
+def _by_name(name: str, bound: Mapping[str, Node]) -> bool:
+    return not name.isdigit() and name in bound
 
 
 def _looks_like_descriptor(segment: str) -> bool:
@@ -299,8 +326,27 @@ def refuse_malformed(scan: SourceScan) -> None:
         )
 
 
+def scan_source_list(text: str) -> SourceScan:
+    """The scan of a raw source-list (an iteration body template); unparseable segments skipped.
+
+    WHY public: a pre-built graph keeps iteration bodies as text (``MapNode.body``), so the
+    run-start graph check (:mod:`url4.dag._graph_admission`) scans them the same way the AST
+    walk scans an iteration body.
+    """
+    found = _Found()
+    _walk_source_list(text, {}, found, (), positional=True)
+    return SourceScan(
+        tuple(found.refs.values()),
+        (),
+        tuple(found.occurrences),
+        tuple(found.non_literal),
+        (),
+        tuple(found.remote_nodes),
+    )
+
+
 def _walk_source_list(
-    text: str, bound: Mapping[str, Node], out: _Found, guards: _Guards
+    text: str, bound: Mapping[str, Node], out: _Found, guards: _Guards, *, positional: bool
 ) -> list[str]:
     """Walk each parsed segment; return the stripped segments that did not parse.
 
@@ -308,28 +354,20 @@ def _walk_source_list(
     a template that may parse only after row substitution), and only on an opt-in.
     """
     skipped: list[str] = []
+    parsed: list[Node | None] = []
     for segment in split_top_level_commas(text):
         if not segment.strip():
             continue
         try:
-            parsed = grammar_parse(segment.strip())
+            parsed.append(grammar_parse(segment.strip()))
         except ParseError:
             skipped.append(segment.strip())
-            continue
-        _walk(parsed, bound, False, out, guards)
+            parsed.append(None)  # keeps its position (``$N``), binds nothing
+    scopes, _ = sibling_scopes(parsed, bound, positional=positional)
+    for node, scope in zip(parsed, scopes, strict=True):
+        if node is not None:
+            _walk(node, scope, False, out, guards)
     return skipped
-
-
-def _bindings(sources: tuple[Node, ...]) -> dict[str, Node]:
-    named: dict[str, Node] = {}
-    for source in sources:
-        if isinstance(source, Binding):
-            named[source.name] = source.value
-        elif isinstance(source, Source) and source.name is not None:
-            # WHY the descriptor, not its value: ``$xs*(…)`` admission needs the binding's
-            # ``;retry=`` / ``;t=`` / ``;optional`` / ``;accept=`` (``_materialize._unwrap``).
-            named[source.name] = source
-    return named
 
 
 def _add_leaf(node: Node, collection: bool, out: _Found) -> bool:
@@ -375,5 +413,6 @@ __all__ = [
     "reachable_order",
     "refuse_malformed",
     "refuse_remote",
+    "scan_source_list",
     "scan_sources",
 ]

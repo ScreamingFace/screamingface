@@ -35,7 +35,7 @@ def credential_service_provider_for(plugin: Any, provider: str) -> str:
 
 def credential_strategy_from(
     plugin: Any,
-    profile_name: str,
+    credential_name: str,
     *,
     auth_type: AuthType = "oauth",
     credential_store: CredentialBlobStore | None = None,
@@ -49,7 +49,7 @@ def credential_strategy_from(
     )
     if callable(resolver):
         return resolver(
-            profile_name,
+            credential_name,
             auth_type=auth_type,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
@@ -59,14 +59,14 @@ def credential_strategy_from(
             plugin, "api_key_strategy_for", None
         )
         if callable(api_resolver):
-            return api_resolver(profile_name, credential_store=credential_store)
+            return api_resolver(credential_name, credential_store=credential_store)
         return None
     legacy: Callable[..., CredentialStrategy | None] | None = getattr(
         plugin, "oauth_strategy_for", None
     )
     if callable(legacy):
         return legacy(
-            profile_name,
+            credential_name,
             credential_store=credential_store,
             http_client_factory=http_client_factory,
         )

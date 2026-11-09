@@ -137,7 +137,7 @@ def test_the_pending_flow_drop_follows_the_captured_connection_not_a_name(
         return PendingAuthEntry(
             account_id=h.account_id,
             provider=PROVIDER,
-            profile_name=name,
+            fallback_label=name,
             code_verifier="v",
             redirect_uri="https://example.invalid/cb",
             connection_id=connection_id,

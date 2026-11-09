@@ -19,15 +19,16 @@ from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error,
 )
 from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.selection import CaseSelection
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
 JsonObject = dict[str, Any]
 CaseGradeBuilder = Callable[[int, list[JsonObject]], JsonObject]
-AggregateAdapter = Callable[[str, int], JsonObject]
+AggregateAdapter = Callable[[str, tuple[int, ...]], JsonObject]
 #: The async face (OME-1240): a judged benchmark's adapter awaits model calls, so its
 #: endpoint must be awaited by the node on the RUN's own loop — see aggregate_endpoint.
-AsyncAggregateAdapter = Callable[[str, int], Awaitable[JsonObject]]
+AsyncAggregateAdapter = Callable[[str, tuple[int, ...]], Awaitable[JsonObject]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,9 +153,9 @@ def aggregate_endpoint(
 
     @observe_phase(ActivityKind.AGGREGATION)
     def endpoint(request: Request) -> str:
-        selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
+        selection = _aggregate_selection(request.intent, available_case_count, label)
         try:
-            result = aggregate(request.context, selected_case_count)
+            result = aggregate(request.context, selection.case_ids)
         except (OSError, ValueError) as exc:
             raise benchmark_unavailable(str(exc)) from exc
         return compact_json(result)
@@ -180,9 +181,9 @@ def async_aggregate_endpoint(
 
     @observe_phase(ActivityKind.AGGREGATION)
     async def endpoint(request: Request) -> str:
-        selected_case_count = _aggregate_selection(request.intent, available_case_count, label)
+        selection = _aggregate_selection(request.intent, available_case_count, label)
         try:
-            result = await aggregate(request.context, selected_case_count)
+            result = await aggregate(request.context, selection.case_ids)
         except (OSError, ValueError) as exc:
             raise benchmark_unavailable(str(exc)) from exc
         return compact_json(result)
@@ -272,20 +273,16 @@ def benchmark_unavailable(detail: str) -> ResolutionError:
     return ResolutionError(detail, code="benchmark_unavailable", permanent=True)
 
 
-def _aggregate_selection(intent: str, available: int, label: str) -> int:
-    operation, separator, raw_count = intent.partition(":")
+def _aggregate_selection(intent: str, available: int, label: str) -> CaseSelection:
+    """Read ``aggregate:<selection>`` — ``aggregate:3`` or ``aggregate:[3,17,42]`` (OME-1739)."""
+
+    operation, separator, raw_selection = intent.partition(":")
     if operation != "aggregate" or not separator:
         raise _unsupported(label, intent)
     try:
-        selected_case_count = int(raw_count)
-        positive_count(selected_case_count, "selected_case_count")
+        return CaseSelection.parse(raw_selection, available=available)
     except ValueError as exc:
         raise benchmark_definition_error(str(exc)) from exc
-    if selected_case_count > available:
-        raise benchmark_definition_error(
-            f"selected_case_count cannot exceed available_case_count ({available})"
-        )
-    return selected_case_count
 
 
 def _unsupported(label: str, intent: str) -> ResolutionError:
