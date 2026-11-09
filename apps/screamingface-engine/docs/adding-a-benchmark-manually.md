@@ -22,6 +22,10 @@
 > rubric Benchmark copies `local_tasks/healthbench/` or `local_tasks/gdpval/`, never a folder
 > here.
 
+> **Fidelity Record (OME-1471).** The onboarding PR ships
+> `docs/benchmarks-fidelity/<id>.md`, written from the `sf-benchmark-fidelity` agent's report, or
+> says in its body when it follows; see [`docs/benchmarks-fidelity/README.md`](benchmarks-fidelity/README.md).
+
 **TLDR: a benchmark is an exam, and you only author the exam-specific parts. You bring
 the question paper (dataset mapping), the rule for grading one answer (`grade_case`),
 and the cover sheet stating how the exam is run and scored (declaration). Everything

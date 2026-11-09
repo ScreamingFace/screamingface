@@ -9,6 +9,11 @@ eval's own loader, solvers and scorer are CALLED, never reimplemented.** If you 
 file under `benchmarks/`, you are on the wrong page — that is
 [`adding-a-benchmark-manually.md`](adding-a-benchmark-manually.md).
 
+The onboarding PR also ships the Benchmark's Fidelity Record,
+`docs/benchmarks-fidelity/<id>.md`, written from the `sf-benchmark-fidelity` agent's report, or
+says in its body when it follows (OME-1471; see
+[`docs/benchmarks-fidelity/README.md`](benchmarks-fidelity/README.md)).
+
 Before the steps, read [`importing-an-inspect-eval.md`](importing-an-inspect-eval.md): for
 every field of an inspect `Task` it says whether we take it, read it as a gate, or replace it
 with our own rule, and for every step of inspect's `eval()` which ScreamingFace component does
