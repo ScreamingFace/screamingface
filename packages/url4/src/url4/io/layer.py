@@ -178,11 +178,10 @@ def resolve_shelf[T](mapping: Mapping[str | None, T], collection: str | None) ->
     the default fallback — the spec §5.6.2 unqualified-holdings entry. An
     exact shelf is selected by presence (``is not None``), so a falsy provider
     (e.g. ``""``) is SERVED rather than skipped — the same rule the data path
-    applies to falsy providers. Returns
-    ``None`` when neither key is present, leaving absence handling to the
-    caller (an error, a non-URL4 source, …). One definition so ``@`` and
-    ``@name`` resolve collections identically across adapters and the peer
-    node.
+    applies to falsy providers. Returns ``None`` when neither key is present,
+    leaving absence handling to the caller (an error, a non-URL4 source, …).
+    One definition so ``@`` and ``@name`` resolve collections identically
+    across adapters and the peer node.
     """
     if collection is not None:
         exact = mapping.get(collection)
