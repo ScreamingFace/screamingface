@@ -1,6 +1,6 @@
 ---
 id: OME-1855
-linear_url: https://linear.app/openmined/issue/OME-1855/add-zerobench-main-questions-as-a-picture-benchmark-at-pass1
+linear_url: https://linear.app/openmined/issue/OME-1855
 status: done
 type: feature
 priority: medium
@@ -10,7 +10,7 @@ created: 2026-11-09
 closed: 2026-11-09
 ---
 
-# Add ZeroBench main questions as a picture Benchmark at pass@1
+# Add ZeroBench main questions as a picture Benchmark at inspect's five Attempts
 
 ZeroBench (arXiv 2502.09696) is 100 hand-written visual reasoning questions over one or more
 pictures, built so that every frontier model scored 0 at release; the official board's best
@@ -32,3 +32,16 @@ curly-braces group in the reply, exact match. It lands as the Task-replay Benchm
   byte (pictures by their bytes; inspect labels 101 JPEG pictures `image/png` from the file name,
   the Case labels them by their bytes). It joins the picture notebook as the fourth Benchmark
   sealed on Linux. This closes the ticket; the paid smoke and the CI image build are the owner's.
+- 2026-11-09, second pass: PR #1709 (OME-1856) taught the importer and the Engine the mean fold, so
+  the row was re-imported inside the linux/amd64 image at the Task's own defaults: each Case is
+  asked 5 times, `attempts=5`, `epoch_reducer="pass_at_1"`, Benchmark score = mean over the Cases
+  run of each Case's mean over 5 Attempts (an Attempt is right only on an exact match), the number
+  inspect_evals publishes as pass@1 and the board's five-sample column, so the frontier 0.432 is
+  like-for-like; pass@5 and 5-of-5 reliability are named as not reproduced. Same 100 Cases, same
+  Case Digest `7b1b680a…`; the published revision moved to `9155d9581e103c0a` (never published
+  before). inspect's own eval at the defaults (500 sample records) matched every Case 5 times.
+  The card says why the Benchmark is comparable to inspect_evals and not to the paper (full
+  resolution out of reach: 3 questions carry 9 to 25 MB pictures, over the 8 MB Case cap).
+  Stacked on OME-1856 (blocked by it) until #1709 merges. Open point for the owner: the SDK's
+  listing and Case Result phrase "any of N Attempts" reads wrong for this Benchmark until the
+  catalogue carries the fold rule (a wire field, not this unit).

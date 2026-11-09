@@ -12,10 +12,11 @@ that loader for real, so the Case must hold exactly that, in that order. Grading
 own ``zerobench_scorer``: the LAST curly-braces group in the reply, lower-cased, must equal the
 answer exactly; no braces means wrong.
 
-Stand-in: ``datasets.load_dataset`` returns the rows below; the real zerobench task (with the
-``k=1`` the row pins), inspect_evals' real picture save and the real capture run. The grading
-tests run the Benchmark's real per-Case hook over a stand-in Case, so no real answer appears
-here: the dataset is gated behind the authors' no-public-answers terms.
+Stand-in: ``datasets.load_dataset`` returns the rows below; the real zerobench task at its own
+defaults (epochs=5, so the row declares 5 Attempts folded by the mean), inspect_evals' real
+picture save and the real capture run. The grading tests run the Benchmark's real per-Case hook
+over a stand-in Case, so no real answer appears here: the dataset is gated behind the authors'
+no-public-answers terms.
 """
 
 from __future__ import annotations
@@ -41,7 +42,8 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
     GradeRequest,
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
-from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: E402
+from screamingface_engine_inspect import benchmarks  # noqa: E402
+from screamingface_engine_inspect.benchmarks import BENCHMARKS, imported_benchmark  # noqa: E402
 from screamingface_engine_inspect.prepare import (  # noqa: E402
     TASK_REPLAY_CASES,
     PreparedCase,
@@ -230,3 +232,26 @@ async def test_zerobench_grades_the_last_braces_group_by_exact_match(
     outcome: CaseGradeOutcome = await _grade(reply, "eight" if "Eight" in reply else "8")
 
     assert (outcome.score, outcome.failure_code) == (score, None)
+
+
+def test_zerobench_asks_each_case_five_times_and_folds_them_by_the_mean() -> None:
+    """The row declares inspect_evals' own repetition: 5 Attempts per Case, folded by the
+    mean (inspect's pass_at(1)), and the capture at the Task's defaults still yields one Case
+    per question, not one per epoch.
+
+    WHY: the published number is like-for-like with inspect_evals' pass@1 and the official
+    board's five-sample column only under this exact declaration; a row that drifted back to
+    one Attempt, or to the any-of-N fold, would publish a different number under the same
+    name. The 100-Case count is the Cases row's; the epochs must not multiply it.
+    """
+
+    [spec] = [row for row in BENCHMARKS if row.key == "zerobench"]
+    assert (spec.attempts, spec.epoch_reducer) == (5, "pass_at_1")
+    assert TASK_REPLAY_CASES["zerobench"].task_args is None
+    assert TASK_REPLAY_CASES["zerobench"].case_count == 100
+    assert imported_benchmark("zerobench").benchmark.catalog_entry()["attempts"] == 5
+    # The fold rule is Attempts identity, not a whole-run metric: this row honours no eval
+    # metric, so the metric pins stay empty (test_whole_run_metric's invariant holds) and the
+    # reducer rides the Attempts pins into the revision.
+    assert benchmarks._whole_run_metric_pins(spec) == ()
+    assert benchmarks._attempts_pins(spec) == ("attempts=5", "epoch_reducer=pass_at_1")

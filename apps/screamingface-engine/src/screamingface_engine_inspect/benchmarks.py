@@ -7601,28 +7601,40 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="zerobench",
-        published_revision="b0afce4bf40156bf",
+        published_revision="9155d9581e103c0a",
         title="ZeroBench",
         description=(
             "100 hand-written visual reasoning questions, each over one or more pictures, "
             "curated across many domains, reasoning types and image types and calibrated so "
             "that every frontier model scored 0 at release: ZeroBench's main set, imported from "
-            "inspect_evals (the 334 easier sub-questions are a separate split and are not "
-            "imported). The pictures are saved inside the Case at import, so the Candidate must "
+            "inspect_evals (the easier sub-questions, 334 by the dataset card while "
+            "inspect_evals' eval.yaml says 335, are a separate split and are not imported). "
+            "The pictures are saved inside the Case at import, so the Candidate must "
             "read images and nothing is fetched at run time. The Candidate is shown the "
             "question with the eval's own instruction line, 'Let's think step by step and give "
             "the final answer in curly braces, like this: {final answer}', then the question's "
             "pictures in the dataset's order, and is graded by the eval's own scorer: the text "
             "inside the last pair of curly braces in the reply, lower-cased, must equal the "
             "answer exactly, and a reply with no braces is wrong, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run, one reply per Case. "
-            "inspect_evals asks each question five times and reports pass@1 as the mean over "
-            "the five samplings, pass@5 and 5-of-5 reliability; those reducers cannot be "
-            "imported, so the Task is imported with k=1 and this score is a single-sample "
-            "pass@1, not like-for-like with the official board's five-sample pass@1 or its "
-            "pass@5. inspect_evals runs the model at seed 42 with no retries; this benchmark "
-            "imposes no generation settings. Serving order is pinned by a policy seed "
-            "(inspect_evals shuffles per run). No mid-run check surface."
+            "Each Case is asked 5 times, as inspect_evals asks it. Benchmark score = mean over "
+            "the cases run of each Case's mean over 5 Attempts, an Attempt counting as right "
+            "only on an exact match. That is the number inspect_evals publishes as pass@1 and "
+            "the official board's five-sample pass@1 column, so the frontier score below is "
+            "like-for-like; the eval's pass@5 and 5-of-5 reliability are not published here. "
+            "inspect_evals runs the model at seed 42 with no retries; this benchmark imposes "
+            "no generation settings: the board's rows run at each model's default settings, "
+            "and a Candidate run at temperature 0 gives five near-identical Attempts, so its "
+            "mean collapses toward a single sampling. Comparable to inspect_evals, not to the "
+            "paper: the paper's Table 2 pass@1 is one greedy reply at temperature 0 over "
+            "full-resolution pictures on dataset v2 (v3, which inspect_evals and this "
+            "Benchmark pin, rewords two questions), and that resolution is out of reach here, "
+            "since 3 of the 100 questions carry pictures of 9 to 25 MB, over this catalogue's "
+            "8 MB Case cap and Anthropic's 5 MB image limit, so no Case could be served at "
+            "full resolution; inspect_evals' 1024 px pictures are what every inspect user "
+            "runs, so matching them makes this number comparable to that ecosystem and to the "
+            "live board; and the paper's greedy pass@1 is a temperature the Candidate owns, "
+            "set at run time. Serving order is pinned by a policy seed (inspect_evals "
+            "shuffles per run). No mid-run check surface."
         ),
         focus="Hard multi-step reasoning over pictures, exact-match answer in braces",
         dataset_url="https://huggingface.co/datasets/jonathan-roberts1/zerobench",
@@ -7687,8 +7699,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         # Frontier score: the official leaderboard's best pass@1 on the main questions, read
         # from the board on 2026-11-09; the board dates no entry, so as_of is the read month.
-        # NOT like-for-like: the board's pass@1 for this entry is the mean over five
-        # samplings per question (its pass@5 is 0.520), while this Benchmark asks once.
+        # Like-for-like: the board's pass@1 is the mean over five samplings per question at
+        # default settings, this Benchmark's mean over 5 Attempts (the board's pass@5 for the
+        # same entry, 0.520, is not published here).
         frontier_score=FrontierScore(
             score=0.432,
             model="GPT-6 Astra (max)",
@@ -7698,6 +7711,16 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         notebook="12_inspect_evals_benchmarks",
         inspect_evals_case_count=100,
         scorer="inspect_evals.zerobench.zerobench:zerobench_scorer",
+        # The Task's epochs=5 are averaged: each Case is asked
+        # 5 times and scores the share of Attempts fully right,
+        # inspect's pass_at(1).
+        attempts=5,
+        # The eval also reports pass_at_5, 5_of_5_reliability over the
+        # Attempts; this row publishes the mean only, so those are not
+        # reproduced (named in the description).
+        # The fold and the whole-run tally both read it: the Case score is the
+        # share of Attempts fully right.
+        epoch_reducer="pass_at_1",
     ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
