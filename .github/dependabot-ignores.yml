@@ -149,3 +149,12 @@ ignores:
     ticket: OME-1800
     note: >-
       NOT upstream-blocked; see the Engine's tortoise-orm entry. Held and moved together with it.
+
+  - directory: /apps/aigateway
+    dependency: tortoise-orm
+    versions: ""
+    ticket: OME-1800
+    note: >-
+      NOT upstream-blocked; see the Engine's tortoise-orm entry. Held and moved together with it:
+      aigateway's own CI does not run the pin conformance test, so a bump here alone would merge
+      green and fail the Engine and SDK lanes later.
