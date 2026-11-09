@@ -1,13 +1,11 @@
 {
   "issue": "OME-1829",
-  "branch": "OME-1829-external-result-metadata",
-  "approver": "Filip Boltuzic (owner)",
-  "date": "2026-11-03",
-  "reason": "Owner selected option A: publish external-result metric and dates, but keep attaching-person attribution internal. Add metric_name, observed_at and last_imported_at to the exact public-field allowlist and explicitly forbid attached_by. Preserve all other privacy assertions.",
+  "branch": "OME-1309-external-result-policy",
+  "reason": "The owner approved enforcing the strict comparison policy. Publish only the derived ranking_eligible boolean in addition to the metadata fields already approved in OME-1829; preserve the explicit exclusion of private attribution.",
   "files": {
     "apps/scoreboard/tests/unit/guards/test_visibility_exit_guard.py": {
       "base_blob": "b00008db8543769d48d77eab879a36221ca65630",
-      "approved_blob": "eab7fcb7eb9248ccbbf23666a7e0577c36493ba3"
+      "approved_blob": "1a9f35240d1828252a9c72ad7f1086a836018caa"
     }
   }
 }

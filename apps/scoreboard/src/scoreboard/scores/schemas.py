@@ -200,6 +200,9 @@ def _validate_bounded_metadata(value: dict[str, Any] | None) -> dict[str, Any] |
         )
     if len(json.dumps(value)) > _METADATA_MAX_BYTES:
         raise ValueError(f"metadata must serialize to at most {_METADATA_MAX_BYTES} bytes")
+    # INVARIANT: imported evidence must round-trip through SQLite, PostgreSQL JSONB
+    # and the public UTF-8 response. Check keys and nested values before persistence.
+    validate_storable_json(value)
     return value
 
 
@@ -1488,6 +1491,8 @@ class BaselineSchema(BaselineObservation):
     imported_at: datetime
     last_imported_at: datetime | None = None
     metadata: dict[str, Any] | None
+    # WHY: computed from the current board scope and evidence, never accepted from import JSON.
+    ranking_eligible: bool = False
     # FEATURE: OME-323 — manual open/closed correction, mirrors ScoreSchema's field.
     openness_override: Literal["open", "closed"] | None = None
 
