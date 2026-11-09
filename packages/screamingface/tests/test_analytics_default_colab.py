@@ -68,7 +68,7 @@ def test_default_setup_timeout_invalidates_late_reply(browser, monkeypatch):
     def exchange(command, event, **kwargs):
         calls.append(command)
         entered.set()
-        release.wait(4)
+        release.wait(10)
         finished.set()
         return accepted()
 
@@ -78,7 +78,7 @@ def test_default_setup_timeout_invalidates_late_reply(browser, monkeypatch):
         assert entered.wait(1)
         start = time.monotonic()
         browser.wait_for_setup()
-        assert 1.5 < time.monotonic() - start < 2.5
+        assert 4.5 < time.monotonic() - start < 5.75
         assert browser.read().choice == "unknown"
         assert not browser.pending
         release.set()
@@ -168,18 +168,18 @@ async def test_async_setup_deadline_includes_executor_delay(browser, monkeypatch
     release = threading.Event()
 
     def exchange(*args, **kwargs):
-        release.wait(4)
+        release.wait(10)
         return accepted()
 
     async def saturated_executor(*args):
-        await asyncio.sleep(4)
+        await asyncio.sleep(10)
 
     monkeypatch.setattr(colab, "exchange", exchange)
     monkeypatch.setattr(asyncio, "to_thread", saturated_executor)
     start = time.monotonic()
     try:
         await prompt.before_evaluation_async()
-        assert time.monotonic() - start < 2.5
+        assert time.monotonic() - start < 5.75
         assert not browser.pending
         assert browser.read().choice == "unknown"
     finally:

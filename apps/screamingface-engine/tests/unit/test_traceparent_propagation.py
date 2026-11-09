@@ -286,9 +286,10 @@ async def test_a_run_with_no_inbound_traceparent_still_propagates_the_minted_id(
 class _RecordingUpstream:
     """Keeps every connections request, answering each path with the shape it must parse.
 
-    `list()` makes TWO upstream calls — `/v1/providers` then `/v1/oauth/connections` — and they
-    decode differently. Answering both with one shape makes the adapter raise before the
-    assertion is reached, which reads as a propagation failure and is not one.
+    `list()` makes THREE upstream calls — `/v1/providers`, `/v1/oauth/connections`, then
+    `/v1/provider-access` (OME-1138 L7b) — and each decodes differently. Answering them with one
+    shape makes the adapter raise before the assertion is reached, which reads as a propagation
+    failure and is not one.
     """
 
     def __init__(self) -> None:
@@ -298,6 +299,8 @@ class _RecordingUpstream:
         self.requests.append(request)
         if request.url.path == "/v1/providers":
             return httpx.Response(200, json={"object": "list", "data": []})
+        if request.url.path == "/v1/provider-access":
+            return httpx.Response(200, json={"providers": []})
         return httpx.Response(200, json={"connections": []})
 
     def client(self) -> httpx.AsyncClient:

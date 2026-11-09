@@ -2052,22 +2052,32 @@ after opt-out. There is no durable event spool.
 In Colab, import or first interactive use starts a consent-only browser bridge in
 a background worker. Unknown consent attempts the same inline disclosure, then
 conditionally enables analytics without overriding a saved decline. The first
-evaluation waits up to two seconds for pending setup; asynchronous evaluations keep
+evaluation waits up to five seconds for pending setup; asynchronous evaluations keep
 the event loop free during that wait. A timeout lets evaluation proceed untracked
-and invalidates late setup replies. There is no automatic retry or replay of the
-missed operation. Use
-`sf.analytics.enable()` to explicitly enable: it waits up to three seconds for confirmed browser
+and invalidates late setup replies. When consent becomes unknown after a setup or
+delivery failure, a later evaluation attempts a fresh browser consent check, bounded
+by five seconds. Concurrent evaluations share pending setup. Saved declines and
+explicit opt-outs are never overridden. Missed events are discarded, never replayed. Use
+`sf.analytics.enable()` to explicitly enable: it waits up to five seconds for confirmed browser
 consent and a usable ID, then prints `Analytics enabled.` or
 `Couldn't enable analytics; tracking remains off.` It returns `None`, so notebooks show only the confirmation message. Use
 `sf.analytics.status()` for programmatic checks and detailed state. After successful return, the next evaluation
 can be tracked without a separate polling cell. A timed-out acceptance is cancelled
 locally so a late response cannot silently enable tracking.
 
+Colab background delivery has a five-second budget per event, with no event retries.
 Import/setup initiation and event delivery remain nonblocking. `sf.analytics.disable()`
 stops local tracking immediately and returns `None`. It prints `Analytics disabled.`
 and, while browser persistence is pending, `Saving your choice in the browser.`
 Use `sf.analytics.status()` to inspect `pending` until acknowledged. Operations begun before consent is
 confirmed are skipped, never replayed retroactively.
+
+Colab status also exposes `last_error`, `last_error_stage` and `setup_attempts`.
+For example, `setup_timeout` at `state` means a consent read timed out;
+`delivery_unavailable` at `events` means the browser delivery path was unavailable.
+These are local diagnostics only: no exception text or credentials are exposed or
+uploaded. Successful setup/control or acknowledged delivery clears the last error.
+They describe the latest result, not a durable delivery log.
 
 Colab uses the selected service's `/bridge/consent` iframe and cookie-checked
 `/bridge/id/events` route. The runtime never receives the cookie itself or sends

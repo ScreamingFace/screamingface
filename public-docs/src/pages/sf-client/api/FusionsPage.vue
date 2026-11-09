@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import Note from '@/components/ui/Note.vue'
@@ -40,10 +41,10 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
       members in parallel and combines their answers with an explicit synthesizer. You build it as a
       chain: <code>sf.Fanout(members)</code> sends the question to every member, and
       <code>&gt;&gt; sf.Synthesize(model)</code> adds the synthesizer. The chain is an
-      <RouterLink to="/sf-client/api/pipelines"><code>sf.Pipeline</code></RouterLink>. Like every
-      recipe it is frozen and holds no Client, so you can build it before connecting. The
-      <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink> walks through building
-      one.
+      <RouterLink to="/sf-client/api/pipelines"><code>sf.Pipeline</code></RouterLink
+      >. Like every recipe it is frozen and holds no Client, so you can build it before connecting.
+      The <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink> walks through
+      building one.
     </p>
 
     <CodeBlock :code="fusionSig" language="python" />
@@ -97,5 +98,23 @@ report = sf.evaluate(fusion, benchmark="ifeval", limit=1)`
     <div class="not-prose">
       <NbCell :count="1" :code="fusionExample" />
     </div>
+
+    <p>
+      A member marked <code>optional=True</code> (on a <code>Model</code> or a
+      <code>Pipeline</code>, or a fusion wrapped in <code>sf.Pipeline([...], optional=True)</code>)
+      can fail while the run still completes, as long as at least <code>quorum</code> members
+      succeed. A failed optional member appears as an answer with the status <code>fail</code> and
+      the reason <code>missing</code>, and never as a vote. When fewer than <code>quorum</code>
+      members succeed, or a required member fails, the candidate fails and its score is
+      <code>None</code>. <code>optional=True</code> is only valid on a member of
+      <code>sf.Fanout</code>; elsewhere it raises
+      <code>ValueError: optional=True is only supported on sf.Fanout members</code>.
+    </p>
+
+    <ThemedDiagram
+      name="sf-client-0-1-11-fusion-quorum"
+      alt="Topology: members A and B succeed and member C, optional, fails; the quorum check passes the answers that arrived to the reducer or Synthesize step when enough members succeeded, and the candidate fails when the quorum is not met or a required member failed."
+      caption="Which members reach the last step, and where a failure stops the candidate."
+    />
   </DocLayout>
 </template>

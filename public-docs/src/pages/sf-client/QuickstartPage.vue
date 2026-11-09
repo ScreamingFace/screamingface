@@ -2,27 +2,27 @@
 import { RouterLink } from 'vue-router'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
-import Collapsible from '@/components/ui/Collapsible.vue'
 import NbCell from '@/components/nb/NbCell.vue'
+import NbTextOut from '@/components/nb/NbTextOut.vue'
 import NbStateCarousel from '@/components/nb/NbStateCarousel.vue'
 import ProviderConnections from '@/components/nb/ProviderConnections.vue'
 import type { Provider } from '@/components/nb/ProviderConnections.vue'
-import EvaluationReport from '@/components/nb/EvaluationReport.vue'
 import CandidateScores from '@/components/nb/CandidateScores.vue'
-import type { NbCheckItem, NbRowForm, NbStat } from '@/components/nb/types'
+import type { NbRowForm } from '@/components/nb/types'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
 } from '@/navigation/sf-client'
 
-// Every provider the development engine advertises, read from its registry.
+// Every provider a local engine advertises, read from its registry.
 const providers: Provider[] = [
-  { id: 'codex', name: 'OpenAI Codex', status: 'disconnected' },
-  { id: 'gemini', name: 'Google Gemini', status: 'disconnected' },
   { id: 'anthropic', name: 'Anthropic', status: 'disconnected' },
-  { id: 'openrouter', name: 'OpenRouter', status: 'disconnected' },
+  { id: 'antigravity', name: 'Antigravity', status: 'disconnected' },
+  { id: 'codex', name: 'Codex', status: 'disconnected' },
+  { id: 'gemini-cli', name: 'Gemini CLI', status: 'disconnected' },
   { id: 'huggingface', name: 'Hugging Face', status: 'disconnected' },
-  { id: 'tavily', name: 'Tavily', status: 'disconnected' },
+  { id: 'openai', name: 'OpenAI', status: 'disconnected' },
+  { id: 'openrouter', name: 'OpenRouter', status: 'disconnected' },
 ]
 
 const connected = (id: string): Provider[] =>
@@ -76,52 +76,6 @@ const connectSteps: { caption: string; providers: Provider[]; forms: Record<stri
       forms: {},
     },
   ]
-
-// Ten distinct researched model nodes, nine synthesizers, 16 candidate roots.
-const runStats: NbStat[] = [
-  { label: 'Models', value: '10/10' },
-  { label: 'Synthesis', value: '9/9' },
-  { label: 'Scoring', value: '16/16' },
-  { label: 'Results', value: '16/16' },
-]
-
-const runRecent: NbCheckItem[] = [
-  { label: 'Finalized best-open-source (1/1 cases scored)' },
-  { label: 'Finalized pareto-lean (1/1 cases scored)' },
-  { label: 'Finalized pareto-cross (1/1 cases scored)' },
-]
-
-// Scores from a draco-3pass run: one case (limit=1), ten criteria, three judge passes.
-const studyCandidates = [
-  { id: 'claude-fable-5', name: 'claude-fable-5', score: 88.0, casesScored: 1, casesTotal: 1 },
-  { id: 'claude-opus-4.8', name: 'claude-opus-4.8', score: 100.0, casesScored: 1, casesTotal: 1 },
-  { id: 'gpt-5.5', name: 'gpt-5.5', score: 88.0, casesScored: 1, casesTotal: 1 },
-  {
-    id: 'gemini-3.1-pro',
-    name: 'gemini-3.1-pro-preview',
-    score: 78.3,
-    casesScored: 1,
-    casesTotal: 1,
-  },
-  {
-    id: 'gemini-3-flash',
-    name: 'gemini-3-flash-preview',
-    score: 88.0,
-    casesScored: 1,
-    casesTotal: 1,
-  },
-  { id: 'kimi-k2.5', name: 'kimi-k2.5', score: 75.9, casesScored: 1, casesTotal: 1 },
-  { id: 'deepseek-v4-pro', name: 'deepseek-v4-pro', score: 88.0, casesScored: 1, casesTotal: 1 },
-  { id: 'fable-plus-gpt', name: 'fable-plus-gpt', score: 88.0, casesScored: 1, casesTotal: 1 },
-  { id: 'frontier-trio', name: 'frontier-trio', score: 100.0, casesScored: 1, casesTotal: 1 },
-  { id: 'opus-plus-gpt', name: 'opus-plus-gpt', score: 100.0, casesScored: 1, casesTotal: 1 },
-  { id: 'opus-self-fusion', name: 'opus-self-fusion', score: 78.3, casesScored: 1, casesTotal: 1 },
-  { id: 'budget-trio', name: 'budget-trio', score: 100.0, casesScored: 1, casesTotal: 1 },
-  { id: 'beat-runner-up', name: 'beat-runner-up', score: 100.0, casesScored: 1, casesTotal: 1 },
-  { id: 'pareto-cross', name: 'pareto-cross', score: 88.0, casesScored: 1, casesTotal: 1 },
-  { id: 'pareto-lean', name: 'pareto-lean', score: 75.9, casesScored: 1, casesTotal: 1 },
-  { id: 'best-open-source', name: 'best-open-source', score: 75.9, casesScored: 1, casesTotal: 1 },
-]
 
 // The published full-benchmark result, not output from the code on this page.
 // Three solo models did not complete every task; their coverage is shown as-is.
@@ -222,78 +176,76 @@ sf.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])
 sf.connections.list()        # the same status the panel shows
 sf.disconnect("openrouter")  # remove it again`
 
-const connectOauth = `flow = sf.connect("codex", method="oauth")
-flow.authorize_url           # open this in a browser
-connection = flow.wait()     # blocks until you authorize, or the flow expires`
-
 const compose = `ANSWER = "Answer this research prompt thoroughly, in prose, with specific evidence."
 SYNTHESIS = "Combine the panel's answers into one unified prose answer. Add no new facts."
 
 opus = sf.Model("openrouter/anthropic/claude-opus-4.8", prompt=ANSWER)
 gpt = sf.Model("openrouter/openai/gpt-5.5", prompt=ANSWER)
-gemini = sf.Model("openrouter/google/gemini-3.1-pro-preview", prompt=ANSWER, params={"temperature": 0, "max_tokens": 8192})
+gemini = sf.Model("openrouter/google/gemini-3.1-pro-preview", prompt=ANSWER, params={"max_tokens": 8192})
 
 frontier_trio = sf.Fanout([opus, gpt, gemini], name="frontier-trio") >> sf.Synthesize(
     sf.Model(
         "openrouter/anthropic/claude-opus-4.8",
         prompt=SYNTHESIS,
-        params={"temperature": 0, "max_tokens": 8192},
+        params={"max_tokens": 8192},
     )
-)`
+)
 
-const lineup = `# Seven solo models answer on their own.
-solos = [opus, gpt, gemini, fable, gemini_flash, kimi, deepseek]
-
-# Nine fusions combine them through a synthesizer. Reusing a Model object
-# means that answer is computed once and shared, not requested twice.
-fusions = [
-    fable_plus_gpt,      # two frontier models
-    frontier_trio,       # three frontier models
-    opus_plus_gpt,
-    opus_self_fusion,    # the same model sampled twice at temperature 0.7
-    budget_trio,         # three cheaper models
-    beat_runner_up,
-    pareto_cross,
-    pareto_lean,
-    best_open_source,
-]
-
-candidates = (*solos, *fusions)   # 16 candidate roots, one shared case set`
+candidates = [opus, gpt, gemini, frontier_trio]   # 3 solo models and 1 fusion`
 
 const load = `draco = sf.benchmarks.get("draco-3pass")
 draco.title, draco.revision, draco.case_count`
 
 const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limit=1)`
+
+const evaluateLocal = `report = sf.evaluate(candidates, benchmark="medxpert", limit=1)`
+
+const loadLocal = `medxpert = sf.benchmarks.get("medxpert")
+medxpert.title, medxpert.revision, medxpert.case_count`
+
+const loadLocalOut = `('MedXpertQA', '1e5a3b8a461a52f7', 2450)`
+
+const scoresLocal = `{c.name: c.score for c in report.candidates}`
+
+const scoresLocalOut = `{'claude-opus-4.8': 0.0, 'gpt-5.5': 1.0, 'gemini-3.1-pro-preview': 1.0, 'frontier-trio': 1.0}`
+
+const checkReport = `report.ok          # False if any candidate or member failed
+report.failures    # what failed, and why`
 </script>
 
 <template>
   <DocLayout
-    title="Reproduce DRACO state-of-the-art"
+    title="Reproduce OpenRouter's DRACO results"
     description="Run a DRACO subset end to end to compare fusions with its solo models."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      By the end, you'll have a scored comparison of <strong>16 candidates</strong>: seven solo
-      models and nine fusions built from those models, all on one
-      <a href="https://arxiv.org/abs/2602.11685" target="_blank" rel="noopener">DRACO</a> case
-      (<code>limit=1</code>) with ten criteria and three judge passes each.
+      By the end, you'll have a scored comparison of <strong>four recipes</strong>: three solo
+      models and one fusion built from them, all on one case (<code>limit=1</code>). On the hosted
+      engine the case comes from
+      <a href="https://arxiv.org/abs/2602.11685" target="_blank" rel="noopener">DRACO</a> and each
+      answer is judged three times. On a local engine the case comes from <code>medxpert</code>,
+      graded by exact match with no judge.
     </p>
 
     <blockquote>
       You'll need the <RouterLink to="/learn/engine">ScreamingFace Engine</RouterLink> running and
       an OpenRouter connection first. See
       <RouterLink to="/sf-client/installation">Installation</RouterLink>. Every model below is an
-      OpenRouter route, so one connection covers everything.
+      OpenRouter route, so one connection covers everything. DRACO runs on the hosted engine, which
+      needs an account with access. On a local engine, <code>medxpert</code> is ready by default, so
+      with a local engine run the same steps on <code>medxpert</code>.
     </blockquote>
 
     <h2>1 · Configure the engine</h2>
 
     <p>
       The <RouterLink to="/learn/engine"><strong>ScreamingFace Engine</strong></RouterLink> is a
-      separate process that holds your provider credentials, keeps the benchmark answer keys, calls
-      the models on your behalf, and does the grading. The Client hands all of that work to it, so
-      this first step tells the Client where to find the engine.
+      separate process that grades the benchmarks and calls the models on your behalf. On a local
+      engine it holds your provider credentials; on the hosted engine the operator manages them. The
+      Client hands all of that work to the engine, so this first step tells the Client where to find
+      it.
     </p>
 
     <div class="not-prose">
@@ -303,36 +255,42 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limi
     <p>
       <code>sf.configure()</code> validates and stores the URLs without making a network request.
       The example above points at a <strong>local engine</strong> on
-      <code>http://127.0.0.1:9108</code> and its leaderboard on <code>http://127.0.0.1:9106</code>
-      (a non-default engine must name its scoreboard, so local scores never reach the public
-      leaderboard) — to run one yourself, install the
-      <code>[runtime]</code> extra and start the stack with <code>screamingface up</code>. The
+      <code>http://127.0.0.1:9108</code> and its leaderboard on <code>http://127.0.0.1:9106</code>,
+      so local scores stay local. A non-default <code>engine_url</code> requires
+      <code>scoreboard_url</code>; <code>configure</code> raises <code>ValueError</code> without it.
+      To run one yourself, install the <code>[runtime]</code> extra and start the stack with
+      <code>screamingface up</code>. The
       <RouterLink to="/sf-client/installation">Installation</RouterLink> guide walks through that
       end to end.
     </p>
 
     <p>
-      To use the <strong>hosted ScreamingFace engine</strong> instead, point at its URL rather than
-      loopback. Access is currently granted person by person through peer-to-peer approval, so you
-      need to be approved before it will answer. Omitting the URL entirely falls back to
-      <code>DEFAULT_ENGINE_URL</code>, which is that hosted engine, so naming the one you mean is
-      worth doing explicitly.
+      To use the <strong>hosted ScreamingFace engine</strong> instead, name it: the Client's default
+      engine is the hosted one, <code>https://fusion.screamingface.ai</code>, and its leaderboard is
+      <code>https://leaderboard.screamingface.ai</code>. With no <code>configure</code> call and a
+      local stack running, the Client uses the local stack instead and prints
+      <code>connected to the local stack at http://127.0.0.1:9108</code>. Hosted access is granted
+      by the OpenMined team, so reach out to them before it will run evaluations for your account.
     </p>
 
     <p>
       <strong>If the engine isn't reachable</strong>, the first call that needs it will raise
       <code>EngineUnavailableError</code>. You can check a local one beforehand with
-      <code>curl http://127.0.0.1:9108/healthz</code>. Remote engines must use HTTPS, because
-      provider credentials will not travel over plain HTTP outside loopback.
+      <code>curl http://127.0.0.1:9108/healthz</code>. Provider connection calls require HTTPS
+      outside loopback.
     </p>
 
     <h2>2 · Connect a provider</h2>
 
     <p>
-      The engine holds credentials. You need at least one provider connected before you can call a
-      model. <code>sf.connect()</code> with no arguments shows a panel of every provider this engine
-      supports. The example below connects <strong>OpenRouter</strong> with an API key, walking
-      through all six states of the auth flow.
+      <strong>On the hosted engine</strong> there is nothing to connect:
+      <code>sf.connect()</code> shows a panel with a Log in button, and after login every provider
+      the OpenMined team has enabled for your account shows as connected. A provider that is not
+      enabled shows as unavailable. <strong>On a local engine</strong> the engine holds your
+      credentials, and you need at least one provider connected before you can call a model.
+      <code>sf.connect()</code> with no arguments shows a panel of every provider the engine
+      supports. The example below connects <strong>OpenRouter</strong> with an API key on a local
+      engine, walking through all six states of the auth flow.
     </p>
 
     <div class="not-prose">
@@ -345,8 +303,86 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limi
               :busy="step.providers.some((p) => p.status === 'pending') ? ['openrouter'] : []"
               engine-url="http://127.0.0.1:9108"
             >
-              <strong>Note:</strong> Dataset access is separate and <code>HF_TOKEN</code> belongs in
-              the engine <code>.env</code> file, not in a provider connection.
+            </ProviderConnections>
+          </template>
+        </NbStateCarousel>
+      </NbCell>
+    </div>
+
+    <blockquote>
+      You'll need the <RouterLink to="/learn/engine">ScreamingFace Engine</RouterLink> running and
+      an OpenRouter connection first. See
+      <RouterLink to="/sf-client/installation">Installation</RouterLink>. Every model below is an
+      OpenRouter route, so one connection covers everything. DRACO runs on the hosted engine, which
+      needs an account with access. On a local engine, <code>medxpert</code> is ready by default, so
+      with a local engine run the same steps on <code>medxpert</code>.
+    </blockquote>
+
+    <h2>1 · Configure the engine</h2>
+
+    <p>
+      The <RouterLink to="/learn/engine"><strong>ScreamingFace Engine</strong></RouterLink> is a
+      separate process that grades the benchmarks and calls the models on your behalf. On a local
+      engine it holds your provider credentials; on the hosted engine the operator manages them. The
+      Client hands all of that work to the engine, so this first step tells the Client where to find
+      it.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="1" :code="configure" />
+    </div>
+
+    <p>
+      <code>sf.configure()</code> validates and stores the URLs without making a network request.
+      The example above points at a <strong>local engine</strong> on
+      <code>http://127.0.0.1:9108</code> and its leaderboard on <code>http://127.0.0.1:9106</code>,
+      so local scores stay local. A non-default <code>engine_url</code> requires
+      <code>scoreboard_url</code>; <code>configure</code> raises <code>ValueError</code> without it.
+      To run one yourself, install the <code>[runtime]</code> extra and start the stack with
+      <code>screamingface up</code>. The
+      <RouterLink to="/sf-client/installation">Installation</RouterLink> guide walks through that
+      end to end.
+    </p>
+
+    <p>
+      To use the <strong>hosted ScreamingFace engine</strong> instead, name it: the Client's default
+      engine is the hosted one, <code>https://fusion.screamingface.ai</code>, and its leaderboard is
+      <code>https://leaderboard.screamingface.ai</code>. With no <code>configure</code> call and a
+      local stack running, the Client uses the local stack instead and prints
+      <code>connected to the local stack at http://127.0.0.1:9108</code>. Hosted access is granted
+      by the OpenMined team, so reach out to them before it will run evaluations for your account.
+    </p>
+
+    <p>
+      <strong>If the engine isn't reachable</strong>, the first call that needs it will raise
+      <code>EngineUnavailableError</code>. You can check a local one beforehand with
+      <code>curl http://127.0.0.1:9108/healthz</code>. Provider connection calls require HTTPS
+      outside loopback.
+    </p>
+
+    <h2>2 · Connect a provider</h2>
+
+    <p>
+      <strong>On the hosted engine</strong> there is nothing to connect:
+      <code>sf.connect()</code> shows a panel with a Log in button, and after login every provider
+      the OpenMined team has enabled for your account shows as connected. A provider that is not
+      enabled shows as unavailable. <strong>On a local engine</strong> the engine holds your
+      credentials, and you need at least one provider connected before you can call a model.
+      <code>sf.connect()</code> with no arguments shows a panel of every provider the engine
+      supports. The example below connects <strong>OpenRouter</strong> with an API key on a local
+      engine, walking through all six states of the auth flow.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="2" :code="connect">
+        <NbStateCarousel :steps="connectSteps" label="Connecting a provider">
+          <template #default="{ step }">
+            <ProviderConnections
+              :providers="step.providers"
+              :forms="step.forms"
+              :busy="step.providers.some((p) => p.status === 'pending') ? ['openrouter'] : []"
+              engine-url="http://127.0.0.1:9108"
+            >
             </ProviderConnections>
           </template>
         </NbStateCarousel>
@@ -357,17 +393,18 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limi
 
     <p>
       Each row shows one provider: its display name, <strong>live status</strong>, and what you can
-      do. Status comes fresh from the engine each time (not cached), and will be one of
-      <code>NOT CONNECTED</code>, <code>CONNECTING</code>, <code>CONNECTED</code>,
-      <code>NEEDS REAUTH</code>, or <code>ERROR</code>. The header shows which engine you're talking
-      to, so you won't accidentally send a key to the wrong one.
+      do. On a local engine the status is one of <code>not connected</code>, <code>pending</code>,
+      <code>connected</code>, <code>needs reauth</code> or <code>error</code>. On the hosted engine
+      it is <code>Connected</code> or <code>Unavailable</code>, with no buttons, because a hosted
+      engine takes no keys of its own. The header shows which engine you're talking to, so you won't
+      accidentally send a key to the wrong one.
     </p>
 
     <blockquote>
       We're using OpenRouter here for simplicity, but you can build fusions with models from any of
       the providers listed above. One caveat:
-      <strong>caching is currently available only for OpenRouter and Anthropic</strong>, so runs on
-      the other providers aren't reused yet — extending it to the rest is work in progress.
+      <strong>caching covers OpenRouter, Anthropic, OpenAI and Hugging Face routes</strong>, so runs
+      on Codex, Gemini CLI and Antigravity aren't reused.
     </blockquote>
 
     <h3>Configure OpenRouter via script</h3>
@@ -382,22 +419,16 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limi
     <p>
       <code>sf.connect(...)</code> returns a <code>Connection</code> with validated status, so a bad
       key fails right here, not later during evaluation. <code>sf.connections.list()</code> gives
-      you one per provider (same data the panel shows), and <code>sf.disconnect(...)</code> is safe
-      to call even if you've never connected.
+      you one per provider (same data the panel shows), and on a local engine
+      <code>sf.disconnect(...)</code> is safe to call even if you've never connected. A hosted
+      engine refuses both <code>connect</code> with a key and <code>disconnect</code>.
     </p>
 
     <p>
-      Providers that use OAuth instead of API keys (Codex and Anthropic) return an
-      <code>OAuthFlow</code>, which you finish in a browser:
-    </p>
-
-    <CodeBlock :code="connectOauth" language="python" />
-
-    <p>
-      The flow expires eventually, so <code>flow.wait()</code> will raise an error instead of
-      blocking forever. <code>flow.expired</code> tells you if that's happened, and
-      <code>flow.cancel()</code> abandons the attempt. Connection calls won't work over plain HTTP
-      unless the engine is on loopback, since remote engines must use HTTPS.
+      The panel states, the OAuth flow for Codex, Antigravity, Anthropic and Gemini CLI, and the
+      hosted engine's read-only connections are in the
+      <RouterLink to="/sf-client/guides/connections">Connections guide</RouterLink> and the
+      <RouterLink to="/sf-client/api/connections">Connections reference</RouterLink>.
     </p>
 
     <h2>3 · Compose the candidates</h2>
@@ -413,10 +444,10 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limi
         solo candidate.
       </li>
       <li>
-        <code>sf.Fanout(...) &gt;&gt; sf.Synthesize(...)</code>: a fusion. <code>sf.Fanout</code>
-        sends the question to several members. <code>sf.Synthesize</code> adds an explicit
-        <strong>synthesizer</strong>. Here, the synthesizer is another model that combines the
-        members' answers into one.
+        <code>sf.Fanout(...) &gt;&gt; sf.Synthesize(...)</code>: a fusion.
+        <code>sf.Fanout</code> sends the question to several members.
+        <code>sf.Synthesize</code> adds an explicit <strong>synthesizer</strong>. Here, the
+        synthesizer is another model that combines the members' answers into one.
       </li>
     </ul>
 
@@ -424,173 +455,146 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limi
       <NbCell :count="3" :code="compose" />
     </div>
 
-    <h3>Caching keeps reruns cheap</h3>
+    <p>
+      <code>frontier_trio</code> fuses the three frontier models. Its score next to each solo model
+      shows whether adding models helps on this case.
+    </p>
+
+    <h3>The request cache</h3>
 
     <p>
-      Every model call gets cached. When a fusion reuses the same model, the response comes from
-      cache instead of being paid for again. Runs get cheaper the more candidates share models. The
-      cache is also shared across the community: if anyone's already run that model config against a
-      benchmark, you get a cache hit at no cost.
+      With the cache on, a model call that was made before is served from the cache instead of being
+      paid for again. Calls are matched by route, prompt and parameters, not by model object, so
+      <strong>an identical call is served from the cache</strong>. Cache entries do not expire.
     </p>
 
     <p>
-      One thing worth understanding now:
-      <strong>reusing a Model object means its answer is computed once and shared</strong> across
-      every candidate using it. That makes 16 candidates affordable. A single failing model only
-      breaks the candidates that depend on it.
+      A local engine starts with the cache on and empty.
+      <code>evaluate(..., use_cache=False)</code> opts one run out, and
+      <code>export AIGW_REQUEST_CACHE_ENABLED=false</code> before
+      <code>screamingface up</code> turns it off. <code>sf.cache.pull_from_remote()</code> copies
+      the community cache into a local engine. On the hosted engine the cache is shared across the
+      community: if anyone has already run that model config against a benchmark, you get a cache
+      hit at no cost.
     </p>
-
-    <Collapsible title="The full 16-candidate lineup">
-      <CodeBlock :code="lineup" language="python" />
-    </Collapsible>
-
-    <p>The lineup explores three patterns, each testing a different hypothesis:</p>
-
-    <ul>
-      <li>
-        <strong>Pairs and trios of frontier models</strong>: Does adding another strong model help?
-      </li>
-      <li>
-        <strong><code>opus-self-fusion</code></strong
-        >: One model fused with a second sample of itself at higher temperature. Does fusion help
-        without adding a second model?
-      </li>
-      <li>
-        <strong><code>budget-trio</code></strong
-        >: Three cheaper models. Can they hit a frontier model's score at lower cost?
-      </li>
-    </ul>
 
     <h2>4 · Look up the benchmark</h2>
 
     <p>
       Benchmarks live on the engine, not in the Client. Fetching one returns its identity and the
       protocol revision it is pinned to, so you can see what you are about to be graded against
-      before spending anything. This call is free.
+      before spending anything. This call is free. It needs an engine that serves the benchmark: the
+      hosted engine serves <code>draco-3pass</code>, and a local engine started with
+      <code>screamingface up</code> comes with <code>medxpert</code> ready to run. To run more
+      benchmarks on a local engine from a repository checkout, run
+      <code>just local-stack-notebooks</code> from
+      <code>packages/screamingface/</code>.
     </p>
 
     <div class="not-prose">
       <NbCell :count="4" :code="load" />
     </div>
 
+    <p>On a local engine, look up <code>medxpert</code>:</p>
+
+    <div class="not-prose">
+      <NbCell :count="5" :code="loadLocal"><NbTextOut :text="loadLocalOut" /></NbCell>
+    </div>
+
     <p>
       It does <strong>not</strong> download the actual questions. Cases are loaded engine-side at
-      eval time. A gated dataset reads the <code>HF_TOKEN</code> from the <strong>engine's</strong>
-      environment, not the Client's. Set it where the engine runs:
+      eval time.
     </p>
 
-    <ul>
-      <li>
-        <strong>Your own engine:</strong> Put <code>HF_TOKEN=hf_…</code> in the engine's
-        <code>.env</code> file, or <code>export</code> it before starting the engine, then restart.
-        See <RouterLink to="/sf-client/installation">Installation</RouterLink> for the start
-        command.
-      </li>
-      <li>
-        <strong>Hosted engine:</strong> The operator sets the token, so gated datasets only work if
-        they've configured one. You can't pass it from the Client.
-      </li>
-    </ul>
-
     <p>
-      <code>sf.benchmarks.list()</code> shows what this engine has. <code>draco-3pass</code> only
-      appears if its judge model is in the gateway catalog, so if it is missing, the engine's
-      configuration is the place to look rather than your own code.
+      <code>sf.benchmarks.list()</code> shows what this engine has. The hosted engine lists
+      <code>draco</code> and <code>draco-3pass</code> among its benchmarks. On a local engine,
+      <code>medxpert</code> is ready by default, so on a local engine run this tutorial on
+      <code>medxpert</code>.
     </p>
 
     <p>
       <code>draco-3pass</code> runs the same 100-case dataset and rubric as the canonical
       <code>draco</code> board, judging each answer three times instead of five. Passing
-      <code>limit=1</code> pins this tutorial to a single case, keeping costs low; the
-      full 100-case run is a completely different scale of spend.
+      <code>limit=1</code> pins this tutorial to a single case. The <code>medxpert</code> run below
+      cost $0.717229 for the four candidates.
     </p>
 
     <h2>5 · Evaluate</h2>
 
     <p>
-      One call sends all 16 candidates as a <strong>single request</strong>. The benchmark id is
+      One call sends all four candidates as a <strong>single request</strong>. The benchmark id is
       passed here rather than to the lookup above, because the lookup was only for reading the
       protocol.
     </p>
 
     <div class="not-prose">
-      <NbCell :count="5" :code="evaluate">
-        <EvaluationReport
-          title="16 candidates"
-          benchmark="draco-3pass"
-          phase="complete"
-          elapsed="4M 51S"
-          :done="16"
-          :total="16"
-          :stats="runStats"
-          :recent="runRecent"
-          recent-extra="+1 MORE"
-          caption="Operation-level progress · model output appears when each call completes"
-        />
-      </NbCell>
+      <NbCell :count="6" :code="evaluate" />
+    </div>
+
+    <p>
+      On a local engine started with <code>screamingface up</code>, use <code>medxpert</code>, which
+      is ready by default:
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="7" :code="evaluateLocal" />
     </div>
 
     <p>
       Before the first model call, the Client checks the whole plan: that the benchmark agrees with
-      what the engine has, that every model route exists in the catalog, that the parameters you set
-      are ones those models accept, and that each candidate compiles. Anything wrong with the plan
-      raises <code>PlanningError</code>, which names the specific problem in its message; a provider
-      that is not connected raises <code>ProviderConnectionError</code> instead. All of this happens
-      before anything is spent, so a misconfigured run costs nothing.
-    </p>
-
-    <p>
-      The panel updates live as the run proceeds. <code>MODELS</code> counts distinct answering
-      calls (ten, not sixteen, because shared members are computed once).
-      <code>SYNTHESIS</code> counts the nine synthesizers, <code>SCORING</code> the graded
-      candidates, and <code>RESULTS</code> the finalized ones. Progress moves on real grader
-      results, never timers, so if a counter stalls, work actually stalled.
+      what the engine has, that every model route exists in the catalog, and that each candidate
+      compiles. Anything wrong with the plan raises <code>PlanningError</code>, which names the
+      specific problem in its message; a provider that is not connected raises
+      <code>ProviderConnectionError</code> instead. All of this happens before anything is spent.
     </p>
 
     <blockquote>
-      <strong>This step costs money.</strong> Expect ten model answers, nine syntheses, and thirty
-      judge passes per graded candidate (ten criteria × three passes), for one case. It's minutes
-      and cents rather than hours and dollars, but it's not free. <code>draco-3pass</code> at all
-      100 cases — or the five-pass <code>draco</code> — is a completely different scale of spend.
+      <strong>This step costs money.</strong> Each candidate answers the case once. On DRACO a judge
+      model then grades each answer three or five times; <code>medxpert</code> has no judge. Read
+      <code>report.usage.cost_usd</code> after a run before you scale it up.
+      <code>draco-3pass</code> at all 100 cases, or the five-pass <code>draco</code>, costs far more
+      than one case.
     </blockquote>
 
     <p>
       If a model fails, only the candidates using it are affected, and the rest still score. A
       failure lowers that candidate's coverage instead of counting as zero, so a partial result
-      looks partial. Since every completed call is cached, re-running after a failure is free for
-      work that already succeeded, so you only pay for new, uncached calls.
+      looks partial. <code>evaluate</code> still returns a report, so check it before you read the
+      scores:
+    </p>
+
+    <CodeBlock :code="checkReport" language="python" />
+
+    <p>
+      With the cache on, a repeated call that already succeeded is served from the cache. A call
+      whose input changed, such as the second turn of a <code>medxpert</code> case, is paid again.
     </p>
 
     <h2>6 · Read the study</h2>
 
     <p>
-      The report shows each candidate in the order you declared them, with their scores, and marks
-      the best one. Nine are shown here; the rest are summarized as <code>+7 MORE</code>.
+      The report lists each candidate in the order you declared them, with its score and coverage.
     </p>
 
+    <p>On the local run above, each candidate's score:</p>
+
     <div class="not-prose">
-      <NbCell :count="6" code="report">
-        <CandidateScores
-          :candidates="studyCandidates"
-          benchmark="draco-3pass"
-          case-label="1 case"
-          :limit="9"
-        />
-      </NbCell>
+      <NbCell :count="8" :code="scoresLocal"><NbTextOut :text="scoresLocalOut" /></NbCell>
     </div>
 
     <h3>What the columns mean</h3>
 
     <ul>
       <li>
-        <strong>Score</strong>: The candidate's normalized rubric score. Ten criteria get judged, so
-        values land on a coarse grid instead of anywhere in 0–100%.
+        <strong>Score</strong>: The candidate's benchmark score. On DRACO a case is judged against a
+        fixed set of criteria, so values land on a coarse grid instead of anywhere in 0 to 100%. On
+        <code>medxpert</code> the score is the fraction of cases answered correctly.
       </li>
       <li>
         <strong>Coverage</strong>: How much of the case set produced a grade. Below 100% means
         something failed, and the score then covers only what completed.
       </li>
-      <li><strong>BEST</strong>: Marks the top scorer. Ties go to the first in declared order.</li>
     </ul>
 
     <h3>Reading it in code</h3>
@@ -598,9 +602,11 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limi
     <ul>
       <li><code>report.candidates["frontier-trio"].score</code>: one candidate's score.</li>
       <li>
-        <code>max(report.candidates, key=lambda c: c.score or 0)</code>: the top scorer. There is no
-        <code>best</code> field, because picking a winner is a judgement about your own experiment
-        rather than something the report should decide.
+        <code>max(report.candidates, key=lambda c: c.score or 0)</code>: the top scorer. Check
+        <code>report.ok</code> first, because a failed candidate has a score of
+        <code>None</code> and counts as 0 here. There is no <code>best</code> field, because picking
+        a winner is a judgement about your own experiment rather than something the report should
+        decide.
       </li>
       <li>
         <code>len(report.candidates["frontier-trio"].cases)</code> against
@@ -614,8 +620,8 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limi
     </ul>
 
     <blockquote>
-      <strong>Don't over-read a single run.</strong> One case judged once is an integration check,
-      not a measurement. Run it twice and the winner may change. Treat the result as a shape worth
+      <strong>Don't over-read a single run.</strong> One case is an integration check, not a
+      measurement. Run it twice and the winner may change. Treat the result as a shape worth
       exploring rather than a finding.
     </blockquote>
 
@@ -623,7 +629,15 @@ const evaluate = `report = sf.evaluate(candidates, benchmark="draco-3pass", limi
 
     <p>
       The real claim is demonstrated on all 100 DRACO tasks, not this one-case sample. These are
-      published figures rather than output from the code above, so your own numbers will differ.
+      published figures rather than output from the code above, so your own numbers will differ. The
+      live <code>draco-3pass</code> board lists 15 entries, and its top score is 68.69%. Live scores
+      are on the
+      <a
+        href="https://leaderboard.screamingface.ai/benchmark.html?id=draco-3pass"
+        target="_blank"
+        rel="noopener"
+        >leaderboard</a
+      >.
     </p>
 
     <div class="not-prose">

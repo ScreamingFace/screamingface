@@ -3,7 +3,6 @@ import { RouterLink } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import DocLayout from '@/components/layout/DocLayout.vue'
 import NbCell from '@/components/nb/NbCell.vue'
-import NbTextOut from '@/components/nb/NbTextOut.vue'
 import { SF_ENGINE_URL, SF_SCOREBOARD_URL } from '@/lib/engine'
 import { useThemeStore } from '@/stores/themeStore'
 import {
@@ -14,7 +13,7 @@ import {
 const { isDark } = storeToRefs(useThemeStore())
 
 const localDiagram = (dark: boolean) =>
-  `/diagrams/screamingface-request-architecture-local-${dark ? 'dark' : 'light'}.svg`
+  `/diagrams/sf-request-architecture-local-${dark ? 'dark' : 'light'}.svg`
 
 // The smallest complete run: name the engine, compose a fusion, evaluate it
 // beside its own member, read both scores. Every name here is shipped API.
@@ -32,84 +31,83 @@ fusion = sf.Fanout([gpt, flash]) >> sf.Synthesize("openrouter/openai/gpt-5.5")
 # Score the solo model beside the fusion, on the same cases.
 report = sf.evaluate([gpt, fusion], benchmark="draco-3pass", limit=3)
 {c.name: c.score for c in report.candidates}`
-
-const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview': 1.0}`
 </script>
 
 <template>
   <DocLayout
     title="Overview"
-    description="Open infrastructure for composing and measuring model fusions, and the smallest end-to-end run."
+    description="Open infrastructure for composing, measuring and sharing model fusions."
     :navigation="navigation"
     :version="version"
   >
     <p>
-      ScreamingFace is open, Python-first infrastructure for composing model ensembles (it calls
-      them
-      <strong>fusions</strong>) and measuring them under grading you do not control. It is built
-      around one approach: advancing capability by composition, combining existing models rather
-      than training new ones. You assemble a fusion from providers you hold keys for, evaluate it
-      against a research benchmark, and read back its score next to its cost.
+      ScreamingFace is an open-source, Python-first toolkit for composing model
+      <strong>fusions</strong> (ensembles, routed ensembles, cascades, etc.) and measuring them as a
+      single system with uniform grading. It is built around one goal: advancing capability by
+      composition, combining existing models rather than training new ones. You assemble a fusion
+      from providers you hold keys for, evaluate it against a research benchmark, and read back its
+      score next to its cost.
     </p>
 
     <p>
-      A fusion can score higher than any single model within it. A reproduction of the
-      <strong>DRACO</strong> deep-research benchmark put the best fusion at
-      <strong>68.6%</strong> against <strong>60.2%</strong> for the best single model (<a
+      A fusion of models can outscore every model inside it. In a reproduction of the
+      <strong>DRACO</strong> deep-research benchmark, the best fusion reached
+      <strong>68.6%</strong>, while the best single model managed <strong>60.2%</strong> (<a
         href="https://andrewtrask.substack.com/p/6-weeks-ago-frontier-ai-labs-lost"
         target="_blank"
         rel="noopener"
         >published results</a
-      >), an effect that recurs across the ensemble literature, for instance in
+      >). This isn't a one-off. The same pattern shows up throughout the ensemble literature, for
+      example in
       <a href="https://openreview.net/forum?id=XSIYfTm2h7" target="_blank" rel="noopener"
         ><em>Beyond Leaderboards: Tokenomics of Agentic Small Language Model Ensembles</em></a
       >
-      (Skurikhin et al., Los Alamos). The effect itself is not new. What the Client adds is the
-      infrastructure around it: held-out grading, a reproducible record of every run, and cost
-      reported next to accuracy.
+      (Skurikhin et al., Los Alamos). The ScreamingFace Client and Leaderboard grade every system
+      the same way and show its score next to its cost, and each result carries its url4.
     </p>
 
-    <h2>What the Client provides</h2>
+    <h2>What the Client and Leaderboard provide</h2>
 
     <ul>
       <li>
-        <strong>Held-out grading.</strong> Benchmark answer keys, rubrics, and judges live on the
-        engine and are never returned to the Client, so a score does not rest on trusting whoever
-        produced it.
+        <strong>Held-out grading:</strong> The engine grades each case, so a score does not rest on
+        trusting whoever produced it. The run report returns the rubric criteria and the judge model
+        for each graded case, so you can see how a score was reached.
       </li>
       <li>
-        <strong>A reproducible artifact for every run.</strong> Each evaluation compiles to one
+        <strong>A reproducible artifact for every run:</strong> Each evaluation compiles to one
         <RouterLink to="/learn/url4">url4</RouterLink> expression recording the models, their
         parameters, and the benchmark revision that was used. Anyone holding it can run the same
         evaluation.
       </li>
       <li>
-        <strong>Your own providers.</strong> You connect the API keys you already have, and calls
-        are billed to your own accounts rather than resold to you.
+        <strong>Your own providers (local engine):</strong> You connect the API keys you already
+        have, and calls are billed to your own accounts rather than resold to you.
       </li>
       <li>
-        <strong>Caching.</strong> Every model response is
-        <RouterLink to="/learn/caching">cached</RouterLink> against its exact request, so comparing
-        many fusion candidates over one benchmark is billed only for the calls that have not been
-        made before. A model shared between two candidates answers once, and swapping a single
-        member re-uses what the others already produced.
+        <strong>Billing only for new calls:</strong> With the
+        <RouterLink to="/learn/caching">cache</RouterLink> on, a model call that was made before is
+        served from the cache. Calls are matched by route, prompt and parameters, so comparing many
+        fusion candidates over one benchmark is billed only for the calls that have not been made
+        before. An identical call from another candidate is served from the cache, and swapping one
+        member re-uses the member calls that did not change.
       </li>
       <li>
-        <strong>Cost reported alongside accuracy.</strong> Tokens, spend, and duration stream while
+        <strong>Cost reported alongside accuracy:</strong> Tokens, spend, and duration stream while
         the run is in progress and are totalled per model and per fusion, so the price of a gain is
         visible at the same time as the gain.
       </li>
       <li>
-        <strong>Reusable recipes.</strong> Recipes published to the leaderboard can be imported,
+        <strong>Reusable recipes:</strong> Recipes published to the leaderboard can be imported,
         modified, and re-run, and on a hosted engine the cache is shared across the community, so
-        repeating someone else's run usually costs a fraction of the original.
+        calls already in the shared cache cost nothing to repeat.
       </li>
     </ul>
 
     <h2>How it works</h2>
 
     <p>
-      The Client never calls a model provider itself. It compiles your recipe into one
+      The Client compiles your fusion into one
       <strong>url4</strong> expression and hands that to an
       <RouterLink to="/learn/engine">engine</RouterLink>, which holds the credentials and the
       benchmark answer keys and does the grading.
@@ -133,12 +131,13 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
     <figure class="not-prose diagram">
       <img
         :src="localDiagram(isDark)"
-        alt="Local request flow: the Client compiles your recipe into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
+        alt="Local request flow: the Client compiles your fusion into one url4 expression and hands it to an engine on your own machine, which fans each model call out through the AI gateway to the providers you hold keys for and streams scores and cost back."
       />
       <figcaption>
-        <strong>The local flow.</strong> The Client compiles your recipe into one url4 expression
-        and hands it to an engine on your own machine; the engine fans model calls out through the
-        gateway to the providers you hold keys for, then streams scores and cost back.
+        <strong>The local flow.</strong> The Client hands your fusion to an engine on your own
+        machine, which fans model calls through the gateway to the providers you hold keys for. Its
+        cache accumulates across runs and can pull from the shared community cache, and the engine
+        submits a verifiable result to the public leaderboard.
       </figcaption>
     </figure>
 
@@ -151,30 +150,48 @@ const smallestExampleOut = `{'gpt-5.5': 0.667, 'gpt-5.5+gemini-3-flash-preview':
         <strong>A local engine</strong> ships with the toolkit and runs on your own machine, using
         your keys and its own cache. Nothing is hosted and no third party sits between you and your
         providers, but the cache starts empty and you pay for the compute.
+        <code>sf.cache.pull_from_remote()</code> signs in to the hosted engine and copies the
+        community cache into it.
       </li>
       <li>
         <strong>A hosted engine</strong> runs the same software as a service and adds the shared
-        community cache, on compute we provide once you log in. It does not take your own provider
-        keys; bring-your-own-key is the local path, and your prompts run on an engine we operate.
+        community cache, on compute we provide once your account has been given access. To get
+        access, reach out to the OpenMined team. It does not take your own provider keys;
+        bring-your-own-key is the local path, and your prompts run on an engine we operate.
       </li>
     </ul>
 
     <p>
-      The code you write is identical either way and only the engine URL differs, so the decision is
+      The code you write is the same either way. Only the <code>configure</code> call (the engine
+      and leaderboard URLs) and the benchmarks the engine serves differ, so the decision is
       reversible. The <RouterLink to="/sf-client/installation">Installation</RouterLink> guide
       covers both.
     </p>
 
     <h2>The smallest example</h2>
 
+    <p>
+      This runs on a hosted engine, which requires permission. You can run the same thing by
+      pointing the ScreamingFace Client at a local engine (<RouterLink to="/sf-client/installation"
+        >more here</RouterLink
+      >).
+    </p>
+
     <div class="not-prose">
-      <NbCell :count="1" :code="smallestExample"><NbTextOut :text="smallestExampleOut" /></NbCell>
+      <NbCell :count="1" :code="smallestExample" />
     </div>
 
     <p>
-      <code>score</code> is each candidate's accuracy over the same cases, where higher is better.
-      The report carries no baseline or gain field, because the comparison is simply that you ran
-      the solo model and the fusion in one call and can read both numbers.
+      <code>score</code> is each candidate's benchmark score over the same cases, where higher is
+      better. The report carries no baseline or gain field, because the comparison is simply that
+      you ran the solo model and the fusion in one call and can read both numbers. Scores for
+      <code>draco-3pass</code> are on the live
+      <a
+        href="https://leaderboard.screamingface.ai/benchmark.html?id=draco-3pass"
+        target="_blank"
+        rel="noopener"
+        >leaderboard</a
+      >.
     </p>
   </DocLayout>
 </template>

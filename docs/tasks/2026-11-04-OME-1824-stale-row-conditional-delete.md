@@ -1,13 +1,13 @@
 ---
 id: OME-1824
 linear_url: https://linear.app/openmined/issue/OME-1824/let-a-connection-delete-require-the-rows-status-l7c
-status: in_review
+status: done
 type: task
 priority: medium
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-11-04
-closed:
+closed: 2026-11-05
 ---
 
 # Let a Connection delete require the row's status (L7c)
@@ -23,3 +23,5 @@ plan `docs/plan/2026-10-29-local-engine-effective-row.md` §3a, ledger
 `docs/work/2026-11-04-stale-row-conditional-delete.md`.
 
 - 2026-11-04: filed; the PR opened.
+- 2026-11-05: squash-merged to `main` as `24d979a5e` (PR #1678). Closed Done in Linear the same
+  day with the close comment.

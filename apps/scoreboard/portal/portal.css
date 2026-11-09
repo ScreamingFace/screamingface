@@ -678,3 +678,13 @@ td.col-open { white-space: nowrap; }
    pinning" above), so positioning the toggle against the rail keeps the same offset inside
    the rail at every scroll position, on desktop and on the wrapped mobile rail. */
 .rail .toggle { position: absolute; }
+
+/* Catalog controls retain the portal's typography, borders and keyboard focus. */
+.catalog-controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-4); margin-bottom: var(--space-5); }
+.catalog-controls[hidden], .catalog-controls [hidden] { display: none; }
+.catalog-search { flex: 1 1 16rem; }
+.catalog-search label { display: block; margin-bottom: var(--space-2); }
+.catalog-search input { box-sizing: border-box; width: 100%; padding: var(--space-3); font: inherit; color: var(--ink); background: var(--bg); border: var(--border-hairline) solid var(--line); border-radius: 0; }
+.catalog-search input:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
+.catalog-scored { display: flex; align-items: center; gap: var(--space-2); padding-block: var(--space-3); }
+.catalog-count { flex-basis: 100%; margin: 0; }

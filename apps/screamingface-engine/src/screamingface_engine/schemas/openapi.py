@@ -106,6 +106,14 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
+        "name": "Blobs",
+        "description": (
+            "Upload a file to the run's blob store and fetch it back (OME-1540). Both need the "
+            "run's capability token; a blob is readable only within the run (and caller) that "
+            "uploaded it. " + _ERROR_DIALECT_NOTE
+        ),
+    },
+    {
         "name": "Catalog",
         "description": (
             "Discover the models a credential can address (OME-625). " + _ERROR_DIALECT_NOTE

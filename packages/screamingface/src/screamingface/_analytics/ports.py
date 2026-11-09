@@ -11,6 +11,9 @@ type Event = dict[str, str]
 class Consent:
     choice: Choice = "unknown"
     installation_id: str | None = None
+    # INVARIANT: recovery must not revive operations from before consent was lost.
+    # This process-local revision never enters event fields or preference storage.
+    revision: int = 0
 
 
 class ConsentStore(Protocol):

@@ -53,7 +53,7 @@ const modelsRow = `GET /v1/models
     <blockquote>
       <strong>Partly unreleased, partly proposed.</strong> This page follows the file-input spec,
       merged with <a :href="`${GH_PR}/1450`" target="_blank" rel="noopener">#1450</a> as a
-      <strong>draft</strong>. Kevin's approval of its url4 wire changes (review rounds 7–10: the
+      <strong>draft</strong>. Kevin's approval of its url4 wire changes (review rounds 7 to 10: the
       <code>;accept=</code> opt-in, the literal and model-free rules, and the new
       <code>x.*</code> error codes) is still pending, so those parts may change. Much of the code is
       not merged yet. Each section says where its behaviour stands: <em>on main</em> (merged, not in
