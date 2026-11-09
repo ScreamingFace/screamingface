@@ -23,6 +23,12 @@ dependencies = [
     "pyjwt>=2.10.1",
     "prometheus-client>=0.21.0",
     "pydantic-settings>=2.14.1",
+    # The Run registry (OME-1785, E5 P1 spec D2): one Tortoise store, SQLite locally and Postgres
+    # hosted. Pinned at aigateway's versions. INVARIANT: only `runs/` imports these
+    # (.claude/scripts/check_layering.py DATABASE_STACK), so the run mode never opens a database.
+    "tortoise-orm[asyncpg]==1.1.8",
+    "asyncpg==0.31.0",
+    "aiosqlite==0.22.1",
     # --- both modes ---
     "pydantic>=2.13.4",
     # The catalog's upstream aigateway client (`screamingface_engine.catalog`), and the shared
@@ -186,6 +192,7 @@ filterwarnings = [
 ]
 markers = [
     "no_default_scope: turn off the autouse request scope (tests/conftest.py), so the test proves a production producer bound one (FX-61)",
+    "needs_postgres: needs Docker for a Postgres testcontainer; runs only with URL4_CLOUD_TEST_PG=1 (the Run registry contract, OME-1785)",
     "kind: needs the uniform executor kind environment (deploy/kind/up.sh); excluded from the default run by addopts above, and skips cleanly when kind context `kind-sf-uniform` is unreachable",
 ]
 
@@ -208,6 +215,7 @@ dev = [
     "pytest-cov>=5",
     "pytest-xdist>=3.8",
     "ruff>=0.16.1",
+    "testcontainers[postgres]==4.15.0",
 ]
 
 # Notebook/example-only aids for .examples/ (not needed by the shipped apps). Mirrors

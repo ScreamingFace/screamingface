@@ -9,6 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env, runner_queue, subjects
 from screamingface_engine.artifacts.blobs import ATTACHMENT_MEDIA_TYPES, DEFAULT_BLOB_MAX_BYTES
+from screamingface_engine.candidate_outcomes import DEFAULT_OUTCOMES_MAX_AGE_S
 
 RunnerBackend = Literal["none", "queue"]
 ArtifactStoreBackend = Literal["filesystem", "s3"]
@@ -46,6 +47,12 @@ STUDIO_CORS_ORIGINS = (
     "http://tauri.localhost",
     "https://tauri.localhost",
 )
+
+
+# The Client's default admission budget (`packages/screamingface`, `_engine/admission.py`): how
+# long it re-sends a start the Engine refused with 503. Named here, not imported: the Engine never
+# imports the Client. `run_pending_grace_s` must exceed it (E5 P1 spec R5).
+CLIENT_ADMISSION_BUDGET_S = 900.0
 
 
 class Settings(BaseSettings):
@@ -301,6 +308,23 @@ class Settings(BaseSettings):
     # the gateway it manages credentials through is the one running beside it.
     local_aigateway_base_url: str = LOCAL_AIGATEWAY_BASE_URL
 
+    # --- the Run registry (OME-1785, E5 P1) ---------------------------------------------------
+    # FEATURE: first-class Runs. The registry's database: SQLite locally, the `engine` database
+    # on the shared Postgres server hosted (spec D2). Empty means Runs are off on a hosted App.
+    # AIDEV-NOTE: credential material (it carries the password). It reaches the pod from a
+    # Secret, never a ConfigMap, and is never logged.
+    database_url: str = ""
+    # WHY 30 days (spec R7): long enough to come back to last month's runs; the hourly sweep
+    # deletes Runs created before it.
+    run_retention_s: float = Field(default=30 * 86_400.0, gt=0, allow_inf_nan=False)
+    # WHY 1800 s (spec R5): how long a bound-but-unscheduled or unstarted Candidate still reads
+    # `running`. It must exceed the Client's admission budget, or a Client still waiting for
+    # admission would read `interrupted` (validated below).
+    run_pending_grace_s: float = Field(default=1800.0, allow_inf_nan=False)
+    # WHY 48 h (spec R6): past both `url4-candidate-outcomes` and `url4-runq`'s 24 h retention, so
+    # reconcile settles a Candidate `lost` only once no outcome can still arrive.
+    run_lost_after_s: float = Field(default=48 * 3600.0, gt=0, allow_inf_nan=False)
+
     # --- shared events stream (uniform executor, PRD 01) --------------------------------------
     # ONE stream holds every run's frames (`url4-events`, subject `url4-cloud.<topic>`). The App
     # and the worker declare it at startup from these values and apply a changed limit; no
@@ -475,6 +499,30 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return job_env.DEFAULT_ARTIFACTS_DIR
         return value
+
+    @field_validator("run_pending_grace_s")
+    @classmethod
+    def _grace_outlasts_admission(cls, value: float) -> float:
+        if value <= CLIENT_ADMISSION_BUDGET_S:
+            raise ValueError(
+                f"run_pending_grace_s={value} must exceed the Client's admission budget "
+                f"({CLIENT_ADMISSION_BUDGET_S} s), or a Client waiting for admission reads "
+                f"as interrupted"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _lost_after_outlasts_retention(self) -> Self:
+        """INVARIANT (spec R6): reconcile settles a Candidate `lost` only once no outcome or
+        queued run can still arrive, so the window must outlast both streams' retention."""
+        retained = max(self.run_queue_max_age_s, DEFAULT_OUTCOMES_MAX_AGE_S)
+        if self.run_lost_after_s <= retained:
+            raise ValueError(
+                f"run_lost_after_s={self.run_lost_after_s} must exceed the outcome and run "
+                f"queue retention ({retained} s), or reconcile settles a Candidate `lost` "
+                f"before its outcome can arrive"
+            )
+        return self
 
     @model_validator(mode="after")
     def _enforce_ack_wait_floor(self) -> Self:
