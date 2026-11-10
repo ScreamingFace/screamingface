@@ -390,7 +390,7 @@ def _card_html(
         f"<span class='sf-report__name'{' aria-hidden=true' if linked else ''}>"
         f"{escape(candidate.name)}</span>"
         f"<span class='sf-report__ctx'>{escape(ctx)}</span>"
-        f"<span class='sf-report__run'>{escape(short(candidate.run_id))}</span></div>"
+        f"<span class='sf-report__run'>{escape(short(candidate.attempt_id))}</span></div>"
         f"{_models_html(candidate)}"
         f"<div class='sf-report__grid'>{''.join(cells)}</div>"
         f"{_coverage_notice_html(candidate)}"
@@ -861,7 +861,7 @@ def _selection_css(group: str, total: int) -> str:
 
 
 def _group_key(report: Report) -> str:
-    names = "|".join(candidate.run_id for candidate in report.candidates)
+    names = "|".join(candidate.attempt_id for candidate in report.candidates)
     return f"{abs(hash(names)) % 10**8:08d}"
 
 

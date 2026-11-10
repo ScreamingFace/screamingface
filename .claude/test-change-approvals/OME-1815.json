@@ -1,0 +1,30 @@
+{
+  "issue": "OME-1815",
+  "branch": "OME-1815-e5-p1-c1-client-runs",
+  "approver": "Tauquir Ahmed (spec owner)",
+  "date": "2026-11-03",
+  "scope": "Exactly these edits. public_surface_snapshot.json: regenerated for sf.runs, Run, CandidateRun, RunProgress, Report.run_id and CandidateResult.attempt_id. test_partial_submission_notice.py: its CandidateResult helper passes attempt_id= instead of run_id=. test_analytics_integration.py: the fake Candidate's attribute run_id becomes attempt_id. test_report.py: `assert not hasattr(value, \"run_id\")` becomes `assert value.run_id is None`. _isolation_engine.py: the fake Engine answers POST /runs (201 with a Run) and DELETE /runs/{id} (202); its other routes are unchanged.",
+  "reason": "E5 P1 spec D10 and \u00a74.4: Report.run_id names the evaluation's Run, and CandidateResult.run_id is deprecated for attempt_id, so a test helper that passes run_id= now warns inside a pytest.warns block, and a fake that has only run_id lacks the attribute the SDK reads. A current Engine serves /runs (spec \u00a74.1); without it the fake reads as an older Engine and the D7 notice breaks a warnings-as-errors test.",
+  "files": {
+    "packages/screamingface/tests/_isolation_engine.py": {
+      "base_blob": "78907e28583d61dfa02fdf96fe4aad64266e582b",
+      "approved_blob": "c9af285a1e49e3ff3d89c3ebba193f51577e94d1"
+    },
+    "packages/screamingface/tests/public_surface_snapshot.json": {
+      "base_blob": "b72408d416e7456a47e1cba7d0f2f06604d56444",
+      "approved_blob": "40ab585506c92644caff568142ae323ac787d2e9"
+    },
+    "packages/screamingface/tests/test_analytics_integration.py": {
+      "base_blob": "334ae5eb936798d57a5db16bc66e2e5fd99f8330",
+      "approved_blob": "8a04161ad27ccb7de754c5fdcef483f7f7044ca6"
+    },
+    "packages/screamingface/tests/test_partial_submission_notice.py": {
+      "base_blob": "b27d8e4ccea5359c25a4e2065b002fb8786844e1",
+      "approved_blob": "08bc4340cd2e124088dd38d95f8739ab9473003d"
+    },
+    "packages/screamingface/tests/test_report.py": {
+      "base_blob": "2c647667b1484f60d83cbf77c38cb209032a2ef9",
+      "approved_blob": "0be27b3d165e4284bd4b6378becdb10e64df6ed1"
+    }
+  }
+}

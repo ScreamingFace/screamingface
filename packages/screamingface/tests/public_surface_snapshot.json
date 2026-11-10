@@ -10,6 +10,7 @@
       "Benchmark",
       "BenchmarkInfo",
       "CandidateResult",
+      "CandidateRun",
       "CaseGrade",
       "CaseMedia",
       "CaseResult",
@@ -76,6 +77,8 @@
       "Reproduction",
       "ReproductionError",
       "ReproductionOutcome",
+      "Run",
+      "RunProgress",
       "ScoreMetadataEvent",
       "ScreamingFaceError",
       "SelfCorrective",
@@ -104,6 +107,7 @@
       "matches",
       "models",
       "reports",
+      "runs",
       "samples",
       "signal"
     ],
@@ -212,10 +216,11 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, capture_partial_reasons: 'Sequence[str]' = (), reproduction: 'Reproduction | None' = None) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', attempt_id: 'str | None' = None, started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, capture_partial_reasons: 'Sequence[str]' = (), reproduction: 'Reproduction | None' = None, run_id: 'str | None' = None) -> 'None'",
           "abstained_count": "property",
           "accounting": "property",
           "answer_seed": "field",
+          "attempt_id": "field",
           "benchmark": "field",
           "cache_hits": "field",
           "cache_saved_cost_archive_usd": "field",
@@ -238,7 +243,7 @@
           "pinned_cache": "field",
           "reproduction": "field",
           "run_cost_status": "field",
-          "run_id": "field",
+          "run_id": "property",
           "score": "field",
           "scores": "property",
           "selected_cases": "property",
@@ -247,6 +252,16 @@
           "trace_id": "field",
           "url4": "field",
           "usage": "field"
+        }
+      },
+      "CandidateRun": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, name: 'str', state: 'CandidateState', cost_usd: 'Decimal | None', error_code: 'str | None') -> None",
+          "cost_usd": "field",
+          "error_code": "field",
+          "name": "field",
+          "state": "field"
         }
       },
       "CaseGrade": {
@@ -972,7 +987,7 @@
       "Report": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', case_count: 'int', candidates: 'Sequence[CandidateResult]') -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', case_count: 'int', candidates: 'Sequence[CandidateResult]', run_id: 'str | None' = None) -> 'None'",
           "benchmark": "field",
           "candidates": "field",
           "case_count": "field",
@@ -981,6 +996,7 @@
           "export": "method (self, path: 'str | PathLike[str]' = 'report.json', *, format: \"Literal['json', 'inspect']\" = 'json', candidate: 'str | None' = None) -> 'Path'",
           "failures": "property",
           "ok": "property",
+          "run_id": "field",
           "selected_cases": "property",
           "selection_fingerprint": "property",
           "started_at": "property",
@@ -1016,6 +1032,33 @@
       "ReproductionOutcome": {
         "kind": "type alias",
         "value": "typing.Literal['exact', 'failed', 'not_reproducible']"
+      },
+      "Run": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', state: 'RunState', created_at: 'datetime', finished_at: 'datetime | None', benchmark: 'str', candidates: 'tuple[CandidateRun, ...]') -> None",
+          "benchmark": "field",
+          "cancel": "method (self) -> 'None'",
+          "candidates": "field",
+          "cost_usd": "property",
+          "created_at": "field",
+          "finished_at": "field",
+          "id": "field",
+          "progress": "method (self) -> 'RunProgress'",
+          "refresh": "method (self) -> 'Run'",
+          "report": "method (self) -> 'Report'",
+          "state": "field",
+          "wait": "method (self, *, timeout: 'float | None' = None) -> 'Run'"
+        }
+      },
+      "RunProgress": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, done: 'int', total: 'int', cost_usd: 'Decimal | None') -> None",
+          "cost_usd": "field",
+          "done": "field",
+          "total": "field"
+        }
       },
       "ScoreMetadataEvent": {
         "kind": "class",
@@ -1180,6 +1223,10 @@
       "reports": {
         "kind": "module",
         "module": "screamingface.reports"
+      },
+      "runs": {
+        "kind": "module",
+        "module": "screamingface.runs"
       },
       "samples": {
         "kind": "function",
@@ -1519,10 +1566,11 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, capture_partial_reasons: 'Sequence[str]' = (), reproduction: 'Reproduction | None' = None) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', attempt_id: 'str | None' = None, started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, capture_partial_reasons: 'Sequence[str]' = (), reproduction: 'Reproduction | None' = None, run_id: 'str | None' = None) -> 'None'",
           "abstained_count": "property",
           "accounting": "property",
           "answer_seed": "field",
+          "attempt_id": "field",
           "benchmark": "field",
           "cache_hits": "field",
           "cache_saved_cost_archive_usd": "field",
@@ -1545,7 +1593,7 @@
           "pinned_cache": "field",
           "reproduction": "field",
           "run_cost_status": "field",
-          "run_id": "field",
+          "run_id": "property",
           "score": "field",
           "scores": "property",
           "selected_cases": "property",
@@ -1780,7 +1828,7 @@
       "Report": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', case_count: 'int', candidates: 'Sequence[CandidateResult]') -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', case_count: 'int', candidates: 'Sequence[CandidateResult]', run_id: 'str | None' = None) -> 'None'",
           "benchmark": "field",
           "candidates": "field",
           "case_count": "field",
@@ -1789,6 +1837,7 @@
           "export": "method (self, path: 'str | PathLike[str]' = 'report.json', *, format: \"Literal['json', 'inspect']\" = 'json', candidate: 'str | None' = None) -> 'Path'",
           "failures": "property",
           "ok": "property",
+          "run_id": "field",
           "selected_cases": "property",
           "selection_fingerprint": "property",
           "started_at": "property",
