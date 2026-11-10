@@ -32,7 +32,9 @@ from screamingface_engine_inspect.benchmarks import imported_benchmark  # noqa: 
 #: OME-1642 (2026-10-19): every withhold row here moved once when its score became the mean over
 #: all selected Cases — the failure policy is Benchmark identity (spec R6).
 _PUBLISHED_REVISIONS: dict[str, str] = {
-    "gsm8k": "075954bfd63059e0",
+    # OME-1860: 075954bfd63059e0 → 7eebba58799a2f22, every Case now opens with inspect_evals'
+    # default 10 worked examples (was fewshot=0); owner-approved, no leaderboard scores yet.
+    "gsm8k": "7eebba58799a2f22",
     # OME-1268: the first two Benchmarks with Named Scores (served in inspect_evals' order).
     "squad": "5b97eeadbf95b722",
     # OME-1513: the first LOCAL Task (our own eval in inspect's shape, not an inspect_evals import).
@@ -77,7 +79,9 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "paws": "8f4e0e9c0864a6e7",
     "boolq": "00d4443ca7e66d43",
     "mmlu_pro": "145edec84bfc2324",
-    "winogrande": "4eb60a70db7518d6",
+    # OME-1860: 4eb60a70db7518d6 → 3f2af135ba8bad37, every Case now opens with inspect_evals'
+    # default 5 worked examples (was fewshot=0); owner-approved, no leaderboard scores yet.
+    "winogrande": "3f2af135ba8bad37",
     "race_h": "8c5ebb4a9d38cc6f",
     "aime24": "2e4ce70a8953233a",
     "aime25": "b207e9fe34ea7517",

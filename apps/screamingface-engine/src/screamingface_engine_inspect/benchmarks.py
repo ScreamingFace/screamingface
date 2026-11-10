@@ -320,7 +320,7 @@ _COCONOT_JUDGE = JudgeSpec(
 BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     BenchmarkSpec(
         key="gsm8k",
-        published_revision="075954bfd63059e0",
+        published_revision="7eebba58799a2f22",
         title="GSM8K",
         description=(
             "1,319 grade-school math word problems (the GSM8K test split), imported "
@@ -806,12 +806,13 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="winogrande",
-        published_revision="4eb60a70db7518d6",
+        published_revision="3f2af135ba8bad37",
         title="WinoGrande",
         description=(
             "1,267 sentences where a [BLANK] must be resolved to one of two "
             "candidates using commonsense about the situation (the WinoGrande "
-            "XL validation split, 0-shot), imported from inspect_evals. Prompts "
+            "XL validation split, each preceded by inspect_evals' 5 worked "
+            "examples), imported from inspect_evals. Prompts "
             "render through the eval's own template; grading is inspect's own "
             "choice scorer against the published key, so no judge tokens are "
             "spent. Benchmark score = plain accuracy over the cases run. No "
