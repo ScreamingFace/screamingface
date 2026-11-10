@@ -1,6 +1,7 @@
 """Operational and reference endpoints: liveness/readiness probes, the Prometheus scrape, and the
 unified Scalar-based API reference pages (OpenAPI + AsyncAPI)."""
 
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
@@ -9,6 +10,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from screamingface_engine.metrics import Metrics
 from screamingface_engine.readiness import stream_readiness
+from screamingface_engine.runner_demand import RunnerDemandSampler
 from screamingface_engine.schemas import build_asyncapi
 
 router = APIRouter()
@@ -120,6 +122,50 @@ def metrics(request: Request) -> Response:
     if not isinstance(state_metrics, Metrics):  # pragma: no cover - always wired by create_app
         return Response(status_code=503)
     return Response(generate_latest(state_metrics.registry), media_type=CONTENT_TYPE_LATEST)
+
+
+@router.get("/runner-demand", tags=["Ops"], summary="Runner pool demand", include_in_schema=False)
+async def runner_demand(request: Request) -> JSONResponse:
+    """The claimable runner demand for the KEDA `metrics-api` trigger (spec D3).
+
+    200 with a fresh sample; 503 when there is no sample or it is older than
+    `runner_demand_stale_s` (the KEDA scaler then fails and the HPA keeps the current count);
+    404 when the sampler is off.
+
+    INVARIANT: it never answers a demand (least of all 0) it did not read. A false 0 scales a
+    loaded pool down to its minimum.
+
+    INVARIANT: same exposure class as `/metrics` and `/readyz`: no auth dependency, the chart's
+    single `/` route, Cloudflare Access at the edge. The body holds aggregate counts only, no
+    caller, topic or bucket identity.
+    """
+    sampler: RunnerDemandSampler | None = getattr(request.app.state, "runner_demand", None)
+    if sampler is None:
+        return JSONResponse({"status": "disabled"}, status_code=404)
+    fresh = sampler.fresh()
+    if fresh is None:
+        age = sampler.age_s()
+        return JSONResponse(
+            {"status": "stale", "age_s": None if age is None else round(age, 3)},
+            status_code=503,
+        )
+    demand, sampled_at, age_s = fresh
+    return JSONResponse(
+        {
+            "demand": demand.demand,
+            "running": demand.running,
+            "claimable": demand.claimable,
+            "queued": demand.queued,
+            "unbound_buckets": demand.unbound_buckets,
+            "sampled_at": _utc_z(sampled_at),
+            "age_s": round(age_s, 3),
+        }
+    )
+
+
+def _utc_z(moment: datetime) -> str:
+    """An RFC 3339 UTC timestamp with a `Z` suffix and whole seconds."""
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 @router.get("/docs", tags=["Ops"], summary="Unified API reference", include_in_schema=False)
