@@ -2771,7 +2771,7 @@ d1_keyword_router = sf.Gate(
 )
 d1_keyword_router"""),
         nbformat.v4.new_code_cell("""\
-# Classifier router (GraphRouter; OrgAgent DIRECT, LIGHT, FULL): a small model gives the label.
+# LLM label router (GraphRouter; OrgAgent DIRECT, LIGHT, FULL): a small LLM gives the label.
 kind = sf.LabelModel(ROUTER, labels=["math", "code", "other"])
 d2_label_router = sf.Gate(
     when=sf.label(kind) == "math",

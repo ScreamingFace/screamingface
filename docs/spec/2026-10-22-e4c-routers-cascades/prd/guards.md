@@ -28,14 +28,19 @@ router = sf.Gate(when=sf.label(topic) == "math", then=math_panel, otherwise=gene
 
 candidate = sf.Gate(                          # guard 1: regex, fail closed
     when=sf.label(jail) == "jailbreak", then="fail_closed",
-    otherwise=sf.Gate(                        # guard 2: classifier, fail closed
+    otherwise=sf.Gate(                        # guard 2: LLM label, fail closed
         when=sf.label(clf) == "unsafe", then="fail_closed",
-        otherwise=sf.Gate(                    # guard 3: classifier, floor
+        otherwise=sf.Gate(                    # guard 3: LLM label, floor
             when=sf.label(clf) == "medical", then=medical_specialists,
             otherwise=router)))
 ```
 
 The guard order is the nesting order: the outermost Gate is the first guard.
+
+**Words.** In this PRD, "classifier label" (the words of the epic and ans:Q15) means the label
+of a `sf.LabelModel`: one chat call to an LLM that must name a declared label. It is not
+`sf.classify` (OME-1796), which returns the scores of a hosted text classifier and does not
+choose a branch. The test names in §7 keep the word "classifier".
 
 ## 2. Background and constraints
 
@@ -103,11 +108,11 @@ The guard order is the nesting order: the outermost Gate is the first guard.
   whose input matches the `jailbreak` pattern, When the Case runs, Then the outermost Gate takes
   `then="fail_closed"`, no model is called (not `clf`, not the router branches), and the Case is
   `failed` with code `fail_closed`. [stated epic; stated ans:Q15, ans:Q18]
-- **GU-2 Classifier guard fails closed after one selector call.** Given a Case that the regex
+- **GU-2 LLM label guard fails closed after one selector call.** Given a Case that the regex
   guard does not match and that `clf` labels `unsafe`, When the Case runs, Then exactly one model
   call runs (the `clf` call), guard 2 takes `fail_closed`, and the router makes zero calls.
   [stated ans:Q15]
-- **GU-3 One classifier, many guards, one call.** Given guards 2 and 3 both read `clf`, When the
+- **GU-3 One label model, many guards, one call.** Given guards 2 and 3 both read `clf`, When the
   Case reaches guard 2, Then `clf` runs once and guard 3 reads the same label; the two decision
   records hold the same SELECTOR_RECORD (erd SR-I4). [stated ans:Q12]
 - **GU-4 Floor forces the stronger branch.** Given a Case that `clf` labels `medical` and `topic`
@@ -141,13 +146,13 @@ The guard order is the nesting order: the outermost Gate is the first guard.
   that RE2 does not support (a backreference, a lookaround), When the selector is built, Then the
   SDK pre-spend check refuses it with a message that does not contain the pattern
   (`S/_regex_rule.py:1-10` rules). [proposed — reuses `S/_regex_rule.py:1-10`]
-- **GU-10 Unparsed classifier reply.** Given `clf` returns text with no declared label, Then
+- **GU-10 Unparsed label-model reply.** Given `clf` returns text with no declared label, Then
   `sf.label(clf)` is null, `sf.label(clf) == "unsafe"` is false, and the guard does NOT fire; the
   record shows `parse: unparsed` (or `unrecognized` with `raw`). An author who wants a guard that
   fails closed on an unparsed reply writes `when=sf.label(clf) != "safe"`, which holds for every
   other label and for null. [stated epic: "Parse failure uses `default` and is visible";
   proposed `!=`]
-- **GU-11 A failing classifier call.** Given the `clf` model call fails permanently (refusal,
+- **GU-11 A failing label-model call.** Given the `clf` model call fails permanently (refusal,
   token cap), When guard 2 reads it, Then the selector record is `status: "failed"` and its label
   is null ([selectors](selectors.md) SL-12, overview P7): a guard written with `==` does not fire
   and the Case goes on to the router; a guard written with `!=` (`sf.label(clf) != "safe"`) fires
@@ -170,12 +175,12 @@ The guard order is the nesting order: the outermost Gate is the first guard.
 
 ## 4. Non-functional requirements
 
-- Cost: a fired regex guard costs 0 model calls and 0 USD; a fired classifier guard costs exactly
+- Cost: a fired regex guard costs 0 model calls and 0 USD; a fired label-model guard costs exactly
   its one selector call [stated epic; stated ans:Q18].
 - Latency: a regex guard adds one pure DECIDE (< 5 ms CPU p99, [branch-core](branch-core.md) §4)
   [proposed].
 - Security: guard conditions are data only (no callables, GU-8); patterns are RE2, linear time
-  [existing `S/_regex_rule.py:1-5`]; the failure message is fixed text (GU-16); the classifier
+  [existing `S/_regex_rule.py:1-5`]; the failure message is fixed text (GU-16); the label-model
   reply is untrusted input, parsed only to a declared label (GU-10) [proposed].
 - Observability: each fired guard is visible in the decision record, the Case failure code, and
   the run summary `fail_closed` count ([report](report.md)) [stated epic].
@@ -193,6 +198,8 @@ The guard order is the nesting order: the outermost Gate is the first guard.
   that must read the failed stage's own output is not expressible, because a recipe branch never
   receives the panel answers of a panel gate (BC-5).
 - A trained classifier file or a hosted classifier [stated epic: "Training the router" is out].
+  Main now has `sf.classify` (OME-1796) for a hosted classifier; a selector that routes on its
+  scores is a follow-up, not v1 [proposed].
 - Running the model selector before a fired guard to record its label [stated ans:Q18].
 
 ## 6. Open questions

@@ -1389,7 +1389,9 @@ form of nested Gates: its `repr`, its `==` and its url4 are those of the Gate fo
   question. It makes no model call.
 - `sf.LabelModel(model, labels=[...])` asks a model for one label from the list. A reply that is
   not a declared label, or a failed call, takes `otherwise=`; the Case does not fail. With
-  `multi=True` it gives a set of labels, and `sf.labels(sel).has("x")` reads it.
+  `multi=True` it gives a set of labels, and `sf.labels(sel).has("x")` reads it. It is one chat
+  call to an LLM, not a hosted text classifier: `sf.classify` returns a classifier's scores and
+  does not choose a branch.
 - `sf.label(sel) == "x"` and `!=` are the input conditions. A question with no label is not equal
   to any label.
 
@@ -1413,7 +1415,7 @@ d1_keyword_router = sf.Gate(
     then=math_panel,
     otherwise=sf.Gate(when=sf.label(topic) == "code", then=coder, otherwise=general),
 )
-# Classifier router (GraphRouter; OrgAgent DIRECT, LIGHT, FULL): a small model gives the label.
+# LLM label router (GraphRouter; OrgAgent DIRECT, LIGHT, FULL): a small LLM gives the label.
 kind = sf.LabelModel(router, labels=["math", "code", "other"])
 d2_label_router = sf.Gate(
     when=sf.label(kind) == "math",
