@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1861
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-11-10
-finished:
+finished: 2026-11-10
 ---
 
 # attempt-call-collect — a failed Candidate call fails only its own Attempt
@@ -66,7 +66,7 @@ Spec: `docs/spec/2026-11-10-attempt-call-collect.md`. Plan: `docs/plan/2026-11-1
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned. `protocol.py`: `_attempted_case` binds `case_position` (`$index`) beside the Attempts and wraps each Attempt in `iterate(["$item"], on_error="collect")`; new `_positioned` rewrites the Candidate Invocation's `case_index` to read the binding; module and function docstrings updated. `graded_answer.py`: `_case_attempts_route` unwraps each Attempt's one-row list via `_attempt_row`. `benchmark_aggregation.py`: unchanged, as predicted: an error row for a known Case already files as a failed Attempt by the error's code (pinned end to end). `attempt_fold.py`: reach comment only. Tests appended in `test_case_attempts_protocol.py` (a stand-in Candidate whose call errors on named Attempts, through the real url4 node: the kept Attempts, the code on the failed one, every call failing, the Case position inside every Attempt), `test_attempt_fold.py` (4 right + 1 token cap → 0.8 mean / 1.0 any; 4 right + 1 gateway error → 1.0 both, through the real aggregate), `test_case_attempts_contract.py` (one `$index`, one `$case_position` per Candidate Invocation). Prior test moved: `test_local_task_arc_agi_2.py`'s byte-for-byte url4 pin (294a4844… → 16e583d1…), which exists to flag exactly this change; approval JSON pins it. Specs: new `docs/spec/2026-11-10-attempt-call-collect.md`; OME-1458 §4 bullet lifted and F4 amended; OME-1856 D15 reach note updated.
-- **Commits:** see the PR.
+- **Commits:** 0c388ddeb fix(screamingface-engine): let a failed Candidate call fail only its own Attempt; the filing commit (mirror, approval JSON, this line).
 - **Gates:** extra-less `test_case_attempts_protocol.py test_attempt_fold.py test_case_attempts_contract.py test_benchmark_protocol.py test_benchmark_aggregation.py test_attempt_egress.py test_capture_replay_proof.py`: 168 passed. With the inspect extra, those plus `tests/unit/inspect/test_attempts_mean_fold.py test_imported_attempts.py test_local_task_arc_agi_2.py test_benchmark_fingerprints.py test_failure_policy_revisions.py`: 380 passed (ARC-AGI-2's published revision unchanged; only its url4 pin moved). ruff, ruff format, pyright clean on the touched Python files. `test_benchmark_protocol.py::test_the_public_catalogue_publishes_exactly_the_registered_benchmarks` fails with the inspect extra on the base branch too (catalogue order; not this unit; the extra-less CI lane is the gate). Spikes (deleted): a per-Attempt collect hands the join route `[{"error": {code}}]` and keeps the others; Case positions measured (0, 1) plain, (0, 0) wrapped, (0, 1) with the binding.
 - **Deviations:** none from the plan. One design fact learned: the wrapper's output is a one-row list, so the join route unwraps it (spec D3) instead of accepting the envelope directly.
 - **Owner-verify:** the re-pinned ARC-AGI-2 url4 hash (a prior test moved by design, flagged on the PR); the ZeroBench paid smoke (OME-1855) exercises the path live once #1706 lands.
