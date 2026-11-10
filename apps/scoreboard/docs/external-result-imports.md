@@ -41,7 +41,7 @@ invisible text-direction controls), and lone surrogates.
 Repeated imports of the same benchmark/model/source update the same row. Each
 input replaces the current observation: omitted metadata is cleared, not copied
 from a previous score. This prevents an old read date being presented as the date
-of a new observation. Historical versions are not retained by this command yet.
+of a new observation. Changed observations are retained as immutable versions; importing identical data again only refreshes the server import time.
 
 The API returns `imported_at` (first import) and `last_imported_at` (latest import).
 Both are server timestamps; neither proves the source was checked. Old rows have
@@ -62,3 +62,33 @@ public `ranking_eligible` boolean is computed on every read, defaults to false, 
 cannot be supplied by an importer. The example above lacks a review and remains
 unranked. Invalid supplied reviews fail before writing; missing reviews can be
 stored for later investigation.
+
+
+## Edit history
+
+Every changed observation creates a version: score, metric, source link, source-read date,
+metadata and internal attribution are compared. Initial imports are version 1 and are
+not shown as updates. Importing the same observation again preserves its version and
+update date. Only the latest eligible observation affects rankings.
+
+The leaderboard exposes `observation_revision` and `observation_updated_at`. Its
+Updated link opens a separate history page with current and previous scores, source
+links, dates and comparison details. The public history endpoint is
+`GET /v1/leaderboard/{benchmark_id}/external-results/{baseline_id}/history`.
+It defaults to 20 versions, accepts a limit of 1–100, and returns `next_before` for
+older pages. Supply that value as `before` to continue. Both history and current
+external observations are public even on private boards; attaching-person attribution
+stays internal in both. No public edit or restore endpoint is added.
+
+Old rows are not backfilled with invented versions. Their current value is captured
+before the first subsequent import; its version date is unknown because previous
+edits were not tracked. Earlier overwritten values cannot be recovered. Snapshots
+and current-row changes share one transaction, so a failure rolls back both. History
+cannot be replaced or removed by the importer. Benchmark/model/source remain the
+row identity: changing one of those creates a different row.
+
+Deploy migration 0023 before this application version. Pause operator import jobs
+while rolling out, then resume them using the new image; an older importer cannot
+retain history. No extra migration job is needed: the existing deployment migration
+hook applies this migration. Merely importing again is not proof the source was
+checked; `observed_at` records when it was actually read.

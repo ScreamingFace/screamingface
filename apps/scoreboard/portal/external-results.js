@@ -9,6 +9,8 @@
         || typeof row.score !== "number" || !Number.isFinite(row.score)) return null;
     return {
       external: true, spec_id: row.model_name, score: row.score,
+      baseline_id: row.id, benchmark_id: row.benchmark_id,
+      observation_revision: row.observation_revision, observation_updated_at: row.observation_updated_at,
       source_url: row.source_url, metadata: row.metadata,
       submitted_at: row.imported_at || null,
       ran_with_providers: [], authors: [], run_cost_usd: null,
@@ -77,6 +79,13 @@
     tr.appendChild(P.el("td", "num", P.EM_DASH));
     var date = P.el("td", null, P.formatDate(row.submitted_at));
     if (row.submitted_at) date.title = "Imported on " + row.submitted_at;
+    if (row.observation_revision > 1 && row.baseline_id && row.benchmark_id) {
+      var history = P.link("external-result__history", "external-result-history.html?benchmark="
+        + encodeURIComponent(row.benchmark_id) + "&result=" + encodeURIComponent(row.baseline_id), "Updated");
+      history.setAttribute("aria-label", "View update history for " + row.spec_id);
+      if (row.observation_updated_at) history.title = "Updated " + P.formatDate(row.observation_updated_at);
+      date.appendChild(history);
+    }
     tr.appendChild(date);
     tr.appendChild(sourceCell(row));
     return tr;

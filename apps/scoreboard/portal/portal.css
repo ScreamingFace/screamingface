@@ -699,3 +699,14 @@ td.col-open { white-space: nowrap; }
 .external-result__comparison summary { cursor: pointer; }
 .external-result__comparison summary:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
 .external-result__comparison p { margin: var(--space-1) 0 0; }
+
+/* WHY: version details stay outside the ranked table; use the existing neutral palette. */
+.external-result__history { display: block; margin-top: var(--space-1); color: var(--ink-2); text-decoration: underline; }
+.external-history__version { border-top: var(--border-hairline) solid var(--line); padding: var(--space-5) 0; overflow-wrap: anywhere; }
+.external-history__version h2 { margin: 0 0 var(--space-3); font-family: var(--f-sans); font-size: var(--text-body); }
+.external-history__score { margin: 0 0 var(--space-3); font-size: var(--text-title); }
+.external-history__metric { margin-left: var(--space-3); font-family: var(--f-sans); font-size: var(--text-sm); color: var(--ink-2); }
+.external-history__facts { display: grid; grid-template-columns: auto 1fr; gap: var(--space-2) var(--space-4); font-size: var(--text-sm); }
+.external-history__facts dt { color: var(--ink-2); }
+.external-history__facts dd { margin: 0; }
+.external-result__history:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }

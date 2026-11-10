@@ -340,3 +340,16 @@ test("verified review prompt differences are available in the comparison disclos
   assert.ok(details);
   assert.equal(details.children[1].textContent, note);
 });
+
+test("edited external rows link to history while initial imports do not", async () => {
+  const page = await renderBoard([], [Object.assign({}, BASELINE, {
+    id: "external-id", benchmark_id: "hle", observation_revision: 2,
+    observation_updated_at: "2026-11-10T10:00:00Z",
+  })]);
+  const link = nodes(cell(rows(page)[0], 7)).find(n => n.tag === "a");
+  assert.equal(link.textContent, "Updated");
+  assert.equal(link.attrs.href, "external-result-history.html?benchmark=hle&result=external-id");
+  assert.equal(link.attrs["aria-label"], "View update history for GPT-4o");
+  const initial = await renderBoard([], [Object.assign({}, BASELINE, { observation_revision: 1 })]);
+  assert.equal(nodes(cell(rows(initial)[0], 7)).filter(n => n.tag === "a").length, 0);
+});
