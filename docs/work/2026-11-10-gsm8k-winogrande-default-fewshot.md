@@ -60,4 +60,11 @@ decision on OME-1860 (2026-11-10): serve inspect's default.
     re-encode can make them platform-bound; the CI image build re-checks them.
   - Built on OME-1858's PR 3 branch, the only home of the two records; that stack merged into main
     the same day, so main was merged in and the PR targets main.
-- **Owner-verify:** CI green; post the two id moves to the team.
+  - Review round: both descriptions now declare the fold (worked examples sent as leading input
+    text, not a system message); the fingerprints are unchanged, recomputed, so the ids hold. The
+    two records were audited at `b245a641b`, before that sentence, so their "undeclared on the
+    row" line describes that commit; the verdict does not depend on it.
+- **Owner-verify:** CI green; post the two id moves to the team; decide whether one paired
+  Candidate run per Benchmark (inspect's system turn vs our folded user text) is worth paying
+  for: it is the only step between `unverified` and `comparable-to-inspect` for gsm8k, and for
+  winogrande once the generation-settings ticket lands.

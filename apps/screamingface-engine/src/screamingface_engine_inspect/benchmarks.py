@@ -324,7 +324,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         title="GSM8K",
         description=(
             "1,319 grade-school math word problems (the GSM8K test split), imported "
-            "from inspect_evals. The model reasons step by step and commits a final "
+            "from inspect_evals. Each opens with the eval's 10 worked examples, sent as "
+            "leading input text rather than a system message (a named deviation: a "
+            "benchmark cannot address a candidate's system role). The model reasons "
+            "step by step and commits a final "
             "numeric answer; grading is inspect's own numeric match against the "
             "published solution, so no judge tokens are spent. Benchmark score = "
             "plain accuracy over the cases run."
@@ -812,7 +815,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "1,267 sentences where a [BLANK] must be resolved to one of two "
             "candidates using commonsense about the situation (the WinoGrande "
             "XL validation split, each preceded by inspect_evals' 5 worked "
-            "examples), imported from inspect_evals. Prompts "
+            "examples, sent as leading input text rather than a system message: a "
+            "named deviation, since a benchmark cannot address a candidate's system "
+            "role), imported from inspect_evals. Prompts "
             "render through the eval's own template; grading is inspect's own "
             "choice scorer against the published key, so no judge tokens are "
             "spent. Benchmark score = plain accuracy over the cases run. No "
