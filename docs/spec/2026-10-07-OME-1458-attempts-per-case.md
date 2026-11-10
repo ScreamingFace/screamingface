@@ -311,7 +311,7 @@ which gives it its own entry the same way (§2.3).
 | F1 | An inspect Task declares `epochs` > 1, before the build lands | ② | the importer | refused by name (D12) |
 | F2 | An inspect Task declares epochs with a reducer we don't run (`mean`, `pass_at(k < N)`, a custom one), or an any-match reducer with a tuned threshold (`at_least(1, value=0.5)`, logged as `at_least_1`) | ② | the importer | refused naming the reducer and, for a tuned one, its parameters |
 | F3 | Attempt 2 would be served Attempt 1's stored reply | ⑤ ⑥ | nobody, which is why §2.3 exists | prevented: Attempt 2's request always keys differently (a derived seed, or the Attempt number in the cache control) |
-| F4 | One Attempt's Grading fails, another is graded | ③ ⑧ | the Report | the Case is graded from the graded Attempts; the failed one keeps its failure in `attempts`; the Report says "1 of 2 Attempts failed". A failed **Candidate Invocation** in any Attempt fails the whole Case instead, as it does for a one-Attempt Case today (§4) |
+| F4 | One Attempt's Grading fails, another is graded | ③ ⑧ | the Report | the Case is graded from the graded Attempts; the failed one keeps its failure in `attempts`; the Report says "1 of 2 Attempts failed". A failed **Candidate Invocation** in one Attempt fails that Attempt the same way since 2026-11-10 (`docs/spec/2026-11-10-attempt-call-collect.md`); before that it failed the whole Case (§4) |
 | F5 | Every Attempt of a Case fails | ⑧ | the Aggregation | the Case has no Case Grade; the Benchmark's Failure Policy applies, as today |
 | F6 | An Attempt's Check is graded neither 0 nor 1 | ⑧ | the marking room | the Case fails as `attempt_grade_not_pass_fail`; no guessed fold |
 | F7 | A seeded run names a Model whose provider has no `seed` | ⑤ | the SDK's parameter check, before any paid call | refused, as today for every seeded run |
@@ -409,11 +409,12 @@ The arrows are the order a Case passes through the code, not imports. The stages
   so it shows; the import doc says so.
 - **A Case with a failed Attempt has fewer chances to pass** (F4). Accepted: the ARC harness
   counts a missing Attempt the same way; the Report says how many Attempts failed.
-- **A failed Candidate Invocation in any Attempt fails the whole Case**, losing the Attempts
-  that did answer: a provider that keeps erroring on Attempt 2 after the gateway's retries fails
-  that Case, as it would at one Attempt. URL4 collects an error only inside `iterate`, which
-  rebinds `$item` and `$index` that every Benchmark's own nodes read. Accepted for now; revisit
-  when a real Attempts Benchmark (OME-1476) shows such failures in its Report.
+- ~~**A failed Candidate Invocation in any Attempt fails the whole Case**~~ — lifted on
+  2026-11-10 (`docs/spec/2026-11-10-attempt-call-collect.md`): each Attempt's execution runs
+  inside its own collecting `iterate` over the Case row itself (so `$item` keeps its value) and
+  reads its Case position from a Case-level binding (so `$index` being 0 inside does not reach
+  the Candidate). The errored call is that Attempt's failed row, by the error's code; the fold
+  decides what it is worth. The mean fold (2026-11-09) made the old rule cost N times more.
 - **How ARC-AGI-2 prompts each test grid is OME-1476's design.** The harness sends one prompt per
   grid; that Benchmark will need one Candidate Invocation per grid per Attempt, which the
   glossary already allows ("a Case may require multiple ordered Candidate Invocations"). If those
