@@ -26,6 +26,10 @@ from screamingface._evaluation.candidate import compile_candidate
 _NOTEBOOK = Path(__file__).resolve().parents[1] / "examples" / "20_routers_cascades.ipynb"
 # WHY not RUN_EVALUATION: the evaluation cell names sf.evaluate behind the flag that keeps it off.
 _EVALUATION_CELL = "RUN_EVALUATION = False"
+# WHY: the TARGET block names the local and hosted Engine URLs. It only calls sf.configure (no
+# request), and tests/test_notebook_targets.py pins it. The scan reads the rest of that cell.
+_TARGET = 'TARGET = "local"'
+_TARGET_BLOCK_END = "raise ValueError(f'TARGET must be"
 
 
 def _code_cells() -> list[str]:
@@ -33,11 +37,20 @@ def _code_cells() -> list[str]:
     return ["".join(cell["source"]) for cell in cells if cell["cell_type"] == "code"]
 
 
+def _scanned(code: str) -> str:
+    """The cell text that the network scan reads: a TARGET cell without its TARGET block."""
+    if _TARGET not in code:
+        return code
+    _, found, rest = code.partition(_TARGET_BLOCK_END)
+    assert found, f"{_NOTEBOOK.name}: the TARGET cell has no end marker {_TARGET_BLOCK_END!r}"
+    return rest.partition("\n")[2]
+
+
 def _run_notebook() -> dict[str, Any]:
     names: dict[str, Any] = {}
     for code in _code_cells():
         if _EVALUATION_CELL not in code:
-            refuse_network_markers(code, _NOTEBOOK.name)
+            refuse_network_markers(_scanned(code), _NOTEBOOK.name)
         exec(code, names)  # the notebook is ours; its cells are offline
     return names
 
@@ -73,7 +86,7 @@ def test_each_recipe_has_its_own_cell_that_shows_it() -> None:
 
 
 @pytest.mark.parametrize("name", list(RECIPES))
-def test_every_recipe_of_notebook_19_compiles_offline(namespace: dict[str, Any], name: str) -> None:
+def test_every_recipe_of_notebook_20_compiles_offline(namespace: dict[str, Any], name: str) -> None:
     # #16 (DC-10)
     recipe = namespace[name]
     assert isinstance(recipe, sf.Recipe)

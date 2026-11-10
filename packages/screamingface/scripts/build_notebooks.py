@@ -2731,8 +2731,18 @@ builds one recipe and shows it. Building a recipe makes no request. A recipe giv
 shape of a paper family only; it does not reproduce the numbers of a paper. The last cell
 evaluates the recipes, and it is off by default. The README section "Choose whether a model runs"
 gives the rules."""),
-        nbformat.v4.new_code_cell("""\
-import screamingface as sf
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
+screamingface prepare inspect-gsm8k  # first run only: download pinned Benchmark assets
+screamingface up                     # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(
+            _TARGET_SETUP
+            + """
 
 BENCHMARK = "inspect-gsm8k"
 LIMIT = 3
@@ -2747,7 +2757,8 @@ LARGE = "openrouter/openai/gpt-4.1"
 ROUTER = "openrouter/openai/gpt-4o-mini"  # the small model that gives a label
 CODER = sf.Model("openrouter/openai/gpt-4.1-mini", prompt="You write and fix Python code.")
 GENERAL = "openrouter/openai/gpt-4o-mini"
-math_panel = sf.Fanout(PANEL) >> sf.Vote(over="last_number", normalize="numeric")"""),
+math_panel = sf.Fanout(PANEL) >> sf.Vote(over="last_number", normalize="numeric")"""
+        ),
         nbformat.v4.new_markdown_cell("""\
 ## Routing"""),
         nbformat.v4.new_code_cell("""\
