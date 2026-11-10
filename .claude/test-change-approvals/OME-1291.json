@@ -91,8 +91,8 @@
       "approved_blob": "6236801c8f7075182120e7c6d5c3d2068b4b35a5"
     },
     "packages/screamingface/tests/public_surface_snapshot.json": {
-      "base_blob": "8412cae96147e001b76be147a1c339e904241834",
-      "approved_blob": "da4443000452ee0d302764d1d03593a7faa5a4a4"
+      "base_blob": "80c3b7515d7aba60c3bd92dd5f3684815f7bfbc6",
+      "approved_blob": "39786ca081d4728b09d3f4bb8977dfb31b55fde7"
     },
     "packages/screamingface/tests/test_band_api.py": {
       "base_blob": "334dbcdb72ac6e4a62fbabda732b0175db593a77",
