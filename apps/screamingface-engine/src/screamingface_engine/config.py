@@ -324,6 +324,8 @@ class Settings(BaseSettings):
     # WHY 48 h (spec R6): past both `url4-candidate-outcomes` and `url4-runq`'s 24 h retention, so
     # reconcile settles a Candidate `lost` only once no outcome can still arrive.
     run_lost_after_s: float = Field(default=48 * 3600.0, gt=0, allow_inf_nan=False)
+    # How often the App sweeps the registry (spec R6, R7), after the sweep it runs at start.
+    run_sweep_interval_s: float = Field(default=3600.0, gt=0, allow_inf_nan=False)
     # The outcome stream `url4-candidate-outcomes` (spec R11), declared by the App and the runner
     # pool at startup from these values (`candidateOutcomes.*` in the chart). When it is full, a
     # publish is refused rather than an older, unwritten outcome dropped.
@@ -517,6 +519,21 @@ class Settings(BaseSettings):
                 f"as interrupted"
             )
         return value
+
+    @model_validator(mode="after")
+    def _tombstone_outlasts_a_runnable_message(self) -> Self:
+        """INVARIANT (E5 P1 spec D12): a cancel's tombstone is the only thing that keeps a queued
+        run from executing, so the events stream must keep it until the run's deadline. A bound
+        run's deadline counts from its bind, which precedes any cancel of it, so the deadline
+        alone is the bound. WHY not the queue's retention: it counts from the publish, which can
+        come after the tombstone."""
+        if self.events_max_age_s <= self.job_deadline_s:
+            raise ValueError(
+                f"events_max_age_s={self.events_max_age_s} must exceed job_deadline_s "
+                f"({self.job_deadline_s} s), or a canceled run can execute after its tombstone "
+                f"expires"
+            )
+        return self
 
     @model_validator(mode="after")
     def _lost_after_outlasts_retention(self) -> Self:

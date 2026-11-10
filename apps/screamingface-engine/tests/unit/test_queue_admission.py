@@ -63,7 +63,9 @@ class _FakeQueue:
         self._oldest_age = oldest_age
         self.published: list[tuple[bytes, Mapping[str, str] | None]] = []
 
-    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None, enqueued_at: Any = None
+    ) -> None:
         self.published.append((message, identity))
 
     async def depth(self) -> int:
@@ -236,6 +238,7 @@ class _AtCapacityRunner(IdentityAwareJobRunner):
         shape: RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        enqueued_at: Any = None,
     ) -> str:
         raise JobRunnerAtCapacity(active=100, limit=10, retry_after_s=42)
 
@@ -312,7 +315,7 @@ async def test_a_release_racing_a_refresh_cannot_drive_the_counter_negative() ->
     )
 
     async def refresh_then_fail(
-        message: bytes, *, identity: Mapping[str, str] | None = None
+        message: bytes, *, identity: Mapping[str, str] | None = None, enqueued_at: Any = None
     ) -> None:
         # The racing sibling's refresh, landing between this run's reserve and release:
         # the depth now accounts for everything older than the window, so the counter
@@ -383,7 +386,9 @@ class _HangingQueue(_FakeQueue):
         super().__init__()
         self._release = asyncio.Event()
 
-    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None, enqueued_at: Any = None
+    ) -> None:
         await self._release.wait()
 
     def finish(self) -> None:
@@ -423,7 +428,9 @@ class _FailingQueue(_FakeQueue):
         super().__init__()
         self.fail_next = False
 
-    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None, enqueued_at: Any = None
+    ) -> None:
         if self.fail_next:
             self.fail_next = False
             raise OSError("broker unavailable")
@@ -495,7 +502,9 @@ class _FailsSecondPublishQueue(_FakeQueue):
         super().__init__()
         self._failed_once = False
 
-    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None, enqueued_at: Any = None
+    ) -> None:
         from screamingface_engine.runner_queue import topic_of_message
 
         if topic_of_message(message) == "t-retry" and self.published:

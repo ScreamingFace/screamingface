@@ -141,15 +141,20 @@ class TortoiseRunStore:
             benchmark=run.benchmark,
             case_count=run.case_count,
             candidates=tuple(_candidate(row) for row in rows),
+            canceled=run.canceled,
         )
 
     # --- writes ------------------------------------------------------------------------------
 
-    @_in_context
     async def create(self, owner: OwnerKey, spec: RunSpec) -> RunRecord:
+        record, _ = await self.register(owner, spec)
+        return record
+
+    @_in_context
+    async def register(self, owner: OwnerKey, spec: RunSpec) -> tuple[RunRecord, bool]:
         existing = await self._by_client_key(owner, spec)
         if existing is not None:
-            return existing
+            return existing, False
         now = self._clock()
         run_id = new_run_id()
         try:
@@ -177,10 +182,10 @@ class TortoiseRunStore:
             raced = await self._by_client_key(owner, spec)
             if raced is None:
                 raise
-            return raced
+            return raced, False
         created = await self.get(owner, run_id)
         assert created is not None
-        return created
+        return created, True
 
     async def _by_client_key(self, owner: OwnerKey, spec: RunSpec) -> RunRecord | None:
         record = await self._one(
@@ -242,10 +247,10 @@ class TortoiseRunStore:
         return row
 
     @_in_context
-    async def mark_scheduled(self, topic: str) -> None:
+    async def mark_scheduled(self, topic: str) -> bool:
         row = await Candidate.get_or_none(topic=topic)
         if row is None:
-            return
+            return True
         now = self._clock()
         async with in_transaction(CONNECTION) as conn:
             await _lock_run(row.run_id, conn)
@@ -255,6 +260,15 @@ class TortoiseRunStore:
                 .update(state="scheduled")
             ):
                 await self._touch(row.run_id, now, conn)
+                return True
+        # WHY this Candidate's own state: a re-sent start finds it already `scheduled`, and a
+        # fast run may have settled it, even under a Run a sibling's cancel flagged. Only a
+        # cancel that stopped THIS Candidate before it was scheduled loses the race.
+        current = await Candidate.get(id=row.id)
+        return (
+            current.state != "stopped"
+            or not await Run.filter(id=row.run_id, canceled=True).exists()
+        )
 
     @_in_context
     async def settle(self, topic: str, outcome: CandidateOutcome) -> None:
@@ -291,7 +305,18 @@ class TortoiseRunStore:
                 return None
             await _lock_run(run_id, conn)
             if await Candidate.filter(run_id=run_id, state__in=_LIVE).using_db(conn).exists():
-                await Run.filter(id=run_id).using_db(conn).update(canceled=True)
+                flagged = (
+                    await Run.filter(id=run_id, canceled=False).using_db(conn).update(canceled=True)
+                )
+                # Spec D12: every bound live Candidate may be on a runner, so the cancel that
+                # flags the Run owes each a stop. WHY only that one: a retry finds the stops that
+                # succeeded cleared, and must not owe them again while their outcomes land.
+                if flagged:
+                    await (
+                        Candidate.filter(run_id=run_id, state__in=_LIVE, topic__isnull=False)
+                        .using_db(conn)
+                        .update(stop_owed=True)
+                    )
                 await (
                     Candidate.filter(run_id=run_id, state="pending")
                     .using_db(conn)
@@ -299,6 +324,15 @@ class TortoiseRunStore:
                 )
                 await self._touch(run_id, now, conn)
         return await self.get(owner, run_id)
+
+    @_in_context
+    async def owed_stops(self, owner: OwnerKey, run_id: str) -> list[str]:
+        rows = await Candidate.filter(run_id=run_id, run__owner=owner, stop_owed=True)
+        return [row.topic for row in rows if row.topic is not None]
+
+    @_in_context
+    async def stop_done(self, topic: str) -> None:
+        await Candidate.filter(topic=topic, stop_owed=True).update(stop_owed=False)
 
     async def _touch(
         self, run_id: str, now: datetime, conn: BaseDBAsyncClient | None = None
@@ -334,6 +368,9 @@ class TortoiseRunStore:
         # limit applies.
         expired = Run.filter(created_at__lt=older_than)
         async with in_transaction(CONNECTION) as conn:
+            # INVARIANT (lock order): the Runs first, as every write does, so a sweep and a
+            # `settle` on an expiring Run never wait on each other in a cycle.
+            await expired.using_db(conn).select_for_update().only("id")
             await (
                 Candidate.filter(run_id__in=Subquery(expired.values("id"))).using_db(conn).delete()
             )

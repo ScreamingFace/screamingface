@@ -52,7 +52,9 @@ class _ConditionalPublisher:
 
 
 class _Queue:
-    async def publish(self, message: bytes, *, identity: Any = None) -> None:
+    async def publish(
+        self, message: bytes, *, identity: Any = None, enqueued_at: Any = None
+    ) -> None:
         pass
 
     async def depth(self) -> int:
