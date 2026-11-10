@@ -1,11 +1,12 @@
 ---
 id: OME-1570
 linear_url: https://linear.app/openmined/issue/OME-1570/cache-compact-report-accounting-context-without-retaining-case
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [client-sf, agentic, autonomous]
 created: 2026-10-11
+closed: 2026-10-11
 ---
 
 # Cache compact report accounting context without retaining Case payloads
@@ -17,3 +18,5 @@ Stream operation/judge attribution and nullable remainder derivation. Retain onl
 Acceptance: bounded evidence memory, warm disclosure without Case decoding, metadata/type/root-cost validation, exact disclosure output, all SDK gates green. Pagination/navigation and lifecycle notices remain later slices.
 
 Spec: `docs/spec/2026-10-11-compact-accounting-context.md`; plan and work ledger use the same date/name.
+
+Shipped in #1345 (squash-merged as `4fbdfdce2` on 2026-10-11). Linear is Done. Umbrella OME-1448 closed on 2026-11-04.
