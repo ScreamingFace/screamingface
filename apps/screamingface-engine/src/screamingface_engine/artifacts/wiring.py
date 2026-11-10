@@ -14,22 +14,22 @@ the earliest moment the information exists.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 
 from screamingface_engine import job_env
+from screamingface_engine.artifacts.blobs import (
+    BlobObjects,
+    BlobScope,
+    BlobStore,
+    FilesystemBlobObjects,
+    S3BlobObjects,
+    ScopedBlobReader,
+)
 from screamingface_engine.artifacts.filesystem import FilesystemArtifactStore
 from screamingface_engine.artifacts.ports import ArtifactWriter
 from screamingface_engine.artifacts.s3 import S3ArtifactStore, S3Config
 from screamingface_engine.artifacts.sigv4 import Credentials
-
-# Which settings must be non-empty before an S3 store can be built. The region has a default
-# and the secret key is checked alongside the access key, so only these three are unguessable.
-_REQUIRED_S3 = (
-    job_env.ARTIFACT_S3_ENDPOINT_URL,
-    job_env.ARTIFACT_S3_BUCKET,
-    job_env.ARTIFACT_S3_ACCESS_KEY,
-    job_env.ARTIFACT_S3_SECRET_KEY,
-)
 
 
 def result_writer_from_env(env: Mapping[str, str]) -> ArtifactWriter:
@@ -50,8 +50,84 @@ def result_writer_from_env(env: Mapping[str, str]) -> ArtifactWriter:
     return FilesystemArtifactStore(Path(artifacts_dir))
 
 
+class BlobStoreNotConfigured(LookupError):
+    """No blob store of its own is configured, so blob upload and fetch are OFF.
+
+    FEATURE: #1603 review round 2 (owner decision 2026-11-04, item 1) — fail closed. The App
+    answers its blob routes with a 503 problem; the Runner refuses to build a blob reader.
+
+    WHY not a fallback onto the artifact store: unauthenticated token minting plus per-file caps
+    could then fill the paid-results capacity — the exact failure the separate store prevents.
+    """
+
+
+def blob_objects_from_values(values: Mapping[str, str]) -> BlobObjects:
+    """The run blob store's backend, from env-named values — ONE decision for both halves.
+
+    FEATURE: uploads get their own store (#1603 review, owner decision 2026-11-03), so a full
+    blob store fails uploads and never the result delivery a paid run depends on.
+
+    Args:
+        values: env-var name → value, using the `job_env.BLOB_*` / `job_env.ARTIFACT_*` names.
+            The Runner passes its env; the App renders its `Settings` into this shape.
+
+    `BLOB_STORE` unset → `BlobStoreNotConfigured` (fail closed; the chart always states it).
+    `BLOB_STORE=filesystem` → `BLOBS_DIR` (default `DEFAULT_BLOBS_DIR`, a sibling of the
+    artifact default). `BLOB_STORE=s3` → the `BLOB_S3_*` settings, all required.
+
+    INVARIANT: never the artifact directory or bucket — no value here is read from the
+    `ARTIFACT_*` names.
+
+    Raises:
+        BlobStoreNotConfigured: `BLOB_STORE` is unset or empty.
+        ValueError: an unknown backend, or an incomplete S3 configuration (naming what is empty).
+    """
+    selected = (values.get(job_env.BLOB_STORE) or "").strip()
+    if not selected:
+        raise BlobStoreNotConfigured(
+            f"no blob store is configured: set {job_env.BLOB_STORE} to 'filesystem' or 's3' "
+            "(blob upload and fetch are off until then)"
+        )
+    if selected == "s3":
+        return S3BlobObjects(S3ArtifactStore(blob_s3_config_from_values(values)))
+    if selected != "filesystem":
+        raise ValueError(f"{job_env.BLOB_STORE} must be 'filesystem' or 's3', not {selected!r}")
+    return FilesystemBlobObjects(Path(values.get(job_env.BLOBS_DIR) or job_env.DEFAULT_BLOBS_DIR))
+
+
+def blob_store_from_env(env: Mapping[str, str]) -> BlobStore:
+    """The run blob store (OME-1540) on the Runner: the same backend the App's routes write.
+
+    WHY `blob_objects_from_values`: the App builds its store through the same function from
+    the same names, so the two halves cannot be pointed at different blob stores.
+    """
+    return BlobStore(blob_objects_from_values(env))
+
+
+def blob_scope_from_env(env: Mapping[str, str]) -> BlobScope:
+    """This run's blob scope, from the run context only (spec F3 step 1).
+
+    INVARIANT: the topic and the verified identity the run was STARTED with — the same pair the
+    App's upload route scoped the blob to — never anything a ref or an expression says.
+
+    Raises:
+        ValueError: the env carries no usable topic, so there is no run to scope to.
+    """
+    email = job_env.identity_from_env(env).get("X-User-Email")
+    return BlobScope.for_caller(email, env.get(job_env.TOPIC) or "")
+
+
+def blob_reader_from_env(env: Mapping[str, str]) -> ScopedBlobReader:
+    """The `BlobReader` (OME-1545 port) the Runner binds for its model calls.
+
+    Raises:
+        BlobStoreNotConfigured: the run's env names no blob store (fail closed, item 1).
+    """
+    return ScopedBlobReader(blob_store_from_env(env), blob_scope_from_env(env))
+
+
 def s3_config_from_values(values: Mapping[str, str]) -> S3Config:
-    """Build an `S3Config` from env-named values, or raise naming what is missing.
+    """Build the ARTIFACT store's `S3Config` from env-named values, or raise naming what is missing.
 
     Args:
         values: env-var name → value, using the `job_env.ARTIFACT_S3_*` names. Callers holding
@@ -62,25 +138,86 @@ def s3_config_from_values(values: Mapping[str, str]) -> S3Config:
         ValueError: naming the first missing variable. The name is the whole point — an
             operator reading it should not have to guess which of six settings is empty.
     """
-    missing = [name for name in _REQUIRED_S3 if not (values.get(name) or "").strip()]
+    return _s3_config(
+        values,
+        _ARTIFACT_S3,
+        "artifact object storage",
+        f"{job_env.ARTIFACT_STORE}=filesystem for a single-process deployment.",
+    )
+
+
+def blob_s3_config_from_values(values: Mapping[str, str]) -> S3Config:
+    """Build the BLOB store's `S3Config` from the `job_env.BLOB_S3_*` names, or raise.
+
+    INVARIANT: never falls back to the artifact credentials or bucket — a blob store that
+    silently shared the results bucket would bring back the shared-capacity failure it exists
+    to remove.
+    """
+    return _s3_config(
+        values,
+        _BLOB_S3,
+        "blob object storage",
+        f"{job_env.BLOB_STORE}=filesystem for a single-process deployment.",
+    )
+
+
+@dataclass(frozen=True)
+class _S3Names:
+    endpoint_url: str
+    bucket: str
+    region: str
+    access_key: str
+    secret_key: str
+
+    @property
+    def required(self) -> tuple[str, ...]:
+        # The region has a default, so only these four are unguessable.
+        return (self.endpoint_url, self.bucket, self.access_key, self.secret_key)
+
+
+_ARTIFACT_S3 = _S3Names(
+    endpoint_url=job_env.ARTIFACT_S3_ENDPOINT_URL,
+    bucket=job_env.ARTIFACT_S3_BUCKET,
+    region=job_env.ARTIFACT_S3_REGION,
+    access_key=job_env.ARTIFACT_S3_ACCESS_KEY,
+    secret_key=job_env.ARTIFACT_S3_SECRET_KEY,
+)
+_BLOB_S3 = _S3Names(
+    endpoint_url=job_env.BLOB_S3_ENDPOINT_URL,
+    bucket=job_env.BLOB_S3_BUCKET,
+    region=job_env.BLOB_S3_REGION,
+    access_key=job_env.BLOB_S3_ACCESS_KEY,
+    secret_key=job_env.BLOB_S3_SECRET_KEY,
+)
+
+
+def _s3_config(values: Mapping[str, str], names: _S3Names, what: str, fallback: str) -> S3Config:
+    missing = [name for name in names.required if not (values.get(name) or "").strip()]
     if missing:
         raise ValueError(
-            "artifact object storage is selected but not fully configured: "
+            f"{what} is selected but not fully configured: "
             f"{', '.join(missing)} "
             + ("is" if len(missing) == 1 else "are")
-            + " empty. Set them, or set "
-            f"{job_env.ARTIFACT_STORE}=filesystem for a single-process deployment."
+            + f" empty. Set them, or set {fallback}"
         )
     return S3Config(
-        endpoint_url=values[job_env.ARTIFACT_S3_ENDPOINT_URL].strip(),
-        bucket=values[job_env.ARTIFACT_S3_BUCKET].strip(),
+        endpoint_url=values[names.endpoint_url].strip(),
+        bucket=values[names.bucket].strip(),
         credentials=Credentials(
-            access_key=values[job_env.ARTIFACT_S3_ACCESS_KEY].strip(),
-            secret_key=values[job_env.ARTIFACT_S3_SECRET_KEY].strip(),
-            region=(values.get(job_env.ARTIFACT_S3_REGION) or "").strip()
-            or job_env.DEFAULT_ARTIFACT_S3_REGION,
+            access_key=values[names.access_key].strip(),
+            secret_key=values[names.secret_key].strip(),
+            region=(values.get(names.region) or "").strip() or job_env.DEFAULT_ARTIFACT_S3_REGION,
         ),
     )
 
 
-__all__ = ["result_writer_from_env", "s3_config_from_values"]
+__all__ = [
+    "BlobStoreNotConfigured",
+    "blob_objects_from_values",
+    "blob_reader_from_env",
+    "blob_s3_config_from_values",
+    "blob_scope_from_env",
+    "blob_store_from_env",
+    "result_writer_from_env",
+    "s3_config_from_values",
+]

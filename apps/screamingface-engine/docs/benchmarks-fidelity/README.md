@@ -21,7 +21,7 @@ is what says the two numbers come from the same exam.
 | `comparable-to-paper` | our headline can sit beside the paper's: every difference from the original harness is cosmetic or bounded, and the bounds sum to at most half a percentage point (`COMPARABLE_TOLERANCE = 0.005`) |
 | `comparable-to-inspect` | ours matches inspect_evals, which itself differs from the paper beyond that |
 | `not-comparable` | reproducible but a different number: an unbounded difference, or grading the paper ran through a vendor, a human or a different judge model |
-| `unverified` | a dimension could not be checked, or a judge question waits on a paid run; the reason is in the front matter |
+| `unverified` | a dimension could not be checked, or a judge question waits on a paid run, while the differences measured so far still fit within tolerance (once they exceed it, the verdict is `not-comparable` whatever is still open); the reason is in the front matter |
 
 A verdict never claims more than the evidence in its record: every `match` names the command and
 output, or the two source locations, that showed it.

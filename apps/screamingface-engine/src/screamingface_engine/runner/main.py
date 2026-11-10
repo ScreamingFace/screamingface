@@ -15,6 +15,7 @@ import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -27,6 +28,7 @@ from screamingface_engine.artifacts import ArtifactWriter
 from screamingface_engine.artifacts.wiring import result_writer_from_env
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.candidate_outcomes import CandidateOutcome
 from screamingface_engine.client_provenance import (
     CLIENT_VERSION_ENV,
     ProvenanceExecutor,
@@ -37,6 +39,7 @@ from screamingface_engine.logs import run_scope
 from screamingface_engine.observations import ObserverFactory
 from screamingface_engine.process_memory import log_process_memory
 from screamingface_engine.request_scope import RequestScope
+from screamingface_engine.run_evidence import SettlementWatch, settlement_of
 from screamingface_engine.runner.executor import Url4Executor
 from screamingface_engine.runner.fair_share import FairShareGate, FairShareIOLayer
 from screamingface_engine.runner.operation_capture import (
@@ -619,20 +622,24 @@ async def _run_and_log(
     publisher: EventPublisher,
     params: RunnerParams,
     traceparent: str | None,
-) -> None:
+) -> CandidateOutcome:
     """Drive one run, then log its terminal outcome and summary from the executor's record.
 
     `lifecycle.run` publishes the terminal frame and returns normally on failure, so the
     outcome is read back from the executor rather than inferred from an exception.
+
+    Returns the run's Candidate outcome (OME-1785), from the one classifier (spec R3) and the
+    summary's exact cost.
     """
 
     started = time.monotonic()
     # FEATURE (memory diagnostics, OME-1314): the process baseline before any work, and what it
     # holds at the end — inside `run_scope`, so both lines carry the run's topic and trace id.
     log_process_memory("run_start")
-    try:
-        await run(
-            publisher,
+    watch = SettlementWatch(publisher)
+    task = asyncio.ensure_future(
+        run(
+            watch,
             ProvenanceExecutor(executor, params.client_version),
             params.topic,
             params.url4,
@@ -640,9 +647,20 @@ async def _run_and_log(
             traceparent=traceparent,
             deadline_s=params.deadline_s,
         )
+    )
+    try:
+        await task
     finally:
         _log_terminal(executor, params.topic, started)
         log_process_memory("run_end")
+    return settlement_of(watch, task, cost_usd=_summary_cost(executor))
+
+
+def _summary_cost(executor: object) -> Decimal | None:
+    last_summary = getattr(executor, "last_summary", None)
+    summary = None if last_summary is None else last_summary()
+    cost = getattr(summary, "cost_usd", None)
+    return cost if isinstance(cost, Decimal) else None
 
 
 @dataclass(frozen=True)
@@ -694,12 +712,18 @@ async def warm_up(
 
 
 async def _run_process(
-    publisher: JetStreamPublisher | None, shared: SharedWorld | None = None
-) -> None:
+    publisher: JetStreamPublisher | None,
+    shared: SharedWorld | None = None,
+    report: Callable[[CandidateOutcome], None] | None = None,
+) -> CandidateOutcome | None:
     """One run from this process's environment, then its reclaim.
 
     `publisher` and `shared` are the warm phase's (an already-connected publisher, a world
     built ahead), or None for a cold `run`.
+
+    Returns the run's Candidate outcome when its own frames reached the stream, else None
+    (OME-1785, spec R3): a run whose subject had already ended published nothing. ``report``
+    gets that outcome as soon as the frames are out, before the span export on the way out.
     """
     params = params_from_env(os.environ)
     # WHY: entry-point composition owns plugin registration; the executor stays optional.
@@ -734,7 +758,11 @@ async def _run_process(
         run_scope(params.topic, trace_id),
         SpanRelay(publisher, span_sink(os.environ), traceparent=traceparent) as relay,
     ):
-        run_once = lambda: _run_and_log(executor, relay, params, traceparent)  # noqa: E731
+        settled: list[CandidateOutcome | None] = []
+
+        async def run_once() -> None:
+            settled.append(await _run_and_log(executor, relay, params, traceparent))
+
         if os.environ.get(job_env.RECLAIM_OWNER) == "worker":
             # The supervising worker reclaims the subject after the grace, off this run's slot;
             # this process exits the moment its terminal frame is out (see RECLAIM_OWNER).
@@ -749,6 +777,22 @@ async def _run_process(
                 retain=functools.partial(subject_retained, publisher.last_frame),
                 trim=publisher.trim_retained,
             )
+        outcome = _landed_outcome(settled, publisher, params.topic)
+        if outcome is not None and report is not None:
+            # WHY inside the relay: its exit exports the run's spans over the network, which can
+            # take seconds; the outcome must not wait on it.
+            report(outcome)
+    return outcome
+
+
+def _landed_outcome(
+    settled: list[CandidateOutcome | None], publisher: object, topic: str
+) -> CandidateOutcome | None:
+    """The run's outcome, unless its frames were dropped because the subject had ended."""
+    dropped = getattr(publisher, "dropped", None)
+    if not settled or (dropped is not None and dropped(topic)):
+        return None
+    return settled[0]
 
 
 def main() -> None:  # pragma: no cover - real NATS + event loop (INFRA rule)
@@ -765,8 +809,19 @@ def warm_main() -> None:  # pragma: no cover - real pipes + NATS (covered by int
     raise SystemExit(asyncio.run(_warm_process(os.environ, sys.stdin.buffer)))
 
 
-async def _warm_process(environ: Any, stdin: Any) -> int:
+def _open_control(environ: Any) -> Any:
+    """The control pipe, kept open through the run and invisible to it."""
     control = os.fdopen(int(environ[child_protocol.CONTROL_FD_ENV]), "wb", buffering=0)
+    # WHY: the pipe stays open through the run; a process the run spawns must not hold it, or
+    # the worker would wait for an EOF that never comes.
+    os.set_inheritable(control.fileno(), False)
+    # The run must not inherit a name for the control fd; this process keeps the fd itself.
+    environ.pop(child_protocol.CONTROL_FD_ENV, None)
+    return control
+
+
+async def _warm_process(environ: Any, stdin: Any) -> int:
+    control = _open_control(environ)
     try:
         state = await warm_up(environ)
         control.write(child_protocol.encode_ready(pid=os.getpid(), world_ok=state.world_ok))
@@ -780,21 +835,34 @@ async def _warm_process(environ: Any, stdin: Any) -> int:
             control.write(child_protocol.encode_refused(exc.code))
             return 2
         control.write(child_protocol.ACK)
+        # From here the process IS the run: its environment is the one a cold child would have
+        # been spawned with, and the io budget is the worker's at hand-off (WRM-18).
+        environ.update(spec.env)
+        environ[job_env.IO_CONCURRENCY] = str(spec.io_concurrency)
+        try:
+            # FEATURE (OME-1785): the run's Candidate outcome, for the worker to publish, sent
+            # the moment the run's frames are out: a teardown that fails or is killed after
+            # that must not cost it.
+            await _run_process(
+                state.publisher,
+                state.shared,
+                report=lambda outcome: control.write(
+                    child_protocol.encode_settled(_settled(outcome))
+                ),
+            )
+        finally:
+            # The world built ahead is this process's own; the run does not close a shared one.
+            if state.world_aclose is not None:
+                await state.world_aclose()
     finally:
         control.close()
-        # The fd number is closed now; the run must not inherit a name for a stale fd.
-        environ.pop(child_protocol.CONTROL_FD_ENV, None)
-    # From here the process IS the run: its environment is the one a cold child would have
-    # been spawned with, and the io budget is the worker's at hand-off (WRM-18).
-    environ.update(spec.env)
-    environ[job_env.IO_CONCURRENCY] = str(spec.io_concurrency)
-    try:
-        await _run_process(state.publisher, state.shared)
-    finally:
-        # The world built ahead is this process's own; the run does not close a shared world.
-        if state.world_aclose is not None:
-            await state.world_aclose()
     return 0
+
+
+def _settled(outcome: CandidateOutcome) -> child_protocol.Settled:
+    return child_protocol.Settled(
+        outcome.status, outcome.error_code, outcome.cost_usd, outcome.finished_at
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover

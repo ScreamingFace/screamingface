@@ -1,0 +1,71 @@
+{{- /*
+FEATURE (OME-1785, E5 P1 spec R9): the Run registry's migrations, applied before every install and
+upgrade, modelled on `apps/aigateway/charts/aigateway/templates/job-migrate.yaml`. Rendered only
+when `database.existingSecret` is set; without it the App runs with Runs off (D2). The App refuses
+to start on a schema older than its code, so a failed Job fails the release.
+
+WHY no `serviceAccountName`: a pre-install hook runs before this chart's own ServiceAccount
+exists. The Job talks to Postgres only, so the namespace default with no token mounted is enough.
+*/ -}}
+{{- with .Values.database.existingSecret }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "screamingface-engine.fullname" $ }}-migrate
+  labels:
+    {{- include "screamingface-engine.labelsBase" $ | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        {{- include "screamingface-engine.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      {{- with $.Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: tortoise-migrate
+          image: {{ include "screamingface-engine.image" $ | quote }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command:
+            - python
+            - -m
+            - tortoise
+            - -c
+            - screamingface_engine.runs.db.TORTOISE_CONFIG
+            - migrate
+          {{- with $.Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: URL4_CLOUD_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . | quote }}
+                  key: {{ $.Values.database.existingSecretKey | quote }}
+          resources:
+            {{- toYaml $.Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

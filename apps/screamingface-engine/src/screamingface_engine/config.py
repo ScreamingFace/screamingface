@@ -8,6 +8,8 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env, runner_queue, subjects
+from screamingface_engine.artifacts.blobs import ATTACHMENT_MEDIA_TYPES, DEFAULT_BLOB_MAX_BYTES
+from screamingface_engine.candidate_outcomes import DEFAULT_OUTCOMES_MAX_AGE_S
 
 RunnerBackend = Literal["none", "queue"]
 ArtifactStoreBackend = Literal["filesystem", "s3"]
@@ -45,6 +47,12 @@ STUDIO_CORS_ORIGINS = (
     "http://tauri.localhost",
     "https://tauri.localhost",
 )
+
+
+# The Client's default admission budget (`packages/screamingface`, `_engine/admission.py`): how
+# long it re-sends a start the Engine refused with 503. Named here, not imported: the Engine never
+# imports the Client. `run_pending_grace_s` must exceed it (E5 P1 spec R5).
+CLIENT_ADMISSION_BUDGET_S = 900.0
 
 
 class Settings(BaseSettings):
@@ -127,6 +135,40 @@ class Settings(BaseSettings):
     # decision on OME-892). Hourly is far finer than the 48h TTL it enforces, and one
     # directory scan an hour costs nothing.
     artifact_sweep_interval_s: float = 3600.0
+    # FEATURE: the run blob store (OME-1540; spec OME-1535 F1b, §4). Owner decision 2026-10-28
+    # (Q4a): one blob is at most the spec's per-run attachment total, and only the five spec
+    # attachment types are kept. Over the cap → 413 `x.blob_too_large`; any other type → 415
+    # `x.blob_unsupported_media_type`. Blobs share `artifact_ttl_s` and its sweep.
+    # INVARIANT (#1603 review round 3): never above DEFAULT_BLOB_MAX_BYTES. The Runner's
+    # `blob_store_from_env` reads with the default policy, so a larger App cap would store a
+    # blob the Runner then refuses as `x.blob_digest_mismatch`; it is refused at config load.
+    blob_max_bytes: int = Field(default=DEFAULT_BLOB_MAX_BYTES, gt=0, le=DEFAULT_BLOB_MAX_BYTES)
+    blob_media_types: list[str] = Field(
+        default_factory=lambda: [
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+            "application/pdf",
+        ]
+    )
+    # FEATURE: the run blob store's OWN storage (#1603 review, owner decision 2026-11-03) — a
+    # client filling it fails uploads and never touches result delivery. Every field reads the
+    # `job_env.BLOB_*` name (`URL4_CLOUD_` + field name), so the App and the Runner resolve one
+    # store through `artifacts.wiring.blob_objects_from_values`.
+    #
+    # INVARIANT (#1603 review round 2, owner decision 2026-11-04): `None` = NO blob store — blob
+    # upload and fetch are off (the App's blob routes answer 503). Never the artifact store. The
+    # chart always sets it.
+    # INVARIANT: an explicit "s3" never borrows the artifact bucket or credentials.
+    blob_store: ArtifactStoreBackend | None = None
+    blobs_dir: str = ""
+    blob_s3_endpoint_url: str = ""
+    blob_s3_bucket: str = ""
+    blob_s3_region: str = job_env.DEFAULT_ARTIFACT_S3_REGION
+    blob_s3_access_key: str = ""
+    # AIDEV-NOTE: credential material — Secret only, never logged, never in a ConfigMap.
+    blob_s3_secret_key: str = ""
     # FEATURE: tie a run's lifetime to its audience (OME-890).
     #
     # WHY 120s: a run whose last WebSocket subscriber disconnects gets this long to get one back
@@ -266,6 +308,30 @@ class Settings(BaseSettings):
     # the gateway it manages credentials through is the one running beside it.
     local_aigateway_base_url: str = LOCAL_AIGATEWAY_BASE_URL
 
+    # --- the Run registry (OME-1785, E5 P1) ---------------------------------------------------
+    # FEATURE: first-class Runs. The registry's database: SQLite locally, the `engine` database
+    # on the shared Postgres server hosted (spec D2). Empty means Runs are off on a hosted App.
+    # AIDEV-NOTE: credential material (it carries the password). It reaches the pod from a
+    # Secret, never a ConfigMap, and is never logged.
+    database_url: str = ""
+    # WHY 30 days (spec R7): long enough to come back to last month's runs; the hourly sweep
+    # deletes Runs created before it.
+    run_retention_s: float = Field(default=30 * 86_400.0, gt=0, allow_inf_nan=False)
+    # WHY 1800 s (spec R5): how long a bound-but-unscheduled or unstarted Candidate still reads
+    # `running`. It must exceed the Client's admission budget, or a Client still waiting for
+    # admission would read `interrupted` (validated below).
+    run_pending_grace_s: float = Field(default=1800.0, allow_inf_nan=False)
+    # WHY 48 h (spec R6): past both `url4-candidate-outcomes` and `url4-runq`'s 24 h retention, so
+    # reconcile settles a Candidate `lost` only once no outcome can still arrive.
+    run_lost_after_s: float = Field(default=48 * 3600.0, gt=0, allow_inf_nan=False)
+    # The outcome stream `url4-candidate-outcomes` (spec R11), declared by the App and the runner
+    # pool at startup from these values (`candidateOutcomes.*` in the chart). When it is full, a
+    # publish is refused rather than an older, unwritten outcome dropped.
+    candidate_outcomes_max_age_s: float = Field(
+        default=DEFAULT_OUTCOMES_MAX_AGE_S, gt=0, allow_inf_nan=False
+    )
+    candidate_outcomes_max_bytes: int = Field(default=64 * 1024**2, gt=0)
+
     # --- shared events stream (uniform executor, PRD 01) --------------------------------------
     # ONE stream holds every run's frames (`url4-events`, subject `url4-cloud.<topic>`). The App
     # and the worker declare it at startup from these values and apply a changed limit; no
@@ -381,6 +447,31 @@ class Settings(BaseSettings):
     # the endpoint.
     worker_metrics_port: int = Field(default=9109, ge=0)
 
+    @field_validator("blob_store", mode="before")
+    @classmethod
+    def _empty_blob_store_is_unset(cls, value: object) -> object:
+        # WHY: an env var rendered empty means "not set", not an invalid backend name.
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("blob_media_types")
+    @classmethod
+    def _blob_media_types_are_attachment_types(cls, value: list[str]) -> list[str]:
+        """Refuse any type outside `ATTACHMENT_MEDIA_TYPES` (#1603 review, owner 2026-11-03).
+
+        INVARIANT: the setting can only NARROW the five attachment types. `text/html` or
+        `image/svg+xml` would have the engine serve uploaded script from its own origin, and
+        every type here has a magic-byte signature the store verifies at ingest.
+        """
+        normalized = [t.strip().lower() for t in value]
+        unknown = [t for t in normalized if t not in ATTACHMENT_MEDIA_TYPES]
+        if unknown:
+            raise ValueError(
+                f"blob_media_types may only list attachment types "
+                f"({', '.join(sorted(ATTACHMENT_MEDIA_TYPES))}); refused: "
+                + ", ".join(repr(t) for t in unknown)
+            )
+        return normalized
+
     @field_validator("run_queue_stream")
     @classmethod
     def _reject_sweepable_run_queue_stream(cls, value: str) -> str:
@@ -415,6 +506,30 @@ class Settings(BaseSettings):
         if isinstance(value, str) and not value.strip():
             return job_env.DEFAULT_ARTIFACTS_DIR
         return value
+
+    @field_validator("run_pending_grace_s")
+    @classmethod
+    def _grace_outlasts_admission(cls, value: float) -> float:
+        if value <= CLIENT_ADMISSION_BUDGET_S:
+            raise ValueError(
+                f"run_pending_grace_s={value} must exceed the Client's admission budget "
+                f"({CLIENT_ADMISSION_BUDGET_S} s), or a Client waiting for admission reads "
+                f"as interrupted"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _lost_after_outlasts_retention(self) -> Self:
+        """INVARIANT (spec R6): reconcile settles a Candidate `lost` only once no outcome or
+        queued run can still arrive, so the window must outlast both streams' retention."""
+        retained = max(self.run_queue_max_age_s, self.candidate_outcomes_max_age_s)
+        if self.run_lost_after_s <= retained:
+            raise ValueError(
+                f"run_lost_after_s={self.run_lost_after_s} must exceed the outcome and run "
+                f"queue retention ({retained} s), or reconcile settles a Candidate `lost` "
+                f"before its outcome can arrive"
+            )
+        return self
 
     @model_validator(mode="after")
     def _enforce_ack_wait_floor(self) -> Self:

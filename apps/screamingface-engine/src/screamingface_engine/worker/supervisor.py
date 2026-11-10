@@ -23,15 +23,22 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from nats.errors import NoRespondersError
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.jetstream import QueueReadError
+from screamingface_engine.candidate_outcomes import (
+    CandidateOutcome,
+    CandidateOutcomeStream,
+    OutcomeStatus,
+    publish_outcome,
+)
 from screamingface_engine.client_provenance import CLIENT_VERSION_ENV
 from screamingface_engine.evidence_retention import subject_retained
 from screamingface_engine.logs import run_scope
+from screamingface_engine.run_evidence import publish_landed
 from screamingface_engine.runner_queue import (
     UNDECODABLE_BODY_ERRORS,
     decode_message,
@@ -266,6 +273,13 @@ class DirectLauncher:
         )
 
 
+def _forget(launcher: object, proc: object) -> None:
+    """Release a finished child's control reader in a launcher that keeps one (the warm pool)."""
+    forget = getattr(launcher, "forget", None)
+    if forget is not None:
+        forget(proc)
+
+
 async def _cancel_quietly(*tasks: asyncio.Task[Any] | None) -> None:
     """Cancel and reap side tasks that may already be done; never raise their cancellation."""
     for task in tasks:
@@ -309,7 +323,10 @@ class RunSupervisor:
         resident_budget_bytes: int | None = None,
         memory_poll_s: float = MEMORY_POLL_S,
         world_digest: str | None = None,
+        # FEATURE (OME-1785): where each run's Candidate outcome goes (spec R3).
+        outcomes: CandidateOutcomeStream | None = None,
     ) -> None:
+        self._outcomes = outcomes
         self._publisher = publisher
         # The sha256 of the world file this worker's children load; None compares nothing.
         self._world_digest = world_digest
@@ -745,9 +762,10 @@ class RunSupervisor:
                 if outcome == "memory"
                 else self._classify(outcome, proc.returncode, topic)
             )
-            await self._publish_if_needed(topic, classification)
+            await self._publish_ending(topic, classification, proc)
             await msg.ack()
         finally:
+            _forget(self._launcher, proc)
             heartbeat.cancel()
             output.cancel()
             # WHY gather and not sequential awaits under one `suppress`: a task that already
@@ -1270,7 +1288,8 @@ class RunSupervisor:
         if self._metrics is not None:
             self._metrics.terminals.labels(code=code).inc()
         await self._publisher.ensure_stream(topic)
-        await self._publisher.publish(
+        landed = await publish_landed(
+            self._publisher,
             topic,
             TerminatedEvent(
                 id=uuid.uuid4().hex,
@@ -1284,6 +1303,44 @@ class RunSupervisor:
             ),
         )
         await self._publisher.flush()
+        # INVARIANT (spec R3): the worker's own outcome, with no cost, only when its frame is
+        # the run's. A child that reported first already published its own frame.
+        if landed:
+            await publish_outcome(self._outcomes, topic, CandidateOutcome(status, code))
+
+    async def _publish_ending(
+        self,
+        topic: str,
+        classification: tuple[TerminalStatus, str, str] | None,
+        proc: _ChildProcess,
+    ) -> None:
+        """The run's terminal frame when the child wrote none, then the child's own outcome."""
+        await self._publish_if_needed(topic, classification)
+        await self._publish_settlement(topic, proc)
+
+    async def _publish_settlement(self, topic: str, proc: _ChildProcess) -> None:
+        """Publish the outcome the child reported on its control pipe, if it sent one.
+
+        The child sends it only when its own frames reached the stream, so the outcome follows
+        the frame the Client reads (spec R3). A child that died first sent none.
+        """
+        outcome = await self._child_outcome(topic, proc)
+        if outcome is not None:
+            await publish_outcome(self._outcomes, topic, outcome)
+
+    async def _child_outcome(self, topic: str, proc: _ChildProcess) -> CandidateOutcome | None:
+        settlement = getattr(self._launcher, "settlement", None)
+        settled = None if self._outcomes is None or settlement is None else await settlement(proc)
+        if settled is None:
+            return None
+        try:
+            status = cast(OutcomeStatus, settled.status)
+            return CandidateOutcome(
+                status, settled.error_code, settled.cost_usd, settled.finished_at
+            )
+        except ValueError as exc:
+            logger.warning("the child of %s reported an outcome no run can have: %r", topic, exc)
+            return None
 
 
 __all__ = [

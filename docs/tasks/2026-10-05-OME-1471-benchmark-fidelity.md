@@ -28,3 +28,6 @@ Plan: `docs/plan/2026-11-06-OME-1471-benchmark-fidelity.md`.
 - 2026-11-09: check script, agent, Lane 2 line and the IFEval record pushed to the same PR;
   `just engine fidelity-check` → ifeval fresh, 93 no record; blind planted run caught the one
   planted deviation. Ledger done. Pending the owner: review, merge, Linear → Done.
+- 2026-11-09: #1700 merged. Follow-up PR [#1708](https://github.com/ScreamingFace/screamingface/pull/1708) from branch `OME-1471-fidelity-agent-fixes` fixes the four
+  gaps the ZeroBench and MaCBench dry runs found (verdict precedence, the authors' recorded
+  replies, gated datasets, citation prefixes). Ledger `docs/work/2026-11-09-fidelity-agent-fixes.md`.
