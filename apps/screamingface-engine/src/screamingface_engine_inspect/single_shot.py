@@ -79,6 +79,10 @@ from screamingface_engine.benchmarks.protocol import (
 )
 from screamingface_engine.benchmarks.provenance import ProvenanceFields
 from screamingface_engine.benchmarks.selection import CaseSelection
+from screamingface_engine.benchmarks.shared_grading.attempt_fold import (
+    ANY_ATTEMPT_FOLD,
+    AttemptFold,
+)
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     CASE_GRADING_CONCURRENCY,
     BenchmarkAggregation,
@@ -306,10 +310,14 @@ class ImportedBenchmark:
     #: keys are published as run metrics (OME-1527). None for a metric returning one number,
     #: and for every row that keeps the mean. Hashed by the caller's pins.
     whole_run_headline: str | None = None
-    #: The Task's own any-of-N epoch reducer as a lazy factory, for a row with Attempts that
-    #: honours a whole-run metric (OME-1527 x OME-1458); None reduces each Case with inspect's
-    #: default mean. Hashed by the caller's pins.
+    #: The Task's own epoch reducer as a lazy factory: any-of-N for a row with Attempts that
+    #: honours a whole-run metric (OME-1527 x OME-1458), or ``pass_at(1)`` for a row folding by
+    #: the mean; None reduces each Case with inspect's default mean. Hashed by the caller's pins.
     epoch_reducer_factory: Callable[[], Any] | None = None
+    #: How the marking room folds a Case's Attempts: ``any`` (a Check is met if any Attempt met
+    #: it) or ``mean`` (the share at full marks, inspect's pass@1; 2026-11-09 amendment). Hashed
+    #: by the caller's pins (the row's ``epoch_reducer``).
+    attempt_fold: AttemptFold = ANY_ATTEMPT_FOLD
     #: Serve each Case's input to the Candidate as the candidate-input envelope rather than
     #: as plain text (OME-1527); False on every imported row. Hashed by the factory.
     candidate_input_envelope: bool = False
@@ -354,6 +362,7 @@ class ImportedBenchmark:
                 ),
             ),
             failure_messages=_FAILURE_MESSAGES,
+            attempt_fold=self.attempt_fold,
             method="inspect_scorer",
             grading_failure_code="inspect_grading_failed",
             grading_failure_message="the inspect scorer pipeline could not grade this Case",
@@ -403,6 +412,7 @@ def single_shot_benchmark(
     whole_run_headline: str | None = None,
     epoch_reducer_factory: Callable[[], Any] | None = None,
     attempts: int = 1,
+    attempt_fold: AttemptFold = ANY_ATTEMPT_FOLD,
     retrieval_policy: RetrievalPolicyDeclaration | None = None,
     candidate_input_envelope: bool = False,
     scorer_draft_feedback: bool = False,
@@ -468,6 +478,8 @@ def single_shot_benchmark(
         attempts: Attempts per Case (OME-1458) — the expression asks each Case this many
             times and the aggregate folds them per Check. The caller carries it into
             ``revision_pins``.
+        attempt_fold: the fold rule, ``any`` or ``mean`` (2026-11-09 amendment); the caller
+            carries the row's ``epoch_reducer`` it was read from into ``revision_pins``.
         retrieval_policy: the row's web-search rule for the Candidate call (OME-1527, R13);
             None keeps the call retrieval-free. Hashed into the revision below when set.
         candidate_input_envelope: the Candidate gets each Case's input wrapped in the
@@ -684,6 +696,7 @@ def single_shot_benchmark(
         whole_run_metric_factory=whole_run_metric_factory,
         whole_run_headline=whole_run_headline,
         epoch_reducer_factory=epoch_reducer_factory,
+        attempt_fold=attempt_fold,
         candidate_input_envelope=candidate_input_envelope,
         scorer_draft_feedback=scorer_draft_feedback,
     )
@@ -1543,12 +1556,18 @@ def _check_scores_agree(
     Attempts (OME-1458) can split them: the fold credits a Check met by any graded Attempt,
     and inspect's any-of-N reducers compute the same over 0/1 Attempt Scores, except
     ``pass_at(2)`` over a Case whose second Attempt failed, which inspect reduces to nan while
-    the fold scores the graded one. So can any rewrite of a Case score the tally does not
-    also hand the metric (the abstain rule's 0.0 is handed over in Stage 1 of the tally). The
-    Score is read as the scorer adapter read it for the Case Result, a dict value by its
-    headline column (the first Named Score), never by inspect's ``value_to_float``, which
-    reads a whole dict as 0.0. The Case score is rounded to 4 places, so the Score is
-    compared at that precision.
+    the fold scores the graded one. A row folding by the mean (``pass_at_1``, 2026-11-09
+    amendment) scores the share of its tries at full marks, which is what ``pass_at(1)``
+    computes over the filed Scores, partial marks included. AIDEV-NOTE: a try the Candidate
+    answered with nothing (``EMPTY_ANSWER_CODES`` in ``attempt_fold.py``) is a wrong try for
+    the fold but files no Score here, so a mean row that also honours a whole-run metric would
+    fail that Case by the metric's name on such an Attempt; no row has both today (ZeroBench
+    honours none). The fix, when one does, is to file a 0 for it. So can any rewrite of a Case
+    score the tally does not also hand the metric (the abstain rule's 0.0 is handed over in
+    Stage 1 of the tally). The Score is read as the scorer adapter read it for the Case
+    Result, a dict value by its headline column (the first Named Score), never by inspect's
+    ``value_to_float``, which reads a whole dict as 0.0. The Case score is rounded to 4
+    places, so the Score is compared at that precision.
     """
 
     from screamingface_engine_inspect.scorer_adapter import whole_run_grade

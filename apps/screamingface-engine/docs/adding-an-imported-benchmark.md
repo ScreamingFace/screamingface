@@ -324,6 +324,11 @@ ARC-AGI-2 (`local_tasks/arc_agi_2/`, OME-1476) is the worked example of a local 
 Attempt failed reduces to nan under `pass_at_2` and the tally refuses the run), and a Task-level
 metric that averages per task is honoured with `--whole-run-metric honour`. Such a metric reads
 Sample metadata, so it must tolerate its absence too (ARC's counts each Case as its own task).
+A Task whose first declared reducer is inspect's own `pass_at(1)` over N epochs (ZeroBench's
+`Epochs(5, ["pass_at_1", "pass_at_5", "5_of_5_reliability"])`) imports as `attempts=N` with
+`epoch_reducer="pass_at_1"`: the Case scores the share of Attempts fully right, inspect's pass@1,
+and the other reducers are named in the row's comment as not reproduced. The card says "mean over
+N Attempts", never "pass@1" (`docs/spec/2026-11-09-attempts-mean-fold.md`).
 
 ### Two network gotchas on a developer Mac
 
