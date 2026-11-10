@@ -79,10 +79,23 @@ them yet); one PR for the whole sweep.
   ruff format, pyright clean on the two touched Python files. url4 regex timing at 16 KiB:
   slowest 0.48 ms (`PATH_RE` on 16,384 slashes), the rest under 0.2 ms.
 - **Deviations:** LiteLLM not bumped in aigateway (tripwire, `OME-1320`); filelock stays 3.32.7
-  in the SDK and Studio runtime (huggingface-hub caps it below 4); npm moderates left where the
+  in the SDK and Studio runtime (litellm 1.104.2 requires `filelock<4.0`; huggingface-hub only
+  asks for `>=3.10`, my first wording blamed the wrong package); npm moderates left where the
   fix is a major of a parent (minimatch, postcss-selector-parser, @vitest/mocker): aigateway-ui
   8, Studio frontend 11, public-docs 13; glib 0.20 skipped. The Studio runtime lock now follows
   the SDK's `litellm==1.104.2`, which main's SDK already pinned (`d61550b3e`).
+- **Review round 1 (Sergey, Dmitry, 2026-11-10):** (1) OpenTelemetry had only moved on
+  scoreboard: `--upgrade-package opentelemetry-api` alone cannot move it because sdk, exporter
+  and proto pin each other; re-locked the family together to 1.45.2 in Engine, aigateway and
+  Studio runtime. (2) `next` pinned exact `16.4.2`. (3) Tauri: zip 9.0.5 declares Rust 1.88 and
+  tauri-plugin-updater 2.14.1 declares 1.90 while `Cargo.toml` said 1.77.2; raised
+  `rust-version` to 1.90 (owner's call; release builds already use stable). (4) Under litellm
+  1.104.2 the gateway strip list missed `arize_error_sampling_rate` and
+  `arize_success_sampling_rate`; added both with a behaviour test, RED (3 failures) then GREEN
+  (32 passed). (5) IFEval's grader imports nltk without declaring it: added
+  `scorer_dependencies=("nltk",)`, fingerprint `ada07458…` → `a2159cda…`, published id held.
+  (6) Corrected the filelock wording above. Lanes after the round: Engine inspect 2,936 passed,
+  gateway unit 7,773 passed, 2 skipped; `cargo check --locked` 0 errors at rust-version 1.90.
 - **Owner-verify:** (1) dismiss the 131 ghost alerts on `apps/server` and `apps/url4-cloud`
   with reason "manifest removed from main"; (2) dismiss the 9 url4 regex CodeQL alerts as
   tolerable, citing the timing above; (3) read the HuggingFace runtime-guard log line CodeQL

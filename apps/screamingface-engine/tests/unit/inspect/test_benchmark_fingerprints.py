@@ -52,7 +52,9 @@ _FINGERPRINTS: dict[str, str] = {
     # kept the hand-built ids; the golden replays proved the exam unchanged.
     "healthbench-worst30": "f12c3e30661ea9d3",
     "healthbench-professional": "44ddda05be338699",
-    "ifeval": "ada07458a23c55ab",
+    # OME-1853: HELD at ada07458a23c55ab; the row now declares nltk as a scorer dependency,
+    # so the installed nltk (3.10.4 after the security bump) pins into the fingerprint.
+    "ifeval": "a2159cda81ace8c6",
     # OME-1755: the judge reads the Sample's own question; each Case's Grading Material keeps
     # it, so the Case Digest moved while every Case input and the published id stayed (owner
     # decision 2026-10-28, no leaderboard scores on them yet).

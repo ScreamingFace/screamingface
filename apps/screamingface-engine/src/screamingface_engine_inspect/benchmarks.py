@@ -4946,6 +4946,12 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The vendored checker reads only the reply and the instructions in the Sample metadata;
         # no Case has an answer key and no judge grades it.
         scorer_reads_answer_key=False,
+        # The vendored grader tokenises with nltk (RegexpTokenizer and Punkt in
+        # vendor/instructions_util.py): its installed version is Benchmark identity, like
+        # sympy on MATH, so an nltk bump moves this fingerprint instead of per-Case values
+        # under an unchanged one (review finding on #1707, OME-1853). nltk is a base Engine
+        # dependency, so an extra-less install still assembles the row.
+        scorer_dependencies=("nltk",),
         # The paper's four numbers from one dict Score, headline first (the published order).
         named_scores=(
             "prompt_level_strict_accuracy",
