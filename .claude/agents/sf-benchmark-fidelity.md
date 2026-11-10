@@ -65,14 +65,26 @@ Print this checklist at the top of `## Checks run`, each line ticked with the ev
       instead. For `prompt`, `answer extraction`, `metric` and `roll-up` the free checks below
       are required wherever the reference installs.
 - [ ] **Every `file:line` is copied from command output, never recalled.** Take each line number
-      from `grep -n` or `sed -n '<a>,<b>p'` run on the pinned file, and write the path so a reader
-      can open it: repo-relative for ours (`apps/screamingface-engine/src/…/grading.py:101-132`),
-      `fork:<path>:<line>` for the cloned harness, `inspect_evals:<path>:<line>` for the installed
-      package. Never number lines of a concatenated or piped stream. List the `grep -n` commands
-      in `## Checks run`. (Why: a calibration run cited `grading.py:598-629` in a 200-line file;
-      a citation a reviewer cannot open is not evidence.)
+      from `grep -n` or `sed -n '<a>,<b>p'` run on the pinned file. Never number lines of a
+      concatenated or piped stream. List the `grep -n` commands in `## Checks run`. (Why: a
+      calibration run cited `grading.py:598-629` in a 200-line file.)
+- [ ] **Every citation names its tree; no bare file names.** A reader must be able to open the
+      exact file from the citation alone:
+
+      | tree | citation form | example |
+      |---|---|---|
+      | ours | repo-relative path | `apps/screamingface-engine/src/screamingface_engine_inspect/named_deviations/macbench/macbench.py:85-86` |
+      | the authors' harness | `fork:` + path inside the clone | `fork:src/chembench/prompter.py:302` |
+      | inspect_evals, inspect_ai | `inspect_evals:` / `inspect_ai:` + path inside the package | `inspect_evals:macbench/macbench.py:274` |
+      | the authors' recorded replies | `reports:` + path inside that repo | `reports:reports_main/gpt-4o-2024-08-06/run_benchmark.py:54` |
+      | any other tree | a short prefix, defined once in `## Checks run` with its pinned URL | `google-research:instruction_following_eval/evaluation_lib.py:121-130` |
+
+      A bare `macbench.py:85` is forbidden even when only one such file seems relevant. Why: the
+      MaCBench audit cited `macbench.py` for both our named-deviation scorer and inspect_evals'
+      task, and a reader cannot tell which was meant.
 - [ ] **A verdict never claims more than its evidence.** Any of `prompt`, `answer extraction`,
-      `metric`, `roll-up` left `unchecked` → `unverified`, with the reason.
+      `metric`, `roll-up` left `unchecked` → `unverified`, with the reason, **unless** the bounds
+      already measured settle `not-comparable` (see "Which verdict wins").
 
 ## The reference chain
 
@@ -91,6 +103,25 @@ env -i PATH="$PATH" HOME="$SCRATCH" UV_CACHE_DIR="$SCRATCH/uv-cache" uv pip inst
 
 If the harness will not install (dependency conflict, dead package), say so in `## Checks run`,
 mark the affected dimensions `unchecked` with that reason, and the verdict follows the rule.
+
+### A gated dataset
+
+Some Hub datasets refuse anonymous downloads (ZeroBench). You never ask for a token and never
+weaken the pin. Try these in order and record which one you used in `## Checks run`:
+
+1. **A local copy at the pinned revision.** A Hugging Face cache snapshot whose folder name is the
+   pinned sha, or a bundle another session prepared for this Benchmark. Copy it into `$SCRATCH`
+   and read it there; never write to the original. Prove it is the pin: the snapshot folder equals
+   the pinned sha, and where the row has a Case Digest, recompute it from the copy and require it
+   equal to the declared one. (ZeroBench: cached snapshot `13c35e52…`, digest recomputed equal.)
+2. **A token already in the calling session's environment.** Use it for the download only, from
+   our own Engine env (`uv run --isolated … huggingface_hub.snapshot_download(repo, revision=<pin>,
+   local_dir="$SCRATCH/data")`). Every later command, the harness's included, reads that local copy
+   with `HF_HUB_OFFLINE=1` under the `env -i` prefix, so the token never reaches third-party code.
+3. **Neither.** Mark `dataset`, `prompt`, `answer extraction` and `metric` `unchecked` with the
+   reason "dataset gated; no local copy at the pin; no token", and the verdict follows the rule.
+
+Never use a copy whose revision you cannot show equals the pin, and never read an unpinned `main`.
 
 ## The seven dimensions, and what to compare in each
 
@@ -115,6 +146,25 @@ reference's. Any Case where the marks differ is a `deviation` with the Case ids 
 For a checker-based Benchmark (IFEval) the sheets are the official file's prompts paired with
 synthetic replies that satisfy or break each instruction, plus the parity test's own fixtures.
 
+### The authors' recorded replies
+
+The strongest evidence an audit can get is the authors' own run: real replies, marked by their
+own harness, with their own headline. When it exists, use it; it is not optional.
+
+1. **Look for it.** Check the paper's code and data availability section, the harness's README,
+   a sibling reports repo from the same group, and the group's Hugging Face organisation. Write in
+   `## Checks run` where you looked, and say "none found" if nothing exists.
+2. **Pin it.** Clone at a commit and cite it with the `reports:` prefix.
+3. **Run every recorded reply through our scorer.** Compare with the authors' recorded mark for
+   that reply, one by one. Every reply where the marks differ is a `deviation`, and its Case ids
+   are a measured bound, not an estimate.
+4. **Compare the headlines.** For each recorded run, put our headline over its replies beside the
+   authors' recorded overall score, and show both in `## Verdict`.
+
+Example, MaCBench: `lamalab-org/macbench` at `be99436d` holds 4 models × 5 runs × 1,153 replies.
+Through our scorer, 22,829 of 23,060 marks equal the authors', and our headline sits between −1.8
+and +1.0 points from theirs per model. No synthetic sheet can give that number.
+
 ### Roll-up
 
 Feed one fixed vector of per-Case marks (all 1; all 0; alternating; the marks from the answer
@@ -136,7 +186,22 @@ Leaderboard report one decimal). The verdict, by rule (spec §2.3):
 | `comparable-to-paper` | every dimension `match` / `not applicable`, or `deviation` that is `cosmetic` or `score-changing` with a bound; bounds against the **original harness** sum ≤ tolerance |
 | `comparable-to-inspect` | the same against **inspect_evals**, and inspect_evals vs the harness is above tolerance (recorded in `## Upstream notes` with its own bound); `origin="inspect_evals"` only |
 | `not-comparable` | any `score-changing` deviation with bound `unbounded`, or bounds above tolerance, or a published number produced by a different process by design (vendor/human grading; a judge model other than the one the paper's number used) |
-| `unverified` | any of `prompt`, `answer extraction`, `metric`, `roll-up` is `unchecked`, or a `possibly-score-changing` deviation is open |
+| `unverified` | any of `prompt`, `answer extraction`, `metric`, `roll-up` is `unchecked`, or a `possibly-score-changing` deviation is open, **and** the measured bounds do not already settle `not-comparable` |
+
+**Which verdict wins.** Decide top down:
+
+1. **`not-comparable` first.** If the bounds measured so far already exceed tolerance, or the
+   published number came from a different process by design, the verdict is `not-comparable`,
+   even with dimensions `unchecked` or `possibly-score-changing` deviations still open. No further
+   evidence can bring a comparable verdict back. List every open item anyway, with its bound
+   `unknown`, so a later fix knows what remains.
+2. **Then `unverified`.** If the measured bounds fit within tolerance and an open item could still
+   push them over, the verdict is `unverified`, with the open items as the reason.
+3. **Then the comparable verdicts**, by the rows above.
+
+Example, MaCBench: bounds against the original harness were 557/1153 = 0.48, with three
+`possibly-score-changing` deviations still open (option order, prompt wording, temperature).
+The verdict is `not-comparable`, and the three open items stay in `## Deviations`.
 
 Show the arithmetic in `## Verdict`: `bounds vs original harness = 2/541 = 0.0037 ≤ 0.005 → comparable-to-paper`.
 
@@ -224,7 +289,8 @@ git worktree add .claude/worktrees/fidelity-record-<id> -b fidelity-record-<id> 
 ```
 
 **Step 1: check every citation.** Open each cited `file:line` with `sed -n '<a>,<b>p'` and
-confirm it shows what the cell claims. Fix or strike any that do not; never keep a wrong one.
+confirm it shows what the cell claims. Fix or strike any that do not, and give any bare file name
+its tree prefix; never keep a wrong or ambiguous one.
 
 **Step 2: write the record.** Save the report as
 `apps/screamingface-engine/docs/benchmarks-fidelity/<id>.md` in the worktree from Step 0.
