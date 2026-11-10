@@ -1,0 +1,66 @@
+[
+  {
+    "benchmark_id": "inspect-sad_facts_llms",
+    "model_name": "Claude 3 Haiku",
+    "score": 0.787,
+    "source": "inspect_evals",
+    "source_url": "https://ukgovernmentbeis.github.io/inspect_evals/evals/sad/#evaluation-report",
+    "metric_name": "sad_score",
+    "observed_at": "2026-11-06T10:12:15Z",
+    "attached_by": "FilipBolt",
+    "metadata": {
+      "reported_period": "2025-12",
+      "comparison": {
+        "policy_version": "1",
+        "benchmark_revision": "c55f043049f958b9",
+        "question_set_sha256": "c05b00d70bcf25bbccafb3cd64aadbce684a84041c36e7ac34cba533508a4f61",
+        "grading_id": "inspect-evals-0.20.0-sad-lenient-mcq-choice",
+        "evaluated_case_count": 249,
+        "original_score": 0.787,
+        "original_unit": "fraction",
+        "conversion": "identity",
+        "reviewed_at": "2026-11-06T10:13:00Z",
+        "prompt_note": "Published December 2025; all 249 questions; same SAD grading with chance credit for invalid answers. Source uses the plain system prompt, no answer assist, temperature 0, and shuffled options (seed not reported); ScreamingFace pins seed 7. Exact historical model snapshot is not reported.",
+        "evidence": {
+          "questions": "https://github.com/LRudL/sad/blob/dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3/sad/facts/llms/structs.zip",
+          "grading": "https://github.com/UKGovernmentBEIS/inspect_evals/blob/5609f775bf0e84c12d045319d69a9678080ac1d9/src/inspect_evals/sad/scorer.py",
+          "coverage": "https://github.com/UKGovernmentBEIS/inspect_evals/blob/5609f775bf0e84c12d045319d69a9678080ac1d9/src/inspect_evals/sad/README.md#evaluation-report",
+          "units": "https://github.com/UKGovernmentBEIS/inspect_evals/blob/5609f775bf0e84c12d045319d69a9678080ac1d9/src/inspect_evals/sad/README.md#scoring"
+        }
+      },
+      "comparison_note": "Same 249 questions and grading as this board. Results reported in December 2025. Haiku used plain instructions; Opus used a situational prompt. Both shuffled the answer choices; their shuffle seed is not reported, while this board uses seed 7."
+    }
+  },
+  {
+    "benchmark_id": "inspect-sad_facts_llms",
+    "model_name": "Claude 3 Opus",
+    "score": 0.857,
+    "source": "inspect_evals",
+    "source_url": "https://ukgovernmentbeis.github.io/inspect_evals/evals/sad/#evaluation-report",
+    "metric_name": "sad_score",
+    "observed_at": "2026-11-06T10:12:15Z",
+    "attached_by": "FilipBolt",
+    "metadata": {
+      "reported_period": "2025-12",
+      "comparison": {
+        "policy_version": "1",
+        "benchmark_revision": "c55f043049f958b9",
+        "question_set_sha256": "c05b00d70bcf25bbccafb3cd64aadbce684a84041c36e7ac34cba533508a4f61",
+        "grading_id": "inspect-evals-0.20.0-sad-lenient-mcq-choice",
+        "evaluated_case_count": 249,
+        "original_score": 0.857,
+        "original_unit": "fraction",
+        "conversion": "identity",
+        "reviewed_at": "2026-11-06T10:13:00Z",
+        "prompt_note": "Published December 2025; all 249 questions; same SAD grading with chance credit for invalid answers. Source uses the sp (situational) system prompt, no answer assist, temperature 0, and shuffled options (seed not reported); ScreamingFace pins seed 7. Exact historical model snapshot is not reported.",
+        "evidence": {
+          "questions": "https://github.com/LRudL/sad/blob/dfc5c9831a9bcc5c9a9dbdcaa2955aae983cd1d3/sad/facts/llms/structs.zip",
+          "grading": "https://github.com/UKGovernmentBEIS/inspect_evals/blob/5609f775bf0e84c12d045319d69a9678080ac1d9/src/inspect_evals/sad/scorer.py",
+          "coverage": "https://github.com/UKGovernmentBEIS/inspect_evals/blob/5609f775bf0e84c12d045319d69a9678080ac1d9/src/inspect_evals/sad/README.md#evaluation-report",
+          "units": "https://github.com/UKGovernmentBEIS/inspect_evals/blob/5609f775bf0e84c12d045319d69a9678080ac1d9/src/inspect_evals/sad/README.md#scoring"
+        }
+      },
+      "comparison_note": "Same 249 questions and grading as this board. Results reported in December 2025. Haiku used plain instructions; Opus used a situational prompt. Both shuffled the answer choices; their shuffle seed is not reported, while this board uses seed 7."
+    }
+  }
+]
