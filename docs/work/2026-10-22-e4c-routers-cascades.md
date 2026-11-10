@@ -1,5 +1,5 @@
 ---
-ticket: unfiled
+ticket: OME-1864 (engine), OME-1865 (SDK), OME-1866 (aigateway); epic OME-1291
 stack: screamingface
 status: done
 started: 2026-10-22
