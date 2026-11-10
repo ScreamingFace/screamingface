@@ -1,0 +1,13 @@
+{
+  "issue": "OME-1841",
+  "branch": "OME-1841-homepage-accessibility",
+  "approver": "Filip Boltuzic (direct implementation approval)",
+  "date": "2026-11-10",
+  "reason": "Owner approved implementing the OME-1841 preview including a first keyboard skip link. Preserve the banner-first visible-section contract while allowing that link; a new structural test enforces skip-link order.",
+  "files": {
+    "apps/scoreboard/tests/unit/test_portal_launch_copy.py": {
+      "base_blob": "8d8d64ff9dd06a916d244a353c016399c94e03ca",
+      "approved_blob": "3d0e198723ceb2f83f8a6a5cf82b443bc516a1c7"
+    }
+  }
+}

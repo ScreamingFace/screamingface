@@ -11,7 +11,7 @@
   line-height: var(--leading-snug);
 }
 .state-error { color: var(--blind); }
-.state-empty, .state-loading { color: var(--ink-3); }
+.state-empty, .state-loading { color: var(--text-2); }
 .state[hidden] { display: none; }
 [hidden] { display: none !important; }
 
@@ -201,7 +201,7 @@ table .btn { white-space: nowrap; }
    inheriting the global link-hover blue (a:hover at 0,1,1 would otherwise beat .card at 0,1,0). */
 .card:hover { border-color: var(--info-border-strong); color: var(--ink); }
 .card:hover .card-go { color: var(--gain-text-high); }
-.card:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: 2px; }
+
 /* Title row: the board name + a gold open-arrow pinned to the right edge. */
 .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
 .card-title {
@@ -229,7 +229,7 @@ table .btn { white-space: nowrap; }
   font-size: var(--text-label);
   text-transform: uppercase;
   letter-spacing: var(--tracking-label);
-  color: var(--ink-3);
+  color: var(--text-2);
 }
 .card-best-val { font-size: var(--text-body); color: var(--gain-text-low); }
 .cards-more { display: flex; justify-content: center; margin: 0 0 var(--space-8); }
@@ -264,10 +264,6 @@ table .btn { white-space: nowrap; }
 .landing .eyebrow { color: var(--gain-text-low); }
 .landing a:not([class]) { color: var(--info-text-low); }
 .landing a:not([class]):hover { color: var(--info-text-high); }
-/* Lead copy runs a notch smaller on the marketing pages (the hero subtitle). Scoped as a token
-   override on `.landing` — tokens.css is generated (never hand-edited), and this keeps the board,
-   spec and data leads at the brand default. */
-.landing { --text-lead: 18px; }
 
 /* ---- about page ------------------------------------------------------ */
 /* Sections under a gold .section-label, prose at a readable measure, with the Thesis "needs to"
@@ -311,17 +307,14 @@ table .btn { white-space: nowrap; }
    (gold) sits above the single-model frontier (grey); the gold band between them is the accuracy
    gained at every budget, with sample runs plotted as points. No box, no title — just the two
    labelled axes (accuracy, cost). Inline currentColor SVG, so it needs no vendored asset. */
-.hero-title--index { font-size: clamp(1.6rem, 4vw, 2.4rem); }
+.hero-title--index { font-size: var(--text-display); }
 /* Footnote tying the frontier figure's `accuracy*` label to the illustrative disclaimer — the
    same small mono as the subscribe fine print, set italic with a little breathing room. */
-.fine-print { font-family: var(--f-mono); font-size: var(--text-micro); font-style: italic; color: var(--ink-3); margin: var(--space-6) 0 0; }
+.fine-print { font-family: var(--f-mono); font-size: var(--text-micro); font-style: italic; color: var(--text-2); margin: var(--space-6) 0 0; }
 .frontier { margin: 0; width: 100%; border: 0; background: transparent; }
 .frontier svg { display: block; width: 100%; height: auto; }
-/* Academic / LaTeX-ish lettering: italic serif axis titles and series labels, small serif ticks.
-   (Overrides the base `figure svg text` mono rule for this figure only.) */
-.frontier svg text { font-family: 'Latin Modern Roman', Georgia, 'Times New Roman', serif; font-size: 11px; }
-.frontier svg .ax, .frontier svg .sl { font-style: italic; }
-.frontier svg .tk { font-size: 9px; fill: var(--ink-3); }
+/* WHY: chart text inherits the shared mono type scale; ticks need a text colour. */
+.frontier svg .tk { fill: var(--text-2); }
 
 /* Landing top band: hero + CTA share a compact row with the Colab cell; the Browse grid follows
    right below so it clears the fold. Stacks on narrow screens. */
@@ -664,20 +657,20 @@ td.col-open { white-space: nowrap; }
    square and shadowless per the system, and both flip with the theme. It is not sticky: the
    rail pins itself at top 0, so the strip scrolls away and never stacks two bars. */
 .grant-banner {
-  display: block; padding: var(--space-2) var(--space-5);
+  display: block; padding: 0 var(--space-5);
   background: var(--surface); border-bottom: var(--border-hairline) solid var(--line);
   font-family: var(--f-sans); font-size: var(--text-sm); line-height: var(--leading-snug);
   text-align: center; color: var(--ink);
 }
 @media (max-width: 620px) {
-  .grant-banner { padding: var(--space-2) var(--space-4); }
+  .grant-banner { padding: 0 var(--space-4); }
 }
 /* WHY the toggle anchors to the rail: style.css pins it `position: fixed` at half the rail
    height from the VIEWPORT top, which assumed the rail starts at y=0. With the banner above,
    it sat inside the banner until the page scrolled. The rail is already sticky (see "rail
    pinning" above), so positioning the toggle against the rail keeps the same offset inside
    the rail at every scroll position, on desktop and on the wrapped mobile rail. */
-.rail .toggle { position: absolute; }
+.rail .toggle { position: absolute; top: 0; transform: none; }
 
 /* Catalog controls retain the portal's typography, borders and keyboard focus. */
 .catalog-controls { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-4); margin-bottom: var(--space-5); }
@@ -685,7 +678,7 @@ td.col-open { white-space: nowrap; }
 .catalog-search { flex: 1 1 16rem; }
 .catalog-search label { display: block; margin-bottom: var(--space-2); }
 .catalog-search input { box-sizing: border-box; width: 100%; padding: var(--space-3); font: inherit; color: var(--ink); background: var(--bg); border: var(--border-hairline) solid var(--line); border-radius: 0; }
-.catalog-search input:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
+
 .catalog-scored { display: flex; align-items: center; gap: var(--space-2); padding-block: var(--space-3); }
 .catalog-count { flex-basis: 100%; margin: 0; }
 
@@ -699,3 +692,34 @@ td.col-open { white-space: nowrap; }
 .external-result__comparison summary { cursor: pointer; }
 .external-result__comparison summary:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
 .external-result__comparison p { margin: var(--space-1) 0 0; }
+
+/* WHY: the marketing focus token is too faint on the page background. Keep
+   homepage controls on one visible ring without changing generated brand tokens. */
+a:focus-visible, button:focus-visible, input:focus-visible, main:focus-visible {
+  outline: var(--border-strong) solid var(--ink);
+  outline-offset: var(--space-1);
+}
+
+/* STORY: touch visitors can reach the small chrome links without precise taps. */
+.rail .rail-link, .rail .toggle, .grant-banner__link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-height: var(--rail-h);
+  min-width: var(--rail-h);
+  padding: var(--space-2);
+}
+.rail .rail-nav { gap: var(--space-2); }
+
+.skip-link {
+  position: fixed;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 100;
+  padding: var(--space-3);
+  color: var(--ink);
+  background: var(--bg);
+  transform: translateY(calc(-100% - var(--space-4)));
+}
+.skip-link:focus { transform: none; }

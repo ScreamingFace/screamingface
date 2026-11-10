@@ -20,16 +20,17 @@
   <meta name="twitter:description" content="Public screamingface benchmark results with scores, providers, and local rerun links.">
   <meta name="twitter:image" content="https://leaderboard.screamingface.ai/assets/social/sf-og-1200x630.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>😱</text></svg>">
+  <script src="theme-init.js"></script>
   <link rel="stylesheet" href="fonts.css">
   <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="portal.css">
-  <script>(function(){try{var t=localStorage.getItem('sf_theme')||'light';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
   <!-- Privacy-friendly analytics by Plausible -->
   <script async src="https://plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js"></script>
   <script src="analytics.js"></script>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
   <aside class="grant-banner" aria-label="Announcement">
     <a class="grant-banner__link" href="https://openmined.org/research/grants/" target="_blank" rel="noopener">Open call for research grants to explore ensembles &amp; routers →</a>
   </aside>
@@ -45,7 +46,7 @@
     <button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
   </div>
 
-  <div class="wrap wide landing">
+  <main id="main-content" class="wrap wide landing" tabindex="-1">
     <div class="la-top">
       <div>
         <header class="masthead hero" data-section="hero">
@@ -89,11 +90,11 @@
           <g class="tk" text-anchor="middle">
             <text x="96" y="163">$.1</text><text x="168" y="163">$.4</text><text x="240" y="163">$.8</text>
           </g>
-          <!-- axis titles + series labels (italic serif, LaTeX-ish) -->
+          <!-- Axis titles and series labels use the shared mono chart typography. -->
           <text class="ax" fill="var(--ink-2)" transform="rotate(-90 15 86)" x="15" y="86" text-anchor="middle">accuracy*</text>
           <text class="ax" fill="var(--ink-2)" x="168" y="180" text-anchor="middle">cost (USD)</text>
           <text class="sl" fill="var(--gold-11)" x="236" y="38">fusions</text>
-          <text class="sl" fill="var(--ink-3)" x="150" y="128">single models</text>
+          <text class="sl" fill="var(--text-2)" x="150" y="128">single models</text>
         </svg>
       </figure>
     </div>
@@ -113,7 +114,7 @@
 
       <div id="benchmark-cards" class="cards" aria-label="Benchmarks" hidden></div>
       <div class="cards-more">
-        <button type="button" id="benchmark-more" class="btn ghost" hidden>Show more benchmarks</button>
+        <button type="button" id="benchmark-more" aria-controls="benchmark-cards" class="btn ghost" hidden>Show more benchmarks</button>
       </div>
     </section>
 
@@ -121,11 +122,12 @@
 
     <p class="fine-print">*The diagram on cost-quality pareto frontier is illustrative.</p>
 
-    <div class="foot" data-section="footer">
-      <span>😱 screamingface</span>
-      <span><a href="https://leaderboard.screamingface.ai/" rel="noopener noreferrer">leaderboard.screamingface.ai</a></span>
-    </div>
-  </div>
+  </main>
+
+  <footer class="wrap wide landing foot" data-section="footer">
+    <span>😱 screamingface</span>
+    <span><a href="https://leaderboard.screamingface.ai/" rel="noopener noreferrer">leaderboard.screamingface.ai</a></span>
+  </footer>
 
   <script src="leaderboard-logic.js" defer></script>
   <script src="main.js" defer></script>
