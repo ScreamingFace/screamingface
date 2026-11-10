@@ -280,6 +280,21 @@ async def test_publish_stamps_the_enqueue_moment() -> None:
     assert (datetime.now(UTC) - stamped).total_seconds() < 60
 
 
+@pytest.mark.asyncio
+async def test_publish_stamps_a_given_enqueue_moment() -> None:
+    """E5 P1 spec D12: a bound start's deadline counts from its bind, not from this publish."""
+    from screamingface_engine.subjects import ENQUEUED_AT_HEADER
+
+    bound_at = datetime(2026, 1, 1, tzinfo=UTC)
+    fake = _FakeJetStream()
+
+    await _queue(fake).publish(
+        encode_message(topic="topic-bound", url4="gpt()", deadline_s=600), enqueued_at=bound_at
+    )
+
+    assert datetime.fromisoformat(fake.published[0][2][ENQUEUED_AT_HEADER]) == bound_at
+
+
 def test_the_fleet_ack_pending_default_is_not_replica_derived() -> None:
     """`max_ack_pending` is a WHOLE-CONSUMER bound shared by every puller in the fleet, not
     a per-worker limit; deriving it from the stream's replica count capped the entire fleet

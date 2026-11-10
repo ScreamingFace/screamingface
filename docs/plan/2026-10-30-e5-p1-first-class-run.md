@@ -97,8 +97,8 @@ Not wired.
 - Every write is one conditional `UPDATE` guarded on the state it expects (spec §4.2).
 - `pyproject.toml`: `tortoise-orm[asyncpg]==1.1.8`, `asyncpg==0.31.0`, the dev dependency
   `testcontainers[postgres]==4.15.0` and the `needs_postgres` marker, all at aigateway's pins.
-- `config.py`: `URL4_CLOUD_DATABASE_URL` (defaults to SQLite in the data dir only under
-  `serve --local`), `run_retention_s` (30 days), `run_pending_grace_s` (1800 s; validated to exceed
+- `config.py`: `URL4_CLOUD_DATABASE_URL` (empty by default; local mode then uses
+  `engine.sqlite3` beside the artifacts dir), `run_retention_s` (30 days), `run_pending_grace_s` (1800 s; validated to exceed
   the Client's default admission budget) and `run_lost_after_s` (48 h).
 - `.github/workflows/screamingface-engine-tests.yml`: a Postgres step on testcontainers, like
   aigateway's (`aigateway-tests.yml:82-85`), behind the Engine's own opt-in variable.
@@ -128,23 +128,32 @@ Tests:
 
 The first PR that changes a deployment.
 
-- New `runs/consumer.py`: consume, `settle`, and ack only after the commit. An unbound topic is
-  acked as a no-op. It starts and stops in the App lifespan (`app.py`) and in `local.py`.
-- Both the App and the runner pool call `ensure_stream()` for the outcome stream at startup.
+- New `runs/consumer.py`: consume, `settle`, and ack only after the commit; after a failure it
+  closes the consumer and consumes again. An unbound topic is acked as a no-op.
+- New `runs/wiring.py` (`install_runs`): opens the database and starts and stops the writer in
+  the App lifespan, in the Engine's own `TortoiseContext` (`runs/db.py` `open_context`), never
+  Tortoise's global one: the Client's local runtime serves aigateway, which owns that, in the
+  same process. It is called from `create_app_from_env` (`app.py`) and `create_local_app`
+  (`local.py`). The App's terminal writers and the worker get the outcome stream from
+  `adapters/factory.py` `build_candidate_outcome_stream`.
+- Both the App and the runner pool call `ensure_stream(update=True)` for the outcome stream at
+  startup, which applies changed limits and the writer's `ack_wait`.
 - Startup (spec D2, R9):
-  - `serve --local` applies pending migrations.
+  - `serve --local` applies pending migrations to `engine.sqlite3` (beside the artifacts dir
+    when no URL is given).
   - The App refuses to start on an older schema, or in hosted mode with a SQLite URL.
   - A hosted App with no URL runs with Runs off: a warning at start, no consumer, `/runs*`
     answer 404.
 - Helm:
   - `templates/deployment.yaml`: the `database.existingSecret` Secret as
-    `URL4_CLOUD_DATABASE_URL`, on the App only, rendered only when the value is set, with
-    `optional: true`.
+    `URL4_CLOUD_DATABASE_URL` (key `database.existingSecretKey`, default `database-url`), on the
+    App only, rendered only when the value is set, with `optional: true`.
   - New `templates/job-migrate.yaml`, modelled on
     `apps/aigateway/charts/aigateway/templates/job-migrate.yaml`, rendered only when
-    `database.existingSecret` is set.
-  - `candidateOutcomes.maxAge` and `candidateOutcomes.maxBytes` in `values.yaml` and
-    `values.schema.json`, rendered to both the App and the runner pool.
+    `database.existingSecret` is set. It runs under the namespace's default ServiceAccount with
+    no token: the pre-install hook runs before the chart's own ServiceAccount exists.
+  - `candidateOutcomes.maxAgeS` and `candidateOutcomes.maxBytes` (like `events.*`) in
+    `values.yaml` and `values.schema.json`, rendered to both the App and the runner pool.
 - `DEPLOYMENT.md`: the R10 runbook.
 
 Tests:
@@ -154,6 +163,8 @@ Tests:
   it refuses to start.
 - A fresh SQLite migrates at local start. An un-migrated database stops the App with a message
   that names the migrate step.
+- `tests/conftest.py` gives each test its own local database, so parallel workers never migrate
+  one shared file.
 - The spec §6 chart tests, and the rendered runner Deployment carries no database URL or Secret.
 
 **Owner action to turn Runs on:** R10 in each environment. Until then the environment runs as
@@ -164,8 +175,11 @@ today.
 - `adapters/inprocess.py` `_on_done` (`:154-169`), `adapters/queue_runner.py`
   `_publish_tombstone` (`:561-587`) and `adapters/max_deliveries.py` `_publish_failure`
   (`:153-195`) each publish one outcome, and only when their own terminal frame landed (spec R3).
-- First step of the row: confirm each writer can tell whether its frame landed. If one cannot,
-  stop and ask before changing how it writes.
+- How a writer knows its frame landed: it writes through `run_evidence.publish_landed`, which
+  uses `JetStreamPublisher.publish_next`'s result (nothing is written after another terminal
+  frame). A publisher without `publish_next` has no such rule, so its frame lands.
+- Each outcome publish is best effort (`candidate_outcomes.publish_outcome`): a failure is logged
+  and never fails the run, its frame or its ack.
 
 Tests, one case per producer against the in-memory stream:
 - in-process success, failure, timeout and cancel;
@@ -176,12 +190,17 @@ Tests, one case per producer against the in-memory stream:
 
 - `child_protocol.py`: the `SETTLED {json}` encoder and decoder. It stays stdlib-only, and cost
   travels as a decimal string.
-- The `runner/` child sends `SETTLED` from `executor.last_summary()` before it exits.
+- The `runner/` child classifies its run with `SettlementWatch` and the summary's cost, keeps its
+  control pipe open through the run, and sends `SETTLED` as soon as its frames are out (before
+  the span export and the teardown), only when `JetStreamPublisher.dropped(topic)` is false.
+- `worker/warm_pool.py`: keeps each running child's control reader; `settlement(proc)` reads the
+  `SETTLED` line after the child exits, and `forget(proc)` releases it.
 - `worker/supervisor.py`:
   - After `_publish_if_needed` (`:639-710`), it publishes the child's outcome when the child's
     terminal frame landed. If the child died first, it publishes its own classification, with no
     cost, when its own frame landed.
-  - `_publish_terminal` (`:1209-1243`) publishes for a run that never executed.
+  - `_publish_terminal` (`:1209-1243`) publishes its own outcome whenever its frame lands: a run
+    that never executed, and a child that died first.
 
 Tests:
 - The protocol round-trips, and malformed lines are rejected.
@@ -194,8 +213,8 @@ Tests:
 
 ### E7. Sweeps: reconcile and retention
 
-- New `runs/sweeps.py`, wired in `app.py` beside the artifact sweeper (`:156-170`) and in
-  `local.py`, at start and hourly:
+- New `runs/sweeps.py`, started by `install_runs` (the call `app.py` and `local.py` both make),
+  at start and every `run_sweep_interval_s` (1 h):
   - reconcile (spec R6), with the outcome stream's `survives_restart`;
   - expire (spec R7).
 
@@ -210,14 +229,20 @@ Tests:
 
 ### E8. `/runs` routes, start binding and docs
 
-- New `rest/runs.py`:
+- New `rest/runs.py` (the routes), `rest/runs_start.py` (start binding) and `rest/runs_boundary.py`
+  (owner, private Problems, the Candidate stop), split to keep each module small:
   - `POST /runs`, `GET /runs`, `GET /runs/{id}` and `DELETE /runs/{id}` (spec §4.1).
-  - The owner is resolved through `require_identity` (`rest/mounts.py:116-129`).
+  - The owner is resolved by the same local/hosted switch as the mounts' `require_identity`
+    (`rest/mounts.py`), set by `install_runs`.
   - An unknown or foreign id answers 404 `run_not_found`.
-  - `DELETE` stops every live topic through the existing stop path.
+  - `DELETE` stops every live topic through the existing stop path, moved to `rest/stopping.py`
+    so `rest/routes.py` and `rest/runs.py` share it.
+  - `POST /runs` answers 201 or 200 from the port's `register`, which also says whether it
+    created the Run.
 - `rest/routes.py` start: reads `X-SF-Run` and `X-SF-Run-Candidate` (an index), binds before
-  scheduling and calls `mark_scheduled` after (spec R2). A bind that fails on the database is
-  logged, and the start proceeds unbound.
+  scheduling and calls `mark_scheduled` after (spec R2). `mark_scheduled` reports whether it
+  applied, so a start that lost to a cancel aborts. A bind that fails on the database is logged,
+  and the start proceeds unbound.
 - `CHANGELOG.md`, and the `/runs` routes in `README.md`.
 
 Tests: the spec §6 route tests, plus:
@@ -260,6 +285,8 @@ Tests, on a fake transport:
   start. A 409 `run_canceled` stops the remaining starts. `cancel_active` also sends
   `DELETE /runs/{id}`, best-effort.
 - `report.py`: `Report.run_id`.
+- `_runtime/config.py` and `_runtime/server.py`: pass the local Engine
+  `database_url=sqlite://<data_dir>/engine.sqlite3`, as `aigateway.sqlite3` is passed.
 
 Tests:
 - The call order is asserted on the fake transport.

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, cast
+from typing import Annotated, Self, cast
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from scoreboard.classification.openness import EntryVerdict
 from scoreboard.routes.dependencies import (
@@ -14,6 +14,7 @@ from scoreboard.routes.dependencies import (
     turned_private,
 )
 from scoreboard.scores.baseline_store import BaselineStore
+from scoreboard.scores.comparison_profiles import PROFILES
 from scoreboard.scores.frontier import (
     FrontierReplay,
     classify_members,
@@ -147,6 +148,21 @@ class LeaderboardResponse(BaseModel):
     # Artificial Analysis), surfaced alongside community entries. Empty until a
     # baseline is imported via `python -m scoreboard.import_baselines`.
     baselines: list[BaselineSchema]
+
+    @model_validator(mode="after")
+    def align_baseline_eligibility_with_response_scope(self) -> Self:
+        # WHY: the community snapshot can observe a revision change after the earlier
+        # baseline read. Never serve an old approval beside a new board revision.
+        profile = PROFILES.get(self.benchmark.id)
+        scope_matches = profile is not None and (
+            self.benchmark.revision,
+            self.benchmark.case_count,
+        ) == (profile.revision, profile.case_count)
+        for row in self.baselines:
+            row.ranking_eligible = (
+                row.ranking_eligible and scope_matches and row.benchmark_id == self.benchmark.id
+            )
+        return self
 
 
 class HistorySubmission(BaseModel):

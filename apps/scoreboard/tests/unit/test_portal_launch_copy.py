@@ -215,12 +215,12 @@ def test_board_about_note_carries_the_approved_copy_and_url4_link() -> None:
     _assert_new_tab(url4)
 
 
-def test_board_summary_counts_submissions() -> None:
+def test_board_summary_counts_results() -> None:
     value = _page("benchmark.html").one(id="summary-specs")
     assert value.parent is not None
     label = value.parent.one("span", "k")
 
-    assert label.text() == "Submissions shown"
+    assert label.text() == "Results shown"
 
 
 def test_board_chart_key_names_all_submissions() -> None:

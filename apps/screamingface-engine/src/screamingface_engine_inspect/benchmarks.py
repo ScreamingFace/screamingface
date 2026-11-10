@@ -7722,6 +7722,99 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # share of Attempts fully right.
         epoch_reducer="pass_at_1",
     ),
+    BenchmarkSpec(
+        key="macbench",
+        published_revision="a8d8e6ccc379924f",
+        title="MaCBench",
+        description=(
+            "1,153 chemistry and materials science questions from MaCBench, every one about "
+            "a picture: a hand-drawn molecule to name, a crystal structure to read a density "
+            "or point group from, an adsorption isotherm or an XRD pattern to compare, an "
+            "NMR or mass spectrum, a table or plot from a US patent, a photo of a lab bench "
+            "or of glassware. 34 subsets in three groups (data extraction, lab and in-silico "
+            "experiments, data interpretation), imported from inspect_evals. Most questions "
+            "are multiple choice, a few (19 of 779) with several correct options the model "
+            "must list together (for example A,C); the rest ask for a number. The Candidate "
+            "is shown the eval's instruction, the question with its picture where the dataset "
+            "places "
+            "it, the options lettered in the dataset's order, and the eval's request for the "
+            "answer inside [ANSWER]...[/ANSWER] tags; the pictures are saved inside the Case "
+            "at import and nothing is fetched at run time. A multiple-choice answer is right "
+            "when it names exactly the key's letters, in any order and case, separated by "
+            "commas or spaces ('A,C', 'A, C', 'C A' and 'c,a' all count), as the MaCBench "
+            "authors grade and as the eval's prompt invites; a number is right inside the "
+            "question's own tolerance window (the dataset's precomputed window, or 1% of the "
+            "answer where it has none), as the eval grades. No judge tokens are spent. The "
+            "letter rule is chembench's proposed fix (inspect_evals PR #2591), applied here "
+            "to its sibling eval: the pinned v0.20.0 scorer compares the letters as text, so "
+            "on the 19 Cases with several correct letters a right answer written 'A, C' or "
+            "'C,A' scored 0. Cases are served in a fixed "
+            "seeded shuffle (the eval shuffles per run). Benchmark score = plain accuracy "
+            "over the cases run, which is the eval's own overall figure; the eval's "
+            "per-subset breakdown is not reproduced. No mid-run check surface."
+        ),
+        focus="Chemistry and materials science questions about pictures (letters or a number)",
+        dataset_url="https://huggingface.co/datasets/jablonkagroup/MaCBench",
+        # inspect_evals' own runs put gpt-5.2 at 0.726 and gpt-5-nano at 0.688 (its README):
+        # real headroom, not expert-only failure (OME-1257).
+        difficulty="medium",
+        # A per-Case mean over the eval's own answer-tag scorer (no whole-run metric, not
+        # inverted, a decline is never the right answer): Group A, as for chembench.
+        failure_policy="withhold",
+        # Provenance: the Task is inspect_evals.macbench.macbench:macbench, whose scorer is
+        #   inspect_evals.macbench.macbench:macbench_scorer.
+        # License: mit, the jablonkagroup/MaCBench card at the pinned revision ca13e7af. The
+        #   card adds evaluation-only terms (never train on it) and a canary string in every
+        #   row; the Cases are served to Candidates only and no gold answer is published.
+        # NAMED DEVIATION: multiple choice is graded by the set of letters, chembench's
+        #   proposed fix (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2591, issue
+        #   #2586) applied to macbench, which reuses chembench's regex and string compare and
+        #   has no fix of its own; its `multiple_choice_letters` copied verbatim, numbers stay
+        #   the eval's own pattern_mae with the Case's own window. Drop it when the pin grades
+        #   the set: the tripwire in tests/unit/inspect/test_named_deviation_macbench.py fails
+        #   then.
+        scorer="screamingface_engine_inspect.named_deviations.macbench.macbench:macbench_scorer",
+        # NAMED DEVIATION: the eval scores the whole run with grouped accuracy, one mean per
+        # subset beside the overall mean; this Benchmark reports the mean per-Case score
+        # (chosen at import, OME-1527), which is that overall figure (inspect's grouped
+        # metric averages over all Samples for its overall number).
+        # Benchmark Provenance (OME-1455): paper, inspect porters and size read from the
+        # eval's eval.yaml; authors and citation from arXiv; the baselines by hand.
+        paper_url="https://arxiv.org/abs/2411.16955",
+        authors="Alampara et al., 2024",
+        citation=(
+            "@misc{alampara2025probinglimitationsmultimodallanguage,\n"
+            "      title={Probing the limitations of multimodal language models for chemistry "
+            "and materials research}, \n"
+            "      author={Nawaf Alampara and Mara Schilling-Wilhelmi and Martiño Ríos-García "
+            "and Indrajeet Mandal and Pranav Khetarpal and Hargun Singh Grover and N. M. Anoop "
+            "Krishnan and Kevin Maik Jablonka},\n"
+            "      year={2025},\n"
+            "      eprint={2411.16955},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      url={https://arxiv.org/abs/2411.16955}, \n"
+            "}"
+        ),
+        inspect_contributors=("r-fedorov", "MrtinoRG"),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/macbench",
+        license="MIT",
+        human_baseline=NotPublished(
+            reason="the paper reports no human score; eval.yaml ships none",
+        ),
+        # Frontier score: the paper (v2, 2025-02) reports per-task averages and no whole-set
+        # number; the Hugging Face leaderboard space was asleep when checked (2026-11-09).
+        # inspect_evals' README reports gpt-5.2 at 0.7259 over all 1,153 as a parity check
+        # against the authors' own codebase (same figure to four digits), not a published
+        # board, so it is cited here as a reference point and not as the frontier score.
+        frontier_score=NotPublished(
+            reason="the paper reports per-task averages only and the leaderboard space is "
+            "asleep; inspect_evals' README gives gpt-5.2 0.7259 over all 1,153 as a parity "
+            "check against the authors' codebase, not a published board",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=1153,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

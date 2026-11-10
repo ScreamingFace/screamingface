@@ -1,8 +1,8 @@
 """The picture notebook picks which Benchmarks to run without trusting the catalogue on a Mac.
 
 INVARIANT under test: on a local stack on a Mac, the four Benchmarks whose Case Digest is
-sealed on Linux are skipped, even though the catalogue lists them, and HLE, whose digest seals
-the same on a Mac, is served. A local Engine lists every
+sealed on Linux are skipped, even though the catalogue lists them, and HLE and MaCBench, whose
+digests seal the same on a Mac, are served. A local Engine lists every
 Benchmark it knows, prepared or not, so a notebook that trusted the listing would run them and
 fail on missing Cases, with the wrong reason printed (OME-1787).
 """
@@ -27,6 +27,7 @@ _ALL_NINE = (
     "labbench2_figqa2_img",
     "labbench2_tableqa2_img",
     "inspect-zerobench",
+    "inspect-macbench",
 )
 _LINUX_SEALED = {
     "inspect-mmmu_multiple_choice",
@@ -74,6 +75,7 @@ def test_a_local_mac_skips_the_linux_sealed_benchmarks_although_the_catalogue_li
         "inspect-hle",
         "labbench2_figqa2_img",
         "labbench2_tableqa2_img",
+        "inspect-macbench",
     ]
     out: str = capsys.readouterr().out
     for benchmark_id in _LINUX_SEALED:

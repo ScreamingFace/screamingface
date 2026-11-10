@@ -215,6 +215,9 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # by exact match; every model scored 0 at release and the best official pass@1 today is
         # 0.432, so "hard".
         "inspect-zerobench": ("withhold", "single_shot", "hard"),
+        # OME-1854: MaCBench, chemistry and materials questions over pictures, letters or
+        # a number; inspect_evals' own runs put gpt-5.2 at 0.726, so headroom, not hard.
+        "inspect-macbench": ("withhold", "single_shot", "medium"),
         # OME-1269: Thai grade-12 national benchmark MCQ, the first question-filter benchmark.
         "inspect-onet_m6": ("withhold", "single_shot", "medium"),
         # OME-1269: biomedical yes/no/maybe MCQ over a given abstract (question filter).

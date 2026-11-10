@@ -83,6 +83,12 @@ jobs:
             --cov-report=term-missing \
             --cov-fail-under=80 \
             -v
+      # FEATURE (OME-1785): the Run registry contract on a real Postgres (testcontainers), the
+      # database a hosted Engine uses. The default run above covers it on SQLite only.
+      - name: Run the Run registry contract on Postgres
+        env:
+          URL4_CLOUD_TEST_PG: "1"
+        run: uv run pytest -m needs_postgres -v
       # The inspect suites open with `pytest.importorskip("inspect_ai")`, so without the
       # extra they SKIP — silently. An explicit file list here rotted once already: the
       # importer's and snapshots' suites were never listed, so the importer's regression
@@ -154,13 +160,17 @@ jobs:
             tests/unit/test_stream_contract.py \
             tests/unit/test_attach_from_sequence_bounds.py \
             tests/unit/test_jetstream_subscribe_ensures_stream.py \
-            tests/integration/test_run_queue_roundtrip.py
+            tests/unit/test_candidate_outcome_stream_contract.py \
+            tests/integration/test_run_queue_roundtrip.py \
+            tests/integration/test_warm_child_process.py
       # A skip here means the probe did not find the broker and the job proved nothing.
       - name: Fail if the real-broker parameters were skipped
         run: |
           uv run pytest -q \
             tests/unit/test_stream_contract.py \
             tests/unit/test_attach_from_sequence_bounds.py \
+            tests/unit/test_candidate_outcome_stream_contract.py \
+            tests/integration/test_warm_child_process.py \
             | tee result.txt
           if grep -qE "[0-9]+ skipped" result.txt; then
             echo "::error::real-NATS conformance parameters were skipped — the broker was unreachable"

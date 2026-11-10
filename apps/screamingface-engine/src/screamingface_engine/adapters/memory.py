@@ -16,8 +16,16 @@ It also remains the fake the test suite runs against (re-exported by
 
 import asyncio
 from bisect import bisect_left
-from collections.abc import AsyncIterator
+from collections import deque
+from collections.abc import AsyncGenerator, AsyncIterator
+from dataclasses import dataclass
 
+from screamingface_engine.candidate_outcomes import (
+    DEFAULT_OUTCOMES_MAX_AGE_S,
+    CandidateOutcome,
+    OutcomeDelivery,
+    check_topic,
+)
 from url4.streaming.codec import decode, encode
 from url4.streaming.interfaces import EventStream, StreamNotFoundError, validate_from_sequence
 from url4.streaming.protocol import OutboundFrame
@@ -107,4 +115,121 @@ class InMemoryEventStream(EventStream):
             self._log[topic] = []
 
 
-__all__ = ["DEFAULT_MAX_FRAMES_PER_TOPIC", "InMemoryEventStream"]
+DEFAULT_OUTCOME_ACK_WAIT_S = 30.0
+"""How long an unacked outcome waits before it is delivered again, as `url4-candidate-outcomes`."""
+
+
+DEFAULT_MAX_OUTCOMES = 300_000
+"""About what `url4-candidate-outcomes`' 64 MiB holds at ~200 bytes an outcome."""
+
+
+class OutcomeStreamFull(RuntimeError):
+    """A publish was refused because the stream holds `max_outcomes` unwritten outcomes."""
+
+
+# WHY eq=False: two outcomes can carry the same topic and verdict (a duplicate claim), and an ack
+# must remove the one delivery it belongs to, so entries compare by identity.
+@dataclass(slots=True, eq=False)
+class _Outcome:
+    topic: str
+    outcome: CandidateOutcome
+    # The loop time it was published at, for the stream's max age.
+    published_at: float = 0.0
+    # While delivered and unacked: the loop time after which it is delivered again.
+    redeliver_at: float = 0.0
+
+
+class InMemoryCandidateOutcomeStream:
+    """The local-mode `CandidateOutcomeStream` (OME-1785, E5 P1 spec D4).
+
+    Same contract as the JetStream adapter: publish order, explicit acks, and redelivery of an
+    outcome not acked within `ack_wait_s`, so the App's writer runs one code path in both modes.
+
+    INVARIANT (spec R6): `survives_restart` is False. Outcomes live in this process only, so a
+    restart loses the unacked ones, and reconcile settles their Candidates as `lost`.
+
+    Bounded like the stream: an outcome older than `max_age_s` is dropped, and a publish past
+    `max_outcomes` is refused (JetStream's `discard=new`), so an outcome nobody writes cannot
+    grow the process without limit.
+    """
+
+    survives_restart = False
+
+    def __init__(
+        self,
+        *,
+        ack_wait_s: float = DEFAULT_OUTCOME_ACK_WAIT_S,
+        max_age_s: float = DEFAULT_OUTCOMES_MAX_AGE_S,
+        max_outcomes: int = DEFAULT_MAX_OUTCOMES,
+    ) -> None:
+        self._ack_wait_s = ack_wait_s
+        self._max_age_s = max_age_s
+        self._max_outcomes = max_outcomes
+        self._ready: deque[_Outcome] = deque()
+        self._unacked: list[_Outcome] = []
+        self._changed = asyncio.Condition()
+
+    async def ensure_stream(self, *, update: bool = False) -> None:
+        return None
+
+    async def publish(self, topic: str, outcome: CandidateOutcome) -> None:
+        # WHY: the JetStream codec refuses the same topics, so the two adapters keep one contract.
+        check_topic(topic)
+        async with self._changed:
+            now = asyncio.get_running_loop().time()
+            self._drop_expired(now)
+            if len(self._ready) + len(self._unacked) >= self._max_outcomes:
+                raise OutcomeStreamFull(f"{self._max_outcomes} outcomes are waiting to be written")
+            self._ready.append(_Outcome(topic, outcome, published_at=now))
+            self._changed.notify_all()
+
+    def _drop_expired(self, now: float) -> None:
+        cutoff = now - self._max_age_s
+        self._ready = deque(entry for entry in self._ready if entry.published_at > cutoff)
+        self._unacked = [entry for entry in self._unacked if entry.published_at > cutoff]
+
+    async def consume(self) -> AsyncGenerator[OutcomeDelivery, None]:
+        while True:
+            entry = await self._next()
+            yield OutcomeDelivery(entry.topic, entry.outcome, lambda entry=entry: self._ack(entry))
+
+    async def _next(self) -> _Outcome:
+        loop = asyncio.get_running_loop()
+        async with self._changed:
+            while True:
+                now = loop.time()
+                self._drop_expired(now)
+                due = [entry for entry in self._unacked if entry.redeliver_at <= now]
+                for entry in due:
+                    self._unacked.remove(entry)
+                self._ready.extend(due)
+                if self._ready:
+                    entry = self._ready.popleft()
+                    entry.redeliver_at = now + self._ack_wait_s
+                    self._unacked.append(entry)
+                    return entry
+                await self._wait(now)
+
+    async def _wait(self, now: float) -> None:
+        """Until something is published, or the next unacked outcome falls due."""
+        deadline = min((entry.redeliver_at for entry in self._unacked), default=None)
+        timeout = None if deadline is None else max(deadline - now, 0.0)
+        try:
+            await asyncio.wait_for(self._changed.wait(), timeout)
+        except TimeoutError:
+            return
+
+    async def _ack(self, entry: _Outcome) -> None:
+        async with self._changed:
+            if entry in self._unacked:
+                self._unacked.remove(entry)
+
+
+__all__ = [
+    "DEFAULT_MAX_FRAMES_PER_TOPIC",
+    "DEFAULT_MAX_OUTCOMES",
+    "DEFAULT_OUTCOME_ACK_WAIT_S",
+    "InMemoryCandidateOutcomeStream",
+    "InMemoryEventStream",
+    "OutcomeStreamFull",
+]

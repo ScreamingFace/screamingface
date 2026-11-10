@@ -533,7 +533,13 @@ class RunQueue:
                 await js.update_stream(config)
         self._ensured = True
 
-    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+    async def publish(
+        self,
+        message: bytes,
+        *,
+        identity: Mapping[str, str] | None = None,
+        enqueued_at: datetime | None = None,
+    ) -> None:
         """Publish one run submission to its caller's bucket, durably.
 
         INVARIANT: `Nats-Msg-Id` is the run's TOPIC, read from the message body itself, so a
@@ -546,6 +552,8 @@ class RunQueue:
         wall-clock acceptance moment. JetStream's delivery metadata carries only the PULL
         timestamp, so the claim-time "waited past its deadline" check would otherwise measure
         an always-fresh ~0 and never fire for exactly the backlogged runs it exists to catch.
+        `enqueued_at`, when given, is stamped instead: a bound start's bind moment (E5 P1 spec
+        D12), so its deadline cannot outlast a cancel's tombstone.
 
         WAKE-UP (OME-1091 F6): once the message is durably queued, a fire-and-forget
         core-NATS nudge on `self._wake_subject` lets an idle `pull` claim it at once instead
@@ -561,7 +569,7 @@ class RunQueue:
             message,
             headers={
                 "Nats-Msg-Id": topic_of_message(message),
-                subjects.ENQUEUED_AT_HEADER: datetime.now(UTC).isoformat(),
+                subjects.ENQUEUED_AT_HEADER: (enqueued_at or datetime.now(UTC)).isoformat(),
             },
         )
         await self._wake(bucket_subject.encode())

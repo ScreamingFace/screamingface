@@ -129,6 +129,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1855: first pinned b0afce4bf40156bf (k=1, one Attempt) in the same unmerged PR; the
     # five-Attempt import moved it before anything was published.
     "zerobench": "9155d9581e103c0a",
+    # OME-1854: MaCBench, chemistry and materials pictures, letters graded as a set.
+    "macbench": "a8d8e6ccc379924f",
     "frontierscience": "826050de44778515",
     "pubmedqa": "15e20f21d0a78fd9",
     "xstest_unsafe": "fad9dd3ebabd84a5",

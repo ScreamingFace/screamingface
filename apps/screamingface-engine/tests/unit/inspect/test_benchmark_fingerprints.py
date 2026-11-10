@@ -96,6 +96,8 @@ _FINGERPRINTS: dict[str, str] = {
     "labbench2_tableqa2_img": "742c148e87b15f69",
     # OME-1855: ZeroBench's 100 main questions with their pictures, one-sample pass@1.
     "zerobench": "9155d9581e103c0a",
+    # OME-1854: MaCBench, chemistry and materials pictures, letters graded as a set.
+    "macbench": "a8d8e6ccc379924f",
     "frontierscience": "826050de44778515",
     "onet_m6": "cfc5f0da9f9418bd",
     "pubmedqa": "15e20f21d0a78fd9",
