@@ -58,6 +58,6 @@ decision on OME-1860 (2026-11-10): serve inspect's default.
     build that mechanism.
   - Digests were sealed on macOS, not linux/amd64: both Benchmarks are text-only, so no picture
     re-encode can make them platform-bound; the CI image build re-checks them.
-  - The PR stacks on OME-1858's PR 3 branch, because the two records live only there.
-- **Owner-verify:** CI green on the stack; merge after OME-1858's three PRs; post the two id moves
-  to the team.
+  - Built on OME-1858's PR 3 branch, the only home of the two records; that stack merged into main
+    the same day, so main was merged in and the PR targets main.
+- **Owner-verify:** CI green; post the two id moves to the team.

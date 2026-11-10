@@ -22,5 +22,4 @@ Ledger: `docs/work/2026-11-10-gsm8k-winogrande-default-fewshot.md`.
   `3f2af135ba8bad37` (no leaderboard entries on either). Both Fidelity Records re-audited:
   `unverified`, not `comparable-to-inspect`, because the worked examples reach the Candidate as
   leading user text instead of a system turn; winogrande also keeps the unapplied
-  `max_tokens=64`. One PR, stacked on OME-1858's PR 3. Pending the owner: merge after the
-  OME-1858 stack, Linear → Done.
+  `max_tokens=64`. One PR against main. Pending the owner: merge, Linear → Done.
