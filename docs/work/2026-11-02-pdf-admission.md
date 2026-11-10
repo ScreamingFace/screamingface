@@ -124,3 +124,5 @@ list lacks the modality).
   - Deviations: `board_record.py` split out to keep `board_store.py` under 450 lines (it
     re-exports every name). `import hashlib` added to `test_board_store.py` for the approved
     line. Every Imported Board open now hashes `cases.json` (O(board) I/O, O(1) memory).
+
+- **Merged:** PR #1645, squash `10dcebfac`, 2026-11-05 (approved by HupBaHa), right after its dependency #1597.

@@ -36,6 +36,8 @@ WARM_SPAWN_WAIT_S = 10.0
 boot takes seconds (~2 s in kind, world included), so a spawn older than this is treated as hung
 and the claim spawns its own child. It stays well below the App's 30 s mount-call bound."""
 DEFAULT_ACK_TIMEOUT_S = 10.0
+SETTLED_READ_TIMEOUT_S = 2.0
+"""How long the worker waits for an exited child's `SETTLED` line: it is written before exit."""
 BACKOFF_START_S = 1.0
 BACKOFF_MAX_S = 30.0
 SPAWN_FAILED = "spawn_failed"
@@ -188,6 +190,8 @@ class WarmChildPool:
         if size < 0:
             raise ValueError(f"warm pool size must be >= 0, got {size}")
         self._spawn_warm = spawn_warm
+        # A running child's control reader, by `id(proc)`, until its supervisor reads it.
+        self._controls: dict[int, asyncio.StreamReader] = {}
         self._size = size
         self._slots = size if slots is None else slots
         self._busy = busy
@@ -385,12 +389,40 @@ class WarmChildPool:
             _signal(proc)
             raise
         if answer == child_protocol.ACK:
-            return proc
+            return self._running(handle)
         code = child_protocol.refused_code(answer)
         await _reap_bounded(proc)
         if code is not None:
             raise LaunchFailed(code, f"the child refused the run spec: {code}")
         raise _Retry(f"no ACK, got {answer[:40]!r}")
+
+    def _running(self, handle: WarmHandle) -> _Process:
+        # FEATURE (OME-1785): the child reports its Candidate outcome on this pipe after the
+        # run; `settlement` reads it once the child has exited.
+        self._controls[id(handle.proc)] = handle.control
+        return handle.proc
+
+    async def settlement(self, proc: _Process) -> child_protocol.Settled | None:
+        """The `SETTLED` line of a child whose run is over, or None when it sent none.
+
+        Read once, after the child exits: a child that died first, sent a malformed line, or
+        whose pipe broke has none, and the supervisor publishes its own classification instead.
+        INVARIANT: best-effort evidence. Nothing here may raise, or the queue ack after it is
+        skipped and the error cancels the worker's other runs.
+        """
+        control = self._controls.pop(id(proc), None)
+        if control is None:
+            return None
+        try:
+            line = await asyncio.wait_for(control.readline(), SETTLED_READ_TIMEOUT_S)
+            return child_protocol.decode_settled(line) if line else None
+        except (TimeoutError, ValueError, OSError) as exc:
+            logger.warning("no readable SETTLED line from child %s: %r", proc.pid, exc)
+            return None
+
+    def forget(self, proc: _Process) -> None:
+        """Drop a child's control reader without reading it (its supervisor is done)."""
+        self._controls.pop(id(proc), None)
 
     # --- warming -----------------------------------------------------------------------------
 

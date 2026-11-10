@@ -199,6 +199,23 @@ events:
   # outright (ServerError 10074). Raise it only against a real NATS cluster (OME-1093).
   replicas: 1
 
+# The outcome stream `url4-candidate-outcomes` (OME-1785, E5 P1 spec R11): every terminal writer
+# publishes a Candidate's outcome here, and the App's one writer records it in the Run registry.
+# Rendered to BOTH the App and the runner pool, which each apply these values at startup, like
+# `events.*`. When the stream is full a publish is refused, never an older outcome dropped.
+candidateOutcomes:
+  # Past this an unwritten outcome is dropped. Below 172800 (the schema refuses more): reconcile
+  # settles a Candidate `lost` after `run_lost_after_s` (48 h), which must outlast it.
+  maxAgeS: 86400
+  maxBytes: 67108864
+
+# The Run registry's database (OME-1785, E5 P1 spec D2, R9, R10). Unset, the App runs with Runs
+# off and no migrate Job renders. Set it to a Secret holding the `engine` database's URL
+# (DEPLOYMENT.md: turn Runs on); the App alone reads it, never the runner pool.
+database:
+  existingSecret: ""
+  existingSecretKey: database-url
+
 # Where over-cap Evaluation results are parked between the worker that produces one and the
 # App that serves it back (OME-929).
 #
@@ -265,6 +282,60 @@ garage:
       memory: 256Mi
     limits:
       memory: 1Gi
+
+# The run blob store's OWN storage (OME-1540; #1603 review, owner decision 2026-11-03): the
+# files clients upload over `PUT /blob/sha256/<hex>` for a run's model calls to read.
+#
+# WHY separate from `artifactStorage`: upload volume is driven by clients, and on a self-hosted
+# engine with Access off, by anyone who can mint a token. Sharing one store would let uploads
+# fill the space a paid run needs to park its result. Here a full blob store fails UPLOADS (a
+# 503 with Retry-After) and never result delivery.
+#
+# Both halves — the App (upload/fetch) and the runner pool (model-call reads) — are rendered
+# from this one stanza, exactly as `artifactStorage` is.
+blobs:
+  storage:
+    # "" — the same backend as `artifactStorage.backend` (but NEVER the same store).
+    # "filesystem" — single-process only, like the artifact store: the App refuses it with
+    #               `config.runner: queue`, because the pool cannot read the App's disk.
+    # "s3" — any S3-compatible endpoint; by default the bundled blob Garage below.
+    backend: ""
+    # Blob directory for filesystem mode. Empty => the code's default, a sibling of the
+    # artifact default (`<tmp>/screamingface-engine/blobs`), never inside the artifact tree.
+    filesystemDir: ""
+    s3:
+      # Empty => the chart's SECOND bundled Garage (`<fullname>-garage-blobs`), with its own
+      # volume and its own credentials. Set it to use storage you already run instead; no blob
+      # Garage is rendered then.
+      endpointUrl: ""
+      bucket: screamingface-blobs
+      region: garage
+      # With the bundled blob Garage (`endpointUrl` empty) both may be left empty: the chart
+      # generates a stable pair (reused across upgrades via `lookup`) and the blob Garage adopts
+      # it on first boot. With an external `endpointUrl` the render FAILS unless both are set or
+      # `existingSecret` is (#1603 review). NEVER commit a real secret key to a values file.
+      accessKey: ""
+      secretKey: ""
+      # Bring your own Secret. It must carry `URL4_CLOUD_BLOB_S3_ACCESS_KEY` and
+      # `URL4_CLOUD_BLOB_S3_SECRET_KEY` (read by those key names), and — whenever the bundled
+      # blob Garage is rendered (`endpointUrl` empty) — `GARAGE_RPC_SECRET` too: 64 hex chars,
+      # e.g. `openssl rand -hex 32`. The chart-owned Secret generates all three.
+      existingSecret: ""
+    # The bundled blob Garage: same image and security posture as `garage`, its own volume.
+    garage:
+      persistence:
+        enabled: true
+        accessModes: [ReadWriteOnce]
+        # THE blob quota: when this volume is full, uploads fail with a 503 and nothing else
+        # does. Uploads are capped at 8 MB each and expire with the artifact TTL.
+        size: 5Gi
+        storageClass: ""
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
 
 # Tavily web tools (spec 2026-07-23) — lets the aigateway connector declare web_search/web_fetch
 # and run its bounded tool-calling loop. Disabled => the Runner never sees TAVILY_API_KEY and the
