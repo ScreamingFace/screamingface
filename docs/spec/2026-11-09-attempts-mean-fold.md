@@ -66,7 +66,7 @@ flowchart TB
 |---|---|---|
 | D2 | **Revised.** Two fold rules: any-of-N (OME-1458) and the **mean over Attempts**, taken when the Task's headline reducer is inspect's own `pass_at(1)` over N > 1 epochs. pass@1 estimated from N samples IS that mean (§2). All-must-match (ZeroBench's `5_of_5_reliability`, inspect's `pass_k`) still waits for a Benchmark that needs it as its headline. | OME-1458 D2 |
 | D4 | **Extended.** The catalogue says "any of N Attempts" for the any-of-N rule and **"mean over N Attempts"** for the mean rule, never a bare "pass@N" or "pass@1": inspect's `pass_at(k)` names an estimator, and the card must say what the published number is. | OME-1458 D4 |
-| D15 | **The mean counts full marks only, over the graded Attempts.** inspect's `pass_at(1, value=1.0)` counts an epoch correct when its score is at least 1.0 and reduces over the epochs that have a Score; the fold does the same, so a partial-credit Attempt counts as not right and a failed Attempt leaves the mean over the rest. Under the any-of-N rule a partial-credit Check still fails the Case by name (D7, §2.4 of OME-1458); under the mean rule it is a defined number, so no refusal. | — |
+| D15 | **The mean counts full marks only, over the tries: graded Attempts plus empty answers.** inspect's `pass_at(1, value=1.0)` counts an epoch correct when its score is at least 1.0 and reduces over the epochs that have a Score. Which epochs have one is the point: inspect never errors on a textless refusal, a reasoning-only reply or a token budget spent before any text; its scorer sees an empty completion and files a 0. So the fold counts a failed Attempt whose leading failure is one of those three (`EMPTY_ANSWER_CODES`: `provider_refusal`, `model_empty_content`, `model_token_cap`) as a wrong try, and 1 right + 4 silent refusals is 1/5 = 0.2, as inspect_evals and the authors count it. Only an Attempt that never got an answer (the gateway family, a timeout, a grading failure) leaves the mean over the rest, as an errored epoch files no Score. A partial-credit Attempt counts as not right. Under the any-of-N rule a partial-credit Check still fails the Case by name (D7, §2.4 of OME-1458); under the mean rule it is a defined number, so no refusal. *Second pass, 2026-11-10: the first cut read "a failed Attempt leaves the mean" for every failure, so one lucky try among silent refusals scored the Case 1.0.* | — |
 | D16 | **The first declared reducer is the headline; the rest are recorded as not reproduced.** This is OUR convention: inspect publishes one set of metrics per declared reducer, side by side, with no headline of its own (`EvalScore.reducer` selects a view). The tally already replays the first declared one for an honoured whole-run metric. For ZeroBench that order comes from a Python set literal (`TOP_N = {1, 5}`), so `pass_at_1` is first by small-int hashing; a `top_n` override could reorder it, and the importer would then refuse by name. A `pass_at_1` headline imports and names the others as dropped; an any-of-N headline keeps OME-1458's rule that every declared reducer must be any-of-N, so `Epochs(2, ["max", "pass_at_1"])` is refused naming `pass_at_1` (two different published numbers, the row carries one). No new importer flag: the Task's own order decides. | OME-1458 D11 |
 | D17 | **`epoch_reducer="pass_at_1"` is Benchmark identity and is admitted on a row with or without a whole-run metric.** The fold reads it, so it changes the published number on every Attempts row that names it; an any-of-N name is still admitted only beside an honoured whole-run metric (the fold does not read it, so on any other row it would move the revision while changing no number). | OME-1458 §2.6 |
 
@@ -74,8 +74,9 @@ flowchart TB
 
 inspect's `pass_at(k)` over n scored epochs is 1 − C(n−c, k)/C(n, k), where c is the number of
 epochs scoring at least `value` (1.0 by default). At k = 1 that is 1 − (n−c)/n = c/n: the share
-of epochs at full marks. `pass_at(1)` reduces over the epochs that have a Score (a failed epoch
-contributes none), so n is the graded count.
+of epochs at full marks. `pass_at(1)` reduces over the epochs that have a Score: an errored
+epoch contributes none, but an empty completion is scored 0 and counts, so n is the number of
+tries that got an answer, empty answers included (D15).
 
 | Attempt marks | any-of-5 (OME-1458) | mean over Attempts (this spec) | inspect `pass_at(1)` |
 |---|---|---|---|
@@ -83,14 +84,17 @@ contributes none), so n is the graded count.
 | 0, 0, 0, 0, 0 | 0.0 | 0.0 | 0.0 |
 | 1, 1, 1, 1, 1 | 1.0 | 1.0 | 1.0 |
 | 0.5, 1.0 (partial scorer) | Case fails `attempt_grade_not_pass_fail` | 1/2 = 0.5 (0.5 is not full marks) | 0.5 |
-| 1, failed, 0, 0 (one Attempt failed) | 1.0 | 1/3 (over the three graded) | 1/3 |
+| 1, errored, 0, 0 (the gateway failed one call) | 1.0 | 1/3 (over the three that got an answer) | 1/3 |
+| 1, four silent refusals | 1.0 | 1/5 = 0.2 (an empty answer is a wrong try) | 0.2 |
+| 1, 1, three silent refusals | 1.0 | 2/5 = 0.4 | 0.4 |
+| five silent refusals | Case fails `provider_refusal` | Case fails `provider_refusal` (scores 0 in the Benchmark mean) | 0.0 |
 
 The fold (`fold_case_attempts`, the one site every Attempts Case passes through) takes the rule
 as an argument, `any` or `mean`. Under `mean`:
 
-- Case score = Attempts whose own Case score is 1.0 ÷ graded Attempts, rounded to 4 places as
-  every Case score is.
-- Each folded Check carries the share of graded Attempts that met it as its `score`, `MET` when
+- Case score = Attempts whose own Case score is 1.0 ÷ tries, where tries = graded Attempts +
+  empty answers (D15), rounded to 4 places as every Case score is.
+- Each folded Check carries the share of the tries that met it as its `score`, `MET` when
   all did, `UNMET` when none did, no outcome otherwise, and `met_by_attempts` as before. On a
   one-Check Case (every Imported Benchmark) the Check share equals the Case score.
 - The shown answer is the first graded Attempt with the highest own score, as under any-of-N.
@@ -119,6 +123,9 @@ reproduced, and a review TODO that the description must say "mean over N Attempt
 
 - A mean row with a partial-credit scorer imports and runs: each Attempt is graded as its scorer
   grades it, and a mark below 1.0 counts as not right, inspect's rule (D15).
+- A silent refusal, a reasoning-only reply or a spent token budget is a wrong try; a gateway
+  failure or a timeout is no try (D15). All tries empty: the Case fails as Attempt 1 did, under
+  both rules, unchanged.
 - A Task declaring both an any-of-N reducer and `pass_at_1` takes the one declared first: a
   `pass_at_1` headline drops the rest as not reproduced; an any-of-N headline is refused naming
   `pass_at_1` (D16).

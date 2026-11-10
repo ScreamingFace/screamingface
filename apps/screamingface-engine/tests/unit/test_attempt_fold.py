@@ -35,6 +35,7 @@ from screamingface_engine.benchmarks.graded_answer import (
     graded_answer_payload,
 )
 from screamingface_engine.benchmarks.shared_grading.attempt_fold import (
+    ANY_ATTEMPT_FOLD,
     ATTEMPT_GRADE_NOT_PASS_FAIL,
     MEAN_ATTEMPT_FOLD,
     MET_BY_ATTEMPTS_KEY,
@@ -376,8 +377,9 @@ def test_a_collected_attempt_error_is_kept_and_the_case_graded_from_the_rest() -
 # --- the mean over Attempts (inspect's pass@1), the second fold rule -----------------------
 #
 # FEATURE (OME-1458 amendment, docs/spec/2026-11-09-attempts-mean-fold.md): a row whose Task
-# declares inspect's pass_at(1) scores a Case as the share of its graded Attempts at full
-# marks, which is what pass_at(1) computes: 1 - C(n-c, 1)/C(n, 1) = c/n.
+# declares inspect's pass_at(1) scores a Case as the share of its tries at full marks, which
+# is what pass_at(1) computes: 1 - C(n-c, 1)/C(n, 1) = c/n. A try is a graded Attempt or an
+# empty answer (a textless refusal, which inspect scores 0); an errored call is no try.
 
 
 def _marks(*marks: float) -> list[CaseResult]:
@@ -429,11 +431,109 @@ def test_the_mean_fold_counts_a_partial_attempt_as_not_right() -> None:
     assert folded.grade.checks[0].outcome is None
 
 
-def test_the_mean_fold_averages_over_the_graded_attempts_only() -> None:
-    # WHY: a failed Attempt filed no Score, and inspect's reducer sees only the Scores filed,
-    # so the tally and the fold both divide by the graded count (1 of 3 here, not 1 of 4).
+def _empty_answer_attempt(code: str) -> CaseResult:
+    """An Attempt the Candidate answered with nothing a scorer can read, failed by ``code``."""
+
+    return _failed_attempt().model_copy(
+        update={
+            "failures": [
+                Failure(
+                    stage="candidate",
+                    code=code,
+                    message="the Candidate answered with no text",
+                    retryable=False,
+                    case_id=1,
+                    metadata={},
+                )
+            ]
+        }
+    )
+
+
+def _errored_attempt(code: str = "aigateway_transport_error") -> CaseResult:
+    """An Attempt that never got an answer: the gateway or a timeout failed it by ``code``."""
+
+    return _failed_attempt().model_copy(
+        update={
+            "failures": [
+                Failure(
+                    stage="candidate",
+                    code=code,
+                    message="the gateway did not answer",
+                    retryable=True,
+                    case_id=1,
+                    metadata={},
+                )
+            ]
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("codes", "score"),
+    [
+        (("provider_refusal",) * 4, 0.2),
+        (("provider_refusal",) * 3, 0.25),
+        (("model_empty_content", "model_token_cap", "provider_refusal"), 0.25),
+    ],
+)
+def test_the_mean_fold_counts_an_empty_answer_as_a_wrong_try(
+    codes: tuple[str, ...], score: float
+) -> None:
+    # WHY (D15): inspect grades a textless refusal, a reasoning-only reply or a spent token
+    # budget as an empty completion scoring 0, so 1 right + 4 silent refusals is 1/5 = 0.2,
+    # never 1/1; the authors' harness and inspect_evals count it the same way.
+    results: list[CaseResult] = _marks(1.0) + [_empty_answer_attempt(code) for code in codes]
+
+    folded = fold_case_attempts(results, fold=MEAN_ATTEMPT_FOLD)
+
+    assert folded.status == "scored"
+    assert folded.grade is not None
+    assert folded.grade.score == score
+    assert folded.grade.checks[0].score == score
+    assert folded.grade.checks[0].metadata[MET_BY_ATTEMPTS_KEY] == [1]
+    assert [attempt.status for attempt in folded.attempts or []] == ["scored"] + ["failed"] * len(
+        codes
+    )
+
+
+def test_two_right_and_three_silent_refusals_score_two_fifths() -> None:
+    results: list[CaseResult] = _marks(1.0, 1.0) + [_empty_answer_attempt("provider_refusal")] * 3
+
+    folded = fold_case_attempts(results, fold=MEAN_ATTEMPT_FOLD)
+
+    assert folded.grade is not None
+    assert folded.grade.score == 0.4
+
+
+def test_the_any_fold_still_credits_a_case_with_one_right_try_among_silent_refusals() -> None:
+    # INVARIANT (OME-1458): any-of-N is unchanged by the empty-answer rule, which is also what
+    # inspect's pass_at(5) says: one right epoch of five is 1.0.
+    results: list[CaseResult] = _marks(1.0) + [_empty_answer_attempt("provider_refusal")] * 4
+
+    folded = fold_case_attempts(results, fold=ANY_ATTEMPT_FOLD)
+
+    assert folded.grade is not None
+    assert folded.grade.score == 1.0
+
+
+def test_every_try_a_silent_refusal_fails_the_case_under_the_mean_as_well() -> None:
+    results: list[CaseResult] = [_empty_answer_attempt("provider_refusal")] * 5
+
+    folded = fold_case_attempts(results, fold=MEAN_ATTEMPT_FOLD)
+
+    assert folded.status == "failed"
+    assert folded.grade is None
+    assert folded.failures[0].code == "provider_refusal"
+
+
+@pytest.mark.parametrize("code", ["aigateway_transport_error", "provider_execution_timeout"])
+def test_the_mean_fold_leaves_an_errored_attempt_out_of_the_average(code: str) -> None:
+    # WHY: a gateway failure or a timeout is an Attempt inspect would have errored and left
+    # out of pass_at(1), so the fold divides by the tries that reached the Candidate
+    # (1 of 3 here, not 1 of 4).
     results: list[CaseResult] = _marks(1.0, 0.0, 0.0)
-    results.insert(1, _failed_attempt())
+    results.insert(1, _errored_attempt(code))
 
     folded = fold_case_attempts(results, fold=MEAN_ATTEMPT_FOLD)
 

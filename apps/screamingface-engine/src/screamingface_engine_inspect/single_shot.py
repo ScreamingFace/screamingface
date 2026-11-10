@@ -1557,8 +1557,12 @@ def _check_scores_agree(
     and inspect's any-of-N reducers compute the same over 0/1 Attempt Scores, except
     ``pass_at(2)`` over a Case whose second Attempt failed, which inspect reduces to nan while
     the fold scores the graded one. A row folding by the mean (``pass_at_1``, 2026-11-09
-    amendment) scores the share of graded Attempts at full marks, which is what ``pass_at(1)``
-    computes over the filed Scores, partial marks included. So can any rewrite of a Case
+    amendment) scores the share of its tries at full marks, which is what ``pass_at(1)``
+    computes over the filed Scores, partial marks included. AIDEV-NOTE: a try the Candidate
+    answered with nothing (``EMPTY_ANSWER_CODES`` in ``attempt_fold.py``) is a wrong try for
+    the fold but files no Score here, so a mean row that also honours a whole-run metric would
+    fail that Case by the metric's name on such an Attempt; no row has both today (ZeroBench
+    honours none). The fix, when one does, is to file a 0 for it. So can any rewrite of a Case
     score the tally does not also hand the metric (the abstain rule's 0.0 is handed over in
     Stage 1 of the tally). The Score is read as the scorer adapter read it for the Case
     Result, a dict value by its headline column (the first Named Score), never by inspect's

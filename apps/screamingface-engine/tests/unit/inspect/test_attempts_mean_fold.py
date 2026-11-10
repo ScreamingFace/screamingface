@@ -364,3 +364,72 @@ def test_the_mean_rule_rides_the_attempts_pins_on_a_row_with_no_whole_run_metric
     assert arc_row.whole_run_metric is not None
     assert benchmarks._attempts_pins(arc_row) == ("attempts=2",)
     assert "epoch_reducer=max" in benchmarks._whole_run_metric_pins(arc_row)
+
+
+@pytest.mark.parametrize(("right", "refused"), [(1, 4), (2, 3)])
+def test_a_silent_refusal_is_a_wrong_try_for_the_fold_and_for_inspects_reducer_alike(
+    right: int, refused: int
+) -> None:
+    """A try the provider declined with no text counts as wrong, the way inspect scores the
+    empty completion: 1 right + 4 silent refusals is 0.2, 2 right + 3 is 0.4, never 1.0.
+
+    WHY (D15, second pass): the fold used to average over the scored Attempts only, so a
+    textless refusal fell out of the denominator and one lucky try scored the Case 1.0.
+    inspect's ``pass_at(1)`` over the Scores its scorer would file (a 0 for each empty
+    completion) is the outside judge here.
+    """
+
+    from inspect_ai.scorer import pass_at
+
+    from screamingface_engine.benchmarks.contract import CaseGrade, CaseResult, Check, Failure
+    from screamingface_engine.benchmarks.shared_grading.attempt_fold import fold_case_attempts
+
+    met = Check(
+        type="exact_match",
+        id="1",
+        label="answer",
+        outcome="MET",
+        score=1.0,
+        evidence=[],
+        metadata={},
+    )
+    right_try = CaseResult(
+        status="scored",
+        case_id=1,
+        input="What is 6 times 7?",
+        output="42",
+        finish_reason="stop",
+        refusal=None,
+        grade=CaseGrade(method="inspect_scorer", score=1.0, metrics={}, checks=[met]),
+        failures=[],
+        metadata={},
+    )
+    silent_refusal = CaseResult(
+        status="failed",
+        case_id=1,
+        input="What is 6 times 7?",
+        output=None,
+        finish_reason=None,
+        refusal=None,
+        grade=None,
+        failures=[
+            Failure(
+                stage="candidate",
+                code="provider_refusal",
+                message="provider refused the request",
+                retryable=False,
+                case_id=1,
+                metadata={},
+            )
+        ],
+        metadata={},
+    )
+    results: list[CaseResult] = [right_try] * right + [silent_refusal] * refused
+    folded = fold_case_attempts(results, fold=MEAN_ATTEMPT_FOLD)
+
+    inspects_view = pass_at(1)(
+        [Score(value=1.0)] * right + [Score(value=0.0)] * refused  # the scorer grades "" as 0
+    )
+    assert folded.grade is not None
+    # The tally compares the two at the Case score's 4-place rounding (1 - 4/5 is 0.19999...).
+    assert folded.grade.score == round(inspects_view.as_float(), 4) == right / (right + refused)
