@@ -76,6 +76,11 @@ ATTEMPT_GRADE_NOT_PASS_FAIL = "attempt_grade_not_pass_fail"
 # would have errored and left out of ``pass_at(1)``, so it leaves the mean over the rest.
 # INVARIANT: a Case score of 1.0 means every try was right, never "the one try that got
 # through"; 1 right + 4 silent refusals is 0.2, as inspect_evals and the authors count it.
+# AIDEV-NOTE: today only a textless refusal reaches this fold as a failed Attempt (the gateway
+# reports it as data). A token cap or a reasoning-only reply is raised as a url4 error and
+# fails the whole Case before any Attempt row exists (OME-1458's accepted limitation, in
+# `protocol.py`); the two codes are listed here for the unit that collects a failed call per
+# Attempt, after which they arrive as failed Attempts and count as wrong tries.
 EMPTY_ANSWER_CODES: frozenset[str] = frozenset(
     {"provider_refusal", "model_empty_content", "model_token_cap"}
 )
