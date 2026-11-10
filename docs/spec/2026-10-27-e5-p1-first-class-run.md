@@ -88,7 +88,7 @@ with `packages/`.
 | D9 | **`Run.report()` reads the Client's local store only.** On a machine without those results it raises an error that names the run and says the results are not on this machine. | Results stay where they are today, so Garage and its lifecycle are unchanged. Opening a report on another machine is P2's question. |
 | D10 | **`CandidateResult.run_id` is deprecated for `attempt_id`** (same value), with a `DeprecationWarning` for two minor releases. The `run_id=` constructor keyword still works, with the warning, and the SDK's own readers use `attempt_id`. `Report.run_id` is the Run. `Event.run_id` (`events.py:27`) and the event envelope's `run_id` (`_engine/contract.py:534`) name an event's topic and are out of scope. | One name, "run id", for two different things would be confusing. Renaming outright breaks notebooks. |
 | D11 | **`sf.runs` is a new namespace. `sf.reports` is unchanged.** | Different source and object: Engine records of Runs in any state, versus locally saved results. |
-| D12 | **Cancel is run-wide and sticky.** `DELETE /runs/{id}` applies while any Candidate is not terminal (`pending` included): it sets the cancel flag, stops every live topic, moves `pending` Candidates to `stopped`, and refuses later starts under the run with 409 `run_canceled`. When every Candidate is terminal it changes nothing and answers 204. | A cancel from another notebook must also stop Candidates the original Client has not started yet, and must never rewrite a run that has finished. |
+| D12 | **Cancel is run-wide and sticky.** `DELETE /runs/{id}` applies while any Candidate is not terminal (`pending` included): it sets the cancel flag, records a stop owed to every bound live Candidate, moves `pending` Candidates to `stopped`, and refuses later starts under the run with 409 `run_canceled`. It then stops exactly the owed topics, clearing each obligation once its stop succeeds; a failed stop stays owed, so a retried DELETE stops it, and a topic that ended on its own is never stopped. An owed stop keeps a queued topic from running even when this App has no record of queueing it (a restart, or a cancel that beat the publish): the queue gets the cancel marker the worker checks before it runs. A bound run's deadline counts from its bind, so the marker outlives every moment the run could still start. A failed stop that a concurrent DELETE already completed is not a 503. It answers 202 while it changed the Run or a Candidate is still live, and 204 once every Candidate is terminal and nothing changed. | A cancel from another notebook must also stop Candidates the original Client has not started yet, and must never rewrite a run that has finished. |
 
 ## 4. Contract
 
@@ -113,6 +113,11 @@ All routes resolve the owner (D6) and answer RFC 9457 `Problem`s, as the existin
 - **404s.** Only `POST /runs` falls back silently (D7). On every other route, a 404 whose Problem
   type is `run_not_found` means the id is unknown or foreign. Any other 404 (an older Engine, or
   Runs off) means this Engine does not serve Runs.
+- **Problem codes.** `run_not_found`, `run_canceled` and `candidate_already_started` are the
+  Problem's `code`, as for every other Engine code. A hosted `/runs*` call without identity
+  answers 401 `identity_required`. An `X-SF-Run-Candidate` that is not an index of the run's
+  `candidates`, or either header without the other, answers 400 `malformed_header`, before
+  anything is scheduled.
 - **`RunRecord`** is `{id, state, created_at, finished_at, benchmark, case_count, candidates:
   [{name, state, attempt_id?, started_at?, finished_at?, cost_usd?, error_code?}]}`. It never
   carries the owner.
@@ -122,10 +127,11 @@ All routes resolve the owner (D6) and answer RFC 9457 `Problem`s, as the existin
 ```python
 class RunRegistry(Protocol):            # implemented once, with Tortoise
     async def create(self, owner: OwnerKey, spec: RunSpec) -> RunRecord: ...
+    async def register(self, owner: OwnerKey, spec: RunSpec) -> tuple[RunRecord, bool]: ...  # created?
     async def get(self, owner: OwnerKey, run_id: str) -> RunRecord | None: ...
     async def list(self, owner: OwnerKey, query: RunQuery) -> RunPage: ...
     async def bind(self, owner: OwnerKey, run_id: str, candidate: int, topic: str) -> None: ...
-    async def mark_scheduled(self, topic: str) -> None: ...
+    async def mark_scheduled(self, topic: str) -> bool: ...                 # False: a cancel won
     async def settle(self, topic: str, outcome: CandidateOutcome) -> None: ...
     async def cancel(self, owner: OwnerKey, run_id: str) -> RunRecord | None: ...
     async def reconcile(self) -> int: ...                                    # R6
@@ -163,6 +169,9 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
   - A bind leaves the Candidate `pending`. It becomes `scheduled` (`mark_scheduled`) only once
     scheduling succeeds, so a start that is refused, or that the Client gives up on, leaves it
     `pending` and the R5 grace applies.
+  - A cancel that lands between the bind and `mark_scheduled` has already stopped the
+    Candidate, so `mark_scheduled` returns False: the start stops the topic it just scheduled and
+    answers 409 `run_canceled`.
   - Binding the same `(run, candidate, topic)` again succeeds and changes nothing, so the
     Client's re-sent start after a 503 still schedules.
   - A different topic for a bound Candidate, or a topic bound elsewhere, gets 409
@@ -227,7 +236,7 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
     window (`since`, at most the 30-day retention), derives their states, filters, and pages.
     That is a few hundred or thousand rows per owner. A stored, indexed state column is a later
     migration if one owner ever holds far more, backfilled with the same pure function.
-- **R6. Reconcile** runs at App start and hourly. **It only ever writes `lost`**; a terminal
+- **R6. Reconcile** runs at App start and hourly (`run_sweep_interval_s`, default 3600 s). **It only ever writes `lost`**; a terminal
   state and a cost come only from a real outcome.
   - **A stream that survives a restart** (JetStream). A Candidate still live
     `run_lost_after_s` (default 48 h; the chart caps `candidateOutcomes.maxAgeS` below it) after
@@ -256,7 +265,9 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
     required, so a named Secret that does not exist fails the release; with no
     `database.existingSecret` the App runs with Runs off (D2). The Job runs under the namespace's default ServiceAccount with no
     token, because a pre-install hook runs before the chart's own ServiceAccount exists.
-  - Local: `serve --local` applies pending migrations at start.
+  - Local: `serve --local` applies pending migrations at start, holding an exclusive lock beside
+    the file; a second local Engine on the same file refuses to start, since each reconciles the
+    Candidates bound before it started as `lost`.
   - The App refuses to start on a schema older than its code.
   - The App refuses to start when its database does not answer, with an error that names the
     database (password hidden), not the schema (§9, 2026-11-05).
@@ -407,6 +418,10 @@ P1b works against an Engine without `/runs` (D7), so the landings can ship in ei
   unbound (R2): the cancel check is skipped, and the Candidate's outcome reaches the consumer as
   an unbound topic. The Run then reads `interrupted` and that cost is missing. This is accepted,
   because the alternative makes every evaluation depend on the history database.
+- **A failed `mark_scheduled` leaves a running Candidate `pending`.** The start was bound and
+  scheduled, but the database refused the move to `scheduled`, so it is logged and the start
+  answers as usual. Once the 30-minute pending grace passes, the Run reads `interrupted` while the
+  Candidate still runs; its outcome then settles it (R4). This is accepted for the same reason.
 - **A lost outcome message** (a NATS failure at publish, or an outage longer than 24 h) is caught
   by R6 48 h after the bind. Until then the Run reads `running`; afterwards the Candidate reads
   `lost` even if its work succeeded, and its cost is unknown.

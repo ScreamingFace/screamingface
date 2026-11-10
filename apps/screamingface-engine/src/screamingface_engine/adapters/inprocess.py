@@ -21,8 +21,11 @@ and `aclose()` returns only after every flush has finished.
 """
 
 import asyncio
+import contextlib
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from collections import Counter
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping, Sequence
+from datetime import datetime
 from decimal import Decimal
 from functools import partial
 from typing import cast
@@ -30,7 +33,7 @@ from typing import cast
 from screamingface_engine import job_env
 from screamingface_engine.candidate_outcomes import CandidateOutcomeStream, publish_outcome
 from screamingface_engine.client_provenance import ProvenanceExecutor
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
 from screamingface_engine.run_evidence import (
     SettlementWatch,
     adopt_or_mint_traceparent,
@@ -185,6 +188,12 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # patching the process environment.
         self._base_env = dict(base_env or {})
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        # Topics a bound stop reached while a start of them was still on its way to `schedule()`
+        # (E5 P1 spec D12): their `schedule()` spawns nothing. Kept until the topic's last start
+        # attempt ends, so every racing or delayed start is covered and nothing outlives them.
+        self._stopped_before_schedule: set[str] = set()
+        # topic → how many starts of it are between their bind and the end of `schedule()`.
+        self._starting: Counter[str] = Counter()
         # INVARIANT (OME-1747 review): one entry per built span sink until its close has
         # finished. The runner, not the run's task, owns these: `stop()`/`aclose()` cancel the
         # run's task, and a close owned by that task was cancelled with it — never run at all
@@ -342,6 +351,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         shape: job_env.RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        enqueued_at: datetime | None = None,
     ) -> str:
         """Spawn the run as a task and return its job name.
 
@@ -349,9 +359,12 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             JobRunnerAtCapacity: too many runs already in flight.
             JobAlreadyExists: a run for this topic is still running.
         """
+        name = job_name(topic)
+        # Before the capacity check: a canceled start answers as canceled, never "retry".
+        if topic in self._stopped_before_schedule:
+            raise StoppedBeforeSchedule(topic)
         if self._active >= self._max_concurrent:
             raise JobRunnerAtCapacity(self._active, self._max_concurrent)
-        name = job_name(topic)
         existing = self._tasks.get(name)
         if existing is not None and not existing.done():
             raise JobAlreadyExists(name)
@@ -513,6 +526,30 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         if task is not None:
             _stop_once(task)
 
+    @contextlib.contextmanager
+    def start_attempt(self, topic: str) -> Iterator[None]:
+        self._starting[topic] += 1
+        try:
+            yield
+        finally:
+            self._starting[topic] -= 1
+            if not self._starting[topic]:
+                del self._starting[topic]
+                self._stopped_before_schedule.discard(topic)
+
+    async def stop_bound(self, topic: str) -> None:
+        """As `stop`, but a topic with no task yet never gets one (E5 P1 spec D12).
+
+        WHY: a cancel can land between a start's bind and its schedule. Plain `stop` would find
+        nothing to cancel, and the task spawned next would run until the start's confirmation
+        stopped it, which may already have called a provider.
+        """
+        # Whether or not a task exists: another start of the topic may still be on its way to
+        # `schedule()`, and would otherwise replace the stopped task once it is done.
+        if topic in self._starting:
+            self._stopped_before_schedule.add(topic)
+        await self.stop(topic)
+
     async def exists(self, topic: str) -> bool:
         task = self._tasks.get(job_name(topic))
         return task is not None and not task.done()
@@ -537,6 +574,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         the default executor would otherwise never run, and the done callback would drop it
         from `_sink_closes` before any other `aclose()` could wait for it.
         """
+        self._stopped_before_schedule.clear()
         pending = [task for task in self._tasks.values() if not task.done()]
         for task in pending:
             _stop_once(task)

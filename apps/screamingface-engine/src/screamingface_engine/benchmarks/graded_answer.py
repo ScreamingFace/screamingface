@@ -264,7 +264,13 @@ def case_attempts(value: object) -> tuple[CaseId, list[object]] | None:
 
 
 def _case_attempts_route(request: Request) -> str:
-    """Join one Case's ``attempt_1..attempt_N`` envelopes into one Attempts row, in order."""
+    """Join one Case's ``attempt_1..attempt_N`` rows into one Attempts row, in order.
+
+    Each Attempt arrives as the one-row list its collecting iterate produced (2026-11-10,
+    ``protocol._attempted_case``): the case-execution envelope, or ``{"error": {...}}`` when
+    the Attempt's Candidate call errored. The row is kept as it came; the marking room files an
+    error row as a failed Attempt by the error's code.
+    """
 
     try:
         payload = json.loads(request.context)
@@ -277,12 +283,20 @@ def _case_attempts_route(request: Request) -> str:
         if len(names) < 2 or names != expected:
             raise ValueError("Case attempts context must carry attempt_1..attempt_N, N >= 2")
         attempts: list[object] = [
-            json.loads(value) if isinstance(value, str) else value
-            for value in (payload[name] for name in names)
+            _attempt_row(name, json.loads(value) if isinstance(value, str) else value)
+            for name, value in ((name, payload[name]) for name in names)
         ]
     except (TypeError, ValueError) as exc:
         raise _contract_error(str(exc)) from exc
     return compact_json({"schema": CASE_ATTEMPTS_SCHEMA, "case_id": case_id, "attempts": attempts})
+
+
+def _attempt_row(name: str, value: object) -> object:
+    """The one row an Attempt's collecting iterate produced, out of its list."""
+
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes) and len(value) == 1:
+        return value[0]
+    raise ValueError(f"Case attempts context's {name} must carry exactly one row")
 
 
 __all__ = [

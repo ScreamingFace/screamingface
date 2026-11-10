@@ -8,14 +8,23 @@ single-model SOTA, runs locally, publishes to a public leaderboard. By OpenMined
 
 ## Monorepo
 
-- `apps/aigateway` — LiteLLM-based AI gateway (Python, uv)
+Stack, CI lane and release lane per component: the `working-in-this-repo` routing table.
+
+- `apps/screamingface-engine` — the Engine: url4 execution, benchmarks, REST/WS (Python, uv)
+- `apps/aigateway` — LiteLLM-compatible AI gateway; the credential boundary (Python, uv)
+- `apps/aigateway-ui` — aigateway admin console, a Next.js BFF (TypeScript, npm)
 - `apps/scoreboard` — benchmark scoreboard + portal (Python, uv)
-- `packages/` — shared libs (reserved; `url4-python-sdk` first)
+- `apps/report-intake` — client error reports, no account needed (Python, uv)
+- `apps/analytics` — opt-in SDK events forwarded to PostHog (Python, uv)
+- `apps/screamingface-studio` — Tauri desktop app (TypeScript, Python, Rust; no CI yet)
+- `packages/url4` — url4 grammar, AST and DAG executor (PyPI)
+- `packages/screamingface` — the Client SDK (PyPI)
+- `apps/desktop` — build leftovers only, **not a component** (OME-1266)
 - Public website lives in the separate `screamingface-web` repo; this monorepo does not
   publish GitHub Pages.
 - `docs/` — SDLC artifacts: `spec/ plan/ tasks/ work/ diagrams/` (see `docs/README.md`)
-- Legacy (desktop, server, url4 engine): tag `legacy-monorepo-2026-07-08` — read-only,
-  never resurrect from it.
+- Legacy (old desktop, server, the original url4 engine): tag `legacy-monorepo-2026-07-08` —
+  read-only, never resurrect from it. Today's engine is `apps/screamingface-engine`.
 
 ## AI SDLC — MANDATORY
 

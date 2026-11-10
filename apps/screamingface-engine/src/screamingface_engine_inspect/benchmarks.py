@@ -46,6 +46,11 @@ from screamingface_engine.benchmarks.provenance import (
     NotPublished,
     ProvenanceFields,
 )
+from screamingface_engine.benchmarks.shared_grading.attempt_fold import (
+    ANY_ATTEMPT_FOLD,
+    MEAN_ATTEMPT_FOLD,
+    AttemptFold,
+)
 from screamingface_engine_inspect.function_references import function_reference_problem
 from screamingface_engine_inspect.local_tasks import scorer_source_pins, task_source_pin
 from screamingface_engine_inspect.prepare import (
@@ -193,10 +198,13 @@ class BenchmarkSpec:
     #: metric, never a Named Score, since no Case carries a precision (OME-1527). None for a
     #: metric returning one number; Benchmark identity when set, so no other row moves.
     whole_run_headline: str | None = None
-    #: The Task's own any-of-N epoch reducer, by inspect's name (``max``, ``at_least_1``,
-    #: ``pass_at_N``), on a row with Attempts that honours ``whole_run_metric``: the tally
-    #: reduces each Case's Attempt Scores with it before the metric reads them, as inspect
-    #: does (OME-1527 x OME-1458). Required exactly then; Benchmark identity when set.
+    #: The Task's own epoch reducer, by inspect's name. ``pass_at_1`` on a row with Attempts
+    #: makes the fold the mean over Attempts (the share at full marks, inspect's pass@1;
+    #: ``docs/spec/2026-11-09-attempts-mean-fold.md``), with or without a whole-run metric. An
+    #: any-of-N name (``max``, ``at_least_1``, ``pass_at_N``) is read only on a row with
+    #: Attempts that honours ``whole_run_metric``: the tally reduces each Case's Attempt Scores
+    #: with it before the metric reads them, as inspect does (OME-1527 x OME-1458), and is
+    #: required exactly then. Benchmark identity when set.
     epoch_reducer: str | None = None
     #: The exam's web-search rule for its Candidate (OME-1527, R13): search on, the declared
     #: domains never reached (draco bans the sites hosting its answers). None, on every row
@@ -4286,10 +4294,11 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "a grid counts only if every cell matches. The Candidate gets two Attempts per grid "
             "and the grid is solved if either matches. The Headline Score is the ARC Prize's: "
             "the mean over tasks of grids solved / grids in the task, so a task with two grids "
-            "and one solved scores 0.5. A failed Case counts 0 in its task; but one failed "
-            "Attempt (a reply cut at the token cap) fails the whole Case, where the harness "
-            "still credits the other Attempt, and a task whose every grid failed drops out of "
-            "the mean, where the harness counts it 0. Named Deviation: when a reply holds no "
+            "and one solved scores 0.5. A failed Case (both Attempts failed) counts 0 in its "
+            "task; one failed Attempt (a reply cut at the token cap) scores 0 for that Attempt "
+            "and the other still counts, as the harness credits it; a task whose every grid "
+            "failed drops out of the mean, where the harness counts it 0. Named Deviation: "
+            "when a reply holds no "
             "readable grid the harness asks the model again to extract one (OpenAI-style and "
             "Anthropic models) or re-asks the question; here that Attempt scores 0. So a run "
             'whose Report shows no failed Case and no "no grid found" Attempt is scored '
@@ -7770,6 +7779,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         whole_run_headline=spec.whole_run_headline,
         epoch_reducer_factory=_epoch_reducer_factory(spec),
         attempts=spec.attempts,
+        attempt_fold=_attempt_fold(spec),
         retrieval_policy=spec.retrieval_policy,
         candidate_input_envelope=spec.candidate_input_envelope,
         scorer_draft_feedback=spec.scorer_draft_feedback,
@@ -7820,23 +7830,36 @@ def _check_whole_run_metric(spec: BenchmarkSpec) -> None:
     score means, and a verdict map stands in for the eval's own reducer (coconot's), which
     the tally does not replay; either would feed the metric numbers the eval never made.
     Attempts (OME-1458) are fine: the metric reads each Case's Attempt Scores reduced by the
-    Task's own any-of-N reducer, which the row must name (``epoch_reducer``).
+    Task's own any-of-N reducer, which the row must name (``epoch_reducer``). A row naming
+    ``pass_at_1`` folds by the mean over Attempts (2026-11-09 amendment, D17): the fold reads
+    it, so it is admitted with or without a metric, but never on a one-Attempt row.
     """
 
+    from screamingface_engine_inspect.scorer_metrics import (
+        MEAN_OVER_ATTEMPTS_REDUCER,
+        any_match_reducers,
+    )
+
+    mean_fold: bool = spec.epoch_reducer == MEAN_OVER_ATTEMPTS_REDUCER
+    if mean_fold and spec.attempts <= 1:
+        raise ValueError(
+            f"{spec.key}: epoch_reducer {MEAN_OVER_ATTEMPTS_REDUCER} folds Attempts by their "
+            "mean, so it needs attempts above 1; drop it or declare the Attempts"
+        )
     replays_attempts: bool = spec.whole_run_metric is not None and spec.attempts > 1
-    if spec.epoch_reducer is not None and not replays_attempts:
+    if spec.epoch_reducer is not None and not mean_fold and not replays_attempts:
         raise ValueError(
             f"{spec.key}: epoch_reducer is read only by a whole_run_metric on a row with "
             "attempts above 1; drop it"
         )
-    if replays_attempts:
-        from screamingface_engine_inspect.scorer_metrics import any_match_reducers
-
+    if replays_attempts and not mean_fold:
         names: list[str] = sorted(any_match_reducers(spec.attempts))
         if spec.epoch_reducer not in names:
             raise ValueError(
                 f"{spec.key}: whole_run_metric with attempts={spec.attempts} needs the Task's "
-                f"own epoch_reducer, one of {', '.join(names)}; got {spec.epoch_reducer!r}"
+                f"own epoch_reducer, one of {', '.join(names)} (any of N) or "
+                f"{MEAN_OVER_ATTEMPTS_REDUCER} (the mean over Attempts); got "
+                f"{spec.epoch_reducer!r}"
             )
     if spec.whole_run_metric is None:
         return
@@ -8450,7 +8473,17 @@ def _attempts_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
 
     # WHY: any-of-2 and any-of-1 are different numbers for the same answers, so a change
     # of N must never keep a revision its published scores hang off.
-    return (f"attempts={spec.attempts}",) if spec.attempts > 1 else ()
+    if spec.attempts <= 1:
+        return ()
+    pins: list[str] = [f"attempts={spec.attempts}"]
+    # WHY here (2026-11-09 amendment of OME-1458, D17): on a row with no whole-run metric the
+    # reducer names the fold rule (pass_at_1, the mean over Attempts), so it is Attempts
+    # identity: 2/5 and 1.0 are different numbers for the same answers. Beside an honoured
+    # metric it stays pinned with that metric (_whole_run_metric_pins), so ARC-AGI-2's
+    # revision does not move.
+    if spec.epoch_reducer is not None and spec.whole_run_metric is None:
+        pins.append(f"epoch_reducer={spec.epoch_reducer}")
+    return tuple(pins)
 
 
 def _multiple_correct_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
@@ -8563,7 +8596,10 @@ def _whole_run_metric_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     # WHY identity: the key decides which of the dict's numbers is the published headline.
     if spec.whole_run_headline is not None:
         pins.append(f"whole_run_headline={spec.whole_run_headline}")
-    if spec.epoch_reducer is not None:
+    # WHY only beside a metric: a reducer on a row with no whole-run metric names the fold
+    # rule (the mean over Attempts) and is pinned by _attempts_pins instead, so a row that
+    # honours no metric pins nothing here (test_whole_run_metric's invariant).
+    if spec.whole_run_metric is not None and spec.epoch_reducer is not None:
         pins.append(f"epoch_reducer={spec.epoch_reducer}")
     return tuple(pins)
 
@@ -8606,19 +8642,33 @@ def _whole_run_metric_factory(spec: BenchmarkSpec) -> Callable[[], Any] | None:
 
 
 def _epoch_reducer_factory(spec: BenchmarkSpec) -> Callable[[], Any] | None:
-    """Rebuild the Task's own any-of-N reducer from the row's name, lazily; None when the
-    tally reduces each Case with inspect's default mean."""
+    """Rebuild the Task's own reducer from the row's name, lazily (an any-of-N one, or
+    ``pass_at(1)`` for the mean over Attempts); None when the tally reduces each Case with
+    inspect's default mean."""
 
     name: str | None = spec.epoch_reducer
     if name is None:
         return None
 
     def factory() -> Any:
-        from screamingface_engine_inspect.scorer_metrics import any_match_reducers
+        from screamingface_engine_inspect.scorer_metrics import attempts_reducers
 
-        return any_match_reducers(spec.attempts)[name]
+        return attempts_reducers(spec.attempts)[name]
 
     return factory
+
+
+def _attempt_fold(spec: BenchmarkSpec) -> AttemptFold:
+    """The marking room's fold rule for the row: the mean over Attempts when the row names
+    inspect's ``pass_at_1``, else any-of-N (2026-11-09 amendment of OME-1458)."""
+
+    # WHY a string compare, not the reducer: the core fold must not import inspect, and the
+    # row's name is already Benchmark identity (`_whole_run_metric_pins`).
+    from screamingface_engine_inspect.scorer_metrics import MEAN_OVER_ATTEMPTS_REDUCER
+
+    return (
+        MEAN_ATTEMPT_FOLD if spec.epoch_reducer == MEAN_OVER_ATTEMPTS_REDUCER else ANY_ATTEMPT_FOLD
+    )
 
 
 def _constructor(reference: str) -> Any:

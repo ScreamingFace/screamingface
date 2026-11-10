@@ -1,6 +1,7 @@
 """Turning Runs on in an App (OME-1785, E5 P1 spec D2, R4, R9, R11).
 
-FEATURE: first-class Runs. `install_runs` opens the registry at startup and runs its one writer:
+FEATURE: first-class Runs. `install_runs` opens the registry at startup and runs its one writer
+and its sweeps (reconcile and retention, spec R6, R7):
 - local mode: a SQLite file under `~/.screamingface-engine/` (or the configured URL), migrated
   at start;
 - hosted: `URL4_CLOUD_DATABASE_URL`, migrated by the chart's Job before the App starts. With no
@@ -14,9 +15,12 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import Callable
+import os
+from collections.abc import AsyncIterator, Callable
+from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import FastAPI
@@ -28,6 +32,7 @@ from screamingface_engine.config import Settings
 from screamingface_engine.runs import db
 from screamingface_engine.runs.consumer import DEFAULT_RETRY_S, OutcomeWriter
 from screamingface_engine.runs.store import TortoiseRunStore
+from screamingface_engine.runs.sweeps import RunSweeper
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +51,42 @@ class SchemaBehindError(RuntimeError):
 
 class DatabaseUnreachableError(RuntimeError):
     """The Run registry's database did not answer. Startup fails (spec R9, §9 2026-11-05)."""
+
+
+class LocalDatabaseInUseError(RuntimeError):
+    """Another local Engine holds this SQLite file. Startup fails."""
+
+
+def hold_local_database(url: str) -> int:
+    """Take the local database's exclusive lock, beside it; the descriptor holds it until closed.
+
+    WHY: a local Engine reconciles every Candidate bound before it started as `lost`, which is
+    right after a restart and wrong while another Engine on the same file still runs them.
+    """
+    # WHY the path alone, resolved: Tortoise reads a query (`?journal_mode=WAL`) as options of
+    # the same file, and a symlink or `..` spelling names the same file too; all find one lock.
+    file_path = url.removeprefix("sqlite://").split("?", 1)[0].split("#", 1)[0]
+    path = Path(Path(file_path).resolve().as_posix() + ".lock")
+    descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        _lock(descriptor)
+    except OSError as exc:
+        os.close(descriptor)
+        raise LocalDatabaseInUseError(
+            f"another local Engine is using {path.with_suffix('')}; stop it first"
+        ) from exc
+    return descriptor
+
+
+def _lock(descriptor: int) -> None:
+    if os.name == "nt":
+        import msvcrt  # noqa: PLC0415 - one platform's module
+
+        msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl  # noqa: PLC0415 - one platform's module
+
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 # How long the startup probe waits for the database. WHY bounded: a blackholed host takes asyncpg's
@@ -160,6 +201,7 @@ class _RunsLifecycle:
         self._url = url
         self._local = local
         self._writer_retry_s = writer_retry_s
+        self._local_lock: int | None = None
 
     async def start(self) -> None:
         await self._outcomes.ensure_stream(update=True)
@@ -170,7 +212,18 @@ class _RunsLifecycle:
             )
             return
         if self._local:
+            # WHY refuse a server database: a local Engine settles every Candidate a previous
+            # process left as `lost` at start, and only a SQLite file can be locked to one Engine.
+            # A second Engine on a shared server database would settle the first one's live
+            # Candidates (spec D5: local Runs live in SQLite).
+            if not self._url.startswith("sqlite://"):
+                raise RunsConfigError(
+                    "a local Engine keeps Runs in a SQLite file; URL4_CLOUD_DATABASE_URL must be "
+                    "a sqlite:// URL"
+                )
             ensure_sqlite_dir(self._url)
+            self._local_lock = hold_local_database(self._url)
+        # A failure from here on is rolled back by the App's lifespan (`install_runs`).
         store = await open_run_store(
             self._url,
             self._settings,
@@ -179,18 +232,49 @@ class _RunsLifecycle:
         )
         self._app.state.run_registry = store
         writer = OutcomeWriter(self._outcomes, store, retry_s=self._writer_retry_s)
-        self._app.state.outcome_writer_task = asyncio.get_running_loop().create_task(writer.run())
+        loop = asyncio.get_running_loop()
+        self._app.state.outcome_writer_task = loop.create_task(writer.run())
+        sweeper = RunSweeper(
+            store, retention=timedelta(seconds=self._settings.run_retention_s), clock=_utc_now
+        )
+        # WHY awaited: Candidates the last process left, and expired Runs, are cleared before the
+        # App serves; the loop then sweeps every interval.
+        await sweeper.sweep_once()
+        self._app.state.run_sweep_task = loop.create_task(
+            sweeper.run(interval_s=self._settings.run_sweep_interval_s, sweep_first=False)
+        )
+
+    async def _cancel_task(self, name: str) -> None:
+        task = getattr(self._app.state, name)
+        setattr(self._app.state, name, None)
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("%s ended with an error at shutdown", name)
 
     async def stop(self) -> None:
-        task = self._app.state.outcome_writer_task
-        if task is not None:
-            task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
-        store = self._app.state.run_registry
-        if store is not None:
+        """Release what `start` took, each step even when an earlier one fails."""
+        try:
+            for name in ("run_sweep_task", "outcome_writer_task"):
+                await self._cancel_task(name)
+        finally:
+            store = self._app.state.run_registry
             self._app.state.run_registry = None
-            await store.aclose()
+            try:
+                if store is not None:
+                    await store.aclose()
+            except Exception:
+                # WHY logged, not raised: a raise here would skip the App's later shutdown hooks.
+                logger.exception("the Run registry did not close cleanly")
+            finally:
+                if self._local_lock is not None:
+                    os.close(self._local_lock)
+                    self._local_lock = None
 
 
 def install_runs(
@@ -203,10 +287,14 @@ def install_runs(
 ) -> None:
     """Open the registry and start its writer with the App, and close both with it.
 
-    `app.state.run_registry` is the store, or None while Runs are off.
+    `app.state.run_registry` is the store, or None while Runs are off; `/runs` (`rest.runs`)
+    reads it per request.
     """
     app.state.run_registry = None
     app.state.outcome_writer_task = None
+    app.state.run_sweep_task = None
+    # Spec D6: a hosted Run belongs to the verified `X-User-Email`; local mode is single-user.
+    app.state.runs_require_identity = not local
     url = local_database_url(settings) if local else settings.database_url
     if not local and url.startswith("sqlite"):
         raise RunsConfigError(
@@ -218,6 +306,31 @@ def install_runs(
     )
     app.router.on_startup.append(lifecycle.start)
     app.router.on_shutdown.append(lifecycle.stop)
+    app.router.lifespan_context = _rolled_back_on_failed_start(
+        app.router.lifespan_context, lifecycle
+    )
+
+
+def _rolled_back_on_failed_start(
+    inner: Callable[[Any], AbstractAsyncContextManager[Any]], lifecycle: _RunsLifecycle
+) -> Callable[[Any], AbstractAsyncContextManager[Any]]:
+    """The App's lifespan, releasing Runs however it ends.
+
+    WHY: a failed startup runs no shutdown hook, and a shutdown hook that raises skips the ones
+    after it, while a local Engine inside the Client's own process lives on; the lock, store and
+    tasks Runs took would stay held. `stop` is idempotent, so the usual shutdown hook and this
+    one never release twice.
+    """
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Any) -> AsyncIterator[Any]:
+        try:
+            async with inner(app) as state:
+                yield state
+        finally:
+            await lifecycle.stop()
+
+    return lifespan
 
 
 __all__ = [
