@@ -42,7 +42,12 @@ from nats.aio.msg import Msg
 from nats.aio.subscription import Subscription
 from nats.js import JetStreamContext
 from nats.js.api import AckPolicy, ConsumerConfig, ConsumerInfo, RetentionPolicy, StorageType
-from nats.js.errors import BadRequestError, NotFoundError, ServiceUnavailableError
+from nats.js.errors import (
+    BadRequestError,
+    NoStreamResponseError,
+    NotFoundError,
+    ServiceUnavailableError,
+)
 
 from screamingface_engine import job_env, subjects
 from screamingface_engine.client_provenance import CLIENT_VERSION_ENV, valid_version
@@ -350,6 +355,16 @@ class RunQueueUnavailable(RuntimeError):
     """
 
 
+class PublishOutcomeUnknown(nats.errors.TimeoutError):
+    """The run's own JetStream publish went unanswered, so the broker may have stored the run.
+
+    nats-py reports a lost acknowledgement, a connection closed mid-request and a send buffered
+    during a reconnect all as a timeout. Raised only from `RunQueue.publish`'s send, so an
+    earlier timeout (declaring the stream, connecting) stays a plain one. A subclass of
+    `nats.errors.TimeoutError`, so broker-error mappings still match it.
+    """
+
+
 BROKER_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (
     nats.errors.TimeoutError,
     nats.errors.ConnectionClosedError,
@@ -358,6 +373,9 @@ BROKER_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (
     nats.errors.NoRespondersError,
     nats.errors.StaleConnectionError,
     ServiceUnavailableError,
+    # nats-py's JetStream publish raises this in place of `NoRespondersError`: nothing serves
+    # the stream, so nothing was stored.
+    NoStreamResponseError,
 )
 """The broker errors that mean "not reachable right now" — the ONLY ones `RunQueueUnavailable`
 stands for.
@@ -595,14 +613,17 @@ class RunQueue:
         await self.ensure_stream()
         js = await self._jetstream()
         bucket_subject = self.bucket_subject(identity)
-        await js.publish(
-            bucket_subject,
-            message,
-            headers={
-                "Nats-Msg-Id": topic_of_message(message),
-                subjects.ENQUEUED_AT_HEADER: (enqueued_at or datetime.now(UTC)).isoformat(),
-            },
-        )
+        try:
+            await js.publish(
+                bucket_subject,
+                message,
+                headers={
+                    "Nats-Msg-Id": topic_of_message(message),
+                    subjects.ENQUEUED_AT_HEADER: (enqueued_at or datetime.now(UTC)).isoformat(),
+                },
+            )
+        except nats.errors.TimeoutError as exc:
+            raise PublishOutcomeUnknown from exc
         await self._wake(bucket_subject.encode())
 
     async def pull(
@@ -1338,6 +1359,7 @@ __all__ = [
     "PULL_FAST_PASS_S",
     "QUEUE_CONSUMER",
     "QUEUE_REPLICAS",
+    "PublishOutcomeUnknown",
     "RunQueue",
     "RunQueueUnavailable",
     "caller_key",
