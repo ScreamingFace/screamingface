@@ -616,3 +616,45 @@ def test_the_marking_room_folds_by_the_mean_when_the_benchmark_says_so() -> None
     assert case["output"] == "42"
     assert case["grade"]["score"] == 0.4
     assert [attempt["grade"]["score"] for attempt in case["attempts"]] == [0.0, 1.0, 0.0, 1.0, 0.0]
+
+
+# --- an errored call is one Attempt's failed row (2026-11-10 amendment) ----------------------
+
+
+def _error_row(code: str) -> dict[str, object]:
+    """One Attempt's row when its Candidate call errored: url4's collected error payload."""
+
+    return {
+        "error": {
+            "kind": "ResolutionError",
+            "message": f"stand-in {code}",
+            "code": code,
+            "retryable": False,
+        }
+    }
+
+
+@pytest.mark.parametrize(
+    ("code", "mean_score"), [("model_token_cap", 0.8), ("gateway_internal_error", 1.0)]
+)
+def test_four_right_tries_and_one_errored_call_score_as_inspect_counts_them(
+    code: str, mean_score: float
+) -> None:
+    # STORY (spec acceptance): 4 right + 1 token cap is 0.8 under the mean (inspect scores the
+    # empty completion 0) and 1.0 under any-of-N; a gateway error is no try, 4 of 4 = 1.0 both.
+    rows: list[object] = [
+        _row(1, "42"),
+        _row(1, "42"),
+        _row(1, "42"),
+        _row(1, "42"),
+        _error_row(code),
+    ]
+
+    any_case: dict[str, Any] = _aggregate(rows, ["42"])["cases"][0]
+    mean_case: dict[str, Any] = _aggregate_mean(rows, ["42"])["cases"][0]
+
+    assert any_case["grade"]["score"] == 1.0
+    assert mean_case["grade"]["score"] == mean_score
+    for case in (any_case, mean_case):
+        assert [attempt["status"] for attempt in case["attempts"]][-1] == "failed"
+        assert case["attempts"][-1]["failures"][0]["code"] == code

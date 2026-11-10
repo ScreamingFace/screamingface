@@ -437,7 +437,13 @@ def test_the_arc_url4_is_pinned_byte_for_byte() -> None:
     """Ticket comment pin (a): ARC-AGI-2 is the first published Benchmark with Attempts, so any
     change to how Attempts are written into its url4 fails here instead of quietly moving the
     Benchmark Revision. Sits here, not in test_benchmark_protocol.py, because that module runs
-    without the inspect extra and an imported Benchmark needs it."""
+    without the inspect extra and an imported Benchmark needs it.
+
+    Moved once (2026-11-10, docs/spec/2026-11-10-attempt-call-collect.md): each Attempt now runs
+    inside its own collecting iterate and reads its Case position from a Case-level binding, so
+    an errored Candidate call fails only that Attempt. The Revision did not move: the url4 text
+    is not part of it (test_benchmark_fingerprints.py), and every Candidate request is
+    byte-identical (same route, params, context values)."""
 
     from url4 import render
 
@@ -446,5 +452,5 @@ def test_the_arc_url4_is_pinned_byte_for_byte() -> None:
 
     assert (
         hashlib.sha256(url4.encode()).hexdigest()
-        == "294a48447d1890ef2ff7bbfab5705274f37476aaf3feec6f22a72608cce4a942"
+        == "16e583d19664f1e7591b9f71ae284c81bec4d7f6ae16408afb7bb6ba52b2b4fc"
     )

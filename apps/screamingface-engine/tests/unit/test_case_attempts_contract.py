@@ -24,7 +24,12 @@ from screamingface_engine.benchmarks.contract import (
     CaseGrade,
     CaseResult,
 )
-from screamingface_engine.benchmarks.definition import ATTEMPTS_KEY, Benchmark, BenchmarkDeclaration
+from screamingface_engine.benchmarks.definition import (
+    ATTEMPTS_KEY,
+    Benchmark,
+    BenchmarkDeclaration,
+    candidate,
+)
 from screamingface_engine.benchmarks.graded_answer import CASE_ATTEMPTS_ROUTE
 from screamingface_engine.benchmarks.protocol import preserve_candidate_outcome
 from url4 import RelExpr, Text, render
@@ -235,3 +240,33 @@ def test_a_cover_sheet_the_expression_ignores_is_caught() -> None:
     assert _asked_attempts(_probe(declared=2, asked=1)) == 1
     assert _asked_attempts(_probe(declared=2, asked=2)) == 2
     assert _asked_attempts(_probe(declared=3, asked=3)) == 3
+
+
+def test_an_attempts_case_reads_its_position_from_one_case_level_binding() -> None:
+    # INVARIANT (2026-11-10, docs/spec/2026-11-10-attempt-call-collect.md D2): inside the
+    # per-Attempt collecting iterate url4's $index is 0, so the Case's position is bound once
+    # beside the Attempts and every Attempt's Candidate Invocation reads the binding. A stray
+    # $index inside an Attempt would tell the Candidate "Case 0" and progress the same.
+    # Stand-in: the imported-Benchmark invocation shape (`single_shot._build`); every registered
+    # Attempts Benchmark (ARC-AGI-2, with the inspect extra) is checked the same way.
+    invocation = candidate(
+        "$item.input", web_search=False, case_id="$item.id", case_index="$index", case_count="3"
+    )
+    expressions: list[str] = [
+        render(
+            preserve_candidate_outcome(
+                candidate_invocation=invocation,
+                grading=RelExpr(path="/grade", context="$candidate_invocation", intent=Text("")),
+                case_id="$item.id",
+                attempts=attempts,
+            )
+        )
+        for attempts in (2, 5)
+    ] + [
+        render(benchmark.build(1))
+        for benchmark in BUILTIN_BENCHMARKS
+        if benchmark.declaration.attempts > 1
+    ]
+    for rendered in expressions:
+        assert rendered.count("$index") == 1
+        assert rendered.count("$case_position") == rendered.count(CANDIDATE_ROUTE)
