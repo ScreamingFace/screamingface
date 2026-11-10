@@ -151,6 +151,40 @@ class BudgetCharge:
         return cls(**_fields(value, _CHARGE_KEYS, "BudgetCharge"))  # type: ignore[arg-type]
 
 
+_CALL_CHARGE_KEYS = ("usd", "tokens")
+
+
+@dataclass(frozen=True, slots=True)
+class CallCharge:
+    """What one provider call charged the Budget, per unit (E4c ans:Q32; the Engine writes it).
+
+    A cache hit charges its ORIGINAL cost, so a replay shows the live run's spend. ``None`` is
+    unpriced: it adds nothing to the spend (the ledger rule above).
+    """
+
+    usd: float | None
+    tokens: float | None
+
+    def __post_init__(self) -> None:
+        for name in _CALL_CHARGE_KEYS:
+            number = _optional_number(getattr(self, name), f"CallCharge {name}")
+            if number is not None and number < 0:
+                raise ValueError(f"CallCharge {name} must not be negative")
+            object.__setattr__(self, name, number)
+
+    def amount(self, unit: BudgetUnit) -> float | None:
+        """The charge in ``unit``; None when the call is unpriced in it."""
+        return self.usd if unit == "usd" else self.tokens
+
+    def to_dict(self) -> dict[str, object]:
+        return {"usd": self.usd, "tokens": self.tokens}
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> CallCharge:
+        """Rebuild a CallCharge from its exact to_dict shape."""
+        return cls(**_fields(value, _CALL_CHARGE_KEYS, "CallCharge"))  # type: ignore[arg-type]
+
+
 _REFUSAL_KEYS = ("operation_id", "member_id", "stage", "estimated", "reason")
 
 
@@ -274,4 +308,12 @@ def remaining(unit: BudgetUnit | None = None) -> Remaining:
     return surface.remaining(unit)
 
 
-__all__ = ["BUDGET_SCHEMA", "Budget", "BudgetCharge", "BudgetRefusal", "BudgetState", "remaining"]
+__all__ = [
+    "BUDGET_SCHEMA",
+    "Budget",
+    "BudgetCharge",
+    "BudgetRefusal",
+    "BudgetState",
+    "CallCharge",
+    "remaining",
+]

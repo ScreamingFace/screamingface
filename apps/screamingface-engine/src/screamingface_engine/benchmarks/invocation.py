@@ -83,10 +83,12 @@ async def evaluate_candidate_recipe(
                             outcome,
                             terminal_loop_outcome(executions),
                             status="refused",
-                            operations=attribute_operation_outputs(expression, calls),
+                            operations=attribute_operation_outputs(
+                                expression, calls, charged=bool(budgets)
+                            ),
                         )
 
-    operations = attribute_operation_outputs(expression, calls)
+    operations = attribute_operation_outputs(expression, calls, charged=bool(budgets))
     abstained = final_operation_abstained(expression, operations)
     return _encode(
         # WHY "" (E4b fix, 2026-10-14): an abstained Rank or Filter hands on the empty selection

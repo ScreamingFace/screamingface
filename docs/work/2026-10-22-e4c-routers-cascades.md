@@ -204,6 +204,16 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   captured call's price as the cache saving, like any cache hit (OME-1687: reproduction cost is
   spend plus saving). The pinned gateway test `test_cache_entry_metadata_none_space` changes one
   expectation (PIN manifest). `apps/aigateway` changes need a mirror PR after merge.
+- 2026-11-10: Q32 (owner): the overspend line on a replay uses the cost of the original run. It
+  added `usage.cost_usd`, which is $0 on a cache hit, while the Budget charged the
+  `cache.reference` cost. The Engine now writes `charges` (one `{usd, tokens}` per provider call,
+  the `budget.charge` numbers) on each operation of a candidate with a Budget, and
+  `overspend_of` adds them. The owner first chose a Case-level total, then chose the
+  per-operation field once the cost was clear: the total had to cross about 8 grading-pipeline
+  sites, while `operations` already reaches the SDK on every path. An operation that two
+  bindings share keeps no charges (the `accounting` rule), as before. Tests: Engine
+  `test_e4c_operation_charges.py`, SDK `test_e4c_overspend_replay.py`; the RP-34 test helper
+  `_priced` now carries a charge. End to end (flow 16 world): live and replay both charge $0.003.
 
 ## Outcome
 

@@ -18,6 +18,7 @@ from pydantic import (
     model_validator,
 )
 
+from screamingface_engine.budget import CallCharge
 from screamingface_engine.combine.decision import GateDecision
 from screamingface_engine.combine.evidence import CombineEvidence
 from screamingface_engine.operation_accounting import (
@@ -377,6 +378,11 @@ class OperationOutput(_StrictWireModel):
     FEATURE: OME-1291 (E4c) ``decision`` is the ``gate-decision.v1`` record of one sf.Gate, set
     only on that Gate's JOIN operation ``op_gate_<n>``. Left out of the wire when absent (the
     ``combine`` rule), so an envelope with no Gate keeps its bytes.
+
+    FEATURE: OME-1291 (E4c, ans:Q32) ``charges`` is what each provider call of the operation
+    charged the candidate's Budget (a cache hit: its original cost), in call order. Set only when
+    the candidate has a Budget and the operation has one claimant (the ``accounting`` rule), and
+    left out of the wire when absent, so an envelope with no Budget keeps its bytes.
     """
 
     operation_id: str = Field(min_length=1)
@@ -385,6 +391,7 @@ class OperationOutput(_StrictWireModel):
     accounting: OperationAccounting | None
     combine: CombineEvidence | None = Field(default=None, exclude_if=lambda value: value is None)
     decision: GateDecision | None = Field(default=None, exclude_if=lambda value: value is None)
+    charges: list[CallCharge] | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @field_validator("finish_reason")
     @classmethod

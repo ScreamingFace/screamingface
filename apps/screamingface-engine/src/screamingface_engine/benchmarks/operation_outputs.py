@@ -46,7 +46,8 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from screamingface_engine.benchmarks.contract import OperationOutput
-from screamingface_engine.operation_accounting import combine_operation_accounting
+from screamingface_engine.budget import CallCharge, call_charge
+from screamingface_engine.operation_accounting import SignalAccounting, combine_operation_accounting
 from screamingface_engine.operation_calls import OperationCall
 from url4.core.errors import ParseError
 from url4.core.nodes import Expression, Iteration, RelExpr, Source, Text, walk
@@ -80,8 +81,14 @@ class _OperationBinding:
 def attribute_operation_outputs(
     expression: str,
     calls: Sequence[OperationCall],
+    *,
+    charged: bool = False,
 ) -> list[OperationOutput] | None:
-    """Join recorded calls to the expression's named model operations."""
+    """Join recorded calls to the expression's named model operations.
+
+    ``charged`` (E4c, ans:Q32): the candidate has a Budget, so each operation also carries the
+    charge of each of its provider calls.
+    """
 
     bindings = _operation_bindings(expression)
     if not bindings:
@@ -99,7 +106,7 @@ def attribute_operation_outputs(
         if binding.optional and binding.fingerprint is not None
     }
     operations = [
-        _attributed(binding, by_fingerprint, claims, optional)
+        _attributed(binding, by_fingerprint, claims, optional, charged=charged)
         for binding in bindings
         if not (binding.gated and by_fingerprint.get(binding.fingerprint or ("", ())) is None)
     ]
@@ -173,12 +180,15 @@ def _attributed(
     by_fingerprint: dict[_Fingerprint, list[OperationCall]],
     claims: dict[_Fingerprint, int],
     optional: set[_Fingerprint],
+    *,
+    charged: bool,
 ) -> OperationOutput:
     output: str | None = None
     finish_reason: str | None = None
     accounting = None
     combine = None
     decision = None
+    charges = None
     matched = [] if binding.fingerprint is None else by_fingerprint.get(binding.fingerprint, [])
     if matched and claims.get(binding.fingerprint or ("", ()), 0) == 1:
         # One claimant: every matched call IS this operation; the last one is terminal
@@ -193,6 +203,8 @@ def _attributed(
             accounting = combine_operation_accounting(
                 [call.accounting for call in matched if call.accounting is not None]
             )
+        if charged:
+            charges = _charges(matched)
     # WHY: an optional claimant may have failed without recording a terminal
     # call. Identical answers, even from repeated calls, do not prove it answered.
     elif matched and binding.fingerprint not in optional:
@@ -206,7 +218,19 @@ def _attributed(
         accounting=accounting,
         combine=combine,
         decision=decision,
+        charges=charges,
     )
+
+
+def _charges(calls: Sequence[OperationCall]) -> list[CallCharge] | None:
+    """One charge per provider call, the budget fold's calls (BC-29); None when there is none."""
+
+    charges = [
+        call_charge(call.signal_accounting or SignalAccounting())
+        for call in calls
+        if call.is_provider
+    ]
+    return charges or None
 
 
 # WHY cached: every Case of one candidate reads the same expression text.

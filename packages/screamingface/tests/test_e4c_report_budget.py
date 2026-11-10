@@ -22,6 +22,7 @@ from screamingface._ui.branch_view import (
     condition_text,
     overspend_of,
 )
+from screamingface.budget import CallCharge
 from screamingface.case_result import CaseOperation
 
 _REMAINING = {"observe": "budget.remaining:usd", "cmp": ">=", "value": 0.02}
@@ -110,7 +111,9 @@ def _cascade() -> object:
 
 
 def _priced(operation_id: str) -> CaseOperation:
-    return CaseOperation(operation_id, "x", "stop", _accounting())  # 0.002 USD, 10 + 4 tokens
+    # 0.002 USD, 10 + 4 tokens; under a Budget the Engine also writes the call's charge (ans:Q32).
+    charge = CallCharge(usd=0.002, tokens=14.0)
+    return CaseOperation(operation_id, "x", "stop", _accounting(), charges=(charge,))
 
 
 # --- RP#11a ---------------------------------------------------------------------------------------

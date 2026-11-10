@@ -240,6 +240,12 @@ cap; the report shows that overspend [stated ans:Q20]. The cap applies per Attem
   left out of the wire when absent, the same rule as `combine` (`:373`) [proposed]. The SDK
   mirror and report.v1 export gain the same optional key (E4b part 4 added `trace` the same way)
   [proposed].
+- `OperationOutput` also gains `charges: list[CallCharge] | None` (`CallCharge = {usd, tokens}`,
+  each `float | None`, `None` = unpriced): one item per provider call of a one-claimant
+  operation, the numbers of `budget.charge` (a cache hit: its `cache.reference` cost). Set only
+  when the candidate has a Budget; left out of the wire when absent. The SDK `CaseOperation` and
+  report.v1 export gain the same optional key; the report's overspend line adds these numbers
+  [stated ans:Q32].
 - `AbstainReason` (`E/combine/ports.py:56`, SDK `S/answer.py:29`) gains `budget_refused`
   [proposed]. A Gate word `abstain` reuses `gate_not_met` [proposed].
 - `BudgetStage` (`E/budget.py:25`, SDK mirror) gains `selector`; a consistency `sample` call is

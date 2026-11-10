@@ -211,6 +211,29 @@ def charge(
     return amount, "cache_reference" if cached else "live"
 
 
+class CallCharge(_BudgetModel):
+    """What one provider call charges a Budget, per unit: the ``charge`` rule's numbers.
+
+    E4c (OME-1291, ans:Q32): written on each operation of a candidate with a Budget, so the
+    report's overspend line adds what the Budget added. A cache hit charges its ORIGINAL cost
+    (``cache.reference``), so a replay shows the live run's spend. ``None`` is unpriced: it adds
+    nothing to the spend, as in ``fold``.
+    """
+
+    usd: float | None = Field(ge=0)
+    tokens: float | None = Field(ge=0)
+
+
+def call_charge(signals: SignalAccounting) -> CallCharge:
+    """The charge of one provider call in every unit (the rule of ``charge``)."""
+
+    usd, _ = charge(signals, "usd", cached=False)
+    tokens, _ = charge(signals, "tokens", cached=False)
+    return CallCharge(
+        usd=None if usd is None else float(usd), tokens=None if tokens is None else float(tokens)
+    )
+
+
 def _amount(signals: SignalAccounting, unit: BudgetUnit) -> Decimal | None:
     # erd I-S2: a NaN or infinite number is unknown, so the call is unpriced (None), never an error.
     numbers = (signals.cost_usd,) if unit == "usd" else (signals.tokens_in, signals.tokens_out)

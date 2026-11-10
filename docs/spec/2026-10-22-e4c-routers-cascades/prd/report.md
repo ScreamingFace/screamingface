@@ -204,7 +204,7 @@ Delta (this PRD):
 | RP-23 | Escaping of labels and raw tokens | [proposed — gap §security] | H×M | Given a LabelModel reply token `<img onerror=x>` recorded as `raw`, When the pane renders, Then the token shows escaped inside quotes, cut at 64 characters, and no tag reaches the HTML. |
 | RP-24 | Summary in one pass | [existing `S/_ui/report_view.py:359-363`] | H×M | Given 10,000 saved Cases, When the card renders, Then `GateSummary.add` runs in the same loop as `CombineSummary.add` and the Cases are decoded once (a DiskCases read counter equals the Case count). |
 | RP-25 | Counts add up | [implied] | H×M | Given any Candidate, Then for each Gate `then + otherwise + none == decided`, and the `model calls avoided` range equals the sums of `model_calls.min` and `model_calls.max` over the not-run entries. |
-| RP-34 | Overspend line | [stated ans:Q20] | H×M | Given a Case whose recorded calls under `sf.Budgeted` charge more than the cap (parallel optional siblings, or mandatory calls), Then its Branches block shows `budget · overspend · spent <x> of <cap>` and the summary counts it in `overspend`. |
+| RP-34 | Overspend line | [stated ans:Q20, ans:Q32] | H×M | Given a Case whose recorded calls under `sf.Budgeted` charge more than the cap (parallel optional siblings, or mandatory calls), Then its Branches block shows `budget · overspend · spent <x> of <cap>` and the summary counts it in `overspend`. The spend is the sum of the operations' `charges` (the Budget's own numbers): a cache hit adds its original cost, so a replay shows the live run's line; an unpriced call adds nothing. |
 | RP-35 | (Removed 2026-10-27, ans:Q21b) | — | — | A replay always takes the same branch ([budget](budget.md) BU-27), so the report has no differing-view flag. |
 | RP-26 | Lone Gate | [proposed] | M×M | Given a lone Gate (not in an `otherwise` chain), Then it gets no ladder line, only its row. |
 | RP-27 | Nested chain inside a `then` | [proposed] | M×M | Given a Cascade inside the `then` body of a guard, Then the ladder's denominator is the Cases where the Cascade's first Gate ran, not all Cases. |
@@ -276,6 +276,7 @@ records from `ET/data/gate_contract/decision_cases.json` (the Engine contract fi
 | 17 | `ladder_shows_share_resolved_at_each_branch` | unit | RP-16 | H×M | chain detection from topology `otherwise` slots |
 | 18 | `card_feeds_gate_summary_in_the_single_case_pass` (DiskCases read counter) | unit | RP-24 | H×M | extend the E7 loop `S/_ui/report_view.py:359-363` |
 | 19 | `overspend_line_and_count` | unit | RP-34 | H×M | sum of charges vs cap per Case |
+| 19a | `a_replay_shows_the_overspend_of_the_live_run` | unit | RP-34 | H×M | hit operations: accounting $0, charges at the original cost (ans:Q32) |
 | 20 | `observed_number_uses_4_significant_digits_and_exact_title` | unit | RP-5 | M×M | reuse `number_html` |
 | 21 | `unpriced_calls_show_counted_as_zero_warning` | unit | RP-11 | M×M | — |
 | 22 | `nested_gates_of_not_run_body_show_not_reached` | unit | RP-12 | M×M | topology walk over kind `gate` children |

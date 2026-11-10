@@ -33,7 +33,7 @@ if TYPE_CHECKING:
         GateWhen,
     )
     from screamingface._evaluation.topology import _RecipeTopology
-    from screamingface._report_primitives import Usage
+    from screamingface.budget import BudgetUnit
     from screamingface.case_result import CaseOperation, CaseResult
     from screamingface.operation import OperationInfo
     from screamingface.report import CandidateResult
@@ -363,28 +363,23 @@ def _budget_line(decision: GateDecision, view: GateBudgetView) -> str:
 def overspend_of(case: CaseResult) -> list[tuple[str, float, float]]:
     """RP-34 (BU-19, ans:Q20): ``(unit, spent, cap)`` per unit whose Case spend passed the cap.
 
-    The cap is the one the Case's decisions saw; the spend is the sum of the Case's model call
-    accounting (a call with no number adds nothing, as in the Engine fold).
+    The cap is the one the Case's decisions saw. The spend is the sum of the ``charges`` the
+    Engine wrote on each operation: the Budget's own numbers, so a cache hit adds its original
+    cost and a replay shows the live run's overspend (ans:Q32). An unpriced call adds nothing,
+    as in the Engine fold.
     """
 
     operations = case.operations or ()
-    caps: dict[str, float] = {}
+    caps: dict[BudgetUnit, float] = {}
     for decision in (operation.decision for operation in operations):
         for view in () if decision is None else decision.budget or ():
             caps.setdefault(view.unit, float(view.cap))
-    calls = [
-        operation.accounting.usage
-        for operation in operations
-        if operation.decision is None and operation.accounting is not None
-    ]
-    spent = {unit: sum(_charge(usage, unit) for usage in calls) for unit in caps}
+    charges = [charge for operation in operations for charge in operation.charges or ()]
+    spent = {
+        unit: sum(amount for charge in charges if (amount := charge.amount(unit)) is not None)
+        for unit in caps
+    }
     return [(unit, spent[unit], cap) for unit, cap in caps.items() if spent[unit] > cap]
-
-
-def _charge(usage: Usage, unit: str) -> float:
-    if unit == "usd":
-        return 0.0 if usage.cost_usd is None else float(usage.cost_usd)
-    return float((usage.input_tokens or 0) + (usage.output_tokens or 0))
 
 
 def _overspend_line(unit: str, spent: float, cap: float) -> str:

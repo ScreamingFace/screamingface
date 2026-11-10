@@ -127,6 +127,7 @@ Plan: [docs/plan/2026-10-22-e4c-routers-cascades.md](../../plan/2026-10-22-e4c-r
 | Q20 | Parallel optional calls that jointly pass the cap | Accept the overspend; the report shows it (against the recommendation to reserve estimates in declared order) |
 | Q21 | A replay finds a priced call unpriced | SUPERSEDED 2026-10-27 by Q21b. (Was: replay recomputes the budget and the report flags a differing budget view.) |
 | Q21b | One price source live and on replay | A replay always takes the same branch. The budget reads one price record (the final successful attempt) live, on a cache hit and on a pinned-cache replay; no differing-view flag |
+| Q32 | The overspend line on a replay | A replay uses the cost of the original run: the line adds what the Budget charged each call (a cache hit: its `cache.reference` cost), which the Engine writes as `charges` on each operation (2026-11-10; owner chose "charge per operation" over a Case-level total) |
 | Q22 | "Model calls avoided" with nested Gates | A min–max range over the paths through the skipped body |
 | Q23 | A selected skip-Gate member fails under `quorum="all"` | The Case fails with the member's own failure code |
 | Q24 | A gated Cascade stage where some members fail | Decide on the members that answered; only "no member answered" escalates by itself |

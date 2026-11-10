@@ -23,6 +23,7 @@ from screamingface._report_primitives import (
     _optional_number,
 )
 from screamingface.answer import Answer
+from screamingface.budget import CallCharge
 from screamingface.combine_evidence import CombineEvidence
 from screamingface.operation_accounting import OperationAccounting
 
@@ -333,6 +334,9 @@ class CaseOperation:
     combine: CombineEvidence | None = None
     # E4c (OME-1291, report RP-1): the gate-decision.v1 record, only on a Gate's JOIN operation.
     decision: GateDecision | None = None
+    # E4c (ans:Q32, report RP-34): what each provider call charged the Budget, in call order (a
+    # cache hit: its original cost); only when the candidate has a Budget.
+    charges: tuple[CallCharge, ...] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -352,6 +356,10 @@ class CaseOperation:
             raise TypeError("Case Operation combine must be a sf.report.CombineEvidence or None")
         if self.decision is not None and not isinstance(self.decision, GateDecision):
             raise TypeError("Case Operation decision must be a gate decision record or None")
+        if self.charges is not None:
+            object.__setattr__(
+                self, "charges", _typed_values(self.charges, CallCharge, "Case Operation charges")
+            )
 
     def to_dict(self) -> dict[str, object]:
         selected: dict[str, object] = {
@@ -370,6 +378,9 @@ class CaseOperation:
         # byte-identically.
         if self.decision is not None:
             selected["decision"] = self.decision.to_dict()
+        # E4c (ans:Q32): the same rule; a report with no Budget exports byte-identically.
+        if self.charges is not None:
+            selected["charges"] = [charge.to_dict() for charge in self.charges]
         return selected
 
 

@@ -18,6 +18,7 @@ from screamingface._evaluation.operation_accounting import decode_operation_acco
 from screamingface._report_primitives import CaseId
 from screamingface._report_primitives import _case_id as _validate_case_id
 from screamingface.accounting import member_usage
+from screamingface.budget import CallCharge
 from screamingface.case_result import (
     CaseAttempt,
     CaseOperation,
@@ -502,7 +503,7 @@ def _case_operation(value: object) -> CaseOperation:
     _keys(
         raw,
         required={"operation_id", "output", "finish_reason", "accounting"},
-        optional={"combine", "decision"},
+        optional={"combine", "decision", "charges"},
         label="Case Operation",
     )
     finish_reason_value = raw.get("finish_reason")
@@ -522,9 +523,21 @@ def _case_operation(value: object) -> CaseOperation:
             ),
             combine=combine,
             decision=decision,
+            charges=_call_charges(raw.get("charges")),
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"Case Operation is invalid: {exc}") from exc
+
+
+def _call_charges(value: object) -> tuple[CallCharge, ...] | None:
+    """The optional ``charges`` (E4c ans:Q32): absent stays None; each item decodes exactly."""
+
+    if value is None:
+        return None
+    return tuple(
+        CallCharge.from_dict(_mapping(item, "Case Operation charge"))
+        for item in _sequence(value, "Case Operation charges")
+    )
 
 
 def _case_grade(value: object) -> CaseGrade:
