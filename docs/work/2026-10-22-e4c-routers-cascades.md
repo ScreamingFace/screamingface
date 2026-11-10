@@ -203,7 +203,7 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   removed; BU-27 is rewritten and RP-35 removed. Side effect: a frozen-copy replay now reports the
   captured call's price as the cache saving, like any cache hit (OME-1687: reproduction cost is
   spend plus saving). The pinned gateway test `test_cache_entry_metadata_none_space` changes one
-  expectation (PIN manifest). `apps/aigateway` changes need a mirror PR after merge.
+  expectation (PIN manifest).
 - 2026-11-10: Q32 (owner): the overspend line on a replay uses the cost of the original run. It
   added `usage.cost_usd`, which is $0 on a cache hit, while the Budget charged the
   `cache.reference` cost. The Engine now writes `charges` (one `{usd, tokens}` per provider call,
