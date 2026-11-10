@@ -156,8 +156,8 @@ Delta (this PRD):
   count, `none` count (both branches refused), bodies not run, model calls avoided as a range
   (sum of `model_calls.min` – sum of `model_calls.max`), budget refusals, `fail_closed` results,
   abstain results, unrecognized and unparsed selector counts, Cases with unpriced warnings, Cases
-  whose final spend passed the cap (`overspend`, ans:Q20) and, in a reproduction, Cases marked
-  `budget_view_differs` (ans:Q21). [stated epic; stated ans:Q20; stated ans:Q21; stated ans:Q22]
+  whose final spend passed the cap (`overspend`, ans:Q20). [stated epic; stated ans:Q20;
+  stated ans:Q22]
 - **RP-16 Ladder (CARGO fraction).** Given a chain of Gates where each Gate after the first is the
   `otherwise` body of the one before (a Cascade or an N-way router), When the summary renders,
   Then it shows one ladder line per chain: for each Gate in order, the share of the chain's Cases
@@ -205,7 +205,7 @@ Delta (this PRD):
 | RP-24 | Summary in one pass | [existing `S/_ui/report_view.py:359-363`] | H×M | Given 10,000 saved Cases, When the card renders, Then `GateSummary.add` runs in the same loop as `CombineSummary.add` and the Cases are decoded once (a DiskCases read counter equals the Case count). |
 | RP-25 | Counts add up | [implied] | H×M | Given any Candidate, Then for each Gate `then + otherwise + none == decided`, and the `model calls avoided` range equals the sums of `model_calls.min` and `model_calls.max` over the not-run entries. |
 | RP-34 | Overspend line | [stated ans:Q20] | H×M | Given a Case whose recorded calls under `sf.Budgeted` charge more than the cap (parallel optional siblings, or mandatory calls), Then its Branches block shows `budget · overspend · spent <x> of <cap>` and the summary counts it in `overspend`. |
-| RP-35 | Replay budget-view flag | [stated ans:Q21] | M×M | Given a reproduction Case marked `budget_view_differs` ([budget](budget.md) BU-27), Then the Branches block shows `budget view differs from the captured run` on that decision and the summary counts it. |
+| RP-35 | (Removed 2026-10-27, ans:Q21b) | — | — | A replay always takes the same branch ([budget](budget.md) BU-27), so the report has no differing-view flag. |
 | RP-26 | Lone Gate | [proposed] | M×M | Given a lone Gate (not in an `otherwise` chain), Then it gets no ladder line, only its row. |
 | RP-27 | Nested chain inside a `then` | [proposed] | M×M | Given a Cascade inside the `then` body of a guard, Then the ladder's denominator is the Cases where the Cascade's first Gate ran, not all Cases. |
 | RP-28 | Budget on every Gate of the chain | [implied] | M×M | Given a Budget and a three-Gate chain, Then each section shows its own `spent` (it grows down the chain) and the summary counts refusals per Gate. |
@@ -284,7 +284,7 @@ records from `ET/data/gate_contract/decision_cases.json` (the Engine contract fi
 | 25 | `panel_gate_section_links_to_its_combine_section` (incl. no-evidence link) | unit | RP-14, RP-33 | M×M | — |
 | 26 | `ladder_denominator_is_cases_where_the_chain_started` | unit | RP-27 | M×M | — |
 | 27 | `budget_spent_grows_down_the_chain_and_refusals_count_per_gate` | unit | RP-28 | M×M | — |
-| 28 | `budget_view_differs_flag_renders_and_counts` | unit | RP-35 | M×M | — |
+| 28 | (Removed with RP-35) | — | — | — | — |
 | 29 | `lone_gate_has_no_ladder_line` | unit | RP-26 | M×L | — |
 | 30 | `many_labels_show_first_8_and_more_title` | unit | RP-30 | M×L | — |
 | 31 | `status_words_are_text_and_dashes_have_titles` | unit | RP-32 | M×L | — |

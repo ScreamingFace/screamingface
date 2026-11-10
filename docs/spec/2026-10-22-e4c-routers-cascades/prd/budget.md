@@ -167,7 +167,7 @@ charges of the decision's ancestors, compares, refuses, and records; the SDK rea
 | BU-24 | Estimate on a body that makes no call | [proposed] | L×M | Given `sf.Estimate(sf.Vote(), usd=…)` or on a word, Then the SDK refuses it ("sf.Estimate wraps a branch that makes model calls"), erd GS-I3. |
 | BU-25 | Trace rows | [proposed] | L×M | Given a refused branch, Then the trace has one `budget` row `{event: "refusal", operation_id: <first operation of the refused body>, stage, amount: null, estimated, source: null, remaining_after}`; the reserved kind gets its first producer; charges stay in `model_call` rows. |
 | BU-26 | Large ancestor list | [proposed — gap §capacity] | L×L | Given 256 ancestors (Fanout cap), Then the fold stays one pass over the recorded calls (index by fingerprint, no N×M scan). |
-| BU-27 | Replay flags a differing budget view | [stated ans:Q21] | M×M | Given a pinned-cache reproduction where a call that was priced live comes back unpriced, When DECIDE recomputes the budget (Q14: $0), Then the SDK compares each replayed decision's BUDGET_VIEW with the captured run's record of the same `gate_id` (when the captured report holds it) and marks the Case `budget_view_differs`; the report shows the flag ([report](report.md)). No captured view is reused. |
+| BU-27 | One price source live and on replay | [stated ans:Q21b] | H×M | Given a call captured into a frozen copy, When a reproduction replays it, Then the replay's `cache.reference` holds the captured call's final successful attempt (usage, direct cost, latency), and DECIDE charges the same amounts as the live run. A captured cache hit keeps its own reference. A capture that is not complete (`capture_status` not `complete`, or attempts omitted) gives no priced reference, and a stored cache entry with a `partial` status gives neither cost nor tokens, as the live path does. There is no differing-view flag: the views cannot differ. |
 | BU-28 | One cap per Attempt | [proposed — P21] | M×L | Given a Benchmark that asks each Case several times (Attempts), Then each Attempt starts with the full cap; one Attempt's spend never reduces another's. |
 
 ## 4. Non-functional requirements
@@ -235,7 +235,7 @@ E4a records this PRD starts to write. PIN rows are owner-approved edits of pinne
 | 21 | `ancestor_without_record_charges_nothing` | unit | BU-20 | M×M | missing record ≠ unpriced |
 | 22 | PIN `budget_stage_gains_selector` (`BudgetStage` both sides + `budget_schemas()` freeze snapshot) and `sample_maps_to_model` | unit | BU-21 | M×M | owner-approved schema snapshot edit |
 | 23 | `nested_decisions_see_growing_spend` | integration | BU-22 | M×M | ancestors grow with depth |
-| 24 | `replay_marks_a_differing_budget_view` | unit | BU-27 | M×M | SDK reproduction compares BUDGET_VIEW per `gate_id` |
+| 24 | `live_and_replay_signal_accounting_are_equal` (complete, partial, omitted, retry, each cost status; captured miss and captured hit) | unit | BU-27 | H×M | gateway frozen-copy replay builds `cache.reference` through `cache_reference_from_entry_metadata`; partial status blanks usage too |
 | 25 | `each_attempt_starts_with_the_full_cap` | integration | BU-28 | M×L | bind the cap per Attempt scope |
 | 26 | `budget_remaining_needs_a_unit_with_two_units` | unit | BU-13 | L×M | — |
 | 27 | `refusal_writes_one_budget_trace_row` | unit | BU-25 | L×M | first producer of TraceKind `budget` |

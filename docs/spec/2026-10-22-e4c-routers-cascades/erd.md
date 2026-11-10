@@ -174,10 +174,12 @@ Invariants:
 - GD-I4 `panel` set iff `kind` = `panel` [implied].
 - GD-I5 the record never holds prompt text, reply text (except SELECTOR_RECORD `raw`) or member
   answers [proposed].
-- GD-I6 the record bytes for a Case are the same live and on replay when every ancestor's
-  reference cost is present on replay (budget uses reference costs, §5). When a priced live call
-  comes back unpriced, Q14 counts it as $0, the budget view can differ, and the report flags that
-  decision ([budget](prd/budget.md), [report](prd/report.md)) [stated ans:Q21].
+- GD-I6 the record bytes for a Case are the same live and on replay. The budget reads one price
+  record for each call: the final successful attempt. Live, the Engine reads it from `attempts[]`.
+  On a cache hit and on a pinned-cache (frozen-copy) replay, the gateway sends the same record as
+  `cache.reference` (§5). A capture that is not complete prices neither cost nor tokens, live or
+  on replay. So a live run and its replay always see the same budget view
+  ([budget](prd/budget.md) BU-8, BU-27) [stated ans:Q21b].
 - GD-I7 `model_calls.min ≤ model_calls.max` [implied].
 
 ## 4. BRANCH_BODY and the compiled expression shape
@@ -221,7 +223,9 @@ nothing to `spent` and one to `unpriced` [existing], which is the Q14 rule [stat
 
 Charge rule (`E/budget.py:185-206`) [existing]: usd charges `cost_usd`; tokens charges `tokens_in
 + tokens_out`; a cache hit charges its reference cost (source `cache_reference`). E4c depends on
-the reference cost: a live run and its replay must take the same branch [implied — GD-I6].
+the reference cost: a live run and its replay must take the same branch [stated ans:Q21b —
+GD-I6]. A frozen-copy replay carries the captured call's price as `cache.reference`, built by
+the same rule as a stored cache entry ([budget](prd/budget.md) BU-27).
 
 Invariants: BV-I1 `refused` ⇒ `spent + estimate > cap` (estimate given) or `spent ≥ cap` (no
 estimate). BV-I2 `spent` counts only the charges of the recorded calls whose fingerprint is in

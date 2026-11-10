@@ -36,7 +36,7 @@ import json
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal, localcontext
+from decimal import localcontext
 from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -50,12 +50,12 @@ from screamingface_engine.budget import (
     BudgetUnit,
     charge,
     current_case_budgets,
+    exact_decimal,
     first_unpriced_warning,
     fold,
 )
 from screamingface_engine.combine.decision import (
     GATE_DECISION_SCHEMA,
-    LABEL,
     SELECTOR_ID,
     BranchName,
     BudgetView,
@@ -68,6 +68,7 @@ from screamingface_engine.combine.decision import (
     PanelLink,
     SelectorRecord,
     parse_gate_decision,
+    well_formed_labels,
 )
 from screamingface_engine.combine.evidence import GateRecord
 from screamingface_engine.combine.gate import passes
@@ -141,34 +142,24 @@ class SelectorSpec(_SpecModel):
             raise ValueError("a LabelModel selector names its call binding, a Keywords one none")
         if (self.kind == "keywords") != (self.rules is not None):
             raise ValueError("a Keywords selector repeats its rules, a LabelModel one none")
-        if any(LABEL.fullmatch(label) is None for label in self.labels):
+        if not well_formed_labels(self.labels, distinct=False):
             raise ValueError("selector labels are well-formed labels")
         return self
 
 
-class BranchCalls(_SpecModel):
-    then: ModelCalls
-    otherwise: ModelCalls
+class _PerBranch[T](_SpecModel):
+    """One value for each branch of a Gate."""
 
+    then: T
+    otherwise: T
 
-class BranchReads(_SpecModel):
-    then: list[str]
-    otherwise: list[str]
-
-
-class BranchTerminal(_SpecModel):
-    then: str | None
-    otherwise: str | None
+    def of(self, branch: BranchName) -> T:
+        return self.then if branch == "then" else self.otherwise
 
 
 class Estimate(_SpecModel):
     usd: int | float | None = Field(default=None, ge=0)
     tokens: int | None = Field(default=None, ge=0)
-
-
-class BranchEstimate(_SpecModel):
-    then: Estimate | None
-    otherwise: Estimate | None
 
 
 class PanelSpec(_SpecModel):
@@ -184,12 +175,12 @@ class GateSpec(_SpecModel):
     then: Literal["recipe", "step", "abstain", "fail_closed"]
     otherwise: BodyKind
     panel: PanelSpec | None
-    calls: BranchCalls
+    calls: _PerBranch[ModelCalls]
     selectors: dict[str, SelectorSpec]
-    reads: BranchReads
-    estimate: BranchEstimate
+    reads: _PerBranch[list[str]]
+    estimate: _PerBranch[Estimate | None]
     ancestors: list[tuple[str, list[tuple[str, str]]]]
-    terminal: BranchTerminal
+    terminal: _PerBranch[str | None]
 
     @model_validator(mode="after")
     def _check(self) -> GateSpec:
@@ -202,7 +193,7 @@ class GateSpec(_SpecModel):
             raise ValueError("a gate spec declares every selector it reads")
         for branch in _BRANCHES:
             if self.body(branch) in ("abstain", "fail_closed", "skip") and (
-                self.terminal_of(branch) is not None or getattr(self.calls, branch).max != 0
+                self.terminal.of(branch) is not None or self.calls.of(branch).max != 0
             ):
                 raise ValueError("a word body has no terminal and makes no call")
         return self
@@ -210,8 +201,11 @@ class GateSpec(_SpecModel):
     def body(self, branch: BranchName) -> BodyKind:
         return self.then if branch == "then" else self.otherwise
 
-    def terminal_of(self, branch: BranchName) -> str | None:
-        return getattr(self.terminal, branch)
+    # WHY cached on the spec: every Case of a run folds the same ancestors (``_parsed_spec``).
+    @functools.cached_property
+    def ancestor_keys(self) -> tuple[tuple[str, tuple[tuple[str, str], ...]], ...]:
+        """The fingerprint (path, sorted params) of each distinct ancestor, in declared order."""
+        return tuple(dict.fromkeys(map(_fingerprint, self.ancestors)))
 
 
 def _condition_selector(when: GateCondition) -> tuple[str, ...]:
@@ -250,10 +244,7 @@ class KeywordsSpec(_SpecModel):
 
     @model_validator(mode="after")
     def _check(self) -> KeywordsSpec:
-        labels = [rule.label for rule in self.rules]
-        if any(LABEL.fullmatch(label) is None for label in labels) or len(set(labels)) != len(
-            labels
-        ):
+        if not well_formed_labels([rule.label for rule in self.rules], distinct=True):
             raise ValueError("keywords labels are distinct well-formed labels")
         return self
 
@@ -339,21 +330,23 @@ def _decide(request: Request) -> str:
     spec = _spec(request.intent)
     inputs = _SelectorInputs.read(context, spec)
     ledger = _BudgetLedger.read(spec)
-    choice = _panel_choice(spec) if spec.panel is not None else _input_choice(spec, inputs, ledger)
+    # The condition selector's record, built once: the choice reads it and the record lists it.
+    records = {selector: inputs.record(selector) for selector in _condition_selector(spec.when)}
+    choice = _panel_choice(spec) if spec.panel is not None else _input_choice(spec, records, ledger)
     views, refused = ledger.views(spec, choice.wanted)
     branch = _branch_after_budget(spec, choice.wanted, refused)
     not_run = [
         NotRunEntry(
             branch=name,
             reason="budget_refused" if refused and name == choice.wanted else "not_selected",
-            model_calls=getattr(spec.calls, name),
+            model_calls=spec.calls.of(name),
         )
         for name in _BRANCHES
         if name != branch
     ]
-    listed = [*_condition_selector(spec.when)]
+    listed = [*records]
     for entry in not_run:
-        listed.extend(getattr(spec.reads, entry.branch))
+        listed.extend(spec.reads.of(entry.branch))
     record = GateDecision.model_validate(
         {
             "schema": GATE_DECISION_SCHEMA,
@@ -364,7 +357,10 @@ def _decide(request: Request) -> str:
             "passed": choice.passed,
             "wanted": choice.wanted,
             "branch": branch,
-            "selectors": [inputs.record(selector) for selector in dict.fromkeys(listed)],
+            "selectors": [
+                records[selector] if selector in records else inputs.record(selector)
+                for selector in dict.fromkeys(listed)
+            ],
             "not_run": not_run,
             "budget": views,
             "result": None,
@@ -473,7 +469,9 @@ def _label_model_fields(reply: str, declared: SelectorSpec) -> dict[str, object]
     return {"status": "computed", "labels": labels, "parse": parse, "raw": raw}
 
 
-def _input_choice(spec: GateSpec, inputs: _SelectorInputs, ledger: _BudgetLedger) -> _Choice:
+def _input_choice(
+    spec: GateSpec, condition: Mapping[str, SelectorRecord], ledger: _BudgetLedger
+) -> _Choice:
     when = spec.when
     kind, _, selector = when.observe.partition(":")
     if kind == "budget.remaining":
@@ -481,7 +479,7 @@ def _input_choice(spec: GateSpec, inputs: _SelectorInputs, ledger: _BudgetLedger
         remaining = ledger.left[cast("BudgetUnit", selector)]
         passed = passes(remaining, cast("GateCmp", when.cmp), cast("float", when.value))
         return _Choice(remaining, passed, "then" if passed else "otherwise")
-    labels = inputs.record(selector).labels  # None: the selector call failed (SL-12)
+    labels = condition[selector].labels  # None: the selector call failed (SL-12)
     observed: str | list[str] | None
     if kind == "label":
         observed = labels[0] if labels else None
@@ -503,7 +501,7 @@ def _branch_after_budget(
     if wanted is None or not refused:
         return wanted
     other: BranchName = "otherwise" if wanted == "then" else "then"
-    current = spec.body(other) == "step" and getattr(spec.calls, other).max == 0
+    current = spec.body(other) == "step" and spec.calls.of(other).max == 0
     return other if current else None
 
 
@@ -527,12 +525,15 @@ class _BudgetLedger:
         left: dict[str, float] = {}
         unpriced: dict[str, int] = {}
         if budgets:
-            index = provider_calls_by_fingerprint(current_operation_calls() or ())
+            keys = spec.ancestor_keys
+            ancestors = frozenset(keys)
+            index = provider_calls_by_fingerprint(
+                call
+                for call in current_operation_calls() or ()
+                if (call.path, call.params) in ancestors
+            )
             # BU-20: an ancestor with no record charges nothing; each recorded call charges once.
-            calls = [
-                call for key in dict.fromkeys(map(_fingerprint, spec.ancestors))
-                for call in index.get(key, ())
-            ]  # fmt: skip
+            calls = [call for key in keys for call in index.get(key, ())]
             for budget in budgets:
                 amounts = [
                     charge(call.signal_accounting or SignalAccounting(), budget.unit, cached=False)[
@@ -552,15 +553,15 @@ class _BudgetLedger:
 
         if not self.budgets:
             return None, False
-        calls = None if wanted is None else getattr(spec.calls, wanted)
-        estimate = None if wanted is None else getattr(spec.estimate, wanted)
+        calls = None if wanted is None else spec.calls.of(wanted)
+        estimate = None if wanted is None else spec.estimate.of(wanted)
         views: list[BudgetView] = []
         for budget in self.budgets:
             amount = None if estimate is None else getattr(estimate, budget.unit)
-            spent, cap = Decimal(repr(self.spent[budget.unit])), Decimal(repr(budget.cap))
+            spent, cap = exact_decimal(self.spent[budget.unit]), exact_decimal(budget.cap)
             with localcontext(DECIMAL_CONTEXT):
                 # BU-16, BU-17: refuse on spent + estimate > cap; with no estimate, on spent >= cap.
-                over = spent + Decimal(repr(amount)) > cap if amount is not None else spent >= cap
+                over = spent + exact_decimal(amount) > cap if amount is not None else spent >= cap
             refused = calls is not None and calls.max > 0 and over
             views.append(
                 BudgetView(
@@ -618,7 +619,7 @@ def _panel_reading(
             raise _contract_error("an answered gate reads a complete decision call")
         answered = call.combine.result.status == "answered"
         return None, answered, answered, True if answered else None
-    gate = call.gate_record if call.pending else (call.combine and call.combine.gate)
+    gate = call.gate_record
     if gate is None:
         raise _contract_error("the decision call wrote no gate record")
     _check_agrees(spec.when, gate)
@@ -662,13 +663,13 @@ def _join(request: Request) -> str:
     if ran and ran[0] != record.branch:
         raise _contract_error("a gate ran a branch it did not choose")
     text, result = _joined(spec, record, slots)
-    # WHY validate and not model_copy: the published record must hold every GD invariant.
-    completed = GateDecision.model_validate(
-        {
-            **record.model_dump(by_alias=True),
-            "result": None if result is None else result.model_dump(),
-        }
-    )
+    # WHY validate and not model_copy: the published record must hold every GD invariant. The
+    # sub-models are valid already, so they pass as instances and only the record checks rerun.
+    fields = {
+        field.alias or name: getattr(record, name)
+        for name, field in GateDecision.model_fields.items()
+    }
+    completed = GateDecision.model_validate({**fields, "result": result})
     record_gate_call(JOIN_ROUTE, {"binding": gate_id}, text, completed)
     logger.info(
         "gate=%s branch=%s result=%s",
@@ -692,7 +693,7 @@ def _joined(
     body = spec.body(branch)
     if body in ("abstain", "fail_closed", "skip"):
         return "", _word_result(body)
-    terminal = spec.terminal_of(branch)
+    terminal = spec.terminal.of(branch)
     if terminal is None:
         raise _contract_error("a recipe or step branch names its terminal binding")
     rows = slots.get(branch)
@@ -704,12 +705,12 @@ def _joined(
 def _terminal_answer(call: OperationCall | None, rows: list[str] | None) -> tuple[str, GateResult]:
     """The taken branch's text and result from its terminal call and its iterate rows."""
 
-    if call is not None and call.pending:
+    if call is not None and call.pending is not None:
         # BU-18: the Budget refused the fallback, so the step slot answers with the majority
         # answer the pending decision call kept.
-        if call.kept_output is None:
+        if call.pending.kept is None:
             return "", GateResult(status="abstain", reason="budget_refused")
-        return call.kept_output, GateResult(status="answered", reason=None)
+        return call.pending.kept, GateResult(status="answered", reason=None)
     # A step slot that is the decision call's own reducer has no iterate: its text is the call's.
     text = rows[0] if rows is not None else ("" if call is None else call.output)
     return text, _call_result(call)

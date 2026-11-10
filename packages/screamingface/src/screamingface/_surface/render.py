@@ -18,6 +18,7 @@ from functools import cache
 from typing import Any
 
 from screamingface._signals import Signal
+from screamingface._surface.budget import Estimate, units_text
 from screamingface._surface.chain import Pipeline, Step
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.gate import Gate
@@ -241,18 +242,7 @@ def _merge(step: Merge, prefix: str) -> list[str]:
 
 
 def _gate(step: Gate, prefix: str) -> list[str]:
-    then_estimate, otherwise_estimate = step.estimates
-    arguments = [
-        f"when={_leaf(step.when, prefix)}",
-        f"then={_with_estimate(_branch(step.then, prefix), then_estimate, prefix)}",
-    ]
-    # GT-9: otherwise= shows only when the author gave it (the sentinel None is left out).
-    if step.otherwise is not None:
-        text = _with_estimate(_branch(step.otherwise, prefix), otherwise_estimate, prefix)
-        arguments.append(f"otherwise={text}")
-    if step.abstain_if is not None:
-        arguments.append(f"abstain_if={_leaf(step.abstain_if, prefix)}")
-    return arguments
+    return _gate_arguments(step, prefix, None)
 
 
 def _gate_lines(gate: Gate, prefix: str, indent: str) -> list[str]:
@@ -260,34 +250,37 @@ def _gate_lines(gate: Gate, prefix: str, indent: str) -> list[str]:
     level deeper (GT-9, GT-22: linear in the number of Gates)."""
 
     inner = indent + "    "
-    lines = [f"{prefix}Gate("]
-    for name, value in (("when", gate.when), ("then", gate.then), ("otherwise", gate.otherwise)):
-        if value is None:
-            continue
-        if isinstance(value, Gate):
-            nested = _gate_lines(value, prefix, inner)
-            lines.append(f"{inner}{name}={nested[0]}")
-            lines.extend(nested[1:-1])
-            lines.append(f"{nested[-1]},")
-            continue
-        text = _leaf(value, prefix) if name == "when" else _branch(value, prefix)
-        if name != "when":
-            estimate = gate.estimates[0 if name == "then" else 1]
-            text = _with_estimate(text, estimate, prefix)
-        lines.append(f"{inner}{name}={text},")
+    arguments = _gate_arguments(gate, prefix, inner)
+    return [f"{prefix}Gate(", *(f"{inner}{argument}," for argument in arguments), f"{indent})"]
+
+
+def _gate_arguments(gate: Gate, prefix: str, indent: str | None) -> list[str]:
+    """The arguments of a Gate; with an ``indent``, a nested Gate branch opens on its own lines."""
+
+    arguments = [f"when={_leaf(gate.when, prefix)}"]
+    for name, value, estimate in (
+        ("then", gate.then, gate.estimates[0]),
+        ("otherwise", gate.otherwise, gate.estimates[1]),
+    ):
+        # GT-9: otherwise= shows only when the author gave it (the sentinel None is left out).
+        if value is not None:
+            arguments.append(f"{name}={_branch_text(value, estimate, prefix, indent)}")
     if gate.abstain_if is not None:
-        lines.append(f"{inner}abstain_if={_leaf(gate.abstain_if, prefix)},")
-    lines.append(f"{indent})")
-    return lines
+        arguments.append(f"abstain_if={_leaf(gate.abstain_if, prefix)}")
+    return arguments
 
 
-def _with_estimate(text: str, estimate: Any, prefix: str) -> str:
-    """A Gate branch with its ``sf.Estimate`` (E4c budget BU-3) as the author wrote it."""
+def _branch_text(value: object, estimate: Estimate | None, prefix: str, indent: str | None) -> str:
+    """A Gate branch with its ``sf.Estimate`` (E4c budget BU-3) as the author wrote it; with an
+    ``indent``, a nested Gate opens on its own lines."""
 
+    if indent is not None and isinstance(value, Gate):
+        text = "\n".join(_gate_lines(value, prefix, indent))
+    else:
+        text = _branch(value, prefix)
     if estimate is None:
         return text
-    caps = ", ".join(f"{unit}={value!r}" for unit, value in estimate._spec().items())
-    return f"{prefix}Estimate({text}, {caps})"
+    return f"{prefix}Estimate({text}, {units_text(estimate._spec())})"
 
 
 def _branch(value: object, prefix: str) -> str:

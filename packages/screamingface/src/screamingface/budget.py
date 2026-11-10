@@ -263,7 +263,7 @@ class BudgetState:
         return cls(**_fields(value, _STATE_KEYS, "BudgetState"))  # type: ignore[arg-type]
 
 
-def remaining(unit: Literal["usd", "tokens"] | None = None) -> Remaining:
+def remaining(unit: BudgetUnit | None = None) -> Remaining:
     """``sf.budget.remaining()``: what the candidate's ``sf.Budgeted`` has left after the calls that
     already ran, as a number a ``sf.Gate`` condition compares (E4c, BU-6). Name the unit when the
     Budget declares both: ``sf.budget.remaining("usd")``."""

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeGuard, cast
 
 from screamingface.recipe import (
     OPTIONAL_MEMBERS_ONLY,
@@ -86,6 +86,12 @@ class Step(_Chainable):
         return render(self)
 
 
+def is_step(value: object) -> TypeGuard[Step]:
+    """Whether ``value`` is a step, not a recipe stage (E4c: an input sf.Gate is a recipe)."""
+
+    return isinstance(value, Step) and not value._is_recipe()
+
+
 def refuse_step(value: object) -> None:
     """Refuse a step or an open chain in a place that takes a recipe (CH-8, CH-11).
 
@@ -94,12 +100,13 @@ def refuse_step(value: object) -> None:
     gives the same message.
     """
 
-    if isinstance(value, Step):
-        if value._is_recipe():
-            return
+    if is_step(value):
+        # WHY lazy: gate.py imports this module
+        from screamingface._surface.gate import Gate
+
         if value._category == "map":
             raise ValueError(OPEN_BLOCK)
-        if type(value).__name__ == "Gate":
+        if isinstance(value, Gate):
             # GT-14: a panel gate reads the answers of a block, so it cannot stand alone.
             raise ValueError(
                 "a panel condition reads a sf.Fanout block: put the sf.Gate after a sf.Fanout"
@@ -161,7 +168,10 @@ def _check_skip_members(fanout: Fanout, judge: Step | None, terminal: Step) -> N
     call over the panel (the panel holds an empty row for each skipped member) and no
     ``sf.Consistency`` (a sample panel inside a gated body is not visible to the combine call)."""
 
-    if not any(getattr(member, "_is_skip_member", lambda: False)() for member in fanout.members):
+    # WHY lazy: gate.py imports this module
+    from screamingface._surface.gate import is_skip_member
+
+    if not any(is_skip_member(member) for member in fanout.members):
         return
     if judge is not None or terminal._sees_every_member():
         raise ValueError(
@@ -297,7 +307,7 @@ class _Chain:
     def add(self, item: str | Recipe | Step) -> None:
         if isinstance(item, Pipeline) and not item._is_named:
             self._flatten(item)
-        elif isinstance(item, Step) and not item._is_recipe():
+        elif is_step(item):
             self.steps.append(item)
             self._add_step(item)
         else:

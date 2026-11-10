@@ -97,7 +97,10 @@ def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recip
     from screamingface._surface.chain import refuse_step
 
     refuse_step(value)
-    if type(value).__name__ == "Budgeted":
+    # WHY lazy: as above, screamingface._surface builds on this module.
+    from screamingface._surface.budget import Budgeted
+
+    if isinstance(value, Budgeted):
         raise ValueError(_BU11)  # BU-11
     if not _is_supported_recipe(value):
         raise TypeError(f"{label} must be a model route, a sf.Model or a sf.Pipeline")

@@ -16,8 +16,8 @@ INVARIANT: the field order of each ``to_dict()`` is the Engine's wire order
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
-from typing import Literal, cast
+from dataclasses import asdict, dataclass
+from typing import Literal, cast, get_args
 
 from screamingface._evaluation.combine_evidence import (
     _boolean,
@@ -35,12 +35,19 @@ from screamingface._evaluation.operation_accounting import (
 )
 from screamingface._surface.selectors import LABEL
 from screamingface.answer import ABSTAIN_REASONS, AbstainReason
+from screamingface.budget import _UNITS, BudgetUnit
 from screamingface.errors import ExecutionError
 
 GATE_DECISION_SCHEMA = "screamingface.gate-decision.v1"
 
 type GateKind = Literal["input", "panel"]
 type BranchName = Literal["then", "otherwise"]
+type SelectorKind = Literal["keywords", "label_model"]
+type SelectorStatus = Literal["computed", "not_run", "failed"]
+type SelectorParse = Literal["ok", "no_match", "unrecognized", "unparsed"]
+type NotRunReason = Literal["not_selected", "budget_refused"]
+type ResultStatus = Literal["answered", "abstain", "fail_closed"]
+type PanelBranch = Literal["majority", "fallback", "band"]
 type Observed = bool | int | float | str | tuple[str, ...] | None
 type Number = int | float
 
@@ -77,16 +84,15 @@ _BUDGET_KEYS = {"unit", "cap", "spent", "unpriced", "estimate", "refused"}
 _RESULT_KEYS = {"status", "reason"}
 _PANEL_KEYS = {"operation_id", "branch"}
 
-_KINDS = frozenset({"input", "panel"})
-_BRANCHES = frozenset({"then", "otherwise"})
+_KINDS = frozenset(get_args(GateKind.__value__))
+_BRANCHES = frozenset(get_args(BranchName.__value__))
 _CMPS = frozenset({">=", ">", "<=", "<", "eq", "ne", "has", "empty"})
-_NOT_RUN_REASONS = frozenset({"not_selected", "budget_refused"})
-_SELECTOR_KINDS = frozenset({"keywords", "label_model"})
-_SELECTOR_STATUSES = frozenset({"computed", "not_run", "failed"})
-_PARSES = frozenset({"ok", "no_match", "unrecognized", "unparsed"})
-_RESULT_STATUSES = frozenset({"answered", "abstain", "fail_closed"})
-_PANEL_BRANCHES = frozenset({"majority", "fallback", "band"})
-_UNITS = frozenset({"usd", "tokens"})
+_NOT_RUN_REASONS = frozenset(get_args(NotRunReason.__value__))
+_SELECTOR_KINDS = frozenset(get_args(SelectorKind.__value__))
+_SELECTOR_STATUSES = frozenset(get_args(SelectorStatus.__value__))
+_PARSES = frozenset(get_args(SelectorParse.__value__))
+_RESULT_STATUSES = frozenset(get_args(ResultStatus.__value__))
+_PANEL_BRANCHES = frozenset(get_args(PanelBranch.__value__))
 _GATE_ID = re.compile(r"gate_[1-9]\d*")
 _SELECTOR_ID = re.compile(r"sel_[1-9]\d*")
 _SHA256 = re.compile(r"[0-9a-f]{16}")
@@ -103,7 +109,7 @@ class GateWhen:
     value: Number | str | bool | None
 
     def to_dict(self) -> dict[str, object]:
-        return {"observe": self.observe, "cmp": self.cmp, "value": self.value}
+        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,10 +117,10 @@ class GateSelector:
     """What one selector gave on this Case: labels, never the input or the reply text."""
 
     id: str
-    kind: Literal["keywords", "label_model"]
-    status: Literal["computed", "not_run", "failed"]
+    kind: SelectorKind
+    status: SelectorStatus
     labels: tuple[str, ...] | None
-    parse: Literal["ok", "no_match", "unrecognized", "unparsed"] | None
+    parse: SelectorParse | None
     raw: str | None
     parse_error: str | None
     input_chars: int
@@ -139,7 +145,7 @@ class GateNotRun:
     """One branch that made zero model calls, why, and the calls it avoided (min–max)."""
 
     branch: BranchName
-    reason: Literal["not_selected", "budget_refused"]
+    reason: NotRunReason
     model_calls_min: int
     model_calls_max: int
 
@@ -155,7 +161,7 @@ class GateNotRun:
 class GateBudgetView:
     """The spend one decision saw for one declared unit (E4c budget, PR-3)."""
 
-    unit: Literal["usd", "tokens"]
+    unit: BudgetUnit
     cap: Number
     spent: Number
     unpriced: int
@@ -163,25 +169,18 @@ class GateBudgetView:
     refused: bool
 
     def to_dict(self) -> dict[str, object]:
-        return {
-            "unit": self.unit,
-            "cap": self.cap,
-            "spent": self.spent,
-            "unpriced": self.unpriced,
-            "estimate": self.estimate,
-            "refused": self.refused,
-        }
+        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)
 class GateResult:
     """How the branch that ran ended: answered, abstained (with its reason) or fail_closed."""
 
-    status: Literal["answered", "abstain", "fail_closed"]
+    status: ResultStatus
     reason: AbstainReason | None
 
     def to_dict(self) -> dict[str, object]:
-        return {"status": self.status, "reason": self.reason}
+        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,10 +188,10 @@ class GatePanel:
     """A panel gate's decision call and the E4b gate record branch it read."""
 
     operation_id: str
-    branch: Literal["majority", "fallback", "band"] | None
+    branch: PanelBranch | None
 
     def to_dict(self) -> dict[str, object]:
-        return {"operation_id": self.operation_id, "branch": self.branch}
+        return asdict(self)
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,7 +283,7 @@ def _check_branches(decision: GateDecision, label: str) -> None:
     """GD-I1 and GD-I2: the not-run list agrees with the branch that ran and the one wanted."""
 
     named = [entry.branch for entry in decision.not_run]
-    expected = {"then", "otherwise"} - ({decision.branch} if decision.branch else set())
+    expected = _BRANCHES - ({decision.branch} if decision.branch else set())
     if len(set(named)) != len(named) or set(named) != expected:
         raise ExecutionError(f"{label} not_run must list exactly the branches that did not run")
     refused = {entry.branch for entry in decision.not_run if entry.reason == "budget_refused"}
@@ -329,18 +328,10 @@ def _selector(value: object, label: str) -> GateSelector:
     labels = raw["labels"]
     selector = GateSelector(
         id=_pattern(raw["id"], _SELECTOR_ID, f"{label} id"),
-        kind=cast(
-            Literal["keywords", "label_model"], _word(raw["kind"], _SELECTOR_KINDS, f"{label} kind")
-        ),
-        status=cast(
-            Literal["computed", "not_run", "failed"],
-            _word(raw["status"], _SELECTOR_STATUSES, f"{label} status"),
-        ),
+        kind=cast(SelectorKind, _word(raw["kind"], _SELECTOR_KINDS, f"{label} kind")),
+        status=cast(SelectorStatus, _word(raw["status"], _SELECTOR_STATUSES, f"{label} status")),
         labels=None if labels is None else _labels(labels, f"{label} labels"),
-        parse=cast(
-            Literal["ok", "no_match", "unrecognized", "unparsed"] | None,
-            _optional_word(raw["parse"], _PARSES, f"{label} parse"),
-        ),
+        parse=cast(SelectorParse | None, _optional_word(raw["parse"], _PARSES, f"{label} parse")),
         raw=_optional_text(raw["raw"], f"{label} raw"),
         parse_error=_optional_text(raw["parse_error"], f"{label} parse_error"),
         input_chars=_nonnegative_integer(raw["input_chars"], f"{label} input_chars"),
@@ -384,10 +375,7 @@ def _not_run(value: object, label: str) -> GateNotRun:
         raise ExecutionError(f"{label} model_calls min is at most max")
     return GateNotRun(
         branch=cast(BranchName, _word(raw["branch"], _BRANCHES, f"{label} branch")),
-        reason=cast(
-            Literal["not_selected", "budget_refused"],
-            _word(raw["reason"], _NOT_RUN_REASONS, f"{label} reason"),
-        ),
+        reason=cast(NotRunReason, _word(raw["reason"], _NOT_RUN_REASONS, f"{label} reason")),
         model_calls_min=low,
         model_calls_max=high,
     )
@@ -409,7 +397,7 @@ def _budget_view(value: object, label: str) -> GateBudgetView:
     _exact_keys(raw, _BUDGET_KEYS, label)
     estimate = raw["estimate"]
     return GateBudgetView(
-        unit=cast(Literal["usd", "tokens"], _word(raw["unit"], _UNITS, f"{label} unit")),
+        unit=cast(BudgetUnit, _word(raw["unit"], _UNITS, f"{label} unit")),
         cap=_number(raw["cap"], f"{label} cap"),
         spent=_number(raw["spent"], f"{label} spent"),
         unpriced=_nonnegative_integer(raw["unpriced"], f"{label} unpriced"),
@@ -428,7 +416,7 @@ def _result(value: object, label: str) -> GateResult | None:
     if (status == "abstain") != (reason is not None):
         raise ExecutionError(f"{label} has a reason exactly when it abstained")
     return GateResult(
-        status=cast(Literal["answered", "abstain", "fail_closed"], status),
+        status=cast(ResultStatus, status),
         reason=cast(AbstainReason | None, reason),
     )
 
@@ -441,8 +429,7 @@ def _panel(value: object, label: str) -> GatePanel | None:
     return GatePanel(
         operation_id=_text(raw["operation_id"], f"{label} operation_id"),
         branch=cast(
-            Literal["majority", "fallback", "band"] | None,
-            _optional_word(raw["branch"], _PANEL_BRANCHES, f"{label} branch"),
+            PanelBranch | None, _optional_word(raw["branch"], _PANEL_BRANCHES, f"{label} branch")
         ),
     )
 

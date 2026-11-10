@@ -579,7 +579,8 @@ class CombineEvidence:
                 selected_members,
                 gate=selected_gate,
                 result=selected_result,
-                skipped=frozenset(_skipped(skipped, selected_members) or ()),
+                # WHY bound inside: the skipped check keeps its place in the validation order.
+                skipped=frozenset((selected_skipped := _skipped(skipped, selected_members)) or ()),
             ),
             "consistency": _consistency_map(consistency, selected_declared, selected_members),
             "declared": selected_declared,
@@ -587,7 +588,7 @@ class CombineEvidence:
             "result": selected_result,
             "dropped": selected_dropped,
             "finish_reason": _nonblank_text(finish_reason, "Combine evidence finish_reason"),
-            "skipped": _skipped(skipped, selected_members),
+            "skipped": selected_skipped,
         }
         for name, value in values.items():
             object.__setattr__(self, name, value)

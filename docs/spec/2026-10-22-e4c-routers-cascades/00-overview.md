@@ -125,7 +125,8 @@ Plan: [docs/plan/2026-10-22-e4c-routers-cascades.md](../../plan/2026-10-22-e4c-r
 | Q18 | Guard vs selector label | No model call after a fired guard; a model selector shows "not run" |
 | Q19 | Where the cap is written | Once, on the candidate |
 | Q20 | Parallel optional calls that jointly pass the cap | Accept the overspend; the report shows it (against the recommendation to reserve estimates in declared order) |
-| Q21 | A replay finds a priced call unpriced | Replay recomputes the budget (Q14 rule) and the report flags a differing budget view |
+| Q21 | A replay finds a priced call unpriced | SUPERSEDED 2026-10-27 by Q21b. (Was: replay recomputes the budget and the report flags a differing budget view.) |
+| Q21b | One price source live and on replay | A replay always takes the same branch. The budget reads one price record (the final successful attempt) live, on a cache hit and on a pinned-cache replay; no differing-view flag |
 | Q22 | "Model calls avoided" with nested Gates | A min–max range over the paths through the skipped body |
 | Q23 | A selected skip-Gate member fails under `quorum="all"` | The Case fails with the member's own failure code |
 | Q24 | A gated Cascade stage where some members fail | Decide on the members that answered; only "no member answered" escalates by itself |

@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import functools
 import re
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal
@@ -70,12 +70,16 @@ from screamingface.branch import (
 )
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.fusion import FusionNode
-from screamingface.pipeline import Pipeline
 from screamingface.recipe import Recipe
 from screamingface.reducer import Reducer
 
 if TYPE_CHECKING:
-    from screamingface._evaluation.candidate import _CandidateCompiler, _ResolvedRecipe
+    from screamingface._evaluation.candidate import (
+        _CandidateCompiler,
+        _CompiledSamples,
+        _ResolvedRecipe,
+    )
+    from screamingface._evaluation.topology import _SignalTopology
 
 BRANCH_PREFIX = "/ensemble/branch/v1"
 AFTER_ROUTE = f"{BRANCH_PREFIX}/after"
@@ -125,6 +129,9 @@ class _Tree:
 
 
 def _scan(root: object) -> _Tree:
+    # WHY lazy: candidate.py imports this module.
+    from screamingface._evaluation.candidate import _children
+
     tree = _Tree()
 
     def visit(value: object, path: _Path) -> None:
@@ -138,24 +145,12 @@ def _scan(root: object) -> _Tree:
                 visit(value.panel, path)
             for branch in ("then", "otherwise"):
                 visit(value.body(branch), (*path, (id(value), branch)))
-        else:
-            for child in _recipe_children(value):
+        elif isinstance(value, Recipe):
+            for child in _children(value):
                 visit(child, path)
 
     visit(root, ())
     return tree
-
-
-def _recipe_children(value: object) -> tuple[object, ...]:  # noqa: PLR0911
-    if isinstance(value, FusionNode):
-        return (*value.members, value.synthesizer)
-    if isinstance(value, Pipeline):
-        return value._stage_values()
-    if isinstance(value, CorrectiveLoop):
-        return (*value.members, value.judge)
-    if isinstance(value, SelfCorrective):
-        return (value.member,)
-    return ()
 
 
 # --- the renderer state --------------------------------------------------------------------------
@@ -199,6 +194,18 @@ class _SkipSelection:
 
     selection: dict[str, str]
     floor: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class _Reuse:
+    """What a Gate's second reducer step reads again from the decision call (E4c).
+
+    ``signals``: the signal calls call #1 made (lazy fallback, LF-16); ``samples``: its
+    consistency samples (LF-22), so the members are not sampled a second time.
+    """
+
+    signals: Mapping[str, _SignalTopology]
+    samples: _CompiledSamples | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,15 +344,13 @@ def _skip_panel(
             weight=0.0,
         )
     )
-    skip = _skip_selection(fusion, members)
     resolved = compiler._fusion(
         fusion,
         members,
         input_context=input_context,
         input_dependencies=input_dependencies,
         panel=f"${panel}",
-        selection=skip.selection,
-        floor=skip.floor,
+        skip=_skip_selection(fusion, members),
     )
     return replace(resolved, panel=f"${panel}")
 
@@ -507,68 +512,78 @@ class _Gate:
             synthesizer=reducer,
             quorum=panel.quorum,
         )
-        compiler, skip = self._compiler, self._skip_selection
-        start = len(compiler._sources)
-        compiler._gated_depth += 1
+        compiler = self._compiler
         decision_node = decision.topology.synthesizer
-        if isinstance(panel.synthesizer, LazyDecision) and decision_node is not None:
-            compiler._reused_signals = {signal.key: signal for signal in decision_node.signals}
+        reuse = None
         if decision_node is not None:
-            # LF-22: the consistency samples run once, before the block, and feed both calls.
-            compiler._reused_samples = compiler._samples.get(decision_node.binding)
-        try:
-            resolved = compiler._fusion(
+            reuse = _Reuse(
+                signals=(
+                    {signal.key: signal for signal in decision_node.signals}
+                    if isinstance(panel.synthesizer, LazyDecision)
+                    else {}
+                ),
+                # LF-22: the consistency samples run once, before the block, and feed both calls.
+                samples=compiler._samples.get(decision_node.binding),
+            )
+        return self._captured(
+            "step",
+            lambda: compiler._fusion(
                 fusion,
                 decision.members,
                 input_context=self._input,
                 input_dependencies=self._dependencies,
                 panel=decision.panel,
-                selection=None if skip is None else skip.selection,
-                floor=None if skip is None else skip.floor,
-            )
-        finally:
-            compiler._gated_depth -= 1
-            compiler._reused_signals = {}
-            compiler._reused_samples = None
-        sources = tuple(compiler._sources[start:])
-        del compiler._sources[start:]
-        return _Body(
-            "step",
-            sources=sources,
-            reference=resolved.reference,
-            terminal=_terminal(resolved.reference),
-            resolved=resolved,
-            calls=_calls_range(sources, self._state.ranges),
+                skip=self._skip_selection,
+                reuse=reuse,
+            ),
         )
 
     def _recipe_body(self, branch: str, value: Recipe) -> _Body:
         if isinstance(value, CorrectiveLoop | SelfCorrective):
             raise ValueError(GATE_IN_LOOP)
         compiler, state = self._compiler, self._state
+
+        def compile_body() -> _ResolvedRecipe:
+            _place_selectors(compiler, state)
+            return compiler._recipe(
+                value, input_context=self._input, input_dependencies=self._dependencies
+            )
+
         state.path = (*state.path, (id(self._node), branch))
+        try:
+            body = self._captured("recipe", compile_body)
+        finally:
+            state.path = state.path[:-1]
+        assert body.resolved is not None
+        if body.resolved.selection is not None:
+            raise ValueError(
+                f"a sf.{body.resolved.selection} must be followed by sf.Synthesize inside a gate "
+                "branch"
+            )
+        return body
+
+    def _captured(
+        self, kind: Literal["recipe", "step"], compile_body: Callable[[], _ResolvedRecipe]
+    ) -> _Body:
+        """Compile one body as a gated body (its calls carry their binding param, D3) and detach
+        the sources it appended."""
+
+        compiler = self._compiler
         start = len(compiler._sources)
         compiler._gated_depth += 1
         try:
-            _place_selectors(compiler, state)
-            resolved = compiler._recipe(
-                value, input_context=self._input, input_dependencies=self._dependencies
-            )
+            resolved = compile_body()
         finally:
             compiler._gated_depth -= 1
-            state.path = state.path[:-1]
         sources = tuple(compiler._sources[start:])
         del compiler._sources[start:]
-        if resolved.selection is not None:
-            raise ValueError(
-                f"a sf.{resolved.selection} must be followed by sf.Synthesize inside a gate branch"
-            )
         return _Body(
-            "recipe",
+            kind,
             sources=sources,
             reference=resolved.reference,
             terminal=_terminal(resolved.reference),
             resolved=resolved,
-            calls=_calls_range(sources, state.ranges),
+            calls=_calls_range(sources, self._state.ranges),
         )
 
     def _gated(self, branch: str, body: _Body, sources: list[Node]) -> str:
@@ -599,12 +614,18 @@ class _Gate:
 
     # --- the endpoint sources -------------------------------------------------------------------
 
-    def _read_selectors(self, reads: dict[str, list[Selector]]) -> dict[str, str]:
+    @property
+    def _tree(self) -> _Tree:
+        """The active Gate tree: ``compile_branch`` builds a _Gate only inside ``_tree_scope``."""
+
+        tree = self._state.tree
+        assert tree is not None
+        return tree
+
+    def _read_selectors(self, listed: Sequence[Selector]) -> dict[str, str]:
         """sel id -> the reply reference of each LabelModel this DECIDE can see (in scope)."""
 
-        tree, state = self._state.tree, self._state
-        assert tree is not None
-        listed = [self._node.condition.selector, *reads["then"], *reads["otherwise"]]
+        tree, state = self._tree, self._state
         replies: dict[str, str] = {}
         for selector in listed:
             if not isinstance(selector, LabelModel):
@@ -619,8 +640,14 @@ class _Gate:
         """Computed once, on first use after the bodies render (they place the LabelModels)."""
 
         reads = {branch: self._reads(branch) for branch in ("then", "otherwise")}
-        declared = self._spec_selectors(reads)
-        return _Selectors(reads, declared, self._read_selectors(reads), self._keywords(declared))
+        # The selectors this DECIDE reads: its own condition's, then every one a body Gate reads.
+        listed = [
+            selector
+            for selector in (self._node.condition.selector, *reads["then"], *reads["otherwise"])
+            if selector is not None
+        ]
+        declared = self._spec_selectors(listed)
+        return _Selectors(reads, declared, self._read_selectors(listed), self._keywords(declared))
 
     def _after(self, visible: frozenset[str] | set[str]) -> Node:
         keywords, replies = self._selectors.keywords, self._selectors.replies
@@ -632,7 +659,7 @@ class _Gate:
         if keywords is not None:
             references.append(keywords)
         references.extend(replies.values())
-        references.extend(f"${node.name}" for node in self._ancestor_sources())
+        references.extend(f"${name}" for name, _ in self._ancestor_calls)
         references = list(dict.fromkeys(references))
         # D10: url4 leaves an unknown $name verbatim with no edge and no error, so DECIDE could run
         # before a call it reads; refuse that at compile time.
@@ -652,10 +679,10 @@ class _Gate:
     def _keywords(self, selectors: dict[str, dict[str, object]]) -> str | None:
         """The KEYWORDS source reference, when this Gate reads any selector (D6)."""
 
-        tree = self._state.tree
-        if tree is None or tree.keywords_binding is None or not selectors:
+        binding = self._tree.keywords_binding
+        if binding is None or not selectors:
             return None
-        return f"${tree.keywords_binding}"
+        return f"${binding}"
 
     def _decide(self, spec: str) -> Node:
         keywords, replies = self._selectors.keywords, self._selectors.replies
@@ -695,24 +722,14 @@ class _Gate:
 
         return list(_scan(self._node.body(branch)).selectors.values())
 
-    def _spec_selectors(self, reads: dict[str, list[Selector]]) -> dict[str, dict[str, object]]:
+    def _spec_selectors(self, listed: Sequence[Selector]) -> dict[str, dict[str, object]]:
         state = self._state
-        listed = [
-            selector
-            for selector in (
-                self._node.condition.selector,
-                *reads["then"],
-                *reads["otherwise"],
-            )
-            if selector is not None
-        ]
         declared: dict[str, dict[str, object]] = {}
         for selector in listed:
             selector_id = state.selector_id(selector)
             binding = None
             if isinstance(selector, LabelModel):
-                tree = state.tree
-                placed = None if tree is None else tree.placed.get(selector._identity())
+                placed = self._tree.placed.get(selector._identity())
                 # WHY always placed: the bodies render before the spec, and a body places the
                 # LabelModels of its own scope first.
                 assert placed is not None
@@ -773,32 +790,38 @@ class _Gate:
             branch: None if value is None else dict(value) for branch, value in estimates.items()
         }
 
-    def _ancestor_sources(self) -> list[Source]:
+    @functools.cached_property
+    def _ancestor_calls(self) -> list[tuple[str, list[RelExpr]]]:
         """D7 with D10: under a Budget, the named sources in the enclosing scopes that hold a model
-        call. AFTER references each one, so every call whose charge DECIDE folds is upstream of
-        DECIDE, and the spend it sees is the same on every run and on replay (BU-8)."""
+        call, each with its model calls. AFTER references each one, so every call whose charge
+        DECIDE folds is upstream of DECIDE, and the spend it sees is the same on every run and on
+        replay (BU-8).
+
+        WHY cached: the spec and AFTER both read it, and nothing is appended between the two."""
 
         if self._compiler._budget is None:
             return []
-        return [
-            node
-            for node in self._compiler._sources
-            if isinstance(node, Source)
-            and node.name is not None
-            and any(_model_call(child) for child in _deep(node))
-        ]
+        found: list[tuple[str, list[RelExpr]]] = []
+        for node in self._compiler._sources:
+            if not isinstance(node, Source) or node.name is None:
+                continue
+            calls = [
+                child for child in _deep(node) if isinstance(child, RelExpr) and _model_call(child)
+            ]
+            if calls:
+                found.append((node.name, calls))
+        return found
 
     def _ancestors(self) -> list[object]:
         """D7: the fingerprints of the calls upstream of DECIDE whose charges the fold counts."""
 
         found: list[object] = []
-        for node in self._ancestor_sources():
-            for child in _deep(node):
-                if isinstance(child, RelExpr) and _model_call(child):
-                    params = sorted(
-                        (key, value) for key, value in child.params if isinstance(value, str)
-                    )
-                    found.append([child.path, [list(pair) for pair in params]])
+        for _, calls in self._ancestor_calls:
+            for child in calls:
+                params = sorted(
+                    (key, value) for key, value in child.params if isinstance(value, str)
+                )
+                found.append([child.path, [list(pair) for pair in params]])
         return found
 
     def _spec(self, bodies: dict[str, _Body]) -> str:
@@ -920,8 +943,8 @@ class _Gate:
         are its bodies' alone; each root of a skip-member Fanout lists the ones it reads that no
         earlier member listed."""
 
-        tree = self._state.tree
-        if tree is None or self._state.depth != 1:
+        tree = self._tree
+        if self._state.depth != 1:
             return frozenset()
         listed = frozenset(_scan(self._node).selectors) - tree.listed
         tree.listed |= listed
@@ -930,24 +953,18 @@ class _Gate:
     def _selector_models(self) -> tuple[str, ...]:
         """The LabelModel routes this Gate decides with, as in ``_selector_topology``."""
 
-        tree = self._state.tree
-        if tree is None:
-            return ()
         return tuple(
             selector.model.model
-            for identity, selector in tree.selectors.items()
+            for identity, selector in self._tree.selectors.items()
             if isinstance(selector, LabelModel) and identity in self._listed
         )
 
     def _selector_topology(self) -> tuple[_RecipeTopology, ...]:
         """The LabelModel calls this Gate lists (``_listed``)."""
 
-        tree = self._state.tree
-        if tree is None:
-            return ()
         return tuple(
             _RecipeTopology(kind="model", name="label model", binding=binding, role="selector")
-            for identity, (_, binding) in tree.placed.items()
+            for identity, (_, binding) in self._tree.placed.items()
             if identity in self._listed
         )
 
@@ -998,7 +1015,15 @@ def _deep(node: Node) -> Iterator[Node]:
         yield child
         if isinstance(child, Iteration):
             body = f"({child.body})!{child.intent}" if child.intent else f"({child.body})"
-            yield from _deep(build(body))
+            yield from _deep(_parsed(body))
+
+
+@functools.lru_cache(maxsize=64)
+def _parsed(text: str) -> Node:
+    """``build`` once per gated body text: each later Gate walks every earlier block again (D7,
+    D5), and a url4 node is immutable, so the parse can be shared."""
+
+    return build(text)
 
 
 def _model_call(node: object) -> bool:

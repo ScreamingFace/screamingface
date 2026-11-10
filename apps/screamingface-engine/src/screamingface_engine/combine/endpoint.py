@@ -50,6 +50,7 @@ from screamingface_engine.combine.evidence import (
     GateRecord,
     JudgeReadingRecord,
     NarrowRecord,
+    PendingCombine,
     ResultRecord,
     SampleCountRecord,
     SignalRecord,
@@ -365,20 +366,6 @@ class CombineOutcome:
 
     output: str
     evidence: CombineEvidence
-
-
-@dataclass(frozen=True, slots=True)
-class PendingCombine:
-    """E4c lazy fallback (OME-1291): a ``phase=decide`` call whose gate took the fallback branch.
-
-    It answers ``""`` with no evidence; ``record`` is its gate record, which DECIDE reads
-    (branch-core D11). The fallback call and the full combine call run only in that branch.
-    ``kept`` is the majority answer: when the Budget refuses the fallback, the Gate's step slot
-    answers with it (budget BU-18). None when that answer is over 8 MiB.
-    """
-
-    record: GateRecord
-    kept: str | None
 
 
 def run_combine(

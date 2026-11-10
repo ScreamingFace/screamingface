@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import functools
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -75,6 +75,16 @@ class GateCondition(_DecisionModel):
             raise ValueError("a gate condition observes a label, a label set, a budget or a panel")
         _check_pairing(self.observe, self.cmp, self.value)
         return self
+
+
+def well_formed_labels(labels: Sequence[str], *, distinct: bool) -> bool:
+    """True when every label is a well-formed label and, when ``distinct``, each appears once.
+
+    The one label-list rule of a selector record, a gate spec selector and a Keywords spec.
+    """
+    return all(LABEL.fullmatch(label) is not None for label in labels) and (
+        not distinct or len(set(labels)) == len(labels)
+    )
 
 
 def _is_label(value: object) -> bool:
@@ -135,10 +145,7 @@ class SelectorRecord(_DecisionModel):
         if self.parse_error is not None and self.status != "failed":
             raise ValueError("only a failed selector has a parse error")
         # SR-I3 (shape half): every label is a well-formed label, once.
-        labels = self.labels or []
-        if any(LABEL.fullmatch(label) is None for label in labels) or len(set(labels)) != len(
-            labels
-        ):
+        if not well_formed_labels(self.labels or [], distinct=True):
             raise ValueError("selector labels are distinct declared labels")
         return self
 
@@ -274,4 +281,5 @@ __all__ = [
     "PanelLink",
     "SelectorRecord",
     "parse_gate_decision",
+    "well_formed_labels",
 ]

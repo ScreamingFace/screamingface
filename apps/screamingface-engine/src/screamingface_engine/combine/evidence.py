@@ -20,6 +20,7 @@ envelope already carries every member's full text.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
@@ -385,9 +386,11 @@ class CombineEvidence(_EvidenceModel):
 def _check_skipped(evidence: CombineEvidence) -> None:
     """E4c SM-13: a skipped member is excluded with not_selected and has no value of its own; it
     is never chosen and never kept by a narrow step."""
-    skipped = set(evidence.skipped or ())
+    if evidence.skipped is None:
+        return
+    skipped = set(evidence.skipped)
     rows = {row.member_id: row for row in evidence.members}
-    if not skipped <= set(rows) or len(skipped) != len(evidence.skipped or ()):
+    if not skipped <= set(rows) or len(skipped) != len(evidence.skipped):
         raise ValueError("skipped lists distinct members of the evidence")
     for member in skipped:
         row = rows[member]
@@ -534,6 +537,23 @@ def _check_gate(evidence: CombineEvidence) -> None:
         raise ValueError("a judge fallback records its label reading and chooses that one member")
 
 
+@dataclass(frozen=True, slots=True)
+class PendingCombine:
+    """E4c lazy fallback (OME-1291): a ``phase=decide`` call whose gate took the fallback branch.
+
+    It answers ``""`` with no evidence; ``record`` is its gate record, which DECIDE reads
+    (branch-core D11). The fallback call and the full combine call run only in that branch.
+    ``kept`` is the majority answer: when the Budget refuses the fallback, the Gate's step slot
+    answers with it (budget BU-18). None when that answer is over 8 MiB.
+
+    WHY here, not in ``combine/endpoint.py``: ``operation_calls.py`` records it, and it imports
+    only the pure wire modules of ``combine/`` (this one and ``combine.decision``).
+    """
+
+    record: GateRecord
+    kept: str | None
+
+
 __all__ = [
     "COMBINE_EVIDENCE_SCHEMA",
     "AnswerRecord",
@@ -543,6 +563,7 @@ __all__ = [
     "GateRecord",
     "JudgeReadingRecord",
     "NarrowRecord",
+    "PendingCombine",
     "ResultRecord",
     "SampleCountRecord",
     "SignalRecord",

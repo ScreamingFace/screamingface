@@ -48,9 +48,12 @@ from screamingface._evaluation.topology import (
     _writer_key,
 )
 from screamingface._operation_bindings import (
+    FINAL_BINDING,
     GATE_BLOCK,
+    GATE_BLOCK_NAME,
     OPERATION_BINDING,
     OPERATION_BINDING_PARAM,
+    REFERENCE_END,
     gate_join,
 )
 from screamingface._signals import JUDGE_SIGNAL
@@ -79,7 +82,7 @@ if TYPE_CHECKING:
 _BINDING = OPERATION_BINDING
 # A quorum panel (OME-1557) gathers member results; it is a reference, never an operation.
 _REFERENCE = re.compile(
-    rf"\$({OPERATION_BINDING.pattern.strip('^$')}|panel_\d+|gate_\d+_block)(?![A-Za-z0-9_])"
+    rf"\$({OPERATION_BINDING.pattern.strip('^$')}|panel_\d+|{GATE_BLOCK_NAME}){REFERENCE_END}"
 )
 _BENCHMARK_ROUTE = re.compile(
     r"/benchmarks/([A-Za-z0-9._~/-]+?)/"
@@ -294,9 +297,7 @@ def _final_binding(
 ) -> str:
     if not isinstance(candidate.intent, Text):
         raise ValueError("URL4 Candidate has an unsupported result binding")
-    match = re.fullmatch(
-        r"\$(model_\d+|synthesis_\d+|loop_candidate|gate_\d+_block)", candidate.intent.value
-    )
+    match = FINAL_BINDING.fullmatch(candidate.intent.value)
     if match is None:
         raise ValueError("URL4 Candidate has an unsupported result binding")
     selected = match.group(1)

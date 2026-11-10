@@ -22,10 +22,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, ClassVar, Literal, TypeGuard, cast
 
 from screamingface._surface.budget import BudgetCondition, Estimate
-from screamingface._surface.chain import Step, _Category
+from screamingface._surface.chain import Step, _Category, is_step
 from screamingface._surface.judge import JudgePick
 from screamingface._surface.refs import (
     AnsweredCondition,
@@ -45,7 +45,7 @@ from screamingface._surface.steps import (
     _check_by_lowering,
 )
 from screamingface._surface.synthesize import Synthesize
-from screamingface.branch import GATE_IN_LOOP
+from screamingface.branch import GATE_IN_LOOP, WORDS
 from screamingface.model import Model
 from screamingface.recipe import _BU11, Recipe
 
@@ -55,7 +55,6 @@ type Branch = Step | Recipe | str | Estimate
 type Condition = GateCondition | AnsweredCondition | LabelCondition | BudgetCondition
 
 _ABSTAIN: Literal["abstain"] = "abstain"
-_WORDS: tuple[str, ...] = ("abstain", "fail_closed")
 _WORD_SHAPE = re.compile(r"[^a-z]")
 _WORD_SHAPES = frozenset({"abstain", "failclosed", "skip"})
 # The reducer steps a panel gate's branch may be (gate GT-6, ans:Q6).
@@ -165,7 +164,7 @@ class Gate(Step, Recipe):
             self._is_recipe()
             and self.otherwise is None
             and isinstance(self.then, Recipe)
-            and (not isinstance(self.then, Step) or self.then._is_recipe())
+            and not is_step(self.then)
         )
 
     def _otherwise(self) -> Branch:
@@ -208,6 +207,12 @@ class Gate(Step, Recipe):
     __hash__: ClassVar[Any] = None
 
 
+def is_skip_member(value: object) -> TypeGuard[Gate]:
+    """Whether a Fanout member is a skip-Gate (ans:Q16, SM-8): the one surface test of it."""
+
+    return isinstance(value, Gate) and value._is_skip_member()
+
+
 def _condition(value: object) -> bool:
     """True for a panel condition, False for an input condition, else TypeError (GT-13, GU-8)."""
 
@@ -225,7 +230,7 @@ def _branch(value: object, name: str, panel: bool) -> Branch:
 
     if isinstance(value, str):
         return _word_or_route(value, name)
-    if isinstance(value, Step) and not (isinstance(value, Gate) and value._is_recipe()):
+    if is_step(value):
         return _step_branch(value, name, panel)
     if isinstance(value, Recipe):
         return _recipe_branch(value)
@@ -236,11 +241,7 @@ def _estimated(value: object) -> tuple[Estimate | None, object]:
     """An ``sf.Estimate`` branch as (its estimate, the branch it wraps); any other as (None, it)."""
 
     if isinstance(value, Estimate):
-        if (
-            isinstance(value.branch, Step)
-            and not isinstance(value.branch, (JudgePick, Synthesize))
-            and not (isinstance(value.branch, Gate) and value.branch._is_recipe())
-        ):
+        if is_step(value.branch) and not isinstance(value.branch, (JudgePick, Synthesize)):
             # BU-24: a reducer step makes no model call, so it has nothing to estimate.
             raise ValueError("sf.Estimate wraps a branch that makes model calls")
         return value, value.branch
@@ -248,7 +249,7 @@ def _estimated(value: object) -> tuple[Estimate | None, object]:
 
 
 def _word_or_route(value: str, name: str) -> Branch:
-    if value in _WORDS:
+    if value in WORDS:
         return value
     # GT-12: "skip" is not a public word, and a word spelled another way ("fail-closed",
     # "ABSTAIN") is a typo, not a model route: a guard must never become a model call.

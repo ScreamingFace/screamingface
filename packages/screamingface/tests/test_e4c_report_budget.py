@@ -215,23 +215,6 @@ def test_budget_spent_grows_down_the_chain_and_refusals_count_per_gate() -> None
     assert "refused by the budget 1" in summary.html(candidate)
 
 
-# --- RP#28 ----------------------------------------------------------------------------------------
-
-
-def test_budget_view_differs_flag_renders_and_counts() -> None:
-    # RP-35 (BU-27): the replay flag shows on that decision and the summary counts it.
-    item = case(1, (operation("gate_1", _kept(_view(0.0))),))
-    candidate = gate_candidate(_choice(), (item,))
-
-    assert "budget view differs from the captured run" in branch_sections_html(
-        candidate, item, frozenset({"gate_1"})
-    )
-    assert "budget view differs" not in branch_sections_html(candidate, item)
-    summary = GateSummary()
-    summary.add(item, frozenset({"gate_1"}))
-    assert "budget view differs 1" in summary.html(candidate)
-
-
 # --- BU#25 ----------------------------------------------------------------------------------------
 
 

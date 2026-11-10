@@ -7,12 +7,12 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from decimal import Decimal
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from screamingface._signals import JUDGE_SIGNAL
 from screamingface.answer import Answer
+from screamingface.budget import _ledger
 from screamingface.report_trace import TraceEntry
 
 if TYPE_CHECKING:
@@ -138,7 +138,7 @@ def _budget_refusals(
     panel = None if decision.panel is None else decision.panel.operation_id
     first = _refused_body_operation(operation.operation_id, decision.wanted, panel, graph)
     node = None if graph is None or first is None else graph.get(first)
-    left = max(Decimal(repr(refusing.cap)) - Decimal(repr(refusing.spent)), Decimal(0))
+    left = _ledger(refusing.cap, [refusing.spent])[1]  # the remaining amount
     return [
         TraceEntry(
             "budget",
@@ -150,7 +150,7 @@ def _budget_refusals(
                 "amount": None,
                 "estimated": refusing.estimate,
                 "source": None,
-                "remaining_after": float(left),
+                "remaining_after": left,
             },
         )
     ]

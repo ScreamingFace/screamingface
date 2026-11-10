@@ -63,7 +63,7 @@ from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 if TYPE_CHECKING:
     from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
     from screamingface._evaluation.benchmark import _CheckSurface
-    from screamingface._evaluation.branch import _BranchState
+    from screamingface._evaluation.branch import _BranchState, _Reuse, _SkipSelection
     from screamingface._evaluation.operators import _OperatorCatalog
 
 type _CandidateKind = Literal[
@@ -260,12 +260,12 @@ class _CandidateCompiler:
         # compiled (a model call inside one carries its binding param, branch-core D3).
         self._branch: _BranchState | None = None
         self._gated_depth = 0
-        # E4c lazy fallback: the signal calls a decision call made, which call #2 reads again.
+        # E4c lazy fallback: the signal calls a decision call made, which call #2 reads again. Set
+        # only while _reducer_synthesizer compiles the signals of a `reuse=` combine call.
         self._reused_signals: Mapping[str, _SignalTopology] = MappingProxyType({})
-        # E4c LF-22: the consistency samples of each combine call (by binding), and the samples a
-        # Gate's second reducer step reads again in place of sampling the members a second time.
+        # E4c LF-22: the consistency samples of each combine call (by binding), which a Gate's
+        # second reducer step reads again (`_Reuse.samples`).
         self._samples: dict[str, _CompiledSamples] = {}
-        self._reused_samples: _CompiledSamples | None = None
         # E4c skip members: the sources a member Gate puts before the panel (its AFTER and DECIDE),
         # and the member Gate being compiled now.
         self._hoist: list[Node] | None = None
@@ -639,8 +639,8 @@ class _CandidateCompiler:
         input_dependencies: tuple[str, ...],
         context: str | None = None,
         panel: str | None = None,
-        selection: Mapping[str, str] | None = None,
-        floor: int | None = None,
+        skip: _SkipSelection | None = None,
+        reuse: _Reuse | None = None,
     ) -> _ResolvedRecipe:
         binding = self._next_binding("synthesis")
         operation_id = f"op_{binding}"
@@ -657,8 +657,8 @@ class _CandidateCompiler:
                 input_dependencies=input_dependencies,
                 dependencies=dependencies,
                 panel=panel,
-                selection=selection,
-                floor=floor,
+                skip=skip,
+                reuse=reuse,
             )
         context = context if context is not None else _fusion_context(input_context, members)
         if isinstance(synthesizer, Model):
@@ -789,8 +789,8 @@ class _CandidateCompiler:
         input_dependencies: tuple[str, ...],
         dependencies: tuple[str, ...],
         panel: str | None = None,
-        selection: Mapping[str, str] | None = None,
-        floor: int | None = None,
+        skip: _SkipSelection | None = None,
+        reuse: _Reuse | None = None,
     ) -> _ResolvedRecipe:
         """Compile a reducer to ONE combine call whose intent is the canonical spec.
 
@@ -822,23 +822,31 @@ class _CandidateCompiler:
         sources = self._claim_accounting_sources(fusion, reducer, members)
         # E4b part 7: the sample calls come after the members and before the signal calls, so the
         # operation order is members, samples, signals, combine.
-        samples = self._reused_samples or self._sample_panels(
-            fusion, input_context, input_dependencies
+        samples = (
+            reuse.samples
+            if reuse is not None and reuse.samples is not None
+            else self._sample_panels(fusion, input_context, input_dependencies)
         )
         self._samples[binding] = samples
         # Lazy: reducer_signals imports this module's helpers at module top.
         from screamingface._evaluation.reducer_signals import _compile_signals
 
         plan = reducer._combine_plan()
-        signals = _compile_signals(
-            self,
-            fusion,
-            plan,
-            members,
-            input_context=input_context,
-            dependencies=dependencies,
-            panel=panel,
-        )
+        outer = self._reused_signals
+        if reuse is not None:
+            self._reused_signals = reuse.signals
+        try:
+            signals = _compile_signals(
+                self,
+                fusion,
+                plan,
+                members,
+                input_context=input_context,
+                dependencies=dependencies,
+                panel=panel,
+            )
+        finally:
+            self._reused_signals = outer
         # The combine call reads the same question-and-panel value a Model synthesizer does,
         # plus the references of the model calls it reads (the signals).
         self._append_combine(
@@ -851,8 +859,7 @@ class _CandidateCompiler:
                 sources=sources,
                 panel=panel,
                 samples=samples.references,
-                selection=selection,
-                floor=floor,
+                skip=skip,
             ),
             spec_text=spec,
             label=f"{fusion.name} combine",
@@ -1131,8 +1138,7 @@ def _fusion_context(
     sources: Mapping[str, object] | None = None,
     panel: str | None = None,
     samples: Mapping[str, str] | None = None,
-    selection: Mapping[str, str] | None = None,
-    floor: int | None = None,
+    skip: _SkipSelection | None = None,
 ) -> str:
     """Build canonical JSON at runtime so arbitrary answers remain safely escaped.
 
@@ -1154,10 +1160,10 @@ def _fusion_context(
         value["panel"] = panel
     # E4c skip members (C11): each skip-Gate member's DECIDE record, and a numeric quorum's floor.
     # WHY before samples and signals: the replay rule _CONTEXT_SIGNALS finds signals at the end.
-    if selection:
-        value["selection"] = dict(selection)
-    if floor is not None:
-        value["floor"] = floor
+    if skip is not None and skip.selection:
+        value["selection"] = dict(skip.selection)
+    if skip is not None and skip.floor is not None:
+        value["floor"] = skip.floor
     if samples:
         value["samples"] = dict(samples)
     if signals:

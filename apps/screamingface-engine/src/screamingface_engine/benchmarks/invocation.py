@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import functools
-import math
 from collections.abc import Iterator
 from contextlib import nullcontext
+from typing import cast, get_args
+
+from pydantic import ValidationError
 
 from screamingface_engine.benchmarks.contract import (
     CandidateInvocationStatus,
@@ -23,7 +25,7 @@ from screamingface_engine.benchmarks.operation_outputs import (
     final_operation_abstained,
     parsed_iterate_body,
 )
-from screamingface_engine.budget import Budget, case_budgets
+from screamingface_engine.budget import Budget, BudgetUnit, case_budgets
 from screamingface_engine.model_outcomes import (
     ModelOutcome,
     capture_model_outcomes,
@@ -41,7 +43,6 @@ from url4.peer.server import Url4Node
 
 # E4c (OME-1291, budget BU-1): the one source that carries a candidate's Budget.
 BUDGET_SOURCE = "_sf_budget"
-_BUDGET_UNITS = ("usd", "tokens")
 
 
 async def evaluate_candidate_recipe(
@@ -138,15 +139,18 @@ def _nodes(root: Expression) -> Iterator[object]:
 
 
 def _budget(key: str, value: object) -> Budget:
-    if key not in _BUDGET_UNITS:
+    if key not in get_args(BudgetUnit):
         raise benchmark_definition_error(f"a candidate budget has an unknown key {key!r}")
     try:
         cap = float(str(value))
     except ValueError as exc:
         raise benchmark_definition_error(f"the candidate budget {key} is not a number") from exc
-    if not math.isfinite(cap) or cap <= 0 or (key == "tokens" and not cap.is_integer()):
-        raise benchmark_definition_error(f"the candidate budget {key} is not a valid cap")
-    return Budget(unit="usd" if key == "usd" else "tokens", cap=cap)
+    try:
+        # Budget owns the cap rule: finite, above zero, a whole number for tokens.
+        return Budget(unit=cast("BudgetUnit", key), cap=cap)
+    except ValidationError:
+        # WHY from None: the validation error repeats the value; the definition error names the key.
+        raise benchmark_definition_error(f"the candidate budget {key} is not a valid cap") from None
 
 
 def _encode(

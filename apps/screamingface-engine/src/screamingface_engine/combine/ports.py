@@ -708,7 +708,8 @@ def parse_selector_reply(
     if not tokens:
         return [], "unparsed", None
     named = tokens if multi else tokens[:1]
-    unknown = next((token for token in named if token.lower() not in labels), None)
+    declared = frozenset(labels)
+    unknown = next((token for token in named if token.lower() not in declared), None)
     wanted = {token.lower() for token in named}
     chosen = [label for label in labels if label in wanted]
     raw = None if unknown is None else unknown[:MAX_SELECTOR_RAW_CHARS]

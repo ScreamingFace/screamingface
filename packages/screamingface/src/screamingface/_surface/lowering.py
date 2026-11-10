@@ -16,9 +16,9 @@ from types import MappingProxyType
 from typing import Any, Literal, cast
 
 from screamingface._surface.budget import BudgetCondition, Budgeted
-from screamingface._surface.chain import Pipeline, Step, _Block, refuse_step
+from screamingface._surface.chain import Pipeline, Step, _Block, is_step, refuse_step
 from screamingface._surface.fanout import Fanout
-from screamingface._surface.gate import Branch, Fallback, Gate
+from screamingface._surface.gate import Branch, Fallback, Gate, is_skip_member
 from screamingface._surface.judge import Judge, JudgePick
 from screamingface._surface.refs import (
     GateCondition,
@@ -119,7 +119,7 @@ def block_node(block: _Block) -> Recipe:  # noqa: PLR0911
 
 
 def _has_skip_members(fanout: Fanout) -> bool:
-    return any(isinstance(member, Gate) for member in fanout.members)
+    return any(is_skip_member(member) for member in fanout.members)
 
 
 def step_node(step: Step, judge: JudgeNode | None) -> Reducer:
@@ -166,7 +166,7 @@ def _members(fanout: Fanout) -> tuple[Recipe, ...]:
     prompt = fanout.prompt
     if prompt is None:
         return tuple(
-            _skip_member(member) if isinstance(member, Gate) else lower(member)
+            _input_gate(member, (), skip_member=True) if is_skip_member(member) else lower(member)
             for member in fanout.members
         )
     # Fanout proved each member is a Model with no prompt (FA-1).
@@ -272,7 +272,7 @@ def _decision_step(gate: Gate) -> Step:
     """GT-6: ``then`` when it is a reducer step, else ``otherwise``, else an implicit vote."""
 
     for value in (gate.then, gate.otherwise):
-        if isinstance(value, Step) and not isinstance(value, Synthesize) and not value._is_recipe():
+        if is_step(value) and not isinstance(value, Synthesize):
             return value
     return Vote()
 
@@ -294,7 +294,7 @@ def _panel_gate(fanout: Fanout, gate: Gate, judge: JudgeNode | None) -> BranchNo
             return decision
         if lazy is not None and value is gate.otherwise:
             return lazy
-        if isinstance(value, Step) and not value._is_recipe():
+        if is_step(value):
             return step_node(value, judge)
         return _branch_body(value, ())
 
@@ -312,8 +312,9 @@ def _panel_gate(fanout: Fanout, gate: Gate, judge: JudgeNode | None) -> BranchNo
     )
 
 
-def _input_gate(gate: Gate, active: _Active) -> Recipe:
-    """An input gate: its internal BranchNode, each recipe branch lowered (E4c)."""
+def _input_gate(gate: Gate, active: _Active, *, skip_member: bool = False) -> BranchNode:
+    """An input gate: its internal BranchNode, each recipe branch lowered (E4c). A
+    ``skip_member`` of a Fanout (ans:Q16) has no otherwise (None = skip)."""
 
     when = gate.when
     if isinstance(when, BudgetCondition):
@@ -325,7 +326,7 @@ def _input_gate(gate: Gate, active: _Active) -> Recipe:
     return BranchNode(
         condition=condition,
         then=_branch_body(gate.then, active),
-        otherwise=_branch_body(gate._otherwise(), active),
+        otherwise=None if skip_member else _branch_body(gate._otherwise(), active),
         estimates=_estimates(gate),
     )
 
@@ -343,19 +344,6 @@ def _estimates(
 def _budget(value: Budgeted, active: _Active) -> Recipe:
     inner = _lower(value.recipe, active)
     return value if inner is value.recipe else Budgeted(inner, usd=value.usd, tokens=value.tokens)
-
-
-def _skip_member(gate: Gate) -> BranchNode:
-    """A skip-Gate Fanout member (ans:Q16): its BranchNode has no otherwise (None = skip)."""
-
-    when = gate.when
-    assert isinstance(when, LabelCondition)
-    return BranchNode(
-        condition=BranchCondition(when.observe, when.cmp, when.value, when.selector),
-        then=_branch_body(gate.then, ()),
-        otherwise=None,
-        estimates=_estimates(gate),
-    )
 
 
 def _branch_body(value: Branch, active: _Active) -> Body:

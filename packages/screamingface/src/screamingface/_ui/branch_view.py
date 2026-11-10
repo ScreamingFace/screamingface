@@ -21,7 +21,7 @@ from html import escape
 from typing import TYPE_CHECKING
 
 from screamingface._evaluation.gate_decision import _MAX_RAW
-from screamingface._ui.combine_view import dash_html, number_html
+from screamingface._ui.combine_view import _label, dash_html, number_html
 from screamingface._ui.text import short
 
 if TYPE_CHECKING:
@@ -51,7 +51,6 @@ _FAILED_SELECTOR = "the selector call failed; its code is in the activity view"
 _NOT_RUN_REASONS = {"not_selected": "not selected", "budget_refused": "refused by the budget"}
 _SELECTOR_KINDS = {"keywords": "keywords", "label_model": "label model"}
 _UNPRICED = "the provider gave no cost; the budget counts these calls as $0"
-_DIFFERS = "budget view differs from the captured run"
 
 
 # --- the Gate tree, from the Candidate topology ---------------------------------------------------
@@ -59,22 +58,14 @@ _DIFFERS = "budget view differs from the captured run"
 
 @dataclass(frozen=True, slots=True)
 class _GateTree:
-    """The Gates of one Candidate: top-level ones in order, the Gates inside each branch, and the
-    chains where each Gate is the ``otherwise`` of the one before (a Cascade, an N-way router)."""
+    """The Gates of one Candidate: top-level ones in order, the Gates inside each branch (direct
+    ``children``; ``below``: at any depth, in nesting order), and the chains where each Gate is the
+    ``otherwise`` of the one before (a Cascade, an N-way router)."""
 
     roots: tuple[str, ...] = ()
     children: Mapping[tuple[str, str], tuple[str, ...]] = field(default_factory=dict)
     chains: tuple[tuple[str, ...], ...] = ()
-
-    def below(self, gate: str, branch: str) -> list[str]:
-        """Every Gate inside ``branch`` of ``gate``, at any depth, in nesting order."""
-
-        found: list[str] = []
-        for child in self.children.get((gate, branch), ()):
-            found.append(child)
-            for inner in ("then", "otherwise"):
-                found.extend(self.below(child, inner))
-        return found
+    below: Mapping[tuple[str, str], tuple[str, ...]] = field(default_factory=dict)
 
 
 @lru_cache(maxsize=64)
@@ -112,13 +103,26 @@ class _TreeWalk:
             while chain[-1] in self.next:
                 chain.append(self.next[chain[-1]])
             chains.append(tuple(chain))
-        return _GateTree(tuple(roots), dict(self.children), tuple(chains))
+        below = {key: tuple(self.below(*key)) for key in self.children}
+        return _GateTree(tuple(roots), dict(self.children), tuple(chains), below)
+
+    def below(self, gate: str, branch: str) -> list[str]:
+        """Every Gate inside ``branch`` of ``gate``, at any depth, in nesting order."""
+
+        found: list[str] = []
+        for child in self.children.get((gate, branch), ()):
+            found.append(child)
+            for inner in ("then", "otherwise"):
+                found.extend(self.below(child, inner))
+        return found
 
     def visit(self, node: _RecipeTopology, sink: list[str]) -> None:
         if node.kind != "gate":
-            for child in (*node.members, *node.stages, node.synthesizer, node.judge):
-                if child is not None:
-                    self.visit(child, sink)
+            # WHY lazy: see _gate_tree. A node that is not a Gate has no panel and no branches.
+            from screamingface.url4 import _topology_children
+
+            for child in _topology_children(node):
+                self.visit(child, sink)
             return
         gate = node.join_binding
         sink.append(gate)
@@ -136,13 +140,8 @@ class _TreeWalk:
 # --- the Case pane --------------------------------------------------------------------------------
 
 
-def branch_sections_html(
-    candidate: CandidateResult, case: CaseResult, differs: frozenset[str] = frozenset()
-) -> str:
-    """The Branches block of one Case: one section per Gate that ran, outer first (RP-3).
-
-    ``differs`` names the Gates whose replayed budget view differs from the captured run (RP-35,
-    from ``budget_view_differences``)."""
+def branch_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
+    """The Branches block of one Case: one section per Gate that ran, outer first (RP-3)."""
 
     if case.operations is None:
         return _guard_line(case)
@@ -156,7 +155,7 @@ def branch_sections_html(
     if not gates:
         return _guard_line(case)
     tree = _gate_tree(candidate.url4)
-    pane = _Pane(graph, operations, tree, differs)
+    pane = _Pane(graph, operations, tree)
     roots = [gate for gate in tree.roots if f"op_{gate}" in operations] or gates
     body = "".join(pane.gate(gate, 0) for gate in roots)
     overspend = "".join(
@@ -191,7 +190,6 @@ class _Pane:
     graph: Mapping[str, OperationInfo]
     operations: Mapping[str, CaseOperation]
     tree: _GateTree
-    differs: frozenset[str] = frozenset()
 
     def gate(self, gate: str, level: int) -> str:
         """One Gate's section, then the sections of the Gates in the branch that ran."""
@@ -211,17 +209,16 @@ class _Pane:
         return _box(level, _heading(gate, level, ""), self._chips(gate, decision)) + inner
 
     def _chips(self, gate: str, decision: GateDecision) -> str:
-        lines = [
-            _chips([f"when · {escape(condition_text(decision.when))}", _observed(decision)]),
-            _chips(_ran(decision)),
-            *(self._not_run(gate, entry) for entry in decision.not_run),
-            *(_budget_line(decision, view) for view in decision.budget or ()),
-            *(_selector_line(selector) for selector in decision.selectors),
-            _chips([_result(decision), *self._panel(decision)]),
-        ]
-        if gate in self.differs:
-            lines.append(_chips([_DIFFERS]))
-        return "".join(lines)
+        return "".join(
+            [
+                _chips([f"when · {escape(condition_text(decision.when))}", _observed(decision)]),
+                _chips(_ran(decision)),
+                *(self._not_run(gate, entry) for entry in decision.not_run),
+                *(_budget_line(decision, view) for view in decision.budget or ()),
+                *(_selector_line(selector) for selector in decision.selectors),
+                _chips([_result(decision), *self._panel(decision)]),
+            ]
+        )
 
     def _not_run(self, gate: str, entry: GateNotRun) -> str:
         """RP-6 and RP-12: the branch that made zero calls, then the Gates inside it."""
@@ -229,7 +226,7 @@ class _Pane:
         line = _chips([_not_run_text(entry)])
         reached = "".join(
             _chips([f"gate · {escape(inner)} · not reached"])
-            for inner in self.tree.below(gate, entry.branch)
+            for inner in self.tree.below.get((gate, entry.branch), ())
         )
         return line + reached
 
@@ -239,8 +236,7 @@ class _Pane:
         panel = decision.panel
         if panel is None:
             return []
-        node = self.graph.get(panel.operation_id)
-        label = panel.operation_id if node is None else node.label
+        label = _label(self.graph, panel.operation_id)
         operation = self.operations.get(panel.operation_id)
         missing = " · no evidence" if operation is None or operation.combine is None else ""
         return [f"decided by · combine · {escape(label)}{missing}"]
@@ -474,7 +470,6 @@ class _GateRow:
     unrecognized: int = 0
     unparsed: int = 0
     unpriced: int = 0
-    differs: int = 0
 
     def add(self, decision: GateDecision) -> None:
         self.decided += 1
@@ -506,9 +501,8 @@ class GateSummary:
     overspend: int = 0
     branches: list[dict[str, str | None]] = field(default_factory=list)
 
-    def add(self, case: CaseResult, differs: frozenset[str] = frozenset()) -> None:
-        """Count each Gate decision of this Case; a fail_closed Case counts from its code.
-        ``differs``: the Gates whose replayed budget view differs (RP-35)."""
+    def add(self, case: CaseResult) -> None:
+        """Count each Gate decision of this Case; a fail_closed Case counts from its code."""
 
         self.fail_closed += _fail_closed(case)
         self.overspend += bool(overspend_of(case))
@@ -518,7 +512,6 @@ class GateSummary:
             if decision is not None:
                 row = self.gates.setdefault(decision.gate_id, _GateRow())
                 row.add(decision)
-                row.differs += decision.gate_id in differs
                 taken[decision.gate_id] = decision.branch
         if taken:
             self.branches.append(taken)
@@ -581,7 +574,6 @@ def _row_html(gate: str, row: _GateRow) -> str:
         "unrecognized": row.unrecognized,
         "unparsed": row.unparsed,
         "unknown cost": row.unpriced,
-        "budget view differs": row.differs,
     }
     texts.extend(f"{name} {count}" for name, count in extras.items() if count)
     return _chips(texts)

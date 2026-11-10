@@ -12,12 +12,13 @@ and the report shows spend against the cap and the refused branch.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, cast
 
+from screamingface.branch import WORDS
+from screamingface.budget import _UNITS, BudgetUnit
 from screamingface.recipe import _BU11, Recipe, _recipe
-
-type BudgetUnit = Literal["usd", "tokens"]
 
 
 def _cap(value: object, unit: BudgetUnit, owner: str) -> float | int | None:
@@ -30,6 +31,18 @@ def _cap(value: object, unit: BudgetUnit, owner: str) -> float | int | None:
     if unit == "tokens" and not float(value).is_integer():
         raise ValueError(f"{owner} tokens= must be a whole number")
     return int(value) if unit == "tokens" else float(value)
+
+
+def _units(usd: float | None, tokens: int | None) -> dict[str, float | int]:
+    """The units set, usd then tokens; a unit left unset is left out."""
+
+    return {unit: value for unit, value in (("usd", usd), ("tokens", tokens)) if value is not None}
+
+
+def units_text(units: Mapping[str, float | int]) -> str:
+    """The units as the author wrote them: ``usd=0.03, tokens=100``."""
+
+    return ", ".join(f"{unit}={value!r}" for unit, value in units.items())
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
@@ -70,8 +83,7 @@ class Budgeted(Recipe):
     def _caps(self) -> dict[str, int | float]:
         """The caps this Budget sets, usd then tokens; a unit it does not cap is left out."""
 
-        caps: dict[str, int | float | None] = {"usd": self.usd, "tokens": self.tokens}
-        return {unit: cap for unit, cap in caps.items() if cap is not None}
+        return _units(self.usd, self.tokens)
 
     def units(self) -> tuple[BudgetUnit, ...]:
         return cast("tuple[BudgetUnit, ...]", tuple(self._caps()))
@@ -84,8 +96,7 @@ class Budgeted(Recipe):
     def _render(self, prefix: str) -> str:
         from screamingface._surface.render import render
 
-        held = ", ".join(f"{unit}={value!r}" for unit, value in self._caps().items())
-        return f"{prefix}Budgeted({render(self.recipe, prefix)}, {held})"
+        return f"{prefix}Budgeted({render(self.recipe, prefix)}, {units_text(self._caps())})"
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -100,7 +111,7 @@ class Estimate:
     def __init__(
         self, branch: object, *, usd: float | None = None, tokens: int | None = None
     ) -> None:
-        if isinstance(branch, str) and branch in ("abstain", "fail_closed"):
+        if isinstance(branch, str) and branch in WORDS:
             raise ValueError("sf.Estimate wraps a branch that makes model calls")
         object.__setattr__(self, "branch", branch)
         object.__setattr__(self, "usd", _cap(usd, "usd", "sf.Estimate"))
@@ -109,11 +120,7 @@ class Estimate:
             raise ValueError("sf.Estimate needs usd=, tokens= or both")
 
     def _spec(self) -> dict[str, float | int]:
-        return {
-            unit: value
-            for unit, value in (("usd", self.usd), ("tokens", self.tokens))
-            if value is not None
-        }
+        return _units(self.usd, self.tokens)
 
     __hash__: ClassVar[Any] = None
 
@@ -164,7 +171,7 @@ def remaining(unit: BudgetUnit | None = None) -> Remaining:
     """What the Budget has left after the calls that already ran (BU-6). Name the unit when the
     Budget declares both: ``sf.budget.remaining('usd')``."""
 
-    if unit not in (None, "usd", "tokens"):
+    if unit not in (None, *_UNITS):
         raise ValueError("sf.budget.remaining() takes 'usd' or 'tokens'")
     return Remaining(unit)
 

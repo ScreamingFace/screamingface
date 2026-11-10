@@ -32,7 +32,7 @@ BudgetStage = Literal["model", "synthesis", "judge", "writer", "selector"]
 _MEMBER = re.compile(r"member_[1-9][0-9]*")
 
 
-def _decimal(number: float) -> Decimal:
+def exact_decimal(number: float) -> Decimal:
     """The exact decimal a float prints as, so 0.1 stays 0.1 and sums do not drift."""
     return Decimal(repr(number))
 
@@ -113,9 +113,9 @@ def _ledger(cap: float, amounts: Sequence[float | None]) -> tuple[float, float, 
             if amount is None:
                 unpriced += 1
             else:
-                spent += _decimal(amount)
-            remaining_after.append(float(max(_decimal(cap) - spent, Decimal(0))))
-        remaining = float(max(_decimal(cap) - spent, Decimal(0)))
+                spent += exact_decimal(amount)
+            remaining_after.append(float(max(exact_decimal(cap) - spent, Decimal(0))))
+        remaining = float(max(exact_decimal(cap) - spent, Decimal(0)))
     return float(spent), remaining, unpriced, remaining_after
 
 
@@ -217,7 +217,7 @@ def _amount(signals: SignalAccounting, unit: BudgetUnit) -> Decimal | None:
     if not all(number is not None and math.isfinite(number) for number in numbers):
         return None
     with localcontext(DECIMAL_CONTEXT):
-        return sum((_decimal(number) for number in numbers if number is not None), Decimal(0))
+        return sum((exact_decimal(number) for number in numbers if number is not None), Decimal(0))
 
 
 # E4c (OME-1291, budget BU-13, BU-28): the Budgets of the candidate running in this task, bound

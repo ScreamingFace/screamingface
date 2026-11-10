@@ -26,6 +26,8 @@ from screamingface._surface.gate import Fallback, Gate
 from screamingface._surface.judge import Judge, JudgePick
 from screamingface._surface.refs import (
     FieldEquals,
+    GateBand,
+    GateCondition,
     GateRef,
     _condition,
     agreement,
@@ -54,6 +56,7 @@ from screamingface.branch import BranchNode, DecisionReducer, LazyDecision
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.fields import MergeNode, PickNode
 from screamingface.fusion import FusionNode
+from screamingface.gate import GateNode
 from screamingface.judge import JudgeNode
 from screamingface.model import Model
 from screamingface.recipe import Recipe, _inferred_name, _inferred_self_name, _kept_name
@@ -209,12 +212,7 @@ def _gate(node: BranchNode) -> Recipe:
 def _panel_gate(
     node: BranchNode, panel: FusionNode, then: Any, otherwise: Any, judges: list[JudgeNode]
 ) -> Recipe:
-    fanout = Fanout(
-        [surface_value(member) for member in panel.members],
-        signals=panel.signals,
-        quorum=panel.quorum,
-        name=_kept_name(panel.name, _inferred_name(panel.members)),
-    )
+    fanout = _fanout(panel)
     if node.condition.observe == "answered":
         answered_gate = _built(Gate, when=answered(), then=then, otherwise=otherwise)
         return Pipeline([fanout, *_judge_step(judges), answered_gate])
@@ -227,14 +225,13 @@ def _panel_gate(
         otherwise = _estimated(_fallback(decision.gate.otherwise), node.estimates[1])
     if gate is None:
         raise _cannot_rebuild(node.name)
-    ref = _built(_gate_ref, gate.observe)
-    band = gate.abstain_band
+    when, abstain_if = _gate_when(gate)
     surface_gate = _built(
         Gate,
-        when=_built(_condition, ref, gate.cmp, gate.threshold),
+        when=when,
+        abstain_if=abstain_if,
         then=then if then is not None else "abstain",
         otherwise=otherwise,
-        abstain_if=None if band is None else _built(ref.between, *band),
     )
     return Pipeline([fanout, *_judge_step(judges), surface_gate])
 
@@ -302,12 +299,7 @@ def _block(fusion: FusionNode, writer: Recipe | None = None) -> list[Recipe | St
     """One FusionNode as the steps of one block: the Fanout, then the steps of its synthesizer; a
     ``writer`` (the Pipeline stage after a selection) closes it with ``Synthesize``."""
 
-    fanout = Fanout(
-        [surface_value(member) for member in fusion.members],
-        signals=fusion.signals,
-        quorum=fusion.quorum,
-        name=_kept_name(fusion.name, _inferred_name(fusion.members)),
-    )
+    fanout = _fanout(fusion)
     synthesizer = fusion.synthesizer
     if not isinstance(synthesizer, Reducer):
         return [fanout, _synthesize(synthesizer)]
@@ -315,6 +307,17 @@ def _block(fusion: FusionNode, writer: Recipe | None = None) -> list[Recipe | St
     if writer is not None:
         steps.append(_synthesize(writer))
     return steps
+
+
+def _fanout(fusion: FusionNode) -> Fanout:
+    """The Fanout of a FusionNode: its members in the new surface, its signals, quorum and name."""
+
+    return Fanout(
+        [surface_value(member) for member in fusion.members],
+        signals=fusion.signals,
+        quorum=fusion.quorum,
+        name=_kept_name(fusion.name, _inferred_name(fusion.members)),
+    )
 
 
 def _synthesize(writer: Recipe) -> Synthesize:
@@ -426,16 +429,24 @@ def _gated(vote: VoteNode, judges: list[JudgeNode]) -> Vote | Gate:
     gate = vote.gate
     if gate is None:
         return _vote(vote, judges)
-    ref = _built(_gate_ref, gate.observe)
-    band = gate.abstain_band
+    when, abstain_if = _gate_when(gate)
     return _built(
         Gate,
-        when=_built(_condition, ref, gate.cmp, gate.threshold),
+        when=when,
+        abstain_if=abstain_if,
         then=_vote(vote, judges),
         # E4c (GT-9): an abstain fallback rebuilds as the omitted otherwise= (its default).
         otherwise=None if gate.otherwise == "abstain" else _fallback(gate.otherwise),
-        abstain_if=None if band is None else _built(ref.between, *band),
     )
+
+
+def _gate_when(gate: GateNode) -> tuple[GateCondition, GateBand | None]:
+    """The ``when=`` and ``abstain_if=`` of a gate node: one number read by both."""
+
+    ref = _built(_gate_ref, gate.observe)
+    band = gate.abstain_band
+    when = _built(_condition, ref, gate.cmp, gate.threshold)
+    return when, None if band is None else _built(ref.between, *band)
 
 
 def _gate_ref(observe: str) -> GateRef:
@@ -523,15 +534,8 @@ def _merge(node: MergeNode, _judges: list[JudgeNode]) -> Merge:
 def _decision(reducer: DecisionReducer, judges: list[JudgeNode]) -> Gate:
     """A one-call gate on any reducer (E4c P3): ``then`` is the step, ``otherwise`` abstains."""
 
-    gate = reducer.gate
-    ref = _built(_gate_ref, gate.observe)
-    band = gate.abstain_band
-    return _built(
-        Gate,
-        when=_built(_condition, ref, gate.cmp, gate.threshold),
-        then=_converted(reducer.step, judges),
-        abstain_if=None if band is None else _built(ref.between, *band),
-    )
+    when, abstain_if = _gate_when(reducer.gate)
+    return _built(Gate, when=when, abstain_if=abstain_if, then=_converted(reducer.step, judges))
 
 
 _CONVERSIONS: tuple[tuple[type, Callable[[Any, list[JudgeNode]], Step]], ...] = (

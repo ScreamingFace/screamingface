@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 from screamingface_engine.combine.decision import GateDecision
-from screamingface_engine.combine.evidence import CombineEvidence, GateRecord
+from screamingface_engine.combine.evidence import CombineEvidence, GateRecord, PendingCombine
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
     ReplyLogprobs,
@@ -44,12 +44,11 @@ class OperationCall:
     ``decision`` is set only by :func:`record_gate_call` (E4c): a Gate's DECIDE or JOIN record,
     published under the JOIN fingerprint so the last call wins (JOIN's record when JOIN ran).
 
-    ``pending`` marks a ``phase=decide`` combine call that took the fallback branch (E4c lazy
-    fallback): its output is ``""`` and it has no evidence, so it is not a provider call; the
-    accounting index and the budget fold skip it. ``gate_record`` is that call's E4b gate record,
-    which DECIDE reads by the call's fingerprint (a complete call carries it in ``combine.gate``).
-    ``kept_output`` is the majority answer of that call, which JOIN copies when the Budget refuses
-    the fallback branch (budget BU-18); None when the majority answer is too large to keep.
+    ``pending`` is set only for a ``phase=decide`` combine call that took the fallback branch (E4c
+    lazy fallback): its output is ``""`` and it has no evidence, so it is not a provider call; the
+    accounting index and the budget fold skip it. Its ``record`` is the E4b gate record DECIDE
+    reads, and its ``kept`` is the majority answer JOIN copies when the Budget refuses the fallback
+    branch (budget BU-18).
 
     ``params`` is the request's parameter set sorted by name — the half of the
     OME-843 attribution fingerprint that distinguishes two members on the same
@@ -65,14 +64,19 @@ class OperationCall:
     signal_accounting: SignalAccounting | None = None
     reply_logprobs: ReplyLogprobs | None = None
     decision: GateDecision | None = None
-    pending: bool = False
-    gate_record: GateRecord | None = None
-    kept_output: str | None = None
+    pending: PendingCombine | None = None
 
     @property
     def is_provider(self) -> bool:
         """True for a provider round trip, not a combine step, a Gate record or a pending call."""
-        return self.combine is None and self.decision is None and not self.pending
+        return self.combine is None and self.decision is None and self.pending is None
+
+    @property
+    def gate_record(self) -> GateRecord | None:
+        """The call's E4b gate record: a pending call's, or a complete combine call's evidence."""
+        if self.pending is not None:
+            return self.pending.record
+        return None if self.combine is None else self.combine.gate
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,12 +220,12 @@ def _publish_internal(
     *,
     combine: CombineEvidence | None = None,
     decision: GateDecision | None = None,
-    pending: bool = False,
-    gate_record: GateRecord | None = None,
-    kept_output: str | None = None,
+    pending: PendingCombine | None = None,
 ) -> None:
     """Publish one call with no provider accounting, and the fields that set its kind."""
 
+    if not _recorders.get():
+        return
     _publish(
         OperationCall(
             path=path,
@@ -232,8 +236,6 @@ def _publish_internal(
             combine=combine,
             decision=decision,
             pending=pending,
-            gate_record=gate_record,
-            kept_output=kept_output,
         )
     )
 
@@ -280,9 +282,7 @@ def record_pending_combine_call(
     Output ``""``, no evidence; ``gate_record`` is what DECIDE reads (branch-core D11).
     """
 
-    _publish_internal(
-        path, params, "", pending=True, gate_record=gate_record, kept_output=kept_output
-    )
+    _publish_internal(path, params, "", pending=PendingCombine(gate_record, kept_output))
 
 
 def provider_calls_by_fingerprint(

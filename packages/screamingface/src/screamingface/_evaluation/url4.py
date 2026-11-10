@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -34,7 +33,7 @@ from screamingface._evaluation.topology import (
     _topology_from_expression,
     _TopologyBinding,
 )
-from screamingface._operation_bindings import GATE_BLOCK, gate_join
+from screamingface._operation_bindings import FINAL_BINDING, GATE_BLOCK, gate_join
 from screamingface.errors import ExecutionError
 from screamingface.events import Event
 from screamingface.operation import OperationInfo
@@ -405,7 +404,7 @@ def _final_binding(
     calls: dict[str, tuple[str, tuple[str, ...]]],
     topology: _RecipeTopology,
 ) -> str:
-    match = re.fullmatch(r"\$(model_\d+|synthesis_\d+|loop_candidate|gate_\d+_block)", intent)
+    match = FINAL_BINDING.fullmatch(intent)
     if match is None:
         raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
     selected = match.group(1)

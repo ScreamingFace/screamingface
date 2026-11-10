@@ -31,7 +31,13 @@ from ..core.frozen_copy.store import (
 from ..core.request_cache.canonical import CanonicalizationError
 from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
 from ..plugins.taxonomy import new_gateway_call_id
-from ..plugins.taxonomy.render import attach_metadata, merged_error_detail, render_aigw_metadata
+from ..plugins.taxonomy.entry_metadata import cache_reference_from_captured_aigw
+from ..plugins.taxonomy.render import (
+    METADATA_KEY,
+    attach_metadata,
+    merged_error_detail,
+    render_aigw_metadata,
+)
 
 router = APIRouter()
 
@@ -104,13 +110,16 @@ async def _sealed_copy(request: Request, raw_copy_id: str) -> FrozenCopy:
     return copy
 
 
-def _replay_metadata() -> dict[str, Any]:
+def _replay_metadata(captured: Any = None) -> dict[str, Any]:
     """The ``_aigw`` block of a replayed answer: a free cache hit, marked as a replay.
 
     WHY the renderer and not an edit of the captured block: the captured ``_aigw`` describes the
     ORIGINAL call (its attempts and cost). The engine prices a call as $0 only for the shape a
     cache hit renders — ``direct_cost_status: not_applicable`` with ``cache.status: hit`` — so the
     block is rendered by the same function, with no attempts, and then marked.
+
+    FEATURE (E4c ans:Q21b, OME-1291): like any hit, the block carries the original call's price
+    as ``cache.reference``, so a budget Gate on replay takes the branch the live run took.
     """
     metadata = render_aigw_metadata(
         trace_id=current_trace_id(),
@@ -118,6 +127,7 @@ def _replay_metadata() -> dict[str, Any]:
         supported=True,
         cache_status="hit",
         gateway_call_id=current_call_id() or new_gateway_call_id(),
+        cache_reference=cache_reference_from_captured_aigw(captured),
     )
     metadata["frozen_copy_replay"] = True
     return metadata
@@ -163,7 +173,9 @@ async def replay_chat_completions(
             },
         )
     response.headers[_REPLAY_HEADER] = "hit"
-    return attach_metadata(entry.response_json, _replay_metadata())
+    return attach_metadata(
+        entry.response_json, _replay_metadata(entry.response_json.get(METADATA_KEY))
+    )
 
 
 @router.post("/v1/frozen-copies", status_code=201)

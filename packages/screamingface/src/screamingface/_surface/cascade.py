@@ -23,6 +23,7 @@ from screamingface._surface.fanout import Fanout
 from screamingface._surface.gate import Gate
 from screamingface._surface.refs import AnsweredCondition, GateCondition, _condition, answered
 from screamingface._surface.steps import Vote
+from screamingface.branch import WORDS
 from screamingface.model import Model
 from screamingface.recipe import Recipe, _inferred_name, _kept_name
 from screamingface.warnings import CascadeSeedWarning
@@ -67,7 +68,7 @@ def Cascade(  # noqa: N802 - the public name of a shortcut, like sf.Fusion
 
     if isinstance(stages, str) or not isinstance(stages, Sequence) or len(stages) < 2:
         raise ValueError("sf.Cascade needs at least two stages")
-    if otherwise not in (None, "abstain", "fail_closed"):
+    if otherwise not in (None, *WORDS):
         raise ValueError("sf.Cascade otherwise= takes None, 'abstain' or 'fail_closed'")
     gated = len(stages) if otherwise is not None else len(stages) - 1
     conditions = _conditions(escalate_if, gated)

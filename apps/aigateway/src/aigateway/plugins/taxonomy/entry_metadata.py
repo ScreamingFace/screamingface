@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "CacheEntryMetadataReferenceError",
     "cache_entry_metadata_from_session",
+    "cache_reference_from_captured_aigw",
     "cache_reference_from_entry_metadata",
 ]
 
@@ -258,7 +259,11 @@ def cache_reference_from_entry_metadata(meta: CacheEntryMetadata) -> CacheRefere
     if meta.metadata_status not in _CERTIFYING_STATUSES:
         # §3.5: a partial capture must never certify a price. No value is inferred from
         # the cached body either (R2).
+        # FEATURE (E4c ans:Q21b, OME-1291): the token counts are a price too (a tokens
+        # budget charges them), and the engine reads no tokens from a partial live capture.
+        # A hit must give the same numbers, so it withholds them as well.
         direct_cost = DirectCost.unavailable()
+        usage = TokenUsage(status="unavailable", source="cached_converted_response")
     try:
         return CacheReference(
             usage=usage,
@@ -273,3 +278,61 @@ def cache_reference_from_entry_metadata(meta: CacheEntryMetadata) -> CacheRefere
         raise CacheEntryMetadataReferenceError(
             "stored cache-entry metadata produced an invalid reference"
         ) from exc
+
+
+def _captured_entry_metadata(aigw: Any) -> CacheEntryMetadata | None:
+    """The stored-entry block a captured ``_aigw`` describes, or ``None`` when it is unpriced."""
+    accounting = aigw["usage_accounting"]
+    cache = accounting["cache"]
+    if cache["status"] == "hit":
+        # The captured hit was priced from its reference, so the replay keeps that one. It was
+        # already certified when it was served; certifying it again changes nothing.
+        reference = cache["reference"]
+        if reference is None:
+            return None
+        return CacheEntryMetadata(
+            metadata_status="complete",
+            observed_at=reference.get("observed_at"),
+            response_model=reference.get("response_model"),
+            usage=reference["usage"],
+            direct_cost=reference["direct_cost"],
+            provider_latency_ms=(reference.get("latency") or {}).get("provider_latency_ms"),
+        )
+    attempts = accounting["attempts"]
+    # INVARIANT: the engine's live rule (``_final_succeeded_attempt``) — a complete capture,
+    # nothing omitted, every attempt a mapping, the last succeeded one in list order.
+    if (
+        accounting["capture_status"] != "complete"
+        or accounting["omitted_attempts"] != 0
+        or not all(isinstance(attempt, dict) for attempt in attempts)
+    ):
+        return None
+    succeeded = [attempt for attempt in attempts if attempt["outcome"] == "succeeded"]
+    if not succeeded:
+        return None
+    chosen = succeeded[-1]
+    return CacheEntryMetadata(
+        metadata_status="complete",
+        response_model=chosen.get("response_model"),
+        usage=chosen["usage"],
+        direct_cost=chosen["direct_cost"],
+        provider_latency_ms=chosen.get("latency_ms"),
+    )
+
+
+def cache_reference_from_captured_aigw(aigw: Any) -> CacheReference | None:
+    """The reference a frozen-copy replay carries: the price record of the captured call.
+
+    FEATURE (E4c ans:Q21b, OME-1291): one price source live and on replay. A budget Gate reads
+    the price of each earlier call, so a replay must give the engine the numbers the live run
+    saw, or the Gate can take another branch. A captured hit keeps its own reference. A captured
+    miss gives the attempt the live engine priced, mapped through the stored-entry rule.
+
+    INVARIANT: totally non-raising. ``None`` (no reference) when the captured block is absent,
+    malformed, or describes a call the live engine could not price.
+    """
+    try:
+        meta = _captured_entry_metadata(aigw)
+        return None if meta is None else cache_reference_from_entry_metadata(meta)
+    except (KeyError, TypeError, ValueError, AttributeError, CacheEntryMetadataReferenceError):
+        return None

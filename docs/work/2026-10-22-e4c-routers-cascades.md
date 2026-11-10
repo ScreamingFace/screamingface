@@ -189,6 +189,21 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   New fixtures `consistency_judge.url4`, `consistency_writer.url4`; the strict xfail is now a
   test. The recipe topology of call #2 lists the reused sample nodes again, as it does for a
   reused signal.
+- 2026-10-27: simplify pass 2 (no behavior change, except one bug fix: `code()` dropped
+  `sf.Estimate` around a nested Gate when the output wrapped).
+- 2026-10-27: Q21 superseded by Q21b (owner chose option B, "one price for both"). The
+  differing-view flag was never wired: a replay through `score_id` gets no per-Case records. The
+  real cause of Q21 was in the gateway: a frozen-copy replay rendered a cache hit with no
+  `cache.reference`, so the Engine priced every replayed call as unknown ($0), and a budget Gate
+  could take another branch. Now the replay carries the captured call's price as
+  `cache.reference` (`cache_reference_from_captured_aigw`): the last succeeded attempt of a
+  complete capture, or the captured hit's own reference. A stored cache entry with a `partial`
+  status now withholds its tokens as well as its cost, as the live path does. The SDK flag
+  (`budget_view_differences`, the `differs` parameter, the summary count) and its 3 tests are
+  removed; BU-27 is rewritten and RP-35 removed. Side effect: a frozen-copy replay now reports the
+  captured call's price as the cache saving, like any cache hit (OME-1687: reproduction cost is
+  spend plus saving). The pinned gateway test `test_cache_entry_metadata_none_space` changes one
+  expectation (PIN manifest). `apps/aigateway` changes need a mirror PR after merge.
 
 ## Outcome
 

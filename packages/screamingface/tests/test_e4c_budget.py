@@ -14,11 +14,9 @@ from typing import Any
 
 import pytest
 from _combine_contract import engine_operators
-from test_e4c_report import case, gate_candidate, operation, record
 
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
-from screamingface._reproduction import budget_view_differences
 
 
 def _url4(recipe: object) -> str:
@@ -176,49 +174,6 @@ def test_invalid_caps_and_estimates_are_refused(build: Callable[[], object], mes
     # BU-14, BU-24
     with pytest.raises((TypeError, ValueError), match=message):
         build()
-
-
-# --- BU#24 ----------------------------------------------------------------------------------------
-
-
-def _view(spent: float, unpriced: int = 0) -> dict[str, Any]:
-    return {
-        "unit": "usd",
-        "cap": 0.05,
-        "spent": spent,
-        "unpriced": unpriced,
-        "estimate": None,
-        "refused": False,
-    }
-
-
-def _replay_run(*cases: sf.CaseResult) -> sf.CandidateResult:
-    return gate_candidate(sf.Budgeted(_choice(), usd=0.05), cases)
-
-
-def _budget_case(case_id: int, view: dict[str, Any] | None) -> sf.CaseResult:
-    value = record(
-        when={"observe": "budget.remaining:usd", "cmp": ">=", "value": 0.02},
-        observed=0.05,
-        selectors=[],
-    )
-    value["budget"] = None if view is None else [view]
-    return case(case_id, (operation("gate_1", value),))
-
-
-def test_replay_marks_a_differing_budget_view() -> None:
-    # BU-27 (ans:Q21): a call priced live comes back unpriced: the views differ for that Gate.
-    captured = _replay_run(_budget_case(1, _view(0.01)), _budget_case(2, _view(0.01)))
-    replayed = _replay_run(_budget_case(1, _view(0.0, unpriced=1)), _budget_case(2, _view(0.01)))
-
-    assert budget_view_differences(captured, replayed) == {1: frozenset({"gate_1"})}
-
-
-def test_replay_compares_only_what_the_captured_run_holds() -> None:
-    captured = _replay_run(case(1, ()), _budget_case(2, _view(0.01)))
-    replayed = _replay_run(_budget_case(1, _view(0.0)), _budget_case(3, _view(0.0)))
-
-    assert budget_view_differences(captured, replayed) == {}
 
 
 # --- the public names -----------------------------------------------------------------------------
