@@ -2196,6 +2196,51 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         needs_hf_token=True,
         license="cc-by-sa-4.0",
     ),
+    # zerobench — imported by Task replay on 2026-11-09 from
+    #   inspect_evals.zerobench.zerobench:zerobench, at the Task's own defaults: its
+    #   Epochs(5, [pass_at_1, pass_at_5, 5_of_5_reliability]) asks each question 5 times, and
+    #   its first declared reducer is inspect's own pass_at(1), so the card declares attempts=5
+    #   with epoch_reducer="pass_at_1" (docs/spec/2026-11-09-attempts-mean-fold.md): each Case
+    #   scores the share of its 5 Attempts fully right, the number inspect_evals publishes as
+    #   pass@1. (A first import on the same day pinned k=1, one Attempt per Case, while the
+    #   importer still refused pass_at(1); the Cases and their digest did not change.)
+    # NAMED DEVIATION: pass_at_5 and 5_of_5_reliability, the Task's other two reducers, are
+    #   not reproduced; this Benchmark publishes the mean over 5 Attempts only, and the card
+    #   names them.
+    # NAMED DEVIATION: the Case labels each picture by its bytes (image/jpeg for 101 of the
+    #   108, image/png for 7); inspect labels every picture image/png from the .png file name
+    #   the eval gives each one, although it saves the bytes in the picture's own format. The
+    #   bytes are identical on 108 of 108 (the ledger's byte check); ours is the true type.
+    # Sealed on linux/amd64 inside the Engine image, as the image build replays it:
+    #   inspect_evals re-saves each picture with Pillow (thumbnail to 1024 px), whose PNG bytes
+    #   differ by platform for the same pixels, so a Mac-sealed digest never matches the build.
+    #   The 1024 px thumbnail is inspect_evals' own construction and not a deviation from it;
+    #   it is this Benchmark's gap to the paper's full-resolution pictures (the card's
+    #   comparability paragraph says why the paper's resolution is out of reach).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face jonathan-roberts1/zerobench
+    #     pin revision 13c35e521f939be69e6bbfbfeb6fb8a80d1179e5
+    "zerobench": TaskReplayCasesSpec(
+        task="inspect_evals.zerobench.zerobench:zerobench",
+        case_count=100,
+        case_digest="7b1b680accca5198fdfc490483805dd621927fe31e01305ca5505186129ee060",
+        case_set_digest="4f5c4adbc2429c52ed96afb15cef18a44561804680e415dc7558d17f51a709c9",
+        keep_sample_metadata=True,
+        source_pins={
+            "jonathan-roberts1/zerobench": "13c35e521f939be69e6bbfbfeb6fb8a80d1179e5",
+        },
+        shuffle_seed=20260917,
+        needs_hf_token=True,
+        # License: none stated. The jonathan-roberts1/zerobench card at the pinned revision
+        #  13c35e52 names no licence and neither does the project page. The dataset is gated on
+        #  the Hub behind the authors' terms: do not post, redistribute or disclose ZeroBench
+        #  answers publicly, and do not use any part of ZeroBench for training (the card carries
+        #  a canary string). Accepted on that footing (owner decision on OME-1855,
+        #  2026-11-09): the answers stay Grading Material, never served, the Hub token gates the
+        #  build, and nothing here trains on the Cases. The repo's form for a dataset with no
+        #  licence (piqa, cybermetric, gdpval).
+        license="unknown",
+    ),
     # macbench — imported by Task replay on 2026-11-09 from
     #   inspect_evals.macbench.macbench:macbench.
     # Case Sources, as recorded at import (review them; the Case Digest pins them):

@@ -125,6 +125,10 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, a local Task judged by Sonnet 4.5.
     "labbench2_figqa2_img": "770667413b4b1e51",
     "labbench2_tableqa2_img": "742c148e87b15f69",
+    # OME-1855: ZeroBench's 100 main questions with their pictures, one-sample pass@1.
+    # OME-1855: first pinned b0afce4bf40156bf (k=1, one Attempt) in the same unmerged PR; the
+    # five-Attempt import moved it before anything was published.
+    "zerobench": "9155d9581e103c0a",
     # OME-1854: MaCBench, chemistry and materials pictures, letters graded as a set.
     "macbench": "a8d8e6ccc379924f",
     "frontierscience": "826050de44778515",

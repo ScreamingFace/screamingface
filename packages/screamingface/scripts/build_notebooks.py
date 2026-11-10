@@ -2207,11 +2207,17 @@ PICTURE_BENCHMARKS = {
     "inspect-hle": "judge (HLE's regex_judge compares the final answer with the reference)",
     "labbench2_figqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
     "labbench2_tableqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
+    "inspect-zerobench": "exact match of the text in the last curly braces, no judge",
     "inspect-macbench": "the eval's own answer-tag parser: letters as a set for multiple "
     "choice, a tolerance window for numbers, no judge",
 }
 # Their pictures are re-saved by Pillow at preparation, so their Case Digest is sealed on Linux.
-SEALED_ON_LINUX = {"inspect-mmmu_multiple_choice", "inspect-mmmu_open", "inspect-mathvista"}
+SEALED_ON_LINUX = {
+    "inspect-mmmu_multiple_choice",
+    "inspect-mmmu_open",
+    "inspect-mathvista",
+    "inspect-zerobench",
+}
 
 catalogue = sf.benchmarks.list()
 served_ids = {benchmark.id for benchmark in catalogue}
@@ -2221,7 +2227,7 @@ local_mac = TARGET == "local" and platform.system() == "Darwin"
 served = []
 for benchmark_id in PICTURE_BENCHMARKS:
     # The Mac check comes first: a local Engine lists every Benchmark it knows, prepared or
-    # not, so on a Mac these three are in the catalogue with no Cases behind them.
+    # not, so on a Mac these four are in the catalogue with no Cases behind them.
     if local_mac and benchmark_id in SEALED_ON_LINUX:
         print(f"skipped  {benchmark_id}: its Case Digest is sealed on Linux, so a Mac has no Cases")
     elif benchmark_id in served_ids:
@@ -2321,6 +2327,20 @@ near saturation (frontier models score about 0.94); FigQA2 is not (about 0.61)."
 run_two_cases("labbench2_figqa2_img")"""),
         nbformat.v4.new_code_cell("""\
 run_two_cases("labbench2_tableqa2_img")"""),
+        nbformat.v4.new_markdown_cell("""\
+### ZeroBench: hard reasoning over pictures, answered in braces, five Attempts per Case
+
+Each Case is one hand-written question over one or more pictures, built so that every
+frontier model scored 0 at release (the best official five-sample pass@1 today is about 0.43).
+The model is asked to think step by step and put its final answer in curly braces; the text in
+the last braces must equal the answer exactly, so no judge is spent. As inspect_evals does,
+**each Case is asked 5 times**: the Case score is the mean over its 5 Attempts (an Attempt is
+right only on an exact match), so two Cases cost ten Candidate calls, and a Candidate at
+temperature 0 gives five near-identical Attempts. Its Case Digest is sealed on Linux, like
+MMMU's and MathVista's, so a local Mac skips it. The dataset is gated: the cell prints the
+score, never the expected answer."""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("inspect-zerobench")"""),
         nbformat.v4.new_markdown_cell("""\
 ### MaCBench: chemistry and materials pictures, letters or a number
 
