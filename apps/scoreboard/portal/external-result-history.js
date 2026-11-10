@@ -2,31 +2,42 @@
 (function (P) {
   "use strict";
 
-  function field(list, label, value) {
-    list.appendChild(P.el("dt", null, label));
-    list.appendChild(P.el("dd", null, value));
-  }
-
   function versionCard(version, currentRevision) {
-    var card = P.el("section", "external-history__version");
-    card.appendChild(P.el("h2", null, version.revision === currentRevision ? "Current result" : "Previous result"));
-    var score = P.el("p", "external-history__score mono", P.formatScore(version.score));
-    if (version.metric_name) score.appendChild(P.el("span", "external-history__metric", version.metric_name));
+    var current = version.revision === currentRevision;
+    var card = P.el("li", "external-history__version" + (current ? " external-history__version--current" : ""));
+    var label = P.el("div", "external-history__identity");
+    label.appendChild(P.el("span", "external-history__state", current ? "Current result" : "Previous result"));
+    label.appendChild(P.el("span", "external-history__number mono", "Version " + version.revision));
+    card.appendChild(label);
+    var score = P.el("div", "external-history__score");
+    score.appendChild(P.el("span", "mono", P.formatScore(version.score)));
+    if (version.metric_name) {
+      var metric = version.metric_name === "sad_score" ? "SAD score" : version.metric_name.split("_").join(" ");
+      score.appendChild(P.el("span", "external-history__metric", metric));
+    }
     card.appendChild(score);
-    var facts = P.el("dl", "external-history__facts");
-    field(facts, "Recorded", version.recorded_at ? P.formatDate(version.recorded_at) : "Date unknown");
-    field(facts, "Source read", version.observed_at ? P.formatDate(version.observed_at) : "Date unknown");
-    card.appendChild(facts);
+    var saved = P.el("div", "external-history__saved");
+    saved.appendChild(P.el("span", "external-history__label", "Saved on"));
+    saved.appendChild(P.el("span", null, version.recorded_at ? P.formatDate(version.recorded_at) : "Date unknown"));
+    card.appendChild(saved);
+    var source = P.el("div", "external-history__source");
     var href = P.httpUrlOrNull(version.source_url);
     if (href) {
-      var link = P.link("external-result__source", href, "Source ↗");
+      var link = P.link("btn ghost external-result__source", href, "Source ↗");
       link.setAttribute("target", "_blank");
       link.setAttribute("rel", "noopener noreferrer");
       link.setAttribute("aria-label", "Source for version " + version.revision + " (opens in a new tab)");
-      card.appendChild(link);
+      source.appendChild(link);
+    } else {
+      source.appendChild(P.el("span", "external-history__muted", "Source unavailable"));
     }
+    card.appendChild(source);
+    var details = P.el("div", "external-history__details");
+    var checked = version.observed_at ? "Source checked on " + P.formatDate(version.observed_at) : "Source-check date unknown";
+    details.appendChild(P.el("p", "external-history__checked", checked));
     var note = version.metadata && version.metadata.comparison_note;
-    if (typeof note === "string" && note.trim()) card.appendChild(P.el("p", null, note));
+    if (typeof note === "string" && note.trim()) details.appendChild(P.el("p", null, note));
+    card.appendChild(details);
     return card;
   }
 

@@ -45,15 +45,16 @@
     <button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
   </div>
 
-  <main class="wrap">
-    <header class="masthead">
+  <main class="wrap external-history-page">
+    <header class="masthead external-history__masthead">
       <div class="eyebrow">Result history</div>
       <h1 id="history-model">Result history</h1>
     </header>
-    <p class="lead">Scores and source details, newest first. Previous versions do not affect rankings.</p>
+    <p class="external-history__intro">Changes to this result, newest first. Previous versions do not affect rankings.</p>
     <p id="history-status" class="state" role="status" aria-live="polite">Loading…</p>
-    <div id="history-versions" class="external-history" aria-label="Result versions"></div>
-    <button type="button" id="history-more" class="btn" hidden>Show older versions</button>
+    <div class="external-history__heading" aria-hidden="true"><span>Version</span><span>Score</span><span>Saved on</span><span>Source</span></div>
+    <ol id="history-versions" class="external-history" aria-label="Result versions"></ol>
+    <button type="button" id="history-more" class="btn ghost" hidden>Show older versions</button>
     <div class="foot"><span>😱 screamingface</span><a href="index.html">Leaderboards</a></div>
   </main>
   <script src="main.js" defer></script>

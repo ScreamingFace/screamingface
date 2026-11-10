@@ -45,10 +45,10 @@
       td.textContent = P.EM_DASH;
       return td;
     }
-    var link = P.link("external-result__source", href, "Original result ↗");
+    var link = P.link("btn ghost external-result__source", href, "Source ↗");
     link.setAttribute("target", "_blank");
     link.setAttribute("rel", "noopener noreferrer");
-    link.setAttribute("aria-label", "Original result for " + row.spec_id + " (opens in a new tab)");
+    link.setAttribute("aria-label", "Source for " + row.spec_id + " (opens in a new tab)");
     td.appendChild(link);
     return td;
   }
@@ -59,19 +59,10 @@
     tr.appendChild(P.el("td", "col-mark"));
     var model = P.el("td", "cell-wrap");
     var description = "External result; not reproducible.";
-    var note = row.metadata && row.metadata.comparison_note;
-    if ((typeof note !== "string" || !note.trim()) && row.metadata && row.metadata.comparison) {
-      note = row.metadata.comparison.prompt_note;
-    }
+    var note = comparisonNote(row);
     model.title = description + (typeof note === "string" && note.trim() ? " " + note : "");
     model.appendChild(P.el("span", "mono", row.spec_id));
     model.appendChild(P.el("span", "sr-only", description));
-    if (typeof note === "string" && note.trim()) {
-      var details = P.el("details", "external-result__comparison");
-      details.appendChild(P.el("summary", null, "Comparison"));
-      details.appendChild(P.el("p", null, note));
-      model.appendChild(details);
-    }
     tr.appendChild(model);
     tr.appendChild(P.el("td", null, P.EM_DASH));
     tr.appendChild(P.el("td", null, P.EM_DASH));
@@ -91,5 +82,42 @@
     return tr;
   }
 
-  window.SFExternalResults = { selectRows: selectRows, renderRow: renderRow };
+  function comparisonNote(row) {
+    var metadata = row.metadata || {};
+    var note = metadata.comparison_note;
+    if (typeof note !== "string" || !note.trim()) {
+      note = metadata.comparison && metadata.comparison.prompt_note;
+    }
+    return typeof note === "string" ? note.trim() : "";
+  }
+
+  function renderComparisonNotes(container, rows) {
+    if (!container) return;
+    P.clear(container);
+    container.hidden = true;
+    var groups = new Map();
+    rows.forEach(function (row) {
+      if (!row.external) return;
+      var note = comparisonNote(row);
+      if (!note) return;
+      if (!groups.has(note)) groups.set(note, new Set());
+      groups.get(note).add(row.spec_id);
+    });
+    if (!groups.size) return;
+    container.appendChild(P.el("summary", null, "Comparison notes"));
+    var content = P.el("div", "external-comparison__content");
+    // Shared wording appears once; different notes keep their model attribution.
+    groups.forEach(function (models, note) {
+      var group = P.el("div", "external-comparison__group");
+      group.appendChild(P.el("p", "external-comparison__models", Array.from(models).join(", ")));
+      group.appendChild(P.el("p", null, note));
+      content.appendChild(group);
+    });
+    container.appendChild(content);
+    container.hidden = false;
+  }
+
+  window.SFExternalResults = {
+    selectRows: selectRows, renderRow: renderRow, renderComparisonNotes: renderComparisonNotes,
+  };
 })(window.ScorePortal);

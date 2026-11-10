@@ -73,3 +73,15 @@ test("no retained versions has an honest empty state",async()=>{
   const {ids}=await load([response([])]);
   assert.equal(ids["history-status"].textContent,"No saved history yet.");
 });
+
+test("history uses compact version rows and separates saved from source-check dates", async()=>{
+  const {ids}=await load([response([version(3,0.82),version(2,0.8)])]);
+  const current=ids["history-versions"].children[0];
+  assert.equal(current.tag,"li");
+  assert.equal(current.className,"external-history__version external-history__version--current");
+  assert.ok(descendants(current).some(n=>n.textContent==="Saved on"));
+  assert.ok(descendants(current).some(n=>n.textContent==="Source checked on 2026-11-01T00:00:00Z"));
+  const source=descendants(current).find(n=>n.tag==="a");
+  assert.equal(source.className,"btn ghost external-result__source");
+  assert.ok(!descendants(current).some(n=>n.textContent==="Recorded" || n.textContent==="Source read"));
+});
