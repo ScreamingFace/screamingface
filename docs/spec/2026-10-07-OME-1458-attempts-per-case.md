@@ -52,6 +52,7 @@ that declares no Attempts; its Case Results, Report and Benchmark Revision stay 
 |---|---|---|
 | D1 | **k independent Attempts per Case, any-match** (option b). Options a (k answers in one reply) and c (refuse forever) are rejected. | — |
 | D2 | **Any-match is the only rule.** pass@1 estimated from N samples, all-must-match (ZeroBench's pass^k) and mean-over-Attempts wait until a Benchmark needs them. | Q3 |
+|    | Amended 2026-11-09: pass@1 from N samples is the mean over Attempts and imports when it is the Task's headline reducer; see `docs/spec/2026-11-09-attempts-mean-fold.md`. | |
 | D3 | A new required-when-set field `attempts` on `BenchmarkDeclaration`, shown in the catalogue and pinned into the Benchmark Revision only when N > 1. | Q1 |
 | D4 | The catalogue says **"any of N Attempts"**, never a bare "pass@N": inspect's `pass_at` means the unbiased estimator, a different number (§2.1). | Q1 |
 | D5 | **Revised.** Attempt 1 is sent exactly as today. Attempt i ≥ 2 differs only in what keeps it from being a copy of Attempt 1: a seed derived from the run's answer seed when the run declared one, and the Attempt number in the gateway's cache control when it did not (§2.3), so a rerun replays every Attempt. The owner first approved "one seed per Attempt"; that would refuse every Anthropic model (§2.3). | Q2 |

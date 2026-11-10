@@ -2211,6 +2211,24 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         needs_hf_token=True,
         license="cc-by-sa-4.0",
     ),
+    # macbench — imported by Task replay on 2026-11-09 from
+    #   inspect_evals.macbench.macbench:macbench.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face jablonkagroup/MaCBench
+    #     pin revision ca13e7aff2f9a40cb638360c3e569de173ae1fdd
+    "macbench": TaskReplayCasesSpec(
+        task="inspect_evals.macbench.macbench:macbench",
+        case_count=1153,
+        case_digest="d265b015bfd89935856e1d96ba48a881111f693f621e8e792df8e446e060c51c",
+        case_set_digest="b1a05539af1b56024139e707c074958fd2e187248447e6233cc2b847da4bcad9",
+        keep_sample_metadata=True,
+        letter_list_key=True,
+        source_pins={
+            "jablonkagroup/MaCBench": "ca13e7aff2f9a40cb638360c3e569de173ae1fdd",
+        },
+        shuffle_seed=20260917,
+        license="mit",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

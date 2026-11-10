@@ -93,6 +93,7 @@ spec:
         # (the same invariant as the App Deployment's checksum annotations).
         checksum/runner-env: {{ include (print $.Template.BasePath "/configmap-runner-env.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret-artifact-storage.yaml") . | sha256sum }}
+        checksum/blob-secret: {{ include (print $.Template.BasePath "/secret-blob-storage.yaml") . | sha256sum }}
         checksum/tavily: {{ include (print $.Template.BasePath "/secret-tavily.yaml") . | sha256sum }}
         {{- if include "screamingface-engine.worldConfigEnabled" . }}
         # OME-1770: the SAME supplied content revision as the App's — see `worldConfig`. Warm
@@ -141,6 +142,9 @@ spec:
             - name: metrics
               containerPort: {{ .Values.runnerPool.metricsPort }}
           env:
+            # The blob store's key pair (OME-1540; #1603 review), by NAMED key rather than envFrom:
+            # the blob Secret also holds the blob Garage's RPC secret, which must reach Garage only.
+            {{- include "screamingface-engine.blobCredentialEnv" . | nindent 12 }}
             # The worker's OWN settings, from `runnerPool` — the same values the
             # containerPort and the resource arithmetic above already consume. The
             # worker builds `Settings()` from its environment, and without these entries
@@ -185,6 +189,11 @@ spec:
               value: {{ .Values.events.maxAgeS | quote }}
             - name: URL4_CLOUD_EVENTS_REPLICAS
               value: {{ .Values.events.replicas | quote }}
+            # INVARIANT: the same `candidateOutcomes.*` the App's ConfigMap renders (spec R11).
+            - name: URL4_CLOUD_CANDIDATE_OUTCOMES_MAX_AGE_S
+              value: {{ .Values.candidateOutcomes.maxAgeS | quote }}
+            - name: URL4_CLOUD_CANDIDATE_OUTCOMES_MAX_BYTES
+              value: {{ .Values.candidateOutcomes.maxBytes | int64 | quote }}
             - name: URL4_CLOUD_WORKER_DRAIN_GRACE_S
               value: {{ .Values.runnerPool.drainGraceS | quote }}
             - name: URL4_CLOUD_WORKER_METRICS_PORT

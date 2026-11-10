@@ -59,6 +59,7 @@ from screamingface_engine_inspect.fetch_pins import (
 from screamingface_engine_inspect.importer import (
     ImporterError,
     ScorerFacts,
+    TaskAttempts,
     WholeRunMetricChoice,
     _custom_metrics,
     _grades_with_a_judge,
@@ -113,9 +114,14 @@ class TaskReplayFacts:
     mean_instead_of: str | None = None
     #: Attempts per Case, from the Task's any-match epochs (OME-1458); 1 for every other Task.
     attempts: int = 1
-    #: The Task's own any-of-N epoch reducer by inspect's name (``max``), only when Attempts
-    #: meet an honoured whole-run metric (OME-1527); None on every other import.
+    #: The Task's own epoch reducer by inspect's name: ``pass_at_1`` whenever the Case score is
+    #: the mean over Attempts (the fold and the tally read it; 2026-11-09 amendment), else an
+    #: any-of-N name (``max``) only when Attempts meet an honoured whole-run metric (OME-1527);
+    #: None on every other import.
     epoch_reducer: str | None = None
+    #: Reducers the Task also declares that the row does not reproduce (ZeroBench's
+    #: ``pass_at_5`` and ``5_of_5_reliability`` beside ``pass_at_1``); named in the row's comment.
+    dropped_reducers: tuple[str, ...] = ()
     #: The model role the scorer asks for in its body (``"grader"``), so the row's TODO judge
     #: fills that role (OME-1602, F2); None on every other import.
     judge_role: str | None = None
@@ -250,6 +256,7 @@ def _import_replay_from_result(result: Mapping[str, Any]) -> ImportReplay:
         "named_scores",
         "dropped_scorers",
         "dropped_metrics",
+        "dropped_reducers",
     )
     facts: TaskReplayFacts = TaskReplayFacts(
         **{**raw_facts, **{name: tuple(raw_facts.get(name, ())) for name in tuple_facts}}
@@ -281,7 +288,8 @@ def _facts_of(
 
     # WHY first: a Task whose epochs are not any-match is refused before any of its scorer
     # facts are read (OME-1458).
-    attempts: int = task_attempts(task)
+    read: TaskAttempts = task_attempts(task)
+    attempts: int = read.attempts
     scorers: ScorerFacts = _scorer_facts(task, module, whole_run_metric, drop_scorers)
     # INVARIANT (OME-1458): the Attempts fold credits each Check on its own, and a Named
     # Score has no Checks to fold. Refused here, where both facts are known, because the
@@ -296,13 +304,14 @@ def _facts_of(
     # which inspect makes by reducing the Case's epoch Scores with the Task's reducer. With
     # Attempts, the row names that reducer (the first declared, inspect's headline one) so
     # the tally replays it; `task_attempts` has already proved every declared reducer is
-    # inspect's own any-of-N.
+    # inspect's own any-of-N. A mean-over-Attempts Task names `pass_at_1` whatever the
+    # headline choice: the fold itself reads it (2026-11-09 amendment).
     reducer_names: list[str] | None = (
         reducer_log_names(task.epochs_reducer)
         if attempts > 1 and scorers.whole_run_metric is not None
         else None
     )
-    epoch_reducer: str | None = reducer_names[0] if reducer_names else None
+    epoch_reducer: str | None = read.epoch_reducer or (reducer_names[0] if reducer_names else None)
     return TaskReplayFacts(
         task_ref=task_ref,
         task_args=task_args,
@@ -331,6 +340,7 @@ def _facts_of(
         mean_instead_of=scorers.mean_instead_of,
         attempts=attempts,
         epoch_reducer=epoch_reducer,
+        dropped_reducers=read.dropped_reducers,
         judge_role=scorers.judge_role,
         scorer_function_kwargs=scorers.scorer_function_kwargs,
         # WHY (OME-1755): the judge quotes the Sample's input, and the kept copy sits inside

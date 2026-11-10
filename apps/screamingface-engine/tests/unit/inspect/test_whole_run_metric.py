@@ -921,9 +921,9 @@ def test_a_metric_beside_attempts_assembles_with_the_tasks_reducer(
         # The row cannot say which reducer inspect would run, so the metric's input is unknown.
         ({"attempts": 2}, "needs the Task's own epoch_reducer, one of at_least_1, max, pass_at_2"),
         # mean at N is an average, not any-of-N; task_attempts refuses it at import too.
+        # (pass_at_1 at N is admitted since 2026-11-09: it names the mean-over-Attempts fold,
+        # pinned in test_attempts_mean_fold.)
         ({"attempts": 2, "epoch_reducer": "mean"}, "got 'mean'"),
-        # pass_at_1 at N=2 is inspect's unbiased estimator, a different number.
-        ({"attempts": 2, "epoch_reducer": "pass_at_1"}, "got 'pass_at_1'"),
     ],
 )
 def test_a_metric_beside_attempts_needs_an_any_of_n_reducer(

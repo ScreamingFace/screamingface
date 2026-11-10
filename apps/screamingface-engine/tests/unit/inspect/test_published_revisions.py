@@ -125,6 +125,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, a local Task judged by Sonnet 4.5.
     "labbench2_figqa2_img": "770667413b4b1e51",
     "labbench2_tableqa2_img": "742c148e87b15f69",
+    # OME-1854: MaCBench, chemistry and materials pictures, letters graded as a set.
+    "macbench": "a8d8e6ccc379924f",
     "frontierscience": "826050de44778515",
     "pubmedqa": "15e20f21d0a78fd9",
     "xstest_unsafe": "fad9dd3ebabd84a5",

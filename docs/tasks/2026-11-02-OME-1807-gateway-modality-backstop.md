@@ -1,11 +1,12 @@
 ---
 id: OME-1807
 linear_url: https://linear.app/openmined/issue/OME-1807/openrouter-bills-a-pdf-sent-to-an-image-only-model-then-the-gateway
-status: in_review
+status: done
 type: bug
 priority: none
 labels: [bug, aigateway]
 created: 2026-11-02
+closed: 2026-11-04
 ---
 
 # OpenRouter bills a PDF sent to an image-only model, then the gateway reports a retryable provider_error

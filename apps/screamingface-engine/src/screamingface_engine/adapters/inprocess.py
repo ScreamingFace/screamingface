@@ -23,18 +23,21 @@ and `aclose()` returns only after every flush has finished.
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from decimal import Decimal
 from functools import partial
 from typing import cast
 
 from screamingface_engine import job_env
+from screamingface_engine.candidate_outcomes import CandidateOutcomeStream, publish_outcome
 from screamingface_engine.client_provenance import ProvenanceExecutor
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.run_evidence import (
-    TerminalWatch,
+    SettlementWatch,
     adopt_or_mint_traceparent,
     log_scheduled,
     log_terminated,
     outcome_of,
+    settlement_of,
 )
 from screamingface_engine.subjects import RUN_ROOT_NODE
 from screamingface_engine.tracing.loader import load_span_sink
@@ -78,6 +81,11 @@ class _PreparedExecutor(Executor):
 
     def __init__(self, prepare: Callable[[], Awaitable[Executor]]) -> None:
         self._prepare = prepare
+        self._built: Executor | None = None
+
+    def last_summary(self) -> object:
+        """The built executor's summary, so a run's cost reaches its outcome (OME-1785)."""
+        return None if self._built is None else _summary_of(self._built)
 
     async def execute(
         self,
@@ -85,7 +93,7 @@ class _PreparedExecutor(Executor):
         *,
         trace: TraceContext | None = None,
     ) -> AsyncIterator[ExecStep]:
-        executor = await self._prepare()
+        executor = self._built = await self._prepare()
         steps = executor.execute(url4, trace=trace)
         try:
             async for step in steps:
@@ -104,6 +112,17 @@ class _PreparedExecutor(Executor):
 # rather than a direct comparison.
 DEFAULT_MAX_CONCURRENT_RUNS = 32
 DEFAULT_MAX_HISTORY = 1000
+
+
+def _summary_of(executor: Executor) -> object:
+    last_summary = getattr(executor, "last_summary", None)
+    return None if last_summary is None else last_summary()
+
+
+def _cost_of(executor: Executor) -> Decimal | None:
+    """The run's exact cost from its executor's summary, or None when it has none (spec R3)."""
+    cost = getattr(_summary_of(executor), "cost_usd", None)
+    return cost if isinstance(cost, Decimal) else None
 
 
 def _terminal_status(task: asyncio.Task[None]) -> JobStatus:
@@ -147,9 +166,14 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         extra_models: Callable[[], Sequence[str]] | None = None,
         refresh_extra_models: ExtraModelRefresh | None = None,
         span_sink: SpanSinkLoader = load_span_sink,
+        outcomes: CandidateOutcomeStream | None = None,
     ) -> None:
         self._stream = stream
         self._span_sink = span_sink
+        # FEATURE (OME-1785): each run's Candidate outcome, for the Run registry's writer. Only
+        # the run writes a terminal frame here, so its frame always landed (spec R3).
+        self._outcomes = outcomes
+        self._outcome_publishes: set[asyncio.Task[None]] = set()
         self._factory = executor_factory
         # WHY a callable and not a snapshot (OME-880): the admitted-model overlay grows while
         # the app runs, and a model admitted a second ago must reach the very next run.
@@ -188,7 +212,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         *,
         topic: str,
         traceparent: str,
-        watch: TerminalWatch,
+        watch: SettlementWatch,
+        executor: Executor,
     ) -> None:
         # INVARIANT: registered exactly once per schedule(), so each run decrements exactly once
         # however it ended.
@@ -198,6 +223,13 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # failed run is the one whose record is needed, and it was the one previously losing it.
         outcome, error = outcome_of(watch, task)
         log_terminated(_logger, topic=topic, traceparent=traceparent, outcome=outcome, error=error)
+        if self._outcomes is not None:
+            settled = settlement_of(watch, task, cost_usd=_cost_of(executor))
+            publish = asyncio.get_running_loop().create_task(
+                publish_outcome(self._outcomes, topic, settled)
+            )
+            self._outcome_publishes.add(publish)
+            publish.add_done_callback(self._outcome_publishes.discard)
 
     def _prune_history(self) -> None:
         if len(self._tasks) <= self._max_history:
@@ -353,7 +385,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             return build()
 
         executor = build() if self._refresh_extra_models is None else _PreparedExecutor(prepare)
-        watch = TerminalWatch(self._stream)
+        watch = SettlementWatch(self._stream)
         self._verdicts.pop(name, None)
         task = asyncio.get_running_loop().create_task(
             self._exported_run(
@@ -368,7 +400,13 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             name=f"url4-run:{name}",
         )
         task.add_done_callback(
-            partial(self._on_done, topic=topic, traceparent=run_traceparent, watch=watch)
+            partial(
+                self._on_done,
+                topic=topic,
+                traceparent=run_traceparent,
+                watch=watch,
+                executor=executor,
+            )
         )
         self._tasks[name] = task
         self._active += 1
@@ -378,7 +416,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
     async def _exported_run(
         self,
         name: str,
-        watch: TerminalWatch,
+        watch: SettlementWatch,
         executor: Executor,
         topic: str,
         url4: str,
@@ -509,6 +547,9 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             # would cancel each run a SECOND time while it flushes its `Terminated(stopped)`
             # frame, cutting that flush off. A caller's cancel now abandons only its own wait.
             await asyncio.gather(*(asyncio.shield(t) for t in pending), return_exceptions=True)
+        # The cancelled runs' outcomes are on their way out; let them land before the stream goes.
+        if self._outcome_publishes:
+            await asyncio.gather(*self._outcome_publishes, return_exceptions=True)
         # Read AFTER the runs are gathered: a run cancelled above starts its close on the way out.
         closes = list(self._sink_closes)
         if closes:

@@ -46,6 +46,11 @@ from screamingface_engine.benchmarks.provenance import (
     NotPublished,
     ProvenanceFields,
 )
+from screamingface_engine.benchmarks.shared_grading.attempt_fold import (
+    ANY_ATTEMPT_FOLD,
+    MEAN_ATTEMPT_FOLD,
+    AttemptFold,
+)
 from screamingface_engine_inspect.function_references import function_reference_problem
 from screamingface_engine_inspect.local_tasks import scorer_source_pins, task_source_pin
 from screamingface_engine_inspect.prepare import (
@@ -193,10 +198,13 @@ class BenchmarkSpec:
     #: metric, never a Named Score, since no Case carries a precision (OME-1527). None for a
     #: metric returning one number; Benchmark identity when set, so no other row moves.
     whole_run_headline: str | None = None
-    #: The Task's own any-of-N epoch reducer, by inspect's name (``max``, ``at_least_1``,
-    #: ``pass_at_N``), on a row with Attempts that honours ``whole_run_metric``: the tally
-    #: reduces each Case's Attempt Scores with it before the metric reads them, as inspect
-    #: does (OME-1527 x OME-1458). Required exactly then; Benchmark identity when set.
+    #: The Task's own epoch reducer, by inspect's name. ``pass_at_1`` on a row with Attempts
+    #: makes the fold the mean over Attempts (the share at full marks, inspect's pass@1;
+    #: ``docs/spec/2026-11-09-attempts-mean-fold.md``), with or without a whole-run metric. An
+    #: any-of-N name (``max``, ``at_least_1``, ``pass_at_N``) is read only on a row with
+    #: Attempts that honours ``whole_run_metric``: the tally reduces each Case's Attempt Scores
+    #: with it before the metric reads them, as inspect does (OME-1527 x OME-1458), and is
+    #: required exactly then. Benchmark identity when set.
     epoch_reducer: str | None = None
     #: The exam's web-search rule for its Candidate (OME-1527, R13): search on, the declared
     #: domains never reached (draco bans the sites hosting its answers). None, on every row
@@ -7597,6 +7605,99 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,
     ),
+    BenchmarkSpec(
+        key="macbench",
+        published_revision="a8d8e6ccc379924f",
+        title="MaCBench",
+        description=(
+            "1,153 chemistry and materials science questions from MaCBench, every one about "
+            "a picture: a hand-drawn molecule to name, a crystal structure to read a density "
+            "or point group from, an adsorption isotherm or an XRD pattern to compare, an "
+            "NMR or mass spectrum, a table or plot from a US patent, a photo of a lab bench "
+            "or of glassware. 34 subsets in three groups (data extraction, lab and in-silico "
+            "experiments, data interpretation), imported from inspect_evals. Most questions "
+            "are multiple choice, a few (19 of 779) with several correct options the model "
+            "must list together (for example A,C); the rest ask for a number. The Candidate "
+            "is shown the eval's instruction, the question with its picture where the dataset "
+            "places "
+            "it, the options lettered in the dataset's order, and the eval's request for the "
+            "answer inside [ANSWER]...[/ANSWER] tags; the pictures are saved inside the Case "
+            "at import and nothing is fetched at run time. A multiple-choice answer is right "
+            "when it names exactly the key's letters, in any order and case, separated by "
+            "commas or spaces ('A,C', 'A, C', 'C A' and 'c,a' all count), as the MaCBench "
+            "authors grade and as the eval's prompt invites; a number is right inside the "
+            "question's own tolerance window (the dataset's precomputed window, or 1% of the "
+            "answer where it has none), as the eval grades. No judge tokens are spent. The "
+            "letter rule is chembench's proposed fix (inspect_evals PR #2591), applied here "
+            "to its sibling eval: the pinned v0.20.0 scorer compares the letters as text, so "
+            "on the 19 Cases with several correct letters a right answer written 'A, C' or "
+            "'C,A' scored 0. Cases are served in a fixed "
+            "seeded shuffle (the eval shuffles per run). Benchmark score = plain accuracy "
+            "over the cases run, which is the eval's own overall figure; the eval's "
+            "per-subset breakdown is not reproduced. No mid-run check surface."
+        ),
+        focus="Chemistry and materials science questions about pictures (letters or a number)",
+        dataset_url="https://huggingface.co/datasets/jablonkagroup/MaCBench",
+        # inspect_evals' own runs put gpt-5.2 at 0.726 and gpt-5-nano at 0.688 (its README):
+        # real headroom, not expert-only failure (OME-1257).
+        difficulty="medium",
+        # A per-Case mean over the eval's own answer-tag scorer (no whole-run metric, not
+        # inverted, a decline is never the right answer): Group A, as for chembench.
+        failure_policy="withhold",
+        # Provenance: the Task is inspect_evals.macbench.macbench:macbench, whose scorer is
+        #   inspect_evals.macbench.macbench:macbench_scorer.
+        # License: mit, the jablonkagroup/MaCBench card at the pinned revision ca13e7af. The
+        #   card adds evaluation-only terms (never train on it) and a canary string in every
+        #   row; the Cases are served to Candidates only and no gold answer is published.
+        # NAMED DEVIATION: multiple choice is graded by the set of letters, chembench's
+        #   proposed fix (https://github.com/UKGovernmentBEIS/inspect_evals/pull/2591, issue
+        #   #2586) applied to macbench, which reuses chembench's regex and string compare and
+        #   has no fix of its own; its `multiple_choice_letters` copied verbatim, numbers stay
+        #   the eval's own pattern_mae with the Case's own window. Drop it when the pin grades
+        #   the set: the tripwire in tests/unit/inspect/test_named_deviation_macbench.py fails
+        #   then.
+        scorer="screamingface_engine_inspect.named_deviations.macbench.macbench:macbench_scorer",
+        # NAMED DEVIATION: the eval scores the whole run with grouped accuracy, one mean per
+        # subset beside the overall mean; this Benchmark reports the mean per-Case score
+        # (chosen at import, OME-1527), which is that overall figure (inspect's grouped
+        # metric averages over all Samples for its overall number).
+        # Benchmark Provenance (OME-1455): paper, inspect porters and size read from the
+        # eval's eval.yaml; authors and citation from arXiv; the baselines by hand.
+        paper_url="https://arxiv.org/abs/2411.16955",
+        authors="Alampara et al., 2024",
+        citation=(
+            "@misc{alampara2025probinglimitationsmultimodallanguage,\n"
+            "      title={Probing the limitations of multimodal language models for chemistry "
+            "and materials research}, \n"
+            "      author={Nawaf Alampara and Mara Schilling-Wilhelmi and Martiño Ríos-García "
+            "and Indrajeet Mandal and Pranav Khetarpal and Hargun Singh Grover and N. M. Anoop "
+            "Krishnan and Kevin Maik Jablonka},\n"
+            "      year={2025},\n"
+            "      eprint={2411.16955},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.LG},\n"
+            "      url={https://arxiv.org/abs/2411.16955}, \n"
+            "}"
+        ),
+        inspect_contributors=("r-fedorov", "MrtinoRG"),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/macbench",
+        license="MIT",
+        human_baseline=NotPublished(
+            reason="the paper reports no human score; eval.yaml ships none",
+        ),
+        # Frontier score: the paper (v2, 2025-02) reports per-task averages and no whole-set
+        # number; the Hugging Face leaderboard space was asleep when checked (2026-11-09).
+        # inspect_evals' README reports gpt-5.2 at 0.7259 over all 1,153 as a parity check
+        # against the authors' own codebase (same figure to four digits), not a published
+        # board, so it is cited here as a reference point and not as the frontier score.
+        frontier_score=NotPublished(
+            reason="the paper reports per-task averages only and the leaderboard space is "
+            "asleep; inspect_evals' README gives gpt-5.2 0.7259 over all 1,153 as a parity "
+            "check against the authors' codebase, not a published board",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=1153,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
@@ -7677,6 +7778,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         whole_run_headline=spec.whole_run_headline,
         epoch_reducer_factory=_epoch_reducer_factory(spec),
         attempts=spec.attempts,
+        attempt_fold=_attempt_fold(spec),
         retrieval_policy=spec.retrieval_policy,
         candidate_input_envelope=spec.candidate_input_envelope,
         scorer_draft_feedback=spec.scorer_draft_feedback,
@@ -7727,23 +7829,36 @@ def _check_whole_run_metric(spec: BenchmarkSpec) -> None:
     score means, and a verdict map stands in for the eval's own reducer (coconot's), which
     the tally does not replay; either would feed the metric numbers the eval never made.
     Attempts (OME-1458) are fine: the metric reads each Case's Attempt Scores reduced by the
-    Task's own any-of-N reducer, which the row must name (``epoch_reducer``).
+    Task's own any-of-N reducer, which the row must name (``epoch_reducer``). A row naming
+    ``pass_at_1`` folds by the mean over Attempts (2026-11-09 amendment, D17): the fold reads
+    it, so it is admitted with or without a metric, but never on a one-Attempt row.
     """
 
+    from screamingface_engine_inspect.scorer_metrics import (
+        MEAN_OVER_ATTEMPTS_REDUCER,
+        any_match_reducers,
+    )
+
+    mean_fold: bool = spec.epoch_reducer == MEAN_OVER_ATTEMPTS_REDUCER
+    if mean_fold and spec.attempts <= 1:
+        raise ValueError(
+            f"{spec.key}: epoch_reducer {MEAN_OVER_ATTEMPTS_REDUCER} folds Attempts by their "
+            "mean, so it needs attempts above 1; drop it or declare the Attempts"
+        )
     replays_attempts: bool = spec.whole_run_metric is not None and spec.attempts > 1
-    if spec.epoch_reducer is not None and not replays_attempts:
+    if spec.epoch_reducer is not None and not mean_fold and not replays_attempts:
         raise ValueError(
             f"{spec.key}: epoch_reducer is read only by a whole_run_metric on a row with "
             "attempts above 1; drop it"
         )
-    if replays_attempts:
-        from screamingface_engine_inspect.scorer_metrics import any_match_reducers
-
+    if replays_attempts and not mean_fold:
         names: list[str] = sorted(any_match_reducers(spec.attempts))
         if spec.epoch_reducer not in names:
             raise ValueError(
                 f"{spec.key}: whole_run_metric with attempts={spec.attempts} needs the Task's "
-                f"own epoch_reducer, one of {', '.join(names)}; got {spec.epoch_reducer!r}"
+                f"own epoch_reducer, one of {', '.join(names)} (any of N) or "
+                f"{MEAN_OVER_ATTEMPTS_REDUCER} (the mean over Attempts); got "
+                f"{spec.epoch_reducer!r}"
             )
     if spec.whole_run_metric is None:
         return
@@ -8357,7 +8472,17 @@ def _attempts_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
 
     # WHY: any-of-2 and any-of-1 are different numbers for the same answers, so a change
     # of N must never keep a revision its published scores hang off.
-    return (f"attempts={spec.attempts}",) if spec.attempts > 1 else ()
+    if spec.attempts <= 1:
+        return ()
+    pins: list[str] = [f"attempts={spec.attempts}"]
+    # WHY here (2026-11-09 amendment of OME-1458, D17): on a row with no whole-run metric the
+    # reducer names the fold rule (pass_at_1, the mean over Attempts), so it is Attempts
+    # identity: 2/5 and 1.0 are different numbers for the same answers. Beside an honoured
+    # metric it stays pinned with that metric (_whole_run_metric_pins), so ARC-AGI-2's
+    # revision does not move.
+    if spec.epoch_reducer is not None and spec.whole_run_metric is None:
+        pins.append(f"epoch_reducer={spec.epoch_reducer}")
+    return tuple(pins)
 
 
 def _multiple_correct_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
@@ -8470,7 +8595,10 @@ def _whole_run_metric_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     # WHY identity: the key decides which of the dict's numbers is the published headline.
     if spec.whole_run_headline is not None:
         pins.append(f"whole_run_headline={spec.whole_run_headline}")
-    if spec.epoch_reducer is not None:
+    # WHY only beside a metric: a reducer on a row with no whole-run metric names the fold
+    # rule (the mean over Attempts) and is pinned by _attempts_pins instead, so a row that
+    # honours no metric pins nothing here (test_whole_run_metric's invariant).
+    if spec.whole_run_metric is not None and spec.epoch_reducer is not None:
         pins.append(f"epoch_reducer={spec.epoch_reducer}")
     return tuple(pins)
 
@@ -8513,19 +8641,33 @@ def _whole_run_metric_factory(spec: BenchmarkSpec) -> Callable[[], Any] | None:
 
 
 def _epoch_reducer_factory(spec: BenchmarkSpec) -> Callable[[], Any] | None:
-    """Rebuild the Task's own any-of-N reducer from the row's name, lazily; None when the
-    tally reduces each Case with inspect's default mean."""
+    """Rebuild the Task's own reducer from the row's name, lazily (an any-of-N one, or
+    ``pass_at(1)`` for the mean over Attempts); None when the tally reduces each Case with
+    inspect's default mean."""
 
     name: str | None = spec.epoch_reducer
     if name is None:
         return None
 
     def factory() -> Any:
-        from screamingface_engine_inspect.scorer_metrics import any_match_reducers
+        from screamingface_engine_inspect.scorer_metrics import attempts_reducers
 
-        return any_match_reducers(spec.attempts)[name]
+        return attempts_reducers(spec.attempts)[name]
 
     return factory
+
+
+def _attempt_fold(spec: BenchmarkSpec) -> AttemptFold:
+    """The marking room's fold rule for the row: the mean over Attempts when the row names
+    inspect's ``pass_at_1``, else any-of-N (2026-11-09 amendment of OME-1458)."""
+
+    # WHY a string compare, not the reducer: the core fold must not import inspect, and the
+    # row's name is already Benchmark identity (`_whole_run_metric_pins`).
+    from screamingface_engine_inspect.scorer_metrics import MEAN_OVER_ATTEMPTS_REDUCER
+
+    return (
+        MEAN_ATTEMPT_FOLD if spec.epoch_reducer == MEAN_OVER_ATTEMPTS_REDUCER else ANY_ATTEMPT_FOLD
+    )
 
 
 def _constructor(reference: str) -> Any:

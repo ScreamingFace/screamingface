@@ -316,6 +316,10 @@ findings block when they demonstrate a grading-integrity violation.
   official one — a benchmark whose official grading is human/vendor-run (the GDPval
   case) is reproducible but NOT the same number, and must never be presented as
   comparable. A new board missing any of these is Action required.
+- **A PR that onboards a Benchmark ships its Fidelity Record** —
+  `apps/screamingface-engine/docs/benchmarks-fidelity/<id>.md`, produced by the
+  `sf-benchmark-fidelity` agent (the auditor; this lane only asks for the file) — or says in
+  its body when the record follows. Missing both is Action required (OME-1471).
 - **An imported benchmark freezes upstream behind a reviewed lockfile.** When a
   board is generated from a third-party eval package, the import must pass through
   one *trust window* — a human-reviewed diff of frozen pin rows — after which builds

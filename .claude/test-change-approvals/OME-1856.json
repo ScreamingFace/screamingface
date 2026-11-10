@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1856",
+  "branch": "OME-1856-attempts-mean-fold",
+  "approver": "owner, who approved the design and a draft PR on 2026-11-09 and named these two files as the prior tests that change meaning",
+  "date": "2026-11-09",
+  "scope": "Prior-test edits for the mean-over-Attempts fold, and nothing else. test_importer_refuses_epochs.py: the pass_at_one_of_five test flips from refused to imported (attempts=5, epoch_reducer pass_at_1, nothing dropped), the module docstring and the stand-in's comment say why, and the child-process impostor eval gains a look-alike pass_at(1) task with its own appended test. test_whole_run_metric.py: the parametrize row expecting pass_at_1 to be refused at assembly leaves, with a comment pointing at test_attempts_mean_fold.py where its admission is pinned. No other row, assertion or helper changes.",
+  "reason": "inspect's pass_at(1) over N epochs is c/N, the mean of the marks, and the 2026-11-09 amendment of OME-1458's D2 (docs/spec/2026-11-09-attempts-mean-fold.md) admits it as the second fold rule; the two prior tests pinned the old refusal, so they change meaning in the same diff as the rule.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_importer_refuses_epochs.py": {
+      "base_blob": "2a0280cf135392801f05ad7f145ba7b471bfff1b",
+      "approved_blob": "1345d1d00de3990e95b7399533d4f837152eb757"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
+      "base_blob": "d5ec78006460f843dac6f3b79fe2e11d05f9b130",
+      "approved_blob": "ef29bdb4e56054138d442fac7aedb370d54f0f90"
+    }
+  }
+}

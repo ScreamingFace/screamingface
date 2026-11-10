@@ -83,3 +83,5 @@ check exists on `main`.
   mirror say the admission check is pending. This ledger's Intent and summary now lead with the final rule;
   superseded lines are marked, not deleted. PR body and title updated.
 - Deviations: none.
+
+- **Merged:** PR #1597, squash `49c653629`, 2026-11-05 (approved by HupBaHa, kevinm207, khoaguin).
