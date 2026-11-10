@@ -3,12 +3,12 @@
   "branch": "OME-1861-attempt-call-collect",
   "approver": "owner, who on 2026-11-10 chose this unit (a new ticket and PR stacked on OME-1856) and the code mapping (empty answers are wrong tries, errors are no try); the pin below exists to flag exactly this change",
   "date": "2026-11-10",
-  "scope": "One prior-test edit and nothing else. test_local_task_arc_agi_2.py::test_the_arc_url4_is_pinned_byte_for_byte: the pinned sha256 of ARC-AGI-2's rendered url4 moves from 294a48447d1890ef2ff7bbfab5705274f37476aaf3feec6f22a72608cce4a942 to 16e583d19664f1e7591b9f71ae284c81bec4d7f6ae16408afb7bb6ba52b2b4fc, and the docstring says why. No other assertion, row or helper changes.",
+  "scope": "Prior-test edits in test_local_task_arc_agi_2.py and nothing else. (1) test_the_arc_url4_is_pinned_byte_for_byte: the pinned sha256 of ARC-AGI-2's rendered url4 moves from 294a48447d1890ef2ff7bbfab5705274f37476aaf3feec6f22a72608cce4a942 to 16e583d19664f1e7591b9f71ae284c81bec4d7f6ae16408afb7bb6ba52b2b4fc, and the docstring says why. (2) The _run stand-in: a Case with ONE failed Attempt now arrives as an Attempts row with an error row in that Attempt's slot (the new shape), and only a Case whose every Attempt failed arrives as a whole-Case error row; the existing tests' [None, None] Cases take the unchanged path and their assertions are untouched. A new test, test_a_failed_attempt_credits_the_other_as_the_harness_does, pins the lifted D2. No other assertion, row or helper changes.",
   "reason": "The test's own docstring says it exists so that any change to how Attempts are written into ARC-AGI-2's url4 fails there instead of moving silently. This unit changes exactly that (each Attempt inside its own collecting iterate, the Case position bound once at Case level), by the owner's decision. The published revision does not move (test_benchmark_fingerprints.py green, unmodified): the url4 text is not part of it, and every Candidate request is byte-identical.",
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_local_task_arc_agi_2.py": {
       "base_blob": "6f8c9c8af06508d0cfc98753a6c8640be4f59817",
-      "approved_blob": "7ee7db541d934976355cd8cbecefb21ee9436472"
+      "approved_blob": "bdd0027f01a126d26b2c5d070604fc0a0fd17fb8"
     }
   }
 }

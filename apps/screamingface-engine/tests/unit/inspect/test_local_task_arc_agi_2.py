@@ -221,6 +221,13 @@ _RUN: list[tuple[str, int, list[str | None]]] = [
 _TARGET: list[list[int]] = [[1, 2], [3, 4]]
 
 
+#: One Attempt's row when its Candidate call errored (e.g. the token cap): what the Attempt's own
+#: collecting iterate hands the join route (2026-11-10, `protocol._attempted_case`).
+_ERROR_ROW: dict[str, Any] = {
+    "error": {"kind": "ResolutionError", "message": "cap", "code": "model_token_cap"}
+}
+
+
 def _reply_text(reply: str | None) -> str:
     """The Candidate's reply text for one fixture Attempt."""
 
@@ -265,9 +272,10 @@ async def _run(
     metadata: bool = True,
 ) -> dict[str, Any]:
     """Grade every Case's two Attempts through the plugin's own aggregate. A Case whose
-    Attempts failed arrives as a collected error row in its slot: a failed Candidate
-    Invocation fails the whole Case (OME-1458's Candidate-failure limitation), so a failed
-    Case is the only failure shape a run hands over."""
+    Attempts ALL failed arrives as a collected error row in its slot (the Case failed); a Case
+    with one failed Attempt arrives as an Attempts row with an error row in that Attempt's slot
+    (since 2026-11-10 each Attempt collects its own errored call; before, a failed Candidate
+    Invocation failed the whole Case, OME-1458's limitation)."""
 
     # WHY a key per test: an assembled id is bound to one revision (its case count included).
     benchmark: ImportedBenchmark = _assembled_from_row(key, len(grids))
@@ -291,12 +299,14 @@ async def _run(
             {
                 "schema": CASE_ATTEMPTS_SCHEMA,
                 "case_id": index,
-                "attempts": [_row(index, _reply_text(reply)) for reply in replies],
+                "attempts": [
+                    _row(index, _reply_text(reply)) if reply is not None else _ERROR_ROW
+                    for reply in replies
+                ],
             }
-            if all(reply is not None for reply in replies)
-            # Stand-in for a Case whose Candidate Invocation failed (e.g. the token cap): the
-            # error row the run collects in that Case's slot. It does not simulate WHICH
-            # Attempt failed; the Engine fails the Case either way.
+            if any(reply is not None for reply in replies)
+            # Stand-in for a Case whose every Candidate Invocation failed (e.g. the token cap
+            # on both Attempts): the error row the run collects in that Case's slot.
             else {
                 "case_id": index,
                 "error": {"kind": "ResolutionError", "message": "cap", "code": "upstream_error"},
@@ -318,6 +328,28 @@ async def test_the_headline_is_the_harness_score_on_the_same_replies(tmp_path: P
     result: dict[str, Any] = await _run(tmp_path, "arc-conservation", _RUN)
 
     assert result["score"] == round(_harness_headline(_RUN), 4) == 0.3333
+
+
+@pytest.mark.asyncio
+async def test_a_failed_attempt_credits_the_other_as_the_harness_does(tmp_path: Path) -> None:
+    """Fidelity Record D2, lifted 2026-11-10 (OME-1861): a grid whose Attempt 1 was cut at the
+    token cap and whose Attempt 2 is right is solved, as the harness scores a null slot beside a
+    right one; one failed beside a wrong one is 0 on both sides. Harness: (1 + 1 + 0) / 3."""
+
+    run: list[tuple[str, int, list[str | None]]] = [
+        ("p", 1, [None, "RIGHT"]),
+        ("q", 1, ["RIGHT", None]),
+        ("r", 1, [None, "WRONG"]),
+    ]
+
+    result: dict[str, Any] = await _run(tmp_path, "arc-attempt-failed", run)
+
+    assert result["score"] == round(_harness_headline(run), 4) == 0.6667
+    statuses: list[list[str]] = [
+        [attempt["status"] for attempt in case["attempts"]] for case in result["cases"]
+    ]
+    assert statuses == [["failed", "scored"], ["scored", "failed"], ["failed", "scored"]]
+    assert result["cases"][0]["attempts"][0]["failures"][0]["code"] == "model_token_cap"
 
 
 @pytest.mark.asyncio
