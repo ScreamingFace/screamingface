@@ -4,6 +4,7 @@ import DocLayout from '@/components/layout/DocLayout.vue'
 import CodeBlock from '@/components/ui/CodeBlock.vue'
 import NbCell from '@/components/nb/NbCell.vue'
 import NbTextOut from '@/components/nb/NbTextOut.vue'
+import ThemedDiagram from '@/components/ui/ThemedDiagram.vue'
 import {
   sfClientNavigation as navigation,
   sfClientVersion as version,
@@ -34,6 +35,12 @@ const nested = `haiku = sf.Model("openrouter/anthropic/claude-haiku-4.5")
 
 sf.Fanout([pair, haiku], name="nested") >> sf.Synthesize("openrouter/openai/gpt-5.5")`
 const nestedOut = `Fanout([Fanout(['openrouter/anthropic/claude-opus-4.8', 'openrouter/openai/gpt-5.5']) >> Synthesize('openrouter/anthropic/claude-opus-4.8'), 'openrouter/anthropic/claude-haiku-4.5'], name='nested') >> Synthesize('openrouter/openai/gpt-5.5')`
+
+const quorum = `sf.Fanout(
+    [opus, gpt, sf.Model("openrouter/google/gemini-3.1-flash-preview", optional=True)],
+    quorum=2,
+) >> sf.Synthesize("openrouter/anthropic/claude-opus-4.8")`
+const quorumOut = `Fanout(['openrouter/anthropic/claude-opus-4.8', 'openrouter/openai/gpt-5.5', Model('openrouter/google/gemini-3.1-flash-preview', optional=True)], quorum=2) >> Synthesize('openrouter/anthropic/claude-opus-4.8')`
 
 const shortcut = `same = sf.Fusion([opus, gpt], synthesizer="openrouter/anthropic/claude-opus-4.8")
 same == pair`
@@ -369,11 +376,6 @@ const synthesizeSig = `sf.Synthesize(
       <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> has their signatures.
     </p>
 
-    <p>
-      <code>quorum</code> on <code>sf.Fanout</code> sets how many members must succeed, and a member
-      built with <code>optional=True</code> may fail without stopping the fusion.
-    </p>
-
     <h3>4 · Nest a fusion</h3>
 
     <p>
@@ -441,7 +443,43 @@ const synthesizeSig = `sf.Synthesize(
       a route string, which becomes a <code>Model</code>).
     </p>
 
-    <h3>5 · Use the <code>sf.Fusion</code> shortcut</h3>
+    <h3>5 · Handle partial grading failures</h3>
+
+    <p>
+      When you run a fusion, a member can fail. A provider times out, a key is rejected, or a route
+      is unavailable. By default <code>quorum</code> is <code>"all"</code>, so every member must
+      answer: one failure fails the whole fusion, the synthesizer never runs, and the candidate
+      scores nothing for that question. Two controls let the fusion tolerate a failure and still
+      produce a graded answer.
+    </p>
+
+    <p>
+      <strong>Set a quorum.</strong> <code>quorum</code> on <code>sf.Fanout</code> sets how many
+      members must succeed. With <code>quorum=2</code> on three members, the fusion proceeds as soon
+      as any two answer, and the synthesizer reads the answers that arrived. It accepts
+      <code>"all"</code> (the default) or a number from 0 to the member count.
+    </p>
+
+    <p>
+      <strong>Mark members optional.</strong> A member built with <code>optional=True</code> may fail
+      without stopping the fusion. Its failure is tolerated, and it drops out of the answers the
+      synthesizer reads. A member left required (the default) must succeed: if a required member
+      fails, the fusion fails even when the quorum could otherwise be met. Below, two frontier models
+      are required and a faster model is optional, so the fusion survives losing it as long as the
+      quorum of two is met.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="5" :code="quorum"><NbTextOut :text="quorumOut" /></NbCell>
+    </div>
+
+    <ThemedDiagram
+      name="sf-client-0-1-11-fusion-quorum"
+      alt="Topology: members A and B succeed and member C, optional, fails; the quorum check passes the answers that arrived to the Synthesize step when enough members succeeded, and the candidate fails when the quorum is not met or a required member failed."
+      caption="Which members reach the synthesizer, and where a failure stops the candidate."
+    />
+
+    <h3>6 · Use the <code>sf.Fusion</code> shortcut</h3>
 
     <p>
       <code>sf.Fusion</code> is a shortcut for the same chain. It takes the members, then the
@@ -456,7 +494,7 @@ const synthesizeSig = `sf.Synthesize(
     </p>
 
     <div class="not-prose">
-      <NbCell :count="5" :code="shortcut"><NbTextOut :text="shortcutOut" /></NbCell>
+      <NbCell :count="6" :code="shortcut"><NbTextOut :text="shortcutOut" /></NbCell>
     </div>
 
     <h2>The building blocks</h2>
