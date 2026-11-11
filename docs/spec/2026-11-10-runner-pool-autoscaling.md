@@ -205,12 +205,11 @@ is the one removed.
 - A missing or stale reading is an error, never a 0.
 - Scale-down never interrupts a run (the drain, unchanged).
 
-## Side finding (not fixed here)
+## Side finding (fixed by `OME-1869`)
 
 `RunQueue.depth()` is documented as "queued but not yet started", but a WORK_QUEUE stream keeps a
 message until it is acked, so the count includes running runs. The depth ceiling and the
 `screamingface_engine_queue_depth` help text inherit that, and `oldest_unclaimed_age_s` reads the
-stream's first message, which is often a running run. Being fixed on branch
-`queue-depth-unclaimed` (2026-11-10). That branch owns `BucketReading` and
-`RunQueue.bucket_readings()` with the same shape as change 2 of this plan. Whichever branch merges
-second rebases and keeps one copy.
+stream's first message, which is often a running run. Fixed by `OME-1869` (PR #1737, merged
+2026-11-10). That PR brought `BucketReading` and `RunQueue.bucket_readings()` to `main` with the
+same shape as change 2 of this plan; this branch rebased onto it and keeps that one copy.
