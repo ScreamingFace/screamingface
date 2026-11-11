@@ -367,6 +367,11 @@
                 "stepS": {
                   "type": "integer",
                   "minimum": 1
+                },
+                "tolerance": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "HPA scale-up tolerance (0 = exact). Needs Kubernetes >= 1.35."
                 }
               },
               "required": [

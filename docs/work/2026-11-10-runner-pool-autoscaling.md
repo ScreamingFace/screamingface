@@ -105,3 +105,20 @@ Plan: `docs/plan/2026-11-10-runner-pool-autoscaling.md`.
   carried the same shared code and merged first (2026-11-10). This branch rebased onto it: the
   conflicts were `runner_queue.py` (kept `main`'s copy; the file now equals `main`) and the CI
   conformance lists (kept both integration tests).
+- **PR #1738 review (sergio-bershadsky, CHANGES_REQUESTED, 2026-11-11):**
+  - R1 BLOCKER, fixed: the HPA's cluster-default 10 % tolerance stalls scale-up (3 pods x 4 slots
+    at demand 13 = 1.083, no 4th pod; from 10 pods every +1 step is inside the band). The chart
+    now renders `behavior.scaleUp.tolerance: "0"` (value `runnerPool.autoscaling.scaleUp.tolerance`,
+    default 0, schema number >= 0). Scale-down keeps the cluster default. Needs Kubernetes >= 1.35
+    (`HPAConfigurableTolerance` beta); new infra prerequisite 8. Kind proof (k8s 1.37, KEDA 2.20.2,
+    dummy pool + static `{"demand": 13}`, target 4): without the field the HPA held 3 (average
+    4334m); with it, "New size: 4; reason: ... above target". New test file
+    `test_chart_render_runner_scaleup_tolerance_and_drain.py` models the HPA rule at 3x4/13, 8/35 and 9/39.
+  - R2, fixed (owner chose the render check): with autoscaling on, the chart refuses
+    `drainGraceS < config.jobDeadlineS`. Spec D5 now states the condition. Owner-approved test
+    change: the existing file's `_ENABLED` fixture gets drainGraceS 57600 /
+    terminationGracePeriodSeconds 57625, and its expected scaleUp dict gets `"tolerance": "0"`
+    (`.claude/test-change-approvals/OME-1870.json`).
+  - R3, fixed: an all-unbound (or empty) sample now answers 503 `{"status": "unbound"}`, never a
+    200 with demand 0. `RunnerDemandSampler.bound()` follows the last sample. A partly unbound
+    sample still answers 200. New test file `test_runner_demand_route_unbound.py`.

@@ -31,6 +31,9 @@ _ENABLED = {
     "runnerPool.autoscaling.minReplicas": "2",
     "runnerPool.autoscaling.maxReplicas": "5",
     "runnerPool.maxAckPending": "4",
+    # The chart refuses autoscaling with a drain shorter than the run deadline (spec D5).
+    "runnerPool.drainGraceS": "57600",
+    "runnerPool.terminationGracePeriodSeconds": "57625",
 }
 
 pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
@@ -137,6 +140,7 @@ def test_enabled_behavior_carries_the_scaling_windows() -> None:
     assert so["spec"]["advanced"]["horizontalPodAutoscalerConfig"]["behavior"] == {
         "scaleUp": {
             "stabilizationWindowSeconds": 0,
+            "tolerance": "0",
             "policies": [{"type": "Pods", "value": 4, "periodSeconds": 15}],
         },
         "scaleDown": {

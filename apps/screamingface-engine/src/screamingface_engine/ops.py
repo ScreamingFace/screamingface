@@ -125,12 +125,16 @@ def metrics(request: Request) -> Response:
 
 
 @router.get("/runner-demand", tags=["Ops"], summary="Runner pool demand", include_in_schema=False)
-async def runner_demand(request: Request) -> JSONResponse:
+async def runner_demand(request: Request) -> JSONResponse:  # noqa: PLR0911 - one exit per status
     """The claimable runner demand for the KEDA `metrics-api` trigger (spec D3).
 
-    200 with a fresh sample; 503 when there is no sample or it is older than
-    `runner_demand_stale_s` (the KEDA scaler then fails and the HPA keeps the current count);
-    404 when the sampler is off.
+    - 200 with a fresh sample that read at least one bound bucket consumer.
+    - 503 `stale` when there is no sample or it is older than `runner_demand_stale_s`. The KEDA
+      scaler then fails and the HPA keeps the current count.
+    - 503 `unbound` when the fresh sample found no bound bucket consumer (no worker has bound
+      yet, or the consumers were deleted). It read no demand, and a 0 would scale a loaded pool
+      down. The HPA still applies minReplicas, so a cold start comes up.
+    - 404 when the sampler is off.
 
     INVARIANT: it never answers a demand (least of all 0) it did not read. A false 0 scales a
     loaded pool down to its minimum.
@@ -150,6 +154,8 @@ async def runner_demand(request: Request) -> JSONResponse:
             status_code=503,
         )
     demand, sampled_at, age_s = fresh
+    if not sampler.bound():
+        return JSONResponse({"status": "unbound", "age_s": round(age_s, 3)}, status_code=503)
     return JSONResponse(
         {
             "demand": demand.demand,

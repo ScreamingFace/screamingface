@@ -84,7 +84,8 @@ class RunnerDemandSampler:
 
     A failed `sample()` raises and leaves the old sample in place, which ages out to stale.
     INVARIANT: `fresh()` never returns a reading older than `stale_s`, so `/runner-demand` never
-    answers a 0 it did not read. `stale_s` > 0 is enforced by `Settings`.
+    answers a 0 it did not read. An all-unbound sample also reads no demand, so `bound()` tells
+    the route to answer 503 instead of that 0. `stale_s` > 0 is enforced by `Settings`.
     """
 
     def __init__(
@@ -97,14 +98,23 @@ class RunnerDemandSampler:
         self._source = source
         self.stale_s = stale_s
         self._clock = clock
-        self._last: tuple[RunnerDemand, datetime] | None = None
+        # (demand, sampled_at, bound): one tuple, so `bound()` always describes the sample that
+        # `fresh()` returns.
+        self._last: tuple[RunnerDemand, datetime, bool] | None = None
 
     async def sample(self) -> None:
         readings = await self._source.bucket_readings()
-        self._last = (claimable_demand(readings), self._clock())
+        bound = any(r is not None for r in readings)
+        self._last = (claimable_demand(readings), self._clock(), bound)
+
+    def bound(self) -> bool:
+        """True when the last sample read at least one bound bucket consumer. False before any
+        sample and when every bucket was unbound (or there were no buckets): then the sample read
+        no demand at all, and the route must not answer it as a 0."""
+        return self._last is not None and self._last[2]
 
     def snapshot(self) -> tuple[RunnerDemand, datetime] | None:
-        return self._last
+        return None if self._last is None else self._last[:2]
 
     def age_s(self) -> float | None:
         return None if self._last is None else self._age(self._last[1])
@@ -114,7 +124,7 @@ class RunnerDemandSampler:
         no sample or it is older than `stale_s`."""
         if self._last is None:
             return None
-        demand, sampled_at = self._last
+        demand, sampled_at, _ = self._last
         age = self._age(sampled_at)
         return None if age > self.stale_s else (demand, sampled_at, age)
 
