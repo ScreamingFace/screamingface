@@ -86,10 +86,18 @@ def _check_remote_processor(uri: str) -> None:
     WHY only ``url4://``: F1b names ``url4://`` remote-node calls; an ``https://`` processor is a
     plain fetch the transport guard governs.
     """
+    hop = remote_processor_hop(uri)
+    if hop is not None:
+        check_remote_node(*hop)
+
+
+def remote_processor_hop(uri: str) -> tuple[str, str] | None:
+    """The ``(authority, path)`` a ``url4://`` processor URI calls; ``None`` for any other."""
     scheme, sep, rest = uri.partition("://")
-    if sep and scheme.lower() == "url4":
-        authority, slash, path = rest.split("?", 1)[0].partition("/")
-        check_remote_node(authority, f"/{path}" if slash else "/")
+    if not (sep and scheme.lower() == "url4"):
+        return None
+    authority, slash, path = rest.split("?", 1)[0].partition("/")
+    return authority, f"/{path}" if slash else "/"
 
 
 async def _evaluate(value: str, spawn: Callable[[str], Awaitable[str]] | None) -> str:
@@ -138,4 +146,10 @@ def _route_for_id(processor_id: str, io: IOLayer) -> str:
     )
 
 
-__all__ = ["ProcessorForm", "ProcessorTarget", "classify_processor", "resolve_processor_target"]
+__all__ = [
+    "ProcessorForm",
+    "ProcessorTarget",
+    "classify_processor",
+    "remote_processor_hop",
+    "resolve_processor_target",
+]

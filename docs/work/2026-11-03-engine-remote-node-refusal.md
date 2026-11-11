@@ -64,3 +64,13 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   change). Gates on that base: `run_gates.py url4`, `screamingface-engine` and `repo --base
   origin/main` ALL GATES GREEN. The stacked branch `OME-1811-engine-remote-node-refusal` is
   superseded.
+- **Review round 1 (HupBaHa, 2026-11-11, #1750):** the guard fired only when the remote node
+  resolved, so concurrently scheduled local siblings (paid model calls in the engine) ran first.
+  Fix: `url4.dag._remote_preflight.preflight_remote_nodes` walks the graph before scheduling and
+  refuses every `RemoteFetchNode` and a literal `url4://` reduce processor; `run()` calls it, and
+  `spawn` calls it once per compiled fragment. The check is non-consuming
+  (`remote_nodes.preflight_remote_node`), so a `Client` hop is still spent by the call itself; the
+  execution-time checks stay for dynamic (Form-3) processors. Tests with endpoint tripwires:
+  url4 `test_remote_node_preflight.py`, engine `test_engine_remote_node_preflight.py`. RED
+  verified: 8 url4 and 6 engine cases fail without the fix. Gates: url4, screamingface-engine and
+  repo `--base origin/main` ALL GATES GREEN; `dag/executor.py` 312, at its cap.

@@ -25,6 +25,7 @@ from url4.io.layer import IOLayer
 from url4.observe import Observer, RunFinished, RunStarted
 
 from url4.dag._context import _ObsState  # isort: skip
+from url4.dag._remote_preflight import preflight_remote_nodes  # isort: skip
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.executor import Executor, _wire_spawn  # isort: skip
 from url4.dag.node import (  # isort: skip
@@ -161,8 +162,11 @@ async def run(
     obs = _start_observation(run_ctx, observer, target, trace_id, root_span_id)
     _wire_spawn(run_ctx, registry)
     try:
+        sink = _to_node(target, registry)
+        # INVARIANT (F1b, OME-1811): a refused remote node fails before ANY dependency runs.
+        preflight_remote_nodes(sink, run_ctx.processor)
         # WHY release on: one executor per call, one root — the opt-in's single-root rule holds.
-        result = await Executor(run_ctx, release_finished=True).execute(_to_node(target, registry))
+        result = await Executor(run_ctx, release_finished=True).execute(sink)
     except BaseException as exc:
         status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
         _finish_observation(obs, status)

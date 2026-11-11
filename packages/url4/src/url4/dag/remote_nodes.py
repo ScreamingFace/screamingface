@@ -65,11 +65,32 @@ def check_remote_node(authority: str, path: str) -> None:
         # lowered itself) is a call the client did not build; it fails closed.
         policy.used = True
         return
-    raise ResolutionError(
+    raise _refusal(authority, path)
+
+
+def preflight_remote_node(authority: str, path: str) -> None:
+    """Raise now if this evaluation could never call ``authority``; consume nothing.
+
+    WHY non-consuming: the preflight (``url4.dag._remote_preflight``) walks the graph before any
+    node runs. It refuses only what :func:`check_remote_node` would refuse whatever the order, so
+    the single hop stays for the call itself, and that call still checks (and spends) it.
+    """
+    policy = _POLICY.get()
+    if policy is not None and (policy.used or policy.hop != (authority, path)):
+        raise _refusal(authority, path)
+
+
+def _refusal(authority: str, path: str) -> ResolutionError:
+    return ResolutionError(
         f"remote-node calls are not supported in v1 (url4://{authority}{path})",
         code=ErrorCode.REMOTE_NODE_UNSUPPORTED,
         permanent=True,
     )
 
 
-__all__ = ["allow_one_remote_hop", "check_remote_node", "refuse_remote_nodes"]
+__all__ = [
+    "allow_one_remote_hop",
+    "check_remote_node",
+    "preflight_remote_node",
+    "refuse_remote_nodes",
+]

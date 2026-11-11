@@ -36,6 +36,7 @@ from url4.observe import (
     _bind_node_sinks,
 )
 
+from url4.dag._remote_preflight import preflight_remote_nodes  # isort: skip
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.node import (  # isort: skip
     RDS_STRICT,
@@ -289,6 +290,8 @@ def _wire_spawn(ctx: ExecutionContext, registry: LoweringRegistry | None) -> Non
             # re-check in ``execute`` (which still defaults to checking, for
             # hand-built graphs passed directly to ``run`` / ``execute``).
             check_acyclic(graph.sink)
+            # INVARIANT (F1b): a refused remote node fails before its fragment's siblings run.
+            preflight_remote_nodes(graph.sink, invoking_ctx.processor)
             compiled[text] = graph
         return await Executor(invoking_ctx.child(scope)).execute(graph.sink, _prevalidated=True)
 
