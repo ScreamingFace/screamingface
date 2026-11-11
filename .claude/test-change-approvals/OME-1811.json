@@ -1,15 +1,15 @@
 {
   "issue": "OME-1811",
-  "branch": "OME-1811-engine-remote-node-refusal",
+  "branch": "OME-1811-remote-node-refusal-main",
   "approver": "Sergey Bershadsky (owner)",
   "date": "2026-11-03",
   "scope": "one value: the url4.dag EXPORTS ratchet 38 -> 39 for the new public export refuse_remote_nodes; no other test line changes",
   "reason": "owner decision 2026-11-03 (session quiz 'Approve 38 -> 39'): engine runs must refuse url4:// remote-node calls (spec #1450 F1b, 'the engine's included'), through a supported url4 hook rather than a private import; the H2 ratchet pins the exact url4.dag __all__ size",
-  "note": "Pinned against the branch base origin/OME-1545-engine-attachment-parts (ca0b870d3).",
+  "note": "Re-pinned 2026-11-11 against origin/main (efca18049), owner approved: the change moved off the unmerged OME-1543/1545 stack. Same one-value change as approved 2026-11-03 (38 -> 39); only the base blob moved.",
   "files": {
     "packages/url4/tests/unit/test_hygiene_ratchets.py": {
-      "base_blob": "c2492021ac0480af78ba3bf7da06ab9273db68ea",
-      "approved_blob": "c970cf7528edb9757feffeeaafdfcb96c13a8c8e"
+      "base_blob": "d34dfb6975f758403f1225dec8d1524a2203bdbf",
+      "approved_blob": "976ef8ded60623fad5caf42023c51e9f791adaba"
     }
   }
 }
