@@ -16,6 +16,7 @@ from .baseline_comparison import validate_comparison
 from .baseline_history import preserve_legacy_observation, record_observation
 from .models import Baseline, Benchmark
 from .schemas import BaselineImportRow, BaselineSchema
+from .source_health import read_health
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,7 @@ def _ranking_eligible(
                 "last_imported_at",
                 "openness_override",
                 "ranking_eligible",
+                "source_health",
                 "observation_revision",
                 "observation_updated_at",
             }
@@ -131,7 +133,11 @@ class BaselineStore:
                     "observation_updated_at",
                 ],
             )
-        return _baseline_to_schema(baseline, benchmark)
+        result = _baseline_to_schema(baseline, benchmark)
+        result.source_health = (
+            await read_health([baseline.source_url] if baseline.source_url else [])
+        ).get(baseline.source_url or "")
+        return result
 
     async def import_many(self, rows: Sequence[BaselineImportRow]) -> list[BaselineSchema]:
         # INVARIANT: all-or-nothing — if any row in the batch fails (e.g. an unknown
@@ -147,10 +153,13 @@ class BaselineStore:
         # before the bound existed, or inserted outside the import path) must not
         # take down the whole board — skip it, keep serving every valid row
         # (found in PR review: this used to be an unhandled 500 for everyone).
+        health = await read_health(row.source_url for row in rows if row.source_url)
         baselines: list[BaselineSchema] = []
         for baseline in rows:
             try:
-                baselines.append(_baseline_to_schema(baseline, benchmark))
+                result = _baseline_to_schema(baseline, benchmark)
+                result.source_health = health.get(baseline.source_url or "")
+                baselines.append(result)
             except ValidationError:
                 logger.warning("skipping baseline %s: failed schema validation", baseline.id)
         return baselines

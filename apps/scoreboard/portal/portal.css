@@ -739,3 +739,9 @@ td.col-run { white-space: nowrap; }
   .external-history__score, .external-history__source { text-align: right; }
   .external-history__label { display: block; color: var(--ink-2); font-size: var(--text-micro); margin-bottom: var(--space-1); }
 }
+
+/* Availability is secondary to the source action; readable without hover. */
+.external-result__source-status,
+.external-result__source-detail { display: block; margin-top: var(--space-1); font-family: var(--f-sans); font-size: var(--text-micro); line-height: 1.4; white-space: normal; }
+.external-result__source-status { color: var(--warning-text-low); white-space: nowrap; }
+.external-result__source-detail { color: var(--ink-2); }
