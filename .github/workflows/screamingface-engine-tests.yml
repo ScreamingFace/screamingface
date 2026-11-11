@@ -108,6 +108,8 @@ jobs:
           fi
       - name: Test report
         uses: dorny/test-reporter@v3
+        # Publishing only: the test step fails the job; a spent GITHUB_TOKEN limit must not.
+        continue-on-error: true
         if: always()
         with:
           name: screamingface-engine Test Results (${{ matrix.python-version }})
@@ -115,6 +117,8 @@ jobs:
           reporter: java-junit
       - name: Coverage report
         uses: orgoro/coverage@v3.3
+        # Publishing only: the test step fails the job; a spent GITHUB_TOKEN limit must not.
+        continue-on-error: true
         if: always() && github.event_name == 'pull_request'
         with:
           coverageFile: apps/screamingface-engine/coverage.xml
