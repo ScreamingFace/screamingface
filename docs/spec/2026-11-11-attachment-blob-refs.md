@@ -180,7 +180,8 @@ An attachment is one content part, in the same position F2 puts inline parts tod
   so a reference request keys on the digest, not on the base64. This is cheaper than today
   (the research measured the key digest at 18.7 ms for an 8 MB inline body).
 - A reference request and the inline request for the same file share one key (owner,
-  2026-11-11). Key material replaces each media part, inline or reference, with its media type
+  2026-11-11; first decided on the PR #1450 request-key thread, 2026-10-23, and listed unfiled on
+  `OME-1681`). Key material replaces each media part, inline or reference, with its media type
   and the SHA-256 of its decoded bytes. Hashing an inline payload's decoded bytes is cheaper than
   hashing it inside the canonical JSON today.
 - This is a `KEY_REVISION` bump. It abandons every stored cache entry whose request has a media
