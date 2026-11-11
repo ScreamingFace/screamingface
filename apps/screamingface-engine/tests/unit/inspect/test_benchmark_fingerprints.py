@@ -61,13 +61,13 @@ _FINGERPRINTS: dict[str, str] = {
     "uccb": "2dbcedb55406dc6e",
     # OME-1610: every other Benchmark, at the fingerprint main computes (2026-10-22), which is
     # also the id it publishes: no change since its id was last set.
-    "gsm8k": "075954bfd63059e0",
+    "gsm8k": "7eebba58799a2f22",
     "mmlu": "9d4c0946ae71f6fa",
     "arc_easy": "f7d6a5325fb0bcff",
     "arc_challenge": "810d45748fde3b18",
     "commonsense_qa": "203aa920ad7ad52b",
     "mmlu_pro": "145edec84bfc2324",
-    "winogrande": "4eb60a70db7518d6",
+    "winogrande": "3f2af135ba8bad37",
     "race_h": "8c5ebb4a9d38cc6f",
     "musr": "a527e0f0db79d923",
     "wmdp_bio": "557c21ed4fcf926e",

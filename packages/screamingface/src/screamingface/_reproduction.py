@@ -99,7 +99,7 @@ def _record_sync(
     try:
         client.leaderboards._record_reproduction(
             published.score_id,
-            run_id=result.run_id,
+            run_id=result.attempt_id,
             # The replay's own numbers. The board compares them with the stored score exactly.
             score=cast(float, result.score),
             total_questions=len(result.cases),
@@ -122,7 +122,7 @@ async def _record_async(
     try:
         await client.leaderboards._record_reproduction(
             published.score_id,
-            run_id=result.run_id,
+            run_id=result.attempt_id,
             score=cast(float, result.score),
             total_questions=len(result.cases),
             frozen_copy_id=published.pinned_cache,

@@ -9,7 +9,7 @@ AIDEV-NOTE: both runner twins settle through `settle`, so sync and async cannot 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import NoReturn
 
 from screamingface._core.ports import _RunOutcome
@@ -62,25 +62,32 @@ def failure_code(error: BaseException) -> str:
     return error.code if isinstance(error, ScreamingFaceError) else _FALLBACK_CODE
 
 
-def raise_candidates_failed(evaluation: _Evaluation, settled: _Settled) -> NoReturn:
+def raise_candidates_failed(
+    evaluation: _Evaluation, settled: _Settled, run_id: str | None = None
+) -> NoReturn:
     """Raise `candidates_failed` from the first failure, with the Partial Report (§5.2).
 
     AIDEV-NOTE: call it OUTSIDE the `except _CandidatesFailed` block, so the raised error's
     `__context__` does not keep the carrier (and every settled result body) alive.
     """
     successes, failures = _decode_candidates(evaluation, settled)
-    _raise_failed(evaluation, len(settled), successes, failures)
+    _raise_failed(evaluation, len(settled), successes, failures, run_id)
 
 
 def completed_report(
-    evaluation: _Evaluation, outcomes: tuple[tuple[Candidate, _RunOutcome], ...]
+    evaluation: _Evaluation,
+    outcomes: tuple[tuple[Candidate, _RunOutcome], ...],
+    run_id: str | None = None,
 ) -> Report:
     # INVARIANT: completed transports still settle indexing/decoding per candidate.
     successes, failures = _decode_candidates(evaluation, outcomes)
     if failures:
-        _raise_failed(evaluation, len(outcomes), successes, failures)
+        _raise_failed(evaluation, len(outcomes), successes, failures, run_id)
     return Report(
-        benchmark=evaluation.benchmark, case_count=evaluation.case_count, candidates=successes
+        benchmark=evaluation.benchmark,
+        case_count=evaluation.case_count,
+        candidates=successes,
+        run_id=run_id,
     )
 
 
@@ -107,8 +114,11 @@ def _raise_failed(
     count: int,
     successes: list[CandidateResult],
     failures: list[tuple[Candidate, Exception]],
+    run_id: str | None = None,
 ) -> NoReturn:
     partial, unavailable = _partial_report(evaluation, successes)
+    # FEATURE (OME-1785): the Partial Report names its Run too, so the failed run can be opened.
+    partial = None if partial is None else with_run_id(partial, run_id)
     named = ", ".join(f"{candidate.name} ({failure_code(exc)})" for candidate, exc in failures)
     error = ExecutionError(
         f"{len(failures)} of {count} Candidates failed: {named}",
@@ -165,6 +175,11 @@ def _decoded(
     # adds the per-Candidate Benchmark and Case-count checks, so a bad Candidate is named
     # by itself here. `completion.py` validates live rows the same way.
     return report_from_outcomes(evaluation, ((candidate, outcome),)).candidates[0]
+
+
+def with_run_id(report: Report, run_id: str | None) -> Report:
+    """``report`` naming the Run it was recorded as (E5 P1 spec §4.4); unchanged without one."""
+    return report if run_id is None else replace(report, run_id=run_id)
 
 
 __all__: list[str] = []

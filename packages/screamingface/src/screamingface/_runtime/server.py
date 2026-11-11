@@ -310,9 +310,17 @@ def _build_apps(config: RuntimeConfig) -> tuple[object, object | None, dict[str,
     from screamingface_engine.local import create_local_app
 
     artifacts_dir = str(config.effective_artifacts_dir(os.environ))
+    # FEATURE (OME-1785): the Engine's Run registry in the data dir, beside the gateway's
+    # database, wherever the spills go. WHY guarded: this Client ships before or after the
+    # bundled Engine gains the setting (E5 P1 plan), and an older Engine refuses an unknown one.
+    database: dict[str, str] = (
+        {"database_url": config.engine_database_url}
+        if "database_url" in getattr(EngineSettings, "model_fields", {})
+        else {}
+    )
     engine = create_local_app(
         settings=EngineSettings(
-            aigateway_base_url=config.services["gateway"], artifacts_dir=artifacts_dir
+            aigateway_base_url=config.services["gateway"], artifacts_dir=artifacts_dir, **database
         ),
         env=_run_environment(config, os.environ),
     )
@@ -341,11 +349,13 @@ def _engine_child_environment(config: RuntimeConfig, environ: Mapping[str, str])
     INVARIANT: the in-process Engine was handed `aigateway_base_url` and `artifacts_dir` as
     Settings arguments; the child reads them from the environment, so both are set here under
     the Engine's `URL4_CLOUD_` prefix (`artifacts_dir` already is — `job_env.ARTIFACTS_DIR` is
-    that very name).
+    that very name). FEATURE (OME-1785): so is the Run registry's database, in the data dir as
+    for the in-process Engine; an Engine without the setting ignores the variable.
     """
     return {
         **_run_environment(config, environ),
         "URL4_CLOUD_AIGATEWAY_BASE_URL": config.services["gateway"],
+        "URL4_CLOUD_DATABASE_URL": config.engine_database_url,
     }
 
 

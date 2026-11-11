@@ -285,6 +285,10 @@ class _QueueCollector:
     the alert that would have fired on 2026-09-01, when a stuck pool left runs queued forever.
     Both are read from the queue runner's CACHED snapshot (sync, no broker round trip at
     scrape time).
+
+    INVARIANT: both count only runs no worker has claimed yet. A RUNNING run stays in the
+    queue stream until its ack at the run's end, so the stream's message count is NOT the
+    depth (docs/spec/2026-11-10-queue-depth-unclaimed.md).
     """
 
     def __init__(self, get_runner: Callable[[], Any]) -> None:
@@ -311,7 +315,7 @@ class _QueueCollector:
         if oldest_age is not None:
             yield GaugeMetricFamily(
                 "screamingface_engine_queue_oldest_unclaimed_age_s",
-                "Seconds since the oldest queued run was published.",
+                "Seconds since the oldest unclaimed run was published to the queue.",
                 value=float(oldest_age),
             )
 

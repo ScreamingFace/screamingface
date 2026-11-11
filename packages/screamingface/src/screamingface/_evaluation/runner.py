@@ -20,9 +20,11 @@ if TYPE_CHECKING:
 from screamingface._core.ports import (
     AsyncRunTransport,
     SyncRunTransport,
+    _AsyncRunRegistration,
     _ConnectionNotice,
     _ResultPersistence,
     _RunOutcome,
+    _RunRegistration,
 )
 from screamingface._environment import SDK_PACKAGE_ROOT
 from screamingface._evaluation.benchmark import _BenchmarkResource
@@ -123,12 +125,11 @@ def evaluate_sync(
         ),
         use_cache,
     )
-    catalog = load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
     # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
     # pre-spend), or answers a plain 404 that reads as today's refusal.
     prefetched: dict[str, ModelDetails] = {}
-    for model in _missing_required_models(evaluation, catalog.models):
+    for model in _missing_required_models(evaluation, load_models().models):
         try:
             prefetched[model] = load_model_details(model)
         except PlanningError as exc:
@@ -136,6 +137,7 @@ def evaluate_sync(
     preflight_sync(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
+    run_id = open_run_sync(transport, benchmark, evaluation.case_count, selected_candidates)
     with _prepared_results(transport, evaluation, selected_candidates):
         observer = _sync_event_observer(
             on_event,
@@ -146,10 +148,10 @@ def evaluate_sync(
             check_disclosure=check_disclosure,
         )
         try:
-            outcomes = _settled_sync(transport, evaluation, selected_candidates, observer)
+            outcomes = _settled_sync(transport, evaluation, selected_candidates, observer, run_id)
             # OME-1739 F6 (the roll-call check) runs per Candidate inside the decode, so a
             # mismatch is a named Candidate failure and never reaches a Partial Report.
-            report = completed_report(evaluation, outcomes)
+            report = completed_report(evaluation, outcomes, run_id)
         except BaseException as exc:
             _abort_event_observer(observer, exc)
             raise
@@ -201,12 +203,11 @@ async def evaluate_async(
         ),
         use_cache,
     )
-    catalog = await load_models()
     # The availability probe (OME-878): a details fetch for EVERY listing-missing
     # Model — the Engine admits it (run proceeds), relays a refusal (decoded,
     # pre-spend), or answers a plain 404 that reads as today's refusal.
     prefetched: dict[str, ModelDetails] = {}
-    for model in _missing_required_models(evaluation, catalog.models):
+    for model in _missing_required_models(evaluation, (await load_models()).models):
         try:
             prefetched[model] = await load_model_details(model)
         except PlanningError as exc:
@@ -214,6 +215,7 @@ async def evaluate_async(
     await preflight_async(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
+    run_id = await open_run_async(transport, benchmark, evaluation.case_count, selected_candidates)
     with _prepared_results(transport, evaluation, selected_candidates):
         observer = _async_event_observer(
             on_event,
@@ -224,14 +226,40 @@ async def evaluate_async(
             check_disclosure=check_disclosure,
         )
         try:
-            outcomes = await _settled_async(transport, evaluation, selected_candidates, observer)
+            outcomes = await _settled_async(
+                transport, evaluation, selected_candidates, observer, run_id
+            )
             # OME-1739 F6: see the sync twin; the check lives in the per-Candidate decode.
-            report = completed_report(evaluation, outcomes)
+            report = completed_report(evaluation, outcomes, run_id)
         except BaseException as exc:
             _abort_event_observer(observer, exc)
             raise
         _conclude_evaluation(observer, report, capture)
         return report
+
+
+def open_run_sync(
+    transport: SyncRunTransport, benchmark: str, case_count: int, candidates: tuple[Candidate, ...]
+) -> str | None:
+    """Record the evaluation as a Run (E5 P1 spec D8): the Run's id, or None without one.
+
+    INVARIANT (spec R1): every caller registers after its preflight and before the first token,
+    so a refused evaluation records nothing and every start can name its Run.
+    """
+
+    if not isinstance(transport, _RunRegistration):
+        return None
+    return transport.open_run(benchmark, case_count, candidates)
+
+
+async def open_run_async(
+    transport: AsyncRunTransport, benchmark: str, case_count: int, candidates: tuple[Candidate, ...]
+) -> str | None:
+    """The async twin of ``open_run_sync``."""
+
+    if not isinstance(transport, _AsyncRunRegistration):
+        return None
+    return await transport.open_run(benchmark, case_count, candidates)
 
 
 def _operators_sync(
@@ -262,6 +290,7 @@ def _settled_sync(
     evaluation: _Evaluation,
     candidates: tuple[Candidate, ...],
     observer: _SyncEventObserver | None,
+    run_id: str | None = None,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
     try:
         return _run_candidates_sync(
@@ -271,7 +300,7 @@ def _settled_sync(
         settled = failed.settled
     # INVARIANT (spec §5): the private carrier never reaches the caller. Raised outside the
     # `except`, so the error does not keep the carrier as its `__context__`.
-    raise_candidates_failed(evaluation, settled)
+    raise_candidates_failed(evaluation, settled, run_id)
 
 
 async def _settled_async(
@@ -279,6 +308,7 @@ async def _settled_async(
     evaluation: _Evaluation,
     candidates: tuple[Candidate, ...],
     observer: _AsyncEventObserver | None,
+    run_id: str | None = None,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
     try:
         return await _run_candidates_async(
@@ -286,7 +316,7 @@ async def _settled_async(
         )
     except _CandidatesFailed as failed:
         settled = failed.settled
-    raise_candidates_failed(evaluation, settled)
+    raise_candidates_failed(evaluation, settled, run_id)
 
 
 def _evaluation_options(on_event: object, progress: object) -> None:
@@ -737,7 +767,7 @@ def _run_candidates_sync(
             # INVARIANT: set BEFORE the sweep — every sibling error from here on is the
             # sweep's doing, so its row reads `stopped`, never `run_failed`.
             aborting.set()
-            _sweep_sync(transport, exc)
+            _sweep_sync(transport, candidates, exc)
             for future in futures:
                 future.cancel()
             raise
@@ -833,16 +863,26 @@ async def _settled_tasks[T](tasks: tuple[asyncio.Task[T], ...]) -> tuple[T, ...]
     return tuple(task.result() for task in tasks)
 
 
-def _sweep_sync(transport: SyncRunTransport, exc: BaseException) -> None:
+def _sweep_sync(
+    transport: SyncRunTransport, candidates: tuple[Candidate, ...], exc: BaseException
+) -> None:
     try:
-        transport.cancel_active()
+        if isinstance(transport, _RunRegistration):
+            transport.abort_evaluation(candidates)
+        else:
+            transport.cancel_active()
     except Exception as cancel_error:  # noqa: BLE001 - preserve the original interruption
         exc.add_note(f"Stopping active SF Engine runs also failed: {cancel_error}")
 
 
-async def _sweep_async(transport: AsyncRunTransport, exc: BaseException) -> None:
+async def _sweep_async(
+    transport: AsyncRunTransport, candidates: tuple[Candidate, ...], exc: BaseException
+) -> None:
     try:
-        await transport.cancel_active()
+        if isinstance(transport, _AsyncRunRegistration):
+            await transport.abort_evaluation(candidates)
+        else:
+            await transport.cancel_active()
     except Exception as cancel_error:  # noqa: BLE001 - preserve the original interruption
         exc.add_note(f"Stopping active SF Engine runs also failed: {cancel_error}")
 
@@ -882,7 +922,7 @@ async def _run_candidates_async(
         # cancelling first empties the registry and makes this fallback a guaranteed no-op.
         # The flag is set first, as in the sync twin.
         aborting.set()
-        await _sweep_async(transport, exc)
+        await _sweep_async(transport, candidates, exc)
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -999,12 +1039,12 @@ def _prepared_results(transport, evaluation, candidates) -> Iterator[None]:
     from screamingface._results.lifecycle import evaluation_operation
     from screamingface.errors import ExecutionError
 
-    path = (
-        transport.prepare_results(evaluation, candidates)
-        if isinstance(transport, _ResultPersistence)
-        else None
-    )
     try:
+        path = (
+            transport.prepare_results(evaluation, candidates)
+            if isinstance(transport, _ResultPersistence)
+            else None
+        )
         # INVARIANT: saved Candidate recovery/display/export cannot finish its Evaluation.
         with evaluation_operation(
             {path} if path is not None else set(),
@@ -1016,7 +1056,8 @@ def _prepared_results(transport, evaluation, candidates) -> Iterator[None]:
         ):
             yield
     finally:
-        # INVARIANT: cancellation retires membership for candidates never scheduled.
+        # INVARIANT: cancellation, or a failure to save the membership, retires the membership
+        # and the Run bindings of candidates never scheduled.
         finish = getattr(transport, "finish_results", None)
         if callable(finish):
             finish(candidates)
