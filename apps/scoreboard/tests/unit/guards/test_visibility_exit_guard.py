@@ -265,6 +265,8 @@ BASELINE_PUBLISHED_FIELDS = frozenset(
         # Owner-approved public update history (2026-11-10); no actor identity.
         "observation_revision",
         "observation_updated_at",
+        # Source availability only; no editor, caller, or participant information.
+        "source_health",
         "metadata",
         "model_name",
         "openness_override",

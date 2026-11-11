@@ -767,3 +767,8 @@ td.col-run { white-space: nowrap; }
   transform: translateY(calc(-100% - var(--space-4)));
 }
 .skip-link:focus { transform: none; }
+/* Availability is secondary to the source action; readable without hover. */
+.external-result__source-status,
+.external-result__source-detail { display: block; margin-top: var(--space-1); font-family: var(--f-sans); font-size: var(--text-micro); line-height: 1.4; white-space: normal; }
+.external-result__source-status { color: var(--warning-text-low); white-space: nowrap; }
+.external-result__source-detail { color: var(--ink-2); }

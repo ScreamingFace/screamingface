@@ -11,7 +11,7 @@
       external: true, spec_id: row.model_name, score: row.score,
       baseline_id: row.id, benchmark_id: row.benchmark_id,
       observation_revision: row.observation_revision, observation_updated_at: row.observation_updated_at,
-      source_url: row.source_url, metadata: row.metadata,
+      source_url: row.source_url, metadata: row.metadata, source_health: row.source_health,
       submitted_at: row.imported_at || null,
       ran_with_providers: [], authors: [], run_cost_usd: null,
     };
@@ -50,6 +50,15 @@
     link.setAttribute("rel", "noopener noreferrer");
     link.setAttribute("aria-label", "Source for " + row.spec_id + " (opens in a new tab)");
     td.appendChild(link);
+    var health = row.source_health;
+    if (health && health.available === false) {
+      td.appendChild(P.el("span", "external-result__source-status", "Source unchecked"));
+      var date = new Date(health.last_available_at || "");
+      var detail = Number.isFinite(date.getTime())
+        ? "Last available " + date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })
+        : "No successful check yet";
+      td.appendChild(P.el("span", "external-result__source-detail", detail));
+    }
     return td;
   }
 
