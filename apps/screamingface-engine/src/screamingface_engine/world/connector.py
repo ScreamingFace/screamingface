@@ -70,6 +70,7 @@ from screamingface_engine.retrieval_policy import (
     current_retrieval_policy,
 )
 from screamingface_engine.trace_scope import current_traceparent
+from screamingface_engine.world import candidate_call_retry
 from screamingface_engine.world.accounting import (
     CallAccounting,
     avoided_usd_for_outcome,
@@ -954,7 +955,8 @@ async def _post_completion(
 ) -> tuple[httpx.Response, bool]:
     """Use one bounded retry policy for transport failures and explicit queue expiry.
 
-    Other HTTP errors remain owned by the caller's declared URL4 retry policy.
+    Other HTTP errors are retried by `_post_answered` for a Candidate call (OME-1872), and
+    otherwise remain owned by the caller's declared URL4 retry policy.
     The caller deadline bounds each attempt and must fit a full attempt before retry.
     The bool marks a retry that followed a failure which may have reached the gateway, and so
     may have been billed. A known queue refusal never dispatched and does not set it; neither
@@ -1201,7 +1203,7 @@ async def _fetch_completion(
         The response to consume, and the cache outcome of the round trip that produced IT — not
         of the one that was discarded, whose only remaining trace is that it happened.
     """
-    resp, retried = await _post_completion(
+    resp, retried = await _post_answered(
         http_client,
         headers=headers,
         # `policy_to_body_field` yields an EMPTY dict for a run that participates, so an ordinary
@@ -1213,8 +1215,6 @@ async def _fetch_completion(
         body=with_cache_policy(body, cache),
         probe=probe,
     )
-    if probe is not None:
-        probe.read(resp)
     _raise_for_status(resp, logprobs_requested=_asks_logprobs(body))
     outcome = read_cache_outcome(resp.headers, retried=retried)
     if not requires_revalidation(cache, outcome):
@@ -1222,18 +1222,75 @@ async def _fetch_completion(
     # An explicit opt-out, built here rather than derived from `cache`: the run's own policy
     # PARTICIPATES (a bound is not a refusal), and the re-issue must state the one thing the
     # closed grammar understands — `use-cache: false` — and nothing else.
-    resp, reissue_retried = await _post_completion(
+    resp, reissue_retried = await _post_answered(
         http_client,
         headers=headers,
         body=with_cache_policy(body, CachePolicy(participate=False)),
         probe=probe,
     )
-    if probe is not None:
-        probe.read(resp)
     _raise_for_status(resp, logprobs_requested=_asks_logprobs(body))
     # WHY carry the first round trip's flag: it records that a possibly billed attempt was lost
     # before the re-issue. A recorded fact only — no price reads it (OME-1687).
     return resp, read_cache_outcome(resp.headers, retried=retried or reissue_retried)
+
+
+async def _post_answered(
+    http_client: httpx.AsyncClient,
+    *,
+    headers: dict[str, str],
+    body: dict,
+    probe: _CaptureProbe | None,
+) -> tuple[httpx.Response, bool]:
+    """Post one chat request; a Candidate call the gateway failed for a moment is asked again.
+
+    FEATURE (OME-1872): the rule and its waits live in `candidate_call_retry`. Stages:
+
+    1. Post the request (`_post_completion` already retries a lost connection and a gateway
+       queue timeout once), and show the capture probe the answer.
+    2. A judge or any other non-Candidate call, a 2xx, a permanent refusal, or a spent budget of
+       `CANDIDATE_CALL_RETRIES` returns the answer as it is; the caller raises a failure.
+    3. Otherwise wait (`retry_wait`) and post the SAME headers and body again. A retry whose wait
+       plus one full try would outlast the request deadline is not started.
+
+    INVARIANT: every try is the same request with the same call-key headers, below the capture
+    occurrence, so the gateway cache keys it the same and a frozen copy stores all tries at one
+    key, where replay serves the 200 (or the last error). A replay never comes here.
+
+    Returns the last answer and whether a retry followed a try that may have been billed: a lost
+    reply (`_post_completion`) or a 5xx (`may_have_billed`). A recorded fact only (OME-1687).
+    """
+    retries: int = candidate_call_retry.CANDIDATE_CALL_RETRIES if in_candidate_invocation() else 0
+    possibly_billed: bool = False
+    retry_number: int = 0
+    while True:
+        # Stage 1 — one try.
+        resp, billed = await _post_completion(http_client, headers=headers, body=body, probe=probe)
+        if probe is not None:
+            probe.read(resp)
+        possibly_billed = possibly_billed or billed
+        # Stage 2 — the answer stands.
+        if retry_number == retries or not candidate_call_retry.is_temporary(resp.status_code):
+            return resp, possibly_billed
+        # Stage 3 — wait, then ask again, when the try still fits the deadline.
+        retry_number += 1
+        delay: float = candidate_call_retry.retry_wait(
+            retry_number, resp.headers.get("Retry-After")
+        )
+        deadline: float | None = _current_deadline()
+        if deadline is not None and not _retry_fits(
+            deadline, delay, _transport_budget(http_client, headers)
+        ):
+            return resp, possibly_billed
+        possibly_billed = possibly_billed or candidate_call_retry.may_have_billed(resp.status_code)
+        logger.warning(
+            "candidate model call temporary gateway failure status=%s; retry %d of %d in %.1fs",
+            resp.status_code,
+            retry_number,
+            retries,
+            delay,
+        )
+        # WHY retry_number - 1: `_wait_to_retry` names the try that follows as attempt + 2.
+        await _wait_to_retry(retry_number - 1, delay)
 
 
 @dataclass(slots=True)
@@ -1248,16 +1305,20 @@ class _CaptureProbe:
 
     responded: bool = False
     header: str | None = None
-    responses: int = 0
     retried: bool = False
     last_ok: bool = False
     """The last response read was 2xx, so the gateway holds a 200 at this key."""
+    read_ok: bool = False
+    """Some response read was 2xx, so the gateway holds a 200 at this key — the model may not have
+    used it. WHY not a response count (OME-1872): a Candidate call retried after a 429 reads
+    several error responses, and a copy holding only errors serves the last one, which reproduces
+    the failure; only a stored 200 can be served in place of the answer the model used."""
 
     def read(self, resp: httpx.Response) -> None:
         self.responded = True
         self.header = resp.headers.get(CAPTURE_FIELD)
-        self.responses += 1
         self.last_ok = resp.is_success
+        self.read_ok = self.read_ok or resp.is_success
 
     def lost_reply(self) -> None:
         self.retried = True
@@ -1280,7 +1341,7 @@ class _CaptureProbe:
         200 the model never used (a re-issue that failed before it was sent, or a call cancelled
         during its re-issue). The default is the strict one.
         """
-        if self.retried or (not answered and (self.responses > 1 or self.last_ok)):
+        if self.retried or (not answered and self.read_ok):
             return "ambiguous"
         return _CAPTURE_STATUSES.get((self.header or "").strip().lower(), "missing")
 
