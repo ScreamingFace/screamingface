@@ -56,3 +56,23 @@ remains upstream. No API change or new dependency.
 - **Wisdom/review:** one small shared initialization path, no dependency or API
   change. Gold-token contrast remains upstream. No claim of full-page WCAG
   conformance or manual screen-reader testing. Awaiting PR review and deployment.
+
+## Review follow-up — 2026-11-11
+
+Khoa identified a whole-main outline after clicking text then scrolling by keyboard,
+a footer spacing regression, and unintended focus styling on other portal pages.
+Reproduce these in Chrome; keep main focusable as the skip destination but without
+an outline, restore the original outer wrapper around sibling main/footer landmarks,
+and scope the new interactive focus treatment to the homepage. Verify desktop/mobile
+in both themes, footer dimensions/gap, skip-link focus, and unchanged non-homepage
+focus before updating the PR. Run the scoreboard gates and record results below.
+
+Follow-up outcome: all three findings reproduced and fixed. `review-check.cjs`
+records the repeatable browser checks without committing screenshots or data.
+At 1440/375 in both themes, the footer is 880/343px wide and 36.1875px tall,
+aligned with the cards, with a 64px gap above its line. Main stays focused after
+skip navigation and after text-click/ArrowDown but has no outline. Homepage
+controls retain 2px rings; generic links on all four other pages keep their prior
+browser focus treatment. Both viewport/theme screenshot pairs inspected.
+The original browser behavior checks and full scoreboard gates pass; mirror and
+diff checks pass. No existing tests or approval manifest needed changing.

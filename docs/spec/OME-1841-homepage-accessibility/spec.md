@@ -21,3 +21,8 @@ page must not store a preference; only an explicit toggle does that.
 The gold text token is owned by the brand source and excluded. No vendored brand
 files, API, dependencies or analytics behavior change. This is not a full-page
 WCAG certification; report measured elements and the known gold limitation.
+
+Review clarification (2026-11-11): only homepage interactive controls receive the
+new focus rule. Main remains a focusable skip destination without an outline.
+The original outer layout wrapper contains sibling main/footer elements, keeping
+the footer a page-level landmark and preserving its content width and spacing.

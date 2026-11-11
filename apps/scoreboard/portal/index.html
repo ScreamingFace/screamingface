@@ -29,7 +29,7 @@
   <script async src="https://plausible.io/js/pa-ysspwNldM0r_4o-m1utPa.js"></script>
   <script src="analytics.js"></script>
 </head>
-<body>
+<body class="page-home">
   <a class="skip-link" href="#main-content">Skip to main content</a>
   <aside class="grant-banner" aria-label="Announcement">
     <a class="grant-banner__link" href="https://openmined.org/research/grants/" target="_blank" rel="noopener">Open call for research grants to explore ensembles &amp; routers →</a>
@@ -46,88 +46,90 @@
     <button class="toggle" id="theme-toggle" aria-label="Toggle light/dark theme">◐</button>
   </div>
 
-  <main id="main-content" class="wrap wide landing" tabindex="-1">
-    <div class="la-top">
-      <div>
-        <header class="masthead hero" data-section="hero">
-          <div class="eyebrow">ScreamingFace · open leaderboard</div>
-          <h1 class="hero-title hero-title--index" aria-label="The leaderboard for fusions.">The leaderboard for fusi<img class="o-mark" src="assets/mark/sf-mark-128.png" alt="" aria-hidden="true">ns.</h1>
-          <p class="lead hero-lead">The first verified map of the quality–cost frontier for multi-model systems: ensembles, routers, cascades and more.</p>
-        </header>
-        <div class="hero-cta" data-section="hero">
-          <a class="btn--primary" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Get started with ScreamingFace →</a>
-          <a class="btn" href="#subscribe-site-band">Subscribe for updates</a>
+  <div class="wrap wide landing">
+    <main id="main-content" tabindex="-1">
+      <div class="la-top">
+        <div>
+          <header class="masthead hero" data-section="hero">
+            <div class="eyebrow">ScreamingFace · open leaderboard</div>
+            <h1 class="hero-title hero-title--index" aria-label="The leaderboard for fusions.">The leaderboard for fusi<img class="o-mark" src="assets/mark/sf-mark-128.png" alt="" aria-hidden="true">ns.</h1>
+            <p class="lead hero-lead">The first verified map of the quality–cost frontier for multi-model systems: ensembles, routers, cascades and more.</p>
+          </header>
+          <div class="hero-cta" data-section="hero">
+            <a class="btn--primary" href="https://docs.screamingface.ai/sf-client/first-fusion" target="_blank" rel="noopener">Get started with ScreamingFace →</a>
+            <a class="btn" href="#subscribe-site-band">Subscribe for updates</a>
+          </div>
         </div>
+        <figure class="frontier" aria-label="The quality-cost frontier: fusions sit above single models at every budget. This diagram is illustrative.">
+          <svg viewBox="0 0 300 190" width="100%" role="img" aria-label="Accuracy versus cost: the fusion frontier sits above the single-model frontier at every budget. This diagram is illustrative.">
+            <!-- axes -->
+            <line x1="44" y1="16" x2="44" y2="150" stroke="var(--line-2)" stroke-width="1.2"/>
+            <line x1="44" y1="150" x2="292" y2="150" stroke="var(--line-2)" stroke-width="1.2"/>
+            <!-- band between the two frontiers -->
+            <path d="M58,124 C82,96 112,76 150,66 S222,52 288,46 L288,69 C222,76 180,82 150,92 C112,106 82,118 58,140 Z" fill="var(--gold-9)" opacity="0.18"/>
+            <!-- single-model frontier -->
+            <path d="M58,140 C82,118 112,106 150,92 C180,82 222,76 288,69" fill="none" stroke="var(--ink-3)" stroke-width="1.8"/>
+            <!-- fusion frontier -->
+            <path d="M58,124 C82,96 112,76 150,66 C188,58 222,52 288,46" fill="none" stroke="var(--gold-11)" stroke-width="2.4"/>
+            <!-- single-model points -->
+            <g fill="var(--ink-3)" opacity="0.5">
+              <circle cx="72" cy="132" r="3"/><circle cx="100" cy="112" r="3"/><circle cx="130" cy="100" r="3"/>
+              <circle cx="150" cy="104" r="3"/><circle cx="188" cy="84" r="3"/><circle cx="232" cy="74" r="3"/><circle cx="118" cy="114" r="3"/>
+            </g>
+            <!-- fusion points -->
+            <g fill="var(--gold-11)">
+              <circle cx="80" cy="100" r="3.4"/><circle cx="118" cy="78" r="3.4"/><circle cx="162" cy="63" r="3.4"/><circle cx="216" cy="54" r="3.4"/><circle cx="264" cy="48" r="3.4"/>
+            </g>
+            <!-- ticks -->
+            <g stroke="var(--line-2)" stroke-width="1">
+              <line x1="40" y1="120" x2="44" y2="120"/><line x1="40" y1="84" x2="44" y2="84"/><line x1="40" y1="48" x2="44" y2="48"/>
+              <line x1="96" y1="150" x2="96" y2="154"/><line x1="168" y1="150" x2="168" y2="154"/><line x1="240" y1="150" x2="240" y2="154"/>
+            </g>
+            <g class="tk" text-anchor="end">
+              <text x="37" y="123">.6</text><text x="37" y="87">.7</text><text x="37" y="51">.8</text>
+            </g>
+            <g class="tk" text-anchor="middle">
+              <text x="96" y="163">$.1</text><text x="168" y="163">$.4</text><text x="240" y="163">$.8</text>
+            </g>
+            <!-- Axis titles and series labels use the shared mono chart typography. -->
+            <text class="ax" fill="var(--ink-2)" transform="rotate(-90 15 86)" x="15" y="86" text-anchor="middle">accuracy*</text>
+            <text class="ax" fill="var(--ink-2)" x="168" y="180" text-anchor="middle">cost (USD)</text>
+            <text class="sl" fill="var(--gold-11)" x="236" y="38">fusions</text>
+            <text class="sl" fill="var(--text-2)" x="150" y="128">single models</text>
+          </svg>
+        </figure>
       </div>
-      <figure class="frontier" aria-label="The quality-cost frontier: fusions sit above single models at every budget. This diagram is illustrative.">
-        <svg viewBox="0 0 300 190" width="100%" role="img" aria-label="Accuracy versus cost: the fusion frontier sits above the single-model frontier at every budget. This diagram is illustrative.">
-          <!-- axes -->
-          <line x1="44" y1="16" x2="44" y2="150" stroke="var(--line-2)" stroke-width="1.2"/>
-          <line x1="44" y1="150" x2="292" y2="150" stroke="var(--line-2)" stroke-width="1.2"/>
-          <!-- band between the two frontiers -->
-          <path d="M58,124 C82,96 112,76 150,66 S222,52 288,46 L288,69 C222,76 180,82 150,92 C112,106 82,118 58,140 Z" fill="var(--gold-9)" opacity="0.18"/>
-          <!-- single-model frontier -->
-          <path d="M58,140 C82,118 112,106 150,92 C180,82 222,76 288,69" fill="none" stroke="var(--ink-3)" stroke-width="1.8"/>
-          <!-- fusion frontier -->
-          <path d="M58,124 C82,96 112,76 150,66 C188,58 222,52 288,46" fill="none" stroke="var(--gold-11)" stroke-width="2.4"/>
-          <!-- single-model points -->
-          <g fill="var(--ink-3)" opacity="0.5">
-            <circle cx="72" cy="132" r="3"/><circle cx="100" cy="112" r="3"/><circle cx="130" cy="100" r="3"/>
-            <circle cx="150" cy="104" r="3"/><circle cx="188" cy="84" r="3"/><circle cx="232" cy="74" r="3"/><circle cx="118" cy="114" r="3"/>
-          </g>
-          <!-- fusion points -->
-          <g fill="var(--gold-11)">
-            <circle cx="80" cy="100" r="3.4"/><circle cx="118" cy="78" r="3.4"/><circle cx="162" cy="63" r="3.4"/><circle cx="216" cy="54" r="3.4"/><circle cx="264" cy="48" r="3.4"/>
-          </g>
-          <!-- ticks -->
-          <g stroke="var(--line-2)" stroke-width="1">
-            <line x1="40" y1="120" x2="44" y2="120"/><line x1="40" y1="84" x2="44" y2="84"/><line x1="40" y1="48" x2="44" y2="48"/>
-            <line x1="96" y1="150" x2="96" y2="154"/><line x1="168" y1="150" x2="168" y2="154"/><line x1="240" y1="150" x2="240" y2="154"/>
-          </g>
-          <g class="tk" text-anchor="end">
-            <text x="37" y="123">.6</text><text x="37" y="87">.7</text><text x="37" y="51">.8</text>
-          </g>
-          <g class="tk" text-anchor="middle">
-            <text x="96" y="163">$.1</text><text x="168" y="163">$.4</text><text x="240" y="163">$.8</text>
-          </g>
-          <!-- Axis titles and series labels use the shared mono chart typography. -->
-          <text class="ax" fill="var(--ink-2)" transform="rotate(-90 15 86)" x="15" y="86" text-anchor="middle">accuracy*</text>
-          <text class="ax" fill="var(--ink-2)" x="168" y="180" text-anchor="middle">cost (USD)</text>
-          <text class="sl" fill="var(--gold-11)" x="236" y="38">fusions</text>
-          <text class="sl" fill="var(--text-2)" x="150" y="128">single models</text>
-        </svg>
-      </figure>
-    </div>
 
-    <section id="benchmarks" class="benchmarks-section" data-section="catalogue">
-      <h2 class="section-label">Browse latest benchmarks</h2>
+      <section id="benchmarks" class="benchmarks-section" data-section="catalogue">
+        <h2 class="section-label">Browse latest benchmarks</h2>
 
-      <div id="benchmark-controls" class="catalog-controls" hidden>
-        <div class="catalog-search">
-          <label for="benchmark-search">Search benchmarks</label>
-          <input id="benchmark-search" type="search" placeholder="Name or benchmark ID" aria-controls="benchmark-cards" autocomplete="off">
+        <div id="benchmark-controls" class="catalog-controls" hidden>
+          <div class="catalog-search">
+            <label for="benchmark-search">Search benchmarks</label>
+            <input id="benchmark-search" type="search" placeholder="Name or benchmark ID" aria-controls="benchmark-cards" autocomplete="off">
+          </div>
+          <label class="catalog-scored"><input id="benchmark-scored" type="checkbox" checked> Has scores</label>
+          <p id="benchmark-count" class="catalog-count" role="status" aria-live="polite" aria-atomic="true"></p>
         </div>
-        <label class="catalog-scored"><input id="benchmark-scored" type="checkbox" checked> Has scores</label>
-        <p id="benchmark-count" class="catalog-count" role="status" aria-live="polite" aria-atomic="true"></p>
-      </div>
-      <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
+        <div id="benchmark-status" class="state" role="status" aria-live="polite">Loading…</div>
 
-      <div id="benchmark-cards" class="cards" aria-label="Benchmarks" hidden></div>
-      <div class="cards-more">
-        <button type="button" id="benchmark-more" aria-controls="benchmark-cards" class="btn ghost" hidden>Show more benchmarks</button>
-      </div>
-    </section>
+        <div id="benchmark-cards" class="cards" aria-label="Benchmarks" hidden></div>
+        <div class="cards-more">
+          <button type="button" id="benchmark-more" aria-controls="benchmark-cards" class="btn ghost" hidden>Show more benchmarks</button>
+        </div>
+      </section>
 
-    <div data-subscribe="all" data-section="subscribe"></div>
+      <div data-subscribe="all" data-section="subscribe"></div>
 
-    <p class="fine-print">*The diagram on cost-quality pareto frontier is illustrative.</p>
+      <p class="fine-print">*The diagram on cost-quality pareto frontier is illustrative.</p>
 
-  </main>
+    </main>
 
-  <footer class="wrap wide landing foot" data-section="footer">
-    <span>😱 screamingface</span>
-    <span><a href="https://leaderboard.screamingface.ai/" rel="noopener noreferrer">leaderboard.screamingface.ai</a></span>
-  </footer>
+    <footer class="foot" data-section="footer">
+      <span>😱 screamingface</span>
+      <span><a href="https://leaderboard.screamingface.ai/" rel="noopener noreferrer">leaderboard.screamingface.ai</a></span>
+    </footer>
+  </div>
 
   <script src="leaderboard-logic.js" defer></script>
   <script src="main.js" defer></script>

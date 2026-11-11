@@ -695,10 +695,14 @@ td.col-open { white-space: nowrap; }
 
 /* WHY: the marketing focus token is too faint on the page background. Keep
    homepage controls on one visible ring without changing generated brand tokens. */
-a:focus-visible, button:focus-visible, input:focus-visible, main:focus-visible {
+.page-home a:focus-visible, .page-home button:focus-visible, .page-home input:focus-visible {
   outline: var(--border-strong) solid var(--ink);
   outline-offset: var(--space-1);
 }
+
+/* WHY: main is a skip-link destination, not an interactive control. Clicking
+   plain text then using a scroll key must not outline the entire page. */
+.page-home main:focus { outline: none; }
 
 /* STORY: touch visitors can reach the small chrome links without precise taps. */
 .rail .rail-link, .rail .toggle, .grant-banner__link {
