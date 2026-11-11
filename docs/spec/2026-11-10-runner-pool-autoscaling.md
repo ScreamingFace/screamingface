@@ -145,7 +145,7 @@ it is the next problem in this series.
 
 ## Follow-up: choose an idle pod on scale-down (`pod-deletion-cost`)
 
-Status: agreed with the owner on 2026-11-10, NOT in this PR. File it when this PR opens.
+Status: agreed with the owner on 2026-11-10, NOT in this PR. Filed as `OME-1871` (2026-11-10).
 
 Problem: on scale-down the ReplicaSet picks the pod to delete. With no hint it may pick a BUSY
 pod. That pod drains (prod `drainGraceS` 57600 s = 16 h) and takes no new work, while an idle pod
