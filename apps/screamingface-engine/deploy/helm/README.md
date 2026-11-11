@@ -251,6 +251,11 @@ with four slots each run eight runs, and a third caller queues `n` runs. The dem
 - `runnerPool.maxAckPending` is not set. The derived value `replicas × workerSlots` has no meaning
   when the replica count changes (OME-1142).
 
+Pin `maxAckPending` to the value the queue's durable consumers already have. A new value does not
+change an existing consumer: the consumer must be deleted and made again. Until then the workers
+claim up to the old cap. `/runner-demand` reads the cap from the broker, so the signal follows the
+old cap too.
+
 **Fail-static.** `GET /runner-demand` answers as follows:
 
 - 200 with `{demand, running, claimable, queued, unbound_buckets, sampled_at, age_s}` for a fresh

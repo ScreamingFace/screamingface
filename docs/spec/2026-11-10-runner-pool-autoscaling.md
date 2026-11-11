@@ -192,6 +192,11 @@ is the one removed.
    HPA docs). Use server-side apply or `ignoreDifferences` on the runner Deployment's
    `/spec/replicas`. Draining pods keep their runs, so no run is lost; capacity dips until KEDA acts.
 6. `values/<env>.yaml`: `runnerPool.autoscaling.enabled: true`, `minReplicas`, `maxReplicas`.
+7. Keep `runnerPool.maxAckPending` at the value the broker's durable consumers already have
+   (prod: 4). A new value does not change an existing consumer (`runner_queue.py`: a change of
+   `max_ack_pending` needs the consumer deleted and made again). Until that, workers claim up to
+   the OLD cap. The demand signal reads the cap from the broker, so it stays correct, but the
+   per-bucket width is not the configured one. Found in the kind walkthrough 2026-11-10.
 
 ## Invariants this protects
 

@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface-engine
-status: in_progress   # code done + committed; kind walkthrough pending
+status: done
 started: 2026-11-10
-finished:
+finished: 2026-11-10
 ---
 
 # runner-pool-autoscaling — scale the runner pool on claimable queue demand
@@ -71,7 +71,32 @@ Plan: `docs/plan/2026-11-10-runner-pool-autoscaling.md`.
   constructor `ValueError`, the `stale_s` property, an `assert` and the broker-value clamps are
   gone (two new-file tests that pinned them removed). F6: owner decision 2026-11-10, the two
   sampler settings stay code defaults with no chart value; the chart README says so.
-- **Kind walkthrough:** PENDING (next step).
+- **Kind walkthrough (2026-11-10, kind `sf-prod`, image `local-2fe3e8d82279`, KEDA 2.20.2):**
+  stub gateway (catalog/admission forwarded to aigw, completions canned after 45 s; no provider
+  call), three identity edges: user-a bucket 03, user-b bucket 0f, user-c bucket 00. Pool 2 slots
+  per pod, autoscaling min 2 max 4. Sample log every 5 s.
+  - KEDA read `/runner-demand` at once (`0/2 (avg)`).
+  - A×2 + B×2: demand 4, 2 pods (no scale). PASS.
+  - A×2 more: 3rd pod at once. Cause: the 16 durable consumers were 20 days old with
+    `max_ack_pending` 4; the new pin 2 did not change them (the code needs a consumer delete and
+    re-make for that). The signal read the broker's real cap 4, so the scale was CORRECT.
+  - A×2 more at the real cap 4: queued 2, claimable 0, demand 6, no new pod. PASS (negative case).
+  - C×2 (empty bucket): submit 20:41:20, 4th pod created and Ready 20:41:30, C's runs running
+    20:41:36 (about 16 s submit to running). PASS.
+  - Scale-down: demand fell 20:55:53 (8→6), 20:56:54 (→4), 20:59:42 (→2). 4→3 at 21:00:49
+    (300 s after the first drop), 3→2 at 21:01:50 (60 s step). Timing PASS.
+  - FINDING: the ReplicaSet removed a BUSY pod while idle pods existed. A5/A6 were stopped by the
+    drain after the chart default `drainGraceS: 30` ("the worker is draining; the run was
+    stopped"). Prod pins 57600 s, so there the runs finish and the pod waits in Terminating. The
+    invariant "scale-down never interrupts a run" needs `drainGraceS` >= the longest run; the
+    chart does not enforce it. The pod-deletion-cost follow-up removes most of this risk.
+  - 10 runs: 8 ok, 2 stopped by the finding above. The stub refused one `POST /v1/embeddings`;
+    runs still passed. Each run made its 24 model calls one at a time (1088 s = 24 x 45 s).
+  - Side work: the Colima disk was 100 % full; host build cache (25 GB) and old host images were
+    removed. `up.sh` stopped at the aigw migration (disk full); release `aigw` rev 6 is `failed`,
+    the old aigw pod still serves.
+- **Docs after the walkthrough:** spec infra prerequisite 7 and the chart README now say: pin
+  `maxAckPending` to the value the existing consumers have.
 - **Deviations:** the queue runner exposes `reads_buckets` so the composition root installs the
   sampler only over a queue that can read buckets (review F3). `OME-1869` (branch
   `OME-1869-queue-depth-unclaimed`) carries the same shared code; whichever merges second rebases.
