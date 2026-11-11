@@ -81,8 +81,8 @@ def test_an_uninverted_row_assembles_to_the_revision_it_always_had(
     spec: BenchmarkSpec = next(row for row in benchmarks.BENCHMARKS if row.key == "gsm8k")
 
     assert (
-        str(_assembled(spec, monkeypatch).benchmark.revision) == "075954bfd63059e0"
-    )  # moved twice: offer off (OME-1513), withhold policy pin (OME-1642)
+        str(_assembled(spec, monkeypatch).benchmark.revision) == "7eebba58799a2f22"
+    )  # moved: offer off (OME-1513), withhold policy pin (OME-1642), worked examples (OME-1860)
 
 
 @pytest.mark.asyncio

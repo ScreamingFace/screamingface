@@ -753,16 +753,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     ),
     # gsm8k — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.gsm8k.gsm8k:gsm8k.
-    # Fold: Cases identical to the Hugging Face path's at fewshot=0 (D2).
+    # Task args: none, so Cases carry inspect_evals' default 10 worked examples, the system
+    #   message capture folds ahead of the question (OME-1860; it was fewshot=0 before).
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face openai/gsm8k
     #     pin revision cc7b047b6e5bb11b4f1af84efc572db110a51b3c
     "gsm8k": TaskReplayCasesSpec(
         task="inspect_evals.gsm8k.gsm8k:gsm8k",
-        task_args={"fewshot": 0},
         case_count=1319,
-        case_digest="11e0dccbf379586a9618b98200c02ef98fc9a30d426e6f36423f420982637e8f",
-        case_set_digest="f094ba81f0b2119a423aa9bdd3f37162a128931c2f51d4ee4bb7900706dd9501",
+        case_digest="ad0ae21a2fcd06b92da7d823b7c46a63673435de87bcae2af44730dade28903c",
+        case_set_digest="973728171aaa04a3d3138d62c99c1015030bedd4fa4946d4398413f58f0004e8",
         source_pins={
             "openai/gsm8k": "cc7b047b6e5bb11b4f1af84efc572db110a51b3c",
         },
@@ -770,16 +770,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     ),
     # winogrande — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.winogrande.winogrande:winogrande.
-    # Fold: Cases identical to the Hugging Face path's at fewshot=0 (D2).
+    # Task args: none, so Cases carry inspect_evals' default 5 worked examples, the system
+    #   message capture folds ahead of the question (OME-1860; it was fewshot=0 before).
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face allenai/winogrande/winogrande_xl
     #     pin revision 01e74176c63542e6b0bcb004dcdea22d94fb67b5
     "winogrande": TaskReplayCasesSpec(
         task="inspect_evals.winogrande.winogrande:winogrande",
-        task_args={"fewshot": 0},
         case_count=1267,
-        case_digest="437ab435a55b3959660977aef0a0ed17eb45919a475dfd43ffd94362c2b71f67",
-        case_set_digest="4ae4d9d1da187b1e6c2d4e20ee9b344a0e13a9f42f23d76f1b5179a4d6ffa6c0",
+        case_digest="6dc17beb2ae9078b422ac035a002268d9ccb59b2ab08ce92c7b6829760598688",
+        case_set_digest="ee527fabcbce637465600bd41e07f01f30acbf5764a8b765d0684134d3181c3d",
         source_pins={
             "allenai/winogrande": "01e74176c63542e6b0bcb004dcdea22d94fb67b5",
         },
