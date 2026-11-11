@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
-import socket
 from collections.abc import Awaitable, Callable, Sequence
 
 import httpx
+
+from .source_dns import resolve_public_host
 
 Resolver = Callable[[str, int], Awaitable[Sequence[str]]]
 _REDIRECTS = {301, 302, 303, 307, 308}
@@ -44,11 +45,6 @@ def _validate_url(url: httpx.URL) -> None:
         return
     if not _public_address(url.host):
         raise UnsafeSource("non-public address")
-
-
-async def resolve_public_host(host: str, port: int) -> Sequence[str]:
-    answers = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
-    return list(dict.fromkeys(str(answer[4][0]) for answer in answers))
 
 
 class PublicSourceTransport(httpx.AsyncBaseTransport):
