@@ -31,6 +31,7 @@ from screamingface_engine.capture_outcomes import CALL_OCCURRENCE_HEADER, REPLAY
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.world import candidate_call_retry as policy
 from screamingface_engine.world import connector
+from url4.core.errors import ResolutionError
 from url4.streaming.protocol import CachePolicy
 
 _RUN = RequestScope(origin="run")
@@ -239,3 +240,57 @@ async def test_a_replay_call_never_retries_a_captured_failure(_waits: list[float
     assert answer is None and failure is not None
     assert len(gateway.calls(REPLAY_CHAT)) == 1
     assert _waits == []
+
+
+def test_jitter_is_added_when_the_gateway_hint_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    # WHY: the gateway's 429 usually carries a hint; if the hint swallowed the jitter, every Case
+    # rate-limited in the same second would wake at the same instant and hit the provider together.
+    monkeypatch.setattr(policy, "_jitter", lambda low, high: high)
+    assert policy.retry_wait(1, "45") == 45.0 + policy.JITTER_S
+    assert policy.retry_wait(2, "100000") == policy.RETRY_AFTER_CAP_S + policy.JITTER_S
+
+
+@pytest.mark.asyncio
+async def test_a_queue_refusal_retry_is_not_marked_possibly_billed() -> None:
+    # A 503 provider_queue_timeout never dispatched the call, so its retries billed nothing. The
+    # connector's own quick re-post takes the first two answers, this retry the third.
+    refusal = error(503, "provider_queue_timeout")
+    gateway = Gateway([refusal, refusal, chat()])
+    async with gateway.client() as client:
+        with request_scope(_RUN), candidate_invocation_scope():
+            resp, outcome = await connector._fetch_completion(
+                client, headers={}, body={"model": "m"}, cache=CachePolicy()
+            )
+    assert resp.status_code == 200
+    assert len(gateway.calls(CHAT)) == 3
+    assert outcome.retried is False
+
+
+@pytest.mark.asyncio
+async def test_a_late_wakeup_does_not_start_a_try_cut_short_by_the_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # One full try is 6 s here (0.4 s execution + 0.6 s queue + the 5 s response margin). With 17 s
+    # left, the 10 s wait plus a 6 s try fits; the wakeup comes 2 s late, leaving 5 s, which no
+    # longer holds a full try, so none starts (a cut-short try is billed and useless).
+    clock: list[float] = [100.0]
+    monkeypatch.setattr(connector.time, "monotonic", lambda: clock[0])
+
+    async def late(_attempt: int, delay: float) -> None:
+        clock[0] += delay + 2.0
+
+    monkeypatch.setattr(connector, "_wait_to_retry", late)
+    gateway = Gateway([_busy(), chat()])
+    headers: dict[str, str] = {"x-aigw-execution-timeout-s": "0.4", "x-aigw-queue-timeout-s": "0.6"}
+    async with gateway.client() as client:
+        with (
+            request_scope(RequestScope(origin="run", deadline=117.0)),
+            candidate_invocation_scope(),
+            pytest.raises(ResolutionError) as failure,
+        ):
+            await connector._fetch_completion(
+                client, headers=headers, body={"model": "m"}, cache=CachePolicy()
+            )
+
+    assert failure.value.permanent is False, "the first 429 stands, as a temporary failure"
+    assert len(gateway.calls(CHAT)) == 1

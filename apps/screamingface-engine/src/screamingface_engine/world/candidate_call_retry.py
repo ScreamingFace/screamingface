@@ -12,13 +12,19 @@ The rule, in the order the connector applies it:
    ``;retry=2``); a connector retry on top would give each judge item 3 x 3 = 9 tries.
 2. Only a temporary answer retries: 429 or any 5xx, the same statuses the connector marks
    ``permanent=False`` (``connector._raise_for_status``).
-3. Retry k waits ``RETRY_WAITS_S[k-1]`` plus up to ``JITTER_S`` of jitter, raised to the
-   gateway's ``Retry-After`` when that asks for longer, never more than ``RETRY_AFTER_CAP_S``.
+3. Retry k waits ``RETRY_WAITS_S[k-1]``, raised to the gateway's ``Retry-After`` when that
+   asks for longer (never more than ``RETRY_AFTER_CAP_S``), plus up to ``JITTER_S`` of jitter.
+
+A gateway queue timeout (503 ``provider_queue_timeout``) is a 5xx too, so it gets these 2 retries
+on top of the one quick re-post the connector already gives it (up to 6 posts in all). Intended:
+the provider's queue was full, nothing was dispatched, and a full queue drains in seconds to
+minutes, not within the quick re-post. It is never marked possibly billed (see
+``may_have_billed``).
 
 Worked example: a call answered 429 (``Retry-After: 45``), then 502, then 200. Retry 1 waits 45 s
-(the hint beats the 10 s schedule); retry 2 waits 30 s; the third try answers, so the Case is
-scored on the model's real answer. Had the third try failed too, the Case fails as a temporary
-infrastructure failure, exactly as it did before this change.
+(the hint beats the 10 s schedule) plus jitter; retry 2 waits 30 s plus jitter; the third try
+answers, so the Case is scored on the model's real answer. Had the third try failed too, the
+Case fails as a temporary infrastructure failure, exactly as it did before this change.
 
 WHY these waits and not url4's 0.5 s / 1 s backoff: the gateway has already retried a busy
 provider for up to 30 s before it answers 429, so a retry one second later meets the same rate
@@ -57,24 +63,26 @@ def is_temporary(status_code: int) -> bool:
     return status_code == _TOO_MANY_REQUESTS or status_code in _SERVER_ERRORS
 
 
-def may_have_billed(status_code: int) -> bool:
+def may_have_billed(status_code: int, *, queue_refusal: bool) -> bool:
     """Whether a failed try may have reached the provider and been charged.
 
-    WHY: the gateway answers 429 only after the provider refused the call, so nothing was billed;
-    a 5xx can come after the provider answered (the gateway broke reading the reply).
+    WHY: the gateway answers 429 only after the provider refused the call, and a queue refusal
+    (``queue_refusal``, the 503 ``provider_queue_timeout``) never dispatched it, so nothing was
+    billed; any other 5xx can come after the provider answered (the gateway broke reading it).
     """
-    return status_code in _SERVER_ERRORS
+    return status_code in _SERVER_ERRORS and not queue_refusal
 
 
 def retry_wait(retry_number: int, retry_after: str | None) -> float:
     """Seconds to wait before retry ``retry_number`` (1-based), given the gateway's ``Retry-After``.
 
     A hint that is not a finite, non-negative number of seconds is ignored; a hint shorter than
-    the schedule never shortens it.
+    the schedule never shortens it. Jitter is added whichever wins.
     """
-    scheduled: float = RETRY_WAITS_S[retry_number - 1] + _jitter(0.0, JITTER_S)
-    asked: float = _seconds(retry_after)
-    return max(scheduled, min(asked, RETRY_AFTER_CAP_S))
+    asked: float = min(_seconds(retry_after), RETRY_AFTER_CAP_S)
+    # WHY jitter AFTER the max: the gateway's 429 usually carries a hint, and a hint that wins
+    # the max would otherwise wake every Case rate-limited in the same second at the same instant.
+    return max(RETRY_WAITS_S[retry_number - 1], asked) + _jitter(0.0, JITTER_S)
 
 
 def _seconds(retry_after: str | None) -> float:

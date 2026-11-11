@@ -1250,7 +1250,13 @@ async def _post_answered(
     2. A judge or any other non-Candidate call, a 2xx, a permanent refusal, or a spent budget of
        `CANDIDATE_CALL_RETRIES` returns the answer as it is; the caller raises a failure.
     3. Otherwise wait (`retry_wait`) and post the SAME headers and body again. A retry whose wait
-       plus one full try would outlast the request deadline is not started.
+       plus one full try would outlast the request deadline is not started, checked before the
+       wait and again after it.
+
+    AIDEV-NOTE: the wait runs inside the run's fair-share I/O permit (`FairShareIOLayer` holds it
+    around the whole model call), so a rate-limited Candidate keeps its permits while it waits, up
+    to 120 s. Accepted as backpressure: the connector does not hold the gate, and a slow reasoning
+    call holds its permit just as long.
 
     INVARIANT: every try is the same request with the same call-key headers, below the capture
     occurrence, so the gateway cache keys it the same and a frozen copy stores all tries at one
@@ -1281,7 +1287,9 @@ async def _post_answered(
             deadline, delay, _transport_budget(http_client, headers)
         ):
             return resp, possibly_billed
-        possibly_billed = possibly_billed or candidate_call_retry.may_have_billed(resp.status_code)
+        possibly_billed = possibly_billed or candidate_call_retry.may_have_billed(
+            resp.status_code, queue_refusal=_queue_timeout(resp)
+        )
         logger.warning(
             "candidate model call temporary gateway failure status=%s; retry %d of %d in %.1fs",
             resp.status_code,
@@ -1291,6 +1299,12 @@ async def _post_answered(
         )
         # WHY retry_number - 1: `_wait_to_retry` names the try that follows as attempt + 2.
         await _wait_to_retry(retry_number - 1, delay)
+        # A late wakeup must not start a try cut short by the deadline: billed and useless (NT-H1),
+        # the same re-check `_retry_transport` and `_retry_queue` make.
+        if deadline is not None and not _retry_fits(
+            deadline, 0, _transport_budget(http_client, headers)
+        ):
+            return resp, possibly_billed
 
 
 @dataclass(slots=True)

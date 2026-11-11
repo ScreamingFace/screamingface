@@ -124,8 +124,9 @@ async def _run(tmp_path: Path, gateway: Gateway) -> CandidateResult:
         ("empty", "aigateway_empty_response", True, 1),
         ("html", "aigateway_bad_response", False, 1),
         ("reasoning_only", "model_empty_content", False, 1),
-        # OME-1872: a Candidate call the gateway failed for a moment is asked again, and the
-        # failure still reaches the report once those retries are spent.
+        # OME-1872 (prior-test edit approved by the owner, 2026-11-11): a Candidate call the
+        # gateway failed for a moment is asked again, and the failure still reaches the report
+        # once those retries are spent.
         ("429", "aigateway_http_429", True, candidate_call_retry.CANDIDATE_CALL_RETRIES + 1),
         ("503", "aigateway_http_503", True, candidate_call_retry.CANDIDATE_CALL_RETRIES + 1),
     ],

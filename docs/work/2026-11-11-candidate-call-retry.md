@@ -69,5 +69,16 @@ Owner decisions (2026-11-11, design session on the ticket):
   old count made a capture call that failed on every retry `ambiguous`, though the copy holds only
   errors and replay serves the last one. Equivalent for every pre-existing path (a second response
   only ever followed a 2xx).
+- **Review round 1 (PR #1739, 2026-11-11):** (a) jitter now added after the `Retry-After` max,
+  so a gateway hint no longer syncs every rate-limited Case; (b) a retry after a 503
+  `provider_queue_timeout` is not marked possibly billed (it never dispatched), and its 2 extra
+  retries on top of the quick re-post are documented as intended; (c) the deadline is re-checked
+  after the wait, as `_retry_transport` and `_retry_queue` do; (d) the fair-share permit held
+  through the wait is accepted as backpressure (connector does not hold the gate; a slow
+  reasoning call holds it as long) and named in the PR's limitations; (e) approval noted inline
+  on the edited prior-test rows. Not changed: the `attempt` telemetry number can repeat (a
+  Candidate retry and a transport re-post inside a try both report attempt 2); the retry delay
+  in the same event tells them apart, and renumbering needs a counter threaded through
+  `_post_completion`. 3 pins added, each red with its fix removed.
 - **Owner-verify:** none paid; the next long leaderboard run shows the retry warnings in the
   runtime log (`candidate model call temporary gateway failure`).
