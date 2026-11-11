@@ -256,6 +256,10 @@ change an existing consumer: the consumer must be deleted and made again. Until 
 claim up to the old cap. `/runner-demand` reads the cap from the broker, so the signal follows the
 old cap too.
 
+Set `runnerPool.drainGraceS` to at least your longest run. On scale-down Kubernetes can remove a
+busy pod while idle pods exist. The drain keeps that pod's runs only for `drainGraceS`, then stops
+them. The chart default (30 s) stops almost every real run. Prod uses 57600 s.
+
 **Fail-static.** `GET /runner-demand` answers as follows:
 
 - 200 with `{demand, running, claimable, queued, unbound_buckets, sampled_at, age_s}` for a fresh
