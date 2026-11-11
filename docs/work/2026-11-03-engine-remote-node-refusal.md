@@ -1,7 +1,7 @@
 ---
 ticket: OME-1811
 stack: python
-status: blocked
+status: in_progress
 started: 2026-11-03
 finished:
 ---
@@ -57,3 +57,10 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   private-import ratchet): a recording outbound wrapper plus a fail-closed resolver instead of
   mocking `url4.io._guarded_transport`. RED verified: with the executor change reverted, 12/12
   engine refusal cases fail.
+- **Moved to main (2026-11-11, owner decision):** the change does not depend on the OME-1543/1545
+  stack, so its three commits were cherry-picked onto `origin/main` (efca18049) as branch
+  `OME-1811-remote-node-refusal-main`. The ratchet merge took main's base (`url4` 59) plus this
+  change (`url4.dag` 39), and the approval manifest was re-pinned to main's blobs (same one-value
+  change). Gates on that base: `run_gates.py url4`, `screamingface-engine` and `repo --base
+  origin/main` ALL GATES GREEN. The stacked branch `OME-1811-engine-remote-node-refusal` is
+  superseded.
