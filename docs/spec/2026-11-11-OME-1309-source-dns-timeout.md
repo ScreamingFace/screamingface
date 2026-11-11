@@ -1,0 +1,3 @@
+# Cancellable system DNS for source checks
+
+The source check deadline includes lookup resource cleanup and command shutdown. A blocking system DNS lookup runs in an isolated Python child process with stdout as structured addresses and stderr discarded. The parent uses asyncio subprocess APIs, kills a running child on cancellation, and reaps it before returning. No thread-pool DNS work remains in the checker process. The resolver uses the container's existing OS configuration; no third-party DNS service or dependency is introduced. Literal addresses bypass lookup. Existing address and redirect protections remain authoritative.

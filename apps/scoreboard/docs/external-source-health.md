@@ -32,7 +32,7 @@ Identical URLs share the same state, stored separately from score observations. 
 
 Only public HTTP(S) destinations on ports 80/443 are contacted. DNS answers are checked before connecting, and the connection is pinned to a checked IP while retaining the original HTTP Host and TLS hostname. Redirects receive the same validation. Credentials in URLs, private/local addresses, environment proxies, and other schemes/ports are refused. Azure’s [platform service address](https://learn.microsoft.com/en-us/azure/virtual-network/what-is-ip-address-168-63-129-16) is also explicitly refused, including its IPv4-mapped IPv6 form.
 
-Each URL has a 15-second overall deadline and at most five redirects, with a five-second per-request timeout. GET responses are streamed and closed after headers; page and redirect bodies are not downloaded. No HTTP requests run during leaderboard page reads. Response bodies, redirect locations, and exception details are not stored or exposed.
+Each URL has a 15-second overall deadline and at most five redirects, with a five-second per-request timeout. System DNS runs in a short-lived isolated Python process, which is killed and reaped on timeout or cancellation; it cannot leave a blocking resolver thread delaying command shutdown. Numeric IPs need no resolver process. GET responses are streamed and closed after headers; page and redirect bodies are not downloaded. No HTTP requests run during leaderboard page reads. Response bodies, redirect locations, and exception details are not stored or exposed.
 
 ## Acceptance check after deployment
 
