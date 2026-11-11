@@ -694,6 +694,12 @@ class QueueJobRunner(IdentityAwareJobRunner):
         """The stream publisher, exposed for the App's events metrics."""
         return self._publisher
 
+    @property
+    def caller_inflight_cap(self) -> int:
+        """The per-caller in-flight cap this runner enforces — the ``rest.limits.CallerLimits``
+        port, read by ``GET /v1/limits`` (OME-1314)."""
+        return self._caller_inflight_cap
+
     def queue_snapshot(self) -> tuple[int | None, float | None]:
         """The last cached (unclaimed depth, oldest-unclaimed age) — the /metrics collector's
         input. Running runs are in neither value.

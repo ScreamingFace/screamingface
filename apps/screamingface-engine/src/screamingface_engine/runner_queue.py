@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import dataclasses
 import hashlib
 import json
 import logging
@@ -88,9 +89,10 @@ DEFAULT_WORKER_SLOTS = 4
 # the chart exposes `runnerPool.maxAckPending` to pin it independently.
 # INVARIANT: growing the fleet must raise how many CALLERS run at once, never how many runs a
 # single caller may hold.
-# AIDEV-NOTE: the value binds when the consumer is CREATED — `pull_subscribe` is idempotent on
-# existence, not on config, so changing it on a running queue means deleting and recreating the
-# consumers, and only while drained: a consumer holding in-flight acks redelivers those runs.
+# AIDEV-NOTE: the value binds when the consumer is CREATED — `pull_subscribe` on an existing
+# durable binds without changing its config. nats-server 2.10 edits `max_ack_pending` in place
+# (in-flight runs stay pending, nothing is redelivered; spec 2026-11-10-per-user-parallel-runs
+# F1), and `RunQueue.reconcile_consumers()` applies the configured value at worker start.
 DEFAULT_MAX_ACK_PENDING = 256
 DEFAULT_DEPTH_CEILING = 10_000
 DEFAULT_IO_CONCURRENCY = 4
@@ -112,16 +114,17 @@ PULL_BUCKET_BATCH = 2
 # on empty buckets. Bounded by `timeout_s` so a short poll never over-waits.
 PULL_FAST_PASS_S = 1.0
 # V-5: how long a held pull subscription is trusted before it is re-bound. The durable
-# consumer can be deleted/recreated server-side (the note above says that is required to
-# change `max_ack_pending`), and a stale sub can fail SILENTLY — nats-py's `_fetch_n`
+# consumer can be deleted/recreated server-side (by an operator), and a stale sub can fail
+# SILENTLY — nats-py's `_fetch_n`
 # returns [] on a deleted consumer rather than raising — which no error path can catch.
 # The TTL bounds the silent wedge to one refresh interval; the cost is one bind per
 # bucket per interval, against the per-poll bind the cache exists to avoid.
 PULL_SUB_TTL_S = 300.0
 # The per-caller in-flight cap (OME-1091): how many of one caller's runs may be admitted at
-# once. 8 matches the Client's fan-out (`_MAX_CANDIDATES_IN_FLIGHT`), so one ordinary
-# Evaluation fits while a second concurrent one is refused until the first's runs finish.
-DEFAULT_CALLER_INFLIGHT_CAP = 8
+# once. 24 is the owner's per-user target (2026-11-10, OME-1314). The Client reads the
+# enforced value from `GET /v1/limits` and sizes its fan-out from it, so the Client fan-out
+# and this cap cannot drift.
+DEFAULT_CALLER_INFLIGHT_CAP = 24
 # The BACKSTOP on how long one admission may hold a slot (OME-1108). The primary release is
 # observation — the runner re-reads a caller's terminal frames before refusing it — and this
 # covers only what observation cannot: a broker whose tails stay unreadable. Before it existed
@@ -1103,10 +1106,10 @@ class RunQueue:
         returned to the queue for the next pull — not dropped and not acked away.
 
         V-5: a held subscription can be broken server-side — the durable consumer deleted
-        or recreated (the note above says that is required to change `max_ack_pending`)
-        — and a broken sub never self-heals: `_fetch_one` raises, `_fetch_n` returns []
-        silently. A non-timeout error drops the cache entry so the next pull re-binds;
-        the claim loop's guard logs and retries, and the wedge is bounded to one poll.
+        or recreated by an operator — and a broken sub never self-heals: `_fetch_one`
+        raises, `_fetch_n` returns [] silently. A non-timeout error drops the cache entry so
+        the next pull re-binds; the claim loop's guard logs and retries, and the wedge is
+        bounded to one poll.
         """
         try:
             msgs = await sub.fetch(want, timeout=window)
@@ -1154,6 +1157,67 @@ class RunQueue:
             self._pull_subs_bound[subject] = time.monotonic()
         return sub
 
+    async def reconcile_consumers(self) -> int:
+        """Bring every bucket consumer's `max_ack_pending` to the configured value, in place.
+
+        Returns how many consumers it updated. A missing consumer is skipped (the first pull
+        creates it with the configured value); an equal value is not written.
+
+        INVARIANT: called only by a starting worker (`Worker.run`), never by the App and never
+        on the subscription re-bind (`_bound_subscription`), so a rollout cannot flap the value:
+        old pods never write, new pods write once, all with the same value. Only
+        `max_ack_pending` changes — the config sent is the consumer's CURRENT config with that
+        one field replaced. Running runs stay pending: nats-server 2.10 edits the field in place
+        (spec 2026-11-10-per-user-parallel-runs F1).
+
+        WHY it never raises: the run queue must not stop because a limit could not change. A
+        failed read or update logs a WARNING and leaves that consumer at its existing value.
+        """
+        try:
+            js = await self._jetstream()
+        except Exception as exc:  # noqa: BLE001 - a limit change never stops the worker
+            logger.warning(
+                "run queue consumers not reconciled: broker unreachable (%s: %s)",
+                type(exc).__name__,
+                exc,
+            )
+            return 0
+        # WHY gather: like `_consumer_infos`, so a slow broker costs one round trip, not 16 in a
+        # row before the worker's first claim.
+        results = await asyncio.gather(
+            *(self._reconcile_consumer(js, subject) for subject in self.bucket_subjects())
+        )
+        return sum(results)
+
+    async def _reconcile_consumer(self, js: JetStreamContext, subject: str) -> bool:  # noqa: PLR0911 - one exit per outcome
+        """Reconcile ONE bucket consumer; True when it was updated. Never raises."""
+        name = _consumer_for(subject)
+        try:
+            info = await js.consumer_info(self._stream, name)
+            old = info.config.max_ack_pending
+            if old == self._max_ack_pending:
+                return False
+            await js.add_consumer(
+                self._stream,
+                dataclasses.replace(info.config, max_ack_pending=self._max_ack_pending),
+            )
+        except NotFoundError:
+            # Cold start: the first pull creates it with the configured value.
+            return False
+        except Exception as exc:  # noqa: BLE001 - one bucket's failure never stops the worker
+            logger.warning(
+                "run queue consumer %s not reconciled (%s: %s); it keeps its current "
+                "max_ack_pending",
+                name,
+                type(exc).__name__,
+                exc,
+            )
+            return False
+        logger.info(
+            "run queue consumer %s max_ack_pending %s -> %s", name, old, self._max_ack_pending
+        )
+        return True
+
     async def _consumer_infos(self) -> list[ConsumerInfo | None]:
         """Every bucket consumer's `ConsumerInfo`, in `bucket_subjects()` order; `None` where
         no consumer exists. One request per bucket, gathered concurrently.
@@ -1168,8 +1232,8 @@ class RunQueue:
             try:
                 return await js.consumer_info(self._stream, _consumer_for(subject))
             except NotFoundError:
-                # Cold start (no worker has polled yet), or an operator deleted the consumer
-                # to change `max_ack_pending`. Any OTHER broker error propagates.
+                # Cold start (no worker has polled yet), or an operator deleted the consumer.
+                # Any OTHER broker error propagates.
                 return None
 
         return list(await asyncio.gather(*(_one(subject) for subject in self.bucket_subjects())))

@@ -19,7 +19,7 @@ import signal
 import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import nats
 
@@ -74,6 +74,18 @@ class _Queue(Protocol):
     async def pull(self, batch: int, timeout_s: float) -> Sequence[ClaimedMessage]: ...
 
     async def release_held(self) -> int: ...
+
+
+@runtime_checkable
+class _ConsumerReconciler(Protocol):
+    """The optional slice of ``RunQueue`` a starting worker uses to bring the bucket
+    consumers' ``max_ack_pending`` to its configured value (OME-1314).
+
+    WHY separate from ``_Queue``: test fakes implement ``_Queue`` and must keep working; a
+    queue without this method is simply not reconciled.
+    """
+
+    async def reconcile_consumers(self) -> int: ...
 
 
 class _ControlMessage(Protocol):
@@ -256,6 +268,12 @@ class Worker:
         if self._pool is not None:
             self._pool.start()
         try:
+            # FEATURE (OME-1314, spec D2): apply the configured `max_ack_pending` to the
+            # existing bucket consumers ONCE, at start. INVARIANT: never on the subscription
+            # re-bind, so old pods draining through a rollout never write and new pods write
+            # once, all with the same value. `reconcile_consumers` never raises.
+            if isinstance(self._queue, _ConsumerReconciler):
+                await self._queue.reconcile_consumers()
             async with asyncio.TaskGroup() as tg:
                 tg.create_task(self._claim_loop(tg))
                 if self._control is not None:

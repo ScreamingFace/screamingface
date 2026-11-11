@@ -181,6 +181,12 @@ run ends. The `screamingface_engine_queue_depth` and
 adapter — the counted resource changed from namespace quota headroom to queue depth, and the
 cache-plus-reservation shape did not.
 
+The per-caller in-flight cap defaults to 24 (OME-1314); set `config.runQueueCallerInflightCap`
+to change it (rendered to the App only). The Client reads the enforced value from
+`GET /v1/limits`. A starting worker applies `runnerPool.maxAckPending` to the existing queue
+consumers in place (`RunQueue.reconcile_consumers`), so a new value takes effect at the next
+runner rollout; running runs stay pending and are not redelivered.
+
 ### Warm children (uniform executor PRD 03)
 
 Each worker pod can keep child processes started AHEAD of a claim: they already did their
