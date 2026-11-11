@@ -27,6 +27,7 @@ from .core.auth.log_filter import (
     install_provisioning_token_redaction,
 )
 from .core.credential_blob.store import ORMStore
+from .core.credits.service import CreditService
 from .core.discovery_runtime import DiscoveryRuntime
 from .core.loader import load_plugins
 from .core.model_catalog import build_model_catalog
@@ -47,6 +48,7 @@ from .core.snapshot_publish import build_snapshot_scheduler
 from .core.usage_accounting.hooks import build_accounting_handler
 from .db import close_db, init_db
 from .middleware import BodyCapMiddleware, CallIdMiddleware
+from .plugins.openrouter_provider.credits import OpenRouterCredits
 from .plugins.taxonomy.plugin import TaxonomyPlugin
 from .provider_composition import close_remote_endpoints, compose_providers
 from .routes import (
@@ -61,6 +63,7 @@ from .routes import (
     chat,
     classifications,
     classifiers,
+    credits,
     frozen_copies,
     health,
     legacy_profiles_retired,
@@ -236,8 +239,11 @@ async def _lifespan(app):
         try:
             # The scheduler's owned task must never outlive the app: cancel and await it.
             scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
-            if scheduler is not None:
-                await scheduler.stop()
+            try:
+                if scheduler is not None:
+                    await scheduler.stop()
+            finally:
+                await app.state.credits.aclose()
         finally:
             # §9.12: closed explicitly here rather than left to __del__, which is not
             # guaranteed to run and cannot await. An unclosed handler leaks its connection
@@ -412,6 +418,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # in e2e harnesses. Credential storage itself is always DB-backed.
     credential_store = ORMStore()
     app.state.credential_store = credential_store
+    app.state.credits = CreditService(credential_store, {"openrouter": OpenRouterCredits()})
     # OME-1200: the provider-access port (read/resolve), on which the A2 consumers depend.
     # OME-1209 (Stage E, E4a): the Connection-backed authority resolves every pair from its marker
     # and its Connections; no Profile document is read.
@@ -474,6 +481,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(models.router)
     app.include_router(model_admission.router)
     app.include_router(providers.router)
+    app.include_router(credits.router)
     # OME-1244 (A4): the caller-scoped availability successor, over the provider-access port.
     app.include_router(provider_access_availability.router)
     app.include_router(model_parameters.router)

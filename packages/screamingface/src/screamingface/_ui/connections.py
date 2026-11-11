@@ -16,6 +16,7 @@ from screamingface._ui.connection_view import (
     _provider_presentation,
     static_panel_html,
 )
+from screamingface._ui.credit_controller import _CreditController
 from screamingface._ui.engine_origin import _is_hosted_engine
 from screamingface.errors import ScreamingFaceError
 
@@ -83,7 +84,7 @@ class _Client(Protocol):
     def disconnect(self, provider: str) -> Connection: ...
 
 
-class ConnectionPanel:
+class ConnectionPanel(_CreditController):
     """A fresh Engine-scoped connection view with optional notebook controls."""
 
     def __init__(self, client: _Client) -> None:
@@ -112,6 +113,8 @@ class ConnectionPanel:
         self._unsubscribe_authorization: Callable[[], None] | None = None
         self._view: _NotebookConnectionView | None = None
         self._closed = False
+        self._init_credits()
+        self.refresh_credits()
 
     @property
     def connections(self) -> tuple[Connection, ...]:
@@ -131,10 +134,16 @@ class ConnectionPanel:
             if not self._state.hosted or self._client.authenticated
             else ()
         )
+        self._invalidate_credits()
+        self.refresh_credits()
         self._render_rows()
         return self._state.connections
 
     def widget(self) -> Widget:
+        if self._closed:
+            raise RuntimeError("This connection panel is closed")
+        if self._view is not None:
+            return self._view.root
         # WHY kept: _start_oauth needs a loop to create its polling task on. Nothing else
         # defers work any more — Access discovery is synchronous and login runs in the click.
         try:
@@ -190,6 +199,9 @@ class ConnectionPanel:
         if self._closed:
             return
         self._closed = True
+        self._invalidate_credits()
+        if self._view is not None:
+            self._view.close()
         if self._unsubscribe_auth is not None:
             self._unsubscribe_auth()
             self._unsubscribe_auth = None
@@ -261,6 +273,8 @@ class ConnectionPanel:
                 if connection.status != "pending":
                     self._state.flows.pop(provider, None)
                     self._state.connections = await asyncio.to_thread(self._client.connections.list)
+                    self._invalidate_credits()
+                    self.refresh_credits()
                     self._render_rows()
                     return
                 await asyncio.sleep(0.5)
@@ -382,6 +396,7 @@ class ConnectionPanel:
         self._render_rows()
 
     def _auth_state_changed(self) -> None:
+        self._invalidate_credits()
         if self._closed:
             return
         # WHY inline, not deferred: a hosted notebook delivers a widget update only from a
@@ -389,6 +404,7 @@ class ConnectionPanel:
         # the thread that can render — and posting it to an event loop would repeat exactly
         # the bug this work removed (OME-930).
         self._apply_auth_state()
+        self.refresh_credits()
 
     def _apply_auth_state(self) -> None:
         if self._closed:

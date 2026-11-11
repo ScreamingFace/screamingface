@@ -128,6 +128,14 @@ TAGS: list[dict[str, str]] = [
         ),
     },
     {
+        "name": "Credits",
+        "description": (
+            "Read provider credit for the execution connection and manage optional BYOK "
+            "account-credit credentials. Hosted reads expose only the key allowance. "
+            + _ERROR_DIALECT_NOTE
+        ),
+    },
+    {
         "name": "Community cache",
         "description": (
             "Page through the community request cache (OME-1311): AI Gateway's NDJSON pages, "

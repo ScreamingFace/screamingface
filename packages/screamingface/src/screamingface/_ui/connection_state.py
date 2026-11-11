@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 if TYPE_CHECKING:
     from screamingface.connections import Connection
+    from screamingface.credit import CreditStatus
 
 type PanelMode = Literal["methods", "api_key"]
 
@@ -21,6 +22,8 @@ class _ConnectionPanelState:
     engine_url: str
     provider_mutations_enabled: bool
     connections: tuple[Connection, ...] = ()
+    credit_status: CreditStatus | None = None
+    credit_supported: bool = False
     notice: str | None = None
     access_pending: bool = False
     access_check_pending: bool = False

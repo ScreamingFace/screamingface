@@ -72,6 +72,7 @@ from screamingface_engine.rest import (
     blob_router,
     catalog_router,
     connection_router,
+    credit_router,
     operator_router,
 )
 from screamingface_engine.rest import router as rest_router
@@ -107,6 +108,7 @@ _ROUTERS = (
     limits_router,
     catalog_router,
     connection_router,
+    credit_router,
     cache_entries_router,
     runs_router,
     ws_router,

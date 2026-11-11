@@ -405,4 +405,4 @@ def test_the_notebook_extra_stays_lean_enough_for_a_hosted_notebook() -> None:
     ]
 
     # WHY: the Case browser needs DOM events; neither dependency adds authoring tools.
-    assert sorted(names) == ["ipyevents", "ipywidgets"], names
+    assert sorted(names) == ["anywidget", "ipyevents", "ipywidgets"], names
