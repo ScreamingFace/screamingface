@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1869",
+  "branch": "OME-1869-queue-depth-unclaimed",
+  "approver": "owner — approved in session 2026-11-10: delete the four tests that pin the old depth()/oldest_age() reading",
+  "date": "2026-11-10",
+  "scope": "tests/unit/test_run_queue_stream_config.py: delete test_depth_and_oldest_age_come_from_one_stream_info_round_trip, test_depth_is_cached_within_the_ttl, test_the_cache_expires_after_the_ttl and test_an_empty_queue_reports_no_age_even_though_the_server_sends_a_zero_time; delete the fake's now-unused api_calls, _state, _prefix and _api_request; drop the now-unused timedelta import. Nothing else in the file changes.",
+  "reason": "OME-1869 makes depth() and oldest_age() count only unclaimed runs, read from the per-bucket consumers (num_pending, first undelivered message), instead of one STREAM.INFO read whose message count includes running runs. The four tests pinned that single STREAM.INFO round trip through a fake with no consumer_info. Their caching and empty-queue invariants are re-pinned against the new reading in the new file test_run_queue_unclaimed_depth.py; the Go-zero-time guard has no target any more, because the age now comes from a real message timestamp.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_run_queue_stream_config.py": {
+      "base_blob": "40e50ec9c77e125665bea40d058cb9f4cf78fd90",
+      "approved_blob": "997171462bc577f85d0263b32d6891b955db4463"
+    }
+  }
+}

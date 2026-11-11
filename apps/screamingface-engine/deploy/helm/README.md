@@ -174,7 +174,10 @@ drain, its runs closing out as `worker_draining`.
 
 **Admission.** The App admits runs on **queue depth** (OME-1091): a run is refused with 503 +
 `Retry-After` when the queue is at `run_queue_depth_ceiling` or the caller is at its in-flight
-cap. This supersedes the OME-1065 quota-admission feature, which was retired with the Job
+cap. Depth counts **unclaimed** runs only — runs no worker has claimed yet, read from the
+per-bucket consumers. A running run is not depth, although the queue stream holds it until the
+run ends. The `screamingface_engine_queue_depth` and
+`screamingface_engine_queue_oldest_unclaimed_age_s` gauges use the same reading. This supersedes the OME-1065 quota-admission feature, which was retired with the Job
 adapter — the counted resource changed from namespace quota headroom to queue depth, and the
 cache-plus-reservation shape did not.
 
