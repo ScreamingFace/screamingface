@@ -80,7 +80,7 @@ def _candidate(
             revision="fixture-revision",
             case_count=benchmark_case_count,
         ),
-        run_id="run-fusion-alpha",
+        attempt_id="run-fusion-alpha",
         started_at=datetime(2026, 8, 8, 11, 59, tzinfo=UTC),
         completed_at=datetime(2026, 8, 8, 12, tzinfo=UTC),
         name="fusion/alpha",

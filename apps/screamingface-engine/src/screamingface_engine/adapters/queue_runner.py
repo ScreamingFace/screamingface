@@ -119,6 +119,8 @@ class _Queue(Protocol):
         enqueued_at: datetime | None = None,
     ) -> None: ...
 
+    # Both count only UNCLAIMED runs — queued, not yet delivered to a worker. A running run
+    # stays in the queue stream until its ack at the run's end, so it is never "depth".
     async def depth(self) -> int: ...
 
     async def oldest_age(self) -> float | None: ...
@@ -207,12 +209,15 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # FEATURE (OME-1091): depth-based admission. The queue refuses a run when its depth is
         # at the ceiling — the substrate is saturated, and the REST edge maps the refusal to
         # 503 + a `Retry-After` derived from the drain estimate.
+        # WHY the ceiling bounds the UNCLAIMED backlog, not the stream's held messages
+        # (docs/spec/2026-11-10-queue-depth-unclaimed.md D6): running runs are already
+        # bounded by the fleet's slots, so "full" means "too many runs WAIT".
         depth_ceiling: int = DEFAULT_DEPTH_CEILING,
         # FEATURE (OME-1091): the per-caller in-flight cap — how many of one caller's runs may
         # be admitted at once, so one caller's 9-candidate evaluation cannot occupy every slot.
         caller_inflight_cap: int = DEFAULT_CALLER_INFLIGHT_CAP,
         # FEATURE (OME-1091): how long a depth reading stays fresh before the next refresh. The
-        # queue itself caches its `stream_info` reading; this is the runner's own window, which
+        # queue itself caches its consumer reading; this is the runner's own window, which
         # is what the reservation counter covers.
         state_cache_ttl_s: float = DEFAULT_STATE_CACHE_TTL_S,
         # FEATURE (OME-1108): the backstop on a reservation's lifetime. The primary release is
@@ -566,7 +571,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         return "scheduled" if self._capability_valid(topic) else "not_found"
 
     async def queue_depth(self) -> int:
-        """How many runs are queued: an uncached, on-demand read of the queue's depth.
+        """How many runs wait for a worker (unclaimed): a read that bypasses this runner's own
+        refresh window (the queue's own ~`state_cache_ttl_s` cache still applies).
 
         Distinct from `queue_snapshot`, which returns the cached pair `/metrics` scrapes.
         No caller in the App reads this today — the queue-position notice that motivated it
@@ -597,7 +603,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         return self._publisher
 
     def queue_snapshot(self) -> tuple[int | None, float | None]:
-        """The last cached (depth, oldest-unclaimed age) — the /metrics collector's input.
+        """The last cached (unclaimed depth, oldest-unclaimed age) — the /metrics collector's
+        input. Running runs are in neither value.
 
         Sync and lock-free: the values are written under `_admission_lock` by
         `_refresh_if_stale`, and a scrape reading a half-updated pair is harmless (both are
@@ -822,9 +829,9 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 self._caller_of_topic.pop(topic, None)
 
     async def _refresh_if_stale(self) -> None:
-        """Re-read the queue's depth and oldest-message age when the cache is stale.
+        """Re-read the queue's unclaimed depth and oldest-unclaimed age when the cache is stale.
 
-        The queue itself caches its `stream_info` reading (~2s), so this is one cheap read;
+        The queue itself caches its consumer reading (~2s), so this is one cached refresh;
         the runner's own window is what the reservation counter covers. The depth now reflects
         everything older than the window, so the window's reservations are reset — the counter
         only covers the gap between refreshes.
@@ -868,6 +875,12 @@ class QueueJobRunner(IdentityAwareJobRunner):
         oldest message has waited `age`, the pool drains at about `d / age` per second, so the
         queue reaches the ceiling in `(depth - ceiling) / rate` seconds. `None` when there is
         no basis (no depth, no age) — the caller falls back to the constant 1.
+
+        INVARIANT: both inputs describe the BACKLOG — the unclaimed depth and the oldest
+        UNCLAIMED run's age (docs/spec/2026-11-10-queue-depth-unclaimed.md D7). Fed the held
+        count and a running run's age, the formula answered for a queue that does not exist.
+        The bucket round-robin is not strict FIFO across buckets; the oldest head across them
+        waited longest, so the rate reads low and the estimate errs long — the safe side.
         """
         depth = self._depth_snapshot
         age = self._oldest_age

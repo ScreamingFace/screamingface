@@ -387,6 +387,9 @@ class Settings(BaseSettings):
     # WHY a ceiling at all: the serving half must stop accepting when the queue is deeper than
     # the fleet can drain in a reasonable time, rather than piling up unbounded work. THIS unit
     # only declares the setting; the admission decision lands with the cutover (OME-1086).
+    # It bounds the UNCLAIMED backlog — runs no worker has claimed yet — not the queue
+    # stream's held messages, which also hold every running run until its end
+    # (docs/spec/2026-11-10-queue-depth-unclaimed.md D6).
     run_queue_depth_ceiling: int = Field(default=runner_queue.DEFAULT_DEPTH_CEILING, ge=1)
     # FEATURE (OME-1091): how many bucket subjects the queue is split into for per-caller
     # fairness. The worker pulls round-robin across buckets, so one caller's runs cannot be

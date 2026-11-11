@@ -277,12 +277,13 @@ Tests, on a fake transport:
 
 ### C2. Register every evaluate
 
-- `_evaluation/runner.py`, and the raw-URL4 and replay entry points (`_replay.py`): mint
-  `client_key`, then `POST /runs` after preflight and before the first `POST /token`.
-  `_results/evaluation.py` uses the same uuid when there is a result store, and keys the manifest
-  by `Run.id`.
-- `_engine/transport.py`: `X-SF-Run` and `X-SF-Run-Candidate` (the Candidate's index) on every
-  start. A 409 `run_canceled` stops the remaining starts. `cancel_active` also sends
+- `_evaluation/runner.py` and `_evaluation/url4.py` (raw URL4, and replay, which runs through
+  it): after preflight and before the first `POST /token`, the transport's `open_run` mints
+  `client_key` and sends `POST /runs`. `_results/evaluation.py` keys the manifest by `Run.id`, or
+  by the `client_key` when the Run was not registered.
+- `_engine/transport.py`, with the bindings in a new `_engine/run_binding.py`: `X-SF-Run` and
+  `X-SF-Run-Candidate` (the Candidate's index) on every start. A 409 `run_canceled` stops the
+  remaining starts. `cancel_active`, and a Ctrl-C of a one-Candidate evaluate, also send
   `DELETE /runs/{id}`, best-effort.
 - `report.py`: `Report.run_id`.
 - `_runtime/config.py` and `_runtime/server.py`: pass the local Engine
@@ -343,6 +344,9 @@ No prior assertion is loosened. Expected edits, each listed in that PR's
 
 - C3: `tests/public_surface_snapshot.json` gains `runs`, `Run`, `CandidateRun`, `RunProgress`.
 - C4: tests reading `CandidateResult.run_id` switch to `attempt_id`, or assert the warning.
+- C2: `tests/test_report.py` asserts a Report's `run_id` is `None` where it asserted there was
+  none, and the fake Engine `tests/_isolation_engine.py` serves `POST /runs` and
+  `DELETE /runs/{id}`.
 
 If any other prior test needs a change, I stop and ask first.
 

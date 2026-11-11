@@ -1,7 +1,8 @@
 """The durable run queue (OME-1088): the substrate OME-1086's fixed worker pool pulls from.
 
 One JetStream stream (`url4-runq`, `retention=WorkQueue`, file storage) holds every
-accepted-but-not-yet-started run; its replica count is configuration, not a constant — see
+accepted run until a worker acks it at the run's END — so it holds queued AND running runs
+(see `RunQueue.depth` / `RunQueue.held`); its replica count is configuration, not a constant — see
 `QUEUE_REPLICAS`. Publishing sets `Nats-Msg-Id` to the run's topic, so the
 broker deduplicates a retried submission within `duplicate_window` — the queue's
 `JobAlreadyExists` equivalent, with no lookup table. A durable PULL consumer (`url4-runners`)
@@ -23,6 +24,7 @@ import json
 import logging
 import time
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -39,8 +41,8 @@ from nats.aio.client import Client
 from nats.aio.msg import Msg
 from nats.aio.subscription import Subscription
 from nats.js import JetStreamContext
-from nats.js.api import AckPolicy, ConsumerConfig, RetentionPolicy, StorageType
-from nats.js.errors import BadRequestError, ServiceUnavailableError
+from nats.js.api import AckPolicy, ConsumerConfig, ConsumerInfo, RetentionPolicy, StorageType
+from nats.js.errors import BadRequestError, NotFoundError, ServiceUnavailableError
 
 from screamingface_engine import job_env, subjects
 from screamingface_engine.client_provenance import CLIENT_VERSION_ENV, valid_version
@@ -151,6 +153,34 @@ def _consumer_for(subject: str) -> str:
     ack state stable.
     """
     return f"{QUEUE_CONSUMER}-{subject.rsplit('.', 1)[-1]}"
+
+
+@dataclass(frozen=True, slots=True)
+class BucketReading:
+    """One bucket consumer's state, as the broker reports it (`RunQueue.bucket_readings`).
+
+    FEATURE: the honest queue depth (docs/spec/2026-11-10-queue-depth-unclaimed.md, D1). The
+    queue stream holds a run until a worker acks it at the run's END, so its message count is
+    queued + running; the bucket's durable consumer tells the two apart.
+
+    AIDEV-NOTE: a SHARED type — the runner-pool autoscaler (`runner-pool-autoscaling`) reads
+    the same reading. Keep the field names and meanings stable.
+    """
+
+    running: int  # consumer num_ack_pending: delivered to a worker, not acked yet
+    queued: int  # consumer num_pending: on the bucket subject, not delivered yet
+    max_ack_pending: int  # consumer config; <= 0 means no cap (JetStream -1)
+
+
+def _reading_of(info: ConsumerInfo) -> BucketReading:
+    """The reading for one `ConsumerInfo`. A field the server leaves out reads as 0; an
+    unset cap reads as JetStream's own "no cap", -1."""
+    cap = info.config.max_ack_pending
+    return BucketReading(
+        running=info.num_ack_pending or 0,
+        queued=info.num_pending or 0,
+        max_ack_pending=-1 if cap is None else cap,
+    )
 
 
 def _work_queue_consumer_config(
@@ -400,8 +430,9 @@ class RunQueue:
         self._js: JetStreamContext | None = None
         self._connect_lock = asyncio.Lock()
         self._ensured = False
-        # (monotonic time of the read, (depth, first_ts)) — see `_state`.
-        self._state_cache: tuple[float, tuple[int, str | None]] | None = None
+        # (monotonic time of the read, (unclaimed runs, oldest unclaimed publish time)) — see
+        # `_unclaimed`.
+        self._unclaimed_cache: tuple[float, tuple[int, datetime | None]] | None = None
         # The round-robin pull's rotation: which bucket the next pull starts at. Advancing by
         # one per pull means no bucket is permanently first (or last) in the rotation.
         self._rr_index = 0
@@ -1102,51 +1133,118 @@ class RunQueue:
             self._pull_subs_bound[subject] = time.monotonic()
         return sub
 
-    async def _state(self) -> tuple[int, str | None]:
-        """(queued message count, first message's publish timestamp) from one stream-info round
-        trip, cached for `state_cache_ttl_s`.
+    async def _consumer_infos(self) -> list[ConsumerInfo | None]:
+        """Every bucket consumer's `ConsumerInfo`, in `bucket_subjects()` order; `None` where
+        no consumer exists. One request per bucket, gathered concurrently.
 
-        WHY the raw API request rather than `js.stream_info`: nats-py's `StreamState` drops
-        `first_ts` (the server sends it; the dataclass does not model it), and `oldest_age`
-        needs exactly that field. The raw response is the only path to it, so one request
-        serves both signals.
-
-        The dependency on the PRIVATE surface (`_api_request`, `_prefix`) is pinned by
-        `test_nats_private_api_surface.py`: a `uv lock` bump that renames either — or a
-        release that finally models `first_ts` on `StreamState` — fails that test loudly at
-        CI instead of surfacing as admission logic silently misbehaving at runtime.
+        INVARIANT (spec D1): READ ONLY. The App never creates or binds a consumer — only a
+        worker does (`_bound_subscription`), with the worker's `max_ack_pending`; a bind here
+        would set the cap from the App's settings instead.
         """
-        now = time.monotonic()
-        if self._state_cache is not None and now - self._state_cache[0] < self._state_cache_ttl_s:
-            return self._state_cache[1]
         js = await self._jetstream()
-        resp = await js._api_request(f"{js._prefix}.STREAM.INFO.{self._stream}", b"")
-        state = resp.get("state", {})
-        result = (int(state.get("messages", 0)), state.get("first_ts"))
-        self._state_cache = (now, result)
+
+        async def _one(subject: str) -> ConsumerInfo | None:
+            try:
+                return await js.consumer_info(self._stream, _consumer_for(subject))
+            except NotFoundError:
+                # Cold start (no worker has polled yet), or an operator deleted the consumer
+                # to change `max_ack_pending`. Any OTHER broker error propagates.
+                return None
+
+        return list(await asyncio.gather(*(_one(subject) for subject in self.bucket_subjects())))
+
+    async def bucket_readings(self) -> list[BucketReading | None]:
+        """Each bucket consumer's (running, queued, max_ack_pending), in `bucket_subjects()`
+        order; `None` = no consumer is bound for that bucket yet. Uncached: the raw reading.
+
+        Broker errors other than "consumer not found" propagate.
+        """
+        return [
+            None if info is None else _reading_of(info) for info in await self._consumer_infos()
+        ]
+
+    async def _read_unclaimed(self) -> tuple[int, datetime | None]:
+        """(unclaimed runs, the oldest unclaimed run's publish time) — one uncached fan-out.
+
+        A bucket WITH a consumer: its `num_pending` runs wait, and the first of them is the
+        first message on the bucket subject after the consumer's `delivered.stream_seq` (a
+        consumer delivers in stream order). A bucket WITHOUT one (spec D2): nothing on its
+        subject was ever delivered, and WorkQueue retention keeps every message until an ack,
+        so its whole subject count waits, from sequence 1.
+
+        WHY a NAK'd run is not here (spec D4): the broker keeps it ack-pending (`running`)
+        until it is redelivered, and reports no count of the redelivery queue. The state is
+        short and `max_ack_pending` bounds it; the integration test pins the behavior.
+        """
+        infos = await self._consumer_infos()
+        js = await self._jetstream()
+        subject_counts: dict[str, int] = {}
+        if any(info is None for info in infos):
+            # Only on a cold start: steady state (every consumer bound) sends no stream request.
+            stream = await js.stream_info(self._stream, subjects_filter=self._stream_subject)
+            subject_counts = stream.state.subjects or {}
+        backlog: list[tuple[str, int, int]] = []  # (subject, waiting runs, first undelivered seq)
+        for subject, info in zip(self.bucket_subjects(), infos, strict=True):
+            if info is None:
+                backlog.append((subject, subject_counts.get(subject, 0), 1))
+            else:
+                delivered = info.delivered.stream_seq if info.delivered is not None else 0
+                backlog.append((subject, _reading_of(info).queued, delivered + 1))
+
+        async def _head(subject: str, start: int) -> datetime | None:
+            try:
+                msg = await js.get_msg(self._stream, seq=start, subject=subject, next=True)
+            except NotFoundError:
+                # A race, not an error: a worker took the head between the two reads.
+                return None
+            return msg.time
+
+        heads = await asyncio.gather(
+            *(_head(subject, start) for subject, waiting, start in backlog if waiting > 0)
+        )
+        stamps = [stamp for stamp in heads if stamp is not None]
+        return sum(waiting for _, waiting, _ in backlog), min(stamps, default=None)
+
+    async def _unclaimed(self) -> tuple[int, datetime | None]:
+        """`_read_unclaimed`, cached for `state_cache_ttl_s` (spec D8): `depth` and
+        `oldest_age` share one reading, so the admission path pays one fan-out per window."""
+        now = time.monotonic()
+        cached = self._unclaimed_cache
+        if cached is not None and now - cached[0] < self._state_cache_ttl_s:
+            return cached[1]
+        result = await self._read_unclaimed()
+        self._unclaimed_cache = (now, result)
         return result
 
     async def depth(self) -> int:
-        """How many runs are queued but not yet started (cached ~`state_cache_ttl_s`)."""
-        messages, _ = await self._state()
-        return messages
+        """How many runs are queued but not yet claimed by a worker (cached
+        ~`state_cache_ttl_s`).
+
+        INVARIANT: a RUNNING run is never counted — the stream still holds it until the
+        worker acks at the run's end, which is why this is NOT the stream's message count
+        (that is `held`).
+        """
+        waiting, _ = await self._unclaimed()
+        return waiting
 
     async def oldest_age(self) -> float | None:
-        """Seconds since the oldest queued run was published; `None` when the queue is empty."""
-        messages, first_ts = await self._state()
-        # WHY the message COUNT is the emptiness signal: the server always sends a
-        # `first_ts`, answering an EMPTY stream with the Go zero time
-        # ("0001-01-01T00:00:00Z"), which `fromisoformat` parses happily. A `None`-only
-        # check reads that as a ~6.4e10-second age and the idle-queue alert fires
-        # permanently on every drained queue.
-        if not messages or first_ts is None:
+        """Seconds since the oldest UNCLAIMED run was published to the queue; `None` when no
+        run waits. A running run is never the oldest one here, however old it is."""
+        _, oldest = await self._unclaimed()
+        if oldest is None:
             return None
-        ts = datetime.fromisoformat(first_ts)
-        # Belt-and-braces for a response that disagrees with itself (messages > 0 with
-        # a zero time): no real run was published in year 1.
-        if ts.year <= 1:
-            return None
-        return (datetime.now(UTC) - ts).total_seconds()
+        return (datetime.now(UTC) - oldest).total_seconds()
+
+    async def held(self) -> int:
+        """How many messages the queue stream holds: queued AND running runs (WorkQueue
+        retention removes a run only at its ack, at the run's end). Uncached.
+
+        Not an admission or backlog signal — use `depth` for that. It answers "did the ack
+        remove the run" and "what does the stream hold".
+        """
+        js = await self._jetstream()
+        info = await js.stream_info(self._stream)
+        return info.state.messages
 
     async def release_held(self) -> int:
         """Give back every message a held subscription buffered that no pull returned.
@@ -1223,6 +1321,7 @@ class RunQueue:
 
 __all__ = [
     "BROKER_UNAVAILABLE_ERRORS",
+    "BucketReading",
     "DEFAULT_ACK_WAIT_S",
     "DEFAULT_BUCKET_COUNT",
     "DEFAULT_CALLER_INFLIGHT_CAP",
