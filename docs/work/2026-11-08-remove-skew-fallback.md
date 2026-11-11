@@ -20,8 +20,11 @@ write. Spec `docs/spec/2026-10-29-local-engine-effective-row.md` §3, §4; L7b l
 `docs/spec/2026-10-29-ome-1138-closeout.md` §8.
 
 **Gate before PR-open** (owner decision 4): an Engine release that carries L7b has shipped. The
-work is prepared in this worktree; the PR opens only after that release. As of 2026-11-09 none
-has: no `screamingface-engine-v*` tag contains L7b's `529bdb7f9` (the latest is `v1.5.0`).
+work is prepared in this worktree; the PR opens only after that release. It also waits for a
+gateway release that carries L7a (owner, 2026-11-11): without the fallback the Engine needs a
+gateway that lists the flag, and no gateway release did before `aigateway-v1.0.0`. Both shipped on
+2026-11-11: `screamingface-engine-v2.0.0` contains L7b's `529bdb7f9`, and `aigateway-v1.0.0`
+contains L7a's `6e998fa4d`.
 
 ## Planned changes
 
@@ -78,13 +81,17 @@ Tests under `apps/screamingface-engine/tests/unit/`:
 - **Actual files:** as planned: `aigateway_rows.py` and `aigateway.py` in Engine src; the three
   approved prior test files above, `test_connections_aigateway_version_skew.py` now holding the
   14 tests of the refusal.
-- **Commits:** one, `refactor(screamingface-engine): select the Local Connection only by the
-  effective flag`, on `OME-1832-remove-skew-fallback` from `origin/main` `6e73b4adb`. The PR opens
-  after an Engine release that carries L7b.
-- **Gates (2026-11-09, base `6e73b4adb`):** `run_gates.py screamingface-engine` green: the
+- **Commits:** on `OME-1832-remove-skew-fallback` from `origin/main` `6e73b4adb`:
+  `refactor(screamingface-engine): select the Local Connection only by the effective flag`, then
+  `docs(screamingface-engine): record the releases OME-1832 waited on` for this ledger and the
+  mirror. Upstream since `6e73b4adb` touches none of these files. Not marked breaking (owner,
+  2026-11-11); the PR body states that the Local Engine now needs AI Gateway 1.0.0 or later.
+- **Gates (2026-11-11, the change on `origin/main` `d81e4d83a`, the `aigateway-v1.0.0`
+  release):** `run_gates.py screamingface-engine` green: the
   append-only check (`OME-1832.json` admits the three approved files), ruff, ruff format, pyright,
   the layering check and the full suite with coverage.
 - **Deviations:** the approval covered a third prior test file, `test_connections_aigateway.py`,
   found at GREEN. The skew file is modified rather than deleted, and the new tests moved into it
   (owner, 2026-11-09). `test_profile_env_characterisation.py` keeps only the worker fakes, which
-  nothing imports; deleting it would hit the same deleted-file rule.
+  nothing imports; deleting it would hit the same deleted-file rule. The PR-open gate gained the
+  gateway release that carries L7a (owner, 2026-11-11).
