@@ -94,8 +94,10 @@ async def serve_data_bytes(route: _DataRoute, request: FetchRequest | None = Non
     if isinstance(provider, SupportsReadChunks):
         return FetchedBytes(await _read_pieces(provider, request), route.media_type)
     if isinstance(provider, str):  # already held by the node: its size is exact
-        body = provider.encode("utf-8")
-        return FetchedBytes(_settled(request, body, _reserve(len(body), request)), route.media_type)
+        # INVARIANT (PR #1587 review round 12): drawn BEFORE the encode, so a refused body's
+        # UTF-8 copy is never built; two held 7 MB strings once produced 14 MB past an 8 MB cap.
+        declared = _reserve(_utf8_size(provider), request)
+        return FetchedBytes(_settled(request, provider.encode("utf-8"), declared), route.media_type)
     if request is not None and request.on_declared is not None:
         # INVARIANT (PR #1587 review round 11 finding 1, owner 2026-11-05 — FAIL CLOSED): under
         # a run's live cap a body is counted BEFORE it is held. A whole-body provider can only
@@ -130,6 +132,14 @@ def _reserve(size: int | None, request: FetchRequest | None) -> int | None:
     if size is not None and request.max_bytes is not None and size > request.max_bytes:
         raise too_large(request.max_bytes)
     return size
+
+
+def _utf8_size(text: str) -> int:
+    """``len(text.encode("utf-8"))`` without holding the whole encoded copy (1 MiB slices)."""
+    if text.isascii():
+        return len(text)
+    step = 1 << 20
+    return sum(len(text[i : i + step].encode("utf-8")) for i in range(0, len(text), step))
 
 
 def _settled(request: FetchRequest | None, body: bytes, declared: int | None) -> bytes:
