@@ -39,7 +39,7 @@ import uuid
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 import nats
 from nats.aio.client import Client
@@ -66,6 +66,7 @@ from screamingface_engine.runner_queue import (
     DEFAULT_IO_CONCURRENCY,
     DEFAULT_RESERVATION_LEASE_S,
     DEFAULT_STATE_CACHE_TTL_S,
+    PublishOutcomeUnknown,
     RunQueueUnavailable,
     caller_key,
     encode_message,
@@ -107,6 +108,31 @@ CALLER_RETRY_MAX_S = 300
 # follow-up P2-10).
 _UNREADABLE_TAIL = object()
 
+# The publish failures after which the broker may have stored the run (spec D1): the run's own
+# send went unanswered, or the start was cancelled mid-publish. Any other failure proves nothing
+# was stored.
+_UNKNOWN_PUBLISH_OUTCOMES: tuple[type[BaseException], ...] = (
+    PublishOutcomeUnknown,
+    asyncio.CancelledError,
+)
+# A hold ends twice the run's deadline plus this slack after its attempt (spec D4): a stored
+# message is claimable for one deadline and a run claimed then lasts one more, plus the stream
+# grace its message carries (the run queue writes this constant, or less, into every message)
+# and the worker's kill margins (30 s + 10 s in `worker.supervisor`, which this shared leaf may
+# not import). Tests pin both. The 200 s covers clock skew between pods.
+_WORKER_KILL_MARGINS_S = 40.0
+_HELD_SLOT_SLACK_S = job_env.DEFAULT_STREAM_GRACE_S + _WORKER_KILL_MARGINS_S + 200.0
+
+
+class _Hold(NamedTuple):
+    """The reservation of an attempt whose publish outcome is unknown (spec D2)."""
+
+    caller: str
+    topic: str
+    token: datetime
+    # When the run, if stored, can no longer exist (`_HELD_SLOT_SLACK_S`).
+    until: datetime
+
 
 class _Queue(Protocol):
     """The slice of ``RunQueue`` the queue runner uses."""
@@ -117,7 +143,10 @@ class _Queue(Protocol):
         *,
         identity: Mapping[str, str] | None = None,
         enqueued_at: datetime | None = None,
-    ) -> None: ...
+    ) -> None:
+        """INVARIANT: raises `PublishOutcomeUnknown` when the run may be stored; the runner
+        holds the caller's slot on that type alone."""
+        ...
 
     # Both count only UNCLAIMED runs — queued, not yet delivered to a worker. A running run
     # stays in the queue stream until its ack at the run's end, so it is never "depth".
@@ -290,6 +319,10 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # design as `_reserved` above.
         self._in_flight_by_caller: dict[str, dict[str, list[datetime]]] = {}
         self._caller_of_topic: dict[str, str] = {}
+        # Reservations of attempts whose publish outcome is unknown (spec D2-D4), counted by
+        # `_cap_count` until the run's terminal frame is observed, their `until` passes or the
+        # lease ends. A list, not a mapping by token: two attempts can share an admission moment.
+        self._held: list[_Hold] = []
 
     # --- the JobRunner port ----------------------------------------------------------------
 
@@ -387,10 +420,12 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 # fails, releasing "whatever the caller holds for the topic" would erase the
                 # FIRST, still-running admission too, under-counting the caller from then on.
                 # The release removes exactly the reservation this attempt minted.
-                await self._release_reservation(topic, caller_key(identity), reservation)
+                await self._settle_failed_publish(
+                    topic, caller_key(identity), reservation, exc, deadline_s
+                )
                 if isinstance(exc, BROKER_UNAVAILABLE_ERRORS):
-                    # AFTER the release, so the translation can never skip it (a leaked
-                    # reservation refuses the caller's next run for a run that never queued).
+                    # AFTER the release or the hold, so the translation can never skip it (a
+                    # leaked reservation refuses the caller's next run for a run never queued).
                     raise RunQueueUnavailable("the run could not be durably queued") from exc
                 raise
             if topic in self._stopped_before_schedule:
@@ -400,6 +435,49 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 raise StoppedBeforeSchedule(topic)
             self._scheduled_at[topic] = self._clock()
             return job_name(topic)
+
+    async def _settle_failed_publish(
+        self, topic: str, caller: str, reservation: datetime, exc: BaseException, deadline_s: int
+    ) -> None:
+        """Hold this attempt's reservation if the run may be queued, else release it (spec D1-D4).
+
+        INVARIANT: UNKNOWN NEVER FREES A SLOT, as in `_release_finished_for`. The hold path is
+        synchronous, so a cancellation cannot interrupt it. Only this attempt's reservation is
+        settled: a retry's definite failure leaves earlier holds standing.
+        """
+        if isinstance(exc, _UNKNOWN_PUBLISH_OUTCOMES):
+            until = self._clock() + timedelta(seconds=2 * deadline_s + _HELD_SLOT_SLACK_S)
+            self._held.append(_Hold(caller, topic, reservation, until))
+            lease_end = reservation + timedelta(seconds=self._reservation_lease_s)
+            logger.warning(
+                "run queue publish outcome unknown topic=%s (%s): the caller's slot stays held "
+                "until the run's end is observed, or %s at the latest",
+                topic,
+                type(exc).__name__,
+                min(until, lease_end).isoformat(),
+            )
+            return
+        await self._release_reservation(topic, caller, reservation)
+
+    def _cap_count(self, caller: str, topic: str) -> int:
+        """What `caller`'s in-flight cap counts for a start of `topic` (spec D3).
+
+        Each live attempt counts one; held attempts beside it add nothing. A topic whose
+        attempts are all held counts once, since together they are at most one run. The topic
+        being started counts its live attempts only, so its own holds never refuse its retry.
+        A hold counts only while its reservation is present.
+        """
+        held = Counter(
+            hold.topic for hold in self._present([h for h in self._held if h.caller == caller])
+        )
+        count = 0
+        for in_flight_topic, tokens in self._in_flight_by_caller.get(caller, {}).items():
+            live = len(tokens) - held[in_flight_topic]
+            if live > 0:
+                count += live
+            elif in_flight_topic != topic:
+                count += 1
+        return count
 
     @contextlib.contextmanager
     def _in_schedule(self, topic: str) -> Iterator[None]:
@@ -703,7 +781,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                     self._depth_ceiling,
                     retry_after_s=self._drain_estimate_s(),
                 )
-            count = self._in_flight_count(caller)
+            count = self._cap_count(caller, topic)
             if count >= self._caller_inflight_cap:
                 # FEATURE (OME-1108): a caller at its cap may be held there by runs that have
                 # already finished. Nothing else releases them — `status()` is the only
@@ -712,7 +790,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 # refusing, find out whether these runs are still running. Live deployment
                 # refused 7 of 8 candidates against an EMPTY queue and an idle pool this way.
                 await self._release_finished_for(caller)
-                count = self._in_flight_count(caller)
+                count = self._cap_count(caller, topic)
             if count >= self._caller_inflight_cap:
                 # WHY not the drain estimate (review follow-up P2-11): the cap branch is
                 # reached precisely when the queue is NOT at its ceiling, so the drain
@@ -729,10 +807,6 @@ class QueueJobRunner(IdentityAwareJobRunner):
             self._in_flight_by_caller.setdefault(caller, {}).setdefault(topic, []).append(token)
             self._caller_of_topic[topic] = caller
             return token
-
-    def _in_flight_count(self, caller: str) -> int:
-        """How many reservations `caller` currently holds, across all of its topics."""
-        return sum(len(topics) for topics in self._in_flight_by_caller.get(caller, {}).values())
 
     async def _release_finished_for(self, caller: str) -> None:
         """Release the reservations of `caller`'s runs that have already finished.
@@ -798,7 +872,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
 
     async def _release_reservation(self, topic: str, caller: str, token: datetime) -> None:
         """Release the ONE reservation `token` identifies, for a run that was not durably
-        accepted (a publish failure or a cancellation mid-publish).
+        accepted (a publish failure that proves nothing was stored, or a stop before the run
+        was queued).
 
         WHY a token and not the (caller, topic) pair (review follow-up): a caller can
         re-schedule a STILL-LIVE topic — a client retry outside the broker's dedupe window,
@@ -817,16 +892,17 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # every subsequent admission check. A release below zero is the refresh having
             # already accounted for this reservation; clamp, and the counter stays honest.
             self._reserved = max(0, self._reserved - 1)
-            by_caller = self._in_flight_by_caller.get(caller)
-            if by_caller is not None and topic in by_caller:
-                with contextlib.suppress(ValueError):
-                    by_caller[topic].remove(token)
-                if not by_caller[topic]:
-                    del by_caller[topic]
-            if by_caller is not None and not by_caller:
-                del self._in_flight_by_caller[caller]
-            if not any(topic in topics for topics in self._in_flight_by_caller.values()):
-                self._caller_of_topic.pop(topic, None)
+            self._drop_token(topic, caller, token)
+
+    def _drop_token(self, topic: str, caller: str, token: datetime) -> None:
+        """Remove the ONE reservation `token` identifies from the per-caller tracking."""
+        by_caller = self._in_flight_by_caller.get(caller, {})
+        if topic in by_caller:
+            with contextlib.suppress(ValueError):
+                by_caller[topic].remove(token)
+            if not by_caller[topic]:
+                del by_caller[topic]
+        self._compact(topic)
 
     async def _refresh_if_stale(self) -> None:
         """Re-read the queue's unclaimed depth and oldest-unclaimed age when the cache is stale.
@@ -964,6 +1040,33 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # OME-1108: the lease is the shorter of the two bounds and is checked on the same
         # path, so a reservation cannot outlive its run by a capability lifetime.
         self._expire_leases()
+        self._prune_holds(now)
+
+    def _prune_holds(self, now: datetime) -> None:
+        """Forget holds whose reservation another path released, then free those past `until`
+        (spec D4). Forgetting first keeps an expired hold from dropping a live attempt's token."""
+        present, self._held = self._present(self._held), []
+        for hold in present:
+            if now >= hold.until:
+                self._drop_token(hold.topic, hold.caller, hold.token)
+            else:
+                self._held.append(hold)
+
+    def _present(self, holds: list[_Hold]) -> list[_Hold]:
+        """The `holds` whose reservation is still tracked, matching equal tokens one by one.
+        Shared by `_prune_holds` and `_cap_count`, so they agree on which holds exist."""
+        remaining = Counter(
+            (caller, topic, token)
+            for caller, topic in {(hold.caller, hold.topic) for hold in holds}
+            for token in self._in_flight_by_caller.get(caller, {}).get(topic, ())
+        )
+        present = []
+        for hold in holds:
+            key = (hold.caller, hold.topic, hold.token)
+            if remaining[key] > 0:
+                remaining[key] -= 1
+                present.append(hold)
+        return present
 
 
 __all__ = [
