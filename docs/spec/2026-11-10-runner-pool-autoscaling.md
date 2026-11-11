@@ -54,7 +54,7 @@ worker, so this is a cold-start state only.
 ### D2. The App samples on its own cadence
 
 One periodic task per App process (`_install_periodic`, the shared loop of the reaper and the
-unclaimed-run warner) reads the 16 consumers every `runner_demand_sample_s` (default 5 s) and keeps
+unclaimed-run warner) reads the 16 consumers every `runner_demand_sample_s` (default 15 s; 5 s until the owner changed it on 2026-11-10) and keeps
 the last good sample with its time. Admission does not drive it, and it does not touch admission
 state. The App runs one replica (`replicaCount: 1`), so there is one source of truth. `0` disables
 the sampler.

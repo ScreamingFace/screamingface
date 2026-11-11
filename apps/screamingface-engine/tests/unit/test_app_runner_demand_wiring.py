@@ -104,10 +104,10 @@ class _FakeControl:
         raise TimeoutError
 
 
-def test_the_defaults_sample_every_five_seconds_and_go_stale_after_thirty() -> None:
+def test_the_defaults_sample_every_fifteen_seconds_and_go_stale_after_thirty() -> None:
     s = Settings(jwt_secret=SECRET)
 
-    assert s.runner_demand_sample_s == 5.0
+    assert s.runner_demand_sample_s == 15.0
     assert s.runner_demand_stale_s == 30.0
 
 

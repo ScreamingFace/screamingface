@@ -88,7 +88,7 @@ the worker's job, and the App must never create a consumer with its own `max_ack
 Next to `unclaimed_run_warn_s`, with WHY comments:
 
 ```python
-runner_demand_sample_s: float = Field(default=5.0, ge=0.0)   # 0 = sampler off
+runner_demand_sample_s: float = Field(default=15.0, ge=0.0)  # 0 = sampler off (was 5.0; owner 2026-11-10)
 runner_demand_stale_s: float = Field(default=30.0, gt=0.0)
 ```
 
@@ -278,7 +278,7 @@ the one repo-script edit in this PR (`.claude/scripts/check_layering.py`). Its o
 - **Rollouts.** Runs on outgoing, draining pods are still unacked, so they count in `demand`.
   During a rollout the new ReplicaSet can scale one pod above need until they end. This is
   bounded by `maxReplicas` and the quota (spec D5).
-- **Broker load.** 16 `CONSUMER.INFO` calls every 5 s is about 3 per second. That is negligible
+- **Broker load.** 16 `CONSUMER.INFO` calls every 15 s is about 1 per second. That is negligible
   next to the workers' fetch loop.
 - **Cold node.** When the node pool must grow, the first claim waits 3–5 min, plus the image pull.
   This PR does not fix that. Overprovisioning is a later problem.

@@ -193,12 +193,14 @@ class Settings(BaseSettings):
     unclaimed_run_warn_s: float = Field(default=300.0, ge=0.0)
     # FEATURE: runner pool autoscaling on claimable queue demand (spec D2).
     #
-    # WHY 5 s: the KEDA HPA reads `/runner-demand` every 15 s, so a 5 s sample is at most a third
-    # of a poll old. One sample is one `CONSUMER.INFO` per bucket (16, about 3 per second), small
-    # next to the workers' own fetch loop. 0 disables the sampler; the endpoint then answers 404.
-    runner_demand_sample_s: float = Field(default=5.0, ge=0.0)
-    # WHY 30 s: six missed samples. A sample older than this makes `/runner-demand` answer 503,
-    # so the KEDA scaler errors and the HPA keeps the replica count.
+    # WHY 15 s: the KEDA HPA reads `/runner-demand` every 15 s, so one sample per poll is enough
+    # and a read is at most one sample old (owner decision 2026-11-10). One sample is one
+    # `CONSUMER.INFO` per bucket (16, about 1 per second), small next to the workers' own fetch
+    # loop. 0 disables the sampler; the endpoint then answers 404.
+    runner_demand_sample_s: float = Field(default=15.0, ge=0.0)
+    # WHY 30 s: two missed samples (the validator's floor is 2 x the sample interval). A sample
+    # older than this makes `/runner-demand` answer 503, so the KEDA scaler errors and the HPA
+    # keeps the replica count.
     #
     # INVARIANT: the endpoint never answers a demand it did not read; a stale reading is an
     # error, never a 0 (a false 0 scales a loaded pool down to its minimum).

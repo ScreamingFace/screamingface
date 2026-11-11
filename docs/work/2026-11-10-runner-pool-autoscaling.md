@@ -97,6 +97,9 @@ Plan: `docs/plan/2026-11-10-runner-pool-autoscaling.md`.
     the old aigw pod still serves.
 - **Docs after the walkthrough:** spec infra prerequisite 7 and the chart README now say: pin
   `maxAckPending` to the value the existing consumers have.
+- **Sample interval (owner, 2026-11-10, after PR-open):** `runner_demand_sample_s` default 5 s ->
+  15 s, one sample per KEDA poll. Stale stays 30 s (= the 2 x floor). Worst-case scale-up reaction
+  grows by up to 10 s. The kind walkthrough ran with 5 s.
 - **Deviations:** the queue runner exposes `reads_buckets` so the composition root installs the
   sampler only over a queue that can read buckets (review F3). `OME-1869` (branch
   `OME-1869-queue-depth-unclaimed`) carries the same shared code; whichever merges second rebases.

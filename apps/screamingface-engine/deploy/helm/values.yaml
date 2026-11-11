@@ -725,7 +725,7 @@ runnerPool:
     # The ceiling. Required when enabled. Size the namespace quota for `2 × maxReplicas` pool
     # pods: the drain keeps old pods during a rollout.
     maxReplicas:
-    # Seconds between KEDA reads of `/runner-demand`. The App samples the queue every 5 s
+    # Seconds between KEDA reads of `/runner-demand`. The App samples the queue every 15 s
     # (`runner_demand_sample_s`), so a read is at most one sample old.
     pollingIntervalS: 15
     # WHY up at once, 4 pods per 15 s: a waiting user is the cost this feature removes, and the

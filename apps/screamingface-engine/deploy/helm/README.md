@@ -216,7 +216,7 @@ With autoscaling enabled, the chart renders a KEDA `ScaledObject` on `<fullname>
 runner Deployment renders no `spec.replicas`. The HPA owns the replica count, and
 `runnerPool.replicas` is ignored.
 
-**The signal.** The App reads each bucket consumer every `runner_demand_sample_s` (5 s). It serves
+**The signal.** The App reads each bucket consumer every `runner_demand_sample_s` (15 s). It serves
 the result on `GET /runner-demand`. For each bucket `b`, the App computes:
 
 ```
@@ -266,7 +266,7 @@ them. The chart default (30 s) stops almost every real run. Prod uses 57600 s.
   sample.
 - 503 when there is no sample, or when the sample is older than the App setting
   `runner_demand_stale_s` (default 30 s).
-- 404 when the sampler is off (the App setting `runner_demand_sample_s` is `0`; default 5 s).
+- 404 when the sampler is off (the App setting `runner_demand_sample_s` is `0`; default 15 s).
 
 The two sampler settings are App settings with code defaults (`URL4_CLOUD_RUNNER_DEMAND_SAMPLE_S`,
 `URL4_CLOUD_RUNNER_DEMAND_STALE_S`). This chart renders no value for them on purpose (owner
