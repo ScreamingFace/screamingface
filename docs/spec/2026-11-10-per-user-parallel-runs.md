@@ -2,7 +2,7 @@
 
 - Date: 2026-11-10
 - Epic: `OME-1314` (E23 · Scale current platform capacity to 30 concurrent users)
-- Sub-issues (filed at PR-open, one per component): `screamingface-engine`, `client-sf`
+- Sub-issues: `OME-1880` (`screamingface-engine`), `OME-1881` (`client-sf`)
 - Ledger: `docs/work/2026-11-10-per-user-parallel-runs.md` (research and impact analysis)
 - Related: runner-pool autoscaling `OME-1870` (PR #1738); idle-pods-first `OME-1871`
 

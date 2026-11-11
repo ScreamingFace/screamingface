@@ -1,5 +1,5 @@
 ---
-ticket: unfiled
+ticket: OME-1880, OME-1881 (epic OME-1314)
 stack: screamingface-engine
 status: done         # planned | in_progress | done | blocked
 started: 2026-11-10
@@ -162,6 +162,8 @@ To be decided in the spec.
   the normal values (derived 2 x 2 = 4): all 16 read 4 again (16 log lines `6 -> 4`), readyz 200.
   Side work: a first rebuild failed on a full Colima disk; the engine release was rolled back to
   revision 7 (no outage), host image copies and build cache were removed, then the build passed.
-- **Commits:** two local commits on `per-user-parallel-runs` (engine; SDK). Not pushed.
+- **Commits / PRs (2026-11-11):** split at PR-open. Engine commit on `OME-1880-per-caller-run-cap-24`
+  (sub-issue `OME-1880`); SDK commit on `OME-1881-sdk-fanout-from-engine-cap` (sub-issue `OME-1881`).
+  Both rebased on origin/main `ecaabdf9c`.
 - **Deviations:** the SDK fan-out cap read moved before `open_run_*` (plan said "before the fan-out";
   the review asked for before the Run exists).
