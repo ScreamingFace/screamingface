@@ -63,7 +63,8 @@ stream count under the honest name `held()`. Spec:
 - **Actual files:** as planned (runner_queue.py, adapters/queue_runner.py docstrings,
   metrics.py help text, config.py comment, deploy/helm/README.md, the workflow's
   `conformance` run list AND skip-check list, the three new test files, spec, plan).
-- **Commits:** one local commit on `OME-1869-queue-depth-unclaimed` (see `git log`); not pushed.
+- **Commits:** `5bdaa8569` fix(screamingface-engine): count only unclaimed runs in queue depth and
+  oldest age (#1737), squash-merged 2026-11-11 01:01 UTC. Linear `OME-1869` Done with the close-comment.
 - **Resolution (2026-11-10):** the owner approved deleting the four prior tests below. They and
   the fake's unused `api_calls` / `_state` / `_prefix` / `_api_request` are removed; approval
   `.claude/test-change-approvals/OME-1869.json` pins the file's blob pair. Issue `OME-1869`
