@@ -237,7 +237,6 @@ async def test_a_deadline_the_engine_cannot_keep_is_422(
                 }
             ]
         },
-        {"detach": True},
         {"deadline_s": 0, "detach": True, "candidates": [{"name": "a", "url4": "gpt(a)"}]},
     ],
     ids=[
@@ -249,7 +248,6 @@ async def test_a_deadline_the_engine_cannot_keep_is_422(
         "seed-as-text",
         "bad-frozen-copy",
         "capture-and-replay",
-        "detach-without-starts",
         "zero-deadline",
     ],
 )
@@ -385,3 +383,15 @@ async def test_a_foreign_owner_cannot_read_the_run(registry: Registry, tmp_path:
         resp = await engine.client.get(path, headers=BOB)
         assert _problem(resp) == (404, "run_not_found")
     assert await registry.store.get(owner_key(EMAIL), run_id) is not None
+
+
+async def test_a_names_only_body_is_refused_with_a_code(registry: Registry, tmp_path: Path) -> None:
+    """E5 P2 spec D1, D16: the Engine starts every Candidate, so a Run must carry their starts.
+    A Client from before P2 reads the refusal as "not recorded" and runs as before."""
+    engine = _engine(registry, tmp_path)
+    names_only = {**BODY, "candidates": ["alpha", "beta"]}
+
+    refused = await engine.client.post("/runs", json=names_only, headers=ALICE)
+
+    assert _problem(refused) == (422, "invalid_request")
+    assert (await engine.client.get("/runs", headers=ALICE)).json()["runs"] == []

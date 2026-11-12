@@ -21,7 +21,7 @@ from run_registry_support import (
     open_registry,
     postgres_server,  # noqa: F401  (a fixture the Postgres parameter requests)
 )
-from test_runs_routes import ALICE, BODY, _CanceledWhileScheduling, _Engine
+from test_runs_routes import ALICE, BODY, _Engine
 
 from screamingface_engine.adapters.memory import InMemoryCandidateOutcomeStream
 from screamingface_engine.config import Settings
@@ -58,25 +58,6 @@ async def test_a_retried_cancel_does_not_stop_again_what_already_stopped(
     # The outcome has not landed yet, so the Candidate still reads live.
     assert (first.status_code, retried.status_code) == (202, 202)
     assert engine.runner.stopped == ["topic-a"]
-
-
-async def test_a_failed_owed_mark_after_a_lost_start_is_a_private_503(
-    registry: Registry,
-) -> None:
-    runner = _CanceledWhileScheduling(registry)
-    engine = _Engine(registry, runner=runner)
-    runner.run_id = (await engine.create()).json()["id"]
-
-    async def _refuse(topic: str) -> None:
-        raise RuntimeError("the database refused")
-
-    registry.store.stop_done = _refuse  # type: ignore[method-assign]
-
-    resp = await engine.start("topic-a", runner.run_id)
-
-    assert resp.status_code == 503
-    assert resp.headers["Retry-After"] == "5"
-    assert (resp.headers["Cache-Control"], resp.headers["Vary"]) == _PRIVATE
 
 
 # --- the Runs lifecycle --------------------------------------------------------------------
@@ -150,7 +131,5 @@ async def test_the_openapi_declares_the_private_400s() -> None:
     spec = (await _Engine(None).client.get("/openapi.json")).json()
 
     runs_400 = spec["paths"]["/runs"]["post"]["responses"]["400"]
-    start_400 = spec["paths"]["/"]["get"]["responses"]["400"]
     assert "application/problem+json" in runs_400["content"]
-    for response in (runs_400, start_400):
-        assert response["headers"].keys() == {"Cache-Control", "Vary"}
+    assert runs_400["headers"].keys() == {"Cache-Control", "Vary"}

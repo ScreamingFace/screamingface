@@ -25,7 +25,7 @@ class BaseCandidate(Model):
 
     id = fields.IntField(primary_key=True)
 
-    # Zero-based, in the Run's `candidates` order: what `X-SF-Run-Candidate` names (spec §4.1).
+    # Zero-based, in the Run's `candidates` order (spec §4.1).
     index = fields.IntField()
     name = fields.CharField(max_length=MAX_CANDIDATE_NAME_LENGTH)
     # INVARIANT (spec R2): a topic binds to exactly one Candidate of one Run (unique), so an

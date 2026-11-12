@@ -1,7 +1,7 @@
 """`/runs`: register, list, read and cancel a Run (E5 P1 spec §4.1, D6, D12; E5 P2 spec §4.1).
-Binding a start to its Run's Candidate (R2) is `rest.runs_start`; a Run's context and results are
-`rest.runs_objects`, its event stream `rest.runs_events`; the shared boundary is
-`rest.runs_boundary` and the wire `rest.runs_wire`.
+A Run's context and results are `rest.runs_objects`, its event stream `rest.runs_events`; the
+shared boundary is `rest.runs_boundary` and the wire `rest.runs_wire`. The App's driver starts
+a Run's Candidates (`runs.driver`).
 
 FEATURE: first-class Runs (OME-1785) and a detached Run (OME-1837). STORY: as a researcher, I
 send my evaluation once and leave, then open it from another notebook and see each Candidate's
@@ -44,7 +44,7 @@ from screamingface_engine.rest.runs_boundary import (
     run_not_found,
     stop_candidate,
 )
-from screamingface_engine.rest.runs_wire import RunBody, RunCreate, RunList, StartBody
+from screamingface_engine.rest.runs_wire import RunBody, RunCreate, RunList
 from screamingface_engine.runs.ids import RUN_ID_PATTERN, new_run_id
 from screamingface_engine.runs.records import (
     ContextRef,
@@ -102,14 +102,13 @@ def _spec(request: Request, body: RunCreate) -> RunSpec:
         if body.deadline_s > settings.run_detached_deadline_max_s:
             limit = int(settings.run_detached_deadline_max_s)
             raise _unprocessable(f"a deadline is at most {limit} s", DEADLINE_TOO_LONG)
-    starts = tuple(c.to_start() for c in body.candidates if isinstance(c, StartBody))
     return RunSpec(
         client_key=body.client_key,
         benchmark=body.benchmark,
         case_count=body.case_count,
-        candidates=tuple(c if isinstance(c, str) else c.name for c in body.candidates),
+        candidates=tuple(c.name for c in body.candidates),
         client_version=body.client_version,
-        starts=starts,
+        starts=tuple(c.to_start() for c in body.candidates),
         detach=body.detach,
         deadline=None if body.deadline_s is None else timedelta(seconds=body.deadline_s),
         run_id=new_run_id(),
@@ -249,7 +248,7 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
         ) from exc
     if not created:
         response.status_code = 200
-    elif spec.starts:
+    else:
         # R1: the driver ticks now rather than at its next interval.
         drivers = getattr(request.app.state, "run_drivers", None)
         if drivers is not None:

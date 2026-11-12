@@ -18,7 +18,6 @@ from pydantic import (
     PlainSerializer,
     StrictBool,
     StrictInt,
-    StrictStr,
     field_validator,
     model_validator,
 )
@@ -91,9 +90,8 @@ class RunCreate(BaseModel):
     client_key: str
     benchmark: str
     case_count: StrictInt
-    # AIDEV-NOTE: the names-only form is P1's, which a Client from before P2 still sends; E5
-    # removes it, leaving the starts.
-    candidates: list[StrictStr] | list[StartBody]
+    # E5 P2 spec D1: the Engine starts every Candidate, so each carries its start.
+    candidates: list[StartBody]
     client_version: str
     # The Client's context, kept as sent (spec D9b): the Engine does not parse it.
     context: str | None = None

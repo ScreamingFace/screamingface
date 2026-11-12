@@ -1,10 +1,10 @@
 {
   "issue": "OME-1895",
   "branch": "OME-1895-e5-p2-engine",
-  "approver": "owner — approved in session 2026-11-12: the E5 P2 plan's E1, E2 and E4 prior-test groups, and, asked one by one, the E2 changes outside them",
+  "approver": "owner — approved in session 2026-11-12: the E5 P2 plan's E1, E2, E4 and E5 prior-test groups, and, asked one by one, the E2 changes outside them",
   "date": "2026-11-12",
-  "scope": "The prior test files under apps/screamingface-engine/tests/unit/ that E1 and E2 change. E1 (the plan's E1 group): run_registry_support.py, test_run_records.py, test_run_registry_contract.py, test_run_registry_lifecycle.py, test_run_registry_start.py, test_run_registry_writes_concurrency.py, test_run_settings.py, test_run_state.py, test_run_sweeps.py, test_run_wiring.py, test_runs_cancel_and_binding_edges.py, test_runs_cancel_retry_and_lifecycle.py, test_runs_routes.py. E2, in the plan's E2 group: _fakes.py (RecordingJobRunner.schedule gains result_prefix and exclusive), test_candidate_outcome_settings.py (the outcome stream's default size is 512 MiB), test_candidate_outcome_stream_contract.py and test_candidate_outcome_stream_limits.py (an operator-widened stream is 1 GiB, above the new default). E2, approved one by one: test_answer_seed_threading.py, test_cache_policy_threading.py, test_queue_admission.py, and tests/integration/test_e2e_compose_flow.py and test_run_control_resilience.py (their fake schedule gains the same two parameters, signature only); test_runner_settlement.py and test_supervisor_terminal_root_source.py (stand-in run params gain result_prefix=None); test_supervisor_launch.py (the unknown spec version is \"9\", since \"3\" is now real); test_catalog_wiring.py (the pinned secret-shaped settings gain run_results_s3_access_key and run_results_s3_secret_key, with their review notes). E4, in the plan's E4 group: test_runs_routes.py (the created Run's key set gains detached, deadline_at, stopped_by and context; the list is compared with GET /runs/{id}?view=summary, since the full read now carries each Candidate's start and record). No assertion is loosened.",
-  "reason": "E5 P2 changes P1 rules, so the tests that pinned them are rewritten: a stop leaves a bound Candidate scheduled and owed a stop (spec R9), a pending Candidate is never reconciled (R8), the pending grace is gone and a pending Candidate is live (R12), and retention deletes by id (R13). E2 adds the driver's two start fields to the JobRunner port, makes version 3 a supported message version, reads a result prefix from the run's params, raises the outcome stream to 512 MiB (§4.4) and adds the run-results store's credentials; the prior tests change only where they named the old signature, version, size or set of settings. E4 adds the P2 fields to every Run answer and keeps start and record to the full read (§4.1).",
+  "scope": "The prior test files under apps/screamingface-engine/tests/unit/ that E1 and E2 change. E1 (the plan's E1 group): run_registry_support.py, test_run_records.py, test_run_registry_contract.py, test_run_registry_lifecycle.py, test_run_registry_start.py, test_run_registry_writes_concurrency.py, test_run_settings.py, test_run_state.py, test_run_sweeps.py, test_run_wiring.py, test_runs_cancel_and_binding_edges.py, test_runs_cancel_retry_and_lifecycle.py, test_runs_routes.py. E2, in the plan's E2 group: _fakes.py (RecordingJobRunner.schedule gains result_prefix and exclusive), test_candidate_outcome_settings.py (the outcome stream's default size is 512 MiB), test_candidate_outcome_stream_contract.py and test_candidate_outcome_stream_limits.py (an operator-widened stream is 1 GiB, above the new default). E2, approved one by one: test_answer_seed_threading.py, test_cache_policy_threading.py, test_queue_admission.py, and tests/integration/test_e2e_compose_flow.py and test_run_control_resilience.py (their fake schedule gains the same two parameters, signature only); test_runner_settlement.py and test_supervisor_terminal_root_source.py (stand-in run params gain result_prefix=None); test_supervisor_launch.py (the unknown spec version is \"9\", since \"3\" is now real); test_catalog_wiring.py (the pinned secret-shaped settings gain run_results_s3_access_key and run_results_s3_secret_key, with their review notes). E4, in the plan's E4 group: test_runs_routes.py (the created Run's key set gains detached, deadline_at, stopped_by and context; the list is compared with GET /runs/{id}?view=summary, since the full read now carries each Candidate's start and record). E5, in the plan's E5 group: test_runs_routes.py (the shared harness sends each Candidate with its start; the start-binding tests go), test_runs_cancel_and_binding_edges.py, test_runs_cancel_retry_and_lifecycle.py, test_runs_cancel_once_and_body_bounds.py, test_runs_owed_stops_and_boundary.py, test_runs_local_lock_and_not_found.py and test_runs_stop_before_enqueue.py (each start-binding test goes, or keeps its plain-start half), and test_runs_start_never_blocks.py (rewritten onto P2: a start that names a Run runs as a plain start). No assertion about a behaviour that remains is loosened.",
+  "reason": "E5 P2 changes P1 rules, so the tests that pinned them are rewritten: a stop leaves a bound Candidate scheduled and owed a stop (spec R9), a pending Candidate is never reconciled (R8), the pending grace is gone and a pending Candidate is live (R12), and retention deletes by id (R13). E2 adds the driver's two start fields to the JobRunner port, makes version 3 a supported message version, reads a result prefix from the run's params, raises the outcome stream to 512 MiB (§4.4) and adds the run-results store's credentials; the prior tests change only where they named the old signature, version, size or set of settings. E4 adds the P2 fields to every Run answer and keeps start and record to the full read (§4.1). E5 retires the X-SF-Run start binding and the names-only POST /runs (spec D1, D16): the Engine's driver binds and starts every Candidate, whose own tests cover what the binding's tests pinned.",
   "files": {
     "apps/screamingface-engine/tests/integration/test_e2e_compose_flow.py": {
       "base_blob": "ff997a88a5df6d6da3e9bd9d3738237d839e8549",
@@ -92,15 +92,35 @@
     },
     "apps/screamingface-engine/tests/unit/test_runs_cancel_and_binding_edges.py": {
       "base_blob": "8be4185bd2804b35d6cd182e925cfb0181bbf1f8",
-      "approved_blob": "e098658d37f337bfa8a27ede33075c05a7b37cf6"
+      "approved_blob": "cbfb3254ecc95d0f216ebae3488b70205fb16662"
+    },
+    "apps/screamingface-engine/tests/unit/test_runs_cancel_once_and_body_bounds.py": {
+      "base_blob": "590a44eb49d5a75ac27511c285c252715e30df5b",
+      "approved_blob": "0b0d193ed2bd3af0e2670ec4a8b226d84c116de1"
     },
     "apps/screamingface-engine/tests/unit/test_runs_cancel_retry_and_lifecycle.py": {
       "base_blob": "2118f47244486e2b5de449e842a97b81e40bc414",
-      "approved_blob": "f616b076f636e354a061d6db99b5c53c35721cc3"
+      "approved_blob": "bafce641d582d58a71f200737e3fa35700e2896c"
+    },
+    "apps/screamingface-engine/tests/unit/test_runs_local_lock_and_not_found.py": {
+      "base_blob": "cef2b125eafff81c83322db8760d7b23ef0bd754",
+      "approved_blob": "b9fc9adfca6dbb5be6a1e16150606a0928126a61"
+    },
+    "apps/screamingface-engine/tests/unit/test_runs_owed_stops_and_boundary.py": {
+      "base_blob": "c30e46f15f263d181cbd273dcf30a2505100290d",
+      "approved_blob": "0d32a2b4a658f7f4028167d3149536c3fe60593f"
     },
     "apps/screamingface-engine/tests/unit/test_runs_routes.py": {
       "base_blob": "76ade2b0797cf84b98df2ebd39fe22d4664342cf",
-      "approved_blob": "5ac333b51de7120397ebecdc62fedb8b6d49ec55"
+      "approved_blob": "26603b4c53247d2271fd16bffc3746bbc51d41cd"
+    },
+    "apps/screamingface-engine/tests/unit/test_runs_start_never_blocks.py": {
+      "base_blob": "dbbfd4cd55f8c6e72eb4085dc53d52d2e39286c2",
+      "approved_blob": "9e3b3d345dd38940d47de7901723646d6732e8cf"
+    },
+    "apps/screamingface-engine/tests/unit/test_runs_stop_before_enqueue.py": {
+      "base_blob": "236b4930d922f39ec57e32d5820ee8c5b57d3509",
+      "approved_blob": "3a56eb60845ae332f7d040f80dbf9ad22e766ed3"
     },
     "apps/screamingface-engine/tests/unit/test_supervisor_launch.py": {
       "base_blob": "3fa2a6bde7a97dedb8e3b11877f4de148f34858f",

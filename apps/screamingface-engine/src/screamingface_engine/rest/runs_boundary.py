@@ -1,5 +1,5 @@
 """The `/runs` boundary (E5 P1 spec §4.1, D2, D6): who is asking, the private Problems every
-answer carries, and stopping a Run's Candidate. Shared by the `/runs` routes and start binding.
+answer carries, and stopping a Run's Candidate. Shared by the `/runs` routes.
 """
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ _logger = logging.getLogger(__name__)
 
 RUN_NOT_FOUND = "run_not_found"
 RUN_CANCELED = "run_canceled"
-CANDIDATE_ALREADY_STARTED = "candidate_already_started"
 CLIENT_KEY_CONFLICT = "client_key_conflict"
 INVALID_CURSOR = "invalid_cursor"
 MALFORMED_BODY = "malformed_body"
@@ -44,8 +43,6 @@ MALFORMED_BODY = "malformed_body"
 RUNS_OFF = "runs_off"
 INVALID_REQUEST = "invalid_request"
 REQUEST_TOO_LARGE = "request_too_large"
-RUN_HEADER = "X-SF-Run"
-CANDIDATE_HEADER = "X-SF-Run-Candidate"
 # The verified identity that owns a hosted Run (spec D6). Local mode is single-user.
 _OWNER_HEADER = "X-User-Email"
 _LOCAL_OWNER = "local"
@@ -277,8 +274,7 @@ def private_failure(exc: BaseException) -> BaseException:
 
 
 __all__ = [
-    "CANDIDATE_HEADER",
     "PRIVATE_HEADERS",
     "PRIVATE_HEADERS_DOC",
-    "RUN_HEADER",
+    "RunsRoute",
 ]

@@ -49,11 +49,10 @@ from screamingface_engine.request_scope import (
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
-from screamingface_engine.rest.runs_boundary import PRIVATE_HEADERS_DOC
-from screamingface_engine.rest.runs_start import (
-    StartBinding,
-    bind_start,
-    canceled_before_schedule,
+from screamingface_engine.rest.runs_boundary import (
+    PRIVATE_HEADERS_DOC,
+    RUN_CANCELED,
+    problem,
 )
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from screamingface_engine.rest.sessions import RunSessions
@@ -299,13 +298,23 @@ async def _refuse_existing(deps: _Deps, topic: str) -> None:
 
 
 @asynccontextmanager
-async def _claim_topic(deps: _Deps, request: Request, topic: str) -> AsyncIterator[StartBinding]:
-    """Refuse a topic already used, then bind it to its Run's Candidate before anything is
-    scheduled (OME-1785, E5 P1 spec R2). The whole start counts as one attempt of the topic, so
-    the runner keeps a cancel's stop for as long as this start could still reach `schedule()`."""
+async def _claim_topic(deps: _Deps, topic: str) -> AsyncIterator[None]:
+    """Refuse a topic already used. The whole start counts as one attempt of the topic, so the
+    runner keeps a stop of it for as long as this start could still reach `schedule()`."""
     with deps.job_runner.start_attempt(topic):
         await _refuse_existing(deps, topic)
-        yield await bind_start(request, topic)
+        yield
+
+
+def _stopped_before_schedule() -> ProblemException:
+    """A start whose topic was stopped before it was scheduled: nothing runs (E5 P1 spec D12).
+    Private, as the `/runs` answers are: whether a run was canceled depends on who asks."""
+    return problem(
+        status=409,
+        title="Conflict",
+        detail="the run was canceled before it started",
+        code=RUN_CANCELED,
+    )
 
 
 async def _schedule(
@@ -322,7 +331,6 @@ async def _schedule(
     deadline_s: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
-    enqueued_at: datetime | None = None,
 ) -> None:
     """Schedule the run on the job runner; raise 409 if the runner reports it already exists.
 
@@ -353,7 +361,6 @@ async def _schedule(
             shape=shape,
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
-            enqueued_at=enqueued_at,
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
@@ -364,9 +371,8 @@ async def _schedule(
             cache,
         )
     except StoppedBeforeSchedule as exc:
-        # Before the "scheduled" log and the accept span's enqueue: nothing was scheduled. Also
-        # the only signal when the bind's outcome was unknown, so no confirmation follows.
-        raise canceled_before_schedule() from exc
+        # Before the "scheduled" log and the accept span's enqueue: nothing was scheduled.
+        raise _stopped_before_schedule() from exc
     except JobAlreadyExists as exc:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
     except JobRunnerAtCapacity as exc:
@@ -682,34 +688,20 @@ _START_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {
         **_problem(
             "The url4 expression query parameter `q` is required, or the request states the "
-            "unsupported `X-Profile` header (`code: x_profile_unsupported`), or "
-            "`X-SF-Run-Candidate` is not an index of the Run's Candidates "
-            "(`code: malformed_header`)."
+            "unsupported `X-Profile` header (`code: x_profile_unsupported`)."
         ),
-        "headers": PRIVATE_HEADERS_DOC,
-    },
-    # The `X-SF-Run` answers depend on who asks, so they carry the `/runs` cache headers.
-    404: {
-        **_problem(
-            "The `X-SF-Run` Run is unknown or not the caller's (`code: run_not_found`, OME-1785)."
-        ),
-        "headers": PRIVATE_HEADERS_DOC,
     },
     409: {
         **_problem(
-            "A run already exists for this topic (single-shot); or, under `X-SF-Run`, the Run was "
-            "canceled (`code: run_canceled`) or the Candidate already started under another "
-            "topic (`code: candidate_already_started`)."
+            "A run already exists for this topic (single-shot), or the topic was stopped before "
+            "the run started (`code: run_canceled`)."
         ),
         "headers": PRIVATE_HEADERS_DOC,
     },
     428: _problem("Attach a WebSocket to the topic before starting the run."),
     503: {
-        **_problem(
-            "The run queue could not be read or is unavailable; or, under `X-SF-Run`, a cancel "
-            "won while this Candidate started and stopping it failed. Retry after `Retry-After`."
-        ),
-        "headers": {"Retry-After": {"schema": {"type": "integer"}}, **PRIVATE_HEADERS_DOC},
+        **_problem("The run queue could not be read or is unavailable. Retry after `Retry-After`."),
+        "headers": {"Retry-After": {"schema": {"type": "integer"}}},
     },
     502: _problem("The run failed."),
     504: _problem("The run exceeded its 16 h deadline."),
@@ -778,24 +770,6 @@ async def start_run(
     ] = None,
     # Documents the refusal in OpenAPI; `refuse_selector` below is what decides.
     _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
-    # Documented here; `rest.runs_start.bind_start` reads and checks them (E5 P1 spec R2).
-    _x_sf_run: Annotated[
-        str | None,
-        Header(
-            alias="X-SF-Run",
-            description="Optional id of the caller's Run this start belongs to. Sent with "
-            "`X-SF-Run-Candidate`; the start is then bound to that Candidate (404 for a Run not "
-            "the caller's, 409 when canceled or already started).",
-        ),
-    ] = None,
-    _x_sf_run_candidate: Annotated[
-        str | None,
-        Header(
-            alias="X-SF-Run-Candidate",
-            description="The Candidate's zero-based index within `X-SF-Run`. Required with it, "
-            "and refused alone (400 `malformed_header`).",
-        ),
-    ] = None,
     x_answer_seed: Annotated[
         str | None,
         Header(
@@ -875,7 +849,7 @@ async def start_run(
             if len(request.headers.getlist("User-Agent")) == 1
             else None
         )
-        async with _claim_topic(deps, request, topic) as binding:
+        async with _claim_topic(deps, topic):
 
             async def schedule() -> None:
                 await _schedule(
@@ -891,13 +865,10 @@ async def start_run(
                     client_version=client_version,
                     capture=capture,
                     replay_frozen_copy=replay_frozen_copy,
-                    enqueued_at=binding.bound_at,
                 )
                 # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
-                # hold is not accept latency, and counting it would hide the queue-wait gap. So it
-                # also ends before a bound start's registry write.
+                # hold is not accept latency, and counting it would hide the queue-wait gap.
                 _enqueued(accept)
-                await binding.on_scheduled()
 
             if pref.respond_async:
                 await schedule()
