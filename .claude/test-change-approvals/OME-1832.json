@@ -1,0 +1,22 @@
+{
+  "issue": "OME-1832",
+  "branch": "OME-1832-remove-skew-fallback",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-09",
+  "scope": "The prior tests listed at GREEN and approved by the owner on 2026-11-09, each pinning the label-rule fallback the Local Engine kept for one release against a gateway listing no effective flag. test_connections_aigateway.py: _row gains the effective flag (absent unless given, as on a write's response); eight tests flag their listed row and keep their behaviour; test_multiple_unmanaged_rows_leave_the_automatic_row_disconnected and test_managed_row_is_selected_without_mutating_unmanaged_rows are re-expressed with flags; test_connect_does_not_adopt_a_single_unmanaged_api_key_connection, test_multiple_managed_rows_are_a_conflict and test_disconnect_never_deletes_an_unmanaged_connection retire with the label rule, whose effective-rule counterparts the effective suites hold. test_connections_aigateway_version_skew.py: its fallback tests retire, and it holds the successor cases for a gateway older than L7a: a listing without the flag is a bad response before any write, for list, connect, start_oauth and disconnect; no fallback notice is logged; an empty listing still lists the gateway's status. The file is modified rather than deleted, because a deleted test file is never approvable. test_profile_env_characterisation.py: the three label-rule listing cases and their fake retire, and the module docstring names where the ambiguity is held now. Every changed prior test file is pinned byte-exact (3).",
+  "reason": "OME-1138 close-out, L7b follow-up (spec docs/spec/2026-10-29-local-engine-effective-row.md sections 3-4; L7b owner decisions 2 and 4): the version-skew fallback served one Engine release and is removed, so the Local Engine chooses only the row the gateway flags effective, and a prior test that pinned the fallback changes with it.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_connections_aigateway.py": {
+      "base_blob": "44bb2a5793d7469aee44b9c33083586a8ee7bbf3",
+      "approved_blob": "3e3c6e14ec81c3407d48532343565af93f581012"
+    },
+    "apps/screamingface-engine/tests/unit/test_connections_aigateway_version_skew.py": {
+      "base_blob": "cee9ccf05c91ae45cd5f84f7c8dc2eebc11b6b11",
+      "approved_blob": "6e94880059b8368c8cbc28fb44963ca22bd8a212"
+    },
+    "apps/screamingface-engine/tests/unit/test_profile_env_characterisation.py": {
+      "base_blob": "9982a40958fa0eee54da035f6ca0f620fe52f7d1",
+      "approved_blob": "1715ba16dcc32a60e960916125d240b0e74db730"
+    }
+  }
+}

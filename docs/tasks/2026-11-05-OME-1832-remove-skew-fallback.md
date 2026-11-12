@@ -1,7 +1,7 @@
 ---
 id: OME-1832
 linear_url: https://linear.app/openmined/issue/OME-1832/remove-the-local-engines-version-skew-fallback-l7b-follow-up
-status: backlog
+status: in_review
 type: task
 priority: low
 labels: [screamingface-engine, agentic, deferred]
@@ -21,3 +21,6 @@ and logs a notice once per process. This leaf removes it, so the Engine selects 
 removal; spec `docs/spec/2026-10-29-local-engine-effective-row.md` §4.
 
 - 2026-11-05: filed with L7b's PR.
+- 2026-11-11: `screamingface-engine-v2.0.0` (L7b) and `aigateway-v1.0.0` (L7a) shipped; the PR
+  opened. Not marked breaking (owner); the Local Engine now needs AI Gateway 1.0.0 or later. In
+  Review.

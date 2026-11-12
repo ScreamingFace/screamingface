@@ -10,8 +10,6 @@
 
 from __future__ import annotations
 
-import functools
-import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -24,11 +22,9 @@ from screamingface_engine.connections.port import (
     ConnectionConflict,
 )
 
-logger = logging.getLogger(__name__)
-
 # Inter-service contract: the label of a row the Engine creates (Anthropic requires a label on
-# both creates) and the mark the stale-row repair reads. Selection never reads it while the
-# gateway flags `effective`; only the version-skew fallback below does.
+# both creates) and the mark the stale-row repair reads. Choosing the effective row never reads
+# it; repair planning (`Selection.stale`, `Selection.label_held`) still does.
 MANAGED_LABEL = "screamingface"
 
 UpstreamConnectionStatus = Literal["pending", "active", "expired", "revoked", "error"]
@@ -50,8 +46,8 @@ class ConnectionRow:
     status: UpstreamConnectionStatus
     auth_type: AuthMethod
     account_label: str | None
-    # None when the row carries no `effective` field: a gateway older than L7a, or a write's
-    # response, which never carries it.
+    # None only for a write's response, which never carries the field; `select` refuses a listed
+    # row without it.
     effective: bool | None = None
 
 
@@ -81,14 +77,11 @@ def select(rows: Sequence[ConnectionRow], providers: Iterable[str]) -> dict[str,
     # per-provider checks run only for `providers` — the ones `/v1/providers` lists. A row of any
     # other provider (a no-auth provider's stray `active` row) is never selected or checked.
     """
-    flagged = {row.effective is not None for row in rows}
-    if len(flagged) > 1:
-        # WHY: the gateway sets the field on every row it lists; a mix is no known gateway.
+    if any(row.effective is None for row in rows):
+        # WHY: the gateway sets the field on every row it lists. A gateway older than L7a lists
+        # none; L7b's label-rule fallback for it served one Engine release (spec §4, OME-1832).
         raise ConnectionBadResponse()
-    label_rule = flagged == {False}
-    if label_rule:
-        _note_gateway_predates_effective()
-    return {provider: _selection(rows, provider, label_rule=label_rule) for provider in providers}
+    return {provider: _selection(rows, provider) for provider in providers}
 
 
 def api_key_plan(selection: Selection) -> Plan:
@@ -152,26 +145,17 @@ def _replace_plan(selection: Selection) -> Plan:
     return Plan(repair=selection.stale)
 
 
-def _selection(rows: Sequence[ConnectionRow], provider: str, *, label_rule: bool) -> Selection:
+def _selection(rows: Sequence[ConnectionRow], provider: str) -> Selection:
     own = [row for row in rows if row.provider == provider]
     active = sum(row.status == "active" for row in own)
+    chosen = [row for row in own if row.effective]
+    if len(chosen) > 1:
+        raise ConnectionBadResponse()
+    effective = chosen[0] if chosen else None
+    if effective is None and active == 1:
+        # WHY: the gateway's rule makes a single active row effective (spec §2).
+        raise ConnectionBadResponse()
     managed = [row for row in own if row.label == MANAGED_LABEL]
-    if label_rule:
-        # WHY (Q3 option A, owner 2026-11-02): against a gateway older than L7a the Engine keeps
-        # today's label rule for one Engine release. Remove this branch,
-        # `_note_gateway_predates_effective` and the label rule of `select` in the release after
-        # L7b ships.
-        if len(managed) > 1:
-            raise ConnectionConflict()
-        effective = managed[0] if managed else None
-    else:
-        chosen = [row for row in own if row.effective]
-        if len(chosen) > 1:
-            raise ConnectionBadResponse()
-        effective = chosen[0] if chosen else None
-        if effective is None and active == 1:
-            # WHY: the gateway's rule makes a single active row effective (spec §2).
-            raise ConnectionBadResponse()
     others = [row for row in managed if row is not effective]
     return Selection(
         effective=effective,
@@ -193,17 +177,6 @@ def _refuse_ambiguity(selection: Selection) -> None:
         # WHY: no effective row and two or more active ones is the ambiguity chat refuses (409);
         # the Engine adds no further row and removes none of the user's.
         raise ConnectionConflict()
-
-
-@functools.cache
-def _note_gateway_predates_effective() -> None:
-    # WHY once per process: a running Engine's gateway does not change version, and one notice
-    # per listing would drown the log.
-    logger.warning(
-        "AI Gateway lists Connections without the `effective` flag; the Local Engine selects "
-        "the row labelled %r until the gateway is upgraded",
-        MANAGED_LABEL,
-    )
 
 
 __all__ = [
