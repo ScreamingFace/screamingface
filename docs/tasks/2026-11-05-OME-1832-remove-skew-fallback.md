@@ -1,13 +1,13 @@
 ---
 id: OME-1832
 linear_url: https://linear.app/openmined/issue/OME-1832/remove-the-local-engines-version-skew-fallback-l7b-follow-up
-status: in_review
+status: done
 type: task
 priority: low
 labels: [screamingface-engine, agentic, deferred]
 parent: OME-1138
 created: 2026-11-05
-closed:
+closed: 2026-11-12
 ---
 
 # Remove the Local Engine's version-skew fallback (L7b follow-up)
@@ -24,3 +24,4 @@ removal; spec `docs/spec/2026-10-29-local-engine-effective-row.md` §4.
 - 2026-11-11: `screamingface-engine-v2.0.0` (L7b) and `aigateway-v1.0.0` (L7a) shipped; the PR
   opened. Not marked breaking (owner); the Local Engine now needs AI Gateway 1.0.0 or later. In
   Review.
+- 2026-11-12: PR #1754 merged as `d28bfa99b`; Linear Done with the close-comment.
