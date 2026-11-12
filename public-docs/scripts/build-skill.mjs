@@ -44,21 +44,33 @@ function balancedElement(html, start, tag) {
   throw new Error(`unbalanced <${tag}> at ${start}`)
 }
 
+const ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'" }
+
+// Entities are decoded in one pass, so `&amp;lt;` becomes `&lt;` and not `<`.
+function decodeEntities(text) {
+  return text.replace(/&(amp|lt|gt|quot|#39);/g, (_match, name) => ENTITIES[name])
+}
+
 function textOf(html) {
-  return html
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+  return decodeEntities(html.replace(/<[^>]+>/g, ' '))
     .replace(/\s+/g, ' ')
     .trim()
 }
 
+/** Removes every HTML comment, also one that the removal of another comment leaves behind. */
+function stripComments(html) {
+  let previous
+  let result = html
+  do {
+    previous = result
+    result = result.replace(/<!--[\s\S]*?-->/g, '')
+  } while (result !== previous)
+  return result
+}
+
 /** The page header (title, description) and the page body of a rendered docs page. */
 function extractPage(html, route) {
-  const clean = html.replace(/<!--[\s\S]*?-->/g, '')
+  const clean = stripComments(html)
   const bodyAt = clean.indexOf(BODY_START)
   if (bodyAt === -1) {
     // A page outside DocLayout (the home page): its root element is the body, its first
