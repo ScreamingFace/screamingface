@@ -69,15 +69,27 @@ class PublicSourceTransport(httpx.AsyncBaseTransport):
         )
         if not addresses or not all(_public_address(address) for address in addresses):
             raise UnsafeSource("non-public DNS answer")
+        return await self._connect(request, addresses)
+
+    async def _connect(self, request: httpx.Request, addresses: Sequence[str]) -> httpx.Response:
         # INVARIANT: connect to the validated IP, never re-resolve after validation.
         # Preserve HTTP Host and TLS certificate/SNI validation for the original host.
-        pinned = httpx.Request(
-            request.method,
-            url.copy_with(host=addresses[0]),
-            headers=request.headers,
-            extensions={**request.extensions, "sni_hostname": url.host},
-        )
-        return await self._transport.handle_async_request(pinned)
+        error: httpx.HTTPError = httpx.ConnectError("source connection failed")
+        for address in addresses:
+            pinned = httpx.Request(
+                request.method,
+                request.url.copy_with(host=address),
+                headers=request.headers,
+                extensions={**request.extensions, "sni_hostname": request.url.host},
+            )
+            try:
+                return await self._transport.handle_async_request(pinned)
+            except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                # WHY: one unreachable address (e.g. IPv6 on an IPv4-only host)
+                # must not hide a reachable alternate. The probe deadline covers
+                # every attempt; HTTP responses and read failures are not retried.
+                error = exc
+        raise error
 
     async def aclose(self) -> None:
         await self._transport.aclose()
