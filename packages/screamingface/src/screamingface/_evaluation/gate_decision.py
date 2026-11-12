@@ -15,6 +15,7 @@ INVARIANT: the field order of each ``to_dict()`` is the Engine's wire order
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import asdict, dataclass
 from typing import Literal, cast, get_args
@@ -307,6 +308,7 @@ def _when(value: object, label: str) -> GateWhen:
     item = raw["value"]
     if not (item is None or isinstance(item, bool | int | float | str)):
         raise ExecutionError(f"{label} value must be a number, a label, true or null")
+    _check_finite(item, f"{label} value")
     return GateWhen(
         observe=_text(raw["observe"], f"{label} observe"),
         cmp=_word(raw["cmp"], _CMPS, f"{label} cmp"),
@@ -316,6 +318,7 @@ def _when(value: object, label: str) -> GateWhen:
 
 def _observed(value: object, label: str) -> Observed:
     if value is None or isinstance(value, bool | int | float | str):
+        _check_finite(value, label)
         return value
     if isinstance(value, list):
         return tuple(_text(item, label) for item in value)
@@ -445,9 +448,21 @@ def _pattern(value: object, pattern: re.Pattern[str], label: str) -> str:
 
 
 def _number(value: object, label: str) -> Number:
-    if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
-        raise ExecutionError(f"{label} must be a non-negative number")
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int | float)
+        or not math.isfinite(value)
+        or value < 0
+    ):
+        raise ExecutionError(f"{label} must be a finite, non-negative number")
     return value
+
+
+def _check_finite(value: object, label: str) -> None:
+    """Review #1733: NaN and infinity are not JSON; a strict reader refuses them before export."""
+
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ExecutionError(f"{label} must be finite")
 
 
 __all__ = ["GATE_DECISION_SCHEMA", "GateDecision", "decode_gate_decision"]

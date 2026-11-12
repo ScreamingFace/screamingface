@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from decimal import Decimal, localcontext
 from functools import lru_cache
 from html import escape
 from typing import TYPE_CHECKING
@@ -23,6 +24,7 @@ from typing import TYPE_CHECKING
 from screamingface._evaluation.gate_decision import _MAX_RAW
 from screamingface._ui.combine_view import _label, dash_html, number_html
 from screamingface._ui.text import short
+from screamingface.budget import _DECIMAL
 
 if TYPE_CHECKING:
     from screamingface._evaluation.gate_decision import (
@@ -375,11 +377,22 @@ def overspend_of(case: CaseResult) -> list[tuple[str, float, float]]:
         for view in () if decision is None else decision.budget or ():
             caps.setdefault(view.unit, float(view.cap))
     charges = [charge for operation in operations for charge in operation.charges or ()]
-    spent = {
-        unit: sum(amount for charge in charges if (amount := charge.amount(unit)) is not None)
-        for unit in caps
-    }
-    return [(unit, spent[unit], cap) for unit, cap in caps.items() if spent[unit] > cap]
+    over: list[tuple[str, float, float]] = []
+    # WHY Decimal(repr(x)): the Engine fold's rule (budget.py ``_ledger``), so 0.1 + 0.2 is 0.3
+    # and float drift never shows an overspend the Engine did not see (review #1733).
+    with localcontext(_DECIMAL):
+        for unit, cap in caps.items():
+            spent = sum(
+                (
+                    Decimal(repr(amount))
+                    for charge in charges
+                    if (amount := charge.amount(unit)) is not None
+                ),
+                Decimal(0),
+            )
+            if spent > Decimal(repr(cap)):
+                over.append((unit, float(spent), cap))
+    return over
 
 
 def _overspend_line(unit: str, spent: float, cap: float) -> str:

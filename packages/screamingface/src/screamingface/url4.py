@@ -951,7 +951,12 @@ def _rebuilt_selector(entry: Mapping[str, Any], calls: dict[str, _Call]) -> Any:
     if call is None:
         raise ValueError(_MODEL_CALLS)
     labels, multi = list(entry["labels"]), bool(entry["multi"])
-    task = call.prompt.rpartition("Task:\n")[2]
+    # WHY the template prefix, not the last "Task:" line (review #1733): the author's prompt may
+    # hold that line too. Everything before the task is fixed by the labels and multi.
+    header = label_intent(labels, "", multi=multi)
+    if not call.prompt.startswith(header):
+        raise ValueError(_MODEL_CALLS)
+    task = call.prompt.removeprefix(header)
     prompt = None if label_intent(labels, None, multi=multi) == call.prompt else task
     params = {
         name: value
