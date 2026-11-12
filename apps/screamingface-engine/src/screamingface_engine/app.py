@@ -83,6 +83,8 @@ from screamingface_engine.rest.cache_entries import router as cache_entries_rout
 from screamingface_engine.rest.limits import router as limits_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.rest.runs import router as runs_router
+from screamingface_engine.rest.runs_events import router as runs_events_router
+from screamingface_engine.rest.runs_objects import router as runs_objects_router
 from screamingface_engine.runner_demand import DemandSource, RunnerDemandSampler
 from screamingface_engine.runs.wiring import install_runs
 from screamingface_engine.schemas import customize_openapi
@@ -113,6 +115,8 @@ _ROUTERS = (
     connection_router,
     cache_entries_router,
     runs_router,
+    runs_objects_router,
+    runs_events_router,
     ws_router,
     ops_router,
 )

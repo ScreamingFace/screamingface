@@ -437,30 +437,62 @@ no model provider and no Tavily, and it costs nothing. Epic: OME-1307. Design:
 ## Runs — `/runs`
 
 A Run is the Engine's record of one evaluation: its Candidates, each one's state, cost and error
-code, and the Run's state derived from them on every read (OME-1785).
+code, and the Run's state derived from them on every read (OME-1785). Since E5 P2 (OME-1837) the
+Engine also starts and stops a Run's Candidates itself, so a Client can send a Run and leave.
 
 ```text
-POST   /runs        {client_key, benchmark, case_count, candidates, client_version} → 201, or 200
+POST   /runs        {client_key, benchmark, case_count, candidates, client_version,
+                     context, detach, deadline_s} → 201, or 200
 GET    /runs        ?state=&since=&limit=50&cursor= → {runs, next_cursor}, newest first
-GET    /runs/{id}
+GET    /runs/{id}   ?view=summary
+GET    /runs/{id}/context
+GET    /runs/{id}/candidates/{index}/result
+GET    /runs/{id}/events                       (WebSocket)
 DELETE /runs/{id}   → 202, or 204 when every Candidate is already terminal
 ```
 
 - **Owner.** Hosted, the verified `X-User-Email` (401 without it); local mode, `local`. Another
-  owner's id answers `404` with `code: run_not_found`, exactly as an unknown one.
-- **Idempotent create.** A repeated `client_key` returns the caller's existing Run with `200`.
+  owner's id answers `404` with `code: run_not_found`, exactly as an unknown one. No answer
+  carries the owner or the owner's email.
+- **Starts.** Each Candidate is `{name, url4, answer_seed, capture, use_cache,
+  replay_frozen_copy}`, checked as the start route checks its headers. The App's driver starts
+  them, at most `URL4_CLOUD_RUN_DRIVER_INFLIGHT` (8) at once, under the owner's identity. A
+  names-only `candidates` list (P1's) still registers a Run the Engine does not start.
+- **Detach and deadline.** `detach: true` keeps the Run going with nobody following, until its
+  `deadline_s` (default 48 h, at most 7 days: `422 deadline_too_long`; without `detach`: `422
+  deadline_needs_detach`). An attached Run stops, `stopped_by: "orphaned"`, once nobody has
+  followed it for `URL4_CLOUD_ORPHAN_GRACE_S` (120 s).
+- **Context.** `context` is a string the Engine keeps as sent, in the run-results store under
+  the Run, with its `sha256` and size on the Run; at most `URL4_CLOUD_RUN_CONTEXT_MAX_BYTES`
+  (4 MiB, `422 context_too_large`). A store that cannot take it answers `503
+  result_store_unavailable`, and no Run is registered. A body over
+  `URL4_CLOUD_RUN_REQUEST_MAX_BYTES` (8 MiB) answers `413 request_too_large`.
+- **Reads.** `GET /runs/{id}` adds `detached`, `deadline_at`, `stopped_by`, `context`, and each
+  Candidate's `index`, `start` and `record` (the Candidate's usage, cache and capture facts, null
+  until it ends). `?view=summary` and the list leave `start` and `record` out.
+- **Objects.** `/context` serves the context byte for byte (`404 context_not_found`);
+  `/candidates/{index}/result` serves the result its record names, with its media type (`404
+  result_not_found` before it ends, without a result, or past retention).
+- **Events.** One WebSocket for the whole Run: `candidate.state` (`pending`, `scheduled`, and
+  `running` at a Candidate's first event), `candidate.event` (its CloudEvents, from the oldest the
+  stream holds), `candidate.settled` (state and record, once, after its terminal frame),
+  `run.ended` (state and `stopped_by`, then a 1000 close), and `heartbeat`. A follower is
+  stamped on connect, every `URL4_CLOUD_RUN_FOLLOW_STAMP_S` (30 s) and on leave; a registry
+  failure does not close the socket. A foreign or unknown Run closes it with 1008.
+- **Codes.** Every 404 and 422 on `/runs` carries a `code`: `runs_off`, `run_not_found`,
+  `invalid_request`, and the ones above.
 - **Binding a start.** `GET /?q=` with `X-SF-Run: <id>` and `X-SF-Run-Candidate: <index>` binds
   the run to that Candidate before anything is scheduled. A canceled Run answers `409
   run_canceled`; a Candidate already started under another topic, `409
   candidate_already_started`. Without the headers a start is unchanged, and a bind that fails on
   the database is logged and the start runs unbound.
-- **Cancel** is sticky: it stops every live Candidate through the `DELETE /` path and refuses later
-  starts.
+- **Cancel** is sticky: it stops every live Candidate through the `DELETE /` path, records
+  `stopped_by: "canceled"`, and refuses later starts.
 - **Sweeps.** At start and every `URL4_CLOUD_RUN_SWEEP_INTERVAL_S` (1 h), the App settles as
   `lost` a Candidate whose outcome can no longer arrive, and deletes Runs older than
-  `URL4_CLOUD_RUN_RETENTION_S` (30 days).
-- **Runs off.** A hosted App without `URL4_CLOUD_DATABASE_URL` answers `/runs` with a plain 404
-  and runs every start unbound; `DEPLOYMENT.md` has the runbook to turn Runs on.
+  `URL4_CLOUD_RUN_RETENTION_S` (30 days), with their context and results.
+- **Runs off.** A hosted App without `URL4_CLOUD_DATABASE_URL` answers `/runs` with `404
+  runs_off` and runs every start unbound; `DEPLOYMENT.md` has the runbook to turn Runs on.
 
 ## Provider connections — `/v1/connections`
 

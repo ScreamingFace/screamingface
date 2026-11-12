@@ -1,27 +1,34 @@
-"""`/runs`: register, list, read and cancel a Run (E5 P1 spec §4.1, D6, D12). Binding a start to
-its Run's Candidate (R2) is `rest.runs_start`; the shared boundary is `rest.runs_boundary`.
+"""`/runs`: register, list, read and cancel a Run (E5 P1 spec §4.1, D6, D12; E5 P2 spec §4.1).
+Binding a start to its Run's Candidate (R2) is `rest.runs_start`; a Run's context and results are
+`rest.runs_objects`, its event stream `rest.runs_events`; the shared boundary is
+`rest.runs_boundary` and the wire `rest.runs_wire`.
 
-FEATURE: first-class Runs (OME-1785). STORY: as a researcher, I open last week's evaluation from
-another notebook and see each Candidate's state and cost, or cancel one still running.
+FEATURE: first-class Runs (OME-1785) and a detached Run (OME-1837). STORY: as a researcher, I
+send my evaluation once and leave, then open it from another notebook and see each Candidate's
+state and cost, or cancel one still running.
 
 INVARIANT (spec D5, §4.1): a foreign id reads exactly like an unknown one, 404 `run_not_found`,
-and no answer carries the owner.
+and no answer carries the owner or the owner's email.
 """
 
 from __future__ import annotations
 
+import asyncio
+import dataclasses
+import hashlib
 import logging
-from datetime import datetime
-from decimal import Decimal
-from typing import Annotated
+from datetime import datetime, timedelta
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request, Response
-from pydantic import BaseModel, ConfigDict, PlainSerializer, StrictInt
 
+from screamingface_engine.artifacts.run_results import RunResultStore, context_key
+from screamingface_engine.auth import ProblemException
 from screamingface_engine.rest.gateway_route import problem_responses
 from screamingface_engine.rest.runs_boundary import (
     CLIENT_KEY_CONFLICT,
     INVALID_CURSOR,
+    INVALID_REQUEST,
     PRIVATE_HEADERS,
     PRIVATE_HEADERS_DOC,
     RunsRoute,
@@ -30,14 +37,17 @@ from screamingface_engine.rest.runs_boundary import (
     private_failure,
     private_problems,
     problem,
+    request_email,
     request_owner,
     request_registry,
+    result_store_unavailable,
     run_not_found,
     stop_candidate,
 )
-from screamingface_engine.runs.ids import RUN_ID_PATTERN
+from screamingface_engine.rest.runs_wire import RunBody, RunCreate, RunList, StartBody
+from screamingface_engine.runs.ids import RUN_ID_PATTERN, new_run_id
 from screamingface_engine.runs.records import (
-    CandidateState,
+    ContextRef,
     OwnerKey,
     RunQuery,
     RunRecord,
@@ -51,6 +61,10 @@ from screamingface_engine.runs.registry import (
     RunRegistry,
 )
 from screamingface_engine.runs.stopping import make_stops
+
+DEADLINE_TOO_LONG = "deadline_too_long"
+DEADLINE_NEEDS_DETACH = "deadline_needs_detach"
+CONTEXT_TOO_LARGE = "context_too_large"
 
 _logger = logging.getLogger(__name__)
 
@@ -72,78 +86,100 @@ router = APIRouter(
 )
 
 
-# --- the wire ----------------------------------------------------------------------------
+# --- registering a Run (E5 P2 spec §4.1) -----------------------------------------------------
 
 
-class RunCreate(BaseModel):
-    # WHY forbid: a field this Engine does not know is refused, not silently dropped.
-    model_config = ConfigDict(extra="forbid")
-
-    client_key: str
-    benchmark: str
-    case_count: StrictInt
-    candidates: list[str]
-    client_version: str
+def _unprocessable(detail: str, code: str) -> ProblemException:
+    return problem(status=422, title="Unprocessable Content", detail=detail, code=code)
 
 
-def _cost_text(cost: Decimal | None) -> str | None:
-    """A cost in plain positional form, without trailing zeros. WHY: Postgres returns a `NUMERIC`
-    at its column's full scale and SQLite does not, so one cost would read `0.5` on one database
-    and `0.500000000000` on the other; and `str()` would write a tiny cost as `1E-12`."""
-    return None if cost is None else f"{cost.normalize():f}"
+def _spec(request: Request, body: RunCreate) -> RunSpec:
+    """The Run to register, its id minted here so its context can be stored under it first."""
+    settings = request.app.state.settings
+    if body.deadline_s is not None:
+        if not body.detach:
+            raise _unprocessable("a deadline needs detach", DEADLINE_NEEDS_DETACH)
+        if body.deadline_s > settings.run_detached_deadline_max_s:
+            limit = int(settings.run_detached_deadline_max_s)
+            raise _unprocessable(f"a deadline is at most {limit} s", DEADLINE_TOO_LONG)
+    starts = tuple(c.to_start() for c in body.candidates if isinstance(c, StartBody))
+    return RunSpec(
+        client_key=body.client_key,
+        benchmark=body.benchmark,
+        case_count=body.case_count,
+        candidates=tuple(c if isinstance(c, str) else c.name for c in body.candidates),
+        client_version=body.client_version,
+        starts=starts,
+        detach=body.detach,
+        deadline=None if body.deadline_s is None else timedelta(seconds=body.deadline_s),
+        run_id=new_run_id(),
+        owner_email=request_email(request),
+    )
 
 
-class CandidateBody(BaseModel):
-    name: str
-    state: CandidateState
-    attempt_id: str | None
-    started_at: datetime | None
-    finished_at: datetime | None
-    # Exact: a decimal string, as cost travels everywhere else on the wire.
-    cost_usd: Annotated[Decimal | None, PlainSerializer(_cost_text, return_type=str | None)]
-    error_code: str | None
+def _context_bytes(request: Request, context: str) -> bytes:
+    try:
+        data = context.encode()
+    except UnicodeEncodeError:
+        # A lone surrogate, which JSON can escape and UTF-8 cannot hold.
+        raise _unprocessable("the context is not valid text", INVALID_REQUEST) from None
+    limit = request.app.state.settings.run_context_max_bytes
+    if len(data) > limit:
+        raise _unprocessable(f"the context is over {limit} bytes", CONTEXT_TOO_LARGE)
+    return data
 
 
-class RunBody(BaseModel):
-    id: str
-    state: RunState
-    created_at: datetime
-    finished_at: datetime | None
-    benchmark: str
-    case_count: int
-    candidates: list[CandidateBody]
-
-    @classmethod
-    def of(cls, record: RunRecord) -> RunBody:
-        return cls(
-            id=record.id,
-            state=record.state,
-            created_at=record.created_at,
-            finished_at=record.finished_at,
-            benchmark=record.benchmark,
-            case_count=record.case_count,
-            candidates=[
-                CandidateBody(
-                    name=c.name,
-                    state=c.state,
-                    attempt_id=c.attempt_id,
-                    started_at=c.started_at,
-                    finished_at=c.finished_at,
-                    cost_usd=c.cost_usd,
-                    error_code=c.error_code,
-                )
-                for c in record.candidates
-            ],
-        )
+async def _store_context(request: Request, key: str, data: bytes) -> ContextRef:
+    """Write the context before its Run exists (spec D9b): a Run is never registered without
+    the context it names. A store that is missing or refuses answers 503, and nothing is
+    registered."""
+    store: RunResultStore | None = getattr(request.app.state, "run_results", None)
+    if store is None:
+        raise result_store_unavailable(None)
+    try:
+        await asyncio.to_thread(store.put, key, data)
+    except Exception as exc:
+        raise result_store_unavailable(exc) from None
+    return ContextRef(hashlib.sha256(data).hexdigest(), len(data))
 
 
-class RunList(BaseModel):
-    runs: list[RunBody]
-    next_cursor: str | None
+async def _drop_context(request: Request, key: str) -> None:
+    """Delete a context written for a Run that was not registered. Best effort: what is left is
+    removed by age with the rest of what no Run names (spec R13)."""
+    store: RunResultStore | None = getattr(request.app.state, "run_results", None)
+    if store is None:
+        return
+    try:
+        await asyncio.to_thread(store.delete, [key])
+    except Exception:
+        _logger.warning("could not delete an unregistered Run's context; age removes it")
 
 
-async def _read(registry: RunRegistry, owner: OwnerKey, run_id: str) -> RunRecord:
-    record = await registry.get(owner, run_id) if RUN_ID_PATTERN.fullmatch(run_id) else None
+async def _register(
+    request: Request, registry: RunRegistry, owner: OwnerKey, spec: RunSpec, context: str | None
+) -> tuple[RunRecord, bool]:
+    if context is None:
+        return await registry.register(owner, spec)
+    assert spec.run_id is not None
+    key = context_key(spec.run_id)
+    data = _context_bytes(request, context)
+    ref = await _store_context(request, key, data)
+    created = False
+    try:
+        record, created = await registry.register(owner, dataclasses.replace(spec, context=ref))
+    finally:
+        # INVARIANT: a context is kept only under a Run that names it. A repeated `client_key`
+        # finds the first Run, which keeps its own.
+        if not created:
+            await _drop_context(request, key)
+    return record, created
+
+
+async def _read(
+    registry: RunRegistry, owner: OwnerKey, run_id: str, *, full: bool = True
+) -> RunRecord:
+    read = registry.get if full else registry.summary
+    record = await read(owner, run_id) if RUN_ID_PATTERN.fullmatch(run_id) else None
     if record is None:
         raise run_not_found(run_id)
     return record
@@ -175,6 +211,7 @@ async def _stop_owed(request: Request, registry: RunRegistry, owner: OwnerKey, r
     "",
     status_code=201,
     summary="Register a Run",
+    response_model_exclude_unset=True,
     responses={
         201: {"description": "The new Run.", "headers": PRIVATE_HEADERS_DOC},
         200: {
@@ -185,7 +222,12 @@ async def _stop_owed(request: Request, registry: RunRegistry, owner: OwnerKey, r
         **private_problems(
             {
                 409: "That `client_key` names another evaluation (`client_key_conflict`).",
-                422: "An invalid Run.",
+                413: "The body is over `run_request_max_bytes` (`request_too_large`).",
+                422: "An invalid Run (`invalid_request`), a deadline past the cap "
+                "(`deadline_too_long`) or without `detach` (`deadline_needs_detach`), or a "
+                "context over `run_context_max_bytes` (`context_too_large`).",
+                503: "The context could not be stored (`result_store_unavailable`), or the Run "
+                "registry could not answer; no Run was registered. Retry after `Retry-After`.",
             }
         ),
     },
@@ -196,29 +238,29 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
     registry = request_registry(request)
     owner = request_owner(request)
     try:
-        spec = RunSpec(
-            client_key=body.client_key,
-            benchmark=body.benchmark,
-            case_count=body.case_count,
-            candidates=tuple(body.candidates),
-            client_version=body.client_version,
-        )
+        spec = _spec(request, body)
     except ValueError as exc:
         raise invalid_value(exc) from exc
     try:
-        record, created = await registry.register(owner, spec)
+        record, created = await _register(request, registry, owner, spec, body.context)
     except ClientKeyConflict as exc:
         raise problem(
             status=409, title="Conflict", detail=str(exc), code=CLIENT_KEY_CONFLICT
         ) from exc
     if not created:
         response.status_code = 200
+    elif spec.starts:
+        # R1: the driver ticks now rather than at its next interval.
+        drivers = getattr(request.app.state, "run_drivers", None)
+        if drivers is not None:
+            drivers.wake()
     return RunBody.of(record)
 
 
 @router.get(
     "",
     summary="List Runs, newest first",
+    response_model_exclude_unset=True,
     responses={
         200: {"description": "A page of the caller's Runs.", "headers": PRIVATE_HEADERS_DOC},
         **private_problems(
@@ -254,11 +296,21 @@ async def list_runs(
 @router.get(
     "/{run_id}",
     summary="Read a Run",
-    responses={200: {"description": "The Run.", "headers": PRIVATE_HEADERS_DOC}},
+    response_model_exclude_unset=True,
+    responses={
+        200: {
+            "description": "The Run, with each Candidate's `start` and `record`; with "
+            "`view=summary`, without them.",
+            "headers": PRIVATE_HEADERS_DOC,
+        }
+    },
 )
-async def get_run(request: Request, run_id: str) -> RunBody:
+async def get_run(request: Request, run_id: str, view: Literal["summary"] | None = None) -> RunBody:
     registry = request_registry(request)
-    return RunBody.of(await _read(registry, request_owner(request), run_id))
+    owner = request_owner(request)
+    if view == "summary":
+        return RunBody.of(await _read(registry, owner, run_id, full=False))
+    return RunBody.of(await _read(registry, owner, run_id), full=True)
 
 
 @router.delete(
@@ -287,7 +339,7 @@ async def cancel_run(request: Request, run_id: str) -> Response:
     changing nothing, once every Candidate is terminal."""
     registry = request_registry(request)
     owner = request_owner(request)
-    record = await _read(registry, owner, run_id)
+    record = await _read(registry, owner, run_id, full=False)
     changed = False
     if not all(is_terminal_candidate(c.state) for c in record.candidates):
         canceled = await registry.cancel(owner, run_id)

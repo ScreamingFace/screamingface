@@ -139,3 +139,26 @@ The runner pool also creates a NATS key-value bucket, `url4-claims`, at startup,
 stream's retention, replicas and storage. It needs no step of its own, but the pool must roll
 before the App: a pool of the previous version refuses the App's new run messages
 (`unsupported_spec_version`).
+
+A store the App cannot reach answers `POST /runs` with a context `503 result_store_unavailable`,
+and registers nothing, and the context and result routes answer the same until it is back.
+
+## The Run event stream
+
+A Client follows a Run on one WebSocket, `GET /runs/{id}/events`, which the App checks against
+the Run's owner like every `/runs` route. The edge must pass the verified `X-User-Email` on the
+WebSocket upgrade, as it does on HTTP requests: without it the App closes the socket at once
+(1008, `identity_required`). Check it on staging before a P2 Client is released:
+
+```sh
+curl -sS -o /dev/null -w '%{http_code}\n' -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
+  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
+  https://<engine host>/runs/<one of your Run ids>/events
+```
+
+`101` means the edge passed the identity; `403` means the App refused it.
+
+While a follower is connected, the App stamps the Run every `URL4_CLOUD_RUN_FOLLOW_STAMP_S`
+(30 s); an attached Run nobody has followed for `URL4_CLOUD_ORPHAN_GRACE_S` (120 s) is stopped.
+The driver's lease and the follow stamps live in Postgres, so the Run routes add no reason to
+keep the App at one replica beyond those it already has (E5 P2 spec D5).
