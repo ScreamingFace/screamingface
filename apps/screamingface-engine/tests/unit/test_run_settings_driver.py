@@ -25,6 +25,7 @@ def test_the_defaults_are_the_specs() -> None:
     assert settings.run_request_max_bytes == 8 * 1024**2
     assert settings.run_detached_deadline_s == 48 * 3600
     assert settings.run_detached_deadline_max_s == 7 * 86_400
+    assert settings.topic_claim_budget_s == 5
 
 
 @pytest.mark.parametrize(
@@ -66,6 +67,7 @@ def test_a_context_cap_that_does_not_fit_the_body_is_refused() -> None:
         "run_follow_stamp_s",
         "run_context_max_bytes",
         "run_detached_deadline_s",
+        "topic_claim_budget_s",
     ],
 )
 def test_a_non_positive_setting_is_refused(field: str) -> None:

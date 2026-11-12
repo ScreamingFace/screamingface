@@ -25,10 +25,11 @@ import httpx
 from screamingface_engine import child_protocol, job_env
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
 from screamingface_engine.artifacts import ArtifactWriter
-from screamingface_engine.artifacts.wiring import result_writer_from_env
+from screamingface_engine.artifacts.wiring import result_sink_from_env, result_writer_from_env
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.candidate_outcomes import CandidateOutcome
+from screamingface_engine.candidate_record import CandidateRecordFold
 from screamingface_engine.client_provenance import (
     CLIENT_VERSION_ENV,
     ProvenanceExecutor,
@@ -254,6 +255,9 @@ class RunnerParams:
     nats_url: str
     deadline_s: float | None = None
     client_version: str | None = None
+    # Set only by the Engine's driver (E5 P2 spec D9a): the run reports its record, and writes
+    # its result under this prefix in the run-results store.
+    result_prefix: str | None = None
 
 
 def _deadline_from_env(environ: Mapping[str, str]) -> float | None:
@@ -290,6 +294,7 @@ def params_from_env(environ: Mapping[str, str]) -> RunnerParams:
         nats_url=environ.get(job_env.NATS_URL, job_env.DEFAULT_NATS_URL),
         deadline_s=_deadline_from_env(environ),
         client_version=valid_version(environ.get(CLIENT_VERSION_ENV)),
+        result_prefix=job_env.result_prefix_from_env(environ),
     )
 
 
@@ -508,6 +513,7 @@ def build_executor(
             io_wrap=io_wrap,
             io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
             run_shape=job_env.run_shape_from_env(env),
+            result_sink=result_sink_from_env(env),
         ),
         observers=observers,
         media_writer=artifact_store,
@@ -636,7 +642,7 @@ async def _run_and_log(
     # FEATURE (memory diagnostics, OME-1314): the process baseline before any work, and what it
     # holds at the end — inside `run_scope`, so both lines carry the run's topic and trace id.
     log_process_memory("run_start")
-    watch = SettlementWatch(publisher)
+    watch = SettlementWatch(publisher, record=record_fold(params, traceparent))
     task = asyncio.ensure_future(
         run(
             watch,
@@ -654,6 +660,14 @@ async def _run_and_log(
         _log_terminal(executor, params.topic, started)
         log_process_memory("run_end")
     return settlement_of(watch, task, cost_usd=_summary_cost(executor))
+
+
+def record_fold(params: RunnerParams, traceparent: str | None) -> CandidateRecordFold | None:
+    """The fold of a driver-started run's record (E5 P2 spec §4.3); None for any other run,
+    which nobody asks for one."""
+    if params.result_prefix is None:
+        return None
+    return CandidateRecordFold(params.url4, trace_id=parse_traceparent(traceparent))
 
 
 def _summary_cost(executor: object) -> Decimal | None:
@@ -860,8 +874,9 @@ async def _warm_process(environ: Any, stdin: Any) -> int:
 
 
 def _settled(outcome: CandidateOutcome) -> child_protocol.Settled:
+    record = None if outcome.record is None else dict(outcome.record)
     return child_protocol.Settled(
-        outcome.status, outcome.error_code, outcome.cost_usd, outcome.finished_at
+        outcome.status, outcome.error_code, outcome.cost_usd, outcome.finished_at, record
     )
 
 

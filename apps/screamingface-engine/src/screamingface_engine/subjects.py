@@ -61,6 +61,18 @@ CONTROL_SUBJECT_PREFIX = "url4.runctl"
 OWNERSHIP_SUBJECT_PREFIX = "url4.runown"
 
 
+# The claim holder's channel (E5 P2 spec R3): a worker that finds another worker's claim on an
+# `exclusive` start asks that worker, by id, whether it still has the run. The payload is the
+# holder's id, and only the worker with that id answers, and only for a topic whose claim it holds.
+# WHY not `url4.runown`: there every worker that owns the topic answers whatever the payload, and a
+# worker that has pulled a copy but not yet claimed it counts as owning it.
+CLAIM_SUBJECT_PREFIX = "url4.runclaim"
+
+
+def claim_subject_for(topic: str) -> str:
+    return f"{CLAIM_SUBJECT_PREFIX}.{topic}"
+
+
 def control_subject_for(topic: str) -> str:
     return f"{CONTROL_SUBJECT_PREFIX}.{topic}"
 
@@ -110,6 +122,8 @@ __all__ = [
     "RUN_QUEUE_SUBJECT_PREFIX",
     "control_subject_for",
     "ownership_subject_for",
+    "claim_subject_for",
+    "CLAIM_SUBJECT_PREFIX",
     "owns_stream",
     "subject_for",
 ]

@@ -31,13 +31,24 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import httpx
 
 from screamingface_engine.artifacts.ports import ArtifactContent, RemoteStream
+from screamingface_engine.artifacts.s3_responses import (
+    ERROR_PREFIX_BYTES,
+    S3ObjectTooLarge,
+    S3StorageError,
+    araw_chunks,
+    encoded_body_note,
+    error_detail,
+    raw_chunks,
+    read_error_detail,
+    refuse_encoded,
+)
 from screamingface_engine.artifacts.sigv4 import (
     EMPTY_PAYLOAD_SHA256,
     Credentials,
@@ -48,28 +59,6 @@ from url4.streaming.protocol.signals import ResultArtifact
 _ARTIFACT_ID = re.compile(r"^[0-9a-f]{64}$")
 _STREAM_CHUNK_BYTES = 64 * 1024
 _DEFAULT_TIMEOUT_S = 30.0
-# WHY 512: enough for the store's error XML to name its cause (`<Code>SlowDown</Code>`), and a
-# fixed cost however large a hostile store or proxy makes the body (#1603 review round 3).
-_ERROR_PREFIX_BYTES = 512
-_ERROR_DETAIL_CHARS = 200
-_IDENTITY_ENCODINGS = frozenset({"", "identity"})
-
-
-class S3ObjectTooLarge(Exception):
-    """An object holds more bytes than the caller's cap: the store's CONTENT is wrong.
-
-    INVARIANT: not an `S3StorageError` — a sick store is retryable (503), an object past its
-    cap is permanent corruption, and the blob store renders the two differently.
-    """
-
-
-class S3StorageError(RuntimeError):
-    """The object store could not serve a request.
-
-    INVARIANT: distinct from "the artifact is absent", which is `None`. Collapsing the two
-    would present a misconfiguration (bad credentials, unreachable endpoint) as an expired
-    parcel — the misdiagnosis that sent the OME-929 investigation down a dead end.
-    """
 
 
 @dataclass(frozen=True)
@@ -185,6 +174,24 @@ class S3ArtifactStore:
         """
         self._request("PUT", key, payload_sha256=hashlib.sha256(data).hexdigest(), content=data)
 
+    def object_content(self, key: str) -> RemoteStream | None:
+        """The object under `key` as a stream, or None when absent: a HEAD, then the body when
+        the caller iterates it, as `content` does for a content address.
+
+        FEATURE: the run-results store (E5 P2 spec D9a) serves results and contexts by key.
+        AIDEV-NOTE: the caller validates `key` (`artifacts.run_results` builds every one).
+        """
+        head = self._request("HEAD", key, allow_missing=True)
+        if head is None:
+            return None
+        return RemoteStream(
+            stream=self._stream(key), size_bytes=int(head.headers.get("content-length", 0))
+        )
+
+    def delete_object(self, key: str) -> None:
+        """Remove the object under `key`. Absence is not an error: a delete races expiry."""
+        self._request("DELETE", key, allow_missing=True)
+
     def put_object_if_absent(self, key: str, data: bytes) -> bool:
         """Create `key` only if no object holds it yet; True when this call created it.
 
@@ -234,9 +241,9 @@ class S3ArtifactStore:
                     # INVARIANT: a bounded prefix, never `r.read()` — the cap holds on errors too.
                     raise S3StorageError(
                         f"object storage refused GET {key} with {r.status_code}: "
-                        f"{_read_error_detail(r)}"
+                        f"{read_error_detail(r)}"
                     )
-                _refuse_encoded(r, f"GET {key}")
+                refuse_encoded(r, f"GET {key}")
                 declared = r.headers.get("content-length", "")
                 if declared.isdigit() and int(declared) > max_bytes:
                     raise S3ObjectTooLarge(f"{key} holds {declared} bytes; the cap is {max_bytes}")
@@ -244,8 +251,8 @@ class S3ArtifactStore:
                 size = 0
                 # INVARIANT (#1603 review round 4): RAW bytes. `iter_bytes` decodes any
                 # Content-Encoding BEFORE chunking, so a tiny gzip body would inflate past the
-                # cap before the first size check; `_refuse_encoded` makes raw == stored.
-                for chunk in _raw_chunks(r, _STREAM_CHUNK_BYTES):
+                # cap before the first size check; `refuse_encoded` makes raw == stored.
+                for chunk in raw_chunks(r, _STREAM_CHUNK_BYTES):
                     size += len(chunk)
                     if size > max_bytes:
                         raise S3ObjectTooLarge(f"{key} holds more than {max_bytes} bytes")
@@ -323,7 +330,7 @@ class S3ArtifactStore:
                     # turns an opaque 403 into an actionable one. No credential material.
                     raise S3StorageError(
                         f"object storage refused {method} {key} with {response.status_code}: "
-                        f"{_read_error_detail(response)}"
+                        f"{read_error_detail(response)}"
                     )
                 return response
         except httpx.HTTPError as exc:
@@ -346,100 +353,22 @@ class S3ArtifactStore:
                     if response.status_code >= 400:
                         # INVARIANT: a bounded RAW prefix, never `aread()` or `aiter_bytes()`
                         # (#1603 review rounds 3 and 4); an encoded body is not read at all.
-                        detail = _encoded_body_note(response)
+                        detail = encoded_body_note(response)
                         if detail is None:
                             prefix = b""
-                            async for prefix in _araw_chunks(response, _ERROR_PREFIX_BYTES):
+                            async for prefix in araw_chunks(response, ERROR_PREFIX_BYTES):
                                 break
-                            detail = _error_detail(prefix)
+                            detail = error_detail(prefix)
                         await response.aclose()
                         raise S3StorageError(
                             f"object storage refused GET {key} with {response.status_code}: "
                             f"{detail}"
                         )
-                    _refuse_encoded(response, f"GET {key}")
-                    async for chunk in _araw_chunks(response, _STREAM_CHUNK_BYTES):
+                    refuse_encoded(response, f"GET {key}")
+                    async for chunk in araw_chunks(response, _STREAM_CHUNK_BYTES):
                         yield chunk
         except httpx.HTTPError as exc:
             raise S3StorageError(f"GET {key} could not reach object storage: {exc}") from exc
-
-
-def _raw_chunks(response: httpx.Response, size: int) -> Iterator[bytes]:
-    """The body's raw (undecoded) bytes in `size` chunks.
-
-    WHY the `is_stream_consumed` branch: a response built in memory (`httpx.Response(content=)`,
-    as a mock transport or a buffering transport returns) is already read, and `iter_raw` would
-    raise `StreamConsumed`. Its bytes are already materialised, so slicing them costs nothing
-    the response has not already spent. On the wire, `client.stream` never pre-reads.
-    """
-    if response.is_stream_consumed:
-        body = response.content
-        for at in range(0, len(body), size):
-            yield body[at : at + size]
-        return
-    yield from response.iter_raw(size)
-
-
-async def _araw_chunks(response: httpx.Response, size: int) -> AsyncIterator[bytes]:
-    """The async twin of `_raw_chunks`."""
-    if response.is_stream_consumed:
-        for chunk in _raw_chunks(response, size):
-            yield chunk
-        return
-    async for chunk in response.aiter_raw(size):
-        yield chunk
-
-
-def _content_encoding(response: httpx.Response) -> str | None:
-    """The response's Content-Encoding when it is anything but identity, else None."""
-    raw = response.headers.get("content-encoding", "")
-    tokens = {token.strip().lower() for token in raw.split(",")}
-    return None if tokens <= _IDENTITY_ENCODINGS else raw.strip()
-
-
-def _encoded_body_note(response: httpx.Response) -> str | None:
-    """A diagnostic standing in for an encoded error body that is deliberately left unread."""
-    encoding = _content_encoding(response)
-    return None if encoding is None else f"<{encoding}-encoded body not read>"
-
-
-def _refuse_encoded(response: httpx.Response, what: str) -> None:
-    """Refuse an object body the store (or a proxy) sent with a non-identity Content-Encoding.
-
-    FEATURE: #1603 review round 4 — HTTPX would inflate it before any cap applies.
-
-    WHY refuse rather than decode: an object store returns the stored bytes and this client
-    never asks for compression, so an encoded body is a misbehaving store or proxy. Decoding it
-    under a cap would mean a decompressor with its own output bound; refusing needs none.
-    """
-    encoding = _content_encoding(response)
-    if encoding is not None:
-        raise S3StorageError(
-            f"object storage answered {what} with Content-Encoding {encoding!r}; "
-            "object bytes must arrive unencoded"
-        )
-
-
-def _read_error_detail(response: httpx.Response) -> str:
-    """The error text from at most `_ERROR_PREFIX_BYTES` of a STREAMED body, then close it.
-
-    INVARIANT (#1603 review round 4): RAW bytes only, and an encoded body is not read at all —
-    `iter_bytes` would inflate a compressed body before the prefix limit applied.
-    """
-    detail = _encoded_body_note(response)
-    if detail is None:
-        prefix = b""
-        for prefix in _raw_chunks(response, _ERROR_PREFIX_BYTES):
-            break
-        detail = _error_detail(prefix)
-    response.close()
-    return detail
-
-
-def _error_detail(prefix: bytes) -> str:
-    """The store's error text from a bounded body prefix; bad UTF-8 never raises."""
-    text = prefix[:_ERROR_PREFIX_BYTES].decode("utf-8", errors="replace")
-    return text[:_ERROR_DETAIL_CHARS]
 
 
 __all__ = ["S3ArtifactStore", "S3Config", "S3ObjectTooLarge", "S3StorageError"]

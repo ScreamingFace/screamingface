@@ -9,6 +9,8 @@ on:
       # the cache-hit contract fixtures that tests/test_cache_hit_contract.py consumes
       - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
       - "apps/screamingface-engine/tests/unit/data/cache_hit_contract/**"
+      # the recorded runs both Candidate record folds are tested against (E5 P2 spec §4.3)
+      - "apps/screamingface-engine/tests/fixtures/candidate_runs/**"
       # the combine contract fixtures that tests/unit/test_binding_pattern_conformance.py and
       # tests/test_combine_contract_fixture.py consume
       - "apps/screamingface-engine/tests/unit/data/combine_contract/**"
@@ -40,6 +42,8 @@ on:
       # the cache-hit contract fixtures that tests/test_cache_hit_contract.py consumes
       - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
       - "apps/screamingface-engine/tests/unit/data/cache_hit_contract/**"
+      # the recorded runs both Candidate record folds are tested against (E5 P2 spec §4.3)
+      - "apps/screamingface-engine/tests/fixtures/candidate_runs/**"
       # the combine contract fixtures that tests/unit/test_binding_pattern_conformance.py and
       # tests/test_combine_contract_fixture.py consume
       - "apps/screamingface-engine/tests/unit/data/combine_contract/**"

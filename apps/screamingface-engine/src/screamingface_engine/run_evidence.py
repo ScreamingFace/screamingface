@@ -21,7 +21,7 @@ import asyncio
 import logging
 import secrets
 from decimal import Decimal
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
 from screamingface_engine.candidate_outcomes import (
     OUTCOME_STATUSES,
@@ -29,6 +29,7 @@ from screamingface_engine.candidate_outcomes import (
     OutcomeStatus,
     storable_error_code,
 )
+from screamingface_engine.candidate_record import CandidateRecordFold
 from url4.streaming.interfaces import EventPublisher
 from url4.streaming.protocol import OutboundFrame, TerminatedEvent
 from url4.streaming.trace import format_traceparent, parse_traceparent, valid_traceparent
@@ -202,15 +203,25 @@ class SettlementWatch(TerminalWatch):
     INVARIANT (spec R3): ``landed`` is the status of the last terminal frame the inner publisher
     ACCEPTED. A publish that raises leaves it unchanged, so a frame that never reached
     `url4-events` never becomes an outcome.
+
+    ``record`` (E5 P2 spec §4.3) is given for a driver-started run only. It folds the frames the
+    inner publisher accepted, so the record states what a follower could have seen.
     """
 
-    def __init__(self, inner: EventPublisher) -> None:
+    def __init__(self, inner: EventPublisher, *, record: CandidateRecordFold | None = None) -> None:
         super().__init__(inner)
         self.error_code: str | None = None
         self.landed: str | None = None
+        self._record = record
+
+    def record(self) -> dict[str, Any] | None:
+        """The run's record, cut to fit; None for a run nobody asked one of."""
+        return None if self._record is None else self._record.record()
 
     async def publish(self, topic: str, event: OutboundFrame) -> None:
         await super().publish(topic, event)
+        if self._record is not None:
+            self._record.observe(event)
         if not isinstance(event, TerminatedEvent):
             return
         # INVARIANT: the code and the evidence line's error are the last landed terminal frame's,
@@ -235,7 +246,10 @@ def settlement_of(
     """
     if watch.landed is not None:
         return CandidateOutcome(
-            _status(watch.landed), storable_error_code(watch.error_code), cost_usd
+            _status(watch.landed),
+            storable_error_code(watch.error_code),
+            cost_usd,
+            record=watch.record(),
         )
     status, _ = _outcome_without_a_frame(task)
     if status == "stopped":

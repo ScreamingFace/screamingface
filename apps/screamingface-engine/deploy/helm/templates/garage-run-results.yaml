@@ -1,0 +1,175 @@
+{{/*
+The THIRD bundled Garage: the run-results store's own (OME-1837, E5 P2 spec D9a). A copy of
+`garage-blobs.yaml` — same image, same self-configuration flags, same security posture — with its
+own name, component label, volume, bucket and key pair.
+
+WHY a third Garage and not a bucket on the first: the chart creates buckets only through Garage's
+`--default-bucket` (ONE per instance) and has no bootstrap Job by design (see garage.yaml), and the
+artifact store expires everything after 2 days while a Run's results live for 30.
+
+Rendered with Runs on (`database.existingSecret`) when `runResults.storage.s3.endpointUrl` is
+empty. One replica, no backup and no lifecycle rule: a test cluster's store. Production names a
+durable bucket of its own (DEPLOYMENT.md: the run-results store).
+
+AIDEV-NOTE: kept a parallel template, as `garage-blobs.yaml` is; `verify_chart_wiring.py` asserts
+the three Garages render the same image, args and security context.
+
+INVARIANT: `app.kubernetes.io/component: garage-run-results`, never `garage` or `garage-blobs`, so
+no Garage's Service load-balances onto another's store.
+INVARIANT: the key pair comes from `secret-run-results-storage.yaml`, the Secret the App reads.
+*/}}
+{{- if include "screamingface-engine.runResultsGarageEnabled" . }}
+{{- $name := printf "%s-garage-run-results" (include "screamingface-engine.fullname" .) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+data:
+  garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir = "/var/lib/garage/data"
+    db_engine = "sqlite"
+    replication_factor = 1
+    # Cluster-internal only: this store is reached by the App and by the runner pool's pods,
+    # never from
+    # outside. The read path deliberately goes THROUGH the App (spec D4) rather than handing a
+    # client a presigned URL, so nothing off-cluster ever needs to resolve this endpoint.
+    rpc_bind_addr = "[::]:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+    # rpc_secret is NOT here: it is random, held in the run-results Secret, and given to Garage as
+    # GARAGE_RPC_SECRET (supported since Garage v0.8.2) — see secret-run-results-storage.yaml.
+
+    [s3_api]
+    s3_region = {{ .Values.runResults.storage.s3.region | quote }}
+    api_bind_addr = "[::]:3900"
+    root_domain = ".s3.garage"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: s3
+      port: 3900
+      targetPort: s3
+      protocol: TCP
+  selector:
+    {{- include "screamingface-engine.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: garage-run-results
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+spec:
+  # INVARIANT: 1. See the WHY above — two Garage processes on one metadata store is corruption.
+  replicas: 1
+  serviceName: {{ $name }}
+  selector:
+    matchLabels:
+      {{- include "screamingface-engine.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: garage-run-results
+  template:
+    metadata:
+      labels:
+        {{- include "screamingface-engine.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: garage-run-results
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: garage
+          image: {{ .Values.garage.image | quote }}
+          # The three self-configuration flags (see the header). `command` is NOT optional
+          # decoration: dxflrs/garage:v2.3.0 ships NO Entrypoint — only
+          # `Cmd: ["/garage", "server"]` — so bare `args` would REPLACE that Cmd wholesale and
+          # the kubelet would try to exec the literal string "server"
+          # (`exec: "server": executable file not found in $PATH`, CrashLoopBackOff).
+          command: ["/garage"]
+          args:
+            - server
+            - --single-node
+            - --default-access-key
+            - --default-bucket
+          env:
+            # Garage ADOPTS this pair on first boot rather than minting its own, which is what
+            # keeps the chart declarative. Read from the same Secret the engine reads, so the
+            # store and its clients cannot drift onto different credentials.
+            - name: GARAGE_DEFAULT_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "screamingface-engine.runResultsSecretName" . }}
+                  key: URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY
+            - name: GARAGE_DEFAULT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "screamingface-engine.runResultsSecretName" . }}
+                  key: URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY
+            # The cluster RPC secret (#1603 security review): random, from the run-results Secret —
+            # never derived from the release name.
+            - name: GARAGE_RPC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "screamingface-engine.runResultsSecretName" . }}
+                  key: GARAGE_RPC_SECRET
+            - name: GARAGE_DEFAULT_BUCKET
+              value: {{ .Values.runResults.storage.s3.bucket | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            # NOT readOnlyRootFilesystem: Garage writes its metadata and data trees at runtime.
+            # They live on the mounted volume, which is why this is a narrower exception than it
+            # looks — but the root filesystem still has to be writable for its lock files.
+            runAsNonRoot: true
+            runAsUser: 1000
+          ports:
+            - name: s3
+              containerPort: 3900
+              protocol: TCP
+            - name: rpc
+              containerPort: 3901
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/garage.toml
+              subPath: garage.toml
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/garage
+          resources:
+            {{- toYaml .Values.runResults.storage.garage.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        {{- if not .Values.runResults.storage.garage.persistence.enabled }}
+        # AIDEV-NOTE: emptyDir means every result and context is lost on a Garage restart.
+        # Acceptable only for a throwaway test cluster: a reattaching owner would find nothing.
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.runResults.storage.garage.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.runResults.storage.garage.persistence.accessModes | nindent 10 }}
+        {{- with .Values.runResults.storage.garage.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.runResults.storage.garage.persistence.size | quote }}
+  {{- end }}
+{{- end }}

@@ -96,6 +96,13 @@ async def test_no_setting_holds_an_aigateway_credential() -> None:
     #                           store, which is separate from the artifact store by design.
     #                           Blast radius if leaked: read/write on the blob bucket only. No
     #                           artifact, provider or model credentials.
+    #   run_results_s3_access_key  the run-results store's S3 access key ID (E5 P2 spec D9a) — an
+    #                           identifier, like artifact_s3_access_key.
+    #   run_results_s3_secret_key  a VALUE, from a Secret by named secretKeyRef, exactly like
+    #                           blob_s3_secret_key. WHY the App must hold it: it puts each Run's
+    #                           context, streams results back to their owner, and deletes both at
+    #                           retention. Blast radius if leaked: read, write and delete on the
+    #                           run-results bucket only. No provider or model credentials.
     assert suspicious == {
         "jwt_secret",
         "artifact_s3_access_key",
@@ -103,6 +110,8 @@ async def test_no_setting_holds_an_aigateway_credential() -> None:
         "artifact_signing_key",
         "blob_s3_access_key",
         "blob_s3_secret_key",
+        "run_results_s3_access_key",
+        "run_results_s3_secret_key",
     }, "a new secret-shaped setting appeared — confirm it is sourced from a Secret reference"
 
 

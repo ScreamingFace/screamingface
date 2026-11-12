@@ -243,6 +243,8 @@ class TortoiseRunStore(DriverStore):
             # An unbound topic (a start without a Run, or one whose bind failed): no-op.
             return
         now = self._clock()
+        cost = None if outcome.cost_usd is None else stored_cost(outcome.cost_usd)
+        record = None if outcome.record is None else dict(outcome.record)
         # WHY one transaction: a redelivered outcome finds the Candidate terminal and writes
         # nothing, so a touch lost after the state commit would never be retried.
         async with in_transaction(CONNECTION) as conn:
@@ -255,13 +257,23 @@ class TortoiseRunStore(DriverStore):
                     # WHY the producer's time: an outcome written late (after a database outage)
                     # still ends the Candidate when the run ended.
                     finished_at=outcome.finished_at,
-                    cost_usd=None if outcome.cost_usd is None else stored_cost(outcome.cost_usd),
+                    cost_usd=cost,
                     # The outcome refuses a code the column cannot hold (`CandidateOutcome`).
                     error_code=outcome.error_code,
+                    record=record,
                 )
             )
             if won:
                 await touch(row.run_id, now, conn)
+                return
+            # INVARIANT (E5 P2 spec §4.4): state and error code are first-wins. A later outcome
+            # with the same state fills a cost or a record still empty, and nothing else: an
+            # outcome rebuilt from the stream (R7) has neither, and the runner's lands after it.
+            same = Candidate.filter(id=row.id, state=outcome.status).using_db(conn)
+            if cost is not None:
+                await same.filter(cost_usd__isnull=True).update(cost_usd=cost)
+            if record is not None:
+                await same.filter(record__isnull=True).update(record=record)
 
     @in_context
     async def cancel(self, owner: OwnerKey, run_id: str) -> RunRecord | None:

@@ -236,6 +236,8 @@ def _env_mapping(
     capture: bool = False,
     replay_frozen_copy: str | None = None,
     world_digest: str | None = None,
+    result_prefix: str | None = None,
+    exclusive: bool = False,
 ) -> dict[str, str]:
     """The per-run env mapping a queue message carries, keyed by env name.
 
@@ -275,6 +277,8 @@ def _env_mapping(
     if shape == "direct":
         env[job_env.RUN_SHAPE] = "direct"
         env[job_env.STREAM_GRACE_S] = str(job_env.DIRECT_STREAM_GRACE_S)
+    # E5 P2 spec R15: only a driver-started run carries these, and only it is version 3.
+    env.update(job_env.driver_start_env(result_prefix, exclusive))
     return env
 
 
@@ -294,6 +298,8 @@ def encode_message(
     capture: bool = False,
     replay_frozen_copy: str | None = None,
     world_digest: str | None = None,
+    result_prefix: str | None = None,
+    exclusive: bool = False,
 ) -> bytes:
     """Encode a run submission as the queue message body: the per-run env mapping, JSON."""
     return json.dumps(
@@ -312,6 +318,8 @@ def encode_message(
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
             world_digest=world_digest,
+            result_prefix=result_prefix,
+            exclusive=exclusive,
         ),
         sort_keys=True,
     ).encode("utf-8")

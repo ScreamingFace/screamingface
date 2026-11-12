@@ -29,6 +29,12 @@ from screamingface_engine.artifacts import (
     allowed_result_bytes,
     decide_result_delivery,
 )
+from screamingface_engine.artifacts.run_results import (
+    RESULT_STORE_MISSING,
+    RESULT_STORE_UNAVAILABLE,
+    ResultSink,
+    RunResultStoreUnavailable,
+)
 from screamingface_engine.benchmarks.picture_admission import run_expression_scope
 from screamingface_engine.benchmarks.registry import served_routes
 from screamingface_engine.capture_outcomes import CaptureTally, capture_outcomes
@@ -354,6 +360,16 @@ class _SpanState:
     saved_cost: SavedCostTotals = field(default_factory=SavedCostTotals)
 
 
+def _keep_result(sink: ResultSink, encoded: bytes) -> None:
+    """Write the run's whole result to the run-results store (E5 P2 spec R5), the same bytes the
+    frame carries or spills. A store that refuses for the whole budget fails the run, not
+    permanently."""
+    try:
+        sink.write(encoded)
+    except RunResultStoreUnavailable as exc:
+        raise ResolutionError(str(exc), code=RESULT_STORE_UNAVAILABLE, permanent=False) from exc
+
+
 class _RunState:
     """Accumulates one run's `url4.observe` events into wire-protocol span and cost frames.
 
@@ -654,6 +670,7 @@ class _RunState:
         hard_cap: int,
         store: ArtifactWriter | None,
         media_type: str | None = None,
+        sink: ResultSink | None = None,
     ) -> ResultData:
         """Build the final `ResultData`: inline, spilled whole, or refused — never cut.
 
@@ -694,6 +711,8 @@ class _RunState:
                 code="result_too_large",
                 permanent=True,
             )
+        if sink is not None:
+            _keep_result(sink, encoded)
         if decision is ResultDelivery.INLINE:
             return ResultData(body=result_str, media_type=media_type)
         assert store is not None  # over inline yet allowed ⇒ a store existed above
@@ -902,8 +921,12 @@ class Url4Executor(Executor):
         io_wrap: Callable[[IOLayer], IOLayer] | None = None,
         io_concurrency: int | None = None,
         run_shape: RunShape = "expression",
+        result_sink: ResultSink | None = None,
     ) -> None:
         self._io = io
+        # E5 P2 spec R5: a driver-started run's result also goes to the run-results store,
+        # before its frame. None for every other run, which writes exactly what it did.
+        self._result_sink = result_sink
         # FEATURE (uniform executor PRD 04): a `direct` run is a MOUNT CALL — its "expression"
         # is `<mount path>?<raw query>` and it runs ONE registered handler of the world node via
         # `url4.peer.dispatch_direct`, never a DAG (D1). Same lifecycle, same frames.
@@ -974,6 +997,12 @@ class Url4Executor(Executor):
         # no `ensure_stream`, so an attached client sees heartbeats forever and never a
         # Terminated. Resolving inside `execute` puts config and connect failures inside
         # `run`'s try, where they become Terminated(status="failed") with a real error code.
+        if self._result_sink is not None and self._result_sink.store is None:
+            # R5: before the world, so before any model call is paid for.
+            raise ResolutionError(
+                "this run must keep its result, and this pool has no run-results store",
+                code=RESULT_STORE_MISSING,
+            )
         await self._resolve_world()
         bridge = _Bridge(self._queue_cap, memory_budget=self._memory_budget)
         state = _RunState()
@@ -1085,6 +1114,7 @@ class Url4Executor(Executor):
                 hard_cap=self._hard_cap,
                 store=self._artifact_store,
                 media_type=eval_result.media_type,
+                sink=self._result_sink,
             )
             subtree = state.build_subtree()
             # FEATURE (OME-1069): recorded BEFORE the Completed yield, because

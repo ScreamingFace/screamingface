@@ -163,6 +163,18 @@ class Settings(BaseSettings):
     blob_s3_access_key: str = ""
     # AIDEV-NOTE: credential material — Secret only, never logged, never in a ConfigMap.
     blob_s3_secret_key: str = ""
+    # The run-results store (E5 P2 spec D9a): every result of a driver-started run, and each
+    # Run's context, for the Run's 30 days. Every field reads the `job_env.RUN_RESULTS_*` name, so
+    # the App and the runner pool resolve one store (`artifacts.wiring.run_results_from_values`).
+    # `None` on a deployment means no store; local mode keeps a folder beside its database.
+    run_results_store: ArtifactStoreBackend | None = None
+    run_results_dir: str = ""
+    run_results_s3_endpoint_url: str = ""
+    run_results_s3_bucket: str = ""
+    run_results_s3_region: str = job_env.DEFAULT_ARTIFACT_S3_REGION
+    run_results_s3_access_key: str = ""
+    # AIDEV-NOTE: credential material — Secret only, never logged, never in a ConfigMap.
+    run_results_s3_secret_key: str = ""
     # FEATURE: tie a run's lifetime to its audience (OME-890).
     #
     # WHY 120s: a run whose last WebSocket subscriber disconnects gets this long to get one back
@@ -346,6 +358,9 @@ class Settings(BaseSettings):
     # How long a runner retries a failed write to the run-results store before it fails the run
     # `result_store_unavailable` (spec R5).
     run_result_write_budget_s: float = Field(default=60.0, gt=0, allow_inf_nan=False)
+    # The runner pool's whole claim step for a driver-started run (spec R3): well inside the
+    # queue's `ack_wait`. Past it, or with the claims bucket unreachable, the worker runs.
+    topic_claim_budget_s: float = Field(default=5.0, gt=0, allow_inf_nan=False)
     # How often the Run event stream reads the registry (spec §4.2).
     run_events_poll_s: float = Field(default=1.0, gt=0, allow_inf_nan=False)
     # How often the Run event stream stamps that a follower is connected (spec R10); a shorter
@@ -363,7 +378,7 @@ class Settings(BaseSettings):
     candidate_outcomes_max_age_s: float = Field(
         default=DEFAULT_OUTCOMES_MAX_AGE_S, gt=0, allow_inf_nan=False
     )
-    candidate_outcomes_max_bytes: int = Field(default=64 * 1024**2, gt=0)
+    candidate_outcomes_max_bytes: int = Field(default=512 * 1024**2, gt=0)
 
     # --- shared events stream (uniform executor, PRD 01) --------------------------------------
     # ONE stream holds every run's frames (`url4-events`, subject `url4-cloud.<topic>`). The App
@@ -482,7 +497,7 @@ class Settings(BaseSettings):
     # the endpoint.
     worker_metrics_port: int = Field(default=9109, ge=0)
 
-    @field_validator("blob_store", mode="before")
+    @field_validator("blob_store", "run_results_store", mode="before")
     @classmethod
     def _empty_blob_store_is_unset(cls, value: object) -> object:
         # WHY: an env var rendered empty means "not set", not an invalid backend name.

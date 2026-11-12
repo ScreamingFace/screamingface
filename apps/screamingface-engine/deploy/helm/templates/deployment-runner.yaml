@@ -119,6 +119,7 @@ spec:
         checksum/runner-env: {{ include (print $.Template.BasePath "/configmap-runner-env.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret-artifact-storage.yaml") . | sha256sum }}
         checksum/blob-secret: {{ include (print $.Template.BasePath "/secret-blob-storage.yaml") . | sha256sum }}
+        checksum/run-results-secret: {{ include (print $.Template.BasePath "/secret-run-results-storage.yaml") . | sha256sum }}
         checksum/tavily: {{ include (print $.Template.BasePath "/secret-tavily.yaml") . | sha256sum }}
         {{- if include "screamingface-engine.worldConfigEnabled" . }}
         # OME-1770: the SAME supplied content revision as the App's — see `worldConfig`. Warm
@@ -170,6 +171,11 @@ spec:
             # The blob store's key pair (OME-1540; #1603 review), by NAMED key rather than envFrom:
             # the blob Secret also holds the blob Garage's RPC secret, which must reach Garage only.
             {{- include "screamingface-engine.blobCredentialEnv" . | nindent 12 }}
+            # The run-results store's key pair (E5 P2 spec §8): the pool's own write-only key when
+            # one is set, since a runner never reads a result back, else the App's.
+            {{- if eq (include "screamingface-engine.runResultsBackend" .) "s3" }}
+            {{- include "screamingface-engine.runResultsKeyEnv" (include "screamingface-engine.runResultsPoolSecretName" .) | nindent 12 }}
+            {{- end }}
             # The worker's OWN settings, from `runnerPool` — the same values the
             # containerPort and the resource arithmetic above already consume. The
             # worker builds `Settings()` from its environment, and without these entries

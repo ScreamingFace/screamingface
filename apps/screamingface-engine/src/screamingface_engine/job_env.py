@@ -203,7 +203,42 @@ SPEC_VERSION = "URL4_CLOUD_SPEC_VERSION"
 major version with a ``failed`` terminal frame, code ``unsupported_spec_version``."""
 
 CURRENT_SPEC_VERSION = "2"
-SUPPORTED_SPEC_MAJORS = frozenset({"1", "2"})
+DRIVER_SPEC_VERSION = "3"
+"""The version of a message that carries `RESULT_PREFIX` and `EXCLUSIVE` (E5 P2 spec R15). Every
+other message stays version 2, so the runner pool rolls before the App and an older worker refuses
+only the runs it could not finish correctly."""
+SUPPORTED_SPEC_MAJORS = frozenset({"1", "2", DRIVER_SPEC_VERSION})
+
+RESULT_PREFIX = "URL4_CLOUD_RESULT_PREFIX"
+"""Where the runner writes the run's result in the run-results store, ``runs/{run_id}/{index}``
+(E5 P2 spec D9a). Set only by the Engine's driver."""
+
+EXCLUSIVE = "URL4_CLOUD_EXCLUSIVE"
+"""``1`` when a worker must claim the run's topic before it runs it (E5 P2 spec D7, R3). Set only
+by the Engine's driver, which may send one start twice."""
+
+
+def driver_start_env(result_prefix: str | None, exclusive: bool) -> dict[str, str]:
+    """The keys a driver-started run adds to its message, and its version; nothing for any other
+    run, so its message stays byte for byte what it was."""
+    env: dict[str, str] = {}
+    if result_prefix is not None:
+        env[RESULT_PREFIX] = result_prefix
+    if exclusive:
+        env[EXCLUSIVE] = "1"
+    if env:
+        env[SPEC_VERSION] = DRIVER_SPEC_VERSION
+    return env
+
+
+def result_prefix_from_env(env: Mapping[str, str]) -> str | None:
+    return env.get(RESULT_PREFIX) or None
+
+
+def exclusive_from_env(env: Mapping[str, str]) -> bool:
+    return env.get(EXCLUSIVE) == "1"
+
+
 WORLD_DIGEST = "URL4_CLOUD_WORLD_DIGEST"
 """The sha256 of the world config file the App that accepted the run serves (OME-1770 review).
 
@@ -557,6 +592,22 @@ gets a separate store; the follow mode remains for a bare local process."""
 BLOBS_DIR = "URL4_CLOUD_BLOBS_DIR"
 """Directory of the filesystem blob store when :data:`BLOB_STORE` is "filesystem"."""
 
+RUN_RESULTS_STORE = "URL4_CLOUD_RUN_RESULTS_STORE"
+"""The run-results store (E5 P2 spec D9a): ``s3`` on a deployment, ``filesystem`` locally, unset
+when there is none. A run that carries a `RESULT_PREFIX` on a pool with none fails
+``result_store_missing`` before any model call (R5)."""
+RUN_RESULT_WRITE_BUDGET_S = "URL4_CLOUD_RUN_RESULT_WRITE_BUDGET_S"
+"""How long the runner retries a refused write to the run-results store (R5), in seconds."""
+RUN_RESULTS_DIR = "URL4_CLOUD_RUN_RESULTS_DIR"
+"""The folder of a ``filesystem`` run-results store."""
+RUN_RESULTS_S3_ENDPOINT_URL = "URL4_CLOUD_RUN_RESULTS_S3_ENDPOINT_URL"
+RUN_RESULTS_S3_BUCKET = "URL4_CLOUD_RUN_RESULTS_S3_BUCKET"
+RUN_RESULTS_S3_REGION = "URL4_CLOUD_RUN_RESULTS_S3_REGION"
+RUN_RESULTS_S3_ACCESS_KEY = "URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY"
+RUN_RESULTS_S3_SECRET_KEY = "URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY"
+"""The bucket of an ``s3`` run-results store. INVARIANT: never the artifact bucket, which
+expires everything after 2 days; the runner pool's key may only write (§8)."""
+
 DEFAULT_BLOBS_DIR = str(Path(tempfile.gettempdir()) / "screamingface-engine" / "blobs")
 """Fallback for an unset :data:`BLOBS_DIR`: a sibling of :data:`DEFAULT_ARTIFACTS_DIR`, never
 inside it, so the two stores never share a directory tree."""
@@ -670,6 +721,8 @@ WRITTEN_BY_APP = frozenset(
         RUN_SHAPE,
         SPEC_VERSION,
         WORLD_DIGEST,
+        RESULT_PREFIX,
+        EXCLUSIVE,
         *IDENTITY_HEADER_ENV.values(),
     }
 )
@@ -711,6 +764,13 @@ DEPLOY_TIME = frozenset(
         BLOB_S3_REGION,
         BLOB_S3_ACCESS_KEY,
         BLOB_S3_SECRET_KEY,
+        RUN_RESULTS_STORE,
+        RUN_RESULTS_S3_ENDPOINT_URL,
+        RUN_RESULTS_S3_BUCKET,
+        RUN_RESULTS_S3_REGION,
+        RUN_RESULTS_S3_ACCESS_KEY,
+        RUN_RESULTS_S3_SECRET_KEY,
+        RUN_RESULT_WRITE_BUDGET_S,
     }
 )
 """Helm owns these end-to-end. The App writing one would make it two sources of truth again."""
@@ -745,6 +805,8 @@ __all__ = [
     "DEFAULT_ARTIFACT_S3_REGION",
     "DEFAULT_BLOBS_DIR",
     "DEPLOY_TIME",
+    "DRIVER_SPEC_VERSION",
+    "EXCLUSIVE",
     "EXPRESSION",
     "EXTRA_MODELS",
     "IDENTITY_HEADER_ENV",
@@ -753,6 +815,15 @@ __all__ = [
     "NATS_URL",
     "REQUIRED",
     "RESULT_HARD_CAP_BYTES",
+    "RESULT_PREFIX",
+    "RUN_RESULT_WRITE_BUDGET_S",
+    "RUN_RESULTS_DIR",
+    "RUN_RESULTS_S3_ACCESS_KEY",
+    "RUN_RESULTS_S3_BUCKET",
+    "RUN_RESULTS_S3_ENDPOINT_URL",
+    "RUN_RESULTS_S3_REGION",
+    "RUN_RESULTS_S3_SECRET_KEY",
+    "RUN_RESULTS_STORE",
     "RESULT_INLINE_CAP_BYTES",
     "RUNNER_CONFIG",
     "STREAM_GRACE_S",
@@ -764,11 +835,14 @@ __all__ = [
     "cache_policy_from_env",
     "io_concurrency_from_env",
     "cache_policy_to_env",
+    "driver_start_env",
+    "exclusive_from_env",
     "extra_models_to_env",
     "identity_from_env",
     "identity_from_headers",
     "identity_for_forwarding",
     "identity_to_env",
     "number_from_env",
+    "result_prefix_from_env",
     "upstream_headers",
 ]
