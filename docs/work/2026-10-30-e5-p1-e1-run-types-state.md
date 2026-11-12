@@ -3,7 +3,7 @@ ticket: OME-1797
 stack: screamingface-engine
 status: done
 started: 2026-10-30
-finished: 2026-10-30
+finished: 2026-11-04
 ---
 
 # e5-p1-e1-run-types-state — E1: layering rule, Run types and state
@@ -57,8 +57,12 @@ function (R5) and the `run_` id (D5). Nothing is wired; there is no dependency c
 
 - **Actual files:** as planned.
 - **Commits:** `feat(engine): add the Run types, state rule and the database-writes layering rule`,
-  then `docs: E5 P1 Run registry layout and compare-and-set on state`.
+  then `docs: E5 P1 Run registry layout and compare-and-set on state`, then, from review,
+  `fix(engine): normalise an owner's email again after case folding` (NFC → casefold → NFC).
+  Merged 2026-11-04 as #1627 (`020e391`).
 - **Gates:** `run_gates.py screamingface-engine` and `run_gates.py repo` all green. 81 new
   tests; `runs/` at 100% line coverage. No prior test edited.
-- **Deviations:** none. Left to later units on purpose: size limits on `RunSpec` follow the
+- **Deviations:** the owner key gained a second NFC pass in review. #1634 (open) replaces case
+  folding with aigateway's trim and lowercase, because folding merges distinct addresses (spec
+  D6, §9, 2026-11-05). Left to later units on purpose: size limits on `RunSpec` follow the
   database columns (E2); request types are checked by the route schemas (E8).

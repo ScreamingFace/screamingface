@@ -19,12 +19,22 @@ from typing import Any
 
 from tortoise import Tortoise
 from tortoise.context import TortoiseContext, _current_context
+from tortoise.exceptions import OperationalError, TransactionManagementError
 from tortoise.migrations.executor import MigrationExecutor
 
 APP_LABEL = "runs"
 CONNECTION = "runs"
 # WHY in-memory for the CLI's default: authoring a migration needs no database, and a default
 # file path would leave a stray database wherever the command happened to run.
+# The failures that mean the database could not answer, not that the request or the code is wrong:
+# a lost or refused connection and a timeout are `OSError`s (Tortoise's `DBConnectionError` is
+# one), a locked or failing database is `OperationalError`, a broken transaction the other. A
+# caller may retry these; anything else is a bug.
+UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (
+    OSError,
+    OperationalError,
+    TransactionManagementError,
+)
 _CLI_DATABASE_URL = os.environ.get("URL4_CLOUD_DATABASE_URL") or "sqlite://:memory:"
 
 

@@ -42,8 +42,9 @@ own output.
 
 - **No grid in a reply:** the harness asks the model again to extract one (OpenAI-style and
   Anthropic models) or re-asks the question; we score the Attempt 0. A Named Deviation.
-- **A failed Attempt** (e.g. a reply cut at the token cap) fails the whole Case in the Engine, so
-  the grid counts 0 even if the other Attempt was right; the harness credits the other Attempt.
+- **A failed Attempt** (e.g. a reply cut at the token cap) scores 0 for that Attempt and the other
+  Attempt still counts, as the harness credits it (since 2026-11-10; before, it failed the whole
+  Case). A Case fails only when both Attempts failed; then the next line applies.
 - **A task whose every grid failed** drops out of our mean; the harness counts it 0.
 
 Answers run to 2,760 characters before any reasoning: give the Candidate a high `max_tokens`.

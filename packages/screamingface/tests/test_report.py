@@ -294,7 +294,7 @@ def test_report_derives_study_timing_and_complete_usage_from_candidate_runs() ->
     assert value.usage.input_tokens == 150
     assert value.usage.output_tokens is None
     assert value.usage.cost_usd == Decimal("0.15")
-    assert not hasattr(value, "run_id")
+    assert value.run_id is None
     assert not hasattr(value, "url4")
 
 

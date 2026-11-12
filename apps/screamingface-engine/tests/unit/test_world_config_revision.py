@@ -131,7 +131,9 @@ class _Queue:
     def __init__(self) -> None:
         self.published: list[bytes] = []
 
-    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None, enqueued_at: Any = None
+    ) -> None:
         self.published.append(message)
 
     async def depth(self) -> int:

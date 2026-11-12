@@ -34,6 +34,9 @@ class BaseCandidate(Model):
     finished_at = fields.DatetimeField(null=True)
     cost_usd = fields.DecimalField(max_digits=COST_DIGITS, decimal_places=COST_PLACES, null=True)
     error_code = fields.CharField(max_length=ERROR_CODE_LENGTH, null=True)
+    # INVARIANT (spec D12): a cancel owes a stop to every bound Candidate it found live; the stop
+    # clears it. A retried cancel stops exactly what is still owed, and nothing else.
+    stop_owed = fields.BooleanField(default=False, db_default=False)
 
 
 class Candidate(BaseCandidate):

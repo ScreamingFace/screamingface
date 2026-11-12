@@ -36,9 +36,10 @@ import logging
 import math
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections import Counter
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any, Protocol
+from typing import Any, NamedTuple, Protocol
 
 import nats
 from nats.aio.client import Client
@@ -52,7 +53,7 @@ from screamingface_engine.candidate_outcomes import (
     CandidateOutcomeStream,
     publish_outcome,
 )
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
 from screamingface_engine.run_evidence import (
     adopt_or_mint_traceparent,
     log_scheduled,
@@ -65,6 +66,7 @@ from screamingface_engine.runner_queue import (
     DEFAULT_IO_CONCURRENCY,
     DEFAULT_RESERVATION_LEASE_S,
     DEFAULT_STATE_CACHE_TTL_S,
+    PublishOutcomeUnknown,
     RunQueueUnavailable,
     caller_key,
     encode_message,
@@ -106,14 +108,48 @@ CALLER_RETRY_MAX_S = 300
 # follow-up P2-10).
 _UNREADABLE_TAIL = object()
 
+# The publish failures after which the broker may have stored the run (spec D1): the run's own
+# send went unanswered, or the start was cancelled mid-publish. Any other failure proves nothing
+# was stored.
+_UNKNOWN_PUBLISH_OUTCOMES: tuple[type[BaseException], ...] = (
+    PublishOutcomeUnknown,
+    asyncio.CancelledError,
+)
+# A hold ends twice the run's deadline plus this slack after its attempt (spec D4): a stored
+# message is claimable for one deadline and a run claimed then lasts one more, plus the stream
+# grace its message carries (the run queue writes this constant, or less, into every message)
+# and the worker's kill margins (30 s + 10 s in `worker.supervisor`, which this shared leaf may
+# not import). Tests pin both. The 200 s covers clock skew between pods.
+_WORKER_KILL_MARGINS_S = 40.0
+_HELD_SLOT_SLACK_S = job_env.DEFAULT_STREAM_GRACE_S + _WORKER_KILL_MARGINS_S + 200.0
+
+
+class _Hold(NamedTuple):
+    """The reservation of an attempt whose publish outcome is unknown (spec D2)."""
+
+    caller: str
+    topic: str
+    token: datetime
+    # When the run, if stored, can no longer exist (`_HELD_SLOT_SLACK_S`).
+    until: datetime
+
 
 class _Queue(Protocol):
     """The slice of ``RunQueue`` the queue runner uses."""
 
     async def publish(
-        self, message: bytes, *, identity: Mapping[str, str] | None = None
-    ) -> None: ...
+        self,
+        message: bytes,
+        *,
+        identity: Mapping[str, str] | None = None,
+        enqueued_at: datetime | None = None,
+    ) -> None:
+        """INVARIANT: raises `PublishOutcomeUnknown` when the run may be stored; the runner
+        holds the caller's slot on that type alone."""
+        ...
 
+    # Both count only UNCLAIMED runs — queued, not yet delivered to a worker. A running run
+    # stays in the queue stream until its ack at the run's end, so it is never "depth".
     async def depth(self) -> int: ...
 
     async def oldest_age(self) -> float | None: ...
@@ -202,12 +238,15 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # FEATURE (OME-1091): depth-based admission. The queue refuses a run when its depth is
         # at the ceiling — the substrate is saturated, and the REST edge maps the refusal to
         # 503 + a `Retry-After` derived from the drain estimate.
+        # WHY the ceiling bounds the UNCLAIMED backlog, not the stream's held messages
+        # (docs/spec/2026-11-10-queue-depth-unclaimed.md D6): running runs are already
+        # bounded by the fleet's slots, so "full" means "too many runs WAIT".
         depth_ceiling: int = DEFAULT_DEPTH_CEILING,
         # FEATURE (OME-1091): the per-caller in-flight cap — how many of one caller's runs may
         # be admitted at once, so one caller's 9-candidate evaluation cannot occupy every slot.
         caller_inflight_cap: int = DEFAULT_CALLER_INFLIGHT_CAP,
         # FEATURE (OME-1091): how long a depth reading stays fresh before the next refresh. The
-        # queue itself caches its `stream_info` reading; this is the runner's own window, which
+        # queue itself caches its consumer reading; this is the runner's own window, which
         # is what the reservation counter covers.
         state_cache_ttl_s: float = DEFAULT_STATE_CACHE_TTL_S,
         # FEATURE (OME-1108): the backstop on a reservation's lifetime. The primary release is
@@ -243,6 +282,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # scheduled/not_found boundary; pruned on each schedule so it stays bounded by the
         # topics accepted within one capability lifetime.
         self._scheduled_at: dict[str, datetime] = {}
+        # topic → when a bound stop tombstoned it before this replica scheduled it (E5 P1 spec
+        # D12): its later `schedule()` queues nothing, so no admission slot waits on a run the
+        # worker would skip. Kept, not consumed, so every racing schedule of the topic releases
+        # its own reservation; pruned with `_scheduled_at`.
+        self._stopped_before_schedule: dict[str, datetime] = {}
+        # topic → how many `schedule()` calls of it are in flight on this replica.
+        self._scheduling: Counter[str] = Counter()
         # FEATURE (OME-1091): the OME-1065 cache-plus-reservation shape, carried over. The
         # counted resource changed (quota headroom → queue depth); the race did not. `_reserved`
         # counts runs admitted since the last refresh — it closes the read-modify-write race
@@ -273,6 +319,10 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # design as `_reserved` above.
         self._in_flight_by_caller: dict[str, dict[str, list[datetime]]] = {}
         self._caller_of_topic: dict[str, str] = {}
+        # Reservations of attempts whose publish outcome is unknown (spec D2-D4), counted by
+        # `_cap_count` until the run's terminal frame is observed, their `until` passes or the
+        # lease ends. A list, not a mapping by token: two attempts can share an admission moment.
+        self._held: list[_Hold] = []
 
     # --- the JobRunner port ----------------------------------------------------------------
 
@@ -291,6 +341,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
         shape: job_env.RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        enqueued_at: datetime | None = None,
     ) -> str:
         """Publish the run to the queue and return its job name.
 
@@ -310,65 +361,151 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 publish (503 + a constant `Retry-After` at the REST edge). Any other broker
                 error propagates unchanged (a 500): it would fail the same way on retry.
         """
-        try:
-            reservation = await self._admit_or_raise(identity, topic)
-        except BROKER_UNAVAILABLE_ERRORS as exc:
-            # WHY translated here and not at the REST edge: the route must not learn the
-            # broker's exception hierarchy. Nothing was reserved yet — `_admit_or_raise`
-            # reserves only after its last broker read — so there is nothing to release.
-            raise RunQueueUnavailable("the run queue could not be read at admission") from exc
-        # FEATURE (OME-940): decide the run's traceparent HERE so the control plane can name the
-        # run it is queueing, and so `job_env.TRACEPARENT` is always set on the worker's message
-        # — left unset, the worker's whole log context (`logs.run_scope`) carries no trace id.
-        run_traceparent = adopt_or_mint_traceparent(traceparent)
-        try:
-            message = encode_message(
+        if topic in self._stopped_before_schedule:
+            # Before admission: a canceled start answers as canceled, never "retry" at capacity.
+            raise StoppedBeforeSchedule(topic)
+        with self._in_schedule(topic):
+            try:
+                reservation = await self._admit_or_raise(identity, topic)
+            except BROKER_UNAVAILABLE_ERRORS as exc:
+                # WHY translated here and not at the REST edge: the route must not learn the
+                # broker's exception hierarchy. Nothing was reserved yet — `_admit_or_raise`
+                # reserves only after its last broker read — so there is nothing to release.
+                raise RunQueueUnavailable("the run queue could not be read at admission") from exc
+            if topic in self._stopped_before_schedule:
+                # WHY no publish: a bound stop already tombstoned the run (before this call or
+                # during admission), and the reservation is newer than the tombstone, so nothing
+                # else would ever release it.
+                await self._release_reservation(topic, caller_key(identity), reservation)
+                raise StoppedBeforeSchedule(topic)
+            # FEATURE (OME-940): decide the run's traceparent HERE so the control plane can name the
+            # run it is queueing, and so `job_env.TRACEPARENT` is always set on the worker's message
+            # — left unset, the worker's whole log context (`logs.run_scope`) carries no trace id.
+            run_traceparent = adopt_or_mint_traceparent(traceparent)
+            try:
+                message = encode_message(
+                    topic,
+                    url4,
+                    deadline_s,
+                    traceparent=run_traceparent,
+                    identity=identity,
+                    cache=cache,
+                    answer_seed=answer_seed,
+                    client_version=client_version,
+                    io_concurrency=self._io_concurrency,
+                    extra_models=() if self._extra_models is None else self._extra_models(),
+                    shape=shape,
+                    capture=capture,
+                    replay_frozen_copy=replay_frozen_copy,
+                    world_digest=self._world_digest,
+                )
+                await self._queue.publish(message, identity=identity, enqueued_at=enqueued_at)
+                # AFTER the publish: a line claiming a run was scheduled when the publish then
+                # failed would send an operator hunting a run that never existed.
+                log_scheduled(
+                    logger, topic=topic, traceparent=run_traceparent, job_name=job_name(topic)
+                )
+            except BaseException as exc:
+                # WHY BaseException and not Exception: a task cancelled mid-publish (a client
+                # disconnect, an upstream timeout) raises `CancelledError`, which since 3.8 is
+                # NOT an Exception — the release below was skipped and the reservation leaked
+                # forever: the caller's in-flight dict accumulated dead topics until every
+                # later schedule was refused for runs that never queued. Cleanup runs on the
+                # cancellation path too; the bare `raise` still propagates the cancellation.
+                # (BaseException also covers KeyboardInterrupt/SystemExit reaching this await —
+                # releasing there is harmless, and they still propagate.)
+                # WHY the reservation TOKEN and not the (caller, topic) pair: a caller can
+                # re-schedule a topic that is STILL LIVE (a client retry outside the broker's
+                # dedupe window) — the retry mints its own reservation — and when THAT retry
+                # fails, releasing "whatever the caller holds for the topic" would erase the
+                # FIRST, still-running admission too, under-counting the caller from then on.
+                # The release removes exactly the reservation this attempt minted.
+                await self._settle_failed_publish(
+                    topic, caller_key(identity), reservation, exc, deadline_s
+                )
+                if isinstance(exc, BROKER_UNAVAILABLE_ERRORS):
+                    # AFTER the release or the hold, so the translation can never skip it (a
+                    # leaked reservation refuses the caller's next run for a run never queued).
+                    raise RunQueueUnavailable("the run could not be durably queued") from exc
+                raise
+            if topic in self._stopped_before_schedule:
+                # A bound stop landed during the publish: the worker skips the message, so the slot
+                # would wait on a run that never executes.
+                await self._release_reservation(topic, caller_key(identity), reservation)
+                raise StoppedBeforeSchedule(topic)
+            self._scheduled_at[topic] = self._clock()
+            return job_name(topic)
+
+    async def _settle_failed_publish(
+        self, topic: str, caller: str, reservation: datetime, exc: BaseException, deadline_s: int
+    ) -> None:
+        """Hold this attempt's reservation if the run may be queued, else release it (spec D1-D4).
+
+        INVARIANT: UNKNOWN NEVER FREES A SLOT, as in `_release_finished_for`. The hold path is
+        synchronous, so a cancellation cannot interrupt it. Only this attempt's reservation is
+        settled: a retry's definite failure leaves earlier holds standing.
+        """
+        if isinstance(exc, _UNKNOWN_PUBLISH_OUTCOMES):
+            until = self._clock() + timedelta(seconds=2 * deadline_s + _HELD_SLOT_SLACK_S)
+            self._held.append(_Hold(caller, topic, reservation, until))
+            lease_end = reservation + timedelta(seconds=self._reservation_lease_s)
+            logger.warning(
+                "run queue publish outcome unknown topic=%s (%s): the caller's slot stays held "
+                "until the run's end is observed, or %s at the latest",
                 topic,
-                url4,
-                deadline_s,
-                traceparent=run_traceparent,
-                identity=identity,
-                cache=cache,
-                answer_seed=answer_seed,
-                client_version=client_version,
-                io_concurrency=self._io_concurrency,
-                extra_models=() if self._extra_models is None else self._extra_models(),
-                shape=shape,
-                capture=capture,
-                replay_frozen_copy=replay_frozen_copy,
-                world_digest=self._world_digest,
+                type(exc).__name__,
+                min(until, lease_end).isoformat(),
             )
-            await self._queue.publish(message, identity=identity)
-            # AFTER the publish: a line claiming a run was scheduled when the publish then
-            # failed would send an operator hunting a run that never existed.
-            log_scheduled(
-                logger, topic=topic, traceparent=run_traceparent, job_name=job_name(topic)
-            )
-        except BaseException as exc:
-            # WHY BaseException and not Exception: a task cancelled mid-publish (a client
-            # disconnect, an upstream timeout) raises `CancelledError`, which since 3.8 is
-            # NOT an Exception — the release below was skipped and the reservation leaked
-            # forever: the caller's in-flight dict accumulated dead topics until every
-            # later schedule was refused for runs that never queued. Cleanup runs on the
-            # cancellation path too; the bare `raise` still propagates the cancellation.
-            # (BaseException also covers KeyboardInterrupt/SystemExit reaching this await —
-            # releasing there is harmless, and they still propagate.)
-            # WHY the reservation TOKEN and not the (caller, topic) pair: a caller can
-            # re-schedule a topic that is STILL LIVE (a client retry outside the broker's
-            # dedupe window) — the retry mints its own reservation — and when THAT retry
-            # fails, releasing "whatever the caller holds for the topic" would erase the
-            # FIRST, still-running admission too, under-counting the caller from then on.
-            # The release removes exactly the reservation this attempt minted.
-            await self._release_reservation(topic, caller_key(identity), reservation)
-            if isinstance(exc, BROKER_UNAVAILABLE_ERRORS):
-                # AFTER the release, so the translation can never skip it (a leaked
-                # reservation refuses the caller's next run for a run that never queued).
-                raise RunQueueUnavailable("the run could not be durably queued") from exc
-            raise
-        self._scheduled_at[topic] = self._clock()
-        return job_name(topic)
+            return
+        await self._release_reservation(topic, caller, reservation)
+
+    def _cap_count(self, caller: str, topic: str) -> int:
+        """What `caller`'s in-flight cap counts for a start of `topic` (spec D3).
+
+        Each live attempt counts one; held attempts beside it add nothing. A topic whose
+        attempts are all held counts once, since together they are at most one run. The topic
+        being started counts its live attempts only, so its own holds never refuse its retry.
+        A hold counts only while its reservation is present.
+        """
+        held = Counter(
+            hold.topic for hold in self._present([h for h in self._held if h.caller == caller])
+        )
+        count = 0
+        for in_flight_topic, tokens in self._in_flight_by_caller.get(caller, {}).items():
+            live = len(tokens) - held[in_flight_topic]
+            if live > 0:
+                count += live
+            elif in_flight_topic != topic:
+                count += 1
+        return count
+
+    @contextlib.contextmanager
+    def _in_schedule(self, topic: str) -> Iterator[None]:
+        """Count a `schedule()` of `topic` while it runs, so `_prune` keeps the topic's stop
+        marker until every schedule that may still read it has finished."""
+        self._scheduling[topic] += 1
+        try:
+            yield
+        finally:
+            self._scheduling[topic] -= 1
+            if not self._scheduling[topic]:
+                del self._scheduling[topic]
 
     async def stop(self, topic: str) -> None:
+        await self._stop(topic, bound=False)
+
+    async def stop_bound(self, topic: str) -> None:
+        """As `stop`, but a topic with no frame is tombstoned even when this process has no
+        record of scheduling it (E5 P1 spec D12).
+
+        WHY: `_scheduled_at` is per process. A cancel can land before the publish, and an App
+        restart forgets every queued run, so plain `stop` would answer for a run that then
+        executes. The tombstone written first makes the worker's claim-time gate skip it
+        whenever the message lands; a message that never lands leaves one terminal frame.
+        """
+        await self._stop(topic, bound=True)
+
+    async def _stop(self, topic: str, *, bound: bool) -> None:
         """Stop the run: reach a running one over the control subject, else tombstone a
         queued one. Idempotent — unknown and already-terminal topics are no-ops.
 
@@ -421,13 +558,13 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # unreadable. Either way the marker is not written: a run that finished during the
         # ask keeps its real outcome, and an unknown tail is never trusted with a state
         # change.
-        if await self._tombstone_queued_run(topic):
+        if await self._tombstone_queued_run(topic, bound=bound):
             # The confirmation pass: a worker that claimed between the first ask and the
             # tombstone answers THIS ask (registration precedes spawn), enacts the cancel,
             # and skips its own terminal frame — the tombstone is the one frame either way.
             await self._request_control(topic)
 
-    async def _tombstone_queued_run(self, topic: str) -> bool:
+    async def _tombstone_queued_run(self, topic: str, *, bound: bool) -> bool:
         """Write the queued-cancel marker unless the run finished (or vanished, or went
         unreadable) in the ask window; True when a marker was written.
 
@@ -435,13 +572,21 @@ class QueueJobRunner(IdentityAwareJobRunner):
         now, and a run that completed during the ask must keep its real outcome.
         """
         frame = await self._read_tail(topic)
-        if frame is _UNREADABLE_TAIL or isinstance(frame, TerminatedEvent):
+        if frame is _UNREADABLE_TAIL:
+            # WHY raise and not return: unknown is not "already ended". Returning would let the
+            # caller delete the stream and clear a Run's owed stop with no tombstone written.
+            raise QueueReadError(f"stream tail unreadable for {topic}: run state unknown")
+        if isinstance(frame, TerminatedEvent):
             return False
-        if frame is None and topic not in self._scheduled_at:
+        if frame is None and not bound and topic not in self._scheduled_at:
             # Never scheduled by this App: nothing is queued, so there is nothing to cancel.
             # (The former layout asked the broker whether the per-run stream existed; in a
             # shared stream an empty subject says nothing about the queue.)
             return False
+        if frame is None and bound:
+            # BEFORE the tombstone's await: a schedule finishing its publish meanwhile must see
+            # the stop, or it would report as scheduled a run the worker will skip.
+            self._stopped_before_schedule[topic] = self._clock()
         await self._publish_tombstone(topic)
         return True
 
@@ -504,7 +649,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         return "scheduled" if self._capability_valid(topic) else "not_found"
 
     async def queue_depth(self) -> int:
-        """How many runs are queued: an uncached, on-demand read of the queue's depth.
+        """How many runs wait for a worker (unclaimed): a read that bypasses this runner's own
+        refresh window (the queue's own ~`state_cache_ttl_s` cache still applies).
 
         Distinct from `queue_snapshot`, which returns the cached pair `/metrics` scrapes.
         No caller in the App reads this today — the queue-position notice that motivated it
@@ -535,7 +681,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         return self._publisher
 
     def queue_snapshot(self) -> tuple[int | None, float | None]:
-        """The last cached (depth, oldest-unclaimed age) — the /metrics collector's input.
+        """The last cached (unclaimed depth, oldest-unclaimed age) — the /metrics collector's
+        input. Running runs are in neither value.
 
         Sync and lock-free: the values are written under `_admission_lock` by
         `_refresh_if_stale`, and a scrape reading a half-updated pair is harmless (both are
@@ -634,7 +781,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                     self._depth_ceiling,
                     retry_after_s=self._drain_estimate_s(),
                 )
-            count = self._in_flight_count(caller)
+            count = self._cap_count(caller, topic)
             if count >= self._caller_inflight_cap:
                 # FEATURE (OME-1108): a caller at its cap may be held there by runs that have
                 # already finished. Nothing else releases them — `status()` is the only
@@ -643,7 +790,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                 # refusing, find out whether these runs are still running. Live deployment
                 # refused 7 of 8 candidates against an EMPTY queue and an idle pool this way.
                 await self._release_finished_for(caller)
-                count = self._in_flight_count(caller)
+                count = self._cap_count(caller, topic)
             if count >= self._caller_inflight_cap:
                 # WHY not the drain estimate (review follow-up P2-11): the cap branch is
                 # reached precisely when the queue is NOT at its ceiling, so the drain
@@ -660,10 +807,6 @@ class QueueJobRunner(IdentityAwareJobRunner):
             self._in_flight_by_caller.setdefault(caller, {}).setdefault(topic, []).append(token)
             self._caller_of_topic[topic] = caller
             return token
-
-    def _in_flight_count(self, caller: str) -> int:
-        """How many reservations `caller` currently holds, across all of its topics."""
-        return sum(len(topics) for topics in self._in_flight_by_caller.get(caller, {}).values())
 
     async def _release_finished_for(self, caller: str) -> None:
         """Release the reservations of `caller`'s runs that have already finished.
@@ -729,7 +872,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
 
     async def _release_reservation(self, topic: str, caller: str, token: datetime) -> None:
         """Release the ONE reservation `token` identifies, for a run that was not durably
-        accepted (a publish failure or a cancellation mid-publish).
+        accepted (a publish failure that proves nothing was stored, or a stop before the run
+        was queued).
 
         WHY a token and not the (caller, topic) pair (review follow-up): a caller can
         re-schedule a STILL-LIVE topic — a client retry outside the broker's dedupe window,
@@ -748,21 +892,22 @@ class QueueJobRunner(IdentityAwareJobRunner):
             # every subsequent admission check. A release below zero is the refresh having
             # already accounted for this reservation; clamp, and the counter stays honest.
             self._reserved = max(0, self._reserved - 1)
-            by_caller = self._in_flight_by_caller.get(caller)
-            if by_caller is not None and topic in by_caller:
-                with contextlib.suppress(ValueError):
-                    by_caller[topic].remove(token)
-                if not by_caller[topic]:
-                    del by_caller[topic]
-            if by_caller is not None and not by_caller:
-                del self._in_flight_by_caller[caller]
-            if not any(topic in topics for topics in self._in_flight_by_caller.values()):
-                self._caller_of_topic.pop(topic, None)
+            self._drop_token(topic, caller, token)
+
+    def _drop_token(self, topic: str, caller: str, token: datetime) -> None:
+        """Remove the ONE reservation `token` identifies from the per-caller tracking."""
+        by_caller = self._in_flight_by_caller.get(caller, {})
+        if topic in by_caller:
+            with contextlib.suppress(ValueError):
+                by_caller[topic].remove(token)
+            if not by_caller[topic]:
+                del by_caller[topic]
+        self._compact(topic)
 
     async def _refresh_if_stale(self) -> None:
-        """Re-read the queue's depth and oldest-message age when the cache is stale.
+        """Re-read the queue's unclaimed depth and oldest-unclaimed age when the cache is stale.
 
-        The queue itself caches its `stream_info` reading (~2s), so this is one cheap read;
+        The queue itself caches its consumer reading (~2s), so this is one cached refresh;
         the runner's own window is what the reservation counter covers. The depth now reflects
         everything older than the window, so the window's reservations are reset — the counter
         only covers the gap between refreshes.
@@ -806,6 +951,12 @@ class QueueJobRunner(IdentityAwareJobRunner):
         oldest message has waited `age`, the pool drains at about `d / age` per second, so the
         queue reaches the ceiling in `(depth - ceiling) / rate` seconds. `None` when there is
         no basis (no depth, no age) — the caller falls back to the constant 1.
+
+        INVARIANT: both inputs describe the BACKLOG — the unclaimed depth and the oldest
+        UNCLAIMED run's age (docs/spec/2026-11-10-queue-depth-unclaimed.md D7). Fed the held
+        count and a running run's age, the formula answered for a queue that does not exist.
+        The bucket round-robin is not strict FIFO across buckets; the oldest head across them
+        waited longest, so the rate reads low and the estimate errs long — the safe side.
         """
         depth = self._depth_snapshot
         age = self._oldest_age
@@ -880,9 +1031,42 @@ class QueueJobRunner(IdentityAwareJobRunner):
         for topic in expired:
             del self._scheduled_at[topic]
             self._forget_in_flight(topic)
+        for topic, at in list(self._stopped_before_schedule.items()):
+            if (
+                topic not in self._scheduling
+                and (now - at).total_seconds() >= self._capability_lifetime_s
+            ):
+                del self._stopped_before_schedule[topic]
         # OME-1108: the lease is the shorter of the two bounds and is checked on the same
         # path, so a reservation cannot outlive its run by a capability lifetime.
         self._expire_leases()
+        self._prune_holds(now)
+
+    def _prune_holds(self, now: datetime) -> None:
+        """Forget holds whose reservation another path released, then free those past `until`
+        (spec D4). Forgetting first keeps an expired hold from dropping a live attempt's token."""
+        present, self._held = self._present(self._held), []
+        for hold in present:
+            if now >= hold.until:
+                self._drop_token(hold.topic, hold.caller, hold.token)
+            else:
+                self._held.append(hold)
+
+    def _present(self, holds: list[_Hold]) -> list[_Hold]:
+        """The `holds` whose reservation is still tracked, matching equal tokens one by one.
+        Shared by `_prune_holds` and `_cap_count`, so they agree on which holds exist."""
+        remaining = Counter(
+            (caller, topic, token)
+            for caller, topic in {(hold.caller, hold.topic) for hold in holds}
+            for token in self._in_flight_by_caller.get(caller, {}).get(topic, ())
+        )
+        present = []
+        for hold in holds:
+            key = (hold.caller, hold.topic, hold.token)
+            if remaining[key] > 0:
+                remaining[key] -= 1
+                present.append(hold)
+        return present
 
 
 __all__ = [

@@ -15,7 +15,7 @@ from screamingface_engine.benchmarks.medxpert import runtime
 from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.benchmarks.medxpert.prepare import emit
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
-from screamingface_engine.world import connector
+from screamingface_engine.world import candidate_call_retry, connector
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
@@ -124,8 +124,11 @@ async def _run(tmp_path: Path, gateway: Gateway) -> CandidateResult:
         ("empty", "aigateway_empty_response", True, 1),
         ("html", "aigateway_bad_response", False, 1),
         ("reasoning_only", "model_empty_content", False, 1),
-        ("429", "aigateway_http_429", True, 1),
-        ("503", "aigateway_http_503", True, 1),
+        # OME-1872 (prior-test edit approved by the owner, 2026-11-11): a Candidate call the
+        # gateway failed for a moment is asked again, and the failure still reaches the report
+        # once those retries are spent.
+        ("429", "aigateway_http_429", True, candidate_call_retry.CANDIDATE_CALL_RETRIES + 1),
+        ("503", "aigateway_http_503", True, candidate_call_retry.CANDIDATE_CALL_RETRIES + 1),
     ],
 )
 async def test_failure_survives_to_final_report(
@@ -138,6 +141,7 @@ async def test_failure_survives_to_final_report(
     attempts: int,
 ) -> None:
     monkeypatch.setattr(connector, "_transport_backoff", lambda _: 0)
+    monkeypatch.setattr(candidate_call_retry, "retry_wait", lambda *_: 0.0)
     gateway = Gateway(mode, turn)
     result = await _run(tmp_path, gateway)
     failure = result.cases[0].failures[0]

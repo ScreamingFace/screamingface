@@ -211,6 +211,10 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # the paper is 0.614, so "hard". TableQA2 image reads at 0.94 there, so "easy".
         "labbench2_figqa2_img": ("withhold", "single_shot", "hard"),
         "labbench2_tableqa2_img": ("withhold", "single_shot", "easy"),
+        # OME-1855: ZeroBench's 100 main questions, visual reasoning over pictures, graded
+        # by exact match; every model scored 0 at release and the best official pass@1 today is
+        # 0.432, so "hard".
+        "inspect-zerobench": ("withhold", "single_shot", "hard"),
         # OME-1854: MaCBench, chemistry and materials questions over pictures, letters or
         # a number; inspect_evals' own runs put gpt-5.2 at 0.726, so headroom, not hard.
         "inspect-macbench": ("withhold", "single_shot", "medium"),

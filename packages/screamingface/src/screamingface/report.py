@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -287,12 +288,34 @@ def _is_canonical_uuid(value: str) -> bool:
         return False
 
 
+_RUN_ID_DEPRECATED = (
+    "CandidateResult.run_id is deprecated and will be removed; use attempt_id, the same value. "
+    "Report.run_id now names the evaluation's Run."
+)
+
+
+def _attempt_id(attempt_id: str | None, run_id: str | None) -> str:
+    """The Candidate's attempt id, from ``attempt_id`` or the deprecated ``run_id=``."""
+    if run_id is not None:
+        # WHY stacklevel 3: the warning names the constructor's caller, so an SDK module that
+        # still passes `run_id=` fails its tests (`error::DeprecationWarning:screamingface`).
+        warnings.warn(_RUN_ID_DEPRECATED, DeprecationWarning, stacklevel=3)
+        # WHY it wins over `attempt_id`: code that copies every field and then sets `run_id=`
+        # (the only way to name the attempt before this release) keeps meaning what it meant.
+        attempt_id = run_id
+    if attempt_id is None:
+        raise TypeError("CandidateResult needs attempt_id")
+    return _nonblank(attempt_id, "Candidate attempt_id")
+
+
 @dataclass(frozen=True, slots=True, init=False)
 class CandidateResult:
     """One independently executed Candidate outcome; a higher score is always better."""
 
     benchmark: BenchmarkInfo
-    run_id: str
+    # FEATURE (OME-1785, spec D10): this Candidate's attempt on the Engine (its topic). It was
+    # `run_id`; that name is the evaluation's Run now (`Report.run_id`).
+    attempt_id: str
     trace_id: str | None
     answer_seed: int | None
     client_version: str | None
@@ -354,7 +377,7 @@ class CandidateResult:
         self,
         *,
         benchmark: BenchmarkInfo,
-        run_id: str,
+        attempt_id: str | None = None,
         started_at: datetime,
         completed_at: datetime,
         name: str,
@@ -382,9 +405,11 @@ class CandidateResult:
         capture_status: Literal["complete", "partial"] | None = None,
         capture_partial_reasons: Sequence[str] = (),
         reproduction: Reproduction | None = None,
+        run_id: str | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Candidate benchmark must be a sf.BenchmarkInfo")
+        selected_attempt = _attempt_id(attempt_id, run_id)
         _require_reproduction(reproduction)
         _check_cache_counts(cache_hits, cache_unpriced_hits)
         selected_copy, selected_capture = _capture(pinned_cache, capture_status)
@@ -436,7 +461,7 @@ class CandidateResult:
         )
         values = {
             "benchmark": benchmark,
-            "run_id": _nonblank(run_id, "Candidate run_id"),
+            "attempt_id": selected_attempt,
             # WHY nullable and unvalidated (OME-1121): this is the id the CLIENT minted,
             # carried across the report boundary verbatim. A Report decoded from a stored
             # url4 replay has no live run behind it, and inventing a value would produce an
@@ -519,6 +544,12 @@ class CandidateResult:
         """This Candidate's operations by id: the graph its traces and Combine views read."""
         return {operation.id: operation for operation in self.operations}
 
+    @property
+    def run_id(self) -> str:
+        """Deprecated: use ``attempt_id``, the same value. ``Report.run_id`` names the Run."""
+        warnings.warn(_RUN_ID_DEPRECATED, DeprecationWarning, stacklevel=2)
+        return self.attempt_id
+
     def to_dict(self) -> dict[str, object]:
         return self._export_fields(cases=list(self._export_cases()))
 
@@ -549,7 +580,8 @@ class CandidateResult:
             # Evaluation size. Their difference is what makes an exported limited run
             # recognisably partial on reload, which the submission advisory depends on.
             "benchmark": self.benchmark._result_dict(self.benchmark.case_count),
-            "run_id": self.run_id,
+            # WHY the old key: saved and exported reports keep their shape (spec D10).
+            "run_id": self.attempt_id,
             "answer_seed": self.answer_seed,
             "client_version": self.client_version,
             "started_at": _timestamp_text(self.started_at),
@@ -621,6 +653,9 @@ class Report:
     benchmark: BenchmarkInfo
     case_count: int
     candidates: _CandidateResults
+    # FEATURE (OME-1785): the Engine's Run this evaluation was recorded as, e.g. `"run_3f…"`
+    # (`sf.runs.get(report.run_id)`); None when the Engine did not record it (spec D7).
+    run_id: str | None
 
     def __init__(
         self,
@@ -628,6 +663,7 @@ class Report:
         benchmark: BenchmarkInfo,
         case_count: int,
         candidates: Sequence[CandidateResult],
+        run_id: str | None = None,
     ) -> None:
         if not isinstance(benchmark, BenchmarkInfo):
             raise TypeError("Report benchmark must be a sf.BenchmarkInfo")
@@ -644,6 +680,7 @@ class Report:
             "benchmark": benchmark,
             "case_count": case_count,
             "candidates": selected_candidates,
+            "run_id": run_id,
         }
         for attribute, value in values.items():
             object.__setattr__(self, attribute, value)

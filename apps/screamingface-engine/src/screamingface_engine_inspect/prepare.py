@@ -753,16 +753,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     ),
     # gsm8k — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.gsm8k.gsm8k:gsm8k.
-    # Fold: Cases identical to the Hugging Face path's at fewshot=0 (D2).
+    # Task args: none, so Cases carry inspect_evals' default 10 worked examples, the system
+    #   message capture folds ahead of the question (OME-1860; it was fewshot=0 before).
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face openai/gsm8k
     #     pin revision cc7b047b6e5bb11b4f1af84efc572db110a51b3c
     "gsm8k": TaskReplayCasesSpec(
         task="inspect_evals.gsm8k.gsm8k:gsm8k",
-        task_args={"fewshot": 0},
         case_count=1319,
-        case_digest="11e0dccbf379586a9618b98200c02ef98fc9a30d426e6f36423f420982637e8f",
-        case_set_digest="f094ba81f0b2119a423aa9bdd3f37162a128931c2f51d4ee4bb7900706dd9501",
+        case_digest="ad0ae21a2fcd06b92da7d823b7c46a63673435de87bcae2af44730dade28903c",
+        case_set_digest="973728171aaa04a3d3138d62c99c1015030bedd4fa4946d4398413f58f0004e8",
         source_pins={
             "openai/gsm8k": "cc7b047b6e5bb11b4f1af84efc572db110a51b3c",
         },
@@ -770,16 +770,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     ),
     # winogrande — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.winogrande.winogrande:winogrande.
-    # Fold: Cases identical to the Hugging Face path's at fewshot=0 (D2).
+    # Task args: none, so Cases carry inspect_evals' default 5 worked examples, the system
+    #   message capture folds ahead of the question (OME-1860; it was fewshot=0 before).
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face allenai/winogrande/winogrande_xl
     #     pin revision 01e74176c63542e6b0bcb004dcdea22d94fb67b5
     "winogrande": TaskReplayCasesSpec(
         task="inspect_evals.winogrande.winogrande:winogrande",
-        task_args={"fewshot": 0},
         case_count=1267,
-        case_digest="437ab435a55b3959660977aef0a0ed17eb45919a475dfd43ffd94362c2b71f67",
-        case_set_digest="4ae4d9d1da187b1e6c2d4e20ee9b344a0e13a9f42f23d76f1b5179a4d6ffa6c0",
+        case_digest="6dc17beb2ae9078b422ac035a002268d9ccb59b2ab08ce92c7b6829760598688",
+        case_set_digest="ee527fabcbce637465600bd41e07f01f30acbf5764a8b765d0684134d3181c3d",
         source_pins={
             "allenai/winogrande": "01e74176c63542e6b0bcb004dcdea22d94fb67b5",
         },
@@ -2210,6 +2210,51 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         },
         needs_hf_token=True,
         license="cc-by-sa-4.0",
+    ),
+    # zerobench — imported by Task replay on 2026-11-09 from
+    #   inspect_evals.zerobench.zerobench:zerobench, at the Task's own defaults: its
+    #   Epochs(5, [pass_at_1, pass_at_5, 5_of_5_reliability]) asks each question 5 times, and
+    #   its first declared reducer is inspect's own pass_at(1), so the card declares attempts=5
+    #   with epoch_reducer="pass_at_1" (docs/spec/2026-11-09-attempts-mean-fold.md): each Case
+    #   scores the share of its 5 Attempts fully right, the number inspect_evals publishes as
+    #   pass@1. (A first import on the same day pinned k=1, one Attempt per Case, while the
+    #   importer still refused pass_at(1); the Cases and their digest did not change.)
+    # NAMED DEVIATION: pass_at_5 and 5_of_5_reliability, the Task's other two reducers, are
+    #   not reproduced; this Benchmark publishes the mean over 5 Attempts only, and the card
+    #   names them.
+    # NAMED DEVIATION: the Case labels each picture by its bytes (image/jpeg for 101 of the
+    #   108, image/png for 7); inspect labels every picture image/png from the .png file name
+    #   the eval gives each one, although it saves the bytes in the picture's own format. The
+    #   bytes are identical on 108 of 108 (the ledger's byte check); ours is the true type.
+    # Sealed on linux/amd64 inside the Engine image, as the image build replays it:
+    #   inspect_evals re-saves each picture with Pillow (thumbnail to 1024 px), whose PNG bytes
+    #   differ by platform for the same pixels, so a Mac-sealed digest never matches the build.
+    #   The 1024 px thumbnail is inspect_evals' own construction and not a deviation from it;
+    #   it is this Benchmark's gap to the paper's full-resolution pictures (the card's
+    #   comparability paragraph says why the paper's resolution is out of reach).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face jonathan-roberts1/zerobench
+    #     pin revision 13c35e521f939be69e6bbfbfeb6fb8a80d1179e5
+    "zerobench": TaskReplayCasesSpec(
+        task="inspect_evals.zerobench.zerobench:zerobench",
+        case_count=100,
+        case_digest="7b1b680accca5198fdfc490483805dd621927fe31e01305ca5505186129ee060",
+        case_set_digest="4f5c4adbc2429c52ed96afb15cef18a44561804680e415dc7558d17f51a709c9",
+        keep_sample_metadata=True,
+        source_pins={
+            "jonathan-roberts1/zerobench": "13c35e521f939be69e6bbfbfeb6fb8a80d1179e5",
+        },
+        shuffle_seed=20260917,
+        needs_hf_token=True,
+        # License: none stated. The jonathan-roberts1/zerobench card at the pinned revision
+        #  13c35e52 names no licence and neither does the project page. The dataset is gated on
+        #  the Hub behind the authors' terms: do not post, redistribute or disclose ZeroBench
+        #  answers publicly, and do not use any part of ZeroBench for training (the card carries
+        #  a canary string). Accepted on that footing (owner decision on OME-1855,
+        #  2026-11-09): the answers stay Grading Material, never served, the Hub token gates the
+        #  build, and nothing here trains on the Cases. The repo's form for a dataset with no
+        #  licence (piqa, cybermetric, gdpval).
+        license="unknown",
     ),
     # macbench — imported by Task replay on 2026-11-09 from
     #   inspect_evals.macbench.macbench:macbench.

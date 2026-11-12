@@ -100,7 +100,9 @@ TAGS: list[dict[str, str]] = [
     {
         "name": "Runs",
         "description": (
-            "Redeem a run's spill ticket at `GET /artifacts/{id}`. A bare request needs the "
+            "Register, list, read and cancel your Runs at `/runs` (each is one `evaluate` over "
+            "its Candidates, visible only to its owner), and redeem a run's spill ticket at "
+            "`GET /artifacts/{id}`. A bare ticket request needs the "
             "capability token; a request with a valid short-lived signature (`exp`/`sig`) is "
             "accepted as an alternative credential for a sync caller. " + _ERROR_DIALECT_NOTE
         ),

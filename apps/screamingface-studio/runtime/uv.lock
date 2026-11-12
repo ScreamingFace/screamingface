@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12, <3.14"
 resolution-markers = [
     "sys_platform == 'darwin'",
@@ -1319,10 +1319,10 @@ requires-dist = [
     { name = "inspect-ai", marker = "extra == 'inspect'", specifier = "==0.3.263" },
     { name = "ipyevents", marker = "extra == 'notebook'", specifier = ">=2.0.2,<3" },
     { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=7.7.1,<9" },
-    { name = "langdetect", marker = "extra == 'runtime'", specifier = ">=1.0.9" },
+    { name = "langdetect", marker = "extra == 'runtime'", specifier = "==1.0.9" },
     { name = "litellm", marker = "extra == 'runtime'", specifier = "==1.104.2" },
     { name = "nats-py", marker = "extra == 'runtime'", specifier = ">=2.9.0" },
-    { name = "nltk", marker = "extra == 'runtime'", specifier = ">=3.9.1" },
+    { name = "nltk", marker = "extra == 'runtime'", specifier = "==3.10.4" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'runtime'", specifier = ">=1.30.0" },
     { name = "opentelemetry-sdk", marker = "extra == 'runtime'", specifier = ">=1.30.0" },
     { name = "pdfplumber", marker = "extra == 'runtime'", specifier = "==0.11.10" },
