@@ -327,6 +327,92 @@
           "type": "integer",
           "minimum": 1,
           "description": "The worker's Prometheus /metrics port (prometheus_client.start_http_server)."
+        },
+        "autoscaling": {
+          "type": "object",
+          "description": "Opt-in horizontal autoscaling of the pool: a KEDA ScaledObject on GET /runner-demand (claimable queue demand). When enabled, runnerPool.replicas is ignored, and maxReplicas plus runnerPool.maxAckPending are required (the render fails without them).",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minReplicas": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The floor. Scale to zero is refused (cold start of the benchmark image)."
+            },
+            "maxReplicas": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 1,
+              "description": "The ceiling. Required when enabled. Size the namespace quota for 2 x maxReplicas pool pods."
+            },
+            "pollingIntervalS": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Seconds between KEDA reads of /runner-demand."
+            },
+            "scaleUp": {
+              "type": "object",
+              "properties": {
+                "stabilizationS": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "podsPerStep": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "stepS": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "tolerance": {
+                  "type": "number",
+                  "minimum": 0,
+                  "description": "HPA scale-up tolerance (0 = exact). Needs Kubernetes >= 1.35."
+                }
+              },
+              "required": [
+                "stabilizationS",
+                "podsPerStep",
+                "stepS"
+              ],
+              "additionalProperties": false
+            },
+            "scaleDown": {
+              "type": "object",
+              "properties": {
+                "stabilizationS": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "podsPerStep": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "stepS": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "required": [
+                "stabilizationS",
+                "podsPerStep",
+                "stepS"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "enabled",
+            "minReplicas",
+            "pollingIntervalS",
+            "scaleUp",
+            "scaleDown"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -337,7 +423,8 @@
         "perRunCharge",
         "overhead",
         "warmChildCharge",
-        "metricsPort"
+        "metricsPort",
+        "autoscaling"
       ],
       "additionalProperties": false
     },

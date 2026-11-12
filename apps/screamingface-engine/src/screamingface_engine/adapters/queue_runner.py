@@ -39,7 +39,7 @@ import uuid
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any, NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol, runtime_checkable
 
 import nats
 from nats.aio.client import Client
@@ -66,6 +66,7 @@ from screamingface_engine.runner_queue import (
     DEFAULT_IO_CONCURRENCY,
     DEFAULT_RESERVATION_LEASE_S,
     DEFAULT_STATE_CACHE_TTL_S,
+    BucketReading,
     PublishOutcomeUnknown,
     RunQueueUnavailable,
     caller_key,
@@ -153,6 +154,19 @@ class _Queue(Protocol):
     async def depth(self) -> int: ...
 
     async def oldest_age(self) -> float | None: ...
+
+
+@runtime_checkable
+class _BucketReader(Protocol):
+    """The slice of ``RunQueue`` that reads every bucket's consumer (runner-pool autoscaling).
+
+    WHY a separate protocol and not a method on `_Queue`: every fake queue in the unit suite
+    implements `_Queue`, and that suite is append-only, so adding `bucket_readings` to `_Queue`
+    would fail pyright on each of those fakes. The real `RunQueue` always implements this
+    protocol; `QueueJobRunner.reads_buckets` tells the composition root whether a queue does.
+    """
+
+    async def bucket_readings(self) -> list[BucketReading | None]: ...
 
 
 class _Publisher(Protocol):
@@ -690,6 +704,32 @@ class QueueJobRunner(IdentityAwareJobRunner):
         was empty at the last reading.
         """
         return self._depth_snapshot, self._oldest_age
+
+    @property
+    def reads_buckets(self) -> bool:
+        """True when the injected queue can read every bucket consumer (`RunQueue` always can).
+
+        The composition root checks it ONCE at install time, so a runner over a queue without the
+        capability gets no sampler and `bucket_readings` never raises in a running App.
+        """
+        return isinstance(self._queue, _BucketReader)
+
+    async def bucket_readings(self) -> list[BucketReading | None]:
+        """Every bucket consumer's reading, straight from the queue: the runner-demand sampler's
+        input (runner-pool autoscaling, spec D1). This makes `QueueJobRunner` structurally a
+        `runner_demand.DemandSource`.
+
+        INVARIANT: read-only. It touches no admission state (`_depth_snapshot`, reservations,
+        `_admission_lock`), and the queue never binds or creates a consumer to answer it.
+
+        Raises `TypeError` when the injected queue cannot read buckets. `create_app` checks
+        `reads_buckets` first and installs no sampler then, so this is a guard for direct
+        callers only.
+        """
+        queue = self._queue
+        if not isinstance(queue, _BucketReader):
+            raise TypeError(f"{type(queue).__name__} cannot read per-bucket consumer state")
+        return await queue.bucket_readings()
 
     async def aclose(self) -> None:
         """Close the control connection. The queue and publisher own their own connections

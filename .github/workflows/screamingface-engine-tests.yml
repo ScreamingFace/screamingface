@@ -164,7 +164,8 @@ jobs:
             tests/integration/test_run_queue_roundtrip.py \
             tests/integration/test_run_queue_publish_settles_nats.py \
             tests/integration/test_warm_child_process.py \
-            tests/integration/test_queue_unclaimed_depth_nats.py
+            tests/integration/test_queue_unclaimed_depth_nats.py \
+            tests/integration/test_runner_demand_nats.py
       # A skip here means the probe did not find the broker and the job proved nothing.
       - name: Fail if the real-broker parameters were skipped
         run: |
@@ -175,6 +176,7 @@ jobs:
             tests/integration/test_run_queue_publish_settles_nats.py \
             tests/integration/test_warm_child_process.py \
             tests/integration/test_queue_unclaimed_depth_nats.py \
+            tests/integration/test_runner_demand_nats.py \
             | tee result.txt
           if grep -qE "[0-9]+ skipped" result.txt; then
             echo "::error::real-NATS conformance parameters were skipped — the broker was unreachable"

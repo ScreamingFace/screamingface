@@ -191,6 +191,20 @@ class Settings(BaseSettings):
     #
     # INVARIANT: advisory only — the run is never failed or stopped by this bound.
     unclaimed_run_warn_s: float = Field(default=300.0, ge=0.0)
+    # FEATURE: runner pool autoscaling on claimable queue demand (spec D2).
+    #
+    # WHY 15 s: the KEDA HPA reads `/runner-demand` every 15 s, so one sample per poll is enough
+    # and a read is at most one sample old (owner decision 2026-11-10). One sample is one
+    # `CONSUMER.INFO` per bucket (16, about 1 per second), small next to the workers' own fetch
+    # loop. 0 disables the sampler; the endpoint then answers 404.
+    runner_demand_sample_s: float = Field(default=15.0, ge=0.0)
+    # WHY 30 s: two missed samples (the validator's floor is 2 x the sample interval). A sample
+    # older than this makes `/runner-demand` answer 503, so the KEDA scaler errors and the HPA
+    # keeps the replica count.
+    #
+    # INVARIANT: the endpoint never answers a demand it did not read; a stale reading is an
+    # error, never a 0 (a false 0 scales a loaded pool down to its minimum).
+    runner_demand_stale_s: float = Field(default=30.0, gt=0.0)
     # INVARIANT: stateless iat window (seconds) — now a CLOCK-SKEW tolerance only: a mint
     # from more than one window in the future is rejected. It never bounds lifetime.
     iat_window_s: int = 60
@@ -565,5 +579,21 @@ class Settings(BaseSettings):
                 f"run_queue_ack_wait_s={self.run_queue_ack_wait_s} is below the floor of 3s — "
                 f"the worker derives its heartbeat as ack_wait/3 and refuses to run one that "
                 f"would hammer the broker or fall behind the redelivery clock"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _demand_staleness_outlasts_two_samples(self) -> Self:
+        """INVARIANT (runner-pool autoscaling, plan change 4): with the sampler on, a sample must
+        survive one slow read. A stale window under two intervals turns one late sample into a
+        503, and the autoscaler into a no-op, on a healthy broker."""
+        if (
+            self.runner_demand_sample_s > 0
+            and self.runner_demand_stale_s < 2 * self.runner_demand_sample_s
+        ):
+            raise ValueError(
+                f"runner_demand_stale_s={self.runner_demand_stale_s} must be at least twice "
+                f"runner_demand_sample_s ({self.runner_demand_sample_s} s), or one slow read "
+                f"turns /runner-demand into a 503"
             )
         return self
