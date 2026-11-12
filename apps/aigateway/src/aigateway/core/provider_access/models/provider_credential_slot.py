@@ -40,10 +40,6 @@ class BaseProviderCredentialSlot(Model):
     # `none` | `migrated`. Validated by `pair_authority.PairAuthorityStore` on every write AND every
     # read — an unknown stored state is refused loudly, never read as `none`.
     migration_state = fields.CharField(max_length=16, default="none")
-    # WHY the field stays (OME-1138 close-out, spec §9 Q1, two steps): no code reads or writes it
-    # since L4a, so a rolled-back image still finds its column and the autodetector proposes
-    # nothing. L4c drops it, with its migration, in the following gateway release.
-    migration_note = fields.CharField(max_length=255, null=True)
     updated_at = fields.DatetimeField(auto_now=True)
 
 
