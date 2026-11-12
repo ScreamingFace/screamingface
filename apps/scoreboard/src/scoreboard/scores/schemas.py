@@ -36,6 +36,7 @@ from .credit_metadata import (
 from .credit_metadata import (
     validate_paper_url as _validate_paper_url,
 )
+from .source_health import SourceHealthSchema
 
 # INVARIANT: run_cost_usd mirrors DECIMAL(12, 6) exactly — six decimal places and
 # six integer digits, so 0.000001 through 999999.999999.
@@ -1493,6 +1494,7 @@ class BaselineSchema(BaselineObservation):
     metadata: dict[str, Any] | None
     # WHY: computed from the current board scope and evidence, never accepted from import JSON.
     ranking_eligible: bool = False
+    source_health: SourceHealthSchema | None = None
     observation_revision: int = 0
     observation_updated_at: datetime | None = None
     # FEATURE: OME-323 — manual open/closed correction, mirrors ScoreSchema's field.

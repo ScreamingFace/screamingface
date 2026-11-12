@@ -8,8 +8,11 @@ from .idempotency_key import BaseIdempotencyKey, IdempotencyKey
 from .score import BaseScore, Score
 from .score_metadata_event import BaseScoreMetadataEvent, ScoreMetadataEvent
 from .score_reproduction import BaseScoreReproduction, ScoreReproduction
+from .source_health import BaseSourceHealth, SourceHealth
 
 __all__ = [
+    "BaseSourceHealth",
+    "SourceHealth",
     "BaseBaselineRevision",
     "BaselineRevision",
     "BaseScoreboardModel",

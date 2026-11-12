@@ -1,11 +1,11 @@
 {
   "issue": "OME-1309",
-  "branch": "OME-1309-external-rows",
-  "reason": "Owner requested fixing the confirmed review findings. The summary includes external results, so its exact copy assertion changes from Submissions shown to Results shown. No other assertion is relaxed.",
+  "branch": "OME-1309-source-health",
+  "reason": "User requested broken-source handling on 2026-11-11. Publishing only source availability and check dates is necessary for that approved feature. Extend the exact field allowlist by source_health; retain every participant-attribution prohibition and add nested-field/private-board tests.",
   "files": {
-    "apps/scoreboard/tests/unit/test_portal_launch_copy.py": {
-      "base_blob": "b78f1c59c3c2db434ce52c7f99cae6a0fa267b97",
-      "approved_blob": "8d8d64ff9dd06a916d244a353c016399c94e03ca"
+    "apps/scoreboard/tests/unit/guards/test_visibility_exit_guard.py": {
+      "base_blob": "1ce9e2d5cfd3450ab7f0a8a86ec8cee3dcad8429",
+      "approved_blob": "44bdf879af6066845dcbd6501ff6f850cad2cb2c"
     }
   }
 }
