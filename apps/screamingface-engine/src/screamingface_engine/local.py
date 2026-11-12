@@ -39,7 +39,7 @@ from fastapi import FastAPI
 from starlette.datastructures import Headers
 
 from screamingface_engine import job_env
-from screamingface_engine.adapters.factory import run_results_values
+from screamingface_engine.adapters.factory import build_run_result_store, run_results_values
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.adapters.memory import InMemoryCandidateOutcomeStream, InMemoryEventStream
 from screamingface_engine.app import create_app
@@ -561,7 +561,16 @@ def create_local_app(
     # and their `stopped` outcomes published, while the Runs writer still consumes them.
     _install_fair_share(app, job_runner, io_gate)
     # FEATURE (OME-1785): first-class Runs, on a SQLite file migrated at start (spec R9).
-    install_runs(app, settings, outcomes, local=True)
+    # E5 P2 spec R14: the same driver runs over the in-process runner.
+    install_runs(
+        app,
+        settings,
+        outcomes,
+        local=True,
+        job_runner=job_runner,
+        events=stream,
+        run_results=build_run_result_store(settings),
+    )
     # FEATURE (C8): the local node route (the eval path), installed after ALL routes and after
     # the runner/gate shutdown hooks whose ordering it depends on. `install_node_route` asserts
     # the route order rather than trusting it — a development shape, never a deployment option.

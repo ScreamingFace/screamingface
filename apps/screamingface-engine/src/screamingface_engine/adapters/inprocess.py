@@ -61,7 +61,7 @@ from url4.streaming.interfaces import (
     job_name,
 )
 from url4.streaming.lifecycle import run as lifecycle_run
-from url4.streaming.protocol import CachePolicy
+from url4.streaming.protocol import CachePolicy, OutboundFrame
 from url4.streaming.trace import parse_traceparent, valid_traceparent
 
 _logger = logging.getLogger(__name__)
@@ -584,6 +584,12 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             await publish_outcome(self._outcomes, topic, CandidateOutcome("stopped"))
             return
         await self.stop(topic)
+
+    async def last_frame(self, topic: str) -> OutboundFrame | None:
+        """The topic's newest frame, read from this runner's stream when it keeps frames (local
+        mode's `InMemoryEventStream` does); None otherwise (E5 P2 spec R7)."""
+        read = getattr(self._stream, "last_frame", None)
+        return None if read is None else await read(topic)
 
     async def exists(self, topic: str) -> bool:
         task = self._tasks.get(job_name(topic))

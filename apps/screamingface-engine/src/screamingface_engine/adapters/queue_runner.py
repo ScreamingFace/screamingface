@@ -667,6 +667,11 @@ class QueueJobRunner(IdentityAwareJobRunner):
             return "running"
         return "scheduled" if self._capability_valid(topic) else "not_found"
 
+    async def last_frame(self, topic: str) -> OutboundFrame | None:
+        """The topic's newest frame on the events stream (E5 P2 spec R7). An unreadable tail
+        raises `QueueReadError`, as for the worker's own reads."""
+        return await self._publisher.last_frame(topic)
+
     async def queue_depth(self) -> int:
         """How many runs wait for a worker (unclaimed): a read that bypasses this runner's own
         refresh window (the queue's own ~`state_cache_ttl_s` cache still applies).

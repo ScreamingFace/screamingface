@@ -106,6 +106,10 @@ CONTROL_PLANE = {
     "adapters.factory",
     # WHY named (OME-1785): the Run registry is the App's; see RUN_REGISTRY below.
     "runs",
+    # WHY named (E5 P2, OME-1837): what the start route and the Engine's driver share to start
+    # and to stop a run. Left unlisted they would be shared leaves a runner could import.
+    "scheduling",
+    "stopping",
 }
 # The Run registry (OME-1785, E5 P1 spec §9). INVARIANT: every database write goes through the
 # App, so nothing the runners execute holds a database connection. As control plane it is closed
