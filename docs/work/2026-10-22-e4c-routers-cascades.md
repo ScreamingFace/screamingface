@@ -252,6 +252,11 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   that always run can pass it (Q20); "max" read as a hard maximum. `max_tokens=` keeps its name
   (owner choice). The url4 keeps `usd=`, so no fixture bytes change. README gains one bullet:
   the cap is a budget, not a hard maximum. The PIN manifest's surface-snapshot blob is updated.
+  Kind run (sf-prod, this branch's images, 3 GSM8K Cases per flow, about $0.03 in all): 32
+  flows ran. It found one bug: `recipes_need_operators()` did not look inside `sf.WithBudget`,
+  so `sf.evaluate` did not load the Engine operator catalog for a budgeted recipe with a
+  reducer (README d9, flows 11, 15, 16 failed before any call). The offline tests pass the
+  catalog by hand, so they missed it. Fixed in `_children`; new test in `test_e4c_budget.py`.
 
 ## Outcome
 

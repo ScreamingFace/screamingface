@@ -189,3 +189,27 @@ def test_budget_names_are_public() -> None:
     assert sf.budget.BUDGET_SCHEMA == "screamingface.budget.v1"
     assert {"WithBudget", "Estimate", "budget"} <= set(sf.__all__)
     assert "Budget" not in sf.__all__  # the E4a record stays sf.budget.Budget
+
+
+# --- sf.evaluate loads the operator catalog for a budgeted reducer (kind run 2026-11-12) ---------
+
+
+@pytest.mark.parametrize(
+    "inner",
+    [
+        sf.Fanout(["prov/a", "prov/b"]) >> sf.Vote(),
+        sf.Cascade(
+            sf.Fanout(["prov/a", "prov/b"]) >> sf.Vote(),
+            sf.escalate_if(sf.agreement() < 1.0),
+            "prov/big",
+        ),
+    ],
+    ids=["vote", "cascade"],
+)
+def test_budgeted_reducer_needs_the_operator_catalog(inner: sf.Recipe) -> None:
+    # WHY: sf.evaluate loads the Engine catalog only when recipes_need_operators says so; it did
+    # not look inside sf.WithBudget, so README d9 failed with "a reducer needs the SF Engine
+    # operator catalog" before any call.
+    from screamingface._evaluation.candidate import recipes_need_operators
+
+    assert recipes_need_operators([sf.WithBudget(inner, budget_usd=0.05)])

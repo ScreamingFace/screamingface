@@ -204,6 +204,8 @@ def _children(value: Recipe) -> tuple[Recipe | Reducer, ...]:
         children = (*value.members, value.judge)
     elif isinstance(value, SelfCorrective):
         children = (value.member,)
+    elif isinstance(value, WithBudget):
+        children = (value.recipe,)
     elif isinstance(value, BranchNode):
         children = tuple(
             child
