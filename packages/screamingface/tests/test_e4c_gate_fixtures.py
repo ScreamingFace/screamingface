@@ -153,14 +153,14 @@ def cascade_signal() -> object:
         sf.Fanout(["prov/a", "prov/b"], signals={"conf": sf.Verbalized("Confidence: ([0-9]+)")})
         >> sf.Vote()
     )
-    return sf.Cascade(tier, sf.escalate_if(sf.signal("conf") < 70), "prov/large")
+    return sf.Cascade(tier, sf.escalate_if(sf.signal("conf").chosen() < 70), "prov/large")
 
 
 def signal_fail() -> object:
     """2026-11-12 boundary: a Gate with otherwise=sf.fail() keeps the E4b missing-number rule."""
     conf = {"conf": sf.Verbalized("Confidence: ([0-9]+)")}
     return sf.Fanout(["prov/a", "prov/b"], signals=conf) >> sf.Gate(
-        when=sf.signal("conf") >= 70, then=sf.Vote(), otherwise=sf.fail()
+        when=sf.signal("conf").chosen() >= 70, then=sf.Vote(), otherwise=sf.fail()
     )
 
 

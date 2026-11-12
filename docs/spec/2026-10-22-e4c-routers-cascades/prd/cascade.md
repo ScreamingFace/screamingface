@@ -26,7 +26,7 @@ its own. [stated owner 2026-11-12 — supersedes the list form
 ```python
 sf.Cascade(
     sf.Fanout([small], signals={"lp": sf.Logprob("prob")}) >> sf.Vote(),
-    sf.escalate_if(sf.signal("lp") < 0.7),
+    sf.escalate_if(sf.signal("lp").chosen() < 0.7),
     large,
 )
 ```
@@ -118,10 +118,13 @@ sf.Cascade(
   sf.escalate_if(c2), t3)`, Then tier 1's Gate reads `c1` and tier 2's Gate reads `c2`. Each line
   holds the condition of the tier above it; there is no shared condition and no count to check.
   [stated owner 2026-11-12 — supersedes the list form `escalate_if=[c1, c2]`]
-- **CA-32 Bare signal reads the chosen member.** Given `sf.escalate_if(sf.signal("lp") < 0.7)`,
-  Then it is the same condition as `sf.escalate_if(sf.signal("lp").chosen() < 0.7)`, and the
-  decision record names `chosen:lp`. `.chosen()` and `.mean()` still work. The same holds for
-  `sf.Gate(when=sf.signal("lp") >= 0.7)`. [stated owner 2026-11-12]
+- **CA-32 A bare signal is refused in a condition.** Given `sf.escalate_if(sf.signal("lp") < 0.7)`
+  or `sf.Gate(when=sf.signal("lp") >= 0.7, ...)`, Then `TypeError` before any call: "sf.escalate_if
+  cannot read a bare signal: write sf.signal('lp').chosen() < 0.7 (the chosen member's value) or
+  sf.signal('lp').mean() < 0.7 (the mean over the members). A bare sf.signal(...) comparison is the
+  per-member test of sf.Filter." WHY: one expression keeps one meaning, and the author picks
+  `.chosen()` or `.mean()` (the two can take different branches). `sf.Filter(where=...)` keeps the
+  bare form. [stated owner 2026-11-12, round 2 — supersedes the bare-signal reading of the same day]
 - **CA-6 A failed tier with a condition line fails the Case.** Given a tier with a condition line
   whose `sf.Fanout` has `quorum="all"` (the default), When one member fails (refusal, token cap),
   Then url4 fails the panel and the Case fails with that member's own failure code; the next tier
@@ -198,7 +201,7 @@ sf.Cascade(
   sf.escalate_if line must end in a reducer step such as sf.Vote(): write sf.Fanout([m],
   signals=...) >> sf.Vote()")`. A route string or `sf.Model` is accepted before an
   `sf.unanswered()` line (CA-10). [proposed; stated owner 2026-11-12]
-- **CA-14 Undeclared signal.** `sf.escalate_if(sf.signal("conf") < 0.7)` after a tier whose Fanout
+- **CA-14 Undeclared signal.** `sf.escalate_if(sf.signal("conf").chosen() < 0.7)` after a tier whose Fanout
   does not declare `conf` → the E4b declared-name refusal, prefixed `sf.Cascade tier N: `.
   [existing rule `S/gate.py:126-137`; proposed tier number in the message]
 - **CA-15 Agreement with an inverted keep form.** `sf.escalate_if(sf.agreement() >= 0.8)`
@@ -303,7 +306,7 @@ first in the build. RED first, always.
 | 7 | `cascade_equals_the_hand_written_nested_gates` | unit | CA-1 | H×H | `S/_surface/cascade.py` `Cascade` |
 | 8 | `cascade_compiles_to_the_same_bytes_as_nested_gates` | unit | CA-21 | H×M | no own compile path |
 | 9 | `escalate_form_maps_to_the_keep_form` (parametrized over the four cmps) | unit | CA-4 | H×M | `_keep(cond)` |
-| 9a | `bare_signal_reads_the_chosen_member` (`sf.signal("lp") < 0.7` == `.chosen() < 0.7`; record `chosen:lp`) | unit | CA-32 | H×M | `signal_condition` in `S/_surface/refs.py` |
+| 9a | `test_e4c_bare_signal_refused.py` (bare comparison in `sf.Gate` / `sf.escalate_if` → `TypeError` naming `.chosen()` and `.mean()`; `sf.Filter` keeps it) | unit | CA-32 | H×M | `refuse_bare_signal` in `S/_surface/refs.py` |
 | 10 | `every_tier_escalates_and_the_case_abstains_gate_not_met` | integration | CA-9, CA-20 | H×M | innermost `otherwise` word; outer JOINs copy the `terminal` result (branch-core D12) |
 | 11 | `every_tier_fails` (condition lines: tier 1's code; `sf.unanswered()` lines: the last tier's code) | integration | CA-19 | H×M | last tier keeps required members |
 | 11a | `gated_last_tier_with_no_voters_follows_the_outcome` (`sf.unanswered()` line; `sf.abstain()` → abstain `no_votes`; `sf.fail()` → Case failed `fail_closed`) | integration | CA-30 | H×M | branch-core D4 null rows |

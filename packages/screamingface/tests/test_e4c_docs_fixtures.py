@@ -75,7 +75,7 @@ def d5_steer_answer_cascade() -> sf.Recipe:
     return sf.Cascade(
         sf.Fanout(["openrouter/openai/gpt-4o-mini"], signals={"lp": sf.Logprob("prob")})
         >> sf.Vote(),
-        sf.escalate_if(sf.signal("lp") < 0.7),
+        sf.escalate_if(sf.signal("lp").chosen() < 0.7),
         "openrouter/openai/gpt-4.1",
     )
 

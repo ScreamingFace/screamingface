@@ -147,7 +147,7 @@ The code already follows these. Each is tagged `[stated owner 2026-11-12]` in th
 | R2 | Nothing escalates unless a line says so. A tier with a condition line keeps its `sf.Fanout` as written: a member failure fails as its quorum says, an abstain makes the Case abstain, a missing number fails it with the new code `signal_missing`. Only `sf.escalate_if(sf.unanswered())` escalates on no answer. The rule lives in the Engine's Gate, so it holds for every `sf.Gate` with a recipe `otherwise` | ans:Q17, ans:Q24; P16, P20, P31 | cascade CA-6, CA-7, CA-10, CA-29, CA-31; gate GT-28, GT-29; branch-core D4, D4a |
 | R3 | Typed outcomes `sf.abstain()` and `sf.fail()` in `then=`/`otherwise=` and as the last Cascade part; the SDK stores the words, so bytes, records and codes do not change; the string `"fail_closed"` is refused, the string `"abstain"` still works (E4b, released in v0.1.12) | the public words | gate GT-4, GT-12, GT-30; guards |
 | R4 | Renames: `sf.Keywords` → `sf.RegexClassifier`, `sf.LabelModel` → `sf.LLMClassifier`, `sf.Budgeted` → `sf.WithBudget` with `budget_usd=` / `max_tokens=` (`budget_usd`, not `max_usd`: the cap is not a hard maximum, Q20; owner 2026-11-12); `sf.Estimate` keeps `usd=` / `tokens=`; wire names (`keywords.v1`, `label-model.v1`, kinds `keywords` / `label_model`) stay | the old names | selectors, budget, guards |
-| R5 | A bare `sf.signal("lp") < 0.7` in a condition reads the chosen member (the same as `.chosen()`); the record names `chosen:lp` | — | cascade CA-32; gate delta 1 |
+| R5 | A condition names the number it reads: `sf.signal("lp").chosen() < 0.7` or `.mean()`. A bare `sf.signal("lp") < 0.7` in a condition raises `TypeError`, because a bare comparison is the per-member test of `sf.Filter` (one expression, one meaning; review round 2 of 2026-11-12 reverses the first reading of the same day) | — | cascade CA-32; gate delta 1 |
 
 Open from the same review: "escalate on failure OR on a low score" has no spelling yet
 ([cascade](prd/cascade.md) §6).
@@ -203,7 +203,13 @@ approved all of them as written on 2026-10-22. P15–P21 were made explicit afte
 ## 8. Global assumptions
 
 - The E4b stack merges as reviewed; E4c rebases onto main after it (the E4a → E4b precedent).
-- The SDK release with the new vocabulary ships before the Engine (OME-1233).
+- Release order: the Engine ships before the SDK [stated owner 2026-11-12, review round 2 (S1) —
+  supersedes "SDK first"]. WHY: the Engine writes the new words and keys (`charges`, the Gate and
+  budget records, `fail_closed`, `signal_missing`, `budget_refused`) only for a recipe that uses an
+  E4c branch, and an older SDK cannot build one, so an older SDK is safe on the new Engine (the
+  OME-1233 decoder rule holds). A new SDK on an older Engine pays every member and then fails each
+  Case on `phase=decide`. An SDK check before the first paid call needs an Engine capability
+  signal that does not exist yet (follow-up).
 - No live or paid run is needed to build or review E4c (offline fake gateway, recorded replies).
 
 ## 9. Delivery (ans:Q11)

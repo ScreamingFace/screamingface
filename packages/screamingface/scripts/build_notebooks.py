@@ -2825,7 +2825,7 @@ gate_form"""),
 # STEER, per full answer: a small model's token probability decides (OpenRouter models only).
 d5_steer_answer_cascade = sf.Cascade(
     sf.Fanout([ROUTER], signals={"lp": sf.Logprob("prob")}) >> sf.Vote(),
-    sf.escalate_if(sf.signal("lp") < 0.7),  # the chosen member's value
+    sf.escalate_if(sf.signal("lp").chosen() < 0.7),  # the chosen member's value
     LARGE,
 )
 d5_steer_answer_cascade"""),

@@ -276,7 +276,7 @@ def test_changelog_unreleased_has_the_breaking_and_feature_bullets_first() -> No
 
     features = _bullets("### Features")
     count = sum(1 for entry in features if _E4C in entry)
-    assert count == 10  # 2026-11-12: + escalate_if/unanswered, abstain()/fail(), bare signal
+    assert count == 9  # 2026-11-12: + escalate_if/unanswered, abstain()/fail(); bare signal out
     assert all(_E4C in entry for entry in features[:count])
     text = " ".join(features[:count])
     for token in (

@@ -189,8 +189,9 @@ which returns the scores of a hosted text classifier and does not choose a branc
   reply is untrusted input, parsed only to a declared label (GU-10) [proposed].
 - Observability: each fired guard is visible in the decision record, the Case failure code, and
   the run summary `fail_closed` count ([report](report.md)) [stated epic].
-- Vocabulary release order: the Engine and SDK lists change in one PR; the SDK release ships
-  first (OME-1233) [proposed — the OME-1233 release rule].
+- Vocabulary release order: the Engine and SDK lists change in one PR; the Engine release ships
+  first, because it writes the new words only for E4c recipes, which an older SDK cannot build
+  ([overview](../00-overview.md) §8) [stated owner 2026-11-12, review round 2 — supersedes SDK first].
 
 ## 5. Out of scope
 

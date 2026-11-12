@@ -98,7 +98,7 @@ list, and the docstrings above rewritten to the shipped behavior.
   | `d2_label_router` | GraphRouter / OrgAgent (DIRECT, LIGHT, FULL) / single- vs multi-agent | nested Gates on `sf.label(sf.LLMClassifier(m, labels=[...]))` |
   | `d3_guarded_router` | router robustness (`fail_closed`), floor | outer Gate on a RegexClassifier label → `then=sf.fail()`; a classifier label → `then=<stronger recipe>`; `otherwise=d2` |
   | `d4_cope_cascade` | COPE, Frugal KG, CARGO | `sf.Cascade(sf.Fanout(panel) >> sf.Vote(), sf.escalate_if(sf.agreement() < 0.8), large)` |
-  | `d5_steer_answer_cascade` | STEER (per full answer) | `sf.Cascade(sf.Fanout([small], signals={"lp": sf.Logprob("prob")}) >> sf.Vote(), sf.escalate_if(sf.signal("lp") < 0.7), large)` (a tier before a condition line is a block that ends in a reducer, [cascade](cascade.md) CA-13; a bare `sf.signal("lp")` reads the chosen member, CA-32) |
+  | `d5_steer_answer_cascade` | STEER (per full answer) | `sf.Cascade(sf.Fanout([small], signals={"lp": sf.Logprob("prob")}) >> sf.Vote(), sf.escalate_if(sf.signal("lp").chosen() < 0.7), large)` (a tier before a condition line is a block that ends in a reducer, [cascade](cascade.md) CA-13; a condition names `.chosen()` or `.mean()`, CA-32) |
   | `d6_first_success` | OME-1465 first branch to succeed | `sf.Cascade(a, sf.escalate_if(sf.unanswered()), b, sf.escalate_if(sf.unanswered()), c)`: escalate only on failure or abstain ([cascade](cascade.md) CA-10) |
   | `d7_manager_subset` | Team of Thoughts, SMART-D, set-valued routing | `sf.Fanout([sf.Gate(when=sf.labels(sel).has("x"), then=agent_x), …]) >> sf.Synthesize(writer)` |
   | `d8_budget_choice` | OmniRouter, RouterBench willingness-to-pay | `sf.Gate(when=sf.budget.remaining() >= 0.02, then=large, otherwise=small)` |
@@ -147,8 +147,8 @@ list, and the docstrings above rewritten to the shipped behavior.
   routing with `sf.RegexClassifier` / `sf.LLMClassifier`, `sf.Cascade`, skip-Gate Fanout members, guards and
   `sf.fail()`, `sf.WithBudget` + `sf.budget.remaining()`, and the report "Branches" section. One
   bullet names the new failure codes `fail_closed` and `signal_missing` and the abstain reason
-  `budget_refused`, and says that the SDK release with these words ships before the Engine
-  (OME-1233). E4c bullets go first in
+  `budget_refused`, and says that the Engine ships first: it writes these words only for E4c recipes, which an
+  older SDK cannot build (OME-1233 holds; overview §8, owner 2026-11-12 round 2). E4c bullets go first in
   their sections (E4b precedent: commit `ea90188c1`). [proposed — gap §per-connection/dependency]
 - **DC-10 Notebook 20.** Given `scripts/build_notebooks.py`, Then it builds
   `examples/20_routers_cascades.ipynb` from a new `_routers_cascades()` builder, registered in the

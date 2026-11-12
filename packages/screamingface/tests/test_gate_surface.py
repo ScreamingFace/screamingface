@@ -385,7 +385,8 @@ def test_when_takes_a_condition() -> None:
         TypeError,
         # E4c (gate #14): the message names an input condition and a budget condition too.
         match=r"^sf\.Gate when= takes a condition such as sf\.agreement\(\) >= 0\.7, "
-        r"sf\.signal\('x'\) < 0\.7, sf\.label\(sel\) == 'x' or sf\.budget\.remaining\(\) >= 0\.02$",
+        r"sf\.signal\('x'\)\.chosen\(\) < 0\.7, sf\.label\(sel\) == 'x' or "
+        r"sf\.budget\.remaining\(\) >= 0\.02$",
     ):
         sf.Gate(when=sf.agreement(), then=sf.Vote())  # type: ignore[arg-type]
 

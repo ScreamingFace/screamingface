@@ -233,7 +233,7 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   wording of b468c5d9c). (d) `sf.abstain()` and `sf.fail()` are the typed outcomes; the SDK
   stores the words, so the compiled bytes do not change; the string `"fail_closed"` is refused
   and `"abstain"` (E4b, released) still works. (e) `sf.signal("x") < 0.7` in a condition reads
-  the chosen member, as `.chosen()`. `max_tokens=` is my choice, for symmetry with `max_usd=`.
+  the chosen member, as `.chosen()`. `max_tokens=` is my choice, for symmetry with the USD cap (later renamed `budget_usd=`).
   Done the same day: SDK `_surface/cascade.py` (rewritten), `outcomes.py` (new), `gate.py`,
   `refs.py`, `budget.py`, renders, exports; Engine `world/branch.py` (D4 null rule, D4a
   `signal_missing` before the ledger read) and the `signal_missing` code (68 -> 69). Tests:
@@ -286,6 +286,21 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   said three stacked PRs (ans:Q11); the work went as one PR (#1733) with three Linear leaves
   (OME-1864/1865/1866), because each later unit changed files of the earlier ones and the
   rebases on main went faster as one branch. The reviewers named the size.
+- 2026-11-12 review round 2 (owner decisions). (A) A bare `sf.signal("x") <cmp> v` in
+  `sf.Gate(when=...)` or `sf.escalate_if(...)` is refused with `TypeError`, which names
+  `.chosen()` and `.mean()`; this reverses decision (e) of the same day. WHY: the bare comparison is
+  the per-member test of `sf.Filter`, so one expression had two meanings, and `.chosen()` vs
+  `.mean()` can take different branches (a reviewer's point on "E4c Proposed API Flows").
+  `refs.signal_condition` became `refs.refuse_bare_signal`; new test
+  `test_e4c_bare_signal_refused.py`; spec CA-32 rewritten; README, CHANGELOG (the bare-signal
+  feature bullet removed: never released), notebook 20 and the tests new in this PR write
+  `.chosen()`. One pinned edit: the `sf.Gate when=` message in `test_gate_surface.py` now shows
+  `sf.signal('x').chosen() < 0.7`. (S1) Release order: the Engine ships first. Checked in the
+  code: the Engine writes `charges` only when the Candidate has a Budget
+  (`operation_outputs.py`, `charged=bool(budgets)`), and the Gate, budget and new failure
+  words only for E4c recipes, which an older SDK cannot build; so an older SDK is safe on the
+  new Engine and the OME-1233 decoder rule holds. Spec §8, guards, docs DC-9 and the CHANGELOG
+  follow; the PR body too. (H3) filed `OME-1904`; (H4) filed `OME-1905` (both under OME-1291).
 
 ## Outcome
 
@@ -303,10 +318,10 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
 - **Deviations:** (1)–(17) in the Log. Design-review findings 12 and 14 (the singleton) are
   fixed and 16 is closed (Log 2026-10-26). Finding 14 (names) is closed: the owner renamed the
   recipe wrapper to `sf.Budgeted`.
-- **Follow-ups (not filed):** the Engine could record the refused body's first operation in
-  `gate-decision.v1`, so the refusal row does not read it from the graph shape (it relies on the
-  Gate's then-before-otherwise dependency order); a failed Case keeps no operations (deviation 4,
-  a Candidate invocation contract change).
-- **Open:** PR #1733 review (owner decisions S1 release order, S2 the `sf.Router` reply, H3,
-  H4; Log 2026-11-12 review round). The three-PR split became one PR (deviation 17); the
+- **Follow-ups:** filed `OME-1899` (combine two conditions), `OME-1904` (charges of a duplicate
+  call in a budgeted url4, H3), `OME-1905` (a failed Case keeps its decision, operations and
+  charges; deviation 4, H4). Not filed: the Engine could record the refused body's first
+  operation in `gate-decision.v1`, so the refusal row does not read it from the graph shape.
+- **Open:** PR #1733 review: S2 (the reply to Kevin on `sf.Router`) waits for the owner; S1,
+  H3 and H4 are decided (Log 2026-11-12 review round 2). The three-PR split became one PR (deviation 17); the
   Linear leaves are OME-1864/1865/1866.

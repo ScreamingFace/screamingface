@@ -30,7 +30,7 @@ from screamingface._surface.refs import (
     GateCondition,
     _condition,
     answered,
-    signal_condition,
+    refuse_bare_signal,
 )
 from screamingface._surface.steps import Vote
 from screamingface.combine_evidence import GateCmp
@@ -73,12 +73,12 @@ def escalate_if(condition: object) -> EscalateIf:
     """The line between two ``sf.Cascade`` tiers: call the next tier when ``condition`` holds.
 
     ``condition`` is a comparison on a number of the tier's answers, in the escalate form:
-    ``sf.agreement() < 0.8``, ``sf.signal("lp") < 0.7`` (the chosen member's value), or
+    ``sf.agreement() < 0.8``, ``sf.signal("lp").chosen() < 0.7`` (the chosen member's value), or
     ``sf.signal("cons").mean() < 0.8``. ``sf.unanswered()`` calls the next tier when the tier
     failed or abstained.
     """
 
-    condition = signal_condition(condition)
+    refuse_bare_signal(condition, "sf.escalate_if")
     if not isinstance(condition, GateCondition | Unanswered):
         raise TypeError(_LINE_TYPE)
     return EscalateIf(condition)
@@ -87,7 +87,8 @@ def escalate_if(condition: object) -> EscalateIf:
 # The keep form of an escalate form (CA-4): the condition that keeps a tier's answer.
 _KEEP: dict[GateCmp, GateCmp] = {"<": ">=", "<=": ">", ">": "<=", ">=": "<"}
 _LINE_TYPE = (
-    "sf.escalate_if takes a condition such as sf.agreement() < 0.8, sf.signal('lp') < 0.7 or "
+    "sf.escalate_if takes a condition such as sf.agreement() < 0.8, "
+    "sf.signal('lp').chosen() < 0.7 or "
     "sf.unanswered()"
 )
 _FORM = (

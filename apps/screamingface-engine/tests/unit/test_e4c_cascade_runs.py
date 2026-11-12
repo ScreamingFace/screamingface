@@ -157,7 +157,7 @@ async def test_failed_last_tier_fails_the_case(name: str) -> None:
     ids=["kept", "escalated"],
 )
 async def test_signal_line_escalates_on_the_chosen_members_number(reply: str, calls: int) -> None:
-    # 2026-11-12: sf.escalate_if(sf.signal("conf") < 70) reads the chosen member's value.
+    # 2026-11-12: sf.escalate_if(sf.signal("conf").chosen() < 70) reads the chosen member's value.
     gateway = Gateway({"prov/a": reply, "prov/b": reply, "prov/large": "L"})
     record = await run_gate(fixture("cascade_signal.url4"), gateway)
 

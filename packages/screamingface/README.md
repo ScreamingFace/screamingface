@@ -1155,9 +1155,9 @@ A gate decides when a majority vote is strong enough to keep. It compares one na
 one threshold. The gate is data, not code, so a reader can replay it from the recipe:
 `sf.Fanout(members) >> sf.Gate(when=<number> <cmp> <threshold>, then=sf.Vote(...), otherwise=...)`.
 The number is `sf.agreement()`, `sf.signal(name).chosen()` (a declared signal of the chosen
-member) or `sf.signal(name).mean()` (the mean of a declared signal over the members). In a
-condition, `sf.signal(name)` with no method reads the chosen member: `sf.signal("conf") >= 80` is
-the same as `sf.signal("conf").chosen() >= 80`. `name` must
+member) or `sf.signal(name).mean()` (the mean of a declared signal over the members). A condition
+always names one of the two: a bare `sf.signal("conf") >= 80` raises `TypeError`, because a bare
+comparison is the per-member test of `sf.Filter`. `name` must
 be a name that the `sf.Fanout` declares in `signals=` (see "Signal sources"); any other name raises
 `ValueError` before any call. `<cmp>` is `>=`, `>`, `<=` or `<`, and it is the condition that keeps
 the majority: when `observed cmp threshold` is true, the answer is the majority answer. `>=` keeps
@@ -1444,7 +1444,7 @@ d4_cope_cascade = sf.Cascade(
 # STEER, per full answer: sf.Logprob works with OpenRouter models only (see "Signal sources").
 d5_steer_answer_cascade = sf.Cascade(
     sf.Fanout(["openrouter/openai/gpt-4o-mini"], signals={"lp": sf.Logprob("prob")}) >> sf.Vote(),
-    sf.escalate_if(sf.signal("lp") < 0.7),
+    sf.escalate_if(sf.signal("lp").chosen() < 0.7),
     "openrouter/openai/gpt-4.1",
 )
 # First success: the next model runs only when the one before fails or abstains.

@@ -117,17 +117,14 @@ def test_each_line_has_its_own_condition() -> None:
     assert (outer.when.threshold, inner.when.threshold) == (10.0, 20.0)  # type: ignore[union-attr]
 
 
-def test_a_bare_signal_reads_the_chosen_member() -> None:
-    tier = sf.Fanout(["prov/a", "prov/b"], signals=_CONF) >> sf.Vote()
-    bare = sf.Cascade(tier, sf.escalate_if(sf.signal("conf") < 70), "prov/large")
-    chosen = sf.Cascade(tier, sf.escalate_if(sf.signal("conf").chosen() < 70), "prov/large")
-
-    assert bare == chosen
+def test_a_signal_line_names_the_number_it_reads() -> None:
+    # 2026-11-12 round 2 (owner): a bare sf.signal("conf") is refused in a condition
+    # (test_e4c_bare_signal_refused.py); the line writes .chosen() or .mean().
     assert (
-        repr(sf.escalate_if(sf.signal("conf") < 70))
+        repr(sf.escalate_if(sf.signal("conf").chosen() < 70))
         == "escalate_if(signal('conf').chosen() < 70.0)"
     )
-    gate = sf.Gate(when=sf.signal("conf") >= 70, then=sf.Vote())
+    gate = sf.Gate(when=sf.signal("conf").chosen() >= 70, then=sf.Vote())
     assert gate.when == (sf.signal("conf").chosen() >= 70)
 
 
@@ -291,7 +288,11 @@ def test_gated_tier_without_a_reducer_is_refused(tier: object) -> None:
 
 def test_undeclared_signal_names_the_tier() -> None:
     with pytest.raises(ValueError, match=r"^sf\.Cascade tier 1:"):
-        sf.Cascade(_tier("prov/a", "prov/b"), sf.escalate_if(sf.signal("conf") < 0.7), "prov/large")
+        sf.Cascade(
+            _tier("prov/a", "prov/b"),
+            sf.escalate_if(sf.signal("conf").chosen() < 0.7),
+            "prov/large",
+        )
 
 
 def test_inverted_agreement_escalation_is_refused() -> None:

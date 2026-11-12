@@ -51,7 +51,7 @@ Canonical JSON (keys sorted, `S/_evaluation/combine_spec.py` canonical writer ru
   `mean:<name>` (the E4b part 5 forms, `E/combine/spec.py` `GateSpec`) or `answered` (the tier's
   reducer answered; `sf.answered()`, the keep form of `sf.escalate_if(sf.unanswered())`,
   [cascade](prd/cascade.md) CA-10) [implied — ans:Q6, ans:Q12, ans:Q19; stated owner 2026-11-12].
-  A bare `sf.signal(x) <cmp> v` stores `chosen:<x>` [stated owner 2026-11-12]. Only `answered`
+  A bare `sf.signal(x) <cmp> v` is refused before any call [stated owner 2026-11-12, round 2 — supersedes the bare-signal reading of the same day]. Only `answered`
   sends a null panel branch to a recipe `otherwise` ([branch-core](prd/branch-core.md) D4).
 - Pairing [proposed]: `eq` and `ne` with `label:` (a label value; `ne` also holds for a null
   label, [guards](prd/guards.md)); `has` (a label value) and `empty` (value null) with `labels:`;

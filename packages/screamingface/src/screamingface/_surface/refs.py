@@ -161,17 +161,23 @@ def _condition(ref: GateRef, cmp: GateCmp, value: object) -> GateCondition:
 _ORDERED: dict[str, GateCmp] = {"lt": "<", "le": "<=", "gt": ">", "ge": ">="}
 
 
-def signal_condition(value: object) -> object:
-    """``sf.signal("x") < 0.7`` in a gate condition: the chosen member's value, the same as
-    ``sf.signal("x").chosen() < 0.7`` (E4c, 2026-11-12). Any other value is returned as it is."""
+def refuse_bare_signal(value: object, owner: str) -> None:
+    """Refuse ``sf.signal("x") < 0.7`` in a gate condition (E4c, owner decision 2026-11-12).
 
-    if (
-        isinstance(value, _Comparison)
-        and value.cmp in _ORDERED
-        and not isinstance(value.value, bool)
-    ):
-        return _condition(value.signal.chosen(), _ORDERED[value.cmp], value.value)
-    return value
+    WHY: the bare comparison is the per-member predicate of ``sf.Filter``. In a condition it would
+    need a second meaning (the chosen member), and it would hide the choice between ``.chosen()``
+    and ``.mean()``. So a condition names the number it reads."""
+
+    if not isinstance(value, _Comparison):
+        return
+    sign = _ORDERED.get(value.cmp, "<")
+    name = value.signal.key
+    shown = value.value if not isinstance(value.value, bool) else 0.7
+    raise TypeError(
+        f"{owner} cannot read a bare signal: write sf.signal({name!r}).chosen() {sign} {shown} "
+        f"(the chosen member's value) or sf.signal({name!r}).mean() {sign} {shown} (the mean over "
+        "the members). A bare sf.signal(...) comparison is the per-member test of sf.Filter."
+    )
 
 
 def extractor(value: object) -> Extractor:

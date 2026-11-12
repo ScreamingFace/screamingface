@@ -37,7 +37,7 @@ from screamingface._surface.refs import (
     GateBand,
     GateCondition,
     is_rule_name,
-    signal_condition,
+    refuse_bare_signal,
 )
 from screamingface._surface.selectors import LabelCondition
 from screamingface._surface.steps import (
@@ -68,7 +68,8 @@ _REDUCE_STEPS: tuple[type, ...] = (Vote, Median, Mean, ArgMax, ArgMin, First, Me
 # The steps that choose one member, so a chosen:<name> gate can read the chosen member's value.
 _CHOOSING_STEPS: tuple[type, ...] = (Vote, ArgMax, ArgMin, First, JudgePick)
 _WHEN_RULE = (
-    "sf.Gate when= takes a condition such as sf.agreement() >= 0.7, sf.signal('x') < 0.7, "
+    "sf.Gate when= takes a condition such as sf.agreement() >= 0.7, "
+    "sf.signal('x').chosen() < 0.7, "
     "sf.label(sel) == 'x' "
     "or sf.budget.remaining() >= 0.02"
 )
@@ -87,8 +88,8 @@ class Gate(Step, Recipe):
     """Run ``then`` when ``when`` holds; else ``otherwise``. The branch not taken makes no call.
 
     ``when``: a panel condition (``sf.agreement() >= x`` with ``>=`` or ``>`` and ``x`` in
-    [0, 1], ``sf.signal("name") <op> x`` (the chosen member's value, the same as
-    ``.chosen()``), ``sf.signal("name").mean() <op> x``), which
+    [0, 1], ``sf.signal("name").chosen() <op> x``, ``sf.signal("name").mean() <op> x``; a bare
+    ``sf.signal("name") <op> x`` is refused: it is the per-member test of ``sf.Filter``), which
     closes a ``sf.Fanout`` block; or an input condition (``sf.label(sel) == "x"``, ``!=``,
     ``sf.labels(sel).has("x")``, ``.empty()``), which makes the Gate a recipe. Routing decides
     before any answer exists, from the question; a cascade decides after an answer, from a number
@@ -126,7 +127,7 @@ class Gate(Step, Recipe):
         otherwise: Branch | None = None,
         abstain_if: GateBand | None = None,
     ) -> None:
-        when = cast("Condition", signal_condition(when))  # a bare signal reads .chosen()
+        refuse_bare_signal(when, "sf.Gate when=")
         panel = _condition(when)
         then_estimate, then = cast("tuple[Estimate | None, Branch]", _estimated(then))
         otherwise_estimate, otherwise = cast(

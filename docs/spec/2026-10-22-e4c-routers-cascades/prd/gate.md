@@ -80,8 +80,8 @@ Delta (this PRD):
 1. One public class `sf.Gate` with two forms. The form follows from `when=` [proposed]:
    - **Panel gate**: `when` reads `sf.agreement()`, `sf.signal(x).chosen()`,
      `sf.signal(x).mean()` or `sf.answered()` ([cascade](cascade.md)). It closes a Fanout block,
-     as today. A bare `sf.signal(x) <op> v` reads the chosen member, the same as
-     `sf.signal(x).chosen() <op> v`, and the record names `chosen:x` [stated owner 2026-11-12].
+     as today. A bare `sf.signal(x) <op> v` raises `TypeError` (the per-member test of
+     `sf.Filter`; [cascade](cascade.md) CA-32) [stated owner 2026-11-12, round 2 — supersedes the bare-signal reading of the same day].
    - **Input gate**: `when` reads `sf.label(sel) == / != "x"`, `sf.labels(sel).has("x")` or
      `.empty()` ([selectors](selectors.md)) or `sf.budget.remaining()` ([budget](budget.md)). It is a recipe: the root, a Pipeline stage, or
      a branch body.
@@ -180,7 +180,7 @@ Delta (this PRD):
   condition is `sf.answered()` sends a null branch to its recipe `otherwise` ([cascade](cascade.md)
   CA-10). [stated owner 2026-11-12 — supersedes ans:Q17 for every Gate]
 - **GT-29 Missing number with a recipe `otherwise`.** Given
-  `sf.Fanout([small], signals={"lp": sf.Logprob("prob")}) >> sf.Gate(when=sf.signal("lp") >= 0.7,
+  `sf.Fanout([small], signals={"lp": sf.Logprob("prob")}) >> sf.Gate(when=sf.signal("lp").chosen() >= 0.7,
   then=sf.Vote(), otherwise="prov/large")`, When the reply carries no log-probability, Then
   `prov/large` makes zero calls and the Case fails with `signal_missing` ("sf.Gate gate_N read a
   missing number, so it can neither keep the answer nor escalate"). With `otherwise=sf.abstain()`,
