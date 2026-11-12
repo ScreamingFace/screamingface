@@ -149,6 +149,7 @@ signal shows the problem.
 | W5 | Scale-down removes busy pods; draining pods hold quota for up to 16 h | Runner pods in `Terminating` for hours; KEDA wants more pods than run | `OME-1871` (filed) |
 | W6 | Two users in one bucket share its 24 | User reports of slow starts while the pool has free slots | Consider more buckets (cutover-sized change) |
 | W7 | Outcome stream 64 MiB refuses new results when full | Outcome publish errors in the runner logs | Raise the outcome stream size |
+| W8 | The cap is per caller, the fan-out is per `evaluate()` (#1745 review). Two concurrent `evaluate()` calls by one caller each read 24 and send 48; the Engine refuses the extra 24 (503 + `Retry-After`), the SDK retries for its 900 s admission budget, then fails those Candidates when the first batch runs longer (HLE). Same shape as 8 vs 8 before OME-1314 | Candidate errors `SF Engine run capacity stayed full`; user reports of failed Candidates while their other evaluation runs | `/v1/limits` returns the caller's remaining headroom, or the SDK shares one limiter across `evaluate()` calls in a process (a new issue) |
 
 ## Non-goals
 
