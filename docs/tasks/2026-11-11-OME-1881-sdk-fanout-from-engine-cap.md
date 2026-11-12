@@ -18,3 +18,6 @@ uses 8 when the Engine gives no value, so it is safe against every Engine versio
 
 - 2026-11-11: filed under epic `OME-1314` (E23) at PR-open. Engine half: `OME-1880`.
 - Spec: `docs/spec/2026-11-10-per-user-parallel-runs.md` (D3), added by the `OME-1880` PR.
+- 2026-11-12: PR #1745 review (khoaguin, non-blocking): each fallback of the cap read now logs its
+  cause at DEBUG (status code or error type, never the body). Two concurrent `evaluate()` calls by
+  one caller each send up to the cap: recorded as watch-list W8 in the spec (no change now).
