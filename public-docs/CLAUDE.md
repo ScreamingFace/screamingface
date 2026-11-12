@@ -14,6 +14,8 @@ being built out per section.
 - **Dev server**: `npm run dev`
 - **Build**: `npm run build` (type-check + Vite build)
 - **Preview**: `npm run preview`
+- **Markdown view**: `npm run build` also writes `dist/<route>.md`, `dist/llms.txt` and `dist/llms-full.txt` (`scripts/build-skill.mjs --dist`, run by `postbuild`)
+- **Agent skill references**: `npm run build:skill`
 - **Type-check**: `npm run type-check` (`vue-tsc --noEmit`)
 - **Lint**: `npm run lint` (oxlint + eslint, auto-fix)
 - **Format**: `npm run format` (Prettier, `src/`)

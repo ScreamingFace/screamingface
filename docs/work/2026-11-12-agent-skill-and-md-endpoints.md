@@ -27,7 +27,7 @@ Publish a `screamingface` agent skill and plain-text docs endpoints, both genera
 ## Test plan
 
 - `npm run build:skill` is idempotent: a second run changes no file.
-- The generator renders all 44 routes without error.
+- The generator renders all 43 docs pages (the 44th route is the not-found catch-all) without error.
 - The drift check fails when a page changes and the skill is not regenerated, and when a name in the references is missing from the SDK's `__all__`.
 - `claude plugin validate` passes on the repository root and on the plugin folder.
 - `npx skills add <repo> --skill screamingface` installs the skill.
