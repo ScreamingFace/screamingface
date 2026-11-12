@@ -36,12 +36,11 @@ class UnknownCandidate(LookupError):
 
 class RunCanceled(RuntimeError):
     """The Run was stopped (canceled, orphaned or past its deadline), so no Candidate of it may
-    start (spec D12, E5 P2 spec R9; 409 `run_canceled`)."""
+    start (spec D12, E5 P2 spec R9)."""
 
 
 class CandidateAlreadyStarted(RuntimeError):
-    """The Candidate is bound to another topic, or the topic to another Candidate (spec R2,
-    409 `candidate_already_started`)."""
+    """The Candidate is bound to another topic, or the topic to another Candidate (spec R2)."""
 
 
 class ClientKeyConflict(RuntimeError):

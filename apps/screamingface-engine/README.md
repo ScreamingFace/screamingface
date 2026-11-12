@@ -457,7 +457,7 @@ DELETE /runs/{id}   → 202, or 204 when every Candidate is already terminal
 - **Starts.** Each Candidate is `{name, url4, answer_seed, capture, use_cache,
   replay_frozen_copy}`, checked as the start route checks its headers. The App's driver starts
   them, at most `URL4_CLOUD_RUN_DRIVER_INFLIGHT` (8) at once, under the owner's identity. A
-  names-only `candidates` list (P1's) still registers a Run the Engine does not start.
+  Candidate named without its start is `422 invalid_request`.
 - **Detach and deadline.** `detach: true` keeps the Run going with nobody following, until its
   `deadline_s` (default 48 h, at most 7 days: `422 deadline_too_long`; without `detach`: `422
   deadline_needs_detach`). An attached Run stops, `stopped_by: "orphaned"`, once nobody has
@@ -481,18 +481,15 @@ DELETE /runs/{id}   → 202, or 204 when every Candidate is already terminal
   failure does not close the socket. A foreign or unknown Run closes it with 1008.
 - **Codes.** Every 404 and 422 on `/runs` carries a `code`: `runs_off`, `run_not_found`,
   `invalid_request`, and the ones above.
-- **Binding a start.** `GET /?q=` with `X-SF-Run: <id>` and `X-SF-Run-Candidate: <index>` binds
-  the run to that Candidate before anything is scheduled. A canceled Run answers `409
-  run_canceled`; a Candidate already started under another topic, `409
-  candidate_already_started`. Without the headers a start is unchanged, and a bind that fails on
-  the database is logged and the start runs unbound.
+- **Raw starts.** `GET /?q=` never touches the Run registry. The `X-SF-Run` headers a Client
+  from before P2 sends bind nothing: that start runs as any other.
 - **Cancel** is sticky: it stops every live Candidate through the `DELETE /` path, records
-  `stopped_by: "canceled"`, and refuses later starts.
+  `stopped_by: "canceled"`, and the driver starts nothing more of the Run.
 - **Sweeps.** At start and every `URL4_CLOUD_RUN_SWEEP_INTERVAL_S` (1 h), the App settles as
   `lost` a Candidate whose outcome can no longer arrive, and deletes Runs older than
   `URL4_CLOUD_RUN_RETENTION_S` (30 days), with their context and results.
 - **Runs off.** A hosted App without `URL4_CLOUD_DATABASE_URL` answers `/runs` with `404
-  runs_off` and runs every start unbound; `DEPLOYMENT.md` has the runbook to turn Runs on.
+  runs_off`; raw starts run as ever. `DEPLOYMENT.md` has the runbook to turn Runs on.
 
 ## Provider connections — `/v1/connections`
 

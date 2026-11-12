@@ -11,7 +11,6 @@ LAYERING: control plane (`.claude/scripts/check_layering.py`).
 from __future__ import annotations
 
 from collections.abc import Mapping
-from datetime import datetime
 
 from screamingface_engine import job_env
 from screamingface_engine.benchmarks.expression_routes import local_route_paths
@@ -79,7 +78,6 @@ async def schedule_run(
     shape: job_env.RunShape = "expression",
     capture: bool = False,
     replay_frozen_copy: str | None = None,
-    enqueued_at: datetime | None = None,
     result_prefix: str | None = None,
     exclusive: bool = False,
 ) -> None:
@@ -103,7 +101,6 @@ async def schedule_run(
         shape=shape,
         capture=capture,
         replay_frozen_copy=replay_frozen_copy,
-        enqueued_at=enqueued_at,
         result_prefix=result_prefix,
         exclusive=exclusive,
     )

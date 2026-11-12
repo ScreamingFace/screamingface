@@ -1,5 +1,5 @@
-"""E5 P1 spec D12, R2, R9: a retried cancel finishes its stops, a binding names one Candidate,
-and the Runs lifecycle releases what it took however it ends (OME-1785).
+"""E5 P1 spec D12, R9: a retried cancel finishes its stops, and the Runs lifecycle releases what
+it took however it ends (OME-1785).
 
 FEATURE: first-class Runs. STORY: as a researcher, I retry a cancel that failed and my Run's
 Candidates are stopped; a local Engine that failed to start can be started again.
@@ -22,11 +22,10 @@ from run_registry_support import (
     open_registry,
     postgres_server,  # noqa: F401  (a fixture the Postgres parameter requests)
 )
-from test_runs_routes import ALICE, LIFETIME_S, SECRET, TOKEN_T0, WINDOW_S, _Engine, _record
+from test_runs_routes import ALICE, _Engine, _record
 
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.adapters.memory import InMemoryCandidateOutcomeStream
-from screamingface_engine.auth import JwtCodec
 from screamingface_engine.candidate_outcomes import CandidateOutcome
 from screamingface_engine.config import Settings
 from screamingface_engine.runs import wiring
@@ -106,30 +105,6 @@ async def test_a_stopped_outcome_that_beat_the_cancel_is_not_the_cancels(
     assert resp.status_code == 204
     assert engine.runner.stopped == []
     assert (await _record(registry, run_id)).candidates[0].state == "stopped"
-
-
-# --- a binding names one Candidate (spec R2) -----------------------------------------------
-
-
-async def test_a_repeated_binding_header_is_refused(registry: Registry) -> None:
-    engine = _Engine(registry)
-    run_id = (await engine.create()).json()["id"]
-    token = JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(
-        "topic-a", TOKEN_T0
-    )
-    headers = [
-        ("URL4-Capability", token),
-        ("Prefer", "respond-async"),
-        ("X-User-Email", "alice@example.org"),
-        ("X-SF-Run", run_id),
-        ("X-SF-Run-Candidate", "0"),
-        ("X-SF-Run-Candidate", "9999"),
-    ]
-
-    resp = await engine.client.get("/", params={"q": "gpt(hi)"}, headers=headers)
-
-    assert (resp.status_code, resp.json()["code"]) == (400, "malformed_header")
-    assert engine.runner.scheduled == []
 
 
 # --- the local database's lock -------------------------------------------------------------

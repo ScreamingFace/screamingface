@@ -68,12 +68,10 @@ async def test_a_malformed_run_id_is_not_echoed(registry: Registry) -> None:
     engine = _Engine(registry)
     long_id = "x" * 8_000
 
-    start = await engine.start("topic-a", long_id)
     read = await engine.client.get(f"/runs/{long_id}", headers=ALICE)
 
-    for resp in (start, read):
-        assert resp.status_code == 404
-        assert long_id not in resp.text
+    assert read.status_code == 404
+    assert long_id not in read.text
 
 
 class _DatabaseGone:
