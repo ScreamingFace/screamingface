@@ -94,6 +94,9 @@ class StubState:
     replay_copies: dict[str, str] = field(default_factory=dict)
     # Capabilities whose start carried `X-Capture: true`.
     capture_starts: list[str] = field(default_factory=list)
+    # E5 P1 (OME-1785): every `POST /runs` body, and the Run ids named by `DELETE /runs/{id}`.
+    registered: list[dict[str, object]] = field(default_factory=list)
+    canceled_runs: list[str] = field(default_factory=list)
 
     def mint(self) -> str:
         with self.lock:
@@ -124,12 +127,52 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
+        if urlsplit(self.path).path == "/runs":
+            self._register_run()
+            return
         if urlsplit(self.path).path != "/token":
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         self._json(HTTPStatus.OK, {"token": self.server.state.mint()})
 
+    def _register_run(self) -> None:
+        """A current Engine records every evaluation as a Run (E5 P1 spec §4.1)."""
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        with self.server.state.lock:
+            self.server.state.registered.append(body)
+            run_id = f"run_{len(self.server.state.registered):032x}"
+        names = body["candidates"]
+        self._json(
+            HTTPStatus.CREATED,
+            {
+                "id": run_id,
+                "state": "running",
+                "created_at": "2026-11-03T10:00:00Z",
+                "finished_at": None,
+                "benchmark": body["benchmark"],
+                "case_count": body["case_count"],
+                "candidates": [
+                    {
+                        "name": name,
+                        "state": "pending",
+                        "attempt_id": None,
+                        "started_at": None,
+                        "finished_at": None,
+                        "cost_usd": None,
+                        "error_code": None,
+                    }
+                    for name in names
+                ],
+            },
+        )
+
     def do_DELETE(self) -> None:  # noqa: N802 - stdlib handler API
+        path = urlsplit(self.path).path
+        if path.startswith("/runs/"):
+            with self.server.state.lock:
+                self.server.state.canceled_runs.append(path.removeprefix("/runs/"))
+            self._empty(HTTPStatus.ACCEPTED)
+            return
         with self.server.state.lock:
             self.server.state.deleted.append(self.headers["URL4-Capability"])
         self._empty(self.server.state.delete_status)

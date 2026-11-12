@@ -1,6 +1,6 @@
 """The picture notebook picks which Benchmarks to run without trusting the catalogue on a Mac.
 
-INVARIANT under test: on a local stack on a Mac, the three Benchmarks whose Case Digest is
+INVARIANT under test: on a local stack on a Mac, the four Benchmarks whose Case Digest is
 sealed on Linux are skipped, even though the catalogue lists them, and HLE and MaCBench, whose
 digests seal the same on a Mac, are served. A local Engine lists every
 Benchmark it knows, prepared or not, so a notebook that trusted the listing would run them and
@@ -26,9 +26,15 @@ _ALL_NINE = (
     "inspect-hle",
     "labbench2_figqa2_img",
     "labbench2_tableqa2_img",
+    "inspect-zerobench",
     "inspect-macbench",
 )
-_LINUX_SEALED = {"inspect-mmmu_multiple_choice", "inspect-mmmu_open", "inspect-mathvista"}
+_LINUX_SEALED = {
+    "inspect-mmmu_multiple_choice",
+    "inspect-mmmu_open",
+    "inspect-mathvista",
+    "inspect-zerobench",
+}
 
 
 def _selection_cell() -> str:

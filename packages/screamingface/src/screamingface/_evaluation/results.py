@@ -166,7 +166,7 @@ def _candidate_result(
         )
         return CandidateResult(
             benchmark=evaluation.benchmark,
-            run_id=outcome.run_id,
+            attempt_id=outcome.run_id,
             scores=scores,
             # OME-1121: carried across the boundary verbatim. The transport stamped the id
             # the CLIENT minted (OME-967) rather than reading one back off a frame, so a

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1572
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-10-11
-finished:
+finished: 2026-10-12
 ---
 
 # Report lifecycle — discover interrupted saved results
@@ -89,3 +89,5 @@ Wisdom/confidence: reuse the supported alias lookup instead of inventing another
 Intent: merge current main into PR #1348 without dropping either branch's changes. The only conflict is concurrent feature entries in packages/screamingface/CHANGELOG.md: lifecycle recovery from this PR and multi-Attempt Benchmarks from main. Preserve both entries; retain all automatic merges. No new behavior or test changes.
 
 Verification plan: inspect the resolved changelog and SDK README merge, check for unresolved hunks, and run all SDK gates on the combined tree before committing and pushing. Outcome: both changelog feature entries preserved, README automatic merge retained, and no unresolved hunks remain. All SDK gates pass against current main aab67fef: append-only tests, Ruff lint/format, Pyright, full parallel pytest with coverage floor, notebook checks, build and distribution checks. The fresh checkout required the existing notebook extra; no dependency or test changes. The test-preservation baseline is origin/main because its already-merged public API snapshot additions must be retained. No new SDK behavior or deviations. Merge commit: merge main into report lifecycle branch.
+
+Closed: #1348 squash-merged as `90392e95e` on 2026-10-12. Closed on 2026-11-04 with the OME-1448 close-out.

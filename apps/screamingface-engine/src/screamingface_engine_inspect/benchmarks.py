@@ -182,9 +182,12 @@ class BenchmarkSpec:
     #: the revision, never a silent cut (OME-1268).
     dropped_scorers: tuple[str, ...] = ()
     #: Installed packages a scorer of this row grades WITH (MATH's symbolic scorer calls
-    #: sympy): their installed versions pin into the revision, so a dependency bump that
-    #: changes per-Case values cannot keep a published Revision (OME-1268). Empty on every
-    #: other row, so no published revision moves.
+    #: sympy; IFEval's checker calls nltk and langdetect): their installed versions hash into
+    #: the row's computed fingerprint, so a dependency bump that can change per-Case values
+    #: trips the fingerprint golden test instead of passing silently (OME-1268). Since
+    #: OME-1610 the fingerprint is an alarm, not the published id: the owner then decides
+    #: whether the published Revision moves or holds (IFEval held on OME-1853). Empty on
+    #: every other row.
     scorer_dependencies: tuple[str, ...] = ()
     #: The eval's own whole-run inspect ``@metric``, as a dotted ``module:constructor``
     #: reference called with no arguments (``inspect_evals.hle.metrics:accuracy``). Set, it
@@ -328,11 +331,14 @@ _COCONOT_JUDGE = JudgeSpec(
 BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     BenchmarkSpec(
         key="gsm8k",
-        published_revision="075954bfd63059e0",
+        published_revision="7eebba58799a2f22",
         title="GSM8K",
         description=(
             "1,319 grade-school math word problems (the GSM8K test split), imported "
-            "from inspect_evals. The model reasons step by step and commits a final "
+            "from inspect_evals. Each opens with the eval's 10 worked examples, sent as "
+            "leading input text rather than a system message (a named deviation: a "
+            "benchmark cannot address a candidate's system role). The model reasons "
+            "step by step and commits a final "
             "numeric answer; grading is inspect's own numeric match against the "
             "published solution, so no judge tokens are spent. Benchmark score = "
             "plain accuracy over the cases run."
@@ -814,12 +820,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="winogrande",
-        published_revision="4eb60a70db7518d6",
+        published_revision="3f2af135ba8bad37",
         title="WinoGrande",
         description=(
             "1,267 sentences where a [BLANK] must be resolved to one of two "
             "candidates using commonsense about the situation (the WinoGrande "
-            "XL validation split, 0-shot), imported from inspect_evals. Prompts "
+            "XL validation split, each preceded by inspect_evals' 5 worked "
+            "examples, sent as leading input text rather than a system message: a "
+            "named deviation, since a benchmark cannot address a candidate's system "
+            "role), imported from inspect_evals. Prompts "
             "render through the eval's own template; grading is inspect's own "
             "choice scorer against the published key, so no judge tokens are "
             "spent. Benchmark score = plain accuracy over the cases run. No "
@@ -4955,6 +4964,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The vendored checker reads only the reply and the instructions in the Sample metadata;
         # no Case has an answer key and no judge grades it.
         scorer_reads_answer_key=False,
+        # The vendored grader tokenises with nltk (RegexpTokenizer and Punkt in
+        # vendor/instructions_util.py) and detects the reply's language with langdetect
+        # (three instruction kinds in vendor/instructions.py): their installed versions are
+        # Benchmark identity, like sympy on MATH, so a bump of either moves this fingerprint
+        # instead of per-Case values under an unchanged one (review findings on #1707,
+        # OME-1853). Both are base Engine dependencies, pinned exactly in pyproject.toml, so an
+        # extra-less install still assembles the row with the same versions.
+        scorer_dependencies=("nltk", "langdetect"),
         # The paper's four numbers from one dict Score, headline first (the published order).
         named_scores=(
             "prompt_level_strict_accuracy",
@@ -7599,6 +7616,129 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,
+    ),
+    BenchmarkSpec(
+        key="zerobench",
+        published_revision="9155d9581e103c0a",
+        title="ZeroBench",
+        description=(
+            "100 hand-written visual reasoning questions, each over one or more pictures, "
+            "curated across many domains, reasoning types and image types and calibrated so "
+            "that every frontier model scored 0 at release: ZeroBench's main set, imported from "
+            "inspect_evals (the easier sub-questions, 334 by the dataset card while "
+            "inspect_evals' eval.yaml says 335, are a separate split and are not imported). "
+            "The pictures are saved inside the Case at import, so the Candidate must "
+            "read images and nothing is fetched at run time. The Candidate is shown the "
+            "question with the eval's own instruction line, 'Let's think step by step and give "
+            "the final answer in curly braces, like this: {final answer}', then the question's "
+            "pictures in the dataset's order, and is graded by the eval's own scorer: the text "
+            "inside the last pair of curly braces in the reply, lower-cased, must equal the "
+            "answer exactly, and a reply with no braces is wrong, so no judge tokens are spent. "
+            "Each Case is asked 5 times, as inspect_evals asks it. Benchmark score = mean over "
+            "the cases run of each Case's mean over 5 Attempts, an Attempt counting as right "
+            "only on an exact match. That is the number inspect_evals publishes as pass@1 and "
+            "the official board's five-sample pass@1 column, so the frontier score below is "
+            "like-for-like; the eval's pass@5 and 5-of-5 reliability are not published here. "
+            "inspect_evals runs the model at seed 42 with no retries; this benchmark imposes "
+            "no generation settings: the board's rows run at each model's default settings, "
+            "and a Candidate run at temperature 0 gives five near-identical Attempts, so its "
+            "mean collapses toward a single sampling. Comparable to inspect_evals, not to the "
+            "paper: the paper's Table 2 pass@1 is one greedy reply at temperature 0 over "
+            "full-resolution pictures on dataset v2 (v3, which inspect_evals and this "
+            "Benchmark pin, rewords two questions), and that resolution is out of reach here, "
+            "since 3 of the 100 questions carry pictures of 9 to 25 MB, over this catalogue's "
+            "8 MB Case cap and Anthropic's 5 MB image limit, so no Case could be served at "
+            "full resolution; inspect_evals' 1024 px pictures are what every inspect user "
+            "runs, so matching them makes this number comparable to that ecosystem and to the "
+            "live board; and the paper's greedy pass@1 is a temperature the Candidate owns, "
+            "set at run time. Serving order is pinned by a policy seed (inspect_evals "
+            "shuffles per run). No mid-run check surface."
+        ),
+        focus="Hard multi-step reasoning over pictures, exact-match answer in braces",
+        dataset_url="https://huggingface.co/datasets/jonathan-roberts1/zerobench",
+        # Built so that every frontier model scored 0 pass@1 at release; the best official
+        # pass@1 today is 0.432 (below), well under half (OME-1257).
+        difficulty="hard",
+        # A per-Case mean over the eval's own exact-match scorer (no whole-run metric, not
+        # inverted, a decline is never the right answer): Group A, as for MathVista.
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   inspect_evals.zerobench.zerobench:zerobench.
+        # License: none stated (the prepare.py row has the terms); the dataset is gated behind
+        #   the authors' no-public-answers, no-training terms (owner decision on OME-1855,
+        #   2026-11-09).
+        # Benchmark Provenance (OME-1455): eval.yaml via the importer; arXiv answered the
+        # importer with no entry, so the author line and BibTeX are copied by hand from arXiv's
+        # own BibTeX export for 2502.09696; the baselines by hand from the sources named
+        # beside them.
+        paper_url="https://arxiv.org/abs/2502.09696",
+        authors="Roberts et al., 2025",
+        citation=(
+            "@misc{roberts2026zerobenchimpossiblevisualbenchmark,\n"
+            "      title={ZeroBench: An Impossible Visual Benchmark for Contemporary Large Mu"
+            "ltimodal Models}, \n"
+            "      author={Jonathan Roberts and Mohammad Reza Taesiri and Ansh Sharma and Aka"
+            "sh Gupta and Samuel Roberts and Ioana Croitoru and Simion-Vlad Bogolin and Jialu"
+            " Tang and Florian Langer and Vyas Raina and Vatsal Raina and Hanyi Xiong and Vis"
+            "haal Udandarao and Jingyi Lu and Shiyang Chen and Sam Purkis and Tianshuo Yan an"
+            "d Wenye Lin and Gyungin Shin and Qiaochu Yang and Anh Totti Nguyen and David I. "
+            "Atkinson and Aaditya Baranwal and Alexandru Coca and Mikah Dang and Sebastian Dz"
+            "iadzio and Jakob D. Kunz and Kaiqu Liang and Alexander Lo and Brian Pulfer and S"
+            "teven Walton and Charig Yang and Kai Han and Samuel Albanie},\n"
+            "      year={2026},\n"
+            "      eprint={2502.09696},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.CV},\n"
+            "      url={https://arxiv.org/abs/2502.09696}, \n"
+            "}"
+        ),
+        inspect_contributors=("ItsTania",),
+        harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/zerobench",
+        license=NotPublished(
+            reason=(
+                "the jonathan-roberts1/zerobench card at the pinned revision and the project "
+                "page state no licence; access is gated behind the authors' terms (owner "
+                "decision on OME-1855, 2026-11-09)"
+            ),
+        ),
+        license_note=(
+            "gated on the Hub: the authors ask that ZeroBench answers are never posted or "
+            "disclosed publicly and that no part of it is used for training, with a canary "
+            "string in the card; the answers stay Grading Material here and a Hub token gates "
+            "the build"
+        ),
+        # Human baseline: the questions are human-written and human-reviewed, but no human
+        # accuracy figure is published.
+        human_baseline=NotPublished(
+            reason=(
+                "neither eval.yaml, the project page nor the paper's abstract publishes a "
+                "human accuracy figure for the main questions"
+            ),
+        ),
+        # Frontier score: the official leaderboard's best pass@1 on the main questions, read
+        # from the board on 2026-11-09; the board dates no entry, so as_of is the read month.
+        # Like-for-like: the board's pass@1 is the mean over five samplings per question at
+        # default settings, this Benchmark's mean over 5 Attempts (the board's pass@5 for the
+        # same entry, 0.520, is not published here).
+        frontier_score=FrontierScore(
+            score=0.432,
+            model="GPT-6 Astra (max)",
+            source_url="https://zerobench.github.io/",
+            as_of="2026-11",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        inspect_evals_case_count=100,
+        scorer="inspect_evals.zerobench.zerobench:zerobench_scorer",
+        # The Task's epochs=5 are averaged: each Case is asked
+        # 5 times and scores the share of Attempts fully right,
+        # inspect's pass_at(1).
+        attempts=5,
+        # The eval also reports pass_at_5, 5_of_5_reliability over the
+        # Attempts; this row publishes the mean only, so those are not
+        # reproduced (named in the description).
+        # The fold and the whole-run tally both read it: the Case score is the
+        # share of Attempts fully right.
+        epoch_reducer="pass_at_1",
     ),
     BenchmarkSpec(
         key="macbench",

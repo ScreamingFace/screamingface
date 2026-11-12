@@ -213,6 +213,12 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # stored exception and traceback) per distinct topic for its whole life.
         self._max_history = max_history
 
+    @property
+    def caller_inflight_cap(self) -> int:
+        """The ``rest.limits.CallerLimits`` port (OME-1314). WHY ``max_concurrent_runs``: in
+        local mode one user owns the whole process, so the process cap is the caller's cap."""
+        return self._max_concurrent
+
     # --- admission and bookkeeping ----------------------------------------------------------
 
     def _on_done(

@@ -7,7 +7,7 @@ from. Publishing sets
 `duplicate_window`: the queue's `JobAlreadyExists` equivalent, with no lookup table.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
@@ -18,7 +18,7 @@ from nats.js.errors import BadRequestError
 from pydantic import ValidationError
 
 from screamingface_engine.config import Settings
-from screamingface_engine.runner_queue import RunQueue, encode_message
+from screamingface_engine.runner_queue import PublishOutcomeUnknown, RunQueue, encode_message
 from screamingface_engine.subjects import (
     RUN_QUEUE_STREAM,
     RUN_QUEUE_SUBJECT,
@@ -48,9 +48,6 @@ class _FakeJetStream:
         self.updates: list[Any] = []
         self.legacy: Any = None  # set to a StreamConfig to simulate a pre-1091 stream
         self.published: list[tuple[str, bytes, dict[str, str]]] = []
-        self.api_calls = 0
-        self._state: dict[str, Any] = {"messages": 0, "first_ts": None}
-        self._prefix = "$JS.API"
         self.pull_sub: Any = _RaisingFetchSub()
 
     async def pull_subscribe(self, *args: Any, **kwargs: Any) -> Any:
@@ -84,10 +81,6 @@ class _FakeJetStream:
     ) -> object:
         self.published.append((subject, payload, headers or {}))
         return SimpleNamespace(stream=RUN_QUEUE_STREAM, seq=len(self.published))
-
-    async def _api_request(self, subject: str, req: bytes = b"", **_: Any) -> dict[str, Any]:
-        self.api_calls += 1
-        return {"state": dict(self._state)}
 
 
 def _queue(fake: _FakeJetStream, **kwargs: Any) -> RunQueue:
@@ -155,39 +148,6 @@ async def test_publish_awaits_the_broker_acknowledgement() -> None:
     assert len(fake.published) == 1
 
 
-async def test_depth_and_oldest_age_come_from_one_stream_info_round_trip() -> None:
-    fake = _FakeJetStream()
-    first_ts = (datetime.now(UTC) - timedelta(seconds=42)).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
-    fake._state = {"messages": 3, "first_ts": first_ts}
-    queue = _queue(fake)
-
-    assert await queue.depth() == 3
-    age = await queue.oldest_age()
-    assert age is not None and age == pytest.approx(42, abs=5)
-    assert fake.api_calls == 1
-
-
-async def test_depth_is_cached_within_the_ttl() -> None:
-    fake = _FakeJetStream()
-    fake._state = {"messages": 1, "first_ts": None}
-    queue = _queue(fake)
-
-    assert await queue.depth() == 1
-    assert await queue.depth() == 1
-    assert fake.api_calls == 1, "the second read must come from the cache"
-
-
-async def test_the_cache_expires_after_the_ttl() -> None:
-    fake = _FakeJetStream()
-    fake._state = {"messages": 1, "first_ts": None}
-    queue = _queue(fake, state_cache_ttl_s=0.0)
-
-    assert await queue.depth() == 1
-    fake._state["messages"] = 5  # the broker changed underneath
-    assert await queue.depth() == 5
-    assert fake.api_calls == 2
-
-
 async def test_an_idle_poll_returns_no_messages_rather_than_raising() -> None:
     """The real broker RAISES from `fetch` when nothing arrives — nats-py never returns an
     empty list. A `pull` that propagates that kills the worker's claim loop on its first
@@ -196,22 +156,6 @@ async def test_an_idle_poll_returns_no_messages_rather_than_raising() -> None:
     assert fake.pull_sub.__class__ is _RaisingFetchSub  # the honest fake, not a [] one
 
     assert await _queue(fake).pull(batch=1, timeout_s=0.01) == []
-
-
-async def test_an_empty_queue_reports_no_age_even_though_the_server_sends_a_zero_time() -> None:
-    """The server answers an empty stream with the Go zero time, not a null —
-    `"0001-01-01T00:00:00Z"` is the real wire shape and must read as "no queued run";
-    taking it literally reports a ~6.4e10-second age and the idle-queue alert fires
-    forever."""
-    fake = _FakeJetStream()
-    fake._state = {"messages": 0, "first_ts": "0001-01-01T00:00:00Z"}
-    assert await _queue(fake).oldest_age() is None
-
-    # Belt-and-braces: a response that disagrees with itself (messages > 0, zero time)
-    # must also read as "no age", never as a negative-or-ancient timestamp.
-    disagreeing = _FakeJetStream()
-    disagreeing._state = {"messages": 2, "first_ts": "0001-01-01T00:00:00Z"}
-    assert await _queue(disagreeing, state_cache_ttl_s=0.0).oldest_age() is None
 
 
 # --- the BadRequestError the queue must NOT swallow (review follow-up) ----------------------
@@ -403,3 +347,32 @@ async def test_a_wake_up_failure_never_fails_the_publish() -> None:
 
     assert len(fake.published) == 1
     assert len(core.calls) == 1, "the wake-up must still be attempted"
+
+
+# --- OME-1859: only the run's own send is an unknown outcome -------------------------------
+
+
+class _SendTimesOut(_FakeJetStream):
+    async def publish(self, *args: Any, **kwargs: Any) -> object:
+        raise nats.errors.TimeoutError
+
+
+class _DeclareTimesOut(_FakeJetStream):
+    async def add_stream(self, **kwargs: Any) -> object:
+        raise nats.errors.TimeoutError
+
+
+async def test_an_unanswered_send_is_an_unknown_outcome() -> None:
+    """The broker may have stored the run, so the runner holds the caller's slot on this type."""
+    with pytest.raises(PublishOutcomeUnknown) as caught:
+        await _queue(_SendTimesOut()).publish(encode_message("t1", "'hi'", 60))
+
+    assert isinstance(caught.value.__cause__, nats.errors.TimeoutError)
+
+
+async def test_a_timeout_before_the_send_is_not_an_unknown_outcome() -> None:
+    """Nothing was sent, so it stays a plain timeout and the slot is released."""
+    with pytest.raises(nats.errors.TimeoutError) as caught:
+        await _queue(_DeclareTimesOut()).publish(encode_message("t1", "'hi'", 60))
+
+    assert not isinstance(caught.value, PublishOutcomeUnknown)

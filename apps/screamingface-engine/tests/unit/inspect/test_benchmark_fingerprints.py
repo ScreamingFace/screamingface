@@ -52,7 +52,19 @@ _FINGERPRINTS: dict[str, str] = {
     # kept the hand-built ids; the golden replays proved the exam unchanged.
     "healthbench-worst30": "f12c3e30661ea9d3",
     "healthbench-professional": "44ddda05be338699",
-    "ifeval": "ada07458a23c55ab",
+    # OME-1853: published id HELD at 1cba769ece27f7ef (fingerprint was ada07458a23c55ab); the
+    # row now declares nltk and langdetect as scorer dependencies, so their installed versions
+    # (nltk 3.10.4 after the security bump, langdetect 1.0.9) pin into the fingerprint.
+    "ifeval": "29daaba023020d0a",
+    # OME-1853: Pillow 13 re-encoded every picture of the three picture Benchmarks and pypdf
+    # 6.21 re-extracted cyse4's report text, so their Cases and fingerprints moved; each
+    # published id HELD by owner ruling 2026-11-09 (no official leaderboard runs on them yet).
+    # mmmu_multiple_choice: published id 5b008891134ef4c1 (fingerprint was the same).
+    "mmmu_multiple_choice": "529307c7766f8252",
+    # mathvista: published id ca4cd0f692d18f0e (fingerprint was the same).
+    "mathvista": "77ce24e526f7e47a",
+    # cyse4_threat_intelligence: published id 92558cfb773e64d2 (fingerprint was the same).
+    "cyse4_threat_intelligence": "4ca831c2f849fef9",
     # OME-1755: the judge reads the Sample's own question; each Case's Grading Material keeps
     # it, so the Case Digest moved while every Case input and the published id stayed (owner
     # decision 2026-10-28, no leaderboard scores on them yet).
@@ -61,13 +73,13 @@ _FINGERPRINTS: dict[str, str] = {
     "uccb": "2dbcedb55406dc6e",
     # OME-1610: every other Benchmark, at the fingerprint main computes (2026-10-22), which is
     # also the id it publishes: no change since its id was last set.
-    "gsm8k": "075954bfd63059e0",
+    "gsm8k": "7eebba58799a2f22",
     "mmlu": "9d4c0946ae71f6fa",
     "arc_easy": "f7d6a5325fb0bcff",
     "arc_challenge": "810d45748fde3b18",
     "commonsense_qa": "203aa920ad7ad52b",
     "mmlu_pro": "145edec84bfc2324",
-    "winogrande": "4eb60a70db7518d6",
+    "winogrande": "3f2af135ba8bad37",
     "race_h": "8c5ebb4a9d38cc6f",
     "musr": "a527e0f0db79d923",
     "wmdp_bio": "557c21ed4fcf926e",
@@ -83,10 +95,6 @@ _FINGERPRINTS: dict[str, str] = {
     # OME-1327: the two LAB-Bench picture subsets, imported once a Case could carry a picture.
     "lab_bench_figqa": "7376109d25378310",
     "lab_bench_tableqa": "9990079555f06a35",
-    # OME-1477: MMMU's multiple-choice task, the first picture Benchmark from a whole exam.
-    "mmmu_multiple_choice": "5b008891134ef4c1",
-    # OME-1479: MathVista, maths over pictures, the last of the four picture Benchmarks.
-    "mathvista": "ca4cd0f692d18f0e",
     # OME-1477 PR 2: MMMU's open-answer task, judged once the judge read inspect's question.
     "mmmu_open": "8ce88e420239ae4d",
     # OME-1478: Humanity's Last Exam, the full set with its pictures, judged by glm-5.3-flash.
@@ -94,6 +102,10 @@ _FINGERPRINTS: dict[str, str] = {
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, a local Task judged by Sonnet 4.5.
     "labbench2_figqa2_img": "770667413b4b1e51",
     "labbench2_tableqa2_img": "742c148e87b15f69",
+    # OME-1855: ZeroBench's 100 main questions with their pictures, one-sample pass@1. Its seal
+    # survived Pillow 13 (OME-1853): replayed inside the linux/amd64 image, the Case Digest
+    # 7b1b680a… came back unchanged, so neither the Cases nor this fingerprint moved.
+    "zerobench": "9155d9581e103c0a",
     # OME-1854: MaCBench, chemistry and materials pictures, letters graded as a set.
     "macbench": "a8d8e6ccc379924f",
     "frontierscience": "826050de44778515",
@@ -145,7 +157,6 @@ _FINGERPRINTS: dict[str, str] = {
     "stereoset": "c2bf158bee6d5f8b",
     "cyse4_malware_analysis": "0a1c3a7364512973",
     "drop": "9be2d9ed4b5f1a67",
-    "cyse4_threat_intelligence": "92558cfb773e64d2",
     "bbh": "467f06b54836a6f8",
     "medmcqa": "60e9f16fbe7c0227",
     # The hand-built Benchmark (screamingface_engine.benchmarks.medxpert).

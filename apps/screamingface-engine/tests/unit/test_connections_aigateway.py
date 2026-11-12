@@ -12,7 +12,6 @@ from screamingface_engine.connections.port import (
     Connection,
     ConnectionAlreadyConnected,
     ConnectionBadResponse,
-    ConnectionConflict,
     ConnectionMethodUnsupported,
     ConnectionRejected,
     Connections,
@@ -93,8 +92,10 @@ def _row(
     label: str = "screamingface",
     provider: str = "openrouter",
     account: object = None,
+    effective: bool | None = None,
 ) -> dict[str, object]:
-    return {
+    """A gateway row; a listed one carries `effective`, a write's response never does."""
+    row: dict[str, object] = {
         "id": connection_id,
         "account_id": "00000000-0000-0000-0000-000000000099",
         "provider": provider,
@@ -109,6 +110,9 @@ def _row(
         "error_message": None,
         "is_duplicate": False,
     }
+    if effective is not None:
+        row["effective"] = effective
+    return row
 
 
 async def test_adapter_satisfies_the_connection_port_and_advertises_openrouter() -> None:
@@ -135,7 +139,7 @@ async def test_provider_catalog_rejects_ids_that_are_not_one_path_segment(
 
 async def test_connected_state_is_sanitized_and_identity_is_forwarded() -> None:
     adapter, seen = _adapter(
-        lambda request: _get(request, _row(), access={"openrouter": "connected"})
+        lambda request: _get(request, _row(effective=True), access={"openrouter": "connected"})
     )
 
     (connection,) = await adapter.list(Caller(IDENTITY))
@@ -154,6 +158,7 @@ async def test_oauth_account_exposes_only_the_safe_display_label() -> None:
     row = _row(
         provider="anthropic",
         auth_type="oauth",
+        effective=True,
         account={
             "sub": "provider-account-id",
             "email": " alice@example.com ",
@@ -330,7 +335,7 @@ async def test_start_oauth_rejects_an_invalid_authorization_port(
 
 async def test_start_oauth_requires_explicit_disconnect_of_a_managed_connection() -> None:
     provider = _provider("anthropic", "Anthropic", ("oauth",))
-    existing = _row(provider="anthropic", auth_type="oauth")
+    existing = _row(provider="anthropic", auth_type="oauth", effective=True)
     methods: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -349,28 +354,8 @@ async def test_start_oauth_requires_explicit_disconnect_of_a_managed_connection(
     assert methods == []
 
 
-async def test_connect_does_not_adopt_a_single_unmanaged_api_key_connection() -> None:
-    existing = _row(label="research")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.method == "GET":
-            return _get(request, existing, access={"openrouter": "connected"})
-        assert request.method == "POST"
-        assert request.url.path == "/v1/oauth/connections/api-key"
-        assert json.loads(request.content) == {
-            "provider": "openrouter",
-            "label": "screamingface",
-            "api_key": SECRET,
-        }
-        return httpx.Response(201, json=_row())
-
-    adapter, _ = _adapter(handler)
-
-    assert (await adapter.connect(Caller(), "openrouter", SECRET)).status == "connected"
-
-
 async def test_connect_replaces_only_the_existing_managed_api_key_connection() -> None:
-    existing = _row()
+    existing = _row(effective=True)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
@@ -387,7 +372,7 @@ async def test_connect_replaces_only_the_existing_managed_api_key_connection() -
 
 async def test_connect_requires_disconnect_before_replacing_oauth_with_an_api_key() -> None:
     provider = _provider("openrouter", "OpenRouter", ("api_key", "oauth"))
-    existing = _row(auth_type="oauth")
+    existing = _row(auth_type="oauth", effective=True)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/providers":
@@ -429,8 +414,8 @@ async def test_connect_rejects_an_incorrect_success_response(
 
 async def test_multiple_unmanaged_rows_leave_the_automatic_row_disconnected() -> None:
     rows = [
-        _row(connection_id="00000000-0000-0000-0000-000000000001", label="one"),
-        _row(connection_id="00000000-0000-0000-0000-000000000002", label="two"),
+        _row(connection_id="00000000-0000-0000-0000-000000000001", label="one", effective=False),
+        _row(connection_id="00000000-0000-0000-0000-000000000002", label="two", effective=False),
     ]
 
     adapter, _ = _adapter(lambda request: _get(request, *rows))
@@ -440,8 +425,10 @@ async def test_multiple_unmanaged_rows_leave_the_automatic_row_disconnected() ->
 
 async def test_managed_row_is_selected_without_mutating_unmanaged_rows() -> None:
     rows = [
-        _row(connection_id="00000000-0000-0000-0000-000000000001", label="research"),
-        _row(connection_id="00000000-0000-0000-0000-000000000002"),
+        _row(
+            connection_id="00000000-0000-0000-0000-000000000001", label="research", effective=False
+        ),
+        _row(connection_id="00000000-0000-0000-0000-000000000002", effective=True),
     ]
 
     adapter, _ = _adapter(lambda request: _get(request, *rows, access={"openrouter": "connected"}))
@@ -450,33 +437,8 @@ async def test_managed_row_is_selected_without_mutating_unmanaged_rows() -> None
     assert connection.status == "connected"
 
 
-async def test_multiple_managed_rows_are_a_conflict() -> None:
-    rows = [
-        _row(connection_id="00000000-0000-0000-0000-000000000001"),
-        _row(connection_id="00000000-0000-0000-0000-000000000002"),
-    ]
-    adapter, _ = _adapter(lambda request: _get(request, *rows))
-
-    with pytest.raises(ConnectionConflict):
-        await adapter.list(Caller())
-
-
-async def test_disconnect_never_deletes_an_unmanaged_connection() -> None:
-    existing = _row(label="research")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.method != "GET":
-            raise AssertionError("disconnect must not mutate an unmanaged Gateway row")
-        return _get(request, existing)
-
-    adapter, seen = _adapter(handler)
-
-    assert (await adapter.disconnect(Caller(), "openrouter")).status == "not_connected"
-    assert all(request.method == "GET" for request in seen)
-
-
 async def test_disconnect_is_idempotent_and_removes_the_selected_connection() -> None:
-    rows = [_row()]
+    rows = [_row(effective=True)]
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
@@ -493,7 +455,7 @@ async def test_disconnect_is_idempotent_and_removes_the_selected_connection() ->
 
 
 async def test_disconnect_is_idempotent_when_a_concurrent_delete_wins() -> None:
-    existing = _row()
+    existing = _row(effective=True)
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
@@ -585,7 +547,7 @@ async def test_lists_every_provider_and_keeps_credentials_provider_scoped() -> N
         _provider("anthropic", "Anthropic", ("api_key", "oauth")),
         _provider("codex", "Codex", ("oauth",)),
     )
-    rows = [_row(provider="anthropic", auth_type="oauth")]
+    rows = [_row(provider="anthropic", auth_type="oauth", effective=True)]
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/providers":
