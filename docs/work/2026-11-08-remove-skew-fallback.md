@@ -1,9 +1,9 @@
 ---
 ticket: OME-1832
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-08
-finished:
+finished: 2026-11-12
 ---
 
 # remove-skew-fallback — the Local Engine selects only by `effective` (OME-1138 close-out, L7b follow-up)
@@ -81,11 +81,11 @@ Tests under `apps/screamingface-engine/tests/unit/`:
 - **Actual files:** as planned: `aigateway_rows.py` and `aigateway.py` in Engine src; the three
   approved prior test files above, `test_connections_aigateway_version_skew.py` now holding the
   14 tests of the refusal.
-- **Commits:** on `OME-1832-remove-skew-fallback` from `origin/main` `6e73b4adb`:
-  `refactor(screamingface-engine): select the Local Connection only by the effective flag`, then
-  `docs(screamingface-engine): record the releases OME-1832 waited on` for this ledger and the
-  mirror. Upstream since `6e73b4adb` touches none of these files. Not marked breaking (owner,
-  2026-11-11); the PR body states that the Local Engine now needs AI Gateway 1.0.0 or later.
+- **Commits:** `d28bfa99b` refactor(screamingface-engine): select the Local Connection only by the
+  effective flag (#1754), squash-merged 2026-11-12 14:33 UTC from the two branch commits (the
+  change, then this ledger and the mirror). Not marked breaking (owner, 2026-11-11); the PR body
+  states that the Local Engine now needs AI Gateway 1.0.0 or later. Linear `OME-1832` Done with
+  the close-comment.
 - **Gates (2026-11-11, the change on `origin/main` `d81e4d83a`, the `aigateway-v1.0.0`
   release):** `run_gates.py screamingface-engine` green: the
   append-only check (`OME-1832.json` admits the three approved files), ruff, ruff format, pyright,
