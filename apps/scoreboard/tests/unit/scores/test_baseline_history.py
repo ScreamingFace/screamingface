@@ -204,3 +204,47 @@ async def test_metadata_key_order_is_noop_but_boolean_to_number_is_a_change(tort
     versions = (await read_history(first.id)).json()["versions"]
     assert type(versions[0]["metadata"]["flag"]) is int
     assert versions[1]["metadata"]["flag"] is True
+
+
+@pytest.mark.asyncio
+async def test_history_caps_versions_at_the_revision_read_before_a_concurrent_commit(
+    tortoise_db, monkeypatch
+):
+    from scoreboard.scores.models import BaselineRevision
+
+    await Benchmark.create(id="history", display_name="History")
+    first = await BaselineStore().import_baseline(row())
+    original_filter = BaselineRevision.filter
+    inserted = False
+
+    async def interleaved_versions(query):
+        await BaselineStore().import_baseline(row(score=0.9))
+        return await query
+
+    class InterleavedQuery:
+        def __init__(self, query):
+            self.query = query
+
+        def order_by(self, *args):
+            self.query = self.query.order_by(*args)
+            return self
+
+        def limit(self, count):
+            return interleaved_versions(self.query.limit(count))
+
+    def filter_with_commit(*args, **kwargs):
+        nonlocal inserted
+        query = original_filter(*args, **kwargs)
+        if not inserted:
+            inserted = True
+            return InterleavedQuery(query)
+        return query
+
+    monkeypatch.setattr(BaselineRevision, "filter", filter_with_commit)
+    response = await read_history(first.id)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["current_revision"] == 1
+    assert [v["revision"] for v in data["versions"]] == [1]
+    assert data["next_before"] is None
+    assert (await Baseline.get(id=first.id)).observation_revision == 2

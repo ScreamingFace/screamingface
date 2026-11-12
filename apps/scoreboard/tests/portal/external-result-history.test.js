@@ -26,6 +26,9 @@ async function load(responses, params={benchmark:"board", result:"row"}) {
   };
   const context = { window: {ScorePortal:P}, document: { getElementById(id) { return ids[id] || (ids[id]=node("div")); } }, encodeURIComponent, URL, Number };
   vm.createContext(context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,"../../portal/main.js"),"utf8"), context);
+  P.comparisonNote = context.window.ScorePortal.comparisonNote;
+  context.window.ScorePortal = P;
   vm.runInContext(fs.readFileSync(path.join(__dirname,"../../portal/external-result-history.js"),"utf8"), context);
   await new Promise(resolve=>setImmediate(resolve));
   return {ids,calls};
@@ -84,4 +87,17 @@ test("history uses compact version rows and separates saved from source-check da
   const source=descendants(current).find(n=>n.tag==="a");
   assert.equal(source.className,"btn ghost external-result__source");
   assert.ok(!descendants(current).some(n=>n.textContent==="Recorded" || n.textContent==="Source read"));
+});
+
+
+test("history retains legacy prompt notes and prefers explicit comparison notes", async()=>{
+  const older=version(2,0.8);
+  older.metadata={comparison:{prompt_note:"Legacy prompt difference"}};
+  const current=version(3,0.82);
+  current.metadata={comparison_note:"Current comparison",comparison:{prompt_note:"Fallback"}};
+  const {ids}=await load([response([current,older])]);
+  const cards=ids["history-versions"].children;
+  const note = card => descendants(card).find(n=>n.className==="external-history__details").children.at(-1);
+  assert.equal(note(cards[0]).textContent,"Current comparison");
+  assert.equal(note(cards[1]).textContent,"Legacy prompt difference");
 });

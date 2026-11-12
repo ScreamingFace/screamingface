@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import json
+from decimal import Decimal
 from typing import Any
 
 from tortoise import BaseDBAsyncClient
@@ -63,10 +63,10 @@ async def record_observation(baseline: Baseline, connection: BaseDBAsyncClient) 
         .using_db(connection)
         .first()
     )
-    # WHY: JSON comparison distinguishes true from 1, unlike Python dict equality.
+    # WHY: JSONB can return exponent numbers as integers; representation is not an edit.
     if (
         previous
-        and json.dumps(previous.observation, sort_keys=True) == json.dumps(current, sort_keys=True)
+        and _same_json(previous.observation, current)
         and previous.attached_by == baseline.attached_by
     ):
         return
@@ -83,3 +83,24 @@ async def record_observation(baseline: Baseline, connection: BaseDBAsyncClient) 
         recorded_at=baseline.last_imported_at,
         using_db=connection,
     )
+
+
+def _same_json(left: Any, right: Any) -> bool:
+    """Compare JSON values without mistaking booleans for numbers or numeric spelling for edits."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        equal = type(left) is type(right) and left == right
+    elif isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        # WHY decimal text: JSONB stores the JSON decimal, not the float's binary
+        # approximation (e.g. 1e23). Converting through float would lose integer precision.
+        equal = Decimal(str(left)) == Decimal(str(right))
+    elif isinstance(left, dict) and isinstance(right, dict):
+        equal = left.keys() == right.keys() and all(
+            _same_json(value, right[key]) for key, value in left.items()
+        )
+    elif isinstance(left, list) and isinstance(right, list):
+        equal = len(left) == len(right) and all(
+            _same_json(a, b) for a, b in zip(left, right, strict=True)
+        )
+    else:
+        equal = type(left) is type(right) and left == right
+    return equal

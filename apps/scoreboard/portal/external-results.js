@@ -59,7 +59,7 @@
     tr.appendChild(P.el("td", "col-mark"));
     var model = P.el("td", "cell-wrap");
     var description = "External result; not reproducible.";
-    var note = comparisonNote(row);
+    var note = P.comparisonNote(row);
     model.title = description + (typeof note === "string" && note.trim() ? " " + note : "");
     model.appendChild(P.el("span", "mono", row.spec_id));
     model.appendChild(P.el("span", "sr-only", description));
@@ -82,14 +82,6 @@
     return tr;
   }
 
-  function comparisonNote(row) {
-    var metadata = row.metadata || {};
-    var note = metadata.comparison_note;
-    if (typeof note !== "string" || !note.trim()) {
-      note = metadata.comparison && metadata.comparison.prompt_note;
-    }
-    return typeof note === "string" ? note.trim() : "";
-  }
 
   function renderComparisonNotes(container, rows) {
     if (!container) return;
@@ -98,7 +90,7 @@
     var groups = new Map();
     rows.forEach(function (row) {
       if (!row.external) return;
-      var note = comparisonNote(row);
+      var note = P.comparisonNote(row);
       if (!note) return;
       if (!groups.has(note)) groups.set(note, new Set());
       groups.get(note).add(row.spec_id);

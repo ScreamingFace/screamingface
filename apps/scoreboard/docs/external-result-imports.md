@@ -92,3 +92,44 @@ while rolling out, then resume them using the new image; an older importer canno
 retain history. No extra migration job is needed: the existing deployment migration
 hook applies this migration. Merely importing again is not proof the source was
 checked; `observed_at` records when it was actually read.
+
+
+### Withdrawing a published result
+
+A correction import preserves the old value publicly. It is not a takedown. When an
+operator must withdraw a result and its old source links/metadata, this release uses
+a manual database operation; there is no public delete or restore endpoint. Record
+the authorization, reason, benchmark and baseline UUID in the internal operator log,
+and keep a restricted backup before removal. Pause imports for that result so a
+queued import cannot recreate it.
+
+For PostgreSQL, set `benchmark_id` and `baseline_id` as psql variables to the reviewed
+values, then execute the following in the intended database. The initial row must
+match exactly one result; otherwise roll back. Revisions are removed before their
+parent because the foreign key deliberately prevents an accidental cascading delete.
+
+```sql
+BEGIN;
+SELECT id, benchmark_id, model_name, source, observation_revision
+FROM baselines
+WHERE id = :'baseline_id'::uuid AND benchmark_id = :'benchmark_id'
+FOR UPDATE;
+
+DELETE FROM baseline_revisions
+WHERE baseline_id IN (
+    SELECT id FROM baselines
+    WHERE id = :'baseline_id'::uuid AND benchmark_id = :'benchmark_id'
+)
+RETURNING revision;
+
+DELETE FROM baselines
+WHERE id = :'baseline_id'::uuid AND benchmark_id = :'benchmark_id'
+RETURNING id;
+COMMIT;
+```
+
+Verify that the history endpoint returns 404 and the row is absent from the board.
+This withdraws the whole external result and its history, leaving other results and
+community submissions untouched. Re-import only with reviewed, publishable metadata;
+that creates a new result identity. A withdrawn URL may already exist in third-party
+copies, which this operation cannot retract.

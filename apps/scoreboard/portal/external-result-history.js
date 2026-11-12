@@ -35,7 +35,7 @@
     var details = P.el("div", "external-history__details");
     var checked = version.observed_at ? "Source checked on " + P.formatDate(version.observed_at) : "Source-check date unknown";
     details.appendChild(P.el("p", "external-history__checked", checked));
-    var note = version.metadata && version.metadata.comparison_note;
+    var note = P.comparisonNote(version);
     if (typeof note === "string" && note.trim()) details.appendChild(P.el("p", null, note));
     card.appendChild(details);
     return card;

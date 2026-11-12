@@ -1,11 +1,23 @@
 {
   "issue": "OME-1309",
-  "branch": "OME-1309-external-rows",
-  "reason": "Owner requested fixing the confirmed review findings. The summary includes external results, so its exact copy assertion changes from Submissions shown to Results shown. No other assertion is relaxed.",
+  "branch": "OME-1309-external-history",
+  "approver": "Filip Boltuzic",
+  "date": "2026-11-12",
+  "scope": "Source button/shared comparison-note presentation and the two public history fields; retain all ranking, source safety and attribution exclusions.",
+  "reason": "Owner asked to improve PR #1731 on 2026-11-12. This records the presentation/public-history contract already implemented and documented in the history-layout and external-history decisions; it does not claim all earlier assertions were unchanged.",
+  "approval_record": "docs/work/2026-11-12-OME-1309-history-review.md",
+  "prior_decision_records": [
+    "docs/work/2026-11-10-OME-1309-history-layout.md",
+    "docs/spec/2026-11-10-OME-1309-external-history.md"
+  ],
   "files": {
-    "apps/scoreboard/tests/unit/test_portal_launch_copy.py": {
-      "base_blob": "b78f1c59c3c2db434ce52c7f99cae6a0fa267b97",
-      "approved_blob": "8d8d64ff9dd06a916d244a353c016399c94e03ca"
+    "apps/scoreboard/tests/portal/external-results.test.js": {
+      "base_blob": "c63fc42aab4a836cce68f92c44e334466f644375",
+      "approved_blob": "72343fa3774ce38c75817231dc39d7a49149b7ff"
+    },
+    "apps/scoreboard/tests/unit/guards/test_visibility_exit_guard.py": {
+      "base_blob": "1a9f35240d1828252a9c72ad7f1086a836018caa",
+      "approved_blob": "1ce9e2d5cfd3450ab7f0a8a86ec8cee3dcad8429"
     }
   }
 }
