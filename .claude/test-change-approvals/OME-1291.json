@@ -142,26 +142,6 @@
       "base_blob": "76bb4abcaa0bd409c6c07585392b478414a18a13",
       "approved_blob": "d376435c417ed948d0d910279f7ef934e397a561"
     },
-    "apps/screamingface-engine/tests/unit/data/gate_contract/budget_skip_members.url4": {
-      "base_blob": "7773fed4a45c32056334eaf9e6cf8ea0c64d0498",
-      "approved_blob": "c0b0d1f18002476e740a2b8bb3a4a701f4d2a200"
-    },
-    "apps/screamingface-engine/tests/unit/data/gate_contract/d7_manager_subset.url4": {
-      "base_blob": "8fa6a95ac6fea716a8c43a150dfc273071d28792",
-      "approved_blob": "2321a6ee013bbee612f11b4bc1b4d62331cb9dd0"
-    },
-    "apps/screamingface-engine/tests/unit/data/gate_contract/skip_rank.url4": {
-      "base_blob": "c3d855c0b4f4f2679e176233de491b744ab241fa",
-      "approved_blob": "977276f7a050b8dcddef0d07454614584c460367"
-    },
-    "apps/screamingface-engine/tests/unit/data/gate_contract/skip_vote.url4": {
-      "base_blob": "164048cf3dde50bf9873acb93028c35407016a96",
-      "approved_blob": "448fd665f8b8c6e554cb8b235dca5b8996dc6436"
-    },
-    "apps/screamingface-engine/tests/unit/data/gate_contract/skip_vote_quorum.url4": {
-      "base_blob": "8510ce52a57932175ba8699e921ebe46004d3ded",
-      "approved_blob": "4587fd9aef898b52afa52b5a55a33c17e61a9e4d"
-    },
     "apps/aigateway/tests/unit/test_cache_entry_metadata_none_space.py": {
       "base_blob": "de17680c95f350ca1025aa19fdaea02a3036b014",
       "approved_blob": "af7f68248a0b58d52edea52a5d3304dc325111be"
