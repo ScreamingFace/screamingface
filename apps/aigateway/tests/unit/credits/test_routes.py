@@ -47,7 +47,7 @@ def test_read_uses_caller_and_execution_credential_without_exposing_it():
     with TestClient(app) as client:
         response = client.get("/v1/credits/openrouter")
     assert response.status_code == 200
-    assert "secret" not in response.text
+    assert response.json() == service.read.return_value.model_dump(mode="json")
     assert response.headers["cache-control"] == "private, no-store"
     service.read.assert_awaited_once_with("caller-a", "openrouter", "selected-secret", refresh=True)
 
@@ -74,7 +74,7 @@ def test_invalid_management_body_never_echoes_input():
             "/v1/credits/openrouter/management-key", json={"api_key": {"secret": "never-echo"}}
         )
     assert response.status_code == 422
-    assert "never-echo" not in response.text
+    assert response.json() == {"detail": "Invalid credit request"}
     service.configure.assert_not_awaited()
 
 
@@ -96,7 +96,7 @@ def test_connection_changed_during_lookup_discards_old_balance():
     with TestClient(app) as client:
         response = client.get("/v1/credits/openrouter")
     assert response.status_code == 409
-    assert "old" not in response.text
+    assert response.json() == {"detail": "Provider connection changed during credit lookup"}
 
 
 def test_key_only_route_uses_the_authenticated_execution_connection():

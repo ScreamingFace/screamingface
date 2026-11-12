@@ -2,6 +2,7 @@ name: screamingface-engine-tests
 on:
   push:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "apps/screamingface-engine/**"
       # the wire contract (`url4.streaming`) and the engine both ship from here
       - "packages/url4/**"
@@ -12,6 +13,7 @@ on:
       - ".github/workflows/screamingface-engine-tests.yml"
   pull_request:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "apps/screamingface-engine/**"
       # the wire contract (`url4.streaming`) and the engine both ship from here
       - "packages/url4/**"

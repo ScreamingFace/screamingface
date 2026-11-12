@@ -224,17 +224,19 @@ class _NotebookConnectionView:
                 super().close()
 
         header = widgets.HTML(value=f"{_STYLE}{_header_html(controller.engine)}")
-        self.root = PanelWidget(
-            children=(header, self._notice, self._rows, self._credits, self._credit_bridge)
-        )
+        children = (header, self._notice, self._rows, self._credits)
+        if self._credit_bridge is not None:
+            children += (self._credit_bridge,)
+        self.root = PanelWidget(children=children)
         for css_class in ("sf-ui", "sf-connection-widget", "sf-connections", *NO_MATH_CLASSES):
             self.root.add_class(css_class)
         self.render()
 
     def close(self) -> None:
         self._credit_view._clear_credit_controls()
-        self._credit_bridge.active = False
-        self._credit_bridge.close()
+        if self._credit_bridge is not None:
+            self._credit_bridge.active = False
+            self._credit_bridge.close()
 
     def render(self) -> None:
         self.render_notice()
@@ -248,6 +250,12 @@ class _NotebookConnectionView:
             # no rows yet — drop the frame rather than render an empty bordered box
             self._rows.children = ()
             self._rows.remove_class("sf-conn-tbl")
+
+    def render_credit_update(self) -> None:
+        self.render()
+        # WHY: manual refresh restarts the browser timer as well as the kernel cooldown.
+        if self._credit_bridge is not None:
+            self._credit_bridge.send({"type": "refreshed"})
 
     def render_notice(self) -> None:
         self._notice.value = _notice_html(self._state.notice)

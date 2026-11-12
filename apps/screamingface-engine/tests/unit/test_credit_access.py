@@ -158,8 +158,12 @@ async def test_engine_credit_error_does_not_invent_an_ambiguous_connection():
                 "/v1/credits/openrouter/management-key", json={"api_key": "private-management"}
             )
     assert response.status_code == 409
-    assert "ambiguous" not in response.text
-    assert "private" not in response.text
+    assert response.json() == {
+        "type": "about:blank",
+        "title": "Conflict",
+        "status": 409,
+        "detail": "Credit request could not be completed",
+    }
 
 
 @pytest.mark.asyncio

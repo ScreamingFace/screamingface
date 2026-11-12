@@ -91,3 +91,12 @@ cancels and awaits owned requests before closing storage.
 
 The cache and retry policy do not start any background polling. Browser visibility
 and the notebook timer will be connected during the final UI pass.
+
+## Review follow-up
+
+Preserve product behavior while repairing the authored replay surface, removing
+provider-ID regex matching, injecting credits through an Engine protocol, checking
+wire vocabulary across components, rendering the card without optional auto-refresh
+when anywidget is absent, and bounding the synchronous notice wait to one second.
+An overdue background lookup cannot emit a late notice; at most one sync lookup
+may remain in flight per process. Full replay validation is separate from unit gates.

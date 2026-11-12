@@ -48,7 +48,7 @@ if TYPE_CHECKING:  # the adapter is imported lazily at runtime; only the annotat
 
 from screamingface_engine.community_cache import CommunityCache, build_community_cache
 from screamingface_engine.connections import build_connections
-from screamingface_engine.connections.port import Connections
+from screamingface_engine.connections.port import Connections, Credits, HasCredits
 from screamingface_engine.cors import install_cors
 from screamingface_engine.logs import configure as configure_logging
 from screamingface_engine.metrics import (
@@ -138,6 +138,7 @@ def create_app(
     catalog: CatalogService | None = None,
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
+    credits: Credits | None = None,
     community_cache: CommunityCache | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     span_sink: SpanSink | None = None,
@@ -170,7 +171,7 @@ def create_app(
     app.state.job_runner = job_runner
     app.state.catalog = catalog
     app.state.model_parameters = model_parameters
-    _install_gateway_adapters(app, connections, community_cache)
+    _install_gateway_adapters(app, connections, community_cache, credits)
     _install_discovery_registries(app, benchmarks, operators)
     app.state.metrics = build_metrics()
     _install_storage(app, settings)
@@ -252,9 +253,17 @@ def _install_discovery_registries(
 
 
 def _install_gateway_adapters(
-    app: FastAPI, connections: Connections | None, community_cache: CommunityCache | None
+    app: FastAPI,
+    connections: Connections | None,
+    community_cache: CommunityCache | None,
+    credits: Credits | None,
 ) -> None:
     """Park the AI Gateway-backed ports on the App; a route answers 503 for one that is None."""
+    app.state.credits = (
+        credits
+        if credits is not None
+        else (connections.credits if isinstance(connections, HasCredits) else None)
+    )
     app.state.connections = connections
     app.state.community_cache = community_cache
 

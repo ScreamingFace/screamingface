@@ -21,3 +21,12 @@ The existing parent is E5 / OME-1294; tracking task OME-893 already assigned to 
 Prepare component-specific delivery units at PR-open per current repository process.
 Product confirmed limited OpenRouter execution keys for hosted users. Hosted allowance
 uses the key limit directly; no ledger dependency or separate hosted timing decision remains.
+
+## Review follow-up
+
+Preserve product behavior while repairing the authored replay surface, removing
+provider-ID regex matching, injecting credits through an Engine protocol, checking
+wire vocabulary across components, rendering the card without optional auto-refresh
+when anywidget is absent, and bounding the synchronous notice wait to one second.
+An overdue background lookup cannot emit a late notice; at most one sync lookup
+may remain in flight per process. Full replay validation is separate from unit gates.

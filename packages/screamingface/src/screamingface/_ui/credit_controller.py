@@ -62,9 +62,7 @@ class _CreditController:
         finally:
             self._credit_busy = False
         if self._view is not None and not self._closed:
-            self._view.render()
-            # WHY: manual refresh restarts the browser timer as well as the kernel cooldown.
-            self._view._credit_bridge.send({"type": "refreshed"})
+            self._view.render_credit_update()
 
     def set_credit_management_key(self, api_key: str) -> None:
         """Verify a management key without displaying or retaining the submitted secret."""

@@ -80,7 +80,8 @@ async def _inference_key(
         # INVARIANT: provider-authored refusal text never becomes a credit error message.
         return None
     header = next((v for k, v in authorization.headers.items() if k.lower() == "authorization"), "")
-    return header[7:] if header.startswith("Bearer ") and len(header) > 7 else None
+    scheme, separator, credential = header.partition(" ")
+    return credential if scheme == "Bearer" and separator and credential else None
 
 
 @router.get("/v1/credits/{provider}", response_model=CreditStatus)

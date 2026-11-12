@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import warnings
 from datetime import UTC, datetime
 
@@ -49,7 +50,10 @@ def zero_notice(status: CreditStatus) -> str | None:
 def _needed(candidates: tuple[Candidate, ...]) -> bool:
     return any(
         candidate.replay_frozen_copy is None
-        and any(model.startswith("openrouter/") for model in candidate.models)
+        and any(
+            model.partition("/")[0] == "openrouter" and bool(model.partition("/")[1])
+            for model in candidate.models
+        )
         for candidate in candidates
     )
 
@@ -64,16 +68,40 @@ def _emit(response: httpx.Response) -> None:
             pass
 
 
+_SYNC_WAIT_SECONDS = 1.0
+_SYNC_SLOT = threading.BoundedSemaphore(1)
+
+
 def check_sync(client: httpx.Client, candidates: tuple[Candidate, ...]) -> None:
-    if not _needed(candidates):
+    if not _needed(candidates) or not _SYNC_SLOT.acquire(blocking=False):
         return
+    done = threading.Event()
+    responses: list[httpx.Response] = []
+
+    def lookup() -> None:
+        try:
+            responses.append(client.get(_path("openrouter", refresh=False), timeout=1))
+        except (httpx.HTTPError, RuntimeError):
+            # The caller may close its shared client after our deadline expires.
+            pass
+        finally:
+            _SYNC_SLOT.release()
+            done.set()
+
+    # WHY: HTTPX sync timeouts bound phases/chunks, not elapsed time. Bound the
+    # caller's wait; one daemon lookup at most may finish late, without a notice.
+    # Reuse the existing client to preserve the exact execution identity/transport.
+    worker = threading.Thread(target=lookup, name="sf-credit-notice", daemon=True)
     try:
-        # WHY: use the transport's existing identity, and respect the Gateway's cache/backoff.
-        # No retry marker: a best-effort notice must not delay execution with retry backoff.
-        response = client.get(_path("openrouter", refresh=False), timeout=1)
-        _emit(response)
-    except (httpx.HTTPError, ScreamingFaceError):
-        pass
+        worker.start()
+    except RuntimeError:
+        _SYNC_SLOT.release()
+        return
+    if done.wait(_SYNC_WAIT_SECONDS) and responses:
+        try:
+            _emit(responses[0])
+        except ScreamingFaceError:
+            pass
 
 
 async def check_async(client: httpx.AsyncClient, candidates: tuple[Candidate, ...]) -> None:

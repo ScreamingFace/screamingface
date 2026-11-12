@@ -3,11 +3,12 @@
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Path, Request, Response
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, SecretStr
 
 from screamingface_engine.auth import ProblemException
-from screamingface_engine.connections.credits import CreditStatus, GatewayCredits
-from screamingface_engine.connections.port import ConnectionError
+from screamingface_engine.connections.credit_models import CreditStatus
+from screamingface_engine.connections.port import ConnectionError, Credits
+from screamingface_engine.connections.provider_id import is_provider_id
 from screamingface_engine.rest.connections import (
     _declare_x_profile,
     _mark_private,
@@ -18,7 +19,15 @@ from screamingface_engine.rest.gateway_route import caller_from_request
 router = APIRouter(
     tags=["Credits"], route_class=_SecretSafeRoute, dependencies=[Depends(_declare_x_profile)]
 )
-Provider = Annotated[str, Path(pattern=r"^[a-z0-9][a-z0-9_-]*$", max_length=100)]
+
+
+def _provider(value: str) -> str:
+    if not is_provider_id(value):
+        raise ValueError("invalid provider")
+    return value
+
+
+Provider = Annotated[str, Path(max_length=100), AfterValidator(_provider)]
 
 
 class ManagementKeyRequest(BaseModel):
@@ -26,13 +35,13 @@ class ManagementKeyRequest(BaseModel):
     api_key: SecretStr = Field(min_length=1, max_length=4096)
 
 
-def _service(request: Request) -> GatewayCredits:
-    service = getattr(getattr(request.app.state, "connections", None), "credits", None)
+def _service(request: Request) -> Credits:
+    service = request.app.state.credits
     if service is None:
         raise ProblemException(
             status=503, title="Service Unavailable", detail="credit lookup is unavailable"
         )
-    return cast(GatewayCredits, service)
+    return cast(Credits, service)
 
 
 @router.get("/v1/credits/{provider}", response_model=CreditStatus)

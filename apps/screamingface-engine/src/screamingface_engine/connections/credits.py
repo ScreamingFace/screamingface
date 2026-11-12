@@ -3,57 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from datetime import datetime
-from decimal import Decimal
-from typing import Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import ValidationError
 
 from screamingface_engine import job_env
 
+from .credit_models import CreditAmount as CreditAmount
+from .credit_models import CreditStatus as CreditStatus
 from .port import Caller, ConnectionBadResponse, ConnectionMethodUnsupported
 from .provider_id import is_provider_id
-
-
-class CreditAmount(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    status: Literal["available", "stale", "unavailable", "unlimited"]
-    amount_usd: Decimal | None = Field(default=None, allow_inf_nan=False)
-    as_of: datetime | None = None
-    reason: (
-        Literal[
-            "unsupported",
-            "hosted_unavailable",
-            "not_connected",
-            "management_key_required",
-            "account_unverified",
-            "credential_rejected",
-            "lookup_failed",
-            "invalid_response",
-        ]
-        | None
-    ) = None
-
-    @model_validator(mode="after")
-    def consistent(self) -> CreditAmount:
-        has_amount = self.status in {"available", "stale"}
-        if has_amount != (self.amount_usd is not None):
-            raise ValueError("inconsistent credit amount")
-        if self.status != "unavailable" and (self.as_of is None or self.as_of.tzinfo is None):
-            raise ValueError("missing observation time")
-        return self
-
-
-class CreditStatus(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    object: Literal["credit_status"]
-    provider: str
-    connection_token: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
-    account: CreditAmount
-    key: CreditAmount
-    hosted: CreditAmount
-    management_key_configured: bool
 
 
 class GatewayCredits:

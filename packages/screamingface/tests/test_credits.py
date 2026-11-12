@@ -123,15 +123,29 @@ def test_credit_card_distinguishes_balance_allowance_and_unknown():
     body = payload()
     body["key"].update(status="unlimited", amount_usd=None)
     result = _decode(httpx.Response(200, json=body), "openrouter")
-    html = credit_html(result)
-    assert html.index("Account balance") < html.index("Key allowance")
-    assert "$12.34" in html
-    assert "No key limit" in html
-    assert "Hosted allowance" not in html
-    assert "spending cap, not additional credit" in html
-    assert "2026-11-11" in html
+    from xml.etree import ElementTree
+
+    root = ElementTree.fromstring("<root>" + credit_html(result) + "</root>")
+    assert [node.text for node in root.findall(".//div[@class='sf-credits__label']")] == [
+        "Account balance",
+        "Key allowance",
+    ]
+    assert [node.text for node in root.findall(".//div[@class='sf-credits__value']")] == [
+        "$12.34",
+        "No key limit",
+    ]
+    assert root.findtext(".//div[@class='sf-credits__help']") == (
+        "Key allowance is a spending cap, not additional credit."
+    )
+    assert [node.text for node in root.findall(".//div[@class='sf-credits__stamp']")] == [
+        "Checked 2026-11-11 12:00 UTC",
+        "Checked 2026-11-11 12:00 UTC",
+    ]
     body["account"]["status"] = "stale"
-    assert "Refresh failed" in credit_html(_decode(httpx.Response(200, json=body), "openrouter"))
+    root = ElementTree.fromstring(
+        "<root>" + credit_html(_decode(httpx.Response(200, json=body), "openrouter")) + "</root>"
+    )
+    assert root.findtext(".//div[@class='sf-credits__note']") == "Refresh failed · last known value"
 
 
 def test_credit_card_refresh_and_secret_input():

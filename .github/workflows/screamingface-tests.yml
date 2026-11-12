@@ -3,6 +3,7 @@ name: ScreamingFace Tests
 on:
   push:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "docs/spec/fixtures/ome_400/**"
       - "packages/screamingface/**"
       - "packages/url4/**"
@@ -34,6 +35,7 @@ on:
       - ".github/workflows/screamingface-tests.yml"
   pull_request:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "docs/spec/fixtures/ome_400/**"
       - "packages/screamingface/**"
       - "packages/url4/**"

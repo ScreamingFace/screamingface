@@ -199,3 +199,56 @@ recorded in the exact-blob manifest. No database migration is required.
 The staged change contains no environment files, live keys, personal balances,
 local notebook output, or virtual environments. The owner-approved publication
 is a review PR, with merge/deployment and full live HTTP validation still pending.
+
+## Review follow-up — 2026-11-12
+
+Owner requested assessment and fixes for the local and GitHub reviews. Address the
+replay fake's missing credit route without weakening refusal assertions, replace
+provider-ID regex validation with explicit ASCII character checks, and resolve the
+SHA-256 alert with its documented high-entropy-key/encrypted-storage justification.
+Add a typed Engine credit port with independent injection, shared vocabulary
+conformance tests, graceful absence of anywidget, and a total sync-notice wait bound.
+Record Filip Boltuzic as the actual approver. Improve fragile serialized-string
+assertions where the review identified them, preserving their behavioral intent.
+
+Preserve documented explicit refresh and exact-zero notice semantics; the Engine
+already translates upstream errors before decoding. Live personal key association
+was verified; hosted keys' per-key limits were confirmed by the owner. No new
+provider calls or production credential changes are needed.
+
+Validation: targeted regressions fail first, then run all touched stack gates plus
+the dedicated replay lane (which is separate from the SDK unit gate), and inspect
+the fallback notebook card before updating PR #1753. Keep review tickets open.
+
+### Review assessment and outcome
+
+- Repaired the fake Gateway's credit metadata surface for taped providers, including
+  hosted key-only reads. Untaped routes remain refused. Added end-to-end regressions
+  for exactly one read and unchanged failure output when credit is zero or fails.
+- CodeQL #23 dismissed as a false positive by FilipBolt: this is a provider-verified
+  high-entropy API-key fingerprint inside encrypted storage, not password storage.
+  Replaced provider-ID and credit-token regexes with explicit ASCII validation.
+- Added an independently injectable Engine Credits protocol and separated wire
+  models from the concrete HTTP adapter. Existing connection adapters still wire it.
+- Shared exact state/reason vocabulary fixture is checked in all three components;
+  changes to it trigger all three CI workflows.
+- Missing anywidget preserves the connection card and manual refresh. Verified the
+  actual Jupyter fallback at 1280px/390px in light/dark; no horizontal overflow.
+- Sync notice waits at most one second for I/O. At most one daemon lookup can remain
+  in flight per process; subsequent notices skip it and late results never warn.
+  HTTP phase timeouts still apply to the underlying request.
+- Approval metadata names Filip Boltuzic and records dates/scope. Replaced flagged
+  substring assertions with parsed JSON/DOM comparisons under the review-fix request.
+
+Retained decisions: explicit sf.credits() remains fresh by default (documented
+product behavior); auto-refresh uses caching. Negative amounts remain visible, but
+the notice remains exact-zero as agreed. Engine HTTP errors already pass through
+raise_for_status before decoding. Provider identity was verified using the owner's
+live keys, and hosted per-key limits were confirmed; neither needs weaker validation.
+
+Focused validation: Gateway 60 passed; Engine 24 passed; SDK/replay metadata 49
+passed and 2 full-stack cases skipped locally because Docker is unavailable.
+SDK and Engine core full gates pass; the optional Inspect import-isolation failures
+disappear after restoring the Engine's CI core dependencies. Gateway full gate and
+post-rebase CI results are recorded at publication. No existing replay refusal
+assertion changed. No new live key use, model calls, or deployment.

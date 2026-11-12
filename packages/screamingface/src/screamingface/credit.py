@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -123,7 +122,9 @@ def _decode(response: httpx.Response, provider: str) -> CreditStatus:
             raise ValueError("invalid response")
         token = body["connection_token"]
         if token is not None and (
-            not isinstance(token, str) or not re.fullmatch(r"[a-f0-9]{64}", token)
+            not isinstance(token, str)
+            or len(token) != 64
+            or any(char not in "abcdef0123456789" for char in token)
         ):
             raise ValueError("invalid connection token")
         configured = body["management_key_configured"]

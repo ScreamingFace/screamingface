@@ -8,7 +8,11 @@ from typing import Any
 
 
 def create_refresh_bridge(callback: Callable[[], None]) -> Any:
-    import anywidget
+    try:
+        import anywidget
+    except ImportError:
+        # WHY: existing ipywidgets notebooks can still connect and refresh manually.
+        return None
     import traitlets
 
     class CreditRefresh(anywidget.AnyWidget):

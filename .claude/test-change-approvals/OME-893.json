@@ -1,7 +1,7 @@
 {
   "issue": "OME-893",
   "branch": "OME-893-provider-credit",
-  "reason": "The owner requested sf.credits() and client credit access, received an explanation of this additive API snapshot, and subsequently directed 'ok, continue then'. This continuation is applied to the necessary snapshot additions only. A recursive comparison verifies all pre-existing API entries are unchanged; no test assertions or existing signatures are removed or weakened. After reviewing the notebook preview and the explicit anywidget allowlist approval request, the owner said 'looking good ot me, let's publish the PR'. This authorizes the prepared addition of anywidget to the notebook dependency allowlist; the ipywidgets 7/8 compatibility range and all other assertions remain unchanged.",
+  "reason": "The owner requested sf.credits() and client credit access, received an explanation of this additive API snapshot, and subsequently directed 'ok, continue then'. This continuation is applied to the necessary snapshot additions only. A recursive comparison verifies all pre-existing API entries are unchanged; no test assertions or existing signatures are removed or weakened. After reviewing the notebook preview and the explicit anywidget allowlist approval request, the owner said 'looking good ot me, let's publish the PR'. This authorizes the prepared addition of anywidget to the notebook dependency allowlist; the ipywidgets 7/8 compatibility range and all other assertions remain unchanged. On 2026-11-12 Filip requested fixes for the review findings. This extends approval to the fake gateway credit metadata route and replacement of fragile serialized-string assertions with exact parsed JSON/DOM assertions; no replay refusal assertion is weakened.",
   "files": {
     "packages/screamingface/tests/public_surface_snapshot.json": {
       "base_blob": "46b811d755d55c99573744673eb626e990d1b541",
@@ -10,6 +10,26 @@
     "packages/screamingface/tests/test_public_surface.py": {
       "base_blob": "cc1efd12a214fcbd00a35342ae640d5814961ecc",
       "approved_blob": "58461902cf766b09718961765c1217a1f476841d"
+    },
+    "packages/screamingface/tests/e2e/harness/fake_gateway.py": {
+      "base_blob": "c4bf1a8caf4fb295adcf34ab3693b6e4fd78482b",
+      "approved_blob": "e04fcdc26896e1a84f7c3515aa88f2c660427620"
+    },
+    "apps/aigateway/tests/unit/credits/test_routes.py": {
+      "base_blob": "3fae6d01e114cfd1d49af4442c2ff59207f4ff30",
+      "approved_blob": "2ce6261a15f5727b273d4e6c48e906e3b6aaedc4"
+    },
+    "apps/screamingface-engine/tests/unit/test_credit_access.py": {
+      "base_blob": "84049cfe8f5f07ee7637d239df9ba798bf6d9b2d",
+      "approved_blob": "8262f71f51e7ea19fb18d411befe464c1167753c"
+    },
+    "packages/screamingface/tests/test_credits.py": {
+      "base_blob": "4b27c63084f93075d0b66b3950430a0fb815df3c",
+      "approved_blob": "39de77a5974ed8003ccb0d4015583460e8b2a5ee"
     }
-  }
+  },
+  "approver": "Filip Boltuzic (FilipBolt)",
+  "date": "2026-11-11",
+  "scope": "Additive credit API surface and optional anywidget notebook dependency; approved by the owner in this conversation, not attributed to Sergey.",
+  "review_followup_date": "2026-11-12"
 }
