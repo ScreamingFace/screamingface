@@ -73,7 +73,11 @@ Tests:
 - **Commits:** on `OME-1901-undeclare-migration-note` from `origin/main` `d28bfa99b`:
   `refactor(aigateway): stop declaring migration_note on the pair marker`, with this ledger, the
   mirror and `.claude/test-change-approvals/OME-1901.json`. Upstream since `0ea65d44f` touches
-  none of these files, and `0016` is still the next migration number.
+  none of these files, and `0016` is still the next migration number. Then, from review,
+  `docs(aigateway): scope the close-out name check to the whole migrations directory`: spec §8
+  allowed the retired names only in migrations `0012`–`0015`, which `0016` contradicts (and
+  `profile_name` in `0006`, `0009` and `0010` already did); the rule is now "outside
+  `migrations/`", the one both source guards enforce.
 - **Gates (2026-11-12, base `origin/main` `d28bfa99b`):** `run_gates.py aigateway --base
   origin/main` green: the append-only check (`OME-1901.json` admits the one approved file), ruff,
   ruff format, pyright, the enterprise guard and the full suite with coverage.
