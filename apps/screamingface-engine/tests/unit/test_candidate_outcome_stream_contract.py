@@ -193,7 +193,7 @@ async def test_ensure_stream_never_rewrites_a_live_streams_limits() -> None:
     widened = _jetstream()
     assert isinstance(widened, JetStreamCandidateOutcomeStream)
     name = widened.config.name
-    wide = CandidateOutcomesStreamConfig(name=name, max_bytes=128 * 1024**2)
+    wide = CandidateOutcomesStreamConfig(name=name, max_bytes=1024**3)
     await JetStreamCandidateOutcomeStream(NATS_URL, config=wide).ensure_stream()
     try:
         await widened.ensure_stream()
@@ -203,7 +203,7 @@ async def test_ensure_stream_never_rewrites_a_live_streams_limits() -> None:
             info = await nc.jetstream().stream_info(name)
         finally:
             await nc.close()
-        assert info.config.max_bytes == 128 * 1024**2
+        assert info.config.max_bytes == 1024**3
     finally:
         await _delete(widened)
 

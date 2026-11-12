@@ -39,6 +39,7 @@ from fastapi import FastAPI
 from starlette.datastructures import Headers
 
 from screamingface_engine import job_env
+from screamingface_engine.adapters.factory import run_results_values
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.adapters.memory import InMemoryCandidateOutcomeStream, InMemoryEventStream
 from screamingface_engine.app import create_app
@@ -488,6 +489,8 @@ def create_local_app(
         **_with_runner_config(env if env is not None else os.environ),
         job_env.ACTIVITY_LEVEL: activity_level,
         job_env.LOCAL_RUNTIME: "1",
+        # E5 P2 spec D9a: a run the driver starts writes its result where this App reads it.
+        **{name: value for name, value in run_results_values(settings).items() if value},
     }
     observers = observation_factories(run_env)
     if benchmarks is None:

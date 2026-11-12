@@ -1,0 +1,265 @@
+{
+ "url4": "/mmlu?model=openai/gpt-4o-mini&case=12",
+ "trace_id": "0af7651916cd43dd8448eb211c80319c",
+ "frames": [
+  {
+   "specversion": "1.0",
+   "id": "546e323fc4c9dfdc50689e1f2f2b1ae5",
+   "source": "/trace/url4-cloud.aee408847d35e44e99430f0979c3357b/node/root",
+   "subject": "url4-cloud.aee408847d35e44e99430f0979c3357b",
+   "time": "2026-11-12T09:00:00Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "1",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.started",
+   "data": {
+    "url4": "/mmlu?model=openai/gpt-4o-mini&case=12"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "363fb2749560b2788a22e157e8316d07",
+   "source": "/trace/url4-cloud.aee408847d35e44e99430f0979c3357b/node/root",
+   "subject": "url4-cloud.aee408847d35e44e99430f0979c3357b",
+   "time": "2026-11-12T09:00:00.100000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "2",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.log",
+   "data": {
+    "severity_number": 9,
+    "severity_text": "INFO",
+    "body": "client",
+    "attributes": {
+     "screamingface.client.version": "1.4.0"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "45da659402d2f93ebebb4e434cf15c5d",
+   "source": "/trace/url4-cloud.aee408847d35e44e99430f0979c3357b/node/n1",
+   "subject": "url4-cloud.aee408847d35e44e99430f0979c3357b",
+   "time": "2026-11-12T09:00:00.200000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "3",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.started",
+   "data": {
+    "url4": "openai/gpt-4o-mini"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "b0c957bbcad0d362f55d2f76d35c2605",
+   "source": "/trace/url4-cloud.aee408847d35e44e99430f0979c3357b/node/n1",
+   "subject": "url4-cloud.aee408847d35e44e99430f0979c3357b",
+   "time": "2026-11-12T09:00:01.300000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "4",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.span",
+   "data": {
+    "name": "chat gpt-4o-mini",
+    "kind": "client",
+    "gen_ai.operation.name": "chat",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.request.model": "gpt-4o-mini",
+    "gen_ai.response.model": null,
+    "gen_ai.usage.input_tokens": null,
+    "gen_ai.usage.output_tokens": null,
+    "gen_ai.response.finish_reasons": null,
+    "refusal": null,
+    "cache_status": "miss",
+    "cache_reason": null,
+    "cache_saved_cost_usd": null,
+    "cache_saved_cost_archive_usd": null,
+    "start": "2026-11-12T09:00:00.300000Z",
+    "end": "2026-11-12T09:00:01.300000Z",
+    "status": "ok"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "54b879bb4015990527d4d38641eb77fc",
+   "source": "/trace/url4-cloud.aee408847d35e44e99430f0979c3357b/node/n1",
+   "subject": "url4-cloud.aee408847d35e44e99430f0979c3357b",
+   "time": "2026-11-12T09:00:02Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "5",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.cost.usage",
+   "data": {
+    "scope": "self",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.response.model": "gpt-4o-mini",
+    "pricing_version": "2026-11-01",
+    "usage": {
+     "gen_ai.usage.input_tokens": 1200,
+     "gen_ai.usage.output_tokens": 300,
+     "gen_ai.usage.cache_read_tokens": 0,
+     "gen_ai.usage.cache_creation_tokens": 0,
+     "gen_ai.usage.reasoning_tokens": 0
+    },
+    "cost": {
+     "input_usd": "0.00018",
+     "output_usd": "0.00018",
+     "cache_read_usd": "0",
+     "cache_creation_usd": "0",
+     "reasoning_usd": "0",
+     "total_usd": "0.00036"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "c30597a922aca78267ae4a5045cbbc23",
+   "source": "/trace/url4-cloud.aee408847d35e44e99430f0979c3357b/node/root",
+   "subject": "url4-cloud.aee408847d35e44e99430f0979c3357b",
+   "time": "2026-11-12T09:00:02.500000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "6",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.cost.usage",
+   "data": {
+    "scope": "subtree",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.response.model": "gpt-4o-mini",
+    "pricing_version": "2026-11-01",
+    "usage": {
+     "gen_ai.usage.input_tokens": 1200,
+     "gen_ai.usage.output_tokens": 300,
+     "gen_ai.usage.cache_read_tokens": 0,
+     "gen_ai.usage.cache_creation_tokens": 0,
+     "gen_ai.usage.reasoning_tokens": 0
+    },
+    "cost": {
+     "input_usd": "0.00018",
+     "output_usd": "0.00018",
+     "cache_read_usd": "0",
+     "cache_creation_usd": "0",
+     "reasoning_usd": "0",
+     "total_usd": "0.00036"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "f26e5fc97d77e1cdec8da82b9a68bdb0",
+   "source": "/trace/url4-cloud.aee408847d35e44e99430f0979c3357b/node/root",
+   "subject": "url4-cloud.aee408847d35e44e99430f0979c3357b",
+   "time": "2026-11-12T09:00:03Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "7",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.log",
+   "data": {
+    "severity_number": 9,
+    "severity_text": "INFO",
+    "body": "cache summary",
+    "attributes": {
+     "cache.hits": 0,
+     "cache.misses": 1,
+     "cache.bypasses": 0
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "d0b07ba4412f80d4850d19286f77ae0e",
+   "source": "/trace/url4-cloud.aee408847d35e44e99430f0979c3357b/node/root",
+   "subject": "url4-cloud.aee408847d35e44e99430f0979c3357b",
+   "time": "2026-11-12T09:00:03.500000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "8",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.result",
+   "data": {
+    "body": "{\"answer\": \"B\", \"score\": 1.0}",
+    "media_type": "application/json"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "c35c492ba3adc2a4c56e9c00194edac7",
+   "source": "/trace/url4-cloud.aee408847d35e44e99430f0979c3357b/node/root",
+   "subject": "url4-cloud.aee408847d35e44e99430f0979c3357b",
+   "time": "2026-11-12T09:00:04Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "9",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.terminated",
+   "data": {
+    "status": "succeeded",
+    "error": null
+   }
+  }
+ ],
+ "record": {
+  "trace_id": "0af7651916cd43dd8448eb211c80319c",
+  "started_at": "2026-11-12T09:00:00+00:00",
+  "completed_at": "2026-11-12T09:00:04+00:00",
+  "usage": {
+   "scope": "subtree",
+   "gen_ai.provider.name": "openai",
+   "gen_ai.response.model": "gpt-4o-mini",
+   "pricing_version": "2026-11-01",
+   "usage": {
+    "gen_ai.usage.input_tokens": 1200,
+    "gen_ai.usage.output_tokens": 300,
+    "gen_ai.usage.cache_read_tokens": 0,
+    "gen_ai.usage.cache_creation_tokens": 0,
+    "gen_ai.usage.reasoning_tokens": 0
+   },
+   "cost": {
+    "input_usd": "0.00018",
+    "output_usd": "0.00018",
+    "cache_read_usd": "0",
+    "cache_creation_usd": "0",
+    "reasoning_usd": "0",
+    "total_usd": "0.00036"
+   }
+  },
+  "cache_hits": 0,
+  "cache_unpriced_hits": null,
+  "cache_saved_cost_usd": null,
+  "cache_saved_cost_archive_usd": null,
+  "frozen_copy_id": null,
+  "capture_status": null,
+  "capture_replay": null,
+  "capture_partial_reasons": [],
+  "client_version": "1.4.0",
+  "result": {
+   "media_type": "application/json",
+   "size_bytes": 29,
+   "sha256": "6126a477db6498193aed5e3741c3e35ab3bea9f83dda83a57e44634cdc36304c"
+  }
+ }
+}

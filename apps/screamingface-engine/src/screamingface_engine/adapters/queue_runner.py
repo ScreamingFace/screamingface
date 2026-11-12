@@ -357,6 +357,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
         capture: bool = False,
         replay_frozen_copy: str | None = None,
         enqueued_at: datetime | None = None,
+        result_prefix: str | None = None,
+        exclusive: bool = False,
     ) -> str:
         """Publish the run to the queue and return its job name.
 
@@ -413,6 +415,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
                     capture=capture,
                     replay_frozen_copy=replay_frozen_copy,
                     world_digest=self._world_digest,
+                    result_prefix=result_prefix,
+                    exclusive=exclusive,
                 )
                 await self._queue.publish(message, identity=identity, enqueued_at=enqueued_at)
                 # AFTER the publish: a line claiming a run was scheduled when the publish then

@@ -212,7 +212,7 @@ candidateOutcomes:
   # Past this an unwritten outcome is dropped. Below 172800 (the schema refuses more): reconcile
   # settles a Candidate `lost` after `run_lost_after_s` (48 h), which must outlast it.
   maxAgeS: 86400
-  maxBytes: 67108864
+  maxBytes: 536870912
 
 # The Run registry's database (OME-1785, E5 P1 spec D2, R9, R10). Unset, the App runs with Runs
 # off and no migrate Job renders. Set it to a Secret holding the `engine` database's URL
@@ -220,6 +220,54 @@ candidateOutcomes:
 database:
   existingSecret: ""
   existingSecretKey: database-url
+
+# The run-results store (OME-1837, E5 P2 spec D9a, §8): every result of a run the Engine's driver
+# starts, and each Run's context, kept for the Run's 30 days. Read only with Runs on
+# (`database.existingSecret`), and then required: the render fails without it.
+runResults:
+  storage:
+    # "s3" — any S3-compatible endpoint; by default the chart's THIRD bundled Garage
+    # (`<fullname>-garage-run-results`). "" — none, which only a release with Runs off may set.
+    backend: s3
+    s3:
+      # Empty => the bundled run-results Garage: one replica, no backup and no lifecycle rule, so
+      # fine for a test cluster only. In production set a durable bucket of your own, with a
+      # lifecycle rule one day longer than the Runs' retention (31 days) that removes what no
+      # Run names (DEPLOYMENT.md: the run-results store).
+      endpointUrl: ""
+      bucket: screamingface-run-results
+      region: garage
+      # With the bundled Garage both may be left empty: the chart generates a stable pair (reused
+      # across upgrades via `lookup`) and the Garage adopts it on first boot. With an external
+      # `endpointUrl` the render FAILS unless both are set or `existingSecret` is. NEVER commit a
+      # real secret key to a values file.
+      accessKey: ""
+      secretKey: ""
+      # The App's own Secret: read, write and delete on the bucket. It must carry
+      # `URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY` and `URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY`, and,
+      # whenever the bundled Garage renders, `GARAGE_RPC_SECRET` (64 hex chars).
+      existingSecret: ""
+      # The runner pool's Secret, with the same two keys: a key that may only WRITE, since a
+      # runner never reads a result back (spec §8). Empty => the pool uses the App's Secret,
+      # which is the only shape the bundled Garage supports (it has one key).
+      poolExistingSecret: ""
+    # The bundled run-results Garage: same image and security posture as `garage`, its own volume.
+    garage:
+      persistence:
+        enabled: true
+        accessModes: [ReadWriteOnce]
+        # When this volume is full, driver-started runs fail `result_store_unavailable`.
+        size: 10Gi
+        storageClass: ""
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+  # How long a runner retries a write the store refused before it fails the run
+  # `result_store_unavailable`, which is not permanent (spec R5).
+  writeBudgetS: 60
 
 # Where over-cap Evaluation results are parked between the worker that produces one and the
 # App that serves it back (OME-929).

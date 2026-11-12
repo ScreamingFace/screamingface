@@ -71,6 +71,10 @@ class IdentityAwareJobRunner(JobRunner):
     queued. A bound start passes its bind moment, which precedes any cancel of it, so the cancel's
     tombstone outlives every moment the run could still start. A substrate that starts the run at
     once has no queue wait and ignores it.
+
+    ``result_prefix`` and ``exclusive`` (E5 P2 spec D7, D9a) are set by the Engine's driver on
+    every start it sends, and by nothing else: the runner writes the result under the prefix in
+    the run-results store, and a worker claims the topic before it runs an exclusive start.
     """
 
     @abstractmethod
@@ -90,6 +94,8 @@ class IdentityAwareJobRunner(JobRunner):
         capture: bool = False,
         replay_frozen_copy: str | None = None,
         enqueued_at: datetime | None = None,
+        result_prefix: str | None = None,
+        exclusive: bool = False,
     ) -> str: ...
 
     @contextlib.contextmanager

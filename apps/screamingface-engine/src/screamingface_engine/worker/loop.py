@@ -32,7 +32,12 @@ if (
     from screamingface_engine.adapters.jetstream import JetStreamPublisher
     from screamingface_engine.runner_queue import RunQueue
 from screamingface_engine.runner_queue import UNDECODABLE_BODY_ERRORS, topic_of_message
-from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX, OWNERSHIP_SUBJECT_PREFIX
+from screamingface_engine.subjects import (
+    CLAIM_SUBJECT_PREFIX,
+    CONTROL_SUBJECT_PREFIX,
+    OWNERSHIP_SUBJECT_PREFIX,
+)
+from screamingface_engine.topic_claims import TopicClaims
 from screamingface_engine.worker.deletion_cost import DeletionCostPublisher, PodCostWriter
 from screamingface_engine.worker.kube_pod import build_pod_cost_writer
 from screamingface_engine.worker.metrics import (
@@ -40,6 +45,7 @@ from screamingface_engine.worker.metrics import (
     build_worker_metrics,
     register_events_publish_conflicts_metrics,
 )
+from screamingface_engine.worker.outcome_retry import OutcomeRetries
 from screamingface_engine.worker.supervisor import (
     DEADLINE_MARGIN_S,
     HEARTBEAT_INTERVAL_S,
@@ -51,8 +57,10 @@ from screamingface_engine.worker.supervisor import (
     _Publisher,
     derived_heartbeat_interval_s,
 )
+from screamingface_engine.worker.topic_claim import DEFAULT_CLAIM_BUDGET_S, ClaimGate
 from screamingface_engine.worker.warm_pool import WarmChildPool, process_spawner
 from screamingface_engine.world.config import config_file_digest
+from url4.streaming.protocol import TerminatedEvent
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +163,8 @@ class Worker:
         world_digest: str | None = None,
         outcomes: CandidateOutcomeStream | None = None,
         deletion_cost: DeletionCostPublisher | None = None,
+        claims: TopicClaims | None = None,
+        topic_claim_budget_s: float = DEFAULT_CLAIM_BUDGET_S,
     ) -> None:
         if slots < 1:
             raise ValueError(f"worker slots must be >= 1, got {slots}")
@@ -214,6 +224,10 @@ class Worker:
         # registers a topic BEFORE creating the supervisor task (closing the scheduling
         # gap), and the supervisor clears it once the child registers (or fails to).
         self._starting: set[str] = set()
+        # The topics whose claim this worker won (E5 P2 spec R3), from the win until the claim
+        # is marked finished: `_handle_claim` answers a contender from here, never from
+        # `_starting`, which holds a topic before any claim.
+        self._claimed: set[str] = set()
         # The in-flight supervisor tasks — the slot accounting. asyncio is single-threaded,
         # so no lock is needed; the fetch batch is computed from the free slots below.
         self._active: set[asyncio.Task[None]] = set()
@@ -261,6 +275,19 @@ class Worker:
             metrics=self._metrics,
             world_digest=world_digest,
             outcomes=outcomes,
+            outcome_retries=None if outcomes is None else OutcomeRetries(outcomes),
+            claim_gate=(
+                None
+                if claims is None
+                else ClaimGate(
+                    claims=claims,
+                    worker_id=self._worker_id,
+                    ask=control,
+                    ended=self._ended,
+                    claimed=self._claimed,
+                    budget_s=topic_claim_budget_s,
+                )
+            ),
         )
 
     async def run(self) -> None:
@@ -288,6 +315,9 @@ class Worker:
                 if self._control is not None:
                     tg.create_task(self._control_loop(tg))
                     tg.create_task(self._ownership_loop())
+                    tg.create_task(
+                        self._serve_subject(f"{CLAIM_SUBJECT_PREFIX}.*", self._handle_claim)
+                    )
         finally:
             await self._stop_deletion_cost(cost_task)
             self._supervisor.cancel_reclaims()
@@ -538,6 +568,22 @@ class Worker:
         if topic in self._children_by_topic or topic in self._starting:
             await msg.respond(self._worker_id.encode())
 
+    async def _handle_claim(self, msg: _ControlMessage) -> None:
+        """Answer a contender for a topic this worker claimed (E5 P2 spec R3).
+
+        INVARIANT: only the holder named in the payload answers, and only while it holds the
+        claim; silence is the negative answer, as for the ownership probe. No side effects.
+        """
+        if msg.data != self._worker_id.encode():
+            return
+        topic = msg.subject.removeprefix(f"{CLAIM_SUBJECT_PREFIX}.")
+        if topic in self._claimed:
+            await msg.respond(self._worker_id.encode())
+
+    async def _ended(self, topic: str) -> bool:
+        """Whether the topic's stream already ends in a terminal frame."""
+        return isinstance(await self._publisher.last_frame(topic), TerminatedEvent)
+
     async def _handle_control(self, msg: _ControlMessage) -> None:
         """Answer one control request: SIGTERM the child that owns the topic, or reply to a
         starting run's cancellation. A request for a topic this worker does not own gets no
@@ -626,6 +672,8 @@ class Worker:
                 with contextlib.suppress(ProcessLookupError):
                     proc.terminate()
             await asyncio.sleep(_DRAIN_POLL_S)
+        # E5 P2 spec R6: the outcomes still being retried get what is left of the grace.
+        await self._supervisor.drain_outcomes(deadline - loop.time())
         # The drain phase is complete (the pool is empty) — the control loop's exit
         # signal (see `_control_loop` and P2-12).
         self._drained.set()
@@ -685,6 +733,16 @@ def build_deletion_cost_publisher(
     return DeletionCostPublisher(writer, writes=metrics.deletion_cost_writes)
 
 
+def _serve_metrics(settings: Settings, metrics: WorkerMetrics) -> None:
+    if settings.worker_metrics_port > 0:
+        # The worker's own scrape endpoint (OME-1092): the chart exposes this port on the
+        # runner pool Deployment. The stdlib-backed server is the prometheus_client
+        # convention for a process that serves nothing else.
+        from prometheus_client import start_http_server
+
+        start_http_server(settings.worker_metrics_port, registry=metrics.registry)
+
+
 def run_worker(settings: Settings | None = None) -> None:
     """The worker's composition root: build the queue, publisher, control channel, and
     worker from Settings.
@@ -693,22 +751,21 @@ def run_worker(settings: Settings | None = None) -> None:
     ``Settings()`` read the environment.
     """
     settings = settings if settings is not None else Settings()
-    from screamingface_engine.adapters.factory import build_candidate_outcome_stream
+    from screamingface_engine.adapters.factory import (
+        build_candidate_outcome_stream,
+        build_topic_claims,
+    )
 
     queue, publisher = worker_composition(settings)
     outcomes = build_candidate_outcome_stream(settings)
+    # FEATURE (E5 P2 spec D7): where a driver-started run's topic is claimed.
+    claims = build_topic_claims(settings)
     metrics = build_worker_metrics()
     metrics.started.inc()
     # The worker's own publish-conflict signal (uniform executor, PRD 01 §4 Observability,
     # I-EV3), labelled "supervisor" — `publisher._writer` (worker_composition sets it so).
     register_events_publish_conflicts_metrics(metrics, publisher)
-    if settings.worker_metrics_port > 0:
-        # The worker's own scrape endpoint (OME-1092): the chart exposes this port on the
-        # runner pool Deployment. The stdlib-backed server is the prometheus_client
-        # convention for a process that serves nothing else.
-        from prometheus_client import start_http_server
-
-        start_http_server(settings.worker_metrics_port, registry=metrics.registry)
+    _serve_metrics(settings, metrics)
 
     async def _main() -> None:
         # The control channel is a core NATS client of its own, like the queue's and the
@@ -723,6 +780,8 @@ def run_worker(settings: Settings | None = None) -> None:
             # FEATURE (OME-1931): built here, inside the running loop - the httpx client belongs
             # to it. `None` when the feature is off or a prerequisite is missing (fail open).
             deletion_cost = build_deletion_cost_publisher(settings, os.environ, metrics)
+            # The pool owns the bucket's settings, like the event stream's.
+            await claims.ensure_bucket(update=True)
             worker = Worker(
                 queue=queue,
                 publisher=publisher,
@@ -754,9 +813,12 @@ def run_worker(settings: Settings | None = None) -> None:
                 world_digest=config_file_digest(os.environ),
                 outcomes=outcomes,
                 deletion_cost=deletion_cost,
+                claims=claims,
+                topic_claim_budget_s=settings.topic_claim_budget_s,
             )
             await worker.run()
         finally:
+            await claims.close()
             await outcomes.close()
             await nc.close()
 
