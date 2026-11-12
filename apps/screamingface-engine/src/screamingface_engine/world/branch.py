@@ -337,6 +337,11 @@ def _decide(request: Request) -> str:
     inputs = _SelectorInputs.read(context, spec)
     # The condition selector's record, built once: the choice reads it and the record lists it.
     records = {selector: inputs.record(selector) for selector in _condition_selector(spec.when)}
+    for selector, selector_record in records.items():
+        # Review #1733: a condition selector gives a result or an explicit failed-call record
+        # (SL-12). No record at all is lost state, never a false condition that opens otherwise.
+        if selector_record.status == "not_run":
+            raise _contract_error(f"decide context has no result for condition selector {selector}")
     if spec.panel is not None:
         choice = _panel_choice(spec)
         if choice.missing and spec.otherwise == "recipe":
@@ -714,9 +719,23 @@ def _joined(
     if terminal is None:
         raise _contract_error("a recipe or step branch names its terminal binding")
     rows = slots.get(branch)
+    if rows is None and not _own_reducer(spec, branch):
+        # Review #1733: only the decision call's own reducer step has no iterate. Any other taken
+        # branch with no result is lost execution state, not an empty answer.
+        raise _contract_error("the taken branch left no result")
     if rows is not None and len(rows) != 1:
         raise _contract_error("the taken branch gave no answer")
     return _terminal_answer(_recorded(terminal), rows)
+
+
+def _own_reducer(spec: GateSpec, branch: BranchName) -> bool:
+    """A step branch that IS the decision call's reducer: it has no iterate (branch-core D4)."""
+
+    return (
+        spec.body(branch) == "step"
+        and spec.panel is not None
+        and spec.terminal.of(branch) == spec.panel.binding
+    )
 
 
 def _terminal_answer(call: OperationCall | None, rows: list[str] | None) -> tuple[str, GateResult]:
