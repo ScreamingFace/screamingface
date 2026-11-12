@@ -49,6 +49,7 @@ Docs version: 0.1.12. This skill is generated from https://docs.screamingface.ai
 - [Leaderboards](references/sf-client-guides-leaderboards.md): Browse ranked results, publish a CandidateResult, and pull the url4 back out.
 - [Reproduce & share (url4)](references/sf-client-guides-reproduce-and-share.md): Read the exact plan a run executed, and hand it to someone else.
 - [Clients](references/sf-client-guides-clients.md): The default Client behind sf.*, and when to build your own.
+- [Install the agent skill](references/sf-client-agent-skill.md): Give a coding agent the ScreamingFace Client docs as a skill.
 
 ### Overview
 

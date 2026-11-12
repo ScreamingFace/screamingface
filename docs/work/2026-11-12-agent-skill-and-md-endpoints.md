@@ -38,6 +38,64 @@ Publish a `screamingface` agent skill and plain-text docs endpoints, both genera
 
 - See `docs/spec/2026-11-12-agent-skill-and-md-endpoints.md`.
 
+## Review report (new page `/sf-client/agent-skill`)
+
+Reader: a technical developer (priority 1) whose coding agent should know ScreamingFace. Goal: install the skill with one prompt. Time budget: unavailable (no source supplies it). Operational metrics: unavailable.
+
+### 1. Verdict
+
+A developer reaches a working install command in the first screen: the intro names the skill, the next section is the prompt to paste. Understanding flows through the three install tabs. It breaks at "from the repository" in the manual tab, which named no repository (fixed).
+
+### 2. Friction log
+
+| # | Location | Sentence | Status |
+|---|---|---|---|
+| 1 | Install the skill, Manual copy | "Copy the folder `public-docs/agent-skill/skills/screamingface` from the repository" | fixed: links the ScreamingFace repository |
+| 2 | Install the skill, Claude Code | "installs the plugin `docs` from it, which holds the skill `screamingface`" | open: the plugin and the skill have two names (spec D2) |
+
+### 3. Flow map
+
+The prompt comes before the tabs that explain its commands. The prompt is self-contained, so no reader needs the tabs first.
+
+### 4. Scorecard
+
+| # | Item | Score | Quoted evidence |
+|---|---|---|---|
+| 1 | First contact | 4 | "The ScreamingFace skill gives a coding agent the ScreamingFace Client docs" |
+| 2 | Time to first success | 4 | "Paste this prompt into your coding agent:" |
+| 3 | Concept ordering | 4 | "Copy to your agent" comes before "Install the skill" |
+| 4 | Learning-curve shape | 4 | three tabs, one command each |
+| 5 | Example quality | 3 | `npx skills add ScreamingFace/screamingface --skill screamingface`: installed from a local path, not from GitHub |
+| 6 | Reference navigability | 4 | the sidebar entry "Install the agent skill" under How-to guides |
+| 7 | Terminology discipline | 3 | plugin `docs` and skill `screamingface` |
+| 8 | Honest operations | 4 | "Claude Code applies the update after a restart." |
+| 9 | Visual clarity | 4 | the "From docs to agent" diagram, labels equal to the prose |
+
+### 5. Diagram plan
+
+One diagram, "From docs to agent", delivered: `docs/diagrams/agent-skill-docs-to-agent-{light,dark}.{svg,png}`. No further diagram needed.
+
+### 6. Top fixes
+
+| Priority | Location | Before | After | Status |
+|---|---|---|---|---|
+| 1 | Manual copy tab | "from the repository" | "from the ScreamingFace repository", linked | applied |
+| 2 | Install the skill | plugin `docs`, skill `screamingface` | one name | open, spec D2 |
+
+### 7. What already works
+
+The prompt block with a copy button, the troubleshooting table (symptom, cause, fix), and the diagram.
+
+### Trust check
+
+| Check | Result |
+|---|---|
+| Plain limits | pass: the page states that a plain `npx skills add` lists other skills and that Claude Code needs a restart |
+| Numbers over adjectives | pass: no adjective for performance |
+| Operational reality | the page states that every page is served as Markdown; this holds after the first deploy (`check-deployed.sh`) |
+| Marketing residue | none |
+| Versioning | the page names the docs version and how to compare it with the installed package |
+
 ## Outcome (fill at the end, required before COMMIT)
 
 - **Actual files:**

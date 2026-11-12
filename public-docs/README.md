@@ -57,7 +57,7 @@ and the config files.
 ## Deployment
 
 `public-docs` is served as a static site from a shared docs VM at
-**https://docs.screamingface.ai**, behind a **temporary** password gate. On merge to
+**https://docs.screamingface.ai**. On merge to
 `main` touching `public-docs/**`, the GitHub Action
 [`deploy-public-docs.yml`](../.github/workflows/deploy-public-docs.yml) builds the site
 and `rsync`s `dist/` to the VM, where Caddy serves it (`file_server`). Later merges
@@ -99,12 +99,12 @@ ssh -i ~/.ssh/<vm-key>.pem <vm-user>@<vm-host> 'ls ~/screamingface/public-docs/d
 
 The VM's Caddy config also serves the same `dist/` on a **loopback-only**
 `http://localhost:8080` block — a shared snippet, so it is byte-for-byte the prod app
-(same files + password gate), just private. Reach it with an SSH tunnel (nothing is
+(same files), just private. Reach it with an SSH tunnel (nothing is
 exposed publicly):
 
 ```sh
 ssh -i ~/.ssh/<vm-key>.pem -N -L 8080:localhost:8080 <vm-user>@<vm-host>
-# then open http://localhost:8080  (log in with the shared credentials)
+# then open http://localhost:8080
 ```
 
 ### Caddy config (on the VM, `/etc/caddy/Caddyfile`)
@@ -132,4 +132,4 @@ This VM runs Caddy < 2.8, so the directive is **`basicauth`** (one word), not `b
 
 - **DNS:** point `docs.screamingface.ai` at the VM (A record → the `DOCS_VM_HOST` value).
   Caddy is already configured (and retrying ACME), so it auto-provisions TLS the moment
-  DNS resolves — then `https://docs.screamingface.ai` serves the app behind the gate.
+  DNS resolves — then `https://docs.screamingface.ai` serves the app.

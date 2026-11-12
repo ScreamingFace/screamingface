@@ -53,13 +53,13 @@ Verification: `claude plugin validate` passes on the repository root and on `pub
 
 Files:
 
-- `public-docs/src/components/ui/CopyBlock.vue`: a code block with a copy button, using the existing `useCopy` composable.
+- No new component: the existing `CodeBlock` already has the copy button.
 - `public-docs/src/pages/sf-client/AgentSkillPage.vue`: a how-to page with three tabs (`Tabs`): Claude Code, other agents, manual copy; the copy prompt of the spec; update commands (`claude plugin marketplace update screamingface`, `claude plugin update docs@screamingface`, `npx skills update`); troubleshooting (the agent does not use the skill, a plain `npx skills add` lists only internal skills, a stale skill).
 - `public-docs/src/router/routes.ts`: route `/sf-client/agent-skill`, name `sf-client-agent-skill`.
-- `public-docs/src/navigation/sf-client.ts`: entry in the "Get started" group after Installation.
-- `public-docs/CLAUDE.md`: a route row and `CopyBlock` in the component list.
+- `public-docs/src/navigation/sf-client.ts`: entry "Install the agent skill" at the end of the "How-to guides" group.
+- `public-docs/CLAUDE.md`: a route row.
 - `docs/diagrams/agent-skill-diagrams.gen.py`, with SVG and PNG in `docs/diagrams/` and the SVG pair in `public-docs/public/diagrams/`: "From docs to agent". `render_png.sh` is reused.
-- `public-docs/README.md`: the sentence about a temporary password gate is removed.
+- `public-docs/README.md`: the three mentions of the password gate in the deployment text are removed. The Caddy `basicauth` example block stays and is listed as a finding.
 - `docs/work/2026-11-12-agent-skill-and-md-endpoints.md`: the review report (three passes, scorecard with a quoted line for each of the nine items, trust check) and the Outcome.
 - The generated files are regenerated, because the new page is a route: references, `llms.txt`, `llms-full.txt`.
 

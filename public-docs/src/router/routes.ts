@@ -32,6 +32,11 @@ export const routes: RouteRecordRaw[] = [
     component: () => import('@/pages/sf-client/guides/ClientsPage.vue'),
   },
   {
+    path: '/sf-client/agent-skill',
+    name: 'sf-client-agent-skill',
+    component: () => import('@/pages/sf-client/AgentSkillPage.vue'),
+  },
+  {
     path: '/sf-client/guides/connections',
     name: 'sf-client-guides-connections',
     component: () => import('@/pages/sf-client/guides/ConnectionsPage.vue'),

@@ -43,6 +43,7 @@ export const sfClientNavigation: NavEntry[] = [
       { title: 'Publish to the leaderboard', path: '/sf-client/guides/leaderboards' },
       { title: 'Reproduce & share', path: '/sf-client/guides/reproduce-and-share' },
       { title: 'Manage the Client', path: '/sf-client/guides/clients' },
+      { title: 'Install the agent skill', path: '/sf-client/agent-skill' },
     ],
   },
 ]

@@ -67,6 +67,7 @@ There is no automated test setup in this project.
 | `/sf-client/guides/running-an-evaluation` | `src/pages/sf-client/guides/EvaluationPage.vue`   |
 | `/sf-client/guides/leaderboards`          | `src/pages/sf-client/guides/LeaderboardsPage.vue` |
 | `/sf-client/guides/reproduce-and-share`   | `src/pages/sf-client/guides/Url4Page.vue`         |
+| `/sf-client/agent-skill`                  | `src/pages/sf-client/AgentSkillPage.vue`          |
 | `/sf-client/api/recipes`                  | `src/pages/sf-client/api/RecipesPage.vue`         |
 | `/sf-client/api/models`                   | `src/pages/sf-client/api/ModelsCatalogPage.vue`   |
 | `/sf-client/api/benchmarks`               | `src/pages/sf-client/api/BenchmarksPage.vue`      |
