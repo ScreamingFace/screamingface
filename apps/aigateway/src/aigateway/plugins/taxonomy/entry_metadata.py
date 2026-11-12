@@ -280,8 +280,12 @@ def cache_reference_from_entry_metadata(meta: CacheEntryMetadata) -> CacheRefere
         ) from exc
 
 
-def _captured_entry_metadata(aigw: Any) -> CacheEntryMetadata | None:
-    """The stored-entry block a captured ``_aigw`` describes, or ``None`` when it is unpriced."""
+def _captured_pieces(aigw: Any) -> dict[str, Any] | None:
+    """The raw price record a captured ``_aigw`` describes, or ``None`` when it is unpriced.
+
+    Keys: ``usage``, ``direct_cost``, ``latency_ms``, ``response_model``, ``observed_at``. The
+    values are the captured JSON, not yet checked: each one is checked on its own (review #1733).
+    """
     accounting = aigw["usage_accounting"]
     cache = accounting["cache"]
     if cache["status"] == "hit":
@@ -290,14 +294,14 @@ def _captured_entry_metadata(aigw: Any) -> CacheEntryMetadata | None:
         reference = cache["reference"]
         if reference is None:
             return None
-        return CacheEntryMetadata(
-            metadata_status="complete",
-            observed_at=reference.get("observed_at"),
-            response_model=reference.get("response_model"),
-            usage=reference["usage"],
-            direct_cost=reference["direct_cost"],
-            provider_latency_ms=(reference.get("latency") or {}).get("provider_latency_ms"),
-        )
+        latency = reference.get("latency")
+        return {
+            "usage": reference.get("usage"),
+            "direct_cost": reference.get("direct_cost"),
+            "latency_ms": latency.get("provider_latency_ms") if type(latency) is dict else None,
+            "response_model": reference.get("response_model"),
+            "observed_at": reference.get("observed_at"),
+        }
     attempts = accounting["attempts"]
     # INVARIANT: the engine's live rule (``_final_succeeded_attempt``) — a complete capture,
     # nothing omitted, every attempt a mapping, the last succeeded one in list order.
@@ -311,13 +315,48 @@ def _captured_entry_metadata(aigw: Any) -> CacheEntryMetadata | None:
     if not succeeded:
         return None
     chosen = succeeded[-1]
-    return CacheEntryMetadata(
-        metadata_status="complete",
-        response_model=chosen.get("response_model"),
-        usage=chosen["usage"],
-        direct_cost=chosen["direct_cost"],
-        provider_latency_ms=chosen.get("latency_ms"),
+    return {
+        "usage": chosen.get("usage"),
+        "direct_cost": chosen.get("direct_cost"),
+        "latency_ms": chosen.get("latency_ms"),
+        "response_model": chosen.get("response_model"),
+        "observed_at": None,
+    }
+
+
+def _captured_reference(pieces: dict[str, Any]) -> CacheReference:
+    """One reference whose dimensions stand alone: a malformed one is unavailable, not fatal.
+
+    FEATURE (E4c, OME-1291, review #1733): the live engine reads cost, tokens and latency of the
+    priced attempt independently, each ``None`` when malformed. The replay keeps every valid
+    dimension, so a budget Gate sees the numbers the live run saw.
+    """
+    try:
+        usage = _token_usage_from_json(pieces["usage"])
+    except (ValueError, TypeError, KeyError):
+        usage = TokenUsage(status="unavailable", source="cached_converted_response")
+    try:
+        direct_cost = _direct_cost_from_json(pieces["direct_cost"])
+    except (ValueError, TypeError, KeyError):
+        direct_cost = DirectCost.unavailable()
+    latency = pieces["latency_ms"]
+    if type(latency) is not int or latency < 0:
+        latency = None
+    return CacheReference(
+        usage=usage,
+        direct_cost=direct_cost,
+        provider_latency_ms=latency,
+        response_model=_captured_text(
+            "response_model", pieces["response_model"], is_valid_cache_response_model
+        ),
+        observed_at=_captured_text(
+            "observed_at", pieces["observed_at"], is_valid_cache_observed_at
+        ),
     )
+
+
+def _captured_text(name: str, value: object, valid: Callable[[object], bool]) -> str | None:
+    return _informational(name, value, valid) if value is None or type(value) is str else None
 
 
 def cache_reference_from_captured_aigw(aigw: Any) -> CacheReference | None:
@@ -326,13 +365,15 @@ def cache_reference_from_captured_aigw(aigw: Any) -> CacheReference | None:
     FEATURE (E4c ans:Q21b, OME-1291): one price source live and on replay. A budget Gate reads
     the price of each earlier call, so a replay must give the engine the numbers the live run
     saw, or the Gate can take another branch. A captured hit keeps its own reference. A captured
-    miss gives the attempt the live engine priced, mapped through the stored-entry rule.
+    miss gives the attempt the live engine priced.
 
-    INVARIANT: totally non-raising. ``None`` (no reference) when the captured block is absent,
-    malformed, or describes a call the live engine could not price.
+    INVARIANT: totally non-raising. ``None`` (no reference) when the captured block is absent or
+    describes a call the live engine could not price. Like the engine's live read, each dimension
+    stands alone: a malformed usage, cost or latency becomes "unavailable" for that dimension
+    only and never drops the others (review of PR #1733).
     """
     try:
-        meta = _captured_entry_metadata(aigw)
-        return None if meta is None else cache_reference_from_entry_metadata(meta)
-    except (KeyError, TypeError, ValueError, AttributeError, CacheEntryMetadataReferenceError):
+        pieces = _captured_pieces(aigw)
+        return None if pieces is None else _captured_reference(pieces)
+    except (KeyError, TypeError, ValueError, AttributeError):
         return None
