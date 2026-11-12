@@ -1,9 +1,9 @@
 ---
 ticket: OME-1864 (engine), OME-1865 (SDK), OME-1866 (aigateway); epic OME-1291
 stack: screamingface
-status: done
+status: in_progress
 started: 2026-10-22
-finished: 2026-10-26
+finished:
 ---
 
 # e4c-routers-cascades — choose whether a model runs (OME-1291)
@@ -257,25 +257,56 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   so `sf.evaluate` did not load the Engine operator catalog for a budgeted recipe with a
   reducer (README d9, flows 11, 15, 16 failed before any call). The offline tests pass the
   catalog by hand, so they missed it. Fixed in `_children`; new test in `test_e4c_budget.py`.
+- 2026-11-12 review round (PR #1733: sergio-bershadsky and HupBaHa, both CHANGES_REQUESTED).
+  Checked offline (no model calls, no hosted calls). Fixed, each with a RED test first:
+  (H1) DECIDE read a condition selector with no record (`not_run`) as false and took the paid
+  `otherwise`; now a `benchmark_contract_error`. A failed-call record still takes `otherwise`
+  (SL-12). (H5) JOIN read a taken branch with no iterate slot as an empty answer; now a
+  contract error, except the step branch that IS the decision reducer (it has no slot,
+  branch-core D4). (S3) the SDK overspend line summed floats; it now uses the Engine fold
+  (`Decimal(repr(x))`, `_DECIMAL`), so 0.1 + 0.2 under 0.3 is not an overspend. (M1) the SDK
+  `gate-decision.v1` decoder refuses NaN and infinity. (M2) an `sf.LLMClassifier` prompt that
+  holds the template's `Task:` line replays to itself (strip the known header, not
+  `rpartition`). (H2, OME-1866) the frozen-copy reference kept a captured call only if every
+  dimension was valid; now each of usage, cost, latency and response model falls back alone,
+  as the Engine's live read does. (S4) new twin fixture
+  `apps/aigateway/tests/fixtures/replay_reference_twins/twins.json`: the gateway renders it
+  with its real replay function and guards it; the Engine reads it by path and checks live ==
+  replay for 13 cases; the Engine CI paths include it. Residual: a usage block with a bogus
+  `status` but valid counts (only a corrupted capture holds one) still reads differently.
+  (N2) the PIN manifest drops 5 entries for `gate_contract/*.url4` files that are new in this
+  PR. (N3) the replay-reference test has no grouping classes. Not changed, owner decision:
+  (S1) release order. The PR says SDK first; a new SDK on an old Engine pays the members and
+  then fails each Case on `phase=decide`, and an old SDK on a new Engine is safe. No E4c
+  capability signal exists for an SDK check before spend. (S2) the reply to Kevin on
+  `sf.Router` (out of scope here; Dmitry's PR). (H3) charges of a duplicate fingerprint are
+  dropped by spec (erd one-claimant rule); the SDK always adds a unique `binding=`, so none of
+  the 32 compiled notebook flows has a duplicate. (H4) a failed or `fail_closed` Case keeps no
+  decision, operations or charges (deviation 4, the follow-up below). Deviation (17): the plan
+  said three stacked PRs (ans:Q11); the work went as one PR (#1733) with three Linear leaves
+  (OME-1864/1865/1866), because each later unit changed files of the earlier ones and the
+  rebases on main went faster as one branch. The reviewers named the size.
 
 ## Outcome
 
 - **Actual files:** as planned in `docs/plan/2026-10-22-e4c-routers-cascades.md` §2 (units
   1–15), plus this ledger. Spec and plan in `docs/spec/2026-10-22-e4c-routers-cascades/`.
-- **Commits:** `49fe62852` docs(e4c) spec and plan; `65651753a` feat(e4c) units 1–15;
-  `5f974eab1` refactor(e4c) simplify; `a7faca9e2` fix(e4c) Gate replay, Keywords `$` escape and
-  the budget-refusal row; then this ledger close.
+- **Commits** (after the rebase on main; the earlier shas do not resolve): `90e5be3bf` docs(e4c)
+  spec and plan; `16b757393` feat(e4c) units 1–15; `984c2d48f` refactor(e4c) simplify;
+  `213de5170` fix(e4c) Gate replay, Keywords `$` escape and the budget-refusal row; later
+  passes to `ff67c89f9` (`git log origin/main..HEAD`); the 2026-11-12 review round: `f762e7f95`, `3f2112b1e`, `020a41229`, `0ceab8afd`,
+  `74da905a8`, `9d340d313`, then this ledger.
 - **Gates:** `run_gates.py screamingface --base HEAD` ALL GREEN after each pass (ruff, pyright,
   pytest with 95% coverage, notebooks, build, distribution). Engine: `run_gates.py
   screamingface-engine` green after the build and the simplify pass (after `uv sync --dev`); the
   bug-fix pass changed no Engine file, and the Engine's E4c tests pass on it (1328 passed).
-- **Deviations:** (1)–(16) in the Log. Design-review findings 12 and 14 (the singleton) are
+- **Deviations:** (1)–(17) in the Log. Design-review findings 12 and 14 (the singleton) are
   fixed and 16 is closed (Log 2026-10-26). Finding 14 (names) is closed: the owner renamed the
   recipe wrapper to `sf.Budgeted`.
 - **Follow-ups (not filed):** the Engine could record the refused body's first operation in
   `gate-decision.v1`, so the refusal row does not read it from the graph shape (it relies on the
   Gate's then-before-otherwise dependency order); a failed Case keeps no operations (deviation 4,
   a Candidate invocation contract change).
-- **Open before the PRs:** the PIN test-change manifest for the earlier E4c test edits
-  (`.claude/test-change-approvals/OME-1291.json` holds only the code-review fixtures), the
-  three-PR split, and the Linear leaves under OME-1291 (filed at PR open).
+- **Open:** PR #1733 review (owner decisions S1 release order, S2 the `sf.Router` reply, H3,
+  H4; Log 2026-11-12 review round). The three-PR split became one PR (deviation 17); the
+  Linear leaves are OME-1864/1865/1866.
