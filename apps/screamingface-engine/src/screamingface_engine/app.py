@@ -76,6 +76,7 @@ from screamingface_engine.rest import (
 )
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.cache_entries import router as cache_entries_router
+from screamingface_engine.rest.limits import router as limits_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.rest.runs import router as runs_router
 from screamingface_engine.runner_demand import DemandSource, RunnerDemandSampler
@@ -103,6 +104,7 @@ _ROUTERS = (
     blob_router,
     benchmark_router,
     operator_router,
+    limits_router,
     catalog_router,
     connection_router,
     cache_entries_router,

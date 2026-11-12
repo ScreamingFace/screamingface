@@ -207,11 +207,11 @@ is the one removed.
    `/spec/replicas`. Draining pods keep their runs (the render enforces
    `drainGraceS >= config.jobDeadlineS`, D5), so no run is lost; capacity dips until KEDA acts.
 6. `values/<env>.yaml`: `runnerPool.autoscaling.enabled: true`, `minReplicas`, `maxReplicas`.
-7. Keep `runnerPool.maxAckPending` at the value the broker's durable consumers already have
-   (prod: 4). A new value does not change an existing consumer (`runner_queue.py`: a change of
-   `max_ack_pending` needs the consumer deleted and made again). Until that, workers claim up to
-   the OLD cap. The demand signal reads the cap from the broker, so it stays correct, but the
-   per-bucket width is not the configured one. Found in the kind walkthrough 2026-11-10.
+7. Pin `runnerPool.maxAckPending` (prod: 4). Found in the kind walkthrough 2026-11-10: a new value
+   did not change an existing consumer. Since OME-1880 a starting worker writes the pinned value
+   to the existing consumers in place (`RunQueue.reconcile_consumers`), so a new value takes
+   effect at the next runner rollout; do not delete the consumers. During the rollout, workers
+   claim up to the old cap. The demand signal reads the cap from the broker, so it stays correct.
 8. Kubernetes 1.35 or later (`HPAConfigurableTolerance` beta, on by default; alpha in 1.33-1.34)
    and a KEDA whose ScaledObject CRD carries `behavior.scaleUp.tolerance`. The prod AKS version is
    the region default (Terraform `kubernetes_version = null`), so devops must confirm it. An older

@@ -181,6 +181,12 @@ run ends. The `screamingface_engine_queue_depth` and
 adapter — the counted resource changed from namespace quota headroom to queue depth, and the
 cache-plus-reservation shape did not.
 
+The per-caller in-flight cap defaults to 24 (OME-1314); set `config.runQueueCallerInflightCap`
+to change it (rendered to the App only). The Client reads the enforced value from
+`GET /v1/limits`. A starting worker applies `runnerPool.maxAckPending` to the existing queue
+consumers in place (`RunQueue.reconcile_consumers`), so a new value takes effect at the next
+runner rollout; running runs stay pending and are not redelivered.
+
 ### Warm children (uniform executor PRD 03)
 
 Each worker pod can keep child processes started AHEAD of a claim: they already did their
@@ -259,10 +265,10 @@ with four slots each run eight runs, and a third caller queues `n` runs. The dem
 - `runnerPool.drainGraceS` is less than `config.jobDeadlineS` (the longest run, default 57600 s).
   `terminationGracePeriodSeconds` must then be at least `drainGraceS + 25`, as always.
 
-Pin `maxAckPending` to the value the queue's durable consumers already have. A new value does not
-change an existing consumer: the consumer must be deleted and made again. Until then the workers
-claim up to the old cap. `/runner-demand` reads the cap from the broker, so the signal follows the
-old cap too.
+Pin `maxAckPending`. A starting worker writes the pinned value to the existing durable consumers in
+place (OME-1880), so a new value takes effect at the next runner rollout. Do not delete the
+consumers. Until the rollout ends, the workers claim up to the old cap. `/runner-demand` reads the
+cap from the broker, so the signal always follows the cap the consumers really have.
 
 Why the drain rule: on scale-down Kubernetes can remove a busy pod while idle pods exist. The drain
 keeps that pod's runs only for `drainGraceS` and then stops them. The chart default (30 s) stops

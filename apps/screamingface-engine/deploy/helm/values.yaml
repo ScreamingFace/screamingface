@@ -152,6 +152,10 @@ config:
   # note on `RunQueue.pull`. Changing it re-binds the durable consumers, so treat it as a
   # cutover-sized change rather than a live tuning knob.
   runQueueBucketCount: 16
+  # The per-caller in-flight cap (OME-1091): how many runs one caller may have admitted at
+  # once. Empty => the code default (24, OME-1314). Rendered to the App only; the Client reads
+  # the enforced value from GET /v1/limits.
+  runQueueCallerInflightCap: ""
   # Overrides the default model route declared in the Runner image's url4.toml. Empty => the
   # image's own default. Must be one of the models that url4.toml declares.
   aigatewayModel: ""
@@ -645,10 +649,10 @@ runnerPool:
   # the whole fleet's width, so a single caller can saturate the pool at any replica count. Pin
   # it whenever the pool runs more than one replica.
   #
-  # AIDEV-NOTE: the value binds when the consumer is CREATED — `pull_subscribe` is idempotent on
-  # existence, not on config — so changing it does NOT re-cap a live queue. The durable
-  # consumers must be deleted and rebuilt, and only while the queue is drained: deleting a
-  # consumer that holds in-flight acks redelivers those runs and re-spends provider calls.
+  # AIDEV-NOTE: the value binds when the consumer is CREATED — `pull_subscribe` on an existing
+  # durable does not change its config. A starting worker applies this value to the existing
+  # consumers in place (`RunQueue.reconcile_consumers`, OME-1314), so a new value takes effect
+  # at the next runner rollout. Running runs stay pending; do NOT delete the consumers.
   maxAckPending:
   # Seconds a draining worker keeps its in-flight children alive after SIGTERM before
   # terminating them (`worker_drain_grace_s`). The preStop starts the drain by SIGTERMing the

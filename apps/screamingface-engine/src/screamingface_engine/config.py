@@ -412,9 +412,8 @@ class Settings(BaseSettings):
     # the worker must poll each pull.
     run_queue_bucket_count: int = Field(default=runner_queue.DEFAULT_BUCKET_COUNT, ge=1)
     # FEATURE (OME-1091): the per-caller in-flight cap — how many of one caller's runs may be
-    # admitted at once, so one caller's 9-candidate evaluation cannot occupy every slot. 8
-    # matches the Client's fan-out, so one ordinary Evaluation fits while a second concurrent
-    # one is refused until the first's runs finish.
+    # admitted at once, so one caller cannot occupy every slot. Default 24 (OME-1314). The
+    # Client reads the enforced value from `GET /v1/limits` and sizes its fan-out from it.
     run_queue_caller_inflight_cap: int = Field(
         default=runner_queue.DEFAULT_CALLER_INFLIGHT_CAP, ge=1
     )
