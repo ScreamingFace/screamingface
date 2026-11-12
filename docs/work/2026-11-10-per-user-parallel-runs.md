@@ -165,5 +165,15 @@ To be decided in the spec.
 - **Commits / PRs (2026-11-11):** split at PR-open. Engine commit on `OME-1880-per-caller-run-cap-24`
   (sub-issue `OME-1880`); SDK commit on `OME-1881-sdk-fanout-from-engine-cap` (sub-issue `OME-1881`).
   Both rebased on origin/main `ecaabdf9c`.
+- **PR #1744 review (2026-11-12, khoaguin):** the 1 h reservation lease freed the slots of queued
+  and running runs, so a caller could pass the cap of 24 once its oldest runs were an hour old.
+  Confirmed in the code (`_expire_leases` dropped every token older than 3600 s; the docstring said
+  it covered only unreadable tails). Fixed as spec D4: `_expire_leases` keeps the durably queued
+  reservations, and `_release_finished_for` applies the lease to them only when the tail is
+  unreadable or shows only an older terminal frame. Unknown-outcome holds keep the lease (their
+  spec D4/D5). New test file `test_queue_lease_keeps_live_runs.py` (7 tests; 3 fail on the old
+  code). Existing tests unchanged. The branch was rebased on origin/main `92ee29a21` (#1738 merged
+  first): the CI conformance list keeps both new NATS tests, and #1738's "delete and make the
+  consumer again" text (chart README, its spec prerequisite 7) now names the in-place reconcile.
 - **Deviations:** the SDK fan-out cap read moved before `open_run_*` (plan said "before the fan-out";
   the review asked for before the Run exists).

@@ -127,11 +127,13 @@ PULL_SUB_TTL_S = 300.0
 DEFAULT_CALLER_INFLIGHT_CAP = 24
 # The BACKSTOP on how long one admission may hold a slot (OME-1108). The primary release is
 # observation — the runner re-reads a caller's terminal frames before refusing it — and this
-# covers only what observation cannot: a broker whose tails stay unreadable. Before it existed
-# the sole expiry was `capability_lifetime_s` (16.3h), so a run that finished in four minutes
-# could hold its slot for most of a day; a caller was then refused by its own history while the
-# queue sat empty and the pool idle. One hour is far above the longest legitimate run observed
-# (~6 min) and far below that lifetime, so it never fires in normal use.
+# covers only what observation cannot: a broker whose tails stay unreadable, a publish whose
+# outcome is unknown. Before it existed the sole expiry was `capability_lifetime_s` (16.3h), so
+# a run that finished in four minutes could hold its slot for most of a day; a caller was then
+# refused by its own history while the queue sat empty and the pool idle. It never frees a run
+# whose readable tail shows it queued or running (OME-1880): runs now wait and run for hours,
+# so a lease counted from admission let a caller pass its cap once its oldest runs were an hour
+# old. One hour stays far below the capability lifetime.
 DEFAULT_RESERVATION_LEASE_S = 3600.0
 # The anonymous caller's key: a run with no verified identity is its own caller, so it cannot
 # hide behind another caller's footprint.

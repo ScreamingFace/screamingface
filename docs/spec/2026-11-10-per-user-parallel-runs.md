@@ -95,6 +95,30 @@ those (see "Infra handoff").
 - WHY a dedicated route and not a field on the Run record (`POST /v1/runs`): the Run record is
   also returned by run listings; a per-caller limit is not a property of a Run.
 
+### D4. The reservation lease never frees a queued or running run (#1744 review)
+
+- Problem (khoaguin, #1744): the App frees a caller's slot when it sees the run's terminal frame,
+  or one hour after admission (`reservation_lease_s`), whatever the run is doing. With the cap at
+  24 and `max_ack_pending` at 4, 20 runs wait in the queue; after one hour their slots are free and
+  the same caller can admit 24 more, hour after hour. A run longer than one hour (HLE) loses its
+  slot too. The comment that set the hour said "longest legitimate run ~6 min"; the chart's own
+  `config.jobDeadlineS` is 16 h. The bug was on `main` before this PR; the cap of 24 makes the
+  waiting group 5 times bigger (4 before).
+- Change: the lease no longer frees a reservation that the queue durably accepted (the topic has a
+  `scheduled` record and the reservation is not an unknown-outcome hold) without a read. When the
+  caller is at its cap, the runner reads the tail of each of its topics (it already did this):
+  - a terminal frame newer than the reservation: free the slot (unchanged);
+  - readable, and no terminal frame (queued, or running): keep the slot, also past the lease;
+  - unreadable, or only a terminal frame older than the reservation (a re-start that the broker
+    deduplicated into a run that had ended): free the slot when it is older than the lease
+    (unchanged).
+- Not changed: an unknown-outcome hold still ends at the lease (spec
+  `2026-11-10-jetstream-publish-unknown-outcome.md` D4/D5); a never-stored attempt has an empty
+  subject too, so a read cannot speak for it. The capability lifetime (16.3 h) still frees every
+  slot. The lease stays one hour and is not a setting.
+- Cost: none new. A caller below its cap makes no reads; a caller at its cap reads its own topics
+  only, bounded by the cap, as before.
+
 ## Order of delivery
 
 1. Engine PR (`screamingface-engine` sub-issue): D1, D2, the `/v1/limits` route of D3.
@@ -143,6 +167,8 @@ signal shows the problem.
 - The SDK never sends more runs at once than the Engine says it admits for the caller (or 8 when
   the Engine does not say).
 - An unreadable `/v1/limits` never fails an evaluation.
+- A caller never has more than its cap of runs queued or running on one App replica: the lease
+  frees only reservations whose run a read cannot show as queued or running (D4).
 
 ## Test outline (RED first; tests are append-only)
 
