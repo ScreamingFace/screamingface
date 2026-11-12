@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Protocol
+from typing import Any, Protocol
 
 from screamingface_engine.candidate_outcomes import CandidateOutcome
 from screamingface_engine.runs.records import (
@@ -73,6 +73,14 @@ class RunRegistry(Protocol):
 
     async def summary(self, owner: OwnerKey, run_id: str) -> RunRecord | None:
         """`get` without each Candidate's start and record (E5 P2 spec §4.4)."""
+        ...
+
+    async def records(
+        self, owner: OwnerKey, run_id: str, indexes: Sequence[int]
+    ) -> dict[int, dict[str, Any] | None] | None:
+        """The record of each named Candidate the Run has, by index (`None` until it ends), or
+        `None` when the owner has no such Run. The event stream and the result route read one
+        Candidate's record without loading the whole Run (E5 P2 spec §4.2)."""
         ...
 
     async def list(self, owner: OwnerKey, query: RunQuery) -> RunPage:

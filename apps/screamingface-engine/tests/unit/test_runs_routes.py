@@ -186,6 +186,10 @@ async def test_the_record_never_carries_the_owner(registry: Registry) -> None:
         "finished_at",
         "benchmark",
         "case_count",
+        "detached",
+        "deadline_at",
+        "stopped_by",
+        "context",
         "candidates",
     }
     assert [c["name"] for c in body["candidates"]] == ["alpha", "beta"]
@@ -198,7 +202,7 @@ async def test_list_and_get_agree_on_state_and_cost(registry: Registry) -> None:
     await registry.store.bind(owner_key("alice@example.org"), run_id, 0, "topic-a")
     await registry.store.settle("topic-a", CandidateOutcome("succeeded", cost_usd=Decimal("0.5")))
 
-    one = (await engine.client.get(f"/runs/{run_id}", headers=ALICE)).json()
+    one = (await engine.client.get(f"/runs/{run_id}?view=summary", headers=ALICE)).json()
     listed = (await engine.client.get("/runs", headers=ALICE)).json()
 
     assert listed == {"runs": [one], "next_cursor": None}

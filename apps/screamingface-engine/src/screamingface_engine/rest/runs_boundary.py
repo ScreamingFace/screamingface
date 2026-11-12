@@ -12,9 +12,13 @@ from fastapi import Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from starlette.exceptions import HTTPException
+from starlette.requests import HTTPConnection
+from starlette.types import Message
 
 from screamingface_engine import job_env
+from screamingface_engine.artifacts.run_results import RESULT_STORE_UNAVAILABLE
 from screamingface_engine.auth import ProblemException
+from screamingface_engine.rest.capped_body import BodyTooLarge, capped_body
 from screamingface_engine.rest.gateway_route import problem_responses
 from screamingface_engine.rest.stopping import QUEUE_UNAVAILABLE_RETRY_AFTER_S, stop_topic
 from screamingface_engine.runs.db import UNAVAILABLE_ERRORS
@@ -35,6 +39,11 @@ CANDIDATE_ALREADY_STARTED = "candidate_already_started"
 CLIENT_KEY_CONFLICT = "client_key_conflict"
 INVALID_CURSOR = "invalid_cursor"
 MALFORMED_BODY = "malformed_body"
+# E5 P2 spec D16: every 404 and 422 a P2 Engine sends on `/runs` carries a code, so a P2 Client
+# tells an Engine from before P2 (code-less) from this one.
+RUNS_OFF = "runs_off"
+INVALID_REQUEST = "invalid_request"
+REQUEST_TOO_LARGE = "request_too_large"
 RUN_HEADER = "X-SF-Run"
 CANDIDATE_HEADER = "X-SF-Run-Candidate"
 # The verified identity that owns a hosted Run (spec D6). Local mode is single-user.
@@ -89,12 +98,13 @@ class RunsRoute(APIRoute):
             request_registry(request)
             request_owner(request)
             try:
-                return await route_handler(request)
+                return await route_handler(await _capped(request))
             except RequestValidationError as exc:
                 raise problem(
                     status=422,
                     title="Unprocessable Content",
                     detail=f"the request is invalid at {_invalid_at(exc)}",
+                    code=INVALID_REQUEST,
                 ) from None
             except HTTPException as exc:
                 # FastAPI's answer to a body it could not decode (invalid UTF-8, say).
@@ -117,6 +127,26 @@ class RunsRoute(APIRoute):
                 raise _unexpected_failure(exc) from None
 
         return runs_route_handler
+
+
+async def _capped(request: Request) -> Request:
+    """``request`` with its body read up to `run_request_max_bytes` (E5 P2 spec §4.1): a body
+    over it is a 413 before any of it is parsed. WHY a new `Request`: FastAPI reads the body
+    from the request it is handed, and this one's stream is spent."""
+    if request.method != "POST":
+        return request
+    limit = request.app.state.settings.run_request_max_bytes
+    try:
+        body = await capped_body(request, limit)
+    except BodyTooLarge as exc:
+        raise problem(
+            status=413, title="Content Too Large", detail=str(exc), code=REQUEST_TOO_LARGE
+        ) from None
+
+    async def replay() -> Message:
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return Request(request.scope, replay)
 
 
 def _registry_unavailable(exc: Exception) -> ProblemException:
@@ -161,15 +191,29 @@ def request_registry(request: Request) -> RunRegistry:
     # `getattr`: an App assembled without `install_runs` has Runs off.
     registry = getattr(request.app.state, "run_registry", None)
     if registry is None:
-        raise problem(status=404, title="Not Found", detail="Runs are off on this Engine")
+        raise problem(
+            status=404, title="Not Found", detail="Runs are off on this Engine", code=RUNS_OFF
+        )
     return registry
 
 
-def request_caller(request: Request) -> OwnerKey | None:
-    """The caller's owner key (spec D6), or None when a hosted request carries no identity."""
-    if not getattr(request.app.state, "runs_require_identity", True):
+def request_email(connection: HTTPConnection) -> str | None:
+    """The caller's verified email, or None in local mode (single-user) or with no identity.
+
+    INVARIANT (E5 P2 spec D8): personal data, kept on the Run for its driver only; never logged
+    and never returned.
+    """
+    if not getattr(connection.app.state, "runs_require_identity", True):
+        return None
+    return job_env.identity_from_headers(connection.headers).get(_OWNER_HEADER)
+
+
+def request_caller(connection: HTTPConnection) -> OwnerKey | None:
+    """The caller's owner key (spec D6), or None when a hosted request carries no identity.
+    Also asked of a WebSocket (`rest.runs_events`)."""
+    if not getattr(connection.app.state, "runs_require_identity", True):
         return owner_key(_LOCAL_OWNER)
-    email = job_env.identity_from_headers(request.headers).get(_OWNER_HEADER)
+    email = request_email(connection)
     return None if email is None else owner_key(email)
 
 
@@ -191,8 +235,21 @@ def run_not_found(run_id: str) -> ProblemException:
     return problem(status=404, title="Not Found", detail=detail, code=RUN_NOT_FOUND)
 
 
+def result_store_unavailable(exc: Exception | None) -> ProblemException:
+    """The run-results store is missing or refused (E5 P2 spec §4.1): retryable, and private."""
+    if exc is not None:
+        _logger.warning("the run-results store could not answer; retryable", exc_info=exc)
+    return ProblemException(
+        status=503,
+        title="Service Unavailable",
+        detail="the run-results store could not be reached; retry",
+        code=RESULT_STORE_UNAVAILABLE,
+        headers={"Retry-After": str(QUEUE_UNAVAILABLE_RETRY_AFTER_S), **PRIVATE_HEADERS},
+    )
+
+
 def invalid_value(exc: ValueError) -> ProblemException:
-    return problem(status=422, title="Unprocessable Content", detail=str(exc))
+    return problem(status=422, title="Unprocessable Content", detail=str(exc), code=INVALID_REQUEST)
 
 
 async def stop_candidate(request: Request, topic: str) -> None:

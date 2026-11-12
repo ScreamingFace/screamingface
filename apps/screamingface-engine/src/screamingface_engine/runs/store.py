@@ -17,7 +17,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import cast
+from typing import Any, cast
 
 from tortoise.exceptions import IntegrityError
 from tortoise.expressions import Q
@@ -307,6 +307,17 @@ class TortoiseRunStore(DriverStore):
                     result_key(result_prefix(row["run_id"], row["index"]), digest)
                 )
         return keys
+
+    @in_context
+    async def records(
+        self, owner: OwnerKey, run_id: str, indexes: Sequence[int]
+    ) -> dict[int, dict[str, Any] | None] | None:
+        if not await Run.filter(id=run_id, owner=owner).exists():
+            return None
+        rows = await Candidate.filter(run_id=run_id, index__in=list(indexes)).values(
+            "index", "record"
+        )
+        return {row["index"]: row["record"] for row in rows}
 
     @in_context
     async def has_start(self, topic: str) -> bool:
