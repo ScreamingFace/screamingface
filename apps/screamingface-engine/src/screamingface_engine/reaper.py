@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Protocol
 
 _logger = logging.getLogger(__name__)
@@ -86,8 +86,13 @@ class RunReaper:
         grace_s: float,
         clock: Callable[[], float] = time.monotonic,
         tick_s: float | None = None,
+        driven: Callable[[str], Awaitable[bool]] | None = None,
     ) -> None:
         self._job_runner = job_runner
+        # E5 P2 spec R14: whether a topic belongs to a Run the Engine drives. Such a Run ends by
+        # its own rules (a cancel, a deadline, nobody following it), so whoever attaches to one
+        # of its topics and leaves never stops it.
+        self._driven = driven
         self._audience = audience
         self._grace_s = grace_s
         self._clock = clock
@@ -196,5 +201,7 @@ class RunReaper:
         is caught by `_reap`'s guard try, which re-arms the deadline.
         """
         if await self._audience.has_subscriber(topic):
+            return False
+        if self._driven is not None and await self._driven(topic):
             return False
         return await self._job_runner.exists(topic)

@@ -14,6 +14,7 @@ both databases. So a terminal Candidate never moves (R4), and a bind cannot over
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from typing import cast
@@ -23,6 +24,7 @@ from tortoise.expressions import Q
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
+from screamingface_engine.artifacts.run_results import context_key, result_key, result_prefix
 from screamingface_engine.candidate_outcomes import CandidateOutcome, stored_cost
 from screamingface_engine.runs.db import CONNECTION
 from screamingface_engine.runs.ids import new_run_id
@@ -281,6 +283,35 @@ class TortoiseRunStore(DriverStore):
             return None
         await self.stop(run_id, "canceled")
         return await self.get(owner, run_id)
+
+    @in_context
+    async def stored_objects(self, run_ids: Sequence[str]) -> dict[str, list[str]]:
+        """The run-results keys each Run names: its context, and each Candidate's result by the
+        checksum in its record (E5 P2 spec R13). A malformed checksum names nothing."""
+        keys: dict[str, list[str]] = {run_id: [] for run_id in run_ids}
+        with_context = await Run.filter(
+            id__in=list(run_ids), context_sha256__isnull=False
+        ).values_list("id", flat=True)
+        for run_id in cast(list[str], with_context):
+            keys[run_id].append(context_key(run_id))
+        rows = await Candidate.filter(run_id__in=list(run_ids), record__isnull=False).values(
+            "run_id", "index", "record"
+        )
+        for row in rows:
+            result = row["record"].get("result") if isinstance(row["record"], dict) else None
+            digest = result.get("sha256") if isinstance(result, dict) else None
+            if not isinstance(digest, str):
+                continue
+            with contextlib.suppress(ValueError):
+                keys[row["run_id"]].append(
+                    result_key(result_prefix(row["run_id"], row["index"]), digest)
+                )
+        return keys
+
+    @in_context
+    async def has_start(self, topic: str) -> bool:
+        """Whether ``topic`` is a Candidate's whose Run the Engine drives (E5 P2 spec R14)."""
+        return await Candidate.filter(topic=topic, start__isnull=False).exists()
 
     @in_context
     async def owed_stops(self, owner: OwnerKey, run_id: str) -> list[str]:

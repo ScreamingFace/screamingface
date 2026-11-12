@@ -10,7 +10,6 @@ and no answer carries the owner.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from datetime import datetime
 from decimal import Decimal
@@ -51,13 +50,10 @@ from screamingface_engine.runs.registry import (
     InvalidCursor,
     RunRegistry,
 )
+from screamingface_engine.runs.stopping import make_stops
 
 _logger = logging.getLogger(__name__)
 
-# How many of a Run's topics a cancel stops at once: each stop may wait on the runner's control
-# asks, so one at a time would take N times as long; unbounded, a 256-Candidate Run would open
-# 256 asks on the broker together.
-_STOP_CONCURRENCY = 16
 router = APIRouter(
     prefix="/runs",
     tags=["Runs"],
@@ -154,24 +150,13 @@ async def _read(registry: RunRegistry, owner: OwnerKey, run_id: str) -> RunRecor
 
 
 async def _stop_owed(request: Request, registry: RunRegistry, owner: OwnerKey, run_id: str) -> None:
-    """Stop every owed topic, `_STOP_CONCURRENCY` at a time, and clear each obligation once its
+    """Stop every owed topic, `STOP_CONCURRENCY` at a time, and clear each obligation once its
     stop succeeded (spec D12). Every stop is tried even when one fails; a failure whose topic is
     still owed is then raised as a private 503, and a retried cancel stops what is still owed."""
     topics = await registry.owed_stops(owner, run_id)
-    gate = asyncio.Semaphore(_STOP_CONCURRENCY)
-
-    async def stop_one(topic: str) -> None:
-        async with gate:
-            await stop_candidate(request, topic)
-        await registry.stop_done(topic)
-
-    results = await asyncio.gather(*(stop_one(t) for t in topics), return_exceptions=True)
-    failed = [(t, r) for t, r in zip(topics, results, strict=True) if isinstance(r, BaseException)]
+    failed = await make_stops(registry, lambda topic: stop_candidate(request, topic), topics)
     if not failed:
         return
-    for _, result in failed:
-        if not isinstance(result, Exception):
-            raise result  # a cancellation is never swallowed
     # WHY recheck: a concurrent cancel may have completed the same stop, so this one's failure
     # leaves nothing owed and is not the caller's to retry.
     try:

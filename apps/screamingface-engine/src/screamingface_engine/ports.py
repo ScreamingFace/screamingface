@@ -27,7 +27,7 @@ from datetime import datetime
 
 from screamingface_engine.job_env import RunShape
 from url4.streaming.interfaces import JobRunner
-from url4.streaming.protocol import CachePolicy
+from url4.streaming.protocol import CachePolicy, OutboundFrame
 
 
 class StoppedBeforeSchedule(Exception):
@@ -108,6 +108,18 @@ class IdentityAwareJobRunner(JobRunner):
         keeps its stop as a tombstone instead, so the default records nothing.
         """
         yield
+
+    async def last_frame(self, topic: str) -> OutboundFrame | None:
+        """The topic's newest frame, or None when it has none (E5 P2 spec R7).
+
+        FEATURE: a detached Run (OME-1837). The driver settles a Candidate whose run ended but
+        whose outcome never arrived from that frame. A substrate that keeps no frames answers
+        None, and such a Candidate waits for reconcile instead.
+
+        Raises:
+            QueueReadError: the stream could not be read: not an answer.
+        """
+        return None
 
     async def stop_bound(self, topic: str) -> None:
         """Stop a topic a Run bound (E5 P1 spec D12): one this App queued, or is about to.

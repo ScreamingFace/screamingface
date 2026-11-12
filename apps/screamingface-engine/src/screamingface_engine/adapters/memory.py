@@ -78,6 +78,11 @@ class InMemoryEventStream(EventStream):
                 del log[: len(log) - self._max_frames]
             cond.notify_all()
 
+    async def last_frame(self, topic: str) -> OutboundFrame | None:
+        """The topic's newest retained frame, or None (E5 P2 spec R7)."""
+        log = self._log.get(topic)
+        return decode(log[-1][1]) if log else None
+
     async def subscribe(
         self, topic: str, from_sequence: int | None = None
     ) -> AsyncIterator[OutboundFrame]:
