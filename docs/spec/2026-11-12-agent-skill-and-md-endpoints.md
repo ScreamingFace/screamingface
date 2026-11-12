@@ -1,6 +1,6 @@
 # Agent skill and plain-text docs endpoints for the ScreamingFace Client docs
 
-Status: draft · Stack: repo · Issue: `OME-1894` · Parent: `OME-1313`
+Status: approved · Stack: repo · Issue: `OME-1894` · Parent: `OME-1313`
 
 ## Problem
 
@@ -36,7 +36,7 @@ A coding agent that works with ScreamingFace has no installable instructions and
 | D12 | The docs page is `/sf-client/agent-skill`, in the "Get started" nav group. It has three tabs (Claude Code, other agents, manual copy), a "Copy to your agent" prompt block with a copy button, update commands and troubleshooting. |
 | D13 | The generated skill is committed, because the marketplace installs from git. A CI step regenerates it and fails when the committed copy differs. |
 | D14 | The drift check fails when a `sf.<Name>` in the references is missing from `screamingface.__all__` of the release that the docs version names, and when a name in that `__all__` appears in no reference. |
-| D15 | One probe file ships with the build so that the `Content-Type` of a deployed `.md` is read after the first deploy. |
+| D15 | No probe file ships. `public-docs/scripts/check-deployed.sh` is run after the first deploy: it requires `200` and the expected `Content-Type` for `/favicon.svg`, `/llms.txt`, `/llms-full.txt` and two `.md` endpoints, and fails on the `200 text/html` fallback. |
 | D16 | A line in `public-docs/README.md` that says the site is behind a temporary password gate is removed. |
 | D17 | The preamble of `SKILL.md` and the docs page follow the product-context terminology and claims table, and the writing-docs prose rules: one Divio page type (the page is a how-to), no narrative, no em-dashes or en-dashes, sentence-case headings, numbers instead of adjectives. |
 | D18 | The docs page carries one diagram, "From docs to agent": the docs pages, the generator, the committed skill and the `.md` endpoints, and the two install routes. Source in `docs/diagrams/`, light and dark SVG and PNG, labels equal to the prose. |
@@ -60,7 +60,7 @@ Use one installation method. Then use the screamingface skill when writing code 
 2. `public-docs/agent-skill/skills/screamingface/references/*.md`, one per docs route.
 3. `npm run build:skill` in `public-docs`, with the shared `sfClientVersion()` module.
 4. `.claude-plugin/marketplace.json` and `public-docs/agent-skill/.claude-plugin/plugin.json`.
-5. `dist/<route>.md`, `dist/llms.txt`, `dist/llms-full.txt` and the probe file.
+5. `dist/<route>.md`, `dist/llms.txt`, `dist/llms-full.txt` and `public-docs/scripts/check-deployed.sh`.
 6. The docs page, its route, its nav entry and a row in `public-docs/CLAUDE.md`.
 7. The CI drift check.
 8. The README fix.
@@ -88,7 +88,7 @@ Use one installation method. Then use the screamingface skill when writing code 
 - The references total 354,366 characters over 44 pages. An agent may skip or truncate a long reference. `SKILL.md` stays short and its index names one reference file per task. Whether an agent skips a reference is not measured.
 - A root `.claude-plugin/marketplace.json` is reviewed by the root code owners, `@sergio-bershadsky` and `@HupBaHa`, not by the docs owner.
 - The committed copy produces a skill diff for every docs change and for every release. The drift check keeps it equal to the docs.
-- The `Content-Type` of a deployed `.md` is unknown until the first deploy. A missing `.md` returns `200 text/html`, so the check reads the header and not the status.
+- The `Content-Type` of a deployed `.md` is unknown until the first deploy. A missing `.md` returns `200 text/html`, so `check-deployed.sh` reads the header and not the status. Against the site before this change it passes for `/favicon.svg` and fails for the other four URLs.
 - The install from a GitHub source (not a local path) is untested until the branch is pushed.
 
 ## Verification
@@ -99,7 +99,7 @@ Use one installation method. Then use the screamingface skill when writing code 
 - `npx skills add <repo> --skill screamingface` installs the skill into a clean project.
 - An agent with only the skill writes a correct `sf.Fanout(...) >> sf.Synthesize(...)` chain and a correct hosted login, checked by running its output.
 - Every route has a `.md` endpoint in `dist`, and `llms.txt` lists them all.
-- After the first deploy: `curl -I` on the probe file shows its `Content-Type`.
+- After the first deploy: `public-docs/scripts/check-deployed.sh` exits 0.
 - `npm run type-check`, `npm run lint`, `npm run build` and `npx prettier --check src` pass in `public-docs`.
 
 ## Acceptance
