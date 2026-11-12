@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -55,7 +55,8 @@ async def test_cancel_stops_a_bound_candidate_not_yet_confirmed(registry: Any) -
 
     assert resp.status_code == 202
     assert engine.runner.stopped == ["topic-a"]
-    assert (await _record(registry, run_id)).candidates[0].state == "stopped"
+    # E5 P2 spec R9: its start may have landed, so it is `scheduled` until its stop's outcome.
+    assert (await _record(registry, run_id)).candidates[0].state == "scheduled"
 
 
 async def test_a_sibling_cancel_never_stops_a_candidate_that_succeeded(registry: Any) -> None:
@@ -227,7 +228,10 @@ class _CountingRegistry:
         self.sweeps += 1
         return 0
 
-    async def expire(self, older_than: datetime) -> int:
+    async def expiring(self, older_than: datetime) -> list[str]:
+        return []
+
+    async def expire(self, run_ids: Sequence[str]) -> int:
         return 0
 
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime, timedelta
 from typing import Protocol
 
@@ -21,7 +21,9 @@ class Sweepable(Protocol):
 
     def reconcile(self) -> Awaitable[int]: ...
 
-    def expire(self, older_than: datetime) -> Awaitable[int]: ...
+    def expiring(self, older_than: datetime) -> Awaitable[list[str]]: ...
+
+    def expire(self, run_ids: Sequence[str]) -> Awaitable[int]: ...
 
 
 class RunSweeper:
@@ -34,7 +36,15 @@ class RunSweeper:
 
     async def sweep_once(self) -> None:
         lost = await self._registry.reconcile()
-        expired = await self._registry.expire(self._clock() - self._retention)
+        cutoff = self._clock() - self._retention
+        expired = 0
+        # WHY batches until one deletes nothing: `expiring` lists one batch at a time, and a
+        # batch that deletes nothing would be listed again forever.
+        while batch := await self._registry.expiring(cutoff):
+            deleted = await self._registry.expire(batch)
+            expired += deleted
+            if not deleted:
+                break
         if lost or expired:
             logger.info("Run sweep: %d Candidates lost, %d Runs expired", lost, expired)
 

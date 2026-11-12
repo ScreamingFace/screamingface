@@ -1,4 +1,5 @@
-"""One Candidate of a Run: its place in the Run, the topic it started on, and how it ended."""
+"""One Candidate of a Run: its place in the Run, how to start it, the topic it started on, and
+how it ended."""
 
 from __future__ import annotations
 
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from screamingface_engine.runs.models.run import Run
 
 STATE_LENGTH = 16
+TRACE_ID_LENGTH = 32  # a W3C trace id in hex
 
 
 class BaseCandidate(Model):
@@ -37,6 +39,13 @@ class BaseCandidate(Model):
     # INVARIANT (spec D12): a cancel owes a stop to every bound Candidate it found live; the stop
     # clears it. A retried cancel stops exactly what is still owed, and nothing else.
     stop_owed = fields.BooleanField(default=False, db_default=False)
+    # E5 P2 spec D8: the url4 expression and flags the driver starts it with. NULL on a Run a
+    # Client from before P2 registered, which nothing in the Engine starts.
+    start: fields.Field[dict | None] = fields.JSONField(null=True)
+    # E5 P2 spec §4.3: what the runner reported when the run ended, NULL until then.
+    record: fields.Field[dict | None] = fields.JSONField(null=True)
+    # INVARIANT (E5 P2 spec §4.3): one trace for the Candidate's whole life, sent with every start.
+    trace_id = fields.CharField(max_length=TRACE_ID_LENGTH, null=True)
 
 
 class Candidate(BaseCandidate):

@@ -71,7 +71,8 @@ async def test_a_retried_cancel_stops_what_the_failed_one_could_not(registry: Re
 
     assert failed.status_code == 503
     assert (failed.headers["Cache-Control"], failed.headers["Vary"]) == _PRIVATE
-    assert retried.status_code == 204
+    # E5 P2 spec R9: the Candidate is live until its stop's outcome lands, so still 202.
+    assert retried.status_code == 202
     assert runner.attempts == ["topic-a", "topic-a"]
     assert runner.stopped == ["topic-a"]
 

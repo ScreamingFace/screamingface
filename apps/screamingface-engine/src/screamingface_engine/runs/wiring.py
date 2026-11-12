@@ -142,10 +142,11 @@ async def open_run_store(
         raise
     return TortoiseRunStore(
         clock=clock,
-        pending_grace=timedelta(seconds=settings.run_pending_grace_s),
         lost_after=timedelta(seconds=settings.run_lost_after_s),
         outcomes_survive_restart=survives_restart,
         started_at=clock(),
+        orphan_grace=timedelta(seconds=settings.orphan_grace_s),
+        default_deadline=timedelta(seconds=settings.run_detached_deadline_s),
         context=context,
     )
 
