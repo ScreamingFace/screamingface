@@ -77,8 +77,7 @@ async def _run_start(
     WHY text sources are not touched here: they are never attached (owner decision A) and
     stay lazy, so they behave exactly as before (D5 exempt).
     """
-    if isinstance(target, (Graph, DagNode)):
-        refuse_prebuilt(target)  # finding 3 (owner 2026-11-04): fail closed, before any I/O
+    _refuse_before_io(target, run_ctx.processor)
     if current_run_files() is not None:
         return RunStart(tuple(case))
     ast = _ast_of(target)
@@ -112,6 +111,13 @@ async def _run_start(
     return start
 
 
+def _refuse_before_io(target: str | AstNode | Graph | DagNode, processor: str | None) -> None:
+    """The run-start refusals that need no scan of the run's own expression."""
+    if isinstance(target, (Graph, DagNode)):
+        refuse_prebuilt(target)  # finding 3 (owner 2026-11-04): fail closed, before any I/O
+    _refuse_processor_files(processor)  # round 13: a Form-3 processor's files, before any I/O
+
+
 def _precheck_remote(scan: SourceScan, run_ctx: ExecutionContext) -> None:
     """C6 (finding 4): a node context refuses a remote-node call before ANY I/O — so before the
     attachment phase, not when the call executes. A run with no run-start I/O keeps the
@@ -128,18 +134,46 @@ def _precheck_remote(scan: SourceScan, run_ctx: ExecutionContext) -> None:
     )
 
 
+def _processor_scan(value: str | None) -> SourceScan | None:
+    """The structural scan of a Form-3 (expression-valued) processor; ``None`` for any other form
+    or one that does not parse (left to its resolve-time error)."""
+    if value is None or classify_processor(value) != "expression":
+        return None
+    ast = _ast_of(value.strip())
+    return None if ast is None else scan_sources(ast)
+
+
 def _processor_expression_calls(value: str | None) -> tuple[tuple[str, str], ...]:
     """The structural ``url4://`` calls inside a Form-3 (expression-valued) processor.
 
     INVARIANT (PR #1587 review round 10, owner 2026-11-05): an expression processor is parsed
     and given the SAME structural remote-call scan as the run's own expression, so a remote call
     in its AST is refused before any run-start I/O; only its computed FINAL value stays checked
-    when it resolves. A processor that does not parse is left to its resolve-time error.
+    when it resolves.
     """
-    if value is None or classify_processor(value) != "expression":
-        return ()
-    ast = _ast_of(value.strip())
-    return () if ast is None else scan_sources(ast).remote_nodes
+    scan = _processor_scan(value)
+    return () if scan is None else scan.remote_nodes
+
+
+def _refuse_processor_files(value: str | None) -> None:
+    """A Form-3 processor that names an attachment source or an attached blob ref is refused
+    ``x.source_not_static`` at run start, before any I/O.
+
+    INVARIANT (PR #1587 round 13, FAIL CLOSED): the processor's files are never admitted into the
+    run's manifest. Without this the run paid for every member call and failed only when the
+    processor resolved, or read its blob uncapped and attached nothing. A collection-only blob
+    ref is not an attachment (D4) and is left to its lazy, verified read.
+    """
+    scan = _processor_scan(value)
+    if scan is None:
+        return
+    files = (
+        *scan.non_literal,
+        *(identity.url for identity, _guards in scan.occurrences),
+        *(ref.address.ref for ref in scan.refs if not ref.collection),
+    )
+    if files:
+        raise not_static(files[0])
 
 
 async def _verify_all(

@@ -1,7 +1,7 @@
 ---
 ticket: OME-1543
 stack: url4
-status: in_progress
+status: in_review
 started: 2026-10-22
 finished:
 ---
@@ -42,9 +42,10 @@ Spec: #1450 `docs/spec/2026-10-16-OME-1535-file-input-execution.md` (F1/F1b/F2/F
 
 ## Outcome (fill at the end — required before COMMIT)
 
-Status: **done for url4 sub-issue A — U1–U6 incl. U3b and the U6 root export** after the owner
-decisions Q-A..Q-D (Linear `OME-1543` comment "Owner decisions (Sergey, 2026-10-22)"). No PR
-(owner: not until #1450 and #1482 merge).
+Status: **in review as PR #1587 (targets main, not a draft)**. url4 sub-issue A, U1–U6, after
+the owner decisions Q-A..Q-D (Linear `OME-1543` comment "Owner decisions (Sergey, 2026-10-22)").
+Q-B's lazy `https://` design below was replaced in round 7 by run-start materialization; the
+per-round entries further down are the current record. `finished:` is filled at merge.
 
 ### Owner decisions applied (2026-10-22)
 
@@ -874,3 +875,18 @@ call-context sibling binding refuses; an unnamed source sees a LATER named model
   exactly like `peer._bytes` (decision B). New `test_review_round12.py` (RED: reads==[7e6,7e6]
   → GREEN: zero reads). Round-10 docstrings in `_caps.reserve`, `_run_files`, `io/layer`
   updated to decision B. `url4 --base 3200a73f7` and `repo --base origin/main` exit 0.
+
+### Round 13 (Fable pre-review, 2026-11-12, head `73f62caf1`) — DONE
+- Round 12 (held `str` reserved before encode) confirmed fixed at `73f62caf1`.
+- Blocker: a Form-3 `processor=` expression naming an attachment source, a non-literal
+  attachment target or an attached blob ref skipped run-start admission. The run fetched
+  every member, then failed `x.source_not_static`, or read the blob uncapped and attached nothing.
+- Fix (fail closed): `dag/_run_files.py` `_refuse_processor_files` reuses the processor's
+  structural scan (`_processor_scan`, shared with the round-10 remote-call precheck) and raises
+  `x.source_not_static` before any I/O, for every run including one with no run-start files.
+  The processor's files are never admitted into the manifest. A collection-only blob ref is
+  not an attachment (D4) and is left alone.
+- Tests: new `test_form3_processor_files_refused_at_run_start.py` (4 refusal cases: https, `$x`,
+  `src=` blob, bare blob; plus a text-only control). RED: member fetched / `unknown_processor`.
+  GREEN: refused, `io.calls == []`, 0 model calls. No prior test touched.
+- url4 3124 passed / 17 xfailed; module-size within caps (`_run_files.py` is uncapped, 251 lines).
