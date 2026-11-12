@@ -21,6 +21,10 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SITE = 'https://docs.screamingface.ai'
 const PLUGIN_DIR = path.join(ROOT, 'agent-skill')
 const SKILL_DIR = path.join(PLUGIN_DIR, 'skills', 'screamingface')
+// Pages that stay out of the skill. The roadmap lists features that do not exist yet, and the
+// skill holds only statements that are true on the docs version. The page keeps its `.md`
+// endpoint and its line in llms.txt.
+const SKILL_EXCLUDE = new Set(['/roadmap'])
 const BODY_START = '<div class="prose max-w-none prose-content"'
 const SHELL_START =
   /^(\$ |[A-Z_]+=|pip |uv |npm |npx |screamingface |export |claude |curl |just |git |sf\.configure\(\) )/
@@ -376,10 +380,15 @@ async function main() {
     } else {
       const refs = path.join(SKILL_DIR, 'references')
       fs.rmSync(refs, { recursive: true, force: true })
-      for (const [route, md] of markdown) write(path.join(refs, `${slug(route)}.md`), md)
-      writeSkill(groups, byRoute, version)
+      const skillGroups = groups
+        .map((g) => ({ ...g, routes: g.routes.filter((route) => !SKILL_EXCLUDE.has(route)) }))
+        .filter((g) => g.routes.length)
+      for (const [route, md] of markdown) {
+        if (!SKILL_EXCLUDE.has(route)) write(path.join(refs, `${slug(route)}.md`), md)
+      }
+      writeSkill(skillGroups, byRoute, version)
       console.log(
-        `skill: ${markdown.size} references, SKILL.md, plugin.json (docs version ${version})`,
+        `skill: ${markdown.size - SKILL_EXCLUDE.size} references, SKILL.md, plugin.json (docs version ${version})`,
       )
     }
   } finally {
