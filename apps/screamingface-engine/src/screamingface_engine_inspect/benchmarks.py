@@ -182,9 +182,12 @@ class BenchmarkSpec:
     #: the revision, never a silent cut (OME-1268).
     dropped_scorers: tuple[str, ...] = ()
     #: Installed packages a scorer of this row grades WITH (MATH's symbolic scorer calls
-    #: sympy): their installed versions pin into the revision, so a dependency bump that
-    #: changes per-Case values cannot keep a published Revision (OME-1268). Empty on every
-    #: other row, so no published revision moves.
+    #: sympy; IFEval's checker calls nltk and langdetect): their installed versions hash into
+    #: the row's computed fingerprint, so a dependency bump that can change per-Case values
+    #: trips the fingerprint golden test instead of passing silently (OME-1268). Since
+    #: OME-1610 the fingerprint is an alarm, not the published id: the owner then decides
+    #: whether the published Revision moves or holds (IFEval held on OME-1853). Empty on
+    #: every other row.
     scorer_dependencies: tuple[str, ...] = ()
     #: The eval's own whole-run inspect ``@metric``, as a dotted ``module:constructor``
     #: reference called with no arguments (``inspect_evals.hle.metrics:accuracy``). Set, it
@@ -4961,6 +4964,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # The vendored checker reads only the reply and the instructions in the Sample metadata;
         # no Case has an answer key and no judge grades it.
         scorer_reads_answer_key=False,
+        # The vendored grader tokenises with nltk (RegexpTokenizer and Punkt in
+        # vendor/instructions_util.py) and detects the reply's language with langdetect
+        # (three instruction kinds in vendor/instructions.py): their installed versions are
+        # Benchmark identity, like sympy on MATH, so a bump of either moves this fingerprint
+        # instead of per-Case values under an unchanged one (review findings on #1707,
+        # OME-1853). Both are base Engine dependencies, pinned exactly in pyproject.toml, so an
+        # extra-less install still assembles the row with the same versions.
+        scorer_dependencies=("nltk", "langdetect"),
         # The paper's four numbers from one dict Score, headline first (the published order).
         named_scores=(
             "prompt_level_strict_accuracy",

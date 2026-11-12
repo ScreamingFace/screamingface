@@ -39,7 +39,7 @@ import uuid
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any, NamedTuple, Protocol
+from typing import Any, NamedTuple, Protocol, runtime_checkable
 
 import nats
 from nats.aio.client import Client
@@ -66,6 +66,7 @@ from screamingface_engine.runner_queue import (
     DEFAULT_IO_CONCURRENCY,
     DEFAULT_RESERVATION_LEASE_S,
     DEFAULT_STATE_CACHE_TTL_S,
+    BucketReading,
     PublishOutcomeUnknown,
     RunQueueUnavailable,
     caller_key,
@@ -153,6 +154,19 @@ class _Queue(Protocol):
     async def depth(self) -> int: ...
 
     async def oldest_age(self) -> float | None: ...
+
+
+@runtime_checkable
+class _BucketReader(Protocol):
+    """The slice of ``RunQueue`` that reads every bucket's consumer (runner-pool autoscaling).
+
+    WHY a separate protocol and not a method on `_Queue`: every fake queue in the unit suite
+    implements `_Queue`, and that suite is append-only, so adding `bucket_readings` to `_Queue`
+    would fail pyright on each of those fakes. The real `RunQueue` always implements this
+    protocol; `QueueJobRunner.reads_buckets` tells the composition root whether a queue does.
+    """
+
+    async def bucket_readings(self) -> list[BucketReading | None]: ...
 
 
 class _Publisher(Protocol):
@@ -250,10 +264,11 @@ class QueueJobRunner(IdentityAwareJobRunner):
         # is what the reservation counter covers.
         state_cache_ttl_s: float = DEFAULT_STATE_CACHE_TTL_S,
         # FEATURE (OME-1108): the backstop on a reservation's lifetime. The primary release is
-        # observation — see `_release_finished_for` — and this bounds the case observation
-        # cannot cover, a broker whose tails stay unreadable. It replaces reliance on
+        # observation — see `_release_finished_for` — and this bounds what observation cannot
+        # speak for: a tail that stays unreadable, an attempt whose publish outcome is unknown,
+        # a re-start that ended before it was admitted. It replaces reliance on
         # `capability_lifetime_s` (16.3h), which let a finished run hold a slot for most of a
-        # day. Generous against the longest legitimate run, so it never fires in normal use.
+        # day. It never frees a queued or running run (OME-1880): runs last hours, not minutes.
         reservation_lease_s: float = DEFAULT_RESERVATION_LEASE_S,
         # FEATURE (OME-1770 review): the digest of the world config this App serves, stamped on
         # every run so a worker serving another revision refuses it instead of running it.
@@ -680,6 +695,12 @@ class QueueJobRunner(IdentityAwareJobRunner):
         """The stream publisher, exposed for the App's events metrics."""
         return self._publisher
 
+    @property
+    def caller_inflight_cap(self) -> int:
+        """The per-caller in-flight cap this runner enforces — the ``rest.limits.CallerLimits``
+        port, read by ``GET /v1/limits`` (OME-1314)."""
+        return self._caller_inflight_cap
+
     def queue_snapshot(self) -> tuple[int | None, float | None]:
         """The last cached (unclaimed depth, oldest-unclaimed age) — the /metrics collector's
         input. Running runs are in neither value.
@@ -690,6 +711,32 @@ class QueueJobRunner(IdentityAwareJobRunner):
         was empty at the last reading.
         """
         return self._depth_snapshot, self._oldest_age
+
+    @property
+    def reads_buckets(self) -> bool:
+        """True when the injected queue can read every bucket consumer (`RunQueue` always can).
+
+        The composition root checks it ONCE at install time, so a runner over a queue without the
+        capability gets no sampler and `bucket_readings` never raises in a running App.
+        """
+        return isinstance(self._queue, _BucketReader)
+
+    async def bucket_readings(self) -> list[BucketReading | None]:
+        """Every bucket consumer's reading, straight from the queue: the runner-demand sampler's
+        input (runner-pool autoscaling, spec D1). This makes `QueueJobRunner` structurally a
+        `runner_demand.DemandSource`.
+
+        INVARIANT: read-only. It touches no admission state (`_depth_snapshot`, reservations,
+        `_admission_lock`), and the queue never binds or creates a consumer to answer it.
+
+        Raises `TypeError` when the injected queue cannot read buckets. `create_app` checks
+        `reads_buckets` first and installs no sampler then, so this is a guard for direct
+        callers only.
+        """
+        queue = self._queue
+        if not isinstance(queue, _BucketReader):
+            raise TypeError(f"{type(queue).__name__} cannot read per-bucket consumer state")
+        return await queue.bucket_readings()
 
     async def aclose(self) -> None:
         """Close the control connection. The queue and publisher own their own connections
@@ -816,8 +863,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
 
         | Evidence on the run's subject | Meaning | Slot |
         | a terminal frame | the run ended | RELEASE |
-        | no frame | queued, or starting | hold |
-        | the tail unreadable | UNKNOWN | hold |
+        | no frame, or a non-terminal one | queued, or running | hold, past the lease too |
+        | the tail unreadable | UNKNOWN | hold until the lease |
 
         WHY the terminal frame is enough (uniform executor, PRD 01): the reclaim keeps it.
         `run_and_reclaim` purges a finished run's subject with `keep=1`, so its terminal frame
@@ -826,16 +873,48 @@ class QueueJobRunner(IdentityAwareJobRunner):
         stream is gone" as a second kind of evidence (OME-1108). In a shared stream an empty
         subject is ALSO the state of a queued run, so absence can no longer mean "finished".
 
-        INVARIANT (unchanged): UNKNOWN NEVER FREES A SLOT. `_UNREADABLE_TAIL` releases nothing.
+        INVARIANT (unchanged): UNKNOWN NEVER FREES A SLOT before the lease. `_UNREADABLE_TAIL`
+        releases nothing here until the reservation is older than `reservation_lease_s`.
+
+        WHY the lease of a queued run is applied here and not in `_expire_leases` (OME-1880,
+        #1744 review): only a read can tell a queued or running run from a tail the broker
+        cannot serve. A run waits in the queue behind its bucket's `max_ack_pending` and then
+        runs up to its deadline (16 h), so a lease counted from admission freed the slot of a
+        live run after one hour, and the caller could then admit past its cap, hour after hour.
+        A readable tail without a terminal frame now keeps the slot; the capability lifetime
+        (`_prune`) still bounds it.
 
         SCOPED to one caller deliberately: this runs on the admission path, so it must cost no
         more than the decision it informs. A caller below its cap does no reads at all; a caller
         at its cap reads only its own topics, bounded by the cap.
         """
+        cutoff = self._clock() - timedelta(seconds=self._reservation_lease_s)
         for topic in sorted(self._in_flight_by_caller.get(caller, {})):
             frame = await self._read_tail(topic)
             if isinstance(frame, TerminatedEvent):
                 self._forget_in_flight(topic, frame)
+            elif frame is not _UNREADABLE_TAIL:
+                continue  # readable, not ended: the run is queued or running
+            # Unreadable, or a terminal frame older than the attempt (a re-start that the
+            # broker deduplicated into a run that had already ended): the lease is the bound.
+            for token in self._queued_tokens(caller, topic):
+                if token <= cutoff:
+                    self._drop_token(topic, caller, token)
+
+    def _queued_tokens(self, caller: str, topic: str) -> list[datetime]:
+        """The reservations of `caller`'s attempts at `topic` that the queue durably accepted:
+        the topic has a `scheduled` record and the token is not a hold's (spec D2 of the
+        unknown-publish fix). `_expire_leases` leaves these to `_release_finished_for`, which can
+        read whether their run is still queued or running."""
+        if topic not in self._scheduled_at:
+            return []
+        tokens = Counter(self._in_flight_by_caller.get(caller, {}).get(topic, ()))
+        tokens.subtract(
+            hold.token
+            for hold in self._present(self._held)
+            if hold.caller == caller and hold.topic == topic
+        )
+        return sorted(tokens.elements())
 
     def _compact(self, topic: str) -> None:
         """Drop `topic` from the reverse map once no caller holds it, and drop callers left with
@@ -847,19 +926,23 @@ class QueueJobRunner(IdentityAwareJobRunner):
             del self._in_flight_by_caller[caller]
 
     def _expire_leases(self) -> None:
-        """Drop reservations older than `reservation_lease_s` — the backstop for what
-        observation cannot reach.
+        """Drop reservations older than `reservation_lease_s` that observation cannot speak
+        for — the backstop for what `_release_finished_for` cannot reach.
 
-        WHY a second mechanism at all: `_release_finished_for` needs a readable stream tail.
-        A broker that stays unreadable would otherwise leave the slot held until the
-        capability expires, which is 16.3 hours — long enough to lock a caller out for a
-        working day over a transient fault. The lease bounds that without weakening the cap
-        for any run shorter than it.
+        WHY a second mechanism at all: observation needs a readable stream tail, and it cannot
+        tell an attempt whose publish outcome is unknown (spec D4 of that fix) from a queued
+        run, since both leave an empty subject. A broker that stays unreadable would otherwise
+        leave the slot held until the capability expires, which is 16.3 hours — long enough to
+        lock a caller out for a working day over a transient fault.
+
+        A reservation the queue durably accepted (`_queued_tokens`) is NOT dropped here
+        (OME-1880): its run can wait and run for many hours, and only a read can tell it from
+        an unreadable tail. `_release_finished_for` applies the lease to it after that read.
         """
         cutoff = self._clock() - timedelta(seconds=self._reservation_lease_s)
-        for by_caller in self._in_flight_by_caller.values():
+        for caller, by_caller in self._in_flight_by_caller.items():
             for topic in list(by_caller):
-                kept = [token for token in by_caller[topic] if token > cutoff]
+                kept = self._within_lease(caller, topic, cutoff)
                 if kept:
                     by_caller[topic] = kept
                 else:
@@ -869,6 +952,19 @@ class QueueJobRunner(IdentityAwareJobRunner):
             self._caller_of_topic.pop(topic, None)
         for caller in [c for c, topics in self._in_flight_by_caller.items() if not topics]:
             del self._in_flight_by_caller[caller]
+
+    def _within_lease(self, caller: str, topic: str, cutoff: datetime) -> list[datetime]:
+        """`caller`'s reservations at `topic` that `_expire_leases` keeps, in order: those
+        admitted after `cutoff`, and the durably queued ones whatever their age."""
+        queued = Counter(self._queued_tokens(caller, topic))
+        kept = []
+        for token in self._in_flight_by_caller[caller][topic]:
+            if token > cutoff:
+                kept.append(token)
+            elif queued[token] > 0:
+                queued[token] -= 1
+                kept.append(token)
+        return kept
 
     async def _release_reservation(self, topic: str, caller: str, token: datetime) -> None:
         """Release the ONE reservation `token` identifies, for a run that was not durably
@@ -1038,7 +1134,8 @@ class QueueJobRunner(IdentityAwareJobRunner):
             ):
                 del self._stopped_before_schedule[topic]
         # OME-1108: the lease is the shorter of the two bounds and is checked on the same
-        # path, so a reservation cannot outlive its run by a capability lifetime.
+        # path, so a reservation observation cannot speak for does not outlive its run by a
+        # capability lifetime. A durably queued run's lease waits for a read (OME-1880).
         self._expire_leases()
         self._prune_holds(now)
 

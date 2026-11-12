@@ -55,6 +55,27 @@ slot), `warmChildren` itself when set, the legal value 0 included. */ -}}
 {{- fail (printf "runnerPool.warmChildren (%v) must not exceed runnerPool.workerSlots (%v): the worker caps it at the slot count, so a chart operator setting more than that gets a silently truncated pool instead of what they asked for" .Values.runnerPool.warmChildren .Values.runnerPool.workerSlots) -}}
 {{- end -}}
 {{- end -}}
+{{- /* Autoscaling guards (runner-pool autoscaling spec D4). When the HPA owns the replica count,
+the chart still needs the pool's upper bound, and the queue's per-caller allowance must be pinned:
+the derived default `replicas × workerSlots` has no meaning once `replicas` varies (OME-1142).
+`minReplicas >= 1` is the schema's job (`minimum: 1`). `kindIs "invalid"` tests for an unset
+(null) value, as for `warmChildren` above. The drain must also cover the longest run
+(`config.jobDeadlineS`): a scale-down may remove a busy pod, and a shorter drain stops its runs
+(spec D5). */ -}}
+{{- if .Values.runnerPool.autoscaling.enabled -}}
+{{- if kindIs "invalid" .Values.runnerPool.autoscaling.maxReplicas -}}
+{{- fail "runnerPool.autoscaling.maxReplicas must be set when runnerPool.autoscaling.enabled is true: the HPA needs an upper bound, and the namespace quota and node pool are sized from it" -}}
+{{- end -}}
+{{- if gt (int .Values.runnerPool.autoscaling.minReplicas) (int .Values.runnerPool.autoscaling.maxReplicas) -}}
+{{- fail (printf "runnerPool.autoscaling.minReplicas (%v) must not exceed runnerPool.autoscaling.maxReplicas (%v)" .Values.runnerPool.autoscaling.minReplicas .Values.runnerPool.autoscaling.maxReplicas) -}}
+{{- end -}}
+{{- if kindIs "invalid" .Values.runnerPool.maxAckPending -}}
+{{- fail "runnerPool.maxAckPending must be pinned when runnerPool.autoscaling.enabled is true: the derived default replicas × workerSlots has no meaning once the replica count varies (OME-1142)" -}}
+{{- end -}}
+{{- if lt (float64 .Values.runnerPool.drainGraceS) (float64 .Values.config.jobDeadlineS) -}}
+{{- fail (printf "runnerPool.drainGraceS (%v) must be >= config.jobDeadlineS (%v) when runnerPool.autoscaling.enabled is true: a scale-down may remove a busy pod, and a drain shorter than the longest run stops its runs (runner-pool autoscaling spec D5)" (float64 .Values.runnerPool.drainGraceS) (float64 .Values.config.jobDeadlineS)) -}}
+{{- end -}}
+{{- end -}}
 {{- if lt (float64 .Values.runnerPool.terminationGracePeriodSeconds) $minimum -}}
 {{- fail (printf "runnerPool.terminationGracePeriodSeconds (%v) must be >= runnerPool.drainGraceS (%v) + kill grace (%v) + terminal-publish budget (%v) = %v: the kubelet SIGKILLs the pod at the termination deadline, and a drain cut short interrupts every in-flight run" (float64 .Values.runnerPool.terminationGracePeriodSeconds) (float64 .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS $minimum) -}}
 {{- /* INVARIANT: `{{- end }}`, NOT `{{- end -}}`. The trailing `-}}` trims the newline after
@@ -71,7 +92,11 @@ metadata:
     {{- include "screamingface-engine.labels" . | nindent 4 }}
     app.kubernetes.io/component: runner
 spec:
+  {{- /* The HPA owns the count when autoscaling is on (spec D4): a rendered `replicas` would
+  fight it on every sync. */}}
+  {{- if not .Values.runnerPool.autoscaling.enabled }}
   replicas: {{ .Values.runnerPool.replicas }}
+  {{- end }}
   selector:
     matchLabels:
       # The pool's own identity, NOT the chart's selectorLabels: aigateway's NetworkPolicy
@@ -228,7 +253,11 @@ spec:
             - name: URL4_CLOUD_WORKER_MEMORY_BUDGET_BYTES
               value: {{ mul (int64 .Values.runnerPool.perRunCharge.memoryLimitMi) (int64 .Values.runnerPool.perRunCharge.addressSpaceFactor) 1048576 | quote }}
             - name: URL4_CLOUD_RUN_QUEUE_MAX_ACK_PENDING
+              {{- if .Values.runnerPool.autoscaling.enabled }}
+              value: {{ .Values.runnerPool.maxAckPending | quote }}
+              {{- else }}
               value: {{ .Values.runnerPool.maxAckPending | default (mul .Values.runnerPool.replicas .Values.runnerPool.workerSlots) | quote }}
+              {{- end }}
             {{- if include "screamingface-engine.worldConfigEnabled" . }}
             {{- include "screamingface-engine.worldConfigEnv" . | nindent 12 }}
             {{- end }}

@@ -44,8 +44,12 @@ dependencies = [
     "url4[streaming]",
     # --- run mode only: the vendored IFEval verifier (local_tasks/ifeval/vendor) ---
     "immutabledict>=4.2.0",
-    "langdetect>=1.0.9",
-    "nltk>=3.9.1",
+    # WHY exact: the IFEval row declares both as scorer dependencies (benchmarks.py,
+    # `scorer_dependencies`), so their installed versions hash into its fingerprint. A floating
+    # pin would let two installs of the same revision grade with different tokenizers or
+    # language profiles and compute two identities (OME-1853; the sympy precedent below).
+    "langdetect==1.0.9",
+    "nltk==3.10.4",
     "opentelemetry-sdk>=1.30.0",
     "opentelemetry-exporter-otlp-proto-http>=1.30.0",
     # --- the combine regex@1 operator (OME-1289): the linear-time RE2 engine, so no pattern an
@@ -86,7 +90,11 @@ inspect = [
     # deployed Engine, not in the build stage. inspect-evals keeps both behind its own `math`
     # extra, so they are declared here by name (owner decision on OME-1268, 2026-10-06).
     "sympy==1.14.0",
-    "antlr4-python3-runtime==4.13.2",
+    # WHY 4.11.x and not newer: sympy 1.14's LaTeX parser was generated against ANTLR 4.11 and
+    # `parse_latex` raises ImportError on any other runtime version, which fails MATH's symbolic
+    # scorer on every Case. Dependabot's minor group moved it to 4.13.2 (#1736) and broke it;
+    # restored on OME-1853. Move it only together with a sympy release that accepts it.
+    "antlr4-python3-runtime==4.11.1",
 ]
 
 # Everything needed to BUILD benchmark assets, on top of what serving needs. Separate from
@@ -106,7 +114,11 @@ benchmarks = [
     # cyse4_threat_intelligence's loader extracts each report PDF's text with pypdf at build
     # time, and that text is frozen into every Case's prompt. Pinned exactly for the same
     # reason as pdfplumber (OME-1602).
-    "pypdf==6.19.0",
+    "pypdf==6.21.4",
+    # inspect_evals re-saves every MMMU, MathVista and ZeroBench picture through Pillow at build
+    # time, and those bytes are frozen into every Case. Pinned exactly for the same reason as
+    # pypdf: a Pillow release that writes different PNG bytes changes the exam (OME-1853).
+    "pillow==13.0.0",
 ]
 
 # The benchmark-plugin loading dock (spec OME-1113 §3.1): engine core discovers this

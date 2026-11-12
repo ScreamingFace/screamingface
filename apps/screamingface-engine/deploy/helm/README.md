@@ -181,6 +181,12 @@ run ends. The `screamingface_engine_queue_depth` and
 adapter — the counted resource changed from namespace quota headroom to queue depth, and the
 cache-plus-reservation shape did not.
 
+The per-caller in-flight cap defaults to 24 (OME-1314); set `config.runQueueCallerInflightCap`
+to change it (rendered to the App only). The Client reads the enforced value from
+`GET /v1/limits`. A starting worker applies `runnerPool.maxAckPending` to the existing queue
+consumers in place (`RunQueue.reconcile_consumers`), so a new value takes effect at the next
+runner rollout; running runs stay pending and are not redelivered.
+
 ### Warm children (uniform executor PRD 03)
 
 Each worker pod can keep child processes started AHEAD of a claim: they already did their
@@ -207,6 +213,122 @@ adds each warm child's excess over its slot's charge (`runnerPool.warmChildCharg
   to start, timed out before READY, or died idle
 - `screamingface_engine_worker_handoff_latency_s` (histogram) — claim to the child's ACK
 - `screamingface_engine_worker_child_boot_s` (histogram) — child spawn to its READY
+
+## Autoscaling the runner pool
+
+Autoscaling is opt-in and off by default (`runnerPool.autoscaling.enabled: false`). With
+autoscaling disabled, the render is byte-identical to a chart without the `autoscaling` block.
+With autoscaling enabled, the chart renders a KEDA `ScaledObject` on `<fullname>-runner`. The
+runner Deployment renders no `spec.replicas`. The HPA owns the replica count, and
+`runnerPool.replicas` is ignored.
+
+**The signal.** The App reads each bucket consumer every `runner_demand_sample_s` (15 s). It serves
+the result on `GET /runner-demand`. For each bucket `b`, the App computes:
+
+```
+running_b   = num_ack_pending                         # delivered, not acked = executing
+queued_b    = num_pending                             # not yet delivered
+headroom_b  = max(0, max_ack_pending_b - running_b)   # how many more this bucket may start
+claimable_b = min(queued_b, headroom_b)
+
+demand  = sum(running_b + claimable_b)
+replicas = ceil(demand / workerSlots)                 # done by the HPA (the KEDA ScaledObject)
+```
+
+The HPA does this exactly only with `scaleUp.tolerance: 0` (the chart default). By default the
+HPA does nothing while `demand / (replicas × workerSlots)` stays within 10 % of 1. Example: 3 pods
+with 4 slots at demand 13 give 13/12 = 1.083, and no 4th pod starts. Scale-down keeps the cluster
+default on purpose, so the pool can stay up to about 10 % above need. That costs money but never
+makes a user wait.
+
+The signal counts claimable runs, not stream messages. Runs that a bucket's `max_ack_pending`
+holds back cannot be claimed by any pod. Counting them adds pods that stay idle. Example: two pods
+with four slots each run eight runs, and a third caller queues `n` runs. The demand is
+`8 + min(n, 4)`, so the replicas are 3 for any `n` of 1 or more.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Renders the ScaledObject and omits `spec.replicas` from the runner Deployment. |
+| `minReplicas` | `2` | Lowest replica count. Must be 1 or more. The pool does not scale to zero. |
+| `maxReplicas` | `null` | Highest replica count. Required when `enabled` is `true`. |
+| `pollingIntervalS` | `15` | Seconds between KEDA polls of `/runner-demand`. |
+| `scaleUp` | 0 s window, 4 pods per 15 s, tolerance 0 | `stabilizationS: 0`, `podsPerStep: 4`, `stepS: 15`, `tolerance: 0`. Scale-up acts at once and exactly. `tolerance` needs Kubernetes 1.35 or later (see the prerequisites). |
+| `scaleDown` | 300 s window, 1 pod per 60 s | `stabilizationS: 300`, `podsPerStep: 1`, `stepS: 60`. Scale-down acts slowly. |
+
+**The render refuses** these settings:
+
+- `maxReplicas` is not set.
+- `minReplicas` is less than 1. The values schema refuses this value.
+- `minReplicas` is greater than `maxReplicas`.
+- `runnerPool.maxAckPending` is not set. The derived value `replicas × workerSlots` has no meaning
+  when the replica count changes (OME-1142).
+- `runnerPool.drainGraceS` is less than `config.jobDeadlineS` (the longest run, default 57600 s).
+  `terminationGracePeriodSeconds` must then be at least `drainGraceS + 25`, as always.
+
+Pin `maxAckPending`. A starting worker writes the pinned value to the existing durable consumers in
+place (OME-1880), so a new value takes effect at the next runner rollout. Do not delete the
+consumers. Until the rollout ends, the workers claim up to the old cap. `/runner-demand` reads the
+cap from the broker, so the signal always follows the cap the consumers really have.
+
+Why the drain rule: on scale-down Kubernetes can remove a busy pod while idle pods exist. The drain
+keeps that pod's runs only for `drainGraceS` and then stops them. The chart default (30 s) stops
+almost every real run, so the chart refuses it when autoscaling is on. Prod uses 57600 s.
+
+**Fail-static.** `GET /runner-demand` answers as follows:
+
+- 200 with `{demand, running, claimable, queued, unbound_buckets, sampled_at, age_s}` for a fresh
+  sample that read at least one bound bucket consumer.
+- 503 when there is no sample, or when the sample is older than the App setting
+  `runner_demand_stale_s` (default 30 s).
+- 503 `{"status": "unbound"}` when the fresh sample found no bound bucket consumer (no worker has
+  bound yet, or the consumers were deleted). That sample read no demand. The HPA still applies
+  `minReplicas`, so a new install starts its pods, and they bind the consumers.
+- 404 when the sampler is off (the App setting `runner_demand_sample_s` is `0`; default 15 s).
+
+The two sampler settings are App settings with code defaults (`URL4_CLOUD_RUNNER_DEMAND_SAMPLE_S`,
+`URL4_CLOUD_RUNNER_DEMAND_STALE_S`). This chart renders no value for them on purpose (owner
+decision, 2026-11-10): the defaults fit every environment today. Add chart values when one
+environment needs a different cadence.
+
+A 503 makes the KEDA scaler fail. The HPA then keeps the current replica count. The endpoint never
+answers a `0` that it did not read. No `fallback` is configured. The endpoint has the same exposure
+class as `/metrics`: no auth, aggregate counts only, and no caller, topic or bucket identity.
+
+The App also exports the same numbers as gauges: `screamingface_engine_runner_demand`,
+`screamingface_engine_runner_demand_running`, `screamingface_engine_runner_demand_claimable`,
+`screamingface_engine_runner_demand_queued`,
+`screamingface_engine_runner_demand_unbound_buckets` and
+`screamingface_engine_runner_demand_sample_age_s`. The gauges are absent before the first sample.
+
+**Scale-down.** The preStop drain protects runs on scale-down. Without
+`controller.kubernetes.io/pod-deletion-cost`, the ReplicaSet can pick a busy pod. That pod drains
+for up to `drainGraceS`, while an idle pod stays. The slow scale-down policy limits this cost;
+choosing an idle pod with `pod-deletion-cost` is a follow-up.
+
+**Infrastructure prerequisites (OpenMined/infrastructure, devops).**
+
+1. KEDA: enable the AKS add-on (Terraform `workload_autoscaler_profile { keda_enabled = true }`).
+   The operator runs in `kube-system`.
+2. NetworkPolicy in `sf-fusion` (default-deny today): allow the KEDA operator pods to reach the
+   App Service port 9108.
+3. Quota `sf-fusion/ns-ceiling`: the drain model keeps old pods during a rollout, so the quota must
+   hold `2 x maxReplicas` pool pods. Example with `maxReplicas: 3` (6 pool pods):
+   requests.cpu `540m + 6x900m + 100m = 6040m` (> 5), requests.memory
+   `832 + 6x1540 + 128 = 10200Mi` (> 8Gi), limits.memory `3328 + 6x10496 + 512 = 66816Mi`
+   (> 48Gi).
+4. Tenant node pool `max_count` (prod D8as_v7, 1-2): this is new spend. The owner must approve it
+   first.
+5. Argo CD: removing `spec.replicas` from a live Deployment drops it to 1 pod once. Use
+   server-side apply, or `ignoreDifferences` on the runner Deployment's `/spec/replicas`.
+   Draining pods keep their runs (the render enforces `drainGraceS >= config.jobDeadlineS`), so
+   no run is lost. Capacity dips until KEDA acts.
+6. Per-env values: in `values/<env>.yaml`, set `runnerPool.autoscaling.enabled: true`,
+   `minReplicas`, and `maxReplicas`.
+7. Kubernetes 1.35 or later for `behavior.scaleUp.tolerance` (feature `HPAConfigurableTolerance`:
+   beta and on by default from 1.35; alpha in 1.33 and 1.34). An older API server drops the field
+   without an error, and the 10 % stall comes back. Check after the first sync:
+   `kubectl -n sf-fusion get hpa keda-hpa-<fullname>-runner -o jsonpath='{.spec.behavior.scaleUp.tolerance}'`
+   must print `0`.
 
 ## A private world config (OME-1770)
 
