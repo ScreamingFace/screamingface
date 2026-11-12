@@ -71,7 +71,7 @@ Use one installation method. Then use the screamingface skill when writing code 
 
 - `npx skills add <repo> --skill screamingface -a claude-code` installs a skill at `public-docs/agent-skill/skills/screamingface/SKILL.md` to `./.claude/skills/screamingface`. A plain `--list` on a repository that has `.claude/skills` shows only those skills; `--full-depth` shows both. This repository has nine skills in `.claude/skills`. Tested with a local path source.
 - `claude plugin validate` passes on a root `.claude-plugin/marketplace.json` with `"source": "./public-docs/agent-skill"` and on the plugin folder. The only warning is a missing author. `marketplace add` was not run.
-- All 44 routes render through Vite SSR and `@vue/server-renderer` with no error and no Vue warning. The Markdown output for all pages is 354,366 characters, the largest page 23,688.
+- All 43 docs pages render through Vite SSR and `@vue/server-renderer` with no error and no Vue warning. The Markdown output for all pages is 354,366 characters, the largest page 23,688.
 - Every unknown path on `docs.screamingface.ai` returns `200 text/html`. A static `.svg` returns `image/svg+xml`. The `Content-Type` of a `.md` file is not known.
 - Nothing in the repository reads `.claude-plugin/`, and `.gitignore` does not ignore it. `CODEOWNERS` routes a root file to `@sergio-bershadsky` and `@HupBaHa`, and `/public-docs/` to `@IrinaMBejan`.
 
@@ -85,7 +85,7 @@ Use one installation method. Then use the screamingface skill when writing code 
 
 ## Risks
 
-- The references total 354,366 characters over 44 pages. An agent may skip or truncate a long reference. `SKILL.md` stays short and its index names one reference file per task. Whether an agent skips a reference is not measured.
+- The references total 354,366 characters over 43 pages. An agent may skip or truncate a long reference. `SKILL.md` stays short and its index names one reference file per task. Whether an agent skips a reference is not measured.
 - A root `.claude-plugin/marketplace.json` is reviewed by the root code owners, `@sergio-bershadsky` and `@HupBaHa`, not by the docs owner.
 - The committed copy produces a skill diff for every docs change and for every release. The drift check keeps it equal to the docs.
 - The `Content-Type` of a deployed `.md` is unknown until the first deploy. A missing `.md` returns `200 text/html`, so `check-deployed.sh` reads the header and not the status. Against the site before this change it passes for `/favicon.svg` and fails for the other four URLs.

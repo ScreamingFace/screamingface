@@ -19,7 +19,8 @@ import { sfClientVersion } from './sf-version.mjs'
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SITE = 'https://docs.screamingface.ai'
-const SKILL_DIR = path.join(ROOT, 'agent-skill', 'skills', 'screamingface')
+const PLUGIN_DIR = path.join(ROOT, 'agent-skill')
+const SKILL_DIR = path.join(PLUGIN_DIR, 'skills', 'screamingface')
 const BODY_START = '<div class="prose max-w-none prose-content"'
 const SHELL_START =
   /^(\$ |[A-Z_]+=|pip |uv |npm |npx |screamingface |export |claude |curl |just |git |sf\.configure\(\) )/
@@ -290,6 +291,45 @@ function llmsTxt(groups, byRoute, version) {
   return `${out.join('\n')}\n`
 }
 
+function skillIndex(groups, byRoute) {
+  const out = []
+  for (const g of groups) {
+    out.push(`### ${g.title}`, '')
+    for (const route of g.routes) {
+      const p = byRoute.get(route)
+      const desc = p.description ? `: ${p.description}` : ''
+      out.push(`- [${p.title || route}](references/${slug(route)}.md)${desc}`)
+    }
+    out.push('')
+  }
+  return out.join('\n').trim()
+}
+
+/** SKILL.md from the template, and the plugin manifest, both stamped with the docs version. */
+function writeSkill(groups, byRoute, version) {
+  const template = fs.readFileSync(path.join(PLUGIN_DIR, 'SKILL.template.md'), 'utf8')
+  const skill = template
+    .replaceAll('{{version}}', version)
+    .replace('{{index}}', skillIndex(groups, byRoute))
+  const refs = new Set(fs.readdirSync(path.join(SKILL_DIR, 'references')))
+  const missing = [...skill.matchAll(/\]\(references\/([^)#]+)/g)]
+    .map((m) => m[1])
+    .filter((file) => !refs.has(file))
+  if (missing.length) throw new Error(`SKILL.md links to missing references: ${missing.join(', ')}`)
+  if (skill.includes('{{')) throw new Error('SKILL.md has an unfilled placeholder')
+  write(path.join(SKILL_DIR, 'SKILL.md'), skill.endsWith('\n') ? skill : `${skill}\n`)
+  const plugin = {
+    name: 'docs',
+    description: 'ScreamingFace Client docs as an agent skill',
+    version,
+    author: { name: 'OpenMined' },
+  }
+  write(
+    path.join(PLUGIN_DIR, '.claude-plugin', 'plugin.json'),
+    `${JSON.stringify(plugin, null, 2)}\n`,
+  )
+}
+
 async function main() {
   const dist = process.argv.includes('--dist')
   const version = sfClientVersion()
@@ -337,7 +377,10 @@ async function main() {
       const refs = path.join(SKILL_DIR, 'references')
       fs.rmSync(refs, { recursive: true, force: true })
       for (const [route, md] of markdown) write(path.join(refs, `${slug(route)}.md`), md)
-      console.log(`references: ${markdown.size} pages (docs version ${version})`)
+      writeSkill(groups, byRoute, version)
+      console.log(
+        `skill: ${markdown.size} references, SKILL.md, plugin.json (docs version ${version})`,
+      )
     }
   } finally {
     await vite.close()

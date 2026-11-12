@@ -33,7 +33,7 @@ Files:
 - `public-docs/scripts/check-deployed.sh`: the post-deploy check of D15. It needs `curl` only.
 - `public-docs/CLAUDE.md`: the Development Commands list names `build:skill`.
 
-Verification: all 44 routes render; a second `npm run build:skill` changes no file; `dist` holds one `.md` per route and both `llms` files; `sfClientVersion()` returns the same value in `vite.config.ts` and in the generator; `npm run type-check`, `lint`, `build` and `prettier --check` pass.
+Verification: all 43 docs pages render; a second `npm run build:skill` changes no file; `dist` holds one `.md` per route and both `llms` files; `sfClientVersion()` returns the same value in `vite.config.ts` and in the generator; `npm run type-check`, `lint`, `build` and `prettier --check` pass.
 
 ## 3. Commit 2: skill, install files, drift check
 

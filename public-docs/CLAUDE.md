@@ -45,6 +45,8 @@ There is no automated test setup in this project.
 - `src/lib/` — framework-agnostic helpers: `utils.ts` (`cn` class merge), `notebook.ts` (nbformat types + pure helpers for `NotebookViewer`) and `analytics.ts` (`track` wrapper over the Plausible snippet in `index.html`; no-op when the script is absent)
 - `src/pages/` — route components; `src/router/index.ts` — routes
 - `src/navigation/` — one data file per documentation section (drives the sidebar + prev/next)
+- `scripts/` — build tooling: `sf-version.mjs` (the release label, shared by `vite.config.ts` and the generator), `build-skill.mjs` (renders each page and writes the Markdown view and the agent skill), `check-skill-names.mjs` (compares the skill with the release's `__all__`), `check-deployed.sh` (post-deploy check of the `.md` endpoints)
+- `agent-skill/` — the `screamingface` agent skill, generated from the pages and committed (`SKILL.template.md` is the only hand-written file); the repository root `.claude-plugin/marketplace.json` lists it as the `docs` plugin
 - `src/style.css` — Tailwind import + light/dark theme tokens + prose styling (includes `@tailwindcss/typography` with prose variables mapped to the theme tokens)
 
 ### Pages & routes
