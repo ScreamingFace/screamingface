@@ -452,6 +452,8 @@ async def test_a_start_that_loses_to_a_cancel_stops_itself(registry: Registry) -
     assert resp.status_code == 409
     assert resp.json()["code"] == "run_canceled"
     assert runner.stopped == ["topic-a"]
+    # E5 P2 spec R9: the Run is canceled once the stopped Candidate's outcome lands.
+    await registry.store.settle("topic-a", CandidateOutcome("stopped"))
     assert (await _record(registry, runner.run_id)).state == "canceled"
 
 

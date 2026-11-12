@@ -1,21 +1,19 @@
-"""A Run's state from its Candidates (E5 P1 spec R5).
+"""A Run's state from its Candidates (E5 P1 spec R5, E5 P2 spec R12).
 
-FEATURE: first-class Runs (OME-1785). INVARIANT: a pure function of the Candidate states, the
-cancel flag, the Run's last activity and the clock; the first matching row wins. The registry
-stores only the facts and calls this on every read, so the state is always that of the moment.
+FEATURE: first-class Runs (OME-1785). INVARIANT: a pure function of the Candidate states and
+whether a cancel stopped the Run; the first matching row wins. The registry stores only the facts
+and calls this on every read, so the state is always that of the moment.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta
 
 from screamingface_engine.runs.records import (
     CANDIDATE_STATES,
     CandidateState,
     RunState,
-    is_aware,
     is_terminal_candidate,
 )
 
@@ -24,28 +22,26 @@ from screamingface_engine.runs.records import (
 class _Facts:
     states: frozenset[CandidateState]
     canceled: bool
-    pending_is_live: bool
 
 
 def _canceled(facts: _Facts) -> bool:
-    # AIDEV-NOTE: a cancel also moves every `pending` Candidate to `stopped` in the same write
-    # (spec D12, the registry's job), and sets the flag only while something is non-terminal, so
-    # "flag set and all terminal" is exactly "the cancel took effect".
+    # AIDEV-NOTE: a stop settles every unstarted Candidate in the same write (E5 P2 spec R9, the
+    # registry's job), and records its reason only while something is non-terminal, so "canceled
+    # and all terminal" is exactly "the cancel took effect".
     return facts.canceled and all(is_terminal_candidate(state) for state in facts.states)
 
 
 def _running(facts: _Facts) -> bool:
-    # INVARIANT (spec R5): `pending` is the one non-terminal state with no live work behind it,
-    # so it is the only one the grace window applies to.
-    live = bool(facts.states & {"scheduled", "running"})
-    return live or ("pending" in facts.states and facts.pending_is_live)
+    # INVARIANT (E5 P2 spec R12): a `pending` Candidate is live, however long it waits: the
+    # Engine's driver starts it when a slot frees, or a stop settles it.
+    return bool(facts.states & {"pending", "scheduled", "running"})
 
 
 def _interrupted(facts: _Facts) -> bool:
-    # Past the `running` row, a `pending` Candidate is past the grace, and a `stopped` one
-    # without a cancel was reaped. With the flag set, `stopped` was the cancel itself.
+    # Past the `running` row: `stopped` without a cancel was a stop for another reason (orphaned,
+    # a deadline, the reaper), and `lost` an outcome that never came.
     reaped = "stopped" in facts.states and not facts.canceled
-    return "lost" in facts.states or "pending" in facts.states or reaped
+    return "lost" in facts.states or reaped
 
 
 def _complete(facts: _Facts) -> bool:
@@ -67,20 +63,9 @@ _ROWS: tuple[tuple[RunState, Callable[[_Facts], bool]], ...] = (
 )
 
 
-def derive_state(
-    candidates: Sequence[CandidateState],
-    *,
-    canceled: bool,
-    last_activity_at: datetime,
-    now: datetime,
-    grace: timedelta,
-) -> RunState:
-    """The Run's state, by spec R5's ordered rows.
-
-    WHY `pending` has a grace: a Client waiting for admission has not started a Candidate yet,
-    and must not read as dead. Past `last_activity_at + grace` with nothing started, the Client
-    is taken to have gone away.
-    """
+def derive_state(candidates: Sequence[CandidateState], *, canceled: bool) -> RunState:
+    """The Run's state, by spec R5's ordered rows. ``canceled`` is whether a cancel stopped the
+    Run (`stopped_by == "canceled"`, E5 P2 spec R12)."""
     if not candidates:
         raise ValueError("a Run needs at least one Candidate")
     unknown = set(candidates) - CANDIDATE_STATES
@@ -88,15 +73,7 @@ def derive_state(
         # WHY: the Literal is erased at runtime; an unknown state must not fall through to
         # `errored` and report a Run that may have succeeded as failed.
         raise ValueError(f"unknown Candidate state: {sorted(unknown)}")
-    if grace <= timedelta(0):
-        raise ValueError("the pending grace must be positive")
-    if not (is_aware(last_activity_at) and is_aware(now)):
-        raise ValueError("derive_state needs timezone-aware datetimes")
-    facts = _Facts(
-        states=frozenset(candidates),
-        canceled=canceled,
-        pending_is_live=now < last_activity_at + grace,
-    )
+    facts = _Facts(states=frozenset(candidates), canceled=canceled)
     for state, matches in _ROWS:
         if matches(facts):
             return state

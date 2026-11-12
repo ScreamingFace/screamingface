@@ -1,0 +1,62 @@
+{
+  "issue": "OME-1895",
+  "branch": "OME-1895-e5-p2-engine",
+  "approver": "owner — approved in session 2026-11-12: the E5 P2 plan's E1 prior-test groups",
+  "date": "2026-11-12",
+  "scope": "The prior test files under apps/screamingface-engine/tests/unit/ that E1 rewrites: run_registry_support.py, test_run_records.py, test_run_registry_contract.py, test_run_registry_lifecycle.py, test_run_registry_start.py, test_run_registry_writes_concurrency.py, test_run_settings.py, test_run_state.py, test_run_sweeps.py, test_run_wiring.py, test_runs_cancel_and_binding_edges.py, test_runs_cancel_retry_and_lifecycle.py, test_runs_routes.py. test_run_records.py gains only one type annotation; run_registry_support.py drops GRACE and gains helpers for starts.",
+  "reason": "E5 P2 changes P1 rules, so the tests that pinned them are rewritten: a stop leaves a bound Candidate scheduled and owed a stop (spec R9), a pending Candidate is never reconciled (R8), the pending grace is gone and a pending Candidate is live (R12), and retention deletes by id (R13). test_run_records.py gains only one type annotation, since RunSpec has typed fields a dict[str, str] no longer unpacks into. run_registry_support.py drops GRACE and gains helpers for starts.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/run_registry_support.py": {
+      "base_blob": "8e4f3095c7495a6478bed9c70d1204299e8db2f2",
+      "approved_blob": "5393bfcac7e46da60c6df8e407707b6d330d552f"
+    },
+    "apps/screamingface-engine/tests/unit/test_run_records.py": {
+      "base_blob": "3ff4ed1432a0e15d17721cc44f61281b6a0f4c45",
+      "approved_blob": "ad60b66bf43e2c04f5f02684cf3fb846d75a72e2"
+    },
+    "apps/screamingface-engine/tests/unit/test_run_registry_contract.py": {
+      "base_blob": "dc30b8e0d46e9be0adbc40e16d7650bab07afd0e",
+      "approved_blob": "e832643c3671acf5de2b4a13e0edc4af08c3d4e8"
+    },
+    "apps/screamingface-engine/tests/unit/test_run_registry_lifecycle.py": {
+      "base_blob": "2c94645f0af1b5a9b0b5d3b4e74fc66992ce1d44",
+      "approved_blob": "d6b9a9c78c0308ea07a98627df2b75ebc9386af0"
+    },
+    "apps/screamingface-engine/tests/unit/test_run_registry_start.py": {
+      "base_blob": "40e4c1aaf73ba5084fc4fb9207960873748c80d6",
+      "approved_blob": "4b88eb9006a88d4de86fb078ee25c41a88781528"
+    },
+    "apps/screamingface-engine/tests/unit/test_run_registry_writes_concurrency.py": {
+      "base_blob": "cdccdf9a23ccda2597e3cafca33d86c589f0e81f",
+      "approved_blob": "78501fbe4a8bfb9402378031d48fd3dd8e9eb9a4"
+    },
+    "apps/screamingface-engine/tests/unit/test_run_settings.py": {
+      "base_blob": "bdc658cb37006e43f8b376c397417aa9d771e41e",
+      "approved_blob": "2cd08389b4187469e22972910a7685901eae5f21"
+    },
+    "apps/screamingface-engine/tests/unit/test_run_state.py": {
+      "base_blob": "a9e8f109d52c48a9f03a79daa7bf436293878d33",
+      "approved_blob": "6eb96846e384ec05753cea6921265fc0ca7d77f9"
+    },
+    "apps/screamingface-engine/tests/unit/test_run_sweeps.py": {
+      "base_blob": "bfa24c5cbdd7c664dbc7004b76fb0162e858c0ac",
+      "approved_blob": "fb40b48e9a95d128b1637bd5c5941e9167f84be4"
+    },
+    "apps/screamingface-engine/tests/unit/test_run_wiring.py": {
+      "base_blob": "4d82fa16a12e789a395dde10506a1fb6ae39bd46",
+      "approved_blob": "d0f81c8b2c510154b06e77a186924d0c6b5f49f0"
+    },
+    "apps/screamingface-engine/tests/unit/test_runs_cancel_and_binding_edges.py": {
+      "base_blob": "8be4185bd2804b35d6cd182e925cfb0181bbf1f8",
+      "approved_blob": "e098658d37f337bfa8a27ede33075c05a7b37cf6"
+    },
+    "apps/screamingface-engine/tests/unit/test_runs_cancel_retry_and_lifecycle.py": {
+      "base_blob": "2118f47244486e2b5de449e842a97b81e40bc414",
+      "approved_blob": "f616b076f636e354a061d6db99b5c53c35721cc3"
+    },
+    "apps/screamingface-engine/tests/unit/test_runs_routes.py": {
+      "base_blob": "76ade2b0797cf84b98df2ebd39fe22d4664342cf",
+      "approved_blob": "ca89ba038773565f642ddc5fd265a3e155b91506"
+    }
+  }
+}

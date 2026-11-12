@@ -49,12 +49,6 @@ STUDIO_CORS_ORIGINS = (
 )
 
 
-# The Client's default admission budget (`packages/screamingface`, `_engine/admission.py`): how
-# long it re-sends a start the Engine refused with 503. Named here, not imported: the Engine never
-# imports the Client. `run_pending_grace_s` must exceed it (E5 P1 spec R5).
-CLIENT_ADMISSION_BUDGET_S = 900.0
-
-
 class Settings(BaseSettings):
     """Environment-backed configuration for the App: auth, NATS, job-runner backend selection,
     and model-catalog cache tuning."""
@@ -331,15 +325,38 @@ class Settings(BaseSettings):
     # WHY 30 days (spec R7): long enough to come back to last month's runs; the hourly sweep
     # deletes Runs created before it.
     run_retention_s: float = Field(default=30 * 86_400.0, gt=0, allow_inf_nan=False)
-    # WHY 1800 s (spec R5): how long a bound-but-unscheduled or unstarted Candidate still reads
-    # `running`. It must exceed the Client's admission budget, or a Client still waiting for
-    # admission would read `interrupted` (validated below).
-    run_pending_grace_s: float = Field(default=1800.0, allow_inf_nan=False)
     # WHY 48 h (spec R6): past both `url4-candidate-outcomes` and `url4-runq`'s 24 h retention, so
     # reconcile settles a Candidate `lost` only once no outcome can still arrive.
     run_lost_after_s: float = Field(default=48 * 3600.0, gt=0, allow_inf_nan=False)
     # How often the App sweeps the registry (spec R6, R7), after the sweep it runs at start.
     run_sweep_interval_s: float = Field(default=3600.0, gt=0, allow_inf_nan=False)
+
+    # --- the Engine's driver (OME-1837, E5 P2) ------------------------------------------------
+    # FEATURE: a detached Run. How many of one Run's Candidates are in flight at once (spec R1);
+    # the run queue's per-caller cap is the same 8.
+    run_driver_inflight: int = Field(default=8, ge=1)
+    # WHY 60 s (spec R4): renewed every third of it, so two missed renewals still hold the lease,
+    # and a dead App's Runs are taken over within a minute.
+    run_driver_lease_s: float = Field(default=60.0, gt=0, allow_inf_nan=False)
+    # How often the driver stops Runs past their deadline or unfollowed and remakes owed stops.
+    run_driver_tick_s: float = Field(default=15.0, gt=0, allow_inf_nan=False)
+    # WHY 120 s (spec R7): how long after a run's terminal frame its own outcome may still land
+    # before the driver settles the Candidate from that frame.
+    run_outcome_grace_s: float = Field(default=120.0, gt=0, allow_inf_nan=False)
+    # How long a runner retries a failed write to the run-results store before it fails the run
+    # `result_store_unavailable` (spec R5).
+    run_result_write_budget_s: float = Field(default=60.0, gt=0, allow_inf_nan=False)
+    # How often the Run event stream reads the registry (spec §4.2).
+    run_events_poll_s: float = Field(default=1.0, gt=0, allow_inf_nan=False)
+    # How often the Run event stream stamps that a follower is connected (spec R10); a shorter
+    # `orphan_grace_s` shortens it (`follow_stamp_s`).
+    run_follow_stamp_s: float = Field(default=30.0, gt=0, allow_inf_nan=False)
+    # The Client's context, and the whole `POST /runs` body (spec D9b, §4.1).
+    run_context_max_bytes: int = Field(default=4 * 1024**2, gt=0)
+    run_request_max_bytes: int = Field(default=8 * 1024**2, gt=0)
+    # A detached Run's deadline when it names none, and the longest it may name (spec D11).
+    run_detached_deadline_s: float = Field(default=48 * 3600.0, gt=0, allow_inf_nan=False)
+    run_detached_deadline_max_s: float = Field(default=7 * 86_400.0, gt=0, allow_inf_nan=False)
     # The outcome stream `url4-candidate-outcomes` (spec R11), declared by the App and the runner
     # pool at startup from these values (`candidateOutcomes.*` in the chart). When it is full, a
     # publish is refused rather than an older, unwritten outcome dropped.
@@ -525,16 +542,33 @@ class Settings(BaseSettings):
             return job_env.DEFAULT_ARTIFACTS_DIR
         return value
 
-    @field_validator("run_pending_grace_s")
-    @classmethod
-    def _grace_outlasts_admission(cls, value: float) -> float:
-        if value <= CLIENT_ADMISSION_BUDGET_S:
+    @property
+    def follow_stamp_s(self) -> float:
+        """How often the Run event stream stamps a follower: `run_follow_stamp_s`, or half of a
+        shorter `orphan_grace_s`.
+
+        INVARIANT (E5 P2 spec R10): a follower is stamped at least twice per grace, so one late
+        stamp never reads as an orphaned Run. WHY derived, not refused: a deployment that sets a
+        short grace alone, as P1 allowed, still starts.
+        """
+        if self.orphan_grace_s:
+            return min(self.run_follow_stamp_s, self.orphan_grace_s / 2)
+        return self.run_follow_stamp_s
+
+    @model_validator(mode="after")
+    def _run_limits_are_ordered(self) -> Self:
+        """The default deadline is one a Run may name, and the context fits in the body."""
+        if self.run_detached_deadline_s > self.run_detached_deadline_max_s:
             raise ValueError(
-                f"run_pending_grace_s={value} must exceed the Client's admission budget "
-                f"({CLIENT_ADMISSION_BUDGET_S} s), or a Client waiting for admission reads "
-                f"as interrupted"
+                f"run_detached_deadline_s={self.run_detached_deadline_s} must not exceed "
+                f"run_detached_deadline_max_s ({self.run_detached_deadline_max_s} s)"
             )
-        return value
+        if self.run_context_max_bytes >= self.run_request_max_bytes:
+            raise ValueError(
+                f"run_context_max_bytes={self.run_context_max_bytes} must be below "
+                f"run_request_max_bytes ({self.run_request_max_bytes})"
+            )
+        return self
 
     @model_validator(mode="after")
     def _tombstone_outlasts_a_runnable_message(self) -> Self:
