@@ -1796,11 +1796,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     #     pin sha256 b5159af4166487c3cd940ce44a4e481acece31e83119499e50eac791eae42e54
     #   url https://web.archive.org/web/20250305033105/https://www.ic3.gov/CSA/2024/240215.pdf
     #     pin sha256 248804e6879acdc24e65116ddbafe041c209626681e5f59f928ae07e057f0ac1
+    # Re-sealed 2026-11-09 (OME-1853): pypdf 6.19.0 -> 6.21.4 extracts the report PDFs' text
+    #   differently, and that text is frozen into every Case's prompt, so the Case set changed
+    #   (was 8bd34fdb… / 275f1983…). Sealed on linux/amd64, the same values CI's strict image
+    #   build printed. The published id HOLDS by owner ruling (no official leaderboard runs on
+    #   this Benchmark yet), against the doc's "changed Cases -> move" rule.
     "cyse4_threat_intelligence": TaskReplayCasesSpec(
         task="inspect_evals.cyberseceval_4.threat_intelligence:cyse4_threat_intelligence",
         case_count=587,
-        case_digest="8bd34fdb705f27a16cd664ad8de36f9e90642e0453d0be534d5229226a4f6626",
-        case_set_digest="275f19834b5e1ec798f09813eaaacf48602d1b3269ff3f945e0653d1b5dd7ee4",
+        case_digest="096a744d597ea28fec519663442ad8fa7bbe20704bcfe2f7b49951720d62a722",
+        case_set_digest="82c46ccda984ae42058cde9875412bd6633e84e1743a1ecd883d105d475d7f27",
         # WHY kept: the scorer is the eval's own. Question mX9pR4wN's url_source names
         # prophet-weblogic.pdf, but its report_id, which the Case reads, is qakbot-onenote, so
         # the Case pastes the right report; only that metadata link is wrong in inspect_evals.
@@ -2011,11 +2016,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
     #   hugging-face MMMU/MMMU/Sociology
     #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    # Re-sealed 2026-11-09 (OME-1853): Pillow 12.3.0 -> 13.0.0 re-encodes every picture to
+    #   different PNG bytes, so the Case set changed (was 3fe742a9… / 493c6668…). Sealed on
+    #   linux/amd64, the same values CI's strict image build printed. The published id HOLDS by
+    #   owner ruling (no official leaderboard runs on this Benchmark yet), against the doc's
+    #   "changed Cases -> move" rule.
     "mmmu_multiple_choice": TaskReplayCasesSpec(
         task="inspect_evals.mmmu.mmmu:mmmu_multiple_choice",
         case_count=847,
-        case_digest="3fe742a9bafc6c2f80acd0593a2772a798cd29d2cad0fb225ebaa2d605c482d8",
-        case_set_digest="493c6668c583bc05754a2265875e08b0eebbe85bce9c7b25b0ecfb8574e076c5",
+        case_digest="419ddea28c127df93f02809677e6f2a5ed065f03fc30188d3e17c1add5d113e1",
+        case_set_digest="be1dea78169fdfacf2b5515e2e743ca24170d1a5b32ed71877ee673db1508882",
         source_pins={
             "MMMU/MMMU": "171b0ef74cd1704464e6940860968009d8cdd59a",
         },
@@ -2032,11 +2042,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face AI4Math/MathVista
     #     pin revision 2b6ad69445fbb5695c9b165475e8decdbeb97747
+    # Re-sealed 2026-11-09 (OME-1853): Pillow 12.3.0 -> 13.0.0 re-encodes every picture to
+    #   different PNG bytes, so the Case set changed (was 5097c2f0… / a42c628d…). Sealed on
+    #   linux/amd64, the same values CI's strict image build printed. The published id HOLDS by
+    #   owner ruling (no official leaderboard runs on this Benchmark yet), against the doc's
+    #   "changed Cases -> move" rule.
     "mathvista": TaskReplayCasesSpec(
         task="inspect_evals.mathvista.mathvista:mathvista",
         case_count=1000,
-        case_digest="5097c2f00db0479d46373bee56690ea26faf359ee8ca1288ea742137f9274050",
-        case_set_digest="a42c628ddc55f925569eadec54abfd624e131e37738d5ed4ed6428d3b2290073",
+        case_digest="9a4a85c30d791c733dd781bd48432186e8695f11520b00f7c872f7c5ef009f4b",
+        case_set_digest="15d0e051806512fbbdd3b565ddd70dc9ea1055f238972d8cf51ef7e9601f86cb",
         keep_sample_metadata=True,
         source_pins={
             "AI4Math/MathVista": "2b6ad69445fbb5695c9b165475e8decdbeb97747",
