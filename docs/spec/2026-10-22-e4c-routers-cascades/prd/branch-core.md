@@ -91,7 +91,7 @@ skip is auditable in the report.
     template parses unchanged; a body that does not parse stays opaque (today's rule). Any other
     named inner expression, for example the corrective `loop_candidate`, stays opaque as today.
     [proposed — review 2 F12]
-  - Every call inside a gated body, and every call of a candidate under `sf.Budgeted`, carries
+  - Every call inside a gated body, and every call of a candidate under `sf.WithBudget`, carries
     `binding=<its name>` first, so each fingerprint has one claimant and is attributed. The
     attribution pattern widens to `gate` and `selector` (PIN). [proposed]
   - A binding inside a gated body with no recorded call emits no `OperationOutput` (absent = not
@@ -101,46 +101,62 @@ skip is auditable in the report.
     operation's `combine.result.status` or `decision.result.status` is `abstain`. JOIN copies the
     result of the branch that ran (D12, `terminal`), so an abstain deep inside nested bodies
     reaches the root JOIN. [proposed — review 3 F1]
-  - Combine calls inside bodies (the lazy-fallback call #2, a cascade stage's decision call) are
+  - Combine calls inside bodies (the lazy-fallback call #2, a cascade tier's decision call) are
     attributed by the same walk with their `binding=synthesis_N` param. [implied]
   - A pending combine outcome (lazy-fallback `phase=decide`) is published with `pending=True`
     (`OperationCall.pending`); attribution gives it output `""` and no evidence, and the accounting
     index and the budget fold skip it. [proposed — review finding 13]
 - **D4 Panel branch rule.** DECIDE maps the decision call's E4b gate record branch
-  [proposed — review findings 6 and review 2 F3; stated ans:Q17, ans:Q24, ans:Q25]:
+  [proposed — review findings 6 and review 2 F3; stated ans:Q25; stated owner 2026-11-12 —
+  supersedes ans:Q17 and ans:Q24 in the null rows]:
 
   | Gate record branch | `otherwise` kind | `wanted` | `branch` | Result (JOIN, D12) |
   |---|---|---|---|---|
   | `majority` | any | `then` | `then` | the `then` body's text; the `then` terminal's result copied (for a step slot, the decision call's result) |
-  | `fallback` | any | `otherwise` | `otherwise` | the `otherwise` body's text and its terminal's result copied, or the word |
+  | `fallback` | any | `otherwise` | `otherwise` | the `otherwise` body's text and its terminal's result copied, or the word; a missing number with a recipe `otherwise` raises `signal_missing` instead (D4a) |
   | `band` | any | null | null | abstain `in_band`, copied; no body runs, also when `then` is a recipe (ans:Q25) |
-  | null (no voters: the combine abstained before the gate) | recipe | `otherwise` | `otherwise` | the next stage answers (escalation, ans:Q17; "no member answered", ans:Q24) |
+  | null (no voters: the combine abstained before the gate), condition `sf.answered()` (observe `answered`) | recipe | `otherwise` | `otherwise` | the next tier answers (an `sf.escalate_if(sf.unanswered())` line, [cascade](cascade.md) CA-10) |
+  | null, any other condition | recipe | null | null | abstain with the decision call's reason (`no_votes`, `cut_not_met`, `output_missing`), copied; no body runs: nothing falls back unless the recipe says so ([cascade](cascade.md) CA-7) [stated owner 2026-11-12 — supersedes ans:Q17] |
   | null | step, or the word `abstain` | null | null | abstain with the decision call's reason (`no_votes`, `cut_not_met`, `output_missing`), copied; no body runs, also when `then` is a recipe (ans:Q25) |
-  | null | the word `fail_closed` | null | null | JOIN raises `fail_closed`; the Case fails with code `fail_closed` (a gated last stage whose members all failed, [cascade](cascade.md) CA-30) [proposed — review 3 F7] |
+  | null | the word `fail_closed` (`sf.fail()`) | null | null | JOIN raises `fail_closed`; the Case fails with code `fail_closed` (a gated last tier after an `sf.unanswered()` line whose members all failed, [cascade](cascade.md) CA-30) [proposed — review 3 F7] |
 
   A budget refusal of `otherwise` whose fallback is a `then` step slot keeps the decision call's
   result: when that result is an abstain, the Gate abstains with the same reason; it never returns
-  `""` marked `answered`. A partial member failure is not a null branch: the decision call reduces
-  over the members that answered and the gate compares as usual (ans:Q24). The decision call
+  `""` marked `answered`. A partial member failure is not a null branch: the panel's url4 quorum
+  decides. Under `quorum="all"` (the default) one failed member fails the panel and the Case with
+  that member's code; under a numeric quorum the decision call reduces over the members that
+  answered and the gate compares as usual [stated owner 2026-11-12 — supersedes ans:Q24]. The
+  decision call
   writes combine `gate.otherwise` = `judge` or `writer` for an E4b `JudgePick` / `Synthesize`
   fallback ([lazy-fallback](lazy-fallback.md)), and `abstain` for every other `otherwise` (a recipe,
   another step, a word). So on an escalation its evidence reads `abstain` / `gate_not_met` with
   gate branch `fallback`; the report labels that Combine section "escalated" from the decision
   record. A step `otherwise` that is not the decision reducer compiles to its own combine call
   inside the `otherwise` body. [proposed — review finding 6]
+- **D4a Missing number with a recipe `otherwise`.** A recipe `otherwise` runs only when the
+  comparison is false. A missing number (observed null, for example `sf.signal("lp")` on a reply
+  with no log-probability) is neither true nor false. So when the decision call's E4b gate record
+  took `fallback` because the number is missing (E4b P10, `_Choice.missing`) and `otherwise` is a
+  recipe, DECIDE raises `signal_missing(gate_id)` before it reads the ledger: a permanent failure
+  with fixed Engine text plus the gate id ("sf.Gate gate_N read a missing number, so it can neither
+  keep the answer nor escalate"). No body runs and the Case fails with code `signal_missing`. Every
+  other `otherwise` (the word `abstain`, the word `fail_closed`, a step, an E4b `sf.JudgePick` or
+  `sf.Synthesize` fallback) keeps the E4b missing-number fallback unchanged
+  (`E/world/branch.py` `_decide`; `E/benchmarks/failure_classes.py` `signal_missing`).
+  [stated owner 2026-11-12]
 - **D5 Body-reference invariant.** Every `$name` in a body or its intent becomes an eager
   dependency of the iterate [existing `U/dag/_lowering.py:331-346`]. So a body may reference only
   bindings that run unconditionally in an enclosing scope: the Gate input, the tree's KEYWORDS
-  source, hoisted LabelModel selectors (placed at the lowest common scope, [selectors](selectors.md)
+  source, hoisted LLMClassifier selectors (placed at the lowest common scope, [selectors](selectors.md)
   SL-18), the panel members and the decision call. A model source whose only readers are inside one
   body is defined inside that body. The renderer checks each body's references and raises a
   compile-time error when a body references an outer model source that no unconditional reader
   needs. [proposed — review 2 F4]
-- **D6 Keywords eagerly, LabelModel lazily.** One KEYWORDS source at the top of every Gate tree
-  that reads a selector evaluates every Keywords selector the tree reads (pure, no model) and also
+- **D6 RegexClassifier eagerly, LLMClassifier lazily.** One KEYWORDS source at the top of every Gate tree
+  that reads a selector evaluates every RegexClassifier selector the tree reads (pure, no model) and also
   returns `summary: {"chars": n, "sha256": "<16 hex>"}` of the Case input, so every SELECTOR_RECORD
-  (Keywords and LabelModel) gets its input summary (erd §2) even when the tree has no Keywords
-  selector. DECIDE receives these results and never reads the Case input. A LabelModel call stays
+  (RegexClassifier and LLMClassifier) gets its input summary (erd §2) even when the tree has no RegexClassifier
+  selector. DECIDE receives these results and never reads the Case input. An LLMClassifier call stays
   at the lowest scope that holds every Gate that reads it ([selectors](selectors.md), ans:Q18).
   [proposed — review finding 12; review 2 F11]
 - **D7 Ancestors are fingerprints.** GATE_SPEC `ancestors` lists the fingerprints (path, params)
@@ -164,7 +180,7 @@ skip is auditable in the report.
   instrumental (weight `0.0`): they keep the dependency edge but are left out of the packed
   context, so AFTER's request carries zero answer bytes [existing `U/dag/nodes/_shared.py:231`,
   `U/dag/fetch.py:143`; verified by the review 3 offline probe]. AFTER references only the decision
-  call (panel gates), the Gate input, and the hoisted LabelModel selectors and the KEYWORDS source
+  call (panel gates), the Gate input, and the hoisted LLMClassifier selectors and the KEYWORDS source
   that DECIDE reads. It does not list every ancestor: every ancestor call is upstream of these
   (dataflow), or precedes the enclosing OPEN, because a gated body starts only after its OPEN
   resolved. The renderer asserts that every AFTER reference resolves to a binding in scope, because
@@ -219,7 +235,7 @@ skip is auditable in the report.
 - **BC-5 Recipe bodies answer the Gate's input.** Given a recipe body, When it runs, Then its
   input is the input of the Gate: the Case input when the Gate is the root, the first Pipeline
   stage or in the first block; the previous stage's answer when the Gate is a later Pipeline stage
-  (Pipeline semantics). It is never the panel answers of a panel gate, and the stages of a Cascade
+  (Pipeline semantics). It is never the panel answers of a panel gate, and the tiers of a Cascade
   all answer the Cascade's input ([cascade](cascade.md)). [stated epic: "Each stage's prompt input
   is the original user question"; implied]
 - **BC-6 Nesting.** Given a Gate in a branch body of another Gate, When the outer branch runs,
@@ -245,8 +261,9 @@ skip is auditable in the report.
   fallback at the candidate root, When the vote abstains (`no_votes`, `in_band`, `cut_not_met`),
   Then the root names `gate_N`, JOIN copies the abstain (D12) and the Case is scored 0 with
   `abstained: true`, as before E4c. [proposed — review 2 F3]
-- **BC-36 A nested abstain reaches the root.** Given `sf.Cascade([s1, s2, s3], escalate_if=…,
-  otherwise="abstain")` at the candidate root where every stage escalates, When the innermost Gate
+- **BC-36 A nested abstain reaches the root.** Given `sf.Cascade(t1, sf.escalate_if(…), t2,
+  sf.escalate_if(…), t3, sf.escalate_if(…), sf.abstain())` at the candidate root where every tier
+  escalates, When the innermost Gate
   abstains `gate_not_met`, Then each outer JOIN copies its `otherwise` terminal's result (the inner
   JOIN's), the root JOIN's `decision.result` is that abstain, and the Case is scored 0 with
   `abstained: true` ([cascade](cascade.md) CA-9, CA-20). [proposed — review 3 F1]
@@ -255,7 +272,8 @@ skip is auditable in the report.
   JOIN runs, Then it copies the vote's combine result and the Case is scored 0 with `abstained:
   true`, as the same vote at the root was before E4c. [proposed — review 3 F1]
 - **BC-33 Band or no votes with a recipe `then`.** Given a panel gate whose `then` is a recipe and
-  whose decision call hits the band (or finds no voters, with a step or word `otherwise`), When
+  whose decision call hits the band (or finds no voters, with a step or word `otherwise`, or with a
+  recipe `otherwise` under any condition but `sf.answered()`), When
   DECIDE runs, Then `wanted` and `branch` are null, no body runs, and the result is the decision
   call's abstain (`in_band` / `no_votes`). [stated ans:Q25]
 
@@ -268,6 +286,12 @@ skip is auditable in the report.
 - **BC-9 Word `fail_closed`.** Given the taken branch is the word `fail_closed`, When JOIN runs,
   Then JOIN raises a permanent `fail_closed` failure, no model is called after DECIDE, and the
   Case is `failed` with code `fail_closed`, never an abstain. [stated epic]
+- **BC-39 Missing number with a recipe `otherwise`.** Given a panel gate whose `otherwise` is a
+  recipe and whose decision call took `fallback` on a missing number (D4a), When DECIDE runs, Then
+  it raises the permanent `signal_missing` failure with fixed text that names only the gate id, no
+  body runs, and the Case is `failed` with code `signal_missing`. Given the same missing number
+  with the word `abstain`, a `sf.JudgePick` or a `sf.Synthesize` `otherwise`, Then the E4b
+  fallback runs as before. [stated owner 2026-11-12]
 - **BC-10 A body fails.** Given the taken recipe body fails permanently, When the iterate resolves,
   Then `on_error="fail"` fails the Gate and the Case with the body's own failure code; DECIDE's
   record stays on `op_gate_N` with `result` unset, so the report shows which branch failed.
@@ -295,16 +319,16 @@ skip is auditable in the report.
 
 | # | Title | Tag | I×L | G/W/T |
 |---|---|---|---|---|
-| BC-25 | Panel branch rule | [proposed — review finding 6; stated ans:Q25] | H×H | Given each row of the D4 table, Then DECIDE writes the stated `wanted` and `branch`, and JOIN the stated result; a budget-refused `otherwise` that falls back to an abstained `then` step slot abstains with that reason. |
+| BC-25 | Panel branch rule | [proposed — review finding 6; stated ans:Q25; stated owner 2026-11-12] | H×H | Given each row of the D4 table, Then DECIDE writes the stated `wanted` and `branch`, and JOIN the stated result; a null branch maps to a recipe `otherwise` only under `sf.answered()`; a missing number with a recipe `otherwise` raises `signal_missing` (D4a); a budget-refused `otherwise` that falls back to an abstained `then` step slot abstains with that reason. |
 | BC-13 | Replay takes the same branch | [implied — GD-I6] | H×M | Given a captured run whose ancestors all have reference costs, When it replays from the pinned cache, Then every DECIDE returns byte-identical records and the same bodies run. |
 | BC-28 | Gate as a later stage | [proposed — review finding 7] | H×M | Given `A >> Gate(...) >> B`, Then B's input is JOIN's text (the taken branch's answer), never JSON. |
 | BC-29 | Pending record is not a call | [proposed — review finding 13] | H×M | Given a `phase=decide` pending outcome, Then the accounting index and the budget fold skip it and its operation has output `""` and no evidence. |
 | BC-34 | DECIDE context stays small | [proposed — review 2 F1] | H×M | Given ancestors whose answers total 8 MiB, Then DECIDE's context holds only `"after": ""`, ids, labels and numbers, and stays under 1 MiB; the AFTER source carries the references. |
 | BC-35 | Pending gate record read | [proposed — review 2 F6] | H×M | Given a lazy E4b fallback, Then DECIDE finds the pending outcome by fingerprint in `current_operation_calls()` and reads its `gate_record`; no value is kept in request scope. |
 | BC-14 | Bodies never hold live accounting in prompts | [proposed — corrective OME-1168 lesson `S/_evaluation/corrective.py:452-461`] | H×M | Given any body, When it is compiled, Then no prompt text contains a sibling's accounting envelope. |
-| BC-15 | Stable operation ids | [proposed] | H×M | Given the same recipe compiled twice, Then every binding and `op_` id is equal. Body operations keep the attributed binding kinds with one candidate-wide number (`model_N`, `synthesis_N`, `judge_N`, `writer_N`); the JOIN is `gate_N`, a LabelModel call `selector_N`; the pattern widens in `E/benchmarks/operation_outputs.py:52`, `S/_operation_bindings.py:5-9` and the Engine-only `ET/data/combine_contract/binding_names.json` that the SDK conformance test reads (PIN); this also widens `OPERATION_REFERENCE`, `TOPOLOGY_BINDING` (plus `gate_\d+_block`) and the url4 decode patterns `S/url4.py:74-76`; the reference patterns gain the trailing boundary `(?![A-Za-z0-9_])` so helper names such as `$gate_3_after` never decode as `gate_3` [proposed — review 3 F10]. The combine call's own `binding=synthesis_N` check is unchanged. DECIDE, OPEN and AFTER use unattributed names (`gate_N_decide`, `gate_N_open_then`, `gate_N_open_else`, `gate_N_after`) and the Gate block is `gate_N_block`, as the corrective `loop_*` names do. |
+| BC-15 | Stable operation ids | [proposed] | H×M | Given the same recipe compiled twice, Then every binding and `op_` id is equal. Body operations keep the attributed binding kinds with one candidate-wide number (`model_N`, `synthesis_N`, `judge_N`, `writer_N`); the JOIN is `gate_N`, an LLMClassifier call `selector_N`; the pattern widens in `E/benchmarks/operation_outputs.py:52`, `S/_operation_bindings.py:5-9` and the Engine-only `ET/data/combine_contract/binding_names.json` that the SDK conformance test reads (PIN); this also widens `OPERATION_REFERENCE`, `TOPOLOGY_BINDING` (plus `gate_\d+_block`) and the url4 decode patterns `S/url4.py:74-76`; the reference patterns gain the trailing boundary `(?![A-Za-z0-9_])` so helper names such as `$gate_3_after` never decode as `gate_3` [proposed — review 3 F10]. The combine call's own `binding=synthesis_N` check is unchanged. DECIDE, OPEN and AFTER use unattributed names (`gate_N_decide`, `gate_N_open_then`, `gate_N_open_else`, `gate_N_after`) and the Gate block is `gate_N_block`, as the corrective `loop_*` names do. |
 | BC-16 | Not-run body leaves no operation | [implied] | H×M | Given a not-run body, Then no `OperationOutput` exists for its operations and the topology still lists them (planned), so the report can show them as not run. |
-| BC-30 | Keywords once per tree | [proposed — review finding 12; review 2 F11] | M×M | Given four nested Gates that read two Keywords selectors, Then one KEYWORDS source runs once and every DECIDE receives its results; given a tree with only a LabelModel, Then the KEYWORDS source still runs and returns the input `summary`. |
+| BC-30 | RegexClassifier once per tree | [proposed — review finding 12; review 2 F11] | M×M | Given four nested Gates that read two RegexClassifier selectors, Then one KEYWORDS source runs once and every DECIDE receives its results; given a tree with only an LLMClassifier, Then the KEYWORDS source still runs and returns the input `summary`. |
 | BC-17 | `model_calls` range | [stated ans:Q22] | M×M | Given a body with 3 model leaves and a nested Gate with 2 and 4 on its branches, Then its NOT_RUN_ENTRY has `model_calls = {"min": 5, "max": 7}`. |
 | BC-18 | Depth cap | [proposed] | M×L | Given 9 nested Gates, When the SDK compiles, Then it raises "sf.Gate nests at most 8 deep" before any run. |
 | BC-19 | Cancellation | [proposed] | M×L | Given the Case is cancelled while a body runs, Then the cancellation propagates like any url4 subtree; no partial branch is reported as taken. |
@@ -340,8 +364,9 @@ State table (per Gate per Case):
 - A url4 grammar change (`;when=` annotations) [stated ans:Q1].
 - Parallel race with cancellation of slower branches (OME-1465 race form, OME-559) [stated ans:Q5].
 - Clusters / embeddings [stated ans:Q4].
-- Retrying a failed body in the other branch (that is a Cascade with failure escalation, owned by
-  [cascade](cascade.md)) [stated ans:Q17].
+- Retrying a failed body in the other branch (that is a Cascade with an
+  `sf.escalate_if(sf.unanswered())` line, owned by [cascade](cascade.md) CA-10) [stated owner
+  2026-11-12].
 
 ## 6. Open questions
 
@@ -366,6 +391,8 @@ need the renderer of plan unit 3). RED first, always; a test that passes at once
 | 7 | `attribution_walks_gate_blocks_and_their_iterate_bodies` (body model op, call #2 evidence, `op_gate_N.decision`; iterate with and without intent) | unit | BC-23 | H×H | recursive `_operation_bindings` limited to `gate_N_block`; `f"({body})!{intent}"` / `f"({body})"` parse |
 | 8 | `gate_call_record_last_write_wins` (JOIN over DECIDE; DECIDE alone when a body failed; DECIDE carries `gate=gate_N`, JOIN exactly one `binding` param) | unit | BC-7, BC-10 | H×H | `record_gate_call`, `OperationCall.decision` (D3, D11) |
 | 9 | `panel_branch_rule` (decision table D4: majority / fallback / band / null × otherwise kind × then kind, incl. null with the word `fail_closed` → `fail_closed`; the budget-refused case is budget #5) | unit | BC-25, BC-33 | H×H | `_decide` panel mapping |
+| 9a | `null_branch_escalates_only_under_answered` (null × recipe `otherwise`: `sf.answered()` → `otherwise`; `sf.agreement()` / `chosen:` / `mean:` → abstain with the decision call's reason) | unit | BC-25, D4 | H×H | `_panel_choice` reads `spec.when.observe` |
+| 9b | `missing_number_with_a_recipe_otherwise_raises_signal_missing` (the word `abstain`, `sf.JudgePick`, `sf.Synthesize` keep the E4b fallback) | unit | BC-25, BC-39 | H×H | `_decide` checks `_Choice.missing`; `signal_missing(gate_id)` helper |
 | 10 | `decide_runs_after_every_ancestor_with_delayed_replies` (fake gateway delays the decision call and two ancestors; also a delayed member behind a quorum panel) | integration | BC-31 | H×H | AFTER source with instrumental slots (D10) |
 | 11 | `e4b_vote_abstain_under_a_lazy_gate_still_marks_the_case_abstained` (no_votes, in_band, cut_not_met at the root) | integration | BC-32 | H×H | D12 + `final_operation_abstained` follows `gate_N_block` |
 | 12 | `not_selected_branch_makes_zero_calls` (Engine world, fake gateway counts calls per binding) | integration | BC-1 | H×H | renderer + endpoints |
@@ -390,7 +417,7 @@ need the renderer of plan unit 3). RED first, always; a test that passes at once
 | 30 | `pending_combine_record_is_not_a_provider_call` | unit | BC-29 | H×M | `OperationCall.pending`; skip in the accounting index and the fold |
 | 31 | `decide_reads_a_pending_gate_record_from_the_recorded_calls` | unit | BC-35 | H×M | `OperationCall.gate_record` by fingerprint (D11) |
 | 32 | `decide_context_stays_under_the_cap_with_8_mib_ancestor_answers` | unit | BC-34 | H×M | DECIDE holds `"after": ""`; AFTER never parses its context |
-| 33 | `keywords_source_runs_once_per_tree_and_returns_the_input_summary` (also in a tree with only a LabelModel) | integration | BC-30 | M×M | one KEYWORDS source (D6) |
+| 33 | `keywords_source_runs_once_per_tree_and_returns_the_input_summary` (also in a tree with only an LLMClassifier) | integration | BC-30 | M×M | one KEYWORDS source (D6) |
 | 34 | `not_run_entry_counts_min_and_max_model_calls` | unit | BC-17 | M×M | topology walk per path |
 | 35 | `gate_depth_nine_is_refused_at_compile` | unit | BC-18 | M×L | renderer depth counter |
 | 36 | `empty_case_input_takes_the_default_branch` | integration | BC-21 | M×L | — |

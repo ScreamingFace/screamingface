@@ -29,7 +29,7 @@ from screamingface.branch import BranchNode, DecisionReducer
 from screamingface.recipe import _is_supported_recipe, _recipe_kind
 from screamingface.reducer import VoteNode
 
-_KW = sf.Keywords([("math", r"(?i)\bintegral\b"), ("code", r"python")])
+_KW = sf.RegexClassifier([("math", r"(?i)\bintegral\b"), ("code", r"python")])
 _PANEL = ["prov/a", "prov/b", "prov/c"]
 _LOOP_REFUSAL = (
     "a sf.Gate cannot sit inside a sf.CorrectiveLoop, and a sf.CorrectiveLoop cannot be a "
@@ -116,7 +116,7 @@ def test_gate_compiles_to_decide_open_join() -> None:
 
 
 def test_words_fail_closed_and_abstain_compile() -> None:
-    sources = _sources(_compiled(_input_gate(then="fail_closed", otherwise="prov/general")))
+    sources = _sources(_compiled(_input_gate(then=sf.fail(), otherwise="prov/general")))
     assert "gate_1_then" not in sources and "gate_1_open_then" not in sources
     assert "gate_1_else" in sources
     join = sources["gate_1"].value
@@ -125,7 +125,7 @@ def test_words_fail_closed_and_abstain_compile() -> None:
 
 
 def test_words_in_both_branches_compile() -> None:
-    sources = _sources(_compiled(_input_gate(then="abstain", otherwise="fail_closed")))
+    sources = _sources(_compiled(_input_gate(then="abstain", otherwise=sf.fail())))
     assert not any(name.endswith(("_then", "_else")) for name in sources if name.startswith("gate"))
     join = sources["gate_1"].value
     assert isinstance(join, RelExpr) and isinstance(join.intent, Text)
@@ -181,7 +181,7 @@ def test_gate_refuses_python_callables_with_the_guard_message(position: str) -> 
 
 def test_skip_is_not_a_public_branch_value() -> None:
     with pytest.raises(
-        TypeError, match=r"^sf\.Gate then= takes a step, a recipe, 'abstain' or 'fail_closed'$"
+        TypeError, match=r"^sf\.Gate then= takes a step, a recipe, sf\.abstain\(\) or sf\.fail\(\)$"
     ):
         _input_gate(then="skip")
 
@@ -260,8 +260,8 @@ def test_hand_added_gate_key_forces_recompile() -> None:
 
 
 def test_equal_selectors_in_nested_gates_share_one_id() -> None:
-    first = sf.Keywords([("math", "integral"), ("code", "python")])
-    second = sf.Keywords([("math", "integral"), ("code", "python")])
+    first = sf.RegexClassifier([("math", "integral"), ("code", "python")])
+    second = sf.RegexClassifier([("math", "integral"), ("code", "python")])
     inner = sf.Gate(when=sf.label(second) == "code", then="prov/c", otherwise="prov/g")
     url4 = _compiled(sf.Gate(when=sf.label(first) == "math", then="prov/m", otherwise=inner))
     names = _sources(url4)

@@ -1,4 +1,4 @@
-"""The report shows sf.Budgeted: spend against the cap, refusals, overspend and unknown cost.
+"""The report shows sf.WithBudget: spend against the cap, refusals, overspend and unknown cost.
 
 FEATURE: E4c (OME-1291) report rows RP#11a, #15, #19, #21, #27, #28 and budget BU#25 (the
 first producer of the reserved ``budget`` trace kind).
@@ -79,13 +79,13 @@ def _refused(*views: dict[str, Any], branch: str | None, gate: str = "gate_1") -
 
 
 def _choice() -> object:
-    return sf.Budgeted(
+    return sf.WithBudget(
         sf.Gate(
             when=sf.budget.remaining() >= 0.02,
             then=sf.Estimate("prov/big", usd=0.03),
             otherwise="prov/small",
         ),
-        usd=0.05,
+        budget_usd=0.05,
     )
 
 
@@ -95,7 +95,7 @@ def _refuse_both() -> object:
         then=sf.Estimate("prov/big", usd=0.03),
         otherwise="prov/small",
     )
-    return sf.Budgeted(sf.Model("prov/prep") >> gate, usd=0.0015)
+    return sf.WithBudget(sf.Model("prov/prep") >> gate, budget_usd=0.0015)
 
 
 def _cascade() -> object:
@@ -107,7 +107,7 @@ def _cascade() -> object:
     ) >> sf.Gate(
         when=sf.agreement() >= 0.8, then=sf.Vote(), otherwise=sf.Estimate(stage_two, usd=0.0025)
     )
-    return sf.Budgeted(stage_one, usd=0.01)
+    return sf.WithBudget(stage_one, budget_usd=0.01)
 
 
 def _priced(operation_id: str) -> CaseOperation:

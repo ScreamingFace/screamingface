@@ -14,7 +14,7 @@ The gate spec (``gate-spec.v1``) is the intent (``!'<spec>'``) of DECIDE and JOI
 spec is the intent of a combine call, so the url4 decode reads it from the JOIN call.
 
 and, once at the top of each Gate tree that reads a selector, ``keywords_N`` (the pure KEYWORDS
-source, which also returns the Case input summary) and each LabelModel call ``selector_N`` at the
+source, which also returns the Case input summary) and each LLMClassifier call ``selector_N`` at the
 lowest scope that holds every Gate that reads it (``;optional``: a failed call takes the default).
 STORY: OPEN returns a one-item collection only for the branch DECIDE chose, and url4 runs no
 element of an empty collection, so the other body never runs.
@@ -59,7 +59,7 @@ from screamingface._evaluation.combine_spec import canonical_json
 from screamingface._evaluation.model import _compiled_operation
 from screamingface._evaluation.topology import _BranchWord, _RecipeTopology
 from screamingface._operation_bindings import gate_join
-from screamingface._surface.selectors import Keywords, LabelModel, Selector
+from screamingface._surface.selectors import LLMClassifier, RegexClassifier, Selector
 from screamingface.branch import (
     GATE_IN_LOOP,
     MAX_GATE_DEPTH,
@@ -104,15 +104,16 @@ _NONE: _Range = (0, 0)
 
 @dataclass(slots=True)
 class _Tree:
-    """One Gate tree: the selectors its Gates read and where each LabelModel call is placed."""
+    """One Gate tree: the selectors its Gates read and where each LLMClassifier call is placed."""
 
     keywords_binding: str | None = None
     # selector identity -> the scope path of each Gate that reads it
     readers: dict[str, list[_Path]] = field(default_factory=dict)
-    # LabelModel identity -> (placement path, call binding) once placed
+    # LLMClassifier identity -> (placement path, call binding) once placed
     placed: dict[str, tuple[_Path, str]] = field(default_factory=dict)
     selectors: dict[str, Selector] = field(default_factory=dict)
-    # LabelModel identities a tree-root Gate already lists (a skip-member Fanout has several roots)
+    # LLMClassifier identities a tree-root Gate already lists (a skip-member Fanout has several
+    # roots)
     listed: set[str] = field(default_factory=set)
 
     def placement(self, identity: str) -> _Path:
@@ -179,7 +180,7 @@ class _BranchState:
 
 @dataclass(frozen=True, slots=True)
 class _Selectors:
-    """The selectors one Gate's DECIDE reads: per-branch reads, the spec entries, the LabelModel
+    """The selectors one Gate's DECIDE reads: per-branch reads, the spec entries, the LLMClassifier
     reply references in scope and the KEYWORDS reference."""
 
     reads: dict[str, list[Selector]]
@@ -369,7 +370,7 @@ def _skip_selection(fusion: FusionNode, members: Sequence[_ResolvedRecipe]) -> _
 
 
 def _emit_tree_top(compiler: _CandidateCompiler, state: _BranchState) -> None:
-    """The tree's KEYWORDS source (D6) and the LabelModel calls placed at the tree top."""
+    """The tree's KEYWORDS source (D6) and the LLMClassifier calls placed at the tree top."""
 
     tree = state.tree
     assert tree is not None
@@ -380,7 +381,7 @@ def _emit_tree_top(compiler: _CandidateCompiler, state: _BranchState) -> None:
     keywords = {
         state.selector_id(selector): selector._spec()
         for selector in tree.selectors.values()
-        if isinstance(selector, Keywords)
+        if isinstance(selector, RegexClassifier)
     }
     state.keywords += 1
     tree.keywords_binding = f"keywords_{state.keywords}"
@@ -395,13 +396,13 @@ def _emit_tree_top(compiler: _CandidateCompiler, state: _BranchState) -> None:
 
 
 def _place_selectors(compiler: _CandidateCompiler, state: _BranchState) -> None:
-    """Emit each LabelModel call whose lowest common scope is the current path."""
+    """Emit each LLMClassifier call whose lowest common scope is the current path."""
 
     tree = state.tree
     assert tree is not None
     for identity, selector in tree.selectors.items():
         if (
-            isinstance(selector, LabelModel)
+            isinstance(selector, LLMClassifier)
             and identity not in tree.placed
             and tree.placement(identity) == state.path
         ):
@@ -623,12 +624,12 @@ class _Gate:
         return tree
 
     def _read_selectors(self, listed: Sequence[Selector]) -> dict[str, str]:
-        """sel id -> the reply reference of each LabelModel this DECIDE can see (in scope)."""
+        """sel id -> the reply reference of each LLMClassifier this DECIDE can see (in scope)."""
 
         tree, state = self._tree, self._state
         replies: dict[str, str] = {}
         for selector in listed:
-            if not isinstance(selector, LabelModel):
+            if not isinstance(selector, LLMClassifier):
                 continue
             placed = tree.placed.get(selector._identity())
             if placed is not None and state.path[: len(placed[0])] == placed[0]:
@@ -637,7 +638,7 @@ class _Gate:
 
     @functools.cached_property
     def _selectors(self) -> _Selectors:
-        """Computed once, on first use after the bodies render (they place the LabelModels)."""
+        """Computed once, on first use after the bodies render (they place the LLMClassifiers)."""
 
         reads = {branch: self._reads(branch) for branch in ("then", "otherwise")}
         # The selectors this DECIDE reads: its own condition's, then every one a body Gate reads.
@@ -728,19 +729,19 @@ class _Gate:
         for selector in listed:
             selector_id = state.selector_id(selector)
             binding = None
-            if isinstance(selector, LabelModel):
+            if isinstance(selector, LLMClassifier):
                 placed = self._tree.placed.get(selector._identity())
                 # WHY always placed: the bodies render before the spec, and a body places the
-                # LabelModels of its own scope first.
+                # LLMClassifiers of its own scope first.
                 assert placed is not None
                 binding = placed[1]
             entry: dict[str, object] = {
-                "kind": "keywords" if isinstance(selector, Keywords) else "label_model",
+                "kind": "keywords" if isinstance(selector, RegexClassifier) else "label_model",
                 "multi": selector.multi,
                 "labels": list(selector.labels),
                 "binding": binding,
             }
-            if isinstance(selector, Keywords):
+            if isinstance(selector, RegexClassifier):
                 # WHY repeated here: the url4 decode rebuilds the selector from the spec alone.
                 entry["rules"] = selector._spec()["rules"]
             declared[selector_id] = entry
@@ -759,7 +760,7 @@ class _Gate:
         budget = self._compiler._budget
         if budget is None:
             raise ValueError(
-                "sf.budget.remaining() needs sf.Budgeted(...) on the candidate"
+                "sf.budget.remaining() needs sf.WithBudget(...) on the candidate"
             )  # BU-12
         units = budget.units()
         if not unit:
@@ -767,7 +768,7 @@ class _Gate:
                 raise ValueError("name the unit: sf.budget.remaining('usd') or ('tokens')")  # BU-13
             return units[0]
         if unit not in units:
-            raise ValueError(f"sf.budget.remaining({unit!r}) reads a unit the sf.Budgeted lacks")
+            raise ValueError(f"sf.budget.remaining({unit!r}) reads a unit the sf.WithBudget lacks")
         return unit
 
     def _estimate(self) -> dict[str, object]:
@@ -779,12 +780,12 @@ class _Gate:
             if estimate is None:
                 continue
             if budget is None:
-                raise ValueError("sf.Estimate needs sf.Budgeted(...) on the candidate")
+                raise ValueError("sf.Estimate needs sf.WithBudget(...) on the candidate")
             for unit in estimate:
                 if unit not in budget.units():
                     declared = " and ".join(budget.units())
                     raise ValueError(
-                        f"sf.Estimate names {unit}, but sf.Budgeted declares only {declared}"
+                        f"sf.Estimate names {unit}, but sf.WithBudget declares only {declared}"
                     )
         return {
             branch: None if value is None else dict(value) for branch, value in estimates.items()
@@ -939,7 +940,7 @@ class _Gate:
 
     @functools.cached_property
     def _listed(self) -> frozenset[str]:
-        """The LabelModels this Gate lists: only a tree root lists any, so a nested Gate's models
+        """The LLMClassifiers this Gate lists: only a tree root lists any, so a nested Gate's models
         are its bodies' alone; each root of a skip-member Fanout lists the ones it reads that no
         earlier member listed."""
 
@@ -951,16 +952,16 @@ class _Gate:
         return listed
 
     def _selector_models(self) -> tuple[str, ...]:
-        """The LabelModel routes this Gate decides with, as in ``_selector_topology``."""
+        """The LLMClassifier routes this Gate decides with, as in ``_selector_topology``."""
 
         return tuple(
             selector.model.model
             for identity, selector in self._tree.selectors.items()
-            if isinstance(selector, LabelModel) and identity in self._listed
+            if isinstance(selector, LLMClassifier) and identity in self._listed
         )
 
     def _selector_topology(self) -> tuple[_RecipeTopology, ...]:
-        """The LabelModel calls this Gate lists (``_listed``)."""
+        """The LLMClassifier calls this Gate lists (``_listed``)."""
 
         return tuple(
             _RecipeTopology(kind="model", name="label model", binding=binding, role="selector")

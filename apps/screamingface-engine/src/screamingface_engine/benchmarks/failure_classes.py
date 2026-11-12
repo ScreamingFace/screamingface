@@ -52,6 +52,7 @@ JUDGE_REPLY_INVALID_CODE = "judge_reply_invalid"
 # The text never carries upstream text, so `logprobs_unsupported` is an ENGINE_ERROR_CODES entry.
 LOGPROBS_UNSUPPORTED_CODE = "logprobs_unsupported"
 FAIL_CLOSED_CODE = "fail_closed"
+SIGNAL_MISSING_CODE = "signal_missing"
 LOGPROBS_UNSUPPORTED_TEXT = (
     "the model may not return token log-probabilities (sf.Logprob, sf.Entropy), or no endpoint for "
     "the model supports another member parameter; choose another OpenRouter model or remove that "
@@ -111,6 +112,20 @@ def fail_closed(gate_id: str) -> ResolutionError:
     )
 
 
+def signal_missing(gate_id: str) -> ResolutionError:
+    """The failure for a Gate with a recipe ``otherwise`` whose number is missing (E4c,
+    2026-11-12): nothing falls back unless the recipe says so, so the Case fails.
+
+    Permanent: the same answer has the same missing number. The text is fixed engine text plus
+    the gate id; it never holds an answer or a signal value.
+    """
+    return ResolutionError(
+        f"sf.Gate {gate_id} read a missing number, so it can neither keep the answer nor escalate",
+        code=SIGNAL_MISSING_CODE,
+        permanent=True,
+    )
+
+
 # INVARIANT: a helper can never mint an undeclared code — checked at import time so a
 # typo here dies on the first test run, not in a report.
 for _helper in (benchmark_contract_error, benchmark_definition_error, judge_failure):
@@ -123,10 +138,13 @@ if logprobs_unsupported().code not in DECLARED_FAILURE_CODES:
     raise AssertionError("failure class helper mints undeclared code 'logprobs_unsupported'")
 if fail_closed("gate_1").code not in DECLARED_FAILURE_CODES:
     raise AssertionError("failure class helper mints undeclared code 'fail_closed'")
+if signal_missing("gate_1").code not in DECLARED_FAILURE_CODES:
+    raise AssertionError("failure class helper mints undeclared code 'signal_missing'")
 del _helper, _code  # the self-check's loop variables are not module surface
 
 __all__ = [
     "FAIL_CLOSED_CODE",
+    "SIGNAL_MISSING_CODE",
     "JUDGE_REPLY_INVALID_CODE",
     "LOGPROBS_UNSUPPORTED_CODE",
     "LOGPROBS_UNSUPPORTED_TEXT",
@@ -137,4 +155,5 @@ __all__ = [
     "fail_closed",
     "judge_failure",
     "logprobs_unsupported",
+    "signal_missing",
 ]

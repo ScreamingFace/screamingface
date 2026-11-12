@@ -1,4 +1,4 @@
-"""Drift guard for the SDK-compiled sf.Budgeted url4 fixtures the Engine runs offline (E4c, C9).
+"""Drift guard for the SDK-compiled sf.WithBudget url4 fixtures the Engine runs offline (E4c, C9).
 
 FEATURE: OME-1291 plan unit 13 — the Engine world runs ``gate_contract/budget_*.url4`` verbatim on
 a fake gateway (``apps/screamingface-engine/tests/unit/test_e4c_budget_runs.py``). This file keeps
@@ -28,13 +28,13 @@ _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
 
 def budget_choice() -> object:
     """BU-6 (OmniRouter): the large model only when 0.02 USD is left; its estimate is 0.03."""
-    return sf.Budgeted(
+    return sf.WithBudget(
         sf.Gate(
             when=sf.budget.remaining() >= 0.02,
             then=sf.Estimate("prov/big", usd=0.03),
             otherwise="prov/small",
         ),
-        usd=0.05,
+        budget_usd=0.05,
     )
 
 
@@ -45,7 +45,7 @@ def budget_refuse_both() -> object:
         then=sf.Estimate("prov/big", usd=0.03),
         otherwise="prov/small",
     )
-    return sf.Budgeted(sf.Model("prov/prep") >> gate, usd=0.0015)
+    return sf.WithBudget(sf.Model("prov/prep") >> gate, budget_usd=0.0015)
 
 
 def budget_cascade() -> object:
@@ -60,52 +60,52 @@ def budget_cascade() -> object:
         then=sf.Vote(),
         otherwise=sf.Estimate(stage_two, usd=0.0025),
     )
-    return sf.Budgeted(stage_one, usd=0.01)
+    return sf.WithBudget(stage_one, budget_usd=0.01)
 
 
 def budget_lazy_judge() -> object:
     """BU-18: the E4b judge fallback is an optional call; refused, the majority answers."""
-    return sf.Budgeted(
+    return sf.WithBudget(
         sf.Fanout(_MEMBERS, name="vote")
         >> sf.Gate(
             when=sf.agreement() >= 0.7,
             then=sf.Vote(),
             otherwise=sf.Estimate(sf.JudgePick("prov/judge", rubric="Pick the best."), usd=0.01),
         ),
-        usd=0.005,
+        budget_usd=0.005,
     )
 
 
 def budget_tokens() -> object:
     """BU-2: a tokens-only cap."""
-    return sf.Budgeted(
+    return sf.WithBudget(
         sf.Gate(
             when=sf.budget.remaining() >= 1,
             then=sf.Estimate("prov/big", tokens=100),
             otherwise="prov/small",
         ),
-        tokens=50,
+        max_tokens=50,
     )
 
 
 def budget_two_units() -> object:
     """BU-2: both units; a branch is refused when either unit refuses it."""
-    return sf.Budgeted(
+    return sf.WithBudget(
         sf.Model("prov/prep")
         >> sf.Gate(
             when=sf.budget.remaining("usd") >= 0.0,
             then=sf.Estimate("prov/big", usd=0.001, tokens=100),
             otherwise="abstain",
         ),
-        usd=0.05,
-        tokens=50,
+        budget_usd=0.05,
+        max_tokens=50,
     )
 
 
 def budget_skip_members() -> object:
     """BU-19: three selected skip members each check only their own ancestors."""
-    sel = sf.Keywords([("a", "a"), ("b", "b"), ("c", "c")], multi=True)
-    return sf.Budgeted(
+    sel = sf.RegexClassifier([("a", "a"), ("b", "b"), ("c", "c")], multi=True)
+    return sf.WithBudget(
         sf.Fanout(
             [
                 sf.Gate(when=sf.labels(sel).has("a"), then=sf.Estimate("prov/a", usd=0.001)),
@@ -114,7 +114,7 @@ def budget_skip_members() -> object:
             ]
         )
         >> sf.Vote(),
-        usd=0.0015,
+        budget_usd=0.0015,
     )
 
 
@@ -124,7 +124,7 @@ def budget_cascade_tight() -> object:
     stage_one = sf.Fanout(
         [sf.Model("prov/a", optional=True), sf.Model("prov/b", optional=True)], quorum=0
     ) >> sf.Gate(when=sf.agreement() >= 0.8, then=sf.Vote(), otherwise="prov/large")
-    return sf.Budgeted(stage_one, usd=0.001)
+    return sf.WithBudget(stage_one, budget_usd=0.001)
 
 
 def _url4(build: Callable[[], object]) -> Callable[[], str]:

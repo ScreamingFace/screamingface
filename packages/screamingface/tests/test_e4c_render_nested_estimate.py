@@ -20,7 +20,7 @@ def _compiled(recipe: object) -> str:
 
 
 def _estimated_nested_gate() -> sf.Gate:
-    selector = sf.Keywords([("math", "integral"), ("code", "python")])
+    selector = sf.RegexClassifier([("math", "integral"), ("code", "python")])
     inner = sf.Gate(when=sf.label(selector) == "code", then="prov/code", otherwise="prov/general")
     return sf.Gate(
         when=sf.label(selector) == "math",
@@ -37,13 +37,13 @@ def test_laid_out_code_keeps_the_estimate_of_a_nested_gate() -> None:
     namespace: dict[str, object] = {"sf": sf}
     exec(python, namespace)  # noqa: S102 - the SDK's own generated code, offline
     assert namespace["candidate"] == value
-    rebuilt = sf.Budgeted(namespace["candidate"], usd=0.05, tokens=1000)  # type: ignore[arg-type]
-    assert _compiled(rebuilt) == _compiled(sf.Budgeted(value, usd=0.05, tokens=1000))
+    rebuilt = sf.WithBudget(namespace["candidate"], budget_usd=0.05, max_tokens=1000)  # type: ignore[arg-type]
+    assert _compiled(rebuilt) == _compiled(sf.WithBudget(value, budget_usd=0.05, max_tokens=1000))
 
 
 def test_to_python_of_a_nested_estimated_gate_recompiles_to_the_same_url4() -> None:
-    # An sf.Estimate needs sf.Budgeted at the root, and the root Budgeted stays on one line.
-    url4 = _compiled(sf.Budgeted(_estimated_nested_gate(), usd=0.05, tokens=1000))
+    # An sf.Estimate needs sf.WithBudget at the root, and the root WithBudget stays on one line.
+    url4 = _compiled(sf.WithBudget(_estimated_nested_gate(), budget_usd=0.05, max_tokens=1000))
     python = sf.Url4(url4).to_python()
     namespace: dict[str, object] = {}
     exec(python, namespace)  # noqa: S102 - the SDK's own generated code, offline

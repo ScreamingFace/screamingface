@@ -36,7 +36,7 @@ class AccountingRow:
 
 
 # The model-call operation kinds and the stage each is accounted under. A judge or writer call is
-# reducer work, so it is a synthesis row (so is an E4c LabelModel selector call). A consistency
+# reducer work, so it is a synthesis row (so is an E4c LLMClassifier selector call). A consistency
 # sample call (E4b part 7) is one more answer of a member's model, so it is a generation row. Any
 # other kind (a combine step) makes no model call.
 _ACCOUNTED_STAGES: Mapping[str, Literal["generation", "synthesis"]] = MappingProxyType(
@@ -46,7 +46,7 @@ _ACCOUNTED_STAGES: Mapping[str, Literal["generation", "synthesis"]] = MappingPro
         "synthesis": "synthesis",
         "judge": "synthesis",
         "writer": "synthesis",
-        # E4c (SL-26): a LabelModel selector call is decision work, like a judge.
+        # E4c (SL-26): an LLMClassifier selector call is decision work, like a judge.
         "selector": "synthesis",
     }
 )

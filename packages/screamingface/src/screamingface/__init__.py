@@ -24,14 +24,15 @@ from screamingface._default_client import (
 from screamingface._reproduction import Reproduction, ReproductionOutcome
 from screamingface._samples import samples
 from screamingface._signals import signal
-from screamingface._surface.budget import Budgeted, Estimate
-from screamingface._surface.cascade import Cascade
+from screamingface._surface.budget import Estimate, WithBudget
+from screamingface._surface.cascade import Cascade, escalate_if, unanswered
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.fusion import Fusion
 from screamingface._surface.gate import Gate
 from screamingface._surface.judge import Judge, JudgePick
+from screamingface._surface.outcomes import abstain, fail
 from screamingface._surface.refs import agreement, answered, field
-from screamingface._surface.selectors import Keywords, LabelModel, label, labels
+from screamingface._surface.selectors import LLMClassifier, RegexClassifier, label, labels
 from screamingface._surface.steps import (
     ArgMax,
     ArgMin,
@@ -177,13 +178,13 @@ __all__ = [
     "First",
     "FixedSeedSittingWarning",
     "Fusion",
-    "Budgeted",
+    "WithBudget",
     "Cascade",
     "CascadeSeedWarning",
     "Estimate",
     "Gate",
-    "Keywords",
-    "LabelModel",
+    "RegexClassifier",
+    "LLMClassifier",
     "Judge",
     "JudgePick",
     "JudgeWriterWarning",
@@ -233,15 +234,19 @@ __all__ = [
     "Url4",
     "Vote",
     "Verbalized",
+    "abstain",
     "agreement",
     "answered",
     "benchmarks",
     "budget",
     "cache",
+    "escalate_if",
     "events",
+    "fail",
     "field",
     "label",
     "labels",
     "leaderboards",
     "models",
+    "unanswered",
 ]

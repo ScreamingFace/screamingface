@@ -19,6 +19,7 @@ from typing import Any, ClassVar, cast
 from screamingface._signals import (
     FIELD_SIGNAL_PREFIX,
     Signal,
+    _Comparison,
     _finite_number,
     signal,
 )
@@ -154,6 +155,23 @@ def _condition(ref: GateRef, cmp: GateCmp, value: object) -> GateCondition:
     )
     ref._check_share(threshold)
     return GateCondition(ref, cmp, threshold)
+
+
+# The gate comparison of each sf.Filter predicate operator (``==`` has none).
+_ORDERED: dict[str, GateCmp] = {"lt": "<", "le": "<=", "gt": ">", "ge": ">="}
+
+
+def signal_condition(value: object) -> object:
+    """``sf.signal("x") < 0.7`` in a gate condition: the chosen member's value, the same as
+    ``sf.signal("x").chosen() < 0.7`` (E4c, 2026-11-12). Any other value is returned as it is."""
+
+    if (
+        isinstance(value, _Comparison)
+        and value.cmp in _ORDERED
+        and not isinstance(value.value, bool)
+    ):
+        return _condition(value.signal.chosen(), _ORDERED[value.cmp], value.value)
+    return value
 
 
 def extractor(value: object) -> Extractor:

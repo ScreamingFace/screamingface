@@ -9,9 +9,13 @@ FEATURE: ``Gate(*, when, then, otherwise=None, abstain_if=None)`` is the one bra
   ``sf.labels(sel).has("x")``); it is a recipe: the candidate, a Pipeline stage or a branch.
 
 ``then=`` and ``otherwise=`` each take a reducer step (panel gates), a recipe (a model route, a
-``sf.Model``, a chain, another input ``sf.Gate``) or a word: ``"abstain"`` or ``"fail_closed"``.
+``sf.Model``, a chain, another input ``sf.Gate``) or an outcome: ``sf.abstain()`` or ``sf.fail()``
+(the word ``"abstain"`` is the E4b spelling of ``sf.abstain()`` and still works).
 A branch that is not taken makes zero model calls, and the report says why. An N-way choice is
-nested Gates. ``otherwise`` left out means ``"abstain"`` (and "skip" for a Fanout member Gate).
+nested Gates. ``otherwise`` left out means ``sf.abstain()`` (and "skip" for a Fanout member Gate).
+A Gate takes a recipe ``otherwise`` only when its comparison is false: when the panel gave no
+answer, the Case abstains with the reason, and when the number is missing, the Case fails with
+``signal_missing`` (E4c, 2026-11-12). Only ``sf.answered()`` escalates on a missing answer.
 
 A panel gate whose branches are only the block's reducer and ``"abstain"`` (or an E4b
 ``sf.JudgePick`` / ``sf.Synthesize`` fallback) compiles to the one combine call of E4b; every other
@@ -27,11 +31,13 @@ from typing import Any, ClassVar, Literal, TypeGuard, cast
 from screamingface._surface.budget import BudgetCondition, Estimate
 from screamingface._surface.chain import Step, _Category, is_step
 from screamingface._surface.judge import JudgePick
+from screamingface._surface.outcomes import Outcome
 from screamingface._surface.refs import (
     AnsweredCondition,
     GateBand,
     GateCondition,
     is_rule_name,
+    signal_condition,
 )
 from screamingface._surface.selectors import LabelCondition
 from screamingface._surface.steps import (
@@ -45,24 +51,25 @@ from screamingface._surface.steps import (
     _check_by_lowering,
 )
 from screamingface._surface.synthesize import Synthesize
-from screamingface.branch import GATE_IN_LOOP, WORDS
+from screamingface.branch import GATE_IN_LOOP
 from screamingface.model import Model
 from screamingface.recipe import _BU11, Recipe
 
 # The E4b fallback of a vote gate (kept for the one-call compile and its lowering).
 type Fallback = Literal["abstain"] | JudgePick | Synthesize
-type Branch = Step | Recipe | str | Estimate
+type Branch = Step | Recipe | str | Estimate | Outcome
 type Condition = GateCondition | AnsweredCondition | LabelCondition | BudgetCondition
 
 _ABSTAIN: Literal["abstain"] = "abstain"
 _WORD_SHAPE = re.compile(r"[^a-z]")
-_WORD_SHAPES = frozenset({"abstain", "failclosed", "skip"})
+_WORD_SHAPES = frozenset({"abstain", "failclosed", "fail", "skip"})
 # The reducer steps a panel gate's branch may be (gate GT-6, ans:Q6).
 _REDUCE_STEPS: tuple[type, ...] = (Vote, Median, Mean, ArgMax, ArgMin, First, Merge, JudgePick)
 # The steps that choose one member, so a chosen:<name> gate can read the chosen member's value.
 _CHOOSING_STEPS: tuple[type, ...] = (Vote, ArgMax, ArgMin, First, JudgePick)
 _WHEN_RULE = (
-    "sf.Gate when= takes a condition such as sf.agreement() >= 0.7, sf.label(sel) == 'x' "
+    "sf.Gate when= takes a condition such as sf.agreement() >= 0.7, sf.signal('x') < 0.7, "
+    "sf.label(sel) == 'x' "
     "or sf.budget.remaining() >= 0.02"
 )
 _GUARD_RULE = (
@@ -72,7 +79,7 @@ _PANEL_STEP = "a step in {name}= needs a panel: put the sf.Gate after a sf.Fanou
 
 
 def _branch_rule(name: str) -> str:
-    return f"sf.Gate {name}= takes a step, a recipe, 'abstain' or 'fail_closed'"
+    return f"sf.Gate {name}= takes a step, a recipe, sf.abstain() or sf.fail()"
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
@@ -80,16 +87,21 @@ class Gate(Step, Recipe):
     """Run ``then`` when ``when`` holds; else ``otherwise``. The branch not taken makes no call.
 
     ``when``: a panel condition (``sf.agreement() >= x`` with ``>=`` or ``>`` and ``x`` in
-    [0, 1], ``sf.signal("name").chosen() <op> x``, ``sf.signal("name").mean() <op> x``), which
+    [0, 1], ``sf.signal("name") <op> x`` (the chosen member's value, the same as
+    ``.chosen()``), ``sf.signal("name").mean() <op> x``), which
     closes a ``sf.Fanout`` block; or an input condition (``sf.label(sel) == "x"``, ``!=``,
     ``sf.labels(sel).has("x")``, ``.empty()``), which makes the Gate a recipe. Routing decides
     before any answer exists, from the question; a cascade decides after an answer, from a number
     on it.
 
     ``then`` / ``otherwise``: a reducer step (``sf.Vote()``, ``sf.Median()``, ... ; panel gates
-    only), a recipe, ``"abstain"`` (the Case declines with ``gate_not_met``) or ``"fail_closed"``
+    only), a recipe, ``sf.abstain()`` (the Case declines with ``gate_not_met``) or ``sf.fail()``
     (the Case fails with the code ``fail_closed`` and no model runs after the Gate). A recipe
-    branch answers the Gate's input. ``otherwise`` left out is ``"abstain"``.
+    branch answers the Gate's input. ``otherwise`` left out is ``sf.abstain()``.
+
+    A recipe ``otherwise`` runs only when the comparison is false. A panel that gave no answer
+    makes the Case abstain with the reason (``no_votes``, ...), and a missing number fails the
+    Case with ``signal_missing``; nothing falls back unless the recipe says so.
 
     ``abstain_if=ref.between(lo, hi)`` (panel gates) reads the same number as ``when``: inside
     the closed band the Case abstains with ``in_band`` and no branch runs.
@@ -114,6 +126,7 @@ class Gate(Step, Recipe):
         otherwise: Branch | None = None,
         abstain_if: GateBand | None = None,
     ) -> None:
+        when = cast("Condition", signal_condition(when))  # a bare signal reads .chosen()
         panel = _condition(when)
         then_estimate, then = cast("tuple[Estimate | None, Branch]", _estimated(then))
         otherwise_estimate, otherwise = cast(
@@ -226,9 +239,9 @@ def _condition(value: object) -> bool:
 
 
 def _branch(value: object, name: str, panel: bool) -> Branch:
-    """A checked branch value: a step (panel gates), a recipe, or a word (GT-11, GT-12, GU-8)."""
+    """A checked branch value: a step (panel gates), a recipe or an outcome (GT-11, GT-12, GU-8)."""
 
-    if isinstance(value, str):
+    if isinstance(value, Outcome | str):
         return _word_or_route(value, name)
     if is_step(value):
         return _step_branch(value, name, panel)
@@ -248,14 +261,26 @@ def _estimated(value: object) -> tuple[Estimate | None, object]:
     return None, value
 
 
-def _word_or_route(value: str, name: str) -> Branch:
-    if value in WORDS:
-        return value
-    # GT-12: "skip" is not a public word, and a word spelled another way ("fail-closed",
-    # "ABSTAIN") is a typo, not a model route: a guard must never become a model call.
-    if _WORD_SHAPE.sub("", value.lower()) in _WORD_SHAPES:
+def _word_or_route(value: Outcome | str, name: str) -> Branch:
+    """``sf.abstain()``/``sf.fail()`` as their word, the word ``"abstain"``, else a model route."""
+
+    if isinstance(value, Outcome):
+        return value.word
+    if value == "abstain":
+        return value  # the E4b spelling of sf.abstain()
+    if value == "fail_closed":
+        raise TypeError(f"{_branch_rule(name)}; write sf.fail() for 'fail_closed'")
+    if word_shaped(value):
         raise TypeError(_branch_rule(name))
     return Model(value)
+
+
+def word_shaped(value: str) -> bool:
+    """GT-12: "skip" is not a public word, "fail_closed" is written sf.fail(), and a word spelled
+    another way ("fail-closed", "ABSTAIN") is a typo, not a model route: a guard must never become
+    a model call."""
+
+    return _WORD_SHAPE.sub("", value.lower()) in _WORD_SHAPES
 
 
 def _step_branch(value: Step, name: str, panel: bool) -> Step:
@@ -268,10 +293,10 @@ def _step_branch(value: Step, name: str, panel: bool) -> Step:
 
 def _recipe_branch(value: Recipe) -> Recipe:
     # WHY lazy: corrective imports the recipe machinery this module builds on.
-    from screamingface._surface.budget import Budgeted
+    from screamingface._surface.budget import WithBudget
     from screamingface.corrective import CorrectiveLoop, SelfCorrective
 
-    if isinstance(value, Budgeted):
+    if isinstance(value, WithBudget):
         raise ValueError(_BU11)  # BU-11
     if isinstance(value, CorrectiveLoop | SelfCorrective):
         raise ValueError(GATE_IN_LOOP)  # GT-27 (ans:Q26)

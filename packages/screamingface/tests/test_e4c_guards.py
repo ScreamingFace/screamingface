@@ -84,17 +84,17 @@ def test_fail_closed_case_is_not_a_refusal() -> None:
 def test_keywords_guard_refuses_a_non_re2_pattern_before_spend(pattern: str) -> None:
     # GU#23 / GU-9: the SDK pre-spend check refuses what RE2 cannot run; no message echoes it.
     with pytest.raises(ValueError) as caught:
-        sf.Keywords([("jailbreak", pattern)])
+        sf.RegexClassifier([("jailbreak", pattern)])
     assert pattern not in str(caught.value)
 
 
 def test_fail_closed_in_a_skip_gate_member_is_refused() -> None:
     # GU#26 / GU-17: a skip-Gate member takes a member recipe in then=, never a word.
-    selector = sf.Keywords([("math", "integral")], multi=True)
+    selector = sf.RegexClassifier([("math", "integral")], multi=True)
     with pytest.raises(ValueError, match="with a recipe in then="):
         sf.Fanout(
             [
                 "prov/a",
-                sf.Gate(when=sf.labels(selector).has("math"), then="fail_closed"),
+                sf.Gate(when=sf.labels(selector).has("math"), then=sf.fail()),
             ]
         )

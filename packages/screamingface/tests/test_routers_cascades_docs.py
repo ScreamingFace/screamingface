@@ -147,7 +147,7 @@ def test_section_defines_routing_cascade_orchestration() -> None:
         "**Routing**: a `sf.Gate` decides before any answer exists",
         "(`sf.budget.remaining()`)",
         "**Cascade**: a `sf.Gate` decides after an answer exists",
-        "the next stage answers the original question, not the previous answer",
+        "the next tier answers the original question, not the previous answer",
         "**Orchestration**: multi-step controllers, debate and agent loops",
         "(E4d, E10c)",
         "a branch that is not selected makes zero model calls",
@@ -161,7 +161,8 @@ def test_section_says_gate_is_the_only_branch_construct() -> None:
     section = _section(_HEADING)
     for phrase in (
         "`sf.Gate` is the only branch construct",
-        '`"abstain"` or `"fail_closed"`',
+        "`sf.abstain()` or `sf.fail()`",
+        "`sf.Cascade(t1, sf.escalate_if(...), t2)` is a short form of nested Gates",
         "An N-way choice is nested Gates",
         "is a short form of nested Gates: its `repr`",
     ):
@@ -187,11 +188,12 @@ def test_section_states_the_outcomes_and_their_codes() -> None:
     [
         "An escalated Case pays for 2 + 5 samples, not 2 + 3 (OME-1630",  # a
         "A cascade decides per full answer. It does not escalate per step or per token",  # b
-        'A guard that fires runs no model. A `sf.LabelModel` after it shows "not run"',  # c
+        'A guard that fires runs no model. A `sf.LLMClassifier` after it shows "not run"',  # c
         "A call with an unknown cost counts as $0 against a USD cap, and the report warns",  # d
         "The cap is for one Case, and the SDK writes it one time, on the candidate",  # e
-        "A stage that fails or abstains escalates to the next stage. Only the failure of the last"
-        " stage fails the Case",  # f
+        "Nothing escalates unless a line says so",  # f (2026-11-12)
+        "A tier whose number is missing (for example, a reply with no log-probability) fails the"
+        " Case with the code `signal_missing`",  # f
     ],
 )
 def test_section_states_each_limit(phrase: str) -> None:
@@ -274,22 +276,29 @@ def test_changelog_unreleased_has_the_breaking_and_feature_bullets_first() -> No
 
     features = _bullets("### Features")
     count = sum(1 for entry in features if _E4C in entry)
-    assert count == 7
+    assert count == 10  # 2026-11-12: + escalate_if/unanswered, abstain()/fail(), bare signal
     assert all(_E4C in entry for entry in features[:count])
     text = " ".join(features[:count])
     for token in (
-        "`sf.Keywords(",
-        "`sf.LabelModel(",
+        "`sf.RegexClassifier(",
+        "`sf.LLMClassifier(",
         "`sf.Cascade(",
         "skip a `sf.Fanout` member with a Gate",
-        '`then="fail_closed"`',
-        "`sf.Budgeted(",
+        "`then=sf.fail()`",
+        "`sf.escalate_if(sf.unanswered())`",
+        "`sf.WithBudget(",
         "sf.budget.remaining()",
         '"Branches"',
     ):
         assert token in text, token
     words = features[count - 1]
-    for token in ("`fail_closed`", "`quorum_not_met`", "`budget_refused`", "`OME-1233`"):
+    for token in (
+        "`fail_closed`",
+        "`signal_missing`",
+        "`quorum_not_met`",
+        "`budget_refused`",
+        "`OME-1233`",
+    ):
         assert token in words, token
 
 

@@ -24,6 +24,7 @@ from screamingface._surface.chain import Pipeline, Step
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.gate import Fallback, Gate
 from screamingface._surface.judge import Judge, JudgePick
+from screamingface._surface.outcomes import fail
 from screamingface._surface.refs import (
     FieldEquals,
     GateBand,
@@ -241,6 +242,8 @@ def _branch_value(value: object, judges: list[JudgeNode]) -> Any:  # noqa: PLR09
 
     if value is None or value == "abstain":
         return None  # the omitted otherwise= (GT-9); a skip member never reaches here
+    if value == "fail_closed":
+        return fail()
     if isinstance(value, str):
         return value
     if isinstance(value, DecisionReducer):

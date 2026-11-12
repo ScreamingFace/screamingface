@@ -33,7 +33,7 @@ type _TopologyKind = Literal[
 # `sample`: one consistency sample call of a member (E4b part 7). It is never a Recipe node;
 # it is only in a reducer node's `samples`.
 # `gate`: a Gate's JOIN (E4c), the operation that carries the gate-decision record; `selector`: a
-# LabelModel call (E4c). Neither is ever a Recipe node of its own.
+# LLMClassifier call (E4c). Neither is ever a Recipe node of its own.
 type _OperationRole = Literal["model", "synthesis", "judge", "writer", "sample", "gate", "selector"]
 # A Gate branch that is not a recipe (E4c, gate-spec.v1): the panel's own reducer, or a word.
 type _BranchWord = Literal["step", "abstain", "fail_closed", "skip"]
@@ -96,7 +96,7 @@ class _RecipeTopology:
     # The consistency sample calls a reducer node reads, one entry per member (E4b part 7).
     samples: tuple[_SampleTopology, ...] = ()
     # E4c Gate (kind "gate"): the decision block of a panel gate, each branch (a recipe node or a
-    # word), and the LabelModel calls of the Gate tree (listed on the tree's outermost Gate).
+    # word), and the LLMClassifier calls of the Gate tree (listed on the tree's outermost Gate).
     panel: _RecipeTopology | None = None
     then_branch: _RecipeTopology | _BranchWord | None = None
     otherwise_branch: _RecipeTopology | _BranchWord | None = None
@@ -147,7 +147,7 @@ def _operation_shape(node: _RecipeTopology, signal: str | None = None) -> tuple[
     elif node.role == "synthesis":
         shape = ("synthesis", "synthesis")
     elif node.role in ("sample", "gate", "selector"):
-        # E4b part 7 sample calls; E4c Gate JOINs and LabelModel selector calls.
+        # E4b part 7 sample calls; E4c Gate JOINs and LLMClassifier selector calls.
         shape = (node.role, node.role)
     else:
         shape = ("model", "answer")

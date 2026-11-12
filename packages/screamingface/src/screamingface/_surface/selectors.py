@@ -1,8 +1,8 @@
 """Selectors: a label for the Case input, read by a sf.Gate condition (E4c, OME-1291).
 
-FEATURE: ``sf.Keywords`` (regexes, no model, the same question always takes the same branch) and
-``sf.LabelModel`` (one cheap model call that names a declared label). ``sf.label(sel) == "x"``,
-``sf.label(sel) != "x"``, ``sf.labels(sel).has("x")`` and ``sf.labels(sel).empty()`` are the
+FEATURE: ``sf.RegexClassifier`` (regexes, no model, the same question always takes the same branch)
+and ``sf.LLMClassifier`` (one cheap model call that names a declared label). ``sf.label(sel) ==
+"x"``, ``sf.label(sel) != "x"``, ``sf.labels(sel).has("x")`` and ``sf.labels(sel).empty()`` are the
 conditions a Gate reads (selectors PRD §2.2).
 STORY: as a researcher who routes questions to specialists, I label a question cheaply and
 replayably, an unknown or failed label takes the default branch, and the report shows the label.
@@ -55,7 +55,7 @@ def _labels(values: Sequence[object], owner: str) -> tuple[str, ...]:
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class Keywords:
+class RegexClassifier:
     """Label the Case input by regexes, with no model: the first match wins, in declared order.
 
     ``rules`` is a sequence of ``(label, pattern)`` or ``(label, pattern, {"ignore_case": True})``
@@ -69,11 +69,11 @@ class Keywords:
 
     def __init__(self, rules: Sequence[Sequence[object]], *, multi: bool = False) -> None:
         if not isinstance(multi, bool):
-            raise TypeError("sf.Keywords multi= must be a bool")
+            raise TypeError("sf.RegexClassifier multi= must be a bool")
         if isinstance(rules, str | bytes) or not isinstance(rules, Sequence):
-            raise TypeError("sf.Keywords takes a list of (label, pattern) rules")
+            raise TypeError("sf.RegexClassifier takes a list of (label, pattern) rules")
         parsed = tuple(_rule(rule, position) for position, rule in enumerate(rules, start=1))
-        _labels([label for label, _, _ in parsed], "sf.Keywords")
+        _labels([label for label, _, _ in parsed], "sf.RegexClassifier")
         object.__setattr__(self, "rules", parsed)
         object.__setattr__(self, "multi", multi)
 
@@ -104,14 +104,14 @@ class Keywords:
             for label, pattern, ignore_case in self.rules
         )
         multi = ", multi=True" if self.multi else ""
-        return f"{prefix}Keywords([{rules}]{multi})"
+        return f"{prefix}RegexClassifier([{rules}]{multi})"
 
     def __repr__(self) -> str:
         return self._render("")
 
 
 def _rule(rule: object, position: int) -> tuple[str, str, bool]:
-    owner = f"sf.Keywords rule {position}"
+    owner = f"sf.RegexClassifier rule {position}"
     if isinstance(rule, str | bytes) or not isinstance(rule, Sequence) or len(rule) not in (2, 3):
         raise TypeError(f"{owner} is (label, pattern) or (label, pattern, options)")
     label, pattern = rule[0], rule[1]
@@ -127,7 +127,7 @@ def _rule(rule: object, position: int) -> tuple[str, str, bool]:
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class LabelModel:
+class LLMClassifier:
     """Label the Case input with one cheap model call that must name one of ``labels``.
 
     The reply is untrusted text: it can only select declared labels; anything else takes the
@@ -151,15 +151,17 @@ class LabelModel:
         multi: bool = False,
     ) -> None:
         if not isinstance(multi, bool):
-            raise TypeError("sf.LabelModel multi= must be a bool")
+            raise TypeError("sf.LLMClassifier multi= must be a bool")
         if isinstance(labels, str) or not isinstance(labels, Sequence):
-            raise TypeError("sf.LabelModel labels= takes a list of labels")
+            raise TypeError("sf.LLMClassifier labels= takes a list of labels")
         if prompt is not None and not isinstance(prompt, str):
-            raise TypeError("sf.LabelModel prompt= must be text")
+            raise TypeError("sf.LLMClassifier prompt= must be text")
         if prompt is not None and not 1 <= len(prompt) <= MAX_LABEL_PROMPT_CHARS:
-            raise ValueError(f"sf.LabelModel prompt= is 1 to {MAX_LABEL_PROMPT_CHARS} characters")
+            raise ValueError(
+                f"sf.LLMClassifier prompt= is 1 to {MAX_LABEL_PROMPT_CHARS} characters"
+            )
         object.__setattr__(self, "model", _label_model(model, params, multi))
-        object.__setattr__(self, "labels", _labels(labels, "sf.LabelModel"))
+        object.__setattr__(self, "labels", _labels(labels, "sf.LLMClassifier"))
         object.__setattr__(self, "prompt", prompt)
         object.__setattr__(self, "multi", multi)
 
@@ -169,7 +171,7 @@ class LabelModel:
         return {"schema": LABEL_MODEL_SCHEMA, "multi": self.multi, "labels": list(self.labels)}
 
     def _identity(self) -> str:
-        # WHY the call too: two LabelModels with equal labels but other models are two selectors.
+        # WHY the call too: two LLMClassifiers with equal labels but other models are two selectors.
         return _canonical(
             {
                 **self._spec(),
@@ -202,7 +204,7 @@ class LabelModel:
             arguments.append(f"params={params!r}")
         if self.multi:
             arguments.append("multi=True")
-        return f"{prefix}LabelModel({', '.join(arguments)})"
+        return f"{prefix}LLMClassifier({', '.join(arguments)})"
 
 
 def _label_model(
@@ -214,12 +216,12 @@ def _label_model(
         # The E4b fallback model rule (S/gate.py): one call, so no name= and never optional.
         if model._sample_id is not None or model.optional or model.prompt is not None:
             raise ValueError(
-                "sf.LabelModel takes a model route or a sf.Model with no name=, prompt= or "
+                "sf.LLMClassifier takes a model route or a sf.Model with no name=, prompt= or "
                 "optional=True; give the instruction in prompt="
             )
         route, base = model.model, dict(model.params)
     else:
-        raise TypeError("sf.LabelModel takes a model route or a sf.Model")
+        raise TypeError("sf.LLMClassifier takes a model route or a sf.Model")
     merged: dict[str, str | int | float | bool] = {"max_tokens": _MAX_TOKENS[multi]}
     merged.update(base)
     merged.update(params or {})
@@ -247,7 +249,7 @@ _DEFAULT_TASK: Mapping[bool, str] = {
 
 
 def label_intent(labels: Sequence[str], prompt: str | None, *, multi: bool) -> str:
-    """The LabelModel call's system prompt: the versioned template, the labels, then the task.
+    """The LLMClassifier call's system prompt: the versioned template, the labels, then the task.
 
     WHY the template id is the first line: a changed template must change the replay identity
     (the ``S/judge.py`` rule). Do not edit one character: these are the call's bytes.
@@ -263,7 +265,7 @@ def label_intent(labels: Sequence[str], prompt: str | None, *, multi: bool) -> s
     )
 
 
-type Selector = Keywords | LabelModel
+type Selector = RegexClassifier | LLMClassifier
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,8 +344,8 @@ class LabelsRef:
 
 
 def _selector(value: object, reader: str) -> Selector:
-    if not isinstance(value, Keywords | LabelModel):
-        raise TypeError(f"sf.{reader}() reads a sf.Keywords or a sf.LabelModel")
+    if not isinstance(value, RegexClassifier | LLMClassifier):
+        raise TypeError(f"sf.{reader}() reads a sf.RegexClassifier or a sf.LLMClassifier")
     return value
 
 
@@ -370,9 +372,9 @@ def labels(selector: Selector) -> LabelsRef:
 
 
 __all__ = [
-    "Keywords",
+    "RegexClassifier",
     "LabelCondition",
-    "LabelModel",
+    "LLMClassifier",
     "LabelRef",
     "LabelsRef",
     "label",

@@ -48,9 +48,11 @@ Canonical JSON (keys sorted, `S/_evaluation/combine_spec.py` canonical writer ru
 
 - `observe` for an input gate: `label:<selector id>`, `labels:<selector id>` or
   `budget.remaining:<unit>` (`usd` | `tokens`); for a panel gate: `agreement`, `chosen:<name>`,
-  `mean:<name>` (the E4b part 5 forms, `E/combine/spec.py` `GateSpec`) or `answered` (the stage's
-  reducer answered; `sf.answered()`, [cascade](prd/cascade.md)) [implied — ans:Q6, ans:Q12,
-  ans:Q17, ans:Q19].
+  `mean:<name>` (the E4b part 5 forms, `E/combine/spec.py` `GateSpec`) or `answered` (the tier's
+  reducer answered; `sf.answered()`, the keep form of `sf.escalate_if(sf.unanswered())`,
+  [cascade](prd/cascade.md) CA-10) [implied — ans:Q6, ans:Q12, ans:Q19; stated owner 2026-11-12].
+  A bare `sf.signal(x) <cmp> v` stores `chosen:<x>` [stated owner 2026-11-12]. Only `answered`
+  sends a null panel branch to a recipe `otherwise` ([branch-core](prd/branch-core.md) D4).
 - Pairing [proposed]: `eq` and `ne` with `label:` (a label value; `ne` also holds for a null
   label, [guards](prd/guards.md)); `has` (a label value) and `empty` (value null) with `labels:`;
   `eq` with value `true` for `answered`; the numeric comparisons with numbers.
@@ -59,10 +61,11 @@ Canonical JSON (keys sorted, `S/_evaluation/combine_spec.py` canonical writer ru
 - `then`/`otherwise` name the body kind only; the body itself is url4 sources inside the gated
   iterate, never inside the spec [proposed]. `skip` is an internal spec word for a skip-Gate
   member only; it is not a public `otherwise=` value (a member Gate omits `otherwise`)
-  [stated ans:Q16].
+  [stated ans:Q16]. The public outcomes `sf.abstain()` and `sf.fail()` store the words `abstain`
+  and `fail_closed`, so the spec bytes do not change [stated owner 2026-11-12].
 - `estimate` is the author's declared estimate for each recipe branch, or null [stated ans:Q3].
 - `ancestors` lists the call fingerprints (path, sorted params) upstream of DECIDE whose charges
-  the budget ledger counts (§5). Under `sf.Budgeted` every call carries the `binding` param, so a
+  the budget ledger counts (§5). Under `sf.WithBudget` every call carries the `binding` param, so a
   fingerprint has one claimant ([branch-core](prd/branch-core.md) D3, D7) [proposed].
 - `terminal` names the terminal binding of each recipe body (its last source: a model call, a
   combine call, or an inner Gate's `gate_M`); a step slot's terminal is the decision call; a word
@@ -84,7 +87,7 @@ of the recipe (same recipe → same bytes), so replay re-keys nothing [implied].
 
 Two kinds [stated ans:Q8]; Clusters is deferred [stated ans:Q4].
 
-**Keywords** (no model, deterministic) [stated epic]:
+**RegexClassifier** (no model, deterministic) [stated epic]:
 
 ```json
 {"schema": "screamingface.keywords.v1", "multi": false,
@@ -99,7 +102,7 @@ regex windows read the end of a text) [proposed]. 1–32 rules, labels unique; a
 existing pre-spend check `check_regex` (`S/_regex_rule.py`, `MAX_PATTERN_CHARS = 256`)
 [existing `S/_regex_rule.py`].
 
-**LabelModel** (one model call):
+**LLMClassifier** (one model call):
 
 ```json
 {"schema": "screamingface.label-model.v1", "multi": false, "labels": ["math", "code", "general"]}
@@ -113,14 +116,14 @@ reply cap is 64 KiB, the judge reply cap (`E/combine/ports.py` `judge_reply`) [e
 
 | Field | Type | Note |
 |---|---|---|
-| `id` | `sel_<n>` | spec id, one per distinct selector spec per candidate; distinct from the LabelModel call's binding `selector_N`, and a Keywords selector has no binding [proposed] |
+| `id` | `sel_<n>` | spec id, one per distinct selector spec per candidate; distinct from the LLMClassifier call's binding `selector_N`, and a RegexClassifier selector has no binding [proposed] |
 | `kind` | `keywords` \| `label_model` | |
-| `status` | `computed` \| `not_run` \| `failed` | `not_run` only for a model selector an outer Gate skipped [stated ans:Q18]; `failed`: the LabelModel call failed (its source is `;optional`), every condition on it is False except `ne` [proposed] |
+| `status` | `computed` \| `not_run` \| `failed` | `not_run` only for a model selector an outer Gate skipped [stated ans:Q18]; `failed`: the LLMClassifier call failed (its source is `;optional`), every condition on it is False except `ne` [proposed] |
 | `labels` | list of labels \| null | null when `not_run`; `[]` when nothing matched / parsed |
 | `parse` | `ok` \| `no_match` \| `unrecognized` \| `unparsed` \| null | `unrecognized`: a token not in `labels`; `unparsed`: no token [stated epic] |
 | `raw` | text ≤ 64 chars \| null | the first token of an unrecognized reply, for the report; never the whole reply [proposed] |
 | `parse_error` | text \| null | null in v1: a failed `;optional` source leaves its `$name` unbound, so DECIDE sees the literal `$selector_N` and records `failed` without the code; the call's own failure code is in the activity view ([selectors](prd/selectors.md) SL-12) [proposed] |
-| `input_chars` | int ≥ 0 | length of the Case input the selector saw: the epic's "selector input summary" without input text. Source: the `summary` of the Gate tree's KEYWORDS source, which is present in every Gate tree that reads a selector ([branch-core](prd/branch-core.md) D6); DECIDE copies it into every record (Keywords and LabelModel both read the Case input, P17) [proposed — review 2 F11] |
+| `input_chars` | int ≥ 0 | length of the Case input the selector saw: the epic's "selector input summary" without input text. Source: the `summary` of the Gate tree's KEYWORDS source, which is present in every Gate tree that reads a selector ([branch-core](prd/branch-core.md) D6); DECIDE copies it into every record (RegexClassifier and LLMClassifier both read the Case input, P17) [proposed — review 2 F11] |
 | `input_sha256` | 16 hex chars | first 16 hex digits of the SHA-256 of that input, from the same `summary` [proposed] |
 
 Invariants: SR-I1 `status` `not_run` or `failed` ⇒ `labels`, `parse`, `raw` are null; `parse_error`
@@ -148,9 +151,9 @@ record (result null) only after a failed body ([branch-core](prd/branch-core.md)
 | `when` | object | copy of GATE_SPEC `when` |
 | `observed` | number \| label \| list \| null | the value compared; null = missing |
 | `passed` | bool \| null | null = no comparison (band, missing panel, guard upstream) |
-| `wanted` | `then` \| `otherwise` \| null | the branch the condition chose; null when a panel decision call abstained before or at the gate and no branch is wanted (band hit; no voters with a step or word `otherwise`) ([branch-core](prd/branch-core.md) D4) |
+| `wanted` | `then` \| `otherwise` \| null | the branch the condition chose; null when a panel decision call abstained before or at the gate and no branch is wanted (band hit; no voters with a step or word `otherwise`, or with a recipe `otherwise` under any condition but `answered`) ([branch-core](prd/branch-core.md) D4) |
 | `branch` | `then` \| `otherwise` \| null | the branch that ran; null when the budget refused the wanted branch and the other branch also makes a call, or when `wanted` is null (D4, ans:Q25) |
-| `selectors` | list of SELECTOR_RECORD | every selector the condition reads, plus every selector read inside a not-run body (Keywords `computed`, LabelModel `not_run`), so a fired guard still records the router's label (Q18) [proposed — reconciled with guards, selectors] |
+| `selectors` | list of SELECTOR_RECORD | every selector the condition reads, plus every selector read inside a not-run body (RegexClassifier `computed`, LLMClassifier `not_run`), so a fired guard still records the router's label (Q18) [proposed — reconciled with guards, selectors] |
 | `not_run` | list of NOT_RUN_ENTRY | |
 | `budget` | BUDGET_VIEW \| null | null when the candidate has no Budget |
 | `result` | `{"status": "answered" \| "abstain" \| "fail_closed", "reason": <abstain reason> \| null}` \| null | written by JOIN; null when JOIN did not run, and for a skip-Gate member that was not selected (its JOIN returns `""`). On a step slot and on a null panel branch JOIN copies the status and reason of the decision call's combine result ([branch-core](prd/branch-core.md) D12) |
@@ -187,9 +190,9 @@ Invariants:
 Not a stored record; the url4 sources of one branch ([contracts](contracts.md) C1, [branch-core](prd/branch-core.md) §2.2). Kinds: step, recipe, word,
 absent (skip) [stated ans:Q6, ans:Q16]. A recipe body takes the Gate's input: the Case input at
 the root, in the first Pipeline stage or the first block; the previous stage's answer in a later
-Pipeline stage; Cascade stages take the Cascade's input [stated epic: "Each stage's prompt input
+Pipeline stage; Cascade tiers take the Cascade's input [stated epic: "Each stage's prompt input
 is the original user question"; implied — Pipeline semantics]. Body operations keep the attributed
-binding kinds with one candidate-wide number; the JOIN is `gate_N` and a LabelModel call
+binding kinds with one candidate-wide number; the JOIN is `gate_N` and an LLMClassifier call
 `selector_N`. The pinned attribution pattern `^(model|synthesis|judge|writer)_\d+$`
 (`E/benchmarks/operation_outputs.py:52`; the Engine-only fixture
 `ET/data/combine_contract/binding_names.json`, which the SDK conformance test reads; the SDK copy
@@ -201,7 +204,7 @@ SDK `OPERATION_REFERENCE`, `TOPOLOGY_BINDING` (`S/_evaluation/topology.py:24`) a
 param, and bodies run inline in the Case scope ([branch-core](prd/branch-core.md) D1, D3)
 [proposed]. Topology: a new recipe kind `gate` (`S/_evaluation/topology.py:25` `_TopologyKind`)
 with two child slots; `sf.Cascade` has no own kind (it is nested Gates, [stated ans:Q6])
-[proposed]. A LabelModel call has operation kind `selector`, accounted under the existing stage
+[proposed]. An LLMClassifier call has operation kind `selector`, accounted under the existing stage
 `synthesis` like a judge (`S/accounting.py:44-52`), so the report's stage list does not change
 [proposed].
 
@@ -209,7 +212,7 @@ with two child slots; `sf.Cascade` has no own kind (it is nested Gates, [stated 
 
 **BUDGET_SPEC** — the url4 typed budget annotation on the candidate source (url4 Spec B §4.1:
 `name:0.9:tokens=4000:<source>`; builder `U/core/builders.py:140-180` `src(budgets=)`)
-[existing], written by `sf.Budgeted(recipe, usd=…, tokens=…)` ([budget](prd/budget.md)) with the
+[existing], written by `sf.WithBudget(recipe, budget_usd=…, max_tokens=…)` ([budget](prd/budget.md)) with the
 execution annotation `;budget_mode=advisory`, because the calls that always run may pass the cap
 [proposed — url4 owner to confirm §24 conformance]. Keys `usd` and/or `tokens` [stated ans:Q3].
 Written once, on the candidate [stated ans:Q19]. Scope: one Case [stated ans:Q13]. url4 parses the annotation today and enforces
@@ -283,6 +286,11 @@ cap; the report shows that overspend [stated ans:Q20]. The cap applies per Attem
   `ENGINE_ERROR_CODES` and the SDK mirror in PR-2, raised by the combine call when fewer selected
   skip-Gate members answered than a numeric quorum asks ([skip-members](prd/skip-members.md))
   [proposed — review 3 F4].
+- Failure code `signal_missing`: permanent, engine-authored; added to `DECLARED_FAILURE_CODES`,
+  `ENGINE_ERROR_CODES` and the SDK mirror, raised by DECIDE when a panel gate with a recipe
+  `otherwise` read a missing number (the E4b record took `fallback` on observed null). Fixed text
+  plus the gate id. The declared count goes 68 → 69 ([branch-core](prd/branch-core.md) D4a,
+  [cascade](prd/cascade.md) CA-31) [stated owner 2026-11-12].
 
 ## 7. Migrations and versioning
 

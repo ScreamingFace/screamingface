@@ -1,4 +1,4 @@
-"""sf.Budgeted, sf.Estimate and sf.budget.remaining() on the SDK: the cap, its checks, its url4.
+"""sf.WithBudget, sf.Estimate and sf.budget.remaining() on the SDK: the cap, its checks, its url4.
 
 FEATURE: E4c (OME-1291) budget rows BU#3, #12, #18, #19, #20, #24, #26 and the public names.
 STORY: as a researcher whose result is a saving, I write one cap at the root of the candidate;
@@ -46,10 +46,10 @@ def test_signal_budget_remaining_still_refused() -> None:
 @pytest.mark.parametrize(
     ("caps", "annotation"),
     [
-        ({"usd": 0.05}, "_sf_budget:0.0:usd=0.05:'budget';budget_mode=advisory"),
-        ({"tokens": 100}, "_sf_budget:0.0:tokens=100:'budget';budget_mode=advisory"),
+        ({"budget_usd": 0.05}, "_sf_budget:0.0:usd=0.05:'budget';budget_mode=advisory"),
+        ({"max_tokens": 100}, "_sf_budget:0.0:tokens=100:'budget';budget_mode=advisory"),
         (
-            {"usd": 0.05, "tokens": 100},
+            {"budget_usd": 0.05, "max_tokens": 100},
             "_sf_budget:0.0:usd=0.05:tokens=100:'budget';budget_mode=advisory",
         ),
     ],
@@ -58,7 +58,7 @@ def test_budget_compiles_to_candidate_source_annotation(
     caps: dict[str, Any], annotation: str
 ) -> None:
     # BU-1: one marker source carries the typed budget; every call under it names its binding.
-    url4 = _url4(sf.Budgeted(sf.Model("prov/a"), **caps))
+    url4 = _url4(sf.WithBudget(sf.Model("prov/a"), **caps))
 
     assert url4.count("_sf_budget:") == 1
     assert annotation in url4
@@ -69,11 +69,11 @@ def test_budget_compiles_to_candidate_source_annotation(
 
 
 def test_budget_repr_and_url4_round_trip() -> None:
-    recipe = sf.Budgeted(_choice(), usd=0.05)
+    recipe = sf.WithBudget(_choice(), budget_usd=0.05)
 
     assert repr(recipe) == (
-        "Budgeted(Gate(when=budget.remaining() >= 0.02, then=Estimate('prov/big', usd=0.03), "
-        "otherwise='prov/small'), usd=0.05)"
+        "WithBudget(Gate(when=budget.remaining() >= 0.02, then=Estimate('prov/big', usd=0.03), "
+        "otherwise='prov/small'), budget_usd=0.05)"
     )
     namespace: dict[str, object] = {}
     exec(sf.Url4(_url4(recipe)).to_python(), namespace)  # noqa: S102 - the SDK's own code
@@ -84,18 +84,22 @@ def test_budget_repr_and_url4_round_trip() -> None:
 
 
 _NOT_AT_ROOT: dict[str, Callable[[], object]] = {
-    "first stage": lambda: sf.Budgeted("prov/a", usd=1) >> sf.Model("prov/b"),
-    "later stage": lambda: sf.Model("prov/b") >> sf.Budgeted("prov/a", usd=1),
-    "branch body": lambda: sf.Gate(when=sf.agreement() >= 0.5, then=sf.Budgeted("prov/a", usd=1)),
-    "fanout member": lambda: sf.Fanout([sf.Budgeted("prov/a", usd=1), "prov/b"]),
-    "nested": lambda: sf.Budgeted(sf.Budgeted("prov/a", usd=1), usd=1),
+    "first stage": lambda: sf.WithBudget("prov/a", budget_usd=1) >> sf.Model("prov/b"),
+    "later stage": lambda: sf.Model("prov/b") >> sf.WithBudget("prov/a", budget_usd=1),
+    "branch body": lambda: sf.Gate(
+        when=sf.agreement() >= 0.5, then=sf.WithBudget("prov/a", budget_usd=1)
+    ),
+    "fanout member": lambda: sf.Fanout([sf.WithBudget("prov/a", budget_usd=1), "prov/b"]),
+    "nested": lambda: sf.WithBudget(sf.WithBudget("prov/a", budget_usd=1), budget_usd=1),
 }
 
 
 @pytest.mark.parametrize("build", list(_NOT_AT_ROOT.values()), ids=list(_NOT_AT_ROOT))
 def test_budget_not_at_root_is_refused(build: Callable[[], object]) -> None:
     # BU-11
-    with pytest.raises(ValueError, match="sf.Budgeted wraps the whole candidate: use it once, at"):
+    with pytest.raises(
+        ValueError, match="sf.WithBudget wraps the whole candidate: use it once, at"
+    ):
         build()
 
 
@@ -104,17 +108,17 @@ def test_budget_not_at_root_is_refused(build: Callable[[], object]) -> None:
 
 def test_budget_remaining_without_budget_is_refused() -> None:
     # BU-12
-    with pytest.raises(ValueError, match=r"needs sf\.Budgeted\(\.\.\.\) on the candidate"):
+    with pytest.raises(ValueError, match=r"needs sf\.WithBudget\(\.\.\.\) on the candidate"):
         _url4(_choice())
 
 
 def test_budget_remaining_needs_a_unit_with_two_units() -> None:
     # BU-13: with both units the unit is named; with one it is optional.
     with pytest.raises(ValueError, match=r"name the unit: sf\.budget\.remaining\('usd'\)"):
-        _url4(sf.Budgeted(_choice(), usd=1, tokens=10))
+        _url4(sf.WithBudget(_choice(), budget_usd=1, max_tokens=10))
     named = _choice(sf.budget.remaining("usd") >= 0.02)
-    assert "budget.remaining:usd" in _url4(sf.Budgeted(named, usd=1, tokens=10))
-    assert "budget.remaining:usd" in _url4(sf.Budgeted(_choice(), usd=1))
+    assert "budget.remaining:usd" in _url4(sf.WithBudget(named, budget_usd=1, max_tokens=10))
+    assert "budget.remaining:usd" in _url4(sf.WithBudget(_choice(), budget_usd=1))
 
 
 @pytest.mark.parametrize("bad", ["eur", "USD", 1])
@@ -127,19 +131,19 @@ def test_budget_remaining_takes_only_a_declared_unit_word(bad: object) -> None:
 
 
 _INVALID: dict[str, tuple[Callable[[], object], str]] = {
-    "zero cap": (lambda: sf.Budgeted("prov/a", usd=0), "greater than zero"),
-    "negative cap": (lambda: sf.Budgeted("prov/a", usd=-1), "finite"),
-    "nan cap": (lambda: sf.Budgeted("prov/a", usd=math.nan), "finite"),
+    "zero cap": (lambda: sf.WithBudget("prov/a", budget_usd=0), "greater than zero"),
+    "negative cap": (lambda: sf.WithBudget("prov/a", budget_usd=-1), "finite"),
+    "nan cap": (lambda: sf.WithBudget("prov/a", budget_usd=math.nan), "finite"),
     "infinite cap": (
-        lambda: sf.Budgeted("prov/a", tokens=math.inf),  # type: ignore[arg-type]
+        lambda: sf.WithBudget("prov/a", max_tokens=math.inf),  # type: ignore[arg-type]
         "finite",
     ),
     "fractional tokens cap": (
-        lambda: sf.Budgeted("prov/a", tokens=1.5),  # type: ignore[arg-type]
+        lambda: sf.WithBudget("prov/a", max_tokens=1.5),  # type: ignore[arg-type]
         "whole number",
     ),
-    "no cap": (lambda: sf.Budgeted("prov/a"), "needs a cap: usd=, tokens= or both"),
-    "bool cap": (lambda: sf.Budgeted("prov/a", usd=True), "is a number"),
+    "no cap": (lambda: sf.WithBudget("prov/a"), "needs a cap: budget_usd=, max_tokens= or both"),
+    "bool cap": (lambda: sf.WithBudget("prov/a", budget_usd=True), "is a number"),
     "no estimate": (lambda: sf.Estimate("prov/a"), "needs usd=, tokens= or both"),
     "negative estimate": (lambda: sf.Estimate("prov/a", usd=-0.01), "finite and not negative"),
     "nan estimate": (lambda: sf.Estimate("prov/a", usd=math.nan), "finite and not negative"),
@@ -163,8 +167,8 @@ _INVALID: dict[str, tuple[Callable[[], object], str]] = {
         "sf.Estimate wraps a branch that makes model calls",
     ),
     "estimate in an undeclared unit": (
-        lambda: _url4(sf.Budgeted(_choice(sf.budget.remaining() >= 1), tokens=10)),
-        "sf.Estimate names usd, but sf.Budgeted declares only tokens",
+        lambda: _url4(sf.WithBudget(_choice(sf.budget.remaining() >= 1), max_tokens=10)),
+        "sf.Estimate names usd, but sf.WithBudget declares only tokens",
     ),
 }
 
@@ -180,8 +184,8 @@ def test_invalid_caps_and_estimates_are_refused(build: Callable[[], object], mes
 
 
 def test_budget_names_are_public() -> None:
-    assert sf.Budgeted.__module__ == "screamingface._surface.budget"
+    assert sf.WithBudget.__module__ == "screamingface._surface.budget"
     assert callable(sf.budget.remaining)
     assert sf.budget.BUDGET_SCHEMA == "screamingface.budget.v1"
-    assert {"Budgeted", "Estimate", "budget"} <= set(sf.__all__)
+    assert {"WithBudget", "Estimate", "budget"} <= set(sf.__all__)
     assert "Budget" not in sf.__all__  # the E4a record stays sf.budget.Budget

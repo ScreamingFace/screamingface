@@ -88,6 +88,9 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         # combine/endpoint.py::_check_floor via combine/ports.py::QuorumNotMet (E4c skip members) —
         # member counts only, never a member text.
         "quorum_not_met",
+        # world/branch.py DECIDE via benchmarks/failure_classes.py::signal_missing (E4c) — a
+        # recipe-otherwise Gate read a missing number. One fixed message plus the gate id.
+        "signal_missing",
     }
 )
 

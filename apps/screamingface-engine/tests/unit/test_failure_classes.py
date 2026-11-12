@@ -169,5 +169,7 @@ def test_the_declared_vocabulary_is_exactly_the_agreed_set() -> None:
             "fail_closed",
             # skip-member quorum code declared by E4c (OME-1291, skip-members #2a)
             "quorum_not_met",
+            # missing-number code declared by E4c (OME-1291, 2026-11-12 review)
+            "signal_missing",
         }
     )

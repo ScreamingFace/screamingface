@@ -1155,7 +1155,9 @@ A gate decides when a majority vote is strong enough to keep. It compares one na
 one threshold. The gate is data, not code, so a reader can replay it from the recipe:
 `sf.Fanout(members) >> sf.Gate(when=<number> <cmp> <threshold>, then=sf.Vote(...), otherwise=...)`.
 The number is `sf.agreement()`, `sf.signal(name).chosen()` (a declared signal of the chosen
-member) or `sf.signal(name).mean()` (the mean of a declared signal over the members). `name` must
+member) or `sf.signal(name).mean()` (the mean of a declared signal over the members). In a
+condition, `sf.signal(name)` with no method reads the chosen member: `sf.signal("conf") >= 80` is
+the same as `sf.signal("conf").chosen() >= 80`. `name` must
 be a name that the `sf.Fanout` declares in `signals=` (see "Signal sources"); any other name raises
 `ValueError` before any call. `<cmp>` is `>=`, `>`, `<=` or `<`, and it is the condition that keeps
 the majority: when `observed cmp threshold` is true, the answer is the majority answer. `>=` keeps
@@ -1163,9 +1165,9 @@ the majority at equality. An agreement gate takes only `>=` or `>`, and a thresh
 The agreement is the winner's share of the votes; for a weighted vote, it is the winner's share of
 the weight. When the comparison is false, the fallback gives the answer:
 
-- `otherwise="abstain"` (the default): the Case abstains with the reason `gate_not_met`. This is a
-  scored decline, not a wrong answer and not a failure, and coverage counts it with the other
-  abstains.
+- `otherwise=sf.abstain()` (the default): the Case abstains with the reason `gate_not_met`. This
+  is a scored decline, not a wrong answer and not a failure, and coverage counts it with the other
+  abstains. `otherwise="abstain"` (the E4b spelling) also works.
 - `otherwise=sf.JudgePick(...)`: the judge names one member, and the answer is that member's text.
 - `otherwise=sf.Synthesize(...)`: the model writes the answer.
 
@@ -1175,7 +1177,8 @@ only on the Cases where the gate takes the fallback.
 
 When there is no number to compare (the chosen member has no value for the name, or no member has
 a value for a mean), the gate takes the fallback. A vote with no answer does not run the gate: the
-Case abstains with `no_votes`, as it does without a gate.
+Case abstains with `no_votes`, as it does without a gate. These rules are for the three fallbacks
+above. A gate whose `otherwise=` is a recipe acts differently (see "Choose whether a model runs").
 
 Each recipe below runs offline in the Engine's tests, from the url4 that the SDK compiles. The
 routes are placeholders: put your own model routes in their place.
@@ -1209,8 +1212,8 @@ g4_confidence_gate = sf.Fanout(
 ```
 
 For a logprob cascade, declare `signals={"lp": sf.Logprob("prob")}` and gate on
-`sf.signal("lp").chosen()`: the majority stays when the token probability of the chosen member's
-answer is high enough.
+`sf.signal("lp")`, the same as `sf.signal("lp").chosen()`: the majority stays when the token
+probability of the chosen member's answer is high enough.
 
 `sf.Vote(verify=None)` is a reserved place for a later verifier; any other value raises
 `ValueError`.
@@ -1369,9 +1372,10 @@ The Case pane, the run summary and the export show the value and the failed extr
 Three words have one meaning each in this toolkit:
 
 - **Routing**: a `sf.Gate` decides before any answer exists. It reads a label of the question
-  (from `sf.Keywords` or `sf.LabelModel`) or what the budget has left (`sf.budget.remaining()`).
+  (from `sf.RegexClassifier` or `sf.LLMClassifier`) or what the budget has left
+  (`sf.budget.remaining()`).
 - **Cascade**: a `sf.Gate` decides after an answer exists. It reads a number on that answer
-  (`sf.agreement()` or a declared signal). When the number is not good enough, the next stage
+  (`sf.agreement()` or a declared signal). When the number is not good enough, the next tier
   answers the original question, not the previous answer.
 - **Orchestration**: multi-step controllers, debate and agent loops. They are not in this toolkit
   yet (E4d, E10c).
@@ -1381,17 +1385,17 @@ nothing, and the report says that it was not selected and why (`not_selected` or
 `budget_refused`).
 
 `sf.Gate` is the only branch construct. `then=` and `otherwise=` each take a reducer step (after a
-`sf.Fanout`), a recipe (a route, a `sf.Model`, a chain or another `sf.Gate`), `"abstain"` or
-`"fail_closed"`. An N-way choice is nested Gates. `sf.Cascade(stages, escalate_if=...)` is a short
+`sf.Fanout`), a recipe (a route, a `sf.Model`, a chain or another `sf.Gate`), `sf.abstain()` or
+`sf.fail()`. An N-way choice is nested Gates. `sf.Cascade(t1, sf.escalate_if(...), t2)` is a short
 form of nested Gates: its `repr`, its `==` and its url4 are those of the Gate form.
 
-- `sf.Keywords([(label, pattern), ...])` gives the label of the first RE2 pattern that matches the
-  question. It makes no model call.
-- `sf.LabelModel(model, labels=[...])` asks a model for one label from the list. A reply that is
-  not a declared label, or a failed call, takes `otherwise=`; the Case does not fail. With
-  `multi=True` it gives a set of labels, and `sf.labels(sel).has("x")` reads it. It is one chat
-  call to an LLM, not a hosted text classifier: `sf.classify` returns a classifier's scores and
-  does not choose a branch.
+- `sf.RegexClassifier([(label, pattern), ...])` gives the label of the first RE2 pattern that
+  matches the question. It makes no model call.
+- `sf.LLMClassifier(model, labels=[...])` is an LLM classifier: a chat model that the SDK prompts
+  to give one label from the list. A reply that is not a declared label, or a failed call, takes
+  `otherwise=`; the Case does not fail. With `multi=True` it gives a set of labels, and
+  `sf.labels(sel).has("x")` reads it. It is not `sf.classify`: `sf.classify` sends the text to a
+  hosted classifier that returns scores (`OME-1796`), and it does not choose a branch.
 - `sf.label(sel) == "x"` and `!=` are the input conditions. A question with no label is not equal
   to any label.
 
@@ -1408,47 +1412,52 @@ large, small, coder, general = "prov/large", "prov/small", "prov/coder", "prov/g
 router = "prov/router"  # the small model that gives a label
 math_panel = sf.Fanout(panel) >> sf.Vote()
 
-# Routing. Keywords router (binary routers, "How robust are router-LLMs?"): no model call to route.
-topic = sf.Keywords([("math", r"(?i)\b(integral|equation)\b"), ("code", r"(?i)\bpython\b")])
+# Routing. Regex router (binary routers, "How robust are router-LLMs?"): no model call to route.
+topic = sf.RegexClassifier([("math", r"(?i)\b(integral|equation)\b"), ("code", r"(?i)\bpython\b")])
 d1_keyword_router = sf.Gate(
     when=sf.label(topic) == "math",
     then=math_panel,
     otherwise=sf.Gate(when=sf.label(topic) == "code", then=coder, otherwise=general),
 )
-# LLM label router (GraphRouter; OrgAgent DIRECT, LIGHT, FULL): a small LLM gives the label.
-kind = sf.LabelModel(router, labels=["math", "code", "other"])
+# LLM classifier router (GraphRouter; OrgAgent DIRECT, LIGHT, FULL): a small LLM gives the label.
+kind = sf.LLMClassifier(router, labels=["math", "code", "other"])
 d2_label_router = sf.Gate(
     when=sf.label(kind) == "math",
     then=math_panel,
     otherwise=sf.Gate(when=sf.label(kind) == "code", then=coder, otherwise=general),
 )
 # Router robustness: a jailbreak pattern fails the Case; a medical question gets the large model.
-jailbreak = sf.Keywords([("jailbreak", r"(?i)ignore (all|previous) instructions")])
-domain = sf.LabelModel(router, labels=["medical", "other"])
+jailbreak = sf.RegexClassifier([("jailbreak", r"(?i)ignore (all|previous) instructions")])
+domain = sf.LLMClassifier(router, labels=["medical", "other"])
 d3_guarded_router = sf.Gate(
     when=sf.label(jailbreak) == "jailbreak",
-    then="fail_closed",
+    then=sf.fail(),
     otherwise=sf.Gate(when=sf.label(domain) == "medical", then=large, otherwise=d2_label_router),
 )
 
 # Cascades. COPE, Frugal KG, CARGO: the large model answers only when the panel does not agree.
 d4_cope_cascade = sf.Cascade(
-    [sf.Fanout(panel) >> sf.Vote(), large], escalate_if=sf.agreement() < 0.8
+    sf.Fanout(panel) >> sf.Vote(),
+    sf.escalate_if(sf.agreement() < 0.8),
+    large,
 )
 # STEER, per full answer: sf.Logprob works with OpenRouter models only (see "Signal sources").
 d5_steer_answer_cascade = sf.Cascade(
-    [
-        sf.Fanout(["openrouter/openai/gpt-4o-mini"], signals={"lp": sf.Logprob("prob")})
-        >> sf.Vote(),
-        "openrouter/openai/gpt-4.1",
-    ],
-    escalate_if=sf.signal("lp").chosen() < 0.7,
+    sf.Fanout(["openrouter/openai/gpt-4o-mini"], signals={"lp": sf.Logprob("prob")}) >> sf.Vote(),
+    sf.escalate_if(sf.signal("lp") < 0.7),
+    "openrouter/openai/gpt-4.1",
 )
-# First branch to succeed: the next model runs only when the one before fails or abstains.
-d6_first_success = sf.Cascade(panel)
+# First success: the next model runs only when the one before fails or abstains.
+d6_first_success = sf.Cascade(
+    "prov/alpha",
+    sf.escalate_if(sf.unanswered()),
+    "prov/beta",
+    sf.escalate_if(sf.unanswered()),
+    "prov/gamma",
+)
 
 # Set-valued routing (Team of Thoughts, SMART-D): an expert that is not picked makes no call.
-experts = sf.LabelModel(router, labels=["law", "medicine", "finance"], multi=True)
+experts = sf.LLMClassifier(router, labels=["law", "medicine", "finance"], multi=True)
 d7_manager_subset = sf.Fanout(
     [
         sf.Gate(when=sf.labels(experts).has("law"), then="prov/law"),
@@ -1457,63 +1466,95 @@ d7_manager_subset = sf.Fanout(
     ]
 ) >> sf.Synthesize("prov/writer")
 
-# Willingness to pay (OmniRouter, RouterBench): sf.budget.remaining() needs a sf.Budgeted root.
-d8_budget_choice = sf.Budgeted(
-    sf.Gate(when=sf.budget.remaining() >= 0.02, then=large, otherwise=small), usd=0.05
+# Willingness to pay (OmniRouter, RouterBench): sf.budget.remaining() needs a sf.WithBudget root.
+d8_budget_choice = sf.WithBudget(
+    sf.Gate(when=sf.budget.remaining() >= 0.02, then=large, otherwise=small), budget_usd=0.05
 )
 # A cost cap per Case (MTRouter, VineLM) around the d4 cascade.
-d9_budget_cap = sf.Budgeted(d4_cope_cascade, usd=0.05)
+d9_budget_cap = sf.WithBudget(d4_cope_cascade, budget_usd=0.05)
 
 # Adaptive sampling (ACAR): two samples; five new samples only when the two do not agree.
 d10_adaptive_sampling = sf.Cascade(
-    [
-        sf.Fanout(sf.samples(small, 2)) >> sf.Vote(),
-        sf.Fanout(sf.samples(small, 5, seeds=range(2, 7))) >> sf.Vote(),
-    ],
-    escalate_if=sf.agreement() < 1.0,
+    sf.Fanout(sf.samples(small, 2)) >> sf.Vote(),
+    sf.escalate_if(sf.agreement() < 1.0),
+    sf.Fanout(sf.samples(small, 5, seeds=range(2, 7))) >> sf.Vote(),
 )
 ```
 
-`repr(d4_cope_cascade)` shows the Gate form of the cascade: a `sf.Fanout` whose members are
-optional, with `quorum=0`, then `sf.Gate(when=agreement() >= 0.8, then=Vote(),
-otherwise='prov/large')`. `escalate_if=` is the condition to escalate; the Gate keeps the answer
-on the opposite condition. A list gives one condition for each gated stage. With no
-`escalate_if=`, a stage escalates only when it fails or abstains.
+A cascade takes its tiers as arguments, from top to bottom. Each `sf.escalate_if(...)` is a line
+between two tiers: it is the condition to call the next tier. Each tier answers the original
+question. A tier before a line is a `sf.Fanout` block that ends in a reducer step, such as
+`sf.Vote()`. The last tier is any recipe, and its answer is final. Two tiers with no line between
+them raise `ValueError`, because the second tier can never run.
 
-A stage that fails or abstains escalates to the next stage. Only the failure of the last stage
-fails the Case. `sf.Cascade(..., otherwise="abstain")` gates the last stage too: when it does not
-pass, the Case abstains with `gate_not_met`. `otherwise="fail_closed"` fails the Case instead.
+`repr(d4_cope_cascade)` shows the Gate form of the cascade:
+`Fanout([...]) >> Gate(when=agreement() >= 0.8, then=Vote(), otherwise='prov/large')`. The Gate
+keeps the answer on the opposite condition of the line. In a condition, `sf.signal("lp")` reads
+the chosen member, the same as `sf.signal("lp").chosen()`. Write `sf.signal("lp").mean()` to read
+the mean over the members.
+
+Nothing escalates unless a line says so:
+
+- With a condition line, the tier's `sf.Fanout` runs as you wrote it. A failed member fails the
+  tier as its `quorum=` says. With the default `quorum="all"`, the Case fails with the code of
+  that member. Write `quorum=2` to decide on the members that answered.
+- A tier whose reducer abstains makes the Case abstain with that reason (for example,
+  `no_votes`).
+- A tier whose number is missing (for example, a reply with no log-probability) fails the Case
+  with the code `signal_missing`.
+- `sf.escalate_if(sf.unanswered())` calls the next tier when the tier failed or abstained: the
+  first success (d6). The members of that tier become optional, with `quorum=0`. A tier before
+  this line can also be a route or a `sf.Model`.
+
+The last part of a cascade can be `sf.abstain()` or `sf.fail()`, after a line. The last tier is
+then gated too. When its line holds, `sf.abstain()` makes the Case abstain with `gate_not_met`
+(the human last tier), and `sf.fail()` makes the Case fail with `fail_closed`. For example:
+`sf.Cascade(t1, sf.escalate_if(sf.agreement() < 1.0), t2, sf.escalate_if(sf.agreement() < 1.0),
+sf.abstain())`.
+
+The same rule applies to each `sf.Gate` whose `otherwise=` is a recipe. The Gate runs
+`otherwise=` only when the comparison is false. When the panel gives no answer, the Case abstains
+with the reason. When the number is missing, the Case fails with `signal_missing`. The E4b gates
+(`otherwise=sf.abstain()`, `sf.JudgePick` or `sf.Synthesize`) do not change (see "Gate the
+majority").
 
 In a `sf.Fanout`, an input Gate with no `otherwise=` is a member that is skipped when its
 condition is false (d7). The writer gets the answers of the members that ran, with their names.
 
 What each outcome means:
 
-- `"abstain"` (also the last tier of a cascade): the Case abstains with `gate_not_met`. This is a
-  scored decline: coverage counts it with the other abstains.
+- `sf.abstain()` (also the last part of a cascade): the Case abstains with `gate_not_met`. This is
+  a scored decline: coverage counts it with the other abstains. The word `"abstain"` (the E4b
+  spelling) also works.
 - A budget refusal with no branch that makes no call: the Case abstains with `budget_refused`.
-- `"fail_closed"`: the Case fails with the code `fail_closed`. It is a failure, never an abstain.
+- `sf.fail()`: the Case fails with the code `fail_closed`. It is a failure, never an abstain.
   No model runs after the Gate.
+- `signal_missing`: the Case fails because a cascade tier, or a Gate with a recipe `otherwise=`,
+  has no number to compare.
 
 The budget:
 
-- `sf.Budgeted(recipe, usd=..., tokens=...)` wraps the whole candidate, one time, at the root. The
-  cap is for one Case, and the SDK writes it one time, on the candidate.
+- `sf.WithBudget(recipe, budget_usd=..., max_tokens=...)` wraps the whole candidate, one time, at
+  the root. The cap is for one Case, and the SDK writes it one time, on the candidate.
 - Before each call that a Gate can skip, the Engine adds the spend of the calls that already ran
   and the branch's `sf.Estimate(branch, usd=...)`. When the sum is more than the cap, the branch
   is not sent, and the report shows `budget_refused`. A call that always runs is never refused.
+- The cap is a budget, not a hard maximum. The calls that always run can take a Case past
+  `budget_usd`, and the report then shows the overspend.
 - `sf.budget.remaining()` is what the cap has left after the calls that already ran. A Gate that
-  reads it with no `sf.Budgeted` raises `ValueError` before any call.
+  reads it with no `sf.WithBudget` raises `ValueError` before any call.
 - A call with an unknown cost counts as $0 against a USD cap, and the report warns.
 
 Limits:
 
-- Adaptive sampling does not use the samples of stage 1 again. An escalated Case pays for 2 + 5
-  samples, not 2 + 3 (OME-1630 tracks the top-up). Give stage 2 new `seeds=`; equal seeds give
+- Adaptive sampling does not use the samples of tier 1 again. An escalated Case pays for 2 + 5
+  samples, not 2 + 3 (OME-1630 tracks the top-up). Give tier 2 new `seeds=`; equal seeds give
   `sf.CascadeSeedWarning`.
 - A cascade decides per full answer. It does not escalate per step or per token inside one
   answer, as STEER does.
-- A guard that fires runs no model. A `sf.LabelModel` after it shows "not run" in the report.
+- A line reads one condition. A line that escalates on a failure or on a low number has no
+  spelling yet.
+- A guard that fires runs no model. A `sf.LLMClassifier` after it shows "not run" in the report.
 - `sf.Cascade` is a function that returns nested Gates, so `isinstance(x, sf.Cascade)` is not
   supported.
 
@@ -1524,7 +1565,7 @@ with its reason.
 Not in this toolkit:
 
 - Routers on embedding clusters (Clusters).
-- A parallel first-success race that cancels the slower branches. `sf.Cascade` runs the stages one
+- A parallel first-success race that cancels the slower branches. `sf.Cascade` runs the tiers one
   after the other.
 - Counting and merging the answers (E4a), and measuring confidence (E4b): the steps above use
   them.

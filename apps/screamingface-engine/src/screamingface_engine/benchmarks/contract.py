@@ -171,6 +171,10 @@ DECLARED_FAILURE_CODES: frozenset[str] = frozenset(
         # WHY declared (E4c, OME-1291, skip members SM-11): fewer selected skip-Gate members
         # answered than a numeric quorum asks. Engine-authored counts only, permanent.
         "quorum_not_met",
+        # WHY declared (E4c, OME-1291, 2026-11-12): a Gate with a recipe otherwise= read a number
+        # that is missing (a reply with no log-probability), so it neither keeps the answer nor
+        # escalates. Engine-authored fixed text naming only the gate id, permanent.
+        "signal_missing",
     }
 )
 # WHY a pattern beside the set: the connector mints one code PER HTTP status

@@ -15,7 +15,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable, Mapping
 from functools import cache
-from typing import Any
+from typing import Any, cast
 
 from screamingface._signals import Signal
 from screamingface._surface.budget import Estimate, units_text
@@ -23,6 +23,7 @@ from screamingface._surface.chain import Pipeline, Step
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.gate import Gate
 from screamingface._surface.judge import _JudgeStep
+from screamingface._surface.outcomes import outcome_text
 from screamingface._surface.refs import FieldEquals
 from screamingface._surface.steps import (
     Concat,
@@ -38,6 +39,7 @@ from screamingface._surface.steps import (
 )
 from screamingface._surface.synthesize import Synthesize
 from screamingface.blocks import Extract
+from screamingface.branch import WORDS, Word
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.model import Model
 from screamingface.recipe import Recipe, _inferred_name, _inferred_self_name
@@ -177,7 +179,7 @@ def _recipe(value: Recipe, prefix: str) -> str:  # noqa: PLR0911
         return _call(prefix, "SelfCorrective", arguments)
     rendered = getattr(value, "_render", None)
     if rendered is not None:
-        return str(rendered(prefix))  # E4c sf.Budgeted: the wrapper and its recipe, prefixed
+        return str(rendered(prefix))  # E4c sf.WithBudget: the wrapper and its recipe, prefixed
     # A Model, or an internal node in a chain (only built by hand): its own repr.
     return prefix + repr(value)
 
@@ -284,10 +286,10 @@ def _branch_text(value: object, estimate: Estimate | None, prefix: str, indent: 
 
 
 def _branch(value: object, prefix: str) -> str:
-    """A Gate branch as the author wrote it: a word, a route string, a recipe or a step."""
+    """A Gate branch as the author wrote it: an outcome, a route string, a recipe or a step."""
 
     if isinstance(value, str):
-        return repr(value)
+        return outcome_text(cast("Word", value), prefix) if value in WORDS else repr(value)
     if isinstance(value, Recipe) and not isinstance(value, Step):
         return _member(value, prefix)
     return render(value, prefix)

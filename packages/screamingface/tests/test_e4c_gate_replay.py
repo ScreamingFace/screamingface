@@ -24,9 +24,9 @@ from screamingface._evaluation.url4 import _candidate_from_url4
 from screamingface.branch import BranchCondition, BranchNode
 from screamingface.fusion import FusionNode
 
-_TOPIC = sf.Keywords([("math", r"(?i)\bintegral\b"), ("code", r"(?i)\bpython\b")])
-_CLF = sf.LabelModel("prov/clf", labels=["safe", "unsafe"])
-_TONE = sf.LabelModel("prov/tone", labels=["calm", "angry"])
+_TOPIC = sf.RegexClassifier([("math", r"(?i)\bintegral\b"), ("code", r"(?i)\bpython\b")])
+_CLF = sf.LLMClassifier("prov/clf", labels=["safe", "unsafe"])
+_TONE = sf.LLMClassifier("prov/tone", labels=["calm", "angry"])
 
 
 def _replayed(url4: str) -> Candidate:

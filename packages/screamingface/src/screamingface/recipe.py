@@ -80,7 +80,7 @@ def _model_route(value: object) -> str:
 
 
 OPTIONAL_MEMBERS_ONLY = "optional=True is only supported on sf.Fanout members"
-_BU11 = "sf.Budgeted wraps the whole candidate: use it once, at the root"
+_BU11 = "sf.WithBudget wraps the whole candidate: use it once, at the root"
 
 
 def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recipe:
@@ -98,9 +98,9 @@ def _recipe(value: object, label: str, *, allow_optional: bool = False) -> Recip
 
     refuse_step(value)
     # WHY lazy: as above, screamingface._surface builds on this module.
-    from screamingface._surface.budget import Budgeted
+    from screamingface._surface.budget import WithBudget
 
-    if isinstance(value, Budgeted):
+    if isinstance(value, WithBudget):
         raise ValueError(_BU11)  # BU-11
     if not _is_supported_recipe(value):
         raise TypeError(f"{label} must be a model route, a sf.Model or a sf.Pipeline")

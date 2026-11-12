@@ -25,9 +25,9 @@ from screamingface.fusion import FusionNode
 
 GATE_CONTRACT = ENGINE_APP / "tests" / "unit" / "data" / "gate_contract"
 
-TOPIC = sf.Keywords([("math", r"(?i)\bintegral\b"), ("code", r"(?i)\bpython\b")])
-JAIL = sf.Keywords([("jailbreak", r"(?i)ignore (all|any|previous) instructions")])
-CLF = sf.LabelModel("prov/clf", labels=["safe", "unsafe", "medical"])
+TOPIC = sf.RegexClassifier([("math", r"(?i)\bintegral\b"), ("code", r"(?i)\bpython\b")])
+JAIL = sf.RegexClassifier([("jailbreak", r"(?i)ignore (all|any|previous) instructions")])
+CLF = sf.LLMClassifier("prov/clf", labels=["safe", "unsafe", "medical"])
 
 
 def _label_gate(selector, label: str, then, otherwise, cmp: str = "eq") -> BranchNode:
@@ -105,42 +105,63 @@ def panel_escalates() -> object:
 
 _S1 = sf.Fanout(["prov/a", "prov/b"]) >> sf.Vote()
 _S2 = sf.Fanout(["prov/c", "prov/d"]) >> sf.Vote()
+_LOW = sf.escalate_if(sf.agreement() < 0.8)
+_UNANSWERED = sf.escalate_if(sf.unanswered())
 
 
 def cascade_three() -> object:
-    """CA-2 - CA-7, CA-29: two gated stages, then a large model answers unconditionally."""
-    return sf.Cascade([_S1, _S2, "prov/large"], escalate_if=sf.agreement() < 0.8)
+    """CA-2 - CA-7, CA-29: two gated tiers, then a large model answers unconditionally.
+
+    The tiers keep the author's Fanout (2026-11-12): a tier that fails fails the Case and a tier
+    that abstains makes the Case abstain; only a split vote escalates.
+    """
+    return sf.Cascade(_S1, _LOW, _S2, _LOW, "prov/large")
 
 
 def cascade_abstain() -> object:
-    """CA-9, CA-20, CA-30, BC-36: the human last tier: every stage gated, then abstain."""
-    return sf.Cascade([_S1, _S2], escalate_if=sf.agreement() < 0.8, otherwise="abstain")
+    """CA-9, CA-20, CA-30, BC-36: the human last tier: every tier gated, then sf.abstain()."""
+    return sf.Cascade(_S1, _LOW, _S2, _LOW, sf.abstain())
 
 
 def cascade_fail_closed() -> object:
-    """CA-30: a gated last stage with no voters follows the word fail_closed."""
-    return sf.Cascade([_S1, _S2], escalate_if=sf.agreement() < 0.8, otherwise="fail_closed")
+    """CA-30: a gated last tier whose line holds follows sf.fail()."""
+    return sf.Cascade(_S1, _LOW, _S2, _LOW, sf.fail())
 
 
 def first_success() -> object:
-    """CA-10 (OME-1465 sequential): each stage escalates only when it fails or abstains."""
-    return sf.Cascade(["prov/a", "prov/b", "prov/c"])
+    """CA-10 (OME-1465 sequential): each tier escalates only when it fails or abstains."""
+    return sf.Cascade("prov/a", _UNANSWERED, "prov/b", _UNANSWERED, "prov/c")
 
 
 def adaptive_sampling() -> object:
     """CA-11 (ans:Q7): two samples; five fresh ones only when the two disagree."""
     return sf.Cascade(
-        [
-            sf.Fanout(sf.samples("prov/m", 2)) >> sf.Vote(),
-            sf.Fanout(sf.samples("prov/m", 5, seeds=range(2, 7))) >> sf.Vote(),
-        ],
-        escalate_if=sf.agreement() < 1.0,
+        sf.Fanout(sf.samples("prov/m", 2)) >> sf.Vote(),
+        sf.escalate_if(sf.agreement() < 1.0),
+        sf.Fanout(sf.samples("prov/m", 5, seeds=range(2, 7))) >> sf.Vote(),
     )
 
 
 def cascade_then_writer() -> object:
     """CA-26: a cascade as a Pipeline stage; the writer reads its final answer."""
-    return sf.Cascade([_S1, "prov/large"], escalate_if=sf.agreement() < 0.8) >> "prov/writer"
+    return sf.Cascade(_S1, _LOW, "prov/large") >> "prov/writer"
+
+
+def cascade_signal() -> object:
+    """2026-11-12: a line on the chosen member's number; a missing number is signal_missing."""
+    tier = (
+        sf.Fanout(["prov/a", "prov/b"], signals={"conf": sf.Verbalized("Confidence: ([0-9]+)")})
+        >> sf.Vote()
+    )
+    return sf.Cascade(tier, sf.escalate_if(sf.signal("conf") < 70), "prov/large")
+
+
+def signal_fail() -> object:
+    """2026-11-12 boundary: a Gate with otherwise=sf.fail() keeps the E4b missing-number rule."""
+    conf = {"conf": sf.Verbalized("Confidence: ([0-9]+)")}
+    return sf.Fanout(["prov/a", "prov/b"], signals=conf) >> sf.Gate(
+        when=sf.signal("conf") >= 70, then=sf.Vote(), otherwise=sf.fail()
+    )
 
 
 def vote_body_gate() -> object:
@@ -172,26 +193,28 @@ BUILDERS: dict[str, Callable[[], str]] = {
     "first_success.url4": _url4(first_success),
     "adaptive_sampling.url4": _url4(adaptive_sampling),
     "cascade_then_writer.url4": _url4(cascade_then_writer),
+    "cascade_signal.url4": _url4(cascade_signal),
+    "signal_fail.url4": _url4(signal_fail),
     "vote_body_gate.url4": _url4(vote_body_gate),
 }
 
 
 def ne_guard() -> object:
     """GU-10, GU-21: a guard written with != fires on any label but safe, and on no label."""
-    return sf.Gate(when=sf.label(CLF) != "safe", then="fail_closed", otherwise="prov/ans")
+    return sf.Gate(when=sf.label(CLF) != "safe", then=sf.fail(), otherwise="prov/ans")
 
 
 def panel_fail_closed() -> object:
     """GU-18: a panel gate whose otherwise is fail_closed fails after the panel ran."""
     return sf.Fanout(_MEMBERS) >> sf.Gate(
-        when=sf.agreement() >= 0.5, then=sf.Vote(), otherwise="fail_closed"
+        when=sf.agreement() >= 0.5, then=sf.Vote(), otherwise=sf.fail()
     )
 
 
 def stage_guard() -> object:
     """GU-19: a guard as a later stage still reads the Case input, not the previous answer."""
     return sf.Model("prov/prep") >> sf.Gate(
-        when=sf.label(JAIL) == "jailbreak", then="fail_closed", otherwise="prov/ans"
+        when=sf.label(JAIL) == "jailbreak", then=sf.fail(), otherwise="prov/ans"
     )
 
 
@@ -203,8 +226,10 @@ BUILDERS |= {
 }
 
 
-SKILLS = sf.LabelModel("prov/sel", labels=["math", "code", "web"], multi=True)
-TOPICS = sf.Keywords([("math", r"(?i)\bintegral\b"), ("code", r"(?i)\bpython\b")], multi=True)
+SKILLS = sf.LLMClassifier("prov/sel", labels=["math", "code", "web"], multi=True)
+TOPICS = sf.RegexClassifier(
+    [("math", r"(?i)\bintegral\b"), ("code", r"(?i)\bpython\b")], multi=True
+)
 _SKIP_CONF = {"conf": sf.Verbalized("Confidence: ([0-9]+)")}
 
 
@@ -221,7 +246,7 @@ def _three_skip_members() -> list[sf.Gate]:
 
 
 def skip_vote() -> object:
-    """SM-1 - SM-3, SM-6, SM-10: three skip-Gate members over one multi LabelModel; a vote."""
+    """SM-1 - SM-3, SM-6, SM-10: three skip-Gate members over one multi LLMClassifier; a vote."""
     return sf.Fanout(_three_skip_members()) >> sf.Vote()
 
 
@@ -231,7 +256,7 @@ def skip_vote_quorum() -> object:
 
 
 def skip_writer() -> object:
-    """SM-4, SM-5, SM-23: a Keywords multi selector, two skip members, a writer."""
+    """SM-4, SM-5, SM-23: a RegexClassifier multi selector, two skip members, a writer."""
     return sf.Fanout(
         [_skip(TOPICS, "math", "prov/math"), _skip(TOPICS, "code", "prov/code")]
     ) >> sf.Synthesize("prov/writer")

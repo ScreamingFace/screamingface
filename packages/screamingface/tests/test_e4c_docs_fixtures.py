@@ -30,11 +30,11 @@ GATE_CONTRACT = ENGINE_APP / "tests" / "unit" / "data" / "gate_contract"
 PANEL = ["prov/alpha", "prov/beta", "prov/gamma"]
 LARGE, SMALL, CODER, GENERAL = "prov/large", "prov/small", "prov/coder", "prov/general"
 ROUTER = "prov/router"
-TOPIC = sf.Keywords([("math", r"(?i)\b(integral|equation)\b"), ("code", r"(?i)\bpython\b")])
-KIND = sf.LabelModel(ROUTER, labels=["math", "code", "other"])
-JAILBREAK = sf.Keywords([("jailbreak", r"(?i)ignore (all|previous) instructions")])
-DOMAIN = sf.LabelModel(ROUTER, labels=["medical", "other"])
-EXPERTS = sf.LabelModel(ROUTER, labels=["law", "medicine", "finance"], multi=True)
+TOPIC = sf.RegexClassifier([("math", r"(?i)\b(integral|equation)\b"), ("code", r"(?i)\bpython\b")])
+KIND = sf.LLMClassifier(ROUTER, labels=["math", "code", "other"])
+JAILBREAK = sf.RegexClassifier([("jailbreak", r"(?i)ignore (all|previous) instructions")])
+DOMAIN = sf.LLMClassifier(ROUTER, labels=["medical", "other"])
+EXPERTS = sf.LLMClassifier(ROUTER, labels=["law", "medicine", "finance"], multi=True)
 
 
 def _math_panel() -> sf.Recipe:
@@ -60,7 +60,7 @@ def d2_label_router() -> sf.Recipe:
 def d3_guarded_router() -> sf.Recipe:
     return sf.Gate(
         when=sf.label(JAILBREAK) == "jailbreak",
-        then="fail_closed",
+        then=sf.fail(),
         otherwise=sf.Gate(
             when=sf.label(DOMAIN) == "medical", then=LARGE, otherwise=d2_label_router()
         ),
@@ -68,22 +68,26 @@ def d3_guarded_router() -> sf.Recipe:
 
 
 def d4_cope_cascade() -> sf.Recipe:
-    return sf.Cascade([sf.Fanout(PANEL) >> sf.Vote(), LARGE], escalate_if=sf.agreement() < 0.8)
+    return sf.Cascade(sf.Fanout(PANEL) >> sf.Vote(), sf.escalate_if(sf.agreement() < 0.8), LARGE)
 
 
 def d5_steer_answer_cascade() -> sf.Recipe:
     return sf.Cascade(
-        [
-            sf.Fanout(["openrouter/openai/gpt-4o-mini"], signals={"lp": sf.Logprob("prob")})
-            >> sf.Vote(),
-            "openrouter/openai/gpt-4.1",
-        ],
-        escalate_if=sf.signal("lp").chosen() < 0.7,
+        sf.Fanout(["openrouter/openai/gpt-4o-mini"], signals={"lp": sf.Logprob("prob")})
+        >> sf.Vote(),
+        sf.escalate_if(sf.signal("lp") < 0.7),
+        "openrouter/openai/gpt-4.1",
     )
 
 
 def d6_first_success() -> sf.Recipe:
-    return sf.Cascade(PANEL)
+    return sf.Cascade(
+        "prov/alpha",
+        sf.escalate_if(sf.unanswered()),
+        "prov/beta",
+        sf.escalate_if(sf.unanswered()),
+        "prov/gamma",
+    )
 
 
 def d7_manager_subset() -> sf.Recipe:
@@ -97,22 +101,20 @@ def d7_manager_subset() -> sf.Recipe:
 
 
 def d8_budget_choice() -> sf.Recipe:
-    return sf.Budgeted(
-        sf.Gate(when=sf.budget.remaining() >= 0.02, then=LARGE, otherwise=SMALL), usd=0.05
+    return sf.WithBudget(
+        sf.Gate(when=sf.budget.remaining() >= 0.02, then=LARGE, otherwise=SMALL), budget_usd=0.05
     )
 
 
 def d9_budget_cap() -> sf.Recipe:
-    return sf.Budgeted(d4_cope_cascade(), usd=0.05)
+    return sf.WithBudget(d4_cope_cascade(), budget_usd=0.05)
 
 
 def d10_adaptive_sampling() -> sf.Recipe:
     return sf.Cascade(
-        [
-            sf.Fanout(sf.samples(SMALL, 2)) >> sf.Vote(),
-            sf.Fanout(sf.samples(SMALL, 5, seeds=range(2, 7))) >> sf.Vote(),
-        ],
-        escalate_if=sf.agreement() < 1.0,
+        sf.Fanout(sf.samples(SMALL, 2)) >> sf.Vote(),
+        sf.escalate_if(sf.agreement() < 1.0),
+        sf.Fanout(sf.samples(SMALL, 5, seeds=range(2, 7))) >> sf.Vote(),
     )
 
 

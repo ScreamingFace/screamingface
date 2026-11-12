@@ -16,7 +16,7 @@ members that were not picked make zero model calls, the block's reducer or write
 only the picked members, and the report shows which members were not selected and why.
 
 ```python
-sel = sf.LabelModel("openrouter/openai/gpt-4o-mini", labels=["math", "code", "web"], multi=True)
+sel = sf.LLMClassifier("openrouter/openai/gpt-4o-mini", labels=["math", "code", "web"], multi=True)
 sf.Fanout([
     sf.Gate(when=sf.labels(sel).has("math"), then="openrouter/deepseek/deepseek-r1"),
     sf.Gate(when=sf.labels(sel).has("code"), then="openrouter/qwen/qwen3-coder"),
@@ -40,7 +40,7 @@ sf.Fanout([
   selected ones. [stated ans:Q16]
 - One selector instance is evaluated once per Case and shared by every Gate that reads it.
   [stated ans:Q12; component [selectors](selectors.md)]
-- `sf.labels(sel).has("x")` is the set-valued condition form; Keywords and LabelModel both take
+- `sf.labels(sel).has("x")` is the set-valued condition form; RegexClassifier and LLMClassifier both take
   `multi=True`. [implied — ans:Q8; erd §1, §2]
 
 ### 2.1 Current behavior
@@ -102,7 +102,7 @@ Compiled shape [proposed — [branch-core](branch-core.md) D8]:
   member today (ans:Q23). No failure code is published on a call and no internal code exists.
   [proposed — review 2 F5]
 - A member Gate omits `otherwise=`: the sentinel default `None` means "skip" for a member and
-  `"abstain"` elsewhere ([gate](gate.md) delta 2); "skip" is never a public value.
+  `sf.abstain()` elsewhere ([gate](gate.md) delta 2); "skip" is never a public value.
 
 ## 3. Scenarios and acceptance criteria
 
@@ -118,16 +118,16 @@ Compiled shape [proposed — [branch-core](branch-core.md) D8]:
   `weight` null and every signal null; the evidence key `skipped` is `["member_2"]`; `dropped`
   does not count it. [stated ans:Q16; proposed key]
 - **SM-3 One selector evaluation per Case.** Given three skip-Gate members that read the same
-  LabelModel, When the Case runs, Then the selector makes exactly one model call, placed before the
+  LLMClassifier, When the Case runs, Then the selector makes exactly one model call, placed before the
   panel and outside the member slots, and every member's decision record holds the same selector
   record. [stated ans:Q12]
 - **SM-4 Writer joins the selected members.** Given SM-1 with `>> sf.Synthesize(m)`, When the block
   runs, Then the writer receives the E4b selection envelope `{"input": …, "selected": [...]}` with
   the selected members that answered, in author order, and never an empty slot for a skipped
   member. [proposed — reuse of the E4b narrow → writer envelope]
-- **SM-5 Keywords as a set selector.** Given `sf.Keywords([...], multi=True)`, When two rules match,
+- **SM-5 RegexClassifier as a set selector.** Given `sf.RegexClassifier([...], multi=True)`, When two rules match,
   Then both labels are selected (declared order), with no model call for the selector.
-  [stated epic: "Keywords … No model"; stated ans:Q8]
+  [stated epic: "RegexClassifier … No model"; stated ans:Q8]
 
 ### 3.2 Error paths
 
@@ -143,7 +143,7 @@ Compiled shape [proposed — [branch-core](branch-core.md) D8]:
   `;optional` slot) the failed member's record is `fail` / `missing`, and the Case goes on while
   the remaining selected members meet the floor. [stated ans:Q23]
 - **SM-8 Refused member forms.** Given a Fanout member `sf.Gate(..., otherwise=X)` (any otherwise,
-  also `"abstain"`), or a skip-Gate whose `then` is a step or a word, or a skip-Gate whose `when`
+  also `sf.abstain()`), or a skip-Gate whose `then` is a step or an outcome, or a skip-Gate whose `when`
   reads a panel ref (`sf.agreement()`, `sf.signal(...)`), When the Fanout is built, Then it raises
   with a message that names the member position: "a sf.Fanout member may be a sf.Gate only without
   otherwise= and with a recipe in then=". [stated ans:Q10, ans:Q16]
@@ -176,7 +176,7 @@ actor (one Case is one expression).
 
 ## 4. Non-functional requirements
 
-- Calls: per Case, the selector costs at most one model call (LabelModel) or zero (Keywords); a
+- Calls: per Case, the selector costs at most one model call (LLMClassifier) or zero (RegexClassifier); a
   skipped member costs zero calls [stated epic]. Model signal calls and `sf.Consistency` are
   refused with skip-Gate members in v1 (SM-15, SM-16).
 - Overhead: one DECIDE + one OPEN + one JOIN per skip-Gate member (pure, local); target < 5 ms CPU

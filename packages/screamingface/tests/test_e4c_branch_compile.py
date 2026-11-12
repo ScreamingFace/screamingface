@@ -18,7 +18,7 @@ from screamingface._evaluation.branch import _Body, _BranchState, _Gate, _Tree
 from screamingface._evaluation.candidate import _CandidateCompiler, compile_candidate
 from screamingface.branch import BranchCondition, BranchNode
 
-_KW = sf.Keywords([("math", r"(?i)\bintegral\b"), ("code", "python")])
+_KW = sf.RegexClassifier([("math", r"(?i)\bintegral\b"), ("code", "python")])
 
 
 def _gate(label: str, then, otherwise) -> BranchNode:

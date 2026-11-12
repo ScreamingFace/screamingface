@@ -30,8 +30,8 @@ _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
 
 def guard_floor_refused() -> object:
     """GU-13: the floor wants a specialist panel the budget refuses; otherwise is a router."""
-    clf = sf.LabelModel("prov/clf", labels=["safe", "medical"])
-    topic = sf.Keywords([("math", r"(?i)\bintegral\b")])
+    clf = sf.LLMClassifier("prov/clf", labels=["safe", "medical"])
+    topic = sf.RegexClassifier([("math", r"(?i)\bintegral\b")])
     router = sf.Gate(when=sf.label(topic) == "math", then="prov/math", otherwise="prov/general")
     specialists = sf.Fanout(["prov/med_a", "prov/med_b"]) >> sf.Vote()
     floor = sf.Gate(
@@ -39,7 +39,7 @@ def guard_floor_refused() -> object:
         then=sf.Estimate(specialists, usd=0.01),
         otherwise=router,
     )
-    return sf.Budgeted(floor, usd=0.0015)
+    return sf.WithBudget(floor, budget_usd=0.0015)
 
 
 def _consistency_vote(otherwise: object) -> object:
@@ -130,7 +130,7 @@ def test_a_consistency_fallback_replays_to_the_compiled_candidate(
 
 def test_unicode_pattern_matches_thai_question_compiles_unchanged() -> None:
     # SL#25 / SL-25: RE2 owns the pattern; the SDK passes \p{Thai} through, Python re never sees it.
-    thai = sf.Keywords([("thai", r"\p{Thai}")])
+    thai = sf.RegexClassifier([("thai", r"\p{Thai}")])
     recipe = sf.Gate(when=sf.label(thai) == "thai", then="prov/th", otherwise="prov/en")
 
     url4 = compile_candidate(recipe, operators=engine_operators()).url4
@@ -140,5 +140,5 @@ def test_unicode_pattern_matches_thai_question_compiles_unchanged() -> None:
 
 
 def test_a_thai_label_is_refused_by_the_label_rule() -> None:
-    with pytest.raises(ValueError, match=r"^sf\.Keywords: a label is 1 to 32 characters"):
-        sf.Keywords([("ไทย", r"\p{Thai}")])
+    with pytest.raises(ValueError, match=r"^sf\.RegexClassifier: a label is 1 to 32 characters"):
+        sf.RegexClassifier([("ไทย", r"\p{Thai}")])

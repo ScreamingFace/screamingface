@@ -215,6 +215,44 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   `test_e4c_operation_charges.py`, SDK `test_e4c_overspend_replay.py`; the RP-34 test helper
   `_priced` now carries a charge. End to end (flow 16 world): live and replay both charge $0.003.
 
+- **2026-11-12 Product review: lower cognitive load (Irina's "E4c Proposed API Flows" page).**
+  The page rewrites the 17 flows in a proposed API. The sf.Router items (flows 4, 5, 8, 8b,
+  15 as a Router, 17a-c, 18; `sf.ScoringClassifier`, `keep=`, `describe=`, Router `default=`)
+  are out of scope here: Dmitry owns sf.Router (PR #35, E13). The owner chose, for this PR:
+  (a) `sf.Cascade` takes the line form only: `sf.Cascade(t1, sf.escalate_if(c), t2, ...)`, with
+  `sf.abstain()` or `sf.fail()` as an optional last part; the list form, `escalate_if=` and
+  `otherwise=` are gone (unreleased). (b) Nothing escalates unless a line says so. This
+  reverses ans:Q17 and ans:Q24: a failed tier fails the Case (its Fanout quorum decides); a
+  tier that abstains makes the Case abstain; `sf.escalate_if(sf.unanswered())` is the old
+  first success. The rule lives in every Gate with a recipe `otherwise=` (a Cascade is still
+  byte-equal to its Gates): DECIDE escalates on no voters only for an `answered` gate, and a
+  missing number fails the Case with the new code `signal_missing`. "Failed or low score" has
+  no spelling yet (open). (c) Renames, no aliases: `sf.Budgeted(usd=, tokens=)` ->
+  `sf.WithBudget(max_usd=, max_tokens=)` (`sf.Estimate` keeps `usd=`), `sf.Keywords` ->
+  `sf.RegexClassifier`, `sf.LabelModel` -> `sf.LLMClassifier` (this reverses the "LLM label"
+  wording of b468c5d9c). (d) `sf.abstain()` and `sf.fail()` are the typed outcomes; the SDK
+  stores the words, so the compiled bytes do not change; the string `"fail_closed"` is refused
+  and `"abstain"` (E4b, released) still works. (e) `sf.signal("x") < 0.7` in a condition reads
+  the chosen member, as `.chosen()`. `max_tokens=` is my choice, for symmetry with `max_usd=`.
+  Done the same day: SDK `_surface/cascade.py` (rewritten), `outcomes.py` (new), `gate.py`,
+  `refs.py`, `budget.py`, renders, exports; Engine `world/branch.py` (D4 null rule, D4a
+  `signal_missing` before the ledger read) and the `signal_missing` code (68 -> 69). Tests:
+  the cascade, gate, budget, docs and run tests moved to the new API; new url4 fixtures
+  `cascade_signal` and `signal_fail`; 9 cascade/docs fixtures regenerated (`first_success`
+  bytes unchanged). The PIN manifest gains 5 approved blobs (surface snapshot, gate surface,
+  three failure-code pins). Agents updated the spec PRDs and README/CHANGELOG/notebook 20.
+  Design review: ACCEPT-WITH-FIXES, no structural findings; fixed 1-3, 5-8. Kept: (4) the
+  typed `_ORDERED` map; (9) Engine comments keep the wire names; (10) a failed LLM label still
+  takes the recipe default (routing, selectors PRD); (11) `otherwise=sf.abstain()` and an
+  omitted `otherwise=` are not `==` (same bytes; predates this change). Also: `sf.Cascade`
+  refuses any outcome word string (`"abstain"`, `"fail-closed"`, ...) in any tier. A
+  `signal_missing` Case has no gate record (DECIDE raises before it writes one).
+  Later the same day (owner, on Irina's open note for flow 15): `sf.WithBudget(max_usd=)` is
+  renamed `budget_usd=`, because the cap is checked before each optional call only and the calls
+  that always run can pass it (Q20); "max" read as a hard maximum. `max_tokens=` keeps its name
+  (owner choice). The url4 keeps `usd=`, so no fixture bytes change. README gains one bullet:
+  the cap is a budget, not a hard maximum. The PIN manifest's surface-snapshot blob is updated.
+
 ## Outcome
 
 - **Actual files:** as planned in `docs/plan/2026-10-22-e4c-routers-cascades.md` §2 (units

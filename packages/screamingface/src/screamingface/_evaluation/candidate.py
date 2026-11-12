@@ -40,9 +40,9 @@ from screamingface._evaluation.topology import (
     _topology_source,
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
-from screamingface._surface.budget import Budgeted
+from screamingface._surface.budget import WithBudget
 from screamingface._surface.lowering import lower
-from screamingface._surface.selectors import LabelModel
+from screamingface._surface.selectors import LLMClassifier
 from screamingface.branch import GATE_IN_LOOP, BranchNode, LazyDecision, _is_skip_member
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
@@ -270,8 +270,8 @@ class _CandidateCompiler:
         # and the member Gate being compiled now.
         self._hoist: list[Node] | None = None
         self._skip_member: int | None = None
-        # E4c budget: the candidate's sf.Budgeted (every call then carries its binding param).
-        self._budget: Budgeted | None = None
+        # E4c budget: the candidate's sf.WithBudget (every call then carries its binding param).
+        self._budget: WithBudget | None = None
 
     @property
     def claims(self) -> Mapping[CallFingerprint, int]:
@@ -294,7 +294,7 @@ class _CandidateCompiler:
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
         if getattr(recipe, "optional", False):
             raise ValueError(OPTIONAL_MEMBERS_ONLY)
-        if isinstance(recipe, Budgeted):
+        if isinstance(recipe, WithBudget):
             # BU-1 (ans:Q19): the one cap of the candidate; the inner recipe compiles as usual.
             self._budget, recipe = recipe, recipe.recipe
         # Corrective loops are ROOT-ONLY by construction (member/judge positions
@@ -358,8 +358,8 @@ class _CandidateCompiler:
         attributed = self._gated_depth or self._budget is not None
         return ((OPERATION_BINDING_PARAM, binding), *params) if attributed else params
 
-    def _selector_call(self, selector: LabelModel, binding: str) -> None:
-        """One LabelModel call (E4c selectors): ``;optional``, so a failure takes the default."""
+    def _selector_call(self, selector: LLMClassifier, binding: str) -> None:
+        """One LLMClassifier call (E4c selectors): ``;optional``, so a failure takes the default."""
 
         route = _canonical_model(selector.model.model)
         params = ((OPERATION_BINDING_PARAM, binding), *resolved_params(selector.model.params))

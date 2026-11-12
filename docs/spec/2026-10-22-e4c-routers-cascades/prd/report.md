@@ -120,7 +120,7 @@ Delta (this PRD):
   ans:Q22]
 - **RP-7 Selector input summary.** Given a condition that reads a selector, Then the section shows
   one line per SELECTOR_RECORD: kind (`keywords` / `label model`), id, the input summary
-  (`input · <N> characters` and, for Keywords, the window note when N > 65,536), and the labels:
+  (`input · <N> characters` and, for RegexClassifier, the window note when N > 65,536), and the labels:
   `label · math`, `labels · math, code`, `no match`, `unrecognized · "<raw>"`, `unparsed`,
   `failed · the default branch ran` (status `failed`; title: "the selector call failed; its code is
   in the activity view"), or `not run` (Q18). It never re-renders the Case input text (the Case
@@ -201,10 +201,10 @@ Delta (this PRD):
 
 | # | Title | Tag | I×L | G/W/T |
 |---|---|---|---|---|
-| RP-23 | Escaping of labels and raw tokens | [proposed — gap §security] | H×M | Given a LabelModel reply token `<img onerror=x>` recorded as `raw`, When the pane renders, Then the token shows escaped inside quotes, cut at 64 characters, and no tag reaches the HTML. |
+| RP-23 | Escaping of labels and raw tokens | [proposed — gap §security] | H×M | Given an LLMClassifier reply token `<img onerror=x>` recorded as `raw`, When the pane renders, Then the token shows escaped inside quotes, cut at 64 characters, and no tag reaches the HTML. |
 | RP-24 | Summary in one pass | [existing `S/_ui/report_view.py:359-363`] | H×M | Given 10,000 saved Cases, When the card renders, Then `GateSummary.add` runs in the same loop as `CombineSummary.add` and the Cases are decoded once (a DiskCases read counter equals the Case count). |
 | RP-25 | Counts add up | [implied] | H×M | Given any Candidate, Then for each Gate `then + otherwise + none == decided`, and the `model calls avoided` range equals the sums of `model_calls.min` and `model_calls.max` over the not-run entries. |
-| RP-34 | Overspend line | [stated ans:Q20, ans:Q32] | H×M | Given a Case whose recorded calls under `sf.Budgeted` charge more than the cap (parallel optional siblings, or mandatory calls), Then its Branches block shows `budget · overspend · spent <x> of <cap>` and the summary counts it in `overspend`. The spend is the sum of the operations' `charges` (the Budget's own numbers): a cache hit adds its original cost, so a replay shows the live run's line; an unpriced call adds nothing. |
+| RP-34 | Overspend line | [stated ans:Q20, ans:Q32] | H×M | Given a Case whose recorded calls under `sf.WithBudget` charge more than the cap (parallel optional siblings, or mandatory calls), Then its Branches block shows `budget · overspend · spent <x> of <cap>` and the summary counts it in `overspend`. The spend is the sum of the operations' `charges` (the Budget's own numbers): a cache hit adds its original cost, so a replay shows the live run's line; an unpriced call adds nothing. |
 | RP-35 | (Removed 2026-10-27, ans:Q21b) | — | — | A replay always takes the same branch ([budget](budget.md) BU-27), so the report has no differing-view flag. |
 | RP-26 | Lone Gate | [proposed] | M×M | Given a lone Gate (not in an `otherwise` chain), Then it gets no ladder line, only its row. |
 | RP-27 | Nested chain inside a `then` | [proposed] | M×M | Given a Cascade inside the `then` body of a guard, Then the ladder's denominator is the Cases where the Cascade's first Gate ran, not all Cases. |

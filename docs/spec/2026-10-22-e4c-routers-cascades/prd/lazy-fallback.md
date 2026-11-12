@@ -77,7 +77,8 @@ it, while the evidence that I read and replay stays exactly what E4b writes toda
    `phase=decide`) → DECIDE → OPEN(`otherwise`) → a gated iterate whose body is the fallback call
    and call #2 (the same spec, today's context with the fallback key) → JOIN. The `then` slot of
    JOIN is call #1 itself (the step body is the decision call's own reducer, [branch-core](branch-core.md) D4). A gate
-   with `otherwise="abstain"` keeps today's one-call compile, byte for byte. [proposed — ans:Q1]
+   with `otherwise=sf.abstain()` (or the E4b word `"abstain"`) keeps today's one-call compile,
+   byte for byte. [proposed — ans:Q1]
 2. **Engine combine.** `_binding` accepts `{binding}` or `{binding, phase}` with `phase == "decide"`.
    With `phase=decide`, the fallback branch returns a **pending outcome**: output `""` and no combine
    evidence. The outcome is published with `pending=True` and carries the gate record (branch

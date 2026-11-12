@@ -361,7 +361,7 @@ def test_ga4_a_writer_fallback_is_one_model_call(writer: sf.Recipe) -> None:
 def test_otherwise_names_the_four_kinds(otherwise: object) -> None:
     with pytest.raises(
         TypeError,
-        match=r"^sf\.Gate otherwise= takes a step, a recipe, 'abstain' or 'fail_closed'$",
+        match=r"^sf\.Gate otherwise= takes a step, a recipe, sf\.abstain\(\) or sf\.fail\(\)$",
     ):
         sf.Gate(when=sf.agreement() >= 0.7, then=sf.Vote(), otherwise=otherwise)  # type: ignore[arg-type]
 
@@ -385,7 +385,7 @@ def test_when_takes_a_condition() -> None:
         TypeError,
         # E4c (gate #14): the message names an input condition and a budget condition too.
         match=r"^sf\.Gate when= takes a condition such as sf\.agreement\(\) >= 0\.7, "
-        r"sf\.label\(sel\) == 'x' or sf\.budget\.remaining\(\) >= 0\.02$",
+        r"sf\.signal\('x'\) < 0\.7, sf\.label\(sel\) == 'x' or sf\.budget\.remaining\(\) >= 0\.02$",
     ):
         sf.Gate(when=sf.agreement(), then=sf.Vote())  # type: ignore[arg-type]
 

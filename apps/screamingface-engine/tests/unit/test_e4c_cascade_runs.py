@@ -2,8 +2,10 @@
 
 FEATURE: E4c (OME-1291) cascade rows CA#2 - #6, #10, #11, #11a, #12, #13, #25; branch-core
 BC#6a, #6b, #10; gate GT#19 - #21 (panel gate with a recipe otherwise).
-STORY: as a researcher whose result is a saving, a Case that passes stage 1 pays stage 1 only; a
-stage that fails or abstains escalates; the last tier can be a scored decline.
+STORY: as a researcher whose result is a saving, a Case that passes tier 1 pays tier 1 only;
+only a sf.escalate_if line escalates (2026-11-12): a tier that fails fails the Case, a tier that
+abstains makes it abstain, a missing number fails it with signal_missing; the last tier can be a
+scored decline.
 The url4 files are the SDK compile (``packages/screamingface/tests/test_e4c_gate_fixtures.py``).
 """
 
@@ -33,7 +35,7 @@ def _user_text(request: dict[str, Any]) -> str:
 
 
 @pytest.mark.asyncio
-async def test_stage_one_passes_and_later_stages_make_zero_calls() -> None:
+async def test_tier_one_passes_and_later_tiers_make_zero_calls() -> None:
     # CA#2
     gateway = Gateway(_replies(("A", "A"), ("C", "C")))
     record = await run_gate(fixture("cascade_three.url4"), gateway, "a question")
@@ -46,8 +48,8 @@ async def test_stage_one_passes_and_later_stages_make_zero_calls() -> None:
 
 
 @pytest.mark.asyncio
-async def test_escalated_stage_reads_the_case_input_not_the_previous_answer() -> None:
-    # CA#3 / BC-5: stage 2 and the large model answer the original question.
+async def test_escalated_tier_reads_the_case_input_not_the_previous_answer() -> None:
+    # CA#3 / BC-5: tier 2 and the large model answer the original question.
     gateway = Gateway(_replies(("A", "B"), ("C", "D")))
     record = await run_gate(fixture("cascade_three.url4"), gateway, "the question")
 
@@ -58,39 +60,34 @@ async def test_escalated_stage_reads_the_case_input_not_the_previous_answer() ->
 
 
 @pytest.mark.asyncio
-async def test_failed_gated_stage_escalates_instead_of_failing_the_case() -> None:
-    # CA#4 / CA-6: every stage-1 member fails; the panel does not fail (quorum 0), no voters,
-    # the null branch escalates to stage 2.
-    gateway = Gateway(_replies((FAIL, FAIL), ("C", "C")))
-    record = await run_gate(fixture("cascade_three.url4"), gateway)
+@pytest.mark.parametrize("one", [(FAIL, FAIL), ("A", FAIL)], ids=["every_member", "one_member"])
+async def test_failed_tier_fails_the_case_and_does_not_escalate(one: tuple[str, str]) -> None:
+    # CA#4, CA#6 (2026-11-12, reverses ans:Q17/Q24): a condition line keeps the author's Fanout;
+    # its quorum ('all') fails the tier, and only a line escalates.
+    gateway = Gateway(_replies(one, ("C", "C")))
+    with pytest.raises(ResolutionError) as caught:
+        await run_gate(fixture("cascade_three.url4"), gateway)
 
-    assert record["status"] == "completed"
-    assert record["output"] == "C"
-    outer = operations(record)["op_gate_1"]["decision"]
-    assert outer["panel"]["branch"] is None
-    assert outer["branch"] == "otherwise"
-
-
-@pytest.mark.asyncio
-async def test_abstained_gated_stage_escalates() -> None:
-    # CA#5 / CA-7: both stage-1 members give an empty answer, so the vote abstains no_votes.
-    gateway = Gateway(_replies((" ", " "), ("C", "C")))
-    record = await run_gate(fixture("cascade_three.url4"), gateway)
-    assert record["output"] == "C"
-
-
-@pytest.mark.asyncio
-async def test_partially_failed_stage_decides_on_the_members_that_answered() -> None:
-    # CA#6 / CA-29 (ans:Q24): one member fails, the other answers: agreement over one vote is 1.0.
-    gateway = Gateway(_replies(("A", FAIL), ("C", "C")))
-    record = await run_gate(fixture("cascade_three.url4"), gateway)
-
-    assert record["output"] == "A"
+    assert caught.value.code == "aigateway_http_400"
     assert all(request["model"] in _STAGE_ONE for request in gateway.seen)
 
 
 @pytest.mark.asyncio
-async def test_every_stage_escalates_and_the_case_abstains_gate_not_met() -> None:
+async def test_abstained_tier_makes_the_case_abstain() -> None:
+    # CA#5 (2026-11-12): both members give an empty answer, so the vote abstains no_votes; the
+    # Case abstains with that reason and tier 2 never runs.
+    gateway = Gateway(_replies((" ", " "), ("C", "C")))
+    record = await run_gate(fixture("cascade_three.url4"), gateway)
+
+    assert record["output"] == ""
+    assert record.get("abstained") is True
+    root = operations(record)["op_gate_1"]["decision"]
+    assert root["result"] == {"status": "abstain", "reason": "no_votes"}
+    assert all(request["model"] in _STAGE_ONE for request in gateway.seen)
+
+
+@pytest.mark.asyncio
+async def test_every_tier_escalates_and_the_case_abstains_gate_not_met() -> None:
     # CA#10 / CA-9 / CA-20 / BC#6a: the innermost word abstains; the root JOIN copies it.
     gateway = Gateway(_replies(("A", "B"), ("C", "D")))
     record = await run_gate(fixture("cascade_abstain.url4"), gateway)
@@ -99,37 +96,85 @@ async def test_every_stage_escalates_and_the_case_abstains_gate_not_met() -> Non
     assert record.get("abstained") is True
     root = operations(record)["op_gate_1"]["decision"]
     assert root["result"] == {"status": "abstain", "reason": "gate_not_met"}
-    assert len(gateway.seen) == 4  # every stage ran once
+    assert len(gateway.seen) == 4  # every tier ran once
 
 
 @pytest.mark.asyncio
-async def test_every_stage_fails_and_the_last_failure_fails_the_case() -> None:
-    # CA#11 / CA-19: stages before the last escalate; the last (required) stage's failure fails.
+async def test_every_tier_splits_and_sf_fail_fails_the_case() -> None:
+    # CA#10 / CA-30: the last line holds, so the Case follows sf.fail().
+    gateway = Gateway(_replies(("A", "B"), ("C", "D")))
+    with pytest.raises(ResolutionError) as caught:
+        await run_gate(fixture("cascade_fail_closed.url4"), gateway)
+    assert caught.value.code == "fail_closed"
+    assert len(gateway.seen) == 4
+
+
+@pytest.mark.asyncio
+async def test_every_tier_fails_and_the_first_failure_fails_the_case() -> None:
+    # CA#11 / CA-19: the first tier's failure fails the Case; no later tier runs.
     gateway = Gateway(_replies((FAIL, FAIL), (FAIL, FAIL), large=FAIL))
     with pytest.raises(ResolutionError) as caught:
         await run_gate(fixture("cascade_three.url4"), gateway)
+    assert caught.value.code == "aigateway_http_400"
+    assert all(request["model"] in _STAGE_ONE for request in gateway.seen)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("name", "code"), [("cascade_abstain.url4", None), ("cascade_fail_closed.url4", "fail_closed")]
+)
+async def test_gated_last_tier_with_no_voters_follows_the_outcome(
+    name: str, code: str | None
+) -> None:
+    # CA#11a / CA-30: tier 1 splits; tier 2 abstains (no voters). A Gate whose otherwise is an
+    # outcome keeps the E4b rule: the Case abstains no_votes, or sf.fail() fails it.
+    gateway = Gateway(_replies(("A", "B"), (" ", " ")))
+    if code is None:
+        record = await run_gate(fixture(name), gateway)
+        assert record.get("abstained") is True
+        root = operations(record)["op_gate_1"]["decision"]
+        assert root["result"] == {"status": "abstain", "reason": "no_votes"}
+    else:
+        with pytest.raises(ResolutionError) as caught:
+            await run_gate(fixture(name), gateway)
+        assert caught.value.code == code
+    assert "prov/large" not in {request["model"] for request in gateway.seen}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name", ["cascade_abstain.url4", "cascade_fail_closed.url4"])
+async def test_failed_last_tier_fails_the_case(name: str) -> None:
+    # 2026-11-12: tier 2 keeps the author's quorum, so its failure fails the Case.
+    with pytest.raises(ResolutionError) as caught:
+        await run_gate(fixture(name), Gateway(_replies(("A", "B"), (FAIL, FAIL))))
     assert caught.value.code == "aigateway_http_400"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("name", "abstained", "code"),
-    [("cascade_abstain.url4", True, None), ("cascade_fail_closed.url4", False, "fail_closed")],
+    ("reply", "calls"),
+    [("A\nConfidence: 90", 2), ("A\nConfidence: 40", 3)],
+    ids=["kept", "escalated"],
 )
-async def test_gated_last_stage_with_no_voters_follows_the_otherwise_word(
-    name, abstained, code
-) -> None:
-    # CA#11a / CA-30: the last stage's members all fail: abstain no_votes, or fail_closed.
-    gateway = Gateway(_replies((FAIL, FAIL), (FAIL, FAIL)))
-    if code is None:
-        record = await run_gate(fixture(name), gateway)
-        assert record.get("abstained") is abstained
-        root = operations(record)["op_gate_1"]["decision"]
-        assert root["result"] == {"status": "abstain", "reason": "no_votes"}
-        return
+async def test_signal_line_escalates_on_the_chosen_members_number(reply: str, calls: int) -> None:
+    # 2026-11-12: sf.escalate_if(sf.signal("conf") < 70) reads the chosen member's value.
+    gateway = Gateway({"prov/a": reply, "prov/b": reply, "prov/large": "L"})
+    record = await run_gate(fixture("cascade_signal.url4"), gateway)
+
+    assert len(gateway.seen) == calls
+    assert (record["output"] == "L") is (calls == 3)
+
+
+@pytest.mark.asyncio
+async def test_missing_signal_fails_the_case_with_signal_missing() -> None:
+    # 2026-11-12: no member wrote a confidence, so the line can neither keep nor escalate.
+    gateway = Gateway({"prov/a": "A", "prov/b": "A", "prov/large": "L"})
     with pytest.raises(ResolutionError) as caught:
-        await run_gate(fixture(name), gateway)
-    assert caught.value.code == code
+        await run_gate(fixture("cascade_signal.url4"), gateway)
+
+    assert caught.value.code == "signal_missing"
+    assert caught.value.permanent is True
+    assert all(request["model"] != "prov/large" for request in gateway.seen)
 
 
 @pytest.mark.asyncio
@@ -205,3 +250,13 @@ async def test_decide_runs_after_a_delayed_decision_call_and_members() -> None:
     assert decision["panel"] == {"operation_id": "op_synthesis_1", "branch": "fallback"}
     large = next(request for request in gateway.seen if request["model"] == "prov/large")
     assert _user_text(large) == "what is 2 + 2?"
+
+
+@pytest.mark.asyncio
+async def test_missing_signal_with_an_outcome_otherwise_keeps_the_e4b_rule() -> None:
+    # 2026-11-12 boundary (rule scope: recipe otherwise only): a Gate whose otherwise is sf.fail()
+    # follows it on a missing number, as in E4b; it does not raise signal_missing.
+    gateway = Gateway({"prov/a": "A", "prov/b": "A"})
+    with pytest.raises(ResolutionError) as caught:
+        await run_gate(fixture("signal_fail.url4"), gateway)
+    assert caught.value.code == "fail_closed"

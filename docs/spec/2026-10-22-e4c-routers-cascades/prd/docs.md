@@ -26,8 +26,10 @@ CHANGELOG to tell me what changed in E4b recipes that I already have.
 - Adaptive sampling is a Cascade over sample panels, with no sample reuse, and the docs say so.
   [stated ans:Q7]
 - Clusters is deferred [stated ans:Q4]; the parallel race of OME-1465 is out [stated ans:Q5].
-- Set-valued routing is a skip-Gate Fanout member [stated ans:Q16]; a failed stage escalates
-  [stated ans:Q17]; a fired guard makes no model call [stated ans:Q18]; the budget is written once
+- Set-valued routing is a skip-Gate Fanout member [stated ans:Q16]; nothing escalates unless an
+  `sf.escalate_if` line says so, and only `sf.escalate_if(sf.unanswered())` escalates on a failed
+  or abstained tier [stated owner 2026-11-12 — supersedes ans:Q17 "a failed stage escalates"]; a
+  fired guard makes no model call [stated ans:Q18]; the budget is written once
   on the candidate [stated ans:Q19]; an unknown cost counts as $0 with a warning [stated ans:Q14].
 - Docs tests run recipe code OFFLINE only: they build the recipe and compile it to url4 bytes. They
   never call a model, a gateway, or a hosted service. A docs reviewer once ran README blocks after
@@ -77,30 +79,31 @@ list, and the docstrings above rewritten to the shipped behavior.
   (a new `###` section after `### Consistency samples`, before `## Install`), Then its first
   paragraph defines: **routing** = a `sf.Gate` that decides BEFORE any answer exists, from the
   question (a selector label) or the budget; **cascade** = a `sf.Gate` that decides AFTER an answer,
-  from a number on that answer (agreement or a declared signal), and calls the next stage on the
+  from a number on that answer (agreement or a declared signal), and calls the next tier on the
   original question; **orchestration** = multi-step controllers, debate and agent loops, which are
   not in this toolkit yet (E4d, E10c). It states the one rule: a branch that is not selected makes
   zero model calls, and the report says it was not selected and why. [stated epic; stated ans:Q5 —
   OME-1357]
 - **DC-2 One construct.** Given the section, Then it says that `sf.Gate` is the only branch
-  construct: `then=` and `otherwise=` take a reducer step, a recipe, `"abstain"` or
-  `"fail_closed"`; an N-way choice is nested Gates; `sf.Cascade` is a short form of nested Gates
-  whose `repr` shows the Gate form. [stated ans:Q6, ans:Q9, ans:Q12]
+  construct: `then=` and `otherwise=` take a reducer step, a recipe, `sf.abstain()` or
+  `sf.fail()`; an N-way choice is nested Gates; `sf.Cascade(t1, sf.escalate_if(...), t2)` is a
+  short form of nested Gates whose `repr` shows the Gate form. [stated ans:Q6, ans:Q9, ans:Q12;
+  stated owner 2026-11-12]
 - **DC-3 Recipe per paper family.** Given the section's one Python code block, Then it assigns
   these recipes, each with a one-line comment that names the paper family [stated epic paper lists]:
 
   | Recipe | Family (epic) | Shape |
   |---|---|---|
-  | `d1_keyword_router` | Keywords router; "How robust are router-LLMs?" binary router | `sf.Gate(when=sf.label(kw) == "math", then=math_panel, otherwise=sf.Gate(when=sf.label(kw) == "code", then=coder, otherwise=general))` |
-  | `d2_label_router` | GraphRouter / OrgAgent (DIRECT, LIGHT, FULL) / single- vs multi-agent | nested Gates on `sf.label(sf.LabelModel(m, labels=[...]))` |
-  | `d3_guarded_router` | router robustness (`fail_closed`), floor | outer Gate on a Keywords label → `then="fail_closed"`; a classifier label → `then=<stronger recipe>`; `otherwise=d2` |
-  | `d4_cope_cascade` | COPE, Frugal KG, CARGO | `sf.Cascade([panel >> sf.Vote(), large], escalate_if=sf.agreement() < 0.8)` |
-  | `d5_steer_answer_cascade` | STEER (per full answer) | `sf.Cascade([sf.Fanout([small], signals={"lp": sf.Logprob("prob")}) >> sf.Vote(), large], escalate_if=sf.signal("lp").chosen() < 0.7)` (a gated stage is a block that ends in a reducer, [cascade](cascade.md) CA-13) |
-  | `d6_first_success` | OME-1465 first branch to succeed | `sf.Cascade([a, b, c])` with failure escalation, no condition beyond "answered" |
+  | `d1_keyword_router` | RegexClassifier router; "How robust are router-LLMs?" binary router | `sf.Gate(when=sf.label(kw) == "math", then=math_panel, otherwise=sf.Gate(when=sf.label(kw) == "code", then=coder, otherwise=general))` |
+  | `d2_label_router` | GraphRouter / OrgAgent (DIRECT, LIGHT, FULL) / single- vs multi-agent | nested Gates on `sf.label(sf.LLMClassifier(m, labels=[...]))` |
+  | `d3_guarded_router` | router robustness (`fail_closed`), floor | outer Gate on a RegexClassifier label → `then=sf.fail()`; a classifier label → `then=<stronger recipe>`; `otherwise=d2` |
+  | `d4_cope_cascade` | COPE, Frugal KG, CARGO | `sf.Cascade(sf.Fanout(panel) >> sf.Vote(), sf.escalate_if(sf.agreement() < 0.8), large)` |
+  | `d5_steer_answer_cascade` | STEER (per full answer) | `sf.Cascade(sf.Fanout([small], signals={"lp": sf.Logprob("prob")}) >> sf.Vote(), sf.escalate_if(sf.signal("lp") < 0.7), large)` (a tier before a condition line is a block that ends in a reducer, [cascade](cascade.md) CA-13; a bare `sf.signal("lp")` reads the chosen member, CA-32) |
+  | `d6_first_success` | OME-1465 first branch to succeed | `sf.Cascade(a, sf.escalate_if(sf.unanswered()), b, sf.escalate_if(sf.unanswered()), c)`: escalate only on failure or abstain ([cascade](cascade.md) CA-10) |
   | `d7_manager_subset` | Team of Thoughts, SMART-D, set-valued routing | `sf.Fanout([sf.Gate(when=sf.labels(sel).has("x"), then=agent_x), …]) >> sf.Synthesize(writer)` |
   | `d8_budget_choice` | OmniRouter, RouterBench willingness-to-pay | `sf.Gate(when=sf.budget.remaining() >= 0.02, then=large, otherwise=small)` |
-  | `d9_budget_cap` | MTRouter / VineLM cap | `sf.Budgeted(d4_cope_cascade, usd=0.05)` |
-  | `d10_adaptive_sampling` | ACAR, OME-1630 | `sf.Cascade([sf.Fanout(sf.samples(m, 2)) >> sf.Vote(), sf.Fanout(sf.samples(m, 5, seeds=range(2, 7))) >> sf.Vote()], escalate_if=sf.agreement() < 1.0)` (fresh seeds, so no `CascadeSeedWarning`, [cascade](cascade.md) CA-11, CA-23) |
+  | `d9_budget_cap` | MTRouter / VineLM cap | `sf.WithBudget(d4_cope_cascade, budget_usd=0.05)` |
+  | `d10_adaptive_sampling` | ACAR, OME-1630 | `sf.Cascade(sf.Fanout(sf.samples(m, 2)) >> sf.Vote(), sf.escalate_if(sf.agreement() < 1.0), sf.Fanout(sf.samples(m, 5, seeds=range(2, 7))) >> sf.Vote())` (fresh seeds, so no `CascadeSeedWarning`, [cascade](cascade.md) CA-11, CA-23) |
 
   Exact argument names follow the flow PRDs; this table fixes only the recipe names and shapes.
   [proposed]
@@ -112,32 +115,40 @@ list, and the docstrings above rewritten to the shipped behavior.
   paragraph, Then they say that a branch that is not taken makes no call and costs nothing, that
   the E4b gate fallback runs only on the Cases where the gate takes it, and that the band branch
   reads no reply and runs no fallback. [stated epic; implied — lazy-fallback PRD]
-- **DC-6 Outcomes.** Given the section, Then it says: `"abstain"` (and the last tier of a Cascade)
-  is a scored decline with reason `gate_not_met`; a budget refusal with no free branch abstains
-  with `budget_refused`; `"fail_closed"` is a failure with code `fail_closed`, never an abstain.
-  [stated epic: "Abstain is a scored decline. Fail-closed is an error."; proposed reasons, erd §6]
+- **DC-6 Outcomes.** Given the section, Then it says: `sf.abstain()` (also the last part of a
+  Cascade) is a scored decline with reason `gate_not_met`, and the word `"abstain"` (the E4b
+  spelling) still works; a budget refusal with no free branch abstains with `budget_refused`;
+  `sf.fail()` is a failure with code `fail_closed`, never an abstain; `signal_missing` is a
+  failure when a cascade tier, or a Gate with a recipe `otherwise=`, has no number to compare.
+  [stated epic: "Abstain is a scored decline. Fail-closed is an error."; proposed reasons, erd §6;
+  stated owner 2026-11-12]
 - **DC-7 Limits that the docs must state.** Given the section, Then it states, each in one
-  sentence: (a) adaptive sampling does not reuse the first stage's samples, so an escalated Case
+  sentence: (a) adaptive sampling does not reuse the first tier's samples, so an escalated Case
   pays for 2 + 5 samples, not 2 + 3 (OME-1630 tracks the top-up) [stated ans:Q7]; (b) STEER's
   step-level, per-token escalation is not done, only per full answer [stated epic non-goal];
   (c) a fired guard runs no model, so a model selector after it shows "not run" [stated ans:Q18];
   (d) a call with unknown cost counts as $0 against a USD cap and the report warns
   [stated ans:Q14]; (e) the budget is per Case and written once, on the candidate
-  [stated ans:Q13, ans:Q19]; (f) a failed or abstained stage escalates; only the last stage's
-  failure fails the Case [stated ans:Q17].
+  [stated ans:Q13, ans:Q19]; (f) nothing escalates unless a line says so: after a condition line a
+  failed tier fails the Case as its `sf.Fanout` quorum says, an abstained tier makes the Case
+  abstain, and a missing number fails it with `signal_missing`; only
+  `sf.escalate_if(sf.unanswered())` escalates on a failed or abstained tier; the same rule holds
+  for every `sf.Gate` with a recipe `otherwise=` [stated owner 2026-11-12 — supersedes ans:Q17
+  "a failed or abstained stage escalates"].
 - **DC-8 Not this epic.** Given the section, Then it ends with a "Not in E4c" list: Clusters
   (embedding) routers [stated ans:Q4]; the parallel first-success race that cancels slower branches
   [stated ans:Q5]; counting/merging (E4a), measuring confidence (E4b), debate (E4d), token-level
   early exit, tool and agent benchmarks (E10c/E10d/E10e), training a router [stated epic].
 - **DC-9 CHANGELOG.** Given `packages/screamingface/CHANGELOG.md` `## Unreleased`, Then:
-  `### Breaking changes` has (1) `sf.Gate` takes a step, a recipe, `"abstain"` or `"fail_closed"`
+  `### Breaking changes` has (1) `sf.Gate` takes a step, a recipe, `sf.abstain()` or `sf.fail()`
   in `then=`/`otherwise=`; the E4b "until E4c" limits (`then=` must be a Vote; a gated vote reads a
   rule name) are gone; (2) the E4b gate fallback now runs only when the gate takes it, so cost and
   operation lists change for gated recipes. `### Features` has one bullet each for nested-Gate
-  routing with `sf.Keywords` / `sf.LabelModel`, `sf.Cascade`, skip-Gate Fanout members, guards and
-  `fail_closed`, `sf.Budgeted` + `sf.budget.remaining()`, and the report "Branches" section. One
-  bullet names the new failure code `fail_closed` and the abstain reason `budget_refused`, and says
-  that the SDK release with both words ships before the Engine (OME-1233). E4c bullets go first in
+  routing with `sf.RegexClassifier` / `sf.LLMClassifier`, `sf.Cascade`, skip-Gate Fanout members, guards and
+  `sf.fail()`, `sf.WithBudget` + `sf.budget.remaining()`, and the report "Branches" section. One
+  bullet names the new failure codes `fail_closed` and `signal_missing` and the abstain reason
+  `budget_refused`, and says that the SDK release with these words ships before the Engine
+  (OME-1233). E4c bullets go first in
   their sections (E4b precedent: commit `ea90188c1`). [proposed — gap §per-connection/dependency]
 - **DC-10 Notebook 20.** Given `scripts/build_notebooks.py`, Then it builds
   `examples/20_routers_cascades.ipynb` from a new `_routers_cascades()` builder, registered in the
@@ -213,7 +224,7 @@ New test files: `ST/test_routers_cascades_docs.py` (README section + CHANGELOG),
 | 7 | PIN `band_section_says_no_fallback_runs_in_the_band` (edit of `test_sum_band_docs.py:76-79`) | unit | DC-5, DC-15 | H×M | rewrite README `:1206` |
 | 8 | `section_defines_routing_cascade_orchestration` | unit | DC-1 | M×H | new README section |
 | 9 | `section_says_gate_is_the_only_branch_construct` | unit | DC-2 | M×M | — |
-| 10 | `section_states_the_outcomes_and_their_codes` (`gate_not_met`, `budget_refused`, `fail_closed`) | unit | DC-6 | H×M | — |
+| 10 | `section_states_the_outcomes_and_their_codes` (`gate_not_met`, `budget_refused`, `fail_closed`, `signal_missing`) | unit | DC-6 | H×M | — |
 | 11 | `section_states_each_limit` (parametrized over DC-7 a–f) | unit | DC-7 | H×M | — |
 | 12 | `section_lists_what_is_not_in_e4c` | unit | DC-8 | M×M | — |
 | 13 | `readme_recipe_set_equals_the_table` | unit | DC-17 | M×M | — |

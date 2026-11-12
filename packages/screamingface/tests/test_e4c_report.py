@@ -35,7 +35,7 @@ from screamingface.errors import ExecutionError
 
 GATE_GOLDEN = Path(__file__).parent / "data" / "report_v1_gate_report.json"
 _SHA = "0123456789abcdef"
-_TOPIC = sf.Keywords([("math", r"(?i)\bintegral\b"), ("code", r"(?i)\bpython\b")])
+_TOPIC = sf.RegexClassifier([("math", r"(?i)\bintegral\b"), ("code", r"(?i)\bpython\b")])
 _ANSWERED = {"status": "answered", "reason": None}
 
 
@@ -670,7 +670,7 @@ def test_skip_gate_members_show_not_selected_in_both_sections() -> None:
     # the block's Combine section shows it as not_selected, by its selector id.
     from screamingface.combine_evidence import CombineAnswerRow, CombineEvidence, CombineResult
 
-    skills = sf.Keywords([("math", "integral"), ("code", "python")], multi=True)
+    skills = sf.RegexClassifier([("math", "integral"), ("code", "python")], multi=True)
     recipe = sf.Model("prov/prep") >> (
         sf.Fanout(
             [

@@ -45,7 +45,7 @@ call counts per binding, because a unit test cannot see a call that url4 did not
 | R6 | `fail_closed` and abstain share a status or a score path | H×M | guards #12, #17, branch-core #14, #15, report #6 |
 | R7 | A fired guard still pays for a model selector | H×M | guards #9, selectors #9 |
 | R8 | Budget overspends silently or refuses a mandatory call | H×M | budget #4–#11, #16; report #19 |
-| R9 | A cascade stage failure fails the Case instead of escalating | H×M | cascade #4, #5, #6, #11, #11a (stage panels at url4 `quorum=0`, ans:Q24; a gated last stage with no voters follows its word) |
+| R9 | A cascade tier escalates when no line says so, or an `sf.escalate_if(sf.unanswered())` tier fails the Case instead of escalating (owner 2026-11-12) | H×M | cascade #4, #5, #5a, #6, #11, #11a, #12; gate #33, #34; branch-core #9a, #9b (a condition-line tier keeps its Fanout quorum; an `sf.unanswered()` tier has url4 `quorum=0`; a gated last tier with no voters follows its outcome) |
 | R10 | Record or report leaks prompt, input or answer text | H×M | branch-core #29, selectors #17, guards #18, report #14 |
 | R11 | JOIN passes an envelope or swallows a refusal | H×M | branch-core #5, #6, #18, #19 |
 | R12 | Docs show a recipe that compiles differently or calls the network | M×M | docs #2–#4, #16, #17 |
@@ -59,17 +59,17 @@ call counts per binding, because a unit test cannot see a call that url4 did not
 
 | PRD | Prefix | Scenarios | TDD rows | PR |
 |---|---|---|---|---|
-| [branch-core](prd/branch-core.md) | BC | 38 | 43 | PR-1 |
+| [branch-core](prd/branch-core.md) | BC | 39 | 45 | PR-1 |
 | [selectors](prd/selectors.md) | SL | 27 | 25 | PR-1 |
-| [gate](prd/gate.md) | GT | 27 | 32 | PR-1 |
+| [gate](prd/gate.md) | GT | 30 | 35 | PR-1 |
 | [lazy-fallback](prd/lazy-fallback.md) | LF | 22 | 24 | PR-1 |
-| [cascade](prd/cascade.md) | CA | 30 | 27 | PR-1 |
+| [cascade](prd/cascade.md) | CA | 32 | 30 | PR-1 |
 | [report](prd/report.md) | RP | 35 | 36 | PR-1 (29 rows), PR-2 (1), PR-3 (6) |
 | [guards](prd/guards.md) | GU | 21 | 29 | PR-1 (vocabulary, 6 rows), PR-2 (22), PR-3 (1) |
 | [skip-members](prd/skip-members.md) | SM | 23 | 29 | PR-2 (28 rows), PR-3 (1) |
 | [budget](prd/budget.md) | BU | 28 | 28 | PR-3 |
 | [docs](prd/docs.md) | DC | 21 | 21 | PR-3 (each PR updates the CHANGELOG for its part) |
-| **Total** | | **272** | **294** | |
+| **Total** | | **278** | **302** | |
 
 ## 5. Pinned edits expected (owner approval, per PR manifest)
 
@@ -80,8 +80,9 @@ call counts per binding, because a unit test cannot see a call that url4 did not
 | PR-1 | `ST/test_gate_surface.py:316-319`, `:375-379`, `:432-437` | E4b "until E4c" limits lifted (gate #7, #8, #28) |
 | PR-1 | `ET/test_combine_gate_words.py:397-403` | a gate on any reducer (gate #18) |
 | PR-1 | `ET/data/combine_contract/gate_judge_vote_candidate.url4`, `gate_writer_vote_candidate.url4`; `ST/test_gate_api.py` one-call-shape rows | lazy fallback shape (lazy-fallback #23, #24) |
-| PR-1/2/3 | `ST/public_surface_snapshot.json` | `Gate` signature (`otherwise=None` sentinel); `Cascade`, `CascadeSeedWarning`; `Keywords`, `LabelModel`, `label`, `labels`; `Budget`, `Estimate`, `budget` |
+| PR-1/2/3 | `ST/public_surface_snapshot.json` | `Gate` signature (`otherwise=None` sentinel); `Cascade`, `escalate_if`, `unanswered`, `abstain`, `fail`, `CascadeSeedWarning`; `RegexClassifier`, `LLMClassifier`, `label`, `labels`; `Budget`, `Estimate`, `budget` |
 | PR-2 | `ET/test_failure_classes.py`, `ET/test_e4b_catalog_pins.py` (67 → 68), `ET/test_terminal_error_detail.py` | failure code `quorum_not_met` (skip-members #2a) |
+| owner 2026-11-12 | `ET/test_failure_classes.py`, `ET/test_e4b_catalog_pins.py` (68 → 69), `ET/test_terminal_error_detail.py` | failure code `signal_missing` (branch-core #9b, BC-39, D4a) |
 | PR-2 | `ET/data/combine_contract/schemas/screamingface.combine-evidence.v1.json`; likely `ET/test_combine_evidence_words.py`, `ST/test_evidence_words.py`, `ST/test_frozen_record_fields.py` | evidence key `skipped`, NR-I4 (skip-members #25) |
 | PR-3 | `budget_schemas()` freeze snapshot; `ST/test_frozen_record_fields.py:127`, `ST/test_budget_contract.py:65` | `BudgetStage` gains `selector` (budget #22) |
 | PR-3 | `ST/data/schemas/screamingface.answer.v1.json`; combine-evidence.v1 abstain enum | abstain reason `budget_refused` |
@@ -95,7 +96,7 @@ New goldens and fixtures (no approval needed, they are new files): `ST/data/repo
 
 | What | Why | Detection in production | Revisit when |
 |---|---|---|---|
-| Live LabelModel quality (does a cheap model pick the right label) | model behavior, not platform; offline tests use recorded replies | report: unrecognized/unparsed counts per run | a benchmark shows > 5 % unrecognized |
+| Live LLMClassifier quality (does a cheap model pick the right label) | model behavior, not platform; offline tests use recorded replies | report: unrecognized/unparsed counts per run | a benchmark shows > 5 % unrecognized |
 | Real provider costs against the budget | no paid tests | report: spend vs cap, unpriced warnings | the first paid run with a Budget |
 | url4 Part E §24 budget conformance | spec part not in the repo | url4 owner review | Part E is published |
 | Parallel race (OME-1465 race form) | out of scope (ans:Q5) | — | OME-559 lands url4 triggers |

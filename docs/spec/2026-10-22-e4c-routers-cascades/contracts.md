@@ -11,7 +11,7 @@ sit in unless stated.
   [existing `S/_evaluation/corrective.py:193-200`]):
   ```
   [keywords_N  = /ensemble/select/v1/keywords($input)!'<keywords specs>'   # once, top of the Gate tree]
-  [selector_N  = LabelModel call ;optional, binding=selector_N             # lowest scope that reads it]
+  [selector_N  = LLMClassifier call ;optional, binding=selector_N             # lowest scope that reads it]
   [synthesis_N = panel decision call (combine; phase=decide for a lazy E4b fallback)]
   gate_N_after     = /ensemble/branch/v1/after(r1:0.0:$synthesis_N, r2:0.0:$<gate input>, r3:0.0:$<selector/keywords>…)!'after'
   gate_N_decide    = /ensemble/branch/v1/decide(<C2 context with "after": "$gate_N_after">) gate=gate_N !'decide'
@@ -32,17 +32,19 @@ sit in unless stated.
   recorded result ([branch-core](prd/branch-core.md) D12).
 - Bodies are inline: a recipe body's sources sit in the iterate body text (no `MEMBER_ROUTE`), so
   their calls reach the Case recorder ([branch-core](prd/branch-core.md) D1). Every call inside a
-  body, and every call under `sf.Budgeted`, carries `binding=<name>` first (D3). A body references
+  body, and every call under `sf.WithBudget`, carries `binding=<name>` first (D3). A body references
   only bindings that run unconditionally in an enclosing scope: the Gate input, the tree's KEYWORDS
-  source, hoisted LabelModel selectors, the panel members and the decision call (D5, compile-time
+  source, hoisted LLMClassifier selectors, the panel members and the decision call (D5, compile-time
   check). A step body that is the decision call's own reducer has no iterate: JOIN reads the
   decision call output and result (D12). A word body has no sources.
 - Skip-Gate member (Q16): the member's DECIDE sits before the panel; the slot holds OPEN, the
   iterate and JOIN; under `quorum="all"` the slot is required, under a numeric quorum it is
   `;optional` and the panel carries url4 `quorum=0`; an unselected member's JOIN returns `""`
   ([skip-members](prd/skip-members.md), branch-core D8).
-- Cascade gated stage: members `;optional`, stage panel url4 `quorum=0`
-  ([cascade](prd/cascade.md) CA-6).
+- Cascade tier before a condition line: the tier's Fanout compiles as the author wrote it (no
+  `;optional`, its own quorum). Cascade tier before an `sf.escalate_if(sf.unanswered())` line:
+  members `;optional`, tier panel url4 `quorum=0` ([cascade](prd/cascade.md) CA-6, CA-10)
+  [stated owner 2026-11-12].
 - A Fanout with a skip-Gate member always takes the panel compile path, also under
   `quorum="all"` (where a plain Fanout with no optional member compiles flat, [existing
   `S/_evaluation/candidate.py:361-376`]) ([skip-members](prd/skip-members.md)) [proposed — review 3 F8].
@@ -60,13 +62,13 @@ sit in unless stated.
   {"spec": <gate-spec.v1>,
    "after": "$gate_N_after",
    "inputs": {"keywords": "$keywords_N",
-              "selectors": {"sel_2": "<LabelModel reply text, or the literal $selector_N when the call failed>"},
+              "selectors": {"sel_2": "<LLMClassifier reply text, or the literal $selector_N when the call failed>"},
               "panel": {"binding": "synthesis_N", "phase": "decide" | null} | null}}
   ```
   `after` resolves to `""` (AFTER); `keywords` resolves to the KEYWORDS response, which also holds
   the Case input `summary` (C7).
-  The Keywords results cover every Keywords selector of the Gate tree, so a fired guard still
-  records the router's Keywords labels ([branch-core](prd/branch-core.md) D6). The budget cap is NOT
+  The RegexClassifier results cover every RegexClassifier selector of the Gate tree, so a fired guard still
+  records the router's RegexClassifier labels ([branch-core](prd/branch-core.md) D6). The budget cap is NOT
   in the context: the Engine binds it once per Attempt from the candidate's typed budget annotation
   (C6) in a ContextVar set before the expression runs, so every task inherits it (a value set
   inside a running task would stay invisible to its siblings); DECIDE folds the recorded charges of every call whose fingerprint is in
@@ -82,9 +84,12 @@ sit in unless stated.
   DECIDE never reads the Case input.
 - Failure (callee): malformed context, schema id, cmp/observe pair, unknown selector id, budget read
   with no Budget → permanent `benchmark_contract_error`, message names the field, never echoes
-  input. Failure (caller): url4 fails the Gate; the Case fails.
-- Contract tests: branch-core #4, #9, #10, #24, #31, #32, #37; selectors #6–#8; budget #4–#10,
-  #14; cascade #4, #5, #6; guards #8–#11.
+  input. A panel gate with a recipe `otherwise` whose E4b record took `fallback` on a missing
+  number → permanent `signal_missing` (helper `signal_missing(gate_id)` in
+  `E/benchmarks/failure_classes.py`; fixed text plus the gate id; [branch-core](prd/branch-core.md)
+  D4a) [stated owner 2026-11-12]. Failure (caller): url4 fails the Gate; the Case fails.
+- Contract tests: branch-core #4, #9, #9a, #9b, #10, #24, #31, #32, #37; selectors #6–#8; budget
+  #4–#10, #14; cascade #4, #5, #5a, #6; guards #8–#11.
 
 ## C2b — AFTER, url4 node → Engine endpoint `/ensemble/branch/v1/after`, sync, pure
 
@@ -115,7 +120,8 @@ sit in unless stated.
 - Response: plain text — the taken branch's text verbatim, with `decision.result` copied from
   that branch's `terminal` operation (a terminal model call gives `answered`; a terminal combine
   call or inner JOIN gives its own result, so a nested abstain reaches the root); for a step slot
-  and for no branch (band hit, no voters with a step or the word `abstain` as `otherwise`), the
+  and for no branch (band hit; no voters with a step, the word `abstain`, or a recipe under any
+  condition but `sf.answered()` as `otherwise`), the
   decision call's output with its combine result copied (answered, or abstain with its reason;
   D12); a raise of `fail_closed` for no voters with the word `fail_closed` as `otherwise`; `""`
   with `result = {"status":"abstain","reason":"gate_not_met" | "budget_refused"}` for a word or a
@@ -166,15 +172,15 @@ sit in unless stated.
   BU-15]. url4 Part E §24 conformance is a question for the url4 owner (overview §7).
 - Contract tests: gate #22–#24; lazy-fallback #4, #14, #15, #19, #20; budget #12, #13, #17.
 
-## C7 — Selectors: KEYWORDS endpoint and LabelModel call
+## C7 — Selectors: KEYWORDS endpoint and LLMClassifier call
 
 - KEYWORDS: `/ensemble/select/v1/keywords`, one source per Gate tree that reads any selector (also
-  a tree with only a LabelModel); intent = the canonical `keywords.v1` specs of the tree (possibly
+  a tree with only an LLMClassifier); intent = the canonical `keywords.v1` specs of the tree (possibly
   none); context `$input`; response `{"summary": {"chars": n, "sha256": "<16 hex>"}, "sel_<n>":
   {"labels": [...], "matched": [...]}, ...}`; pure; RE2; head window 65,536 chars; patterns
   pre-checked by `check_regex` (≤ 256 chars) [proposed — [selectors](prd/selectors.md),
   [branch-core](prd/branch-core.md) D6].
-- LabelModel: one model call `selector_N` with the `label-template@1` prompt and the user message
+- LLMClassifier: one model call `selector_N` with the `label-template@1` prompt and the user message
   `{"input": …}`; `;optional`; a failed call leaves `$selector_N` unbound, so DECIDE receives the
   literal text and records `status: "failed"`, `parse_error: null` (the default branch runs);
   default `max_tokens` 16 (one label) / 64 (multi); reply cap 64 KiB; parsed by DECIDE with
@@ -220,6 +226,12 @@ sit in unless stated.
   members (a `CombineError` code must be declared, [existing `E/combine/ports.py:111-116`]).
   Built in PR-2 (plan unit 11) [proposed — review 3 F4]. With it the declared count goes 66 → 67
   (PR-1, `fail_closed`) → 68 (PR-2).
+- `signal_missing`: permanent, engine-authored; in `DECLARED_FAILURE_CODES`, `ENGINE_ERROR_CODES`
+  and the SDK mirror; raised by DECIDE for a panel gate with a recipe `otherwise` that read a
+  missing number. Fixed text plus the gate id ("sf.Gate gate_N read a missing number, so it can
+  neither keep the answer nor escalate"); it never holds an answer or a signal value
+  ([branch-core](prd/branch-core.md) D4a, [cascade](prd/cascade.md) CA-31) [stated owner
+  2026-11-12]. With it the declared count goes 68 → 69.
 - `budget_refused`: abstain reason, `E/combine/ports.py:56` and `S/answer.py:29`.
 - Policies: one PR changes both lists; the SDK ships first (OME-1233); the exact-set pins change
   only with owner approval (`ET/test_failure_classes.py`, `ET/test_e4b_catalog_pins.py`,

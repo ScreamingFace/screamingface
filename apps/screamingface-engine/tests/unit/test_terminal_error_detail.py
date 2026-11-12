@@ -344,6 +344,7 @@ ALLOWLISTED_CODES = (
     "logprobs_unsupported",
     "fail_closed",
     "quorum_not_met",
+    "signal_missing",
 )
 
 

@@ -2720,9 +2720,10 @@ def _routers_cascades() -> NotebookNode:
 Three words have one meaning each in this toolkit:
 
 - **Routing**: a `sf.Gate` decides before any answer exists, from a label of the question
-  (`sf.Keywords`, `sf.LabelModel`) or from what the budget has left (`sf.budget.remaining()`).
+  (`sf.RegexClassifier`, `sf.LLMClassifier`) or from what the budget has left
+  (`sf.budget.remaining()`).
 - **Cascade**: a `sf.Gate` decides after an answer exists, from a number on that answer
-  (`sf.agreement()` or a declared signal). The next stage answers the original question.
+  (`sf.agreement()` or a declared signal). The next tier answers the original question.
 - **Orchestration**: multi-step controllers, debate and agent loops. They are not in this toolkit
   yet.
 
@@ -2762,8 +2763,10 @@ math_panel = sf.Fanout(PANEL) >> sf.Vote(over="last_number", normalize="numeric"
         nbformat.v4.new_markdown_cell("""\
 ## Routing"""),
         nbformat.v4.new_code_cell("""\
-# Keywords router (binary routers): no model call to route.
-topic = sf.Keywords([("math", r"(?i)\\b(integral|equation|sum)\\b"), ("code", r"(?i)\\bpython\\b")])
+# Regex router (binary routers): no model call to route.
+topic = sf.RegexClassifier(
+    [("math", r"(?i)\\b(integral|equation|sum)\\b"), ("code", r"(?i)\\bpython\\b")]
+)
 d1_keyword_router = sf.Gate(
     when=sf.label(topic) == "math",
     then=math_panel,
@@ -2771,8 +2774,8 @@ d1_keyword_router = sf.Gate(
 )
 d1_keyword_router"""),
         nbformat.v4.new_code_cell("""\
-# LLM label router (GraphRouter; OrgAgent DIRECT, LIGHT, FULL): a small LLM gives the label.
-kind = sf.LabelModel(ROUTER, labels=["math", "code", "other"])
+# LLM classifier router (GraphRouter; OrgAgent DIRECT, LIGHT, FULL): a small LLM gives the label.
+kind = sf.LLMClassifier(ROUTER, labels=["math", "code", "other"])
 d2_label_router = sf.Gate(
     when=sf.label(kind) == "math",
     then=math_panel,
@@ -2782,29 +2785,36 @@ d2_label_router"""),
         nbformat.v4.new_code_cell("""\
 # Router robustness: a jailbreak pattern fails the Case with fail_closed and no model call; a
 # medical question goes to the large model.
-jailbreak = sf.Keywords([("jailbreak", r"(?i)ignore (all|previous) instructions")])
-domain = sf.LabelModel(ROUTER, labels=["medical", "other"])
+jailbreak = sf.RegexClassifier([("jailbreak", r"(?i)ignore (all|previous) instructions")])
+domain = sf.LLMClassifier(ROUTER, labels=["medical", "other"])
 d3_guarded_router = sf.Gate(
     when=sf.label(jailbreak) == "jailbreak",
-    then="fail_closed",
+    then=sf.fail(),
     otherwise=sf.Gate(when=sf.label(domain) == "medical", then=LARGE, otherwise=d2_label_router),
 )
 d3_guarded_router"""),
         nbformat.v4.new_markdown_cell("""\
 ## Cascades
 
-`escalate_if=` is the condition to call the next stage. A stage that fails or abstains escalates
-too, and only the failure of the last stage fails the Case."""),
+A cascade takes its tiers as arguments, from top to bottom. Each `sf.escalate_if(...)` is a line
+between two tiers: it is the condition to call the next tier. Nothing escalates unless a line says
+so. A tier that fails fails the Case, a tier whose number is missing fails it with
+`signal_missing`, and a tier that abstains makes the Case abstain. Only
+`sf.escalate_if(sf.unanswered())` escalates when a tier fails or abstains."""),
         nbformat.v4.new_code_cell("""\
 # COPE, Frugal KG, CARGO: the large model answers only when the panel does not agree.
-d4_cope_cascade = sf.Cascade([math_panel, LARGE], escalate_if=sf.agreement() < 0.8)
+d4_cope_cascade = sf.Cascade(
+    math_panel,
+    sf.escalate_if(sf.agreement() < 0.8),
+    LARGE,
+)
 d4_cope_cascade"""),
         nbformat.v4.new_markdown_cell("""\
-`sf.Cascade` is a short form. It returns nested `sf.Gate` values: the members of a gated stage
-become optional, its panel takes `quorum=0`, and the Gate keeps the answer on the opposite
-condition. The two values below are equal, and they compile to the same url4."""),
+`sf.Cascade` is a short form. It returns nested `sf.Gate` values: the tier's `sf.Fanout` stays as
+you wrote it, and the Gate keeps the answer on the opposite condition of the line. The two values
+below are equal, and they compile to the same url4."""),
         nbformat.v4.new_code_cell("""\
-gate_form = sf.Fanout([sf.Model(route, optional=True) for route in PANEL], quorum=0) >> sf.Gate(
+gate_form = sf.Fanout(PANEL) >> sf.Gate(
     when=sf.agreement() >= 0.8,
     then=sf.Vote(over="last_number", normalize="numeric"),
     otherwise=LARGE,
@@ -2814,24 +2824,29 @@ gate_form"""),
         nbformat.v4.new_code_cell("""\
 # STEER, per full answer: a small model's token probability decides (OpenRouter models only).
 d5_steer_answer_cascade = sf.Cascade(
-    [sf.Fanout([ROUTER], signals={"lp": sf.Logprob("prob")}) >> sf.Vote(), LARGE],
-    escalate_if=sf.signal("lp").chosen() < 0.7,
+    sf.Fanout([ROUTER], signals={"lp": sf.Logprob("prob")}) >> sf.Vote(),
+    sf.escalate_if(sf.signal("lp") < 0.7),  # the chosen member's value
+    LARGE,
 )
 d5_steer_answer_cascade"""),
         nbformat.v4.new_code_cell("""\
-# First branch to succeed: the next model runs only when the one before fails or abstains.
-d6_first_success = sf.Cascade(PANEL)
+# First success: the next model runs only when the one before fails or abstains.
+d6_first_success = sf.Cascade(
+    PANEL[0],
+    sf.escalate_if(sf.unanswered()),
+    PANEL[1],
+    sf.escalate_if(sf.unanswered()),
+    PANEL[2],
+)
 d6_first_success"""),
         nbformat.v4.new_code_cell("""\
-# Adaptive sampling (ACAR): two samples; five new samples only when the two do not agree. Stage 2
+# Adaptive sampling (ACAR): two samples; five new samples only when the two do not agree. Tier 2
 # does not use the two samples again, so an escalated Case pays for 2 + 5 samples.
 d10_adaptive_sampling = sf.Cascade(
-    [
-        sf.Fanout(sf.samples(SMALL, 2)) >> sf.Vote(over="last_number", normalize="numeric"),
-        sf.Fanout(sf.samples(SMALL, 5, seeds=range(2, 7)))
-        >> sf.Vote(over="last_number", normalize="numeric"),
-    ],
-    escalate_if=sf.agreement() < 1.0,
+    sf.Fanout(sf.samples(SMALL, 2)) >> sf.Vote(over="last_number", normalize="numeric"),
+    sf.escalate_if(sf.agreement() < 1.0),
+    sf.Fanout(sf.samples(SMALL, 5, seeds=range(2, 7)))
+    >> sf.Vote(over="last_number", normalize="numeric"),
 )
 d10_adaptive_sampling"""),
         nbformat.v4.new_markdown_cell("""\
@@ -2839,7 +2854,7 @@ d10_adaptive_sampling"""),
         nbformat.v4.new_code_cell("""\
 # Team of Thoughts, SMART-D: a manager label picks the experts; an expert that is not picked
 # makes no call. The writer gets the answers of the experts that ran.
-experts = sf.LabelModel(ROUTER, labels=["algebra", "geometry", "arithmetic"], multi=True)
+experts = sf.LLMClassifier(ROUTER, labels=["algebra", "geometry", "arithmetic"], multi=True)
 
 
 def expert(topic: str) -> sf.Model:
@@ -2855,12 +2870,12 @@ d7_manager_subset = sf.Fanout(
 ) >> sf.Synthesize(LARGE, prompt="Write the final answer. The last line is: ANSWER: <number>")
 d7_manager_subset"""),
         nbformat.v4.new_code_cell("""\
-# Willingness to pay (OmniRouter, RouterBench): sf.budget.remaining() needs a sf.Budgeted root.
-d8_budget_choice = sf.Budgeted(
-    sf.Gate(when=sf.budget.remaining() >= 0.02, then=LARGE, otherwise=SMALL), usd=0.05
+# Willingness to pay (OmniRouter, RouterBench): sf.budget.remaining() needs a sf.WithBudget root.
+d8_budget_choice = sf.WithBudget(
+    sf.Gate(when=sf.budget.remaining() >= 0.02, then=LARGE, otherwise=SMALL), budget_usd=0.05
 )
 # A cost cap per Case (MTRouter, VineLM) around the d4 cascade.
-d9_budget_cap = sf.Budgeted(d4_cope_cascade, usd=0.05)
+d9_budget_cap = sf.WithBudget(d4_cope_cascade, budget_usd=0.05)
 d8_budget_choice, d9_budget_cap"""),
         nbformat.v4.new_markdown_cell("""\
 ## Evaluate the recipes
@@ -2889,10 +2904,12 @@ recipes = {
 
 
 def named(name: str, recipe: sf.Recipe) -> sf.Recipe:
-    # A sf.Budgeted stays at the root, so the name goes on the recipe inside it.
-    if isinstance(recipe, sf.Budgeted):
-        return sf.Budgeted(
-            sf.Pipeline([recipe.recipe], name=name), usd=recipe.usd, tokens=recipe.tokens
+    # A sf.WithBudget stays at the root, so the name goes on the recipe inside it.
+    if isinstance(recipe, sf.WithBudget):
+        return sf.WithBudget(
+            sf.Pipeline([recipe.recipe], name=name),
+            budget_usd=recipe.budget_usd,
+            max_tokens=recipe.max_tokens,
         )
     return sf.Pipeline([recipe], name=name)
 

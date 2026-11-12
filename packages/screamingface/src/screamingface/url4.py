@@ -463,14 +463,14 @@ def _candidate_budget(candidate: Expression) -> tuple[float | None, int | None] 
 
 
 def _with_budget(candidate: Expression, recipe: Recipe) -> Recipe:
-    """``recipe`` wrapped in the candidate's ``sf.Budgeted``, when the url4 declares one."""
+    """``recipe`` wrapped in the candidate's ``sf.WithBudget``, when the url4 declares one."""
 
-    from screamingface._surface.budget import Budgeted
+    from screamingface._surface.budget import WithBudget
 
     caps = _candidate_budget(candidate)
     if caps is None:
         return recipe
-    return Budgeted(recipe, usd=caps[0], tokens=caps[1])
+    return WithBudget(recipe, budget_usd=caps[0], max_tokens=caps[1])
 
 
 def _has_gate(value: _RecipeTopology) -> bool:
@@ -530,8 +530,9 @@ def _leaf_holders(node: _RecipeTopology) -> tuple[_RecipeTopology, ...]:
 def _require_call_kind(node: _RecipeTopology, call: _Call, *, gated: bool = False) -> None:
     """A reducer node is exactly a combine call (and its intent a valid spec), and only that.
 
-    E4c: a Gate's JOIN is exactly one join call with the one param ``binding=gate_N``; a LabelModel
-    selector call and every model call inside a Gate's branch carry the binding param first.
+    E4c: a Gate's JOIN is exactly one join call with the one param ``binding=gate_N``; an
+    LLMClassifier selector call and every model call inside a Gate's branch carry the binding param
+    first.
     """
 
     if node.role == "gate":
@@ -926,12 +927,18 @@ def _lazy_decision(value: _RecipeTopology, calls: dict[str, _Call]) -> Any:
 
 
 def _rebuilt_selector(entry: Mapping[str, Any], calls: dict[str, _Call]) -> Any:
-    """A sf.Keywords from its rules in the gate spec, or a sf.LabelModel from its call (E4c)."""
+    """A sf.RegexClassifier from its rules in the gate spec, or a sf.LLMClassifier from its call
+    (E4c)."""
 
-    from screamingface._surface.selectors import _MAX_TOKENS, Keywords, LabelModel, label_intent
+    from screamingface._surface.selectors import (
+        _MAX_TOKENS,
+        LLMClassifier,
+        RegexClassifier,
+        label_intent,
+    )
 
     if entry["kind"] == "keywords":
-        return Keywords(
+        return RegexClassifier(
             [
                 (rule["label"], rule["pattern"], {"ignore_case": True})
                 if rule.get("ignore_case")
@@ -952,7 +959,9 @@ def _rebuilt_selector(entry: Mapping[str, Any], calls: dict[str, _Call]) -> Any:
         if name != OPERATION_BINDING_PARAM
         and not (name == "max_tokens" and value == _MAX_TOKENS[multi])
     }
-    return LabelModel(call.model, labels=labels, prompt=prompt, params=params or None, multi=multi)
+    return LLMClassifier(
+        call.model, labels=labels, prompt=prompt, params=params or None, multi=multi
+    )
 
 
 def _fusion_from_topology(

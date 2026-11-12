@@ -1,9 +1,9 @@
-"""``sf.Budgeted``, ``sf.Estimate`` and ``sf.budget.remaining()``: a per-Case spending cap (E4c).
+"""``sf.WithBudget``, ``sf.Estimate`` and ``sf.budget.remaining()``: a per-Case spending cap (E4c).
 
-FEATURE: OME-1291 budget PRD. ``sf.Budgeted(recipe, usd=..., tokens=...)`` writes one cap on the
-candidate (ans:Q19); it covers one Case (ans:Q13). Before each optional call (a Gate branch, a
-cascade escalation, a lazy fallback) the Engine checks the spend of the calls that already ran
-plus the branch's ``sf.Estimate``; a branch that would pass the cap is not sent. A call with no
+FEATURE: OME-1291 budget PRD. ``sf.WithBudget(recipe, budget_usd=..., max_tokens=...)`` writes one
+cap on the candidate (ans:Q19); it covers one Case (ans:Q13). Before each optional call (a Gate
+branch, a cascade escalation, a lazy fallback) the Engine checks the spend of the calls that already
+ran plus the branch's ``sf.Estimate``; a branch that would pass the cap is not sent. A call with no
 known cost counts as $0, and the report warns (ans:Q14). Calls that always run are never refused.
 STORY: as a researcher whose result is a saving, the cap is real money the provider never bills,
 and the report shows spend against the cap and the refused branch.
@@ -16,20 +16,30 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, ClassVar, Literal, cast
 
+from screamingface._surface.outcomes import Outcome
 from screamingface.branch import WORDS
 from screamingface.budget import _UNITS, BudgetUnit
 from screamingface.recipe import _BU11, Recipe, _recipe
 
+# The sf.WithBudget keyword of each unit. WHY "budget_usd", not "max_usd": the cap is checked before
+# each optional call only, so the calls that always run can pass it (Q20); "max" read as a hard
+# maximum (product review 2026-11-12). The url4 keeps the unit name ("usd=").
+CAP_KEYWORDS: dict[BudgetUnit, str] = {"usd": "budget_usd", "tokens": "max_tokens"}
 
-def _cap(value: object, unit: BudgetUnit, owner: str) -> float | int | None:
+
+def _cap(
+    value: object, unit: BudgetUnit, owner: str, keyword: str | None = None
+) -> float | int | None:
+    """A checked cap or estimate in ``unit``; ``keyword`` names the argument (default: the unit)."""
+
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int | float):
-        raise TypeError(f"{owner} {unit}= is a number")
+        raise TypeError(f"{owner} {keyword or unit}= is a number")
     if not math.isfinite(value) or value < 0:
-        raise ValueError(f"{owner} {unit}= must be finite and not negative")
+        raise ValueError(f"{owner} {keyword or unit}= must be finite and not negative")
     if unit == "tokens" and not float(value).is_integer():
-        raise ValueError(f"{owner} tokens= must be a whole number")
+        raise ValueError(f"{owner} {keyword or unit}= must be a whole number")
     return int(value) if unit == "tokens" else float(value)
 
 
@@ -46,27 +56,34 @@ def units_text(units: Mapping[str, float | int]) -> str:
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
-class Budgeted(Recipe):
-    """Wrap the whole candidate with a per-Case cap in USD, tokens or both (a branch is refused
-    when either unit refuses it). Use it once, at the root."""
+class WithBudget(Recipe):
+    """Wrap the whole candidate with a per-Case cap in USD (``budget_usd=``), tokens
+    (``max_tokens=``) or both (a branch is refused when either unit refuses it). Use it once, at
+    the root. The cap is checked before each optional call, so the calls that always run can pass
+    it (the report shows the overspend, Q20)."""
 
     recipe: Recipe
-    usd: float | None
-    tokens: int | None
+    budget_usd: float | None
+    max_tokens: int | None
 
     def __init__(
-        self, recipe: str | Recipe, *, usd: float | None = None, tokens: int | None = None
+        self,
+        recipe: str | Recipe,
+        *,
+        budget_usd: float | None = None,
+        max_tokens: int | None = None,
     ) -> None:
-        if isinstance(recipe, Budgeted):
+        if isinstance(recipe, WithBudget):
             raise ValueError(_BU11)
-        object.__setattr__(self, "recipe", _recipe(recipe, "sf.Budgeted recipe"))
-        usd_cap, tokens_cap = _cap(usd, "usd", "sf.Budgeted"), _cap(tokens, "tokens", "sf.Budgeted")
+        object.__setattr__(self, "recipe", _recipe(recipe, "sf.WithBudget recipe"))
+        usd_cap = _cap(budget_usd, "usd", "sf.WithBudget", CAP_KEYWORDS["usd"])
+        tokens_cap = _cap(max_tokens, "tokens", "sf.WithBudget", CAP_KEYWORDS["tokens"])
         if usd_cap is None and tokens_cap is None:
-            raise ValueError("sf.Budgeted needs a cap: usd=, tokens= or both")
+            raise ValueError("sf.WithBudget needs a cap: budget_usd=, max_tokens= or both")
         if usd_cap == 0 or tokens_cap == 0:
             raise ValueError("budget cap must be finite and greater than zero")
-        object.__setattr__(self, "usd", usd_cap)
-        object.__setattr__(self, "tokens", tokens_cap)
+        object.__setattr__(self, "budget_usd", usd_cap)
+        object.__setattr__(self, "max_tokens", tokens_cap)
 
     @property
     def name(self) -> str:  # type: ignore[override]
@@ -83,7 +100,7 @@ class Budgeted(Recipe):
     def _caps(self) -> dict[str, int | float]:
         """The caps this Budget sets, usd then tokens; a unit it does not cap is left out."""
 
-        return _units(self.usd, self.tokens)
+        return _units(self.budget_usd, self.max_tokens)
 
     def units(self) -> tuple[BudgetUnit, ...]:
         return cast("tuple[BudgetUnit, ...]", tuple(self._caps()))
@@ -96,7 +113,10 @@ class Budgeted(Recipe):
     def _render(self, prefix: str) -> str:
         from screamingface._surface.render import render
 
-        return f"{prefix}Budgeted({render(self.recipe, prefix)}, {units_text(self._caps())})"
+        caps = {
+            CAP_KEYWORDS[cast("BudgetUnit", unit)]: value for unit, value in self._caps().items()
+        }
+        return f"{prefix}WithBudget({render(self.recipe, prefix)}, {units_text(caps)})"
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -111,7 +131,7 @@ class Estimate:
     def __init__(
         self, branch: object, *, usd: float | None = None, tokens: int | None = None
     ) -> None:
-        if isinstance(branch, str) and branch in WORDS:
+        if isinstance(branch, Outcome) or (isinstance(branch, str) and branch in WORDS):
             raise ValueError("sf.Estimate wraps a branch that makes model calls")
         object.__setattr__(self, "branch", branch)
         object.__setattr__(self, "usd", _cap(usd, "usd", "sf.Estimate"))
@@ -176,4 +196,4 @@ def remaining(unit: BudgetUnit | None = None) -> Remaining:
     return Remaining(unit)
 
 
-__all__ = ["BudgetCondition", "Budgeted", "Estimate", "Remaining", "remaining"]
+__all__ = ["BudgetCondition", "WithBudget", "Estimate", "Remaining", "remaining"]

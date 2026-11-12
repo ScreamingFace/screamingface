@@ -81,12 +81,12 @@ charges of the decision's ancestors, compares, refuses, and records; the SDK rea
 
 ### 3.1 Happy path
 
-- **BU-1 One cap on the candidate.** Given `sf.Budgeted(recipe, usd=0.05)`, When the candidate
-  compiles, Then the url4 candidate source carries the typed budget annotation `usd=0.05` and the
+- **BU-1 One cap on the candidate.** Given `sf.WithBudget(recipe, budget_usd=0.05)`, When the
+  candidate compiles, Then the url4 candidate source carries the typed budget annotation `usd=0.05` and the
   execution annotation `;budget_mode=advisory`, and no other source carries a budget.
   [stated ans:Q19; proposed annotation form]
-- **BU-2 Both units.** Given `sf.Budgeted(recipe, usd=0.05, tokens=20000)`, Then the source carries
-  both keys and every decision checks both; a branch is refused when either unit refuses.
+- **BU-2 Both units.** Given `sf.WithBudget(recipe, budget_usd=0.05, max_tokens=20000)`, Then the
+  source carries both keys and every decision checks both; a branch is refused when either unit refuses.
   [stated ans:Q3; proposed "either refuses"]
 - **BU-3 Optional call allowed.** Given a cap of $0.05, spend so far $0.01 and a branch estimate
   `sf.Estimate(big, usd=0.03)`, When the Gate wants that branch, Then the branch runs, and the
@@ -110,8 +110,8 @@ charges of the decision's ancestors, compares, refuses, and records; the SDK rea
   DECIDE runs, Then `observed` is the remaining USD after the ancestors' charges, and the branch
   follows the comparison (OmniRouter: the chosen model is the one that fits). [stated epic;
   stated ans:Q19]
-- **BU-7 Spend counts what already ran.** Given a cascade stage 1 (3 members) and a LabelModel
-  selector before it, When the stage-2 decision runs, Then `spent` is the fold of the charges of
+- **BU-7 Spend counts what already ran.** Given a cascade tier 1 (3 members) and an LLMClassifier
+  selector before it, When the decision to call tier 2 runs, Then `spent` is the fold of the charges of
   the 4 calls in `GATE_SPEC.ancestors`, in that list order. The decision runs only after those
   calls resolved, because the Gate's AFTER source references their bindings
   ([branch-core](branch-core.md) D10). [stated epic: "decreases as calls happen"; proposed ancestor
@@ -133,19 +133,19 @@ charges of the decision's ancestors, compares, refuses, and records; the SDK rea
   first decision sees `spent = 0.04 > cap`, refuses any wanted branch that makes a call, and the
   budget view shows the over-cap spend; the Case does not fail. [stated epic; proposed —
   `budget_mode=advisory`]
-- **BU-11 Budget not at the root.** Given `sf.Budgeted(...)` used as a Pipeline stage, a branch
-  body, a Fanout member or a nested Budget, When the SDK builds it, Then it raises "sf.Budgeted
+- **BU-11 Budget not at the root.** Given `sf.WithBudget(...)` used as a Pipeline stage, a branch
+  body, a Fanout member or a nested Budget, When the SDK builds it, Then it raises "sf.WithBudget
   wraps the whole candidate: use it once, at the root". [stated ans:Q19]
 - **BU-12 `sf.budget.remaining()` with no Budget.** Given a Gate that reads
-  `sf.budget.remaining()` in a candidate with no `sf.Budgeted`, When the candidate compiles, Then it
-  raises "sf.budget.remaining() needs sf.Budgeted(...) on the candidate". [proposed]
-- **BU-13 Ambiguous unit.** Given `sf.Budgeted(recipe, usd=…, tokens=…)` and a Gate reading
+  `sf.budget.remaining()` in a candidate with no `sf.WithBudget`, When the candidate compiles, Then it
+  raises "sf.budget.remaining() needs sf.WithBudget(...) on the candidate". [proposed]
+- **BU-13 Ambiguous unit.** Given `sf.WithBudget(recipe, budget_usd=…, max_tokens=…)` and a Gate reading
   `sf.budget.remaining()` with no unit, Then it raises "name the unit: sf.budget.remaining('usd')
   or ('tokens')"; with one declared unit the argument is optional. [proposed]
 - **BU-14 Invalid caps and estimates.** Given a cap ≤ 0, NaN, infinite, a non-integer tokens cap,
   no unit at all, or an estimate < 0 / non-finite / non-integer for tokens, Then the SDK refuses
   with the E4a cap messages (`E/budget.py:42-46`); an estimate in a unit the Budget does not
-  declare is refused ("sf.Estimate names usd, but sf.Budgeted declares only tokens"). [existing cap
+  declare is refused ("sf.Estimate names usd, but sf.WithBudget declares only tokens"). [existing cap
   rules; proposed estimate rules]
 - **BU-15 Engine refuses a stray annotation.** Given a hand-written url4 with a typed budget on a
   non-candidate source, or a candidate budget key other than `usd`/`tokens`, When the Case starts,
@@ -161,8 +161,8 @@ charges of the decision's ancestors, compares, refuses, and records; the SDK rea
 | BU-18 | Steps that call are optional calls too | [implied — epic "each optional call"] | H×M | Given an E4b panel gate whose fallback is `sf.JudgePick(j)`, Then the fallback branch is checked like a recipe branch; `sf.Estimate(sf.JudgePick(j), usd=…)` gives its estimate; the majority branch (a Vote, no call) is the current answer when it is refused. |
 | BU-19 | Ancestors only; parallel overspend accepted | [stated ans:Q20] | H×M | Given two sibling Gates (or three selected skip-Gate members) in one Case, Then each decision counts only its own ancestors; a call that runs in parallel and is not an ancestor never enters `spent`, so siblings can jointly pass the cap. The report shows the run's spend over the cap as an `overspend` line ([report](report.md)). |
 | BU-20 | An ancestor with no record | [proposed — gap §per-hop failure] | M×M | Given an optional ancestor that failed before sending (no recorded call), Then it charges nothing and is not counted as unpriced; a recorded call that failed after sending charges what its accounting says. |
-| BU-21 | Selector and sample calls count | [stated ans:Q8; existing `docs/spec/2026-10-16-e4b-consistency/00-overview.md:156`] | M×M | Given a LabelModel selector and an `sf.Consistency` member, Then their calls are charged with stage `selector` and `model` (D7: kind `sample` → `model`). |
-| BU-22 | Nested Gates see a growing spend | [implied] | M×M | Given a cascade of 3 stages, Then the stage-3 decision's `spent` includes stage 1 and stage 2, and its `remaining` is never larger than stage 2's. |
+| BU-21 | Selector and sample calls count | [stated ans:Q8; existing `docs/spec/2026-10-16-e4b-consistency/00-overview.md:156`] | M×M | Given an LLMClassifier selector and an `sf.Consistency` member, Then their calls are charged with stage `selector` and `model` (D7: kind `sample` → `model`). |
+| BU-22 | Nested Gates see a growing spend | [implied] | M×M | Given a cascade of 3 tiers, Then the `spent` of the decision to call tier 3 includes tier 1 and tier 2, and its `remaining` is never larger than that of the decision to call tier 2. |
 | BU-23 | `sf.budget.remaining()` is never an Answer signal | [existing `S/_signals.py:53-62`] | M×L | Given `sf.signal("budget.remaining")`, Then the SDK keeps its E4a refusal; only `sf.budget.remaining()` is accepted, and only in an input gate's `when`. |
 | BU-24 | Estimate on a body that makes no call | [proposed] | L×M | Given `sf.Estimate(sf.Vote(), usd=…)` or on a word, Then the SDK refuses it ("sf.Estimate wraps a branch that makes model calls"), erd GS-I3. |
 | BU-25 | Trace rows | [proposed] | L×M | Given a refused branch, Then the trace has one `budget` row `{event: "refusal", operation_id: <first operation of the refused body>, stage, amount: null, estimated, source: null, remaining_after}`; the reserved kind gets its first producer; charges stay in `model_call` rows. |
@@ -174,7 +174,7 @@ charges of the decision's ancestors, compares, refuses, and records; the SDK rea
 
 - Decimal fold in `DECIMAL_CONTEXT`, never float sums (`E/budget.py:98-115`) [existing].
 - One pass: DECIDE indexes `current_operation_calls()` by fingerprint (path, params) once;
-  O(ancestors). Under `sf.Budgeted` every call carries the `binding` param, so each ancestor
+  O(ancestors). Under `sf.WithBudget` every call carries the `binding` param, so each ancestor
   fingerprint has one claimant ([branch-core](branch-core.md) D3, D7) [proposed].
 - Determinism: the budget view is a pure function of the ancestor list and the recorded accounting
   with reference costs; no clock, no run-level state (per Case only, ans:Q13) [implied].
@@ -245,4 +245,4 @@ Pinned files this PRD expects to touch (owner approval at build time): the Engin
 freeze snapshot (`budget_schemas()` output) and the SDK `S/budget.py` stage list test; the SDK
 answer schema `ST/data/schemas/screamingface.answer.v1.json` and the combine-evidence v1 schema
 snapshot for the abstain reason `budget_refused`; `ST/public_surface_snapshot.json` for
-`sf.Budgeted`, `sf.Estimate`, `sf.budget`.
+`sf.WithBudget`, `sf.Estimate`, `sf.budget`.

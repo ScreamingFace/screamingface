@@ -6,8 +6,8 @@ ans:Q15, ans:Q18 · **Priority:** P1 (PR-2, with [selectors](selectors.md) and
 **Lifecycle:** planned (new Gate words in use, one new failure code)
 **Owner:** unassigned
 Paths: [erd §2, §3, §6](../erd.md) · contracts: C4, C7, C10 · components:
-[branch-core](branch-core.md) (DECIDE/OPEN/JOIN, words), [selectors](selectors.md) (Keywords,
-LabelModel, one evaluation per Case) · display: [report](report.md)
+[branch-core](branch-core.md) (DECIDE/OPEN/JOIN, words), [selectors](selectors.md) (RegexClassifier,
+LLMClassifier, one evaluation per Case) · display: [report](report.md)
 
 ## 1. Summary and user story
 
@@ -20,27 +20,32 @@ A guard is not a new construct. It is an ordinary outer `sf.Gate` whose conditio
 selector label and whose `then` is the guard action [stated ans:Q9, ans:Q12]:
 
 ```python
-jail = sf.Keywords([("jailbreak", r"(?i)ignore (all|any|previous) instructions")])
-clf = sf.LabelModel("openrouter/openai/gpt-4o-mini", labels=["safe", "unsafe", "medical"])
-topic = sf.Keywords([("math", r"(?i)\b(integral|derivative|prove)\b")])
+jail = sf.RegexClassifier([("jailbreak", r"(?i)ignore (all|any|previous) instructions")])
+clf = sf.LLMClassifier("openrouter/openai/gpt-4o-mini", labels=["safe", "unsafe", "medical"])
+topic = sf.RegexClassifier([("math", r"(?i)\b(integral|derivative|prove)\b")])
 
 router = sf.Gate(when=sf.label(topic) == "math", then=math_panel, otherwise=general)
 
 candidate = sf.Gate(                          # guard 1: regex, fail closed
-    when=sf.label(jail) == "jailbreak", then="fail_closed",
-    otherwise=sf.Gate(                        # guard 2: LLM label, fail closed
-        when=sf.label(clf) == "unsafe", then="fail_closed",
-        otherwise=sf.Gate(                    # guard 3: LLM label, floor
+    when=sf.label(jail) == "jailbreak", then=sf.fail(),
+    otherwise=sf.Gate(                        # guard 2: LLM classifier, fail closed
+        when=sf.label(clf) == "unsafe", then=sf.fail(),
+        otherwise=sf.Gate(                    # guard 3: LLM classifier, floor
             when=sf.label(clf) == "medical", then=medical_specialists,
             otherwise=router)))
 ```
 
 The guard order is the nesting order: the outermost Gate is the first guard.
 
+`sf.fail()` is the typed spelling of the word `fail_closed`: the Case fails with the code
+`fail_closed` and no model runs after the Gate. The SDK stores the word, so the compiled bytes,
+the records and the code do not change. The string `"fail_closed"` is refused by `sf.Gate`
+([gate](gate.md) GT-12). [stated owner 2026-11-12 — supersedes `then="fail_closed"`]
+
 **Words.** In this PRD, "classifier label" (the words of the epic and ans:Q15) means the label
-of a `sf.LabelModel`: one chat call to an LLM that must name a declared label. It is not
-`sf.classify` (OME-1796), which returns the scores of a hosted text classifier and does not
-choose a branch. The test names in §7 keep the word "classifier".
+of a `sf.LLMClassifier`: an LLM classifier, that is, a chat model prompted to classify. It makes
+one chat call that must name a declared label. It is different from `sf.classify` (OME-1796),
+which returns the scores of a hosted text classifier and does not choose a branch.
 
 ## 2. Background and constraints
 
@@ -60,7 +65,7 @@ choose a branch. The test names in §7 keep the word "classifier".
   ans:Q12]
 - Guard conditions in v1: a regex on the question and a classifier label. No length guard, no
   category flag. [stated ans:Q15]
-- "A fired guard stops everything after it: no model call. A Keywords label (no model) is still
+- "A fired guard stops everything after it: no model call. A RegexClassifier label (no model) is still
   computed and recorded; a model selector's label shows 'not run'." [stated ans:Q18]
 - Router robustness work ("How robust are router-LLMs?") is evidence of the failure mode, not a
   spec: "Build the guard because the failure mode is in the paper, and say the paper is evidence,
@@ -95,8 +100,8 @@ choose a branch. The test names in §7 keep the word "classifier".
   (`S/case_result.py:517-524`) [existing].
 - `sf.Gate` today: `then=` takes only `sf.Vote`; `otherwise=` takes `"abstain"`, `sf.JudgePick`
   or `sf.Synthesize`; `when=` takes only a `GateCondition` (`S/_surface/gate.py:54-71`, `:86-109`)
-  [existing]. There is no guard, no `fail_closed` word and no selector [existing].
-- Delta: this PRD adds the `fail_closed` word on `sf.Gate` (with [gate](gate.md)), the
+  [existing]. There is no guard, no `fail_closed` outcome and no selector [existing].
+- Delta: this PRD adds the `sf.fail()` outcome on `sf.Gate` (with [gate](gate.md)), the
   `fail_closed` failure code on both vocabularies, the guard patterns over
   [selectors](selectors.md), and the recording rule for a fired guard.
 
@@ -106,23 +111,23 @@ choose a branch. The test names in §7 keep the word "classifier".
 
 - **GU-1 Regex guard fails closed with zero model calls.** Given the candidate above and a Case
   whose input matches the `jailbreak` pattern, When the Case runs, Then the outermost Gate takes
-  `then="fail_closed"`, no model is called (not `clf`, not the router branches), and the Case is
+  `then=sf.fail()`, no model is called (not `clf`, not the router branches), and the Case is
   `failed` with code `fail_closed`. [stated epic; stated ans:Q15, ans:Q18]
-- **GU-2 LLM label guard fails closed after one selector call.** Given a Case that the regex
+- **GU-2 LLM classifier guard fails closed after one selector call.** Given a Case that the regex
   guard does not match and that `clf` labels `unsafe`, When the Case runs, Then exactly one model
   call runs (the `clf` call), guard 2 takes `fail_closed`, and the router makes zero calls.
   [stated ans:Q15]
-- **GU-3 One label model, many guards, one call.** Given guards 2 and 3 both read `clf`, When the
+- **GU-3 One LLM classifier, many guards, one call.** Given guards 2 and 3 both read `clf`, When the
   Case reaches guard 2, Then `clf` runs once and guard 3 reads the same label; the two decision
   records hold the same SELECTOR_RECORD (erd SR-I4). [stated ans:Q12]
 - **GU-4 Floor forces the stronger branch.** Given a Case that `clf` labels `medical` and `topic`
   labels `math`, When the Case runs, Then guard 3 takes `then=medical_specialists`, the router
   (`math_panel` and `general`) makes zero calls, and the router's would-be label `math` is in the
   record (GU-5). [stated epic]
-- **GU-5 The original label is still recorded (within Q18).** Given a Gate that takes a word or
-  a floor branch, When DECIDE writes its record, Then `selectors` holds the selectors its own
-  condition reads plus every selector that a Gate inside its not-run body reads: a Keywords
-  selector as `status: computed` with its labels, a LabelModel selector as `status: not_run`.
+- **GU-5 The original label is still recorded (within Q18).** Given a Gate that takes an outcome
+  or a floor branch, When DECIDE writes its record, Then `selectors` holds the selectors its own
+  condition reads plus every selector that a Gate inside its not-run body reads: a RegexClassifier
+  selector as `status: computed` with its labels, an LLMClassifier selector as `status: not_run`.
   [stated epic; stated ans:Q18]
 - **GU-6 `fail_closed` and abstain never share a status.** Given one Case that fails closed and
   one that abstains, Then the first is `status: failed` with code `fail_closed`, the second is
@@ -142,17 +147,17 @@ choose a branch. The test names in §7 keep the word "classifier".
   `then=`/`otherwise=` that is a Python callable, When the Gate is built, Then it raises
   `TypeError("sf.Gate when= takes a condition such as sf.label(sel) == 'x'; a guard cannot run
   Python code")` before any run. [stated epic]
-- **GU-9 A regex the Engine cannot run is refused before spend.** Given a Keywords guard pattern
+- **GU-9 A regex the Engine cannot run is refused before spend.** Given a RegexClassifier guard pattern
   that RE2 does not support (a backreference, a lookaround), When the selector is built, Then the
   SDK pre-spend check refuses it with a message that does not contain the pattern
   (`S/_regex_rule.py:1-10` rules). [proposed — reuses `S/_regex_rule.py:1-10`]
-- **GU-10 Unparsed label-model reply.** Given `clf` returns text with no declared label, Then
+- **GU-10 Unparsed LLM classifier reply.** Given `clf` returns text with no declared label, Then
   `sf.label(clf)` is null, `sf.label(clf) == "unsafe"` is false, and the guard does NOT fire; the
   record shows `parse: unparsed` (or `unrecognized` with `raw`). An author who wants a guard that
   fails closed on an unparsed reply writes `when=sf.label(clf) != "safe"`, which holds for every
   other label and for null. [stated epic: "Parse failure uses `default` and is visible";
   proposed `!=`]
-- **GU-11 A failing label-model call.** Given the `clf` model call fails permanently (refusal,
+- **GU-11 A failing LLM classifier call.** Given the `clf` model call fails permanently (refusal,
   token cap), When guard 2 reads it, Then the selector record is `status: "failed"` and its label
   is null ([selectors](selectors.md) SL-12, overview P7): a guard written with `==` does not fire
   and the Case goes on to the router; a guard written with `!=` (`sf.label(clf) != "safe"`) fires
@@ -167,20 +172,20 @@ choose a branch. The test names in §7 keep the word "classifier".
 | GU-14 | `fail_closed` is not a refusal | [proposed — P13; stated epic "Fail-closed is an error"] | H×M | Given a fail-closed Case, Then `represents_refusal` is false and refusal-rate scoring does not count it as a model refusal (`S/case_result.py:517-524`); the candidate earns no refusal credit. An author who wants a scored refusal sends the Case to a branch that refuses. Revisit when a safety leaderboard asks for guard credit. |
 | GU-15 | `fail_closed` is never retried | [implied] | H×M | Given a fail-closed Case, Then the failure is permanent, no fresh retry runs, and a rerun of the same Case fails closed again. |
 | GU-16 | Message never echoes the input | [proposed — gap §security] | H×M | Given any fired guard, Then the `fail_closed` message is fixed Engine text plus the gate id (`"a guard refused the Case: sf.Gate gate_<n> took fail_closed"`); it never contains the input, a pattern or a label `raw`. |
-| GU-17 | `fail_closed` in a skip-Gate member is refused | [proposed — skip-members scope] | M×L | Given `sf.Fanout([sf.Gate(when=…, then="fail_closed")])`, When it is built, Then it raises: a skip-Gate member takes a member recipe in `then=`, never a word. |
-| GU-18 | `fail_closed` on a panel gate | [implied — Gate words are general, ans:Q6] | M×L | Given `sf.Fanout(ms) >> sf.Gate(when=sf.agreement() >= 0.5, then=sf.Vote(), otherwise="fail_closed")`, When agreement is low, Then the Case fails closed; the panel calls already ran (the no-call rule covers only calls after DECIDE). |
-| GU-19 | Guard on a later Pipeline stage | [implied — ans:Q10] | M×L | Given `prep >> sf.Gate(when=sf.label(jail) == "jailbreak", then="fail_closed", otherwise=answerer)`, Then `jail` reads the Case input (Case-level value), not `prep`'s output, and `prep` has already run. |
+| GU-17 | `fail_closed` in a skip-Gate member is refused | [proposed — skip-members scope] | M×L | Given `sf.Fanout([sf.Gate(when=…, then=sf.fail())])`, When it is built, Then it raises: a skip-Gate member takes a member recipe in `then=`, never an outcome. |
+| GU-18 | `sf.fail()` on a panel gate | [implied — Gate outcomes are general, ans:Q6] | M×L | Given `sf.Fanout(ms) >> sf.Gate(when=sf.agreement() >= 0.5, then=sf.Vote(), otherwise=sf.fail())`, When agreement is low, Then the Case fails closed; the panel calls already ran (the no-call rule covers only calls after DECIDE). |
+| GU-19 | Guard on a later Pipeline stage | [implied — ans:Q10] | M×L | Given `prep >> sf.Gate(when=sf.label(jail) == "jailbreak", then=sf.fail(), otherwise=answerer)`, Then `jail` reads the Case input (Case-level value), not `prep`'s output, and `prep` has already run. |
 | GU-20 | Report names the fired guard | [stated epic] | M×M | Given a fired guard, Then the report export has the guard's decision record with `branch: then`, the word result `fail_closed`, and the Case failure code; the Case pane shows "guard fired" for that Gate ([report](report.md) owns the display). |
 | GU-21 | Activity sets stay model-call only | [proposed] | L×M | Given the vocabulary change, Then `_FAILURE` in `E/activity/contract.py` and `S/_ui/activity_record.py` does not gain `fail_closed`: no model call fails with it. |
 
 ## 4. Non-functional requirements
 
-- Cost: a fired regex guard costs 0 model calls and 0 USD; a fired label-model guard costs exactly
+- Cost: a fired regex guard costs 0 model calls and 0 USD; a fired LLM classifier guard costs exactly
   its one selector call [stated epic; stated ans:Q18].
 - Latency: a regex guard adds one pure DECIDE (< 5 ms CPU p99, [branch-core](branch-core.md) §4)
   [proposed].
 - Security: guard conditions are data only (no callables, GU-8); patterns are RE2, linear time
-  [existing `S/_regex_rule.py:1-5`]; the failure message is fixed text (GU-16); the label-model
+  [existing `S/_regex_rule.py:1-5`]; the failure message is fixed text (GU-16); the LLM classifier
   reply is untrusted input, parsed only to a declared label (GU-10) [proposed].
 - Observability: each fired guard is visible in the decision record, the Case failure code, and
   the run summary `fail_closed` count ([report](report.md)) [stated epic].
@@ -210,7 +215,7 @@ None. The refusal-credit question is decided as P13 (overview §6) and specified
 
 Order: vocabulary first (the code must exist before a test can raise it), then the guard runs
 risk-first, then the boundaries. The vocabulary rows (#3–#7, #29) are built in PR-1 (plan unit 1),
-because the Gate word `"fail_closed"` exists from PR-1; row #14 needs the budget and is built in
+because the Gate outcome `sf.fail()` (the stored word `"fail_closed"`) exists from PR-1; row #14 needs the budget and is built in
 PR-3 (plan unit 13). RED first, always; a test that passes at once proves nothing.
 PIN rows are owner-approved edits of pinned files (the exact-set tests); list any other exact-set
 pin that RED finds and add its PIN row then.
@@ -220,12 +225,12 @@ pin that RED finds and add its PIN row then.
 | 1 | CHAR `abstained_case_is_scored_zero_and_failed_case_has_a_code` | unit | [existing `S/case_result.py:695-707`] | H×M | passes today |
 | 2 | CHAR `refusal_is_only_refusal_text_or_provider_refusal` | unit | [existing `S/case_result.py:517-524`] | H×M | passes today |
 | 3 | PIN `ET/test_failure_classes.py` `test_the_declared_vocabulary_is_exactly_the_agreed_set` gains `fail_closed` | unit | GU-6 | H×H | add `"fail_closed"` to `DECLARED_FAILURE_CODES` (`E/benchmarks/contract.py:58`) |
-| 4 | PIN `ET/test_e4b_catalog_pins.py` count 66 → 67 (`fail_closed`, PR-1; E4c's second code `quorum_not_met` takes it to 68 in PR-2, [skip-members](skip-members.md) #2a) | unit | GU-6 | H×H | — |
+| 4 | PIN `ET/test_e4b_catalog_pins.py` count 66 → 67 (`fail_closed`, PR-1; E4c's second code `quorum_not_met` takes it to 68 in PR-2, [skip-members](skip-members.md) #2a; the third code `signal_missing` takes it to 69, [branch-core](branch-core.md) D4a, owner 2026-11-12) | unit | GU-6 | H×H | — |
 | 5 | PIN `ET/test_terminal_error_detail.py` `ALLOWLISTED_CODES` gains `fail_closed` | unit | GU-16 | H×H | add to `ENGINE_ERROR_CODES` (`E/error_text.py:63-80`): Engine-authored, an upstream may not send it |
 | 6 | `fail_closed_helper_is_permanent_with_fixed_text_and_declared` | unit | GU-15, GU-16 | H×H | `fail_closed(gate_id)` in `E/benchmarks/failure_classes.py`; import-time self-check line beside `:94` |
 | 7 | `sdk_copy_declares_fail_closed_as_permanent` (conformance passes; SDK `Failure(code="fail_closed")` is accepted) | unit | GU-6 | H×H | `S/_report_primitives.py:22` + WHY comment |
-| 8 | `regex_guard_fails_closed_with_zero_model_calls` (Engine world, fake gateway counts calls) | integration | GU-1 | H×H | word `fail_closed` → JOIN raises the helper |
-| 9 | `fired_guard_skips_the_inner_label_model_and_records_it_not_run` | integration | GU-5, Q18 | H×H | DECIDE lists not-run-body selectors; LabelModel call placed inside the guard's `otherwise` scope |
+| 8 | `regex_guard_fails_closed_with_zero_model_calls` (Engine world, fake gateway counts calls) | integration | GU-1 | H×H | `sf.fail()` (word `fail_closed`) → JOIN raises the helper |
+| 9 | `fired_guard_skips_the_inner_label_model_and_records_it_not_run` | integration | GU-5, Q18 | H×H | DECIDE lists not-run-body selectors; LLMClassifier call placed inside the guard's `otherwise` scope |
 | 10 | `fired_guard_records_inner_keywords_labels_as_computed` | integration | GU-5 | H×H | the tree's one KEYWORDS source feeds DECIDE ([branch-core](branch-core.md) D6); DECIDE never reads the Case input |
 | 11 | `classifier_guard_fails_closed_after_exactly_one_call` | integration | GU-2 | H×H | — |
 | 12 | `fail_closed_and_abstain_split_under_both_failure_policies` (withhold vs coverage_declare score + coverage) | integration | GU-6 | H×H | no code change expected; pins the policy outcome |

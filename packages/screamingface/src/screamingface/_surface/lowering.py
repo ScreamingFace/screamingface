@@ -15,7 +15,7 @@ from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Literal, cast
 
-from screamingface._surface.budget import BudgetCondition, Budgeted
+from screamingface._surface.budget import BudgetCondition, WithBudget
 from screamingface._surface.chain import Pipeline, Step, _Block, is_step, refuse_step
 from screamingface._surface.fanout import Fanout
 from screamingface._surface.gate import Branch, Fallback, Gate, is_skip_member
@@ -318,7 +318,8 @@ def _input_gate(gate: Gate, active: _Active, *, skip_member: bool = False) -> Br
 
     when = gate.when
     if isinstance(when, BudgetCondition):
-        # BU-6: the unit is resolved against the candidate's sf.Budgeted at compile (BU-12, BU-13).
+        # BU-6: the unit is resolved against the candidate's sf.WithBudget at compile
+        # (BU-12, BU-13).
         condition = BranchCondition(f"budget.remaining:{when.unit or ''}", when.cmp, when.value)
     else:
         assert isinstance(when, LabelCondition)
@@ -341,9 +342,13 @@ def _estimates(
     )
 
 
-def _budget(value: Budgeted, active: _Active) -> Recipe:
+def _budget(value: WithBudget, active: _Active) -> Recipe:
     inner = _lower(value.recipe, active)
-    return value if inner is value.recipe else Budgeted(inner, usd=value.usd, tokens=value.tokens)
+    return (
+        value
+        if inner is value.recipe
+        else WithBudget(inner, budget_usd=value.budget_usd, max_tokens=value.max_tokens)
+    )
 
 
 def _branch_body(value: Branch, active: _Active) -> Body:
@@ -519,7 +524,7 @@ def _lowered(values: tuple[Recipe, ...], active: _Active) -> tuple[Recipe, ...]:
 
 # The recipe kinds that can hold a chain, and how each one lowers. A Model holds none.
 _LOWERINGS: tuple[tuple[type, Callable[[Any, _Active], Recipe]], ...] = (
-    (Budgeted, _budget),
+    (WithBudget, _budget),
     (Gate, _input_gate),
     (Pipeline, _chain),
     (FusionNode, _fusion),

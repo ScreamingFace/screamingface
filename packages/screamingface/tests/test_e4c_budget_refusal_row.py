@@ -29,7 +29,9 @@ def _panel_gate(otherwise: str) -> object:
     gate = sf.Gate(
         when=sf.agreement() >= 0.8, then=sf.Estimate("prov/big", usd=0.03), otherwise=otherwise
     )
-    return sf.Budgeted(sf.Fanout([sf.Model("prov/a"), sf.Model("prov/b")]) >> gate, usd=0.01)
+    return sf.WithBudget(
+        sf.Fanout([sf.Model("prov/a"), sf.Model("prov/b")]) >> gate, budget_usd=0.01
+    )
 
 
 def _as_panel(value: dict[str, Any]) -> dict[str, Any]:

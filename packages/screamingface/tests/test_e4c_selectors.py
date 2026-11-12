@@ -1,8 +1,9 @@
-"""Selectors: sf.Keywords and sf.LabelModel label the Case input; sf.label / sf.labels read them.
+"""Selectors: sf.RegexClassifier and sf.LLMClassifier label the Case input; sf.label and sf.labels
+read them.
 
 FEATURE: E4c (OME-1291) selectors PRD rows SL#1, #2 (CHAR), #14, #15, #16, #18, #19, #20, #22.
 STORY: as a researcher who routes questions, I build a selector that the SDK checks before any
-spend, the LabelModel call compiles to one optional call with a versioned template, one selector
+spend, the LLMClassifier call compiles to one optional call with a versioned template, one selector
 is evaluated once per candidate however many Gates read it, and its call sits at the lowest scope
 that holds every Gate that reads it.
 """
@@ -74,7 +75,7 @@ def test_judge_label_template_first_line_is_its_id() -> None:
 
 @pytest.mark.parametrize(("multi", "max_tokens"), [(False, "16"), (True, "64")])
 def test_label_model_compiles_label_template_and_json_input(multi: bool, max_tokens: str) -> None:
-    selector = sf.LabelModel("prov/clf", labels=["math", "code"], multi=multi)
+    selector = sf.LLMClassifier("prov/clf", labels=["math", "code"], multi=multi)
     condition = (
         BranchCondition("labels", "has", "math", selector)
         if multi
@@ -111,7 +112,7 @@ def test_label_model_compiles_label_template_and_json_input(multi: bool, max_tok
 )
 def test_keywords_constructor_refuses_bad_rules_without_echo(rules) -> None:
     with pytest.raises((ValueError, TypeError)) as caught:
-        sf.Keywords(rules)
+        sf.RegexClassifier(rules)
     assert _LOOKAHEAD not in str(caught.value)
 
 
@@ -130,15 +131,15 @@ def test_keywords_constructor_refuses_bad_rules_without_echo(rules) -> None:
 )
 def test_label_model_constructor_refuses_bad_options(model, kwargs) -> None:
     with pytest.raises(ValueError):
-        sf.LabelModel(model, **kwargs)
+        sf.LLMClassifier(model, **kwargs)
 
 
 # --- SL#19 ----------------------------------------------------------------------------------------
 
 
 def test_label_refs_refuse_wrong_kind_and_undeclared_label_and_build_ne_and_empty() -> None:
-    single = sf.Keywords([("math", "integral"), ("code", "python")])
-    multi = sf.Keywords([("math", "integral"), ("code", "python")], multi=True)
+    single = sf.RegexClassifier([("math", "integral"), ("code", "python")])
+    multi = sf.RegexClassifier([("math", "integral"), ("code", "python")], multi=True)
 
     with pytest.raises(TypeError, match=r"sf\.labels\(\)"):
         sf.label(multi)
@@ -157,22 +158,22 @@ def test_label_refs_refuse_wrong_kind_and_undeclared_label_and_build_ne_and_empt
 
 
 def test_equal_selectors_share_one_id() -> None:
-    first = sf.Keywords([("math", "integral"), ("code", "python")])
-    twin = sf.Keywords([("math", "integral"), ("code", "python")])
+    first = sf.RegexClassifier([("math", "integral"), ("code", "python")])
+    twin = sf.RegexClassifier([("math", "integral"), ("code", "python")])
     inner = _gate(twin, "code", sf.Model("prov/c"), sf.Model("prov/g"))
     url4 = compile_candidate(_gate(first, "math", sf.Model("prov/m"), inner)).url4
     assert '"observe":"label:sel_1"' in url4
     assert "sel_2" not in url4
 
-    other = sf.Keywords([("math", "derivative"), ("code", "python")])
+    other = sf.RegexClassifier([("math", "derivative"), ("code", "python")])
     inner = _gate(other, "code", sf.Model("prov/c"), sf.Model("prov/g"))
     url4 = compile_candidate(_gate(first, "math", sf.Model("prov/m"), inner)).url4
     assert '"observe":"label:sel_2"' in url4
 
 
 def test_equal_label_models_compile_to_one_call() -> None:
-    first = sf.LabelModel("prov/clf", labels=["math", "code"])
-    twin = sf.LabelModel("prov/clf", labels=["math", "code"])
+    first = sf.LLMClassifier("prov/clf", labels=["math", "code"])
+    twin = sf.LLMClassifier("prov/clf", labels=["math", "code"])
     inner = _gate(twin, "code", sf.Model("prov/c"), sf.Model("prov/g"))
     root = _root(_gate(first, "math", sf.Model("prov/m"), inner))
     names = {node.name for node in _deep(root) if isinstance(node, Source)}
@@ -185,7 +186,7 @@ def test_equal_label_models_compile_to_one_call() -> None:
 
 def test_selector_operation_is_accounted_as_synthesis() -> None:
     assert _ACCOUNTED_STAGES["selector"] == "synthesis"
-    selector = sf.LabelModel("prov/clf", labels=["math"])
+    selector = sf.LLMClassifier("prov/clf", labels=["math"])
     compiled = compile_candidate(_gate(selector, "math", sf.Model("prov/a"), sf.Model("prov/b")))
     assert {op.id: op.kind for op in compiled.operations}["op_selector_1"] == "selector"
 
@@ -194,10 +195,10 @@ def test_selector_operation_is_accounted_as_synthesis() -> None:
 
 
 def test_selector_placed_at_lowest_common_scope_both_branches() -> None:
-    # (a) Gates in both branches of G read the LabelModel; G reads a Keywords: the call sits in
-    # G's scope (the candidate top level, G is the root), before G's block.
-    kw = sf.Keywords([("math", "integral")])
-    clf = sf.LabelModel("prov/clf", labels=["safe", "unsafe"])
+    # (a) Gates in both branches of G read the LLMClassifier; G reads a RegexClassifier: the call
+    # sits in G's scope (the candidate top level, G is the root), before G's block.
+    kw = sf.RegexClassifier([("math", "integral")])
+    clf = sf.LLMClassifier("prov/clf", labels=["safe", "unsafe"])
     left = _gate(clf, "safe", sf.Model("prov/a"), sf.Model("prov/b"))
     right = _gate(clf, "unsafe", sf.Model("prov/c"), sf.Model("prov/d"))
     root = _root(_gate(kw, "math", left, right))
@@ -207,8 +208,8 @@ def test_selector_placed_at_lowest_common_scope_both_branches() -> None:
 
 def test_selector_placed_at_lowest_common_scope_one_branch() -> None:
     # (b) only a Gate inside G's otherwise reads it: the call sits inside that iterate body.
-    kw = sf.Keywords([("math", "integral")])
-    clf = sf.LabelModel("prov/clf", labels=["safe", "unsafe"])
+    kw = sf.RegexClassifier([("math", "integral")])
+    clf = sf.LLMClassifier("prov/clf", labels=["safe", "unsafe"])
     inner = _gate(clf, "safe", sf.Model("prov/a"), sf.Model("prov/b"))
     root = _root(_gate(kw, "math", sf.Model("prov/m"), inner))
     assert "selector_1" not in [node.name for node in root.sources if isinstance(node, Source)]

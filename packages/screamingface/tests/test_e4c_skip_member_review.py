@@ -19,7 +19,7 @@ from test_e4c_gate_replay import _replayed
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 
-SEL = sf.Keywords([("math", "integral"), ("code", "python")], multi=True)
+SEL = sf.RegexClassifier([("math", "integral"), ("code", "python")], multi=True)
 _CONTEXT = re.compile(r"binding=(synthesis_\d+)&q=\((\{.*?\})\)!'")
 
 
@@ -54,7 +54,7 @@ def test_a_panel_gate_second_step_reads_the_member_selection(quorum: object, flo
 
 def test_a_skip_member_estimate_reaches_its_decide_spec() -> None:
     member = sf.Gate(when=sf.labels(SEL).has("math"), then=sf.Estimate("prov/big", usd=0.05))
-    recipe = sf.Budgeted(sf.Fanout([member, "prov/small"]) >> sf.Vote(), usd=0.1)
+    recipe = sf.WithBudget(sf.Fanout([member, "prov/small"]) >> sf.Vote(), budget_usd=0.1)
 
     url4 = compile_candidate(recipe, operators=engine_operators()).url4
 
@@ -77,8 +77,8 @@ def test_a_budget_condition_skip_member_is_refused_with_a_message() -> None:
 
 
 def test_each_skip_member_lists_only_the_selector_models_it_reads() -> None:
-    first = sf.LabelModel("prov/cheap", labels=["math", "other"])
-    second = sf.LabelModel("prov/cheap2", labels=["code", "other"])
+    first = sf.LLMClassifier("prov/cheap", labels=["math", "other"])
+    second = sf.LLMClassifier("prov/cheap2", labels=["code", "other"])
     recipe = (
         sf.Fanout(
             [
@@ -104,7 +104,7 @@ def test_each_skip_member_lists_only_the_selector_models_it_reads() -> None:
 
 
 def test_a_selector_shared_by_two_members_is_listed_once() -> None:
-    shared = sf.LabelModel("prov/cheap", labels=["math", "code"])
+    shared = sf.LLMClassifier("prov/cheap", labels=["math", "code"])
     recipe = (
         sf.Fanout(
             [
@@ -125,13 +125,22 @@ def test_a_selector_shared_by_two_members_is_listed_once() -> None:
 # --- a mistyped branch word (GT-12) ---------------------------------------------------------------
 
 
-@pytest.mark.parametrize("word", ["fail-closed", "Fail_Closed", "failclosed", "ABSTAIN", "Skip"])
+@pytest.mark.parametrize(
+    "word", ["fail-closed", "Fail_Closed", "failclosed", "ABSTAIN", "Skip", "fail_closed", "fail"]
+)
 @pytest.mark.parametrize("branch", ["then", "otherwise"])
 def test_a_mistyped_branch_word_is_refused(word: str, branch: str) -> None:
     kwargs = {"then": "prov/a", branch: word}
 
     with pytest.raises(TypeError, match=rf"^sf\.Gate {branch}= takes a step, a recipe"):
         sf.Gate(when=sf.labels(SEL).has("math"), **kwargs)  # type: ignore[arg-type]
+
+
+def test_the_released_word_fail_closed_names_sf_fail() -> None:
+    # 2026-11-12: the typed outcome replaces the string; "abstain" stays (released in v0.1.12).
+    with pytest.raises(TypeError, match=r"; write sf\.fail\(\) for 'fail_closed'$"):
+        sf.Gate(when=sf.labels(SEL).has("math"), then="fail_closed")  # type: ignore[arg-type]
+    assert sf.Gate(when=sf.labels(SEL).has("math"), then="abstain").then == "abstain"
 
 
 def test_a_route_that_only_contains_a_word_stays_a_route() -> None:

@@ -15,7 +15,7 @@ fallback branch)
 
 As a researcher, I want one construct, `sf.Gate(when=..., then=..., otherwise=...)`, that runs
 `then` when a condition on the Case holds and `otherwise` when it does not, where each branch can
-be a reducer step, a whole recipe or a terminal word, so that I can write a router, a cascade, a
+be a reducer step, a whole recipe or an outcome (`sf.abstain()`, `sf.fail()`), so that I can write a router, a cascade, a
 guard or a budget choice with the same tool, and a branch that is not taken costs nothing.
 
 ## 2. Background and constraints
@@ -80,19 +80,25 @@ Delta (this PRD):
 1. One public class `sf.Gate` with two forms. The form follows from `when=` [proposed]:
    - **Panel gate**: `when` reads `sf.agreement()`, `sf.signal(x).chosen()`,
      `sf.signal(x).mean()` or `sf.answered()` ([cascade](cascade.md)). It closes a Fanout block,
-     as today.
+     as today. A bare `sf.signal(x) <op> v` reads the chosen member, the same as
+     `sf.signal(x).chosen() <op> v`, and the record names `chosen:x` [stated owner 2026-11-12].
    - **Input gate**: `when` reads `sf.label(sel) == / != "x"`, `sf.labels(sel).has("x")` or
      `.empty()` ([selectors](selectors.md)) or `sf.budget.remaining()` ([budget](budget.md)). It is a recipe: the root, a Pipeline stage, or
      a branch body.
-2. `then=` is required; `otherwise=` defaults to the sentinel `None`: `"abstain"` for a Gate at
+2. `then=` is required; `otherwise=` defaults to the sentinel `None`: `sf.abstain()` for a Gate at
    the root, in a Pipeline stage or in a branch, and "skip" for a skip-Gate Fanout member
    ([skip-members](skip-members.md)). So the SDK can tell an omitted `otherwise=` from an explicit
-   `"abstain"`; "skip" is never a public value [proposed — review finding 9]. Each takes
+   `sf.abstain()`; "skip" is never a public value [proposed — review finding 9]. Each takes
    [stated ans:Q6]:
    a **step** (panel gate only): `sf.Vote`, `sf.Median`, `sf.Mean`, `sf.ArgMax`, `sf.ArgMin`,
    `sf.First`, `sf.Merge`, `sf.JudgePick`, `sf.Synthesize`; a **recipe**: a model route, `sf.Model`,
-   a closed chain or Pipeline, another input `sf.Gate`, a `sf.Cascade` value; a **word**:
-   `"abstain"` or `"fail_closed"`.
+   a closed chain or Pipeline, another input `sf.Gate`, a `sf.Cascade` value; an **outcome**:
+   `sf.abstain()` or `sf.fail()`. The SDK stores the words `"abstain"` and `"fail_closed"` inside,
+   so the compiled bytes, the records and the codes (`gate_not_met`, `no_votes`, `fail_closed`) do
+   not change. The string `"abstain"` still works (the E4b spelling, released in v0.1.12); the
+   string `"fail_closed"` is refused (GT-12). `repr` and `to_python` print `sf.abstain()` and
+   `sf.fail()` [stated owner 2026-11-12 — supersedes the words `"abstain"` / `"fail_closed"` as
+   the public spelling].
 3. GA-3, GA-6 and the D5 "then= is Vote only" rule go away; the "until E4c" text goes away from
    every message and docstring [stated ans:Q6].
 4. New internal node `BranchNode` (recipe kind `gate`) for every Gate; a panel gate keeps the E4b
@@ -103,9 +109,15 @@ Delta (this PRD):
 7. The decision call writes combine `gate.otherwise` = `judge` / `writer` for an E4b fallback step
    and `abstain` for every other `otherwise`; DECIDE maps the panel branch by the table of
    [branch-core](branch-core.md) D4: `majority` → `then`, `fallback` → `otherwise`, a band hit →
-   no branch and abstain `in_band`, no voters → `otherwise` when it is a recipe (escalation), else
-   no branch and the decision call's abstain; with a recipe `then`, a band hit or no votes never
-   runs `then` [proposed; stated ans:Q25].
+   no branch and abstain `in_band`, no voters → `otherwise` only when it is a recipe and the
+   condition is `sf.answered()` (an `sf.escalate_if(sf.unanswered())` line), else no branch and the
+   decision call's abstain; with a recipe `then`, a band hit or no votes never runs `then`
+   [proposed; stated ans:Q25; stated owner 2026-11-12 — supersedes "no voters → a recipe
+   `otherwise`" for every condition].
+9. A recipe `otherwise` runs only when the comparison is false. A missing number with a recipe
+   `otherwise` fails the Case with the new code `signal_missing` (branch-core D4a, GT-29); every
+   other `otherwise` keeps the E4b missing-number fallback. Nothing falls back unless the recipe
+   says so [stated owner 2026-11-12].
 8. A Gate inside a `sf.CorrectiveLoop` / `sf.SelfCorrective` member, judge or coach, or a
    CorrectiveLoop as a Gate branch, is refused at compile time: the loop runs its members in an
    isolated recorder [existing `E/world/corrective.py:104-110`], so budget and attribution would
@@ -127,9 +139,10 @@ Delta (this PRD):
 - **GT-3 Any reducer step in `then=`.** Given `then=sf.Median()` with
   `when=sf.signal("conf").mean() >= 0.8`, When the condition holds, Then the median answers.
   The old GA-3 refusal no longer exists. [stated ans:Q6]
-- **GT-4 Words.** Given `then="fail_closed"` or `otherwise="abstain"`, When that branch is taken,
-  Then the Case fails with `fail_closed` or abstains with `gate_not_met` (branch-core BC-8,
-  BC-9). [stated epic]
+- **GT-4 Outcomes.** Given `then=sf.fail()` or `otherwise=sf.abstain()`, When that branch is
+  taken, Then the Case fails with `fail_closed` or abstains with `gate_not_met` (branch-core BC-8,
+  BC-9). `otherwise="abstain"` gives the same bytes as `otherwise=sf.abstain()`. [stated epic;
+  stated owner 2026-11-12]
 - **GT-5 N-way by nesting.** Given
   `Gate(when=sf.label(sel) == "math", then=m, otherwise=Gate(when=sf.label(sel) == "code",
   then=c, otherwise=g))`, When the selector returns `code`, Then only `c` runs, the selector runs
@@ -157,17 +170,34 @@ Delta (this PRD):
 - **GT-10 The band stays.** Given a panel gate with `abstain_if=ref.between(lo, hi)`, When the
   number is in the band, Then the Case abstains with `in_band` for every `otherwise`, as in E4b
   part 6, and no branch body runs, also when `then=` is a recipe; the same holds when the panel
-  produced no votes and `otherwise` is not a recipe (abstain `no_votes`). [existing
-  `S/_surface/gate.py:112-120`; stated ans:Q25]
+  produced no votes and `otherwise` is not a recipe, or is a recipe under any condition but
+  `sf.answered()` (abstain `no_votes`, GT-28). [existing `S/_surface/gate.py:112-120`; stated
+  ans:Q25; stated owner 2026-11-12]
+- **GT-28 No answer with a recipe `otherwise` does not escalate.** Given
+  `sf.Fanout([a, b]) >> sf.Gate(when=sf.agreement() >= 0.8, then=sf.Vote(),
+  otherwise="prov/large")`, When the vote abstains (`no_votes`, `cut_not_met`, `output_missing`),
+  Then `prov/large` makes zero calls and the Case abstains with the vote's reason. Only a gate whose
+  condition is `sf.answered()` sends a null branch to its recipe `otherwise` ([cascade](cascade.md)
+  CA-10). [stated owner 2026-11-12 — supersedes ans:Q17 for every Gate]
+- **GT-29 Missing number with a recipe `otherwise`.** Given
+  `sf.Fanout([small], signals={"lp": sf.Logprob("prob")}) >> sf.Gate(when=sf.signal("lp") >= 0.7,
+  then=sf.Vote(), otherwise="prov/large")`, When the reply carries no log-probability, Then
+  `prov/large` makes zero calls and the Case fails with `signal_missing` ("sf.Gate gate_N read a
+  missing number, so it can neither keep the answer nor escalate"). With `otherwise=sf.abstain()`,
+  a `sf.JudgePick` or a `sf.Synthesize`, the E4b missing-number fallback is unchanged.
+  [stated owner 2026-11-12; branch-core D4a, BC-39]
 
 ### 3.2 Error paths
 
 - **GT-11 A step needs a panel.** Given an input gate with `then=sf.Vote()`, Then the
   constructor raises `ValueError("a step in then= needs a panel: put the sf.Gate after a
   sf.Fanout, or give a recipe")`. [proposed]
-- **GT-12 Wrong branch value.** Given `then=42` or `otherwise="skip"` (anywhere: "skip" is not a
-  public value), Then the constructor raises `TypeError("sf.Gate then= takes a step, a recipe,
-  'abstain' or 'fail_closed'")` (the same text with `otherwise=`). [proposed]
+- **GT-12 Wrong branch value.** Given `then=42`, `otherwise="skip"` (anywhere: "skip" is not a
+  public value), or the string `"fail_closed"` (or another spelling of a word, such as
+  `"fail-closed"`, `"ABSTAIN"`, `"fail"`), Then the constructor raises `TypeError("sf.Gate then=
+  takes a step, a recipe, sf.abstain() or sf.fail()")` (the same text with `otherwise=`). A word
+  spelled another way is a typo, never a model route. [proposed; stated owner 2026-11-12 — the
+  string `"fail_closed"` is now refused; write `sf.fail()`]
 - **GT-13 Wrong condition.** Given `when=sf.signal("x")` or a Python function, Then
   `TypeError("sf.Gate when= takes a condition such as sf.agreement() >= 0.7, sf.label(sel) ==
   'x' or sf.budget.remaining() >= 0.02")`. [existing message widened `S/_surface/gate.py:62-66`;
@@ -176,7 +206,7 @@ Delta (this PRD):
   the candidate (no Fanout before it), Then the compile raises "sf.agreement() reads a panel: put
   the sf.Gate after a sf.Fanout". [proposed]
 - **GT-15 Gate as a Fanout member.** Given `sf.Fanout([a, sf.Gate(...)])` where the Gate was
-  given any `otherwise=` (an explicit `"abstain"` included), Then `ValueError("a sf.Gate is not a
+  given any `otherwise=` (an explicit `sf.abstain()` included), Then `ValueError("a sf.Gate is not a
   sf.Fanout member; a member Gate takes no otherwise= (skip members)")`. The sentinel `None`
   tells the omitted value apart. [stated ans:Q10; stated ans:Q16]
 - **GT-16 Decision reducer mismatch.** Given a panel gate with `when=sf.agreement() >= 0.8` and
@@ -197,9 +227,10 @@ Delta (this PRD):
 | GT-20 | Engine gate on a median | [proposed] | H×M | Given a combine spec `{"reducer": "median", "gate": {"observe": "mean:conf", ...}}`, When the Engine parses it, Then it accepts it; an `agreement` gate on a non-vote reducer raises "an agreement gate needs a vote". |
 | GT-21 | Equality and hash | [existing `ST/test_gate_surface.py:191`] | M×M | Given two Gates with equal bytes, Then they are equal; a Gate stays unhashable (it may hold a `sf.Model`). |
 | GT-22 | Deep N-way repr | [proposed] | M×M | Given an 8-level nested Gate, Then `repr` and `to_python()` finish in linear time and stay one Gate per line in `code()` layout. |
-| GT-23 | Same selector, two instances | [proposed — gap §per-flow/repeat] | M×M | Given two equal `sf.Keywords(...)` values in two nested Gates, Then they compile to one selector id (equal bytes = one instance), so the Case evaluates it once. |
-| GT-24 | Cascade value in a branch | [stated ans:Q10] | M×L | Given `otherwise=sf.Cascade([...])`, Then the compile nests the Cascade's Gates inside the branch body. |
-| GT-25 | Words in both branches | [proposed — gap §boundary] | L×L | Given `then="abstain", otherwise="fail_closed"`, Then it compiles; a Case takes one word and the record shows the other as not run. |
+| GT-23 | Same selector, two instances | [proposed — gap §per-flow/repeat] | M×M | Given two equal `sf.RegexClassifier(...)` values in two nested Gates, Then they compile to one selector id (equal bytes = one instance), so the Case evaluates it once. |
+| GT-24 | Cascade value in a branch | [stated ans:Q10] | M×L | Given `otherwise=sf.Cascade(t1, sf.escalate_if(c), t2)`, Then the compile nests the Cascade's Gates inside the branch body. |
+| GT-25 | Outcomes in both branches | [proposed — gap §boundary] | L×L | Given `then=sf.abstain(), otherwise=sf.fail()`, Then it compiles; a Case takes one outcome and the record shows the other as not run. |
+| GT-30 | Typed outcomes keep the bytes | [stated owner 2026-11-12] | H×M | Given `sf.abstain()` / `sf.fail()` in a branch, Then the compiled url4 equals the url4 of the stored words `"abstain"` / `"fail_closed"`, and `repr` / `to_python()` print `sf.abstain()` / `sf.fail()`; the rebuilt text recompiles to the same bytes (RB-1). |
 | GT-26 | Concurrent sibling Gates | [implied] | L×M | N/A at the surface: two Gates in one Case share no state (branch-core BC-20). Listed so no one adds shared state here. |
 
 ## 4. Non-functional requirements
@@ -242,11 +273,11 @@ pinned tests.
 | 6 | `gate_compiles_to_decide_open_join` (url4 shape, branch-core §3.2) | unit | GT-1 | H×H | `BranchNode` lowering → renderer |
 | 7 | PIN `ST/test_gate_surface.py:316-319` GA-3 test becomes `then_takes_any_reducer_step` | unit | GT-3 | H×H | owner approval; remove GA-3 |
 | 8 | PIN `ST/test_gate_surface.py:375-379` GA-6 test becomes `gated_vote_takes_an_extractor` | unit | GT-3 | H×M | owner approval; gate on `ReduceNode` |
-| 9 | `words_fail_closed_and_abstain_compile` | unit | GT-4 | H×H | word bodies |
+| 9 | `outcomes_fail_and_abstain_compile` (and the string `"abstain"` gives the same bytes) | unit | GT-4 | H×H | word bodies; `S/_surface/outcomes.py` |
 | 10 | `step_in_an_input_gate_is_refused` | unit | GT-11 | H×M | form check |
 | 11 | `panel_ref_without_a_fanout_is_refused` | unit | GT-14 | H×M | compile check |
-| 12 | `gate_with_otherwise_as_a_fanout_member_is_refused` (explicit `"abstain"` included) | unit | GT-15 | H×M | `refuse_step` admits only the skip-Gate; sentinel default |
-| 13 | `wrong_branch_value_names_the_four_kinds` (parametrized: 42, "skip" at the root and as a member, a step class) | unit | GT-12 | M×M | messages, MSG-1 article |
+| 12 | `gate_with_otherwise_as_a_fanout_member_is_refused` (explicit `sf.abstain()` included) | unit | GT-15 | H×M | `refuse_step` admits only the skip-Gate; sentinel default |
+| 13 | `wrong_branch_value_names_the_four_kinds` (parametrized: 42, "skip" at the root and as a member, "fail_closed", a step class) | unit | GT-12 | M×M | messages, MSG-1 article |
 | 14 | `when_takes_a_condition_message_lists_three_examples` | unit | GT-13 | M×M | message widened |
 | 15 | `decision_reducer_is_then_else_otherwise_else_implicit_vote` (decision table) | unit | GT-6 | H×H | `_decision_reducer()` |
 | 16 | `agreement_gate_needs_a_vote` | unit | GT-16 | H×M | constructor check |
@@ -264,5 +295,8 @@ pinned tests.
 | 28 | PIN `ST/test_gate_surface.py:432-437` docstring test: says the not-taken branch makes no call, no "E4c" | unit | §2.1 delta 3 | M×M | owner approval; docstring rewrite |
 | 29 | PIN `ST/public_surface_snapshot.json` `Gate.__init__` signature (`then: 'Branch'`, `otherwise: 'Branch \| None' = None`) | unit | delta 1–2 | M×M | owner approval; regenerate snapshot |
 | 30 | `messages_name_the_new_surface_only` (MSG-1 still green with the new messages) | unit | §2 | M×M | `ST/test_surface_messages.py` runs unchanged |
-| 31 | `words_in_both_branches_compile` | unit | GT-25 | L×L | — |
+| 31 | `outcomes_in_both_branches_compile` | unit | GT-25 | L×L | — |
+| 33 | `null_branch_with_a_recipe_otherwise_abstains_unless_answered` (Engine world, fake gateway: `prov/large` makes zero calls) | integration | GT-28 | H×H | branch-core D4 null rows |
+| 34 | `missing_number_with_a_recipe_otherwise_fails_with_signal_missing` | integration | GT-29 | H×H | branch-core D4a |
+| 35 | `typed_outcomes_compile_to_the_word_bytes_and_print_typed` | unit | GT-30 | H×M | `outcome_text`; render and rebuild |
 | 32 | `gate_and_corrective_loop_nesting_is_refused` (Gate as a loop member, judge or coach; loop as a Gate branch) | unit | GT-27 | M×L | compile check in `_is_supported_recipe` / renderer |

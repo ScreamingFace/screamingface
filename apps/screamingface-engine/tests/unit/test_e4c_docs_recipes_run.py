@@ -91,12 +91,14 @@ async def test_d4_cope_cascade_calls_the_large_model_only_on_a_split(third, outp
 
 
 @pytest.mark.asyncio
-async def test_d5_steer_answer_cascade_escalates_when_the_reply_has_no_logprob() -> None:
-    # The fake reply carries no logprobs, so the chosen member has no value: the gate escalates.
+async def test_d5_steer_answer_cascade_fails_when_the_reply_has_no_logprob() -> None:
+    # The fake reply carries no logprobs, so the chosen member has no value (2026-11-12): the
+    # line can neither keep nor escalate, and the Case fails with signal_missing.
     gateway = Gateway({"openrouter/openai/gpt-4o-mini": "S", "openrouter/openai/gpt-4.1": "L"})
-    record = await run_gate(fixture("d5_steer_answer_cascade.url4"), gateway)
-    assert record["output"] == "L"
-    assert gateway.seen[0]["model"] == "openrouter/openai/gpt-4o-mini"
+    with pytest.raises(ResolutionError) as caught:
+        await run_gate(fixture("d5_steer_answer_cascade.url4"), gateway)
+    assert caught.value.code == "signal_missing"
+    assert [request["model"] for request in gateway.seen] == ["openrouter/openai/gpt-4o-mini"]
 
 
 @pytest.mark.asyncio

@@ -1,4 +1,4 @@
-"""A sf.Keywords pattern holding ``$`` reaches the Engine byte-identical (E4c, OME-1291).
+"""A sf.RegexClassifier pattern holding ``$`` reaches the Engine byte-identical (E4c, OME-1291).
 
 url4 interpolates ``$name`` / ``$N`` inside an intent at resolve time (spec §8.2.5), so a raw
 ``$`` in the selector spec text is read as a reference: ``\\$input`` would be replaced by the
@@ -22,7 +22,9 @@ _PATTERNS = (r"\$input", r"cost in \$gate_1", r"\$\$1 \$1", r"total\$")
 
 
 def _intents(route: str) -> list[str]:
-    selector = sf.Keywords([(f"l{index}", pattern) for index, pattern in enumerate(_PATTERNS)])
+    selector = sf.RegexClassifier(
+        [(f"l{index}", pattern) for index, pattern in enumerate(_PATTERNS)]
+    )
     gate = BranchNode(
         condition=BranchCondition("label", "eq", "l0", selector),
         then=sf.Model("prov/a"),

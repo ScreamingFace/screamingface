@@ -9,7 +9,6 @@
       "AuthenticationError",
       "Benchmark",
       "BenchmarkInfo",
-      "Budgeted",
       "CandidateResult",
       "CandidateRun",
       "Cascade",
@@ -48,8 +47,7 @@
       "Judge",
       "JudgePick",
       "JudgeWriterWarning",
-      "Keywords",
-      "LabelModel",
+      "LLMClassifier",
       "LabelScore",
       "Leaderboard",
       "LeaderboardBaseline",
@@ -79,6 +77,7 @@
       "ProviderConnectionError",
       "Rank",
       "Recipe",
+      "RegexClassifier",
       "Report",
       "Reproduction",
       "ReproductionError",
@@ -94,7 +93,9 @@
       "Usage",
       "Verbalized",
       "Vote",
+      "WithBudget",
       "__version__",
+      "abstain",
       "agreement",
       "analytics",
       "answered",
@@ -107,8 +108,10 @@
       "connect",
       "connections",
       "disconnect",
+      "escalate_if",
       "evaluate",
       "events",
+      "fail",
       "fetch_media",
       "field",
       "label",
@@ -119,7 +122,8 @@
       "reports",
       "runs",
       "samples",
-      "signal"
+      "signal",
+      "unanswered"
     ],
     "exports": {
       "Answer": {
@@ -223,18 +227,6 @@
           "revision": "field"
         }
       },
-      "Budgeted": {
-        "kind": "class",
-        "members": {
-          "__init__": "method (self, recipe: 'str | Recipe', *, usd: 'float | None' = None, tokens: 'int | None' = None) -> 'None'",
-          "name": "property",
-          "optional": "property",
-          "recipe": "field",
-          "tokens": "field",
-          "units": "method (self) -> 'tuple[BudgetUnit, ...]'",
-          "usd": "field"
-        }
-      },
       "CandidateResult": {
         "kind": "class",
         "members": {
@@ -288,7 +280,7 @@
       },
       "Cascade": {
         "kind": "function",
-        "signature": "(stages: 'Sequence[Stage]', *, escalate_if: 'Escalation' = None, otherwise: \"Literal['abstain', 'fail_closed'] | None\" = None) -> 'Recipe'"
+        "signature": "(*parts: 'Tier | EscalateIf | Outcome') -> 'Recipe'"
       },
       "CascadeSeedWarning": {
         "catches_as": [
@@ -680,16 +672,7 @@
         "kind": "class",
         "members": {}
       },
-      "Keywords": {
-        "kind": "class",
-        "members": {
-          "__init__": "method (self, rules: 'Sequence[Sequence[object]]', *, multi: 'bool' = False) -> 'None'",
-          "labels": "property",
-          "multi": "field",
-          "rules": "field"
-        }
-      },
-      "LabelModel": {
+      "LLMClassifier": {
         "kind": "class",
         "members": {
           "__init__": "method (self, model: 'str | Model', *, labels: 'Sequence[str]', prompt: 'str | None' = None, params: 'Mapping[str, str | int | float | bool] | None' = None, multi: 'bool' = False) -> 'None'",
@@ -1051,6 +1034,15 @@
         "kind": "class",
         "members": {}
       },
+      "RegexClassifier": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, rules: 'Sequence[Sequence[object]]', *, multi: 'bool' = False) -> 'None'",
+          "labels": "property",
+          "multi": "field",
+          "rules": "field"
+        }
+      },
       "Report": {
         "kind": "class",
         "members": {
@@ -1215,9 +1207,25 @@
           "weights": "field"
         }
       },
+      "WithBudget": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, recipe: 'str | Recipe', *, budget_usd: 'float | None' = None, max_tokens: 'int | None' = None) -> 'None'",
+          "budget_usd": "field",
+          "max_tokens": "field",
+          "name": "property",
+          "optional": "property",
+          "recipe": "field",
+          "units": "method (self) -> 'tuple[BudgetUnit, ...]'"
+        }
+      },
       "__version__": {
         "kind": "value",
         "type": "str"
+      },
+      "abstain": {
+        "kind": "function",
+        "signature": "() -> 'Outcome'"
       },
       "agreement": {
         "kind": "function",
@@ -1267,6 +1275,10 @@
         "kind": "function",
         "signature": "(provider: 'str') -> 'Connection'"
       },
+      "escalate_if": {
+        "kind": "function",
+        "signature": "(condition: 'object') -> 'EscalateIf'"
+      },
       "evaluate": {
         "kind": "function",
         "signature": "(candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'"
@@ -1274,6 +1286,10 @@
       "events": {
         "kind": "module",
         "module": "screamingface.events"
+      },
+      "fail": {
+        "kind": "function",
+        "signature": "() -> 'Outcome'"
       },
       "fetch_media": {
         "kind": "function",
@@ -1318,6 +1334,10 @@
       "signal": {
         "kind": "function",
         "signature": "(key: 'str') -> 'Signal'"
+      },
+      "unanswered": {
+        "kind": "function",
+        "signature": "() -> 'Unanswered'"
       }
     }
   },

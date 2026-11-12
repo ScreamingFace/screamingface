@@ -431,7 +431,8 @@ _NONE = ["", "", ""]
     [
         (_AGREE, "recipe", False, "then", {"status": "answered", "reason": None}),
         (_SPLIT, "recipe", False, "otherwise", {"status": "answered", "reason": None}),
-        (_NONE, "recipe", False, "otherwise", {"status": "answered", "reason": None}),
+        # 2026-11-12: no voters is an abstain, not an escalation: the Case abstains no_votes.
+        (_NONE, "recipe", False, None, {"status": "abstain", "reason": "no_votes"}),
         (_NONE, "abstain", False, None, {"status": "abstain", "reason": "no_votes"}),
         (_NONE, "fail_closed", False, None, {"status": "fail_closed", "reason": None}),
         (_SPLIT, "abstain", False, "otherwise", {"status": "abstain", "reason": "gate_not_met"}),

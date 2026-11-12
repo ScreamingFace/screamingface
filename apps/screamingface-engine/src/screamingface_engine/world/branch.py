@@ -44,7 +44,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from screamingface_engine.benchmarks.failure_classes import (
     benchmark_contract_error as _contract_error,
 )
-from screamingface_engine.benchmarks.failure_classes import fail_closed
+from screamingface_engine.benchmarks.failure_classes import fail_closed, signal_missing
 from screamingface_engine.budget import (
     Budget,
     BudgetUnit,
@@ -323,16 +323,31 @@ class _Choice:
     wanted: BranchName | None
     panel: PanelLink | None = None
 
+    @property
+    def missing(self) -> bool:
+        """A panel comparison on a missing number: the E4b gate took fallback on None (P10)."""
+
+        return self.panel is not None and self.panel.branch == "fallback" and self.observed is None
+
 
 def _decide(request: Request) -> str:
     gate_id = _one_param(request.params, "gate", "decide takes exactly one param, gate=gate_N")
     context = _context(request.context, _DECIDE_KEYS, ("after",), "decide")
     spec = _spec(request.intent)
     inputs = _SelectorInputs.read(context, spec)
-    ledger = _BudgetLedger.read(spec)
     # The condition selector's record, built once: the choice reads it and the record lists it.
     records = {selector: inputs.record(selector) for selector in _condition_selector(spec.when)}
-    choice = _panel_choice(spec) if spec.panel is not None else _input_choice(spec, records, ledger)
+    if spec.panel is not None:
+        choice = _panel_choice(spec)
+        if choice.missing and spec.otherwise == "recipe":
+            # E4c (2026-11-12, D4a): a recipe otherwise runs only on a false comparison; a missing
+            # number (a reply with no log-probability) is neither, so the Case fails before the
+            # ledger is read.
+            raise signal_missing(gate_id)
+        ledger = _BudgetLedger.read(spec)
+    else:
+        ledger = _BudgetLedger.read(spec)
+        choice = _input_choice(spec, records, ledger)
     views, refused = ledger.views(spec, choice.wanted)
     branch = _branch_after_budget(spec, choice.wanted, refused)
     not_run = [
@@ -597,9 +612,11 @@ def _panel_choice(spec: GateSpec) -> _Choice:
         raise _contract_error(f"the decision call {binding} left no record")
     link_branch, observed, passed, majority = _panel_reading(spec, call)
     if majority is None:
-        # band (no comparison) or no voters: a recipe otherwise escalates, anything else abstains
+        # band (no comparison) or no voters: only a sf.answered() gate (a
+        # sf.escalate_if(sf.unanswered()) line) escalates to a recipe otherwise; the rest abstain
+        # with the decision call's reason (E4c, 2026-11-12: nothing falls back unless it says so)
         wanted: BranchName | None = (
-            "otherwise" if link_branch != "band" and spec.otherwise == "recipe" else None
+            "otherwise" if spec.when.observe == "answered" and spec.otherwise == "recipe" else None
         )
     else:
         wanted = "then" if majority else "otherwise"

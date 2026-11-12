@@ -20,7 +20,7 @@ from screamingface._evaluation.candidate import compile_candidate
 from screamingface._evaluation.combine_evidence import decode_combine_evidence
 from screamingface.combine_evidence import CombineAnswerRow, CombineEvidence, CombineResult
 
-SEL = sf.Keywords([("math", "integral"), ("code", "python")], multi=True)
+SEL = sf.RegexClassifier([("math", "integral"), ("code", "python")], multi=True)
 _MEMBER_RULE = r"a sf\.Fanout member may be a sf\.Gate only without otherwise= and with a recipe"
 
 
@@ -55,7 +55,7 @@ def test_skip_gate_member_is_accepted() -> None:
     [
         lambda: sf.Gate(when=sf.labels(SEL).has("math"), then="prov/m", otherwise="abstain"),
         lambda: sf.Gate(when=sf.labels(SEL).has("math"), then="abstain"),
-        lambda: sf.Gate(when=sf.label(sf.Keywords([("x", "x")])) == "x", then="fail_closed"),
+        lambda: sf.Gate(when=sf.label(sf.RegexClassifier([("x", "x")])) == "x", then=sf.fail()),
     ],
     ids=["otherwise", "word_then", "fail_closed_then"],
 )
@@ -76,7 +76,7 @@ def test_a_panel_gate_or_a_step_then_cannot_be_a_member() -> None:
 def test_skip_gate_then_holds_a_gate_under_the_depth_cap() -> None:
     # SM#23 / SM-20
     inner = sf.Gate(
-        when=sf.label(sf.Keywords([("x", "x")])) == "x", then="prov/x", otherwise="prov/y"
+        when=sf.label(sf.RegexClassifier([("x", "x")])) == "x", then="prov/x", otherwise="prov/y"
     )
     url4 = _url4(sf.Fanout([_skip("math", inner), _skip("code", "prov/c")]) >> sf.Vote())
     assert "gate_3" in _sources(url4)
