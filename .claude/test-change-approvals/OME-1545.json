@@ -1,0 +1,30 @@
+{
+  "issue": "OME-1545",
+  "branch": "OME-1545-engine-attachment-parts",
+  "approver": "Sergey Bershadsky (sergio-bershadsky, owner)",
+  "date": "2026-11-13",
+  "scope": "Exactly these 10 #1587 tests, boundary values re-expressed relative to MAX_ATTACHMENT_BYTES with no other semantic change (exactly-the-cap passes, cap+1 refused, settle/release accounting unchanged): test_attachment_live_budget.py::test_exactly_the_cap_passes, ::test_an_optional_source_that_fails_does_not_consume_budget, ::test_live_charges_are_settled_once_per_key_by_the_final_charge, ::test_release_gives_a_keys_live_bytes_back; test_attachment_sources_round7.py::test_eight_million_bytes_are_within_the_cap (name kept; module gains a MAX_ATTACHMENT_BYTES import); test_blob_live_budget.py::test_blobs_exactly_at_the_cap_pass_and_are_attached; test_review_gaps_closed.py::test_case_attachment_blobs_served_past_the_cap_are_refused_within_a_chunk, ::test_a_counted_keys_read_draws_only_its_bytes_beyond_the_counted_size, ::test_settling_a_counted_key_again_gives_its_read_back; test_review_round12_held_str.py::test_the_second_held_body_is_refused_before_it_is_encoded (module gains a MAX_ATTACHMENT_BYTES import). No other test in these files changes.",
+  "reason": "PR #1588 review blocker 2 (HupBaHa): url4's 8,000,000-byte decoded attachment cap encodes to 10,666,668 base64 bytes, over AIGateway's 8,388,608-byte request cap, so every call of such a run was a 413 request_too_large. The owner lowered url4's cap to 6,000,000 (4*ceil(6e6/3) = 8,000,000 encoded, 388,555 bytes left for 20 parts' padding/prefixes and the envelope) to fit that cap; these tests pinned the old 8,000,000 boundary as literals.",
+  "files": {
+    "packages/url4/tests/unit/test_attachment_live_budget.py": {
+      "base_blob": "9adba5e3e1f982016207540d3926c44aaf4a8c74",
+      "approved_blob": "bee05bc9fb6511fb86e0666d69bc4a48f3b1a356"
+    },
+    "packages/url4/tests/unit/test_attachment_sources_round7.py": {
+      "base_blob": "d39f2694e90ede0935db998a0dfa805378d568d7",
+      "approved_blob": "e287a2b776d2a2fd571117c81dbba5eb53dd473c"
+    },
+    "packages/url4/tests/unit/test_blob_live_budget.py": {
+      "base_blob": "55d98cc6149cbc6b10995ccee99df644e3baaced",
+      "approved_blob": "44911559b17734ee4940ead63e3bf646c31a0d13"
+    },
+    "packages/url4/tests/unit/test_review_gaps_closed.py": {
+      "base_blob": "d4249ab72a433bbea4eb1a7b72b40092cbf9b717",
+      "approved_blob": "4aa025f6009dd7124b20905ea7cb2b859d4a43ad"
+    },
+    "packages/url4/tests/unit/test_review_round12_held_str.py": {
+      "base_blob": "4dae5d8d5acdfaa0b4331abb6b802434467d0adf",
+      "approved_blob": "778ee537417984527b825b8dc35210d0b68de107"
+    }
+  }
+}

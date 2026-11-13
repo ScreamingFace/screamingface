@@ -1,8 +1,8 @@
-"""The per-run attachment caps: 20 entries, 8,000,000 decoded bytes, over the WHOLE list.
+"""The per-run attachment caps: 20 entries, 6,000,000 decoded bytes, over the WHOLE list.
 
 FEATURE: image and PDF inputs (epic ``OME-1529``, unit ``OME-1543``; #1450 F1b "Per-run caps").
 STORY: as a node operator, a run cannot make the node hold or send more than 20 attachments or
-8 MB of them, whatever mix of Case files, blob refs and ``https://`` attachment sources it names.
+6 MB of them, whatever mix of Case files, blob refs and ``https://`` attachment sources it names.
 
 INVARIANT (owner decision E, 2026-10-27): the caps are enforced on EVERY path that adds to
 ``attachments[]`` while the list is built — Case attachments, local blob refs, attachment-source
@@ -35,7 +35,22 @@ from url4.dag.attachment import Attachment
 from url4.dag.node import gather_or_cancel
 
 MAX_ATTACHMENTS = 20
-MAX_ATTACHMENT_BYTES = 8_000_000
+# WHY 6,000,000 (PR #1588 review blocker 2, owner decision 2026-11-13; was 8,000,000): every model
+# call sends the run's files base64-encoded in ONE gateway request, and AIGateway refuses a body
+# over 8,388,608 bytes (8 MiB, ``apps/aigateway/src/aigateway/config.py`` ``max_request_bytes``)
+# with a permanent 413. 4 * ceil(6,000,000 / 3) = 8,000,000 encoded bytes; over 20 entries the
+# padding adds at most 8 / 3 each, so 8,000,053 at worst — leaving 388,555 bytes for the parts'
+# ``data:`` prefixes and JSON (20 x 1 KiB) and the request envelope (256 KiB reserve). The old
+# 8,000,000 encoded to 10,666,668: every call of such a run was a 413. The largest cap with no
+# envelope at all would be 3 * 8,388,608 / 4 = 6,291,456. Pinned across layers by the Engine's
+# ``test_url4_attachment_cap_fits_the_gateway.py`` and aigateway's
+# ``test_url4_attachment_cap_request.py``, bound byte for byte by one shared recipe
+# (``apps/aigateway/tests/fixtures/url4_attachment_cap_request/recipe.json``).
+# AIDEV-NOTE: the cap leaves a model call about 388 KB of JSON-encoded text (prompt, member
+# answers, parameters) beside one cap-sized picture (388,399 B; ~1.3 KB less over 20 files).
+# Beyond it the gateway returns a permanent 413 ``request_too_large``; a v2 picture Case plus
+# url4 attachments in one call can also exceed it — neither is checked before the call.
+MAX_ATTACHMENT_BYTES = 6_000_000
 
 
 def _too_many(count: int) -> ResolutionError:
@@ -194,7 +209,7 @@ async def gather_charged[T](budget: CapBudget, coros: Iterable[Coroutine[Any, An
 
 
 def check_caps(attachments: Sequence[Attachment]) -> None:
-    """F1b per-run caps over the WHOLE final list: 20 entries, 8,000,000 decoded bytes."""
+    """F1b per-run caps over the WHOLE final list: 20 entries, 6,000,000 decoded bytes."""
     if len(attachments) > MAX_ATTACHMENTS:
         raise _too_many(len(attachments))
     total = sum(len(attachment.body) for attachment in attachments)

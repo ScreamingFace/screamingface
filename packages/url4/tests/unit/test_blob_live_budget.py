@@ -101,8 +101,8 @@ async def test_each_blob_read_carries_the_budget_ceiling_and_the_live_hook() -> 
 
 @pytest.mark.asyncio
 async def test_blobs_exactly_at_the_cap_pass_and_are_attached() -> None:
-    four, four_hex = _blob(b"f", 4_000_000)
-    other, other_hex = _blob(b"g", 4_000_000)
+    four, four_hex = _blob(b"f", CAP // 2)
+    other, other_hex = _blob(b"g", CAP - CAP // 2)
     io, model = _store((four, four_hex), (other, other_hex)), _Model()
     text = f"(src=/blob/sha256/{four_hex}, src=/blob/sha256/{other_hex})!'d'"
     assert await run(text, io, process=model) == "ok"
