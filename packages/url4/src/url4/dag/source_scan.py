@@ -112,6 +112,9 @@ class SourceScan:
     malformed: tuple[str, ...] = ()  # owner 2026-11-02: refused, malformed_source
     # PR #1587 review finding 4: every url4:// remote-node call, (authority, path), in preorder.
     remote_nodes: tuple[tuple[str, str], ...] = ()
+    # PR #1750 round 5: iteration-body segments the strict grammar rejected (the spawn may still
+    # compile them); the remote precheck walks their compiled graph instead of this scan.
+    opaque: tuple[str, ...] = ()
 
 
 @dataclass
@@ -122,6 +125,7 @@ class _Found:
     non_literal: list[str] = field(default_factory=list)
     malformed: list[str] = field(default_factory=list)
     remote_nodes: list[tuple[str, str]] = field(default_factory=list)
+    opaque: list[str] = field(default_factory=list)
 
 
 _Guards = tuple[CollectionGuard, ...]
@@ -141,6 +145,7 @@ def scan_sources(ast: Node) -> SourceScan:
         tuple(found.non_literal),
         tuple(found.malformed),
         tuple(found.remote_nodes),
+        tuple(found.opaque),
     )
 
 
@@ -183,7 +188,7 @@ def _walk_iteration(
     # WHY the raw collection: its shape is decided ONLY by ``_collection_shape`` (finding 2),
     # which follows every ``$name`` hop and path; admission and the static check read it.
     guard = CollectionGuard(node.collection, bound, node.directives.slice)
-    _walk_source_list(node.body, bound, out, (*guards, guard), positional=True)
+    out.opaque.extend(_walk_source_list(node.body, bound, out, (*guards, guard), positional=True))
 
 
 def _add_attachment(node: Source, out: _Found, guards: _Guards) -> bool:
@@ -334,7 +339,7 @@ def scan_source_list(text: str) -> SourceScan:
     walk scans an iteration body.
     """
     found = _Found()
-    _walk_source_list(text, {}, found, (), positional=True)
+    found.opaque.extend(_walk_source_list(text, {}, found, (), positional=True))
     return SourceScan(
         tuple(found.refs.values()),
         (),
@@ -342,6 +347,7 @@ def scan_source_list(text: str) -> SourceScan:
         tuple(found.non_literal),
         (),
         tuple(found.remote_nodes),
+        tuple(found.opaque),
     )
 
 

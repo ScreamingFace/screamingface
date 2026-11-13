@@ -114,7 +114,7 @@ class MapNode:
 
     @property
     def fragment(self) -> str:
-        """The text each row spawns; static, so a remote-node preflight can compile it."""
+        """The text each row spawns (the spawn hook's cache key; the same for every row)."""
         return f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
 
     def _items(self, collection: Payload) -> list[str]:

@@ -101,7 +101,8 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   `_static_processor.static_processor_value` now feeds the precheck's processor hop
   (`_run_files._processor_hop`, node context only), as a `maybe` call like a literal one.
   Removed as duplicates: `_remote_preflight.py`, `remote_nodes.preflight_remote_node`, and the
-  `_wire_spawn` preflight (the AST scan already covers map bodies and lazy groups). Kept: sticky
+  `_wire_spawn` preflight (claimed: the AST scan already covers map bodies and lazy groups —
+  FALSE for text the strict grammar rejects; corrected in round 5). Kept: sticky
   refusals (`refusal_mark` / `reraise_refusals_since` / `reraise_remote_refusal`, now recorded by
   the precheck too) and the public `refuse_remote_nodes`. Hygiene ratchet: union (`url4` 61,
   `url4.dag` 39). No test changed. Static-value fold is load-bearing: without it 2
