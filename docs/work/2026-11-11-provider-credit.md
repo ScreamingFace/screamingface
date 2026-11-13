@@ -252,3 +252,33 @@ SDK and Engine core full gates pass; the optional Inspect import-isolation failu
 disappear after restoring the Engine's CI core dependencies. Gateway full gate and
 post-rebase CI results are recorded at publication. No existing replay refusal
 assertion changed. No new live key use, model calls, or deployment.
+
+## Round-two review follow-up — 2026-11-13
+
+Sergio approved the Engine side at a9ef842d, with a valid schema-documentation nit:
+AfterValidator preserves runtime provider validation but does not publish its
+grammar in OpenAPI. Restore the pattern as JSON-schema metadata only, retaining
+explicit ASCII runtime validation. Add a regression over GET, PUT, and DELETE
+provider parameters and verify invalid identifiers still fail before service calls.
+
+Remove the three manifest entries for test files introduced inside this PR; those
+were cycle-local edits, not changes to tests on main. Keep the three genuine
+main-to-PR approvals. Clarify that Filip's authorization is owner consent for this
+work, not independent SDK code-owner review. SDK owners are already requested;
+only their actual review can satisfy that requirement. Do not fabricate sign-off,
+close the tickets, or merge. Validate Engine gates and manifest blob identities,
+then update PR #1753. No UI or credit product behavior changes.
+
+### Round-two outcome
+
+The new schema test failed on all three operations before the metadata correction
+and passes afterward. All 50 focused credit/OpenAPI tests and the full Engine gate
+pass (lint, format, types, layering, full pytest and coverage >=80%). Gate log:
+`/private/tmp/ome893-round2-gates.log`. All three remaining manifest entries match
+the common-base and current Git blobs. No existing tests were changed.
+
+Wisdom review: schema metadata restores the public description without adding a
+regex execution path, dependency, migration, or UI change. The manifest preserves
+actual author consent and explicitly distinguishes it from independent review.
+GitHub confirms HupBaHa, IonesioJunior, and keelancj are still requested. Sergio's
+round-two approval is recorded on GitHub; SDK/Gateway owner reviews remain pending.

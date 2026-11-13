@@ -30,3 +30,9 @@ wire vocabulary across components, rendering the card without optional auto-refr
 when anywidget is absent, and bounding the synchronous notice wait to one second.
 An overdue background lookup cannot emit a late notice; at most one sync lookup
 may remain in flight per process. Full replay validation is separate from unit gates.
+
+## Round-two schema correction
+
+Publish the existing provider-ID grammar as OpenAPI metadata on all credit routes.
+Keep structured runtime validation and the 100-character limit unchanged. Owner
+authorization in the test manifest does not replace independent SDK owner review.

@@ -27,7 +27,12 @@ def _provider(value: str) -> str:
     return value
 
 
-Provider = Annotated[str, Path(max_length=100), AfterValidator(_provider)]
+# WHY: publish the grammar for generated clients without executing a regex at runtime.
+Provider = Annotated[
+    str,
+    Path(max_length=100, json_schema_extra={"pattern": "^[a-z0-9][a-z0-9_-]*$"}),
+    AfterValidator(_provider),
+]
 
 
 class ManagementKeyRequest(BaseModel):
