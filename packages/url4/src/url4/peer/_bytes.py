@@ -135,11 +135,20 @@ def _reserve(size: int | None, request: FetchRequest | None) -> int | None:
 
 
 def _utf8_size(text: str) -> int:
-    """``len(text.encode("utf-8"))`` without holding the whole encoded copy (1 MiB slices)."""
+    """``len(text.encode("utf-8"))`` without holding the whole encoded copy.
+
+    INVARIANT (PR #1587 review round 14): the transient peak is bounded by ``_COUNT_STEP``
+    characters — at most a 4-byte-per-char slice plus its 4-byte-per-char encoding (~128 KiB),
+    one at a time. WHY: a 1 MiB-character slice of four-byte code points once peaked at ~8 MiB,
+    so refusing one Unicode body next to a retained 7 MB one held ~15 MB past an 8 MB cap.
+    """
     if text.isascii():
         return len(text)
-    step = 1 << 20
+    step = _COUNT_STEP
     return sum(len(text[i : i + step].encode("utf-8")) for i in range(0, len(text), step))
+
+
+_COUNT_STEP = 1 << 14  # characters per counted slice; see _utf8_size's INVARIANT
 
 
 def _settled(request: FetchRequest | None, body: bytes, declared: int | None) -> bytes:

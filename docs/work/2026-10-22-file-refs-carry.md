@@ -890,3 +890,19 @@ call-context sibling binding refuses; an unnamed source sees a LATER named model
   `src=` blob, bare blob; plus a text-only control). RED: member fetched / `unknown_processor`.
   GREEN: refused, `io.calls == []`, 0 model calls. No prior test touched.
 - url4 3124 passed / 17 xfailed; module-size within caps (`_run_files.py` is uncapped, 251 lines).
+
+### Round 14 (HupBaHa review, 2026-11-13, head `713eb662a`) — DONE
+- Reviewer confirmed the valid Form-3 preflight and the ASCII held-`str` path; three High blockers.
+- B1: `peer/_bytes.py` `_utf8_size` counted 1 MiB-character slices; four-byte code points peaked
+  at ~8 MiB per slice (15.4 MB vs the 8 MB cap beside a retained 7 MB body). Now 16 Ki-character
+  slices (`_COUNT_STEP`, ~128 KiB peak). RED: tracemalloc peak 8,389,229 → GREEN < 1 MiB.
+- B2: `dag/_run_files.py` ran `_precheck_remote` only with blob refs / attachment occurrences;
+  a text-only node run executed local endpoints before a remote sibling or a remote
+  (literal/default/Form-3) processor refused. Now every run is prechecked (F1b); a pre-built
+  graph still has its processor checked.
+- B3: `_processor_scan` returned `None` for an unparseable Form-3 processor, so `/m` ran before
+  reduce-time `malformed_source`. Now it applies the resolve-time gate (`core.parser.build`) at
+  run start and raises the same permanent `ParseError`.
+- Tests: new `test_review_round14.py` (peak bound, exact count across slice edges, endpoint/model
+  spies for 4 expression shapes + literal/Form-3 default, caller and bare-run processors, 3
+  malformed Form-3 shapes, local controls). No prior test touched.
