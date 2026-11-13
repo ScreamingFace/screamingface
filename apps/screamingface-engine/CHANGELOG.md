@@ -12,6 +12,18 @@
 * A start whose run-queue publish may have been stored, though its own send went unanswered or the start was cancelled, keeps its caller's in-flight slot instead of freeing it while the run executes anyway (OME-1859). The start still answers 503 (or is cancelled). The held attempts of one start take one slot however many timed out, and its retry is never refused because of them. A held slot is freed when the runner next sees the run's terminal frame (a Run cancel's tombstone included), once the run can no longer exist (twice its deadline plus 300 s), or after the one-hour reservation lease. A publish that no JetStream server answers now gets a retryable 503 instead of a plain 500.
 * Attribute collected IFEval model-call failures using the existing collected error kind from the candidate execution boundary, including Gateway-rewritten diagnostic codes. Unmarked errors and protected checker failures retain grading attribution.
 
+## [2.2.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v2.1.0...screamingface-engine-v2.2.0) (2026-11-13)
+
+
+### Features
+
+* **e4c:** routers, cascades and per-Case budgets (OME-1864, OME-1865, OME-1866) ([#1733](https://github.com/ScreamingFace/screamingface/issues/1733)) ([baedbd4](https://github.com/ScreamingFace/screamingface/commit/baedbd47afd2b007caea403712b5d29a049fc174))
+
+
+### Bug Fixes
+
+* **screamingface-engine:** run Garage and the migrate Job on the chart's node placement ([#1797](https://github.com/ScreamingFace/screamingface/issues/1797)) ([d799f16](https://github.com/ScreamingFace/screamingface/commit/d799f163a2ac44e403b2d02e2d6bdb81a438fa37))
+
 ## [2.1.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v2.0.0...screamingface-engine-v2.1.0) (2026-11-13)
 
 
