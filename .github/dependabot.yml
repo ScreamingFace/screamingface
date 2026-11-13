@@ -221,6 +221,13 @@ updates:
       # They lift on unrelated triggers; do not unify them.
       - dependency-name: "typescript"
         versions: [">=7"]
+      # vue-tsc 3.3.12 through 3.3.14 lose the scoped-slot variable of the generic NbStateCarousel
+      # (`<template #default="{ step }">` -> TS2304 "Cannot find name 'step'" in
+      # QuickstartPage.vue); 3.3.11 type-checks clean with every other #1760 bump applied, and an
+      # explicit defineSlots<> on the carousel does not help. Lift when a later 3.3.x passes
+      # `npm run type-check` here.
+      - dependency-name: "vue-tsc"
+        versions: [">=3.3.12"]
     groups:
       public-docs-npm-security:
         applies-to: security-updates
