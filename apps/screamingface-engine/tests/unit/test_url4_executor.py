@@ -671,6 +671,9 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         # OME-1289 E4a: the combine route adapter registers /ensemble/combine/v1 on the node
         # (owner-approved edit, 2026-10-01).
         Path("screamingface_engine/world/combine.py"),
+        # OME-1291 E4c: the branch route adapter registers /ensemble/branch/v1 and
+        # /ensemble/select/v1 on the node, the same way as the combine adapter.
+        Path("screamingface_engine/world/branch.py"),
     }
 )
 

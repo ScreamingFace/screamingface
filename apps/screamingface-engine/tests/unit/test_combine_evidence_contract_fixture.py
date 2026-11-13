@@ -483,9 +483,11 @@ def test_the_scenarios_cover_the_evidence_shapes() -> None:
 
     assert {e.reducer for e in every} == set(get_args(Reducer))
     assert {e.kind for e in every} == set(get_args(EvidenceKind))
+    # E4c (OME-1291, budget #6, owner-approved edit): budget_refused is a Gate result only; no
+    # combine step writes it.
     assert {e.result.reason for e in every if e.result.status == "abstain"} == set(
         get_args(AbstainReason)
-    )
+    ) - {"budget_refused"}
     numbers = {
         key
         for e in every

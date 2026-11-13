@@ -19,6 +19,7 @@ from typing import Any, ClassVar, cast
 from screamingface._signals import (
     FIELD_SIGNAL_PREFIX,
     Signal,
+    _Comparison,
     _finite_number,
     signal,
 )
@@ -117,6 +118,24 @@ class GateBand:
         return f"{self.ref!r}.between({self.lo!r}, {self.hi!r})"
 
 
+@dataclass(frozen=True, slots=True)
+class AnsweredCondition:
+    """``sf.answered()``: the block's reducer gave an answer (E4c, a cascade's first success).
+
+    A panel condition with no number: it holds when the reducer answered, and fails when the
+    reducer abstained or no member answered, so a ``sf.Cascade`` stage escalates on a failure.
+    """
+
+    def __repr__(self) -> str:
+        return "answered()"
+
+
+def answered() -> AnsweredCondition:
+    """The condition that the block's reducer answered (``sf.Cascade`` first success, CA-10)."""
+
+    return AnsweredCondition()
+
+
 def agreement() -> GateRef:
     """The share of the members that hold the vote's answer: a gate reference in [0, 1]."""
 
@@ -136,6 +155,29 @@ def _condition(ref: GateRef, cmp: GateCmp, value: object) -> GateCondition:
     )
     ref._check_share(threshold)
     return GateCondition(ref, cmp, threshold)
+
+
+# The gate comparison of each sf.Filter predicate operator (``==`` has none).
+_ORDERED: dict[str, GateCmp] = {"lt": "<", "le": "<=", "gt": ">", "ge": ">="}
+
+
+def refuse_bare_signal(value: object, owner: str) -> None:
+    """Refuse ``sf.signal("x") < 0.7`` in a gate condition (E4c, owner decision 2026-11-12).
+
+    WHY: the bare comparison is the per-member predicate of ``sf.Filter``. In a condition it would
+    need a second meaning (the chosen member), and it would hide the choice between ``.chosen()``
+    and ``.mean()``. So a condition names the number it reads."""
+
+    if not isinstance(value, _Comparison):
+        return
+    sign = _ORDERED.get(value.cmp, "<")
+    name = value.signal.key
+    shown = value.value if not isinstance(value.value, bool) else 0.7
+    raise TypeError(
+        f"{owner} cannot read a bare signal: write sf.signal({name!r}).chosen() {sign} {shown} "
+        f"(the chosen member's value) or sf.signal({name!r}).mean() {sign} {shown} (the mean over "
+        "the members). A bare sf.signal(...) comparison is the per-member test of sf.Filter."
+    )
 
 
 def extractor(value: object) -> Extractor:
@@ -317,4 +359,4 @@ def _rule_name(value: str) -> str:
     return value if pinned is None else pinned.group(1)
 
 
-__all__ = ["Extract", "agreement", "field"]
+__all__ = ["Extract", "agreement", "answered", "field"]

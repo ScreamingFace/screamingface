@@ -211,7 +211,9 @@ def test_answer_v1_lists_output_missing() -> None:
 
     snapshot = Path(__file__).parent / "data" / "schemas" / "screamingface.answer.v1.json"
     data = json.loads(snapshot.read_text(encoding="utf-8"))
+    # E4c (OME-1291, budget #6, owner-approved edit): + budget_refused
     assert data["abstain_reason"] == [
+        "budget_refused",
         "cut_not_met",
         "gate_not_met",
         "in_band",
@@ -219,6 +221,7 @@ def test_answer_v1_lists_output_missing() -> None:
         "output_missing",
     ]
     assert data["reason"] == [
+        "budget_refused",
         "cut_not_met",
         "empty",
         "field_missing",

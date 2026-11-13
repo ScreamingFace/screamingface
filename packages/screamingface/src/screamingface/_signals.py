@@ -53,8 +53,8 @@ def is_signal_name(key: object) -> bool:
 _RESERVED = MappingProxyType(
     {
         "budget.remaining": (
-            "budget.remaining is a request-level Budget value that E4c compares read; "
-            "it is not an Answer signal"
+            "budget.remaining is a request-level Budget value (E4c): read it with "
+            "sf.budget.remaining() in a sf.Gate condition; it is not an Answer signal"
         )
     }
 )

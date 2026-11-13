@@ -338,12 +338,14 @@ def test_by_field_and_best_holder_goldens_cover_output() -> None:
 
 
 def test_answer_and_evidence_v1_list_output_missing() -> None:
+    # E4c (OME-1291, budget #6, owner-approved edit)
     assert get_args(AbstainReason) == (
         "no_votes",
         "cut_not_met",
         "output_missing",
         "gate_not_met",
         "in_band",
+        "budget_refused",
     )
     assert ABSTAIN_REASONS == (
         "no_votes",
@@ -351,8 +353,9 @@ def test_answer_and_evidence_v1_list_output_missing() -> None:
         "output_missing",
         "gate_not_met",
         "in_band",
+        "budget_refused",
     )
-    assert get_args(AnswerReason)[-2:] == ("gate_not_met", "in_band")
+    assert get_args(AnswerReason)[-3:] == ("gate_not_met", "in_band", "budget_refused")
     assert NoVotes(reason="output_missing").reason == "output_missing"
 
     schema = json.loads(
@@ -361,7 +364,8 @@ def test_answer_and_evidence_v1_list_output_missing() -> None:
     enums = list(_enum_lists(schema))
     no_votes_lists = [items for items in enums if "no_votes" in items]
     assert len(no_votes_lists) == 2
-    assert all(items[-1] == "in_band" for items in no_votes_lists)
+    # E4c (OME-1291, budget #6, owner-approved edit)
+    assert all(items[-2:] == ["in_band", "budget_refused"] for items in no_votes_lists)
 
 
 def _enum_lists(node: object) -> list[list[str]]:

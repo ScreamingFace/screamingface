@@ -39,7 +39,8 @@
     "model",
     "synthesis",
     "judge",
-    "writer"
+    "writer",
+    "selector"
   ],
   "unit": [
     "usd",
