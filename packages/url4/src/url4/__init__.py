@@ -104,6 +104,8 @@ from url4.core.nodes import (
 )
 from url4.core.parser import build, walk
 from url4.core.render import render
+from url4.dag.attachment import Attachment
+from url4.dag.attachments import current_attachments
 from url4.io.layer import (
     FetchRequest,
     FetchResult,
@@ -139,6 +141,7 @@ def __getattr__(name: str) -> object:
 
 
 __all__ = [
+    "Attachment",
     "Binding",
     "Client",
     "CodeCall",
@@ -185,6 +188,7 @@ __all__ = [
     "__version__",
     "broadcast",
     "build",
+    "current_attachments",
     "evaluate_sync",
     "expand",
     "expr",

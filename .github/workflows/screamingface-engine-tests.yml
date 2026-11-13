@@ -7,6 +7,8 @@ on:
       - "packages/url4/**"
       # the gateway-owned cache-hit fixture that tests/unit/test_cache_hit_contract.py consumes
       - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
+      # the gateway-owned live/replay twins that tests/unit/test_e4c_replay_price_parity_twin.py reads
+      - "apps/aigateway/tests/fixtures/replay_reference_twins/**"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
       - "packages/screamingface/tests/_combine_flow_fixtures.py"
       - ".github/workflows/screamingface-engine-tests.yml"
@@ -17,6 +19,8 @@ on:
       - "packages/url4/**"
       # the gateway-owned cache-hit fixture that tests/unit/test_cache_hit_contract.py consumes
       - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
+      # the gateway-owned live/replay twins that tests/unit/test_e4c_replay_price_parity_twin.py reads
+      - "apps/aigateway/tests/fixtures/replay_reference_twins/**"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
       - "packages/screamingface/tests/_combine_flow_fixtures.py"
       - ".github/workflows/screamingface-engine-tests.yml"
@@ -164,7 +168,9 @@ jobs:
             tests/integration/test_run_queue_roundtrip.py \
             tests/integration/test_run_queue_publish_settles_nats.py \
             tests/integration/test_warm_child_process.py \
-            tests/integration/test_queue_unclaimed_depth_nats.py
+            tests/integration/test_queue_unclaimed_depth_nats.py \
+            tests/integration/test_runner_demand_nats.py \
+            tests/integration/test_run_queue_reconcile_nats.py
       # A skip here means the probe did not find the broker and the job proved nothing.
       - name: Fail if the real-broker parameters were skipped
         run: |
@@ -175,6 +181,8 @@ jobs:
             tests/integration/test_run_queue_publish_settles_nats.py \
             tests/integration/test_warm_child_process.py \
             tests/integration/test_queue_unclaimed_depth_nats.py \
+            tests/integration/test_runner_demand_nats.py \
+            tests/integration/test_run_queue_reconcile_nats.py \
             | tee result.txt
           if grep -qE "[0-9]+ skipped" result.txt; then
             echo "::error::real-NATS conformance parameters were skipped — the broker was unreachable"

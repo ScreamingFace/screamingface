@@ -96,6 +96,10 @@ CONTROL_PLANE = {
     # WHY named for the same reason as `reaper`: the unclaimed-run warner polls WS subscribers
     # and sends notices from the serving process; left unlisted it would be a shared leaf.
     "unclaimed",
+    # WHY named for the same reason as `reaper`: the runner-demand sampler reads every bucket's
+    # queue consumer from the serving process and serves `/runner-demand` to the KEDA scaler; left
+    # unlisted it would be a shared leaf a Runner Job could import.
+    "runner_demand",
     "rest",
     "schemas",
     "ws",

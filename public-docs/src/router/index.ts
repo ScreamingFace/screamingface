@@ -179,6 +179,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/AnalyticsPage.vue'),
     },
     {
+      path: '/roadmap',
+      name: 'roadmap',
+      component: () => import('@/pages/RoadmapPage.vue'),
+    },
+    {
       path: '/learn',
       name: 'learn',
       component: () => import('@/pages/learn/ArchitecturePage.vue'),

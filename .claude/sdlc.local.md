@@ -55,6 +55,7 @@ stacks:
       - node --test tests/portal/benchmark-picker-keyboard.test.js
       - node --test tests/portal/catalog.test.js
       - node --test tests/portal/catalog-session.test.js
+      - node --test tests/portal/theme-init.test.js tests/portal/catalog-accessibility.test.js
       # The portal's pure logic, under Node's built-in runner — no package.json, no
       # vitest, no lockfile. NAMED EXPLICITLY, never a glob: measured on Node 24,
       # `node --test tests/portal/` fails (it resolves the directory as a module),

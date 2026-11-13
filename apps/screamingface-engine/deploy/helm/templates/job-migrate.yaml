@@ -68,4 +68,15 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+      {{- /* WHY: the migrate Job runs on the App's node pool and tolerates its taints, so it is not
+      stuck Pending on a tainted pool. `affinity` is not copied: its pod affinity names App pod labels.
+      Use `nodeSelector` for node placement. */}}
+      {{- with $.Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $.Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 {{- end }}

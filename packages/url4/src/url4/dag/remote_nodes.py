@@ -104,16 +104,34 @@ def check_remote_node(authority: str, path: str) -> None:
     raise _refuse(policy, authority, path)
 
 
-def preflight_remote_node(authority: str, path: str) -> None:
-    """Raise now if this evaluation could never call ``authority``; consume nothing.
+def precheck_remote_nodes(
+    calls: Iterable[tuple[str, str]], *, maybe: Iterable[tuple[str, str]] = ()
+) -> None:
+    """Refuse, before any I/O, every ``(authority, path)`` call this evaluation could not make.
 
-    WHY non-consuming: the preflight (``url4.dag._remote_preflight``) walks the graph before any
-    node runs. It refuses only what :func:`check_remote_node` would refuse whatever the order, so
-    the single hop stays for the call itself, and that call still checks (and spends) it.
+    FEATURE: PR #1587 review finding 4 (owner 2026-11-04) — the run-start attachment phase must
+    not fetch anything for a run C6 refuses. INVARIANT: read-only — the client's one hop is
+    checked, never spent (the real call spends it, :func:`check_remote_node`); a SECOND call to
+    that hop is refused here, as the real second call would be.
+    ``maybe`` holds calls the run makes only on some paths (its reduce processor: only on a
+    reduce). Each is refused unless it IS the still-unspent hop, but never charged against it.
+    WHY (CI on a74e15832, ``examples/url4_client.ipynb``): a ``Client(node=...)`` io whose first
+    declared route is the hop makes that hop the run's implicit processor; charging it as a
+    second call refused a passthrough run that never reduces. A reduce that does reach it after
+    the hop is spent is still refused by :func:`check_remote_node`, before its I/O.
     """
     policy = _POLICY.get()
-    if policy is not None and (policy.used or policy.hop != (authority, path)):
+    if policy is None:
+        return
+    hop_free = not policy.used
+    for authority, path in calls:
+        if hop_free and policy.hop == (authority, path):
+            hop_free = False
+            continue
         raise _refuse(policy, authority, path)
+    for authority, path in maybe:
+        if policy.used or policy.hop != (authority, path):
+            raise _refuse(policy, authority, path)
 
 
 def _refuse(policy: _Policy, authority: str, path: str) -> ResolutionError:
@@ -129,7 +147,7 @@ def _refuse(policy: _Policy, authority: str, path: str) -> ResolutionError:
 __all__ = [
     "allow_one_remote_hop",
     "check_remote_node",
-    "preflight_remote_node",
+    "precheck_remote_nodes",
     "refusal_mark",
     "refuse_remote_nodes",
     "remote_policy_active",

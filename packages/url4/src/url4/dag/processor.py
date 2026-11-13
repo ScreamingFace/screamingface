@@ -91,10 +91,18 @@ def _check_remote_processor(uri: str) -> None:
         check_remote_node(*hop)
 
 
-def remote_processor_hop(uri: str) -> tuple[str, str] | None:
-    """The ``(authority, path)`` a ``url4://`` processor URI calls; ``None`` for any other."""
-    scheme, sep, rest = uri.partition("://")
-    if not (sep and scheme.lower() == "url4"):
+def remote_processor_hop(value: str | None) -> tuple[str, str] | None:
+    """The ``(authority, path)`` a LITERAL ``url4://`` processor calls; ``None`` for any other.
+
+    WHY shared: the reduce-time check above and the run-start remote-node precheck
+    (``_run_files``, PR #1587 review, owner 2026-11-04) must read a processor URI the same way.
+    A Form-3 expression is ``None`` here: its value is only known once evaluated, and it is
+    checked when it resolves.
+    """
+    if value is None or classify_processor(value) != "uri":
+        return None
+    scheme, _, rest = value.strip().partition("://")
+    if scheme.lower() != "url4":
         return None
     authority, slash, path = rest.split("?", 1)[0].partition("/")
     return authority, f"/{path}" if slash else "/"

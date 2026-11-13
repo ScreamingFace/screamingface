@@ -320,6 +320,7 @@ def test_answer_v1_and_evidence_v1_snapshots_match() -> None:
             "output_missing",
             "gate_not_met",
             "in_band",
+            "budget_refused",  # E4c (OME-1291, budget #6, owner-approved edit)
         ],
         ["no_signal", "no_weight", "not_selected"],
     ]

@@ -25,7 +25,20 @@ import pytest
 from _combine_contract import ENGINE_APP, engine_operators, read_contract, requires_engine_app
 from _nodes import FusionNode, GateNode, JudgeNode, VoteNode, fusion_node
 from _vote_run_fixtures import spec_of
-from url4 import Expression, RelExpr, Source, Text, build, expr, render, src, struct, text
+from url4 import (
+    Expression,
+    Iteration,
+    RelExpr,
+    Source,
+    Text,
+    build,
+    expr,
+    render,
+    src,
+    struct,
+    text,
+    walk,
+)
 
 import screamingface as sf
 from screamingface._evaluation.benchmark import _CheckSurface
@@ -39,6 +52,7 @@ from screamingface._evaluation.url4 import _candidate_from_url4
 from screamingface._surface.chain import Step
 from screamingface._surface.lowering import lower
 from screamingface._surface.render import render as render_step
+from screamingface.branch import BranchNode, LazyDecision
 from screamingface.judge import judge_intent
 from screamingface.operation import OperationInfo
 from screamingface.reducer import _ModelSignal
@@ -579,6 +593,55 @@ def _fb_recovered(url4: str) -> FusionNode:
     return candidate
 
 
+def _fb_body_names(url4: str) -> list[str | None]:
+    """E4c lazy fallback: the source names of the gated otherwise body (the fallback, call #2)."""
+    for node in walk(_fb_root(url4)):
+        if (
+            isinstance(node, Source)
+            and node.name == "gate_1_else"
+            and isinstance(node.value, Iteration)
+        ):
+            body = build(f"({node.value.body})!{node.value.intent}")
+            assert isinstance(body, Expression)
+            return [source.name for source in body.sources if isinstance(source, Source)]
+    raise AssertionError("the url4 has no gated otherwise body")
+
+
+def _fb_rider_gate(url4: str) -> dict[str, Any]:
+    """E4c lazy fallback: the rider's Gate node (kind gate) of a gated vote with a fallback."""
+    riders = [
+        source
+        for source in _fb_root(url4).sources
+        if isinstance(source, Source) and source.name == "_sf_recipe"
+    ]
+    assert len(riders) == 1
+    rider = riders[0].value
+    assert isinstance(rider, Text)
+    recipe = json.loads(rider.value)["recipe"]
+    assert recipe["kind"] == "gate"
+    return recipe
+
+
+def _fb_recovered_gate(url4: str) -> BranchNode:
+    """E4c lazy fallback: the rebuilt chain of ``url4``, lowered to its Gate node."""
+    namespace: dict[str, Any] = {}
+    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
+    candidate = lower(namespace["candidate"])
+    assert isinstance(candidate, BranchNode)
+    return candidate
+
+
+def _fb_full_vote(node: BranchNode) -> VoteNode:
+    """The full gated vote of a lazy fallback (call #2), checked against call #1."""
+    assert node.panel is not None
+    decision = node.panel.synthesizer
+    assert isinstance(decision, LazyDecision)
+    assert node.then is decision
+    assert isinstance(node.otherwise, VoteNode)
+    assert decision.full == node.otherwise
+    return node.otherwise
+
+
 def _fb_linked(candidate: str) -> str:
     return render(
         expr(
@@ -589,6 +652,8 @@ def _fb_linked(candidate: str) -> str:
     )
 
 
+# E4c (OME-1291, lazy-fallback #24, owner-approved edit): the judge moved into the gated otherwise
+# body with call #2; call #1 decides (phase=decide, no fallback key); both share one spec.
 def test_judge_fallback_compiles_one_label_judge_call() -> None:
     compiled = _fb_compiled(_fb_fusion(_fb_judge()))
     url4 = compiled.url4
@@ -598,10 +663,11 @@ def test_judge_fallback_compiles_one_label_judge_call() -> None:
         "model_1",
         "model_2",
         "model_3",
-        "judge_1",
         "synthesis_1",
+        "gate_1_block",
         "_sf_recipe",
     ]
+    assert _fb_body_names(url4) == ["judge_1", "synthesis_2"]
     judge = calls["judge_1"]
     assert judge.model == "prov/judge"
     assert judge.context == _FB_OUTPUTS
@@ -609,11 +675,14 @@ def test_judge_fallback_compiles_one_label_judge_call() -> None:
     assert judge.prompt.endswith("Rubric:\nPick the best answer.")
     assert judge.prompt == judge_intent("label", _FB_RUBRIC)
     assert judge.params == (("binding", "judge_1"),)
-    assert calls["synthesis_1"].context == (
+    assert calls["synthesis_1"].context == _FB_OUTPUTS
+    assert calls["synthesis_1"].params == (("binding", "synthesis_1"), ("phase", "decide"))
+    assert calls["synthesis_2"].context == (
         "{input: '$input', outputs: {member_1: '$model_1', member_2: '$model_2', "
         "member_3: '$model_3'}, signals: {fallback_judge: '$judge_1'}}"
     )
-    assert decode_combine_spec(calls["synthesis_1"].raw_intent)["gate"] == {
+    assert calls["synthesis_2"].raw_intent == calls["synthesis_1"].raw_intent
+    assert decode_combine_spec(calls["synthesis_2"].raw_intent)["gate"] == {
         "cmp": ">=",
         "observe": "agreement",
         "otherwise": "judge",
@@ -621,18 +690,34 @@ def test_judge_fallback_compiles_one_label_judge_call() -> None:
     }
     assert compiled.operations[3:] == (
         OperationInfo(
+            id="op_synthesis_1", kind="combine", label="vote combine", depends_on=_FB_MEMBER_OPS
+        ),
+        OperationInfo(
             id="op_judge_1", kind="judge", label="vote fallback judge", depends_on=_FB_MEMBER_OPS
         ),
         OperationInfo(
-            id="op_synthesis_1",
+            id="op_synthesis_2",
             kind="combine",
             label="vote combine",
             depends_on=(*_FB_MEMBER_OPS, "op_judge_1"),
         ),
+        OperationInfo(
+            id="op_gate_1",
+            kind="gate",
+            label="gate gate",
+            depends_on=("op_synthesis_1", "op_synthesis_2"),
+        ),
     )
     assert compiled.models == ("prov/alpha", "prov/beta", "prov/gamma", "prov/judge")
-    assert _fb_rider_synthesizer(url4) == {
+    gate = _fb_rider_gate(url4)
+    assert gate["then"] == "step"
+    assert gate["panel"]["synthesizer"] == {
         "binding": "synthesis_1",
+        "kind": "reducer",
+        "name": "vote",
+    }
+    assert gate["otherwise"]["synthesizer"] == {
+        "binding": "synthesis_2",
         "kind": "reducer",
         "name": "vote",
         "signals": [
@@ -650,6 +735,8 @@ def test_judge_fallback_compiles_one_label_judge_call() -> None:
     }
 
 
+# E4c (OME-1291, lazy-fallback #24, owner-approved edit): the writer moved into the gated otherwise
+# body with call #2; call #1 decides (phase=decide, no fallback key).
 def test_writer_fallback_compiles_one_writer_call_without_projection() -> None:
     compiled = _fb_compiled(_fb_fusion(_fb_writer()))
     url4 = compiled.url4
@@ -659,20 +746,23 @@ def test_writer_fallback_compiles_one_writer_call_without_projection() -> None:
         "model_1",
         "model_2",
         "model_3",
-        "writer_1",
         "synthesis_1",
+        "gate_1_block",
         "_sf_recipe",
     ]
+    assert _fb_body_names(url4) == ["writer_1", "synthesis_2"]
     writer = calls["writer_1"]
     assert writer.model == "prov/writer"
     assert writer.context == _FB_OUTPUTS
     assert writer.prompt == _FB_WRITE
     assert writer.params == (("binding", "writer_1"),)
-    assert calls["synthesis_1"].context == (
+    assert calls["synthesis_1"].context == _FB_OUTPUTS
+    assert calls["synthesis_1"].params == (("binding", "synthesis_1"), ("phase", "decide"))
+    assert calls["synthesis_2"].context == (
         "{input: '$input', outputs: {member_1: '$model_1', member_2: '$model_2', "
         "member_3: '$model_3'}, signals: {fallback_writer: '$writer_1'}}"
     )
-    assert decode_combine_spec(calls["synthesis_1"].raw_intent)["gate"] == {
+    assert decode_combine_spec(calls["synthesis_2"].raw_intent)["gate"] == {
         "cmp": ">=",
         "observe": "agreement",
         "otherwise": "writer",
@@ -680,17 +770,26 @@ def test_writer_fallback_compiles_one_writer_call_without_projection() -> None:
     }
     assert compiled.operations[3:] == (
         OperationInfo(
+            id="op_synthesis_1", kind="combine", label="vote combine", depends_on=_FB_MEMBER_OPS
+        ),
+        OperationInfo(
             id="op_writer_1", kind="writer", label="vote fallback write", depends_on=_FB_MEMBER_OPS
         ),
         OperationInfo(
-            id="op_synthesis_1",
+            id="op_synthesis_2",
             kind="combine",
             label="vote combine",
             depends_on=(*_FB_MEMBER_OPS, "op_writer_1"),
         ),
+        OperationInfo(
+            id="op_gate_1",
+            kind="gate",
+            label="gate gate",
+            depends_on=("op_synthesis_1", "op_synthesis_2"),
+        ),
     )
     assert compiled.models == ("prov/alpha", "prov/beta", "prov/gamma", "prov/writer")
-    assert _fb_rider_synthesizer(url4)["signals"] == [
+    assert _fb_rider_gate(url4)["otherwise"]["synthesizer"]["signals"] == [
         {
             "key": "fallback_writer",
             "source": {
@@ -716,13 +815,16 @@ def test_quorum_panel_gives_the_fallback_the_panel(fallback: str) -> None:
     url4 = _fb_compiled(_fb_fusion(otherwise, members=members, quorum=2)).url4
     call = _fb_calls(url4)[f"{fallback}_1"]
 
+    # E4c (OME-1291, lazy-fallback #24, owner-approved edit): LF-17, the fallback call sits in the
+    # gated body and still reads the panel; the rebuilt Gate recompiles to the same bytes.
+    assert f"{fallback}_1" in _fb_body_names(url4)
     assert call.context == _FB_PANEL
     if fallback == "judge":
         assert call.prompt.startswith("judge-template@1 returns=label input=panel\n")
         assert call.prompt == judge_intent("label", _FB_RUBRIC, "panel")
     else:
         assert call.prompt == _FB_WRITE
-    assert _fb_compiled(_fb_recovered(url4)).url4 == url4
+    assert _fb_compiled(_fb_recovered_gate(url4)).url4 == url4
 
 
 @pytest.mark.parametrize("fallback", ["judge", "writer"])
@@ -753,17 +855,17 @@ def _fb_round_trip_recipes() -> dict[str, sf.Pipeline]:
     }
 
 
+# E4c (OME-1291, lazy-fallback #24, owner-approved edit): LF-19, the internal value is a Gate node
+# whose call #1 is a LazyDecision of the full gated vote (call #2, the otherwise body).
 @pytest.mark.parametrize("name", ["judge", "judge_weighted", "writer"])
 def test_gated_votes_with_a_fallback_call_round_trip_through_to_python(name: str) -> None:
     recipe = _fb_round_trip_recipes()[name]
     compiled = _fb_compiled(recipe)
     source = sf.Url4(compiled.url4).to_python()
-    rebuilt = _fb_recovered(compiled.url4)
+    rebuilt = _fb_recovered_gate(compiled.url4)
     lowered = lower(recipe)
-    assert isinstance(lowered, FusionNode)
-    original_vote, rebuilt_vote = lowered.synthesizer, rebuilt.synthesizer
-    assert isinstance(original_vote, VoteNode)
-    assert isinstance(rebuilt_vote, VoteNode)
+    assert isinstance(lowered, BranchNode)
+    original_vote, rebuilt_vote = _fb_full_vote(lowered), _fb_full_vote(rebuilt)
     assert original_vote.gate is not None
 
     assert _fb_compiled(rebuilt).url4 == compiled.url4
@@ -773,6 +875,7 @@ def test_gated_votes_with_a_fallback_call_round_trip_through_to_python(name: str
     gate_step = recipe.steps[-1]
     assert isinstance(gate_step, sf.Gate)
     assert render_step(gate_step.when, "sf.") in source
+    assert "otherwise=sf." in source
     assert _candidate_from_url4(_fb_linked(compiled.url4)).operations == compiled.operations
 
 
@@ -829,7 +932,10 @@ def _fb_hand_edits() -> dict[str, tuple[Callable[[], sf.Recipe], str, str]]:
 def test_hand_edited_gate_urls_cannot_rebuild(case: str) -> None:
     build_recipe, old, new = _fb_hand_edits()[case]
     url4 = _fb_compiled(build_recipe()).url4
-    assert url4.count(old) == 1
+    # E4c (OME-1291, lazy-fallback #24, owner-approved edit): a judge fallback is lazy, so its spec
+    # is in call #1 and call #2 (one spec, FB-I1); the hand edit changes both.
+    lazy = case in ("fallback_call_without_a_gate", "writer_gate_with_a_judge_call")
+    assert url4.count(old) == (2 if lazy else 1)
     tampered = url4.replace(old, new)
 
     with pytest.raises(ValueError, match="cannot rebuild|invalid Reducer topology metadata"):
@@ -857,15 +963,18 @@ def test_writer_default_prompt_rebuilds_without_prompt() -> None:
 
     assert _fb_calls(url4)["writer_1"].prompt == DEFAULT_SYNTHESIS_PROMPT
     assert "otherwise=sf.Synthesize('prov/writer'))" in sf.Url4(url4).to_python()
-    rebuilt = _fb_recovered(url4)
-    vote = rebuilt.synthesizer
-    assert isinstance(vote, VoteNode)
+    # E4c (OME-1291, lazy-fallback #24, owner-approved edit): the full gated vote is call #2.
+    rebuilt = _fb_recovered_gate(url4)
+    vote = _fb_full_vote(rebuilt)
     assert vote.gate is not None
     assert isinstance(vote.gate.otherwise, sf.Model)
     assert vote.gate.otherwise.prompt is None
     assert _fb_compiled(rebuilt).url4 == url4
 
 
+# E4c (OME-1291, lazy-fallback #24, owner-approved edit): LF-16, the scores judge stays a dependency
+# of call #1 (it runs on every Case); only the label judge moves into the gated body, and call #2
+# reads both.
 def test_judge_weighted_vote_with_a_judge_fallback_has_two_judge_calls() -> None:
     compiled = _fb_compiled(_fb_round_trip_recipes()["judge_weighted"])
     url4 = compiled.url4
@@ -876,10 +985,11 @@ def test_judge_weighted_vote_with_a_judge_fallback_has_two_judge_calls() -> None
         "model_2",
         "model_3",
         "judge_1",
-        "judge_2",
         "synthesis_1",
+        "gate_1_block",
         "_sf_recipe",
     ]
+    assert _fb_body_names(url4) == ["judge_2", "synthesis_2"]
     assert (calls["judge_1"].model, calls["judge_1"].prompt) == (
         "prov/scorer",
         judge_intent("scores", "Score."),
@@ -888,25 +998,37 @@ def test_judge_weighted_vote_with_a_judge_fallback_has_two_judge_calls() -> None
         "prov/judge",
         judge_intent("label", _FB_RUBRIC),
     )
-    assert calls["synthesis_1"].context.endswith(
+    assert calls["synthesis_1"].context.endswith("signals: {judge: '$judge_1'}}")
+    assert calls["synthesis_2"].context.endswith(
         "signals: {judge: '$judge_1', fallback_judge: '$judge_2'}}"
     )
     assert compiled.operations[3:] == (
         OperationInfo(id="op_judge_1", kind="judge", label="vote judge", depends_on=_FB_MEMBER_OPS),
         OperationInfo(
+            id="op_synthesis_1",
+            kind="combine",
+            label="vote combine",
+            depends_on=(*_FB_MEMBER_OPS, "op_judge_1"),
+        ),
+        OperationInfo(
             id="op_judge_2", kind="judge", label="vote fallback judge", depends_on=_FB_MEMBER_OPS
         ),
         OperationInfo(
-            id="op_synthesis_1",
+            id="op_synthesis_2",
             kind="combine",
             label="vote combine",
             depends_on=(*_FB_MEMBER_OPS, "op_judge_1", "op_judge_2"),
         ),
+        OperationInfo(
+            id="op_gate_1",
+            kind="gate",
+            label="gate gate",
+            depends_on=("op_synthesis_1", "op_synthesis_2"),
+        ),
     )
-    assert [signal["key"] for signal in _fb_rider_synthesizer(url4)["signals"]] == [
-        "judge",
-        "fallback_judge",
-    ]
+    assert [
+        signal["key"] for signal in _fb_rider_gate(url4)["otherwise"]["synthesizer"]["signals"]
+    ] == ["judge", "fallback_judge"]
 
 
 def _fb_engine_signal_pattern() -> re.Pattern[str]:

@@ -1,120 +1,359 @@
-"""``Gate``: keep the vote's answer only when a condition holds (E4b surface, surface §7, D5).
+"""``Gate``: run ``then`` when a condition holds and ``otherwise`` when it does not (E4b, E4c).
 
-FEATURE: ``Gate(*, when, then, otherwise="abstain", abstain_if=None)`` closes a block. ``when``
-compares a gate reference with a finite number; it is the condition that keeps the vote's answer.
-``then`` is a ``Vote``. ``otherwise`` gives the answer when the condition fails. A gate lowers to
-the internal ``VoteNode(gate=GateNode(observe, cmp, threshold, ...))`` (lowering §2.2).
+FEATURE: ``Gate(*, when, then, otherwise=None, abstain_if=None)`` is the one branch construct
+(E4c, OME-1291, ans:Q6, ans:Q9). It has two forms, and ``when=`` says which:
+
+- a **panel gate** reads a number on the answers of a ``sf.Fanout`` block (``sf.agreement()``,
+  ``sf.signal(x).chosen()`` or ``.mean()``); it closes the block, like a reducer step;
+- an **input gate** reads a label of the Case input (``sf.label(sel) == "x"``,
+  ``sf.labels(sel).has("x")``); it is a recipe: the candidate, a Pipeline stage or a branch.
+
+``then=`` and ``otherwise=`` each take a reducer step (panel gates), a recipe (a model route, a
+``sf.Model``, a chain, another input ``sf.Gate``) or an outcome: ``sf.abstain()`` or ``sf.fail()``
+(the word ``"abstain"`` is the E4b spelling of ``sf.abstain()`` and still works).
+A branch that is not taken makes zero model calls, and the report says why. An N-way choice is
+nested Gates. ``otherwise`` left out means ``sf.abstain()`` (and "skip" for a Fanout member Gate).
+A Gate takes a recipe ``otherwise`` only when its comparison is false: when the panel gave no
+answer, the Case abstains with the reason, and when the number is missing, the Case fails with
+``signal_missing`` (E4c, 2026-11-12). Only ``sf.answered()`` escalates on a missing answer.
+
+A panel gate whose branches are only the block's reducer and ``"abstain"`` (or an E4b
+``sf.JudgePick`` / ``sf.Synthesize`` fallback) compiles to the one combine call of E4b; every other
+gate compiles to the gated branch shape (``_evaluation/branch.py``).
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, TypeGuard, cast
 
-from screamingface._surface.chain import Step, _Category
+from screamingface._surface.budget import BudgetCondition, Estimate
+from screamingface._surface.chain import Step, _Category, is_step
 from screamingface._surface.judge import JudgePick
-from screamingface._surface.refs import GateBand, GateCondition, is_rule_name
-from screamingface._surface.steps import Vote, _check_by_lowering
+from screamingface._surface.outcomes import Outcome
+from screamingface._surface.refs import (
+    AnsweredCondition,
+    GateBand,
+    GateCondition,
+    is_rule_name,
+    refuse_bare_signal,
+)
+from screamingface._surface.selectors import LabelCondition
+from screamingface._surface.steps import (
+    ArgMax,
+    ArgMin,
+    First,
+    Mean,
+    Median,
+    Merge,
+    Vote,
+    _check_by_lowering,
+)
 from screamingface._surface.synthesize import Synthesize
+from screamingface.branch import GATE_IN_LOOP
 from screamingface.model import Model
-from screamingface.recipe import Recipe
+from screamingface.recipe import _BU11, Recipe
 
+# The E4b fallback of a vote gate (kept for the one-call compile and its lowering).
 type Fallback = Literal["abstain"] | JudgePick | Synthesize
+type Branch = Step | Recipe | str | Estimate | Outcome
+type Condition = GateCondition | AnsweredCondition | LabelCondition | BudgetCondition
 
 _ABSTAIN: Literal["abstain"] = "abstain"
-_OTHERWISE_RULE = "sf.Gate otherwise= takes 'abstain', sf.JudgePick(...) or sf.Synthesize(...)"
+_WORD_SHAPE = re.compile(r"[^a-z]")
+_WORD_SHAPES = frozenset({"abstain", "failclosed", "fail", "skip"})
+# The reducer steps a panel gate's branch may be (gate GT-6, ans:Q6).
+_REDUCE_STEPS: tuple[type, ...] = (Vote, Median, Mean, ArgMax, ArgMin, First, Merge, JudgePick)
+# The steps that choose one member, so a chosen:<name> gate can read the chosen member's value.
+_CHOOSING_STEPS: tuple[type, ...] = (Vote, ArgMax, ArgMin, First, JudgePick)
+_WHEN_RULE = (
+    "sf.Gate when= takes a condition such as sf.agreement() >= 0.7, "
+    "sf.signal('x').chosen() < 0.7, "
+    "sf.label(sel) == 'x' "
+    "or sf.budget.remaining() >= 0.02"
+)
+_GUARD_RULE = (
+    "sf.Gate when= takes a condition such as sf.label(sel) == 'x'; a guard cannot run Python code"
+)
+_PANEL_STEP = "a step in {name}= needs a panel: put the sf.Gate after a sf.Fanout, or give a recipe"
+
+
+def _branch_rule(name: str) -> str:
+    return f"sf.Gate {name}= takes a step, a recipe, sf.abstain() or sf.fail()"
 
 
 @dataclass(frozen=True, slots=True, init=False, repr=False)
-class Gate(Step):
-    """Keep the vote's answer when ``when`` holds; else ``otherwise`` gives the answer.
+class Gate(Step, Recipe):
+    """Run ``then`` when ``when`` holds; else ``otherwise``. The branch not taken makes no call.
 
-    ``when``: ``sf.agreement() >= x`` (``>=`` or ``>``, ``x`` in [0, 1]),
-    ``sf.signal("name").chosen() <op> x`` (the declared signal of the member the vote chose) or
-    ``sf.signal("name").mean() <op> x`` (its mean over the members), with ``>=``, ``>``, ``<=``
-    or ``<`` and a finite number. ``name`` is a name the block's ``sf.Fanout`` declares.
+    ``when``: a panel condition (``sf.agreement() >= x`` with ``>=`` or ``>`` and ``x`` in
+    [0, 1], ``sf.signal("name").chosen() <op> x``, ``sf.signal("name").mean() <op> x``; a bare
+    ``sf.signal("name") <op> x`` is refused: it is the per-member test of ``sf.Filter``), which
+    closes a ``sf.Fanout`` block; or an input condition (``sf.label(sel) == "x"``, ``!=``,
+    ``sf.labels(sel).has("x")``, ``.empty()``), which makes the Gate a recipe. Routing decides
+    before any answer exists, from the question; a cascade decides after an answer, from a number
+    on it.
 
-    ``then``: a ``sf.Vote`` whose ``over=`` is a rule name (until E4c). ``otherwise``:
-    ``"abstain"`` (the Case abstains with ``gate_not_met``), a ``sf.JudgePick`` that names a
-    member, or a ``sf.Synthesize`` with one model that writes the answer.
+    ``then`` / ``otherwise``: a reducer step (``sf.Vote()``, ``sf.Median()``, ... ; panel gates
+    only), a recipe, ``sf.abstain()`` (the Case declines with ``gate_not_met``) or ``sf.fail()``
+    (the Case fails with the code ``fail_closed`` and no model runs after the Gate). A recipe
+    branch answers the Gate's input. ``otherwise`` left out is ``sf.abstain()``.
 
-    ``abstain_if=ref.between(lo, hi)`` reads the same number as ``when``: inside the closed band
-    the Case abstains with ``in_band``, for every ``otherwise``.
+    A recipe ``otherwise`` runs only when the comparison is false. A panel that gave no answer
+    makes the Case abstain with the reason (``no_votes``, ...), and a missing number fails the
+    Case with ``signal_missing``; nothing falls back unless the recipe says so.
 
-    In E4b the ``otherwise`` call runs on every Case, also when the gate keeps the vote's answer;
-    E4c will skip it when the gate passes.
+    ``abstain_if=ref.between(lo, hi)`` (panel gates) reads the same number as ``when``: inside
+    the closed band the Case abstains with ``in_band`` and no branch runs.
+
+    The fallback branch runs only on the Cases where the gate takes it: the branch that is not
+    taken makes no model call, and the report shows it as not run.
     """
 
     _category: ClassVar[_Category] = "reduce"
-    when: GateCondition
-    then: Vote
-    otherwise: Fallback
+    when: Condition
+    then: Branch
+    otherwise: Branch | None
     abstain_if: GateBand | None
+    # E4c budget (BU-3): the author's sf.Estimate of each branch, unwrapped from then=/otherwise=.
+    estimates: tuple[Estimate | None, Estimate | None]
 
     def __init__(
         self,
         *,
-        when: GateCondition,
-        then: Vote,
-        otherwise: Fallback = _ABSTAIN,
+        when: Condition,
+        then: Branch,
+        otherwise: Branch | None = None,
         abstain_if: GateBand | None = None,
     ) -> None:
-        if not isinstance(when, GateCondition):
-            raise TypeError(
-                "sf.Gate when= takes a condition such as sf.agreement() >= 0.7 or "
-                "sf.signal('x').mean() <= 3.0"
-            )
+        refuse_bare_signal(when, "sf.Gate when=")
+        panel = _condition(when)
+        then_estimate, then = cast("tuple[Estimate | None, Branch]", _estimated(then))
+        otherwise_estimate, otherwise = cast(
+            "tuple[Estimate | None, Branch | None]", _estimated(otherwise)
+        )
         object.__setattr__(self, "when", when)
-        object.__setattr__(self, "then", _vote(then))
-        object.__setattr__(self, "otherwise", _fallback(otherwise))
+        object.__setattr__(self, "then", _branch(then, "then", panel))
+        object.__setattr__(
+            self, "otherwise", None if otherwise is None else _branch(otherwise, "otherwise", panel)
+        )
+        object.__setattr__(self, "estimates", (then_estimate, otherwise_estimate))
         object.__setattr__(self, "abstain_if", _band(abstain_if, when))
-        _check_by_lowering(self)
+        if panel:
+            _check_panel(self)
+            _check_by_lowering(self)
+
+    # --- the two forms ----------------------------------------------------------------------------
+
+    @property
+    def _panel(self) -> bool:
+        return isinstance(self.when, GateCondition | AnsweredCondition)
+
+    def _is_recipe(self) -> bool:
+        """An input gate is a recipe (the candidate, a stage, a branch); a panel gate is a step."""
+
+        return not self._panel
+
+    @property
+    def name(self) -> str:
+        return "gate"
+
+    @property
+    def optional(self) -> bool:
+        return False
+
+    @property
+    def _recipe_marker(self) -> None:
+        return None
+
+    def _budget_condition(self) -> BudgetCondition | None:
+        return self.when if isinstance(self.when, BudgetCondition) else None
+
+    def _is_skip_member(self) -> bool:
+        """Whether this Gate can be a Fanout member (a skip-Gate, ans:Q16, SM-8): an input gate
+        with no ``otherwise=`` and a recipe in ``then=``. An unselected member makes no call."""
+
+        return (
+            self._is_recipe()
+            and self.otherwise is None
+            and isinstance(self.then, Recipe)
+            and not is_step(self.then)
+        )
+
+    def _otherwise(self) -> Branch:
+        """``otherwise`` with the sentinel resolved: ``"abstain"`` (a member Gate's skip is the
+        Fanout's business, ``_surface/fanout.py``)."""
+
+        return _ABSTAIN if self.otherwise is None else self.otherwise
+
+    def _one_call(self) -> bool:
+        """Whether this panel gate compiles to E4b's one combine call: its branches are the
+        block's reducer and ``"abstain"``, or an E4b judge or writer fallback (E4b bytes, GT-17)."""
+
+        # E4c (lazy-fallback delta 1): a judge or writer fallback runs only in the Gate's fallback
+        # branch, so only the abstain word keeps the one combine call.
+        return (
+            isinstance(self.when, GateCondition)
+            and isinstance(self.then, Step)
+            and self._otherwise() == _ABSTAIN
+        )
+
+    def _steps(self) -> tuple[Step, ...]:
+        return tuple(value for value in (self.then, self.otherwise) if isinstance(value, Step))
 
     def _reads_judge(self) -> bool:
-        return self.then._reads_judge()
+        return any(step._reads_judge() for step in self._steps())
 
     def _sees_every_member(self) -> bool:
         # WHY: a judge or writer fallback makes its own call over the whole fanout context (O11).
-        return not isinstance(self.otherwise, str)
+        return isinstance(self.otherwise, JudgePick | Synthesize)
 
     def _recipes(self) -> tuple[Recipe, ...]:
-        return self.otherwise._recipes() if isinstance(self.otherwise, Synthesize) else ()
+        held: list[Recipe] = []
+        for value in (self.then, self.otherwise):
+            if isinstance(value, Synthesize):
+                held.extend(value._recipes())
+            elif isinstance(value, Recipe):
+                held.append(value)
+        return tuple(held)
 
     __hash__: ClassVar[Any] = None
 
 
-def _vote(value: object) -> Vote:
-    if not isinstance(value, Vote):
-        raise TypeError("sf.Gate then= takes sf.Vote until E4c")  # GA-3 (D5)
-    if not is_rule_name(value.over):
-        # GA-6 (O14): the gated VoteNode holds an operator name only.
-        raise ValueError("a gated vote reads a rule name in over= until E4c")
+def is_skip_member(value: object) -> TypeGuard[Gate]:
+    """Whether a Fanout member is a skip-Gate (ans:Q16, SM-8): the one surface test of it."""
+
+    return isinstance(value, Gate) and value._is_skip_member()
+
+
+def _condition(value: object) -> bool:
+    """True for a panel condition, False for an input condition, else TypeError (GT-13, GU-8)."""
+
+    if isinstance(value, GateCondition | AnsweredCondition):
+        return True
+    if isinstance(value, LabelCondition | BudgetCondition):
+        return False
+    if callable(value):
+        raise TypeError(_GUARD_RULE)
+    raise TypeError(_WHEN_RULE)
+
+
+def _branch(value: object, name: str, panel: bool) -> Branch:
+    """A checked branch value: a step (panel gates), a recipe or an outcome (GT-11, GT-12, GU-8)."""
+
+    if isinstance(value, Outcome | str):
+        return _word_or_route(value, name)
+    if is_step(value):
+        return _step_branch(value, name, panel)
+    if isinstance(value, Recipe):
+        return _recipe_branch(value)
+    raise TypeError(_GUARD_RULE if callable(value) else _branch_rule(name))
+
+
+def _estimated(value: object) -> tuple[Estimate | None, object]:
+    """An ``sf.Estimate`` branch as (its estimate, the branch it wraps); any other as (None, it)."""
+
+    if isinstance(value, Estimate):
+        if is_step(value.branch) and not isinstance(value.branch, (JudgePick, Synthesize)):
+            # BU-24: a reducer step makes no model call, so it has nothing to estimate.
+            raise ValueError("sf.Estimate wraps a branch that makes model calls")
+        return value, value.branch
+    return None, value
+
+
+def _word_or_route(value: Outcome | str, name: str) -> Branch:
+    """``sf.abstain()``/``sf.fail()`` as their word, the word ``"abstain"``, else a model route."""
+
+    if isinstance(value, Outcome):
+        return value.word
+    if value == "abstain":
+        return value  # the E4b spelling of sf.abstain()
+    if value == "fail_closed":
+        raise TypeError(f"{_branch_rule(name)}; write sf.fail() for 'fail_closed'")
+    if word_shaped(value):
+        raise TypeError(_branch_rule(name))
+    return Model(value)
+
+
+def word_shaped(value: str) -> bool:
+    """GT-12: "skip" is not a public word, "fail_closed" is written sf.fail(), and a word spelled
+    another way ("fail-closed", "ABSTAIN") is a typo, not a model route: a guard must never become
+    a model call."""
+
+    return _WORD_SHAPE.sub("", value.lower()) in _WORD_SHAPES
+
+
+def _step_branch(value: Step, name: str, panel: bool) -> Step:
+    if not isinstance(value, (*_REDUCE_STEPS, Synthesize)):
+        raise TypeError(_branch_rule(name))
+    if not panel:
+        raise ValueError(_PANEL_STEP.format(name=name))
     return value
 
 
-def _fallback(value: object) -> Fallback:
-    if isinstance(value, str):
-        if value != _ABSTAIN:
-            raise ValueError(_OTHERWISE_RULE)
-        return _ABSTAIN
-    if isinstance(value, JudgePick):
-        return value
-    if not isinstance(value, Synthesize):
-        raise TypeError(_OTHERWISE_RULE)
-    if not isinstance(value.model, Model):
-        raise ValueError(  # GA-4: the part 5 writer fallback is one model call
+def _recipe_branch(value: Recipe) -> Recipe:
+    # WHY lazy: corrective imports the recipe machinery this module builds on.
+    from screamingface._surface.budget import WithBudget
+    from screamingface.corrective import CorrectiveLoop, SelfCorrective
+
+    if isinstance(value, WithBudget):
+        raise ValueError(_BU11)  # BU-11
+    if isinstance(value, CorrectiveLoop | SelfCorrective):
+        raise ValueError(GATE_IN_LOOP)  # GT-27 (ans:Q26)
+    return value
+
+
+def _check_panel(gate: Gate) -> None:
+    """The panel gate rules: the decision reducer (GT-6, GT-16) and the E4b fallbacks."""
+
+    when = gate.when
+    steps = gate._steps()
+    otherwise = gate.otherwise
+    if isinstance(otherwise, JudgePick | Synthesize):
+        _check_e4b_fallback(gate.then, otherwise)
+        return
+    if isinstance(gate.then, Synthesize):
+        raise TypeError(_branch_rule("then"))
+    decision = next((step for step in steps if not isinstance(step, Synthesize)), None)
+    if not isinstance(when, GateCondition):
+        return  # sf.answered() reads the reducer's result, whichever reducer it is
+    if when.ref.observe == "agreement" and decision is not None and not isinstance(decision, Vote):
+        raise ValueError(
+            "sf.agreement() needs a sf.Vote in then= or otherwise=, or no reducer step at all"
+        )
+    if (
+        when.ref.observe.startswith("chosen:")
+        and decision is not None
+        and not isinstance(decision, _CHOOSING_STEPS)
+    ):
+        raise ValueError(
+            "sf.signal(x).chosen() needs a step that chooses one member in then= or otherwise="
+        )
+
+
+def _check_e4b_fallback(then: Branch, otherwise: JudgePick | Synthesize) -> None:
+    """The E4b judge or writer fallback: the vote of ``then`` decides, the fallback answers."""
+
+    if not isinstance(then, Vote):
+        raise TypeError(
+            "sf.Gate with a sf.JudgePick or sf.Synthesize fallback takes a sf.Vote in then="
+        )
+    if not is_rule_name(then.over):
+        raise ValueError("a vote with a judge or writer fallback reads a rule name in over=")
+    if isinstance(otherwise, Synthesize) and not isinstance(otherwise.model, Model):
+        raise ValueError(  # GA-4: the writer fallback is one model call
             "sf.Gate otherwise=sf.Synthesize(...) makes one model call: give it a model route "
             "or a sf.Model"
         )
-    return value
 
 
-def _band(value: object, when: GateCondition) -> GateBand | None:
+def _band(value: object, when: Condition) -> GateBand | None:
     if value is None:
         return None
     if not isinstance(value, GateBand):
         raise TypeError("sf.Gate abstain_if= takes ref.between(lo, hi)")
-    if value.ref != when.ref:
+    if not isinstance(when, GateCondition) or value.ref != when.ref:
         # GA-5 (O5): the Engine band is on the gated number.
         raise ValueError("abstain_if must read the same number as when")
     return value

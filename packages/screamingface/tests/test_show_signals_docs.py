@@ -54,10 +54,13 @@ def _first_features_bullets() -> list[str]:
 
     WHY not ``_unreleased_entries``: ``## Unreleased`` has two ``### Features`` lists, and that
     helper does not tell them apart.
+    WHY skip ``(E4c``: the E4c bullets lead the list (docs DC-9); E4b positions count after them.
     """
 
     features = _unreleased().split("\n### Features\n", 1)[1].split("\n### ", 1)[0]
-    return [entry.strip() for entry in features.split("\n* ")[1:]]
+    entries = [entry.strip() for entry in features.split("\n* ")[1:]]
+    # E4c (OME-1291, docs #15, owner-approved edit)
+    return [entry for entry in entries if "(E4c, `OME-1291`)" not in entry]
 
 
 def _part_4_bullets() -> list[str]:

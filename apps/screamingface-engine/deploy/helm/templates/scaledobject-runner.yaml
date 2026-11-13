@@ -1,0 +1,67 @@
+{{- if .Values.runnerPool.autoscaling.enabled }}
+{{- $autoscaling := .Values.runnerPool.autoscaling }}
+{{- $fullname := include "screamingface-engine.fullname" . }}
+# The runner pool's autoscaler (runner-pool autoscaling spec D4). Rendered only when
+# `runnerPool.autoscaling.enabled` is true; the KEDA operator must already run in the cluster.
+#
+# The trigger reads `GET /runner-demand` on the App Service: the CLAIMABLE demand, i.e. the running
+# runs plus the queued runs a new pod could claim inside each bucket's `max_ack_pending` headroom.
+# With `metricType: AverageValue` and `targetValue: workerSlots`, the HPA computes
+# `replicas = ceil(demand / workerSlots)` when the ratio leaves its tolerance. `scaleUp.tolerance`
+# (default 0) makes a scale-up exact; scale-down keeps the cluster default 10 %, so the pool can
+# stay up to ~10 % above need (cost, never a wait). Needs Kubernetes >= 1.35 and KEDA >= 2.18:
+# KEDA 2.17 (the AKS add-on, 2.17.2) drops `tolerance` silently, so the 10 % band comes back. On
+# such a KEDA, set `runnerPool.autoscaling.targetPerPod` (fallback, 3.6 for 4 slots) instead.
+# `scaleDown.enabled: false` renders `selectPolicy: Disabled` (no scale-down at all).
+#
+# FAIL-STATIC: no `fallback`. When the endpoint answers 503 (no sample, a stale one, or no bound bucket
+# consumer) or cannot
+# be reached, the scaler errors and the HPA keeps the current replica count. A missing reading
+# never scales the pool down.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ $fullname }}-runner
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+    app.kubernetes.io/component: runner
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ $fullname }}-runner
+  minReplicaCount: {{ $autoscaling.minReplicas }}
+  maxReplicaCount: {{ $autoscaling.maxReplicas }}
+  pollingInterval: {{ $autoscaling.pollingIntervalS }}
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: {{ $autoscaling.scaleUp.stabilizationS }}
+          tolerance: {{ $autoscaling.scaleUp.tolerance | default 0 | toString | quote }}
+          policies:
+            - type: Pods
+              value: {{ $autoscaling.scaleUp.podsPerStep }}
+              periodSeconds: {{ $autoscaling.scaleUp.stepS }}
+        scaleDown:
+          {{- if eq $autoscaling.scaleDown.enabled false }}
+          selectPolicy: Disabled
+          {{- end }}
+          stabilizationWindowSeconds: {{ $autoscaling.scaleDown.stabilizationS }}
+          policies:
+            - type: Pods
+              value: {{ $autoscaling.scaleDown.podsPerStep }}
+              periodSeconds: {{ $autoscaling.scaleDown.stepS }}
+  triggers:
+    - type: metrics-api
+      metricType: AverageValue
+      metadata:
+        format: json
+        url: {{ printf "http://%s.%s.svc.cluster.local:%v/runner-demand" $fullname .Release.Namespace .Values.service.port | quote }}
+        valueLocation: demand
+        {{- if kindIs "invalid" $autoscaling.targetPerPod }}
+        targetValue: {{ .Values.runnerPool.workerSlots | quote }}
+        {{- else }}
+        targetValue: {{ $autoscaling.targetPerPod | quote }}
+        {{- end }}
+{{- end }}
