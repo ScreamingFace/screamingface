@@ -127,6 +127,26 @@ def test_a_reply_inspect_refuses_stays_refused(reply: str) -> None:
     assert parse_wrapped_answers(_state(reply), multiple_correct=False) == set()
 
 
+#: A draft answer at the start of a line, then the final answer mid-line, both wrapped. inspect
+#: reads none of them; peeling every site would turn the draft into a line-start match, which
+#: inspect's strict pass prefers over the final answer (review of PR 1783).
+_RETRACTED_DRAFTS: list[str] = [
+    "ANSWER: (A)\nRe-checking, A fails. Final ANSWER: $C$",
+    "ANSWER: **A**\n\nWait, that's wrong. The final ANSWER: **C**",
+    "**ANSWER:** A\nNo, wrong. Final **ANSWER:** C",
+]
+
+
+@pytest.mark.parametrize("reply", _RETRACTED_DRAFTS)
+def test_a_retracted_draft_is_never_read_over_the_final_answer(reply: str) -> None:
+    """INVARIANT: only the last `ANSWER:` is peeled, so the final answer wins, as inspect's
+    "answer on the last line" reading intends. Reading the draft would only ever help the
+    Candidate: a retracted A would score 1 on a key of A."""
+
+    assert parse_answers(_state(reply), multiple_correct=False) == set()
+    assert parse_wrapped_answers(_state(reply), multiple_correct=False) == {"C"}
+
+
 def test_peeling_stops_after_three_layers() -> None:
     """WHY a cap: a reply of nested brackets is not peeled down to a stray letter."""
 
@@ -208,8 +228,10 @@ async def test_bbh_yes_no_subsets_read_a_wrapped_word(reply: str, expected: str)
     assert score is not None and score.value == expected
 
 
-def test_the_option_marking_pin_lands_on_exactly_the_rows_graded_from_marks() -> None:
-    """INVARIANT: an edit to the wrapped-letter rule moves every row it grades and no other."""
+def test_the_option_marking_pin_lands_on_exactly_the_rows_whose_scorer_is_listed() -> None:
+    """The pin follows ``OPTION_MARK_READERS``, and only it. WHY not more: no declaration says
+    which rows' Cases carry options (the adapter learns it per Case, from the Grading Material),
+    so the list is kept by hand; the next test makes a new choice scorer impossible to miss."""
 
     pinned: set[str] = {spec.key for spec in BENCHMARKS if _option_marking_pins(spec)}
     readers: set[str] = {spec.key for spec in BENCHMARKS if spec.scorer in OPTION_MARK_READERS}
@@ -218,3 +240,29 @@ def test_the_option_marking_pin_lands_on_exactly_the_rows_graded_from_marks() ->
     assert len(pinned) == 46
     assert {"mmlu_pro", "bbh", "lab_bench_litqa"} <= pinned
     assert not {"stereoset", "sad_influence", "mathvista"} & pinned
+
+
+#: Choice scorers that read the reply themselves, not the option marks, so the peel in the
+#: scorer adapter never changes their grade (read 2026-11-13, inspect_evals 0.20.0).
+_CHOICE_SCORERS_NOT_READING_MARKS: frozenset[str] = frozenset(
+    {
+        # its own prefix rule on the raw reply ("B", "(B)", "B London").
+        "inspect_evals.sad.sad:lenient_mcq_choice",
+        # the first character after the last "ANSWER: ".
+        "inspect_evals.stereoset.stereoset:multiple_choice_scorer",
+    }
+)
+
+
+def test_every_choice_scorer_is_classified_as_reading_marks_or_not() -> None:
+    """A row added with a new choice scorer fails here until someone decides whether it reads
+    the option marks (add it to ``OPTION_MARK_READERS``, so the rule pins its revision) or the
+    reply (add it above). WHY by name: it is the one signal assembly has without importing."""
+
+    choice_scorers: set[str] = {
+        spec.scorer for spec in BENCHMARKS if "choice" in spec.scorer.rpartition(":")[2]
+    }
+    in_use: set[str] = {spec.scorer for spec in BENCHMARKS}
+
+    assert choice_scorers <= OPTION_MARK_READERS | _CHOICE_SCORERS_NOT_READING_MARKS
+    assert OPTION_MARK_READERS <= in_use, "a listed reader no row uses any more"

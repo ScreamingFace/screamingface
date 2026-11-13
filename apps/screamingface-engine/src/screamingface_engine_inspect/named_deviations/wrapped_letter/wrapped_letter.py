@@ -20,8 +20,12 @@ reply inspect already reads, which is what broke there.
 Reading, in execution order:
 
     1. inspect's own reader on the reply as written. An answer → done, unchanged.
-    2. no answer → peel ONE layer from a copy: a wrapper right after each `ANSWER:` (see
-       ``_WRAPPERS``) and a bold or underlined label (`**ANSWER:** B`). Read the copy again.
+    2. no answer → peel ONE layer from a copy, at the LAST `ANSWER:` only: a bold or
+       underlined label (`**ANSWER:** B`) and the wrapper right after it (see ``_WRAPPERS``).
+       Read the copy again.
+       WHY the last only: inspect's strict pass prefers an `ANSWER:` that starts a line over a
+       later one mid-line, so peeling a retracted draft (`ANSWER: (A)` ... `Final ANSWER: $C$`)
+       would make the draft win. The final answer is the last one, as inspect's prompt asks.
     3. still none → peel the next layer, at most ``MAX_LAYERS`` in all, then give up with
        inspect's own "no answer".
 
@@ -51,6 +55,10 @@ MAX_LAYERS: int = 3
 #: Where an answer starts: the label and the spaces after it.
 _ANSWER_SITE: re.Pattern[str] = re.compile(r"(?i)ANSWER\s*:\s*")
 
+#: An answer label, bare or wrapped (`ANSWER:`, `**ANSWER:**`, `__ANSWER__:`); the last one is
+#: the only site the peel touches.
+_LABEL: re.Pattern[str] = re.compile(r"(?i)(?:\*\*|__)?ANSWER(?:\*\*|__)?\s*:")
+
 #: A bold or underlined label, `**ANSWER:** B` or `**ANSWER**: B` → `ANSWER: B`.
 _WRAPPED_LABEL: re.Pattern[str] = re.compile(r"(?i)(\*\*|__)(ANSWER)\s*(:)?\s*\1\s*(:)?")
 
@@ -76,24 +84,24 @@ def _label(match: re.Match[str]) -> str:
 
 
 def peel_one_layer(reply: str) -> str:
-    """The reply with one wrapper removed after each `ANSWER:`, and its label unwrapped."""
+    """The reply with one layer peeled at its last `ANSWER:`: the label unwrapped, then one
+    wrapper removed from what follows it. Every earlier part of the reply is kept as written."""
 
-    text: str = _WRAPPED_LABEL.sub(_label, reply)
-    pieces: list[str] = []
-    kept_up_to: int = 0
-    for site in _ANSWER_SITE.finditer(text):
-        start: int = site.end()
-        # WHY skip: a wrapper peeled at an earlier site already consumed this one.
-        if start < kept_up_to:
-            continue
-        for wrapper in _WRAPPERS:
-            hit: re.Match[str] | None = wrapper.match(text, start)
-            if hit is not None:
-                pieces += [text[kept_up_to:start], hit.group(1)]
-                kept_up_to = hit.end()
-                break
-    pieces.append(text[kept_up_to:])
-    return "".join(pieces)
+    labels: list[re.Match[str]] = list(_LABEL.finditer(reply))
+    if not labels:
+        return reply
+    head: str = reply[: labels[-1].start()]
+    tail: str = _WRAPPED_LABEL.sub(_label, reply[labels[-1].start() :], count=1)
+    site: re.Match[str] | None = _ANSWER_SITE.match(tail)
+    hit: re.Match[str] | None = None
+    if site is not None:
+        # The first wrapper in ``_WRAPPERS`` order that opens right after the label.
+        hit = next(
+            (found for wrapper in _WRAPPERS if (found := wrapper.match(tail, site.end()))), None
+        )
+    if hit is not None:
+        tail = tail[: hit.start()] + hit.group(1) + tail[hit.end() :]
+    return head + tail
 
 
 def peeled_copies(reply: str) -> list[str]:
@@ -135,6 +143,11 @@ def parse_wrapped_answers(state: TaskState, multiple_correct: bool) -> set[str]:
 
 async def peeled_score(scorer: Scorer, state: TaskState, target: Target) -> Score | None:
     """A pattern scorer's mark, retried on peeled copies only when it is not right.
+
+    INVARIANT: only for a scorer whose pattern reads the LAST `ANSWER:`. inspect_ai v0.3.263's
+    `AnswerPattern.LETTER` and `WORD` end in `(?!.*ANSWER\\s*:)` and `LINE` anchors on the end
+    of the reply, so a retracted draft earlier in the reply can never be read. A scorer using a
+    plain first-match `re.search` would read the first site instead: do not pass one here.
 
     WHY retry on "not right" and not on "no match": `AnswerPattern.WORD` and `LINE` match
     `**Yes**` and capture the stars too, so the mark is wrong with a match. A copy only ever
