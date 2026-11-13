@@ -94,3 +94,17 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   Tests: url4 `test_remote_node_processor_graph_preflight.py`, engine
   `test_engine_remote_node_processor_graph.py` (probe + controls); RED verified (4 url4, 4 engine
   cases). url4 `notebooks (examples/)` CI job reproduced locally: 3/3 notebooks ok.
+- **Round 4 (merge `origin/main` 4f7bb6e15, with #1587 / OME-1543):** both PRs had a run-start
+  remote-node refusal. Now ONE mechanism: #1587's `_run_files._precheck_remote` →
+  `remote_nodes.precheck_remote_nodes(calls, maybe=)` (AST scan, pre-built walk, Form-3 processor
+  scan; every run, nested too; before any attachment I/O). Folded from this PR:
+  `_static_processor.static_processor_value` now feeds the precheck's processor hop
+  (`_run_files._processor_hop`, node context only), as a `maybe` call like a literal one.
+  Removed as duplicates: `_remote_preflight.py`, `remote_nodes.preflight_remote_node`, and the
+  `_wire_spawn` preflight (the AST scan already covers map bodies and lazy groups). Kept: sticky
+  refusals (`refusal_mark` / `reraise_refusals_since` / `reraise_remote_refusal`, now recorded by
+  the precheck too) and the public `refuse_remote_nodes`. Hygiene ratchet: union (`url4` 61,
+  `url4.dag` 39). No test changed. Static-value fold is load-bearing: without it 2
+  `test_remote_node_deferred_preflight` cases fail. Gates: url4, screamingface-engine, repo
+  `--base origin/main` green; module-size within baseline; notebooks 3/3 ok. The OME-1811
+  ratchet approval needs re-pinning to the new base blob (owner).
