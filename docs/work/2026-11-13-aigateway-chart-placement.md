@@ -1,5 +1,5 @@
 ---
-ticket: none yet (epic OME-1314; unit ticket not filed)
+ticket: OME-1914
 stack: aigateway
 status: verified
 started: 2026-11-13
