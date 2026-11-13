@@ -85,6 +85,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "17_frames.ipynb": _frames_oracle_e2e(),
         "18_picture_benchmarks.ipynb": _picture_benchmarks_e2e(),
         "19_map_select_reduce.ipynb": _map_select_reduce(),
+        "20_runs.ipynb": _runs(),
     }
 
 
@@ -522,6 +523,176 @@ async with sf.AsyncClient(engine_url="http://127.0.0.1:9108") as async_client:
         nbformat.v4.new_code_cell("""\
 client.close()
 client.closed"""),
+    )
+
+
+def _runs() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# Find and manage your Runs
+
+Every `sf.evaluate(...)` creates an Engine-owned Run: an id, a state, and an outcome and cost for
+each Candidate. This notebook starts one, finds it again from its id, follows its progress, opens
+its Report, and cancels a Run.
+
+Listing and inspecting Runs make no model calls. The evaluation is **off by default**, and
+cancellation needs an explicit Run id."""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
+screamingface prepare ifeval  # first run only: download the pinned Benchmark assets
+screamingface up
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(_TARGET_SETUP),
+        nbformat.v4.new_markdown_cell("""\
+Local mode uses the local Engine's Run database. `TARGET = "hosted"` uses
+`fusion.screamingface.ai` and needs your Cloudflare Access login. Run metadata is visible on any
+machine signed in as the same owner, but `Run.report()` opens only a Report saved on this
+machine.
+
+`sf.connect()` shows the provider panel: on hosted it first asks you to log in, then on either
+target connect the provider of the Model in section 1 (OpenRouter) before evaluating."""),
+        nbformat.v4.new_code_cell("sf.connect()"),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Start an evaluation (paid, off by default)
+
+Set `RUN_EVALUATION = True` only when you are ready to make model calls. `report.run_id` is the id
+of the evaluation's Run. Each Candidate also has its own `attempt_id`: one attempt of one
+Candidate, not the Run (`CandidateResult.run_id` is its deprecated old name). An Engine without
+Runs still evaluates, but `report.run_id` is `None`."""),
+        nbformat.v4.new_code_cell("""\
+MODEL = sf.Model("openrouter/google/gemini-3-flash-preview")
+RUN_EVALUATION = False
+
+report = sf.evaluate(MODEL, benchmark="ifeval", limit=1) if RUN_EVALUATION else None
+if report is None:
+    started = "No paid evaluation started. Set RUN_EVALUATION = True to opt in."
+else:
+    started = {
+        "run_id": report.run_id,
+        "attempts": [candidate.attempt_id for candidate in report.candidates],
+    }
+started"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Find your Runs
+
+`sf.runs.list()` returns your Runs newest first. Filter by `state` to find active work, or by
+`since` (a timezone-aware datetime) for recent Runs. Listing works without starting anything."""),
+        nbformat.v4.new_code_cell("""\
+runs = sf.runs.list(limit=10)
+[
+    {
+        "id": item.id,
+        "benchmark": item.benchmark,
+        "state": item.state,
+        "created_at": item.created_at,
+        "finished_at": item.finished_at,
+        "cost_usd": item.cost_usd,
+    }
+    for item in runs
+]"""),
+        nbformat.v4.new_code_cell("""\
+from datetime import UTC, datetime, timedelta
+
+{
+    "running": [item.id for item in sf.runs.list(state="running", limit=10)],
+    "last_24h": [item.id for item in sf.runs.list(since=datetime.now(UTC) - timedelta(days=1))],
+}"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Reopen a Run and follow its progress
+
+`sf.runs.get(run_id)` returns a snapshot that never changes. `run.refresh()` reads the Engine
+again, and `run.progress()` counts finished Candidates and known spend without waiting. A
+Candidate that did not succeed carries an `error_code`. This uses the Run started above, or else
+your newest Run."""),
+        nbformat.v4.new_code_cell("""\
+if report is not None and report.run_id is not None:
+    run_id = report.run_id
+else:
+    run_id = runs[0].id if runs else None
+run = sf.runs.get(run_id) if run_id is not None else None
+
+if run is None:
+    snapshot = "No Runs yet. Opt in to the evaluation in section 1 to create one."
+else:
+    run = run.refresh()
+    progress = run.progress()
+    snapshot = {
+        "id": run.id,
+        "state": run.state,
+        "finished_at": run.finished_at,
+        "progress": f"{progress.done}/{progress.total} Candidates, ${progress.cost_usd}",
+        "candidates": [
+            {
+                "name": item.name,
+                "state": item.state,
+                "cost_usd": item.cost_usd,
+                "error_code": item.error_code,
+            }
+            for item in run.candidates
+        ],
+    }
+snapshot"""),
+        nbformat.v4.new_markdown_cell("""\
+`run.wait()` polls until the Run finishes and returns it; it raises `TimeoutError` past
+`timeout`. It blocks the cell, so it is off by default."""),
+        nbformat.v4.new_code_cell("""\
+WAIT_FOR_COMPLETION = False
+finished_run = run.wait(timeout=300) if WAIT_FOR_COMPLETION and run is not None else None
+finished_run.state if finished_run is not None else "Not waiting.\""""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Open the Run's Report
+
+`Run.report()` reads the results saved on this machine; the Engine does not keep model output.
+It raises `ExecutionError` with `code="run_not_finished"` while the Run is running, and
+`code="results_not_local"` when another machine ran it."""),
+        nbformat.v4.new_code_cell("""\
+if run is None:
+    recovered_report = "No Run to open yet."
+else:
+    reopened_run = sf.runs.get(run.id)
+    try:
+        recovered_report = reopened_run.report()
+    except sf.ExecutionError as exc:
+        recovered_report = f"{exc.code}: {exc.hint}"
+recovered_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. Cancel a Run (explicit id required)
+
+Cancellation is run-wide: it stops every Candidate still running and refuses the Run's later
+starts (`run_canceled`). A finished Run is left as it is. Pick an id from section 2 only when you
+intend to stop that Run."""),
+        nbformat.v4.new_code_cell("""\
+CANCEL_RUN_ID = None
+
+if CANCEL_RUN_ID is not None:
+    run_to_cancel = sf.runs.get(CANCEL_RUN_ID)
+    run_to_cancel.cancel()
+    cancellation = f"Cancellation requested for {CANCEL_RUN_ID}"
+else:
+    cancellation = "No Run cancelled. Set CANCEL_RUN_ID to the Run you intend to stop."
+cancellation"""),
+        nbformat.v4.new_markdown_cell("""\
+Once its Candidates have stopped, a cancelled Run reads `"canceled"`."""),
+        nbformat.v4.new_code_cell("""\
+sf.runs.get(CANCEL_RUN_ID).state if CANCEL_RUN_ID is not None else "Nothing cancelled.\""""),
+        nbformat.v4.new_markdown_cell("""\
+## 6. When a Run cannot be read
+
+`sf.runs.get` raises `KeyError` for an unknown id, or another owner's. Against an Engine that does
+not serve Runs, `sf.runs.list` and `sf.runs.get` raise `ExecutionError` with
+`code="runs_unavailable"`. In async code, use `await sf.runs.list_async(...)` and
+`await sf.runs.get_async(run_id)`."""),
+        nbformat.v4.new_code_cell("""\
+unknown = "found"
+try:
+    sf.runs.get("run_does_not_exist")
+except KeyError:
+    unknown = "KeyError: no such Run for this owner"
+unknown"""),
     )
 
 
