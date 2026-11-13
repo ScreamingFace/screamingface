@@ -915,3 +915,16 @@ call-context sibling binding refuses; an unnamed source sees a LATER named model
   a reduce that reaches it after the hop is spent is still refused by `check_remote_node`.
   Notebook untouched. Regressions in `test_review_round14.py` (client hop runs; a different
   remote processor under a client hop still refuses first). All round-14 tests unchanged/green.
+
+### Round 15 (HupBaHa review, 2026-11-13, head `659bd2c73`) — DONE
+- Unicode / Form-3 / client-hop fixes confirmed closed. Two High residuals:
+- Nested run: `_run_start` returned on a bound `current_run_files()` before the remote precheck;
+  under `bind_run_files(())` a mixed local/remote run executed `/a` first. Now the AST is scanned
+  and `_precheck_remote` runs before the nested early return (file admission still reuses the
+  outer snapshot).
+- Pre-built `Graph`/`DagNode`: no AST, so only the processor was prechecked. New
+  `_graph_admission.prebuilt_remote_calls` walks the graph (`Graph.walk` → `node_children`) for
+  `RemoteFetchNode`s plus remote calls in kept text, fed to the same non-consuming precheck.
+- Tests: new `test_review_round15.py` (both probes with tripwire io + model counter; controls:
+  nested local run, pre-built local graph, client one-hop nested and pre-built; hop twice in a
+  pre-built graph refuses first). No prior test touched; notebooks job reproduced locally green.
