@@ -127,7 +127,29 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   same walk. Compiles are policy-gated (a bare run compiles nothing extra); valid text keeps its
   scan. Tests (new files only): url4 `test_remote_node_grammar_blind_preflight.py` (9 refused
   cases + 4 controls + the Form-3 widening pin), engine `test_engine_remote_node_grammar_blind.py`
-  (5 refused cases + Form-3 pin + control). RED verified: 6 url4 + 4 engine on f0a02382a, then
-  2 url4 + 1 engine (fragment-only segment, uncompilable body) on the first round-5 commit. Also
+  (5 refused cases + Form-3 pin + control). RED verified (corrected in round 6): all 9 url4 + 5 engine refused
+  cases red on f0a02382a; the 2 url4 + 1 engine security-review cases (fragment-only segment,
+  uncompilable body) also red on the first round-5 commit 761f3553f. Also
   fixed the stale `MapNode.fragment` docstring. No ratchet / `url4.dag.__all__` change. Merged
   `origin/main` (01e8c8fa0).
+- **Round 6 (2026-11-13, independent re-check of 174ba12f9):** (1) a grammar-blind group in a
+  LOCAL call's context (`/c((('r1','r2')*(url4://…($item)!'i'))!'g')!'k'`) still ran members
+  first: `_walk_rel_expr` sent skipped context segments only to `malformed`, but the lowering
+  (`_lowering._slot_from_text`) defers such a segment into a caller-side `LazyExprNode`. My
+  round-5 "shipped verbatim" assumption was wrong (only a context with an unparseable
+  NON-group segment ships as prose). Fix: skipped context segments also go to
+  `SourceScan.opaque`. (2) The fail-closed regex now blanks `'…'` quote runs first
+  (a regex mirroring `core._scan.skip_quoted`; importing it would add a private-module crossing): a quoted `url4://` mention in an
+  uncompilable body was refused, even over an empty collection that completed on f0a02382a.
+  (3) The walk is iterative (`_total`: one unit per compiled text, post-order, calls counted per
+  occurrence capped at 2); a 300-deep run under a node policy escaped `run()` as a raw
+  `RecursionError`. Under a policy a spawned text is compiled one level at a time, as the spawn
+  hook does, with no strict re-parse at each level (that made a deep run cubic, 16 s). A
+  compile that still raises `RecursionError` is read like an uncompilable fragment: its
+  unquoted URIs are coded `maybe` refusals. (4) Round-5 RED counts corrected above. (5) Prose
+  contexts: an unparseable non-group context still lowers to a verbatim `RelUrlNode`, whose scan
+  is what it was, so plain prose and prose naming `url4://` both run (pinned). Tests (new files
+  only): url4 `test_remote_node_call_context_preflight.py` (7 refused cases, quoted/prose/deep
+  controls, too-deep compile fail-closed), engine `test_engine_remote_node_call_context.py`
+  (5 refused cases + quoted control). RED on 174ba12f9: 10 url4 + 6 engine; 4 url4 controls
+  green throughout. No ratchet / `url4.dag.__all__` change.

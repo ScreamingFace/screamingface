@@ -112,8 +112,8 @@ class SourceScan:
     malformed: tuple[str, ...] = ()  # owner 2026-11-02: refused, malformed_source
     # PR #1587 review finding 4: every url4:// remote-node call, (authority, path), in preorder.
     remote_nodes: tuple[tuple[str, str], ...] = ()
-    # PR #1750 round 5: iteration-body segments the strict grammar rejected (the spawn may still
-    # compile them); the remote precheck walks their compiled graph instead of this scan.
+    # PR #1750 rounds 5/6: iteration-body and call-context segments the strict grammar rejected
+    # (they may still compile); the remote precheck walks the compiled graph instead of this scan.
     opaque: tuple[str, ...] = ()
 
 
@@ -255,6 +255,10 @@ def _walk_rel_expr(node: RelExpr, bound: Mapping[str, Node], out: _Found, guards
         skipped = _walk_source_list(node.context, bound, out, guards, positional=False)
         opted_in = len(out.occurrences) + len(out.non_literal) > asked
         out.malformed.extend(s for s in skipped if opted_in or _looks_like_descriptor(s))
+        # WHY (PR #1750 round 6): the lowering may defer such a segment into a caller-side group
+        # that runs HERE (``_lowering._slot_from_text``), so the remote precheck must not trust
+        # this scan for it.
+        out.opaque.extend(skipped)
     if node.intent is not None:
         _walk(node.intent, bound, False, out, guards)
 
