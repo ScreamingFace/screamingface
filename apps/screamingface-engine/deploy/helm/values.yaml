@@ -840,6 +840,14 @@ nats:
   natsBox:
     enabled: false
 
+# Placement of the chart's pods. Each value names the workloads it reaches:
+#   nodeSelector and tolerations: the App, the runner pool, both Garage StatefulSets and the
+#   migrate Job.
+#   affinity: the App and the runner pool only. Garage and the migrate Job carry other labels.
+#   To put Garage and the migrate Job on a node pool, use `nodeSelector`, not a nodeAffinity.
+# Changing placement restarts a Garage pod. When its persistence is on, its PersistentVolume
+# (Azure Disk) is zonal, so the new pool must have a node in the disk's zone, or the Garage
+# pod stays Pending.
 nodeSelector: {}
 tolerations: []
 affinity: {}
