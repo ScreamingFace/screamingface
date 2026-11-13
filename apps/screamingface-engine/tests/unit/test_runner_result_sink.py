@@ -142,3 +142,52 @@ def test_a_prefix_on_a_pool_with_no_store_has_a_sink_with_none() -> None:
 
     assert sink is not None
     assert sink.store is None
+
+
+# --- the store answers before any model call (review of #1747) ------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_store_that_does_not_answer_fails_the_run_before_any_model_call() -> None:
+    """R5: a run that could not keep its result is found out before it spends, not after."""
+    built: list[bool] = []
+
+    async def world_factory() -> Any:
+        built.append(True)
+        raise AssertionError("no world may be built")
+
+    store = _Refusing()
+    executor = Url4Executor(
+        world_factory=world_factory, result_sink=ResultSink(PREFIX, store, budget_s=0)
+    )
+    steps: AsyncIterator[Any] = executor.execute("openai/gpt-5")
+
+    with pytest.raises(ResolutionError) as raised:
+        await anext(steps)
+
+    assert (raised.value.code, raised.value.permanent) == (RESULT_STORE_UNAVAILABLE, False)
+    assert built == []
+    assert store.puts == 1
+
+
+@pytest.mark.asyncio
+async def test_a_store_that_answers_is_written_once_before_the_world_is_built(
+    tmp_path: Path,
+) -> None:
+    """The check is a write, since the runner pool's key may only write. Its object is the
+    empty result's key under the Candidate's prefix, so it names nothing new."""
+    order: list[str] = []
+    store = FilesystemRunResultStore(tmp_path)
+
+    async def world_factory() -> Any:
+        order.append("world")
+        raise RuntimeError("stop here")
+
+    executor = Url4Executor(world_factory=world_factory, result_sink=ResultSink(PREFIX, store))
+    steps: AsyncIterator[Any] = executor.execute("openai/gpt-5")
+
+    with pytest.raises(Exception, match="stop here"):
+        await anext(steps)
+
+    assert _stored(tmp_path, "") == b""
+    assert order == ["world"]

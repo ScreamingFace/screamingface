@@ -344,9 +344,9 @@ class Settings(BaseSettings):
     run_sweep_interval_s: float = Field(default=3600.0, gt=0, allow_inf_nan=False)
 
     # --- the Engine's driver (OME-1837, E5 P2) ------------------------------------------------
-    # FEATURE: a detached Run. How many of one Run's Candidates are in flight at once (spec R1);
-    # the run queue's per-caller cap is the same 8.
-    run_driver_inflight: int = Field(default=8, ge=1)
+    # FEATURE: a detached Run. How many of one owner's Candidates, across their Runs, are in
+    # flight at once is the runner's per-caller cap (`run_queue_caller_inflight_cap`, spec R1),
+    # so it has no setting.
     # WHY 60 s (spec R4): renewed every third of it, so two missed renewals still hold the lease,
     # and a dead App's Runs are taken over within a minute.
     run_driver_lease_s: float = Field(default=60.0, gt=0, allow_inf_nan=False)

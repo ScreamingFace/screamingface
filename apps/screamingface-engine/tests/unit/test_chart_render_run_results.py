@@ -121,6 +121,15 @@ def test_the_runner_pool_may_have_a_write_only_key_of_its_own() -> None:
     assert _named(docs, "Secret", f"{_FULLNAME}-run-results-storage") is None
 
 
+def test_a_pool_key_of_its_own_on_the_bundled_garage_refuses_to_render() -> None:
+    """The bundled Garage adopts one key pair, so a pool key of its own would get 403 on every
+    write, failing every run at its probe."""
+    result = _helm(_RUNS_ON, "runResults.storage.s3.poolExistingSecret=run-results-pool")
+
+    assert result.returncode != 0
+    assert "runResults.storage.s3.poolExistingSecret" in result.stderr
+
+
 def test_runs_on_without_a_store_refuses_to_render() -> None:
     result = _helm(_RUNS_ON, "runResults.storage.backend=")
 

@@ -20,6 +20,7 @@ from screamingface_engine.artifacts.run_results import RESULT_STORE_UNAVAILABLE
 from screamingface_engine.auth import ProblemException
 from screamingface_engine.rest.capped_body import BodyTooLarge, capped_body
 from screamingface_engine.rest.gateway_route import problem_responses
+from screamingface_engine.rest.selector import refuse_selector
 from screamingface_engine.rest.stopping import QUEUE_UNAVAILABLE_RETRY_AFTER_S, stop_topic
 from screamingface_engine.runs.db import UNAVAILABLE_ERRORS
 from screamingface_engine.runs.ids import RUN_ID_PATTERN
@@ -92,8 +93,7 @@ class RunsRoute(APIRoute):
         async def runs_route_handler(request: Request) -> Response:
             # WHY before `route_handler`: that is where FastAPI reads and parses the body, so an
             # unparseable one would otherwise answer 422 ahead of Runs off and identity.
-            request_registry(request)
-            request_owner(request)
+            _admit(request, self.methods)
             try:
                 return await route_handler(await _capped(request))
             except RequestValidationError as exc:
@@ -124,6 +124,18 @@ class RunsRoute(APIRoute):
                 raise _unexpected_failure(exc) from None
 
         return runs_route_handler
+
+
+def _admit(request: Request, methods: set[str] | None) -> None:
+    """Runs off (404) and no identity (401) first; then, on `POST /runs`, a stated selector (400).
+
+    WHY the selector: `POST /runs` feeds the driver, which schedules, so it refuses one as the
+    start route does (OME-1381), before the body is read.
+    """
+    request_registry(request)
+    request_owner(request)
+    if methods and "POST" in methods:
+        refuse_selector(request.headers, problem_headers=dict(PRIVATE_HEADERS))
 
 
 async def _capped(request: Request) -> Request:

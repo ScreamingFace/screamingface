@@ -370,6 +370,21 @@ def _keep_result(sink: ResultSink, encoded: bytes) -> None:
         raise ResolutionError(str(exc), code=RESULT_STORE_UNAVAILABLE, permanent=False) from exc
 
 
+async def _check_sink(sink: ResultSink) -> None:
+    """Fail the run before it spends when it could not keep its result (E5 P2 spec R5): a pool
+    with no run-results store, or one the store does not answer within the write budget.
+
+    WHY a write: the runner pool's key may only write. It writes the empty result, whose key
+    is one the Candidate's prefix already allows, so no object of a new kind is kept.
+    """
+    if sink.store is None:
+        raise ResolutionError(
+            "this run must keep its result, and this pool has no run-results store",
+            code=RESULT_STORE_MISSING,
+        )
+    await asyncio.to_thread(_keep_result, sink, b"")
+
+
 class _RunState:
     """Accumulates one run's `url4.observe` events into wire-protocol span and cost frames.
 
@@ -997,12 +1012,9 @@ class Url4Executor(Executor):
         # no `ensure_stream`, so an attached client sees heartbeats forever and never a
         # Terminated. Resolving inside `execute` puts config and connect failures inside
         # `run`'s try, where they become Terminated(status="failed") with a real error code.
-        if self._result_sink is not None and self._result_sink.store is None:
+        if self._result_sink is not None:
             # R5: before the world, so before any model call is paid for.
-            raise ResolutionError(
-                "this run must keep its result, and this pool has no run-results store",
-                code=RESULT_STORE_MISSING,
-            )
+            await _check_sink(self._result_sink)
         await self._resolve_world()
         bridge = _Bridge(self._queue_cap, memory_budget=self._memory_budget)
         state = _RunState()

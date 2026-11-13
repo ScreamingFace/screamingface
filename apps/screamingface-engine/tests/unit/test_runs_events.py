@@ -156,7 +156,8 @@ class _App:
         self.portal.call(self.stream.publish, frame.subject, frame)
 
     def follow(self, run_id: str = RUN_ID, headers: dict[str, str] = ALICE) -> WebSocketTestSession:
-        return self.client.websocket_connect(f"/runs/{run_id}/events", headers=headers)
+        # WHY a copy: the test client adds its handshake headers to the mapping it is given.
+        return self.client.websocket_connect(f"/runs/{run_id}/events", headers=dict(headers))
 
 
 def _next(ws: WebSocketTestSession, *, heartbeats: bool = False) -> dict[str, Any]:
@@ -359,8 +360,17 @@ def test_a_follower_is_stamped_when_it_connects_and_when_it_leaves(
 # --- who may follow (spec D5) ------------------------------------------------------------
 
 
-@pytest.mark.parametrize("who", ["foreign", "unknown", "malformed", "no-identity", "runs-off"])
-def test_only_the_owner_follows_a_run(app_of: Callable[..., _App], who: str) -> None:
+@pytest.mark.parametrize(
+    ("who", "reason"),
+    [
+        ("foreign", "run_not_found"),
+        ("unknown", "run_not_found"),
+        ("malformed", "run_not_found"),
+        ("no-identity", "identity_required"),
+        ("runs-off", "runs_off"),
+    ],
+)
+def test_only_the_owner_follows_a_run(app_of: Callable[..., _App], who: str, reason: str) -> None:
     runs = _Runs(("scheduled", "t0"))
     app = app_of(None if who == "runs-off" else runs)
     run_id = {"unknown": "run_" + "0" * 32, "malformed": "nope"}.get(who, RUN_ID)
@@ -369,5 +379,18 @@ def test_only_the_owner_follows_a_run(app_of: Callable[..., _App], who: str) -> 
     with pytest.raises(WebSocketDisconnect) as refused, app.follow(run_id, headers) as ws:
         ws.receive_json()
 
-    assert refused.value.code == 1008
+    assert (refused.value.code, refused.value.reason) == (1008, reason)
     assert runs.stamps == []
+
+
+def test_a_registry_that_cannot_say_whose_the_run_is_asks_the_follower_to_retry(
+    app_of: Callable[..., _App],
+) -> None:
+    runs = _Runs(("scheduled", "t0"))
+    runs.down = 1
+    app = app_of(runs)
+
+    with pytest.raises(WebSocketDisconnect) as refused, app.follow() as ws:
+        ws.receive_json()
+
+    assert (refused.value.code, refused.value.reason) == (1013, "registry_unavailable")

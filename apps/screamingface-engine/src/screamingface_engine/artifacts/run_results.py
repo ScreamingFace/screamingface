@@ -45,6 +45,8 @@ _PREFIX = re.compile(rf"^{_RUN}/{_INDEX}$")
 # The first retry's wait, and the longest one (R5).
 _FIRST_DELAY_S = 0.5
 _MAX_DELAY_S = 10.0
+EMPTY_RESULT_SHA256 = hashlib.sha256(b"").hexdigest()
+"""The checksum of the empty result each run writes before it spends, as its probe (R5)."""
 DEFAULT_RESULT_WRITE_BUDGET_S = 60.0
 """How long a runner retries a refused write before it fails the run (R5)."""
 
@@ -219,6 +221,7 @@ def write_result(
 
 __all__ = [
     "DEFAULT_RESULT_WRITE_BUDGET_S",
+    "EMPTY_RESULT_SHA256",
     "RESULT_STORE_MISSING",
     "RESULT_STORE_UNAVAILABLE",
     "FilesystemRunResultStore",

@@ -18,7 +18,7 @@ import dataclasses
 import hashlib
 import logging
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, Response
 
@@ -45,6 +45,7 @@ from screamingface_engine.rest.runs_boundary import (
     stop_candidate,
 )
 from screamingface_engine.rest.runs_wire import RunBody, RunCreate, RunList
+from screamingface_engine.rest.selector import X_PROFILE_PARAMETER
 from screamingface_engine.runs.ids import RUN_ID_PATTERN, new_run_id
 from screamingface_engine.runs.records import (
     ContextRef,
@@ -102,6 +103,9 @@ def _spec(request: Request, body: RunCreate) -> RunSpec:
         if body.deadline_s > settings.run_detached_deadline_max_s:
             limit = int(settings.run_detached_deadline_max_s)
             raise _unprocessable(f"a deadline is at most {limit} s", DEADLINE_TOO_LONG)
+        # WHY here: a `timedelta` cannot hold every integer, so it is bounded before one is built.
+        if body.deadline_s <= 0:
+            raise _unprocessable("a deadline must be positive", INVALID_REQUEST)
     return RunSpec(
         client_key=body.client_key,
         benchmark=body.benchmark,
@@ -163,15 +167,28 @@ async def _register(
     key = context_key(spec.run_id)
     data = _context_bytes(request, context)
     ref = await _store_context(request, key, data)
-    created = False
     try:
         record, created = await registry.register(owner, dataclasses.replace(spec, context=ref))
-    finally:
-        # INVARIANT: a context is kept only under a Run that names it. A repeated `client_key`
-        # finds the first Run, which keeps its own.
-        if not created:
+    except BaseException:
+        # WHY ask: a register that failed may still have committed (its answer was lost), and
+        # that Run names this context. It is deleted only when no such Run exists.
+        if await _unregistered(registry, owner, spec.run_id):
             await _drop_context(request, key)
+        raise
+    # INVARIANT: a context is kept only under a Run that names it. A repeated `client_key`
+    # finds the first Run, which keeps its own.
+    if not created:
+        await _drop_context(request, key)
     return record, created
+
+
+async def _unregistered(registry: RunRegistry, owner: OwnerKey, run_id: str) -> bool:
+    """Whether the registry says no such Run exists. False when it cannot say: the context
+    then stays, and age removes it if nothing names it (spec R13)."""
+    try:
+        return await registry.summary(owner, run_id) is None
+    except Exception:
+        return False
 
 
 async def _read(
@@ -220,6 +237,7 @@ async def _stop_owed(request: Request, registry: RunRegistry, owner: OwnerKey, r
         },
         **private_problems(
             {
+                400: "A stated `X-Profile` (`x_profile_unsupported`); no Run was registered.",
                 409: "That `client_key` names another evaluation (`client_key_conflict`).",
                 413: "The body is over `run_request_max_bytes` (`request_too_large`).",
                 422: "An invalid Run (`invalid_request`), a deadline past the cap "
@@ -231,7 +249,13 @@ async def _stop_owed(request: Request, registry: RunRegistry, owner: OwnerKey, r
         ),
     },
 )
-async def create_run(request: Request, response: Response, body: RunCreate) -> RunBody:
+async def create_run(
+    request: Request,
+    response: Response,
+    body: RunCreate,
+    # Documents the refusal in OpenAPI; `RunsRoute` is what decides.
+    _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
+) -> RunBody:
     """201 with the new Run, or 200 with the caller's Run of the same `client_key`; 409
     `client_key_conflict` when that Run names another evaluation."""
     registry = request_registry(request)

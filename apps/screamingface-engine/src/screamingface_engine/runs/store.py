@@ -24,7 +24,12 @@ from tortoise.expressions import Q
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
-from screamingface_engine.artifacts.run_results import context_key, result_key, result_prefix
+from screamingface_engine.artifacts.run_results import (
+    EMPTY_RESULT_SHA256,
+    context_key,
+    result_key,
+    result_prefix,
+)
 from screamingface_engine.candidate_outcomes import CandidateOutcome, stored_cost
 from screamingface_engine.runs.db import CONNECTION
 from screamingface_engine.runs.ids import new_run_id
@@ -286,26 +291,29 @@ class TortoiseRunStore(DriverStore):
 
     @in_context
     async def stored_objects(self, run_ids: Sequence[str]) -> dict[str, list[str]]:
-        """The run-results keys each Run names: its context, and each Candidate's result by the
-        checksum in its record (E5 P2 spec R13). A malformed checksum names nothing."""
+        """The run-results keys each Run names: its context, each Candidate's result by the
+        checksum in its record, and each Candidate's probe, the empty result a run writes before
+        it spends (E5 P2 spec R5, R13). A malformed checksum names nothing."""
         keys: dict[str, list[str]] = {run_id: [] for run_id in run_ids}
         with_context = await Run.filter(
             id__in=list(run_ids), context_sha256__isnull=False
         ).values_list("id", flat=True)
         for run_id in cast(list[str], with_context):
             keys[run_id].append(context_key(run_id))
-        rows = await Candidate.filter(run_id__in=list(run_ids), record__isnull=False).values(
+        # WHY only a started Candidate's: one never started wrote no probe.
+        rows = await Candidate.filter(run_id__in=list(run_ids), topic__isnull=False).values(
             "run_id", "index", "record"
         )
         for row in rows:
-            result = row["record"].get("result") if isinstance(row["record"], dict) else None
+            prefix = result_prefix(row["run_id"], row["index"])
+            keys[row["run_id"]].append(result_key(prefix, EMPTY_RESULT_SHA256))
+            record = row["record"]
+            result = record.get("result") if isinstance(record, dict) else None
             digest = result.get("sha256") if isinstance(result, dict) else None
-            if not isinstance(digest, str):
+            if not isinstance(digest, str) or digest == EMPTY_RESULT_SHA256:
                 continue
             with contextlib.suppress(ValueError):
-                keys[row["run_id"]].append(
-                    result_key(result_prefix(row["run_id"], row["index"]), digest)
-                )
+                keys[row["run_id"]].append(result_key(prefix, digest))
         return keys
 
     @in_context

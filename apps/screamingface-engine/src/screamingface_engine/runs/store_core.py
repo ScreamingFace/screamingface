@@ -175,6 +175,10 @@ def _run_record(rows: Iterable[dict[str, Any]]) -> RunRecord:
     ordered = sorted(rows, key=lambda row: row["index"])
     first = ordered[0]
     stopped_by = cast(StopReason | None, first["run_stopped_by"])
+    if stopped_by is None and first["run_canceled"]:
+        # E5 P2 spec R12, R15: every P2 stop records its reason with the flag, so a flag alone
+        # is a cancel by an App from before P2, made while a deploy rolled after the migration.
+        stopped_by = "canceled"
     state = derive_state(
         [cast(CandidateState, row["state"]) for row in ordered],
         canceled=stopped_by == "canceled",

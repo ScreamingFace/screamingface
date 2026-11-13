@@ -456,8 +456,8 @@ DELETE /runs/{id}   → 202, or 204 when every Candidate is already terminal
   carries the owner or the owner's email.
 - **Starts.** Each Candidate is `{name, url4, answer_seed, capture, use_cache,
   replay_frozen_copy}`, checked as the start route checks its headers. The App's driver starts
-  them, at most `URL4_CLOUD_RUN_DRIVER_INFLIGHT` (8) at once, under the owner's identity. A
-  Candidate named without its start is `422 invalid_request`.
+  them, as many at once as the per-caller cap admits (`GET /v1/limits`, 24), under the owner's
+  identity. A Candidate named without its start is `422 invalid_request`.
 - **Detach and deadline.** `detach: true` keeps the Run going with nobody following, until its
   `deadline_s` (default 48 h, at most 7 days: `422 deadline_too_long`; without `detach`: `422
   deadline_needs_detach`). An attached Run stops, `stopped_by: "orphaned"`, once nobody has
@@ -466,7 +466,8 @@ DELETE /runs/{id}   → 202, or 204 when every Candidate is already terminal
   the Run, with its `sha256` and size on the Run; at most `URL4_CLOUD_RUN_CONTEXT_MAX_BYTES`
   (4 MiB, `422 context_too_large`). A store that cannot take it answers `503
   result_store_unavailable`, and no Run is registered. A body over
-  `URL4_CLOUD_RUN_REQUEST_MAX_BYTES` (8 MiB) answers `413 request_too_large`.
+  `URL4_CLOUD_RUN_REQUEST_MAX_BYTES` (8 MiB) answers `413 request_too_large`, and a stated
+  `X-Profile` `400 x_profile_unsupported`, as on the start route.
 - **Reads.** `GET /runs/{id}` adds `detached`, `deadline_at`, `stopped_by`, `context`, and each
   Candidate's `index`, `start` and `record` (the Candidate's usage, cache and capture facts, null
   until it ends). `?view=summary` and the list leave `start` and `record` out.

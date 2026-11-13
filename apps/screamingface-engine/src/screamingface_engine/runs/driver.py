@@ -1,9 +1,10 @@
 """The Engine's driver: it starts each Run's Candidates, and stops a Run when it should stop.
 
 FEATURE: a detached Run (OME-1837), E5 P2 spec R1 to R4 and R7 to R11. The Client sends a Run once
-with every Candidate's start; from then on the Engine starts them, at most `inflight` at a time,
-whether or not anyone is following, and stops the Run on a cancel, at a detached Run's deadline, or
-when nobody has followed an attached Run for `orphan_grace_s`.
+with every Candidate's start; from then on the Engine starts them, with at most `inflight` of the
+owner's in flight across their Runs, whether or not anyone is following, and stops the Run on a
+cancel, at a detached Run's deadline, or when nobody has followed an attached Run for
+`orphan_grace_s`.
 
 INVARIANT (R4): one driver per Run. Each Run is driven under its lease in the registry, taken and
 renewed by a conditional write, so of two App processes only one starts its Candidates, and a
@@ -40,6 +41,7 @@ from screamingface_engine.catalog.admission import RunModelAdmission
 from screamingface_engine.config import Settings
 from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
 from screamingface_engine.runner_queue import RunQueueUnavailable
+from screamingface_engine.runs.db import UNAVAILABLE_ERRORS
 from screamingface_engine.runs.records import (
     CandidateStart,
     DueRun,
@@ -60,7 +62,10 @@ logger = logging.getLogger(__name__)
 
 # The verified identity a start carries (`job_env.IDENTITY_HEADER_ENV`): the Run's owner (R1).
 _OWNER_HEADER = "X-User-Email"
-# The code of a permanent refusal that names none.
+# A start that failed on one of these sent nothing, or nothing known: the queue or the Run
+# registry could not be reached, and the same start goes again.
+_UNREACHABLE: tuple[type[Exception], ...] = (RunQueueUnavailable, *UNAVAILABLE_ERRORS)
+# The code of a refusal that names none.
 _REFUSED = "start_refused"
 
 
@@ -69,7 +74,7 @@ class DriverSettings:
     """The driver's timings. ``retry_s`` is the fixed backoff when the runner gives no delay
     (R14: the in-process runner never does)."""
 
-    inflight: int = 8
+    inflight: int = 24
     lease_s: float = 60.0
     tick_s: float = 15.0
     outcome_grace_s: float = 120.0
@@ -78,9 +83,13 @@ class DriverSettings:
     retry_s: float = 5.0
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> DriverSettings:
+    def from_settings(cls, settings: Settings, job_runner: object) -> DriverSettings:
+        """``inflight`` is the per-caller cap the runner enforces (OME-1314), or the setting it
+        is built from when the runner states none: a Run's owner is one caller, so the driver
+        starts as many of the owner's Candidates as the queue admits for that caller."""
+        cap = getattr(job_runner, "caller_inflight_cap", None)
         return cls(
-            inflight=settings.run_driver_inflight,
+            inflight=cap if isinstance(cap, int) else settings.run_queue_caller_inflight_cap,
             lease_s=settings.run_driver_lease_s,
             tick_s=settings.run_driver_tick_s,
             outcome_grace_s=settings.run_outcome_grace_s,
@@ -97,7 +106,9 @@ class DriverRegistry(Protocol):
     ) -> Awaitable[bool]: ...
     def release_run(self, run_id: str, held_until: datetime) -> Awaitable[None]: ...
     def due_runs(self, now: datetime) -> Awaitable[list[DueRun]]: ...
-    def pending_starts(self, run_id: str) -> Awaitable[StartPlan | None]: ...
+    def pending_starts(
+        self, run_id: str, *, inflight: int | None = None
+    ) -> Awaitable[StartPlan | None]: ...
     def overdue(self, run_id: str, before: datetime) -> Awaitable[list[str]]: ...
     def stop(
         self, run_id: str, reason: StopReason, *, unless_followed_since: datetime | None = None
@@ -265,16 +276,15 @@ class RunDrivers:
         return live
 
     async def _drive_held(self, run_id: str, now: datetime) -> bool:
-        plan = await self._registry.pending_starts(run_id)
+        plan = await self._registry.pending_starts(run_id, inflight=self._settings.inflight)
         if plan is None:
             return False
         await self._settle_overdue(run_id, now)
         if not plan.stopped:
-            room = self._settings.inflight - plan.in_flight
-            for pending in plan.pending[: max(room, 0)]:
+            for pending in plan.pending:
                 if await self._start(plan, pending) is _Start.RETRY:
                     break
-        return bool(plan.pending) or plan.in_flight > 0
+        return plan.waiting > 0 or plan.in_flight > 0
 
     async def _renew(self, run_id: str, now: datetime) -> bool:
         until = now + timedelta(seconds=self._settings.lease_s)
@@ -320,9 +330,9 @@ class RunDrivers:
             if exc.retry_after_s is not None:
                 self._delays[plan.run_id] = float(exc.retry_after_s)
             result = _Start.RETRY
-        except RunQueueUnavailable:
+        except _UNREACHABLE:
             # Nothing is known to have started; the same start goes again (D6).
-            logger.warning("the run queue is unavailable; %s is retried", topic, exc_info=True)
+            logger.warning("the queue or the registry is down; %s is retried", topic, exc_info=True)
             result = _Start.RETRY
         except JobAlreadyExists:
             result = _Start.STARTED  # R14: the in-process runner holds a task for it
@@ -354,13 +364,26 @@ class RunDrivers:
         )
 
     async def _refused(self, topic: str, exc: Exception) -> _Start:
-        """A refusal that says it is permanent settles the Candidate `failed` with its code; any
-        other failure is retried, since the start may still land (R1)."""
-        if getattr(exc, "permanent", False) is not True:
+        """A start refused for a reason the runner does not name as transient settles the
+        Candidate `failed`, with the refusal's code when it has one (R1).
+
+        WHY failed and not retried: the runner raises `JobRunnerAtCapacity` and
+        `RunQueueUnavailable` for what a retry can cure, and lets through what would fail the
+        same way again (a message the broker will never take). Retried, such a start would hold
+        its Run until the deadline. A refusal that says it is not permanent is still retried.
+        """
+        if getattr(exc, "permanent", None) is False:
             logger.warning("starting %s failed; it is retried", topic, exc_info=exc)
             return _Start.RETRY
         code = getattr(exc, "code", None)
         error_code = storable_error_code(code if isinstance(code, str) and code else _REFUSED)
+        # WHY the type alone: the error's text may quote the start, which carries prompts.
+        logger.warning(
+            "starting %s was refused (%s, %s); its Candidate fails",
+            topic,
+            type(exc).__name__,
+            error_code,
+        )
         await self._registry.settle(topic, CandidateOutcome("failed", error_code))
         return _Start.DONE
 

@@ -578,6 +578,13 @@ backup, so it is a test cluster's store; production names a durable bucket with 
 fails unless the credentials are supplied. The App and the pool read the key pair by named
 `secretKeyRef`, and carry a `checksum/run-results-secret` annotation so a rotation rolls both.
 
+**Network policy.** The App and the runner pool both reach the run-results store: the App to
+store and serve contexts and results, the pool to write each run's result. A platform
+NetworkPolicy must admit both to it: to the bundled Garage's pods
+(`app.kubernetes.io/component: garage-run-results`) on port 3900, or to the external bucket's
+endpoint. Without that rule a driver-started run fails `result_store_unavailable` before any model
+call, after the write budget, and `POST /runs` with a context answers 503.
+
 ## Blob storage (OME-1540)
 
 Files a client uploads over `PUT /blob/sha256/<hex>` for its run's model calls are kept in a

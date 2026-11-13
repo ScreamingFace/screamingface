@@ -271,7 +271,7 @@ class _RunsLifecycle:
             store,
             self._job_runner,
             stream=self._events,
-            settings=DriverSettings.from_settings(self._settings),
+            settings=DriverSettings.from_settings(self._settings, self._job_runner),
             clock=_utc_now,
             model_admission=source if isinstance(source, RunModelAdmission) else None,
         )

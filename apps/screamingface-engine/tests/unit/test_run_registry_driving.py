@@ -478,3 +478,42 @@ async def test_a_run_id_minted_by_the_route_is_the_runs_id(registry: Registry) -
     run = await registry.store.create(ALICE, replace(start_spec(), run_id=run_id))
 
     assert run.id == run_id
+
+
+async def test_pending_starts_load_only_the_starts_there_is_room_for(registry: Registry) -> None:
+    """WHY: a start may be most of a MiB, and the driver reads its plan every few seconds; a
+    Run with no free slot must not load every waiting Candidate's start each time."""
+    run = await registry.store.create(ALICE, start_spec("a", "b", "c", "d"))
+    await _start(registry, run.id, 0)
+
+    full = await registry.store.pending_starts(run.id, inflight=2)
+    none = await registry.store.pending_starts(run.id, inflight=1)
+
+    assert full is not None and none is not None
+    assert [p.index for p in full.pending] == [1]
+    assert (full.waiting, full.in_flight) == (3, 1)
+    assert (none.pending, none.waiting) == ((), 3)
+
+
+async def test_the_room_counts_what_the_owners_other_runs_have_in_flight(
+    registry: Registry,
+) -> None:
+    """The runner caps a caller, not a Run: a Run waiting behind the same owner's other Run has
+    no room, so it loads no start."""
+    first = await registry.store.create(ALICE, start_spec("a", "b", client_key="k1"))
+    second = await registry.store.create(ALICE, start_spec("a", "b", client_key="k2"))
+    other = await registry.store.create(owner_key("bob@example.org"), start_spec("a"))
+    for run_id, owner, index, topic in (
+        (first.id, ALICE, 0, "t-first-0"),
+        (first.id, ALICE, 1, "t-first-1"),
+        (other.id, owner_key("bob@example.org"), 0, "t-bob-0"),
+    ):
+        await registry.store.bind(owner, run_id, index, topic)
+        await registry.store.mark_scheduled(topic)
+
+    blocked = await registry.store.pending_starts(second.id, inflight=2)
+    one_slot = await registry.store.pending_starts(second.id, inflight=3)
+
+    assert blocked is not None and one_slot is not None
+    assert (blocked.pending, blocked.waiting, blocked.in_flight) == ((), 2, 0)
+    assert [p.index for p in one_slot.pending] == [0]

@@ -13,6 +13,7 @@ from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
+import asyncpg.exceptions as asyncpg_errors
 import pytest
 import pytest_asyncio
 from run_driver_support import SETTINGS, DriverRunner, drivers
@@ -151,6 +152,93 @@ async def test_a_permanent_refusal_settles_the_candidate_failed_with_its_code(
     assert (candidate.state, candidate.error_code) == ("failed", "model_not_found")
 
 
+async def test_a_start_that_can_never_be_queued_fails_and_the_others_still_start(
+    registry: Registry,
+) -> None:
+    """R1: the runner names its transient refusals (at capacity, the queue unreachable); any
+    other error would fail the same way on every retry, so it must not hold the Run."""
+    run, _ = await registry.store.register(ALICE, start_spec("a", "b", "c"))
+    runner = DriverRunner()
+    runner.refusals = [ValueError("the message is larger than the broker takes")]
+    driver = drivers(registry.store, runner, registry.clock)
+
+    await driver.drive_once(run.id)
+
+    record = await _record(registry, run.id)
+    assert _states(record) == ["failed", "scheduled", "scheduled"]
+    assert record.candidates[0].error_code == "start_refused"
+    assert len(runner.starts) == 2
+
+
+async def test_a_refusal_that_says_it_is_not_permanent_is_retried(registry: Registry) -> None:
+    run, _ = await registry.store.register(ALICE, start_spec("a"))
+    runner = DriverRunner()
+    runner.refusals = [ResolutionError("try again", code="busy", permanent=False)]
+    driver = drivers(registry.store, runner, registry.clock)
+
+    await driver.drive_once(run.id)
+    assert _states(await _record(registry, run.id)) == ["pending"]
+    await driver.drive_once(run.id)
+
+    assert _states(await _record(registry, run.id)) == ["scheduled"]
+
+
+async def test_a_registry_that_cannot_bind_leaves_the_candidate_to_the_next_pass(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A database blip is not the start's fault: nothing was sent, and it is sent later."""
+    run, _ = await registry.store.register(ALICE, start_spec("a", "b"))
+    runner = DriverRunner()
+    driver = drivers(registry.store, runner, registry.clock)
+    real = registry.store.bind
+
+    async def down(*args: object, **kwargs: object) -> None:
+        raise ConnectionError("the database is down")
+
+    monkeypatch.setattr(registry.store, "bind", down)
+    await driver.drive_once(run.id)
+    assert _states(await _record(registry, run.id)) == ["pending", "pending"]
+    assert runner.starts == []
+
+    monkeypatch.setattr(registry.store, "bind", real)
+    await driver.drive_once(run.id)
+
+    assert _states(await _record(registry, run.id)) == ["scheduled", "scheduled"]
+
+
+@pytest.mark.parametrize(
+    "lost",
+    [
+        asyncpg_errors.ConnectionDoesNotExistError("the backend was terminated"),
+        asyncpg_errors.AdminShutdownError("the server is shutting down"),
+        asyncpg_errors.InterfaceError("connection is closed"),
+    ],
+)
+async def test_a_connection_lost_while_rebinding_leaves_the_candidate_to_the_next_pass(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch, lost: Exception
+) -> None:
+    """R1: a query that loses its Postgres connection mid-flight is the database being down, not
+    the start being wrong, even when the next query works and could settle it `failed`."""
+    run, _ = await registry.store.register(ALICE, start_spec("a"))
+    runner = DriverRunner()
+    runner.refusals = [JobRunnerAtCapacity(8, 8)]
+    driver = drivers(registry.store, runner, registry.clock)
+    await driver.drive_once(run.id)  # the Candidate keeps its topic, pending
+    real = registry.store.bind
+
+    async def drop(*args: object, **kwargs: object) -> None:
+        raise lost
+
+    monkeypatch.setattr(registry.store, "bind", drop)
+    await driver.drive_once(run.id)
+    assert _states(await _record(registry, run.id)) == ["pending"]
+
+    monkeypatch.setattr(registry.store, "bind", real)
+    await driver.drive_once(run.id)
+
+    assert _states(await _record(registry, run.id)) == ["scheduled"]
+
+
 async def test_a_topic_the_in_process_runner_holds_counts_as_started(registry: Registry) -> None:
     """R14: that runner refuses a topic while its task runs, which means the start landed."""
     run, _ = await registry.store.register(ALICE, start_spec("a"))
@@ -286,8 +374,23 @@ def test_the_driver_settings_come_from_the_engine_settings() -> None:
     from screamingface_engine.runs.driver import DriverSettings
 
     settings = DriverSettings.from_settings(
-        Settings(run_driver_inflight=4, orphan_grace_s=60, job_deadline_s=3600)
+        Settings(run_queue_caller_inflight_cap=4, orphan_grace_s=60, job_deadline_s=3600),
+        DriverRunner(),
     )
 
     assert (settings.inflight, settings.orphan_grace_s, settings.job_deadline_s) == (4, 60, 3600)
     assert job_env.DRIVER_SPEC_VERSION == "3"
+
+
+def test_a_run_has_as_many_candidates_in_flight_as_the_runner_admits_for_one_caller() -> None:
+    """R1: a Run's fan-out is the per-caller cap the runner enforces (OME-1314), so the driver
+    never holds an evaluation below what the queue would admit, nor asks for more."""
+    from screamingface_engine.config import Settings
+    from screamingface_engine.runs.driver import DriverSettings
+
+    class _Capped(DriverRunner):
+        caller_inflight_cap = 6
+
+    settings = DriverSettings.from_settings(Settings(run_queue_caller_inflight_cap=24), _Capped())
+
+    assert settings.inflight == 6

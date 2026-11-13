@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -86,6 +88,47 @@ def storable_error_code(code: str | None) -> str | None:
     return UNSTORABLE_ERROR_CODE
 
 
+# What Postgres JSONB refuses in text and SQLite keeps: a NUL, and a lone surrogate.
+_UNSTORABLE_TEXT = re.compile("[\x00\ud800-\udfff]")
+
+
+MAX_RECORD_DEPTH = 32
+"""How deeply a record nests. The Engine's fold nests three levels; the bound keeps a hostile one
+from exhausting the stack, which would read as a crash and not as a malformed outcome."""
+
+
+def _storable(value: Any, depth: int) -> Any:
+    result = value
+    if isinstance(value, str):
+        result = _UNSTORABLE_TEXT.sub("\ufffd", value)
+    elif isinstance(value, float) and not math.isfinite(value):
+        result = None
+    elif isinstance(value, Mapping | list | tuple):
+        if depth >= MAX_RECORD_DEPTH:
+            raise ValueError(f"a record nests at most {MAX_RECORD_DEPTH} levels")
+        if isinstance(value, Mapping):
+            result = {
+                _storable(key, depth): _storable(item, depth + 1) for key, item in value.items()
+            }
+        else:
+            result = [_storable(item, depth + 1) for item in value]
+    return result
+
+
+def storable_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    """``record`` as either registry database stores it: U+FFFD for a NUL or a lone surrogate
+    in any text, and null for a number that is not finite.
+
+    WHY changed and not refused: the text is a provider's error message, and an outcome that
+    Postgres could never write would be redelivered for a day, holding back the outcomes fetched
+    with it. Its state, error code and cost must land.
+
+    Raises:
+        ValueError: ``record`` nests more than `MAX_RECORD_DEPTH` levels.
+    """
+    return _storable(record, 0)
+
+
 logger = logging.getLogger(__name__)
 
 MAX_OUTCOME_BYTES = 64 * 1024
@@ -116,8 +159,12 @@ class CandidateOutcome:
     record: Mapping[str, Any] | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
-        if self.record is not None and not isinstance(self.record, Mapping):
-            raise ValueError("an outcome's record is a JSON object")
+        if self.record is not None:
+            if not isinstance(self.record, Mapping):
+                raise ValueError("an outcome's record is a JSON object")
+            # INVARIANT: every outcome's record can be written on either database, whoever
+            # built it: a producer here, or the codec reading another's.
+            object.__setattr__(self, "record", storable_record(self.record))
         if self.status not in OUTCOME_STATUSES:
             raise ValueError(f"an outcome status is one of {sorted(OUTCOME_STATUSES)}")
         cost = self.cost_usd

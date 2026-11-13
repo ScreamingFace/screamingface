@@ -15,6 +15,7 @@ import pytest
 
 from screamingface_engine.candidate_outcomes import (
     MAX_OUTCOME_BYTES,
+    MAX_RECORD_DEPTH,
     CandidateOutcome,
     decode_outcome,
     encode_outcome,
@@ -91,3 +92,62 @@ def test_an_outcome_too_large_to_publish_is_refused_at_encode() -> None:
 
     with pytest.raises(ValueError, match="bytes"):
         encode_outcome("t1", CandidateOutcome("failed", finished_at=FINISHED, record=record))
+
+
+# --- a record every registry database can store ---------------------------------------------
+
+
+def test_a_record_keeps_only_what_either_database_can_store() -> None:
+    """WHY: Postgres JSONB refuses a NUL, a lone surrogate and a non-finite number, which SQLite
+    keeps; an outcome that could never be written would be redelivered until it expired."""
+    record = {
+        "error": {"message": "a\x00b\ud800c", "details": {"k\x00": [float("nan"), 1.5, "\udfff"]}},
+        "usage": {"input_tokens": 3},
+    }
+
+    outcome = CandidateOutcome("failed", finished_at=FINISHED, record=record)
+
+    assert outcome.record == {
+        "error": {"message": "a�b�c", "details": {"k�": [None, 1.5, "�"]}},
+        "usage": {"input_tokens": 3},
+    }
+
+
+def test_a_decoded_record_is_storable_whatever_its_producer_sent() -> None:
+    body = json.loads(encode_outcome("t1", CandidateOutcome("failed", finished_at=FINISHED)))
+    body["record"] = {"error": {"message": "a\x00b"}}
+
+    _, outcome = decode_outcome(json.dumps(body).encode())
+
+    assert outcome.record == {"error": {"message": "a�b"}}
+
+
+def _nested(depth: int) -> dict[str, Any]:
+    record: dict[str, Any] = {}
+    for _ in range(depth - 1):
+        record = {"d": record}
+    return record
+
+
+def test_a_record_nested_past_the_limit_is_malformed_not_a_crash() -> None:
+    """INVARIANT: the outcome writer skips a malformed outcome; anything else it raises restarts
+    it on the same message, holding back every outcome behind it."""
+    body = json.loads(encode_outcome("t1", CandidateOutcome("failed", finished_at=FINISHED)))
+    body["record"] = _nested(1_200)
+
+    with pytest.raises(ValueError, match="record"):
+        decode_outcome(json.dumps(body).encode())
+
+
+def test_a_record_as_deep_as_the_limit_is_kept() -> None:
+    record = _nested(MAX_RECORD_DEPTH)
+
+    assert CandidateOutcome("failed", finished_at=FINISHED, record=record).record == record
+    with pytest.raises(ValueError, match="record"):
+        CandidateOutcome("failed", finished_at=FINISHED, record=_nested(MAX_RECORD_DEPTH + 1))
+
+
+def test_a_storable_record_is_kept_as_it_is() -> None:
+    record = {"error": {"message": "plain ünïcode 😱"}, "cache_hits": 2}
+
+    assert CandidateOutcome("failed", finished_at=FINISHED, record=record).record == record

@@ -19,6 +19,9 @@ no Garage's Service load-balances onto another's store.
 INVARIANT: the key pair comes from `secret-run-results-storage.yaml`, the Secret the App reads.
 */}}
 {{- if include "screamingface-engine.runResultsGarageEnabled" . }}
+{{- if .Values.runResults.storage.s3.poolExistingSecret }}
+{{- fail "runResults.storage.s3.poolExistingSecret needs an external store (runResults.storage.s3.endpointUrl): the bundled run-results Garage adopts one key pair, and would refuse the pool's" }}
+{{- end }}
 {{- $name := printf "%s-garage-run-results" (include "screamingface-engine.fullname" .) -}}
 apiVersion: v1
 kind: ConfigMap

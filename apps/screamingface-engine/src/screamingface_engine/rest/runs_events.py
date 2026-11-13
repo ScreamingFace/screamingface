@@ -50,6 +50,8 @@ _NORMAL = 1000
 _INTERNAL_ERROR = 1011
 _POLICY_VIOLATION = 1008
 _TRY_AGAIN_LATER = 1013
+# Why the route itself ends a follow, beside the close code.
+_CLOSE_REASONS = {_POLICY_VIOLATION: RUN_NOT_FOUND}
 _HEARTBEAT = '{"type":"heartbeat"}'
 # How long a Candidate's `candidate.settled` waits for its terminal frame once the registry says
 # it ended. WHY a bound: a subscription that stalls must not keep the follower from the record.
@@ -120,7 +122,7 @@ class _Follow:
                 item = _HEARTBEAT
             try:
                 if isinstance(item, int):
-                    await self._ws.close(code=item)
+                    await self._ws.close(code=item, reason=_CLOSE_REASONS.get(item))
                     return
                 await self._ws.send_text(item)
             except (WebSocketDisconnect, RuntimeError):
@@ -300,34 +302,37 @@ def _quietly(task: asyncio.Task[None]) -> None:
         _logger.debug("a Run event pump ended", exc_info=task.exception())
 
 
-@router.websocket("/runs/{run_id}/events")
-async def run_events(websocket: WebSocket, run_id: str) -> None:
-    """Closes with 1008 before the handshake completes when Runs are off, the caller has no
-    identity, or the Run is not the caller's; with 1013 when the registry cannot say whose it
-    is."""
-    registry: RunRegistry | None = getattr(websocket.app.state, "run_registry", None)
-    owner = request_caller(websocket)
-    refusal = None
-    if registry is None:
-        refusal = RUNS_OFF
-    elif owner is None:
-        refusal = "identity_required"
-    elif not RUN_ID_PATTERN.fullmatch(run_id):
-        refusal = RUN_NOT_FOUND
-    if refusal is not None or registry is None or owner is None:
-        await websocket.close(code=_POLICY_VIOLATION, reason=refusal or RUN_NOT_FOUND)
-        return
+async def _admitted(
+    registry: RunRegistry | None, owner: OwnerKey | None, run_id: str
+) -> RunRecord | tuple[int, str]:
+    """The Run, for its owner; else why the follow is refused, as a close code and reason."""
+    if registry is None or owner is None:
+        return _POLICY_VIOLATION, RUNS_OFF if registry is None else "identity_required"
     try:
-        run = await registry.summary(owner, run_id)
+        run = await registry.summary(owner, run_id) if RUN_ID_PATTERN.fullmatch(run_id) else None
     except Exception:
         _logger.warning("the event stream of %s could not read the registry", run_id)
-        await websocket.close(code=_TRY_AGAIN_LATER, reason="registry_unavailable")
-        return
-    if run is None:
-        await websocket.close(code=_POLICY_VIOLATION, reason=RUN_NOT_FOUND)
-        return
+        return _TRY_AGAIN_LATER, "registry_unavailable"
+    return (_POLICY_VIOLATION, RUN_NOT_FOUND) if run is None else run
+
+
+@router.websocket("/runs/{run_id}/events")
+async def run_events(websocket: WebSocket, run_id: str) -> None:
+    """Closes with 1008 and the Problem's code as its reason when Runs are off (`runs_off`), the
+    caller has no identity (`identity_required`), or the Run is not the caller's
+    (`run_not_found`); with 1013 `registry_unavailable` when the registry cannot say whose it
+    is, which a follower retries."""
+    registry: RunRegistry | None = getattr(websocket.app.state, "run_registry", None)
+    owner = request_caller(websocket)
+    admitted = await _admitted(registry, owner, run_id)
+    # WHY accept first: a close before the handshake reaches the client as a bare HTTP 403,
+    # whatever its code, so a follower could not tell "retry" (1013) from "not yours" (1008).
     await websocket.accept()
-    await _Follow(websocket, registry, owner, run_id, websocket.app.state.settings).run(run)
+    if isinstance(admitted, tuple) or registry is None or owner is None:
+        code, reason = admitted if isinstance(admitted, tuple) else (_POLICY_VIOLATION, RUNS_OFF)
+        await websocket.close(code=code, reason=reason)
+        return
+    await _Follow(websocket, registry, owner, run_id, websocket.app.state.settings).run(admitted)
 
 
 __all__ = ["router"]

@@ -108,24 +108,34 @@ class DriverStore(StoreCore):
         )
 
     @in_context
-    async def pending_starts(self, run_id: str) -> StartPlan | None:
+    async def pending_starts(self, run_id: str, *, inflight: int | None = None) -> StartPlan | None:
+        """The Run's plan. With ``inflight``, only the starts of the Candidates that fit beside
+        the owner's in flight are loaded: a start may be most of a MiB, and the driver asks
+        every few seconds.
+
+        WHY the owner's, across Runs: the runner caps a caller, so a Run behind the same
+        owner's other Run has no room, whatever its own count.
+        """
         run = await Run.get_or_none(id=run_id)
         if run is None:
             return None
-        rows = (
-            await Candidate.filter(run_id=run_id)
-            .order_by("index")
-            .values("index", "name", "state", "topic", "trace_id", "start")
-        )
-        pending = tuple(
-            PendingStart(
-                index=row["index"],
-                start=start_from_json(row["name"], row["start"]),
-                topic=row["topic"],
-                trace_id=row["trace_id"],
+        states = await Candidate.filter(run_id=run_id).values_list("state", flat=True)
+        in_flight = sum(state in _IN_FLIGHT for state in states)
+        waiting = Candidate.filter(run_id=run_id, state="pending", start__isnull=False)
+        room = None
+        if inflight is not None:
+            elsewhere = (
+                await Candidate.filter(run__owner=run.owner, state__in=_IN_FLIGHT)
+                .exclude(run_id=run_id)
+                .count()
             )
-            for row in rows
-            if row["state"] == "pending" and row["start"] is not None
+            room = max(inflight - in_flight - elsewhere, 0)
+        rows = (
+            []
+            if room == 0
+            else await (
+                waiting.order_by("index") if room is None else waiting.order_by("index").limit(room)
+            ).values("index", "name", "topic", "trace_id", "start")
         )
         return StartPlan(
             run_id=run_id,
@@ -133,8 +143,17 @@ class DriverStore(StoreCore):
             owner_email=run.owner_email,
             client_version=run.client_version,
             stopped=run.canceled,
-            in_flight=sum(row["state"] in _IN_FLIGHT for row in rows),
-            pending=pending,
+            in_flight=in_flight,
+            pending=tuple(
+                PendingStart(
+                    index=row["index"],
+                    start=start_from_json(row["name"], row["start"]),
+                    topic=row["topic"],
+                    trace_id=row["trace_id"],
+                )
+                for row in rows
+            ),
+            waiting=await waiting.count(),
         )
 
     @in_context

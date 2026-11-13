@@ -8,6 +8,7 @@ Same databases as `test_run_registry_contract.py`.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import AsyncIterator, Iterable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -33,6 +34,8 @@ pytestmark = pytest.mark.asyncio
 ALICE = owner_key("alice@example.org")
 RETENTION = timedelta(days=30)
 DIGEST = "a" * 64
+# The empty result each run writes first, to check the store answers (spec R5).
+PROBE = hashlib.sha256(b"").hexdigest()
 
 
 class _Results:
@@ -95,7 +98,26 @@ async def test_a_run_names_its_context_and_its_recorded_results(registry: Regist
     keys = await registry.store.stored_objects([run_id])
 
     assert sorted(keys[run_id]) == sorted(
-        [context_key(run_id), result_key(result_prefix(run_id, 0), DIGEST)]
+        [
+            context_key(run_id),
+            result_key(result_prefix(run_id, 0), DIGEST),
+            result_key(result_prefix(run_id, 0), PROBE),
+        ]
+    )
+
+
+async def test_a_candidate_with_no_record_still_names_its_probe(registry: Registry) -> None:
+    """A run that failed after its probe leaves that object; a store with no lifecycle rule (the
+    bundled Garage) would otherwise keep it for good."""
+    run, _ = await registry.store.register(ALICE, start_spec("a", "b", "c"))
+    for index in (0, 1):
+        await registry.store.bind(ALICE, run.id, index, f"t-probe-{index}")
+
+    keys = await registry.store.stored_objects([run.id])
+
+    # The third never started, so it wrote no probe and names none.
+    assert sorted(keys[run.id]) == sorted(
+        [result_key(result_prefix(run.id, i), PROBE) for i in (0, 1)]
     )
 
 
@@ -107,7 +129,11 @@ async def test_a_sweep_deletes_a_runs_objects_and_then_its_rows(registry: Regist
     await _sweeper(registry, results).sweep_once()
 
     assert sorted(results.deleted) == sorted(
-        [context_key(run_id), result_key(result_prefix(run_id, 0), DIGEST)]
+        [
+            context_key(run_id),
+            result_key(result_prefix(run_id, 0), DIGEST),
+            result_key(result_prefix(run_id, 0), PROBE),
+        ]
     )
     assert await registry.store.get(ALICE, run_id) is None
 

@@ -131,8 +131,14 @@ one replica, no backup and no lifecycle rule, which suits a test cluster only. I
          poolExistingSecret: <the pool's Secret>
    ```
 
-A runner retries a write the store refuses for `runResults.writeBudgetS` (60 s), then fails the
-run `result_store_unavailable`, which the Client may retry. A pool with no store fails such a run
+4. Admit the App and the runner pool to the store in the platform's NetworkPolicy: the bundled
+   Garage's pods (`app.kubernetes.io/component: garage-run-results`) on port 3900, or the
+   bucket's endpoint. The chart renders no policy of its own (chart README: Run-results storage).
+
+Before any model call, a driver-started run writes one empty object to check that the store
+answers. A runner retries a write the store refuses for `runResults.writeBudgetS` (60 s), then
+fails the run `result_store_unavailable`, which the Client may retry; a store unreachable from
+the pool is found then, before the run spends anything. A pool with no store fails such a run
 `result_store_missing` before any model call.
 
 The runner pool also creates a NATS key-value bucket, `url4-claims`, at startup, with the event
@@ -148,15 +154,36 @@ and registers nothing, and the context and result routes answer the same until i
 A Client follows a Run on one WebSocket, `GET /runs/{id}/events`, which the App checks against
 the Run's owner like every `/runs` route. The edge must pass the verified `X-User-Email` on the
 WebSocket upgrade, as it does on HTTP requests: without it the App closes the socket at once
-(1008, `identity_required`). Check it on staging before a P2 Client is released:
+(1008, `identity_required`). Check it on staging before a P2 Client is released. The App
+accepts the upgrade before it checks the owner, so the HTTP status says nothing; read the first
+frame or the close:
 
 ```sh
-curl -sS -o /dev/null -w '%{http_code}\n' -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
-  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
-  https://<engine host>/runs/<one of your Run ids>/events
+uv run --no-project --with websockets python - <<'EOF'
+import asyncio, websockets
+
+async def main():
+    url = "wss://<engine host>/runs/<one of your Run ids>/events"
+    auth = {}  # the headers your edge needs to sign you in, as for an HTTP request
+    try:
+        async with websockets.connect(url, additional_headers=auth) as ws:
+            try:
+                print("frame:", (await asyncio.wait_for(ws.recv(), 10))[:80])
+            except websockets.ConnectionClosed:
+                print("closed:", ws.close_code, ws.close_reason)
+    except websockets.InvalidStatus as refused:
+        print("refused by the edge:", refused.response.status_code)
+
+asyncio.run(main())
+EOF
 ```
 
-`101` means the edge passed the identity; `403` means the App refused it.
+- A frame: the edge passed the identity.
+- `closed: 1008 identity_required`: it did not.
+- `closed: 1008 run_not_found`: the Run is not one of yours.
+- `closed: 1008 runs_off`: Runs are off on this Engine.
+- `closed: 1013 registry_unavailable`: the Runs database did not answer; try again.
+- `refused by the edge`: the edge did not sign you in; fix `auth` and try again.
 
 While a follower is connected, the App stamps the Run every `URL4_CLOUD_RUN_FOLLOW_STAMP_S`
 (30 s); an attached Run nobody has followed for `URL4_CLOUD_ORPHAN_GRACE_S` (120 s) is stopped.

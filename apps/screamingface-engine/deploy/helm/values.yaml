@@ -249,7 +249,7 @@ runResults:
       existingSecret: ""
       # The runner pool's Secret, with the same two keys: a key that may only WRITE, since a
       # runner never reads a result back (spec §8). Empty => the pool uses the App's Secret,
-      # which is the only shape the bundled Garage supports (it has one key).
+      # which is the only shape the bundled Garage supports (it has one key; the render fails).
       poolExistingSecret: ""
     # The bundled run-results Garage: same image and security posture as `garage`, its own volume.
     garage:

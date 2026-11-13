@@ -181,8 +181,9 @@ class RunRegistry(Protocol):
         with nobody following, or with stops still owed."""
         ...
 
-    async def pending_starts(self, run_id: str) -> StartPlan | None:
-        """What the driver needs to start the Run's next Candidates (R1)."""
+    async def pending_starts(self, run_id: str, *, inflight: int | None = None) -> StartPlan | None:
+        """What the driver needs to start the Run's next Candidates (R1). With ``inflight``, the
+        starts of only as many as fit beside the owner's in flight, across their Runs."""
         ...
 
     async def overdue(self, run_id: str, before: datetime) -> list[str]:
