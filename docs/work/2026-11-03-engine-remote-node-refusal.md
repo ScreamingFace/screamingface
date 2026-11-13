@@ -126,7 +126,7 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   findings feed the one `precheck_remote_nodes(calls, maybe=)`; the Form-3 processor scan uses the
   same walk. Compiles are policy-gated (a bare run compiles nothing extra); valid text keeps its
   scan. Tests (new files only): url4 `test_remote_node_grammar_blind_preflight.py` (9 refused
-  cases + 3 controls + the Form-3 widening pin), engine `test_engine_remote_node_grammar_blind.py`
+  cases + 4 controls + the Form-3 widening pin), engine `test_engine_remote_node_grammar_blind.py`
   (5 refused cases + Form-3 pin + control). RED verified: 6 url4 + 4 engine on f0a02382a, then
   2 url4 + 1 engine (fragment-only segment, uncompilable body) on the first round-5 commit. Also
   fixed the stale `MapNode.fragment` docstring. No ratchet / `url4.dag.__all__` change. Merged
