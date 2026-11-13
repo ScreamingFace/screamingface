@@ -4,6 +4,18 @@ All notable changes to the ScreamingFace AI Gateway are documented here.
 This project follows [Semantic Versioning](https://semver.org/) and uses
 release tags of the form `aigateway-v<version>`.
 
+## [1.1.0](https://github.com/ScreamingFace/screamingface/compare/aigateway-v1.0.1...aigateway-v1.1.0) (2026-11-13)
+
+
+### Features
+
+* **e4c:** routers, cascades and per-Case budgets (OME-1864, OME-1865, OME-1866) ([#1733](https://github.com/ScreamingFace/screamingface/issues/1733)) ([baedbd4](https://github.com/ScreamingFace/screamingface/commit/baedbd47afd2b007caea403712b5d29a049fc174))
+
+
+### Bug Fixes
+
+* **aigateway:** run the migrate Job and Garage on the chart's node placement ([#1798](https://github.com/ScreamingFace/screamingface/issues/1798)) ([babcaf1](https://github.com/ScreamingFace/screamingface/commit/babcaf11a2d68f68c0ffef240f8b7acf7c6526a9))
+
 ## [1.0.1](https://github.com/ScreamingFace/screamingface/compare/aigateway-v1.0.0...aigateway-v1.0.1) (2026-11-13)
 
 
