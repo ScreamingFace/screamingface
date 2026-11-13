@@ -3,6 +3,7 @@ name: ScreamingFace Tests
 on:
   push:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "docs/spec/fixtures/ome_400/**"
       - "packages/screamingface/**"
       - "packages/url4/**"
@@ -34,6 +35,7 @@ on:
       - ".github/workflows/screamingface-tests.yml"
   pull_request:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "docs/spec/fixtures/ome_400/**"
       - "packages/screamingface/**"
       - "packages/url4/**"
@@ -141,6 +143,13 @@ jobs:
           coverageFile: packages/screamingface/coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
           thresholdAll: 0.95
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Test notebook refresh lifecycle
+        run: node --test tests/credit_refresh.test.mjs
 
       - name: Verify deterministic notebooks
         run: uv run --extra notebook python scripts/check_notebooks.py

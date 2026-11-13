@@ -7,6 +7,7 @@ from html import escape
 from typing import TYPE_CHECKING, Any, Protocol, assert_never
 
 from screamingface._ui.connection_state import _ConnectionPanelState
+from screamingface._ui.credit_view import credit_html
 from screamingface._ui.engine_origin import _is_screamingface_engine
 from screamingface._ui.provider_icons import provider_icon_html
 from screamingface._ui.style import NO_MATH, NO_MATH_CLASSES, STYLE, _theme_rules
@@ -23,6 +24,14 @@ class _PanelController(Protocol):
 
     @property
     def authenticating(self) -> bool: ...
+
+    def refresh_credits(self) -> None: ...
+
+    def _auto_refresh_credits(self) -> None: ...
+
+    def set_credit_management_key(self, api_key: str) -> None: ...
+
+    def clear_credit_management_key(self) -> None: ...
 
     def close(self) -> None: ...
 
@@ -143,9 +152,12 @@ _STYLE = (
 .sf-connections__authorize:hover{background:var(--sf-accent-hover);border-color:var(--sf-accent-hover)}
 .sf-connection-widget .widget-hbox{align-items:center}
 @media(max-width:680px){.sf-connections__engine{display:none}
-  .sf-connections__source,.sf-conn-head>span:nth-child(3){display:none}
-  .sf-connections__meta,.sf-conn-head{grid-template-columns:minmax(120px,1fr) 88px}
-  .sf-connections__row{padding:6px 8px!important;gap:8px!important}
+  .sf-connections__source,.sf-conn-head .sf-connections__meta>span:nth-child(3){display:none}
+  .sf-connections__meta,.sf-conn-head{grid-template-columns:minmax(0,1fr) 108px}
+  .sf-connections__status{font-size:13px}
+  .sf-connections__row{padding:8px!important;gap:8px!important;flex-wrap:wrap!important}
+  .sf-connections__row>.widget-html{flex:1 1 100%!important}
+  .sf-conn-head>.sf-connections__controls{display:none}
   .sf-connection-widget .widget-text{width:140px!important}}
 </style>"""
 )
@@ -175,7 +187,8 @@ def static_panel_html(
     return (
         f"{_STYLE}<div class='sf-ui sf-connections {NO_MATH}' "
         "aria-label='ScreamingFace connections'>"
-        f"{_header_html(engine)}{table}</div>"
+        f"{_header_html(engine)}{table}"
+        f"{credit_html(state.credit_status) if state.credit_status else ''}</div>"
     )
 
 
@@ -195,6 +208,13 @@ class _NotebookConnectionView:
         self._state = state
         self._notice = widgets.HTML()
         self._rows = widgets.VBox()
+        from screamingface._ui.credit_controls import _NotebookCreditView
+
+        self._credit_view = _NotebookCreditView(controller, state, widgets, self._button)
+        self._credits = self._credit_view.root
+        from screamingface._ui.credit_refresh import create_refresh_bridge
+
+        self._credit_bridge = create_refresh_bridge(controller._auto_refresh_credits)
 
         view = self
 
@@ -204,13 +224,23 @@ class _NotebookConnectionView:
                 super().close()
 
         header = widgets.HTML(value=f"{_STYLE}{_header_html(controller.engine)}")
-        self.root = PanelWidget(children=(header, self._notice, self._rows))
+        children = (header, self._notice, self._rows, self._credits)
+        if self._credit_bridge is not None:
+            children += (self._credit_bridge,)
+        self.root = PanelWidget(children=children)
         for css_class in ("sf-ui", "sf-connection-widget", "sf-connections", *NO_MATH_CLASSES):
             self.root.add_class(css_class)
         self.render()
 
+    def close(self) -> None:
+        self._credit_view._clear_credit_controls()
+        if self._credit_bridge is not None:
+            self._credit_bridge.active = False
+            self._credit_bridge.close()
+
     def render(self) -> None:
         self.render_notice()
+        self._credit_view._render_credits()
         access = (self._interactive_access_row(),) if self._state.hosted else ()
         providers = tuple(self._interactive_row(item) for item in self._state.connections)
         if access or providers:
@@ -220,6 +250,12 @@ class _NotebookConnectionView:
             # no rows yet — drop the frame rather than render an empty bordered box
             self._rows.children = ()
             self._rows.remove_class("sf-conn-tbl")
+
+    def render_credit_update(self) -> None:
+        self.render()
+        # WHY: manual refresh restarts the browser timer as well as the kernel cooldown.
+        if self._credit_bridge is not None:
+            self._credit_bridge.send({"type": "refreshed"})
 
     def render_notice(self) -> None:
         self._notice.value = _notice_html(self._state.notice)

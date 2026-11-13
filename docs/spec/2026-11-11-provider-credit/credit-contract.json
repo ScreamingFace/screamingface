@@ -1,0 +1,18 @@
+{
+  "states": [
+    "available",
+    "stale",
+    "unavailable",
+    "unlimited"
+  ],
+  "reasons": [
+    "unsupported",
+    "hosted_unavailable",
+    "not_connected",
+    "management_key_required",
+    "account_unverified",
+    "credential_rejected",
+    "lookup_failed",
+    "invalid_response"
+  ]
+}

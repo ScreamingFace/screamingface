@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- Notebook credits now show account credit separately from the key spending cap,
+  with optional account settings and visible-only five-minute refresh. OpenRouter
+  evaluations emit a nonblocking notice for a confirmed zero read within five minutes.
+
+* `sf.credits()`, `Client.credits()` and `AsyncClient.credits()` expose independent provider
+  account balance, key allowance, and hosted allowance observations. OpenRouter account totals
+  require a verified management key; unknown amounts remain unavailable. Clients can set or
+  remove the management key, and the connection card shows balances with manual refresh.
+  Hosted allowance comes from the caller's limited OpenRouter execution key; the platform
+  account balance is never exposed.
+
 ### Breaking changes
 
 * **screamingface:** `evaluate` no longer captures a pinned cache by default. Capture is now

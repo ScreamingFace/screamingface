@@ -22,6 +22,8 @@
       "ConnectionPanel",
       "Consistency",
       "CorrectiveLoop",
+      "CreditAmount",
+      "CreditStatus",
       "DuplicateMembersWarning",
       "EngineCapabilityError",
       "EngineUnavailableError",
@@ -98,6 +100,7 @@
       "configure",
       "connect",
       "connections",
+      "credits",
       "disconnect",
       "evaluate",
       "events",
@@ -150,14 +153,17 @@
           "aclose": "method (self) -> 'None'",
           "authenticated": "property",
           "authenticating": "property",
+          "clear_credit_management_key": "method (self, provider: 'str') -> 'None'",
           "closed": "property",
           "connect": "method (self, provider: 'str', *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | AsyncOAuthFlow'",
+          "credits": "method (self, provider: 'str' = 'openrouter', *, refresh: 'bool' = True) -> 'CreditStatus'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
           "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None | Awaitable[None]] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
-          "scoreboard_url": "property"
+          "scoreboard_url": "property",
+          "set_credit_management_key": "method (self, provider: 'str', *, api_key: 'str') -> 'None'"
         }
       },
       "AsyncOAuthFlow": {
@@ -341,16 +347,19 @@
           "authenticated": "property",
           "authenticating": "property",
           "classify": "method (self, model: 'str', input: 'str') -> 'Classification'",
+          "clear_credit_management_key": "method (self, provider: 'str') -> 'None'",
           "close": "method (self) -> 'None'",
           "closed": "property",
           "connect": "method (self, provider: 'str | None' = None, *, api_key: 'str | None' = None, method: \"Literal['api_key', 'oauth'] | None\" = None) -> 'Connection | ConnectionPanel | OAuthFlow'",
+          "credits": "method (self, provider: 'str' = 'openrouter', *, refresh: 'bool' = True) -> 'CreditStatus'",
           "disconnect": "method (self, provider: 'str') -> 'Connection'",
           "engine_url": "property",
           "evaluate": "method (self, candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'",
           "fetch_media": "method (self, media: 'CaseMedia') -> 'FetchedMedia'",
           "login": "method (self, *, timeout: 'float' = 300.0) -> 'None'",
           "logout": "method (self) -> 'None'",
-          "scoreboard_url": "property"
+          "scoreboard_url": "property",
+          "set_credit_management_key": "method (self, provider: 'str', *, api_key: 'str') -> 'None'"
         }
       },
       "Concat": {
@@ -379,9 +388,12 @@
           "__init__": "method (self, client: '_Client') -> 'None'",
           "authenticated": "property",
           "authenticating": "property",
+          "clear_credit_management_key": "method (self) -> 'None'",
           "close": "method (self) -> 'None'",
           "connections": "property",
           "refresh": "method (self) -> 'tuple[Connection, ...]'",
+          "refresh_credits": "method (self) -> 'None'",
+          "set_credit_management_key": "method (self, api_key: 'str') -> 'None'",
           "widget": "method (self) -> 'Widget'"
         }
       },
@@ -402,6 +414,23 @@
           "max_rounds": "field",
           "members": "field",
           "name": "field"
+        }
+      },
+      "CreditAmount": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, status: 'CreditState', amount_usd: 'Decimal | None' = None, as_of: 'datetime | None' = None, reason: 'str | None' = None) -> None",
+          "amount_usd": "attribute",
+          "as_of": "attribute",
+          "reason": "attribute"
+        }
+      },
+      "CreditStatus": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, provider: 'str', account: 'CreditAmount', key: 'CreditAmount', hosted: 'CreditAmount', connection_token: 'str | None' = None, management_key_configured: 'bool' = False) -> None",
+          "connection_token": "attribute",
+          "management_key_configured": "attribute"
         }
       },
       "DuplicateMembersWarning": {
@@ -1187,6 +1216,10 @@
       "connections": {
         "kind": "module",
         "module": "screamingface.connections"
+      },
+      "credits": {
+        "kind": "function",
+        "signature": "(provider: 'str' = 'openrouter', *, refresh: 'bool' = True) -> 'CreditStatus'"
       },
       "disconnect": {
         "kind": "function",
