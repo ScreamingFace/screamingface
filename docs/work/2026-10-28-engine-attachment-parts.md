@@ -122,3 +122,26 @@ through by identity; 20 × 1 MiB attachments through `FairShareIOLayer(HttpIOLay
 **Gates.** `run_gates.py screamingface-engine --base origin/OME-1543-file-refs-carry` and
 `run_gates.py url4 --base origin/OME-1543-file-refs-carry` ALL GATES GREEN; `check_module_size.py`
 within baseline (`dag/_context.py` 455/455); `check_suppressions.py` 3/3; private-import ratchet green.
+
+### Round 4 (2026-11-13) — PR #1588 review (HupBaHa @ `1ae16fb18`): fan-out memory, cap alignment
+
+- **Merge:** `c0201b1d5` merges `origin/OME-1543-file-refs-carry` @ `a40347a18` (clean).
+- **Blocker 1 (fixed) — one encoded copy per frozen snapshot, streamed request bodies.**
+  `world/attachment_parts.py::_shared_uri`: a snapshot entry is verified and base64-encoded ONCE;
+  every call of the run shares that one `data:` URI `str`, keyed by the entry's identity (never by
+  equality — an equal entry of another run must not reuse this run's read) and dropped by
+  `weakref.finalize` with the entry. A ref (empty body) is still read through the run-scoped reader
+  and verified on every call (F3 authorization); only its encoding is shared.
+  New `world/streamed_json.py`: a body holding a string ≥ 256 KiB is sent as a re-iterable stream
+  of ≤ 64 KiB chunks with an exact `Content-Length`, byte-identical to httpx's `json=` encoding;
+  every other body keeps `json=` (text-only parity). `connector.py::_post_attempt` picks the path.
+  Probe (the reviewer's: 8,000,000-byte picture, URI 10,666,690 B, 8 concurrent calls held at a
+  barrier): before, 170.8 MB traced while in flight; after, within `E + 8 × 256 KiB` in flight and
+  `2E + 8 × 256 KiB` peak (the one transient `E` is the base64 bytes and their `str` while the shared
+  URI is built). Tests (new): `tests/unit/test_attachment_fan_out_memory.py` (10).
+- **Blocker 2 (STOPPED — needs owner call).** Arithmetic: gateway cap `C` = 8 × 1024 × 1024 =
+  8,388,608 B. Decoded cap `D` = 6,000,000 → base64 4·⌈D/3⌉ = 8,000,000 B; with 20 parts the padding
+  bound is ⌊4D/3 + 8·20/3⌋ = 8,000,053 B, leaving 388,555 B for `data:` prefixes, part JSON and the
+  text envelope. (The largest `D` with 4D/3 ≤ C at zero envelope is 6,291,456.) Lowering
+  `url4.dag._caps.MAX_ATTACHMENT_BYTES` to 6,000,000 fails 10 prior #1587 tests that pin the
+  8,000,000 boundary literally, so per the loop's rule it was not changed here.

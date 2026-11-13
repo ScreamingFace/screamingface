@@ -114,6 +114,7 @@ from screamingface_engine.world.request_parameters import (
     model_params,
     wants_web_search,
 )
+from screamingface_engine.world.streamed_json import streamed_json_body
 from screamingface_engine.world.tavily_retrieval_cache import TavilyRetrievalCache
 from screamingface_engine.world.web_tools import (
     WEB_TOOLS,
@@ -1043,9 +1044,20 @@ async def _post_attempt(
     # Queueing extends the read allowance, not connection/pool/write limits.
     transport_timeout = httpx.Timeout(client.timeout)
     transport_timeout.read = limit
+    # FEATURE (OME-1545 review blocker 1): a body carrying a run's file is streamed from the one
+    # shared ``data:`` URI, byte-identical to ``json=``, so concurrent calls never each hold a JSON
+    # copy of it; any other body keeps ``json=`` exactly.
+    streamed = streamed_json_body(body)
     try:
         # Also bound transports without HTTPX timeout enforcement and trickling replies.
         async with asyncio.timeout(limit):
+            if streamed is not None:
+                return await client.post(
+                    path,
+                    headers={**attempt_headers, **streamed[0]},
+                    content=streamed[1],
+                    timeout=transport_timeout,
+                )
             return await client.post(
                 path,
                 headers=attempt_headers,
