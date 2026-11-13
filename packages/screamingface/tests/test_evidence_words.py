@@ -370,7 +370,7 @@ def test_sdk_record_words_equal_the_evidence_schema_enums() -> None:
     assert sorted(_words(record["properties"]["status"])) == sorted(MEMBER_STATUSES)
     assert sorted(MEMBER_STATUSES) == ["answered", "excluded", "fail"]
     assert set(_words(record["properties"]["reason"])) == ANSWER_REASONS
-    assert len(ANSWER_REASONS) == 15
+    assert len(ANSWER_REASONS) == 16  # E4c (OME-1291, budget #6, owner-approved edit)
     assert _words(pinned["$defs"]["CutRecord"]["properties"]["order"]) == sorted(SIGNAL_ORDERS)
     assert sorted(SIGNAL_ORDERS) == ["max", "min"]
     assert ANSWER_STATUSES == {"answered", "abstain", "fail", "excluded"}
@@ -457,10 +457,19 @@ def test_answer_v1_and_evidence_v1_snapshots_match() -> None:
     pinned = json.loads((SCHEMAS / "screamingface.answer.v1.json").read_text(encoding="utf-8"))
 
     assert pinned == {
-        "abstain_reason": ["cut_not_met", "gate_not_met", "in_band", "no_votes", "output_missing"],
+        # E4c (OME-1291, budget #6, owner-approved edit): + budget_refused
+        "abstain_reason": [
+            "budget_refused",
+            "cut_not_met",
+            "gate_not_met",
+            "in_band",
+            "no_votes",
+            "output_missing",
+        ],
         "fields": ["member_id", "text", "raw", "value", "status", "reason", "signals"],
         "member_status": ["answered", "excluded", "fail"],
         "reason": [
+            "budget_refused",
             "cut_not_met",
             "empty",
             "field_missing",

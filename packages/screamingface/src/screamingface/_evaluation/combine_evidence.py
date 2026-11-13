@@ -70,8 +70,9 @@ _EVIDENCE_KEYS = {
 # E4b part 5: gate (written only by a gated vote) and verifier (reserved, null only, never kept).
 # E4b part 7: consistency (written only by a Fusion that declares sf.Consistency).
 # E4b map-reduce surface: narrow (written only by a block with narrow steps before the reducer).
+# E4c skip members (SM-2): skipped (written only when a skip-Gate did not select a member).
 _OPTIONAL_EVIDENCE_KEYS = frozenset(
-    {"mean", "cut", "narrow", "consistency", "declared", "gate", "verifier"}
+    {"mean", "cut", "narrow", "consistency", "declared", "gate", "verifier", "skipped"}
 )
 _MEMBER_KEYS = {"member_id", "raw", "value", "status", "reason", "signals", "weight", "score"}
 _OPTIONAL_MEMBER_KEYS = frozenset({"rank"})  # E4b part 2: written only by a top_k@1 step
@@ -141,6 +142,7 @@ def decode_combine_evidence(value: object, label: str) -> CombineEvidence | None
             result=_result(raw["result"], f"{label} result"),
             dropped=_integer(raw["dropped"], f"{label} dropped"),
             finish_reason=_text(raw["finish_reason"], f"{label} finish_reason"),
+            skipped=None if "skipped" not in raw else _texts(raw["skipped"], f"{label} skipped"),
         )
     except (TypeError, ValueError) as exc:
         raise ExecutionError(f"{label} is invalid: {exc}") from exc

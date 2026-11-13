@@ -24,6 +24,12 @@ Stages, in execution order:
    when ONE binding claims the fingerprint, never when several do, even if their
    recorded outputs are identical.
    The abstain mark (OME-1289) reads the final operation's evidence.
+4. E4c (OME-1291): a Gate nests its sources in one named inner expression ``gate_N_block`` and
+   its branch bodies in gated iterates whose body is a template string. The walk enters those
+   blocks and parses each gated body as the text url4's MapNode builds (``(body)!intent``), so
+   the operations inside a branch that ran are attributed; a binding of a branch that did not
+   run has no recorded call. Every other nested expression (the corrective ``loop_candidate``)
+   stays opaque. The Gate's JOIN ``gate_N`` carries the ``gate-decision.v1`` record.
 
 Worked example — members ``/alpha?temperature=0.0``, ``/beta`` and synthesis
 ``/alpha?temperature=0.5`` with calls [(alpha@0.0 → "A"), (beta → "B"),
@@ -34,22 +40,27 @@ returning "A1" and "A2", both would be null — the Engine cannot know which was
 
 from __future__ import annotations
 
+import functools
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 
 from screamingface_engine.benchmarks.contract import OperationOutput
-from screamingface_engine.operation_accounting import combine_operation_accounting
+from screamingface_engine.budget import CallCharge, call_charge
+from screamingface_engine.operation_accounting import SignalAccounting, combine_operation_accounting
 from screamingface_engine.operation_calls import OperationCall
 from url4.core.errors import ParseError
-from url4.core.nodes import Expression, RelExpr, Source, Text, walk
+from url4.core.nodes import Expression, Iteration, RelExpr, Source, Text, walk
 from url4.core.parser import build
 
 # INVARIANT: kept in lock-step with the Client's operation projection, where
 # `operation_id = "op_" + binding` and bindings are model_N / synthesis_N / judge_N / writer_N
 # (OME-1289 E4a). `tests/unit/data/combine_contract/binding_names.json` pins this pattern in
-# both packages.
-_BINDING = re.compile(r"^(?:model|synthesis|judge|writer)_\d+$")
+# both packages. E4c adds a Gate's JOIN `gate_N` and a LabelModel call `selector_N`.
+_BINDING = re.compile(r"^(?:model|synthesis|judge|writer|gate|selector)_\d+$")
+# E4c: the one named inner expression of a Gate, and a Gate's two gated iterates (branch-core D3).
+_GATE_BLOCK = re.compile(r"gate_\d+_block")
+_GATE_ITERATE = re.compile(r"gate_\d+_(?:then|else)")
 
 # The root intent that names exactly one source (`$synthesis_1`), nothing else around it.
 _FINAL_REFERENCE = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)")
@@ -62,13 +73,22 @@ class _OperationBinding:
     binding: str
     fingerprint: _Fingerprint | None
     optional: bool = False
+    # E4c: the binding sits in a Gate's gated body; with no recorded call it did not run, and it
+    # emits no operation at all (branch-core D3, BC-16).
+    gated: bool = False
 
 
 def attribute_operation_outputs(
     expression: str,
     calls: Sequence[OperationCall],
+    *,
+    charged: bool = False,
 ) -> list[OperationOutput] | None:
-    """Join recorded calls to the expression's named model operations."""
+    """Join recorded calls to the expression's named model operations.
+
+    ``charged`` (E4c, ans:Q32): the candidate has a Budget, so each operation also carries the
+    charge of each of its provider calls.
+    """
 
     bindings = _operation_bindings(expression)
     if not bindings:
@@ -85,7 +105,11 @@ def attribute_operation_outputs(
         for binding in bindings
         if binding.optional and binding.fingerprint is not None
     }
-    operations = [_attributed(binding, by_fingerprint, claims, optional) for binding in bindings]
+    operations = [
+        _attributed(binding, by_fingerprint, claims, optional, charged=charged)
+        for binding in bindings
+        if not (binding.gated and by_fingerprint.get(binding.fingerprint or ("", ())) is None)
+    ]
     if len(bindings) == 1 and bindings[0].fingerprint is None:
         return None
     return operations
@@ -94,34 +118,61 @@ def attribute_operation_outputs(
 def final_operation_abstained(
     expression: str, operations: Sequence[OperationOutput] | None
 ) -> bool:
-    """True when the expression's result IS one attributed combine operation that abstained.
+    """True when the expression's result IS one attributed operation that abstained.
 
     The final node is the source the root intent names when that intent is exactly `$name`;
     its evidence is the attributed `op_<name>` operation's `combine` (last call, one claimant).
     Prose intents, other roots and unattributed names are never marked (OME-1289, erd section 9).
+    E4c: a root `$gate_N_block` is followed through the block's intent `$gate_N` to the Gate's
+    JOIN, whose decision result copies the result of the branch that ran (branch-core D12).
     """
 
     if operations is None or (name := _final_reference(expression)) is None:
         return False
     matches = [op for op in operations if op.operation_id == f"op_{name}"]
-    return (
-        len(matches) == 1
-        and matches[0].combine is not None
-        and matches[0].combine.result.status == "abstain"
+    if len(matches) != 1:
+        return False
+    combine, decision = matches[0].combine, matches[0].decision
+    return (combine is not None and combine.result.status == "abstain") or (
+        decision is not None and decision.result is not None and decision.result.status == "abstain"
     )
 
 
+# WHY cached: attribution and the final-abstain mark parse the same expression text per Case.
+@functools.lru_cache(maxsize=32)
 def _final_reference(expression: str) -> str | None:
-    """The `name` of a root intent that is exactly `$name`; None for any other root."""
+    """The `name` of a root intent that is exactly `$name`; None for any other root.
+
+    E4c: a name that is a Gate block is followed to the block's own `$name` (the Gate's JOIN).
+    """
 
     try:
-        node = build(expression)
+        node: object = build(expression)
     except ParseError:
         return None
-    if not isinstance(node, Expression) or not isinstance(node.intent, Text):
+    name = None
+    while isinstance(node, Expression) and isinstance(node.intent, Text):
+        matched = _FINAL_REFERENCE.fullmatch(node.intent.value)
+        name = None if matched is None else matched.group(1)
+        node = None if name is None else _gate_block(node, name)
+    return name
+
+
+def _gate_block(node: Expression, name: str) -> Expression | None:
+    """The inner expression of the Gate block `name` among `node`'s sources, if it is one."""
+
+    if _GATE_BLOCK.fullmatch(name) is None:
         return None
-    matched = _FINAL_REFERENCE.fullmatch(node.intent.value)
-    return None if matched is None else matched.group(1)
+    return next(
+        (
+            source.value
+            for source in node.sources
+            if isinstance(source, Source)
+            and source.name == name
+            and isinstance(source.value, Expression)
+        ),
+        None,
+    )
 
 
 def _attributed(
@@ -129,11 +180,15 @@ def _attributed(
     by_fingerprint: dict[_Fingerprint, list[OperationCall]],
     claims: dict[_Fingerprint, int],
     optional: set[_Fingerprint],
+    *,
+    charged: bool,
 ) -> OperationOutput:
     output: str | None = None
     finish_reason: str | None = None
     accounting = None
     combine = None
+    decision = None
+    charges = None
     matched = [] if binding.fingerprint is None else by_fingerprint.get(binding.fingerprint, [])
     if matched and claims.get(binding.fingerprint or ("", ()), 0) == 1:
         # One claimant: every matched call IS this operation; the last one is terminal
@@ -143,10 +198,13 @@ def _attributed(
         # A combine call's evidence follows the same last-call rule, and only a ONE-claimant
         # fingerprint may carry it (the ambiguous branch below never invents evidence).
         combine = matched[-1].combine
+        decision = matched[-1].decision
         if all(call.accounting is not None for call in matched):
             accounting = combine_operation_accounting(
                 [call.accounting for call in matched if call.accounting is not None]
             )
+        if charged:
+            charges = _charges(matched)
     # WHY: an optional claimant may have failed without recording a terminal
     # call. Identical answers, even from repeated calls, do not prove it answered.
     elif matched and binding.fingerprint not in optional:
@@ -159,9 +217,24 @@ def _attributed(
         finish_reason=finish_reason,
         accounting=accounting,
         combine=combine,
+        decision=decision,
+        charges=charges,
     )
 
 
+def _charges(calls: Sequence[OperationCall]) -> list[CallCharge] | None:
+    """One charge per provider call, the budget fold's calls (BC-29); None when there is none."""
+
+    charges = [
+        call_charge(call.signal_accounting or SignalAccounting())
+        for call in calls
+        if call.is_provider
+    ]
+    return charges or None
+
+
+# WHY cached: every Case of one candidate reads the same expression text.
+@functools.lru_cache(maxsize=32)
 def _operation_bindings(expression: str) -> tuple[_OperationBinding, ...]:
     try:
         node = build(expression)
@@ -169,18 +242,25 @@ def _operation_bindings(expression: str) -> tuple[_OperationBinding, ...]:
         return ()
     if not isinstance(node, Expression):
         return ()
-    optional = _optional_bindings(node)
+    scopes = _gated_scopes(node)
+    optional = {name for scope in scopes for name in _optional_bindings(scope)}
     selected: list[_OperationBinding] = []
     # Quorum panels nest complete member Recipes. Their model bindings still
     # own outputs and accounting, even though they are no longer root sources.
-    for source in (nested for root in node.sources for nested in _panel_sources(root)):
-        if not isinstance(source, Source) or source.name is None:
-            continue
-        if not _BINDING.match(source.name):
-            continue
-        selected.append(
-            _OperationBinding(source.name, _fingerprint(source.value), source.name in optional)
-        )
+    for index, scope in enumerate(scopes):
+        for source in (nested for root in scope.sources for nested in _scope_sources(root)):
+            if not isinstance(source, Source) or source.name is None:
+                continue
+            if not _BINDING.match(source.name):
+                continue
+            selected.append(
+                _OperationBinding(
+                    source.name,
+                    _fingerprint(source.value),
+                    source.name in optional,
+                    gated=index > 0,
+                )
+            )
     return tuple(selected)
 
 
@@ -196,17 +276,61 @@ def _optional_bindings(expression: Expression) -> set[str]:
     }
 
 
-def _panel_sources(value: object) -> tuple[Source, ...]:
+def _gated_scopes(root: Expression) -> list[Expression]:
+    """The root and every parsed body of a Gate's gated iterate below it, in walk order (P25).
+
+    WHY parse: an iterate body is a template string, so ``walk`` never enters it. Each body is
+    parsed as the text url4's MapNode spawns (``(body)!intent``); a body that does not parse
+    stays opaque. Only Gate iterates are parsed, so a corrective loop stays opaque.
+    """
+
+    scopes = [root]
+    for scope in scopes:  # grows while it is read: a body may hold further Gates
+        for node in walk(scope):
+            if (
+                isinstance(node, Source)
+                and node.name is not None
+                and _GATE_ITERATE.fullmatch(node.name)
+                and isinstance(node.value, Iteration)
+            ):
+                body = parsed_iterate_body(node.value)
+                if body is not None:
+                    scopes.append(body)
+    return scopes
+
+
+def parsed_iterate_body(iteration: Iteration) -> Expression | None:
+    """An iterate body as its own expression (a Gate branch body), None when it does not parse."""
+
+    text = f"({iteration.body})!{iteration.intent}" if iteration.intent else f"({iteration.body})"
+    try:
+        body = build(text)
+    except ParseError:
+        return None
+    return body if isinstance(body, Expression) else None
+
+
+def _scope_sources(value: object) -> Iterator[Source]:
     if not isinstance(value, Source):
-        return ()
+        return
     if (
         value.name is not None
         and re.fullmatch(r"panel_\d+", value.name)
         and isinstance(value.value, Expression)
     ):
-        return tuple(node for node in walk(value.value) if isinstance(node, Source))
+        yield from (node for node in walk(value.value) if isinstance(node, Source))
+        return
+    if (
+        value.name is not None
+        and _GATE_BLOCK.fullmatch(value.name)
+        and isinstance(value.value, Expression)
+    ):
+        # E4c: a Gate block is part of its scope; its sources are attributed like root sources.
+        for source in value.value.sources:
+            yield from _scope_sources(source)
+        return
     # Other nested bindings keep their legacy opaque attribution semantics.
-    return (value,)
+    yield value
 
 
 def _fingerprint(value: object) -> _Fingerprint | None:
@@ -218,4 +342,4 @@ def _fingerprint(value: object) -> _Fingerprint | None:
     return (value.path, params)
 
 
-__all__ = ["attribute_operation_outputs", "final_operation_abstained"]
+__all__ = ["attribute_operation_outputs", "final_operation_abstained", "parsed_iterate_body"]

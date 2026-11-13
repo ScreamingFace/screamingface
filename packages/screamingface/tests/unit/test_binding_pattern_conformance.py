@@ -18,6 +18,7 @@ from screamingface._evaluation import topology
 from screamingface._operation_bindings import (
     OPERATION_BINDING,
     OPERATION_BINDING_PATTERN,
+    OPERATION_REFERENCE,
     TOPOLOGY_BINDING,
 )
 
@@ -52,11 +53,16 @@ def test_binding_pattern_fixture_matches_sdk_and_engine() -> None:
     for name in fixture["reject"]:  # type: ignore[attr-defined]
         assert not OPERATION_BINDING.fullmatch(name), name
     # the topology vocabulary is the operation vocabulary plus the corrective loop's binding
+    # and, since E4c, a Gate block (branch-core BC-15)
     assert TOPOLOGY_BINDING.fullmatch("loop_candidate")
+    assert TOPOLOGY_BINDING.fullmatch("gate_3_block")
     # one pattern for every SDK consumer
     assert sdk_url4._BINDING is OPERATION_BINDING
     assert topology._BINDING is TOPOLOGY_BINDING
     assert sdk_url4._REFERENCE.findall("$judge_1 $writer_2 $answer_3") == ["judge_1", "writer_2"]
+    # E4c: a Gate helper reference never decodes as the Gate's JOIN operation
+    assert sdk_url4._REFERENCE.findall("$gate_3_after $gate_3_decide $gate_3") == ["gate_3"]
+    assert OPERATION_REFERENCE.findall("$gate_3_open_then $selector_2") == ["selector_2"]
 
 
 def test_engine_binding_pattern_matches_the_shared_fixture() -> None:

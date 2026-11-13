@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 from screamingface._report_export import inline_json
 from screamingface._ui.accounting_view import STYLE as ACCOUNTING_STYLE
 from screamingface._ui.accounting_view import case_accounting, case_tabs, run_accounting_note
+from screamingface._ui.branch_view import GateSummary, branch_sections_html
 from screamingface._ui.cards import INVERTED_GRADE_MEANING
 from screamingface._ui.combine_view import STYLE as COMBINE_STYLE
 from screamingface._ui.combine_view import CombineSummary, combine_sections_html
@@ -337,6 +338,11 @@ def _abstained_text(count: int) -> str:
     return f" · {count} abstained" if count > 0 else ""
 
 
+def _fail_closed_text(count: int) -> str:
+    """E4c (RP-17): the Cases a guard ended, apart from the abstained count (an error)."""
+    return f" · fail_closed {count}" if count > 0 else ""
+
+
 def _card_html(
     candidate: CandidateResult,
     report: Report,
@@ -359,13 +365,18 @@ def _card_html(
     # WHY one pass (E7): the abstained count and the run summary share it; see CombineSummary.
     abstained = 0
     summary = CombineSummary()
+    gates = GateSummary()  # E4c (RP-24): fed in the same one pass
     for case in candidate.cases:
         abstained += case.abstained
         summary.add(case)
+        gates.add(case)
     runs = _metric(metrics, "n_runs")
     # Repeat count belongs in the context line: a 7th figure would orphan a grid row.
     repeats = f" · {int(runs)} runs" if runs and runs > 1 else ""
-    ctx = f"· {report.benchmark.id} · {state}{repeats}{_abstained_text(abstained)}"
+    ctx = (
+        f"· {report.benchmark.id} · {state}{repeats}{_abstained_text(abstained)}"
+        f"{_fail_closed_text(gates.fail_closed)}"
+    )
     # The fusion edge marks a rankable result. Any finite benchmark-native score —
     # including zero and negative (HealthBench worst-30 is all-negative) — is a real
     # outcome worth highlighting; only an unscored candidate stays neutral (OME-866:
@@ -399,6 +410,7 @@ def _card_html(
         f"{_grading_html(metrics)}"
         f"{_members_html(candidate)}"
         f"{summary.html(candidate)}"
+        f"{gates.html(candidate)}"
         f"{run_accounting_note(candidate, context=context)}"
         f"{_recipe_html(candidate)}</div>"
     )
@@ -962,6 +974,7 @@ def _pane_html(candidate: CandidateResult, case: CaseResult, cost_html: str) -> 
         )
     body = (
         f"{answer_html}{refusal_html}{_attempts_html(case)}{_case_failures_html(case)}"
+        f"{branch_sections_html(candidate, case)}"
         f"{combine_sections_html(candidate, case)}{checks_head}{checks}"
     )
     return (

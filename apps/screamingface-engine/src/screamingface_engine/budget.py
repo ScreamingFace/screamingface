@@ -1,6 +1,6 @@
 """screamingface.budget.v1: the method-owner Budget records and the charge rule (OME-1289, erd s11).
 
-FEATURE/STORY (E4c reads remaining; the call layer writes charges/refusals). INVARIANT: pure, no
+FEATURE/STORY (a Gate reads remaining; the call layer writes charges/refusals). INVARIANT: pure, no
 I/O; amounts sum in DECIMAL_CONTEXT (Decimal(repr(x))); remaining = max(cap - spent, 0); None is
 unpriced, never zero. AIDEV-NOTE: E4a declares no Budget on any request and writes no charge
 (BU-D4).
@@ -8,9 +8,11 @@ unpriced, never zero. AIDEV-NOTE: E4a declares no Budget on any request and writ
 
 from __future__ import annotations
 
+import contextvars
 import math
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from decimal import Decimal, localcontext
 from typing import Any, Literal, Self
 
@@ -22,13 +24,15 @@ from screamingface_engine.operation_accounting import SignalAccounting
 BUDGET_SCHEMA = "screamingface.budget.v1"
 BudgetUnit = Literal["usd", "tokens"]
 ChargeSource = Literal["live", "cache_reference", "unpriced"]
-BudgetStage = Literal["model", "synthesis", "judge", "writer"]
+# E4c (OME-1291, budget BU-21): a LabelModel selector call is charged as its own stage; a
+# consistency `sample` call is charged as `model` (E4b part 7 D7).
+BudgetStage = Literal["model", "synthesis", "judge", "writer", "selector"]
 
 # The spec's member id form (combine/spec.py); a Budget record names no other id.
 _MEMBER = re.compile(r"member_[1-9][0-9]*")
 
 
-def _decimal(number: float) -> Decimal:
+def exact_decimal(number: float) -> Decimal:
     """The exact decimal a float prints as, so 0.1 stays 0.1 and sums do not drift."""
     return Decimal(repr(number))
 
@@ -81,7 +85,7 @@ class BudgetCharge(_BudgetModel):
 
 
 class BudgetRefusal(_BudgetModel):
-    """One call that was not sent because it would exceed the cap (written by E4c)."""
+    """One call that was not sent because it would exceed the cap (the call layer writes it)."""
 
     operation_id: str = Field(min_length=1)
     member_id: str | None
@@ -109,10 +113,20 @@ def _ledger(cap: float, amounts: Sequence[float | None]) -> tuple[float, float, 
             if amount is None:
                 unpriced += 1
             else:
-                spent += _decimal(amount)
-            remaining_after.append(float(max(_decimal(cap) - spent, Decimal(0))))
-        remaining = float(max(_decimal(cap) - spent, Decimal(0)))
+                spent += exact_decimal(amount)
+            remaining_after.append(float(max(exact_decimal(cap) - spent, Decimal(0))))
+        remaining = float(max(exact_decimal(cap) - spent, Decimal(0)))
     return float(spent), remaining, unpriced, remaining_after
+
+
+def fold(cap: float, amounts: Sequence[Decimal | None]) -> tuple[float, float, int]:
+    """(spent, remaining, unpriced count) of ``amounts`` against ``cap``: the ledger rule above,
+    for the ancestors of one E4c Gate decision (OME-1291, erd §5)."""
+
+    spent, remaining, unpriced, _ = _ledger(
+        cap, [None if amount is None else float(amount) for amount in amounts]
+    )
+    return spent, remaining, unpriced
 
 
 class BudgetState(_BudgetModel):
@@ -197,13 +211,78 @@ def charge(
     return amount, "cache_reference" if cached else "live"
 
 
+class CallCharge(_BudgetModel):
+    """What one provider call charges a Budget, per unit: the ``charge`` rule's numbers.
+
+    E4c (OME-1291, ans:Q32): written on each operation of a candidate with a Budget, so the
+    report's overspend line adds what the Budget added. A cache hit charges its ORIGINAL cost
+    (``cache.reference``), so a replay shows the live run's spend. ``None`` is unpriced: it adds
+    nothing to the spend, as in ``fold``.
+    """
+
+    usd: float | None = Field(ge=0)
+    tokens: float | None = Field(ge=0)
+
+
+def call_charge(signals: SignalAccounting) -> CallCharge:
+    """The charge of one provider call in every unit (the rule of ``charge``)."""
+
+    usd, _ = charge(signals, "usd", cached=False)
+    tokens, _ = charge(signals, "tokens", cached=False)
+    return CallCharge(
+        usd=None if usd is None else float(usd), tokens=None if tokens is None else float(tokens)
+    )
+
+
 def _amount(signals: SignalAccounting, unit: BudgetUnit) -> Decimal | None:
     # erd I-S2: a NaN or infinite number is unknown, so the call is unpriced (None), never an error.
     numbers = (signals.cost_usd,) if unit == "usd" else (signals.tokens_in, signals.tokens_out)
     if not all(number is not None and math.isfinite(number) for number in numbers):
         return None
     with localcontext(DECIMAL_CONTEXT):
-        return sum((_decimal(number) for number in numbers if number is not None), Decimal(0))
+        return sum((exact_decimal(number) for number in numbers if number is not None), Decimal(0))
+
+
+# E4c (OME-1291, budget BU-13, BU-28): the Budgets of the candidate running in this task, bound
+# once per Attempt before the expression runs, so every task of the Case inherits them (a value
+# set inside a running task would stay invisible to its siblings). Empty: no Budget.
+_case_budgets: contextvars.ContextVar[tuple[Budget, ...]] = contextvars.ContextVar(
+    "screamingface_engine_case_budgets", default=()
+)
+# The units whose unpriced warning this Attempt already logged (budget §4: once per Case). A
+# mutable set bound with the Budgets, so a sibling task's warning is seen by the others.
+_case_unpriced_logged: contextvars.ContextVar[set[str] | None] = contextvars.ContextVar(
+    "screamingface_engine_case_unpriced_logged", default=None
+)
+
+
+@contextmanager
+def case_budgets(budgets: Sequence[Budget]) -> Iterator[None]:
+    """Bind the candidate's Budgets for one Attempt of one Case; each Attempt starts full."""
+
+    token = _case_budgets.set(tuple(budgets))
+    logged = _case_unpriced_logged.set(set())
+    try:
+        yield
+    finally:
+        _case_unpriced_logged.reset(logged)
+        _case_budgets.reset(token)
+
+
+def first_unpriced_warning(unit: BudgetUnit) -> bool:
+    """True the first time this Attempt reports an unpriced ``unit`` charge, else False."""
+
+    logged = _case_unpriced_logged.get()
+    if logged is None or unit in logged:
+        return False
+    logged.add(unit)
+    return True
+
+
+def current_case_budgets() -> tuple[Budget, ...]:
+    """The Budgets bound for this Attempt (in declaration order), or () without a Budget."""
+
+    return _case_budgets.get()
 
 
 def budget_schemas() -> dict[str, dict[str, Any]]:

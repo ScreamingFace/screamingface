@@ -46,7 +46,8 @@
                 "cut_not_met",
                 "output_missing",
                 "gate_not_met",
-                "in_band"
+                "in_band",
+                "budget_refused"
               ],
               "type": "string"
             },
@@ -442,7 +443,8 @@
                 "cut_not_met",
                 "output_missing",
                 "gate_not_met",
-                "in_band"
+                "in_band",
+                "budget_refused"
               ],
               "type": "string"
             },
@@ -817,6 +819,22 @@
           "type": "null"
         }
       ]
+    },
+    "skipped": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Skipped"
     },
     "tally": {
       "anyOf": [
