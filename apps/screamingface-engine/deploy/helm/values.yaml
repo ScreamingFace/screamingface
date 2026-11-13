@@ -734,6 +734,13 @@ runnerPool:
     # Seconds between KEDA reads of `/runner-demand`. The App samples the queue every 15 s
     # (`runner_demand_sample_s`), so a read is at most one sample old.
     pollingIntervalS: 15
+    # The per-pod target of the HPA AverageValue metric, in runs per pod. null = `workerSlots`.
+    # Set it BELOW `workerSlots / 1.1` (3.6 for 4 slots) when the cluster's KEDA ScaledObject CRD
+    # drops `scaleUp.tolerance` (KEDA < 2.18, e.g. the AKS add-on 2.17.2). Then the HPA's default
+    # 10 % band can never hold a pool that has more claimable runs than slots. Cost: about 11 %
+    # more pods (4 / 3.6). Set it back to null when KEDA >= 2.18 is live, or the pool stays about 11 %
+    # larger than needed. The chart refuses a value above `workerSlots`.
+    targetPerPod: null
     # WHY up at once, 4 pods per 15 s: a waiting user is the cost this feature removes, and the
     # signal already excludes runs that no new pod could claim.
     scaleUp:
@@ -752,6 +759,11 @@ runnerPool:
     # which then drains up to `drainGraceS` while its runs still count in the demand. A slow step
     # limits that cost (spec D5; `pod-deletion-cost` is a follow-up).
     scaleDown:
+      # false renders `selectPolicy: Disabled`: the pool grows on demand and never shrinks by
+      # itself. WHY: a scale-down can pick a BUSY pod, which holds its node and quota while it
+      # drains (up to `drainGraceS`). Use false until idle pods are removed first (OME-1871).
+      # Scale-up is unchanged. At the maximum, the pool costs the same as `minReplicas = maxReplicas`.
+      enabled: true
       stabilizationS: 300
       podsPerStep: 1
       stepS: 60
