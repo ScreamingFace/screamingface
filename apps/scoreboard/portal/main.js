@@ -66,6 +66,25 @@ window.ScorePortal = (function () {
     );
   }
 
+  /* ---- board addresses ------------------------------------------------- */
+  // board-url.js owns both forms of a board address. Where it is absent the page still works
+  // at the older benchmark.html?id=<id> form.
+  var BoardUrl = window.SFBoardUrl || null;
+  function boardId() {
+    return BoardUrl ? BoardUrl.idFromLocation(window.location) : getParam("id");
+  }
+  function boardHref(id) {
+    return BoardUrl ? BoardUrl.boardHref(id, window.location) : "benchmark.html?id=" + encodeURIComponent(id);
+  }
+  // True at /benchmarks/<id>/, where the server has already described the board in the head.
+  function atBoardAddress() {
+    return !!(BoardUrl && window.location && BoardUrl.idFromPath(window.location.pathname));
+  }
+  // A link to another portal page that still resolves from /benchmarks/<id>/.
+  function pageHref(file) {
+    return BoardUrl ? BoardUrl.pageHref(file, window.location) : file;
+  }
+
   /* ---- query params ---------------------------------------------------- */
   function getParam(name) {
     return new URLSearchParams(window.location.search).get(name);
@@ -280,7 +299,7 @@ window.ScorePortal = (function () {
     var listed = window.SFLeaderboardLogic.listedBenchmarks(benchmarks || []);
     var split = window.SFLeaderboardLogic.partitionFeatured(listed);
     split.featured.forEach(function (b) {
-      var a = link(null, "benchmark.html?id=" + encodeURIComponent(b.id), b.display_name || b.id);
+      var a = link(null, boardHref(b.id), b.display_name || b.id);
       if (b.id === activeId) a.setAttribute("aria-current", "page");
       container.appendChild(a);
     });
@@ -334,7 +353,7 @@ window.ScorePortal = (function () {
       }
       matches.forEach(function (b) {
         // textContent via link(), never innerHTML — display_name is community-submitted (see header).
-        var a = link("tabstrip-more-item", "benchmark.html?id=" + encodeURIComponent(b.id), b.display_name || b.id);
+        var a = link("tabstrip-more-item", boardHref(b.id), b.display_name || b.id);
         if (b.id === activeId) a.setAttribute("aria-current", "page");
         list.appendChild(a);
       });
@@ -398,7 +417,7 @@ window.ScorePortal = (function () {
   function benchmarkCard(b, board) {
     var card = document.createElement("a");
     card.className = "card";
-    card.setAttribute("href", "benchmark.html?id=" + encodeURIComponent(b.id));
+    card.setAttribute("href", boardHref(b.id));
 
     // Title row: the board name with a gold open-arrow at the right — the one accent plus the
     // "open me" affordance, the way the docs cards carry their arrow.
@@ -430,6 +449,10 @@ window.ScorePortal = (function () {
     fetchJson: fetchJson,
     getParam: getParam,
     requireParam: requireParam,
+    boardId: boardId,
+    boardHref: boardHref,
+    atBoardAddress: atBoardAddress,
+    pageHref: pageHref,
     clear: clear,
     el: el,
     link: link,

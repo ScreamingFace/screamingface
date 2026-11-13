@@ -3,9 +3,11 @@
  * Every page loads the Plausible site script (async) and then this file, synchronously, in <head>.
  * It owns the two things the script cannot work out on its own:
  *
- *   1. Which leaderboard a pageview is for. Boards are `benchmark.html?id=<id>` and Plausible drops
- *      query strings, so without help every board reads as one `/benchmark.html` row. Each event
- *      carries a `benchmark` custom property taken from `?id=`.
+ *   1. Which leaderboard a pageview is for. A board is `/benchmarks/<id>/`, or the older
+ *      `benchmark.html?id=<id>`; Plausible drops query strings, so the older form would read as
+ *      one `/benchmark.html` row. Each event carries a `benchmark` custom property, taken from
+ *      whichever address the page was opened at (board-url.js), so reports group by board the
+ *      same way on both.
  *   2. Where on the page people click. One delegated listener sends `Section Click` for every link
  *      or button click, with `section` (the nearest `data-section` region) and `label` (what was
  *      clicked). Outbound links are still also counted by the script's own outbound tracking.
@@ -23,13 +25,13 @@
  */
 (function (root, factory) {
   "use strict";
-  var api = factory();
-  if (typeof module === "object" && module.exports) module.exports = api;
+  if (typeof module === "object" && module.exports) module.exports = factory(require("./board-url.js"));
   else {
+    var api = factory(root.SFBoardUrl);
     root.SFAnalytics = api;
     api.install(root);
   }
-})(typeof self !== "undefined" ? self : this, function () {
+})(typeof self !== "undefined" ? self : this, function (U) {
   "use strict";
 
   var EVENT_SECTION_CLICK = "Section Click";
@@ -64,6 +66,18 @@
     return id ? id : null;
   }
 
+  // The board a page shows, from either address. If board-url.js did not load, the query
+  // string is still read, so a missing file costs the path form and nothing else.
+  function benchmarkFromLocation(location) {
+    if (U) return U.idFromLocation(location);
+    return benchmarkFromSearch(location && location.search);
+  }
+
+  function benchmarkFromHref(href) {
+    if (U) return U.idFromHref(href);
+    return /(?:^|\/)benchmark\.html\?/.test(href) ? benchmarkFromSearch(href.slice(href.indexOf("?"))) : null;
+  }
+
   // Region name for a click: the nearest `data-section` value, or "page" outside every region.
   function sectionFor(sectionAttr) {
     return sectionAttr ? sectionAttr : "page";
@@ -78,9 +92,7 @@
   // description, so a link to a board labels as that board's id instead.
   function labelFor(info) {
     if (info.trackLabel) return clean(info.trackLabel);
-    var board = info.href && /(?:^|\/)benchmark\.html\?/.test(info.href)
-      ? benchmarkFromSearch(info.href.slice(info.href.indexOf("?")))
-      : null;
+    var board = info.href ? benchmarkFromHref(info.href) : null;
     if (board) return board;
     var text = clean(info.ariaLabel) || clean(info.text);
     return text || "(unlabelled)";
@@ -130,7 +142,7 @@
       };
       root.plausible.init({
         customProperties: function () {
-          var board = benchmarkFromSearch(root.location && root.location.search);
+          var board = benchmarkFromLocation(root.location);
           return board ? { benchmark: board } : {};
         },
       });
@@ -143,6 +155,7 @@
   return {
     EVENT_SECTION_CLICK: EVENT_SECTION_CLICK,
     benchmarkFromSearch: benchmarkFromSearch,
+    benchmarkFromLocation: benchmarkFromLocation,
     sectionFor: sectionFor,
     labelFor: labelFor,
     selfExclusion: selfExclusion,

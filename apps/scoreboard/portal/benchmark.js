@@ -1,6 +1,6 @@
 /* ScreamingFace Leaderboard Portal — benchmark (top-N) page.
  *
- * Reads ?id=<benchmark_id>, fetches /v1/leaderboard/{id}, and renders a
+ * Reads the board id from /benchmarks/<id>/ or ?id=<id>, fetches /v1/leaderboard/{id}, and renders a
  * client-side sortable table. Default sort is score DESC. Community top-N results
  * and imported baselines are merged before selecting the displayed top N. Ranks
  * describe that score ordering and stay fixed when another column is sorted.
@@ -241,7 +241,7 @@
       tr.appendChild(renderMarkSlot(entry));
 
       var specTd = P.el("td", "cell-wrap");
-      specTd.appendChild(P.link("mono", "spec.html?benchmark=" + encodeURIComponent(state.benchmarkId) + "&spec=" + encodeURIComponent(entry.spec_id), entry.spec_id));
+      specTd.appendChild(P.link("mono", P.pageHref("spec.html?benchmark=" + encodeURIComponent(state.benchmarkId) + "&spec=" + encodeURIComponent(entry.spec_id)), entry.spec_id));
       // Colour must not be the only carrier of the meaning — and the wording is
       // deliberately "highest score", not "state of the art": this row may be
       // unverified.
@@ -388,7 +388,7 @@
   function showNotFound(statusNode, message) {
     P.setStatus(statusNode, "error", "");
     statusNode.appendChild(document.createTextNode(message + " "));
-    statusNode.appendChild(P.link(null, "index.html", "Return to the benchmark list."));
+    statusNode.appendChild(P.link(null, P.pageHref("index.html"), "Return to the benchmark list."));
   }
 
   // The breadcrumb names the benchmark being shown. With no benchmark (missing id, 404) the
@@ -409,10 +409,8 @@
     var descNode = document.getElementById("benchmark-desc");
     var crumbNode = document.getElementById("crumb-benchmark");
 
-    var id;
-    try {
-      id = P.requireParam("id");
-    } catch (e) {
+    var id = P.boardId();
+    if (!id) {
       showNotFound(statusNode, "No benchmark specified.");
       initTabStrip(null);
       return;
@@ -433,7 +431,9 @@
           nameNode.textContent = name;
           setBenchmarkCrumb(crumbNode, name);
           descNode.textContent = b.description || "";
-          document.title = name + " — screamingface";
+          // At /benchmarks/<id>/ the server already wrote this board's title, with the words a
+          // search result shows. Only the shared benchmark.html still needs one from here.
+          if (!P.atBoardAddress()) document.title = name + " — screamingface";
         }
         state.entries = (data && data.entries) || [];
         // Keep the fetched community points even when imports displace table rows.
