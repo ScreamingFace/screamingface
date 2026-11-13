@@ -1,4 +1,4 @@
-"""The shape of one answer rule: the sentence a submitter reads, and the replies that prove it."""
+"""The shape of one answer format: the sentence a submitter reads, and the replies that prove it."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class AnswerFormat:
-    """One grader's answer rule, in the words a submitter reads, with replies that prove it.
+    """One grader's answer format, in the words a submitter reads, with replies that prove it.
 
     Attributes:
         sentence: appended to the description of every row it serves; quotes each example
@@ -22,7 +22,7 @@ class AnswerFormat:
         accepted: replies the sentence says are graded right; each scores 1 on ``material``.
         rejected: replies the sentence says are read as no answer or as wrong; each scores 0.
 
-    INVARIANT: a judge-graded rule (``material`` None) has no examples, and every other rule
+    INVARIANT: a judge-graded answer format (``material`` None) has no examples, and every other one
     has at least one accepted and one rejected reply.
     """
 
@@ -34,6 +34,6 @@ class AnswerFormat:
 
     @property
     def judged(self) -> bool:
-        """True when a judge, not a fixed rule, reads the reply."""
+        """True when a judge, not fixed code, reads the reply."""
 
         return self.material is None

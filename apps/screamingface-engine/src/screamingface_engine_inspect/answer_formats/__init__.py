@@ -12,22 +12,23 @@ stays hand-written in its catalogue entry; this sentence follows it.
 
 Stages, in execution order (:func:`with_answer_format`):
 
-    Stage 1 — find the row's rule: by its catalogue key first, then by its scorer reference.
+    Stage 1 — find the row's answer format: by its catalogue key first, then by its scorer
+              reference.
               WHY the key first: a few scorers are configured per row (inspect's `match` reads
               a number for gsm8k), so one sentence per scorer would be wrong for some rows.
-    Stage 2 — append the rule's sentence to the row's prose, one space between.
+    Stage 2 — append the answer format's sentence to the row's prose, one space between.
 
-Worked example — the MMLU-Pro row has no rule of its own, so Stage 1 finds the rule for
-`inspect_ai.scorer:choice`; on a Case whose key is B, its quoted replies grade `ANSWER: B` → 1
-and `ANSWER: $B`, `ANSWER: (B)`, `ANSWER: **B**`, `ANSWER: \\boxed{B}` → 0.
+Worked example — the MMLU-Pro row has no answer format of its own, so Stage 1 finds the one for
+`inspect_ai.scorer:choice`; on a Case whose key is B, its quoted replies grade `ANSWER: B` and
+`ANSWER: B.` → 1, and `ANSWER: $B`, `ANSWER: (B)`, `ANSWER: **B**`, `ANSWER: \\boxed{B}` → 0.
 
 One file per family of graders, grouped by how they read a reply: `_choice.py` (inspect's
 multiple-choice scorer), `_letters.py` (other letter scorers), `_exact.py` (exact, number,
-pattern and overlap rules), `_judged.py` (a judge model reads the reply).
+pattern and overlap scorers), `_judged.py` (a judge model reads the reply).
 
-INVARIANT: every quoted reply of a non-judge rule grades the way its sentence says, through
-each row's real grader (`tests/unit/inspect/test_answer_formats.py`), so the page never
-promises a format the grader refuses. Every catalogue row has a rule.
+INVARIANT: every quoted reply of a non-judge answer format grades the way its sentence says,
+through each row's real grader (`tests/unit/inspect/test_answer_formats.py`), so the page never
+promises a format the grader refuses. Every catalogue row has one.
 
 INVARIANT: the description is not part of a Benchmark's revision, so editing a sentence moves
 no fingerprint and no published revision; the scoreboard's seed job copies the new text to the
@@ -60,12 +61,12 @@ def _merged(*families: Mapping[str, AnswerFormat]) -> dict[str, AnswerFormat]:
     return merged
 
 
-#: Row key or scorer reference (as a catalogue row names it) → its answer rule.
+#: Row key or scorer reference (as a catalogue row names it) → its answer format.
 ANSWER_FORMATS: Mapping[str, AnswerFormat] = _merged(CHOICE, LETTERS, EXACT, JUDGED)
 
 
 def answer_format_for(key: str, scorer: str) -> AnswerFormat | None:
-    """The row's own rule when it has one, else its scorer's (Stage 1)."""
+    """The row's own answer format when it has one, else its scorer's (Stage 1)."""
 
     return ANSWER_FORMATS.get(key) or ANSWER_FORMATS.get(scorer)
 
