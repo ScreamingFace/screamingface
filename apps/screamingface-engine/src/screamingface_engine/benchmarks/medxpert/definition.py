@@ -219,6 +219,17 @@ def install_medxpert(node: Url4Node, assets: Path) -> None:
     install(node, assets / ASSET_BUNDLE_ID)
 
 
+#: FEATURE: answer format on the Benchmark page (OME-1906). What `grading.extract_letter` reads,
+#: in the words a submitter sees; every quoted reply is graded by `grading.grade` in
+#: tests/unit/test_medxpert_answer_format.py. WHY here and not in the inspect plugin's
+#: `answer_formats` package: medxpert is hand-built core code, and core never imports a plugin.
+ANSWER_FORMAT: str = (
+    "Answer format: after its reasoning, the model is asked to finish 'the answer is' with one "
+    "option letter, and the grader takes the last option letter the reply states, so 'D', "
+    "'(D)', '**D**' and 'the answer is D' all count; a reply with no option letter, such as "
+    "'not sure', scores 0."
+)
+
 MEDXPERT = Benchmark(
     id=BENCHMARK_ID,
     title="MedXpertQA",
@@ -231,7 +242,7 @@ MEDXPERT = Benchmark(
         "The two-turn exchange is applied at the candidate boundary, which reproduces the "
         "official protocol for a single model; for a fusion the exchange wraps the whole "
         "ensemble rather than each member, so those numbers are not comparable to a per-member "
-        "implementation."
+        "implementation. " + ANSWER_FORMAT
     ),
     revision=REVISION,
     case_count=CASE_COUNT,
