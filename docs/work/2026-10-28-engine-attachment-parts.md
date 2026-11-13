@@ -145,3 +145,8 @@ within baseline (`dag/_context.py` 455/455); `check_suppressions.py` 3/3; privat
   text envelope. (The largest `D` with 4D/3 ≤ C at zero envelope is 6,291,456.) Lowering
   `url4.dag._caps.MAX_ATTACHMENT_BYTES` to 6,000,000 fails 10 prior #1587 tests that pin the
   8,000,000 boundary literally, so per the loop's rule it was not changed here.
+- **Merge 2:** `a23919733` merges `origin/main` (#1587 squash `2cd0cbf8d`; PR retargeted to main), clean.
+- **Gates (after both merges):** `run_gates.py screamingface-engine` ALL GREEN (8,928 passed,
+  354 skipped); `run_gates.py url4` ALL GREEN (3,156 passed, 17 xfailed);
+  `run_gates.py repo --base origin/main` ALL GREEN; `check_module_size.py` within baseline;
+  url4 `notebooks (examples/)` nbclient job reproduced locally: 3/3 ok.
