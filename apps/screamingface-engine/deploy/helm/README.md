@@ -155,7 +155,10 @@ What the pool's pods get:
   default pool reserves a 1 GiB arena and OpenBLAS a buffer per node CPU, address space a run
   never uses but `RLIMIT_AS` counts (a `draco-3pass` run died at 459 MiB resident without them).
 - `nodeSelector` and `tolerations` from the chart's top-level placement values — the pool and
-  the App Deployment therefore use the same operator-owned node pool and taint policy
+  the App Deployment therefore use the same operator-owned node pool and taint policy. The two
+  bundled Garage StatefulSets and the migrate Job use the same two values (not `affinity`).
+  Changing placement restarts a Garage pod; when its persistence is on, its volume is zonal, so the new pool needs a node
+  in the volume's zone
 - a `checksum/runner-env` + `checksum/secret` annotation pair, so a ConfigMap/Secret value
   change alone rolls the pool (the same invariant as the App Deployment)
 - a Prometheus `/metrics` endpoint on `runnerPool.metricsPort` (the worker's own scrape

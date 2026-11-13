@@ -164,6 +164,16 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+      {{- /* WHY: the blob Garage runs on the App's node pool and tolerates its taints. `affinity` is
+      not copied: it names App pod labels, and Garage pods carry other labels. */}}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
   {{- if .Values.blobs.storage.garage.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
