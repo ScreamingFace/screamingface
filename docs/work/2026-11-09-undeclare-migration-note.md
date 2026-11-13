@@ -1,9 +1,9 @@
 ---
 ticket: OME-1901
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-09
-finished:
+finished: 2026-11-13
 ---
 
 # undeclare-migration-note — the pair marker model stops declaring `migration_note` (OME-1138 close-out, L4c-1)
@@ -70,7 +70,9 @@ Tests:
   (`test_a_leftover_note_is_neither_read_nor_written` retired, `_plant` writes no note, the
   docstring `INVARIANT` names the two steps). Docs: the close-out spec (§1 table and splits, §4.3,
   §4.10 item 4, §5, §6, §8, §9 Q1) and plan (waves, the L4c section, L11b, risks).
-- **Commits:** on `OME-1901-undeclare-migration-note` from `origin/main` `d28bfa99b`:
+- **Commits:** `396298f6c` refactor(aigateway): stop declaring migration_note on the pair marker
+  (#1774), squash-merged 2026-11-13 11:02 UTC. Linear `OME-1901` Done with the close-comment. The
+  branch held two commits from `origin/main` `d28bfa99b`: first
   `refactor(aigateway): stop declaring migration_note on the pair marker`, with this ledger, the
   mirror and `.claude/test-change-approvals/OME-1901.json`. Upstream since `0ea65d44f` touches
   none of these files, and `0016` is still the next migration number. Then, from review,

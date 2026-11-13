@@ -1,13 +1,13 @@
 ---
 id: OME-1901
 linear_url: https://linear.app/openmined/issue/OME-1901/stop-declaring-migration-note-on-the-pair-marker-l4c-1
-status: in_review
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-11-12
-closed:
+closed: 2026-11-13
 ---
 
 # Stop declaring migration_note on the pair marker (L4c-1)
@@ -22,3 +22,4 @@ Close-out spec `docs/spec/2026-10-29-ome-1138-closeout.md` §4.3.
 
 - Ledger: `docs/work/2026-11-09-undeclare-migration-note.md`
 - 2026-11-12: filed at PR-open under `OME-1138`; the PR opened. In Review.
+- 2026-11-13: PR #1774 merged as `396298f6c`; Linear Done with the close-comment.
