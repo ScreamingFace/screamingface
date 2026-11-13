@@ -9,6 +9,10 @@ on:
       - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
       # the gateway-owned live/replay twins that tests/unit/test_e4c_replay_price_parity_twin.py reads
       - "apps/aigateway/tests/fixtures/replay_reference_twins/**"
+      # the shared url4 attachment-cap recipe that tests/unit/test_url4_attachment_cap_fits_the_gateway.py binds
+      - "apps/aigateway/tests/fixtures/url4_attachment_cap_request/**"
+      # the gateway's max_request_bytes default, read with ast by the gateway-fit tests
+      - "apps/aigateway/src/aigateway/config.py"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
       - "packages/screamingface/tests/_combine_flow_fixtures.py"
       - ".github/workflows/screamingface-engine-tests.yml"
@@ -21,6 +25,10 @@ on:
       - "apps/aigateway/tests/fixtures/cache_hit_contract/**"
       # the gateway-owned live/replay twins that tests/unit/test_e4c_replay_price_parity_twin.py reads
       - "apps/aigateway/tests/fixtures/replay_reference_twins/**"
+      # the shared url4 attachment-cap recipe that tests/unit/test_url4_attachment_cap_fits_the_gateway.py binds
+      - "apps/aigateway/tests/fixtures/url4_attachment_cap_request/**"
+      # the gateway's max_request_bytes default, read with ast by the gateway-fit tests
+      - "apps/aigateway/src/aigateway/config.py"
       # the SDK flow operator fixture that tests/unit/test_sdk_flow_catalog_fixture.py binds
       - "packages/screamingface/tests/_combine_flow_fixtures.py"
       - ".github/workflows/screamingface-engine-tests.yml"

@@ -4,10 +4,14 @@ on:
   push:
     paths:
       - "apps/aigateway/**"
+      # url4's attachment cap, read with ast by tests/unit/test_url4_attachment_cap_request.py
+      - "packages/url4/src/url4/dag/_caps.py"
       - ".github/workflows/aigateway-tests.yml"
   pull_request:
     paths:
       - "apps/aigateway/**"
+      # url4's attachment cap, read with ast by tests/unit/test_url4_attachment_cap_request.py
+      - "packages/url4/src/url4/dag/_caps.py"
       - ".github/workflows/aigateway-tests.yml"
   workflow_dispatch:
 

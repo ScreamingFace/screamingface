@@ -214,16 +214,18 @@ def _first_difference(delivered: bytes, expected: bytes) -> str | None:
 
 
 class _Recorder(httpx.AsyncBaseTransport):
-    """Keeps every byte the Engine delivers, and its ``Content-Length``; answers 200."""
+    """Keeps every byte the Engine delivers, its chunk sizes and ``Content-Length``; answers 200."""
 
     def __init__(self) -> None:
         self.bodies: list[bytes] = []
+        self.chunk_sizes: list[list[int]] = []
         self.lengths: list[str] = []
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         assert isinstance(request.stream, httpx.AsyncByteStream)
         chunks = [chunk async for chunk in request.stream]
         self.bodies.append(b"".join(chunks))
+        self.chunk_sizes.append([len(chunk) for chunk in chunks])
         self.lengths.append(request.headers["content-length"])
         return httpx.Response(
             200,
@@ -231,7 +233,7 @@ class _Recorder(httpx.AsyncBaseTransport):
         )
 
 
-async def _engine_delivery(recipe: dict, prompt: str) -> tuple[bytes, str]:
+async def _engine_delivery(recipe: dict, prompt: str) -> tuple[bytes, list[int], str]:
     """One call through the real ``_ModelEndpoint`` (``streamed_json`` path): delivered bytes."""
     picture = _recipe_picture(recipe)
     attachment = Attachment(
@@ -258,8 +260,9 @@ async def _engine_delivery(recipe: dict, prompt: str) -> tuple[bytes, str]:
         )
         assert await handler(request) == "42"
     (body,) = recorder.bodies
+    (sizes,) = recorder.chunk_sizes
     (length,) = recorder.lengths
-    return body, length
+    return body, sizes, length
 
 
 def test_the_shared_recipe_is_cut_for_url4s_cap_and_the_gateways_cap() -> None:
@@ -284,8 +287,12 @@ async def test_the_engine_delivers_exactly_the_recipes_bytes_at_the_gateway_boun
     total = recipe["boundary_bytes"][side]
     prompt = recipe["prompt_fill"] * _text_room(recipe, total)
 
-    body, length = await _engine_delivery(recipe, prompt)
+    body, chunk_sizes, length = await _engine_delivery(recipe, prompt)
 
+    # INVARIANT (review blocker 1): the body is STREAMED in chunks of at most 64 KiB, never
+    # handed over whole — a ``json=`` body arrives as one chunk of all 8 MB and fails here.
+    assert len(chunk_sizes) > 1
+    assert max(chunk_sizes) <= 64 * 1024
     assert len(body) == total
     assert length == str(total)
     assert _first_difference(body, _expanded(recipe, total)) is None
