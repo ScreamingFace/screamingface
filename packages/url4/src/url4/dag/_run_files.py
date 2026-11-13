@@ -39,7 +39,7 @@ from url4.dag.remote_nodes import precheck_remote_nodes, remote_policy_active  #
 from url4.dag._static_processor import static_processor_value  # isort: skip
 from url4.dag.processor import classify_processor, remote_processor_hop  # isort: skip
 from url4.dag._graph_admission import refuse_prebuilt  # isort: skip
-from url4.dag._remote_walk import graph_remote_calls, scan_remote_calls, text_remote_calls  # isort: skip
+from url4.dag._remote_walk import RemoteWalk  # isort: skip
 
 
 @dataclass(frozen=True)
@@ -142,27 +142,23 @@ async def _precheck_remote(
     WHY the pre-built walk (review round 15): a ``Graph`` / ``DagNode`` has no AST (``scan`` is
     ``None``), so its ``RemoteFetchNode`` s and the remote calls in its kept text are collected
     from the graph itself; a precompiled mixed graph once ran a local endpoint first.
-    WHY the compiled-graph fallback (PR #1750 round 5): whatever the strict parse cannot read (the
-    whole text, a lazy group, a map-body segment) is compiled and walked
-    (:mod:`url4.dag._remote_walk`); once a local member ran before such a call refused.
+    WHY the compiled-graph fallback (PR #1750 round 5): a text the strict parse cannot fully read
+    (the run's text, a lazy group, a map body) is compiled and walked instead
+    (:mod:`url4.dag._remote_walk`); once a local member ran before such a call refused. A
+    fragment that does not compile adds its ``url4://`` URIs as ``maybe`` calls (FAIL CLOSED).
     """
     processor = await _processor_hop(run_ctx, registry)
-    if scan is not None:
-        calls = scan_remote_calls(scan, registry)
-    elif isinstance(target, (Graph, DagNode)):
-        calls = graph_remote_calls(target, registry)
-    elif isinstance(target, str):
-        # WHY (PR #1750 round 5): text the strict grammar rejects may still compile (a nested
-        # bare-iteration group); it is walked as ``run()`` compiles it, never taken as call-free.
-        calls = text_remote_calls(target, registry)
+    walk = RemoteWalk(registry)
+    if isinstance(target, (Graph, DagNode)):
+        calls = walk.graph(target)
     else:
-        calls = ()  # a parse tree always has its scan; kept for the type checker
+        # WHY bare_root_ok=False: compiled exactly as ``run()`` will compile it (``_to_node``).
+        calls = walk.text(scan, target, bare_root_ok=False)
+    calls = (*calls, *_processor_expression_calls(run_ctx.processor, walk))
     precheck_remote_nodes(
-        (
-            *calls,
-            *_processor_expression_calls(run_ctx.processor, registry),
-        ),
-        maybe=() if processor is None else (processor,),  # called only on a reduce
+        calls,
+        # the reduce processor is called only on a reduce; an uncompilable fragment maybe never
+        maybe=(*(() if processor is None else (processor,)), *walk.maybe),
     )
 
 
@@ -198,18 +194,19 @@ def _processor_scan(value: str | None) -> SourceScan | None:
     return None if ast is None else scan_sources(ast)
 
 
-def _processor_expression_calls(
-    value: str | None, registry: LoweringRegistry | None
-) -> tuple[tuple[str, str], ...]:
+def _processor_expression_calls(value: str | None, walk: RemoteWalk) -> tuple[tuple[str, str], ...]:
     """The structural ``url4://`` calls inside a Form-3 (expression-valued) processor.
 
     INVARIANT (PR #1587 review round 10, owner 2026-11-05): an expression processor is parsed
     and given the SAME structural remote-call scan as the run's own expression, so a remote call
     in its AST is refused before any run-start I/O; only its computed FINAL value stays checked
-    when it resolves.
+    when it resolves. A map body there the strict grammar cannot read is walked compiled, as the
+    processor's spawn compiles it (PR #1750 round 5).
     """
     scan = _processor_scan(value)
-    return () if scan is None else scan_remote_calls(scan, registry)
+    if value is None or scan is None:
+        return ()
+    return walk.text(scan, value.strip(), bare_root_ok=True)
 
 
 def _refuse_processor_files(value: str | None) -> None:

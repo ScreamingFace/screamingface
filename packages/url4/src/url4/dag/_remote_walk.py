@@ -6,85 +6,90 @@ anything for it, even when its text holds a nested group the strict grammar reje
 engine's spawn compiles (``(('r1','r2')*(/b($item)!'i'))!'g'``).
 
 INVARIANT (PR #1750 round 5, owner "fallback graph walk"): the strict scan
-(:mod:`url4.dag.source_scan`) stays the source of truth wherever it can read the text. Whatever it
-cannot read — the run's whole text, a deferred group (``LazyExprNode.text``), an iteration-body
-segment (:attr:`SourceScan.opaque`) — is compiled the way the run or the spawn hook compiles it,
-and its graph walked here, recursively. Every call found feeds the ONE precheck
-(:func:`url4.dag.remote_nodes.precheck_remote_nodes`); nothing here refuses on its own.
+(:mod:`url4.dag.source_scan`) is used only where it read the WHOLE text. A text it could not
+fully read — the run's text, a deferred group (``LazyExprNode.text``), a map body
+(``MapNode.fragment``, whole: a segment may compile only inside it) — is compiled exactly as
+``run()`` or the spawn hook compiles it, and that graph is walked, recursively. Every call found
+feeds the ONE precheck (:func:`url4.dag.remote_nodes.precheck_remote_nodes`).
+INVARIANT (FAIL CLOSED, round 5 security review): a fragment that does not compile either is
+not call-free when it names ``url4://``: each URI in it becomes a ``maybe`` call (refused unless
+it is a client's still-unspent hop), so a run never fetches a collection or runs a sibling ahead
+of a remote call the walk could not rule out. The run's own text is exempt: if it does not
+compile, ``run()`` fails before any node executes.
 WHY policy-gated compiles: outside a node context the precheck refuses nothing, so a bare
-``url4.run()`` compiles nothing extra (the strict scans are what they always were).
+``url4.run()`` compiles nothing extra.
 WHY each occurrence counts: a repeated fragment's calls are memoized, not deduplicated, so a
 second call to a client's one hop is still a second call.
 """
 
 from __future__ import annotations
 
+import re
+
 from url4.core.errors import Url4Error
+from url4.core.nodes import Node as AstNode
 
 from url4.dag._graph_admission import kept_text_scan  # isort: skip
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.node import DagNode  # isort: skip
-from url4.dag.nodes import LazyExprNode, RemoteFetchNode  # isort: skip
+from url4.dag.nodes import LazyExprNode, MapNode, RemoteFetchNode  # isort: skip
+from url4.dag.processor import remote_processor_hop  # isort: skip
 from url4.dag.remote_nodes import remote_policy_active  # isort: skip
 from url4.dag.source_scan import SourceScan  # isort: skip
 
 Calls = tuple[tuple[str, str], ...]
+_URL4_URI = re.compile(r"url4://[^\s'\"(),!;*]+", re.IGNORECASE)
 
 
-class _Walk:
-    """One precheck's walk: each fragment text compiled once, its calls counted per occurrence."""
+class RemoteWalk:
+    """One precheck's walk. ``maybe`` collects the possible calls of uncompilable fragments."""
 
     def __init__(self, registry: LoweringRegistry | None) -> None:
         self.registry = registry
-        self.memo: dict[str, Calls] = {}
+        self.maybe: list[tuple[str, str]] = []
+        self._memo: dict[str | None, Calls] = {}
 
-    def scan(self, scan: SourceScan) -> Calls:
-        return (*scan.remote_nodes, *(c for text in scan.opaque for c in self.text(text)))
+    def text(self, scan: SourceScan | None, text: str | AstNode, *, bare_root_ok: bool) -> Calls:
+        """The calls of ``text``: its scan's when it read everything, else its compiled graph's."""
+        if (scan is not None and not scan.opaque) or not remote_policy_active():
+            return () if scan is None else scan.remote_nodes
+        key = text if isinstance(text, str) else None  # the run's own parse tree: walked once
+        if key in self._memo:
+            return self._memo[key]
+        if key is not None:
+            self._memo[key] = ()  # INVARIANT: a text never recurses into itself
+        calls = self._compiled(text, bare_root_ok=bare_root_ok)
+        if key is not None:
+            self._memo[key] = calls
+        return calls
 
-    def graph(self, graph: Graph) -> Calls:
+    def graph(self, target: Graph | DagNode) -> Calls:
+        """Every call a graph makes structurally (PR #1587 round 15, F1b): each reachable
+        ``RemoteFetchNode``, plus those in text a node keeps for later — none inside a remote
+        context (that text runs at the remote node)."""
+        graph = target if isinstance(target, Graph) else Graph(target)
         calls: list[tuple[str, str]] = []
         for node in graph.walk():
             if isinstance(node, RemoteFetchNode):
                 calls.append((node.authority, node.path))
             scan = kept_text_scan(node)
-            if scan is not None:
-                calls.extend(self.scan(scan))
+            if isinstance(node, MapNode):
+                calls.extend(self.text(scan, node.fragment, bare_root_ok=True))
             elif isinstance(node, LazyExprNode):
-                calls.extend(self.text(node.text))  # the strict parse failed: walk what spawns
+                calls.extend(self.text(scan, node.text, bare_root_ok=True))
+            elif scan is not None:
+                calls.extend(scan.remote_nodes)  # a verbatim context: shipped, never spawned here
         return tuple(calls)
 
-    def text(self, text: str, *, bare_root_ok: bool = True) -> Calls:
-        """The calls of ``text`` compiled as the spawn hook (or, top level, ``run()``) does."""
-        if not remote_policy_active():
+    def _compiled(self, text: str | AstNode, *, bare_root_ok: bool) -> Calls:
+        try:
+            graph = compile_expression(text, registry=self.registry, bare_root_ok=bare_root_ok)
+        except Url4Error:
+            if bare_root_ok and isinstance(text, str):  # a fragment: FAIL CLOSED (see module)
+                hops = (remote_processor_hop(uri) for uri in _URL4_URI.findall(text))
+                self.maybe.extend(hop for hop in hops if hop is not None)
             return ()
-        if text not in self.memo:
-            self.memo[text] = ()  # INVARIANT: a text never recurses into itself
-            try:
-                graph = compile_expression(text, registry=self.registry, bare_root_ok=bare_root_ok)
-            except Url4Error:
-                return ()  # WHY: a text that does not compile fails when (and only if) it runs
-            self.memo[text] = self.graph(graph)
-        return self.memo[text]
+        return self.graph(graph)
 
 
-def scan_remote_calls(scan: SourceScan, registry: LoweringRegistry | None) -> Calls:
-    """The calls of a parsed text: its scan's, plus the walk of every segment it could not read."""
-    return _Walk(registry).scan(scan)
-
-
-def graph_remote_calls(target: Graph | DagNode, registry: LoweringRegistry | None) -> Calls:
-    """Every call a pre-built ``target`` makes structurally (PR #1587 round 15, F1b).
-
-    INVARIANT: each ``RemoteFetchNode`` reachable through ``node_children`` (``Graph.walk``),
-    plus those in text a node keeps for later — and none inside a remote context (that text runs
-    at the remote node).
-    """
-    return _Walk(registry).graph(target if isinstance(target, Graph) else Graph(target))
-
-
-def text_remote_calls(text: str, registry: LoweringRegistry | None) -> Calls:
-    """The calls of run text the strict grammar rejects, compiled exactly as ``run()`` will."""
-    return _Walk(registry).text(text, bare_root_ok=False)
-
-
-__all__ = ["graph_remote_calls", "scan_remote_calls", "text_remote_calls"]
+__all__ = ["RemoteWalk"]

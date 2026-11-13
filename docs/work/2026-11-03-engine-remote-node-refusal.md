@@ -109,3 +109,25 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   `test_remote_node_deferred_preflight` cases fail. Gates: url4, screamingface-engine, repo
   `--base origin/main` green; module-size within baseline; notebooks 3/3 ok. The OME-1811
   ratchet approval needs re-pinning to the new base blob (owner).
+- **Round 5 (2026-11-13, regression from the round-4 merge; owner approach "fallback graph
+  walk"):** the round-4 claim above was wrong. The precheck read only the strict AST scan, so run
+  text holding a nested group the grammar rejects but the spawn compiles
+  (`(('r1','r2')*(/b($item)!'i'))!'g'`) parsed to nothing and was taken as call-free: a
+  `url4://` call beside / inside it, in a sibling map body, or beside an `https://` collection
+  group refused only after `/a` (and the rows) ran. Fix: new `dag/_remote_walk.py`
+  (`RemoteWalk`): the strict scan is used only where it read the WHOLE text; otherwise (run text
+  that does not parse, a `LazyExprNode.text`, a `MapNode.fragment` whose body has a segment the
+  grammar rejects — new `SourceScan.opaque`) the text is compiled as `run()` / the spawn hook
+  compiles it and that graph walked recursively (round-15 pre-built walk folded in; one walk).
+  Security-review follow-up: the whole `MapNode.fragment` is compiled, not each segment (a
+  segment may compile only inside it), and a fragment that still does not compile FAILS CLOSED:
+  each `url4://` URI in it is a `maybe` call (refused unless it is the client's unspent hop).
+  The run's own uncompilable text stays exempt (run() fails at compile, before any node). All
+  findings feed the one `precheck_remote_nodes(calls, maybe=)`; the Form-3 processor scan uses the
+  same walk. Compiles are policy-gated (a bare run compiles nothing extra); valid text keeps its
+  scan. Tests (new files only): url4 `test_remote_node_grammar_blind_preflight.py` (9 refused
+  cases + 3 controls + the Form-3 widening pin), engine `test_engine_remote_node_grammar_blind.py`
+  (5 refused cases + Form-3 pin + control). RED verified: 6 url4 + 4 engine on f0a02382a, then
+  2 url4 + 1 engine (fragment-only segment, uncompilable body) on the first round-5 commit. Also
+  fixed the stale `MapNode.fragment` docstring. No ratchet / `url4.dag.__all__` change. Merged
+  `origin/main` (01e8c8fa0).

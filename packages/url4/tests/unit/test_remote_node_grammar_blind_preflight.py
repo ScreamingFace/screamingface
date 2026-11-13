@@ -44,6 +44,21 @@ REFUSED = {
     "group-in-a-valid-map-body": (
         f"https://rows*(/b($item)!'i', (('r1','r2')*({REMOTE}($item)!'x'))!'g')!'per'"
     ),
+    # WHY: a repeated deferred group is compiled once, and its calls still count each time.
+    "the-same-remote-group-twice": (
+        f"(/a(x)!'q', (('r1','r2')*({REMOTE}($item)!'i'))!'g', "
+        f"(('r1','r2')*({REMOTE}($item)!'i'))!'g')!'m'"
+    ),
+    # WHY (round 5 security review): this body segment compiles only INSIDE its map fragment,
+    # never alone, so the walk must compile the whole fragment the way the spawn does.
+    "segment-compiling-only-in-its-fragment": (
+        f"https://rows*(/b($item)!'i', (({REMOTE}($item)!'x'))!)!'per'"
+    ),
+    # WHY FAIL CLOSED: an uncompilable body naming url4:// is not taken as call-free; otherwise
+    # the collection is fetched first and the run completes with error rows.
+    "uncompilable-body-naming-a-remote-node": (
+        f"https://rows*(/b($item)!'i', {REMOTE}($item)!'x' junk)!'per'"
+    ),
 }
 
 
@@ -144,3 +159,13 @@ async def test_a_non_reducing_run_refuses_a_static_form_3_url4_processor(wire: _
     with pytest.raises(ResolutionError) as caught:
         await refuse_remote_nodes(run("/a(x)!'i'", world))
     _assert_refused_for_free(caught, wire)
+
+
+@pytest.mark.asyncio
+async def test_an_uncompilable_body_naming_no_remote_node_still_runs(wire: _Tripwire) -> None:
+    # INVARIANT: the fail-closed fallback is scoped to url4:// URIs; a broken body with none is
+    # left to fail as its rows run (error rows under the default collect policy), as before.
+    await refuse_remote_nodes(
+        run("https://rows*(/b($item)!'i', /b($item)!'x' junk)!'per'", _world(wire))
+    )
+    assert wire.requests == ["GET 93.184.216.34/"]  # the collection was fetched: not refused

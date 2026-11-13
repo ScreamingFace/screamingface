@@ -41,6 +41,10 @@ CASES = {
         f"(/a(x)!'q', {BLIND_HTTPS}, {REMOTE}(a)!'k')!'m'",
         None,
     ),
+    "uncompilable-body-naming-a-remote-node": (
+        f"https://rows*(/b($item)!'i', {REMOTE}($item)!'x' junk)!'per'",
+        None,
+    ),
     "non-reducing-run-static-form-3-processor": ("/a(x)!'i'", f"(p:0:'{REMOTE}')!'$p'"),
 }
 
