@@ -224,3 +224,12 @@ within baseline (`dag/_context.py` 455/455); `check_suppressions.py` 3/3; privat
   `DEFAULT_BLOB_MAX_BYTES`; spec `docs/spec/2026-10-16-OME-1535-file-input-execution.md` lines ~242
   (F1b) and ~538 (error table); `test_fair_share_byte_budget.py` `CAP = 8_000_000`; the three #1587
   "one byte over" cases, now 2,000,001 bytes over the 6,000,000 cap.
+- **Round 6b (independent re-check of `cd105c21f`, 89%, no blockers):** CI path filters —
+  `screamingface-engine-tests.yml` now also triggers on
+  `apps/aigateway/tests/fixtures/url4_attachment_cap_request/**` and
+  `apps/aigateway/src/aigateway/config.py` (read with `ast` by the gateway-fit tests);
+  `aigateway-tests.yml` on `packages/url4/src/url4/dag/_caps.py` (its half reads url4's cap); the
+  recipe is already under its `apps/aigateway/**`. The Engine boundary test now asserts the body
+  is streamed (more than one chunk, each ≤ 64 KiB); mutations `streamed_json_body` → `None` and
+  `_CHUNK` = 128 KiB both fail it. Merged `origin/main` (lockfile commits). Gates vs
+  `origin/main`: url4, screamingface-engine, aigateway, repo ALL GREEN; module size within baseline.
