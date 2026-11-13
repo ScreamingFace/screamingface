@@ -13,12 +13,13 @@ import pytest
 from tortoise.backends.base.executor import EXECUTOR_CACHE
 
 from screamingface_engine.runs import db
-from screamingface_engine.runs.records import RunSpec
+from screamingface_engine.runs.records import CandidateStart, ContextRef, RunSpec
 from screamingface_engine.runs.store import TortoiseRunStore
 
 T0 = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
-GRACE = timedelta(seconds=1800)
 LOST_AFTER = timedelta(hours=48)
+ORPHAN_GRACE = timedelta(seconds=120)
+DEADLINE = timedelta(hours=48)
 PG_ENABLED = os.environ.get("URL4_CLOUD_TEST_PG") == "1"
 
 
@@ -41,15 +42,24 @@ class Registry:
     url: str
     started_at: datetime = field(default=T0)
 
-    def restarted(self, *, survives_restart: bool) -> TortoiseRunStore:
+    def restarted(
+        self, *, survives_restart: bool, orphan_grace: timedelta = ORPHAN_GRACE
+    ) -> TortoiseRunStore:
         """The same database, opened by a process that started now."""
-        return TortoiseRunStore(
-            clock=self.clock,
-            pending_grace=GRACE,
-            lost_after=LOST_AFTER,
-            outcomes_survive_restart=survives_restart,
-            started_at=self.clock(),
-        )
+        return make_store(self.clock, survives_restart, self.clock(), orphan_grace)
+
+
+def make_store(
+    clock: Clock, survives_restart: bool, started_at: datetime, orphan_grace: timedelta
+) -> TortoiseRunStore:
+    return TortoiseRunStore(
+        clock=clock,
+        lost_after=LOST_AFTER,
+        outcomes_survive_restart=survives_restart,
+        started_at=started_at,
+        orphan_grace=orphan_grace,
+        default_deadline=DEADLINE,
+    )
 
 
 def spec(*names: str, client_key: str = "key-1") -> RunSpec:
@@ -59,6 +69,34 @@ def spec(*names: str, client_key: str = "key-1") -> RunSpec:
         case_count=10,
         candidates=names or ("alpha", "beta"),
         client_version="1.2.3",
+    )
+
+
+def start(name: str, url4: str = "openai/gpt-5?q=Hi") -> CandidateStart:
+    return CandidateStart(name=name, url4=url4)
+
+
+def start_spec(
+    *names: str,
+    client_key: str = "key-1",
+    detach: bool = False,
+    deadline: timedelta | None = None,
+    owner_email: str | None = "alice@example.org",
+    context: ContextRef | None = None,
+) -> RunSpec:
+    """A P2 Run: every Candidate carries its start (E5 P2 spec D1, D8)."""
+    names = names or ("alpha", "beta")
+    return RunSpec(
+        client_key=client_key,
+        benchmark="gsm8k",
+        case_count=10,
+        candidates=names,
+        client_version="1.2.3",
+        starts=tuple(start(name) for name in names),
+        detach=detach,
+        deadline=deadline,
+        owner_email=owner_email,
+        context=context,
     )
 
 
@@ -98,13 +136,7 @@ async def open_registry(
     await db.migrate(url)
     await db.init_db(url)
     clock = Clock()
-    store = TortoiseRunStore(
-        clock=clock,
-        pending_grace=GRACE,
-        lost_after=LOST_AFTER,
-        outcomes_survive_restart=True,
-        started_at=T0,
-    )
+    store = make_store(clock, True, T0, ORPHAN_GRACE)
     try:
         yield Registry(store, clock, url)
     finally:

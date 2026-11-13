@@ -1,0 +1,284 @@
+{
+ "url4": "/mmlu?model=openai/gpt-4o-mini&case=12",
+ "trace_id": "0af7651916cd43dd8448eb211c80319c",
+ "frames": [
+  {
+   "specversion": "1.0",
+   "id": "65c20e90c58d880b0cb51441ffd122d3",
+   "source": "/trace/url4-cloud.661569f2862b538084b633f645812fbf/node/root",
+   "subject": "url4-cloud.661569f2862b538084b633f645812fbf",
+   "time": "2026-11-12T09:00:00Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "1",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.started",
+   "data": {
+    "url4": "/mmlu?model=openai/gpt-4o-mini&case=12"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "d4adfe0bc10e7e50feffd2256d4f671d",
+   "source": "/trace/url4-cloud.661569f2862b538084b633f645812fbf/node/root",
+   "subject": "url4-cloud.661569f2862b538084b633f645812fbf",
+   "time": "2026-11-12T09:00:00.100000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "2",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.log",
+   "data": {
+    "severity_number": 9,
+    "severity_text": "INFO",
+    "body": "client",
+    "attributes": {
+     "screamingface.client.version": "1.4.0"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "3b8bb543255b1f9305c91905175200f7",
+   "source": "/trace/url4-cloud.661569f2862b538084b633f645812fbf/node/n1",
+   "subject": "url4-cloud.661569f2862b538084b633f645812fbf",
+   "time": "2026-11-12T09:00:01.200000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "3",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.span",
+   "data": {
+    "name": "chat gpt-4o-mini",
+    "kind": "client",
+    "gen_ai.operation.name": "chat",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.request.model": "gpt-4o-mini",
+    "gen_ai.response.model": null,
+    "gen_ai.usage.input_tokens": null,
+    "gen_ai.usage.output_tokens": null,
+    "gen_ai.response.finish_reasons": null,
+    "refusal": null,
+    "cache_status": "hit",
+    "cache_reason": null,
+    "cache_saved_cost_usd": "0.00042",
+    "cache_saved_cost_archive_usd": null,
+    "start": "2026-11-12T09:00:00.200000Z",
+    "end": "2026-11-12T09:00:01.200000Z",
+    "status": "ok"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "84964b60265ad2bbfa86b027b8607bd7",
+   "source": "/trace/url4-cloud.661569f2862b538084b633f645812fbf/node/n2",
+   "subject": "url4-cloud.661569f2862b538084b633f645812fbf",
+   "time": "2026-11-12T09:00:01.400000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "4",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.span",
+   "data": {
+    "name": "chat gpt-4o-mini",
+    "kind": "client",
+    "gen_ai.operation.name": "chat",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.request.model": "gpt-4o-mini",
+    "gen_ai.response.model": null,
+    "gen_ai.usage.input_tokens": null,
+    "gen_ai.usage.output_tokens": null,
+    "gen_ai.response.finish_reasons": null,
+    "refusal": null,
+    "cache_status": "hit",
+    "cache_reason": null,
+    "cache_saved_cost_usd": null,
+    "cache_saved_cost_archive_usd": "0.0011",
+    "start": "2026-11-12T09:00:00.400000Z",
+    "end": "2026-11-12T09:00:01.400000Z",
+    "status": "ok"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "0a49140968d9e4b256d2ca81a39693fb",
+   "source": "/trace/url4-cloud.661569f2862b538084b633f645812fbf/node/n3",
+   "subject": "url4-cloud.661569f2862b538084b633f645812fbf",
+   "time": "2026-11-12T09:00:01.600000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "5",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.span",
+   "data": {
+    "name": "chat gpt-4o-mini",
+    "kind": "client",
+    "gen_ai.operation.name": "chat",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.request.model": "gpt-4o-mini",
+    "gen_ai.response.model": null,
+    "gen_ai.usage.input_tokens": null,
+    "gen_ai.usage.output_tokens": null,
+    "gen_ai.response.finish_reasons": null,
+    "refusal": null,
+    "cache_status": "miss",
+    "cache_reason": null,
+    "cache_saved_cost_usd": null,
+    "cache_saved_cost_archive_usd": null,
+    "start": "2026-11-12T09:00:00.600000Z",
+    "end": "2026-11-12T09:00:01.600000Z",
+    "status": "ok"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "89ef9594cf9e3068b90c39f474443e93",
+   "source": "/trace/url4-cloud.661569f2862b538084b633f645812fbf/node/root",
+   "subject": "url4-cloud.661569f2862b538084b633f645812fbf",
+   "time": "2026-11-12T09:00:02.500000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "6",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.cost.usage",
+   "data": {
+    "scope": "subtree",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.response.model": "gpt-4o-mini",
+    "pricing_version": "2026-11-01",
+    "usage": {
+     "gen_ai.usage.input_tokens": 1200,
+     "gen_ai.usage.output_tokens": 300,
+     "gen_ai.usage.cache_read_tokens": 0,
+     "gen_ai.usage.cache_creation_tokens": 0,
+     "gen_ai.usage.reasoning_tokens": 0
+    },
+    "cost": {
+     "input_usd": "0.00018",
+     "output_usd": "0.00018",
+     "cache_read_usd": "0",
+     "cache_creation_usd": "0",
+     "reasoning_usd": "0",
+     "total_usd": "0.00036"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "f1e22753f55a172bb69cfea065784596",
+   "source": "/trace/url4-cloud.661569f2862b538084b633f645812fbf/node/root",
+   "subject": "url4-cloud.661569f2862b538084b633f645812fbf",
+   "time": "2026-11-12T09:00:03Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "7",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.log",
+   "data": {
+    "severity_number": 9,
+    "severity_text": "INFO",
+    "body": "cache summary",
+    "attributes": {
+     "cache.hits": 2,
+     "cache.misses": 1,
+     "cache.bypasses": 0,
+     "cache.saved_cost.reported_hits": 1,
+     "cache.saved_cost.archive_hits": 1,
+     "cache.saved_cost.unpriced_hits": 0,
+     "cache.saved_cost_usd": "0.00042",
+     "cache.saved_cost_archive_usd": "0.0011"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "2f41a0f5c7a787ffbe73c217e2fcefcd",
+   "source": "/trace/url4-cloud.661569f2862b538084b633f645812fbf/node/root",
+   "subject": "url4-cloud.661569f2862b538084b633f645812fbf",
+   "time": "2026-11-12T09:00:03.500000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "8",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.result",
+   "data": {
+    "body": "{\"answer\": \"C\", \"score\": 0.0}",
+    "media_type": "application/json"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "aed3a43a8483bfde6c97fcdf6d07d62f",
+   "source": "/trace/url4-cloud.661569f2862b538084b633f645812fbf/node/root",
+   "subject": "url4-cloud.661569f2862b538084b633f645812fbf",
+   "time": "2026-11-12T09:00:04Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "9",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.terminated",
+   "data": {
+    "status": "succeeded",
+    "error": null
+   }
+  }
+ ],
+ "record": {
+  "trace_id": "0af7651916cd43dd8448eb211c80319c",
+  "started_at": "2026-11-12T09:00:00+00:00",
+  "completed_at": "2026-11-12T09:00:04+00:00",
+  "usage": {
+   "scope": "subtree",
+   "gen_ai.provider.name": "openai",
+   "gen_ai.response.model": "gpt-4o-mini",
+   "pricing_version": "2026-11-01",
+   "usage": {
+    "gen_ai.usage.input_tokens": 1200,
+    "gen_ai.usage.output_tokens": 300,
+    "gen_ai.usage.cache_read_tokens": 0,
+    "gen_ai.usage.cache_creation_tokens": 0,
+    "gen_ai.usage.reasoning_tokens": 0
+   },
+   "cost": {
+    "input_usd": "0.00018",
+    "output_usd": "0.00018",
+    "cache_read_usd": "0",
+    "cache_creation_usd": "0",
+    "reasoning_usd": "0",
+    "total_usd": "0.00036"
+   }
+  },
+  "cache_hits": 2,
+  "cache_unpriced_hits": 0,
+  "cache_saved_cost_usd": "0.00042",
+  "cache_saved_cost_archive_usd": "0.0011",
+  "frozen_copy_id": null,
+  "capture_status": null,
+  "capture_replay": null,
+  "capture_partial_reasons": [],
+  "client_version": "1.4.0",
+  "result": {
+   "media_type": "application/json",
+   "size_bytes": 29,
+   "sha256": "0699838504b8447ddde3038a201f66e3035d6f6e9cc396fab87661cb167134a3"
+  }
+ }
+}

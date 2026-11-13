@@ -94,5 +94,98 @@ at start, so without the restart it keeps the old one.
 
 Every run's outcome reaches the App on the JetStream stream `url4-candidate-outcomes`, which the
 App and the runner pool create at startup. Its limits are `candidateOutcomes.maxAgeS` (24 h) and
-`candidateOutcomes.maxBytes` (64 MiB). Both halves apply them at their next start. When the stream
-is full, a publish is refused and logged rather than an older outcome dropped.
+`candidateOutcomes.maxBytes` (512 MiB, which the broker's JetStream file store must hold beside
+`events.maxBytes`). Both halves apply them at their next start. When the stream is full, a publish
+is refused and logged rather than an older outcome dropped.
+
+## The run-results store
+
+With Runs on, every result of a run the Engine's driver starts, and each Run's context, is kept in
+an S3 bucket of its own for the Run's 30 days (E5 P2 spec D9a). The render fails with Runs on and
+no store. By default the chart renders a third bundled Garage (`<fullname>-garage-run-results`):
+one replica, no backup and no lifecycle rule, which suits a test cluster only. In production:
+
+1. Create a durable bucket, and give it a lifecycle rule one day longer than the Runs' retention,
+   31 days. Retention deletes the objects a Run names; the rule removes the ones nothing names (a
+   second execution of one start, a lost outcome).
+
+   ```json
+   {"Rules": [{"ID": "expire-run-results", "Status": "Enabled", "Filter": {"Prefix": ""},
+               "Expiration": {"Days": 31}}]}
+   ```
+
+2. Create two keys: the App's, with read, write and delete on the bucket; the runner pool's, which
+   may only write, since a runner never reads a result back. Put each in a Secret with the keys
+   `URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY` and `URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY`.
+
+3. Set the values:
+
+   ```yaml
+   runResults:
+     storage:
+       s3:
+         endpointUrl: https://<your S3 endpoint>
+         bucket: <the bucket>
+         region: <its region>
+         existingSecret: <the App's Secret>
+         poolExistingSecret: <the pool's Secret>
+   ```
+
+4. Admit the App and the runner pool to the store in the platform's NetworkPolicy: the bundled
+   Garage's pods (`app.kubernetes.io/component: garage-run-results`) on port 3900, or the
+   bucket's endpoint. The chart renders no policy of its own (chart README: Run-results storage).
+
+Before any model call, a driver-started run writes one empty object to check that the store
+answers. A runner retries a write the store refuses for `runResults.writeBudgetS` (60 s), then
+fails the run `result_store_unavailable`, which the Client may retry; a store unreachable from
+the pool is found then, before the run spends anything. A pool with no store fails such a run
+`result_store_missing` before any model call.
+
+The runner pool also creates a NATS key-value bucket, `url4-claims`, at startup, with the event
+stream's retention, replicas and storage. It needs no step of its own, but the pool must roll
+before the App: a pool of the previous version refuses the App's new run messages
+(`unsupported_spec_version`).
+
+A store the App cannot reach answers `POST /runs` with a context `503 result_store_unavailable`,
+and registers nothing, and the context and result routes answer the same until it is back.
+
+## The Run event stream
+
+A Client follows a Run on one WebSocket, `GET /runs/{id}/events`, which the App checks against
+the Run's owner like every `/runs` route. The edge must pass the verified `X-User-Email` on the
+WebSocket upgrade, as it does on HTTP requests: without it the App closes the socket at once
+(1008, `identity_required`). Check it on staging before a P2 Client is released. The App
+accepts the upgrade before it checks the owner, so the HTTP status says nothing; read the first
+frame or the close:
+
+```sh
+uv run --no-project --with websockets python - <<'EOF'
+import asyncio, websockets
+
+async def main():
+    url = "wss://<engine host>/runs/<one of your Run ids>/events"
+    auth = {}  # the headers your edge needs to sign you in, as for an HTTP request
+    try:
+        async with websockets.connect(url, additional_headers=auth) as ws:
+            try:
+                print("frame:", (await asyncio.wait_for(ws.recv(), 10))[:80])
+            except websockets.ConnectionClosed:
+                print("closed:", ws.close_code, ws.close_reason)
+    except websockets.InvalidStatus as refused:
+        print("refused by the edge:", refused.response.status_code)
+
+asyncio.run(main())
+EOF
+```
+
+- A frame: the edge passed the identity.
+- `closed: 1008 identity_required`: it did not.
+- `closed: 1008 run_not_found`: the Run is not one of yours.
+- `closed: 1008 runs_off`: Runs are off on this Engine.
+- `closed: 1013 registry_unavailable`: the Runs database did not answer; try again.
+- `refused by the edge`: the edge did not sign you in; fix `auth` and try again.
+
+While a follower is connected, the App stamps the Run every `URL4_CLOUD_RUN_FOLLOW_STAMP_S`
+(30 s); an attached Run nobody has followed for `URL4_CLOUD_ORPHAN_GRACE_S` (120 s) is stopped.
+The driver's lease and the follow stamps live in Postgres, so the Run routes add no reason to
+keep the App at one replica beyond those it already has (E5 P2 spec D5).

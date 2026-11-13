@@ -13,6 +13,7 @@ the earliest moment the information exists.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,8 +29,17 @@ from screamingface_engine.artifacts.blobs import (
 )
 from screamingface_engine.artifacts.filesystem import FilesystemArtifactStore
 from screamingface_engine.artifacts.ports import ArtifactWriter
+from screamingface_engine.artifacts.run_results import (
+    DEFAULT_RESULT_WRITE_BUDGET_S,
+    FilesystemRunResultStore,
+    ResultSink,
+    RunResultStore,
+    S3RunResultStore,
+)
 from screamingface_engine.artifacts.s3 import S3ArtifactStore, S3Config
 from screamingface_engine.artifacts.sigv4 import Credentials
+
+_logger = logging.getLogger(__name__)
 
 
 def result_writer_from_env(env: Mapping[str, str]) -> ArtifactWriter:
@@ -93,6 +103,64 @@ def blob_objects_from_values(values: Mapping[str, str]) -> BlobObjects:
     if selected != "filesystem":
         raise ValueError(f"{job_env.BLOB_STORE} must be 'filesystem' or 's3', not {selected!r}")
     return FilesystemBlobObjects(Path(values.get(job_env.BLOBS_DIR) or job_env.DEFAULT_BLOBS_DIR))
+
+
+class RunResultStoreNotConfigured(LookupError):
+    """No run-results store is configured (E5 P2 spec R5): a run that carries a result prefix
+    fails `result_store_missing`, and the App keeps no context or result."""
+
+
+def run_results_from_values(values: Mapping[str, str]) -> RunResultStore:
+    """The run-results store from env-named values: ONE decision for the App and the runner pool.
+
+    `RUN_RESULTS_STORE` unset → `RunResultStoreNotConfigured`. `filesystem` → `RUN_RESULTS_DIR`,
+    required. `s3` → the `RUN_RESULTS_S3_*` settings, all required.
+
+    INVARIANT: never the artifact bucket or folder: no value here is read from `ARTIFACT_*`.
+
+    Raises:
+        RunResultStoreNotConfigured: `RUN_RESULTS_STORE` is unset or empty.
+        ValueError: an unknown backend, or an incomplete configuration (naming what is empty).
+    """
+    selected = (values.get(job_env.RUN_RESULTS_STORE) or "").strip()
+    if not selected:
+        raise RunResultStoreNotConfigured(f"{job_env.RUN_RESULTS_STORE} is not set")
+    if selected == "s3":
+        return S3RunResultStore(
+            S3ArtifactStore(
+                _s3_config(
+                    values,
+                    _RUN_RESULTS_S3,
+                    "the run-results store",
+                    f"{job_env.RUN_RESULTS_STORE}=filesystem for a single-process deployment.",
+                )
+            )
+        )
+    if selected != "filesystem":
+        raise ValueError(
+            f"{job_env.RUN_RESULTS_STORE} must be 'filesystem' or 's3', not {selected!r}"
+        )
+    folder = (values.get(job_env.RUN_RESULTS_DIR) or "").strip()
+    if not folder:
+        raise ValueError(f"a filesystem run-results store needs {job_env.RUN_RESULTS_DIR}")
+    return FilesystemRunResultStore(Path(folder))
+
+
+def result_sink_from_env(env: Mapping[str, str]) -> ResultSink | None:
+    """Where this run writes its result (E5 P2 spec R5), or None for a run sent without a result
+    prefix, which writes nothing. A pool with no store gives a sink with none: the executor then
+    fails the run `result_store_missing` before any model call."""
+    prefix = job_env.result_prefix_from_env(env)
+    if prefix is None:
+        return None
+    try:
+        store: RunResultStore | None = run_results_from_values(env)
+    except RunResultStoreNotConfigured:
+        store = None
+    budget = job_env.number_from_env(
+        env, job_env.RUN_RESULT_WRITE_BUDGET_S, DEFAULT_RESULT_WRITE_BUDGET_S, log=_logger
+    )
+    return ResultSink(prefix, store, budget)
 
 
 def blob_store_from_env(env: Mapping[str, str]) -> BlobStore:
@@ -190,6 +258,14 @@ _BLOB_S3 = _S3Names(
     secret_key=job_env.BLOB_S3_SECRET_KEY,
 )
 
+_RUN_RESULTS_S3 = _S3Names(
+    endpoint_url=job_env.RUN_RESULTS_S3_ENDPOINT_URL,
+    bucket=job_env.RUN_RESULTS_S3_BUCKET,
+    region=job_env.RUN_RESULTS_S3_REGION,
+    access_key=job_env.RUN_RESULTS_S3_ACCESS_KEY,
+    secret_key=job_env.RUN_RESULTS_S3_SECRET_KEY,
+)
+
 
 def _s3_config(values: Mapping[str, str], names: _S3Names, what: str, fallback: str) -> S3Config:
     missing = [name for name in names.required if not (values.get(name) or "").strip()]
@@ -213,11 +289,14 @@ def _s3_config(values: Mapping[str, str], names: _S3Names, what: str, fallback: 
 
 __all__ = [
     "BlobStoreNotConfigured",
+    "RunResultStoreNotConfigured",
     "blob_objects_from_values",
     "blob_reader_from_env",
     "blob_s3_config_from_values",
     "blob_scope_from_env",
     "blob_store_from_env",
+    "result_sink_from_env",
     "result_writer_from_env",
+    "run_results_from_values",
     "s3_config_from_values",
 ]

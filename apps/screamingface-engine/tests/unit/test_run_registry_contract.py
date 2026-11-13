@@ -16,7 +16,6 @@ import pytest
 import pytest_asyncio
 from run_registry_support import (
     DATABASES,
-    GRACE,
     T0,
     Registry,
     open_registry,
@@ -27,6 +26,7 @@ from run_registry_support import (
 from screamingface_engine.candidate_outcomes import CandidateOutcome, OutcomeStatus
 from screamingface_engine.runs import store as store_module
 from screamingface_engine.runs.ids import RUN_ID_PATTERN
+from screamingface_engine.runs.models import Run
 from screamingface_engine.runs.records import RunQuery, owner_key
 from screamingface_engine.runs.registry import (
     CandidateAlreadyStarted,
@@ -203,16 +203,16 @@ async def test_a_bind_leaves_the_candidate_pending_until_it_is_scheduled(
 
     await registry.store.bind(ALICE, run.id, 0, TOPIC)
     bound = await registry.store.get(ALICE, run.id)
+    registry.clock.advance(seconds=4)
     await registry.store.mark_scheduled(TOPIC)
     scheduled = await registry.store.get(ALICE, run.id)
 
     assert bound is not None and scheduled is not None
     assert bound.candidates[0].state == "pending"
-    assert (bound.candidates[0].attempt_id, bound.candidates[0].started_at) == (
-        TOPIC,
-        T0.replace(second=3),
-    )
+    # E5 P2 spec R8: the clock starts when the start is sent, not when its topic is bound.
+    assert (bound.candidates[0].attempt_id, bound.candidates[0].started_at) == (TOPIC, None)
     assert scheduled.candidates[0].state == "scheduled"
+    assert scheduled.candidates[0].started_at == T0.replace(second=7)
 
 
 async def test_binding_the_same_triple_again_changes_nothing(registry: Registry) -> None:
@@ -361,14 +361,13 @@ async def test_an_outcome_before_scheduling_still_settles(registry: Registry) ->
 
 
 async def test_every_write_moves_last_activity_forward_only(registry: Registry) -> None:
-    """A bind or settle at an older clock never pulls the grace window back (spec R5)."""
+    """A bind or settle at an older clock never pulls the last activity back (spec §4.3)."""
     run = await registry.store.create(ALICE, spec("alpha", "beta"))
-    registry.clock.advance(seconds=GRACE.total_seconds() - 10)
+    latest = registry.clock.advance(minutes=20)
     await registry.store.bind(ALICE, run.id, 0, TOPIC)
     registry.clock.now = T0
     await registry.store.bind(ALICE, run.id, 1, OTHER_TOPIC)
-    registry.clock.now = T0 + GRACE + GRACE / 2
 
-    record = await registry.store.get(ALICE, run.id)
+    stored = await Run.get(id=run.id)
 
-    assert record is not None and record.state == "running"
+    assert stored.last_activity_at == latest

@@ -165,6 +165,8 @@ jobs:
             tests/unit/test_attach_from_sequence_bounds.py \
             tests/unit/test_jetstream_subscribe_ensures_stream.py \
             tests/unit/test_candidate_outcome_stream_contract.py \
+            tests/unit/test_topic_claims_contract.py \
+            tests/unit/test_outcome_retries.py \
             tests/integration/test_run_queue_roundtrip.py \
             tests/integration/test_run_queue_publish_settles_nats.py \
             tests/integration/test_warm_child_process.py \
@@ -178,6 +180,8 @@ jobs:
             tests/unit/test_stream_contract.py \
             tests/unit/test_attach_from_sequence_bounds.py \
             tests/unit/test_candidate_outcome_stream_contract.py \
+            tests/unit/test_topic_claims_contract.py \
+            tests/unit/test_outcome_retries.py \
             tests/integration/test_run_queue_publish_settles_nats.py \
             tests/integration/test_warm_child_process.py \
             tests/integration/test_queue_unclaimed_depth_nats.py \

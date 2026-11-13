@@ -30,10 +30,8 @@ from screamingface_engine.auth import (
     default_clock,
     new_topic,
 )
-from screamingface_engine.benchmarks.expression_routes import local_route_paths
 from screamingface_engine.cache_intent import parse_cache_control
-from screamingface_engine.catalog.admission import RunModelAdmission, is_dynamically_admissible
-from screamingface_engine.catalog.port import Credential
+from screamingface_engine.catalog.admission import RunModelAdmission
 from screamingface_engine.client_provenance import parse_user_agent
 from screamingface_engine.config import Settings
 from screamingface_engine.error_text import (
@@ -51,18 +49,20 @@ from screamingface_engine.request_scope import (
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
-from screamingface_engine.rest.runs_boundary import PRIVATE_HEADERS_DOC
-from screamingface_engine.rest.runs_start import (
-    StartBinding,
-    bind_start,
-    canceled_before_schedule,
+from screamingface_engine.rest.runs_boundary import (
+    PRIVATE_HEADERS_DOC,
+    RUN_CANCELED,
+    problem,
 )
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from screamingface_engine.rest.sessions import RunSessions
 from screamingface_engine.rest.stopping import QUEUE_UNAVAILABLE_RETRY_AFTER_S, stop_topic
 from screamingface_engine.runner_queue import RunQueueUnavailable
+from screamingface_engine.scheduling import (  # noqa: F401 - the start route's helper, read by its tests
+    named_dynamic_models as _named_dynamic_models,
+)
+from screamingface_engine.scheduling import schedule_run
 from screamingface_engine.tracing.accept import AcceptSpan
-from screamingface_engine.world.models.registry import decode_route_id
 from screamingface_engine.world.wire import MALFORMED_HEADER
 from url4.streaming.interfaces import (
     EventConsumer,
@@ -298,56 +298,23 @@ async def _refuse_existing(deps: _Deps, topic: str) -> None:
 
 
 @asynccontextmanager
-async def _claim_topic(deps: _Deps, request: Request, topic: str) -> AsyncIterator[StartBinding]:
-    """Refuse a topic already used, then bind it to its Run's Candidate before anything is
-    scheduled (OME-1785, E5 P1 spec R2). The whole start counts as one attempt of the topic, so
-    the runner keeps a cancel's stop for as long as this start could still reach `schedule()`."""
+async def _claim_topic(deps: _Deps, topic: str) -> AsyncIterator[None]:
+    """Refuse a topic already used. The whole start counts as one attempt of the topic, so the
+    runner keeps a stop of it for as long as this start could still reach `schedule()`."""
     with deps.job_runner.start_attempt(topic):
         await _refuse_existing(deps, topic)
-        yield await bind_start(request, topic)
+        yield
 
 
-def _named_dynamic_models(url4: str) -> tuple[str, ...]:
-    """The dynamically admissible real model ids ``url4`` routes to, sorted.
-
-    Each route path is decoded (OME-873 ``~`` escape) before the shape gate, so the id is the
-    gateway's real one — what ``RunModelAdmission.admit_run_models`` expects. Declared routes
-    (``/benchmarks/*``, a declared namespace) never pass the gate. Never raises: an unreadable
-    url4 names nothing.
-    """
-    ids = {decode_route_id(path.removeprefix("/")) for path in local_route_paths(url4)}
-    return tuple(sorted(model for model in ids if is_dynamically_admissible(model)))
-
-
-async def _admit_named_models(
-    deps: _Deps,
-    url4: str,
-    *,
-    identity: Mapping[str, str] | None,
-    traceparent: str | None,
-) -> None:
-    """Admit the dynamically admissible models ``url4`` names, before the run is scheduled.
-
-    FEATURE: run any OpenRouter model (OME-878) from a client that never probes — the SDK's url4
-    replay (``sf.evaluate("<url4>")``), a raw HTTP caller. OME-880 admitted only on a
-    ``GET /v1/model-parameters`` lookup, because the Engine had no run-submission hook then.
-
-    INVARIANT (ordering): this runs BEFORE ``job_runner.schedule``, which snapshots the admitted
-    overlay into the run's env (``queue_runner.py`` / ``inprocess.py``). Admission and snapshot
-    in one request on one replica: an Engine restart since an earlier probe, or a probe served by
-    another replica, cannot leave the run's world without its model.
-
-    INVARIANT (no new REST contract): best-effort. A refusal never raises here; the run is
-    scheduled and reports the failure on its own stream, as before. The ask runs as the caller —
-    the credential ``GET /v1/model-parameters`` derives from the same identity headers.
-    """
-    if deps.model_admission is None:
-        return
-    model_ids = _named_dynamic_models(url4)
-    if model_ids:
-        await deps.model_admission.admit_run_models(
-            Credential.derive(identity), model_ids, traceparent=traceparent
-        )
+def _stopped_before_schedule() -> ProblemException:
+    """A start whose topic was stopped before it was scheduled: nothing runs (E5 P1 spec D12).
+    Private, as the `/runs` answers are: whether a run was canceled depends on who asks."""
+    return problem(
+        status=409,
+        title="Conflict",
+        detail="the run was canceled before it started",
+        code=RUN_CANCELED,
+    )
 
 
 async def _schedule(
@@ -364,7 +331,6 @@ async def _schedule(
     deadline_s: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
-    enqueued_at: datetime | None = None,
 ) -> None:
     """Schedule the run on the job runner; raise 409 if the runner reports it already exists.
 
@@ -377,14 +343,13 @@ async def _schedule(
     re-rendered onto the aigateway call by the Runner. It is deliberately NOT world config; a
     per-run value parked on the shared aigateway configuration would leak across runs.
 
-    INVARIANT (OME-1381): both scheduling ingresses refuse a stated ``X-Profile`` before this hop,
-    and the port cannot represent a selector, so every run this Engine schedules is selector-less.
+    The admission and the schedule call are `scheduling.schedule_run`, which the Engine's driver
+    shares; this maps the runner's errors to the route's Problems.
     """
-    # INVARIANT (spec 02 §5.3 1a): a frozen-copy replay never asks the gateway to admit a model.
-    if replay_frozen_copy is None:
-        await _admit_named_models(deps, url4, identity=identity, traceparent=traceparent)
     try:
-        await deps.job_runner.schedule(
+        await schedule_run(
+            deps.job_runner,
+            deps.model_admission,
             topic,
             url4,
             deps.settings.job_deadline_s if deadline_s is None else deadline_s,
@@ -396,7 +361,6 @@ async def _schedule(
             shape=shape,
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
-            enqueued_at=enqueued_at,
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
@@ -407,9 +371,8 @@ async def _schedule(
             cache,
         )
     except StoppedBeforeSchedule as exc:
-        # Before the "scheduled" log and the accept span's enqueue: nothing was scheduled. Also
-        # the only signal when the bind's outcome was unknown, so no confirmation follows.
-        raise canceled_before_schedule() from exc
+        # Before the "scheduled" log and the accept span's enqueue: nothing was scheduled.
+        raise _stopped_before_schedule() from exc
     except JobAlreadyExists as exc:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
     except JobRunnerAtCapacity as exc:
@@ -725,34 +688,20 @@ _START_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: {
         **_problem(
             "The url4 expression query parameter `q` is required, or the request states the "
-            "unsupported `X-Profile` header (`code: x_profile_unsupported`), or "
-            "`X-SF-Run-Candidate` is not an index of the Run's Candidates "
-            "(`code: malformed_header`)."
+            "unsupported `X-Profile` header (`code: x_profile_unsupported`)."
         ),
-        "headers": PRIVATE_HEADERS_DOC,
-    },
-    # The `X-SF-Run` answers depend on who asks, so they carry the `/runs` cache headers.
-    404: {
-        **_problem(
-            "The `X-SF-Run` Run is unknown or not the caller's (`code: run_not_found`, OME-1785)."
-        ),
-        "headers": PRIVATE_HEADERS_DOC,
     },
     409: {
         **_problem(
-            "A run already exists for this topic (single-shot); or, under `X-SF-Run`, the Run was "
-            "canceled (`code: run_canceled`) or the Candidate already started under another "
-            "topic (`code: candidate_already_started`)."
+            "A run already exists for this topic (single-shot), or the topic was stopped before "
+            "the run started (`code: run_canceled`)."
         ),
         "headers": PRIVATE_HEADERS_DOC,
     },
     428: _problem("Attach a WebSocket to the topic before starting the run."),
     503: {
-        **_problem(
-            "The run queue could not be read or is unavailable; or, under `X-SF-Run`, a cancel "
-            "won while this Candidate started and stopping it failed. Retry after `Retry-After`."
-        ),
-        "headers": {"Retry-After": {"schema": {"type": "integer"}}, **PRIVATE_HEADERS_DOC},
+        **_problem("The run queue could not be read or is unavailable. Retry after `Retry-After`."),
+        "headers": {"Retry-After": {"schema": {"type": "integer"}}},
     },
     502: _problem("The run failed."),
     504: _problem("The run exceeded its 16 h deadline."),
@@ -821,24 +770,6 @@ async def start_run(
     ] = None,
     # Documents the refusal in OpenAPI; `refuse_selector` below is what decides.
     _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
-    # Documented here; `rest.runs_start.bind_start` reads and checks them (E5 P1 spec R2).
-    _x_sf_run: Annotated[
-        str | None,
-        Header(
-            alias="X-SF-Run",
-            description="Optional id of the caller's Run this start belongs to. Sent with "
-            "`X-SF-Run-Candidate`; the start is then bound to that Candidate (404 for a Run not "
-            "the caller's, 409 when canceled or already started).",
-        ),
-    ] = None,
-    _x_sf_run_candidate: Annotated[
-        str | None,
-        Header(
-            alias="X-SF-Run-Candidate",
-            description="The Candidate's zero-based index within `X-SF-Run`. Required with it, "
-            "and refused alone (400 `malformed_header`).",
-        ),
-    ] = None,
     x_answer_seed: Annotated[
         str | None,
         Header(
@@ -918,7 +849,7 @@ async def start_run(
             if len(request.headers.getlist("User-Agent")) == 1
             else None
         )
-        async with _claim_topic(deps, request, topic) as binding:
+        async with _claim_topic(deps, topic):
 
             async def schedule() -> None:
                 await _schedule(
@@ -934,13 +865,10 @@ async def start_run(
                     client_version=client_version,
                     capture=capture,
                     replay_frozen_copy=replay_frozen_copy,
-                    enqueued_at=binding.bound_at,
                 )
                 # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
-                # hold is not accept latency, and counting it would hide the queue-wait gap. So it
-                # also ends before a bound start's registry write.
+                # hold is not accept latency, and counting it would hide the queue-wait gap.
                 _enqueued(accept)
-                await binding.on_scheduled()
 
             if pref.respond_async:
                 await schedule()

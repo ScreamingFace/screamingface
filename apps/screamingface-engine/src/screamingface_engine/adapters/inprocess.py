@@ -31,7 +31,12 @@ from functools import partial
 from typing import cast
 
 from screamingface_engine import job_env
-from screamingface_engine.candidate_outcomes import CandidateOutcomeStream, publish_outcome
+from screamingface_engine.candidate_outcomes import (
+    CandidateOutcome,
+    CandidateOutcomeStream,
+    publish_outcome,
+)
+from screamingface_engine.candidate_record import CandidateRecordFold
 from screamingface_engine.client_provenance import ProvenanceExecutor
 from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
 from screamingface_engine.run_evidence import (
@@ -56,8 +61,8 @@ from url4.streaming.interfaces import (
     job_name,
 )
 from url4.streaming.lifecycle import run as lifecycle_run
-from url4.streaming.protocol import CachePolicy
-from url4.streaming.trace import valid_traceparent
+from url4.streaming.protocol import CachePolicy, OutboundFrame
+from url4.streaming.trace import parse_traceparent, valid_traceparent
 
 _logger = logging.getLogger(__name__)
 
@@ -143,6 +148,15 @@ def _map_status(task: asyncio.Task[None] | None, verdict: JobStatus | None = Non
     # lands during the post-terminal span flush cancels the task, but the run had already ended
     # `succeeded`/`failed` — reading the task would rewrite that verdict to `stopped`.
     return verdict if verdict is not None else _terminal_status(task)
+
+
+def _with_driver_start(env: dict[str, str], result_prefix: str | None) -> dict[str, str]:
+    """``env`` with THIS run's result prefix (E5 P2 spec D9a), after the same reset as the run's
+    other keys. No worker claims a local topic (R14), so `exclusive` is never written."""
+    env.pop(job_env.RESULT_PREFIX, None)
+    env.pop(job_env.EXCLUSIVE, None)
+    env.update(job_env.driver_start_env(result_prefix, exclusive=False))
+    return env
 
 
 class InProcessJobRunner(IdentityAwareJobRunner):
@@ -282,6 +296,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         shape: job_env.RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        result_prefix: str | None = None,
     ) -> dict[str, str]:
         """The environment this run's `Executor` is built from.
 
@@ -338,7 +353,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         env[job_env.SPEC_VERSION] = job_env.CURRENT_SPEC_VERSION
         if shape == "direct":
             env[job_env.RUN_SHAPE] = "direct"
-        return env
+        return _with_driver_start(env, result_prefix)
 
     # --- the JobRunner port -----------------------------------------------------------------
 
@@ -358,6 +373,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         capture: bool = False,
         replay_frozen_copy: str | None = None,
         enqueued_at: datetime | None = None,
+        result_prefix: str | None = None,
+        exclusive: bool = False,
     ) -> str:
         """Spawn the run as a task and return its job name.
 
@@ -392,6 +409,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
                 shape=shape,
                 capture=capture,
                 replay_frozen_copy=replay_frozen_copy,
+                result_prefix=result_prefix,
             )
             return self._factory(env)
 
@@ -404,7 +422,13 @@ class InProcessJobRunner(IdentityAwareJobRunner):
             return build()
 
         executor = build() if self._refresh_extra_models is None else _PreparedExecutor(prepare)
-        watch = SettlementWatch(self._stream)
+        # E5 P2 spec §4.3: a run the driver started folds its record, as a worker's child does.
+        record = (
+            None
+            if result_prefix is None
+            else CandidateRecordFold(url4, trace_id=parse_traceparent(run_traceparent))
+        )
+        watch = SettlementWatch(self._stream, record=record)
         self._verdicts.pop(name, None)
         task = asyncio.get_running_loop().create_task(
             self._exported_run(
@@ -554,7 +578,18 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # `schedule()`, and would otherwise replace the stopped task once it is done.
         if topic in self._starting:
             self._stopped_before_schedule.add(topic)
+        if self._tasks.get(job_name(topic)) is None:
+            # E5 P2 spec R9: no task will publish this Candidate's end (its start lost to the
+            # stop, or this process restarted since), so the stop publishes it.
+            await publish_outcome(self._outcomes, topic, CandidateOutcome("stopped"))
+            return
         await self.stop(topic)
+
+    async def last_frame(self, topic: str) -> OutboundFrame | None:
+        """The topic's newest frame, read from this runner's stream when it keeps frames (local
+        mode's `InMemoryEventStream` does); None otherwise (E5 P2 spec R7)."""
+        read = getattr(self._stream, "last_frame", None)
+        return None if read is None else await read(topic)
 
     async def exists(self, topic: str) -> bool:
         task = self._tasks.get(job_name(topic))

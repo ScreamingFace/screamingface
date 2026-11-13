@@ -1,5 +1,5 @@
 """E5 P1 spec §6, the registry contract: cancel (D12), state on read (R5), reconcile (R6) and
-expire (R7).
+expire (R7), as E5 P2 spec R8, R9, R12 and R13 change them.
 
 FEATURE: first-class Runs (OME-1785). Same databases as `test_run_registry_contract.py`.
 """
@@ -13,7 +13,6 @@ import pytest
 import pytest_asyncio
 from run_registry_support import (
     DATABASES,
-    GRACE,
     LOST_AFTER,
     T0,
     Registry,
@@ -86,11 +85,11 @@ async def test_a_run_of_pending_candidates_reads_canceled_at_once(registry: Regi
     assert canceled.finished_at == T0
 
 
-async def test_cancel_turns_an_interrupted_run_canceled(registry: Registry) -> None:
-    """Spec §6: a run that read `interrupted` with `pending` Candidates reads `canceled`."""
+async def test_cancel_settles_a_run_that_waited_days_for_a_slot(registry: Registry) -> None:
+    """E5 P2 spec R12: a `pending` Candidate is live however long it waits, until a stop."""
     run_id = await _run(registry, 2)
-    registry.clock.advance(seconds=GRACE.total_seconds() + 1)
-    assert (await _read(registry, run_id)).state == "interrupted"
+    registry.clock.advance(days=3)
+    assert (await _read(registry, run_id)).state == "running"
 
     canceled = await registry.store.cancel(ALICE, run_id)
 
@@ -155,21 +154,20 @@ async def test_the_state_follows_the_candidates(
     assert (await _read(registry, run_id)).state == state
 
 
-async def test_a_pending_run_turns_interrupted_with_no_write(registry: Registry) -> None:
-    """Computed on read: the clock alone moves `pending` past the grace."""
+async def test_a_pending_run_stays_running_with_no_write(registry: Registry) -> None:
+    """E5 P2 spec R12: the clock alone never ends a Run; the driver starts its Candidates, or
+    a stop settles them."""
     run_id = await _run(registry, 2)
-    registry.clock.advance(seconds=GRACE.total_seconds() - 1)
+
+    registry.clock.advance(days=3)
+
     assert (await _read(registry, run_id)).state == "running"
-
-    registry.clock.advance(seconds=1)
-
-    assert (await _read(registry, run_id)).state == "interrupted"
     assert (await _read(registry, run_id)).finished_at is None
 
 
 async def test_a_late_bind_reads_running_again(registry: Registry) -> None:
     run_id = await _run(registry, 2)
-    registry.clock.advance(seconds=GRACE.total_seconds() + 60)
+    registry.clock.advance(hours=1)
 
     await _start(registry, run_id, 0)
 
@@ -202,11 +200,12 @@ async def test_reconcile_with_a_surviving_stream_waits_out_the_cutoff(registry: 
 
     assert await registry.store.reconcile() == 0
     registry.clock.advance(seconds=1)
-    assert await registry.store.reconcile() == 2
+    # E5 P2 spec R8: only a sent start owes an outcome; a bound `pending` one was never sent.
+    assert await registry.store.reconcile() == 1
 
     record = await _read(registry, run_id)
-    assert _states(record) == ["lost", "lost", "pending"]
-    assert record.state == "interrupted"
+    assert _states(record) == ["lost", "pending", "pending"]
+    assert record.state == "running"
 
 
 async def test_reconcile_never_touches_a_terminal_candidate(registry: Registry) -> None:
@@ -257,11 +256,11 @@ async def test_expire_deletes_exactly_the_runs_created_before_the_cutoff(
     kept = await registry.store.create(ALICE, spec(client_key="kept"))
     registry.clock.advance(days=40)
 
-    assert await registry.store.expire(cutoff) == 1
+    assert await registry.store.expire(await registry.store.expiring(cutoff)) == 1
 
     assert await registry.store.get(ALICE, old.id) is None
     assert await registry.store.get(ALICE, kept.id) is not None
-    assert await registry.store.expire(cutoff) == 0
+    assert await registry.store.expire(await registry.store.expiring(cutoff)) == 0
 
 
 async def test_an_expired_runs_topics_can_be_bound_again(registry: Registry) -> None:
@@ -269,7 +268,7 @@ async def test_an_expired_runs_topics_can_be_bound_again(registry: Registry) -> 
     old = await registry.store.create(ALICE, spec("alpha", client_key="old"))
     await registry.store.bind(ALICE, old.id, 0, _topic(0))
     registry.clock.advance(seconds=1)
-    await registry.store.expire(registry.clock())
+    await registry.store.expire(await registry.store.expiring(registry.clock()))
     fresh = await registry.store.create(ALICE, spec("alpha", client_key="new"))
 
     await registry.store.bind(ALICE, fresh.id, 0, _topic(0))

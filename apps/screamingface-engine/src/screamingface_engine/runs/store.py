@@ -1,51 +1,45 @@
 """`TortoiseRunStore`: the `RunRegistry` on SQLite or Postgres (OME-1785, E5 P1 spec D2, §4.2).
 
 FEATURE: first-class Runs. Laid out like an aigateway feature's `store.py`: the queries next to
-the models they read.
+the models they read. The driver's queries are in `runs/store_driver.py`, and what both share in
+`runs/store_core.py`.
 
 INVARIANT (spec §4.3): the store keeps facts only. A Run's state and `finished_at` are derived
 from them on every read (`runs.state.derive_state`), so a read is always exact for its moment.
 
 INVARIANT (spec §4.2): every write is compare-and-set on state. Each is one `UPDATE … WHERE`
 guarded on the state it expects, and the row count says whether this writer won, identically on
-both databases. So a terminal Candidate never moves (R4), and a bind cannot overwrite a cancel.
-
-INVARIANT: every write transaction locks its Run row first (`_lock_run`), then its Candidates.
-One lock order means a bind, settle and cancel of one Run never deadlock on Postgres, and a
-cancel's "is any Candidate live?" check holds until its flag commits (spec D12). SQLite takes one
-write lock per transaction, so the order holds there by construction.
-
-INVARIANT (spec R5): a record is derived from ONE statement, the Run's Candidates joined to their
-Run, so a read never combines facts from two moments.
+both databases. So a terminal Candidate never moves (R4), and a bind cannot overwrite a stop.
 """
 
 from __future__ import annotations
 
-import functools
-from collections.abc import Callable, Coroutine, Iterable
+import contextlib
+from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Any, Concatenate, cast
+from typing import Any, cast
 
-from tortoise.backends.base.client import BaseDBAsyncClient
-from tortoise.context import TortoiseContext, get_current_context
 from tortoise.exceptions import IntegrityError
-from tortoise.expressions import Q, Subquery
+from tortoise.expressions import Q
 from tortoise.queryset import QuerySet
 from tortoise.transactions import in_transaction
 
+from screamingface_engine.artifacts.run_results import (
+    EMPTY_RESULT_SHA256,
+    context_key,
+    result_key,
+    result_prefix,
+)
 from screamingface_engine.candidate_outcomes import CandidateOutcome, stored_cost
-from screamingface_engine.runs.db import CONNECTION, using
+from screamingface_engine.runs.db import CONNECTION
 from screamingface_engine.runs.ids import new_run_id
 from screamingface_engine.runs.models import Candidate, Run
 from screamingface_engine.runs.records import (
-    CandidateRecord,
-    CandidateState,
     OwnerKey,
     RunPage,
     RunQuery,
     RunRecord,
     RunSpec,
-    is_terminal_run,
 )
 from screamingface_engine.runs.registry import (
     CandidateAlreadyStarted,
@@ -55,94 +49,38 @@ from screamingface_engine.runs.registry import (
     RunNotFound,
     UnknownCandidate,
 )
-from screamingface_engine.runs.state import derive_state
+from screamingface_engine.runs.store_core import (
+    LIVE,
+    in_context,
+    lock_run,
+    read_runs,
+    start_to_json,
+    touch,
+)
+from screamingface_engine.runs.store_driver import DriverStore
 
-# The non-terminal Candidate states: the only ones a write may move a Candidate out of.
-_LIVE = ("pending", "scheduled", "running")
 # How many Runs one state-filtered `list` reads per query.
 _SCAN_BATCH = 200
+# How many Runs one retention pass lists, so its id list stays under every driver's
+# bound-parameter limit.
+_EXPIRY_BATCH = 500
+# A Candidate whose start was sent: reconcile may settle it `lost` (spec R6, E5 P2 spec R8).
+_SENT = ("scheduled", "running")
 
 
-def _in_context[**P, R](
-    method: Callable[Concatenate[TortoiseRunStore, P], Coroutine[Any, Any, R]],
-) -> Callable[Concatenate[TortoiseRunStore, P], Coroutine[Any, Any, R]]:
-    """Run a store method's queries in the store's own Tortoise context."""
-
-    @functools.wraps(method)
-    async def in_context(store: TortoiseRunStore, *args: P.args, **kwargs: P.kwargs) -> R:
-        context = store._context
-        if context is None or get_current_context() is context:
-            return await method(store, *args, **kwargs)
-        with using(context):
-            return await method(store, *args, **kwargs)
-
-    return in_context
-
-
-class TortoiseRunStore:
-    """The one `RunRegistry` implementation.
-
-    ``outcomes_survive_restart`` is the outcome stream's `survives_restart`, and ``started_at``
-    when this process started: together they decide what reconcile may settle (spec R6).
-    """
-
-    def __init__(
-        self,
-        *,
-        clock: Callable[[], datetime],
-        pending_grace: timedelta,
-        lost_after: timedelta,
-        outcomes_survive_restart: bool,
-        started_at: datetime,
-        context: TortoiseContext | None = None,
-    ) -> None:
-        self._clock = clock
-        self._grace = pending_grace
-        self._lost_after = lost_after
-        self._outcomes_survive_restart = outcomes_survive_restart
-        self._started_at = started_at
-        # The Engine's own Tortoise context (`db.open_context`), or None to use the current one.
-        self._context = context
-
-    async def aclose(self) -> None:
-        """Close the store's own database connections, when it owns a context."""
-        if self._context is not None:
-            await self._context.close_connections()
+class TortoiseRunStore(DriverStore):
+    """The one `RunRegistry` implementation."""
 
     # --- reads -------------------------------------------------------------------------------
 
-    @_in_context
+    @in_context
     async def get(self, owner: OwnerKey, run_id: str) -> RunRecord | None:
-        return await self._one(Candidate.filter(run_id=run_id, run__owner=owner))
+        return await _one(Candidate.filter(run_id=run_id, run__owner=owner), full=True)
 
-    async def _one(self, candidates: QuerySet[Candidate]) -> RunRecord | None:
-        # WHY from the Candidates: every Run has at least one, and each row carries its Run.
-        rows = await candidates.select_related("run")
-        return self._record(rows[0].run, rows) if rows else None
-
-    def _record(self, run: Run, candidates: Iterable[Candidate]) -> RunRecord:
-        rows = sorted(candidates, key=lambda row: row.index)
-        state = derive_state(
-            [cast(CandidateState, row.state) for row in rows],
-            canceled=run.canceled,
-            last_activity_at=run.last_activity_at,
-            now=self._clock(),
-            grace=self._grace,
-        )
-        ends = [row.finished_at for row in rows if row.finished_at is not None]
-        # A Run's end is its last Candidate's, once it is over and every Candidate has one.
-        over = is_terminal_run(state) and len(ends) == len(rows)
-        finished_at = max(ends) if over else None
-        return RunRecord(
-            id=run.id,
-            state=state,
-            created_at=run.created_at,
-            finished_at=finished_at,
-            benchmark=run.benchmark,
-            case_count=run.case_count,
-            candidates=tuple(_candidate(row) for row in rows),
-            canceled=run.canceled,
-        )
+    @in_context
+    async def summary(self, owner: OwnerKey, run_id: str) -> RunRecord | None:
+        """`get` without each Candidate's start and record (E5 P2 spec §4.4)."""
+        return await _one(Candidate.filter(run_id=run_id, run__owner=owner), full=False)
 
     # --- writes ------------------------------------------------------------------------------
 
@@ -150,13 +88,14 @@ class TortoiseRunStore:
         record, _ = await self.register(owner, spec)
         return record
 
-    @_in_context
+    @in_context
     async def register(self, owner: OwnerKey, spec: RunSpec) -> tuple[RunRecord, bool]:
         existing = await self._by_client_key(owner, spec)
         if existing is not None:
             return existing, False
         now = self._clock()
-        run_id = new_run_id()
+        run_id = spec.run_id or new_run_id()
+        deadline = self._deadline(spec)
         try:
             async with in_transaction(CONNECTION) as conn:
                 await Run.create(
@@ -169,11 +108,24 @@ class TortoiseRunStore:
                     client_version=spec.client_version,
                     created_at=now,
                     last_activity_at=now,
+                    detached=spec.detach,
+                    deadline_at=None if deadline is None else now + deadline,
+                    owner_email=spec.owner_email,
+                    context_sha256=None if spec.context is None else spec.context.sha256,
+                    context_bytes=None if spec.context is None else spec.context.size_bytes,
                 )
+                starts = spec.starts or (None,) * len(spec.candidates)
                 await Candidate.bulk_create(
                     [
-                        Candidate(run_id=run_id, index=index, name=name)
-                        for index, name in enumerate(spec.candidates)
+                        Candidate(
+                            run_id=run_id,
+                            index=index,
+                            name=name,
+                            start=None if start is None else start_to_json(start),
+                        )
+                        for index, (name, start) in enumerate(
+                            zip(spec.candidates, starts, strict=True)
+                        )
                     ],
                     using_db=conn,
                 )
@@ -187,23 +139,45 @@ class TortoiseRunStore:
         assert created is not None
         return created, True
 
+    def _deadline(self, spec: RunSpec) -> timedelta | None:
+        """How long after its creation the Run stops (E5 P2 spec D11, R10)."""
+        if spec.detach:
+            return spec.deadline or self._default_deadline
+        # WHY: with the orphan rule off nothing else would ever stop an attached Run.
+        if spec.starts and not self._orphan_grace:
+            return self._default_deadline
+        return None
+
     async def _by_client_key(self, owner: OwnerKey, spec: RunSpec) -> RunRecord | None:
-        record = await self._one(
-            Candidate.filter(run__owner=owner, run__client_key=spec.client_key)
+        record = await _one(
+            Candidate.filter(run__owner=owner, run__client_key=spec.client_key), full=True
         )
         if record is None:
             return None
         names = tuple(candidate.name for candidate in record.candidates)
-        if (record.benchmark, record.case_count, names) != (
+        starts = tuple(c.start for c in record.candidates if c.start is not None)
+        stored = None if record.deadline_at is None else record.deadline_at - record.created_at
+        if (record.benchmark, record.case_count, names, starts, record.detached, stored) != (
             spec.benchmark,
             spec.case_count,
             spec.candidates,
+            spec.starts,
+            spec.detach,
+            self._deadline(spec),
         ):
             raise ClientKeyConflict(f"client_key {spec.client_key!r} names another evaluation")
         return record
 
-    @_in_context
-    async def bind(self, owner: OwnerKey, run_id: str, candidate: int, topic: str) -> None:
+    @in_context
+    async def bind(
+        self,
+        owner: OwnerKey,
+        run_id: str,
+        candidate: int,
+        topic: str,
+        *,
+        trace_id: str | None = None,
+    ) -> None:
         row = await self._unbound_candidate(owner, run_id, candidate, topic)
         if row is None:
             return
@@ -212,14 +186,15 @@ class TortoiseRunStore:
             # WHY one transaction: a re-sent start finds the topic bound and returns early, so a
             # touch lost after the bind committed would never be retried.
             async with in_transaction(CONNECTION) as conn:
-                await _lock_run(run_id, conn)
+                await lock_run(run_id, conn)
+                # E5 P2 spec R8: the clock starts when the start is sent, at `mark_scheduled`.
                 won = await (
                     Candidate.filter(id=row.id, topic__isnull=True, state="pending")
                     .using_db(conn)
-                    .update(topic=topic, bound_at=now)
+                    .update(topic=topic, trace_id=trace_id)
                 )
                 if won:
-                    await self._touch(run_id, now, conn)
+                    await touch(run_id, now, conn)
         except IntegrityError as exc:
             raise CandidateAlreadyStarted("the topic is bound to another Candidate") from exc
         if not won:
@@ -237,7 +212,8 @@ class TortoiseRunStore:
         row = await Candidate.get_or_none(run_id=run_id, index=candidate)
         if row is None:
             raise UnknownCandidate(f"{run_id} has no Candidate {candidate}")
-        # WHY the cancel check first: a start re-sent after a cancel must not schedule (R2).
+        # WHY the stop check first: a start sent after a stop must not schedule (spec R2, E5 P2
+        # spec R9).
         if run.canceled:
             raise RunCanceled(run_id)
         if row.topic == topic:
@@ -246,138 +222,169 @@ class TortoiseRunStore:
             raise CandidateAlreadyStarted(f"{run_id} Candidate {candidate}")
         return row
 
-    @_in_context
+    @in_context
     async def mark_scheduled(self, topic: str) -> bool:
         row = await Candidate.get_or_none(topic=topic)
         if row is None:
             return True
         now = self._clock()
         async with in_transaction(CONNECTION) as conn:
-            await _lock_run(row.run_id, conn)
+            await lock_run(row.run_id, conn)
             if (
                 await Candidate.filter(id=row.id, state="pending")
                 .using_db(conn)
-                .update(state="scheduled")
+                .update(state="scheduled", bound_at=now)
             ):
-                await self._touch(row.run_id, now, conn)
-                return True
-        # WHY this Candidate's own state: a re-sent start finds it already `scheduled`, and a
-        # fast run may have settled it, even under a Run a sibling's cancel flagged. Only a
-        # cancel that stopped THIS Candidate before it was scheduled loses the race.
-        current = await Candidate.get(id=row.id)
-        return (
-            current.state != "stopped"
-            or not await Run.filter(id=row.run_id, canceled=True).exists()
-        )
+                await touch(row.run_id, now, conn)
+            # WHY a stop of a live Candidate: the stop owes it one, so the start that was just
+            # sent must be stopped too (E5 P2 spec R9). A Candidate that already ended (a fast
+            # run whose outcome beat this call) has nothing left to stop.
+            live = await Candidate.filter(id=row.id, state__in=LIVE).using_db(conn).exists()
+            stopped = await Run.filter(id=row.run_id, canceled=True).using_db(conn).exists()
+            return not (live and stopped)
 
-    @_in_context
+    @in_context
     async def settle(self, topic: str, outcome: CandidateOutcome) -> None:
         row = await Candidate.get_or_none(topic=topic)
         if row is None:
-            # An unbound topic (a start without `X-SF-Run`, or one whose bind failed): no-op.
+            # An unbound topic (a start without a Run, or one whose bind failed): no-op.
             return
         now = self._clock()
+        cost = None if outcome.cost_usd is None else stored_cost(outcome.cost_usd)
+        record = None if outcome.record is None else dict(outcome.record)
         # WHY one transaction: a redelivered outcome finds the Candidate terminal and writes
         # nothing, so a touch lost after the state commit would never be retried.
         async with in_transaction(CONNECTION) as conn:
-            await _lock_run(row.run_id, conn)
+            await lock_run(row.run_id, conn)
             won = await (
-                Candidate.filter(id=row.id, state__in=_LIVE)
+                Candidate.filter(id=row.id, state__in=LIVE)
                 .using_db(conn)
                 .update(
                     state=outcome.status,
                     # WHY the producer's time: an outcome written late (after a database outage)
                     # still ends the Candidate when the run ended.
                     finished_at=outcome.finished_at,
-                    cost_usd=None if outcome.cost_usd is None else stored_cost(outcome.cost_usd),
+                    cost_usd=cost,
                     # The outcome refuses a code the column cannot hold (`CandidateOutcome`).
                     error_code=outcome.error_code,
+                    record=record,
                 )
             )
             if won:
-                await self._touch(row.run_id, now, conn)
+                await touch(row.run_id, now, conn)
+                return
+            # INVARIANT (E5 P2 spec §4.4): state and error code are first-wins. A later outcome
+            # with the same state fills a cost or a record still empty, and nothing else: an
+            # outcome rebuilt from the stream (R7) has neither, and the runner's lands after it.
+            same = Candidate.filter(id=row.id, state=outcome.status).using_db(conn)
+            if cost is not None:
+                await same.filter(cost_usd__isnull=True).update(cost_usd=cost)
+            if record is not None:
+                await same.filter(record__isnull=True).update(record=record)
 
-    @_in_context
+    @in_context
     async def cancel(self, owner: OwnerKey, run_id: str) -> RunRecord | None:
-        now = self._clock()
-        async with in_transaction(CONNECTION) as conn:
-            if not await Run.filter(id=run_id, owner=owner).using_db(conn).exists():
-                return None
-            await _lock_run(run_id, conn)
-            if await Candidate.filter(run_id=run_id, state__in=_LIVE).using_db(conn).exists():
-                flagged = (
-                    await Run.filter(id=run_id, canceled=False).using_db(conn).update(canceled=True)
-                )
-                # Spec D12: every bound live Candidate may be on a runner, so the cancel that
-                # flags the Run owes each a stop. WHY only that one: a retry finds the stops that
-                # succeeded cleared, and must not owe them again while their outcomes land.
-                if flagged:
-                    await (
-                        Candidate.filter(run_id=run_id, state__in=_LIVE, topic__isnull=False)
-                        .using_db(conn)
-                        .update(stop_owed=True)
-                    )
-                await (
-                    Candidate.filter(run_id=run_id, state="pending")
-                    .using_db(conn)
-                    .update(state="stopped", finished_at=now)
-                )
-                await self._touch(run_id, now, conn)
+        if not await Run.filter(id=run_id, owner=owner).exists():
+            return None
+        await self.stop(run_id, "canceled")
         return await self.get(owner, run_id)
 
-    @_in_context
+    @in_context
+    async def stored_objects(self, run_ids: Sequence[str]) -> dict[str, list[str]]:
+        """The run-results keys each Run names: its context, each Candidate's result by the
+        checksum in its record, and each Candidate's probe, the empty result a run writes before
+        it spends (E5 P2 spec R5, R13). A malformed checksum names nothing."""
+        keys: dict[str, list[str]] = {run_id: [] for run_id in run_ids}
+        with_context = await Run.filter(
+            id__in=list(run_ids), context_sha256__isnull=False
+        ).values_list("id", flat=True)
+        for run_id in cast(list[str], with_context):
+            keys[run_id].append(context_key(run_id))
+        # WHY only a started Candidate's: one never started wrote no probe.
+        rows = await Candidate.filter(run_id__in=list(run_ids), topic__isnull=False).values(
+            "run_id", "index", "record"
+        )
+        for row in rows:
+            prefix = result_prefix(row["run_id"], row["index"])
+            keys[row["run_id"]].append(result_key(prefix, EMPTY_RESULT_SHA256))
+            record = row["record"]
+            result = record.get("result") if isinstance(record, dict) else None
+            digest = result.get("sha256") if isinstance(result, dict) else None
+            if not isinstance(digest, str) or digest == EMPTY_RESULT_SHA256:
+                continue
+            with contextlib.suppress(ValueError):
+                keys[row["run_id"]].append(result_key(prefix, digest))
+        return keys
+
+    @in_context
+    async def records(
+        self, owner: OwnerKey, run_id: str, indexes: Sequence[int]
+    ) -> dict[int, dict[str, Any] | None] | None:
+        if not await Run.filter(id=run_id, owner=owner).exists():
+            return None
+        rows = await Candidate.filter(run_id=run_id, index__in=list(indexes)).values(
+            "index", "record"
+        )
+        return {row["index"]: row["record"] for row in rows}
+
+    @in_context
+    async def has_start(self, topic: str) -> bool:
+        """Whether ``topic`` is a Candidate's whose Run the Engine drives (E5 P2 spec R14)."""
+        return await Candidate.filter(topic=topic, start__isnull=False).exists()
+
+    @in_context
     async def owed_stops(self, owner: OwnerKey, run_id: str) -> list[str]:
         rows = await Candidate.filter(run_id=run_id, run__owner=owner, stop_owed=True)
         return [row.topic for row in rows if row.topic is not None]
 
-    @_in_context
+    @in_context
     async def stop_done(self, topic: str) -> None:
         await Candidate.filter(topic=topic, stop_owed=True).update(stop_owed=False)
 
-    async def _touch(
-        self, run_id: str, now: datetime, conn: BaseDBAsyncClient | None = None
-    ) -> None:
-        # INVARIANT (spec §4.3): `last_activity_at` only moves forward, so a write stamped by a
-        # slower clock never pulls the grace window back.
-        await (
-            Run.filter(id=run_id, last_activity_at__lt=now)
-            .using_db(conn)
-            .update(last_activity_at=now)
-        )
-
     # --- sweeps ------------------------------------------------------------------------------
 
-    @_in_context
+    @in_context
     async def reconcile(self) -> int:
         now = self._clock()
         stale = Q(bound_at__lt=now - self._lost_after)
         if not self._outcomes_survive_restart:
-            # The outcomes of Candidates bound before this process started died with the old one.
+            # The outcomes of Candidates sent before this process started died with the old one.
             stale |= Q(bound_at__lt=self._started_at)
-        # INVARIANT (spec R6): reconcile writes `lost` and nothing else; an unbound Candidate is
-        # left to the R5 grace.
-        return await Candidate.filter(stale, state__in=_LIVE, bound_at__isnull=False).update(
+        # INVARIANT (spec R6): reconcile writes `lost` and nothing else. E5 P2 spec R8: a
+        # `pending` Candidate was never sent, so no outcome is owed for it.
+        return await Candidate.filter(stale, state__in=_SENT, bound_at__isnull=False).update(
             state="lost", finished_at=now
         )
 
-    @_in_context
-    async def expire(self, older_than: datetime) -> int:
-        # WHY the Candidates first, by subquery: SQLite counts the rows a cascade deletes, so the
-        # Runs' own delete is the only count both databases agree on, and it is what this call
-        # deleted, not what a concurrent sweep did. No id list, so no driver's bound-parameter
-        # limit applies.
-        expired = Run.filter(created_at__lt=older_than)
+    @in_context
+    async def expiring(self, older_than: datetime) -> list[str]:
+        """The ids of the Runs created before ``older_than``, oldest first, at most one batch
+        (E5 P2 spec R13). The sweep deletes their results, then `expire`s them."""
+        rows = (
+            Run.filter(created_at__lt=older_than)
+            .order_by("created_at", "id")
+            .limit(_EXPIRY_BATCH)
+            .values_list("id", flat=True)
+        )
+        return cast(list[str], await rows)
+
+    @in_context
+    async def expire(self, run_ids: Sequence[str]) -> int:
+        if not run_ids:
+            return 0
+        expired = Run.filter(id__in=list(run_ids))
         async with in_transaction(CONNECTION) as conn:
             # INVARIANT (lock order): the Runs first, as every write does, so a sweep and a
             # `settle` on an expiring Run never wait on each other in a cycle.
             await expired.using_db(conn).select_for_update().only("id")
-            await (
-                Candidate.filter(run_id__in=Subquery(expired.values("id"))).using_db(conn).delete()
-            )
+            await Candidate.filter(run_id__in=list(run_ids)).using_db(conn).delete()
+            # WHY the Runs' own count: SQLite counts the rows a cascade deletes, so it is the one
+            # count both databases agree on, and it is what this call deleted, not what a
+            # concurrent sweep did.
             return await expired.using_db(conn).delete()
 
     # WHY last: a method named `list` shadows the builtin in annotations of the methods below it.
-    @_in_context
+    @in_context
     async def list(self, owner: OwnerKey, query: RunQuery) -> RunPage:
         base = Run.filter(owner=owner)
         if query.since is not None:
@@ -392,11 +399,11 @@ class TortoiseRunStore:
         records: list[RunRecord] = []
         # Spec R5: state is derived, so a state filter is applied here. WHY scan in keyset
         # batches: loading the whole retention window at once grows without bound per owner,
-        # and its prefetch `IN` list can outgrow a driver's bound-parameter limit.
+        # and its `IN` list can outgrow a driver's bound-parameter limit.
         batch_size = query.limit + 1 if query.state is None else _SCAN_BATCH
         while len(records) <= query.limit:
             batch = await rows.order_by("-created_at", "-id").limit(batch_size)
-            derived = await self._records([run.id for run in batch])
+            derived = await _records([run.id for run in batch])
             records.extend(r for r in derived if query.state is None or r.state == query.state)
             if len(batch) < batch_size:
                 break
@@ -407,37 +414,24 @@ class TortoiseRunStore:
         page = tuple(records[: query.limit])
         return RunPage(page, page[-1].id if more else None)
 
-    async def _records(self, run_ids: list[str]) -> list[RunRecord]:
-        """The records of ``run_ids`` in that order, from one statement (spec R5). A Run that
-        retention deleted after the page was read is left out."""
-        by_run: dict[str, list[Candidate]] = {}
-        for row in await Candidate.filter(run_id__in=run_ids).select_related("run"):
-            by_run.setdefault(row.run_id, []).append(row)
-        return [self._record(by_run[i][0].run, by_run[i]) for i in run_ids if i in by_run]
+
+async def _one(candidates: QuerySet[Candidate], *, full: bool) -> RunRecord | None:
+    # WHY from the Candidates: every Run has at least one, and each row carries its Run.
+    records = await read_runs(candidates, full=full)
+    return records[0] if records else None
 
 
-async def _lock_run(run_id: str, conn: BaseDBAsyncClient) -> None:
-    """Lock the Run's row for this transaction (see the module's lock-order invariant)."""
-    await Run.filter(id=run_id).using_db(conn).select_for_update().first()
+async def _records(run_ids: list[str]) -> list[RunRecord]:
+    """The records of ``run_ids`` in that order, from one statement (spec R5). A Run that
+    retention deleted after the page was read is left out."""
+    by_id = {r.id: r for r in await read_runs(Candidate.filter(run_id__in=run_ids), full=False)}
+    return [by_id[run_id] for run_id in run_ids if run_id in by_id]
 
 
 def _after(rows: QuerySet[Run], anchor: Run) -> QuerySet[Run]:
     """The Runs after ``anchor`` in newest-first order, the id breaking ties (spec D5)."""
     return rows.filter(
         Q(created_at__lt=anchor.created_at) | Q(created_at=anchor.created_at, id__lt=anchor.id)
-    )
-
-
-def _candidate(row: Candidate) -> CandidateRecord:
-    return CandidateRecord(
-        index=row.index,
-        name=row.name,
-        state=cast(CandidateState, row.state),
-        attempt_id=row.topic,
-        started_at=row.bound_at,
-        finished_at=row.finished_at,
-        cost_usd=row.cost_usd,
-        error_code=row.error_code,
     )
 
 

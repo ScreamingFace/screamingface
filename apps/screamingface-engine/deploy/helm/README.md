@@ -566,6 +566,42 @@ path-style in favour of virtual-hosted-style (`bucket.s3.region.amazonaws.com`),
 at real AWS S3 may fail — and it fails as a signing/404 error that looks like a credential
 problem. Azure Blob is **not** S3-compatible at all and would need a new adapter behind the port.
 
+## Run-results storage (OME-1837)
+
+With Runs on (`database.existingSecret`), every result of a run the Engine's driver starts, and
+each Run's context, is kept for the Run's 30 days in a store of its own (E5 P2 spec D9a). The
+artifact store cannot hold them: it expires everything after 2 days.
+
+```yaml
+runResults:
+  storage:
+    backend: s3           # "" only with Runs off; with Runs on the render fails without a store
+    s3:
+      endpointUrl: ""     # empty = the chart's third bundled Garage, below
+      bucket: screamingface-run-results
+      existingSecret: ""  # the App's key: read, write, delete
+      poolExistingSecret: ""  # the runner pool's key, write only; empty = the App's
+    garage:
+      persistence:
+        size: 10Gi
+  writeBudgetS: 60        # a runner's retries of a refused write (spec R5)
+```
+
+With `endpointUrl` empty the chart renders `<fullname>-garage-run-results`, a parallel of the blob
+Garage: its own volume, its own key pair in `<fullname>-run-results-storage` (generated and adopted
+on first boot), a random RPC secret only the Garage pod receives. It has no lifecycle rule and no
+backup, so it is a test cluster's store; production names a durable bucket with a 31-day rule
+(`DEPLOYMENT.md`: the run-results store). With `endpointUrl` set, no Garage renders, and the render
+fails unless the credentials are supplied. The App and the pool read the key pair by named
+`secretKeyRef`, and carry a `checksum/run-results-secret` annotation so a rotation rolls both.
+
+**Network policy.** The App and the runner pool both reach the run-results store: the App to
+store and serve contexts and results, the pool to write each run's result. A platform
+NetworkPolicy must admit both to it: to the bundled Garage's pods
+(`app.kubernetes.io/component: garage-run-results`) on port 3900, or to the external bucket's
+endpoint. Without that rule a driver-started run fails `result_store_unavailable` before any model
+call, after the write budget, and `POST /runs` with a context answers 503.
+
 ## Blob storage (OME-1540)
 
 Files a client uploads over `PUT /blob/sha256/<hex>` for its run's model calls are kept in a

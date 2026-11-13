@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -64,6 +64,7 @@ def _sweeper(registry: Registry, store: TortoiseRunStore | None = None) -> RunSw
 async def test_reconcile_writes_only_lost_and_no_cost(registry: Registry) -> None:
     run_id = await _run(registry, 2)
     await registry.store.bind(ALICE, run_id, 0, _topic(1, 0))
+    await registry.store.mark_scheduled(_topic(1, 0))
     await registry.store.bind(ALICE, run_id, 1, _topic(1, 1))
     await registry.store.mark_scheduled(_topic(1, 1))
     registry.clock.advance(seconds=LOST_AFTER.total_seconds() + 1)
@@ -81,13 +82,16 @@ async def test_a_surviving_stream_settles_only_candidates_past_the_cutoff(
 ) -> None:
     run_id = await _run(registry, 2)
     await registry.store.bind(ALICE, run_id, 0, _topic(1, 0))
+    await registry.store.mark_scheduled(_topic(1, 0))
     registry.clock.advance(hours=1)
     await registry.store.bind(ALICE, run_id, 1, _topic(1, 1))
+    await registry.store.mark_scheduled(_topic(1, 1))
     registry.clock.advance(seconds=LOST_AFTER.total_seconds() - 3600 + 1)
 
     await _sweeper(registry).sweep_once()
 
-    assert [c.state for c in (await _read(registry, run_id)).candidates] == ["lost", "pending"]
+    states = [c.state for c in (await _read(registry, run_id)).candidates]
+    assert states == ["lost", "scheduled"]
 
 
 async def test_a_hosted_restart_leaves_a_queued_candidate_to_its_worker(
@@ -112,6 +116,7 @@ async def test_a_local_restart_settles_every_in_flight_candidate_lost(registry: 
     """Spec R6: an in-memory stream died with the old process, and its outcomes with it."""
     run_id = await _run(registry, 3)
     await registry.store.bind(ALICE, run_id, 0, _topic(1, 0))
+    await registry.store.mark_scheduled(_topic(1, 0))
     await registry.store.bind(ALICE, run_id, 1, _topic(1, 1))
     await registry.store.mark_scheduled(_topic(1, 1))
     registry.clock.advance(seconds=1)
@@ -119,7 +124,7 @@ async def test_a_local_restart_settles_every_in_flight_candidate_lost(registry: 
 
     await _sweeper(registry, restarted).sweep_once()
 
-    # The unbound Candidate is the R5 grace's, not reconcile's.
+    # A Candidate never sent owes no outcome, so it is not reconcile's (E5 P2 spec R8).
     states = [c.state for c in (await _read(registry, run_id)).candidates]
     assert states == ["lost", "lost", "pending"]
 
@@ -152,8 +157,11 @@ class _FlakyRegistry:
             raise ConnectionError("database down")
         return 0
 
-    async def expire(self, older_than: datetime) -> int:
+    async def expiring(self, older_than: datetime) -> list[str]:
         self.cutoffs.append(older_than)
+        return []
+
+    async def expire(self, run_ids: Sequence[str]) -> int:
         return 0
 
 

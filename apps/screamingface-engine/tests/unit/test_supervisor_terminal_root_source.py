@@ -214,7 +214,9 @@ async def test_the_child_s_lifecycle_runs_under_the_same_root_node(monkeypatch) 
 
     monkeypatch.setattr(runner_main, "run", fake_run)
     monkeypatch.setattr(runner_main, "_log_terminal", lambda *a, **k: None)
-    params = SimpleNamespace(topic="t-child", url4="'hi'", deadline_s=1.0, client_version=None)
+    params = SimpleNamespace(
+        topic="t-child", url4="'hi'", deadline_s=1.0, client_version=None, result_prefix=None
+    )
     await runner_main._run_and_log(SimpleNamespace(), SimpleNamespace(), params, None)  # type: ignore[arg-type]  # noqa: SLF001
     assert seen["node"] == RUN_ROOT_NODE
 

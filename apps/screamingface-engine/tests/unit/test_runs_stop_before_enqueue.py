@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Iterator, Mapping
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -346,30 +346,6 @@ async def test_a_schedule_paused_past_the_marker_lifetime_still_queues_nothing()
     assert all("t" not in topics for topics in runner._in_flight_by_caller.values())
 
 
-class _RecordsDeadlineStart(RecordingJobRunner):
-    def __init__(self) -> None:
-        super().__init__()
-        self.started: list[tuple[datetime | None, datetime]] = []
-
-    async def schedule(self, *args: Any, enqueued_at: datetime | None = None, **kw: Any) -> str:
-        self.started.append((enqueued_at, datetime.now(UTC)))
-        return await super().schedule(*args, **kw)
-
-
-async def test_a_bound_runs_deadline_counts_from_its_bind(registry: Registry) -> None:
-    """WHY: a cancel's tombstone is written only after the bind, so a deadline counted from the
-    later publish could outlast it."""
-    runner = _RecordsDeadlineStart()
-    engine = _Engine(registry, runner=runner)
-    run_id = (await engine.create(candidates=["a"])).json()["id"]
-    before_bind = datetime.now(UTC)
-
-    assert (await engine.start("topic-a", run_id)).status_code == 202
-
-    ((enqueued_at, scheduled_at),) = runner.started
-    assert enqueued_at is not None and before_bind <= enqueued_at <= scheduled_at
-
-
 async def test_a_local_bound_stop_before_the_schedule_starts_no_task() -> None:
     """WHY: in local mode the task spawned after the cancel would run until the start's
     confirmation stopped it, possibly after calling a provider."""
@@ -413,34 +389,6 @@ async def test_a_full_local_runner_still_answers_a_stopped_topic_as_stopped() ->
     assert not await runner.exists("t")
 
 
-class _BindsThenLosesTheAck:
-    """A registry whose bind commits but whose acknowledgement is lost."""
-
-    def __init__(self, store: Any) -> None:
-        self._store = store
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._store, name)
-
-    async def bind(self, *args: Any) -> None:
-        await self._store.bind(*args)
-        raise ConnectionError("commit acknowledgement lost")
-
-
-async def test_a_bind_with_an_unknown_outcome_keeps_its_bind_moment(registry: Registry) -> None:
-    """WHY: the bind may have committed, so a cancel can tombstone the topic all the same."""
-    runner = _RecordsDeadlineStart()
-    engine = _Engine(registry, runner=runner)
-    run_id = (await engine.create(candidates=["a"])).json()["id"]
-    engine.app.state.run_registry = _BindsThenLosesTheAck(registry.store)
-    before_bind = datetime.now(UTC)
-
-    assert (await engine.start("topic-a", run_id)).status_code == 202
-
-    ((enqueued_at, _),) = runner.started
-    assert enqueued_at is not None and enqueued_at >= before_bind
-
-
 class _StoppedTopic(RecordingJobRunner):
     """A runner whose topic a bound stop already reached: its schedule starts nothing."""
 
@@ -448,17 +396,15 @@ class _StoppedTopic(RecordingJobRunner):
         raise StoppedBeforeSchedule(topic)
 
 
-async def test_a_start_stopped_before_its_schedule_answers_canceled_even_unbound(
+async def test_a_start_stopped_before_its_schedule_answers_canceled(
     registry: Registry, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """WHY: with the bind's outcome unknown no confirmation follows, so the runner's signal is
-    the only thing that keeps the start from answering 202 for a run that never started."""
+    """WHY: the runner's signal is the only thing that keeps the start from answering 202 for a
+    run that never started."""
     engine = _Engine(registry, runner=_StoppedTopic())
-    run_id = (await engine.create(candidates=["a"])).json()["id"]
-    engine.app.state.run_registry = _BindsThenLosesTheAck(registry.store)
 
     with caplog.at_level("INFO"):
-        resp = await engine.start("topic-a", run_id)
+        resp = await engine.start("topic-a")
 
     assert resp.status_code == 409
     assert resp.json()["code"] == "run_canceled"
@@ -510,14 +456,11 @@ class _AttemptRecorder(RecordingJobRunner):
         return await super().schedule(topic, *args, **kwargs)
 
 
-async def test_a_start_is_one_attempt_from_its_bind_through_its_schedule(
-    registry: Registry,
-) -> None:
+async def test_a_start_is_one_attempt_through_its_schedule(registry: Registry) -> None:
     runner = _AttemptRecorder()
     engine = _Engine(registry, runner=runner)
-    run_id = (await engine.create(candidates=["a"])).json()["id"]
 
-    assert (await engine.start("topic-a", run_id)).status_code == 202
+    assert (await engine.start("topic-a")).status_code == 202
 
     assert runner.seen == [("topic-a", True)]
     assert runner.open == []

@@ -32,12 +32,18 @@ if (
     from screamingface_engine.adapters.jetstream import JetStreamPublisher
     from screamingface_engine.runner_queue import RunQueue
 from screamingface_engine.runner_queue import UNDECODABLE_BODY_ERRORS, topic_of_message
-from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX, OWNERSHIP_SUBJECT_PREFIX
+from screamingface_engine.subjects import (
+    CLAIM_SUBJECT_PREFIX,
+    CONTROL_SUBJECT_PREFIX,
+    OWNERSHIP_SUBJECT_PREFIX,
+)
+from screamingface_engine.topic_claims import TopicClaims
 from screamingface_engine.worker.metrics import (
     WorkerMetrics,
     build_worker_metrics,
     register_events_publish_conflicts_metrics,
 )
+from screamingface_engine.worker.outcome_retry import OutcomeRetries
 from screamingface_engine.worker.supervisor import (
     DEADLINE_MARGIN_S,
     HEARTBEAT_INTERVAL_S,
@@ -49,8 +55,10 @@ from screamingface_engine.worker.supervisor import (
     _Publisher,
     derived_heartbeat_interval_s,
 )
+from screamingface_engine.worker.topic_claim import DEFAULT_CLAIM_BUDGET_S, ClaimGate
 from screamingface_engine.worker.warm_pool import WarmChildPool, process_spawner
 from screamingface_engine.world.config import config_file_digest
+from url4.streaming.protocol import TerminatedEvent
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +160,8 @@ class Worker:
         metrics: WorkerMetrics | None = None,
         world_digest: str | None = None,
         outcomes: CandidateOutcomeStream | None = None,
+        claims: TopicClaims | None = None,
+        topic_claim_budget_s: float = DEFAULT_CLAIM_BUDGET_S,
     ) -> None:
         if slots < 1:
             raise ValueError(f"worker slots must be >= 1, got {slots}")
@@ -206,6 +216,10 @@ class Worker:
         # registers a topic BEFORE creating the supervisor task (closing the scheduling
         # gap), and the supervisor clears it once the child registers (or fails to).
         self._starting: set[str] = set()
+        # The topics whose claim this worker won (E5 P2 spec R3), from the win until the claim
+        # is marked finished: `_handle_claim` answers a contender from here, never from
+        # `_starting`, which holds a topic before any claim.
+        self._claimed: set[str] = set()
         # The in-flight supervisor tasks — the slot accounting. asyncio is single-threaded,
         # so no lock is needed; the fetch batch is computed from the free slots below.
         self._active: set[asyncio.Task[None]] = set()
@@ -253,6 +267,19 @@ class Worker:
             metrics=self._metrics,
             world_digest=world_digest,
             outcomes=outcomes,
+            outcome_retries=None if outcomes is None else OutcomeRetries(outcomes),
+            claim_gate=(
+                None
+                if claims is None
+                else ClaimGate(
+                    claims=claims,
+                    worker_id=self._worker_id,
+                    ask=control,
+                    ended=self._ended,
+                    claimed=self._claimed,
+                    budget_s=topic_claim_budget_s,
+                )
+            ),
         )
 
     async def run(self) -> None:
@@ -279,6 +306,9 @@ class Worker:
                 if self._control is not None:
                     tg.create_task(self._control_loop(tg))
                     tg.create_task(self._ownership_loop())
+                    tg.create_task(
+                        self._serve_subject(f"{CLAIM_SUBJECT_PREFIX}.*", self._handle_claim)
+                    )
         finally:
             self._supervisor.cancel_reclaims()
             if self._pool is not None:
@@ -493,6 +523,22 @@ class Worker:
         if topic in self._children_by_topic or topic in self._starting:
             await msg.respond(self._worker_id.encode())
 
+    async def _handle_claim(self, msg: _ControlMessage) -> None:
+        """Answer a contender for a topic this worker claimed (E5 P2 spec R3).
+
+        INVARIANT: only the holder named in the payload answers, and only while it holds the
+        claim; silence is the negative answer, as for the ownership probe. No side effects.
+        """
+        if msg.data != self._worker_id.encode():
+            return
+        topic = msg.subject.removeprefix(f"{CLAIM_SUBJECT_PREFIX}.")
+        if topic in self._claimed:
+            await msg.respond(self._worker_id.encode())
+
+    async def _ended(self, topic: str) -> bool:
+        """Whether the topic's stream already ends in a terminal frame."""
+        return isinstance(await self._publisher.last_frame(topic), TerminatedEvent)
+
     async def _handle_control(self, msg: _ControlMessage) -> None:
         """Answer one control request: SIGTERM the child that owns the topic, or reply to a
         starting run's cancellation. A request for a topic this worker does not own gets no
@@ -581,6 +627,8 @@ class Worker:
                 with contextlib.suppress(ProcessLookupError):
                     proc.terminate()
             await asyncio.sleep(_DRAIN_POLL_S)
+        # E5 P2 spec R6: the outcomes still being retried get what is left of the grace.
+        await self._supervisor.drain_outcomes(deadline - loop.time())
         # The drain phase is complete (the pool is empty) — the control loop's exit
         # signal (see `_control_loop` and P2-12).
         self._drained.set()
@@ -631,10 +679,15 @@ def run_worker(settings: Settings | None = None) -> None:
     ``Settings()`` read the environment.
     """
     settings = settings if settings is not None else Settings()
-    from screamingface_engine.adapters.factory import build_candidate_outcome_stream
+    from screamingface_engine.adapters.factory import (
+        build_candidate_outcome_stream,
+        build_topic_claims,
+    )
 
     queue, publisher = worker_composition(settings)
     outcomes = build_candidate_outcome_stream(settings)
+    # FEATURE (E5 P2 spec D7): where a driver-started run's topic is claimed.
+    claims = build_topic_claims(settings)
     metrics = build_worker_metrics()
     metrics.started.inc()
     # The worker's own publish-conflict signal (uniform executor, PRD 01 §4 Observability,
@@ -658,6 +711,8 @@ def run_worker(settings: Settings | None = None) -> None:
             await publisher.declare_events_stream()
             # FEATURE (OME-1785, spec R11): the outcome stream, declared with the chart's limits.
             await outcomes.ensure_stream(update=True)
+            # The pool owns the bucket's settings, like the event stream's.
+            await claims.ensure_bucket(update=True)
             worker = Worker(
                 queue=queue,
                 publisher=publisher,
@@ -688,9 +743,12 @@ def run_worker(settings: Settings | None = None) -> None:
                 # the pod loads.
                 world_digest=config_file_digest(os.environ),
                 outcomes=outcomes,
+                claims=claims,
+                topic_claim_budget_s=settings.topic_claim_budget_s,
             )
             await worker.run()
         finally:
+            await claims.close()
             await outcomes.close()
             await nc.close()
 

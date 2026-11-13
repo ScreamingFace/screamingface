@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.auth import ProblemException
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.stopping import stop_topic as core_stop_topic
 from url4.streaming.interfaces import EventConsumer, JobRunner
 
 # WHY 5 and not the capacity path's constant 1: an unreachable broker is a reconnect or a
@@ -22,31 +22,24 @@ QUEUE_UNAVAILABLE_RETRY_AFTER_S = 5
 async def stop_topic(
     job_runner: JobRunner, stream: EventConsumer, topic: str, *, bound: bool = False
 ) -> None:
-    """`bound`: the topic is a Run's Candidate, which the runner must stop even before it has
-    any record of the topic (`IdentityAwareJobRunner.stop_bound`)."""
+    """`stopping.stop_topic`, answering an unreadable queue tail with a retryable 503.
+
+    `bound`: the topic is a Run's Candidate, which the runner must stop even before it has
+    any record of the topic (`IdentityAwareJobRunner.stop_bound`).
+    """
     try:
-        if bound and isinstance(job_runner, IdentityAwareJobRunner):
-            await job_runner.stop_bound(topic)
-        else:
-            await job_runner.stop(topic)
+        await core_stop_topic(job_runner, stream, topic, bound=bound)
     except QueueReadError:
         # V-2: an unreadable tail used to make `stop()` a SILENT no-op, and this handler
         # fell through to deleting the stream of a possibly-live run while answering 204.
         # The raise keeps the state unchanged and the answer honest: 503, retryable, and
-        # the stream deletion below does not run.
+        # the stream deletion does not run.
         raise ProblemException(
             status=503,
             title="Service Unavailable",
             detail="the run queue could not be read; retry",
             headers={"Retry-After": str(QUEUE_UNAVAILABLE_RETRY_AFTER_S)},
         ) from None
-    # WHY delete_stream and not purge: this is the run's terminal teardown, and `delete_stream`
-    # purges the subject on the shared events stream while KEEPING the terminal frame — the
-    # evidence a run ended (the queue's dedupe gate, the runner's own admission bookkeeping, and
-    # a repeated `DELETE /` all read that frame). Plain `purge` drops it too, and an empty
-    # subject reads exactly like a run still queued — there is no per-run stream object left to
-    # tell the two apart in a shared stream (erd.md §5).
-    await stream.delete_stream(topic)
 
 
 __all__ = ["QUEUE_UNAVAILABLE_RETRY_AFTER_S", "stop_topic"]

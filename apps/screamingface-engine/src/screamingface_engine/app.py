@@ -20,7 +20,11 @@ from fastapi.staticfiles import StaticFiles
 
 from screamingface_engine import job_env
 from screamingface_engine.access_log import install_access_log_filter
-from screamingface_engine.adapters.factory import build_candidate_outcome_stream, build_job_runner
+from screamingface_engine.adapters.factory import (
+    build_candidate_outcome_stream,
+    build_job_runner,
+    build_run_result_store,
+)
 from screamingface_engine.artifacts import (
     ArtifactReader,
     ArtifactStore,
@@ -79,6 +83,8 @@ from screamingface_engine.rest.cache_entries import router as cache_entries_rout
 from screamingface_engine.rest.limits import router as limits_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.rest.runs import router as runs_router
+from screamingface_engine.rest.runs_events import router as runs_events_router
+from screamingface_engine.rest.runs_objects import router as runs_objects_router
 from screamingface_engine.runner_demand import DemandSource, RunnerDemandSampler
 from screamingface_engine.runs.wiring import install_runs
 from screamingface_engine.schemas import customize_openapi
@@ -109,6 +115,8 @@ _ROUTERS = (
     connection_router,
     cache_entries_router,
     runs_router,
+    runs_objects_router,
+    runs_events_router,
     ws_router,
     ops_router,
 )
@@ -384,6 +392,17 @@ def _install_storage(app: FastAPI, settings: Settings) -> None:
     _install_artifact_sweeper(app, app.state.artifact_store, settings)
 
 
+def _driven_topic(app: FastAPI) -> Callable[[str], Awaitable[bool]]:
+    """Whether a topic belongs to a Run the Engine drives (E5 P2 spec R14), read from the Run
+    registry the App holds now: none while Runs are off."""
+
+    async def driven(topic: str) -> bool:
+        has_start = getattr(getattr(app.state, "run_registry", None), "has_start", None)
+        return has_start is not None and bool(await has_start(topic))
+
+    return driven
+
+
 def _build_blob_store(settings: Settings) -> BlobStore | None:
     """The run blob store on ITS OWN backend (#1603 review, owner decision 2026-11-03).
 
@@ -515,7 +534,9 @@ def _install_orphan_reaper(
         # the reaper off with `URL4_CLOUD_ORPHAN_GRACE_S=0`. Either way, no task is created — the
         # many tests that inject no runner must not grow a background task.
         return
-    reaper = RunReaper(job_runner, registry, grace_s=settings.orphan_grace_s)
+    reaper = RunReaper(
+        job_runner, registry, grace_s=settings.orphan_grace_s, driven=_driven_topic(app)
+    )
     app.state.reaper = reaper
     registry.listen(reaper)
 
@@ -933,7 +954,16 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     app.router.on_shutdown.append(stream.close)
     # FEATURE (OME-1785): first-class Runs. On with `URL4_CLOUD_DATABASE_URL`, off without it;
     # the outcome stream is declared either way, since the App's terminal writers publish to it.
-    install_runs(app, settings, outcomes, local=False)
+    # E5 P2: the App drives every Run that has starts, on the same runner and stream.
+    install_runs(
+        app,
+        settings,
+        outcomes,
+        local=False,
+        job_runner=job_runner,
+        events=stream,
+        run_results=build_run_result_store(settings),
+    )
     # The queue runner owns a control connection of its own (OME-1090). `getattr` rather than
     # an isinstance: the factory returns the port, and the app must not import a concrete adapter.
     # WHY the outcome stream last: the runner's last tombstone still publishes to it.

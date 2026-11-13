@@ -52,14 +52,16 @@ async def test_expire_counts_the_runs_it_deleted_not_their_candidates(
     await registry.store.create(ALICE, spec("alpha", "beta", "gamma"))
     registry.clock.advance(days=31)
 
-    assert await registry.store.expire(registry.clock() - timedelta(days=30)) == 1
+    expiring = await registry.store.expiring(registry.clock() - timedelta(days=30))
+
+    assert await registry.store.expire(expiring) == 1
 
 
 async def test_concurrent_expiries_count_each_run_once(registry: Registry) -> None:
     await registry.store.create(ALICE, spec("alpha"))
-    cutoff = T0 + timedelta(seconds=1)
+    expiring = await registry.store.expiring(T0 + timedelta(seconds=1))
 
-    counts = await asyncio.gather(registry.store.expire(cutoff), registry.store.expire(cutoff))
+    counts = await asyncio.gather(registry.store.expire(expiring), registry.store.expire(expiring))
 
     assert sorted(counts) == [0, 1]
 

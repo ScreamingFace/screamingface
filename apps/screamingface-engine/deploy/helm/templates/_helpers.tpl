@@ -426,3 +426,74 @@ App and runner process; naming the two keys keeps it on the Garage pod alone.
       key: URL4_CLOUD_BLOB_S3_SECRET_KEY
 {{- end }}
 {{- end -}}
+
+{{/*
+The run-results store's backend (E5 P2 spec D9a): "s3" with Runs on (`database.existingSecret`),
+"" with Runs off. Runs on with no store FAILS the render, because every run the Engine's driver
+starts writes its result there, and a Run's context lives there too.
+*/}}
+{{- define "screamingface-engine.runResultsBackend" -}}
+{{- if .Values.database.existingSecret -}}
+{{- if ne (.Values.runResults.storage.backend | default "") "s3" -}}
+{{- fail "database.existingSecret turns Runs on, which needs a run-results store: set runResults.storage.backend to s3 (the bundled Garage, or your own bucket in runResults.storage.s3.endpointUrl)" -}}
+{{- end -}}
+s3
+{{- end -}}
+{{- end -}}
+
+{{/*
+Whether the chart renders its THIRD bundled Garage, for run results: Runs on, with no endpoint of
+the operator's own. A volume of its own, as the blob store has, so a full results volume fails
+driver-started runs and nothing else.
+*/}}
+{{- define "screamingface-engine.runResultsGarageEnabled" -}}
+{{- if and (eq (include "screamingface-engine.runResultsBackend" .) "s3") (not .Values.runResults.storage.s3.endpointUrl) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{- define "screamingface-engine.runResultsEndpointUrl" -}}
+{{- if .Values.runResults.storage.s3.endpointUrl -}}
+{{- .Values.runResults.storage.s3.endpointUrl -}}
+{{- else -}}
+{{- printf "http://%s-garage-run-results:3900" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The Secret holding the App's run-results key pair: an `existingSecret` wins, else the chart creates
+`<fullname>-run-results-storage`. INVARIANT: its keys are `URL4_CLOUD_RUN_RESULTS_S3_*`, distinct
+from the artifact and blob pairs.
+*/}}
+{{- define "screamingface-engine.runResultsSecretName" -}}
+{{- if .Values.runResults.storage.s3.existingSecret -}}
+{{- .Values.runResults.storage.s3.existingSecret -}}
+{{- else -}}
+{{- printf "%s-run-results-storage" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The runner pool's: a key that may only write (spec §8), else the App's.
+*/}}
+{{- define "screamingface-engine.runResultsPoolSecretName" -}}
+{{- .Values.runResults.storage.s3.poolExistingSecret | default (include "screamingface-engine.runResultsSecretName" .) -}}
+{{- end -}}
+
+{{/*
+A run-results key pair as two NAMED env entries, from the Secret named by the context string.
+WHY `secretKeyRef` and not `envFrom`: the chart's Secret also carries `GARAGE_RPC_SECRET`, which
+must reach the Garage pod alone, as for the blob store.
+*/}}
+{{- define "screamingface-engine.runResultsKeyEnv" }}
+- name: URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY
+- name: URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ . }}
+      key: URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY
+{{- end -}}

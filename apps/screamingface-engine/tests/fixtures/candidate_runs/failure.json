@@ -1,0 +1,128 @@
+{
+ "url4": "/mmlu?model=openai/gpt-4o-mini&case=12",
+ "trace_id": "0af7651916cd43dd8448eb211c80319c",
+ "frames": [
+  {
+   "specversion": "1.0",
+   "id": "61338c2721c59f70f6f14683d766b020",
+   "source": "/trace/url4-cloud.16d34b5e7bcb341ee6cb3d16495d90e9/node/root",
+   "subject": "url4-cloud.16d34b5e7bcb341ee6cb3d16495d90e9",
+   "time": "2026-11-12T09:00:00Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "1",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.started",
+   "data": {
+    "url4": "/mmlu?model=openai/gpt-4o-mini&case=12"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "84eecb7b7c576c51c44e897c7d5ed48e",
+   "source": "/trace/url4-cloud.16d34b5e7bcb341ee6cb3d16495d90e9/node/root",
+   "subject": "url4-cloud.16d34b5e7bcb341ee6cb3d16495d90e9",
+   "time": "2026-11-12T09:00:00.100000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "2",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.log",
+   "data": {
+    "severity_number": 9,
+    "severity_text": "INFO",
+    "body": "client",
+    "attributes": {
+     "screamingface.client.version": "1.4.0"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "5e8d3c3720f04fa6055980ec76c86d60",
+   "source": "/trace/url4-cloud.16d34b5e7bcb341ee6cb3d16495d90e9/node/root",
+   "subject": "url4-cloud.16d34b5e7bcb341ee6cb3d16495d90e9",
+   "time": "2026-11-12T09:00:01.300000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "3",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.span",
+   "data": {
+    "name": "chat gpt-4o-mini",
+    "kind": "client",
+    "gen_ai.operation.name": "chat",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.request.model": "gpt-4o-mini",
+    "gen_ai.response.model": null,
+    "gen_ai.usage.input_tokens": null,
+    "gen_ai.usage.output_tokens": null,
+    "gen_ai.response.finish_reasons": null,
+    "refusal": null,
+    "cache_status": null,
+    "cache_reason": null,
+    "cache_saved_cost_usd": null,
+    "cache_saved_cost_archive_usd": null,
+    "start": "2026-11-12T09:00:00.300000Z",
+    "end": "2026-11-12T09:00:01.300000Z",
+    "status": "error"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "e3618ad3cb15c8472b5aaef07a6adbfd",
+   "source": "/trace/url4-cloud.16d34b5e7bcb341ee6cb3d16495d90e9/node/root",
+   "subject": "url4-cloud.16d34b5e7bcb341ee6cb3d16495d90e9",
+   "time": "2026-11-12T09:00:04Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "4",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.terminated",
+   "data": {
+    "status": "failed",
+    "error": {
+     "code": "provider_error",
+     "message": "upstream überlastet (529)",
+     "permanent": false
+    }
+   }
+  }
+ ],
+ "record": {
+  "trace_id": "0af7651916cd43dd8448eb211c80319c",
+  "started_at": "2026-11-12T09:00:00+00:00",
+  "completed_at": "2026-11-12T09:00:04+00:00",
+  "usage": null,
+  "cache_hits": 0,
+  "cache_unpriced_hits": null,
+  "cache_saved_cost_usd": null,
+  "cache_saved_cost_archive_usd": null,
+  "frozen_copy_id": null,
+  "capture_status": null,
+  "capture_replay": null,
+  "capture_partial_reasons": [],
+  "client_version": "1.4.0",
+  "error": {
+   "code": "provider_error",
+   "message": "upstream überlastet (529)",
+   "permanent": false,
+   "details": {
+    "status": "failed",
+    "error": {
+     "code": "provider_error",
+     "message": "upstream überlastet (529)",
+     "permanent": false
+    }
+   }
+  }
+ }
+}

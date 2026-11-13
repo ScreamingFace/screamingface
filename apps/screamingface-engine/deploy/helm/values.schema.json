@@ -172,7 +172,7 @@
         "maxBytes": {
           "type": "integer",
           "minimum": 1,
-          "description": "The stream's size. Default 64 MiB. When full, a publish is refused rather than an older outcome dropped."
+          "description": "The stream's size. Default 512 MiB, since an outcome carries its Candidate's record (E5 P2 spec \u00a74.4). It must fit the broker's JetStream file store beside `events.maxBytes`. When full, a publish is refused rather than an older outcome dropped."
         }
       },
       "required": [
@@ -199,6 +199,64 @@
         "existingSecret",
         "existingSecretKey"
       ],
+      "additionalProperties": false
+    },
+    "runResults": {
+      "type": "object",
+      "description": "The run-results store (E5 P2 spec D9a, \u00a78): every result of a driver-started run and each Run's context, for the Run's 30 days. Read only with Runs on (`database.existingSecret`), and then required.",
+      "properties": {
+        "storage": {
+          "type": "object",
+          "properties": {
+            "backend": {
+              "type": "string",
+              "enum": ["", "s3"],
+              "description": "\"s3\": any S3-compatible endpoint, by default the chart's third bundled Garage. \"\": none, which only a release with Runs off may set."
+            },
+            "s3": {
+              "type": "object",
+              "properties": {
+                "endpointUrl": {"type": "string", "description": "Empty: the bundled run-results Garage (test clusters only). In production, a durable bucket with a 31-day lifecycle rule."},
+                "bucket": {"type": "string", "minLength": 1},
+                "region": {"type": "string", "minLength": 1},
+                "accessKey": {"type": "string"},
+                "secretKey": {"type": "string"},
+                "existingSecret": {"type": "string", "description": "The App's Secret (read, write, delete), carrying URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY and URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY, and GARAGE_RPC_SECRET whenever the bundled Garage renders."},
+                "poolExistingSecret": {"type": "string", "description": "The runner pool's write-only Secret (spec \u00a78), with the same two keys. Empty: the pool uses the App's."}
+              },
+              "required": ["endpointUrl", "bucket", "region", "accessKey", "secretKey", "existingSecret", "poolExistingSecret"],
+              "additionalProperties": false
+            },
+            "garage": {
+              "type": "object",
+              "properties": {
+                "persistence": {
+                  "type": "object",
+                  "properties": {
+                    "enabled": {"type": "boolean"},
+                    "accessModes": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                    "size": {"type": "string", "minLength": 1},
+                    "storageClass": {"type": "string"}
+                  },
+                  "required": ["enabled", "accessModes", "size", "storageClass"],
+                  "additionalProperties": false
+                },
+                "resources": {"type": "object"}
+              },
+              "required": ["persistence", "resources"],
+              "additionalProperties": false
+            }
+          },
+          "required": ["backend", "s3", "garage"],
+          "additionalProperties": false
+        },
+        "writeBudgetS": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "How long a runner retries a refused write before it fails the run `result_store_unavailable` (spec R5). Default 60."
+        }
+      },
+      "required": ["storage", "writeBudgetS"],
       "additionalProperties": false
     },
     "runner": {

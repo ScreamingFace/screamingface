@@ -58,7 +58,9 @@ async def test_a_start_that_lost_to_a_cancel_does_not_stand(registry: Registry) 
 
     assert await registry.store.mark_scheduled(TOPIC) is False
     record = await registry.store.get(ALICE, run.id)
-    assert record is not None and record.candidates[0].state == "stopped"
+    # E5 P2 spec R9: a bound start may have landed, so the cancel owes it a stop.
+    assert record is not None and record.candidates[0].state == "scheduled"
+    assert await registry.store.owed_stops(ALICE, run.id) == [TOPIC]
 
 
 async def test_a_start_that_already_finished_stands(registry: Registry) -> None:

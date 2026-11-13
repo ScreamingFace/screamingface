@@ -26,7 +26,9 @@ from url4.streaming.protocol.taxonomy import ErrorInfo
 pytestmark = pytest.mark.asyncio
 
 TOPIC = "t-settled"
-PARAMS = SimpleNamespace(topic=TOPIC, url4="'hi'", deadline_s=1.0, client_version=None)
+PARAMS = SimpleNamespace(
+    topic=TOPIC, url4="'hi'", deadline_s=1.0, client_version=None, result_prefix=None
+)
 
 
 class _Publisher:

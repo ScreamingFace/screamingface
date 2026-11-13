@@ -39,6 +39,7 @@ from screamingface_engine.artifacts.blobs import (
 from screamingface_engine.artifacts.s3 import S3StorageError
 from screamingface_engine.auth.dependencies import VerifiedClaims
 from screamingface_engine.auth.problem import ProblemException
+from screamingface_engine.rest.capped_body import BodyTooLarge, capped_body
 
 _logger = logging.getLogger(__name__)
 
@@ -129,17 +130,10 @@ def _unavailable(exc: Exception, op: str) -> ProblemException:
 
 
 async def _capped_body(request: Request, max_bytes: int) -> bytes:
-    declared = request.headers.get("content-length")
-    if declared is not None and declared.isdigit() and int(declared) > max_bytes:
-        raise _problem(BlobTooLarge(f"blob exceeds the {max_bytes}-byte cap"), 413)
-    chunks: list[bytes] = []
-    size = 0
-    async for chunk in request.stream():
-        size += len(chunk)
-        if size > max_bytes:
-            raise _problem(BlobTooLarge(f"blob exceeds the {max_bytes}-byte cap"), 413)
-        chunks.append(chunk)
-    return b"".join(chunks)
+    try:
+        return await capped_body(request, max_bytes)
+    except BodyTooLarge:
+        raise _problem(BlobTooLarge(f"blob exceeds the {max_bytes}-byte cap"), 413) from None
 
 
 @router.put(

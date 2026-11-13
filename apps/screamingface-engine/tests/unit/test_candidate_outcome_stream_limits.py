@@ -58,7 +58,7 @@ async def test_a_live_stream_narrower_than_this_code_is_refused(field: str, valu
 async def test_a_wider_or_unlimited_live_stream_is_accepted() -> None:
     live = CandidateOutcomesStreamConfig().stream_config()
     live.max_age = 0  # unlimited
-    live.max_bytes = 256 * 1024**2
+    live.max_bytes = 1024**3
     stream, updated = _stream_over(live)
 
     await stream.ensure_stream()

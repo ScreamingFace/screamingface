@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncGenerator, Awaitable, Callable
+import math
+import re
+from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import (
@@ -24,7 +26,7 @@ from decimal import (
     InvalidOperation,
     Overflow,
 )
-from typing import Literal, Protocol, cast, get_args
+from typing import Any, Literal, Protocol, cast, get_args
 
 # INVARIANT: exactly the statuses a terminal frame can carry (url4 `TerminatedData.status`).
 # `lost` is not one: only the registry's reconcile writes it, once no outcome can still arrive.
@@ -86,6 +88,47 @@ def storable_error_code(code: str | None) -> str | None:
     return UNSTORABLE_ERROR_CODE
 
 
+# What Postgres JSONB refuses in text and SQLite keeps: a NUL, and a lone surrogate.
+_UNSTORABLE_TEXT = re.compile("[\x00\ud800-\udfff]")
+
+
+MAX_RECORD_DEPTH = 32
+"""How deeply a record nests. The Engine's fold nests three levels; the bound keeps a hostile one
+from exhausting the stack, which would read as a crash and not as a malformed outcome."""
+
+
+def _storable(value: Any, depth: int) -> Any:
+    result = value
+    if isinstance(value, str):
+        result = _UNSTORABLE_TEXT.sub("\ufffd", value)
+    elif isinstance(value, float) and not math.isfinite(value):
+        result = None
+    elif isinstance(value, Mapping | list | tuple):
+        if depth >= MAX_RECORD_DEPTH:
+            raise ValueError(f"a record nests at most {MAX_RECORD_DEPTH} levels")
+        if isinstance(value, Mapping):
+            result = {
+                _storable(key, depth): _storable(item, depth + 1) for key, item in value.items()
+            }
+        else:
+            result = [_storable(item, depth + 1) for item in value]
+    return result
+
+
+def storable_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    """``record`` as either registry database stores it: U+FFFD for a NUL or a lone surrogate
+    in any text, and null for a number that is not finite.
+
+    WHY changed and not refused: the text is a provider's error message, and an outcome that
+    Postgres could never write would be redelivered for a day, holding back the outcomes fetched
+    with it. Its state, error code and cost must land.
+
+    Raises:
+        ValueError: ``record`` nests more than `MAX_RECORD_DEPTH` levels.
+    """
+    return _storable(record, 0)
+
+
 logger = logging.getLogger(__name__)
 
 MAX_OUTCOME_BYTES = 64 * 1024
@@ -110,8 +153,18 @@ class CandidateOutcome:
     # outcome was written (after a database outage, hours later). WHY not compared: two outcomes
     # with one verdict are the same outcome, whenever each was seen.
     finished_at: datetime = field(default_factory=lambda: datetime.now(UTC), compare=False)
+    # The Candidate's record (E5 P2 spec §4.3), a JSON object, when a runner reported one. WHY
+    # not compared: it describes the run, not the verdict, and a dict would make the outcome
+    # unhashable.
+    record: Mapping[str, Any] | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
+        if self.record is not None:
+            if not isinstance(self.record, Mapping):
+                raise ValueError("an outcome's record is a JSON object")
+            # INVARIANT: every outcome's record can be written on either database, whoever
+            # built it: a producer here, or the codec reading another's.
+            object.__setattr__(self, "record", storable_record(self.record))
         if self.status not in OUTCOME_STATUSES:
             raise ValueError(f"an outcome status is one of {sorted(OUTCOME_STATUSES)}")
         cost = self.cost_usd
@@ -130,16 +183,26 @@ class CandidateOutcome:
 
 def encode_outcome(topic: str, outcome: CandidateOutcome) -> bytes:
     """The outcome's wire form. WHY the cost as a string: a JSON number is a float to most
-    readers, and a float cannot hold an exact cost."""
+    readers, and a float cannot hold an exact cost.
+
+    `ValueError` for one over `MAX_OUTCOME_BYTES`, which the stream would refuse: its producer
+    publishes it again without the record (E5 P2 spec §4.3).
+    """
     cost = None if outcome.cost_usd is None else str(outcome.cost_usd)
-    body = {
+    body: dict[str, Any] = {
         "topic": check_topic(topic),
         "status": outcome.status,
         "error_code": outcome.error_code,
         "cost_usd": cost,
         "finished_at": outcome.finished_at.isoformat(),
     }
-    return json.dumps(body, separators=(",", ":")).encode()
+    # INVARIANT (E5 P2 plan E2): written only when set, so an outcome without one is P1's.
+    if outcome.record is not None:
+        body["record"] = outcome.record
+    payload = json.dumps(body, separators=(",", ":")).encode()
+    if len(payload) > MAX_OUTCOME_BYTES:
+        raise ValueError(f"an outcome is at most {MAX_OUTCOME_BYTES} bytes; this one is larger")
+    return payload
 
 
 def decode_outcome(payload: bytes) -> tuple[str, CandidateOutcome]:
@@ -162,11 +225,15 @@ def decode_outcome(payload: bytes) -> tuple[str, CandidateOutcome]:
         raise ValueError(f"an outcome status is one of {sorted(OUTCOME_STATUSES)}")
     if error_code is not None and not isinstance(error_code, str):
         raise ValueError("an error code is a string")
+    record = body.get("record")
+    if record is not None and not isinstance(record, dict):
+        raise ValueError("an outcome's record is a JSON object")
     outcome = CandidateOutcome(
         cast(OutcomeStatus, status),
         error_code,
         _decimal(body.get("cost_usd")),
         _finished_at(body.get("finished_at")),
+        cast(dict[str, Any] | None, record),
     )
     return topic, outcome
 
@@ -189,6 +256,14 @@ def _decimal(value: object) -> Decimal | None:
         return Decimal(value)
     except InvalidOperation as exc:
         raise ValueError("a cost travels as a decimal string") from exc
+
+
+class OutcomeNotAccepted(RuntimeError):
+    """The stream could not take an outcome now: its broker is unreachable, or it is full.
+
+    FEATURE: a detached Run (OME-1837), E5 P2 spec R6. The worker publishes a driver-started run's
+    outcome again until the stream takes it; any other refusal is final, as before.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,9 +322,11 @@ async def publish_outcome(
 
 __all__ = [
     "DEFAULT_OUTCOMES_MAX_AGE_S",
+    "MAX_OUTCOME_BYTES",
     "OUTCOME_STATUSES",
     "CandidateOutcome",
     "CandidateOutcomeStream",
+    "OutcomeNotAccepted",
     "OutcomeDelivery",
     "OutcomeStatus",
     "decode_outcome",

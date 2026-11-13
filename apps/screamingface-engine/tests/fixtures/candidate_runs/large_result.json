@@ -1,0 +1,218 @@
+{
+ "url4": "/mmlu?model=openai/gpt-4o-mini&case=12",
+ "trace_id": "0af7651916cd43dd8448eb211c80319c",
+ "frames": [
+  {
+   "specversion": "1.0",
+   "id": "fe8f2755f14c2cba54e430b72871ee19",
+   "source": "/trace/url4-cloud.c54e8b70a91a426bcc2973b518838c3c/node/root",
+   "subject": "url4-cloud.c54e8b70a91a426bcc2973b518838c3c",
+   "time": "2026-11-12T09:00:00Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "1",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.started",
+   "data": {
+    "url4": "/mmlu?model=openai/gpt-4o-mini&case=12"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "bafd05a227d1063d3c4deff3fc31eef2",
+   "source": "/trace/url4-cloud.c54e8b70a91a426bcc2973b518838c3c/node/root",
+   "subject": "url4-cloud.c54e8b70a91a426bcc2973b518838c3c",
+   "time": "2026-11-12T09:00:00.100000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "2",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.log",
+   "data": {
+    "severity_number": 9,
+    "severity_text": "INFO",
+    "body": "client",
+    "attributes": {
+     "screamingface.client.version": "1.4.0"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "16944b8d570a7aa53958e79b5a03224f",
+   "source": "/trace/url4-cloud.c54e8b70a91a426bcc2973b518838c3c/node/n1",
+   "subject": "url4-cloud.c54e8b70a91a426bcc2973b518838c3c",
+   "time": "2026-11-12T09:00:01.200000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "3",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.span",
+   "data": {
+    "name": "chat gpt-4o-mini",
+    "kind": "client",
+    "gen_ai.operation.name": "chat",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.request.model": "gpt-4o-mini",
+    "gen_ai.response.model": null,
+    "gen_ai.usage.input_tokens": null,
+    "gen_ai.usage.output_tokens": null,
+    "gen_ai.response.finish_reasons": null,
+    "refusal": null,
+    "cache_status": "miss",
+    "cache_reason": null,
+    "cache_saved_cost_usd": null,
+    "cache_saved_cost_archive_usd": null,
+    "start": "2026-11-12T09:00:00.200000Z",
+    "end": "2026-11-12T09:00:01.200000Z",
+    "status": "ok"
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "ced24b896aa530659c80219a1afaba62",
+   "source": "/trace/url4-cloud.c54e8b70a91a426bcc2973b518838c3c/node/root",
+   "subject": "url4-cloud.c54e8b70a91a426bcc2973b518838c3c",
+   "time": "2026-11-12T09:00:02.500000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "4",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.cost.usage",
+   "data": {
+    "scope": "subtree",
+    "gen_ai.provider.name": "openai",
+    "gen_ai.response.model": "gpt-4o-mini",
+    "pricing_version": "2026-11-01",
+    "usage": {
+     "gen_ai.usage.input_tokens": 1200,
+     "gen_ai.usage.output_tokens": 300,
+     "gen_ai.usage.cache_read_tokens": 0,
+     "gen_ai.usage.cache_creation_tokens": 0,
+     "gen_ai.usage.reasoning_tokens": 0
+    },
+    "cost": {
+     "input_usd": "0.00018",
+     "output_usd": "0.00018",
+     "cache_read_usd": "0",
+     "cache_creation_usd": "0",
+     "reasoning_usd": "0",
+     "total_usd": "0.00036"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "c9787c8f5eb207c6c04840a48d2003f3",
+   "source": "/trace/url4-cloud.c54e8b70a91a426bcc2973b518838c3c/node/root",
+   "subject": "url4-cloud.c54e8b70a91a426bcc2973b518838c3c",
+   "time": "2026-11-12T09:00:03Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "5",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.log",
+   "data": {
+    "severity_number": 9,
+    "severity_text": "INFO",
+    "body": "cache summary",
+    "attributes": {
+     "cache.hits": 0,
+     "cache.misses": 1,
+     "cache.bypasses": 0
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "f0847b81f9acb5fa1b9d0e9c505a2444",
+   "source": "/trace/url4-cloud.c54e8b70a91a426bcc2973b518838c3c/node/root",
+   "subject": "url4-cloud.c54e8b70a91a426bcc2973b518838c3c",
+   "time": "2026-11-12T09:00:03.500000Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "6",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.result",
+   "data": {
+    "body": null,
+    "media_type": "application/json",
+    "artifact": {
+     "id": "bc9b18ad588ce5582c733ab96b85969cd4167f6a7209f09d6a403e839e44b1e1",
+     "size_bytes": 2000014,
+     "sha256": "bc9b18ad588ce5582c733ab96b85969cd4167f6a7209f09d6a403e839e44b1e1"
+    }
+   }
+  },
+  {
+   "specversion": "1.0",
+   "id": "c34c986435fe5ca018b55776a2dbf538",
+   "source": "/trace/url4-cloud.c54e8b70a91a426bcc2973b518838c3c/node/root",
+   "subject": "url4-cloud.c54e8b70a91a426bcc2973b518838c3c",
+   "time": "2026-11-12T09:00:04Z",
+   "datacontenttype": "application/json",
+   "dataschema": null,
+   "sequence": "7",
+   "sequencetype": "Integer",
+   "traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+   "tracestate": null,
+   "type": "ai.url4.terminated",
+   "data": {
+    "status": "succeeded",
+    "error": null
+   }
+  }
+ ],
+ "record": {
+  "trace_id": "0af7651916cd43dd8448eb211c80319c",
+  "started_at": "2026-11-12T09:00:00+00:00",
+  "completed_at": "2026-11-12T09:00:04+00:00",
+  "usage": {
+   "scope": "subtree",
+   "gen_ai.provider.name": "openai",
+   "gen_ai.response.model": "gpt-4o-mini",
+   "pricing_version": "2026-11-01",
+   "usage": {
+    "gen_ai.usage.input_tokens": 1200,
+    "gen_ai.usage.output_tokens": 300,
+    "gen_ai.usage.cache_read_tokens": 0,
+    "gen_ai.usage.cache_creation_tokens": 0,
+    "gen_ai.usage.reasoning_tokens": 0
+   },
+   "cost": {
+    "input_usd": "0.00018",
+    "output_usd": "0.00018",
+    "cache_read_usd": "0",
+    "cache_creation_usd": "0",
+    "reasoning_usd": "0",
+    "total_usd": "0.00036"
+   }
+  },
+  "cache_hits": 0,
+  "cache_unpriced_hits": null,
+  "cache_saved_cost_usd": null,
+  "cache_saved_cost_archive_usd": null,
+  "frozen_copy_id": null,
+  "capture_status": null,
+  "capture_replay": null,
+  "capture_partial_reasons": [],
+  "client_version": "1.4.0",
+  "result": {
+   "media_type": "application/json",
+   "size_bytes": 2000014,
+   "sha256": "bc9b18ad588ce5582c733ab96b85969cd4167f6a7209f09d6a403e839e44b1e1"
+  }
+ }
+}

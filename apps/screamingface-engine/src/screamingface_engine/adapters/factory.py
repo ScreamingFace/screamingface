@@ -7,13 +7,24 @@
 
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 
+from screamingface_engine import job_env
 from screamingface_engine.adapters.candidate_outcomes_jetstream import (
     CandidateOutcomesStreamConfig,
     JetStreamCandidateOutcomeStream,
 )
 from screamingface_engine.adapters.jetstream import EventsStreamConfig, JetStreamPublisher
 from screamingface_engine.adapters.queue_runner import ControlClient, QueueJobRunner
+from screamingface_engine.adapters.topic_claims_jetstream import (
+    JetStreamTopicClaims,
+    TopicClaimsBucketConfig,
+)
+from screamingface_engine.artifacts.run_results import RunResultStore
+from screamingface_engine.artifacts.wiring import (
+    RunResultStoreNotConfigured,
+    run_results_from_values,
+)
 from screamingface_engine.candidate_outcomes import CandidateOutcomeStream
 from screamingface_engine.config import Settings
 from screamingface_engine.runner_queue import RunQueue
@@ -94,6 +105,14 @@ def events_stream_config(settings: Settings) -> EventsStreamConfig:
     )
 
 
+def build_topic_claims(settings: Settings) -> JetStreamTopicClaims:
+    """The runner pool's `url4-claims` bucket (E5 P2 spec D7): the event stream's retention,
+    replicas and storage, so a claim lasts as long as the topic's terminal frame."""
+    return JetStreamTopicClaims(
+        settings.nats_url, config=TopicClaimsBucketConfig.for_events(events_stream_config(settings))
+    )
+
+
 def build_candidate_outcome_stream(settings: Settings) -> JetStreamCandidateOutcomeStream:
     """The outcome stream as the chart configures it (`candidateOutcomes.*`), for the App and
     the runner pool alike (spec R11)."""
@@ -104,3 +123,52 @@ def build_candidate_outcome_stream(settings: Settings) -> JetStreamCandidateOutc
             max_bytes=settings.candidate_outcomes_max_bytes,
         ),
     )
+
+
+# Local mode's folder, beside the Engine database (`runs/wiring.py`, `LOCAL_DATA_DIR`).
+_LOCAL_RUN_RESULTS = Path(".screamingface-engine") / "run-results"
+
+
+def run_results_values(settings: Settings, *, home: Path | None = None) -> dict[str, str]:
+    """The run-results store's settings, env-named, as both halves read them.
+
+    Local mode with no setting keeps a folder beside its database, in the Engine's data dir; its
+    in-process runs read these values from their env, so they write where the App reads.
+    """
+    values = {
+        job_env.RUN_RESULTS_STORE: settings.run_results_store or "",
+        job_env.RUN_RESULTS_DIR: settings.run_results_dir,
+        job_env.RUN_RESULTS_S3_ENDPOINT_URL: settings.run_results_s3_endpoint_url,
+        job_env.RUN_RESULTS_S3_BUCKET: settings.run_results_s3_bucket,
+        job_env.RUN_RESULTS_S3_REGION: settings.run_results_s3_region,
+        job_env.RUN_RESULTS_S3_ACCESS_KEY: settings.run_results_s3_access_key,
+        job_env.RUN_RESULTS_S3_SECRET_KEY: settings.run_results_s3_secret_key,
+        job_env.RUN_RESULT_WRITE_BUDGET_S: str(settings.run_result_write_budget_s),
+    }
+    if settings.run_results_store is None and settings.runner != "queue":
+        base = home if home is not None else Path.home()
+        values[job_env.RUN_RESULTS_STORE] = "filesystem"
+        values[job_env.RUN_RESULTS_DIR] = settings.run_results_dir or str(base / _LOCAL_RUN_RESULTS)
+    return values
+
+
+def build_run_result_store(
+    settings: Settings, *, home: Path | None = None
+) -> RunResultStore | None:
+    """The App's run-results store (E5 P2 spec D9a), or None on a deployment with none.
+
+    WHY through `run_results_from_values`: the runner pool resolves its store with the same
+    function from the same `job_env` names, so the two halves cannot use different buckets.
+
+    INVARIANT: a deployed App (`runner="queue"`) refuses a folder, since its workers write the
+    results and cannot see its disk.
+    """
+    if settings.runner == "queue" and settings.run_results_store == "filesystem":
+        raise ValueError(
+            f"runner='queue' writes results from worker pods that cannot see this App's disk: "
+            f"set {job_env.RUN_RESULTS_STORE}=s3 and the {job_env.RUN_RESULTS_S3_BUCKET} settings"
+        )
+    try:
+        return run_results_from_values(run_results_values(settings, home=home))
+    except RunResultStoreNotConfigured:
+        return None

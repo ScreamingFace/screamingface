@@ -21,7 +21,7 @@ from run_registry_support import (
     open_registry,
     postgres_server,  # noqa: F401  (a fixture the Postgres parameter requests)
 )
-from test_runs_routes import ALICE, _CanceledWhileScheduling, _Engine
+from test_runs_routes import ALICE, _Engine
 
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.adapters.memory import InMemoryCandidateOutcomeStream
@@ -133,17 +133,6 @@ async def test_a_stream_delete_that_errors_is_a_private_retryable_503(
     assert resp.headers["Retry-After"] == "5"
     assert _private(resp) == _PRIVATE
     assert resp.headers["content-type"].startswith("application/problem+json")
-
-
-async def test_a_start_that_loses_to_a_cancel_answers_a_private_409(registry: Registry) -> None:
-    runner = _CanceledWhileScheduling(registry)
-    engine = _Engine(registry, runner=runner)
-    runner.run_id = (await engine.create()).json()["id"]
-
-    resp = await engine.start("topic-a", runner.run_id)
-
-    assert (resp.status_code, resp.json()["code"]) == (409, "run_canceled")
-    assert _private(resp) == _PRIVATE
 
 
 # --- the `/runs` boundary (spec D2, D6) ----------------------------------------------------
