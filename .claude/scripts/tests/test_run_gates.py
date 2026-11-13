@@ -839,5 +839,38 @@ class AppendOnlyCheckTests(unittest.TestCase):
             )
 
 
+class JavaScriptApprovalTests(unittest.TestCase):
+    _check = AppendOnlyCheckTests._check
+
+    def test_javascript_requires_exact_branch_and_blob_approval(self):
+        import json
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            _init_repo(root)
+            _git(root, "checkout", "-b", "OME-1309-external-history")
+            path = "apps/scoreboard/tests/portal/contract.test.js"
+            _write(root / path, 'assert.equal(label, "Original result");\n')
+            base = _commit_all(root, "base")
+            _write(root / path, 'assert.equal(label, "Source");\n')
+            self.assertFalse(self._check(root, base, ["apps/scoreboard/tests/**"]))
+            approval = {
+                "issue": "OME-1309", "branch": "OME-1309-external-history",
+                "reason": "Owner-approved label change",
+                "files": {path: {
+                    "base_blob": _git(root, "rev-parse", f"{base}:{path}").stdout.strip(),
+                    "approved_blob": _git(root, "hash-object", path).stdout.strip(),
+                }},
+            }
+            manifest = root / ".claude/test-change-approvals/OME-1309.json"
+            _write(manifest, json.dumps(approval))
+            self.assertTrue(self._check(root, base, ["apps/scoreboard/tests/**"]))
+            _write(root / path, 'assert.equal(label, "Anything");\n')
+            self.assertFalse(self._check(root, base, ["apps/scoreboard/tests/**"]))
+            _write(root / path, 'assert.equal(label, "Source");\n')
+            _git(root, "checkout", "-b", "another-branch")
+            self.assertFalse(self._check(root, base, ["apps/scoreboard/tests/**"]))
+
+
 if __name__ == "__main__":
     unittest.main()

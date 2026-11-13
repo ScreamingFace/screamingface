@@ -685,13 +685,53 @@ td.col-open { white-space: nowrap; }
 /* WHY: imported rows use the ordinary grid with neutral text, never a win highlight. */
 .external-result td { color: var(--ink-2); }
 .external-result .score-fill { background: var(--ink-2); }
-.external-result__source { color: var(--ink-2); text-decoration: underline; white-space: nowrap; }
-.external-result__source:hover { color: var(--ink); }
+.external-result__source { max-width: 100%; box-sizing: border-box; line-height: normal; }
+/* Keep row actions inside their cell; the table's own scroll handles narrow screens. */
+td.col-run { white-space: nowrap; }
 .external-result__source:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
-.external-result__comparison { margin-top: var(--space-1); }
-.external-result__comparison summary { cursor: pointer; }
-.external-result__comparison summary:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
-.external-result__comparison p { margin: var(--space-1) 0 0; }
+.external-comparison { margin: 0 0 var(--space-5); color: var(--ink-2); font-family: var(--f-sans); font-size: var(--text-sm); }
+.external-comparison summary { display: flex; align-items: center; gap: var(--space-2); width: fit-content; padding: var(--space-2) 0; cursor: pointer; list-style: none; }
+.external-comparison summary::-webkit-details-marker { display: none; }
+.external-comparison summary::after { content: "+"; font-family: var(--f-mono); }
+.external-comparison[open] summary::after { content: "−"; }
+.external-comparison summary:hover { color: var(--ink); }
+.external-comparison summary:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
+.external-comparison__content { max-width: 70ch; padding-top: var(--space-2); }
+.external-comparison__group + .external-comparison__group { margin-top: var(--space-4); }
+.external-comparison p { margin: 0; line-height: var(--leading-body); }
+.external-comparison .external-comparison__models { margin-bottom: var(--space-1); font-weight: var(--weight-medium); color: var(--ink); }
+
+/* WHY: history uses the portal's neutral table structure; old versions never look ranked. */
+.external-result__history { display: block; margin-top: var(--space-1); color: var(--ink-2); text-decoration: underline; }
+.external-result__history:focus-visible { outline: var(--border-strong) solid var(--focus); outline-offset: var(--space-1); }
+.external-history-page { max-width: 960px; }
+.external-history__masthead { margin-bottom: var(--space-4); padding: var(--space-6) 0 0; }
+.external-history__masthead h1 { margin-bottom: 0; }
+.external-history__intro { color: var(--ink-2); margin: 0 0 var(--space-6); font-size: var(--text-body); }
+.external-history__heading, .external-history__version { display: grid; grid-template-columns: 1.2fr 1fr 1.5fr 1fr; gap: var(--space-4); align-items: center; padding: var(--space-4) var(--space-5); }
+.external-history__heading { border: var(--border-hairline) solid var(--line); background: var(--surface); font-family: var(--f-mono); font-size: var(--text-label); text-transform: uppercase; letter-spacing: var(--tracking-label); color: var(--ink-2); }
+.external-history { list-style: none; margin: 0 0 var(--space-5); padding: 0; border: var(--border-hairline) solid var(--line); border-top: 0; }
+.external-history:empty { display: none; }
+.external-history__version + .external-history__version { border-top: var(--border-hairline) solid var(--line); }
+.external-history__version { margin: 0; font-family: var(--f-sans); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.external-history__version--current { background: var(--surface); }
+.external-history__identity, .external-history__score { display: flex; flex-direction: column; gap: var(--space-1); }
+.external-history__state { font-weight: var(--weight-medium); }
+.external-history__number, .external-history__metric, .external-history__muted { font-size: var(--text-micro); color: var(--ink-2); }
+.external-history__score > .mono { font-size: var(--text-lead); }
+.external-history__version--current .external-history__score > .mono { font-weight: var(--weight-semibold); }
+.external-history__saved { line-height: var(--leading-body); }
+.external-history__label { display: none; }
+.external-history__details { grid-column: 1 / -1; padding-top: var(--space-3); border-top: var(--border-hairline) solid var(--line); color: var(--ink-2); }
+.external-history__details p { margin: 0; line-height: var(--leading-body); }
+.external-history__details .external-history__checked { font-size: var(--text-micro); margin-bottom: var(--space-1); }
+@media (max-width: 620px) {
+  .external-history__heading { display: none; }
+  .external-history { border-top: var(--border-hairline) solid var(--line); }
+  .external-history__version { grid-template-columns: 1fr 1fr; padding: var(--space-4); }
+  .external-history__score, .external-history__source { text-align: right; }
+  .external-history__label { display: block; color: var(--ink-2); font-size: var(--text-micro); margin-bottom: var(--space-1); }
+}
 
 /* WHY: the marketing focus token is too faint on the page background. Keep
    homepage controls on one visible ring without changing generated brand tokens. */
