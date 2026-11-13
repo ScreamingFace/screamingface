@@ -150,3 +150,36 @@ within baseline (`dag/_context.py` 455/455); `check_suppressions.py` 3/3; privat
   354 skipped); `run_gates.py url4` ALL GREEN (3,156 passed, 17 xfailed);
   `run_gates.py repo --base origin/main` ALL GREEN; `check_module_size.py` within baseline;
   url4 `notebooks (examples/)` nbclient job reproduced locally: 3/3 ok.
+
+### Round 5 (2026-11-13) — blocker 2: url4 cap aligned with the gateway request cap (owner-approved)
+
+- **Owner decision (2026-11-13):** lower url4's decoded attachment cap to fit AIGateway's request
+  cap; rewrite exactly the 10 #1587 tests that pinned 8,000,000 as literals, relative to
+  `MAX_ATTACHMENT_BYTES`, no other semantic change. Approval manifest
+  `.claude/test-change-approvals/OME-1545.json` (5 files, base = `origin/main` blobs).
+- **Cap:** `packages/url4/src/url4/dag/_caps.py` `MAX_ATTACHMENT_BYTES = 6_000_000` (was 8,000,000).
+  Arithmetic: gateway cap C = 8 × 1024 × 1024 = 8,388,608 B. 4·⌈6,000,000/3⌉ = 8,000,000 encoded;
+  20-entry padding bound ⌊4·6,000,000/3 + 8·20/3⌋ = 8,000,053; 20 parts × 1 KiB prefix/JSON =
+  20,480; envelope reserve 256 KiB = 262,144; total 8,282,677 ≤ 8,388,608 (105,931 B spare). Old
+  cap: 8,000,000 → 10,666,668 encoded, over C. Zero-envelope ceiling ⌊3C/4⌋ = 6,291,456.
+  Docstrings updated in `_caps.py` and `core/errors.py` (`ATTACHMENTS_TOO_LARGE`); the refusal
+  messages already format the constant.
+- **Cross-layer tests (new, RED at 8,000,000 first):**
+  `apps/screamingface-engine/tests/unit/test_url4_attachment_cap_fits_the_gateway.py` (4) — reads
+  url4's caps and the gateway's `max_request_bytes` default from source with `ast` (apps do not
+  import each other; url4's `_caps` is private, ratchet), pins the arithmetic, the per-part overhead
+  against real part JSON, and drives a 6,000,000-byte picture + ~252 KiB prompt through the real
+  connector (streamed) into a transport enforcing the gateway's 413 rule.
+  `apps/aigateway/tests/unit/test_url4_attachment_cap_request.py` (2) — the twin: a request of that
+  shape posted through the real gateway app at its default cap is not `request_too_large`; the
+  reviewer's 6,500,000-byte picture is. No Engine→Gateway two-process harness exists (the engine
+  integration tests drive a mock gateway transport), so these two in-process halves are the closest.
+- **Left stating 8,000,000 / 8 MB for a follow-up:** spec
+  `docs/spec/2026-10-16-OME-1535-file-input-execution.md` (F1b line ~242, error table ~538);
+  `apps/screamingface-engine/src/screamingface_engine/artifacts/blob_schema.py`
+  `DEFAULT_BLOB_MAX_BYTES = 8_000_000` (per-blob store cap whose WHY cites the run cap — a blob over
+  6,000,000 can be stored but never attached); `packages/url4/src/url4/peer/_bytes.py` comments
+  (historical incident, accurate as history); engine test `test_fair_share_byte_budget.py`
+  `CAP = 8_000_000` (still passes, now a looser bound). `picture_input.MAX_CASE_BYTES` (8,000,000) is
+  the inline Case cap with its own gateway-fit test, not the url4 cap. No `packages/screamingface`
+  SDK constant mirrors the url4 cap.

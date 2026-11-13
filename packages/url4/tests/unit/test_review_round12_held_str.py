@@ -15,6 +15,7 @@ import hashlib
 import pytest
 
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.dag._caps import MAX_ATTACHMENT_BYTES
 from url4.io.layer import FetchRequest
 from url4.peer.server import Url4Node
 
@@ -39,7 +40,7 @@ async def test_the_second_held_body_is_refused_before_it_is_encoded() -> None:
     node = Url4Node("n1", default_processor="/reduce")
     refs = []
     for fill in ("a", "b"):
-        text = fill * 7_000_000
+        text = fill * (MAX_ATTACHMENT_BYTES * 7 // 8)
         hex_ = hashlib.sha256(text.encode()).hexdigest()
         node.data(f"/blob/sha256/{hex_}", _Watched(text), media_type="image/png")
         refs.append(f"src=/blob/sha256/{hex_}")
@@ -47,7 +48,8 @@ async def test_the_second_held_body_is_refused_before_it_is_encoded() -> None:
     with pytest.raises(ResolutionError) as caught:
         await node.evaluate(f"({refs[0]}, {refs[1]})!'d'")
     assert caught.value.code == ErrorCode.ATTACHMENTS_TOO_LARGE
-    assert _Watched.encoded == [7_000_000]  # only the admitted body was ever encoded
+    # only the admitted body was ever encoded
+    assert _Watched.encoded == [MAX_ATTACHMENT_BYTES * 7 // 8]
 
 
 @pytest.mark.parametrize("text", ["plain ascii", "naïve café ☕ 𝄞", ""])
