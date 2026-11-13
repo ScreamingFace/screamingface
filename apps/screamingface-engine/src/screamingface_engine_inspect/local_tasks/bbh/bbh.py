@@ -66,6 +66,12 @@ wrong (inspect_evals marks it correct). A Dyck reply "So the answer is ] ]." wit
 falls back to the paper's keyword, reads `] ]` once the trailing period is dropped, and
 matches the key `ANSWER: ] ]` with inspect_evals' `ANSWER: ` prefix removed.
 
+NAMED DEVIATION 3 — an answer inside a wrapper (OME-1907, inspect_ai issue 5055). A
+multiple-choice letter such as `ANSWER: $B` is read by the scorer adapter's option marking; a
+yes/no word such as `ANSWER: **Yes**`, which inspect's WORD pattern captures with its stars, is
+retried on a peeled copy (`named_deviations/wrapped_letter`). A reply with no wrapper keeps
+inspect's mark.
+
 The run score is the plain mean over Cases (chosen at import, OME-1696). inspect_evals scores the
 run with `grouped(accuracy(), "dataset_name")`: one accuracy per subset beside an overall
 `all`, which equals that mean. The paper's headline is the unweighted mean over the 23 tasks;
@@ -109,6 +115,10 @@ from inspect_ai.scorer import (
 from inspect_ai.solver import Generate, Solver, TaskState, generate, multiple_choice, solver
 from inspect_evals.bbh.bbh import DatasetType
 from inspect_evals.bbh.bbh import bbh as inspect_evals_bbh
+
+from screamingface_engine_inspect.named_deviations.wrapped_letter.wrapped_letter import (
+    peeled_score,
+)
 
 #: The prompt setting the paper's headline numbers use: 3-shot chain of thought.
 PROMPT_TYPE = "chain_of_thought"
@@ -216,7 +226,8 @@ def bbh_scorer() -> Scorer:
         if dataset_type == MULTIPLE_CHOICE:
             return await choice_score(state, target)
         if dataset_type == BINARY_CHOICE:
-            return await answer_score(state, target)
+            # NAMED DEVIATION 3: `ANSWER: **Yes**` is retried on a peeled copy.
+            return await peeled_score(answer_score, state, target)
         if dataset_type in FREE_FORM:
             # NAMED DEVIATION 2: inspect_evals calls match(location="end") here.
             return await exact_answer_score(state, target)

@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from functools import partial
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
+from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -53,7 +54,11 @@ from screamingface_engine.benchmarks.shared_grading.attempt_fold import (
 )
 from screamingface_engine_inspect.answer_formats import with_answer_format
 from screamingface_engine_inspect.function_references import function_reference_problem
-from screamingface_engine_inspect.local_tasks import scorer_source_pins, task_source_pin
+from screamingface_engine_inspect.local_tasks import (
+    scorer_source_pins,
+    source_digest,
+    task_source_pin,
+)
 from screamingface_engine_inspect.prepare import (
     INSPECT_SCORER_PREFIX,
     TASK_REPLAY_CASES,
@@ -6872,7 +6877,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "'ANSWER: $ANSWER' template around the dataset's own query, which carries the "
             "precision and unit hint, for a free-form one. Grading is the eval's own pattern "
             "scorer: the letter, or the text after 'ANSWER:', must equal the answer exactly "
-            "(case ignored), so no judge tokens are spent; 'ANSWER: 1.50', '1.5 cm' or a "
+            "(case ignored), so no judge tokens are spent; an answer inside a wrapper, such as "
+            "'ANSWER: $B$' or 'ANSWER: **42**', is read as the answer (our change, as inspect "
+            "reads it as none); 'ANSWER: 1.50', '1.5 cm' or a "
             "trailing space score wrong against 1.5, so scores here are stricter than, and "
             "not directly comparable to, the paper's and the labs' own more lenient grading. "
             "Serving order is pinned by a policy seed (inspect_evals shuffles per run). "
@@ -6938,7 +6945,13 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
         inspect_evals_case_count=1000,
-        scorer="inspect_evals.mathvista.mathvista:mathvista_scorer",
+        # NAMED DEVIATION (OME-1907, inspect_ai issue 5055): the eval's own pattern scorer, retried
+        # on a peeled copy when its mark is not right, so `ANSWER: $B$` or `ANSWER: **42**` is
+        # graded against the key; a reply with no wrapper keeps the eval's mark.
+        scorer=(
+            "screamingface_engine_inspect.named_deviations.wrapped_letter.mathvista"
+            ":mathvista_wrapped_scorer"
+        ),
     ),
     BenchmarkSpec(
         key="mmmu_open",
@@ -7888,6 +7901,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             + _inverted_grade_pins(spec)
             + _attempts_pins(spec)
             + _multiple_correct_pins(spec)
+            + _option_marking_pins(spec)
             + _verdict_grades_pins(spec)
             + _named_score_pins(spec)
             + _scorer_function_pins(spec)
@@ -8632,6 +8646,41 @@ def _multiple_correct_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     """
 
     return ("multiple_correct=1",) if spec.multiple_correct else ()
+
+
+#: The scorers that grade from the option marks the scorer adapter sets on a Case's choices,
+#: so the wrapped-letter rule changes their grade (OME-1907). SAD's and stereoset's scorers read
+#: the reply themselves, and mathvista's reads it by pattern (its own Named Deviation).
+#: AIDEV-NOTE: a new row whose scorer reads ``state.choices[i].correct`` belongs here.
+OPTION_MARK_READERS: frozenset[str] = frozenset(
+    {
+        "inspect_ai.scorer:choice",
+        "inspect_evals.lab_bench.lab_bench:precision_choice",
+        "inspect_evals.cyberseceval_4.malware_analysis:choice_with_jaccard",
+        "inspect_evals.cyberseceval_4.threat_intelligence:choice_with_jaccard",
+        "screamingface_engine_inspect.local_tasks.bbh.bbh:bbh_scorer",
+    }
+)
+
+#: The module holding the wrapped-letter rule the option marking runs (OME-1907).
+_OPTION_MARKING_MODULE: str = "screamingface_engine_inspect.named_deviations.wrapped_letter"
+
+
+def _option_marking_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """The wrapped-letter rule's source as identity of every row graded from option marks.
+
+    WHY: the scorer adapter, not the row's scorer, reads `ANSWER: $B` as B (OME-1907), so no
+    scorer or package pin covers that code; without this pin an edit to the rule would change
+    46 rows' grades and leave every fingerprint as it was.
+    INVARIANT: like ``scorer_source_pins``, this locates the package and never imports it.
+    """
+
+    if spec.scorer not in OPTION_MARK_READERS:
+        return ()
+    package = find_spec(_OPTION_MARKING_MODULE)
+    if package is None or package.origin is None:
+        raise ValueError(f"{_OPTION_MARKING_MODULE!r} cannot be located to pin its source")
+    return (f"option_marking={source_digest(Path(package.origin).parent)}",)
 
 
 def _named_score_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

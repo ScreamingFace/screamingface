@@ -19,8 +19,9 @@ Stages, in execution order (:func:`with_answer_format`):
     Stage 2 — append the answer format's sentence to the row's prose, one space between.
 
 Worked example — the MMLU-Pro row has no answer format of its own, so Stage 1 finds the one for
-`inspect_ai.scorer:choice`; on a Case whose key is B, its quoted replies grade `ANSWER: B` and
-`ANSWER: B.` → 1, and `ANSWER: $B`, `ANSWER: (B)`, `ANSWER: **B**`, `ANSWER: \\boxed{B}` → 0.
+`inspect_ai.scorer:choice`; on a Case whose key is B, its quoted replies grade `ANSWER: B`,
+`ANSWER: B.` and the wrapped `ANSWER: $B$`, `ANSWER: (B)`, `ANSWER: **B**`, `ANSWER: \\boxed{B}`
+→ 1 (OME-1907), and `ANSWER: B because it is red` and `The answer is B` → 0.
 
 One file per family of graders, grouped by how they read a reply: `_choice.py` (inspect's
 multiple-choice scorer, 35 rows). OME-1906 PR 2 of 2 adds the other families.
