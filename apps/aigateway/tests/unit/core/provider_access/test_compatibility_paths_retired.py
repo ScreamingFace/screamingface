@@ -7,8 +7,8 @@
 # INVARIANT: a present `X-Profile` is refused by the parse itself, with no policy to consult.
 # INVARIANT: the marker knows exactly `none` and `migrated`; any other stored state is refused
 # loudly on every read path — never read as `none`, never answered as a pair conflict.
-# INVARIANT: `migration_note` is neither read nor written; the column stays one more release so a
-# rolled-back image still finds it (spec §9 Q1), and L4c drops it.
+# INVARIANT: the marker declares no `migration_note`; its column stays one more release, unread and
+# unwritten, so every older image still finds it (spec §9 Q1), and L4c-2 drops it.
 """
 
 from __future__ import annotations
@@ -50,7 +50,6 @@ from aigateway.core.provider_access.pair_authority import (
     PairAuthorityDataError,
     PairAuthorityStore,
 )
-from aigateway.core.provider_access.writer_floor import claim_pair
 from aigateway.routes.provider_access_http import selector_from_request
 
 _MODELS = [
@@ -129,14 +128,13 @@ async def account() -> AsyncIterator[Account]:
         yield await Account.create(username="alice", password_hash="hash")
 
 
-async def _plant(account: Account, *, state: str, note: str | None = None) -> None:
+async def _plant(account: Account, *, state: str) -> None:
     # WHY a raw create: no writer can produce the retired state; an install may still hold one.
     await ProviderCredentialSlot.create(
         account_id=account.id,
         provider=PROVIDER,
         generation=1,
         migration_state=state,
-        migration_note=note,
     )
 
 
@@ -164,26 +162,6 @@ async def test_no_writer_publishes_the_retired_state(account: Account) -> None:
         )
 
     assert await ProviderCredentialSlot.all().count() == 0
-
-
-@pytest.mark.asyncio
-async def test_a_leftover_note_is_neither_read_nor_written(account: Account) -> None:
-    # WHY untouched rather than cleared: L4c's upgrade refuses a noted row, so the note must
-    # still be there for it to see (spec §4.3).
-    await _plant(account, state="none", note="left by the retired backfill")
-    store = PairAuthorityStore()
-
-    observed = await store.read(str(account.id), PROVIDER)
-    claimed = await claim_pair(observed)
-    advanced = await store.advance(
-        str(account.id), PROVIDER, expected_generation=claimed.generation, migration_state="none"
-    )
-
-    assert advanced == PairAuthority(str(account.id), PROVIDER, "none", None, 3)
-    notes = await ProviderCredentialSlot.filter(account_id=account.id).values_list(
-        "migration_note", flat=True
-    )
-    assert notes == ["left by the retired backfill"]
 
 
 # --- every read path refuses a stored retired state ----------------------------------------------
