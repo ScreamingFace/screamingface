@@ -15,9 +15,14 @@ until the fixture is regenerated, and the regenerated fixture runs the Engine ch
 
 AIDEV-NOTE: regenerate with ``SF_REGENERATE_CONTRACT_FIXTURES=1 uv run pytest
 tests/unit/test_replay_reference_twin_fixture.py``, then run the Engine parity twin test.
-Residual gap (not in the fixture): a usage block with a bogus ``status`` but valid counts. The
-gateway refuses that block (strict ``TokenUsage``); the Engine reads its counts. A live gateway
-never renders it, so only a corrupted capture can hold it.
+Residual gaps (not in the fixture): the gateway rebuilds ``usage`` and ``direct_cost`` strictly
+(typed ``TokenUsage`` / ``DirectCost``) and marks the whole dimension unavailable on any error;
+the Engine's live read takes each number alone. So some malformed blocks read differently live and
+on replay (review of PR #1733, round 2: 10 of 18 single-field corruptions). Three of them change
+a budget charge: a bogus ``usage.status`` with valid counts, and ``direct_cost`` with ``source``
+missing or not a string. The others change only the tokens_in/tokens_out signals. A live gateway
+never renders these blocks, so only a corrupted capture (or one from a gateway with another block
+shape) can hold one.
 """
 
 from __future__ import annotations

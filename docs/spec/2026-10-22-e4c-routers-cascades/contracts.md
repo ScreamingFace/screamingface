@@ -200,7 +200,7 @@ sit in unless stated.
   additively; the reserved `budget` trace kind gets `event: "refusal"` rows (no new trace kind)
   [proposed — [report](prd/report.md), [budget](prd/budget.md)].
 - Policies: unknown key, missing key, wrong schema id or broken invariant → `ExecutionError` naming
-  the field path; an older SDK refuses `decision` → the SDK release ships first (OME-1233).
+  the field path; an older SDK refuses `decision` → the Engine ships first ([overview §8](00-overview.md), OME-1233).
 - Contract tests: report #3, #4, #5, #8, #32; budget #27.
 
 ## C9 — Offline Engine contract fixtures: Engine tests ↔ SDK tests, data
@@ -233,7 +233,7 @@ sit in unless stated.
   ([branch-core](prd/branch-core.md) D4a, [cascade](prd/cascade.md) CA-31) [stated owner
   2026-11-12]. With it the declared count goes 68 → 69.
 - `budget_refused`: abstain reason, `E/combine/ports.py:56` and `S/answer.py:29`.
-- Policies: one PR changes both lists; the SDK ships first (OME-1233); the exact-set pins change
+- Policies: one PR changes both lists; the Engine ships first ([overview §8](00-overview.md), OME-1233); the exact-set pins change
   only with owner approval (`ET/test_failure_classes.py`, `ET/test_e4b_catalog_pins.py`,
   `ET/test_terminal_error_detail.py`).
 - Contract tests: guards #3–#7, #29; skip-members #2a, #2b; budget #6.

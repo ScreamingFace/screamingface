@@ -272,8 +272,8 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   as the Engine's live read does. (S4) new twin fixture
   `apps/aigateway/tests/fixtures/replay_reference_twins/twins.json`: the gateway renders it
   with its real replay function and guards it; the Engine reads it by path and checks live ==
-  replay for 13 cases; the Engine CI paths include it. Residual: a usage block with a bogus
-  `status` but valid counts (only a corrupted capture holds one) still reads differently.
+  replay for 13 cases; the Engine CI paths include it. Residual: some malformed capture blocks
+  still read differently live and on replay (corrected 2026-11-13, see the round 3 entry).
   (N2) the PIN manifest drops 5 entries for `gate_contract/*.url4` files that are new in this
   PR. (N3) the replay-reference test has no grouping classes. Not changed, owner decision:
   (S1) release order. The PR says SDK first; a new SDK on an old Engine pays the members and
@@ -301,6 +301,18 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   words only for E4c recipes, which an older SDK cannot build; so an older SDK is safe on the
   new Engine and the OME-1233 decoder rule holds. Spec §8, guards, docs DC-9 and the CHANGELOG
   follow; the PR body too. (H3) filed `OME-1904`; (H4) filed `OME-1905` (both under OME-1291).
+- 2026-11-13 review round 3. Sergey approved at `6e75dccbf`. Fixed: `contracts.md` C8 and C10
+  said SDK first; both now say the Engine ships first and point to overview §8. CA-18 quotes the
+  `sf.escalate_if` message with `.chosen()`. Corrected the residual note of the replay twin
+  fixture (S4): the gateway rebuilds `usage` and `direct_cost` strictly and drops the whole
+  dimension on any error, but the Engine's live read takes each number alone. The reviewer found
+  10 of 18 single-field corruptions read differently. Three change a budget charge (a bogus
+  `usage.status` with valid counts; `direct_cost.source` missing or not a string). The other
+  seven change only the token signals. Only a corrupted capture holds such a block. (S2) Kevin's
+  `sf.Router` points were settled in a call with the owner (reply posted 2026-11-13); Kevin
+  still has to confirm in the PR thread. Not filed yet: an Engine capability signal plus an
+  SDK refusal before the first paid call (S1 follow-up); one read rule for malformed capture
+  blocks in the gateway and the Engine.
 
 ## Outcome
 
@@ -322,6 +334,7 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   call in a budgeted url4, H3), `OME-1905` (a failed Case keeps its decision, operations and
   charges; deviation 4, H4). Not filed: the Engine could record the refused body's first
   operation in `gate-decision.v1`, so the refusal row does not read it from the graph shape.
-- **Open:** PR #1733 review: S2 (the reply to Kevin on `sf.Router`) waits for the owner; S1,
+- **Open:** PR #1733 review: S2 is answered (settled in a call; reply posted 2026-11-13) and
+  waits for Kevin's confirmation in the thread; HupBaHa's re-review is pending; S1,
   H3 and H4 are decided (Log 2026-11-12 review round 2). The three-PR split became one PR (deviation 17); the
   Linear leaves are OME-1864/1865/1866.

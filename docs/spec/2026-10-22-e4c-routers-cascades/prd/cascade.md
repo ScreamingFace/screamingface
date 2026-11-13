@@ -222,7 +222,7 @@ sf.Cascade(
   gap §per-connection; stated owner 2026-11-12 — the refusal no longer applies to condition lines]
 - **CA-18 Bad part or bad line.** A part that is not a tier (a route string or a recipe), a line
   or an outcome → the CA-16 `TypeError`. `sf.escalate_if(x)` where `x` is not a condition →
-  `TypeError("sf.escalate_if takes a condition such as sf.agreement() < 0.8, sf.signal('lp') < 0.7
+  `TypeError("sf.escalate_if takes a condition such as sf.agreement() < 0.8, sf.signal('lp').chosen() < 0.7
   or sf.unanswered()")`. The string `"fail_closed"` as the last part is read as a tier and is then
   refused by `sf.Gate` ([gate](gate.md) GT-12). [stated owner 2026-11-12 — supersedes "anything
   but None, 'abstain' or 'fail_closed'"]
