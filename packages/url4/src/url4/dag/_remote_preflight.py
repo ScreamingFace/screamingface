@@ -9,8 +9,9 @@ fails ``x.remote_node_unsupported`` HERE, before the executor starts a single de
 "Reachable" spans edges and held subtrees (:func:`node_children`) AND the text a deferred node
 will spawn (a :class:`MapNode` body, a :class:`LazyExprNode` group): that text is static, so it is
 compiled and walked now, ahead of the collection or sibling the run would otherwise do first.
-A graph holding a :class:`FanoutReduceNode` also refuses a ``url4://`` processor: a literal one,
-or a Form-3 expression whose value needs no run (:mod:`url4.dag._static_processor`).
+A graph holding a :class:`FanoutReduceNode` also walks a Form-3 processor's own graph the same
+way, and refuses a ``url4://`` processor VALUE: a literal one, or a Form-3 expression whose value
+needs no run (:mod:`url4.dag._static_processor`).
 Without a policy this is a no-op, and compiles nothing.
 WHY the execution-time checks stay (``RemoteFetchNode.resolve``,
 ``processor._check_remote_processor``): a value computed at run time (a fetched processor URI, a
@@ -19,7 +20,10 @@ row value) is unknowable here, and a fragment that does not compile is the run's
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from url4.core.errors import Url4Error
+from url4.core.parser import build
 from url4.dag._static_processor import static_processor_value
 from url4.dag.compiler import LoweringRegistry, compile_expression
 from url4.dag.node import DagNode, ProcessFn, node_children
@@ -37,6 +41,10 @@ async def preflight_remote_nodes(
     if _walk(sink, registry) and processor is not None:
         value = processor.strip()
         if classify_processor(value) == "expression":
+            # INVARIANT: the processor GRAPH is walked whatever its value: a remote call inside
+            # it (``(url4://n2/v1(x)!'go')!'p'``) refuses before any reduce member runs.
+            for processor_sink in _compiled(value, registry, gate=build):
+                _walk(processor_sink, registry)
             value = await static_processor_value(value, registry, process) or ""
         hop = remote_processor_hop(value) if classify_processor(value) == "uri" else None
         if hop is not None:
@@ -71,9 +79,14 @@ def _fragment(node: DagNode) -> str | None:
     return node.text if isinstance(node, LazyExprNode) else None
 
 
-def _compiled(text: str, registry: LoweringRegistry | None) -> list[DagNode]:
-    # AIDEV-NOTE: bare_root_ok mirrors the spawn hook, which compiles these same texts.
+def _compiled(
+    text: str, registry: LoweringRegistry | None, gate: Callable[[str], object] | None = None
+) -> list[DagNode]:
+    # AIDEV-NOTE: bare_root_ok mirrors the spawn hook, which compiles these same texts; ``gate``
+    # is the user-surface grammar check a Form-3 processor passes first (``processor._evaluate``).
     try:
+        if gate is not None:
+            gate(text)
         return [compile_expression(text, registry=registry, bare_root_ok=True).sink]
     except Url4Error:
         return []  # WHY: a fragment that fails to compile fails when (and only if) it runs

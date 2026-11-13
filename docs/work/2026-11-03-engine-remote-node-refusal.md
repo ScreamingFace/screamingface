@@ -86,3 +86,11 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   run ends `error`, not `ok`. Tests: url4 `test_remote_node_deferred_preflight.py`, engine
   `test_engine_remote_node_deferred_refusal.py`; RED verified (7 url4 cases, engine map and
   processor cases). No prior test changed; module-size ratchet within baseline.
+- **Review round 3 (HupBaHa, 2026-11-13, #1750 at 2b06deb3e):** a Form-3 processor whose own graph
+  calls another node (`(url4://n2.example/v1(x)!"go")!"processor"`) was only evaluated at reduce
+  time, so members `a`/`b` ran first. Fix: the preflight compiles (behind the same `build` grammar
+  gate) and walks every Form-3 processor graph for structural remote calls, map bodies and deferred
+  groups included, before any member runs; the static-value check and the run-time check stay.
+  Tests: url4 `test_remote_node_processor_graph_preflight.py`, engine
+  `test_engine_remote_node_processor_graph.py` (probe + controls); RED verified (4 url4, 4 engine
+  cases). url4 `notebooks (examples/)` CI job reproduced locally: 3/3 notebooks ok.
