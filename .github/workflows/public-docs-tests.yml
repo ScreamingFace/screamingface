@@ -72,6 +72,24 @@ jobs:
       - name: Type-check and build
         run: npm run build
 
+      # The agent skill (public-docs/agent-skill) is generated from the docs pages and committed,
+      # because the marketplace installs it from git. Regenerating it must change nothing, and
+      # `git status` (not `git diff`) is the check so that a new, untracked reference file fails too.
+      - name: Regenerate the agent skill
+        run: npm run build:skill
+      - name: Agent skill matches the docs
+        run: |
+          if [ -n "$(git status --porcelain -- agent-skill)" ]; then
+            git status --short -- agent-skill
+            echo "The agent skill differs from the docs: run 'npm run build:skill' in public-docs and commit the result."
+            exit 1
+          fi
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Agent skill names match the SDK
+        run: node scripts/check-skill-names.mjs
+
   cost:
     name: CI cost diff
     if: always()

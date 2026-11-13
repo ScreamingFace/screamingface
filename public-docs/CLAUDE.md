@@ -14,6 +14,8 @@ being built out per section.
 - **Dev server**: `npm run dev`
 - **Build**: `npm run build` (type-check + Vite build)
 - **Preview**: `npm run preview`
+- **Markdown view**: `npm run build` also writes `dist/<route>.md`, `dist/llms.txt` and `dist/llms-full.txt` (`scripts/build-skill.mjs --dist`, run by `postbuild`)
+- **Agent skill references**: `npm run build:skill`
 - **Type-check**: `npm run type-check` (`vue-tsc --noEmit`)
 - **Lint**: `npm run lint` (oxlint + eslint, auto-fix)
 - **Format**: `npm run format` (Prettier, `src/`)
@@ -43,6 +45,8 @@ There is no automated test setup in this project.
 - `src/lib/` — framework-agnostic helpers: `utils.ts` (`cn` class merge), `notebook.ts` (nbformat types + pure helpers for `NotebookViewer`) and `analytics.ts` (`track` wrapper over the Plausible snippet in `index.html`; no-op when the script is absent)
 - `src/pages/` — route components; `src/router/index.ts` — routes
 - `src/navigation/` — one data file per documentation section (drives the sidebar + prev/next)
+- `scripts/` — build tooling: `sf-version.mjs` (the release label, shared by `vite.config.ts` and the generator), `build-skill.mjs` (renders each page and writes the Markdown view and the agent skill), `check-skill-names.mjs` (compares the skill with the release's `__all__`), `check-deployed.sh` (post-deploy check of the `.md` endpoints)
+- `agent-skill/` — the `screamingface` agent skill, generated from the pages and committed (`SKILL.template.md` is the only hand-written file); the repository root `.claude-plugin/marketplace.json` lists it as the `docs` plugin
 - `src/style.css` — Tailwind import + light/dark theme tokens + prose styling (includes `@tailwindcss/typography` with prose variables mapped to the theme tokens)
 
 ### Pages & routes
@@ -63,6 +67,7 @@ There is no automated test setup in this project.
 | `/sf-client/guides/running-an-evaluation` | `src/pages/sf-client/guides/EvaluationPage.vue`   |
 | `/sf-client/guides/leaderboards`          | `src/pages/sf-client/guides/LeaderboardsPage.vue` |
 | `/sf-client/guides/reproduce-and-share`   | `src/pages/sf-client/guides/Url4Page.vue`         |
+| `/sf-client/agent-skill`                  | `src/pages/sf-client/AgentSkillPage.vue`          |
 | `/sf-client/api/recipes`                  | `src/pages/sf-client/api/RecipesPage.vue`         |
 | `/sf-client/api/models`                   | `src/pages/sf-client/api/ModelsCatalogPage.vue`   |
 | `/sf-client/api/benchmarks`               | `src/pages/sf-client/api/BenchmarksPage.vue`      |
