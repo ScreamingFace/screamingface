@@ -906,3 +906,12 @@ call-context sibling binding refuses; an unnamed source sees a LATER named model
 - Tests: new `test_review_round14.py` (peak bound, exact count across slice edges, endpoint/model
   spies for 4 expression shapes + literal/Form-3 default, caller and bare-run processors, 3
   malformed Form-3 shapes, local controls). No prior test touched.
+- CI follow-up (a74e15832, `notebooks (examples/)`): `url4_client.ipynb` "Targeting a remote node"
+  raised `x.remote_node_unsupported`. Root cause: a `StaticIOLayer` whose first declared route is
+  the client's hop makes that hop the run's implicit reduce processor; the now-unconditional
+  precheck charged it as a SECOND call to the one hop, though the passthrough run never reduces.
+  Over-reach, engine side fixed: `precheck_remote_nodes(..., maybe=)` checks the literal
+  processor against the policy (refused unless it is the unspent hop) without charging the hop;
+  a reduce that reaches it after the hop is spent is still refused by `check_remote_node`.
+  Notebook untouched. Regressions in `test_review_round14.py` (client hop runs; a different
+  remote processor under a client hop still refuses first). All round-14 tests unchanged/green.

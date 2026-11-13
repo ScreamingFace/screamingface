@@ -132,9 +132,9 @@ def _precheck_remote(scan: SourceScan | None, run_ctx: ExecutionContext) -> None
     precheck_remote_nodes(
         (
             *(() if scan is None else scan.remote_nodes),
-            *(() if processor is None else (processor,)),
             *_processor_expression_calls(run_ctx.processor),
-        )
+        ),
+        maybe=() if processor is None else (processor,),  # called only on a reduce
     )
 
 

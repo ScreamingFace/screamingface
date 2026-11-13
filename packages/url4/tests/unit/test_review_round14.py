@@ -219,3 +219,39 @@ async def test_a_well_formed_text_only_form3_processor_still_reaches_the_member(
     except Url4Error as error:
         assert not isinstance(error, ParseError)
     assert outbound.calls  # the member ran
+
+
+# -- CI follow-up: the examples/url4_client.ipynb "Targeting a remote node" cell --------------
+
+
+@pytest.mark.asyncio
+async def test_a_client_hop_whose_io_default_route_is_the_hop_still_runs() -> None:
+    # WHY: the io's first declared route (the hop) becomes the run's implicit reduce processor;
+    # the passthrough run never reduces, so that MAY-call must not spend the client's one hop.
+    from url4 import Client, StaticIOLayer, src
+
+    seen: list[str] = []
+    analyst = StaticIOLayer(
+        routes={"url4://analyst.example.ai/v1": lambda context, intent: seen.append(intent) or "ok"}
+    )
+    async with Client(analyst, node="url4://analyst.example.ai") as remote:
+        res = await remote.query(src("https://news.example.com/ai-act", name="a"), intent="Go $a")
+    assert res.text == "ok"
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_client_hop_with_a_different_remote_processor_is_still_refused_first() -> None:
+    from url4 import Client, StaticIOLayer, src
+
+    seen: list[str] = []
+    analyst = StaticIOLayer(
+        routes={"url4://analyst.example.ai/v1": lambda context, intent: seen.append(intent) or "ok"}
+    )
+    async with Client(
+        analyst, node="url4://analyst.example.ai", processor="url4://other.example/v1"
+    ) as remote:
+        with pytest.raises(ResolutionError) as caught:
+            await remote.query(src("https://news.example.com/ai-act", name="a"), intent="Go $a")
+    _assert_remote_refused(caught.value)
+    assert seen == []
