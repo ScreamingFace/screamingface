@@ -310,9 +310,10 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   `usage.status` with valid counts; `direct_cost.source` missing or not a string). The other
   seven change only the token signals. Only a corrupted capture holds such a block. (S2) Kevin's
   `sf.Router` points were settled in a call with the owner (reply posted 2026-11-13); Kevin
-  still has to confirm in the PR thread. Not filed yet: an Engine capability signal plus an
-  SDK refusal before the first paid call (S1 follow-up); one read rule for malformed capture
-  blocks in the gateway and the Engine.
+  still has to confirm in the PR thread. Filed (owner OK 2026-11-13, under OME-1291): `OME-1921`
+  the Engine tells clients it supports E4c; `OME-1922` the SDK refuses an E4c recipe before the
+  first paid call (blocked by OME-1921; split per landing); `OME-1923` the gateway reads a
+  malformed captured price block with the Engine's per-number rule.
 
 ## Outcome
 
@@ -332,7 +333,9 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   recipe wrapper to `sf.Budgeted`.
 - **Follow-ups:** filed `OME-1899` (combine two conditions), `OME-1904` (charges of a duplicate
   call in a budgeted url4, H3), `OME-1905` (a failed Case keeps its decision, operations and
-  charges; deviation 4, H4). Not filed: the Engine could record the refused body's first
+  charges; deviation 4, H4), `OME-1921` + `OME-1922` (Engine capability signal and SDK refusal
+  before the first paid call, S1), `OME-1923` (one read rule for a malformed captured price
+  block). Not filed: the Engine could record the refused body's first
   operation in `gate-decision.v1`, so the refusal row does not read it from the graph shape.
 - **Open:** PR #1733 review: S2 is answered (settled in a call; reply posted 2026-11-13) and
   waits for Kevin's confirmation in the thread; HupBaHa's re-review is pending; S1,

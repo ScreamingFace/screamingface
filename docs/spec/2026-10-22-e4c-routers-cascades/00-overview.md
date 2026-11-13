@@ -209,7 +209,7 @@ approved all of them as written on 2026-10-22. P15–P21 were made explicit afte
   E4c branch, and an older SDK cannot build one, so an older SDK is safe on the new Engine (the
   OME-1233 decoder rule holds). A new SDK on an older Engine pays every member and then fails each
   Case on `phase=decide`. An SDK check before the first paid call needs an Engine capability
-  signal that does not exist yet (follow-up).
+  signal that does not exist yet (follow-ups `OME-1921` Engine signal, `OME-1922` SDK refusal).
 - No live or paid run is needed to build or review E4c (offline fake gateway, recorded replies).
 
 ## 9. Delivery (ans:Q11)
