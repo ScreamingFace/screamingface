@@ -20,7 +20,9 @@ Stages, in execution order (see :func:`inspect_grade_case`):
     Stage 2 — build the minimal TaskState + Target from the request's grading material
               (the imported Sample's target, plus its choices for MCQ benchmarks). When the
               material declares choices, replay inspect's OWN answer-marking step
-              (``parse_answers`` + ``set_choices_based_on_generated_response``) — their
+              (``parse_answers`` + ``set_choices_based_on_generated_response``), with an
+              answer inside a wrapper (`ANSWER: $B`) read when inspect reads none, our Named
+              Deviation (OME-1907, ``named_deviations/wrapped_letter``) — their
               ``choice()`` scorer reads marks the ``multiple_choice`` solver would have
               left, and we import no solver, so the marking is part of building the
               state their scorer expects. Keyed off the MATERIAL's shape, never off
@@ -83,10 +85,7 @@ from inspect_ai.model import (
 from inspect_ai.model._model_output import as_stop_reason
 from inspect_ai.scorer import SampleScore, Score, Scorer, ScoreReducer, Target, mean_score
 from inspect_ai.solver import TaskState
-from inspect_ai.solver._multiple_choice import (
-    parse_answers,
-    set_choices_based_on_generated_response,
-)
+from inspect_ai.solver._multiple_choice import set_choices_based_on_generated_response
 
 from screamingface_engine.benchmarks.candidate_input import (
     CandidateInputError,
@@ -104,6 +103,9 @@ from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload
 from screamingface_engine.grading_call_scope import grading_call_scope
 from screamingface_engine_inspect.conversation_input import conversation_messages
 from screamingface_engine_inspect.judge_redraw import JudgeReplyUnparseable
+from screamingface_engine_inspect.named_deviations.wrapped_letter.wrapped_letter import (
+    parse_wrapped_answers,
+)
 from screamingface_engine_inspect.verdict_counts import case_verdict_counts
 
 #: Score string verdicts → floats, per inspect's own vocabulary: CORRECT / INCORRECT /
@@ -649,7 +651,11 @@ def _task_state(request: GradeRequest, multiple_correct: bool) -> tuple[TaskStat
     if choices:
         # WHY: their choice() scorer reads marks the multiple_choice SOLVER leaves on
         # state.choices; we import no solver, so the marking replays THEIR functions.
-        set_choices_based_on_generated_response(state, parse_answers(state, multiple_correct))
+        # NAMED DEVIATION (OME-1907): inspect's parse_answers first; a wrapped letter such as
+        # `ANSWER: $B` is read from a peeled copy only when inspect reads no answer.
+        set_choices_based_on_generated_response(
+            state, parse_wrapped_answers(state, multiple_correct)
+        )
     return state, Target(material["target"])
 
 
