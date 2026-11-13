@@ -407,9 +407,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "published key, so no judge tokens are spent. Cases are served in a "
             "fixed seeded shuffle (inspect's own seed) so a limited run spans "
             "subjects. Benchmark score = "
-            "plain accuracy over the cases run. No mid-run check surface: pass/fail "
-            "feedback over four options would let a loop eliminate choices rather "
-            "than improve answers."
+            "plain accuracy over the cases run."
         ),
         focus="Broad multi-subject knowledge (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/mmlu",
@@ -464,9 +462,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "Easy test split), imported from inspect_evals. The model answers "
             "with one lettered choice; grading is inspect's own choice scorer "
             "against the published key, so no judge tokens are spent. Benchmark "
-            "score = plain accuracy over the cases run. No mid-run check surface: "
-            "pass/fail feedback over a handful of options would let a loop "
-            "eliminate choices rather than improve answers."
+            "score = plain accuracy over the cases run."
         ),
         focus="Grade-school science (multiple choice)",
         dataset_url="https://huggingface.co/datasets/allenai/ai2_arc",
@@ -518,8 +514,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "baselines get wrong), imported from inspect_evals. The model "
             "answers with one lettered choice; grading is inspect's own choice "
             "scorer against the published key, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over few options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Hard science reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/allenai/ai2_arc",
@@ -573,8 +568,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "withheld by the authors), imported from inspect_evals. Grading is "
             "inspect's own choice scorer against the published key; benchmark "
             "score = plain accuracy over the cases run, served in a fixed seeded "
-            "shuffle (inspect_evals randomizes order per run). No mid-run "
-            "check surface (elimination attack over few options)."
+            "shuffle (inspect_evals randomizes order per run)."
         ),
         focus="Everyday commonsense reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/tau/commonsense_qa",
@@ -635,9 +629,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "right on every No Case, and a model that always refused that way scored "
             "55.8% (4,464 of 8,000). Cases are served in a fixed seeded shuffle "
             "(inspect_evals randomizes order per run); benchmark score = plain "
-            "accuracy over the cases run. Free-form replies make the mid-run check "
-            "surface legitimate (corrective loop). Dataset: PAWS by Google LLC, used under its own "
-            "licence."
+            "accuracy over the cases run. Dataset: PAWS by Google LLC, used under its own licence."
         ),
         focus="Paraphrase adjudication (yes/no)",
         dataset_url="https://huggingface.co/datasets/google-research-datasets/paws",
@@ -707,9 +699,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "pattern accepts any reply ending in 'yes' or 'no' plus at most one "
             "character, so 'I don't know' was right on all 1,237 No Cases. Cases are "
             "served in a fixed seeded shuffle (inspect_evals randomizes order "
-            "per run); benchmark score = plain accuracy over the cases run. "
-            "Free-form replies make the mid-run check surface legitimate "
-            "(corrective loop)."
+            "per run); benchmark score = plain accuracy over the cases run."
         ),
         focus="Yes/no reading comprehension",
         dataset_url="https://huggingface.co/datasets/google/boolq",
@@ -772,7 +762,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "choice scorer against the published key, so no judge tokens are "
             "spent. Cases are served in a fixed seeded shuffle so a limited run "
             "spans disciplines. Benchmark score = plain accuracy over the cases "
-            "run. No mid-run check surface (elimination attack over options)."
+            "run."
         ),
         focus="Harder multi-discipline knowledge, ten options (multiple choice)",
         dataset_url="https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro",
@@ -831,9 +821,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "role), imported from inspect_evals. Prompts "
             "render through the eval's own template; grading is inspect's own "
             "choice scorer against the published key, so no judge tokens are "
-            "spent. Benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface: pass/fail feedback over two options is a "
-            "coin-flip oracle (OME-796)."
+            "spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Commonsense pronoun resolution (binary choice)",
         dataset_url="https://huggingface.co/datasets/allenai/winogrande",
@@ -892,10 +880,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "inspect's own choice scorer against the published key, so no judge "
             "tokens are spent. Cases are served in a fixed seeded shuffle so a "
             "limited run spans passages. Benchmark score = plain accuracy over "
-            "the cases run. No mid-run check surface (elimination attack). "
-            "Dataset: RACE by Lai et al. (Carnegie Mellon University), for "
-            "non-commercial research only; source: "
-            "https://www.cs.cmu.edu/~glai1/data/race/."
+            "the cases run. Dataset: RACE by Lai et al. (Carnegie Mellon University), for "
+            "non-commercial research only; source: https://www.cs.cmu.edu/~glai1/data/race/."
         ),
         focus="Long-passage reading comprehension (multiple choice)",
         dataset_url="https://huggingface.co/datasets/ehovy/race",
@@ -955,8 +941,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "here. Cases "
             "are served in the dataset's own order, as the eval serves them. "
             "Benchmark score = plain accuracy "
-            "over the cases run. Free-form replies make the mid-run check "
-            "surface legitimate (corrective loop)."
+            "over the cases run."
         ),
         focus="Competition mathematics (AIME 2024)",
         dataset_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
@@ -1025,8 +1010,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "here. Cases "
             "are served in the dataset's own order, as the eval serves them. "
             "Benchmark score = plain accuracy "
-            "over the cases run. Free-form replies make the mid-run check "
-            "surface legitimate (corrective loop)."
+            "over the cases run."
         ),
         focus="Competition mathematics (AIME 2025)",
         dataset_url="https://huggingface.co/datasets/math-ai/aime25",
@@ -1089,8 +1073,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "own choice scorer against the published key, so no judge tokens "
             "are spent. Cases are served in a fixed seeded shuffle (the "
             "inspect_evals randomizes order per run); benchmark score = plain "
-            "accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over few options)."
+            "accuracy over the cases run."
         ),
         focus="Long-narrative multi-step reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/TAUR-Lab/MuSR",
@@ -1145,8 +1128,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "imported from inspect_evals. Grading is inspect's own choice "
             "scorer against the published key, so no judge tokens are spent; "
             "cases are served in inspect_evals' order (the eval does not "
-            "shuffle); benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over few options)."
+            "shuffle); benchmark score = plain accuracy over the cases run."
         ),
         focus="Hazardous biosecurity knowledge probe (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/wmdp",
@@ -1220,8 +1202,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "capability, imported from inspect_evals. Grading is inspect's own "
             "choice scorer against the published key, so no judge tokens are "
             "spent; cases are served in inspect_evals' order (the eval does not "
-            "shuffle); benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over few options)."
+            "shuffle); benchmark score = plain accuracy over the cases run."
         ),
         focus="Hazardous chemical-security knowledge probe (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/wmdp",
@@ -1292,8 +1273,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "capability, imported from inspect_evals. Grading is inspect's own "
             "choice scorer against the published key, so no judge tokens are "
             "spent; cases are served in inspect_evals' order (the eval does not "
-            "shuffle); benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over few options)."
+            "shuffle); benchmark score = plain accuracy over the cases run."
         ),
         focus="Hazardous cybersecurity knowledge probe (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/wmdp",
@@ -1371,8 +1351,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "spent; cases are served in the split's own order, as the eval "
             "serves them (the split is domain-grouped, so a limited run "
             "examines few domains); benchmark score = plain accuracy over the "
-            "cases run. No mid-run check surface (elimination attack over few "
-            "options)."
+            "cases run."
         ),
         focus="Commonsense sentence continuation (multiple choice)",
         dataset_url="https://huggingface.co/datasets/Rowan/hellaswag",
@@ -1430,8 +1409,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "own precision-aware choice scorer (opting out counts as no answer, "
             "not wrong), so no judge tokens are spent. Serving order and choice "
             "order are pinned by policy seeds (inspect_evals shuffles both per run). "
-            "Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over few options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Biology literature research QA (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1493,8 +1471,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "opt-out; grading is the eval's own precision-aware choice scorer "
             "(opting out counts as no answer, not wrong), so no judge tokens "
             "are spent. Serving order and choice order are pinned by policy "
-            "seeds. Benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over few options)."
+            "seeds. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Paper supplementary-material QA (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1556,8 +1533,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "own precision-aware choice scorer (opting out counts as no answer, "
             "not wrong), so no judge tokens are spent. Serving order and choice "
             "order are pinned by policy seeds. Benchmark score = plain accuracy "
-            "over the cases run. No mid-run check surface (elimination attack "
-            "over few options)."
+            "over the cases run."
         ),
         focus="Biological database knowledge (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1620,8 +1596,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "grading is the eval's own precision-aware choice scorer (opting "
             "out counts as no answer, not wrong), so no judge tokens are "
             "spent. Serving order and choice order are pinned by policy seeds. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over few options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Lab-protocol troubleshooting (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1684,8 +1659,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "choice scorer (opting out counts as no answer, not wrong), so no "
             "judge tokens are spent. Serving order and choice order are pinned "
             "by policy seeds. Benchmark score = plain accuracy over the cases "
-            "run. No mid-run check surface (elimination attack over few "
-            "options)."
+            "run."
         ),
         focus="DNA/protein sequence reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1749,8 +1723,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "choice scorer (opting out counts as no answer, not wrong), so no "
             "judge tokens are spent. Serving order and choice order are pinned "
             "by policy seeds. Benchmark score = plain accuracy over the cases "
-            "run. No mid-run check surface (elimination attack over few "
-            "options)."
+            "run."
         ),
         focus="Molecular-cloning workflow reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1894,8 +1867,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "language note and asks the model to think step by step before its "
             "final 'ANSWER: X' line. Serving order is pinned by a policy seed "
             "(inspect_evals shuffles per run). Benchmark score = plain accuracy over "
-            "the cases run. No mid-run check surface (elimination attack over "
-            "few options)."
+            "the cases run."
         ),
         focus="Thai national high-school exam (multiple choice)",
         dataset_url="https://huggingface.co/datasets/matichon/thai-onet-m6-exam",
@@ -1952,8 +1924,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "questions and keeps the 500 on its test list; the board keeps exactly "
             "the same 500, in dataset order like inspect. Graded by the eval's own "
             "choice scorer against the published answer, so no judge tokens are "
-            "spent. Benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over three options)."
+            "spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Biomedical research QA from abstracts (yes/no/maybe)",
         dataset_url="https://huggingface.co/datasets/qiaojin/PubMedQA",
@@ -2016,7 +1987,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "scored cases), from this board's own metrics; it is not 1 - score, "
             "because a partial refusal counts as half here and as a full refusal "
             "there. The unsafe half, where refusing is the right answer, is "
-            "xstest_unsafe, scored by refusal rate. No mid-run check surface."
+            "xstest_unsafe, scored by refusal rate."
         ),
         focus="Over-refusal of harmless prompts (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/walledai/XSTest",
@@ -2090,7 +2061,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "counts as half here and as a full refusal there. Convert with inspect's "
             "refusal rate = 100 x (2 x score - correct / scored cases), from this "
             "benchmark's own metrics. The prompts are mild by design, so this measures "
-            "refusal behaviour, not broad safety. No mid-run check surface."
+            "refusal behaviour, not broad safety."
         ),
         focus="Refusal of unsafe prompts (LLM-judged, scored by refusal rate)",
         dataset_url="https://huggingface.co/datasets/walledai/XSTest",
@@ -2161,8 +2132,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "way inspect fetches them and sealed by a Case Digest. Prompts use agieval's own "
             "multiple-choice template with no few-shot examples and no chain of thought. Graded by "
             "inspect's choice scorer against the published answer, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over the options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Law-school logic games (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2222,8 +2192,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "fetches them and sealed by a Case Digest. Prompts use agieval's own multiple-choice "
             "template with no few-shot examples and no chain of thought. Graded by inspect's "
             "choice scorer against the published answer, so no judge tokens are spent. Benchmark "
-            "score = plain accuracy over the cases run. No mid-run check surface (elimination "
-            "attack over the options)."
+            "score = plain accuracy over the cases run."
         ),
         focus="Law-school logical reasoning (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2282,8 +2251,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "fetched the way inspect fetches them and sealed by a Case Digest. Prompts use "
             "agieval's own multiple-choice template with no few-shot examples and no chain of "
             "thought. Graded by inspect's choice scorer against the published answer, so no judge "
-            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over the options)."
+            "tokens are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Law-school reading comprehension (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2342,7 +2310,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "sealed by a Case Digest. Prompts use agieval's own multiple-choice template with no "
             "few-shot examples and no chain of thought. Graded by inspect's choice scorer against "
             "the published answer, so no judge tokens are spent. Benchmark score = plain accuracy "
-            "over the cases run. No mid-run check surface (elimination attack over the options)."
+            "over the cases run."
         ),
         focus="High-school math (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2401,8 +2369,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "way inspect fetches them and sealed by a Case Digest. Prompts use agieval's own "
             "multiple-choice template with no few-shot examples and no chain of thought. Graded by "
             "inspect's choice scorer against the published answer, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over the options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="High-school reading comprehension (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2461,8 +2428,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "fetched the way inspect fetches them and sealed by a Case Digest. Prompts use "
             "agieval's own multiple-choice template with no few-shot examples and no chain of "
             "thought. Graded by inspect's choice scorer against the published answer, so no judge "
-            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over the options)."
+            "tokens are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Reading questions answered without their passage (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2522,8 +2488,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "fetches them and sealed by a Case Digest. Prompts use agieval's own multiple-choice "
             "template with no few-shot examples and no chain of thought. Graded by inspect's "
             "choice scorer against the published answer, so no judge tokens are spent. Benchmark "
-            "score = plain accuracy over the cases run. No mid-run check surface (elimination "
-            "attack over the options)."
+            "score = plain accuracy over the cases run."
         ),
         focus="Algebra word problems (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2583,7 +2548,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "Digest. Prompts use agieval's own multiple-choice template with no few-shot examples "
             "and no chain of thought. Graded by inspect's choice scorer against the published "
             "answer, so no judge tokens are spent. Benchmark score = plain accuracy over the cases "
-            "run. No mid-run check surface (elimination attack over the options)."
+            "run."
         ),
         focus="Civil-service exam logical reasoning (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2643,8 +2608,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "the way inspect fetches them (the bigbio/med_qa repository at a pinned revision, read "
             "by its loader script) and sealed by a Case Digest. Graded by inspect's choice scorer "
             "against the published answer, so no judge tokens are spent. Benchmark score = plain "
-            "accuracy over the cases run. No mid-run check surface (elimination attack over five "
-            "options)."
+            "accuracy over the cases run."
         ),
         focus="Medical licensing exam questions (multiple choice)",
         dataset_url="https://huggingface.co/datasets/bigbio/med_qa",
@@ -2763,8 +2727,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "ambiguous or a disambiguating context, imported from inspect_evals by Task replay: "
             "the Cases are fetched the way inspect fetches them and sealed by a Case Digest. "
             "Graded by inspect's choice scorer against the published answer, so no judge tokens "
-            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Social bias in question answering (multiple choice)",
         dataset_url="https://huggingface.co/datasets/heegyu/bbq",
@@ -2825,8 +2788,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "are fetched the way inspect fetches them and sealed by a Case Digest. Two of its "
             "three Case Sources are unpinned downloads, so the Case Digest is their only pin. "
             "Graded by inspect's choice scorer against the published answer, so no judge tokens "
-            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Physical commonsense (two-way choice)",
         dataset_url="https://huggingface.co/datasets/ybisk/piqa",
@@ -2884,8 +2846,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "with the eval's own system message, imported from inspect_evals by Task replay: the "
             "Cases are fetched the way inspect fetches them and sealed by a Case Digest. Graded by "
             "inspect's choice scorer against the published answer, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over the options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cybersecurity knowledge, 80-question set (multiple choice)",
         dataset_url="https://github.com/cybermetric/CyberMetric",
@@ -2946,8 +2907,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "with the eval's own system message, imported from inspect_evals by Task replay: the "
             "Cases are fetched the way inspect fetches them and sealed by a Case Digest. Graded by "
             "inspect's choice scorer against the published answer, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over the options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cybersecurity knowledge, 500-question set (multiple choice)",
         dataset_url="https://github.com/cybermetric/CyberMetric",
@@ -3006,8 +2966,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "asked with the eval's own system message, imported from inspect_evals by Task replay: "
             "the Cases are fetched the way inspect fetches them and sealed by a Case Digest. "
             "Graded by inspect's choice scorer against the published answer, so no judge tokens "
-            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cybersecurity knowledge, 2,000-question set (multiple choice)",
         dataset_url="https://github.com/cybermetric/CyberMetric",
@@ -3066,8 +3025,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "asked with the eval's own system message, imported from inspect_evals by Task replay: "
             "the Cases are fetched the way inspect fetches them and sealed by a Case Digest. "
             "Graded by inspect's choice scorer against the published answer, so no judge tokens "
-            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cybersecurity knowledge, 10,180-question set (multiple choice)",
         dataset_url="https://github.com/cybermetric/CyberMetric",
@@ -3126,8 +3084,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "asked with the eval's own prompt template, imported from inspect_evals by Task "
             "replay: the Cases are fetched the way inspect fetches them and sealed by a Case "
             "Digest. Graded by inspect's choice scorer against the published answer, so no judge "
-            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over the options)."
+            "tokens are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cyber threat analysis (Chinese, multiple choice)",
         dataset_url="https://huggingface.co/datasets/Multilingual-Multimodal-NLP/SEVENLLM-Dataset",
@@ -3188,8 +3145,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "asked with the eval's own prompt template, imported from inspect_evals by Task "
             "replay: the Cases are fetched the way inspect fetches them and sealed by a Case "
             "Digest. Graded by inspect's choice scorer against the published answer, so no judge "
-            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over the options)."
+            "tokens are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cyber threat analysis (English, multiple choice)",
         dataset_url="https://huggingface.co/datasets/Multilingual-Multimodal-NLP/SEVENLLM-Dataset",
@@ -3254,8 +3210,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "keeps the question exactly as written, since it already lists its own options. "
             "Graded by the eval's own pattern scorer, so no judge tokens are spent. Benchmark "
             "score = plain accuracy over the cases run; the eval's own bias-corrected accuracy "
-            "and bias metrics are not reported. No mid-run check surface (elimination attack "
-            "over the options)."
+            "and bias metrics are not reported."
         ),
         focus="Reasoning about described worlds (pick a numbered option)",
         dataset_url="https://github.com/facebookresearch/worldsense",
@@ -3352,7 +3307,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "= 100 x (1 - score). inspect_evals runs the model at temperature 0 with 256 max "
             "tokens; this benchmark imposes no generation settings, so long replies are "
             "judged in full. The look-alike requests a model should answer are "
-            "coconot_contrast. No mid-run check surface."
+            "coconot_contrast."
         ),
         focus="Declining requests it should not fulfil (LLM-judged, noncompliance rate)",
         dataset_url="https://huggingface.co/datasets/allenai/coconot",
@@ -3441,7 +3396,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "percent; its total converts as compliance rate = 100 x score. inspect_evals runs "
             "the model at temperature 0 with 256 max tokens; this benchmark imposes no "
             "generation settings. The requests a model should decline are "
-            "coconot_original. No mid-run check surface."
+            "coconot_original."
         ),
         focus="Over-refusal of look-alike harmless requests (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/allenai/coconot",
@@ -3525,8 +3480,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "and sealed by a Case Digest. Graded by the eval's own lenient scorer: a reply that "
             "starts with an option's label or text is right or wrong, and any other reply earns "
             "the chance credit the paper's SAD score gives it, so no judge tokens are spent. "
-            "Benchmark score = that SAD score (mean per-case score) over the cases run. No "
-            "mid-run check surface (elimination attack over the options)."
+            "Benchmark score = that SAD score (mean per-case score) over the cases run."
         ),
         focus="Situational awareness: facts about LLMs (two-way choice)",
         dataset_url="https://github.com/LRudL/sad",
@@ -3587,8 +3541,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "and sealed by a Case Digest. Graded by the eval's own lenient scorer: a reply that "
             "starts with an option's label or text is right or wrong, and any other reply earns "
             "the chance credit the paper's SAD score gives it, so no judge tokens are spent. "
-            "Benchmark score = that SAD score (mean per-case score) over the cases run. No "
-            "mid-run check surface (elimination attack over the options)."
+            "Benchmark score = that SAD score (mean per-case score) over the cases run."
         ),
         focus="Situational awareness: answering as an AI, not a human (two-way choice)",
         dataset_url="https://github.com/LRudL/sad",
@@ -3649,8 +3602,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "Digest. Graded by the eval's own lenient scorer: a reply that starts with an "
             "option's label or text is right or wrong, and any other reply earns the chance "
             "credit the paper's SAD score gives it, so no judge tokens are spent. Benchmark "
-            "score = that SAD score (mean per-case score) over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "score = that SAD score (mean per-case score) over the cases run."
         ),
         focus="Situational awareness: the model's own reach and limits (two-way choice)",
         dataset_url="https://github.com/LRudL/sad",
@@ -3712,8 +3664,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "by the eval's own lenient scorer: a reply that starts with an option's label or "
             "text is right or wrong, and any other reply earns the chance credit the paper's "
             "SAD score gives it, so no judge tokens are spent. Benchmark score = that SAD score "
-            "(mean per-case score) over the cases run. No mid-run check surface (elimination "
-            "attack over the options)."
+            "(mean per-case score) over the cases run."
         ),
         focus="Situational awareness: telling evaluation from deployment (yes/no)",
         dataset_url="https://github.com/LRudL/sad",
@@ -3775,8 +3726,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "lenient scorer: a reply that starts with an option's label or text is right or "
             "wrong, and any other reply earns the chance credit the paper's SAD score gives "
             "it, so no judge tokens are spent. Benchmark score = that SAD score (mean per-case "
-            "score) over the cases run. No mid-run check surface (elimination attack over the "
-            "options)."
+            "score) over the cases run."
         ),
         focus="Situational awareness: placing a text in the model's own development stages",
         dataset_url="https://github.com/LRudL/sad",
@@ -3839,9 +3789,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "when the reply is not a refusal, so higher means fewer needless refusals. "
             "inspect reports the false refusal rate instead (lower is better); it converts as "
             "refusal rate = 1 - score. inspect_evals runs the model at temperature 0.75 with 2048 "
-            "max tokens; this benchmark imposes no generation settings. No mid-run check "
-            "surface: a pass/fail check would let a fusion re-word a draft until it slips past "
-            "the refusal phrases."
+            "max tokens; this benchmark imposes no generation settings."
         ),
         focus="Over-refusal of harmless security coding requests (regex-graded)",
         dataset_url="https://github.com/meta-llama/PurpleLlama/tree/fe05293b610dabc3967443f2dd4dc35c4e8971b6/CybersecurityBenchmarks/datasets/mitre_frr",
@@ -3913,8 +3861,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "inspect_evals by Task replay: the Cases are fetched the way inspect fetches them "
             "and sealed by a Case Digest. Asked with inspect's multiple-choice template and "
             "graded by inspect's choice scorer against the published answer, so no judge tokens "
-            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Aviation operations and ground-safety knowledge (multiple choice)",
         dataset_url="https://huggingface.co/datasets/AirsideLabs/pre-flight-06",
@@ -4947,7 +4894,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "once. The headline is prompt-level strict accuracy; instruction-level accuracy is "
             "pooled over the run's instructions. Case ids are positions 1..541 in the pinned "
             "dataset; one row (official key 2785) is patched to the official harness prompt, "
-            "whose text matches its graded constraints."
+            "whose text matches its graded constraints. Offers Draft Feedback: a Corrective "
+            "Loop recipe can ask mid-run whether a draft passes, and hears the fraction of "
+            "instructions met and the checker's words for each failed one, at no judge cost."
         ),
         focus="Instruction following",
         dataset_url="https://huggingface.co/datasets/google/IFEval",
@@ -5193,7 +5142,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "among those attempted, so guessing costs and declining does not), is "
             "published beside it, with the share attempted. The paper "
             "graded with GPT-4o; this Benchmark pins Gemini 3.1 Pro Preview, so its "
-            "numbers are not directly comparable to the paper's. No mid-run check surface."
+            "numbers are not directly comparable to the paper's."
         ),
         focus="Short-form factual recall (LLM-judged)",
         dataset_url="https://openaipublic.blob.core.windows.net/simple-evals/simple_qa_test_set.csv",
@@ -5401,7 +5350,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "share correct among those attempted) is published beside it. The paper graded "
             "with GPT-4.1; this Benchmark pins "
             "Gemini 3.1 Pro Preview, so its numbers are not directly comparable to the "
-            "paper's. No mid-run check surface."
+            "paper's."
         ),
         focus="Short-form factual recall, cleaned set (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/codelion/SimpleQA-Verified",
@@ -5640,7 +5589,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "That is 1 - inspect's grade, and inspect's over-refusal score (ORS) is "
             "100 x (1 - score). The eval reports ORS per risk domain and subdomain; this "
             "Benchmark reports the overall rate only. The eval grades with GPT-4o-mini; "
-            "this Benchmark pins our house judge. No mid-run check surface."
+            "this Benchmark pins our house judge."
         ),
         focus="Over-refusal on benign security-adjacent prompts (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/ScaleAI/fortress_public",
@@ -5722,7 +5671,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "score, (1 - refusal) x (convincing + specific) / 2, is not reproduced. The "
             "eval grades with GPT-4o; this Benchmark pins our house judge. inspect_evals runs "
             "the model at temperature 0.75 with 2048 max tokens; this benchmark imposes no "
-            "generation settings. No mid-run check surface."
+            "generation settings."
         ),
         focus="Refusal of forbidden requests (LLM-judged, scored by refusal rate)",
         dataset_url="https://github.com/alexandrasouly/strongreject",
@@ -5797,7 +5746,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "The eval grades with GPT-4o-mini; this Benchmark pins our house judge. "
             "inspect_evals runs the model at temperature 0 with 512 max tokens; this benchmark "
             "imposes no generation settings, so long replies are judged in full. "
-            "Non-commercial licence. No mid-run check surface."
+            "Non-commercial licence."
         ),
         focus="Ugandan cultural knowledge (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/CraneAILabs/UCCB",
@@ -5976,7 +5925,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "over the cases run, the eval's overall 'all'; its per-category breakdown is "
             "not reproduced. The paper graded with GPT-4o at temperature 0 and a 64-token "
             "reply; this Benchmark pins our house judge with its own settings, so its numbers "
-            "are not directly comparable. No mid-run check surface."
+            "are not directly comparable."
         ),
         focus="Refusal across regulation-derived risk categories (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/stanford-crfm/air-bench-2024",
@@ -6055,8 +6004,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "picks one option from four to thirteen; exactly one is true. Grading is "
             "inspect's own choice scorer against the published key, so no judge tokens are "
             "spent. Cases and their options are served in a fixed seeded shuffle (the eval "
-            "shuffles both per run). Benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over few options)."
+            "shuffles both per run). Benchmark score = plain accuracy over the cases run."
         ),
         focus="Truthfulness against common misconceptions (multiple choice)",
         dataset_url="https://huggingface.co/datasets/truthfulqa/truthful_qa",
@@ -6115,8 +6063,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "text, so on the 394 Cases with several correct letters a right answer "
             "written 'A, D' or 'D,A' scored 0. Cases are served "
             "in a fixed seeded shuffle (the eval shuffles per run). Benchmark score = plain "
-            "accuracy over the cases run; the eval's per-topic breakdown is not reproduced. "
-            "No mid-run check surface."
+            "accuracy over the cases run; the eval's per-topic breakdown is not reproduced."
         ),
         focus="Chemistry knowledge and reasoning",
         dataset_url="https://huggingface.co/datasets/jablonkagroup/ChemBench",
@@ -6203,8 +6150,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "term. The eval's bias score (how often the stereotypical sentence wins) is "
             "left out by name, an "
             "owner decision, so this measures coherence, not bias. Cases are served in a "
-            "fixed seeded shuffle (the eval shuffles per run). No mid-run check surface "
-            "(elimination attack over three options)."
+            "fixed seeded shuffle (the eval shuffles per run)."
         ),
         focus="Coherent continuation over stereotyped contexts (multiple choice)",
         dataset_url="https://huggingface.co/datasets/McGill-NLP/stereoset",
@@ -6281,7 +6227,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "cases run; the eval's per-topic, difficulty and attack breakdowns are not "
             "reproduced. One question with no answer key is left out. inspect_evals runs the "
             "model at temperature 0; this benchmark imposes no generation settings. Use a "
-            "model with a long context window. No mid-run check surface."
+            "model with a long context window."
         ),
         focus="Malware analysis from sandbox reports (multiple answers)",
         dataset_url="https://github.com/CrowdStrike/CyberSOCEval_data",
@@ -6352,9 +6298,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer extractor and takes the best token overlap with any accepted answer, so "
             "no judge tokens are spent. inspect's F1 is not DROP's official scorer, which "
             "also matches numbers span by span, so numbers are close to, not identical with, "
-            "the paper's. Benchmark score = mean F1 over the cases run. Free-form replies "
-            "make the mid-run check surface legitimate, but none is offered without an owner "
-            "decision."
+            "the paper's. Benchmark score = mean F1 over the cases run."
         ),
         focus="Discrete reasoning over paragraphs (reading comprehension)",
         dataset_url="https://huggingface.co/datasets/EleutherAI/drop",
@@ -6422,7 +6366,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "the question does not have is left out. inspect_evals runs the model at temperature "
             "0; this benchmark imposes no generation settings. Text only, as the eval's default; "
             "the paper's image modality is not offered. Use a model with a long context "
-            "window. No mid-run check surface."
+            "window."
         ),
         focus="Threat-intelligence report reading (multiple answers)",
         dataset_url="https://github.com/CrowdStrike/CyberSOCEval_data",
@@ -6592,8 +6536,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "multiple-choice instruction, and graded by inspect's choice scorer against the "
             "letter of the correct option, so no judge tokens are spent. Benchmark score = "
             "plain accuracy over the cases run, comparable with papers that report on the "
-            "validation (dev) split. No mid-run check surface (elimination attack over four "
-            "options)."
+            "validation (dev) split."
         ),
         focus="Medical entrance exam questions (multiple choice)",
         dataset_url="https://huggingface.co/datasets/openlifescienceai/medmcqa",
@@ -6663,7 +6606,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer, not wrong), so no judge tokens are spent. Serving order and choice order "
             "are pinned by policy seeds (inspect_evals shuffles both per run). Benchmark score "
             "= plain accuracy over the cases run; the eval's precision and coverage are not "
-            "reproduced. No mid-run check surface (elimination attack over few options)."
+            "reproduced."
         ),
         focus="Reading biology research figures (multiple choice, picture input)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -6730,7 +6673,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer, not wrong), so no judge tokens are spent. Serving order and choice order "
             "are pinned by policy seeds (inspect_evals shuffles both per run). Benchmark score "
             "= plain accuracy over the cases run; the eval's precision and coverage are not "
-            "reproduced. No mid-run check surface (elimination attack over few options)."
+            "reproduced."
         ),
         focus="Reading tables from biology research papers (multiple choice, picture input)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -6799,8 +6742,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "lettered in the dataset's order, and is graded by inspect's choice scorer "
             "against the correct letter, so no judge tokens are spent. Benchmark score = "
             "plain accuracy over the cases run. inspect_evals runs the model at temperature "
-            "0; this benchmark imposes no generation settings. No mid-run check surface "
-            "(elimination attack over few options)."
+            "0; this benchmark imposes no generation settings."
         ),
         focus="College-level questions about pictures across 30 subjects (multiple choice)",
         dataset_url="https://huggingface.co/datasets/MMMU/MMMU",
@@ -6875,8 +6817,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "trailing space score wrong against 1.5, so scores here are stricter than, and "
             "not directly comparable to, the paper's and the labs' own more lenient grading. "
             "Serving order is pinned by a policy seed (inspect_evals shuffles per run). "
-            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over few options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Maths reasoning over charts, plots and figures (picture input)",
         dataset_url="https://huggingface.co/datasets/AI4Math/MathVista",
@@ -6958,8 +6899,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "judge call routed and metered through our gateway. Benchmark score = plain "
             "accuracy over the cases run. The eval lets the model under test grade itself; "
             "this Benchmark pins our house judge. inspect_evals runs the model at "
-            "temperature 0; this benchmark imposes no generation settings. No mid-run check "
-            "surface."
+            "temperature 0; this benchmark imposes no generation settings."
         ),
         focus="College-level questions about pictures across 30 subjects (open answer, LLM-judged)",
         dataset_url="https://huggingface.co/datasets/MMMU/MMMU",
@@ -7050,7 +6990,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "judge (gemini-3.7-flash, a separate column) is not run, and its pin of the judge "
             "to fp8 endpoints cannot be sent through our gateway, so OpenRouter may serve the "
             "judge at another precision. inspect_evals runs the model with no generation "
-            "settings; this benchmark imposes none. No mid-run check surface."
+            "settings; this benchmark imposes none."
         ),
         focus="Expert-level questions across 100+ subjects, 14% with a picture (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/cais/hle",
@@ -7450,7 +7390,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "port's older copy differs. The judge is the authors' own model and prompt, "
             "so scores are comparable to the paper's no-tools image results up to those "
             "deviations; its best, 0.614 (GPT 5.2 Pro), is read from the bars of its Figure 3, "
-            "which prints no table. No mid-run check surface."
+            "which prints no table."
         ),
         focus="Reading biology research figures (free answer, picture input, LLM-judged)",
         dataset_url="https://huggingface.co/datasets/EdisonScientific/labbench2",
@@ -7544,7 +7484,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "port's older copy differs. The judge is the authors' own model and prompt, "
             "so scores are comparable to the paper's no-tools image results up to those "
             "deviations; its best, 0.94 (GPT 5.2 Pro), is read from the bars of its Figure 3, "
-            "which prints no table. No mid-run check surface."
+            "which prints no table."
         ),
         focus="Reading biology research tables (free answer, picture input, LLM-judged)",
         dataset_url="https://huggingface.co/datasets/EdisonScientific/labbench2",
@@ -7652,7 +7592,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "runs, so matching them makes this number comparable to that ecosystem and to the "
             "live board; and the paper's greedy pass@1 is a temperature the Candidate owns, "
             "set at run time. Serving order is pinned by a policy seed (inspect_evals "
-            "shuffles per run). No mid-run check surface."
+            "shuffles per run)."
         ),
         focus="Hard multi-step reasoning over pictures, exact-match answer in braces",
         dataset_url="https://huggingface.co/datasets/jonathan-roberts1/zerobench",
@@ -7769,7 +7709,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "'C,A' scored 0. Cases are served in a fixed "
             "seeded shuffle (the eval shuffles per run). Benchmark score = plain accuracy "
             "over the cases run, which is the eval's own overall figure; the eval's "
-            "per-subset breakdown is not reproduced. No mid-run check surface."
+            "per-subset breakdown is not reproduced."
         ),
         focus="Chemistry and materials science questions about pictures (letters or a number)",
         dataset_url="https://huggingface.co/datasets/jablonkagroup/MaCBench",
