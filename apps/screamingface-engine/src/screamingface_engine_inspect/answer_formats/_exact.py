@@ -1,4 +1,4 @@
-"""Exact, number, pattern and overlap rules (18 rows).
+"""Exact, number, pattern and overlap scorers (18 rows).
 
 paws/boolq Yes/No, aime, math, match, f1, musique, contracteval, infinite_bench, arc_agi_2,
 ifeval, mathvista, zerobench, mitre_frr.

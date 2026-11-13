@@ -225,9 +225,10 @@ def install_medxpert(node: Url4Node, assets: Path) -> None:
 #: `answer_formats` package: medxpert is hand-built core code, and core never imports a plugin.
 ANSWER_FORMAT: str = (
     "Answer format: after its reasoning, the model is asked to finish 'the answer is' with one "
-    "option letter, and the grader takes the last option letter the reply states, so 'D', "
-    "'(D)', '**D**' and 'the answer is D' all count; a reply with no option letter, such as "
-    "'not sure', scores 0."
+    "option letter. The grader reads that phrase first, so 'the answer is D. B would be "
+    "wrong.' counts as D; without it, it takes the last bracketed letter, then the last option "
+    "letter on its own, so 'D', '(D)', '**D**' and 'the answer is D' all count; a reply with no "
+    "option letter, such as 'not sure', scores 0."
 )
 
 MEDXPERT = Benchmark(

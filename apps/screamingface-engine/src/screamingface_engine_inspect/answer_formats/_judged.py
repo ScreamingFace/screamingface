@@ -2,12 +2,12 @@
 
 Each sentence says what the judge compares the reply against (a reference answer, a rubric, a
 refusal check) and any shape the reply must have before the judge sees it. Grading a quoted
-reply would be a paid judge call, so no rule here carries examples (``material`` None).
+reply would be a paid judge call, so no answer format here carries examples (``material`` None).
 
-WHY some rules are keyed by row: inspect's ``model_graded_qa`` serves five rows (xstest twice,
-coconot twice, uccb), each with its own judge template, and the two simpleqa rows pass
-different grading prompts to one scorer. A rule keyed by that scorer would be wrong for some
-of them, so each such row has its own.
+WHY some answer formats are keyed by row: inspect's ``model_graded_qa`` serves five rows
+(xstest twice, coconot twice, uccb), each with its own judge template, and the two simpleqa
+rows pass different grading prompts to one scorer. An answer format keyed by that scorer would
+be wrong for some of them, so each such row has its own.
 
 Evidence paths below are relative to the installed packages (inspect_ai v0.3.263,
 inspect_evals v0.20.0) or to this package.

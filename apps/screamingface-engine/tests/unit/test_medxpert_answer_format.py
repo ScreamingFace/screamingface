@@ -15,7 +15,13 @@ from screamingface_engine.benchmarks.medxpert.definition import ANSWER_FORMAT, M
 
 #: The key the quoted replies are written for.
 _KEY: str = "D"
-_ACCEPTED: tuple[str, ...] = ("D", "(D)", "**D**", "the answer is D")
+_ACCEPTED: tuple[str, ...] = (
+    "D",
+    "(D)",
+    "**D**",
+    "the answer is D",
+    "the answer is D. B would be wrong.",
+)
 _REJECTED: tuple[str, ...] = ("not sure",)
 
 
