@@ -1906,6 +1906,8 @@ inspect_evals boards alongside ours, and opens JupyterLab against it.
 - [`examples/19_map_select_reduce.ipynb`](examples/19_map_select_reduce.ipynb): the combine
   recipes in the map → score → narrow → reduce form, built and compiled offline (no model
   call).
+- [`examples/20_runs.ipynb`](examples/20_runs.ipynb): list, reopen, inspect, wait on, and cancel
+  Engine-owned Runs; paid evaluation and cancellation are disabled by default.
 
 All notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 
