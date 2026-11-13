@@ -11,6 +11,26 @@
 * A start whose run-queue publish may have been stored, though its own send went unanswered or the start was cancelled, keeps its caller's in-flight slot instead of freeing it while the run executes anyway (OME-1859). The start still answers 503 (or is cancelled). The held attempts of one start take one slot however many timed out, and its retry is never refused because of them. A held slot is freed when the runner next sees the run's terminal frame (a Run cancel's tombstone included), once the run can no longer exist (twice its deadline plus 300 s), or after the one-hour reservation lease. A publish that no JetStream server answers now gets a retryable 503 instead of a plain 500.
 * Attribute collected IFEval model-call failures using the existing collected error kind from the candidate execution boundary, including Gateway-rewritten diagnostic codes. Unmarked errors and protected checker failures retain grading attribution.
 
+## [2.1.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v2.0.0...screamingface-engine-v2.1.0) (2026-11-13)
+
+
+### Features
+
+* **screamingface-engine:** autoscale the runner pool on claimable queue demand ([#1738](https://github.com/ScreamingFace/screamingface/issues/1738)) ([92ee29a](https://github.com/ScreamingFace/screamingface/commit/92ee29a21845a94f0f0b4e015e15dc80b7198cbc))
+* **screamingface-engine:** raise the per-caller run cap to 24 and keep queue consumer caps in step ([#1744](https://github.com/ScreamingFace/screamingface/issues/1744)) ([8a5ad9d](https://github.com/ScreamingFace/screamingface/commit/8a5ad9dc13e52f0c9ffa1b94f8f1bec01c84e2ac))
+* **screamingface-engine:** runner autoscaling target per pod and scale-up-only mode for KEDA 2.17 ([#1796](https://github.com/ScreamingFace/screamingface/issues/1796)) ([4684741](https://github.com/ScreamingFace/screamingface/commit/4684741176e5156b12718edc3a3ee979ffabf556))
+
+
+### Bug Fixes
+
+* **repo:** bump every live lock file's security alerts and re-seal MMMU, MathVista and cyse4 (OME-1853) ([633fe28](https://github.com/ScreamingFace/screamingface/commit/633fe282771fe80d779333258a90679c7c71c8ce))
+* **screamingface-engine:** retry a Candidate model call when the gateway fails for a moment (OME-1872) ([2d9c186](https://github.com/ScreamingFace/screamingface/commit/2d9c18632e8bf22abaef3c46ca1bf731231e6abf))
+
+
+### Refactors
+
+* **screamingface-engine:** select the Local Connection only by the effective flag ([#1754](https://github.com/ScreamingFace/screamingface/issues/1754)) ([d28bfa9](https://github.com/ScreamingFace/screamingface/commit/d28bfa99bdab25e92492ba27d9fa048c9bc7f976))
+
 ## [2.0.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v1.5.0...screamingface-engine-v2.0.0) (2026-11-11)
 
 
