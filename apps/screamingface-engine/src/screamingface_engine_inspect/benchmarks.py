@@ -7876,7 +7876,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         title=spec.title,
         # WHY appended here, not written into each row: the answer format belongs to the
         # scorer, which 95 rows share 38 of; one sentence per scorer cannot drift per row.
-        description=with_answer_format(spec.description, spec.scorer),
+        description=with_answer_format(spec.description, spec.key, spec.scorer),
         focus=spec.focus,
         dataset_url=spec.dataset_url,
         difficulty=spec.difficulty,
