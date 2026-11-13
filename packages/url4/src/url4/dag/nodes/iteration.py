@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from url4.core.context import Context
 from url4.core.errors import CollectionError, ErrorCode
 from url4.core.nodes import IterationDirectives
+from url4.dag.remote_nodes import reraise_remote_refusal
 from url4.dag.semantics.collection import parse_collection
 
 from url4.dag.node import (  # isort: skip
@@ -97,7 +98,7 @@ class MapNode:
         # Row-invariant: built once here rather than per row, since it is also
         # the spawn cache key and would otherwise be re-concatenated and
         # re-hashed len(items) times.
-        expr = f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
+        expr = self.fragment
         # A7: each kept row adds its captured-error count; a failed map adds none.
         error_counts: list[int] = []
         if self.directives.on_error == "fail":
@@ -105,10 +106,16 @@ class MapNode:
         else:
             rows = [self._row(row, expr, sem, ctx, frame, error_counts) for row in enumerate(items)]
             raw = await asyncio.gather(*rows, return_exceptions=True)
+            reraise_remote_refusal(raw)  # INVARIANT (F1b): a refused remote node is never a row
             skip = self.directives.on_error == "skip"
             results = self._skip(raw) if skip else self._collect(raw, error_counts)
         ctx.record_collected_errors(sum(error_counts))
         return results
+
+    @property
+    def fragment(self) -> str:
+        """The text each row spawns; static, so a remote-node preflight can compile it."""
+        return f"({self.body})!{self.intent}" if self.intent else f"({self.body})"
 
     def _items(self, collection: Payload) -> list[str]:
         # An inline parenthesized collection (§5.3.11) arrives pre-materialized as

@@ -74,3 +74,15 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   url4 `test_remote_node_preflight.py`, engine `test_engine_remote_node_preflight.py`. RED
   verified: 8 url4 and 6 engine cases fail without the fix. Gates: url4, screamingface-engine and
   repo `--base origin/main` ALL GATES GREEN; `dag/executor.py` 312, at its cap.
+- **Review round 2 (HupBaHa, 2026-11-13, #1750 at 62c735a1c):** (1) a remote node in a deferred
+  fragment (map body, lazy group) was checked only when the fragment spawned, after the outer
+  collection fetch, and `on_error=collect` folded the refusal into a successful error row;
+  (2) a statically computable Form-3 processor (`(p:0:'url4://n2/v1')!'$p'`) refused only after
+  the reduce members ran. Fix: the preflight also compiles and walks every `MapNode.fragment` /
+  `LazyExprNode.text`; `_static_processor.static_processor_value` computes a Form-3 processor made
+  only of inline text under text-intent groups with the default merge (anything else stays the
+  run-time check). Defence in depth: the policy records every refusal; `MapNode` re-raises one from
+  its rows, and `run()` re-raises any refusal its graph swallowed (an `;optional` guard), so the
+  run ends `error`, not `ok`. Tests: url4 `test_remote_node_deferred_preflight.py`, engine
+  `test_engine_remote_node_deferred_refusal.py`; RED verified (7 url4 cases, engine map and
+  processor cases). No prior test changed; module-size ratchet within baseline.

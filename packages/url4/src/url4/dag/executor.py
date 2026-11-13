@@ -290,8 +290,8 @@ def _wire_spawn(ctx: ExecutionContext, registry: LoweringRegistry | None) -> Non
             # re-check in ``execute`` (which still defaults to checking, for
             # hand-built graphs passed directly to ``run`` / ``execute``).
             check_acyclic(graph.sink)
-            # INVARIANT (F1b): a refused remote node fails before its fragment's siblings run.
-            preflight_remote_nodes(graph.sink, invoking_ctx.processor)
+            # INVARIANT (F1b): a refused remote node fails first; processor/process are run-wide.
+            await preflight_remote_nodes(graph.sink, ctx.processor, registry, ctx.process)
             compiled[text] = graph
         return await Executor(invoking_ctx.child(scope)).execute(graph.sink, _prevalidated=True)
 
