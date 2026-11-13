@@ -9,6 +9,13 @@ permissions:
   contents: write
   pull-requests: write
 
+# A burst of merges runs one release-please at a time, and GitHub keeps only the newest pending
+# run. Release Please reads main's HEAD and finds merged release PRs by label, so that run does
+# every skipped run's work, and the burst no longer spends the repo GITHUB_TOKEN limit N times.
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 jobs:
   release-please:
     runs-on: ubuntu-latest
