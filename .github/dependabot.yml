@@ -37,6 +37,13 @@ updates:
       # (test_tortoise_pin_conformance.py). aigateway's own CI does not run that test, so a bump
       # here alone would merge green and fail the Engine and SDK lanes later.
       - dependency-name: "tortoise-orm"
+      # Held (2026-11-11, #1725): litellm 1.104.6+ ships a bundled model map with NO
+      # openrouter/* rows (1.104.2 has 477), and the gateway forces that bundled map
+      # (LITELLM_LOCAL_MODEL_COST_MAP=True), so OpenRouter reasoning_effort would break.
+      # test_runtime_litellm_model_map.py catches it. Lift once litellm restores the rows or the
+      # gateway registers its own OpenRouter rows.
+      - dependency-name: "litellm"
+        versions: [">=1.104.6"]
     groups:
       aigateway-python-security:
         applies-to: security-updates
@@ -122,6 +129,13 @@ updates:
       # Held by hand: the runtime extra's pin must equal the Engine's and aigateway's, which one
       # local process loads together (test_tortoise_pin_conformance.py in both packages).
       - dependency-name: "tortoise-orm"
+      # Held (2026-11-11, #1725): litellm 1.104.6+ ships a bundled model map with NO
+      # openrouter/* rows (1.104.2 has 477), and the gateway forces that bundled map
+      # (LITELLM_LOCAL_MODEL_COST_MAP=True), so OpenRouter reasoning_effort would break.
+      # test_runtime_litellm_model_map.py catches it. Lift once litellm restores the rows or the
+      # gateway registers its own OpenRouter rows.
+      - dependency-name: "litellm"
+        versions: [">=1.104.6"]
     groups:
       screamingface-python:
         patterns: ["*"]
