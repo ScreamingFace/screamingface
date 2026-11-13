@@ -15,6 +15,7 @@ from functools import partial
 from url4.core.errors import ParseError
 from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import Node as AstNode
+from url4.core.parser import build
 
 from url4.dag.attachment import OCTET_STREAM, Attachment  # isort: skip
 from url4.dag.attachment_sources import AttachmentIdentity, not_static  # isort: skip
@@ -36,7 +37,7 @@ from url4.dag.node import DagNode, ExecutionContext  # isort: skip
 from url4.dag.nodes.blob import BlobRefNode  # isort: skip
 from url4.dag.remote_nodes import precheck_remote_nodes  # isort: skip
 from url4.dag.processor import classify_processor, remote_processor_hop  # isort: skip
-from url4.dag._graph_admission import refuse_prebuilt  # isort: skip
+from url4.dag._graph_admission import prebuilt_remote_calls, refuse_prebuilt  # isort: skip
 
 
 @dataclass(frozen=True)
@@ -66,10 +67,12 @@ async def _run_start(
     then attachment-source flights — so a breach stops the remaining I/O; :func:`check_caps`
     re-checks the final list. Order of refusals: ``malformed_source`` (an unparseable
     call-context segment beside an attachment opt-in), ``x.remote_blob_unsupported``,
-    ``x.remote_node_unsupported`` (a node context; only when there is run-start I/O), then
+    ``x.remote_node_unsupported`` (a node context; every run — text-only, nested and pre-built
+    too), then
     ``x.source_not_static`` (a non-literal attachment target, or one under a model-derived
     collection; both before any I/O), then the caps and fetch failures.
-    A nested ``run()`` resolves nothing: it inherits the outer list and cache verbatim.
+    A nested ``run()`` resolves nothing: it inherits the outer list and cache verbatim (only
+    its remote-call precheck runs).
     INVARIANT (PR #1587 review finding 3, owner 2026-11-04 — FAIL CLOSED): a pre-built
     ``Graph`` / ``DagNode`` has no AST to admit its files from, so one naming any
     attachment-capable source is refused first, with no I/O
@@ -78,16 +81,20 @@ async def _run_start(
     stay lazy, so they behave exactly as before (D5 exempt).
     """
     _refuse_before_io(target, run_ctx.processor)
-    if current_run_files() is not None:
-        return RunStart(tuple(case))
     ast = _ast_of(target)
     scan = scan_sources(ast) if ast is not None else None
+    if current_run_files() is not None:
+        # INVARIANT (PR #1587 review round 15, F1b): a nested run reuses the outer files but
+        # still refuses its own structural remote calls before any of its members run.
+        _precheck_remote(scan, run_ctx, target)
+        return RunStart(tuple(case))
     refs = () if scan is None else scan.refs
     if scan is not None:
         refuse_malformed(scan)  # owner 2026-11-02: before any I/O, ahead of every refusal
     refuse_remote(refs)
-    if scan is not None and (refs or scan.occurrences):
-        _precheck_remote(scan, run_ctx)
+    # INVARIANT (PR #1587 review round 14, F1b): EVERY run — text-only too — so no local
+    # endpoint, model or sibling runs before a structurally known remote call refuses.
+    _precheck_remote(scan, run_ctx, target)
     if scan is not None and scan.non_literal:  # owner decision C: before any I/O
         raise not_static(scan.non_literal[0])
     occurrences = () if scan is None else scan.occurrences
@@ -118,27 +125,46 @@ def _refuse_before_io(target: str | AstNode | Graph | DagNode, processor: str | 
     _refuse_processor_files(processor)  # round 13: a Form-3 processor's files, before any I/O
 
 
-def _precheck_remote(scan: SourceScan, run_ctx: ExecutionContext) -> None:
+def _precheck_remote(
+    scan: SourceScan | None,
+    run_ctx: ExecutionContext,
+    target: str | AstNode | Graph | DagNode,
+) -> None:
     """C6 (finding 4): a node context refuses a remote-node call before ANY I/O — so before the
-    attachment phase, not when the call executes. A run with no run-start I/O keeps the
-    execution-time refusal unchanged. The run's literal ``url4://`` reduce processor (a run
-    option or a node default) is the same remote-node call, checked here too (owner 2026-11-04).
+    attachment phase and before any member, not when the call executes. The run's literal
+    ``url4://`` reduce processor (a run option or a node default) is the same remote-node call,
+    checked here too (owner 2026-11-04). WHY every run (review round 14): a text-only run once
+    executed a local endpoint before its remote sibling or remote processor refused.
+    WHY the pre-built walk (review round 15): a ``Graph`` / ``DagNode`` has no AST (``scan`` is
+    ``None``), so its ``RemoteFetchNode`` s and the remote calls in its kept text are collected
+    from the graph itself; a precompiled mixed graph once ran a local endpoint first.
     """
     processor = remote_processor_hop(run_ctx.processor)
+    if scan is not None:
+        calls = scan.remote_nodes
+    elif isinstance(target, (Graph, DagNode)):
+        calls = prebuilt_remote_calls(target)
+    else:
+        calls = ()  # unparseable text: compiling it raises the real error, with no I/O
     precheck_remote_nodes(
         (
-            *scan.remote_nodes,
-            *(() if processor is None else (processor,)),
+            *calls,
             *_processor_expression_calls(run_ctx.processor),
-        )
+        ),
+        maybe=() if processor is None else (processor,),  # called only on a reduce
     )
 
 
 def _processor_scan(value: str | None) -> SourceScan | None:
-    """The structural scan of a Form-3 (expression-valued) processor; ``None`` for any other form
-    or one that does not parse (left to its resolve-time error)."""
+    """The structural scan of a Form-3 (expression-valued) processor; ``None`` for any other form.
+
+    INVARIANT (PR #1587 review round 14, FAIL CLOSED): a Form-3 value that fails the grammar its
+    resolve-time gate applies (:func:`~url4.core.parser.build`) raises that same permanent
+    ``ParseError`` here, at run start; once it was left to reduce time, after members had run.
+    """
     if value is None or classify_processor(value) != "expression":
         return None
+    build(value)
     ast = _ast_of(value.strip())
     return None if ast is None else scan_sources(ast)
 

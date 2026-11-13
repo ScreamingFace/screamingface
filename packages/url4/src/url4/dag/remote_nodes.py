@@ -66,13 +66,21 @@ def check_remote_node(authority: str, path: str) -> None:
     raise _refused(authority, path)
 
 
-def precheck_remote_nodes(calls: Iterable[tuple[str, str]]) -> None:
+def precheck_remote_nodes(
+    calls: Iterable[tuple[str, str]], *, maybe: Iterable[tuple[str, str]] = ()
+) -> None:
     """Refuse, before any I/O, every ``(authority, path)`` call this evaluation could not make.
 
     FEATURE: PR #1587 review finding 4 (owner 2026-11-04) — the run-start attachment phase must
     not fetch anything for a run C6 refuses. INVARIANT: read-only — the client's one hop is
     checked, never spent (the real call spends it, :func:`check_remote_node`); a SECOND call to
     that hop is refused here, as the real second call would be.
+    ``maybe`` holds calls the run makes only on some paths (its reduce processor: only on a
+    reduce). Each is refused unless it IS the still-unspent hop, but never charged against it.
+    WHY (CI on a74e15832, ``examples/url4_client.ipynb``): a ``Client(node=...)`` io whose first
+    declared route is the hop makes that hop the run's implicit processor; charging it as a
+    second call refused a passthrough run that never reduces. A reduce that does reach it after
+    the hop is spent is still refused by :func:`check_remote_node`, before its I/O.
     """
     policy = _POLICY.get()
     if policy is None:
@@ -83,6 +91,9 @@ def precheck_remote_nodes(calls: Iterable[tuple[str, str]]) -> None:
             hop_free = False
             continue
         raise _refused(authority, path)
+    for authority, path in maybe:
+        if policy.used or policy.hop != (authority, path):
+            raise _refused(authority, path)
 
 
 def _refused(authority: str, path: str) -> ResolutionError:
