@@ -157,6 +157,28 @@ it is the next problem in this series.
 - Scaling windows (up: immediate, 4 pods per 15 s; down: after 300 s, 1 pod per 60 s): **accepted**.
 - Scale-down victim selection (`pod-deletion-cost`): **follow-up PR**, recorded below.
 
+### D8. Settings for a KEDA that drops scaleUp.tolerance (2026-11-13, #1738 platform follow-up)
+
+Fact: the AKS add-on runs KEDA 2.17.2. Its ScaledObject CRD has no `behavior.scaleUp.tolerance`
+field (KEDA 2.18.0 adds it). The API server prunes the field, so the HPA uses the cluster default
+10 % band. Then 3 pods of 4 slots at demand 13 stay at 3 (13/12 = 1.083), and the stall of D4
+comes back.
+
+Fix, part 1: `runnerPool.autoscaling.targetPerPod`. It sets the per-pod target of the HPA metric.
+`null` means `workerSlots`. Set it to 3.6 for 4 slots. With demand above pods × slots, the usage
+ratio is at least 4 / 3.6 = 1.111, which is above the 1.1 band. So the HPA always scales up. The
+chart refuses a value above `workerSlots`. Cost: about 11 % more pods (4 / 3.6).
+
+Fix, part 2: `runnerPool.autoscaling.scaleDown.enabled: false`. It renders `selectPolicy: Disabled`
+and removes scale-down. Scale-up is unchanged. Use it until OME-1871 picks idle pods first. The
+option is better than `minReplicas = maxReplicas`: a pool with `min = max` always runs at the
+maximum. With scale-down off, the pool starts at `minReplicas` and grows only with demand. At the
+maximum, both settings cost the same.
+
+Reset: when KEDA 2.18 or later is live, set `targetPerPod` back to `null`. Otherwise the pool stays
+about 11 % larger than needed. The render does not check the KEDA version. The check is the
+`kubectl` command in the infrastructure prerequisites.
+
 ## Follow-up: choose an idle pod on scale-down (`pod-deletion-cost`)
 
 Status: agreed with the owner on 2026-11-10, NOT in this PR. Filed as `OME-1871` (2026-11-10).
@@ -182,6 +204,9 @@ What it needs, and why it is a separate PR:
 
 Acceptance for the follow-up: with 3 pods (busy, busy, idle) and demand dropping to 8, the idle pod
 is the one removed.
+
+Interim, until this follow-up ships: set `runnerPool.autoscaling.scaleDown.enabled: false` (D8).
+No pod is removed by scale-down, so no busy pod drains.
 
 ## Non-goals
 
@@ -212,10 +237,12 @@ is the one removed.
    to the existing consumers in place (`RunQueue.reconcile_consumers`), so a new value takes
    effect at the next runner rollout; do not delete the consumers. During the rollout, workers
    claim up to the old cap. The demand signal reads the cap from the broker, so it stays correct.
-8. Kubernetes 1.35 or later (`HPAConfigurableTolerance` beta, on by default; alpha in 1.33-1.34)
-   and a KEDA whose ScaledObject CRD carries `behavior.scaleUp.tolerance`. The prod AKS version is
-   the region default (Terraform `kubernetes_version = null`), so devops must confirm it. An older
-   API server drops the field silently and the 10 % stall (D4) comes back.
+8. KEDA 2.18 or later AND Kubernetes 1.35 or later for `behavior.scaleUp.tolerance`. KEDA 2.18 adds
+   the field to its ScaledObject CRD. Kubernetes 1.35 makes the HPA honor it (`HPAConfigurableTolerance`
+   beta, on by default; alpha in 1.33-1.34). The AKS add-on is KEDA 2.17.2 today, so on AKS set
+   `runnerPool.autoscaling.targetPerPod` to 3.6 (4 slots) in `values/<env>.yaml` (D8). The prod AKS
+   version is the region default (Terraform `kubernetes_version = null`), so devops must confirm it.
+   An older API server or KEDA drops the field silently, and the 10 % stall (D4) comes back.
 
 ## Invariants this protects
 

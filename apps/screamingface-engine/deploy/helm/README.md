@@ -241,6 +241,10 @@ with 4 slots at demand 13 give 13/12 = 1.083, and no 4th pod starts. Scale-down 
 default on purpose, so the pool can stay up to about 10 % above need. That costs money but never
 makes a user wait.
 
+KEDA 2.17 (the AKS add-on, version 2.17.2) drops `scaleUp.tolerance`. On that KEDA the 10 % stall
+comes back. Set `targetPerPod` to 3.6 for 4 slots. The HPA then scales up at every demand above
+the pod capacity. Set `targetPerPod` back to `null` when KEDA 2.18 or later is live.
+
 The signal counts claimable runs, not stream messages. Runs that a bucket's `max_ack_pending`
 holds back cannot be claimed by any pod. Counting them adds pods that stay idle. Example: two pods
 with four slots each run eight runs, and a third caller queues `n` runs. The demand is
@@ -252,8 +256,9 @@ with four slots each run eight runs, and a third caller queues `n` runs. The dem
 | `minReplicas` | `2` | Lowest replica count. Must be 1 or more. The pool does not scale to zero. |
 | `maxReplicas` | `null` | Highest replica count. Required when `enabled` is `true`. |
 | `pollingIntervalS` | `15` | Seconds between KEDA polls of `/runner-demand`. |
-| `scaleUp` | 0 s window, 4 pods per 15 s, tolerance 0 | `stabilizationS: 0`, `podsPerStep: 4`, `stepS: 15`, `tolerance: 0`. Scale-up acts at once and exactly. `tolerance` needs Kubernetes 1.35 or later (see the prerequisites). |
-| `scaleDown` | 300 s window, 1 pod per 60 s | `stabilizationS: 300`, `podsPerStep: 1`, `stepS: 60`. Scale-down acts slowly. |
+| `targetPerPod` | `null` | The per-pod target of the HPA metric, in runs per pod. `null` uses `workerSlots`. On KEDA 2.17, set it below `workerSlots / 1.1` (3.6 for 4 slots). Must be above 0 and must not exceed `workerSlots`. |
+| `scaleUp` | 0 s window, 4 pods per 15 s, tolerance 0 | `stabilizationS: 0`, `podsPerStep: 4`, `stepS: 15`, `tolerance: 0`. Scale-up acts at once and exactly. `tolerance` needs Kubernetes 1.35 or later and KEDA 2.18 or later (see the prerequisites). |
+| `scaleDown` | 300 s window, 1 pod per 60 s | `enabled: true`, `stabilizationS: 300`, `podsPerStep: 1`, `stepS: 60`. Scale-down acts slowly. `enabled: false` turns scale-down off (`selectPolicy: Disabled`). |
 
 **The render refuses** these settings:
 
@@ -264,6 +269,9 @@ with four slots each run eight runs, and a third caller queues `n` runs. The dem
   when the replica count changes (OME-1142).
 - `runnerPool.drainGraceS` is less than `config.jobDeadlineS` (the longest run, default 57600 s).
   `terminationGracePeriodSeconds` must then be at least `drainGraceS + 25`, as always.
+- `runnerPool.autoscaling.targetPerPod` is greater than `runnerPool.workerSlots`. A pod cannot run
+  more runs than its slots, so claimable runs would wait.
+- `runnerPool.autoscaling.targetPerPod` is 0 or less. The values schema refuses this value.
 
 Pin `maxAckPending`. A starting worker writes the pinned value to the existing durable consumers in
 place (OME-1880), so a new value takes effect at the next runner rollout. Do not delete the
@@ -303,7 +311,9 @@ The App also exports the same numbers as gauges: `screamingface_engine_runner_de
 **Scale-down.** The preStop drain protects runs on scale-down. Without
 `controller.kubernetes.io/pod-deletion-cost`, the ReplicaSet can pick a busy pod. That pod drains
 for up to `drainGraceS`, while an idle pod stays. The slow scale-down policy limits this cost;
-choosing an idle pod with `pod-deletion-cost` is a follow-up.
+choosing an idle pod with `pod-deletion-cost` is a follow-up (OME-1871). Until that follow-up
+ships, set `scaleDown.enabled: false` to stop all scale-down. The pool then grows on demand and
+never shrinks by itself.
 
 **Infrastructure prerequisites (OpenMined/infrastructure, devops).**
 
@@ -324,11 +334,14 @@ choosing an idle pod with `pod-deletion-cost` is a follow-up.
    no run is lost. Capacity dips until KEDA acts.
 6. Per-env values: in `values/<env>.yaml`, set `runnerPool.autoscaling.enabled: true`,
    `minReplicas`, and `maxReplicas`.
-7. Kubernetes 1.35 or later for `behavior.scaleUp.tolerance` (feature `HPAConfigurableTolerance`:
-   beta and on by default from 1.35; alpha in 1.33 and 1.34). An older API server drops the field
-   without an error, and the 10 % stall comes back. Check after the first sync:
+7. KEDA 2.18 or later AND Kubernetes 1.35 or later for `behavior.scaleUp.tolerance`. KEDA 2.18 adds
+   the field to its ScaledObject CRD. Kubernetes 1.35 makes the HPA honor it (feature
+   `HPAConfigurableTolerance`: beta and on by default from 1.35; alpha in 1.33 and 1.34). If one of
+   the two is missing, the API server drops the field without an error, and the 10 % stall comes
+   back. The AKS add-on is KEDA 2.17.2 today, so on AKS set `runnerPool.autoscaling.targetPerPod` to 3.6 (for 4
+   slots) in the values file. Check after the first sync:
    `kubectl -n sf-fusion get hpa keda-hpa-<fullname>-runner -o jsonpath='{.spec.behavior.scaleUp.tolerance}'`
-   must print `0`.
+   must print `0`. An empty output means the field was dropped. Then `targetPerPod` must be set.
 
 ## A private world config (OME-1770)
 
