@@ -84,11 +84,12 @@ def test_the_largest_legal_run_plus_its_request_fits_under_the_gateways_body_cap
 
 
 def test_the_encoded_bound_covers_one_file_and_twenty_within_a_few_bytes() -> None:
-    one = 4 * math.ceil(6_000_000 / 3)
-    assert one <= _encoded_bound(6_000_000, 1) <= one + 2
-    worst = [1] * (MAX_ATTACHMENTS - 1) + [6_000_000 - (MAX_ATTACHMENTS - 1)]
+    one = 4 * math.ceil(MAX_ATTACHMENT_BYTES / 3)
+    assert one <= _encoded_bound(MAX_ATTACHMENT_BYTES, 1) <= one + 2
+    worst = [1] * (MAX_ATTACHMENTS - 1) + [MAX_ATTACHMENT_BYTES - (MAX_ATTACHMENTS - 1)]
     twenty = sum(len(base64.b64encode(b"x" * n)) for n in worst)
-    assert twenty <= _encoded_bound(6_000_000, MAX_ATTACHMENTS) <= twenty + 3 * MAX_ATTACHMENTS
+    bound = _encoded_bound(MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS)
+    assert twenty <= bound <= twenty + 3 * MAX_ATTACHMENTS
 
 
 @pytest.mark.asyncio
@@ -151,3 +152,148 @@ async def test_a_call_carrying_the_cap_in_one_picture_is_delivered_under_the_gat
 
     (delivered,) = gateway.delivered
     assert delivered <= _gateway_body_cap()
+
+
+# --- The shared recipe: the Engine half of the byte-level boundary test (PR #1588 round 6) ---
+#
+# INVARIANT: ``apps/aigateway/tests/fixtures/url4_attachment_cap_request/recipe.json`` expands to
+# EXACTLY the bytes the Engine delivers for a call carrying url4's largest legal picture, at the
+# gateway cap and one byte over it. aigateway's ``test_url4_attachment_cap_request.py`` posts the
+# SAME expansion into the real gateway app at its default cap: 8,388,608 bytes pass, 8,388,609
+# are ``413 request_too_large``. The two halves share data, never code (apps do not import each
+# other), so the recipe is the one size contract between them.
+# AIDEV-NOTE: when the Engine's request envelope changes on purpose, this half fails first with
+# the first differing offset; update ``envelope`` in the recipe and run the aigateway half too.
+
+_RECIPE = (
+    Path(__file__).resolve().parents[4]
+    / "apps/aigateway/tests/fixtures/url4_attachment_cap_request/recipe.json"
+)
+
+
+def _recipe() -> dict:
+    return json.loads(_RECIPE.read_text(encoding="utf-8"))
+
+
+def _recipe_picture(recipe: dict) -> bytes:
+    """The recipe's picture: bytes 0..255 repeated, cut to ``decoded_bytes``."""
+    decoded = recipe["picture"]["decoded_bytes"]
+    return (bytes(range(256)) * (decoded // 256 + 1))[:decoded]
+
+
+def _text_room(recipe: dict, total: int) -> int:
+    """The prompt characters that make the expanded request exactly ``total`` bytes."""
+    picture = len(base64.b64encode(_recipe_picture(recipe)))
+    frame = recipe["envelope"].encode()
+    slots = recipe["slots"]
+    return total - (len(frame) - len(slots["picture"]) - len(slots["prompt"])) - picture
+
+
+def _expanded(recipe: dict, total: int) -> bytes:
+    """The recipe as one request body of exactly ``total`` bytes (the gateway half's twin)."""
+    slots = recipe["slots"]
+    head, rest = recipe["envelope"].encode().split(slots["picture"].encode())
+    middle, tail = rest.split(slots["prompt"].encode())
+    prompt = recipe["prompt_fill"].encode() * _text_room(recipe, total)
+    return head + base64.b64encode(_recipe_picture(recipe)) + middle + prompt + tail
+
+
+def _first_difference(delivered: bytes, expected: bytes) -> str | None:
+    """Where two multi-megabyte bodies first differ, or ``None`` — never a full byte diff."""
+    if delivered == expected:
+        return None
+    at = next(
+        (i for i, (a, b) in enumerate(zip(delivered, expected, strict=False)) if a != b),
+        min(len(delivered), len(expected)),
+    )
+    return (
+        f"lengths {len(delivered)} vs {len(expected)}; first difference at byte {at}: "
+        f"delivered {delivered[max(0, at - 40) : at + 40]!r} vs recipe "
+        f"{expected[max(0, at - 40) : at + 40]!r}"
+    )
+
+
+class _Recorder(httpx.AsyncBaseTransport):
+    """Keeps every byte the Engine delivers, and its ``Content-Length``; answers 200."""
+
+    def __init__(self) -> None:
+        self.bodies: list[bytes] = []
+        self.lengths: list[str] = []
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        assert isinstance(request.stream, httpx.AsyncByteStream)
+        chunks = [chunk async for chunk in request.stream]
+        self.bodies.append(b"".join(chunks))
+        self.lengths.append(request.headers["content-length"])
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "42"}}], "usage": {"total_tokens": 1}},
+        )
+
+
+async def _engine_delivery(recipe: dict, prompt: str) -> tuple[bytes, str]:
+    """One call through the real ``_ModelEndpoint`` (``streamed_json`` path): delivered bytes."""
+    picture = _recipe_picture(recipe)
+    attachment = Attachment(
+        digest="sha256:" + hashlib.sha256(picture).hexdigest(),
+        media_type=recipe["picture"]["media_type"],
+        body=picture,
+    )
+    recorder = _Recorder()
+    models = (ModelSpec(id=recipe["model"], web_search=False),)
+    async with httpx.AsyncClient(transport=recorder, base_url="http://aigateway.test") as client:
+        handler = _ModelEndpoint(
+            http_client=client,
+            cfg=AigatewayConfig(models=models, default_model=recipe["model"]),
+            routes=routes_for(models),
+            tavily_http=None,
+            tavily_api_key=None,
+        )
+        request = Request(
+            path=f"/{recipe['model']}",
+            context=prompt,
+            intent=recipe["intent"],
+            params={},
+            attachments=(attachment,),
+        )
+        assert await handler(request) == "42"
+    (body,) = recorder.bodies
+    (length,) = recorder.lengths
+    return body, length
+
+
+def test_the_shared_recipe_is_cut_for_url4s_cap_and_the_gateways_cap() -> None:
+    recipe = _recipe()
+
+    assert recipe["picture"]["decoded_bytes"] == MAX_ATTACHMENT_BYTES
+    assert recipe["gateway_cap_bytes"] == _gateway_body_cap()
+    assert recipe["boundary_bytes"] == {
+        "passes": _gateway_body_cap(),
+        "refused": _gateway_body_cap() + 1,
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("side", ["passes", "refused"])
+async def test_the_engine_delivers_exactly_the_recipes_bytes_at_the_gateway_boundary(
+    side: str,
+) -> None:
+    # STORY: the reviewer's "real Engine-to-Gateway boundary": what the Engine really sends at
+    # 8,388,608 and 8,388,609 bytes is, byte for byte, what aigateway's half posts to its app.
+    recipe = _recipe()
+    total = recipe["boundary_bytes"][side]
+    prompt = recipe["prompt_fill"] * _text_room(recipe, total)
+
+    body, length = await _engine_delivery(recipe, prompt)
+
+    assert len(body) == total
+    assert length == str(total)
+    assert _first_difference(body, _expanded(recipe, total)) is None
+
+
+def test_at_the_attachment_cap_a_call_has_about_388_kb_of_text_room() -> None:
+    # WHY: pins the number ``url4/dag/_caps.py``'s WHY comment states — the JSON-encoded text a
+    # model call may carry beside one cap-sized picture before the gateway returns 413.
+    room = _text_room(_recipe(), _gateway_body_cap())
+
+    assert 387_000 <= room <= 389_000

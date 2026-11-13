@@ -183,3 +183,44 @@ within baseline (`dag/_context.py` 455/455); `check_suppressions.py` 3/3; privat
   `CAP = 8_000_000` (still passes, now a looser bound). `picture_input.MAX_CASE_BYTES` (8,000,000) is
   the inline Case cap with its own gateway-fit test, not the url4 cap. No `packages/screamingface`
   SDK constant mirrors the url4 cap.
+
+### Round 6 (2026-11-13) — bind the Engine and Gateway halves by bytes (owner scope "bind + document")
+
+- **Why:** HupBaHa asked for one shared size contract and a real Engine-to-Gateway boundary test.
+  An independent review found round 5's two halves joined only by constants (the Engine half used a
+  fake transport copying the 413 rule; the Gateway half posted hand-built bytes).
+- **Planned:** merge `origin/main` (merge commit; main's #1733 broke the append-only gates against
+  the old base). New data fixture
+  `apps/aigateway/tests/fixtures/url4_attachment_cap_request/recipe.json` — the Engine's real
+  request envelope with `@PICTURE@`/`@PROMPT@` slots, the picture recipe, the url4 cap and the
+  gateway cap it was cut for. New tests in the two round-5 files only (both added by this PR):
+  the Engine expands the recipe and asserts its real `_ModelEndpoint` → `streamed_json` delivery is
+  byte-identical at 8,388,608 and 8,388,609 bytes; the Gateway expands the SAME recipe into the real
+  app at its default cap — 8,388,608 passes, 8,388,609 is `413 request_too_large`. Engine test's
+  `6_000_000` literals → the cap read from url4 source. `_caps.py` WHY: ~388 KB of JSON-encoded
+  text room at the cap; beyond it 413. No runtime behaviour change.
+- **Done:** merged `origin/main` (merge commit `b6c331b97`, no conflicts). Fixture
+  `apps/aigateway/tests/fixtures/url4_attachment_cap_request/recipe.json` (data only: model,
+  intent, picture `image/png` 6,000,000 decoded bytes of 0..255 repeated, the Engine's real
+  envelope with `@PICTURE@`/`@PROMPT@` slots, `prompt_fill` `p`, `gateway_cap_bytes` 8,388,608,
+  `boundary_bytes` passes 8,388,608 / refused 8,388,609). Envelope = 209 B, picture = 8,000,000 B
+  base64, so text room at the cap = 388,399 B (1-char prompt body = 8,000,210 B).
+- **New tests (RED = `FileNotFoundError` on the missing recipe, then GREEN):** Engine —
+  `test_the_shared_recipe_is_cut_for_url4s_cap_and_the_gateways_cap`,
+  `test_the_engine_delivers_exactly_the_recipes_bytes_at_the_gateway_boundary[passes|refused]`
+  (real `_ModelEndpoint` → `streamed_json`; delivered bytes AND `Content-Length` equal the
+  expansion), `test_at_the_attachment_cap_a_call_has_about_388_kb_of_text_room`. Gateway —
+  `test_the_shared_recipe_is_cut_for_this_gateways_default_cap` (vs real `Settings` default and
+  url4 source), `test_the_engines_request_at_exactly_the_cap_passes_the_body_cap` (reaches routing:
+  `profile_not_found`), `test_the_engines_request_one_byte_over_the_cap_is_request_too_large`.
+  Mutation checks: one envelope byte changed → both Engine boundary cases fail at byte 64; boundary
+  shifted +1 → 2 gateway tests fail. Engine `6_000_000` literals → `MAX_ATTACHMENT_BYTES` from url4
+  source. `_caps.py`: AIDEV-NOTE on the ~388 KB text room and the 413 beyond it.
+- **Gates (base `origin/main`):** `url4` ALL GREEN (3,173 collected); `screamingface-engine` ALL
+  GREEN (9,474 collected); `aigateway` ALL GREEN (7,941 collected); `repo` ALL GREEN;
+  `check_module_size.py` within baseline.
+- **Deferred follow-ups (unchanged, still stating 8,000,000):**
+  `apps/screamingface-engine/src/screamingface_engine/artifacts/blob_schema.py`
+  `DEFAULT_BLOB_MAX_BYTES`; spec `docs/spec/2026-10-16-OME-1535-file-input-execution.md` lines ~242
+  (F1b) and ~538 (error table); `test_fair_share_byte_budget.py` `CAP = 8_000_000`; the three #1587
+  "one byte over" cases, now 2,000,001 bytes over the 6,000,000 cap.

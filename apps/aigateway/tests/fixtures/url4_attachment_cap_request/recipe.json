@@ -1,0 +1,27 @@
+{
+  "about": [
+    "OME-1545 / PR #1588: the one size contract between url4 attachments and AIGateway's request cap.",
+    "A model call carrying url4's largest legal picture, as the Engine really sends it: 'envelope' with",
+    "the picture's base64 in the 'picture' slot and prompt_fill repeated in the 'prompt' slot until the",
+    "body is exactly the wanted size. Picture bytes: 0..255 repeated, cut to decoded_bytes.",
+    "Engine half (byte-identical to the real _ModelEndpoint delivery): apps/screamingface-engine/tests/unit/test_url4_attachment_cap_fits_the_gateway.py",
+    "Gateway half (expanded into the real app at its default cap): apps/aigateway/tests/unit/test_url4_attachment_cap_request.py"
+  ],
+  "model": "anthropic/claude-haiku-4-5",
+  "intent": "Answer.",
+  "picture": {
+    "media_type": "image/png",
+    "decoded_bytes": 6000000
+  },
+  "slots": {
+    "picture": "@PICTURE@",
+    "prompt": "@PROMPT@"
+  },
+  "prompt_fill": "p",
+  "envelope": "{\"model\":\"anthropic/claude-haiku-4-5\",\"messages\":[{\"role\":\"system\",\"content\":\"Answer.\"},{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,@PICTURE@\"}},{\"type\":\"text\",\"text\":\"@PROMPT@\"}]}]}",
+  "gateway_cap_bytes": 8388608,
+  "boundary_bytes": {
+    "passes": 8388608,
+    "refused": 8388609
+  }
+}

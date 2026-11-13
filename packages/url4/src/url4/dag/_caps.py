@@ -44,7 +44,12 @@ MAX_ATTACHMENTS = 20
 # 8,000,000 encoded to 10,666,668: every call of such a run was a 413. The largest cap with no
 # envelope at all would be 3 * 8,388,608 / 4 = 6,291,456. Pinned across layers by the Engine's
 # ``test_url4_attachment_cap_fits_the_gateway.py`` and aigateway's
-# ``test_url4_attachment_cap_request.py``.
+# ``test_url4_attachment_cap_request.py``, bound byte for byte by one shared recipe
+# (``apps/aigateway/tests/fixtures/url4_attachment_cap_request/recipe.json``).
+# AIDEV-NOTE: the cap leaves a model call about 388 KB of JSON-encoded text (prompt, member
+# answers, parameters) beside one cap-sized picture (388,399 B; ~1.3 KB less over 20 files).
+# Beyond it the gateway returns a permanent 413 ``request_too_large``; a v2 picture Case plus
+# url4 attachments in one call can also exceed it — neither is checked before the call.
 MAX_ATTACHMENT_BYTES = 6_000_000
 
 
