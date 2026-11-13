@@ -51,6 +51,7 @@ from screamingface_engine.benchmarks.shared_grading.attempt_fold import (
     MEAN_ATTEMPT_FOLD,
     AttemptFold,
 )
+from screamingface_engine_inspect.answer_formats import with_answer_format
 from screamingface_engine_inspect.function_references import function_reference_problem
 from screamingface_engine_inspect.local_tasks import scorer_source_pins, task_source_pin
 from screamingface_engine_inspect.prepare import (
@@ -7873,7 +7874,9 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     return single_shot_benchmark(
         benchmark_key=spec.key,
         title=spec.title,
-        description=spec.description,
+        # WHY appended here, not written into each row: the answer format belongs to the
+        # scorer, which 95 rows share 38 of; one sentence per scorer cannot drift per row.
+        description=with_answer_format(spec.description, spec.scorer),
         focus=spec.focus,
         dataset_url=spec.dataset_url,
         difficulty=spec.difficulty,
