@@ -23,11 +23,12 @@ Worked example — the MMLU-Pro row has no answer format of its own, so Stage 1 
 `ANSWER: B.` → 1, and `ANSWER: $B`, `ANSWER: (B)`, `ANSWER: **B**`, `ANSWER: \\boxed{B}` → 0.
 
 One file per family of graders, grouped by how they read a reply: `_choice.py` (inspect's
-multiple-choice scorer, 35 rows). OME-1906 PR 2 of 2 adds the other families.
+multiple-choice scorer), `_letters.py` (other letter scorers), `_exact.py` (exact, number,
+pattern and overlap scorers), `_judged.py` (a judge model reads the reply).
 
 INVARIANT: every quoted reply of a non-judge answer format grades the way its sentence says,
 through each row's real grader (`tests/unit/inspect/test_answer_formats.py`), so the page never
-promises a format the grader refuses.
+promises a format the grader refuses. Every catalogue row has one.
 
 INVARIANT: the description is not part of a Benchmark's revision, so editing a sentence moves
 no fingerprint and no published revision; the scoreboard's seed job copies the new text to the
@@ -42,7 +43,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from screamingface_engine_inspect.answer_formats._choice import CHOICE
+from screamingface_engine_inspect.answer_formats._exact import EXACT
 from screamingface_engine_inspect.answer_formats._format import AnswerFormat
+from screamingface_engine_inspect.answer_formats._judged import JUDGED
+from screamingface_engine_inspect.answer_formats._letters import LETTERS
 
 
 def _merged(*families: Mapping[str, AnswerFormat]) -> dict[str, AnswerFormat]:
@@ -58,7 +62,7 @@ def _merged(*families: Mapping[str, AnswerFormat]) -> dict[str, AnswerFormat]:
 
 
 #: Row key or scorer reference (as a catalogue row names it) → its answer format.
-ANSWER_FORMATS: Mapping[str, AnswerFormat] = _merged(CHOICE)
+ANSWER_FORMATS: Mapping[str, AnswerFormat] = _merged(CHOICE, LETTERS, EXACT, JUDGED)
 
 
 def answer_format_for(key: str, scorer: str) -> AnswerFormat | None:
