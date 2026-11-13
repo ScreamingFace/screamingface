@@ -193,6 +193,18 @@ def case_digest(prepared: Sequence[PreparedCase]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+#: EnigmaEval puzzles held out of the ``enigmaeval`` Benchmark, by ``task_id``.
+#: AIDEV-NOTE: pending team decision on Cases over the 8 MB cap, OME-1874. PROVISIONAL, not a
+#: decision: these three puzzles are over the importer's 8,000,000-byte Case limit with their
+#: pictures inline, even after the authors' PNG re-save (Puzzle Potluck rows 257 and 258, one
+#: picture each, about 9.7 MB and 12.0 MB inline; PuzzledPint row 283, seven pictures, about
+#: 20.4 MB). Flipping the call is one edit here, then a re-seal of the row's Case Digest.
+ENIGMAEVAL_HELD_OUT_OVER_CASE_CAP: tuple[str, ...] = (
+    "69f3aee766ce8458f2f20eb8",
+    "69f3aee766ce8458f2f20eb0",
+    "69f3aee766ce8458f2f20fa8",
+)
+
 #: Every Imported Benchmark's Case Preparation, keyed by Benchmark key. Importing another
 #: eval = one more entry, written by the importer above the anchor at the end.
 TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
@@ -2274,6 +2286,38 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         shuffle_seed=20260917,
         license="mit",
     ),
+    # enigmaeval — imported by Task replay on 2026-11-13 from
+    #   screamingface_engine_inspect.local_tasks.enigmaeval.enigmaeval:enigmaeval.
+    # Sealed on linux/amd64 inside the Engine image (2026-11-13), as the image build replays
+    #   it: the Task re-saves every picture as PNG with Pillow, the authors' own loader step
+    #   (not a deviation), and Pillow's PNG bytes differ by platform for the same pixels, so a
+    #   Mac-sealed digest (dc765b66… on 2026-11-13) never matches the build.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face cais/EnigmaEval
+    #     pin revision 9ed38dabb105ad900ef850a937014d8653ae9f94
+    "enigmaeval": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.enigmaeval.enigmaeval:enigmaeval",
+        case_count=1158,
+        case_digest="2534208d6af2d6c7544bff23a086dd4624080242a77606deff20f08ccc413418",
+        case_set_digest="58b8cd38f362d6ab7c7fd4f5f684d00aabaec10693a0be54f225afda30a66fb4",
+        keep_sample_metadata=True,
+        # PROVISIONAL, pending team decision on Cases over the 8 MB cap, OME-1874: the three
+        # puzzles of ENIGMAEVAL_HELD_OUT_OVER_CASE_CAP are left out, 1,158 of 1,161.
+        excluded_sample_ids=ENIGMAEVAL_HELD_OUT_OVER_CASE_CAP,
+        source_pins={
+            "cais/EnigmaEval": "9ed38dabb105ad900ef850a937014d8653ae9f94",
+        },
+        needs_hf_token=True,
+        # License: per source, the authors' enigmaeval/LICENSE.md (owner decision on OME-1874,
+        #  2026-11-13: ship all). The Hub card says mit, which covers the authors' code, not the
+        #  puzzles. Over the 1,158 Cases: CC BY-NC-SA 4.0 PuzzledPint 826 and CS50x 33, CC BY-NC
+        #  3.0 CRUMS 6, CC BY-NC-ND 3.0 GMPuzzles 10 (875 non-commercial; they come out if we go
+        #  commercial; the PNG re-save is a format change only, so no-derivatives holds); the
+        #  authors keep copyright, evaluation use, for MIT Mystery Hunt 68, Puzzle Potluck 31 and
+        #  Mark Halpin's Labor Day Extravaganza 154 and Cryptic Crossword 29; Ring Toss 1 states
+        #  no licence, served for evaluation use only.
+        license="other",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
@@ -2621,6 +2665,7 @@ def _available_hf_token() -> str | None:
 
 __all__ = [
     "PrepareError",
+    "ENIGMAEVAL_HELD_OUT_OVER_CASE_CAP",
     "INSPECT_SCORER_PREFIX",
     "LICENSE_TODO",
     "PreparedCase",

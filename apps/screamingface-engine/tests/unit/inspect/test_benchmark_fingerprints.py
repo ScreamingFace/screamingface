@@ -108,6 +108,9 @@ _FINGERPRINTS: dict[str, str] = {
     "zerobench": "9155d9581e103c0a",
     # OME-1854: MaCBench, chemistry and materials pictures, letters graded as a set.
     "macbench": "a8d8e6ccc379924f",
+    # OME-1874: EnigmaEval, a local Task; its source is hashed, so an edit to the prompt
+    # builder or the copied marking moves this.
+    "enigmaeval": "863b8c98762520a2",
     "frontierscience": "826050de44778515",
     "onet_m6": "cfc5f0da9f9418bd",
     "pubmedqa": "15e20f21d0a78fd9",

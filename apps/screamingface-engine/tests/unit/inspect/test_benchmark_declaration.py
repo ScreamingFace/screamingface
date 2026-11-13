@@ -218,6 +218,10 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # OME-1854: MaCBench, chemistry and materials questions over pictures, letters or
         # a number; inspect_evals' own runs put gpt-5.2 at 0.726, so headroom, not hard.
         "inspect-macbench": ("withhold", "single_shot", "medium"),
+        # OME-1874: EnigmaEval, puzzle-hunt puzzles over pictures, a local Task graded by the
+        # authors' exact match; the paper's best model solved 7% of the normal puzzles and none
+        # of the hard ones, so "hard".
+        "enigmaeval": ("withhold", "single_shot", "hard"),
         # OME-1269: Thai grade-12 national benchmark MCQ, the first question-filter benchmark.
         "inspect-onet_m6": ("withhold", "single_shot", "medium"),
         # OME-1269: biomedical yes/no/maybe MCQ over a given abstract (question filter).

@@ -135,6 +135,9 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "zerobench": "9155d9581e103c0a",
     # OME-1854: MaCBench, chemistry and materials pictures, letters graded as a set.
     "macbench": "a8d8e6ccc379924f",
+    # OME-1874: EnigmaEval, 1,158 puzzle-hunt puzzles with their pictures, a local Task graded
+    # by the authors' exact match; sealed on linux/amd64.
+    "enigmaeval": "863b8c98762520a2",
     "frontierscience": "826050de44778515",
     "pubmedqa": "15e20f21d0a78fd9",
     "xstest_unsafe": "fad9dd3ebabd84a5",

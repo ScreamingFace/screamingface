@@ -1,0 +1,30 @@
+{
+  "issue": "OME-1874",
+  "branch": "OME-1874-enigmaeval",
+  "approver": "owner, to confirm on the PR (requested in the OME-1874 dispatch)",
+  "date": "2026-11-13",
+  "scope": "Prior-test edits for the new EnigmaEval Benchmark, and nothing else: one table row each in test_benchmark_declaration.py (withhold, single_shot, hard), test_failure_policy_rows.py (Group A, plus the row counts 95→96 and 78→79 its invariant asserts), test_inspect_imported_benchmarks.py (family free_text), test_published_revisions.py and test_benchmark_fingerprints.py (the revision literal 863b8c98762520a2, sealed on linux/amd64). No existing row or assertion changes otherwise.",
+  "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as zerobench, macbench and labbench2 did); the rows are the review act for its declaration, family, policy and revision.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "d32549cf877cd3b4c6430a185a97a5bd0e8a3ab2",
+      "approved_blob": "72011fe0923a23317be5062f58ddcb8d308e1e0d"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "ddba96e9da05106dbb205ae7081d9f33d85fda65",
+      "approved_blob": "51bf806adf2f475a6d2779f3817dcb5269a80038"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
+      "base_blob": "893b7202cbb2a5df367cffb160e0c9f2f9022821",
+      "approved_blob": "e016ba0d56f372e68ecf3ebb22a66b66f94805fc"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "84414cddf513afa8c871cb5b3e19b86665237910",
+      "approved_blob": "ac3a7d82740f891252612f84c1187366dc950e50"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "5795a51412dc0760ac7318ddcc2eb2df383dc5b5",
+      "approved_blob": "c1822972a41a3f3ac52ccda01abdf7e344e4de6d"
+    }
+  }
+}
