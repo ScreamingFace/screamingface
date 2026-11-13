@@ -171,7 +171,8 @@ spec:
           emptyDir: {}
         {{- end }}
       {{- /* WHY: Garage runs on the App's node pool and tolerates its taints. `affinity` is not
-      copied: it names App pod labels, and Garage pods carry other labels. */}}
+      copied: its pod affinity names App pod labels, and Garage pods carry other labels. Use
+      `nodeSelector` for node placement. */}}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

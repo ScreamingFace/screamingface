@@ -1,9 +1,9 @@
 ---
 ticket: OME-1913
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-11-13
-finished:
+finished: 2026-11-13
 ---
 
 # engine-chart-placement — Garage and the migrate Job use the chart placement
@@ -67,10 +67,38 @@ Epic: OME-1314.
 
 ## Outcome
 
-- **Actual files:** as planned, plus this ledger at the repo-root `docs/work/`.
-- **Commits:** pending.
-- **Gates:** targeted pytest 6 passed. `ruff check`, `ruff format --check` and `pyright` clean on
-  the new test. Default render identical to `origin/main` with a pinned `auth.jwtSecret`. Full
-  gates not yet run.
+- **Actual files:** as planned, plus this ledger at the repo-root `docs/work/` and the
+  `docs/tasks/2026-11-13-OME-1913-engine-chart-placement.md` mirror.
+- **Commits:** (rebased on `468474117`, the #1796 merge)
+  - `93cbb582e` fix(screamingface-engine): run Garage and the migrate Job on the chart's node
+    placement
+  - `a559641dd` docs(tasks): add the OME-1913 mirror and link the ledger
+  - review fixes (#1797, Sergio): the README and `values.yaml` rewraps, the CHANGELOG says that
+    the upgrade alone restarts both Garage pods, the comments say to use `nodeSelector` for
+    node placement, and this Outcome.
+- **Gates:**
+  - Before the rebase: `run_gates.py screamingface-engine` ALL GATES GREEN (append-only, ruff,
+    ruff format, pyright, layering, pytest with coverage >= 80); `run_gates.py repo` ALL GATES
+    GREEN; `verify_chart_wiring.py` 145/145.
+  - After the rebase on `468474117`: the chart tests of #1796 and #1797 together, 36 passed;
+    `verify_chart_wiring.py` passed; the pre-push hook passed.
+  - Default render identical to `origin/main` with a pinned `auth.jwtSecret` (reviewer check on
+    `a559641dd`, helm v3.19.0).
 - **Deviations:** Go template comments, not YAML comments, so the default render stays identical.
   The ledger is at the repo root.
+
+## Before the prod sync (rollout check, not a code test)
+
+Prod already sets `nodeSelector` and `tolerations` for the App and the runner pool. So the first
+sync of a chart version with this change restarts both Garage pods (`<release>-garage`,
+`<release>-garage-blobs`) on the tenant pool.
+
+- Infra facts (OpenMined/infrastructure, read 2026-11-13): the prod cluster is in `eastus`. The
+  AKS module (`terraform/modules/azure/aks/main.tf`) and the prod stack
+  (`terraform/stacks/azure/aks-platform/prod/main.tf`, `extra_pools.tenant`) set no `zones` on any
+  node pool.
+- Not checked: the zone label (`topology.disk.csi.azure.com/zone`) on the two Garage
+  PersistentVolumes. If a volume carries a zone, the tenant pool must have a node in that zone.
+- Action: the platform owner confirms the PersistentVolume zones against the tenant pool before
+  the prod sync. Record the answer here.
+- Evidence after the sync: both Garage pods are Running on the tenant pool on dev first.
