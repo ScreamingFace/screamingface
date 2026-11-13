@@ -20,12 +20,20 @@ the abstract port, so both the control plane and the run mode may import it
 
 from __future__ import annotations
 
+import contextlib
 from abc import abstractmethod
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from datetime import datetime
 
 from screamingface_engine.job_env import RunShape
 from url4.streaming.interfaces import JobRunner
 from url4.streaming.protocol import CachePolicy
+
+
+class StoppedBeforeSchedule(Exception):
+    """`schedule()` found its topic already stopped by a bound stop (E5 P1 spec D12): nothing
+    runs. WHY an error and not a normal return: the start must answer as canceled, and must not
+    log or trace the run as scheduled."""
 
 
 class IdentityAwareJobRunner(JobRunner):
@@ -58,6 +66,11 @@ class IdentityAwareJobRunner(JobRunner):
     ``capture`` and ``replay_frozen_copy`` (OME-1307) are the run's frozen-copy mode: capture a new
     copy, or replay the copy with that id. Both default to a normal run, are never both set, and
     are per RUN for the same reason; they ride the same path as ``answer_seed``.
+
+    ``enqueued_at`` (E5 P1 spec D12) is when the run's deadline starts; ``None`` means when it is
+    queued. A bound start passes its bind moment, which precedes any cancel of it, so the cancel's
+    tombstone outlives every moment the run could still start. A substrate that starts the run at
+    once has no queue wait and ignores it.
     """
 
     @abstractmethod
@@ -76,4 +89,26 @@ class IdentityAwareJobRunner(JobRunner):
         shape: RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        enqueued_at: datetime | None = None,
     ) -> str: ...
+
+    @contextlib.contextmanager
+    def start_attempt(self, topic: str) -> Iterator[None]:
+        """Wrap one start of `topic`, from before its bind until it has scheduled or failed.
+
+        WHY: a substrate that keeps a stop for a topic not yet scheduled (`stop_bound`) needs
+        it only while a start that bound before the cancel can still reach `schedule()`. A
+        start that binds after the cancel is refused at the bind (E5 P1 spec R2). The queue
+        keeps its stop as a tombstone instead, so the default records nothing.
+        """
+        yield
+
+    async def stop_bound(self, topic: str) -> None:
+        """Stop a topic a Run bound (E5 P1 spec D12): one this App queued, or is about to.
+
+        WHY its own method: the Run registry is the durable record that the topic was meant to
+        run, so a substrate that otherwise skips a topic it has no record of scheduling (the
+        queue after an App restart, or before its publish lands) must still keep it from
+        starting. Any other substrate stops it as usual.
+        """
+        await self.stop(topic)

@@ -1,13 +1,13 @@
 ---
 id: OME-1454
 linear_url: https://linear.app/openmined/issue/OME-1454/persist-local-engine-artifacts-and-report-their-serving-directory
-status: in_review
+status: done
 type: task
 priority: high
 labels: [client-sf, agentic, autonomous]
 parent: OME-1294
 created: 2026-10-01
-closed:
+closed: 2026-10-11
 ---
 
 # Persist local Engine artifacts and report their serving directory
@@ -21,3 +21,5 @@ Spec/plan/ledger: `docs/{spec,plan,work}/2026-10-01-runtime-artifacts-split.md`.
 Status hardening ledger: `docs/work/2026-10-01-runtime-status-hardening.md`. Unknown legacy locations provide restart guidance; inaccessible sizes remain null.
 
 Linear implementation notes refreshed on 2026-10-01 for branch `OME-1454-runtime-artifacts`, head `a85dd74c`, 31 focused tests and the final full green gates. Status remains In Review while PR #1217 is open.
+
+Shipped in #1217 (squash-merged as `05ed45b09` on 2026-10-11). Linear is Done. Umbrella OME-1448 closed on 2026-11-04.

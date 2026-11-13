@@ -1,12 +1,13 @@
 ---
 id: OME-1834
 linear_url: https://linear.app/openmined/issue/OME-1834/url4-pass-in-process-subrequests-to-the-endpoint-directly-without-url
-status: in_review
+status: done
 type: improvement
 priority: none
 labels: [url4-engine, agentic, autonomous]
 parent: OME-1314
 created: 2026-11-05
+closed: 2026-11-07
 ---
 
 # url4: pass in-process subrequests to the endpoint directly, without URL encode/decode

@@ -1,0 +1,11 @@
+{
+  "issue": "OME-1309",
+  "branch": "OME-1309-external-rows",
+  "reason": "Owner requested fixing the confirmed review findings. The summary includes external results, so its exact copy assertion changes from Submissions shown to Results shown. No other assertion is relaxed.",
+  "files": {
+    "apps/scoreboard/tests/unit/test_portal_launch_copy.py": {
+      "base_blob": "b78f1c59c3c2db434ce52c7f99cae6a0fa267b97",
+      "approved_blob": "8d8d64ff9dd06a916d244a353c016399c94e03ca"
+    }
+  }
+}

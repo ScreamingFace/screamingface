@@ -11,8 +11,8 @@ observe the run) lives elsewhere; this module only schedules work onto it via
 import asyncio
 import logging
 import math
-from collections.abc import Awaitable, Callable, Iterator, Mapping
-from contextlib import contextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Mapping
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Any
@@ -41,7 +41,7 @@ from screamingface_engine.error_text import (
     ENGINE_ERROR_CODES,
     public_message,
 )
-from screamingface_engine.ports import IdentityAwareJobRunner
+from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
 from screamingface_engine.request_scope import (
     CAPTURE_HEADER,
     REPLAY_FROZEN_COPY_HEADER,
@@ -51,8 +51,15 @@ from screamingface_engine.request_scope import (
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
+from screamingface_engine.rest.runs_boundary import PRIVATE_HEADERS_DOC
+from screamingface_engine.rest.runs_start import (
+    StartBinding,
+    bind_start,
+    canceled_before_schedule,
+)
 from screamingface_engine.rest.selector import X_PROFILE_PARAMETER, refuse_selector
 from screamingface_engine.rest.sessions import RunSessions
+from screamingface_engine.rest.stopping import QUEUE_UNAVAILABLE_RETRY_AFTER_S, stop_topic
 from screamingface_engine.runner_queue import RunQueueUnavailable
 from screamingface_engine.tracing.accept import AcceptSpan
 from screamingface_engine.world.models.registry import decode_route_id
@@ -68,13 +75,6 @@ from url4.streaming.trace import parse_traceparent, valid_traceparent
 router = APIRouter()
 
 _logger = logging.getLogger(__name__)
-
-# WHY 5 and not the capacity path's constant 1: an unreachable broker is a reconnect or a
-# failover in flight, which takes seconds — a client told to retry in 1 s spends its retries
-# inside the outage. There is no drain estimate to derive a better value from.
-# INVARIANT: every "broker down" 503 (unreadable queue tail, unavailable queue at schedule time)
-# uses THIS value; the capacity 503 keeps its drain estimate.
-QUEUE_UNAVAILABLE_RETRY_AFTER_S = 5
 
 _TERMINAL_PROBLEM: dict[str, tuple[int, str, str]] = {
     "failed": (502, "Bad Gateway", "the run failed"),
@@ -297,6 +297,16 @@ async def _refuse_existing(deps: _Deps, topic: str) -> None:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists")
 
 
+@asynccontextmanager
+async def _claim_topic(deps: _Deps, request: Request, topic: str) -> AsyncIterator[StartBinding]:
+    """Refuse a topic already used, then bind it to its Run's Candidate before anything is
+    scheduled (OME-1785, E5 P1 spec R2). The whole start counts as one attempt of the topic, so
+    the runner keeps a cancel's stop for as long as this start could still reach `schedule()`."""
+    with deps.job_runner.start_attempt(topic):
+        await _refuse_existing(deps, topic)
+        yield await bind_start(request, topic)
+
+
 def _named_dynamic_models(url4: str) -> tuple[str, ...]:
     """The dynamically admissible real model ids ``url4`` routes to, sorted.
 
@@ -354,6 +364,7 @@ async def _schedule(
     deadline_s: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
+    enqueued_at: datetime | None = None,
 ) -> None:
     """Schedule the run on the job runner; raise 409 if the runner reports it already exists.
 
@@ -385,6 +396,7 @@ async def _schedule(
             shape=shape,
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
+            enqueued_at=enqueued_at,
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
@@ -394,6 +406,10 @@ async def _schedule(
             len(url4),
             cache,
         )
+    except StoppedBeforeSchedule as exc:
+        # Before the "scheduled" log and the accept span's enqueue: nothing was scheduled. Also
+        # the only signal when the bind's outcome was unknown, so no confirmation follows.
+        raise canceled_before_schedule() from exc
     except JobAlreadyExists as exc:
         raise ProblemException(status=409, title="Conflict", detail="a run already exists") from exc
     except JobRunnerAtCapacity as exc:
@@ -425,10 +441,10 @@ async def _schedule(
     except RunQueueUnavailable as exc:
         # FEATURE: an honest, retryable answer when the run queue is down (OME-948 R5's queue
         # analog, under OME-1086). Before this branch the broker's error escaped as a naked
-        # plain-text 500. Nothing was queued and the reservation is already released, so an
-        # identical retry is safe. The detail is generic: no broker vocabulary for the client.
+        # plain-text 500. An identical retry is safe: the broker deduplicates it on the topic
+        # within its duplicate window. The detail is generic: no broker vocabulary for the client.
         _logger.warning(
-            "run not scheduled topic=%s: the run queue is unavailable", topic, exc_info=True
+            "run start not confirmed topic=%s: the run queue is unavailable", topic, exc_info=True
         )
         raise ProblemException(
             status=503,
@@ -706,12 +722,38 @@ _START_RESPONSES: dict[int | str, dict[str, Any]] = {
             },
         },
     },
-    400: _problem(
-        "The url4 expression query parameter `q` is required, or the request states the "
-        "unsupported `X-Profile` header (`code: x_profile_unsupported`)."
-    ),
-    409: _problem("A run already exists for this topic (single-shot)."),
+    400: {
+        **_problem(
+            "The url4 expression query parameter `q` is required, or the request states the "
+            "unsupported `X-Profile` header (`code: x_profile_unsupported`), or "
+            "`X-SF-Run-Candidate` is not an index of the Run's Candidates "
+            "(`code: malformed_header`)."
+        ),
+        "headers": PRIVATE_HEADERS_DOC,
+    },
+    # The `X-SF-Run` answers depend on who asks, so they carry the `/runs` cache headers.
+    404: {
+        **_problem(
+            "The `X-SF-Run` Run is unknown or not the caller's (`code: run_not_found`, OME-1785)."
+        ),
+        "headers": PRIVATE_HEADERS_DOC,
+    },
+    409: {
+        **_problem(
+            "A run already exists for this topic (single-shot); or, under `X-SF-Run`, the Run was "
+            "canceled (`code: run_canceled`) or the Candidate already started under another "
+            "topic (`code: candidate_already_started`)."
+        ),
+        "headers": PRIVATE_HEADERS_DOC,
+    },
     428: _problem("Attach a WebSocket to the topic before starting the run."),
+    503: {
+        **_problem(
+            "The run queue could not be read or is unavailable; or, under `X-SF-Run`, a cancel "
+            "won while this Candidate started and stopping it failed. Retry after `Retry-After`."
+        ),
+        "headers": {"Retry-After": {"schema": {"type": "integer"}}, **PRIVATE_HEADERS_DOC},
+    },
     502: _problem("The run failed."),
     504: _problem("The run exceeded its 16 h deadline."),
 }
@@ -779,6 +821,24 @@ async def start_run(
     ] = None,
     # Documents the refusal in OpenAPI; `refuse_selector` below is what decides.
     _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
+    # Documented here; `rest.runs_start.bind_start` reads and checks them (E5 P1 spec R2).
+    _x_sf_run: Annotated[
+        str | None,
+        Header(
+            alias="X-SF-Run",
+            description="Optional id of the caller's Run this start belongs to. Sent with "
+            "`X-SF-Run-Candidate`; the start is then bound to that Candidate (404 for a Run not "
+            "the caller's, 409 when canceled or already started).",
+        ),
+    ] = None,
+    _x_sf_run_candidate: Annotated[
+        str | None,
+        Header(
+            alias="X-SF-Run-Candidate",
+            description="The Candidate's zero-based index within `X-SF-Run`. Required with it, "
+            "and refused alone (400 `malformed_header`).",
+        ),
+    ] = None,
     x_answer_seed: Annotated[
         str | None,
         Header(
@@ -858,40 +918,42 @@ async def start_run(
             if len(request.headers.getlist("User-Agent")) == 1
             else None
         )
-        await _refuse_existing(deps, topic)
+        async with _claim_topic(deps, request, topic) as binding:
 
-        async def schedule() -> None:
-            await _schedule(
-                deps,
-                topic,
-                url4,
-                # WHY the accept span's traceparent when one is open (owner decision, option
-                # 1): `url4.run` becomes its child. With no sink, the inbound one, as before.
-                traceparent=accept.traceparent if accept is not None else inbound_traceparent,
-                identity=identity,
-                cache=_converge_cache(deps, topic, cache_control, clock),
-                answer_seed=answer_seed,
-                client_version=client_version,
-                capture=capture,
-                replay_frozen_copy=replay_frozen_copy,
-            )
-            # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
-            # hold is not accept latency, and counting it would hide the queue-wait gap.
-            if accept is not None:
-                accept.scheduled()
+            async def schedule() -> None:
+                await _schedule(
+                    deps,
+                    topic,
+                    url4,
+                    # WHY the accept span's traceparent when one is open (owner decision, option
+                    # 1): `url4.run` becomes its child. With no sink, the inbound one, as before.
+                    traceparent=accept.traceparent if accept is not None else inbound_traceparent,
+                    identity=identity,
+                    cache=_converge_cache(deps, topic, cache_control, clock),
+                    answer_seed=answer_seed,
+                    client_version=client_version,
+                    capture=capture,
+                    replay_frozen_copy=replay_frozen_copy,
+                    enqueued_at=binding.bound_at,
+                )
+                # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
+                # hold is not accept latency, and counting it would hide the queue-wait gap. So it
+                # also ends before a bound start's registry write.
+                _enqueued(accept)
+                await binding.on_scheduled()
 
-        if pref.respond_async:
-            await schedule()
-            return _accepted(topic, capture, replay_frozen_copy)
-        # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps
-        # the reaper disarmed while it waits. ONE block covers gate, schedule and wait, so
-        # every exit — a 503 from admission, the bound, a disconnect, an error — releases it.
-        async with deps.sessions.hold_sync(topic):
-            await _require_subscriber(deps.interest, topic)
-            await schedule()
-            return await _run_sync(
-                deps, topic, pref.wait_s, request.is_disconnected, capture, replay_frozen_copy
-            )
+            if pref.respond_async:
+                await schedule()
+                return _accepted(topic, capture, replay_frozen_copy)
+            # A sync caller is its own audience (PRD 02): the hold makes the gate pass and keeps
+            # the reaper disarmed while it waits. ONE block covers gate, schedule and wait, so
+            # every exit — a 503 from admission, the bound, a disconnect, an error — releases it.
+            async with deps.sessions.hold_sync(topic):
+                await _require_subscriber(deps.interest, topic)
+                await schedule()
+                return await _run_sync(
+                    deps, topic, pref.wait_s, request.is_disconnected, capture, replay_frozen_copy
+                )
 
 
 def _open_accept(request: Request, traceparent: str | None, topic: str) -> AcceptSpan | None:
@@ -905,6 +967,12 @@ def _open_accept(request: Request, traceparent: str | None, topic: str) -> Accep
     if sink is None:
         return None
     return AcceptSpan.open(sink, traceparent, topic=topic)
+
+
+def _enqueued(accept: AcceptSpan | None) -> None:
+    """End the accept span as scheduled, when one is open."""
+    if accept is not None:
+        accept.scheduled()
 
 
 @contextmanager
@@ -946,24 +1014,5 @@ async def stop_run(request: Request, claims: VerifiedClaims, topic: str | None =
             detail="the capability token is not authorized for that topic",
         )
     _logger.info("run stop requested topic=%s", sub)
-    try:
-        await deps.job_runner.stop(sub)
-    except QueueReadError:
-        # V-2: an unreadable tail used to make `stop()` a SILENT no-op, and this handler
-        # fell through to deleting the stream of a possibly-live run while answering 204.
-        # The raise keeps the state unchanged and the answer honest: 503, retryable, and
-        # the stream deletion below does not run.
-        raise ProblemException(
-            status=503,
-            title="Service Unavailable",
-            detail="the run queue could not be read; retry",
-            headers={"Retry-After": str(QUEUE_UNAVAILABLE_RETRY_AFTER_S)},
-        ) from None
-    # WHY delete_stream and not purge: this is the run's terminal teardown, and `delete_stream`
-    # purges the subject on the shared events stream while KEEPING the terminal frame — the
-    # evidence a run ended (the queue's dedupe gate, the runner's own admission bookkeeping, and
-    # a repeated `DELETE /` all read that frame). Plain `purge` drops it too, and an empty
-    # subject reads exactly like a run still queued — there is no per-run stream object left to
-    # tell the two apart in a shared stream (erd.md §5).
-    await deps.stream.delete_stream(sub)
+    await stop_topic(deps.job_runner, deps.stream, sub)
     return Response(status_code=204)

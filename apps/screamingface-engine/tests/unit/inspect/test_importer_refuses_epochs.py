@@ -4,14 +4,17 @@
 """The importer maps any-match epochs to Attempts and refuses every other reducer (OME-1458).
 
 FEATURE: several Attempts per Case. An inspect Task may declare ``epochs=N``: run every
-Sample N times and fold the N scores with a reducer (MBPP: 5 epochs, ``pass_at_1``;
-ZeroBench: 5 epochs, ``pass_at_5``). The Engine asks each Case N times and marks a Check met
-if any Attempt met it, which is what ``max``, ``at_least_1`` and ``pass_at_N`` compute.
+Sample N times and fold the N scores with a reducer (MBPP: 5 epochs, ``mean`` first;
+ZeroBench: 5 epochs, ``pass_at_1`` first). The Engine asks each Case N times and marks a Check
+met if any Attempt met it, which is what ``max``, ``at_least_1`` and ``pass_at_N`` compute; a
+Task whose headline reducer is inspect's own ``pass_at(1)`` scores the mean over the N Attempts
+instead (``docs/spec/2026-11-09-attempts-mean-fold.md``, tested in test_attempts_mean_fold).
 
-INVARIANT: a Task whose every reducer is any-match at N imports as ``attempts=N``; any other
-reducer is refused by name, because importing it would publish a different number from the
-eval's (spec ``docs/spec/2026-10-07-OME-1458-attempts-per-case.md`` §2.6). A Task declaring
-one epoch, with or without a reducer, imports exactly as before.
+INVARIANT: a Task whose every reducer is any-match at N imports as ``attempts=N``, and one whose
+first reducer is ``pass_at_1`` imports as the mean; any other reducer is refused by name, because
+importing it would publish a different number from the eval's (spec
+``docs/spec/2026-10-07-OME-1458-attempts-per-case.md`` §2.6). A Task declaring one epoch, with or
+without a reducer, imports exactly as before.
 
 The tests run the real import child on a stand-in eval written to tmp_path (the
 test_importer_named_scores pattern): they prove the child reads ``epochs`` off the built
@@ -37,7 +40,7 @@ from screamingface_engine_inspect.task_replay import TaskReplayError  # noqa: E4
 
 #: A stand-in eval. Each task is the same one-Sample-per-row exact-match Task, differing only
 #: in the epochs it declares: `any_of_two`, `max_of_two` and `at_least_one_of_three` stand in
-#: for ARC-style any-match Tasks, `pass_at_one_of_five` for MBPP's estimator, `mbpp_like` for
+#: for ARC-style any-match Tasks, `pass_at_one_of_five` for ZeroBench's headline, `mbpp_like` for
 #: averaged epochs with no reducer named, `lab_bench_like` for lab_bench's `Epochs(1, "mode")`.
 #: The review-fix tasks: `at_least_two_of_two` and `pass_at_five_of_two` carry any-match-looking
 #: names at the wrong k, `custom_of_two` a reducer of the eval's own, `half_marks_of_two`
@@ -156,11 +159,14 @@ def test_an_any_match_task_imports_as_that_many_attempts(
     assert replay.facts.attempts == attempts
 
 
-def test_pass_at_one_of_five_is_refused_naming_the_reducer(fake_eval: str) -> None:
-    # WHY: inspect's pass_at_1 over 5 epochs is the unbiased estimator, a different number
-    # from any-of-5 (MBPP's shape), so importing it would publish the wrong score.
-    with pytest.raises(TaskReplayError, match=r"epochs=5 with reducer pass_at_1"):
-        replay_for_import(f"{fake_eval}:pass_at_one_of_five", None)
+def test_pass_at_one_of_five_imports_as_the_mean_over_five_attempts(fake_eval: str) -> None:
+    # WHY (2026-11-09 amendment of OME-1458's D2): inspect's pass_at_1 over 5 epochs is c/5,
+    # the mean of the five marks (ZeroBench's headline), so the import child reads it off the
+    # built Task as 5 Attempts folded by the mean, and the row names the reducer.
+    replay: ImportReplay = replay_for_import(f"{fake_eval}:pass_at_one_of_five", None)
+
+    assert (replay.facts.attempts, replay.facts.epoch_reducer) == (5, "pass_at_1")
+    assert replay.facts.dropped_reducers == ()
 
 
 def test_one_non_any_match_reducer_refuses_the_whole_task(fake_eval: str) -> None:
@@ -272,6 +278,12 @@ IMPOSTOR_EVAL: str = textwrap.dedent(
     @task
     def borrowed_builtin_max_of_two() -> Task:
         return _task(at_least_one_at_half_marks_named_max())
+
+    @task
+    def impostor_pass_at_one_of_five() -> Task:
+        return Task(dataset=json_dataset(DATA, FieldSpec(input="q", target="a", id="id")),
+                    solver=[prompt_template("Answer briefly.\\n\\n{prompt}\\n"), generate()],
+                    scorer=match(), epochs=Epochs(5, first_epoch_named_pass_at(1)))
     """
 )
 
@@ -310,3 +322,10 @@ def test_a_custom_reducer_borrowing_an_any_match_name_is_refused_naming_it(
     # and pass_at code computes any-of-N, so a look-alike would publish a different number.
     with pytest.raises(TaskReplayError, match=rf"epochs=2 with reducer {reducer}"):
         replay_for_import(f"{impostor_eval}:{task_name}", None)
+
+
+def test_a_look_alike_pass_at_one_is_refused_by_its_code(impostor_eval: str) -> None:
+    # WHY (2026-11-09 amendment): the mean-over-Attempts rule is read from inspect's own
+    # pass_at(1) only; a first-epoch reducer logged as pass_at_1 would publish another number.
+    with pytest.raises(TaskReplayError, match=r"epochs=5 with reducer pass_at_1: the name"):
+        replay_for_import(f"{impostor_eval}:impostor_pass_at_one_of_five", None)

@@ -155,7 +155,11 @@ What the pool's pods get:
   default pool reserves a 1 GiB arena and OpenBLAS a buffer per node CPU, address space a run
   never uses but `RLIMIT_AS` counts (a `draco-3pass` run died at 459 MiB resident without them).
 - `nodeSelector` and `tolerations` from the chart's top-level placement values — the pool and
-  the App Deployment therefore use the same operator-owned node pool and taint policy
+  the App Deployment therefore use the same operator-owned node pool and taint policy. The two
+  bundled Garage StatefulSets and the migrate Job use the same two values (not `affinity`, so
+  put them on a node pool with `nodeSelector`, not with a nodeAffinity).
+  Changing placement restarts a Garage pod; when its persistence is on, its volume is zonal,
+  so the new pool needs a node in the volume's zone.
 - a `checksum/runner-env` + `checksum/secret` annotation pair, so a ConfigMap/Secret value
   change alone rolls the pool (the same invariant as the App Deployment)
 - a Prometheus `/metrics` endpoint on `runnerPool.metricsPort` (the worker's own scrape
@@ -174,9 +178,18 @@ drain, its runs closing out as `worker_draining`.
 
 **Admission.** The App admits runs on **queue depth** (OME-1091): a run is refused with 503 +
 `Retry-After` when the queue is at `run_queue_depth_ceiling` or the caller is at its in-flight
-cap. This supersedes the OME-1065 quota-admission feature, which was retired with the Job
+cap. Depth counts **unclaimed** runs only — runs no worker has claimed yet, read from the
+per-bucket consumers. A running run is not depth, although the queue stream holds it until the
+run ends. The `screamingface_engine_queue_depth` and
+`screamingface_engine_queue_oldest_unclaimed_age_s` gauges use the same reading. This supersedes the OME-1065 quota-admission feature, which was retired with the Job
 adapter — the counted resource changed from namespace quota headroom to queue depth, and the
 cache-plus-reservation shape did not.
+
+The per-caller in-flight cap defaults to 24 (OME-1314); set `config.runQueueCallerInflightCap`
+to change it (rendered to the App only). The Client reads the enforced value from
+`GET /v1/limits`. A starting worker applies `runnerPool.maxAckPending` to the existing queue
+consumers in place (`RunQueue.reconcile_consumers`), so a new value takes effect at the next
+runner rollout; running runs stay pending and are not redelivered.
 
 ### Warm children (uniform executor PRD 03)
 
@@ -204,6 +217,135 @@ adds each warm child's excess over its slot's charge (`runnerPool.warmChildCharg
   to start, timed out before READY, or died idle
 - `screamingface_engine_worker_handoff_latency_s` (histogram) — claim to the child's ACK
 - `screamingface_engine_worker_child_boot_s` (histogram) — child spawn to its READY
+
+## Autoscaling the runner pool
+
+Autoscaling is opt-in and off by default (`runnerPool.autoscaling.enabled: false`). With
+autoscaling disabled, the render is byte-identical to a chart without the `autoscaling` block.
+With autoscaling enabled, the chart renders a KEDA `ScaledObject` on `<fullname>-runner`. The
+runner Deployment renders no `spec.replicas`. The HPA owns the replica count, and
+`runnerPool.replicas` is ignored.
+
+**The signal.** The App reads each bucket consumer every `runner_demand_sample_s` (15 s). It serves
+the result on `GET /runner-demand`. For each bucket `b`, the App computes:
+
+```
+running_b   = num_ack_pending                         # delivered, not acked = executing
+queued_b    = num_pending                             # not yet delivered
+headroom_b  = max(0, max_ack_pending_b - running_b)   # how many more this bucket may start
+claimable_b = min(queued_b, headroom_b)
+
+demand  = sum(running_b + claimable_b)
+replicas = ceil(demand / workerSlots)                 # done by the HPA (the KEDA ScaledObject)
+```
+
+The HPA does this exactly only with `scaleUp.tolerance: 0` (the chart default). By default the
+HPA does nothing while `demand / (replicas × workerSlots)` stays within 10 % of 1. Example: 3 pods
+with 4 slots at demand 13 give 13/12 = 1.083, and no 4th pod starts. Scale-down keeps the cluster
+default on purpose, so the pool can stay up to about 10 % above need. That costs money but never
+makes a user wait.
+
+KEDA 2.17 (the AKS add-on, version 2.17.2) drops `scaleUp.tolerance`. On that KEDA the 10 % stall
+comes back. Set `targetPerPod` to 3.6 for 4 slots. The HPA then scales up at every demand above
+the pod capacity. Set `targetPerPod` back to `null` when KEDA 2.18 or later is live.
+
+The signal counts claimable runs, not stream messages. Runs that a bucket's `max_ack_pending`
+holds back cannot be claimed by any pod. Counting them adds pods that stay idle. Example: two pods
+with four slots each run eight runs, and a third caller queues `n` runs. The demand is
+`8 + min(n, 4)`, so the replicas are 3 for any `n` of 1 or more.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | Renders the ScaledObject and omits `spec.replicas` from the runner Deployment. |
+| `minReplicas` | `2` | Lowest replica count. Must be 1 or more. The pool does not scale to zero. |
+| `maxReplicas` | `null` | Highest replica count. Required when `enabled` is `true`. |
+| `pollingIntervalS` | `15` | Seconds between KEDA polls of `/runner-demand`. |
+| `targetPerPod` | `null` | The per-pod target of the HPA metric, in runs per pod. `null` uses `workerSlots`. On KEDA 2.17, set it below `workerSlots / 1.1` (3.6 for 4 slots). Must be above 0 and must not exceed `workerSlots`. |
+| `scaleUp` | 0 s window, 4 pods per 15 s, tolerance 0 | `stabilizationS: 0`, `podsPerStep: 4`, `stepS: 15`, `tolerance: 0`. Scale-up acts at once and exactly. `tolerance` needs Kubernetes 1.35 or later and KEDA 2.18 or later (see the prerequisites). |
+| `scaleDown` | 300 s window, 1 pod per 60 s | `enabled: true`, `stabilizationS: 300`, `podsPerStep: 1`, `stepS: 60`. Scale-down acts slowly. `enabled: false` turns scale-down off (`selectPolicy: Disabled`). |
+
+**The render refuses** these settings:
+
+- `maxReplicas` is not set.
+- `minReplicas` is less than 1. The values schema refuses this value.
+- `minReplicas` is greater than `maxReplicas`.
+- `runnerPool.maxAckPending` is not set. The derived value `replicas × workerSlots` has no meaning
+  when the replica count changes (OME-1142).
+- `runnerPool.drainGraceS` is less than `config.jobDeadlineS` (the longest run, default 57600 s).
+  `terminationGracePeriodSeconds` must then be at least `drainGraceS + 25`, as always.
+- `runnerPool.autoscaling.targetPerPod` is greater than `runnerPool.workerSlots`. A pod cannot run
+  more runs than its slots, so claimable runs would wait.
+- `runnerPool.autoscaling.targetPerPod` is 0 or less. The values schema refuses this value.
+
+Pin `maxAckPending`. A starting worker writes the pinned value to the existing durable consumers in
+place (OME-1880), so a new value takes effect at the next runner rollout. Do not delete the
+consumers. Until the rollout ends, the workers claim up to the old cap. `/runner-demand` reads the
+cap from the broker, so the signal always follows the cap the consumers really have.
+
+Why the drain rule: on scale-down Kubernetes can remove a busy pod while idle pods exist. The drain
+keeps that pod's runs only for `drainGraceS` and then stops them. The chart default (30 s) stops
+almost every real run, so the chart refuses it when autoscaling is on. Prod uses 57600 s.
+
+**Fail-static.** `GET /runner-demand` answers as follows:
+
+- 200 with `{demand, running, claimable, queued, unbound_buckets, sampled_at, age_s}` for a fresh
+  sample that read at least one bound bucket consumer.
+- 503 when there is no sample, or when the sample is older than the App setting
+  `runner_demand_stale_s` (default 30 s).
+- 503 `{"status": "unbound"}` when the fresh sample found no bound bucket consumer (no worker has
+  bound yet, or the consumers were deleted). That sample read no demand. The HPA still applies
+  `minReplicas`, so a new install starts its pods, and they bind the consumers.
+- 404 when the sampler is off (the App setting `runner_demand_sample_s` is `0`; default 15 s).
+
+The two sampler settings are App settings with code defaults (`URL4_CLOUD_RUNNER_DEMAND_SAMPLE_S`,
+`URL4_CLOUD_RUNNER_DEMAND_STALE_S`). This chart renders no value for them on purpose (owner
+decision, 2026-11-10): the defaults fit every environment today. Add chart values when one
+environment needs a different cadence.
+
+A 503 makes the KEDA scaler fail. The HPA then keeps the current replica count. The endpoint never
+answers a `0` that it did not read. No `fallback` is configured. The endpoint has the same exposure
+class as `/metrics`: no auth, aggregate counts only, and no caller, topic or bucket identity.
+
+The App also exports the same numbers as gauges: `screamingface_engine_runner_demand`,
+`screamingface_engine_runner_demand_running`, `screamingface_engine_runner_demand_claimable`,
+`screamingface_engine_runner_demand_queued`,
+`screamingface_engine_runner_demand_unbound_buckets` and
+`screamingface_engine_runner_demand_sample_age_s`. The gauges are absent before the first sample.
+
+**Scale-down.** The preStop drain protects runs on scale-down. Without
+`controller.kubernetes.io/pod-deletion-cost`, the ReplicaSet can pick a busy pod. That pod drains
+for up to `drainGraceS`, while an idle pod stays. The slow scale-down policy limits this cost;
+choosing an idle pod with `pod-deletion-cost` is a follow-up (OME-1871). Until that follow-up
+ships, set `scaleDown.enabled: false` to stop all scale-down. The pool then grows on demand and
+never shrinks by itself.
+
+**Infrastructure prerequisites (OpenMined/infrastructure, devops).**
+
+1. KEDA: enable the AKS add-on (Terraform `workload_autoscaler_profile { keda_enabled = true }`).
+   The operator runs in `kube-system`.
+2. NetworkPolicy in `sf-fusion` (default-deny today): allow the KEDA operator pods to reach the
+   App Service port 9108.
+3. Quota `sf-fusion/ns-ceiling`: the drain model keeps old pods during a rollout, so the quota must
+   hold `2 x maxReplicas` pool pods. Example with `maxReplicas: 3` (6 pool pods):
+   requests.cpu `540m + 6x900m + 100m = 6040m` (> 5), requests.memory
+   `832 + 6x1540 + 128 = 10200Mi` (> 8Gi), limits.memory `3328 + 6x10496 + 512 = 66816Mi`
+   (> 48Gi).
+4. Tenant node pool `max_count` (prod D8as_v7, 1-2): this is new spend. The owner must approve it
+   first.
+5. Argo CD: removing `spec.replicas` from a live Deployment drops it to 1 pod once. Use
+   server-side apply, or `ignoreDifferences` on the runner Deployment's `/spec/replicas`.
+   Draining pods keep their runs (the render enforces `drainGraceS >= config.jobDeadlineS`), so
+   no run is lost. Capacity dips until KEDA acts.
+6. Per-env values: in `values/<env>.yaml`, set `runnerPool.autoscaling.enabled: true`,
+   `minReplicas`, and `maxReplicas`.
+7. KEDA 2.18 or later AND Kubernetes 1.35 or later for `behavior.scaleUp.tolerance`. KEDA 2.18 adds
+   the field to its ScaledObject CRD. Kubernetes 1.35 makes the HPA honor it (feature
+   `HPAConfigurableTolerance`: beta and on by default from 1.35; alpha in 1.33 and 1.34). If one of
+   the two is missing, the API server drops the field without an error, and the 10 % stall comes
+   back. The AKS add-on is KEDA 2.17.2 today, so on AKS set `runnerPool.autoscaling.targetPerPod` to 3.6 (for 4
+   slots) in the values file. Check after the first sync:
+   `kubectl -n sf-fusion get hpa keda-hpa-<fullname>-runner -o jsonpath='{.spec.behavior.scaleUp.tolerance}'`
+   must print `0`. An empty output means the field was dropped. Then `targetPerPod` must be set.
 
 ## A private world config (OME-1770)
 
@@ -382,6 +524,37 @@ Objects expire by **bucket lifecycle rule**, not by the App's sweeper — which 
 mode, because listing objects would need query-string signing beyond what the adapter's signer
 supports. **A bucket with no lifecycle rule never expires artifacts.**
 
+The **run blob store** (OME-1540) has its own store — see [Blob storage](#blob-storage-ome-1540)
+— and in `s3` mode its bucket needs **its own** lifecycle rule: the App never deletes blobs
+there either. Blobs live under `blobs/<tenant>/<run>/<hex>` (plus a `.json` metadata object
+beside each). Without a rule on the blob bucket every upload stays until the blob volume fills,
+and from then on every upload is refused with a 503.
+
+One rule with no prefix filter, expiring after the artifact TTL (`URL4_CLOUD_ARTIFACT_TTL_S`,
+default 48 h, rounded up to whole days because lifecycle rules count in days), serves both
+buckets — apply it to the results bucket and to the blob bucket:
+
+```json
+{
+  "Rules": [
+    {
+      "ID": "expire-after-artifact-ttl",
+      "Status": "Enabled",
+      "Filter": { "Prefix": "" },
+      "Expiration": { "Days": 2 }
+    }
+  ]
+}
+```
+
+Save it as `lifecycle.json` and apply it with any S3 client, once per bucket, e.g.
+`aws s3api put-bucket-lifecycle-configuration --endpoint-url <endpoint> --bucket <bucket>
+--lifecycle-configuration file://lifecycle.json`. With the bundled stores that is the results
+Garage (`<fullname>-garage`, bucket `artifactStorage.s3.bucket`) and the blob Garage
+(`<fullname>-garage-blobs`, bucket `blobs.storage.s3.bucket`), each with its own key pair from
+its own Secret. Check that your store supports lifecycle expiry before relying on it; without
+it, objects grow until removed by hand.
+
 ### Using storage you already run
 
 Set `artifactStorage.s3.endpointUrl` (plus `accessKey`/`secretKey` or `existingSecret`) and leave
@@ -392,6 +565,64 @@ That works with Garage, MinIO, SeaweedFS, Ceph RGW and Cloudflare R2. AWS S3 pro
 path-style in favour of virtual-hosted-style (`bucket.s3.region.amazonaws.com`), so pointing this
 at real AWS S3 may fail — and it fails as a signing/404 error that looks like a credential
 problem. Azure Blob is **not** S3-compatible at all and would need a new adapter behind the port.
+
+## Blob storage (OME-1540)
+
+Files a client uploads over `PUT /blob/sha256/<hex>` for its run's model calls are kept in a
+store **separate from the artifact store** (owner decision 2026-11-03, #1603 review). Upload
+volume is driven by clients — on a self-hosted engine with Access off, by anyone who can mint
+a token — so sharing one store would let uploads fill the space a paid run needs to park its
+result. Separated, **a full blob store fails uploads (503 with `Retry-After`) and never result
+delivery.**
+
+```yaml
+blobs:
+  storage:
+    backend: ""        # "" = the same KIND as artifactStorage.backend, never the same store
+    filesystemDir: ""  # filesystem mode; empty = <tmp>/screamingface-engine/blobs
+    s3:
+      endpointUrl: ""  # empty = the chart's second bundled Garage, below
+      bucket: screamingface-blobs
+      existingSecret: ""
+    garage:
+      persistence:
+        size: 5Gi      # the blob quota
+```
+
+With `artifactStorage.backend: s3` and nothing else set, the chart renders **two** Garages:
+`<fullname>-garage` for results and `<fullname>-garage-blobs` for blobs, each a single-node
+StatefulSet with **its own volume** (`garage.persistence.size` and
+`blobs.storage.garage.persistence.size`) and **its own key pair** (`<fullname>-artifact-storage`
+and `<fullname>-blob-storage`, generated and adopted on first boot exactly as described above).
+The blob Garage's cluster RPC secret is
+**random** (`GARAGE_RPC_SECRET` in `<fullname>-blob-storage`, kept across upgrades by `lookup`),
+not derived from the release name, and only the Garage pod receives it: the App and the runner
+pool read the blob key pair by named `secretKeyRef`, not `envFrom`. With
+`blobs.storage.s3.existingSecret`, that Secret must carry `GARAGE_RPC_SECRET` as well.
+Set `blobs.storage.s3.endpointUrl` to use storage you already run; no blob Garage is rendered
+then, and the render **fails** unless you also supply its credentials —
+`blobs.storage.s3.existingSecret` (recommended; it must carry `URL4_CLOUD_BLOB_S3_ACCESS_KEY` and
+`URL4_CLOUD_BLOB_S3_SECRET_KEY`) or both `accessKey` and `secretKey` — because a generated pair is
+adopted only by the bundled blob Garage. Use a bucket, ideally a volume or quota, distinct from
+the results store's, or the isolation is lost. Both the App and the runner pool carry a
+`checksum/blob-secret` pod annotation, so a chart-owned key rotation rolls both.
+
+**Concurrent first uploads.** The store's first metadata write is create-exclusive: an exclusive
+`link` on the filesystem, a PUT with `If-None-Match: *` on S3. Garage v2.3.0 ignores that
+condition (probed 2026-11-04: a second conditional PUT overwrote and answered 200), so on the
+bundled Garage two uploads of the same new file racing within milliseconds can both answer `201`;
+both hold the same verified bytes and the same record. A conforming S3 (AWS, MinIO) answers `412`
+to the loser, which then answers `200`.
+
+**Network policy.** The blob Garage's pods carry `app.kubernetes.io/component: garage-blobs`, not
+`garage` (a shared value would put them behind the results Garage's Service). A platform
+NetworkPolicy that admits App/runner ↔ Garage traffic by `component: garage` must also admit
+`component: garage-blobs` on port 3900 (S3; and 3901, RPC, if your policy lists it), or every
+blob request times out and uploads answer 503.
+
+**Filesystem mode** is single-process only, like the artifact store: with `config.runner: queue`
+the App refuses to start on a filesystem blob store, because the runner pool cannot read the
+App's disk.
 
 ## Workload hardening
 

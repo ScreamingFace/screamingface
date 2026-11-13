@@ -97,6 +97,8 @@ _D6_CONTROL_FIELDS = {
     "arize_api_key",
     "arize_space_key",
     "arize_space_id",
+    "arize_error_sampling_rate",
+    "arize_success_sampling_rate",
     "posthog_api_key",
     "posthog_host",
     "braintrust_api_key",
@@ -228,6 +230,29 @@ def test_strip_removes_litellm_1_100_dynamic_callback_fields() -> None:
             "langfuse_environment": "attacker-env",
             "newrelic_api_key": "attacker-key",
             "newrelic_region": "attacker-region",
+        },
+    }
+
+    stripped = strip_dispatch_controls(body)
+
+    assert set(stripped) == {"model", "messages", "metadata"}
+    assert stripped["metadata"] == {"trace_id": "safe-provider-metadata"}
+
+
+def test_strip_removes_litellm_1_104_arize_sampling_rates() -> None:
+    # OME-1853: litellm 1.104 added two Arize dynamic params, `arize_error_sampling_rate`
+    # and `arize_success_sampling_rate`. They steer which prompt/response traces Arize
+    # keeps, so a caller setting them turns a chat request into a telemetry control; the
+    # Studio runtime already resolves 1.104.2, where the coverage test below caught them.
+    body = {
+        "model": "openrouter/a/b",
+        "messages": [],
+        "arize_error_sampling_rate": 1.0,
+        "arize_success_sampling_rate": 1.0,
+        "metadata": {
+            "trace_id": "safe-provider-metadata",
+            "arize_error_sampling_rate": 1.0,
+            "arize_success_sampling_rate": 1.0,
         },
     }
 

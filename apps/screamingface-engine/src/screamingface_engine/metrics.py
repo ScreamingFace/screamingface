@@ -285,6 +285,10 @@ class _QueueCollector:
     the alert that would have fired on 2026-09-01, when a stuck pool left runs queued forever.
     Both are read from the queue runner's CACHED snapshot (sync, no broker round trip at
     scrape time).
+
+    INVARIANT: both count only runs no worker has claimed yet. A RUNNING run stays in the
+    queue stream until its ack at the run's end, so the stream's message count is NOT the
+    depth (docs/spec/2026-11-10-queue-depth-unclaimed.md).
     """
 
     def __init__(self, get_runner: Callable[[], Any]) -> None:
@@ -311,7 +315,7 @@ class _QueueCollector:
         if oldest_age is not None:
             yield GaugeMetricFamily(
                 "screamingface_engine_queue_oldest_unclaimed_age_s",
-                "Seconds since the oldest queued run was published.",
+                "Seconds since the oldest unclaimed run was published to the queue.",
                 value=float(oldest_age),
             )
 
@@ -346,6 +350,76 @@ def register_sync_metrics(metrics: Metrics, get_registry: Callable[[], Any]) -> 
 def register_queue_metrics(metrics: Metrics, get_runner: Callable[[], Any]) -> None:
     """Register a `_QueueCollector` for `get_runner` on `metrics.registry`."""
     metrics.registry.register(_QueueCollector(get_runner))
+
+
+class _RunnerDemandCollector:
+    """The runner-demand snapshot as gauges for operators (runner-pool autoscaling, spec D3).
+
+    Read from the sampler's LAST GOOD sample (sync, no broker round trip at scrape time). The
+    scale signal itself is `GET /runner-demand`, not this scrape: production has no Prometheus.
+
+    WHY absent before the first sample, like the queue gauges: a confident 0 at cold start is
+    the false reading the endpoint refuses to give. The series stay after a failed sample, and
+    `..._sample_age_s` keeps growing, so an operator sees a stuck sampler.
+    """
+
+    def __init__(self, get_sampler: Callable[[], Any]) -> None:
+        self._get_sampler = get_sampler
+
+    def collect(self) -> Iterable[Any]:
+        sampler = self._get_sampler()
+        snapshot = getattr(sampler, "snapshot", None)
+        if snapshot is None:
+            return
+        last = snapshot()
+        if last is None:
+            return
+        demand = last[0]
+        for suffix, help_text, value in (
+            (
+                "",
+                "Runs a runner pod could work on now: running plus claimable (the scale signal).",
+                demand.demand,
+            ),
+            (
+                "_running",
+                "Runs delivered to a worker and not yet acked (executing), "
+                "over the bucket consumers.",
+                demand.running,
+            ),
+            (
+                "_claimable",
+                "Queued runs a new worker could claim now, inside each bucket's "
+                "max_ack_pending headroom.",
+                demand.claimable,
+            ),
+            (
+                "_queued",
+                "Runs not yet delivered to a worker, over the bound bucket consumers "
+                "(held-back runs included).",
+                demand.queued,
+            ),
+            (
+                "_unbound_buckets",
+                "Bucket consumers no worker has bound yet; they add 0 to the demand.",
+                demand.unbound_buckets,
+            ),
+        ):
+            yield GaugeMetricFamily(
+                f"screamingface_engine_runner_demand{suffix}", help_text, value=float(value)
+            )
+        age = sampler.age_s()
+        if age is not None:
+            yield GaugeMetricFamily(
+                "screamingface_engine_runner_demand_sample_age_s",
+                "Seconds since the last good runner-demand sample.",
+                value=float(age),
+            )
+
+
+def register_runner_demand_metrics(metrics: Metrics, get_sampler: Callable[[], Any]) -> None:
+    """Register a `_RunnerDemandCollector` for `get_sampler` on `metrics.registry`."""
+    metrics.registry.register(_RunnerDemandCollector(get_sampler))
 
 
 class _MaxDeliveriesCollector:

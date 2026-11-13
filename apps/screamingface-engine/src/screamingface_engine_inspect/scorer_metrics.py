@@ -145,6 +145,31 @@ def any_match_reducers(attempts: int) -> dict[str, Any]:
     }
 
 
+#: inspect's name for ``pass_at(1)``: over N > 1 epochs it is c/N, the mean of the epoch marks
+#: at full value, so a Task declaring it as its headline publishes the mean over N Attempts
+#: (``docs/spec/2026-11-09-attempts-mean-fold.md``). Both the fold and the tally read it.
+MEAN_OVER_ATTEMPTS_REDUCER: str = "pass_at_1"
+
+
+def mean_over_attempts_reducer() -> Any:
+    """inspect's own ``pass_at(1)``, freshly built: the reducer the tally replays for a row that
+    folds its Attempts by the mean."""
+
+    from inspect_ai.scorer import pass_at
+
+    return pass_at(1)
+
+
+def attempts_reducers(attempts: int) -> dict[str, Any]:
+    """Every epoch reducer a row with ``attempts`` above 1 may name, by inspect's log name: the
+    any-of-N three and ``pass_at_1`` (the mean over Attempts), each from inspect's own factory."""
+
+    return {
+        **any_match_reducers(attempts),
+        MEAN_OVER_ATTEMPTS_REDUCER: mean_over_attempts_reducer(),
+    }
+
+
 def score_value_as_float(value: Any) -> float:
     """A Score value read as inspect's default ``value_to_float`` reads it: "C" → 1.0,
     "I" → 0.0, a number as itself — the reading inspect's reducers and metrics share."""

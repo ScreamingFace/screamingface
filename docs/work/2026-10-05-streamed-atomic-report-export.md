@@ -1,9 +1,9 @@
 ---
 ticket: OME-1486
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-10-05
-finished:
+finished: 2026-10-08
 ---
 
 # streamed-atomic-report-export
@@ -87,3 +87,5 @@ notebooks, wheel/sdist build and distribution checks). All 26 focused export/ato
 regressions passed. The initial sandboxed focused run could not set the pre-existing
 setuid fixture bit; the unchanged test passed outside the sandbox, as did the full
 gate runner. No prior tests or assertions were changed, and no paid calls were made.
+
+Closed: #1241 squash-merged as `af1a10024` on 2026-10-08. Closed on 2026-11-04 with the OME-1448 close-out.

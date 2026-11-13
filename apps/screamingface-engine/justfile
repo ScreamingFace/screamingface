@@ -10,3 +10,8 @@ set default-list := true
 # would fail the pre-push hook's two import-cost tests (CI runs without the extra).
 benchmark-bump key:
     uv run --isolated --extra inspect python scripts/benchmark_bump.py {{ key }}
+
+# Which Fidelity Records (docs/benchmarks-fidelity) can still be trusted today: fresh, stale with
+# the value that moved, no record, orphan record. Offline, no model. `--markdown` for a PR table.
+fidelity-check *args:
+    uv run --isolated --extra inspect python scripts/fidelity_check.py {{ args }}

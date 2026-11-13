@@ -101,6 +101,12 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, graded by the authors' exact-match judge.
     "labbench2_figqa2_img": "judged",
     "labbench2_tableqa2_img": "judged",
+    # OME-1855: ZeroBench's main questions, free text graded by the eval's own scorer: the
+    # last curly-braces answer must equal the key exactly.
+    "zerobench": "free_text",
+    # OME-1854: MaCBench mixes multiple choice (several right letters) with numbers, graded
+    # by the eval's own answer-tag scorer, as chembench.
+    "macbench": "mcq",
     "frontierscience": "judged",
     # OME-1269: the first question-filter benchmark — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no draft-feedback offer.
@@ -330,6 +336,8 @@ def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         "lab_bench_tableqa",
         # OME-1479: MathVista shuffles with no seed; the import forces 20260917.
         "mathvista",
+        # OME-1855: ZeroBench shuffles with no seed; the import forces 20260917.
+        "zerobench",
         "frontierscience",
         "onet_m6",
         # OME-1602: UCCB shuffles with no seed; the import forces 20260917.
@@ -338,6 +346,9 @@ def test_benchmarks_whose_eval_shuffles_carry_a_pinned_seed() -> None:
         "truthfulqa_mc1",
         "chembench",
         "stereoset",
+        # OME-1854: MaCBench shuffles each of its 34 subsets with no seed; the import forces
+        # 20260917.
+        "macbench",
     }
 
 
