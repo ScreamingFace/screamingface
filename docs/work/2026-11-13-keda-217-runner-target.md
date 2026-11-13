@@ -1,5 +1,5 @@
 ---
-ticket: none yet (epic OME-1314; no Linear issue in this unit)
+ticket: OME-1912
 stack: screamingface-engine
 status: in-progress
 started: 2026-11-13
