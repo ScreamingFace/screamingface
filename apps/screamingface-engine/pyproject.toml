@@ -84,7 +84,7 @@ inspect = [
     # same board revision can ask different questions. Pinning it here is what makes the
     # version a reviewable decision instead of a resolution accident. A Benchmark's Case
     # Digest is what notices a version that changes its Cases.
-    "datasets==5.1.0",
+    "datasets==5.2.0",
     # WHY here, not in `benchmarks`: MATH's second scorer (expression_exact_match_sympy, the
     # Minerva-style symbolic equivalence) imports sympy at GRADING time, which runs in the
     # deployed Engine, not in the build stage. inspect-evals keeps both behind its own `math`
@@ -94,7 +94,7 @@ inspect = [
     # `parse_latex` raises ImportError on any other runtime version, which fails MATH's symbolic
     # scorer on every Case. Dependabot's minor group moved it to 4.13.2 (#1736) and broke it;
     # restored on OME-1853. Move it only together with a sympy release that accepts it.
-    "antlr4-python3-runtime==4.11.1",
+    "antlr4-python3-runtime==4.13.2",
 ]
 
 # Everything needed to BUILD benchmark assets, on top of what serving needs. Separate from
