@@ -74,7 +74,9 @@ class FetchRequest:
     engine-side by GuardNode, so it never reaches the port.)
     ``max_bytes`` / ``on_chunk`` bound a ``fetch_bytes`` read (the stricter of ``max_bytes`` and
     an adapter's own cap wins; ``on_chunk`` is told each decoded chunk's size as it arrives and
-    raises to abort). Neither is part of the request's identity.
+    raises to abort); ``on_declared`` is told a held body's exact size, or ``None`` for a whole
+    body that cannot be counted before its read, and raises to refuse it (round 11).
+    None is part of the request's identity.
     """
 
     target: str
@@ -83,6 +85,7 @@ class FetchRequest:
     accept: str | None = None
     max_bytes: int | None = field(default=None, compare=False)
     on_chunk: Callable[[int], None] | None = field(default=None, compare=False)
+    on_declared: Callable[[int | None], None] | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -175,11 +178,10 @@ def resolve_shelf[T](mapping: Mapping[str | None, T], collection: str | None) ->
     the default fallback — the spec §5.6.2 unqualified-holdings entry. An
     exact shelf is selected by presence (``is not None``), so a falsy provider
     (e.g. ``""``) is SERVED rather than skipped — the same rule the data path
-    applies to falsy providers. Returns
-    ``None`` when neither key is present, leaving absence handling to the
-    caller (an error, a non-URL4 source, …). One definition so ``@`` and
-    ``@name`` resolve collections identically across adapters and the peer
-    node.
+    applies to falsy providers. Returns ``None`` when neither key is present,
+    leaving absence handling to the caller (an error, a non-URL4 source, …).
+    One definition so ``@`` and ``@name`` resolve collections identically
+    across adapters and the peer node.
     """
     if collection is not None:
         exact = mapping.get(collection)

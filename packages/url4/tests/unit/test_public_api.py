@@ -48,3 +48,15 @@ def test_engine_internals_stay_off_the_front_page():
 def test_render_is_inverse_of_build_from_the_top_level():
     e = url4.expr(url4.src("https://x", name="a", weight=0.9), intent="Summarize $a")
     assert url4.build(url4.render(e)) == e
+
+
+def test_attachment_and_current_attachments_are_root_exports():
+    # FEATURE: image and PDF inputs (OME-1543 U6, owner decision Q-C): a node SDK endpoint
+    # reads the run's files without reaching into url4.dag.
+    from url4.dag.attachment import Attachment
+    from url4.dag.attachments import current_attachments
+
+    assert url4.Attachment is Attachment
+    assert url4.current_attachments is current_attachments
+    assert {"Attachment", "current_attachments"} <= set(url4.__all__)
+    assert url4.current_attachments() == ()

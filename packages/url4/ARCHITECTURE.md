@@ -144,6 +144,29 @@ extra (`url4[streaming]`) because it is pydantic models.
   `id` with no `await` between the check and the store. Do not insert one.
 - **HTTP and in-process dispatch cannot diverge.** `peer/_http.py` reuses
   `peer/_dispatch.py`.
+- **Files ride a run-scoped side-channel, never a string.** `run()` fixes the
+  run's ordered `attachments[]` before the first node executes: the Case's files,
+  then every file ref the AST names, each fetched and sha256-verified once into a
+  per-run cache (`dag/attachments.py`, `OME-1543`). Every in-process model call
+  reads the same tuple (`current_attachments()`, `Request.attachments`); nodes
+  cannot add, drop or reorder it, `Payload` stays `str`, and nothing scans a
+  payload for ref-shaped text. An HTTP ingress detaches it, so attachments are
+  never shipped to a remote node. An `https://` source whose `;accept=` is exactly
+  one of `image/png`, `image/jpeg`, `image/gif`, `image/webp`, `application/pdf`
+  is an **attachment source** (#1450 F1b rounds 7–8): it is fetched once per
+  identity (URL, accept, guard policy) as bytes before the first model call, from
+  a reachability-aware manifest (`dag/source_scan.py`, `dag/_materialize.py`); its
+  bare Content-Type must equal that type; it is listed in preorder; execution only
+  reads it. Every other `http(s)://` source is a text source: lazy as before and
+  never attached, whatever its body. The caps (20 entries, 8,000,000 bytes over the
+  whole list) are charged on every adding path while the list is built
+  (`dag/_caps.py`); nothing adds after the run starts. The byte cap is one live
+  budget the concurrent flights draw from as bytes arrive (`FetchRequest.on_chunk`),
+  so a breach stops every read within about one chunk per flight; run-start blob reads
+  draw from the same budget. Reachability is decided by one collection-shape resolver
+  (`dag/_collection_shape.py`) shared by the static check and admission. A pre-built
+  `Graph`/`DagNode` has no AST to admit files from, so `run()` refuses one that names
+  any attachment-capable source before any I/O (`dag/_graph_admission.py`, fail closed).
 - **The engine names no transport at module scope.** `HttpIOLayer` is imported
   lazily in `dag/_run.py`.
 

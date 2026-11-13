@@ -85,6 +85,12 @@ from url4.dag._wiring import (  # isort: skip
     _slot_specs,
 )
 from url4.dag.node import DagNode, node_children  # isort: skip
+
+# WHY: redundant aliases re-export the iteration-template reading from its own module,
+# so every ``url4.dag._lowering.<name>`` import path keeps working.
+from url4.dag._iteration_refs import _ROW_NAMES as _ROW_NAMES  # isort: skip
+from url4.dag._iteration_refs import _body_intent_refs as _body_intent_refs  # isort: skip
+from url4.dag._iteration_refs import _body_ref_edges as _body_ref_edges  # isort: skip
 from url4.dag.nodes.blob import BlobRefNode, as_collection  # isort: skip
 from url4.dag.nodes import (  # isort: skip
     BindingNode,
@@ -300,14 +306,6 @@ def _lower_expression(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     return GuardNode(group, deps=dict(edges)) if edges else group
 
 
-_ROW_NAMES = frozenset({"item", "current", "index"})
-"""Reserved per-row names, including the SDK index extension.
-
-Both text and AST iteration bodies exclude these from enclosing dependency capture.
-Ordinary AST references still retain `index`, which is only reserved inside iteration.
-"""
-
-
 def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     assert isinstance(node, Iteration)
     collection = _lower_collection(node.collection, edges, registry)
@@ -328,36 +326,6 @@ def _lower_iteration(node: Node, edges: Edges, registry: LoweringRegistry) -> Da
     return CollectNode(deps={"rows": map_node})
 
 
-def _body_intent_refs(body: str, intent: str | None) -> set[str]:
-    """The `$name`s an iteration's body and per-row intent mention, minus the reserved row names.
-
-    INVARIANT: the ONE reading of an iteration's template strings. Both compilation paths need
-    it — `_body_ref_edges` at lowering time and `_refs_of_ast` when collecting a slot's
-    references — and if they ever disagree about which names an iteration rebinds for itself,
-    the AST path silently stops wiring an outer binding while the text path keeps working. That
-    divergence is invisible: the reference substitutes VERBATIM and the run still succeeds.
-    """
-    return (find_references(body) | (find_references(intent) if intent else set())) - _ROW_NAMES
-
-
-def _body_ref_edges(body: str, intent: str | None, edges: Edges) -> dict[str, DagNode]:
-    """Reference edges for the `$name`s an iteration's body and per-row intent mention.
-
-    INVARIANT: ``item``, ``current`` and ``index`` are reserved row names, excluded here.
-    They are rebound by :class:`~url4.dag.nodes.MapNode`; wiring one to an enclosing binding of
-    the same name would let an outer value capture the row and silently iterate the wrong data.
-
-    An edge is added only for a name the enclosing group actually declares, so a body that
-    references nothing gains no dependency and keeps its previous concurrency.
-    """
-    wired: dict[str, DagNode] = {}
-    for ref in sorted(_body_intent_refs(body, intent)):
-        key = f"pos:{ref}" if ref.isdigit() else f"bind:{ref}"
-        if key in edges:
-            wired[key] = edges[key]
-    return wired
-
-
 def _lower_collection(node: Node, edges: Edges, registry: LoweringRegistry) -> DagNode:
     """Lower an iteration's collection source (spec §5.3.7 / §5.3.11).
 
@@ -374,7 +342,26 @@ def _lower_collection(node: Node, edges: Edges, registry: LoweringRegistry) -> D
     if isinstance(node, Expression) and node.intent is None and not node.broadcast:
         slots = [_slot_from_ast(source, registry) for source in node.sources]
         return _inline_collection(slots)
+    if (bound := _bound_blob(node, edges)) is not None:
+        return bound
     return as_collection(registry.lower(node, edges))  # a blob ref here is text (D4)
+
+
+def _bound_blob(node: Node, edges: Edges) -> DagNode | None:
+    """``$x*(…)`` with ``x`` bound to a file ref: that use site reads the blob as a collection.
+
+    FEATURE: file refs (``OME-1543``, plan §2.9; #1482 deviation 4). WHY its own node at the use
+    site: the binding's node yields the ref TEXT (F2); reading the same address with
+    ``collection=True`` yields the blob's text body (D4) or C8. Structure only — the edge is
+    the enclosing binding's lowered node, never a payload string.
+    """
+    if not isinstance(node, VarRef) or node.path:
+        return None
+    binding = edges.get(f"bind:{node.name}")
+    value = binding.deps.get("value") if isinstance(binding, BindingNode) else None
+    if not isinstance(value, BlobRefNode):
+        return None
+    return BlobRefNode(value.address, collection=True)
 
 
 def default_registry() -> LoweringRegistry:
