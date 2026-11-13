@@ -105,7 +105,7 @@
     }
 
     specIdNode.textContent = specId;
-    backLink.setAttribute("href", "benchmark.html?id=" + encodeURIComponent(benchmarkId));
+    backLink.setAttribute("href", P.boardHref(benchmarkId));
     setBenchmarkName(benchmarkId);
     document.title = specId + " — screamingface";
 
