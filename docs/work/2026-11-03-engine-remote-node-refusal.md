@@ -198,10 +198,24 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   the 3 empty-comma texts complete with main's values; no private-transport stub, so the engine's
   private-import ratchet stays at 7). RED on 863e27fff: 13 url4 + 6 engine. Rounds 5-7 tests and
   the 12-text corpus re-run green.
-  Current behaviour, recorded: (a) ACCEPTED FALSE REFUSAL — under a node policy a holdings (or
+  Recorded: (a) ACCEPTED FALSE REFUSAL — under a node policy a holdings (or
   any verbatim) context that compiles to a real `url4://` call is refused even when sent to a
   normal route, which would only receive it as text; the walk cannot tell which route is the
-  node's eval path. (b) BOUNDARY (the owner may still change it) — text that becomes an
+  node's eval path. (b) KNOWN LIMIT, owner-accepted and documented (2026-11-14) — text that becomes an
   expression only at the eval path (`/v1`), i.e. a quoted literal or a `$name` value sent there,
   is not an expression in the outer run; it is checked by the inner run's own precheck, with zero
   DNS lookups and zero requests, but after the outer run's siblings ran.
+- **Round 9 (2026-11-14, security review of 623e8305b):** three fail-open paths in
+  `_remote_walk.py`, all fixed. (1) HIGH: a holdings context (no scan) was given prose mode and,
+  on a compile failure, an empty scan; now a holdings context is a fragment — any compile failure
+  adds its unquoted `url4://` URIs as `maybe` calls, and a too-deep one naming none is refused
+  `malformed_source`. Only TRUE prose (no holdings ref, has a scan) may fall back to its scan. (2)
+  HIGH: a `RecursionError` on a prose context skipped the URI check; now a too-deep compile always
+  adds its URIs first, and only true prose naming none falls back to its scan. (3) MEDIUM: units
+  and the prose table were keyed by text alone, so a map/lazy fragment equal to a context's
+  `(context)` could inherit prose mode; keys are now `(kind, text)` and fragments never use prose
+  mode. Tests (new file only): url4 `test_remote_node_context_fail_closed.py` — a holdings context
+  that does not compile and names `url4://`; too-deep holdings and prose contexts naming `url4://`;
+  a too-deep holdings context naming none (`malformed_source`); a map body equal to a prose
+  context; control: that prose context alone still runs. RED on 623e8305b: 5 of 6 (the control
+  green). Round-6 prose pins and rounds 5-8 tests green.
