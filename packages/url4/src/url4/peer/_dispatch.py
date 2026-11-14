@@ -171,12 +171,9 @@ async def dispatch_result(node: Url4Node, target: str) -> FetchResult:
 
 
 def eval_expression(node: Url4Node, target: str) -> tuple[str, str | None] | None:
-    """``(expression, processor)`` the eval path runs for ``target``; ``None`` if not routed there.
+    """``(expression, processor)`` the eval path runs for ``target`` (the precheck's port).
 
-    INVARIANT (OME-1811 round 10): the SAME routing and reassembly :func:`dispatch_result` runs —
-    an endpoint wins its exact path, a call with no ``q=`` runs nothing — so the remote-node
-    precheck compiles exactly what the eval path will.
-    """
+    INVARIANT (OME-1811 r10): exactly :func:`dispatch_result`'s routing and reassembly."""
     path, sep, query = target.partition("?")
     if path in node._endpoints or not node._is_eval_path(path) or not sep:
         return None
@@ -185,8 +182,7 @@ def eval_expression(node: Url4Node, target: str) -> tuple[str, str | None] | Non
 
 
 def _eval_parts(q: str, params: Mapping[str, str]) -> tuple[str, str | None]:
-    # AIDEV-NOTE: `processor` is consumed here, not re-attached by
-    # `reassemble` — it selects this run's processor, not an expression param.
+    # AIDEV-NOTE: `processor` selects this run's processor; `reassemble` never re-attaches it.
     return reassemble(q, params), params.get("processor")
 
 

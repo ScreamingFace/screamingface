@@ -178,6 +178,7 @@ async def run(
         )
     _validate_concurrency(concurrency)
     run_ctx, owned_io = _run_context(io, ctx, processor, process, strict_fields)
+    world = run_ctx.io  # the io world itself, for the remote precheck's eval-path port (OME-1811)
     if concurrency is not None:
         # Wraps only run_ctx's (private, freshly-built-or-childed) io reference,
         # never the caller-supplied ctx.io directly — same non-mutation
@@ -192,7 +193,7 @@ async def run(
         # dependency runs (``_run_start``'s precheck), and one a guard or row policy caught at
         # run time still fails the run (``reraise_refusals_since``).
         mark = refusal_mark()
-        start = await _run_start(target, attachments, run_ctx, registry)
+        start = await _run_start(target, attachments, run_ctx, registry, world=world)
         with bind_run_files(
             start.slots, start.cache, manifest=start.manifest, prefetched=start.prefetched
         ):

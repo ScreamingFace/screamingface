@@ -57,6 +57,8 @@ async def _run_start(
     case: Sequence[Attachment],
     run_ctx: ExecutionContext,
     registry: LoweringRegistry | None = None,
+    *,
+    world: object = None,
 ) -> RunStart:
     """The run's fixed ``attachments[]``, resolved and capped BEFORE the first node runs.
 
@@ -89,7 +91,7 @@ async def _run_start(
     if current_run_files() is not None:
         # INVARIANT (PR #1587 review round 15, F1b): a nested run reuses the outer files but
         # still refuses its own structural remote calls before any of its members run.
-        await _precheck_remote(run_ctx, target, registry)
+        await _precheck_remote(run_ctx, target, registry, world)
         return RunStart(tuple(case))
     refs = () if scan is None else scan.refs
     if scan is not None:
@@ -97,7 +99,7 @@ async def _run_start(
     refuse_remote(refs)
     # INVARIANT (PR #1587 review round 14, F1b): EVERY run — text-only too — so no local
     # endpoint, model or sibling runs before a structurally known remote call refuses.
-    await _precheck_remote(run_ctx, target, registry)
+    await _precheck_remote(run_ctx, target, registry, world)
     if scan is not None and scan.non_literal:  # owner decision C: before any I/O
         raise not_static(scan.non_literal[0])
     occurrences = () if scan is None else scan.occurrences
@@ -132,6 +134,7 @@ async def _precheck_remote(
     run_ctx: ExecutionContext,
     target: str | AstNode | Graph | DagNode,
     registry: LoweringRegistry | None,
+    world: object = None,
 ) -> None:
     """C6 (finding 4): a node context refuses a remote-node call before ANY I/O — so before the
     attachment phase and before any member, not when the call executes. The run's literal
@@ -146,10 +149,11 @@ async def _precheck_remote(
     scan shortcut (rounds 5/6) missed a shape and let a local member run first. A fragment that
     does not compile adds its unquoted ``url4://`` URIs as ``maybe`` calls (FAIL CLOSED).
     WHY the io world (round 10, owner): a call to the node's own eval path is walked as exactly
-    what that path runs, and its ``processor=`` is read like the run's own (``maybe``).
+    what that path runs, and its ``processor=`` is read like the run's own (``maybe``). ``world``
+    is the unwrapped io world (``run_ctx.io`` may be the bounded wrapper, which has no such port).
     """
     processor = await _processor_hop(run_ctx.processor, run_ctx, registry)
-    walk = RemoteWalk(registry, run_ctx.io)
+    walk = RemoteWalk(registry, run_ctx.io if world is None else world)
     if isinstance(target, (Graph, DagNode)):
         calls = walk.graph(target)
     else:

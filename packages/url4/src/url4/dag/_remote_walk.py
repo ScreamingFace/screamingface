@@ -39,10 +39,10 @@ import re
 from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from typing import Protocol, runtime_checkable
 
 from url4.core.errors import ErrorCode, ParseError, Url4Error
 from url4.core.nodes import Node as AstNode
-from url4.io.layer import SupportsEvalPath
 
 from url4.dag._graph_admission import kept_text_scan  # isort: skip
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
@@ -63,6 +63,20 @@ _CONTEXT = "context"  # a verbatim call context, as ``(context)``: prose only if
 _EVAL = "eval"  # what the node's own eval path runs for a call (round 10): compiled as run()
 Key = tuple[str, str]
 _ROOT: Key = ("root", "")  # the text or graph a precheck starts from
+
+
+@runtime_checkable
+class SupportsEvalPath(Protocol):
+    """The optional io port: what the world's own eval path RUNS for a relative ``target``.
+
+    ``eval_expression(target)`` is ``(expression_text, processor)`` for a target the world
+    dispatches to its eval path, else ``None`` (round 10). INVARIANT: the adapter owns the answer
+    (``Url4Node`` uses its own dispatch and reassembly), so this precheck never copies them.
+    WHY declared here: the engine defines the port it consumes; the node implements it
+    structurally and never imports the engine (layering).
+    """
+
+    def eval_expression(self, target: str) -> tuple[str, str | None] | None: ...
 
 
 @dataclass
@@ -255,4 +269,4 @@ def _unquoted(text: str) -> str:
     return _QUOTE_RUN.sub(" ", text)
 
 
-__all__ = ["RemoteWalk"]
+__all__ = ["RemoteWalk", "SupportsEvalPath"]

@@ -224,11 +224,13 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   a call to the node's own eval path. (1) A verbatim context such as
   `'r1' *(url4://…($item)!'i') zz(y)!'p'` is prose as `(context)` but an iteration once `/v1`
   runs `(context)!intent` (`peer/_dispatch.py` + `_reassemble.py`). (2) A `processor=` param on a
-  `/v1` call (`;processor=url4://…` or `?processor=…&q=`) was never read. Fix: a new optional io
-  port `url4.io.layer.SupportsEvalPath.eval_expression(target)`, implemented by `Url4Node` with
-  its OWN dispatch code (`_dispatch.eval_expression`, sharing `_eval_parts` with
-  `dispatch_result`: endpoint-first routing, `/v1` and `/v1/<collection>`, `reassemble`), and
-  forwarded by `BoundedIOLayer`. `RelUrlNode.static_target()` rebuilds the target the call
+  `/v1` call (`;processor=url4://…` or `?processor=…&q=`) was never read. Fix: a new optional port
+  `SupportsEvalPath.eval_expression(target)`, declared by its consumer (`dag/_remote_walk.py`;
+  the engine may name io only through `url4.io.layer`, and that module is at its size cap) and
+  implemented structurally by `Url4Node` with its OWN dispatch code (`_dispatch.eval_expression`,
+  sharing `_eval_parts` with `dispatch_result`: endpoint-first routing, `/v1` and
+  `/v1/<collection>`, `reassemble`). `run()` hands the precheck the unwrapped io world (`world=`),
+  since `BoundedIOLayer` forwards no such port. `RelUrlNode.static_target()` rebuilds the target the call
   requests (`SubrequestCall.encode`) when it is known before the run. Under a policy the walk
   compiles that exact text as `run()` does and walks it; the `processor=` value is read like the
   run's own (literal or static `url4://` → `maybe` hop; an expression's graph walked; a malformed

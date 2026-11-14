@@ -27,7 +27,6 @@ from url4.io.layer import (
     FetchResult,
     IOLayer,
     SupportsDefaultRoute,
-    SupportsEvalPath,
     SupportsFetchEx,
     SupportsHoldings,
     SupportsProcessorRoutes,
@@ -134,7 +133,6 @@ class BoundedIOLayer:
     fetch_holdings: Callable[[str | None, str | None], Awaitable[str]]
     processor_routes: Callable[[], Sequence[str]]
     has_code: Callable[[str], bool]
-    eval_expression: Callable[[str], tuple[str, str | None] | None]
     invoke_code: Callable[[CodeCall], Awaitable[object]]
 
     def __init__(self, inner: IOLayer, limit: int) -> None:
@@ -154,8 +152,6 @@ class BoundedIOLayer:
         if isinstance(inner, SupportsCode):
             # Not bounded either: in-process code is not I/O (url4 2.0 code mounts).
             self.has_code, self.invoke_code = inner.has_code, inner.invoke_code
-        if isinstance(inner, SupportsEvalPath):  # not I/O: the remote precheck reads it (OME-1811)
-            self.eval_expression = inner.eval_expression
 
     async def fetch(self, target: str, *, relative: bool) -> str:
         async with self._admitted():
