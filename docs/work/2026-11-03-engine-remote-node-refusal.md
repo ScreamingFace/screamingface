@@ -153,3 +153,27 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   controls, too-deep compile fail-closed), engine `test_engine_remote_node_call_context.py`
   (5 refused cases + quoted control). RED on 174ba12f9: 10 url4 + 6 engine; 4 url4 controls
   green throughout. No ratchet / `url4.dag.__all__` change.
+- **Round 7 (2026-11-14, independent re-check of 84b8bb310; owner decision "always compile"):**
+  the strict scan still missed (1) a remote call in an iteration's per-row intent
+  (`_walk_iteration` never walks `node.intent`, but the map spawns `(body)!intent`), plain, over
+  `https://` rows (the rows were fetched first), in a group, and in a map inside a map; and (2) a
+  holdings context sent to the node's own eval path (`/v1(@, url4://…)`), which the scan skips.
+  Round 6 also regressed (3): a run-text `RecursionError` inside the precheck was read as "no
+  calls", and at one exact depth `/a` ran. Fix: under a remote-node policy `RemoteWalk` ALWAYS
+  compiles — the run text as `run()` does, every `MapNode.fragment` / `LazyExprNode.text` and a
+  holdings context (`(context)`) as the spawn hook does — and walks those graphs; no scan-first
+  shortcut. `SourceScan.opaque` (rounds 5/6) is removed, so `source_scan.py` matches main again.
+  A compile that cannot finish (`RecursionError`, run text or fragment) adds its unquoted
+  `url4://` URIs as `maybe` calls, or, naming none, is refused `malformed_source` (permanent).
+  The quote-blanking regex fallback for uncompilable fragments stays. Also coded the raw
+  `AssertionError` in `core/descriptor_head.deferrable_group` (`{"k":"it's"}` body) as a
+  `ParseError` (`assert in src` ratchet count drops by one). Tests (new files only): url4
+  `test_remote_node_compile_first_preflight.py` (5 refused shapes, a 12-text corpus checked both
+  ways — refused for free under the policy, and really calling the peer without one — 2 controls,
+  too-deep run text and fragment, the descriptor row error), engine
+  `test_engine_remote_node_compile_first.py` (4 refused shapes + control; the too-deep case is
+  url4-only: patching url4's private walk from the engine would grow its private-import ratchet,
+  7). RED on 84b8bb310: 10 url4 + 4 engine. Precheck cost on the deep lazy chain (blind group +
+  N nested groups), CPython 3.13: N=300 0.8 s (bare run 0.8 s; policy run 1.6 s); N=900 6.9 s
+  (bare run 7.0 s; policy run 13.9 s) — the same quadratic compile the run itself does, once
+  more; no hang, no stack overflow. No `url4.dag.__all__` / hygiene-ratchet file change.

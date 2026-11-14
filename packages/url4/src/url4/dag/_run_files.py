@@ -89,7 +89,7 @@ async def _run_start(
     if current_run_files() is not None:
         # INVARIANT (PR #1587 review round 15, F1b): a nested run reuses the outer files but
         # still refuses its own structural remote calls before any of its members run.
-        await _precheck_remote(scan, run_ctx, target, registry)
+        await _precheck_remote(run_ctx, target, registry)
         return RunStart(tuple(case))
     refs = () if scan is None else scan.refs
     if scan is not None:
@@ -97,7 +97,7 @@ async def _run_start(
     refuse_remote(refs)
     # INVARIANT (PR #1587 review round 14, F1b): EVERY run — text-only too — so no local
     # endpoint, model or sibling runs before a structurally known remote call refuses.
-    await _precheck_remote(scan, run_ctx, target, registry)
+    await _precheck_remote(run_ctx, target, registry)
     if scan is not None and scan.non_literal:  # owner decision C: before any I/O
         raise not_static(scan.non_literal[0])
     occurrences = () if scan is None else scan.occurrences
@@ -129,7 +129,6 @@ def _refuse_before_io(target: str | AstNode | Graph | DagNode, processor: str | 
 
 
 async def _precheck_remote(
-    scan: SourceScan | None,
     run_ctx: ExecutionContext,
     target: str | AstNode | Graph | DagNode,
     registry: LoweringRegistry | None,
@@ -139,13 +138,13 @@ async def _precheck_remote(
     ``url4://`` reduce processor (a run option or a node default) is the same remote-node call,
     checked here too (owner 2026-11-04). WHY every run (review round 14): a text-only run once
     executed a local endpoint before its remote sibling or remote processor refused.
-    WHY the pre-built walk (review round 15): a ``Graph`` / ``DagNode`` has no AST (``scan`` is
-    ``None``), so its ``RemoteFetchNode`` s and the remote calls in its kept text are collected
-    from the graph itself; a precompiled mixed graph once ran a local endpoint first.
-    WHY the compiled-graph fallback (PR #1750 round 5): a text the strict parse cannot fully read
-    (the run's text, a lazy group, a map body) is compiled and walked instead
-    (:mod:`url4.dag._remote_walk`); once a local member ran before such a call refused. A
-    fragment that does not compile adds its ``url4://`` URIs as ``maybe`` calls (FAIL CLOSED).
+    WHY the pre-built walk (review round 15): a ``Graph`` / ``DagNode`` has no AST, so its
+    ``RemoteFetchNode`` s and the remote calls in its kept text are collected from the graph
+    itself; a precompiled mixed graph once ran a local endpoint first.
+    WHY always the compiled graph (PR #1750 round 7, owner): the run text and every fragment it
+    spawns are compiled as they will run and walked (:mod:`url4.dag._remote_walk`); each strict-
+    scan shortcut (rounds 5/6) missed a shape and let a local member run first. A fragment that
+    does not compile adds its unquoted ``url4://`` URIs as ``maybe`` calls (FAIL CLOSED).
     """
     processor = await _processor_hop(run_ctx, registry)
     walk = RemoteWalk(registry)
@@ -153,7 +152,7 @@ async def _precheck_remote(
         calls = walk.graph(target)
     else:
         # WHY bare_root_ok=False: compiled exactly as ``run()`` will compile it (``_to_node``).
-        calls = walk.text(scan, target, bare_root_ok=False)
+        calls = walk.text(target, bare_root_ok=False)
     calls = (*calls, *_processor_expression_calls(run_ctx.processor, walk))
     precheck_remote_nodes(
         calls,
@@ -197,16 +196,15 @@ def _processor_scan(value: str | None) -> SourceScan | None:
 def _processor_expression_calls(value: str | None, walk: RemoteWalk) -> tuple[tuple[str, str], ...]:
     """The structural ``url4://`` calls inside a Form-3 (expression-valued) processor.
 
-    INVARIANT (PR #1587 review round 10, owner 2026-11-05): an expression processor is parsed
-    and given the SAME structural remote-call scan as the run's own expression, so a remote call
-    in its AST is refused before any run-start I/O; only its computed FINAL value stays checked
-    when it resolves. A map body there the strict grammar cannot read is walked compiled, as the
-    processor's spawn compiles it (PR #1750 round 5).
+    INVARIANT (PR #1587 review round 10, owner 2026-11-05): an expression processor passes its
+    grammar gate (:func:`_processor_scan`, FAIL CLOSED) and gets the SAME remote-call walk as the
+    run's own expression — compiled as its spawn compiles it (PR #1750 round 7) — so a remote call
+    in it is refused before any run-start I/O; only its computed FINAL value stays checked when it
+    resolves.
     """
-    scan = _processor_scan(value)
-    if value is None or scan is None:
+    if value is None or _processor_scan(value) is None:
         return ()
-    return walk.text(scan, value.strip(), bare_root_ok=True)
+    return walk.text(value.strip(), bare_root_ok=True)
 
 
 def _refuse_processor_files(value: str | None) -> None:

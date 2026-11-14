@@ -17,6 +17,7 @@ from url4.core._annotations import classify_boundary, split_annotation_pairs, va
 from url4.core._lexical import _IDENT_RE, reject_chained_intent
 from url4.core._scan import balanced_body, iter_top_level, split_top_level
 from url4.core._splitters import split_intent
+from url4.core.errors import ErrorCode, ParseError
 
 __all__ = [
     "HeadForm",
@@ -75,7 +76,11 @@ def deferrable_group(segment: str) -> tuple[str | None, str, str] | None:
         return None
     name, kind, value = binding
     intent = split_intent(value)[1]
-    assert intent is not None  # is_processed_group checked the `)!`
+    if intent is None:
+        # WHY not an assert (OME-1811 round 7): ``is_processed_group`` and ``split_intent`` read a
+        # stray quote differently (``{"k":"it's"}``), so this is reachable from user text; a raw
+        # AssertionError escaped a node-policy run. It is a malformed source.
+        raise ParseError(f"group {value!r} has no readable intent", code=ErrorCode.MALFORMED_SOURCE)
     reject_chained_intent(intent)
     validate_params(pairs)
     return name, kind, ";".join([value, *chain])

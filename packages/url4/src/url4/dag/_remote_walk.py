@@ -1,27 +1,29 @@
-"""The structural ``url4://`` calls of a run's text or graph: the run-start precheck's input.
+"""The structural ``url4://`` calls a run makes: the run-start remote precheck's input.
 
 FEATURE: file inputs for url4 (epic ``OME-1529``); #1450 spec F1b / §4, conformance case C6.
 STORY: as a node operator, a run that names another node is refused before my node runs
-anything for it, even when its text holds a nested group the strict grammar rejects but the
-engine compiles (``(('r1','r2')*(/b($item)!'i'))!'g'``), in a group, a map body or a call's
-context.
+anything for it, wherever its text puts the call: a group the strict grammar rejects, a call's
+context, an iteration's per-row intent, a holdings context sent to my own evaluation path.
 
-INVARIANT (PR #1750 rounds 5/6, owner "fallback graph walk"): the strict scan
-(:mod:`url4.dag.source_scan`) is used only where it read the WHOLE text. A text it could not
-fully read — the run's text, a deferred group (``LazyExprNode.text``), a map body
-(``MapNode.fragment``, whole: a segment may compile only inside it), any of them holding such a
-segment in a call's context — is compiled exactly as ``run()`` or the spawn hook compiles it,
-and that graph is walked. Every call found feeds the ONE precheck
-(:func:`url4.dag.remote_nodes.precheck_remote_nodes`).
-INVARIANT (FAIL CLOSED, round 5 security review): a fragment that does not compile (or is too
-deep to compile) is not call-free when it names ``url4://`` OUTSIDE quotes: each such URI becomes
-a ``maybe`` call (refused unless it is a client's still-unspent hop). Quoted text is data, never a
-call (C4), so a quoted mention adds nothing (round 6). The run's own text is exempt: if it does
-not compile, ``run()`` fails before any node executes.
-INVARIANT (round 6): the walk is iterative — a deeply nested run must never escape ``run()`` as a
-raw ``RecursionError`` under a node policy when it runs fine without one.
-WHY policy-gated compiles: outside a node context the precheck refuses nothing, so a bare
-``url4.run()`` compiles nothing extra.
+INVARIANT (PR #1750 round 7, owner decision "always compile"): under a remote-node policy the
+precheck never trusts the strict scan. It compiles the run text exactly as ``run()`` does and
+every fragment the graph will spawn (``MapNode.fragment``, ``LazyExprNode.text``, a holdings
+context as the evaluation path reads it) exactly as the spawn hook does, and walks those graphs.
+Every call found feeds the ONE precheck (:func:`url4.dag.remote_nodes.precheck_remote_nodes`).
+WHY (round 7): rounds 5/6 kept a scan-first shortcut, and each re-check found a shape the scan
+did not see (a per-row intent, a holdings context); the compiled graph is what actually runs.
+INVARIANT (FAIL CLOSED): a fragment that does not compile is not call-free when it names
+``url4://`` OUTSIDE quotes: each such URI becomes a ``maybe`` call (refused unless it is a
+client's still-unspent hop). Quoted text is data, never a call (C4). The run's own text that
+does not compile adds nothing: ``run()`` then fails at compile, before any node executes.
+INVARIANT (FAIL CLOSED, round 7): a compile the stack cannot finish — the run text or a
+fragment — is never read as "no calls": its unquoted ``url4://`` URIs are ``maybe`` calls, and
+naming none it is refused ``malformed_source`` (permanent). The precheck runs deeper in the stack
+than ``run()``'s own compile, so a text at one exact depth once overflowed only here and ran
+unchecked.
+INVARIANT (round 6): the walk itself is iterative; it adds no recursion of its own.
+WHY policy-gated: outside a node context the precheck refuses nothing, so a bare ``url4.run()``
+compiles nothing extra.
 WHY each occurrence counts (capped at two): a repeated fragment is compiled once, but its calls
 count per occurrence, so a second call to a client's one hop is still a second call; two is all
 the precheck can tell apart, and the cap keeps a fragment repeated at every level linear.
@@ -34,16 +36,16 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from url4.core.errors import Url4Error
+from url4.core.errors import ErrorCode, ParseError, Url4Error
 from url4.core.nodes import Node as AstNode
 
 from url4.dag._graph_admission import kept_text_scan  # isort: skip
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
 from url4.dag.node import DagNode  # isort: skip
-from url4.dag.nodes import LazyExprNode, MapNode, RemoteFetchNode  # isort: skip
+from url4.dag.nodes import LazyExprNode, MapNode, RelUrlNode, RemoteFetchNode  # isort: skip
 from url4.dag.processor import remote_processor_hop  # isort: skip
 from url4.dag.remote_nodes import remote_policy_active  # isort: skip
-from url4.dag.source_scan import SourceScan  # isort: skip
+from url4.dag.source_scan import holds_holdings_ref  # isort: skip
 
 Call = tuple[str, str]
 Calls = tuple[Call, ...]
@@ -68,17 +70,17 @@ class RemoteWalk:
         self.maybe: list[Call] = []
         self._units: dict[str, _Unit] = {}
 
-    def text(self, scan: SourceScan | None, text: str | AstNode, *, bare_root_ok: bool) -> Calls:
-        """The calls of ``text``: its scan's when it read everything, else its compiled graph's."""
-        if (scan is not None and not scan.opaque) or not remote_policy_active():
-            return () if scan is None else scan.remote_nodes
+    def text(self, text: str | AstNode, *, bare_root_ok: bool) -> Calls:
+        """The calls of ``text``, compiled as ``run()`` (or, a fragment, the spawn hook) does."""
+        if not remote_policy_active():
+            return ()
         graph = self._compile(text, bare_root_ok=bare_root_ok)
         return () if graph is None else self._total(self._unit(graph))
 
     def graph(self, target: Graph | DagNode) -> Calls:
-        """Every call a graph makes structurally (PR #1587 round 15, F1b): each reachable
-        ``RemoteFetchNode``, plus those in text a node keeps for later — none inside a remote
-        context (that text runs at the remote node)."""
+        """Every call a pre-built graph makes (PR #1587 round 15, F1b), its spawns included."""
+        if not remote_policy_active():
+            return ()
         return self._total(self._unit(target if isinstance(target, Graph) else Graph(target)))
 
     def _unit(self, graph: Graph) -> _Unit:
@@ -87,14 +89,12 @@ class RemoteWalk:
             if isinstance(node, RemoteFetchNode):
                 unit.calls.append((node.authority, node.path))
             spawned = _spawned_text(node)
-            if spawned is not None and remote_policy_active():
-                # WHY no strict scan first: the spawn hook compiles this text one level at a time;
-                # re-parsing it whole at every level made a deep run cubic (round 6).
+            if spawned is not None:
                 unit.spawns.append(spawned)
                 continue
             scan = kept_text_scan(node)
             if scan is not None:
-                # no policy: the scan, as before; or a verbatim context (shipped, never run here)
+                # a prose context, shipped verbatim to its route: read as the scan always read it
                 unit.calls.extend(scan.remote_nodes)
         return unit
 
@@ -128,17 +128,45 @@ class RemoteWalk:
     def _compile(self, text: str | AstNode, *, bare_root_ok: bool) -> Graph | None:
         try:
             return compile_expression(text, registry=self.registry, bare_root_ok=bare_root_ok)
-        except (Url4Error, RecursionError):
-            if bare_root_ok and isinstance(text, str):  # a fragment: FAIL CLOSED (see module)
-                hops = (remote_processor_hop(uri) for uri in _URL4_URI.findall(_unquoted(text)))
-                self.maybe.extend(hop for hop in hops if hop is not None)
-            return None
+        except RecursionError:
+            # FAIL CLOSED: the URIs it names are refused as remote calls; naming none, it is
+            # refused as too deep to check — never read as call-free.
+            if not self._maybe_calls(text):
+                raise _too_deep() from None
+        except Url4Error:
+            if bare_root_ok:  # a fragment (the run's own text then fails at its compile)
+                self._maybe_calls(text)
+        return None
+
+    def _maybe_calls(self, text: str | AstNode) -> bool:
+        """Add each unquoted ``url4://`` URI ``text`` names as a ``maybe`` call; whether any."""
+        found = _URL4_URI.findall(_unquoted(text)) if isinstance(text, str) else []
+        hops = [hop for hop in map(remote_processor_hop, found) if hop is not None]
+        self.maybe.extend(hops)
+        return bool(hops)
 
 
 def _spawned_text(node: DagNode) -> str | None:
+    """The text ``node`` compiles and runs later on this node, if any."""
+    text: str | None = None
     if isinstance(node, MapNode):
-        return node.fragment
-    return node.text if isinstance(node, LazyExprNode) else None
+        text = node.fragment
+    elif isinstance(node, LazyExprNode):
+        text = node.text
+    elif isinstance(node, RelUrlNode) and node.ctx_slots is None and node.context:
+        # WHY (round 7): a holdings context ships verbatim, and the node's own evaluation path
+        # runs it as an expression HERE; any other verbatim context is prose (scanned as before).
+        if holds_holdings_ref(node.context):
+            text = f"({node.context})"
+    return text
+
+
+def _too_deep() -> ParseError:
+    return ParseError(
+        "the expression is nested too deeply to check it for remote-node calls before it runs",
+        code=ErrorCode.MALFORMED_SOURCE,
+        permanent=True,
+    )
 
 
 def _capped(parts: Iterable[Iterable[Call]]) -> Calls:
