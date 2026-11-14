@@ -32,12 +32,14 @@ from url4.dag.attachments import (  # isort: skip
     scan_sources,
     refuse_remote,
 )
-from url4.dag.compiler import Graph  # isort: skip
+from url4.dag.compiler import Graph, LoweringRegistry  # isort: skip
 from url4.dag.node import DagNode, ExecutionContext  # isort: skip
 from url4.dag.nodes.blob import BlobRefNode  # isort: skip
-from url4.dag.remote_nodes import precheck_remote_nodes  # isort: skip
+from url4.dag.remote_nodes import precheck_remote_nodes, remote_policy_active  # isort: skip
+from url4.dag._static_processor import static_processor_value  # isort: skip
 from url4.dag.processor import classify_processor, remote_processor_hop  # isort: skip
-from url4.dag._graph_admission import prebuilt_remote_calls, refuse_prebuilt  # isort: skip
+from url4.dag._graph_admission import refuse_prebuilt  # isort: skip
+from url4.dag._remote_walk import RemoteWalk  # isort: skip
 
 
 @dataclass(frozen=True)
@@ -54,6 +56,7 @@ async def _run_start(
     target: str | AstNode | Graph | DagNode,
     case: Sequence[Attachment],
     run_ctx: ExecutionContext,
+    registry: LoweringRegistry | None = None,
 ) -> RunStart:
     """The run's fixed ``attachments[]``, resolved and capped BEFORE the first node runs.
 
@@ -86,7 +89,7 @@ async def _run_start(
     if current_run_files() is not None:
         # INVARIANT (PR #1587 review round 15, F1b): a nested run reuses the outer files but
         # still refuses its own structural remote calls before any of its members run.
-        _precheck_remote(scan, run_ctx, target)
+        await _precheck_remote(run_ctx, target, registry)
         return RunStart(tuple(case))
     refs = () if scan is None else scan.refs
     if scan is not None:
@@ -94,7 +97,7 @@ async def _run_start(
     refuse_remote(refs)
     # INVARIANT (PR #1587 review round 14, F1b): EVERY run — text-only too — so no local
     # endpoint, model or sibling runs before a structurally known remote call refuses.
-    _precheck_remote(scan, run_ctx, target)
+    await _precheck_remote(run_ctx, target, registry)
     if scan is not None and scan.non_literal:  # owner decision C: before any I/O
         raise not_static(scan.non_literal[0])
     occurrences = () if scan is None else scan.occurrences
@@ -125,34 +128,55 @@ def _refuse_before_io(target: str | AstNode | Graph | DagNode, processor: str | 
     _refuse_processor_files(processor)  # round 13: a Form-3 processor's files, before any I/O
 
 
-def _precheck_remote(
-    scan: SourceScan | None,
+async def _precheck_remote(
     run_ctx: ExecutionContext,
     target: str | AstNode | Graph | DagNode,
+    registry: LoweringRegistry | None,
 ) -> None:
     """C6 (finding 4): a node context refuses a remote-node call before ANY I/O — so before the
     attachment phase and before any member, not when the call executes. The run's literal
     ``url4://`` reduce processor (a run option or a node default) is the same remote-node call,
     checked here too (owner 2026-11-04). WHY every run (review round 14): a text-only run once
     executed a local endpoint before its remote sibling or remote processor refused.
-    WHY the pre-built walk (review round 15): a ``Graph`` / ``DagNode`` has no AST (``scan`` is
-    ``None``), so its ``RemoteFetchNode`` s and the remote calls in its kept text are collected
-    from the graph itself; a precompiled mixed graph once ran a local endpoint first.
+    WHY the pre-built walk (review round 15): a ``Graph`` / ``DagNode`` has no AST, so its
+    ``RemoteFetchNode`` s and the remote calls in its kept text are collected from the graph
+    itself; a precompiled mixed graph once ran a local endpoint first.
+    WHY always the compiled graph (PR #1750 round 7, owner): the run text and every fragment it
+    spawns are compiled as they will run and walked (:mod:`url4.dag._remote_walk`); each strict-
+    scan shortcut (rounds 5/6) missed a shape and let a local member run first. A fragment that
+    does not compile adds its unquoted ``url4://`` URIs as ``maybe`` calls (FAIL CLOSED).
     """
-    processor = remote_processor_hop(run_ctx.processor)
-    if scan is not None:
-        calls = scan.remote_nodes
-    elif isinstance(target, (Graph, DagNode)):
-        calls = prebuilt_remote_calls(target)
+    processor = await _processor_hop(run_ctx, registry)
+    walk = RemoteWalk(registry)
+    if isinstance(target, (Graph, DagNode)):
+        calls = walk.graph(target)
     else:
-        calls = ()  # unparseable text: compiling it raises the real error, with no I/O
+        # WHY bare_root_ok=False: compiled exactly as ``run()`` will compile it (``_to_node``).
+        calls = walk.text(target, bare_root_ok=False)
+    calls = (*calls, *_processor_expression_calls(run_ctx.processor, walk))
     precheck_remote_nodes(
-        (
-            *calls,
-            *_processor_expression_calls(run_ctx.processor),
-        ),
-        maybe=() if processor is None else (processor,),  # called only on a reduce
+        calls,
+        # the reduce processor is called only on a reduce; an uncompilable fragment maybe never
+        maybe=(*(() if processor is None else (processor,)), *walk.maybe),
     )
+
+
+async def _processor_hop(
+    run_ctx: ExecutionContext, registry: LoweringRegistry | None
+) -> tuple[str, str] | None:
+    """The ``url4://`` call the run's reduce processor makes, when it is known before the run.
+
+    A literal ``url4://`` URI, or (OME-1811 review) a Form-3 expression whose value needs no run
+    (:func:`~url4.dag._static_processor.static_processor_value`, e.g.
+    ``(p:0:'url4://n2/v1')!'$p'``). Any other Form-3 value is computed at reduce time and checked
+    there (``processor._check_remote_processor``).
+    WHY policy-gated: the static evaluation compiles the expression; outside a node context the
+    precheck refuses nothing, so it is skipped.
+    """
+    value = run_ctx.processor
+    if value is None or classify_processor(value) != "expression" or not remote_policy_active():
+        return remote_processor_hop(value)
+    return remote_processor_hop(await static_processor_value(value, registry, run_ctx.process))
 
 
 def _processor_scan(value: str | None) -> SourceScan | None:
@@ -169,16 +193,18 @@ def _processor_scan(value: str | None) -> SourceScan | None:
     return None if ast is None else scan_sources(ast)
 
 
-def _processor_expression_calls(value: str | None) -> tuple[tuple[str, str], ...]:
+def _processor_expression_calls(value: str | None, walk: RemoteWalk) -> tuple[tuple[str, str], ...]:
     """The structural ``url4://`` calls inside a Form-3 (expression-valued) processor.
 
-    INVARIANT (PR #1587 review round 10, owner 2026-11-05): an expression processor is parsed
-    and given the SAME structural remote-call scan as the run's own expression, so a remote call
-    in its AST is refused before any run-start I/O; only its computed FINAL value stays checked
-    when it resolves.
+    INVARIANT (PR #1587 review round 10, owner 2026-11-05): an expression processor passes its
+    grammar gate (:func:`_processor_scan`, FAIL CLOSED) and gets the SAME remote-call walk as the
+    run's own expression — compiled as its spawn compiles it (PR #1750 round 7) — so a remote call
+    in it is refused before any run-start I/O; only its computed FINAL value stays checked when it
+    resolves.
     """
-    scan = _processor_scan(value)
-    return () if scan is None else scan.remote_nodes
+    if value is None or _processor_scan(value) is None:
+        return ()
+    return walk.text(value.strip(), bare_root_ok=True)
 
 
 def _refuse_processor_files(value: str | None) -> None:

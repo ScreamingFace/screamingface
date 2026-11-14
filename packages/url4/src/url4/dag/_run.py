@@ -24,6 +24,7 @@ from url4.core.nodes import Node as AstNode
 from url4.io.layer import IOLayer
 from url4.observe import Observer
 
+from url4.dag.remote_nodes import refusal_mark, reraise_refusals_since  # isort: skip
 from url4.dag.attachment import Attachment  # isort: skip
 from url4.dag.attachments import bind_run_files  # isort: skip
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
@@ -187,7 +188,11 @@ async def run(
     obs = _start_observation(run_ctx, observer, target, trace_id, root_span_id)
     _wire_spawn(run_ctx, registry)
     try:
-        start = await _run_start(target, attachments, run_ctx)
+        # INVARIANT (F1b, OME-1811): a refused remote node fails at run start, before ANY
+        # dependency runs (``_run_start``'s precheck), and one a guard or row policy caught at
+        # run time still fails the run (``reraise_refusals_since``).
+        mark = refusal_mark()
+        start = await _run_start(target, attachments, run_ctx, registry)
         with bind_run_files(
             start.slots, start.cache, manifest=start.manifest, prefetched=start.prefetched
         ):
@@ -195,6 +200,7 @@ async def run(
             result = await Executor(run_ctx, release_finished=True).execute(
                 _to_node(target, registry)
             )
+        reraise_refusals_since(mark)
     except BaseException as exc:
         status = "cancelled" if isinstance(exc, asyncio.CancelledError) else "error"
         _finish_observation(obs, status)

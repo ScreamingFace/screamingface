@@ -47,6 +47,7 @@ from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, acc
 from screamingface_engine.world.connector import open_frozen_copy, seal_frozen_copy
 from screamingface_engine.world.factory import WorldFactory, direct_mount_paths
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.dag import refuse_remote_nodes
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
 from url4.observe import (
@@ -1135,18 +1136,25 @@ class Url4Executor(Executor):
             return await self._dispatch_direct(url4, trace, bridge)
         # FEATURE (OME-1548): a picture Benchmark's Cases route reads the linked Candidate from
         # the run's own url4, to refuse a model that can't see pictures before any paid call.
+        # INVARIANT (OME-1811, #1450 F1b / §4): an engine run is a node context like
+        # `Url4Node.evaluate`, so every url4:// remote-node call fails
+        # `x.remote_node_unsupported` (permanent) before any DNS lookup or request.
         with run_expression_scope(url4):
             if trace is not None:
-                body = await url4_run(
-                    url4,
-                    self._io,
-                    observer=bridge,
-                    trace_id=trace.trace_id,
-                    root_span_id=trace.root_span_id,
-                    **self._run_kwargs,
+                body = await refuse_remote_nodes(
+                    url4_run(
+                        url4,
+                        self._io,
+                        observer=bridge,
+                        trace_id=trace.trace_id,
+                        root_span_id=trace.root_span_id,
+                        **self._run_kwargs,
+                    )
                 )
             else:
-                body = await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+                body = await refuse_remote_nodes(
+                    url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+                )
         return _EvalResult(body)
 
     async def _dispatch_direct(
