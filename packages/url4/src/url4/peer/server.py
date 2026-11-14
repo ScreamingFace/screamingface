@@ -225,6 +225,7 @@ class Url4Node(CodeMounts):
     # split) — one owner, so HTTP (url4.peer._http) and in-process behavior
     # cannot diverge.
     fetch_bytes = _bytes.fetch_bytes  # binary-safe: a module function, bound as a method
+    eval_expression = _dispatch.eval_expression  # SupportsEvalPath: the remote precheck's view
 
     async def fetch(self, target: str, *, relative: bool) -> str:
         return await _dispatch.fetch(self, target, relative=relative)

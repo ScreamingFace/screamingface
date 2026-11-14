@@ -219,3 +219,32 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   a too-deep holdings context naming none (`malformed_source`); a map body equal to a prose
   context; control: that prose context alone still runs. RED on 623e8305b: 5 of 6 (the control
   green). Round-6 prose pins and rounds 5-8 tests green.
+- **Round 10 (2026-11-14, re-check of fcc257943; owner: "with remote nodes blocked, compile each
+  /v1 call exactly the way /v1 will run it"):** two shapes still ran members first, both through
+  a call to the node's own eval path. (1) A verbatim context such as
+  `'r1' *(url4://…($item)!'i') zz(y)!'p'` is prose as `(context)` but an iteration once `/v1`
+  runs `(context)!intent` (`peer/_dispatch.py` + `_reassemble.py`). (2) A `processor=` param on a
+  `/v1` call (`;processor=url4://…` or `?processor=…&q=`) was never read. Fix: a new optional io
+  port `url4.io.layer.SupportsEvalPath.eval_expression(target)`, implemented by `Url4Node` with
+  its OWN dispatch code (`_dispatch.eval_expression`, sharing `_eval_parts` with
+  `dispatch_result`: endpoint-first routing, `/v1` and `/v1/<collection>`, `reassemble`), and
+  forwarded by `BoundedIOLayer`. `RelUrlNode.static_target()` rebuilds the target the call
+  requests (`SubrequestCall.encode`) when it is known before the run. Under a policy the walk
+  compiles that exact text as `run()` does and walks it; the `processor=` value is read like the
+  run's own (literal or static `url4://` → `maybe` hop; an expression's graph walked; a malformed
+  one fail closed by its URIs). A slotted (resolved) context is run-time data there. The rounds
+  8/9 `(context)` check still runs beside it (an existing round-9 test pins it). Performance:
+  nested quoted-`@` contexts were super-cubic because every level scanned (and so re-parsed) all
+  contexts nested in it up front; the prose/holdings classification now happens only when a
+  context's compile fails. 1.5 KB nested `'a@b'` contexts (100 levels): precheck 20.85 s → 0.06 s
+  (policy run 21.6 s → 0.77 s; run without a policy 0.75 s). Deep lazy chain unchanged: N=300
+  precheck 0.78 s, N=900 6.9 s (each about the run's own compile time). url4 has no expression-
+  size cap that would bound this. Tests (new files only): url4
+  `test_remote_node_eval_path_preflight.py` (7 refused: iteration context to `/v1`, beside a
+  local member, in a map body (raises, no error rows), unquoted collection, `processor=` on the
+  call and in the query, `/v1/<collection>`; controls: same context to `/c` runs as text, `/v1`
+  calls with no `url4://` run, incl. `processor=/a`), engine `test_engine_remote_node_eval_path.py`
+  (6 refused + control). RED on fcc257943: 7 url4 + 6 engine. KNOWN LIMIT unchanged
+  (owner-accepted 2026-11-14): text that becomes an expression only inside `/v1` (a quoted
+  literal, a `$name` value, a resolved context) is checked by the inner run, with zero DNS and
+  zero requests, after siblings ran.

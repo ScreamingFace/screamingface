@@ -131,6 +131,20 @@ class SupportsProcessorRoutes(Protocol):
 
 
 @runtime_checkable
+class SupportsEvalPath(Protocol):
+    """Optional adapter capability: what this world's own eval path RUNS for a target.
+
+    FEATURE: OME-1811 round 10 — a node's remote-node precheck compiles a call to the node's
+    own eval path (``/v1``) exactly as the eval path will run it. ``eval_expression`` returns
+    ``(expression_text, processor)`` for a relative ``target`` the adapter dispatches to its eval
+    path, else ``None``. The adapter owns the answer (its dispatch order and reassembly), so the
+    precheck never copies them.
+    """
+
+    def eval_expression(self, target: str) -> tuple[str, str | None] | None: ...
+
+
+@runtime_checkable
 class SupportsHoldings(Protocol):
     """Optional adapter capability: ``@`` / ``@identity`` holdings resolution.
 
@@ -196,6 +210,7 @@ __all__ = [
     "IOLayer",
     "SupportsClose",
     "SupportsDefaultRoute",
+    "SupportsEvalPath",
     "SupportsFetchEx",
     "SupportsHoldings",
     "SupportsProcessorRoutes",

@@ -40,8 +40,9 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
-from url4.core.errors import ErrorCode, ParseError
+from url4.core.errors import ErrorCode, ParseError, Url4Error
 from url4.core.nodes import Node as AstNode
+from url4.io.layer import SupportsEvalPath
 
 from url4.dag._graph_admission import kept_text_scan  # isort: skip
 from url4.dag.compiler import Graph, LoweringRegistry, compile_expression  # isort: skip
@@ -57,7 +58,9 @@ _URL4_URI = re.compile(r"url4://[^\s'\"(),!;*]+", re.IGNORECASE)
 _QUOTE_RUN = re.compile(r"'(?:\\.|[^'\\])*'", re.DOTALL)  # mirrors core._scan.skip_quoted
 # INVARIANT (round 9): a spawned text is keyed by its KIND too, so a map/lazy fragment never
 # shares a cache entry (and so prose mode) with a verbatim context of the same text.
-_FRAGMENT, _PROSE = "fragment", "prose"
+_FRAGMENT = "fragment"  # a map body / lazy group: compiled as the spawn hook does
+_CONTEXT = "context"  # a verbatim call context, as ``(context)``: prose only if TRUE prose
+_EVAL = "eval"  # what the node's own eval path runs for a call (round 10): compiled as run()
 Key = tuple[str, str]
 _ROOT: Key = ("root", "")  # the text or graph a precheck starts from
 
@@ -71,27 +74,43 @@ class _Unit:
 
 
 class RemoteWalk:
-    """One precheck's walk. ``maybe`` collects the possible calls of uncompilable fragments."""
+    """One precheck's walk.
 
-    def __init__(self, registry: LoweringRegistry | None) -> None:
+    ``maybe`` collects the possible calls of uncompilable fragments; ``processors`` the
+    ``processor=`` values of calls to the node's own eval path, for the async precheck to read
+    as it reads the run's own processor.
+    """
+
+    def __init__(self, registry: LoweringRegistry | None, io: object = None) -> None:
         self.registry = registry
+        self.io = io
         self.maybe: list[Call] = []
+        self.processors: list[str] = []
         self._units: dict[Key, _Unit] = {}
-        # a TRUE prose context's ``(context)`` -> the calls its scan reads if it won't compile
-        self._prose: dict[Key, Calls] = {}
+        self._contexts: dict[Key, tuple[RelUrlNode, str]] = {}
 
     def text(self, text: str | AstNode, *, bare_root_ok: bool) -> Calls:
         """The calls of ``text``, compiled as ``run()`` (or, a fragment, the spawn hook) does."""
         if not remote_policy_active():
             return ()
         graph = self._compile(text, bare_root_ok=bare_root_ok)
-        return () if graph is None else self._total(self._unit(graph))
+        if isinstance(graph, RecursionError) and not self.maybe_calls(text):
+            raise _too_deep() from None
+        # WHY no fallback otherwise: the run's own text that does not compile fails there first
+        return self._total(self._unit(graph)) if isinstance(graph, Graph) else ()
 
     def graph(self, target: Graph | DagNode) -> Calls:
         """Every call a pre-built graph makes (PR #1587 round 15, F1b), its spawns included."""
         if not remote_policy_active():
             return ()
         return self._total(self._unit(target if isinstance(target, Graph) else Graph(target)))
+
+    def maybe_calls(self, text: str | AstNode) -> bool:
+        """Add each unquoted ``url4://`` URI ``text`` names as a ``maybe`` call; whether any."""
+        found = _URL4_URI.findall(_unquoted(text)) if isinstance(text, str) else []
+        hops = [hop for hop in map(remote_processor_hop, found) if hop is not None]
+        self.maybe.extend(hops)
+        return bool(hops)
 
     def _unit(self, graph: Graph) -> _Unit:
         unit = _Unit()
@@ -101,23 +120,43 @@ class RemoteWalk:
             spawned = _spawned_text(node)
             if spawned is not None:
                 unit.spawns.append((_FRAGMENT, spawned))
-            elif isinstance(node, RelUrlNode) and node.ctx_slots is None and node.context:
-                unit.spawns.append(self._context_key(node, node.context))
+            elif isinstance(node, RelUrlNode):
+                unit.spawns.extend(self._call_spawns(node))
         return unit
 
-    def _context_key(self, node: RelUrlNode, context: str) -> Key:
-        """A verbatim context, compiled as ``(context)``: the node's eval path may run it.
+    def _call_spawns(self, node: RelUrlNode) -> list[Key]:
+        """What a relative call runs on this node: the eval path's text, else its context.
 
-        INVARIANT (rounds 8/9): EVERY verbatim context is compiled and walked. Only TRUE prose (no
-        holdings ref, so it has a scan) may fall back to its scan when its compile fails; a
-        holdings context is a fragment like any other, fail closed.
+        INVARIANT (round 10, owner): a call the io world routes to its own eval path is walked as
+        EXACTLY the expression that path runs (``SupportsEvalPath``: its reassembled
+        ``(context)!intent`` plus param chain) and its ``processor=`` is checked like the run's.
+        A resolved (slotted) context is run-time data there: the owner-accepted limit.
+        INVARIANT (rounds 8/9): every verbatim context is also compiled as ``(context)``.
         """
-        text = f"({context})"
-        scan = kept_text_scan(node)
-        if scan is None or holds_holdings_ref(context):
-            return (_FRAGMENT, text)
-        self._prose[(_PROSE, text)] = scan.remote_nodes
-        return (_PROSE, text)
+        spawns: list[Key] = []
+        evaluated = self._evaluated(node)
+        if evaluated is not None:
+            text, processor = evaluated
+            if processor:
+                self.processors.append(processor)
+            if node.ctx_slots is None or not node.is_expr:
+                spawns.append((_EVAL, text))
+        if node.is_expr and node.ctx_slots is None and node.context:
+            # WHY kept for an eval-path call too: the rounds 8/9 checks of the context itself
+            # stay as they were; the eval text adds what only the appended intent reveals.
+            key = (_CONTEXT, f"({node.context})")
+            self._contexts.setdefault(key, (node, node.context))
+            spawns.append(key)
+        return spawns
+
+    def _evaluated(self, node: RelUrlNode) -> tuple[str, str | None] | None:
+        target = node.static_target() if isinstance(self.io, SupportsEvalPath) else None
+        if target is None or not isinstance(self.io, SupportsEvalPath):
+            return None
+        try:
+            return self.io.eval_expression(target)
+        except Url4Error:
+            return None  # the dispatch refuses this very target before it runs anything
 
     def _total(self, root: _Unit) -> Calls:
         """``root``'s calls plus every spawned text's, each compiled once, with no recursion."""
@@ -141,40 +180,47 @@ class RemoteWalk:
         return totals[_ROOT]
 
     def _spawn_unit(self, key: Key) -> _Unit:
-        prose = self._prose.get(key)  # only ever set for a (_PROSE, text) key
-        graph = self._compile(key[1], bare_root_ok=True, prose=prose)
-        unit = _Unit(calls=list(prose or ())) if graph is None else self._unit(graph)
+        kind, text = key
+        graph = self._compile(text, bare_root_ok=kind != _EVAL)  # the eval path runs run(text)
+        if isinstance(graph, Graph):
+            unit = self._unit(graph)
+        else:
+            unit = _Unit(calls=list(self._uncompiled(key, graph)))
         self._units[key] = unit
         return unit
 
-    def _compile(
-        self, text: str | AstNode, *, bare_root_ok: bool, prose: Calls | None = None
-    ) -> Graph | None:
-        """``text``'s graph, or ``None`` when it does not compile (see the module's FAIL CLOSED).
+    def _uncompiled(self, key: Key, error: Exception) -> Calls:
+        """FAIL CLOSED for a spawned text that does not compile (see the module).
 
-        ``prose`` is a true prose context's scan calls: its ONLY use is the fallback after an
-        ordinary compile failure, or after a too-deep one that names no ``url4://`` URI.
+        Only TRUE prose (a verbatim context with no holdings ref) may read its scan instead of
+        the URI fallback, and after a too-deep compile only when it names no ``url4://`` URI.
+        WHY decided here, lazily: scanning a context walks every context nested in it, so doing
+        it for each level up front made nested ``@`` contexts cubic (round 10).
+        """
+        prose = self._prose_calls(key)
+        too_deep = isinstance(error, RecursionError)
+        found = self.maybe_calls(key[1]) if prose is None or too_deep else False
+        if too_deep and not found and prose is None:
+            raise _too_deep() from None
+        return prose or ()
+
+    def _prose_calls(self, key: Key) -> Calls | None:
+        if key[0] != _CONTEXT:
+            return None
+        node, context = self._contexts[key]
+        scan = None if holds_holdings_ref(context) else kept_text_scan(node)
+        return None if scan is None else scan.remote_nodes
+
+    def _compile(self, text: str | AstNode, *, bare_root_ok: bool) -> Graph | Exception:
+        """``text``'s graph, or the exception its compile raised.
+
+        WHY any exception (round 8): a compile is not the precheck's to raise from; a raw
+        ValueError (``(@,)``) once escaped the precheck of a run that runs on main.
         """
         try:
             return compile_expression(text, registry=self.registry, bare_root_ok=bare_root_ok)
-        except RecursionError:
-            # never call-free (round 9: prose too): its URIs are refused as remote calls; naming
-            # none, it is refused as too deep to check, unless true prose reads its scan instead.
-            if not self._maybe_calls(text) and prose is None:
-                raise _too_deep() from None
-        except Exception:
-            # WHY any exception (round 8): a fragment's compile is not the run's to raise from;
-            # a raw ValueError (``(@,)``) once escaped the precheck of a run that runs on main.
-            if bare_root_ok and prose is None:  # the run's own text then fails at its own compile
-                self._maybe_calls(text)
-        return None
-
-    def _maybe_calls(self, text: str | AstNode) -> bool:
-        """Add each unquoted ``url4://`` URI ``text`` names as a ``maybe`` call; whether any."""
-        found = _URL4_URI.findall(_unquoted(text)) if isinstance(text, str) else []
-        hops = [hop for hop in map(remote_processor_hop, found) if hop is not None]
-        self.maybe.extend(hops)
-        return bool(hops)
+        except Exception as error:  # RecursionError included: the callers tell them apart
+            return error
 
 
 def _spawned_text(node: DagNode) -> str | None:

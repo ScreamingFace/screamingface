@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
 
-from url4.core.errors import ParseError
+from url4.core.errors import ParseError, Url4Error
 from url4.core.grammar import parse as grammar_parse
 from url4.core.nodes import Node as AstNode
 from url4.core.parser import build
@@ -145,24 +145,54 @@ async def _precheck_remote(
     spawns are compiled as they will run and walked (:mod:`url4.dag._remote_walk`); each strict-
     scan shortcut (rounds 5/6) missed a shape and let a local member run first. A fragment that
     does not compile adds its unquoted ``url4://`` URIs as ``maybe`` calls (FAIL CLOSED).
+    WHY the io world (round 10, owner): a call to the node's own eval path is walked as exactly
+    what that path runs, and its ``processor=`` is read like the run's own (``maybe``).
     """
-    processor = await _processor_hop(run_ctx, registry)
-    walk = RemoteWalk(registry)
+    processor = await _processor_hop(run_ctx.processor, run_ctx, registry)
+    walk = RemoteWalk(registry, run_ctx.io)
     if isinstance(target, (Graph, DagNode)):
         calls = walk.graph(target)
     else:
         # WHY bare_root_ok=False: compiled exactly as ``run()`` will compile it (``_to_node``).
         calls = walk.text(target, bare_root_ok=False)
     calls = (*calls, *_processor_expression_calls(run_ctx.processor, walk))
+    inner_calls, inner_hops = await _eval_path_processors(walk, run_ctx, registry)
     precheck_remote_nodes(
-        calls,
-        # the reduce processor is called only on a reduce; an uncompilable fragment maybe never
-        maybe=(*(() if processor is None else (processor,)), *walk.maybe),
+        (*calls, *inner_calls),
+        # a reduce processor is called only on a reduce; an uncompilable fragment maybe never
+        maybe=(*(() if processor is None else (processor,)), *inner_hops, *walk.maybe),
     )
 
 
+async def _eval_path_processors(
+    walk: RemoteWalk, run_ctx: ExecutionContext, registry: LoweringRegistry | None
+) -> tuple[tuple[tuple[str, str], ...], list[tuple[str, str]]]:
+    """The calls and ``maybe`` hops of every ``processor=`` an eval-path call hands its inner run.
+
+    INVARIANT (round 10): read exactly as the run's own processor is — a literal or statically
+    computed ``url4://`` value is a ``maybe`` hop, an expression's graph is walked — and a value
+    the inner run would refuse as malformed is read FAIL CLOSED by its ``url4://`` URIs. Walking a
+    processor graph may find more eval-path calls, so the list is drained until it stops growing.
+    """
+    calls: list[tuple[str, str]] = []
+    hops: list[tuple[str, str]] = []
+    index = 0
+    while index < len(walk.processors):
+        value = walk.processors[index]
+        index += 1
+        try:
+            calls.extend(_processor_expression_calls(value, walk))
+            hop = await _processor_hop(value, run_ctx, registry)
+        except Url4Error:
+            walk.maybe_calls(value)
+            continue
+        if hop is not None:
+            hops.append(hop)
+    return tuple(calls), hops
+
+
 async def _processor_hop(
-    run_ctx: ExecutionContext, registry: LoweringRegistry | None
+    value: str | None, run_ctx: ExecutionContext, registry: LoweringRegistry | None
 ) -> tuple[str, str] | None:
     """The ``url4://`` call the run's reduce processor makes, when it is known before the run.
 
@@ -173,7 +203,6 @@ async def _processor_hop(
     WHY policy-gated: the static evaluation compiles the expression; outside a node context the
     precheck refuses nothing, so it is skipped.
     """
-    value = run_ctx.processor
     if value is None or classify_processor(value) != "expression" or not remote_policy_active():
         return remote_processor_hop(value)
     return remote_processor_hop(await static_processor_value(value, registry, run_ctx.process))
