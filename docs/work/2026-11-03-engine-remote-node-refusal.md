@@ -177,3 +177,31 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   N nested groups), CPython 3.13: N=300 0.8 s (bare run 0.8 s; policy run 1.6 s); N=900 6.9 s
   (bare run 7.0 s; policy run 13.9 s) — the same quadratic compile the run itself does, once
   more; no hang, no stack overflow. No `url4.dag.__all__` / hygiene-ratchet file change.
+- **Round 8 (2026-11-14, re-check of 863e27fff; still the owner's always-compile approach):** two
+  blockers, both from round 7's holdings-only branch in `_remote_walk._spawned_text`. (1) A raw
+  `ValueError` under any node policy, a regression vs main: compiling a holdings context or body
+  with an empty comma segment (`/c(@,)!'k'`, `/c(@, ,optional)`, `('r1')*(/c(@, $item,)!'k')!'p'`)
+  hit `descriptor_head.deferrable_group('')`, and `RemoteWalk._compile` caught only
+  `Url4Error` / `RecursionError`. Fix: `deferrable_group('')` is a coded `ParseError`, and ANY
+  exception from a fragment's compile means "does not compile" (none escapes the precheck). (2)
+  A verbatim context with a quoted `'a@b'` beside a grammar-blind group holding a `url4://` call
+  ran `/a` first (in a map body the refusal became error rows after `/b` ran): the lowering ships
+  any context containing `@` verbatim, but the walk compiled only real holdings contexts. Fix:
+  EVERY verbatim context is compiled as `(context)` and walked. A verbatim context that does not
+  compile is prose and is read as the scan always read it — DEVIATION from the requested
+  unquoted-URI fallback for contexts: that fallback refuses the round-6 pinned prose
+  `/c(see url4://n2.example/v1 for docs, thanks)!'k'`, and existing tests are append-only. Tests
+  (new files only): url4 `test_remote_node_verbatim_context_preflight.py` (7 refused quoted-`@`
+  shapes: run text, map body, nested group, normal route, beside a local member; a control; the
+  4 empty-comma texts with and without a policy and via `Url4Node.evaluate`, values as on main;
+  `deferrable_group('')`), engine `test_engine_remote_node_verbatim_context.py` (3 refused shapes,
+  the 3 empty-comma texts complete with main's values; no private-transport stub, so the engine's
+  private-import ratchet stays at 7). RED on 863e27fff: 13 url4 + 6 engine. Rounds 5-7 tests and
+  the 12-text corpus re-run green.
+  Current behaviour, recorded: (a) ACCEPTED FALSE REFUSAL — under a node policy a holdings (or
+  any verbatim) context that compiles to a real `url4://` call is refused even when sent to a
+  normal route, which would only receive it as text; the walk cannot tell which route is the
+  node's eval path. (b) BOUNDARY (the owner may still change it) — text that becomes an
+  expression only at the eval path (`/v1`), i.e. a quoted literal or a `$name` value sent there,
+  is not an expression in the outer run; it is checked by the inner run's own precheck, with zero
+  DNS lookups and zero requests, but after the outer run's siblings ran.

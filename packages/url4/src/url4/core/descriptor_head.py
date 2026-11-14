@@ -67,6 +67,9 @@ def deferrable_group(segment: str) -> tuple[str | None, str, str] | None:
     (D-1b) and its params must be well-formed. Those raise ``ParseError``
     here. The group's sources are NOT parsed here; they stay lazy.
     """
+    if not segment.strip():
+        # WHY (OME-1811 round 8): an empty segment (``(@,)``) once raised a raw ValueError here.
+        raise ParseError("an empty source segment", code=ErrorCode.MALFORMED_SOURCE)
     head, *chain = split_top_level(segment, ";")
     pairs = split_annotation_pairs(chain)
     if segment.startswith("*") or classify_boundary(pairs)[1]:
