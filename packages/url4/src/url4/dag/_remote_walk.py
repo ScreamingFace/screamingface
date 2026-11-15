@@ -40,6 +40,7 @@ from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
+from urllib.parse import unquote_plus
 
 from url4.core.errors import ErrorCode, ParseError, Url4Error
 from url4.core.nodes import Node as AstNode
@@ -55,6 +56,7 @@ from url4.dag.source_scan import holds_holdings_ref  # isort: skip
 Call = tuple[str, str]
 Calls = tuple[Call, ...]
 _URL4_URI = re.compile(r"url4://[^\s'\"(),!;*]+", re.IGNORECASE)
+_DECODE_ROUNDS = 8  # bounds the fallback's repeated percent-decoding (round 12)
 _QUOTE_RUN = re.compile(r"'(?:\\.|[^'\\])*'", re.DOTALL)  # mirrors core._scan.skip_quoted
 # INVARIANT (round 9): a spawned text is keyed by its KIND too, so a map/lazy fragment never
 # shares a cache entry (and so prose mode) with a verbatim context of the same text.
@@ -168,12 +170,13 @@ class RemoteWalk:
 
         INVARIANT (round 11, owner: FAIL CLOSED): when the precheck cannot ASK — the io in hand
         lacks the eval-path port, or the route needs a run-time value — the call is never taken
-        as call-free: every unquoted ``url4://`` URI in its static text is a ``maybe`` call.
+        as call-free: every unquoted ``url4://`` URI in its static text, decoded as the eval path
+        decodes ``q=`` (round 12), is a ``maybe`` call.
         """
         target = node.static_target()
         if target is None or not isinstance(self.io, SupportsEvalPath):
             params = (f"{key}={value or ''}" for key, value in node.params)
-            self.maybe_calls(" ".join((node.path, node.context or "", *params)))
+            self.maybe_calls(_decoded(" ".join((node.path, node.context or "", *params))))
             return None
         try:
             return self.io.eval_expression(target)
@@ -269,6 +272,21 @@ def _capped(parts: Iterable[Iterable[Call]]) -> Calls:
                 seen[call] += 1
                 calls.append(call)
     return tuple(calls)
+
+
+def _decoded(text: str) -> str:
+    """``text`` ``unquote_plus``-decoded until it stops changing (at most ``_DECODE_ROUNDS``).
+
+    WHY (round 12): the eval path decodes ``q=`` with ``unquote_plus``
+    (``wire.subrequest.decode_expression_http``); a percent- or ``+``-encoded ``url4://`` call
+    once slipped past the fail-closed fallback. Repeated, so double encoding cannot hide one.
+    """
+    for _ in range(_DECODE_ROUNDS):
+        decoded = unquote_plus(text)
+        if decoded == text:
+            break
+        text = decoded
+    return text
 
 
 def _unquoted(text: str) -> str:

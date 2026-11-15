@@ -272,3 +272,20 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   wrapper without the port + a control that runs; 3 `$`-route shapes + a control naming no
   `url4://`). RED on 832e1a1ee: 7 engine + 5 url4 (the `$`-route pins and controls green).
   /v1 limit wording extended (map-body error rows, as on main).
+- **Round 12 (2026-11-15, re-check of f993a278b):** one gap under the owner's "computed routes
+  fail closed" decision: a percent-encoded `url4://` call in the `q=` of a computed route
+  (`/$item?q=%28url4%3A…`) or of a call on an io without the eval-path port passed the
+  fallback (the run completed with an `x.remote_node_unsupported` error row after local members
+  ran; zero DNS and requests). The fallback scanned raw text while `/v1` decodes `q=` with
+  `unquote_plus`. Fix: the fallback text is `unquote_plus`-decoded until it stops changing (at
+  most 8 rounds, so double encoding and `+` are covered) before quote blanking and the URI scan;
+  one change covers both fallback paths. Tests (new files only): url4
+  `test_remote_node_encoded_fallback.py` (percent-encoded in a map body and beside a local member,
+  `+`-encoded, double-encoded, a bound-name route, the port-less io in a map body; a control that
+  names no `url4://` and runs); engine `test_engine_remote_node_fair_share_port.py` (the
+  fair-share layer exposes the inner port; prose naming `url4://` to `/c` completes under fair
+  share as on a bare node). RED on f993a278b: 5 url4 (the bound-name route and control green —
+  that route is refused by the walk already). Mutations: dropping the computed-route fallback
+  turns 4 of the new url4 cases red (the round-11 `$`-route pins stay green, as the re-check
+  found); dropping the `FairShareIOLayer` forward turns all 3 new engine tests red (plus the
+  round-11 control). Merged `origin/main` c9293d04f (#1830, OME-1925).
