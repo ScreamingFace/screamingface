@@ -32,6 +32,7 @@ from __future__ import annotations
 import base64
 import contextvars
 import hashlib
+import weakref
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any, Literal, Protocol
@@ -117,7 +118,36 @@ def canonical_data_uri(media_type: str, body: bytes) -> str:
 
 async def attachment_parts(attachments: Sequence[AttachmentRef]) -> list[ContentPart]:
     """One content part per attachment, in ``attachments[]`` order, from verified bytes."""
-    return [_part(attachment, await _verified_body(attachment)) for attachment in attachments]
+    return [_part(attachment, await _shared_uri(attachment)) for attachment in attachments]
+
+
+# INVARIANT (PR #1588 review blocker 1): one frozen snapshot entry is verified and base64-encoded
+# ONCE, and every model call of the run (members, synthesizers, reducers, retries) shares that one
+# ``data:`` URI string. Keyed by the entry's IDENTITY, never by equality: ``url4.Attachment``
+# compares by digest + metadata only, and an equal entry of another run must not reuse this run's
+# read (F3 authorization). The entry lives exactly as long as the snapshot entry it was built from.
+# WHY a ref (empty body) is still read and verified on every call: its bytes come from the
+# run-scoped reader, whose answer is the authorization (F3 step 1); only the encoding is shared,
+# and only after that call's own read verified to the same digest.
+_ENCODED: dict[int, str] = {}
+
+
+async def _shared_uri(attachment: AttachmentRef) -> str:
+    key = id(attachment)
+    uri = _ENCODED.get(key)
+    if uri is not None and attachment.body:
+        return uri  # verified when it was encoded: a frozen body cannot change since
+    body = await _verified_body(attachment)
+    uri = _ENCODED.get(key)  # a concurrent call of the run may have encoded it meanwhile
+    if uri is None:
+        uri = canonical_data_uri(attachment.media_type, body)
+        try:
+            weakref.finalize(attachment, _ENCODED.pop, key, None)
+        except TypeError:
+            # WHY: an entry that cannot be weakly referenced is never shared, so never leaked.
+            return uri
+        _ENCODED[key] = uri
+    return uri
 
 
 def place_on_last_user_message(
@@ -143,8 +173,7 @@ def place_on_last_user_message(
     raise ValueError("a chat with attachments has no user message to carry them")
 
 
-def _part(attachment: AttachmentRef, body: bytes) -> ContentPart:
-    url = canonical_data_uri(attachment.media_type, body)
+def _part(attachment: AttachmentRef, url: str) -> ContentPart:
     if url.startswith("data:image/"):
         image: ImageUrl = {"url": url}
         if attachment.detail is not None:

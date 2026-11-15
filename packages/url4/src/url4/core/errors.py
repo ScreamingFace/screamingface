@@ -98,8 +98,8 @@ class ErrorCode(StrEnum):
     """The run's ``attachments[]`` would hold more than 20 entries (#1450 F1b per-run cap).
     Permanent, raised before any model call."""
     ATTACHMENTS_TOO_LARGE = "x.attachments_too_large"
-    """The run's ``attachments[]`` would hold more than 8,000,000 decoded bytes in all (#1450
-    F1b per-run cap). Permanent, raised before any model call."""
+    """The run's ``attachments[]`` would hold more than 6,000,000 decoded bytes in all (#1450
+    F1b per-run cap, ``MAX_ATTACHMENT_BYTES``). Permanent, raised before any model call."""
     DIRECT_EVAL_REFUSED = "direct_eval_refused"
     """A direct call (one handler, `url4.peer.dispatch_direct`) targeted the eval path, which
     evaluates an expression — the one thing a direct call must never do."""

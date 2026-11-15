@@ -21,6 +21,7 @@ import httpx
 import pytest
 
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.dag._caps import MAX_ATTACHMENT_BYTES
 from url4.dag._run import run
 from url4.dag.attachment import Attachment
 from url4.dag.attachments import current_attachments
@@ -490,9 +491,11 @@ async def test_case_attachments_count_toward_the_entry_cap() -> None:
 
 @pytest.mark.asyncio
 async def test_eight_million_bytes_are_within_the_cap() -> None:
-    io, model, text = _many(2, 4_000_000)
+    # WHY the name keeps "eight million": the cap was 8,000,000 when this was written; it is
+    # MAX_ATTACHMENT_BYTES now (6,000,000 since PR #1588, sized to the gateway's request cap).
+    io, model, text = _many(2, MAX_ATTACHMENT_BYTES // 2)
     assert await run(text, io, process=model) == "ok"
-    assert sum(len(a.body) for a in model.seen[0]) == 8_000_000
+    assert sum(len(a.body) for a in model.seen[0]) == MAX_ATTACHMENT_BYTES
 
 
 @pytest.mark.asyncio
