@@ -289,3 +289,12 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   turns 4 of the new url4 cases red (the round-11 `$`-route pins stay green, as the re-check
   found); dropping the `FairShareIOLayer` forward turns all 3 new engine tests red (plus the
   round-11 control). Merged `origin/main` c9293d04f (#1830, OME-1925).
+  Security-review follow-up (two MEDIUM fail-open paths in that fix): joining path, context and
+  params let a quote run span two fields, and blanking quotes only on the final decoded text let
+  a decoded `%27` hide a URI visible earlier. Now each field (path, context, each param value) is
+  scanned alone, raw with quote runs blanked AND every decode round unblanked (bounded), union
+  taken (`_readings`). Tests: url4 `test_remote_node_fallback_field_scan.py` (a pre-built call
+  whose path opens a quote the context closes; `%27…%27` around the URI; a URI visible only after
+  round 2); RED on d79f0800c: 3, GREEN after. Round-6 prose / quoted-mention controls and the full
+  url4 suite stay green. Mutation re-run with the final code: dropping the computed-route fallback
+  turns 6 of the new round-12 url4 tests red.

@@ -123,7 +123,10 @@ class RemoteWalk:
 
     def maybe_calls(self, text: str | AstNode) -> bool:
         """Add each unquoted ``url4://`` URI ``text`` names as a ``maybe`` call; whether any."""
-        found = _URL4_URI.findall(_unquoted(text)) if isinstance(text, str) else []
+        return self._maybe_uris([_unquoted(text)] if isinstance(text, str) else [])
+
+    def _maybe_uris(self, readings: Iterable[str]) -> bool:
+        found = [uri for reading in readings for uri in _URL4_URI.findall(reading)]
         hops = [hop for hop in map(remote_processor_hop, found) if hop is not None]
         self.maybe.extend(hops)
         return bool(hops)
@@ -170,13 +173,14 @@ class RemoteWalk:
 
         INVARIANT (round 11, owner: FAIL CLOSED): when the precheck cannot ASK — the io in hand
         lacks the eval-path port, or the route needs a run-time value — the call is never taken
-        as call-free: every unquoted ``url4://`` URI in its static text, decoded as the eval path
-        decodes ``q=`` (round 12), is a ``maybe`` call.
+        as call-free: every ``url4://`` URI in its path, context or a param value — raw (quotes
+        blanked) or after any decode round (round 12, :func:`_readings`) — is a ``maybe`` call.
         """
         target = node.static_target()
         if target is None or not isinstance(self.io, SupportsEvalPath):
-            params = (f"{key}={value or ''}" for key, value in node.params)
-            self.maybe_calls(_decoded(" ".join((node.path, node.context or "", *params))))
+            fields = (node.path, node.context or "", *(value or "" for _key, value in node.params))
+            for field_text in fields:  # WHY one at a time: no quote run spans two fields
+                self._maybe_uris(_readings(field_text))
             return None
         try:
             return self.io.eval_expression(target)
@@ -274,19 +278,23 @@ def _capped(parts: Iterable[Iterable[Call]]) -> Calls:
     return tuple(calls)
 
 
-def _decoded(text: str) -> str:
-    """``text`` ``unquote_plus``-decoded until it stops changing (at most ``_DECODE_ROUNDS``).
+def _readings(text: str) -> list[str]:
+    """Every way the eval path may read ``text``: raw, and each ``unquote_plus`` round.
 
-    WHY (round 12): the eval path decodes ``q=`` with ``unquote_plus``
-    (``wire.subrequest.decode_expression_http``); a percent- or ``+``-encoded ``url4://`` call
-    once slipped past the fail-closed fallback. Repeated, so double encoding cannot hide one.
+    INVARIANT (round 12, FAIL CLOSED): the raw text has its single-quote runs blanked, as the
+    grammar reads it; a DECODED round is never blanked — a quote that decoding produced
+    (``%27``) is not one the grammar saw, so it must not hide a URI. Bounded by
+    ``_DECODE_ROUNDS``; the eval path decodes ``q=`` with ``unquote_plus``
+    (``wire.subrequest.decode_expression_http``), so double encoding and ``+`` are covered.
     """
+    readings = [_unquoted(text)]
     for _ in range(_DECODE_ROUNDS):
         decoded = unquote_plus(text)
         if decoded == text:
             break
+        readings.append(decoded)
         text = decoded
-    return text
+    return readings
 
 
 def _unquoted(text: str) -> str:
