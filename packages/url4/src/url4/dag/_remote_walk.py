@@ -164,8 +164,16 @@ class RemoteWalk:
         return spawns
 
     def _evaluated(self, node: RelUrlNode) -> tuple[str, str | None] | None:
-        target = node.static_target() if isinstance(self.io, SupportsEvalPath) else None
+        """What the eval path runs for ``node``, or ``None`` when it is not routed there.
+
+        INVARIANT (round 11, owner: FAIL CLOSED): when the precheck cannot ASK — the io in hand
+        lacks the eval-path port, or the route needs a run-time value — the call is never taken
+        as call-free: every unquoted ``url4://`` URI in its static text is a ``maybe`` call.
+        """
+        target = node.static_target()
         if target is None or not isinstance(self.io, SupportsEvalPath):
+            params = (f"{key}={value or ''}" for key, value in node.params)
+            self.maybe_calls(" ".join((node.path, node.context or "", *params)))
             return None
         try:
             return self.io.eval_expression(target)

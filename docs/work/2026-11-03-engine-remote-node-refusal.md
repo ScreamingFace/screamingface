@@ -204,7 +204,9 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   node's eval path. (b) KNOWN LIMIT, owner-accepted and documented (2026-11-14) — text that becomes an
   expression only at the eval path (`/v1`), i.e. a quoted literal or a `$name` value sent there,
   is not an expression in the outer run; it is checked by the inner run's own precheck, with zero
-  DNS lookups and zero requests, but after the outer run's siblings ran.
+  DNS lookups and zero requests, but after the outer run's siblings ran. Inside a map body this
+  limit can let the run COMPLETE with `x.remote_node_unsupported` error rows (still zero DNS
+  lookups and zero requests) — the same as on main (owner, 2026-11-15).
 - **Round 9 (2026-11-14, security review of 623e8305b):** three fail-open paths in
   `_remote_walk.py`, all fixed. (1) HIGH: a holdings context (no scan) was given prose mode and,
   on a compile failure, an empty scan; now a holdings context is a fragment — any compile failure
@@ -249,4 +251,24 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   (6 refused + control). RED on fcc257943: 7 url4 + 6 engine. KNOWN LIMIT unchanged
   (owner-accepted 2026-11-14): text that becomes an expression only inside `/v1` (a quoted
   literal, a `$name` value, a resolved context) is checked by the inner run, with zero DNS and
-  zero requests, after siblings ran.
+  zero requests, after siblings ran; inside a map body the run can complete with
+  `x.remote_node_unsupported` error rows, as on main.
+- **Round 11 (2026-11-15, re-check of 832e1a1ee):** local mode switched the round-10 check off.
+  The engine always wraps the node's io in `FairShareIOLayer` (local mode builds the gate and
+  `runner/main.py` wraps whenever a gate and run key exist), and it forwarded only `fetch_ex`,
+  `fetch_holdings`, `processor_routes` and `default_route`, so `RemoteWalk._evaluated` saw no
+  eval-path port and every round-10 shape ran members first again (map bodies completed with
+  error rows). Fixes: (1) `FairShareIOLayer` forwards `eval_expression` when the inner layer has
+  it (a pure lookup, not I/O, never gated; `getattr`, because the port Protocol sits in url4's
+  private engine layer). (2) Owner decision, FAIL CLOSED: when the precheck cannot ask what the
+  eval path runs — the io in hand lacks the port, or `static_target()` is `None` because the route
+  needs a run-time value (`/$item…`, `/v$item(…)`) — every unquoted `url4://` URI in the call's
+  static text (path, verbatim context, params) is a `maybe` call; never silently skipped. The
+  `$`-route shapes were already refused at row time by the path grammar and already refused by
+  the precheck before this round; they are now pinned. Tests (new files only): engine
+  `test_engine_remote_node_fair_share_eval_path.py` (all 7 round-10 cases through
+  `Url4Executor(io_wrap=FairShareIOLayer)` with a real `FairShareGate`, map body raises; control
+  completes), url4 `test_remote_node_eval_port_fail_closed.py` (5 eval-path cases through a bare
+  wrapper without the port + a control that runs; 3 `$`-route shapes + a control naming no
+  `url4://`). RED on 832e1a1ee: 7 engine + 5 url4 (the `$`-route pins and controls green).
+  /v1 limit wording extended (map-body error rows, as on main).
