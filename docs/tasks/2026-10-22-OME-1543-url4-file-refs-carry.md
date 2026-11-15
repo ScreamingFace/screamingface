@@ -1,12 +1,12 @@
 ---
 id: OME-1543
 linear_url: https://linear.app/openmined/issue/OME-1543/carry-file-refs-through-url4-fan-out-reduce-and-iteration-intact
-status: in_review
+status: done
 type: feature
 priority: high
 labels: [url4-sdk, agentic, autonomous]
 created: 2026-10-22
-closed:
+closed: 2026-11-13
 ---
 
 # Carry file refs through url4 fan-out, reduce and iteration intact

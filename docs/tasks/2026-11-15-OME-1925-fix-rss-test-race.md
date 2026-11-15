@@ -1,12 +1,12 @@
 ---
 id: OME-1925
 linear_url: https://linear.app/openmined/issue/OME-1925/fix-the-flaky-peak-vs-current-rss-test-in-test-process-memorypy
-status: in_progress
+status: done
 type: task
 priority: 0
 labels: [screamingface-engine, agentic, autonomous]
 created: 2026-11-15
-closed:
+closed: 2026-11-15
 ---
 
 # Fix the flaky peak-vs-current RSS test in test_process_memory.py
