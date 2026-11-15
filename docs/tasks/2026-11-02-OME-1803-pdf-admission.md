@@ -1,12 +1,13 @@
 ---
 id: OME-1803
 linear_url: https://linear.app/openmined/issue/OME-1803/image-support-refuse-a-run-at-admission-when-a-model-cant-take-pdfs
-status: in_review
+status: done
 type: feature
 priority: medium
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1529
 created: 2026-11-02
+closed: 2026-11-05
 ---
 
 # IMAGE SUPPORT: Refuse a run at admission when a model can't take PDFs

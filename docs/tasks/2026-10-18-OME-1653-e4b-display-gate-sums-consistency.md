@@ -1,12 +1,12 @@
 ---
 id: OME-1653
 linear_url: https://linear.app/openmined/issue/OME-1653/add-combine-display-gate-signal-sums-and-consistency
-status: in_progress
+status: done
 type: feature
 priority: 3
 labels: [client-sf, agentic, autonomous]
 created: 2026-10-18
-closed:
+closed: 2026-11-05
 ---
 
 # Add combine display, gate, signal sums and consistency
@@ -29,3 +29,10 @@ Ledgers: `docs/work/2026-10-15-e4b-show-signals.md`, `docs/work/2026-10-16-e4b-g
 `docs/work/2026-10-16-e4b-signal-sums.md`, `docs/work/2026-10-16-e4b-consistency.md`,
 `docs/work/2026-10-20-e4b-mapreduce-surface.md`, `docs/work/2026-10-20-e4b-narrow-step.md`.
 Test approvals: `.claude/test-change-approvals/OME-1653.json`.
+
+## Close
+
+- 2026-11-05: E4b parts 4 to 7 and the map → select → reduce surface are on `main`. #1460 and #1461
+  first merged on 2026-10-30 into their parent stack branches, not into `main` (the repo keeps a
+  branch after merge, so GitHub did not retarget them). PR #1680 then squash-merged the same parts 2
+  to 7 change onto `main` as `ea79d69e4` on 2026-11-05. Close in Linear is an owner action.

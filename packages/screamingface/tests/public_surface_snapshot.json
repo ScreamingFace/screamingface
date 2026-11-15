@@ -10,6 +10,9 @@
       "Benchmark",
       "BenchmarkInfo",
       "CandidateResult",
+      "CandidateRun",
+      "Cascade",
+      "CascadeSeedWarning",
       "CaseGrade",
       "CaseMedia",
       "CaseResult",
@@ -25,6 +28,7 @@
       "EngineCapabilityError",
       "EngineUnavailableError",
       "Entropy",
+      "Estimate",
       "EvaluationWarning",
       "Event",
       "Evidence",
@@ -43,6 +47,7 @@
       "Judge",
       "JudgePick",
       "JudgeWriterWarning",
+      "LLMClassifier",
       "LabelScore",
       "Leaderboard",
       "LeaderboardBaseline",
@@ -72,10 +77,13 @@
       "ProviderConnectionError",
       "Rank",
       "Recipe",
+      "RegexClassifier",
       "Report",
       "Reproduction",
       "ReproductionError",
       "ReproductionOutcome",
+      "Run",
+      "RunProgress",
       "ScoreMetadataEvent",
       "ScreamingFaceError",
       "SelfCorrective",
@@ -85,10 +93,14 @@
       "Usage",
       "Verbalized",
       "Vote",
+      "WithBudget",
       "__version__",
+      "abstain",
       "agreement",
       "analytics",
+      "answered",
       "benchmarks",
+      "budget",
       "cache",
       "classify",
       "close",
@@ -96,16 +108,22 @@
       "connect",
       "connections",
       "disconnect",
+      "escalate_if",
       "evaluate",
       "events",
+      "fail",
       "fetch_media",
       "field",
+      "label",
+      "labels",
       "leaderboards",
       "matches",
       "models",
       "reports",
+      "runs",
       "samples",
-      "signal"
+      "signal",
+      "unanswered"
     ],
     "exports": {
       "Answer": {
@@ -212,10 +230,11 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, capture_partial_reasons: 'Sequence[str]' = (), reproduction: 'Reproduction | None' = None) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', attempt_id: 'str | None' = None, started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, capture_partial_reasons: 'Sequence[str]' = (), reproduction: 'Reproduction | None' = None, run_id: 'str | None' = None) -> 'None'",
           "abstained_count": "property",
           "accounting": "property",
           "answer_seed": "field",
+          "attempt_id": "field",
           "benchmark": "field",
           "cache_hits": "field",
           "cache_saved_cost_archive_usd": "field",
@@ -238,7 +257,7 @@
           "pinned_cache": "field",
           "reproduction": "field",
           "run_cost_status": "field",
-          "run_id": "field",
+          "run_id": "property",
           "score": "field",
           "scores": "property",
           "selected_cases": "property",
@@ -248,6 +267,30 @@
           "url4": "field",
           "usage": "field"
         }
+      },
+      "CandidateRun": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, name: 'str', state: 'CandidateState', cost_usd: 'Decimal | None', error_code: 'str | None') -> None",
+          "cost_usd": "field",
+          "error_code": "field",
+          "name": "field",
+          "state": "field"
+        }
+      },
+      "Cascade": {
+        "kind": "function",
+        "signature": "(*parts: 'Tier | EscalateIf | Outcome') -> 'Recipe'"
+      },
+      "CascadeSeedWarning": {
+        "catches_as": [
+          "EvaluationWarning",
+          "UserWarning",
+          "Warning",
+          "Exception"
+        ],
+        "kind": "class",
+        "members": {}
       },
       "CaseGrade": {
         "kind": "class",
@@ -432,6 +475,15 @@
           "top_logprobs": "field"
         }
       },
+      "Estimate": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, branch: 'object', *, usd: 'float | None' = None, tokens: 'int | None' = None) -> 'None'",
+          "branch": "field",
+          "tokens": "field",
+          "usd": "field"
+        }
+      },
       "EvaluationWarning": {
         "catches_as": [
           "UserWarning",
@@ -582,8 +634,11 @@
       "Gate": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, when: 'GateCondition', then: 'Vote', otherwise: 'Fallback' = 'abstain', abstain_if: 'GateBand | None' = None) -> 'None'",
+          "__init__": "method (self, *, when: 'Condition', then: 'Branch', otherwise: 'Branch | None' = None, abstain_if: 'GateBand | None' = None) -> 'None'",
           "abstain_if": "field",
+          "estimates": "field",
+          "name": "property",
+          "optional": "property",
           "otherwise": "field",
           "then": "field",
           "when": "field"
@@ -616,6 +671,16 @@
         ],
         "kind": "class",
         "members": {}
+      },
+      "LLMClassifier": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, model: 'str | Model', *, labels: 'Sequence[str]', prompt: 'str | None' = None, params: 'Mapping[str, str | int | float | bool] | None' = None, multi: 'bool' = False) -> 'None'",
+          "labels": "field",
+          "model": "field",
+          "multi": "field",
+          "prompt": "field"
+        }
       },
       "LabelScore": {
         "kind": "class",
@@ -969,10 +1034,19 @@
         "kind": "class",
         "members": {}
       },
+      "RegexClassifier": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, rules: 'Sequence[Sequence[object]]', *, multi: 'bool' = False) -> 'None'",
+          "labels": "property",
+          "multi": "field",
+          "rules": "field"
+        }
+      },
       "Report": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', case_count: 'int', candidates: 'Sequence[CandidateResult]') -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', case_count: 'int', candidates: 'Sequence[CandidateResult]', run_id: 'str | None' = None) -> 'None'",
           "benchmark": "field",
           "candidates": "field",
           "case_count": "field",
@@ -981,6 +1055,7 @@
           "export": "method (self, path: 'str | PathLike[str]' = 'report.json', *, format: \"Literal['json', 'inspect']\" = 'json', candidate: 'str | None' = None) -> 'Path'",
           "failures": "property",
           "ok": "property",
+          "run_id": "field",
           "selected_cases": "property",
           "selection_fingerprint": "property",
           "started_at": "property",
@@ -1016,6 +1091,33 @@
       "ReproductionOutcome": {
         "kind": "type alias",
         "value": "typing.Literal['exact', 'failed', 'not_reproducible']"
+      },
+      "Run": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, id: 'str', state: 'RunState', created_at: 'datetime', finished_at: 'datetime | None', benchmark: 'str', candidates: 'tuple[CandidateRun, ...]') -> None",
+          "benchmark": "field",
+          "cancel": "method (self) -> 'None'",
+          "candidates": "field",
+          "cost_usd": "property",
+          "created_at": "field",
+          "finished_at": "field",
+          "id": "field",
+          "progress": "method (self) -> 'RunProgress'",
+          "refresh": "method (self) -> 'Run'",
+          "report": "method (self) -> 'Report'",
+          "state": "field",
+          "wait": "method (self, *, timeout: 'float | None' = None) -> 'Run'"
+        }
+      },
+      "RunProgress": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, done: 'int', total: 'int', cost_usd: 'Decimal | None') -> None",
+          "cost_usd": "field",
+          "done": "field",
+          "total": "field"
+        }
       },
       "ScoreMetadataEvent": {
         "kind": "class",
@@ -1105,9 +1207,25 @@
           "weights": "field"
         }
       },
+      "WithBudget": {
+        "kind": "class",
+        "members": {
+          "__init__": "method (self, recipe: 'str | Recipe', *, budget_usd: 'float | None' = None, max_tokens: 'int | None' = None) -> 'None'",
+          "budget_usd": "field",
+          "max_tokens": "field",
+          "name": "property",
+          "optional": "property",
+          "recipe": "field",
+          "units": "method (self) -> 'tuple[BudgetUnit, ...]'"
+        }
+      },
       "__version__": {
         "kind": "value",
         "type": "str"
+      },
+      "abstain": {
+        "kind": "function",
+        "signature": "() -> 'Outcome'"
       },
       "agreement": {
         "kind": "function",
@@ -1117,9 +1235,17 @@
         "kind": "module",
         "module": "screamingface.analytics"
       },
+      "answered": {
+        "kind": "function",
+        "signature": "() -> 'AnsweredCondition'"
+      },
       "benchmarks": {
         "kind": "module",
         "module": "screamingface.benchmarks"
+      },
+      "budget": {
+        "kind": "module",
+        "module": "screamingface.budget"
       },
       "cache": {
         "kind": "module",
@@ -1149,6 +1275,10 @@
         "kind": "function",
         "signature": "(provider: 'str') -> 'Connection'"
       },
+      "escalate_if": {
+        "kind": "function",
+        "signature": "(condition: 'object') -> 'EscalateIf'"
+      },
       "evaluate": {
         "kind": "function",
         "signature": "(candidates: 'Recipe | Sequence[Recipe] | str | None' = None, *, benchmark: 'str | None' = None, limit: 'int | None' = None, cases: 'Sequence[int] | None' = None, on_event: 'Callable[[Event], None] | None' = None, progress: 'bool | None' = None, answer_seed: 'int | None' = None, capture: 'bool | None' = None, pinned_cache: 'str | None' = None, score_id: 'UUID | str | None' = None, url4: 'str | None' = None, record_reproduction: 'bool' = True, use_cache: 'bool' = True) -> 'Report'"
@@ -1157,6 +1287,10 @@
         "kind": "module",
         "module": "screamingface.events"
       },
+      "fail": {
+        "kind": "function",
+        "signature": "() -> 'Outcome'"
+      },
       "fetch_media": {
         "kind": "function",
         "signature": "(media: 'CaseMedia') -> 'FetchedMedia'"
@@ -1164,6 +1298,14 @@
       "field": {
         "kind": "function",
         "signature": "(path: 'str', *, normalize: 'FieldNormalizer | None' = None) -> 'FieldRef'"
+      },
+      "label": {
+        "kind": "function",
+        "signature": "(selector: 'Selector') -> 'LabelRef'"
+      },
+      "labels": {
+        "kind": "function",
+        "signature": "(selector: 'Selector') -> 'LabelsRef'"
       },
       "leaderboards": {
         "kind": "module",
@@ -1181,6 +1323,10 @@
         "kind": "module",
         "module": "screamingface.reports"
       },
+      "runs": {
+        "kind": "module",
+        "module": "screamingface.runs"
+      },
       "samples": {
         "kind": "function",
         "signature": "(model: 'str | Model', n: 'int', *, seeds: 'Sequence[int] | None' = None, temperature: 'float | None' = None, prompts: 'Sequence[str] | None' = None, params: 'Mapping[str, str | int | float | bool] | None' = None) -> 'tuple[Model, ...]'"
@@ -1188,6 +1334,10 @@
       "signal": {
         "kind": "function",
         "signature": "(key: 'str') -> 'Signal'"
+      },
+      "unanswered": {
+        "kind": "function",
+        "signature": "() -> 'Unanswered'"
       }
     }
   },
@@ -1519,10 +1669,11 @@
       "CandidateResult": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', run_id: 'str', started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, capture_partial_reasons: 'Sequence[str]' = (), reproduction: 'Reproduction | None' = None) -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', attempt_id: 'str | None' = None, started_at: 'datetime', completed_at: 'datetime', name: 'str', kind: 'RecipeKind', url4: 'str', models: 'Sequence[str]', operations: 'Sequence[OperationInfo]', score: 'float | None', coverage: 'float', metrics: 'Mapping[str, object]', cases: 'Sequence[CaseResult]', members: 'Sequence[MemberResult]', failures: 'Sequence[Failure]', usage: 'Usage', run_cost_status: 'RunCostStatus | None' = None, cache_saved_cost_usd: 'Decimal | str | None' = None, trace_id: 'str | None' = None, answer_seed: 'int | None' = None, client_version: 'str | None' = None, cache_hits: 'int' = 0, cache_saved_cost_archive_usd: 'Decimal | str | None' = None, cache_unpriced_hits: 'int | None' = None, scores: 'Mapping[str, float | None] | None' = None, pinned_cache: 'str | None' = None, capture_status: \"Literal['complete', 'partial'] | None\" = None, capture_partial_reasons: 'Sequence[str]' = (), reproduction: 'Reproduction | None' = None, run_id: 'str | None' = None) -> 'None'",
           "abstained_count": "property",
           "accounting": "property",
           "answer_seed": "field",
+          "attempt_id": "field",
           "benchmark": "field",
           "cache_hits": "field",
           "cache_saved_cost_archive_usd": "field",
@@ -1545,7 +1696,7 @@
           "pinned_cache": "field",
           "reproduction": "field",
           "run_cost_status": "field",
-          "run_id": "field",
+          "run_id": "property",
           "score": "field",
           "scores": "property",
           "selected_cases": "property",
@@ -1622,7 +1773,7 @@
       "CombineEvidence": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, kind: 'CombineKind', reducer: 'str', operators: 'Sequence[str]', members: 'Sequence[CombineAnswerRow]', chosen: 'Sequence[str]', built: 'bool', tie: 'bool', result: 'CombineResult', dropped: 'int', finish_reason: 'str', tally: 'Sequence[CombineTallyRow] | None' = None, judge: 'CombineJudgeReading | None' = None, fields: 'Sequence[CombineFieldReading] | None' = None, agreement: 'float | None' = None, median: 'str | None' = None, mean: 'str | None' = None, presentation_order: \"Literal['author'] | None\" = None, separator_collision: 'bool | None' = None, signal: 'CombineSignal | None' = None, cut: 'CombineCut | None' = None, declared: 'Mapping[str, Mapping[str, object]] | None' = None, gate: 'CombineGate | None' = None, consistency: 'Mapping[str, Sequence[CombineSampleCount]] | None' = None, narrow: 'Sequence[CombineNarrow] | None' = None) -> 'None'",
+          "__init__": "method (self, *, kind: 'CombineKind', reducer: 'str', operators: 'Sequence[str]', members: 'Sequence[CombineAnswerRow]', chosen: 'Sequence[str]', built: 'bool', tie: 'bool', result: 'CombineResult', dropped: 'int', finish_reason: 'str', tally: 'Sequence[CombineTallyRow] | None' = None, judge: 'CombineJudgeReading | None' = None, fields: 'Sequence[CombineFieldReading] | None' = None, agreement: 'float | None' = None, median: 'str | None' = None, mean: 'str | None' = None, presentation_order: \"Literal['author'] | None\" = None, separator_collision: 'bool | None' = None, signal: 'CombineSignal | None' = None, cut: 'CombineCut | None' = None, declared: 'Mapping[str, Mapping[str, object]] | None' = None, gate: 'CombineGate | None' = None, consistency: 'Mapping[str, Sequence[CombineSampleCount]] | None' = None, narrow: 'Sequence[CombineNarrow] | None' = None, skipped: 'Sequence[str] | None' = None) -> 'None'",
           "agreement": "field",
           "built": "field",
           "chosen": "field",
@@ -1645,6 +1796,7 @@
           "result": "field",
           "separator_collision": "field",
           "signal": "field",
+          "skipped": "field",
           "tally": "field",
           "tie": "field",
           "to_dict": "method (self) -> 'dict[str, object]'"
@@ -1780,7 +1932,7 @@
       "Report": {
         "kind": "class",
         "members": {
-          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', case_count: 'int', candidates: 'Sequence[CandidateResult]') -> 'None'",
+          "__init__": "method (self, *, benchmark: 'BenchmarkInfo', case_count: 'int', candidates: 'Sequence[CandidateResult]', run_id: 'str | None' = None) -> 'None'",
           "benchmark": "field",
           "candidates": "field",
           "case_count": "field",
@@ -1789,6 +1941,7 @@
           "export": "method (self, path: 'str | PathLike[str]' = 'report.json', *, format: \"Literal['json', 'inspect']\" = 'json', candidate: 'str | None' = None) -> 'Path'",
           "failures": "property",
           "ok": "property",
+          "run_id": "field",
           "selected_cases": "property",
           "selection_fingerprint": "property",
           "started_at": "property",

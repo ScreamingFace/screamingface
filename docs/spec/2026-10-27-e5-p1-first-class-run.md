@@ -78,17 +78,17 @@ with `packages/`.
 | # | Decision | Why |
 |---|---|---|
 | D1 | **The Engine owns the Run record. The Client is an interface to it.** | A Client-local index cannot be reopened from another machine. A "local = disk, cloud = server" split would be two code paths. |
-| D2 | **Storage is one Tortoise ORM adapter behind a `RunRegistry` port.** Local: a SQLite file in the Engine data dir, the default under `serve --local`. Hosted: a new database, `engine`, on the existing `charts/db` Postgres server, with its own role and Secret, given as `URL4_CLOUD_DATABASE_URL`. A hosted App with no URL runs with **Runs off**: it logs a warning at start and `/runs*` answer 404, so the Client falls back (D7). A hosted App given a SQLite URL refuses to start. | The same pattern aigateway uses (`apps/aigateway/src/aigateway/db.py:9-43`): one code path, plain SQL for the queries, no new pod or volume. SQLite in a pod would be wiped on every restart. Runs off lets the code ship to an environment before its database exists. *Rejected:* JetStream KV plus SQLite (two adapters that can drift apart); aigateway's database (crosses the app boundary). |
+| D2 | **Storage is one Tortoise ORM adapter behind a `RunRegistry` port.** Local: `engine.sqlite3`, the Engine's own database file, which the Client's runtime passes in its data dir as it does `aigateway.sqlite3`; without a URL the Engine keeps it at `~/.screamingface-engine/engine.sqlite3`, since its default artifacts dir is a temp path. Hosted: a new database, `engine`, on the existing `charts/db` Postgres server, with its own role and Secret, given as `URL4_CLOUD_DATABASE_URL`. A hosted App with no URL runs with **Runs off**: it logs a warning at start and `/runs*` answer 404, so the Client falls back (D7). A hosted App given a SQLite URL refuses to start. | The same pattern aigateway uses (`apps/aigateway/src/aigateway/db.py:9-43`): one code path, plain SQL for the queries, no new pod or volume. SQLite in a pod would be wiped on every restart. Runs off lets the code ship to an environment before its database exists. *Rejected:* JetStream KV plus SQLite (two adapters that can drift apart); aigateway's database (crosses the app boundary). |
 | D3 | **Every database write goes through the App. Runners and url4 hold no database connection.** | The owner condition (§9): one writer is easy to reason about, and runners stay free to run anywhere, for example on AWS Lambda. |
 | D4 | **Outcomes travel on a `CandidateOutcomeStream` port.** It has a JetStream adapter (stream `url4-candidate-outcomes`) and an in-memory adapter (`InMemoryCandidateOutcomeStream`), like `EventStream` and `InMemoryEventStream`. Every producer publishes to it, and one App consumer writes them. | One write path in both modes: no "local writes directly" branch, and no runner holds database access. |
 | D5 | **`Run.id` is `run_` + a random UUID in hex, minted by the Engine. It is not a secret.** Access is checked by owner, and a foreign or unknown id answers 404. Runs list by `created_at`, newest first, with the id breaking ties. | Ordering comes from a timestamp column, not the id, so the id needs no clock or counter and any number of App replicas can mint it. Safe to paste anywhere (`OME-966`). |
-| D6 | **The owner is the verified `X-User-Email` hosted, or `local` in local mode.** It is resolved through the same `require_identity` switch as the mounts, and stored as `sha256` of the email trimmed, NFC-normalised and case-folded. A hosted `/runs*` call without identity gets 401. | It reuses the identity the edge already verifies. Local mode is loopback and single-user. |
+| D6 | **The owner is the verified `X-User-Email` hosted, or `local` in local mode.** It is resolved through the same `require_identity` switch as the mounts, and stored as `sha256` of the email trimmed and lowercased (`str.lower()`), the rule aigateway's account key uses. It never case-folds, so `ß`/`ss`, `ﬁ`/`fi` and `ſ`/`s` stay two owners (§9). A hosted `/runs*` call without identity gets 401. | It reuses the identity the edge already verifies. Local mode is loopback and single-user. |
 | D7 | **Registration is best-effort.** If `POST /runs` fails in any way (any non-2xx answer, such as 401 for no identity, 404 for an older Engine or with Runs off, or a 5xx while the database is down; or a transport error), `evaluate` runs exactly as today, with `Report.run_id = None` and one notice. | History never breaks automation or a lagging local Engine. |
 | D8 | **Every `evaluate` registers a Run**: Recipe, raw-URL4 and replay alike, whatever `save_results` is set to. The Client's local manifest is keyed by `Run.id`. | A Run is the record of every evaluation, not only the saved ones. |
 | D9 | **`Run.report()` reads the Client's local store only.** On a machine without those results it raises an error that names the run and says the results are not on this machine. | Results stay where they are today, so Garage and its lifecycle are unchanged. Opening a report on another machine is P2's question. |
 | D10 | **`CandidateResult.run_id` is deprecated for `attempt_id`** (same value), with a `DeprecationWarning` for two minor releases. The `run_id=` constructor keyword still works, with the warning, and the SDK's own readers use `attempt_id`. `Report.run_id` is the Run. `Event.run_id` (`events.py:27`) and the event envelope's `run_id` (`_engine/contract.py:534`) name an event's topic and are out of scope. | One name, "run id", for two different things would be confusing. Renaming outright breaks notebooks. |
 | D11 | **`sf.runs` is a new namespace. `sf.reports` is unchanged.** | Different source and object: Engine records of Runs in any state, versus locally saved results. |
-| D12 | **Cancel is run-wide and sticky.** `DELETE /runs/{id}` applies while any Candidate is not terminal (`pending` included): it sets the cancel flag, stops every live topic, moves `pending` Candidates to `stopped`, and refuses later starts under the run with 409 `run_canceled`. When every Candidate is terminal it changes nothing and answers 204. | A cancel from another notebook must also stop Candidates the original Client has not started yet, and must never rewrite a run that has finished. |
+| D12 | **Cancel is run-wide and sticky.** `DELETE /runs/{id}` applies while any Candidate is not terminal (`pending` included): it sets the cancel flag, records a stop owed to every bound live Candidate, moves `pending` Candidates to `stopped`, and refuses later starts under the run with 409 `run_canceled`. It then stops exactly the owed topics, clearing each obligation once its stop succeeds; a failed stop stays owed, so a retried DELETE stops it, and a topic that ended on its own is never stopped. An owed stop keeps a queued topic from running even when this App has no record of queueing it (a restart, or a cancel that beat the publish): the queue gets the cancel marker the worker checks before it runs. A bound run's deadline counts from its bind, so the marker outlives every moment the run could still start. A failed stop that a concurrent DELETE already completed is not a 503. It answers 202 while it changed the Run or a Candidate is still live, and 204 once every Candidate is terminal and nothing changed. | A cancel from another notebook must also stop Candidates the original Client has not started yet, and must never rewrite a run that has finished. |
 
 ## 4. Contract
 
@@ -98,8 +98,8 @@ All routes resolve the owner (D6) and answer RFC 9457 `Problem`s, as the existin
 
 | Route | Request | Response |
 |---|---|---|
-| `POST /runs` | `{client_key, benchmark, case_count, candidates: [name, …], client_version}` | 201 `RunRecord`, or 200 with the existing record for a repeated `(owner, client_key)` |
-| `GET /runs` | `?state=&since=&limit=50&cursor=` | 200 `{runs: [RunRecord], next_cursor}`, newest first |
+| `POST /runs` | `{client_key, benchmark, case_count, candidates: [name, …], client_version}` | 201 `RunRecord`, or 200 with the existing record for a repeated `(owner, client_key)` · 409 `client_key_conflict` when that record names another benchmark, Case count or Candidates |
+| `GET /runs` | `?state=&since=&limit=50&cursor=` | 200 `{runs: [RunRecord], next_cursor}`, newest first · 422 `invalid_cursor` when the cursor names no Run of the owner |
 | `GET /runs/{id}` | — | 200 `RunRecord` · 404 `run_not_found` |
 | `DELETE /runs/{id}` | — | 202, or 204 when every Candidate is terminal · 404 `run_not_found` |
 | `GET /?q=` (existing start) | new headers `X-SF-Run: <run id>`, `X-SF-Run-Candidate: <index>` | as today · 404 `run_not_found` · 409 `run_canceled` · 409 `candidate_already_started` |
@@ -113,6 +113,11 @@ All routes resolve the owner (D6) and answer RFC 9457 `Problem`s, as the existin
 - **404s.** Only `POST /runs` falls back silently (D7). On every other route, a 404 whose Problem
   type is `run_not_found` means the id is unknown or foreign. Any other 404 (an older Engine, or
   Runs off) means this Engine does not serve Runs.
+- **Problem codes.** `run_not_found`, `run_canceled` and `candidate_already_started` are the
+  Problem's `code`, as for every other Engine code. A hosted `/runs*` call without identity
+  answers 401 `identity_required`. An `X-SF-Run-Candidate` that is not an index of the run's
+  `candidates`, or either header without the other, answers 400 `malformed_header`, before
+  anything is scheduled.
 - **`RunRecord`** is `{id, state, created_at, finished_at, benchmark, case_count, candidates:
   [{name, state, attempt_id?, started_at?, finished_at?, cost_usd?, error_code?}]}`. It never
   carries the owner.
@@ -122,10 +127,11 @@ All routes resolve the owner (D6) and answer RFC 9457 `Problem`s, as the existin
 ```python
 class RunRegistry(Protocol):            # implemented once, with Tortoise
     async def create(self, owner: OwnerKey, spec: RunSpec) -> RunRecord: ...
+    async def register(self, owner: OwnerKey, spec: RunSpec) -> tuple[RunRecord, bool]: ...  # created?
     async def get(self, owner: OwnerKey, run_id: str) -> RunRecord | None: ...
     async def list(self, owner: OwnerKey, query: RunQuery) -> RunPage: ...
     async def bind(self, owner: OwnerKey, run_id: str, candidate: int, topic: str) -> None: ...
-    async def mark_scheduled(self, topic: str) -> None: ...
+    async def mark_scheduled(self, topic: str) -> bool: ...                 # False: a cancel won
     async def settle(self, topic: str, outcome: CandidateOutcome) -> None: ...
     async def cancel(self, owner: OwnerKey, run_id: str) -> RunRecord | None: ...
     async def reconcile(self) -> int: ...                                    # R6
@@ -144,6 +150,11 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
 - **Writes are compare-and-set on state:** each is one `UPDATE … WHERE … AND state …` guarded on
   the state it expects, so the row count says which writer won. It is identical on SQLite and
   Postgres.
+- **Every write transaction locks its Run row first**, then its Candidates. One lock order means
+  writes to one Run never deadlock on Postgres, and a cancel's "is any Candidate live?" check
+  holds until its flag commits (D12).
+- **A record is derived from one statement**, the Run's Candidates joined to their Run, so a read
+  never combines facts from two moments (R5).
 - **Runner-side code imports `CandidateOutcomeStream` only**, never `RunRegistry`.
 
 ### 4.3 Rules
@@ -158,25 +169,38 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
   - A bind leaves the Candidate `pending`. It becomes `scheduled` (`mark_scheduled`) only once
     scheduling succeeds, so a start that is refused, or that the Client gives up on, leaves it
     `pending` and the R5 grace applies.
+  - A cancel that lands between the bind and `mark_scheduled` has already stopped the
+    Candidate, so `mark_scheduled` returns False: the start stops the topic it just scheduled and
+    answers 409 `run_canceled`.
   - Binding the same `(run, candidate, topic)` again succeeds and changes nothing, so the
     Client's re-sent start after a 503 still schedules.
   - A different topic for a bound Candidate, or a topic bound elsewhere, gets 409
     `candidate_already_started`.
   - A bind that fails on the database is logged, and the start proceeds unbound (§8).
-- **R3. Outcomes.** A `CandidateOutcome` is `{status, error_code?, cost_usd?}`; cost is exact
-  only, as on the wire. It is built everywhere by one classifier: a `SettlementWatch` (which
+- **R3. Outcomes.** A `CandidateOutcome` is `{status, error_code?, cost_usd?, finished_at}`; cost
+  is exact only, as on the wire, and `finished_at` is when the producer saw the end, so an outcome
+  written late still ends its Candidate on time. An outcome the registry cannot store (a cost of
+  $10¹² or more, an error code over 128 characters or with a NUL) is refused before it is
+  published; a terminal frame's code that cannot be stored becomes `error_code_unstorable`. It is built everywhere by one classifier: a `SettlementWatch` (which
   extends `TerminalWatch`) and the existing `run_evidence.outcome_of`, which returns a
   `CandidateOutcome` carrying the summary's cost.
   - **A producer publishes an outcome only when its own terminal frame is the one that landed on
-    `url4-events`.** So the registry always agrees with the terminal frame the Client reads.
+    `url4-events`.** So the registry always agrees with the terminal frame the Client reads. A
+    writer that is not the run learns it from `JetStreamPublisher.publish_next`, which writes
+    nothing after another terminal frame and returns whether it wrote. The run child learns it
+    from `JetStreamPublisher.dropped(topic)`: its frames were dropped when the subject had already
+    ended at its first frame.
   - The producers, all publishing to `CandidateOutcomeStream`:
     - **in-process runner:** `_on_done`.
-    - **queue run, executed:** the child sends `SETTLED {json}` on the control pipe, and its
-      supervisor publishes it after `_publish_if_needed`. If the child died first, the supervisor
-      publishes its own classification instead, with no cost. The encoder and decoder go in
-      `child_protocol.py`, which stays stdlib-only, so cost travels as a decimal string.
+    - **queue run, executed:** the child keeps its control pipe open through the run and sends
+      `SETTLED {json}` before it exits; its supervisor publishes it after `_publish_if_needed`.
+      If the child died first, the supervisor publishes its own classification instead, with no
+      cost. The encoder and decoder go in `child_protocol.py`, which stays stdlib-only, so cost
+      travels as a decimal string.
     - **queue run, never executed:** `_publish_terminal`.
     - **App terminal writers:** `_publish_tombstone` and `_publish_failure`.
+  - Publishing an outcome is best effort: a failed publish is logged and never fails the run, its
+    terminal frame or its ack. A lost outcome leaves the Candidate live until reconcile (R6).
   - A topic with no binding is acked as a no-op at the consumer.
 - **R4. One writer.** The App's consumer calls `settle` and acks only after the commit. A
   database outage delays outcomes but loses none: they are redelivered within the stream's 24 h
@@ -212,10 +236,11 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
     window (`since`, at most the 30-day retention), derives their states, filters, and pages.
     That is a few hundred or thousand rows per owner. A stored, indexed state column is a later
     migration if one owner ever holds far more, backfilled with the same pure function.
-- **R6. Reconcile** runs at App start and hourly. **It only ever writes `lost`**; a terminal
+- **R6. Reconcile** runs at App start and hourly (`run_sweep_interval_s`, default 3600 s). **It only ever writes `lost`**; a terminal
   state and a cost come only from a real outcome.
   - **A stream that survives a restart** (JetStream). A Candidate still live
-    `run_lost_after_s` (default 48 h) after it was bound settles as `lost`. P1 runs stop when
+    `run_lost_after_s` (default 48 h; the chart caps `candidateOutcomes.maxAgeS` below it) after
+    it was bound settles as `lost`. P1 runs stop when
     nobody listens, so no real run comes near that, and it is longer than both
     `url4-candidate-outcomes` and `url4-runq` keep a message (24 h each), so no outcome can still
     arrive.
@@ -231,24 +256,34 @@ class CandidateOutcomeStream(Protocol): # JetStream `url4-candidate-outcomes` | 
   sweeper's pattern (`app.py:156-170`). It deletes Runs whose `created_at` is older than
   `run_retention_s`, default 30 days. The same code runs on both databases.
 - **R8. Cancel** follows D12. The Client also sends `DELETE /runs/{id}`, best-effort, when the
-  user aborts an `evaluate` (Ctrl-C, `cancel_active`), so a deliberate stop reads `canceled`.
+  user aborts an `evaluate` (Ctrl-C, task cancel), so a deliberate stop reads `canceled`. It cancels
+  only that `evaluate`'s Run; another `evaluate` on the same Client keeps its Run.
 - **R9. Schema.**
   - Hosted: migrations run in a pre-install/pre-upgrade Helm hook Job, modelled on aigateway's
     (`apps/aigateway/charts/aigateway/templates/job-migrate.yaml`). The Job, and the App's
-    database variable, render only when `database.existingSecret` is set, and the App's secret
-    reference is `optional: true`. Without the Secret the chart renders and installs, and the App
-    runs with Runs off (D2).
-  - Local: `serve --local` applies pending migrations at start.
+    database variable, render only when `database.existingSecret` is set (key
+    `database.existingSecretKey`, default `database-url`, as for aigateway). Both references are
+    required, so a named Secret that does not exist fails the release; with no
+    `database.existingSecret` the App runs with Runs off (D2). The Job runs under the namespace's default ServiceAccount with no
+    token, because a pre-install hook runs before the chart's own ServiceAccount exists.
+  - Local: `serve --local` applies pending migrations at start, holding an exclusive lock beside
+    the file; a second local Engine on the same file refuses to start, since each reconciles the
+    Candidates bound before it started as `lost`.
   - The App refuses to start on a schema older than its code.
+  - The App refuses to start when its database does not answer, with an error that names the
+    database (password hidden), not the schema (§9, 2026-11-05).
 - **R10. Create the database once per environment.** This is an owner action, because
   `charts/db`'s `POSTGRES_DB` init runs only on an empty volume. It is
   `CREATE ROLE engine LOGIN PASSWORD '…'; CREATE DATABASE engine OWNER engine;`, then the
   `engine-db` Secret, then `database.existingSecret` in the environment's values. The runbook goes
   in `apps/screamingface-engine/DEPLOYMENT.md`.
 - **R11. The outcome stream is ensured in code, like `url4-events`.** Both the App and the runner
-  pool call `ensure_stream()` at startup, from the same rendered `candidateOutcomes.*` values
-  (max age 24 h, max bytes), declared in `values.schema.json` and rendered to both Deployments.
-  A worker can therefore publish even if it starts before the App.
+  pool call `ensure_stream(update=True)` at startup, from the same rendered `candidateOutcomes.*`
+  values (`maxAgeS` 24 h, `maxBytes` 64 MiB), declared in `values.schema.json` and rendered to
+  both Deployments. `update=True` applies a changed limit and the writer's `ack_wait` to the live
+  stream; every other caller only creates a missing stream. A worker can therefore publish even
+  if it starts before the App. When the stream is full a publish is refused, never an older
+  outcome dropped (`discard=new`).
 
 ### 4.4 Client API
 
@@ -282,6 +317,10 @@ class Run:                       # a frozen snapshot; methods re-read the Engine
 - `report()` on a Run that is still `running` raises `ExecutionError("run_not_finished")`. On any
   other non-`complete` state it follows the existing settlement rule:
   `ExecutionError("candidates_failed", partial_report=...)`.
+  On a machine without the Run's results (D9) it raises `ExecutionError("results_not_local")`.
+- `wait(timeout=…)` raises `TimeoutError` when the Run is still `running` at the timeout.
+- The one D7 notice is an `EvaluationWarning`. A raw-URL4 or replay evaluate registers as
+  benchmark `"URL4 replay"` with `case_count` 0, since neither is known before it runs.
 
 ## 5. Landings
 
@@ -291,7 +330,7 @@ covering C1–C4 for P1b) under `OME-1785`, each with its own sub-issue. The pla
 | Landing | Component | Change |
 |---|---|---|
 | P1a | `screamingface-engine` | Both ports and their adapters, the first migration, and the new dependencies at aigateway's pins (`tortoise-orm[asyncpg]==1.1.8`, `asyncpg==0.31.0`, dev `testcontainers[postgres]==4.15.0`). All R3 producers, the App consumer, the sweeps, `/runs` and start binding. Helm: the gated database Secret on the App Deployment only, the gated migrate Job, and the shared `candidateOutcomes.*` values. CI: a Postgres step on testcontainers, like aigateway's (`.github/workflows/aigateway-tests.yml:82-85`). |
-| P1b | `client-sf` | `client_key` and `POST /runs` before spend, the binding headers, `Report.run_id`, cancel on abort. `sf.runs`, `Run`, `CandidateRun`, `RunProgress`. The manifest keyed by `Run.id`. `attempt_id` and the deprecation. The D7 fallback. |
+| P1b | `client-sf` | `client_key` and `POST /runs` before spend, the binding headers, `Report.run_id`, cancel on abort. `sf.runs`, `Run`, `CandidateRun`, `RunProgress`. The manifest keyed by `Run.id`. `attempt_id` and the deprecation. The D7 fallback. The runtime passes the local Engine `sqlite://<data_dir>/engine.sqlite3` (D2). |
 
 P1b works against an Engine without `/runs` (D7), so the landings can ship in either order.
 
@@ -384,6 +423,10 @@ P1b works against an Engine without `/runs` (D7), so the landings can ship in ei
   unbound (R2): the cancel check is skipped, and the Candidate's outcome reaches the consumer as
   an unbound topic. The Run then reads `interrupted` and that cost is missing. This is accepted,
   because the alternative makes every evaluation depend on the history database.
+- **A failed `mark_scheduled` leaves a running Candidate `pending`.** The start was bound and
+  scheduled, but the database refused the move to `scheduled`, so it is logged and the start
+  answers as usual. Once the 30-minute pending grace passes, the Run reads `interrupted` while the
+  Candidate still runs; its outcome then settles it (R4). This is accepted for the same reason.
 - **A lost outcome message** (a NATS failure at publish, or an outage longer than 24 h) is caught
   by R6 48 h after the bind. Until then the Run reads `running`; afterwards the Candidate reads
   `lost` even if its work succeeded, and its cost is unknown.
@@ -415,3 +458,21 @@ P1b works against an Engine without `/runs` (D7), so the landings can ship in ei
   lifecycle (D9). The namespace is `sf.runs`. The outcome stream is `url4-candidate-outcomes`,
   behind a port with a JetStream adapter and an in-memory adapter, with no mode branch (D4).
   Delivery is five PRs, one sub-issue each under `OME-1785`.
+- **2026-11-02, Tauquir (spec owner), while building the store (#1634).** The registry's store,
+  models, `db.py` and migrations live in `runs/`, laid out like an aigateway feature, not in an
+  `adapters/run_registry_tortoise` module. Writes are compare-and-set on state, not on a
+  `revision` column: every write is one `UPDATE … WHERE` guarded on the state it expects, so the
+  row count says which writer won (§4.2).
+- **2026-11-05, Tauquir (spec owner), on the #1634 and #1648 reviews.** The owner key (D6) is
+  the email trimmed and lowercased, exactly as aigateway's account key
+  (`CloudflareIdentity.username`), so one verified email is one identity in both services.
+  Unicode case folding is out: it maps `ß` to `ss`, `ﬁ` to `fi` and `ſ` to `s`, giving two
+  verified addresses one owner, and the key is the only check on every Run read and write. There
+  is no NFC step. `str.lower()` maps the Kelvin sign to `k` in text, but over HTTP the edge's
+  UTF-8 bytes arrive as Latin-1 text, which lowercases to no ASCII letter, so a request never
+  reaches that merge; a `/runs` route test pins it.
+- **2026-11-05, Tauquir (spec owner), on the #1639 review.** A hosted App whose database does not
+  answer at start fails fast, naming the database, rather than starting with Runs degraded. Runs
+  become a hard dependency in P2, so degrading would only postpone the failure; a database that is
+  never configured still means Runs off. "History never blocks a run" (§1) describes this
+  phase's Client fallback (D7), not a promise about the App's start.

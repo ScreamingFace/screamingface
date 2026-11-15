@@ -1,9 +1,9 @@
 ---
 ticket: OME-1652   # one PR for E4b parts 2 and 3, under epic OME-1290
 stack: repo, aigateway, screamingface-engine, screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-15
-finished:
+finished: 2026-11-05
 ---
 
 # e4b-signal-sources — E4b part 3, signal sources v1
@@ -905,3 +905,11 @@ The backup branch `e4b-signal-sources-pre-stack` keeps that tip.
   stopped with no progress while the SDK suite ran in parallel. It was stopped, the engine suite
   then passed alone (6080 passed), and the full engine gate run was green. No known flaky test
   (OME-1619) failed.
+
+## Landed on main
+
+The commit ids in the unit sections above are branch commits. On `main`, this unit is part of
+`ea79d69e4` (PR #1680, OME-1652), squash-merged on 2026-11-05. #1460 and #1461 first merged on
+2026-10-30 into their parent stack branches, not into `main` (the repo keeps a branch after merge,
+so GitHub did not retarget them). PR #1680 then squash-merged the same parts 2 to 7 change onto
+`main` as `ea79d69e4` on 2026-11-05.

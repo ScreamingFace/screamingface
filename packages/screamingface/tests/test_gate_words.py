@@ -521,7 +521,15 @@ _GATE_ABSTAIN_WIRE: dict[str, Any] = {
 }
 _EVIDENCE_V1 = COMBINE_CONTRACT / "schemas" / "screamingface.combine-evidence.v1.json"
 _ANSWER_V1 = Path(__file__).parent / "data" / "schemas" / "screamingface.answer.v1.json"
-_GATE_NOT_MET_WORDS = {"no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band"}
+# E4c (OME-1291, budget #6, owner-approved edit): budget_refused is the sixth abstain word.
+_GATE_NOT_MET_WORDS = {
+    "no_votes",
+    "cut_not_met",
+    "output_missing",
+    "gate_not_met",
+    "in_band",
+    "budget_refused",
+}
 
 
 def _enum_lists(prop: dict[str, Any]) -> list[list[str]]:
@@ -564,7 +572,7 @@ def test_sdk_reason_words_equal_the_engine_enum() -> None:
     result_reason = pinned["$defs"]["ResultRecord"]["properties"]["reason"]
 
     assert {word for words in _enum_lists(answer_reason) for word in words} == ANSWER_REASONS
-    assert len(ANSWER_REASONS) == 15
+    assert len(ANSWER_REASONS) == 16  # E4c (OME-1291, budget #6, owner-approved edit)
     assert {word for words in _enum_lists(result_reason) for word in words} == ABSTAIN_REASONS
     assert ABSTAIN_REASONS == _GATE_NOT_MET_WORDS
 
@@ -579,15 +587,18 @@ def test_schema_snapshots_hold_gate_not_met() -> None:
     result_reason = _enum_lists(pinned["$defs"]["ResultRecord"]["properties"]["reason"])[0]
     answer_v1 = json.loads(_ANSWER_V1.read_text(encoding="utf-8"))
 
-    assert answer_reason[-3:] == ["output_missing", "gate_not_met", "in_band"]
+    # E4c (OME-1291, budget #6, owner-approved edit)
+    assert answer_reason[-3:] == ["gate_not_met", "in_band", "budget_refused"]
     assert result_reason == [
         "no_votes",
         "cut_not_met",
         "output_missing",
         "gate_not_met",
         "in_band",
+        "budget_refused",
     ]
     assert answer_v1["abstain_reason"] == [
+        "budget_refused",
         "cut_not_met",
         "gate_not_met",
         "in_band",

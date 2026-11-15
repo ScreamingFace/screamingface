@@ -77,3 +77,4 @@ Spec: `docs/spec/2026-11-05-case-result-store.md`. Plan: `docs/plan/2026-11-05-c
     `operations` included). Streaming `cases` into the artifact store would make the run body
     a reference, which changes the public shape, so it is left as an owner decision (see the
     spec).
+- **Merged:** PR #1688, squash `7221a5c05`, 2026-11-07 (approved by kevinm207).

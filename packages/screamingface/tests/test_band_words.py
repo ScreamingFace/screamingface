@@ -40,7 +40,15 @@ _EVIDENCE_V1 = COMBINE_CONTRACT / "schemas" / "screamingface.combine-evidence.v1
 _ANSWER_V1 = Path(__file__).parent / "data" / "schemas" / "screamingface.answer.v1.json"
 _SURFACE = Path(__file__).parent / "public_surface_snapshot.json"
 _PART5_KEYS = ["observe", "observed", "cmp", "threshold", "passed", "branch", "otherwise"]
-_FIVE_WORDS = ["no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band"]
+# E4c (OME-1291, budget #6, owner-approved edit): budget_refused is the sixth abstain word.
+_FIVE_WORDS = [
+    "no_votes",
+    "cut_not_met",
+    "output_missing",
+    "gate_not_met",
+    "in_band",
+    "budget_refused",
+]
 
 
 def _row(member_id: str, value: str) -> dict[str, Any]:
@@ -265,7 +273,7 @@ def test_sdk_reason_words_equal_the_engine_enum_with_in_band() -> None:
     result_reason = pinned["$defs"]["ResultRecord"]["properties"]["reason"]
 
     assert {word for words in _enum_lists(answer_reason) for word in words} == ANSWER_REASONS
-    assert len(ANSWER_REASONS) == 15
+    assert len(ANSWER_REASONS) == 16  # E4c (OME-1291, budget #6, owner-approved edit)
     assert {word for words in _enum_lists(result_reason) for word in words} == ABSTAIN_REASONS
     assert ABSTAIN_REASONS == set(_FIVE_WORDS)
     assert get_args(GateBranch.__value__) == ("majority", "fallback", "band")
@@ -306,10 +314,15 @@ def test_evidence_and_answer_snapshots_hold_the_band() -> None:
         "title": "Branch",
     }
     answer_reason = _enum_lists(pinned["$defs"]["AnswerRecord"]["properties"]["reason"])
-    assert answer_reason[0][-2:] == ["gate_not_met", "in_band"]
+    assert answer_reason[0][-3:] == [
+        "gate_not_met",
+        "in_band",
+        "budget_refused",
+    ]  # E4c (OME-1291, budget #6, owner-approved edit)
     assert _enum_lists(pinned["$defs"]["ResultRecord"]["properties"]["reason"]) == [_FIVE_WORDS]
     assert answer_v1["abstain_reason"] == sorted(_FIVE_WORDS)
     assert answer_v1["abstain_reason"] == [
+        "budget_refused",  # E4c (OME-1291, budget #6, owner-approved edit)
         "cut_not_met",
         "gate_not_met",
         "in_band",
@@ -317,6 +330,7 @@ def test_evidence_and_answer_snapshots_hold_the_band() -> None:
         "output_missing",
     ]
     assert answer_v1["reason"] == [
+        "budget_refused",  # E4c (OME-1291, budget #6, owner-approved edit)
         "cut_not_met",
         "empty",
         "field_missing",

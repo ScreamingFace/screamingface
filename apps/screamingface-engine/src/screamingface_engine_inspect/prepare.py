@@ -753,16 +753,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     ),
     # gsm8k — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.gsm8k.gsm8k:gsm8k.
-    # Fold: Cases identical to the Hugging Face path's at fewshot=0 (D2).
+    # Task args: none, so Cases carry inspect_evals' default 10 worked examples, the system
+    #   message capture folds ahead of the question (OME-1860; it was fewshot=0 before).
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face openai/gsm8k
     #     pin revision cc7b047b6e5bb11b4f1af84efc572db110a51b3c
     "gsm8k": TaskReplayCasesSpec(
         task="inspect_evals.gsm8k.gsm8k:gsm8k",
-        task_args={"fewshot": 0},
         case_count=1319,
-        case_digest="11e0dccbf379586a9618b98200c02ef98fc9a30d426e6f36423f420982637e8f",
-        case_set_digest="f094ba81f0b2119a423aa9bdd3f37162a128931c2f51d4ee4bb7900706dd9501",
+        case_digest="ad0ae21a2fcd06b92da7d823b7c46a63673435de87bcae2af44730dade28903c",
+        case_set_digest="973728171aaa04a3d3138d62c99c1015030bedd4fa4946d4398413f58f0004e8",
         source_pins={
             "openai/gsm8k": "cc7b047b6e5bb11b4f1af84efc572db110a51b3c",
         },
@@ -770,16 +770,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     ),
     # winogrande — re-imported by Task replay (OME-1460) on 2026-10-06 from
     #   inspect_evals.winogrande.winogrande:winogrande.
-    # Fold: Cases identical to the Hugging Face path's at fewshot=0 (D2).
+    # Task args: none, so Cases carry inspect_evals' default 5 worked examples, the system
+    #   message capture folds ahead of the question (OME-1860; it was fewshot=0 before).
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face allenai/winogrande/winogrande_xl
     #     pin revision 01e74176c63542e6b0bcb004dcdea22d94fb67b5
     "winogrande": TaskReplayCasesSpec(
         task="inspect_evals.winogrande.winogrande:winogrande",
-        task_args={"fewshot": 0},
         case_count=1267,
-        case_digest="437ab435a55b3959660977aef0a0ed17eb45919a475dfd43ffd94362c2b71f67",
-        case_set_digest="4ae4d9d1da187b1e6c2d4e20ee9b344a0e13a9f42f23d76f1b5179a4d6ffa6c0",
+        case_digest="6dc17beb2ae9078b422ac035a002268d9ccb59b2ab08ce92c7b6829760598688",
+        case_set_digest="ee527fabcbce637465600bd41e07f01f30acbf5764a8b765d0684134d3181c3d",
         source_pins={
             "allenai/winogrande": "01e74176c63542e6b0bcb004dcdea22d94fb67b5",
         },
@@ -1796,11 +1796,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     #     pin sha256 b5159af4166487c3cd940ce44a4e481acece31e83119499e50eac791eae42e54
     #   url https://web.archive.org/web/20250305033105/https://www.ic3.gov/CSA/2024/240215.pdf
     #     pin sha256 248804e6879acdc24e65116ddbafe041c209626681e5f59f928ae07e057f0ac1
+    # Re-sealed 2026-11-09 (OME-1853): pypdf 6.19.0 -> 6.21.4 extracts the report PDFs' text
+    #   differently, and that text is frozen into every Case's prompt, so the Case set changed
+    #   (was 8bd34fdb… / 275f1983…). Sealed on linux/amd64, the same values CI's strict image
+    #   build printed. The published id HOLDS by owner ruling (no official leaderboard runs on
+    #   this Benchmark yet), against the doc's "changed Cases -> move" rule.
     "cyse4_threat_intelligence": TaskReplayCasesSpec(
         task="inspect_evals.cyberseceval_4.threat_intelligence:cyse4_threat_intelligence",
         case_count=587,
-        case_digest="8bd34fdb705f27a16cd664ad8de36f9e90642e0453d0be534d5229226a4f6626",
-        case_set_digest="275f19834b5e1ec798f09813eaaacf48602d1b3269ff3f945e0653d1b5dd7ee4",
+        case_digest="096a744d597ea28fec519663442ad8fa7bbe20704bcfe2f7b49951720d62a722",
+        case_set_digest="82c46ccda984ae42058cde9875412bd6633e84e1743a1ecd883d105d475d7f27",
         # WHY kept: the scorer is the eval's own. Question mX9pR4wN's url_source names
         # prophet-weblogic.pdf, but its report_id, which the Case reads, is qakbot-onenote, so
         # the Case pastes the right report; only that metadata link is wrong in inspect_evals.
@@ -2011,11 +2016,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
     #   hugging-face MMMU/MMMU/Sociology
     #     pin revision 171b0ef74cd1704464e6940860968009d8cdd59a
+    # Re-sealed 2026-11-09 (OME-1853): Pillow 12.3.0 -> 13.0.0 re-encodes every picture to
+    #   different PNG bytes, so the Case set changed (was 3fe742a9… / 493c6668…). Sealed on
+    #   linux/amd64, the same values CI's strict image build printed. The published id HOLDS by
+    #   owner ruling (no official leaderboard runs on this Benchmark yet), against the doc's
+    #   "changed Cases -> move" rule.
     "mmmu_multiple_choice": TaskReplayCasesSpec(
         task="inspect_evals.mmmu.mmmu:mmmu_multiple_choice",
         case_count=847,
-        case_digest="3fe742a9bafc6c2f80acd0593a2772a798cd29d2cad0fb225ebaa2d605c482d8",
-        case_set_digest="493c6668c583bc05754a2265875e08b0eebbe85bce9c7b25b0ecfb8574e076c5",
+        case_digest="419ddea28c127df93f02809677e6f2a5ed065f03fc30188d3e17c1add5d113e1",
+        case_set_digest="be1dea78169fdfacf2b5515e2e743ca24170d1a5b32ed71877ee673db1508882",
         source_pins={
             "MMMU/MMMU": "171b0ef74cd1704464e6940860968009d8cdd59a",
         },
@@ -2032,11 +2042,16 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
     # Case Sources, as recorded at import (review them; the Case Digest pins them):
     #   hugging-face AI4Math/MathVista
     #     pin revision 2b6ad69445fbb5695c9b165475e8decdbeb97747
+    # Re-sealed 2026-11-09 (OME-1853): Pillow 12.3.0 -> 13.0.0 re-encodes every picture to
+    #   different PNG bytes, so the Case set changed (was 5097c2f0… / a42c628d…). Sealed on
+    #   linux/amd64, the same values CI's strict image build printed. The published id HOLDS by
+    #   owner ruling (no official leaderboard runs on this Benchmark yet), against the doc's
+    #   "changed Cases -> move" rule.
     "mathvista": TaskReplayCasesSpec(
         task="inspect_evals.mathvista.mathvista:mathvista",
         case_count=1000,
-        case_digest="5097c2f00db0479d46373bee56690ea26faf359ee8ca1288ea742137f9274050",
-        case_set_digest="a42c628ddc55f925569eadec54abfd624e131e37738d5ed4ed6428d3b2290073",
+        case_digest="9a4a85c30d791c733dd781bd48432186e8695f11520b00f7c872f7c5ef009f4b",
+        case_set_digest="15d0e051806512fbbdd3b565ddd70dc9ea1055f238972d8cf51ef7e9601f86cb",
         keep_sample_metadata=True,
         source_pins={
             "AI4Math/MathVista": "2b6ad69445fbb5695c9b165475e8decdbeb97747",
@@ -2195,6 +2210,69 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         },
         needs_hf_token=True,
         license="cc-by-sa-4.0",
+    ),
+    # zerobench — imported by Task replay on 2026-11-09 from
+    #   inspect_evals.zerobench.zerobench:zerobench, at the Task's own defaults: its
+    #   Epochs(5, [pass_at_1, pass_at_5, 5_of_5_reliability]) asks each question 5 times, and
+    #   its first declared reducer is inspect's own pass_at(1), so the card declares attempts=5
+    #   with epoch_reducer="pass_at_1" (docs/spec/2026-11-09-attempts-mean-fold.md): each Case
+    #   scores the share of its 5 Attempts fully right, the number inspect_evals publishes as
+    #   pass@1. (A first import on the same day pinned k=1, one Attempt per Case, while the
+    #   importer still refused pass_at(1); the Cases and their digest did not change.)
+    # NAMED DEVIATION: pass_at_5 and 5_of_5_reliability, the Task's other two reducers, are
+    #   not reproduced; this Benchmark publishes the mean over 5 Attempts only, and the card
+    #   names them.
+    # NAMED DEVIATION: the Case labels each picture by its bytes (image/jpeg for 101 of the
+    #   108, image/png for 7); inspect labels every picture image/png from the .png file name
+    #   the eval gives each one, although it saves the bytes in the picture's own format. The
+    #   bytes are identical on 108 of 108 (the ledger's byte check); ours is the true type.
+    # Sealed on linux/amd64 inside the Engine image, as the image build replays it:
+    #   inspect_evals re-saves each picture with Pillow (thumbnail to 1024 px), whose PNG bytes
+    #   differ by platform for the same pixels, so a Mac-sealed digest never matches the build.
+    #   The 1024 px thumbnail is inspect_evals' own construction and not a deviation from it;
+    #   it is this Benchmark's gap to the paper's full-resolution pictures (the card's
+    #   comparability paragraph says why the paper's resolution is out of reach).
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face jonathan-roberts1/zerobench
+    #     pin revision 13c35e521f939be69e6bbfbfeb6fb8a80d1179e5
+    "zerobench": TaskReplayCasesSpec(
+        task="inspect_evals.zerobench.zerobench:zerobench",
+        case_count=100,
+        case_digest="7b1b680accca5198fdfc490483805dd621927fe31e01305ca5505186129ee060",
+        case_set_digest="4f5c4adbc2429c52ed96afb15cef18a44561804680e415dc7558d17f51a709c9",
+        keep_sample_metadata=True,
+        source_pins={
+            "jonathan-roberts1/zerobench": "13c35e521f939be69e6bbfbfeb6fb8a80d1179e5",
+        },
+        shuffle_seed=20260917,
+        needs_hf_token=True,
+        # License: none stated. The jonathan-roberts1/zerobench card at the pinned revision
+        #  13c35e52 names no licence and neither does the project page. The dataset is gated on
+        #  the Hub behind the authors' terms: do not post, redistribute or disclose ZeroBench
+        #  answers publicly, and do not use any part of ZeroBench for training (the card carries
+        #  a canary string). Accepted on that footing (owner decision on OME-1855,
+        #  2026-11-09): the answers stay Grading Material, never served, the Hub token gates the
+        #  build, and nothing here trains on the Cases. The repo's form for a dataset with no
+        #  licence (piqa, cybermetric, gdpval).
+        license="unknown",
+    ),
+    # macbench — imported by Task replay on 2026-11-09 from
+    #   inspect_evals.macbench.macbench:macbench.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face jablonkagroup/MaCBench
+    #     pin revision ca13e7aff2f9a40cb638360c3e569de173ae1fdd
+    "macbench": TaskReplayCasesSpec(
+        task="inspect_evals.macbench.macbench:macbench",
+        case_count=1153,
+        case_digest="d265b015bfd89935856e1d96ba48a881111f693f621e8e792df8e446e060c51c",
+        case_set_digest="b1a05539af1b56024139e707c074958fd2e187248447e6233cc2b847da4bcad9",
+        keep_sample_metadata=True,
+        letter_list_key=True,
+        source_pins={
+            "jablonkagroup/MaCBench": "ca13e7aff2f9a40cb638360c3e569de173ae1fdd",
+        },
+        shuffle_seed=20260917,
+        license="mit",
     ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }

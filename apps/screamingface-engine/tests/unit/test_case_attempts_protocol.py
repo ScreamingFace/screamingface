@@ -19,9 +19,10 @@ import json
 from typing import Any
 
 import pytest
-from test_attempt_fold import _aggregate
+from test_attempt_fold import _aggregate, _aggregate_mean
 
 from screamingface_engine.benchmarks.contract import CANDIDATE_ROUTE, encode_candidate_invocation
+from screamingface_engine.benchmarks.definition import candidate
 from screamingface_engine.benchmarks.graded_answer import (
     CASE_ATTEMPTS_SCHEMA,
     GRADED_ANSWER_SCHEMA,
@@ -30,6 +31,7 @@ from screamingface_engine.benchmarks.graded_answer import (
 from screamingface_engine.benchmarks.grading_endpoints import candidate_answer
 from screamingface_engine.benchmarks.protocol import preserve_candidate_outcome
 from url4 import RelExpr, Text, iterate, render, src, struct
+from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
 
 
@@ -192,3 +194,126 @@ def test_an_attempts_case_scores_the_any_match_number_end_to_end() -> None:
 def test_attempts_below_one_are_refused() -> None:
     with pytest.raises(ValueError, match="attempts"):
         _case(0)
+
+
+# --- a failed Candidate call fails only its own Attempt (2026-11-10 amendment) ---------------
+#
+# FEATURE (docs/spec/2026-11-10-attempt-call-collect.md): each Attempt's execution runs inside
+# its own collecting iterate, so an errored call becomes that Attempt's row (an error payload
+# carrying the code) and the Attempts that answered are kept. Before this, the error raised out
+# of the whole Case and 4 right tries + 1 token cap scored 0.0 (OME-1458's accepted limitation).
+
+
+class _FailingCandidate:
+    """A stand-in Candidate that answers 42 except on the named Attempts, where its call errors
+    by ``code`` — the shape a spent token budget or a gateway failure takes at the url4 node.
+    No model, Recipe or gateway runs here."""
+
+    def __init__(self, code: str, failing: set[str | None]) -> None:
+        self.code = code
+        self.failing = failing
+        self.attempts: list[str | None] = []
+
+    def __call__(self, request: Request) -> str:
+        attempt: str | None = request.params.get("attempt")
+        self.attempts.append(attempt)
+        if attempt in self.failing:
+            raise ResolutionError(f"stand-in {self.code}", code=self.code, permanent=True)
+        return encode_candidate_invocation("42", "stop", None)
+
+
+def _failing_node(candidate: _FailingCandidate) -> Url4Node:
+    node = Url4Node("attempts-protocol-failing")
+    node.endpoint(CANDIDATE_ROUTE)(candidate)
+    node.endpoint("/grade")(_grade)
+    install_graded_answer_endpoint(node)
+    return node
+
+
+def _evaluated_attempts(candidate: _FailingCandidate, attempts: int) -> list[Any]:
+    evaluated = asyncio.run(_failing_node(candidate).evaluate(render(_case(attempts))))
+    row: dict[str, Any] = json.loads(evaluated.text)
+    assert row["schema"] == CASE_ATTEMPTS_SCHEMA
+    return row["attempts"]
+
+
+def test_a_failed_call_in_one_attempt_keeps_the_others() -> None:
+    # STORY: three Attempts, the second runs out of tokens before any text. Attempts 1 and 3
+    # answer 42 and are kept; Attempt 2 arrives as an error row carrying model_token_cap.
+    candidate = _FailingCandidate("model_token_cap", {"2"})
+
+    rows: list[Any] = _evaluated_attempts(candidate, 3)
+
+    assert len(candidate.attempts) == 3
+    assert [row.get("schema") for row in rows] == [GRADED_ANSWER_SCHEMA, None, GRADED_ANSWER_SCHEMA]
+    assert rows[1]["error"]["code"] == "model_token_cap"
+
+
+@pytest.mark.parametrize(
+    ("code", "mean_score"),
+    [("model_token_cap", round(2 / 3, 4)), ("gateway_internal_error", 1.0)],
+)
+def test_the_marking_room_files_the_errored_attempt_by_its_code(
+    code: str, mean_score: float
+) -> None:
+    # INVARIANT (spec D3, D4): the failed Attempt carries the error's own code, so the fold can
+    # tell an empty answer (a wrong try: 2 right of 3) from a gateway error (no try: 2 of 2).
+    rows: list[Any] = _evaluated_attempts(_FailingCandidate(code, {"2"}), 3)
+
+    folded_any: dict[str, Any] = _aggregate(rows, ["42"])["cases"][0]
+    folded_mean: dict[str, Any] = _aggregate_mean(rows, ["42"])["cases"][0]
+
+    for case in (folded_any, folded_mean):
+        assert case["status"] == "scored"
+        assert [attempt["status"] for attempt in case["attempts"]] == ["scored", "failed", "scored"]
+        assert case["attempts"][1]["failures"][0]["code"] == code
+        assert case["output"] == "42"
+    assert folded_any["grade"]["score"] == 1.0
+    assert folded_mean["grade"]["score"] == mean_score
+
+
+def test_every_call_failing_is_a_failed_case_led_by_attempt_one() -> None:
+    rows: list[Any] = _evaluated_attempts(_FailingCandidate("model_token_cap", {None, "2"}), 2)
+
+    case: dict[str, Any] = _aggregate_mean(rows, ["42"])["cases"][0]
+
+    assert case["status"] == "failed"
+    assert case["failures"][0]["code"] == "model_token_cap"
+    assert [attempt["status"] for attempt in case["attempts"]] == ["failed", "failed"]
+
+
+def test_the_candidate_still_sees_its_case_position_inside_every_attempt() -> None:
+    # WHY (spec D2): inside the per-Attempt iterate url4's $index is the row's own index, 0;
+    # the Case's position is bound once at Case level and read inside, so the Candidate is
+    # still told "Case k of N" (progress reads it too). Two Cases, two Attempts each.
+    seen: list[dict[str, Any]] = []
+
+    def positioned(request: Request) -> str:
+        seen.append(json.loads(request.context))
+        return encode_candidate_invocation("42", "stop", None)
+
+    node = Url4Node("attempts-position")
+    node.endpoint(CANDIDATE_ROUTE)(positioned)
+    node.endpoint("/grade")(_grade)
+    install_graded_answer_endpoint(node)
+    invocation = candidate(
+        "$item.input", web_search=False, case_id="$item.id", case_index="$index", case_count="2"
+    )
+    case = preserve_candidate_outcome(
+        candidate_invocation=invocation, grading=_GRADING, case_id="$item.id", attempts=2
+    )
+    cases = iterate(
+        [struct({"id": "1", "input": "q1"}), struct({"id": "2", "input": "q2"})],
+        body=(src(case, name="case", weight=0.0),),
+        intent=Text("$case"),
+        on_error="collect",
+    )
+
+    asyncio.run(node.evaluate(render(cases)))
+
+    assert sorted((s["case_id"], s["case_index"]) for s in seen) == [
+        ("1", "0"),
+        ("1", "0"),
+        ("2", "1"),
+        ("2", "1"),
+    ]

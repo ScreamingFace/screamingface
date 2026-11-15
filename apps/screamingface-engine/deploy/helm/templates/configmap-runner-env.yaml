@@ -71,6 +71,25 @@ data:
   # stable across upgrades — which means living in the Secret the chart can `lookup`. Both
   # halves of the pair therefore arrive by `envFrom.secretRef`, from one source.
   {{- end }}
+  # The run blob store's OWN storage (OME-1540; #1603 review) — separate from the artifact store
+  # above, so a full blob store fails uploads and never result delivery.
+  #
+  # INVARIANT: rendered from the SAME `blobs.storage` stanza in both ConfigMaps (the App uploads
+  # and serves; the pool's children read blobs for model calls), so a one-sided edit cannot point
+  # the writer and the reader at different blob stores.
+  {{- $blobBackend := include "screamingface-engine.blobBackend" . }}
+  URL4_CLOUD_BLOB_STORE: {{ $blobBackend | quote }}
+  {{- if and (eq $blobBackend "filesystem") .Values.blobs.storage.filesystemDir }}
+  # WHY gated on a non-empty value: "" would override the code's default (a sibling of the
+  # artifact directory) with `Path("")`, the working directory.
+  URL4_CLOUD_BLOBS_DIR: {{ .Values.blobs.storage.filesystemDir | quote }}
+  {{- end }}
+  {{- if eq $blobBackend "s3" }}
+  URL4_CLOUD_BLOB_S3_ENDPOINT_URL: {{ include "screamingface-engine.blobEndpointUrl" . | quote }}
+  URL4_CLOUD_BLOB_S3_BUCKET: {{ .Values.blobs.storage.s3.bucket | quote }}
+  URL4_CLOUD_BLOB_S3_REGION: {{ .Values.blobs.storage.s3.region | quote }}
+  # NOTE: both halves of the blob key pair travel by Secret (`secret-blob-storage.yaml`).
+  {{- end }}
   # OTLP span export (OME-1131) — the SAME keys the App's ConfigMap renders, from one helper
   # (`screamingface-engine.tracingEnv`), so the run's spans and the App's `url4.accept` parent
   # cannot be sent to two different places. The rationale for each key lives with the helper.

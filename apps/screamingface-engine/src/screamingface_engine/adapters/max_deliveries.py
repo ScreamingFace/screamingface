@@ -28,6 +28,12 @@ import nats
 from nats.aio.client import Client
 
 from screamingface_engine.adapters.jetstream import JetStreamPublisher, QueueReadError
+from screamingface_engine.candidate_outcomes import (
+    CandidateOutcome,
+    CandidateOutcomeStream,
+    publish_outcome,
+)
+from screamingface_engine.run_evidence import publish_landed
 from screamingface_engine.runner_queue import topic_of_message
 from screamingface_engine.subjects import RUN_QUEUE_STREAM
 from url4.streaming.protocol import (
@@ -93,8 +99,11 @@ class MaxDeliveriesAdvisor:
         *,
         run_queue_stream: str = RUN_QUEUE_STREAM,
         clock: Callable[[], datetime] | None = None,
+        outcomes: CandidateOutcomeStream | None = None,
     ) -> None:
         self._url = nats_url
+        # FEATURE (OME-1785): where the named failure's Candidate outcome goes.
+        self._outcomes = outcomes
         self._run_queue_stream = run_queue_stream
         # The advisory subject follows the CONFIGURED stream name (review follow-up P2-4):
         # a renamed queue publishes advisories on a different subject, and a subscription
@@ -176,7 +185,8 @@ class MaxDeliveriesAdvisor:
         if isinstance(last, TerminatedEvent):
             return
         await publisher.ensure_stream(topic)
-        await publisher.publish(
+        landed = await publish_landed(
+            publisher,
             topic,
             TerminatedEvent(
                 id=uuid.uuid4().hex,
@@ -193,6 +203,10 @@ class MaxDeliveriesAdvisor:
             ),
         )
         await publisher.flush()
+        # INVARIANT (spec R3): a final success that landed first keeps its own outcome.
+        if landed:
+            outcome = CandidateOutcome("failed", MAX_DELIVERIES)
+            await publish_outcome(self._outcomes, topic, outcome)
 
     async def aclose(self) -> None:
         """Close the publisher and the core connection."""

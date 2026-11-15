@@ -125,3 +125,5 @@ is a later unit; `Payload` stays `str`.
   (`test_processor_delegation.py`, `test_usage_parity.py`, two added files) that this branch does not
   touch (branch is behind main; no rebase this round). `check_module_size.py` within baseline;
   `check_suppressions.py` 3/3.
+
+- **Merged:** PR #1478, squash `247eb4bc6`, 2026-11-04 (approved by HupBaHa and IonesioJunior). The last review round bounded the over-cap Content-Type diagnostic (`dd3319f31`).

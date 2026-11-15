@@ -38,9 +38,11 @@ def preserve_candidate_outcome(
     folds per Check. The ``bindings`` run again inside every Attempt: one Attempt is one
     complete answer.
 
-    AIDEV-NOTE: a failed Candidate Invocation in ANY Attempt fails the whole Case, as it does
-    for a one-Attempt Case today. Only `iterate` collects errors, and it rebinds `$item` and
-    `$index`, which the Benchmark's own nodes read; a failed Grading stays per Attempt.
+    A failed Candidate Invocation fails only its own Attempt (2026-11-10,
+    ``docs/spec/2026-11-10-attempt-call-collect.md``): each Attempt's execution runs inside its
+    own collecting ``iterate``, so the error becomes that Attempt's row and the marking room
+    files it as a failed Attempt by the error's code. A failed Grading stays per Attempt as
+    before. At one Attempt nothing collects: the Case fails as it always did.
 
     ``bindings`` are case-scope sources resolved BEFORE the candidate invocation, for
     values both the invocation and the grading depend on (e.g. MedXpertQA's turn-1
@@ -112,6 +114,11 @@ def _preserved_case(
     )
 
 
+CASE_POSITION_NAME = "case_position"
+"""The Case-level binding of url4's ``$index`` that every Attempt reads as its Case position."""
+_CASE_INDEX_REF = re.compile(r"\$index(?![A-Za-z0-9_])")
+
+
 def _attempted_case(
     candidate_invocation: Node,
     grading: Node,
@@ -125,21 +132,32 @@ def _attempted_case(
     same execution with ``attempt=2`` on every Candidate Invocation inside it; the
     case-attempts route returns ``{schema, case_id, attempts: [envelope 1, envelope 2]}``.
 
+    Each Attempt runs inside its own ``iterate([$item], on_error=collect)`` (spec D1): the
+    one-row list is the Case row itself, so every ``$item.<field>`` keeps its value, and an
+    errored Candidate call becomes that Attempt's row, ``{"error": {code, ...}}``, instead of
+    raising out of the Case. 4 right tries + 1 token cap then scores 0.8 under the mean, not 0.
+    WHY the ``case_position`` binding (spec D2): inside an iteration ``$index`` is the row's
+    own index, 0 here, and the Candidate is told "Case k of N" from it; so the Case's position
+    is bound once beside the Attempts and the Candidate Invocation reads the binding.
+
     WHY siblings: the N executions are independent sources of one expression, so URL4 may run
     them side by side inside the Case; the joined row keeps them in Attempt order whichever
     finishes first. Cases still run one at a time (the per-Case iterate's concurrency of 1).
     """
 
-    executions: list[Node] = []
+    executions: list[Node] = [src(Text("$index"), name=CASE_POSITION_NAME, weight=0.0)]
     for number in range(1, attempts + 1):
         invocation, numbered_bindings = _numbered_or_refused(candidate_invocation, bindings, number)
-        executions.append(
-            src(
-                _preserved_case(invocation, grading, case_id, numbered_bindings),
-                name=f"attempt_{number}",
-                weight=0.0,
-            )
+        execution: Node = _preserved_case(
+            _positioned(invocation), grading, case_id, numbered_bindings
         )
+        collected = iterate(
+            ["$item"],
+            body=(src(execution, name="attempt", weight=0.0),),
+            intent=Text("$attempt"),
+            on_error="collect",
+        )
+        executions.append(src(collected, name=f"attempt_{number}", weight=0.0))
     names: list[str] = [f"attempt_{number}" for number in range(1, attempts + 1)]
     joined = RelExpr(
         path=CASE_ATTEMPTS_ROUTE,
@@ -212,6 +230,25 @@ def _candidate_invocations(node: Node) -> int:
             texts = (child.raw,)
         count += sum(len(_CANDIDATE_ROUTE_IN_TEXT.findall(text)) for text in texts if text)
     return count
+
+
+def _positioned(node: Node) -> Node:
+    """The Candidate Invocation reading its Case position from the Case-level binding.
+
+    Rewrites ``$index`` to ``$case_position`` in the context of every Candidate Invocation
+    inside ``node`` (the same walk as ``_numbered``: Sources and Expressions), nothing else.
+    """
+
+    selected: Node = node
+    if isinstance(node, RelExpr) and node.path == CANDIDATE_ROUTE and isinstance(node.context, str):
+        selected = replace(
+            node, context=_CASE_INDEX_REF.sub(f"${CASE_POSITION_NAME}", node.context)
+        )
+    elif isinstance(node, Source):
+        selected = replace(node, value=_positioned(node.value))
+    elif isinstance(node, Expression):
+        selected = replace(node, sources=tuple(_positioned(item) for item in node.sources))
+    return selected
 
 
 def _numbered(node: Node, attempt: int) -> tuple[Node, int]:

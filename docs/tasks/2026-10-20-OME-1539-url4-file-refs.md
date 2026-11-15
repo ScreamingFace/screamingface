@@ -1,13 +1,13 @@
 ---
 id: OME-1539
 linear_url: https://linear.app/openmined/issue/OME-1539/resolve-file-refs-in-url4-blobsha256-paths-url4-across-nodes-and
-status: in_progress
+status: done
 type: feature
 priority: medium
 labels: [url4-engine, agentic, autonomous]
 parent: OME-1529
 created: 2026-10-09
-closed:
+closed: 2026-11-04
 ---
 
 # Resolve file refs in url4: /blob/sha256 paths, url4:// across nodes, and blob:sha256 tokens

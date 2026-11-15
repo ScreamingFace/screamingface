@@ -204,7 +204,7 @@ def test_submission_success_never_exports_authors_or_run_ids(events, monkeypatch
     monkeypatch.setattr(leaderboards, "_decode_score", lambda **kw: result)
 
     class Candidate:
-        run_id = "private-execution-id"
+        attempt_id = "private-execution-id"
 
     with sf.Client() as client:
         assert (

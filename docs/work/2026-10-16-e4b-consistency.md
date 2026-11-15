@@ -1,9 +1,9 @@
 ---
 ticket: OME-1653   # one PR for E4b parts 4 to 7, under epic OME-1290
 stack: screamingface-engine, screamingface, repo
-status: planned   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-16
-finished:
+finished: 2026-11-05
 ---
 
 # e4b-consistency — E4b part 7, consistency@N
@@ -1121,3 +1121,11 @@ passed (before the interaction tests).
   `ST/test_sum_band_docs.py` (the README section list gains Consistency). Manifest:
   `.claude/test-change-approvals/OME-E4B-P7.json` (placeholder id; pinned against part 6).
 - The owner chose the `generation` accounting stage for the sample calls (P7).
+
+## Landed on main
+
+The commit ids in the unit sections above are branch commits. On `main`, this unit is part of
+`ea79d69e4` (PR #1680, OME-1653), squash-merged on 2026-11-05. #1460 and #1461 first merged on
+2026-10-30 into their parent stack branches, not into `main` (the repo keeps a branch after merge,
+so GitHub did not retarget them). PR #1680 then squash-merged the same parts 2 to 7 change onto
+`main` as `ea79d69e4` on 2026-11-05.

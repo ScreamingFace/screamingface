@@ -890,3 +890,41 @@ call-context sibling binding refuses; an unnamed source sees a LATER named model
   `src=` blob, bare blob; plus a text-only control). RED: member fetched / `unknown_processor`.
   GREEN: refused, `io.calls == []`, 0 model calls. No prior test touched.
 - url4 3124 passed / 17 xfailed; module-size within caps (`_run_files.py` is uncapped, 251 lines).
+
+### Round 14 (HupBaHa review, 2026-11-13, head `713eb662a`) — DONE
+- Reviewer confirmed the valid Form-3 preflight and the ASCII held-`str` path; three High blockers.
+- B1: `peer/_bytes.py` `_utf8_size` counted 1 MiB-character slices; four-byte code points peaked
+  at ~8 MiB per slice (15.4 MB vs the 8 MB cap beside a retained 7 MB body). Now 16 Ki-character
+  slices (`_COUNT_STEP`, ~128 KiB peak). RED: tracemalloc peak 8,389,229 → GREEN < 1 MiB.
+- B2: `dag/_run_files.py` ran `_precheck_remote` only with blob refs / attachment occurrences;
+  a text-only node run executed local endpoints before a remote sibling or a remote
+  (literal/default/Form-3) processor refused. Now every run is prechecked (F1b); a pre-built
+  graph still has its processor checked.
+- B3: `_processor_scan` returned `None` for an unparseable Form-3 processor, so `/m` ran before
+  reduce-time `malformed_source`. Now it applies the resolve-time gate (`core.parser.build`) at
+  run start and raises the same permanent `ParseError`.
+- Tests: new `test_review_round14.py` (peak bound, exact count across slice edges, endpoint/model
+  spies for 4 expression shapes + literal/Form-3 default, caller and bare-run processors, 3
+  malformed Form-3 shapes, local controls). No prior test touched.
+- CI follow-up (a74e15832, `notebooks (examples/)`): `url4_client.ipynb` "Targeting a remote node"
+  raised `x.remote_node_unsupported`. Root cause: a `StaticIOLayer` whose first declared route is
+  the client's hop makes that hop the run's implicit reduce processor; the now-unconditional
+  precheck charged it as a SECOND call to the one hop, though the passthrough run never reduces.
+  Over-reach, engine side fixed: `precheck_remote_nodes(..., maybe=)` checks the literal
+  processor against the policy (refused unless it is the unspent hop) without charging the hop;
+  a reduce that reaches it after the hop is spent is still refused by `check_remote_node`.
+  Notebook untouched. Regressions in `test_review_round14.py` (client hop runs; a different
+  remote processor under a client hop still refuses first). All round-14 tests unchanged/green.
+
+### Round 15 (HupBaHa review, 2026-11-13, head `659bd2c73`) — DONE
+- Unicode / Form-3 / client-hop fixes confirmed closed. Two High residuals:
+- Nested run: `_run_start` returned on a bound `current_run_files()` before the remote precheck;
+  under `bind_run_files(())` a mixed local/remote run executed `/a` first. Now the AST is scanned
+  and `_precheck_remote` runs before the nested early return (file admission still reuses the
+  outer snapshot).
+- Pre-built `Graph`/`DagNode`: no AST, so only the processor was prechecked. New
+  `_graph_admission.prebuilt_remote_calls` walks the graph (`Graph.walk` → `node_children`) for
+  `RemoteFetchNode`s plus remote calls in kept text, fed to the same non-consuming precheck.
+- Tests: new `test_review_round15.py` (both probes with tripwire io + model counter; controls:
+  nested local run, pre-built local graph, client one-hop nested and pre-built; hop twice in a
+  pre-built graph refuses first). No prior test touched; notebooks job reproduced locally green.

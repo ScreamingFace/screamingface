@@ -1,9 +1,9 @@
 ---
 ticket: OME-1807
 stack: aigateway
-status: in_progress
+status: done
 started: 2026-11-02
-finished:
+finished: 2026-11-04
 ---
 
 # gateway-modality-backstop — refuse a media part the routed model's published modalities lack
@@ -86,3 +86,5 @@ modalities lack the part's modality (`image_url` -> `image`, `file` -> `pdf`). E
 ## Owner ruling (2026-11-03, HupBaHa review on #1651)
 
 Unknown modalities are admitted at the gateway: the gateway refuses only on published evidence. The `["text"]` that `/v1/models` publishes for an unknown model (OME-1537) is a listing default, not admission evidence. Engine admission (#1584, OME-1803/#1645, OME-1809) is the strict, fail-closed check and treats unlisted as text-only. The divergence for unknown models is intentional. It is recorded on Linear OME-1807, and the `acme/no-architecture` route test pins it.
+
+- **Merged:** PR #1651, squash `89e6acfeb`, 2026-11-04 (approved by HupBaHa). Owner ruling 2026-11-03: refuse only on published evidence; an unknown model passes.

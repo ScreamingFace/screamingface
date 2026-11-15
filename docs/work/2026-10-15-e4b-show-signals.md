@@ -1,9 +1,9 @@
 ---
 ticket: OME-1653   # one PR for E4b parts 4 to 7, under epic OME-1290
 stack: screamingface, repo
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-15
-finished:
+finished: 2026-11-05
 ---
 
 # e4b-show-signals — E4b part 4, show signals
@@ -575,3 +575,11 @@ None.
   contract C6.
 - The build errata E1–E4 are in the spec overview §9.
 - Part 4 was rebased onto the part 3 tip that holds the key-order note (docs-only change).
+
+## Landed on main
+
+The commit ids in the unit sections above are branch commits. On `main`, this unit is part of
+`ea79d69e4` (PR #1680, OME-1653), squash-merged on 2026-11-05. #1460 and #1461 first merged on
+2026-10-30 into their parent stack branches, not into `main` (the repo keeps a branch after merge,
+so GitHub did not retarget them). PR #1680 then squash-merged the same parts 2 to 7 change onto
+`main` as `ea79d69e4` on 2026-11-05.

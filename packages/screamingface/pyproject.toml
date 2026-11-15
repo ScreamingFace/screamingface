@@ -62,10 +62,12 @@ runtime = [
     # WHY: the bundled Engine's regex@1 combine operator runs on RE2 (linear-time matching).
     "google-re2>=1.1.20240702,<2",
     "immutabledict>=4.2.0",
-    "langdetect>=1.0.9",
+    # WHY exact: IFEval's grader hashes the installed langdetect and nltk into its fingerprint,
+    # so the bundled Engine must install the same versions the Engine lock does (OME-1853).
+    "langdetect==1.0.9",
     "litellm==1.104.2",
     "nats-py>=2.9.0",
-    "nltk>=3.9.1",
+    "nltk==3.10.4",
     # WHY: pip resolves this extra, not the bundled Engine/Gateway tracing requirements.
     "opentelemetry-exporter-otlp-proto-http>=1.30.0",
     "opentelemetry-sdk>=1.30.0",

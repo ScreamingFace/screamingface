@@ -241,6 +241,7 @@ class _CacheRecordingRunner(RecordingJobRunner):
         shape: RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        enqueued_at: Any = None,
     ) -> str:
         self.cache_policies.append(cache)
         return await super().schedule(

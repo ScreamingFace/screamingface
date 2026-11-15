@@ -82,3 +82,4 @@ bytes. Spec: `docs/spec/2026-11-05-url4-inprocess-dispatch.md`.
   passes through every `fetch_ex` wrapper (bounded layer, the engine's fair-share gate) with no
   change to any wrapper. The ledger was created under the slug branch; the branch was renamed to
   `OME-1834-url4-inprocess-dispatch` mid-unit on the coordinator's instruction.
+- **Merged:** PR #1687, squash `d21db9196`, 2026-11-07 (approved by kevinm207). Kevin's review asks for human follow-up on the `SubrequestFetch` rationale and on whether the module-size caps shape design.

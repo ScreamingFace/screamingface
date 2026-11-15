@@ -15,16 +15,19 @@ from collections.abc import Callable, Mapping, Sequence
 from types import MappingProxyType
 from typing import Any, Literal, cast
 
-from screamingface._surface.chain import Pipeline, Step, _Block, refuse_step
+from screamingface._surface.budget import BudgetCondition, WithBudget
+from screamingface._surface.chain import Pipeline, Step, _Block, is_step, refuse_step
 from screamingface._surface.fanout import Fanout
-from screamingface._surface.gate import Fallback, Gate
+from screamingface._surface.gate import Branch, Fallback, Gate, is_skip_member
 from screamingface._surface.judge import Judge, JudgePick
 from screamingface._surface.refs import (
+    GateCondition,
     engine_op,
     field_extract,
     is_rule_name,
     with_normalizer,
 )
+from screamingface._surface.selectors import LabelCondition
 from screamingface._surface.steps import (
     ArgMax,
     ArgMin,
@@ -41,6 +44,13 @@ from screamingface._surface.steps import (
 )
 from screamingface._surface.synthesize import Synthesize
 from screamingface.blocks import Extract, ReduceNode
+from screamingface.branch import (
+    Body,
+    BranchCondition,
+    BranchNode,
+    DecisionReducer,
+    LazyDecision,
+)
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.fields import MergeNode, PickNode
 from screamingface.fusion import FusionNode
@@ -60,6 +70,7 @@ from screamingface.reducer import (
 from screamingface.selection import ConcatNode, FilterNode, RankNode
 
 _FA2 = "sf.Fanout signals= needs a reducer: sf.Synthesize reads no signal"
+_ABSTAIN: Fallback = "abstain"
 # The judge a step is checked with when it is built: the block's own sf.Judge comes at block close.
 # INVARIANT: the probe has the shape of every real Judge node (returns="scores", order="max"), so a
 # step that passes the check with it also passes at block close.
@@ -78,11 +89,23 @@ def lower(value: Recipe) -> Recipe:
     return _lower(value, ())
 
 
-def block_node(block: _Block) -> Recipe:
+def block_node(block: _Block) -> Recipe:  # noqa: PLR0911
     """The lowered value of one closed block (lowering §2.2), built at block close (CH-9)."""
 
     fanout = block.fanout
     judge = None if block.judge is None else cast("Judge", block.judge)._node
+    if isinstance(block.terminal, Gate) and not block.terminal._one_call():
+        if block.narrow:
+            raise ValueError(
+                "a sf.Gate with a recipe or word branch takes no narrow step before it in this "
+                "version"
+            )
+        return _panel_gate(fanout, block.terminal, judge)
+    if not block.narrow and isinstance(block.terminal, Synthesize) and _has_skip_members(fanout):
+        # SM-4, SM-23 (E4c): a writer joins only the selected members, so the block gets an
+        # implicit labelled sf.Concat: the combine call leaves the skipped members out.
+        concat = step_node(Concat(), None)
+        return Pipeline([_fusion_of(fanout, concat), _writer(block.terminal)])
     if not block.narrow:
         return _fusion_of(fanout, _terminal(fanout, block.terminal, judge))
     narrow = tuple(step_node(step, judge) for step in block.narrow)
@@ -93,6 +116,10 @@ def block_node(block: _Block) -> Recipe:
         selection = _narrowed(main, tuple(before))
         return Pipeline([_fusion_of(fanout, selection), _writer(block.terminal)])
     return _fusion_of(fanout, _narrowed(step_node(block.terminal, judge), narrow))
+
+
+def _has_skip_members(fanout: Fanout) -> bool:
+    return any(is_skip_member(member) for member in fanout.members)
 
 
 def step_node(step: Step, judge: JudgeNode | None) -> Reducer:
@@ -138,7 +165,10 @@ def _fusion_of(fanout: Fanout, synthesizer: Recipe | Reducer) -> FusionNode:
 def _members(fanout: Fanout) -> tuple[Recipe, ...]:
     prompt = fanout.prompt
     if prompt is None:
-        return tuple(lower(member) for member in fanout.members)
+        return tuple(
+            _input_gate(member, (), skip_member=True) if is_skip_member(member) else lower(member)
+            for member in fanout.members
+        )
     # Fanout proved each member is a Model with no prompt (FA-1).
     return tuple(with_prompt(cast("Model", member), prompt) for member in fanout.members)
 
@@ -209,18 +239,123 @@ def _statistic_node(step: Median | Mean, _judge: JudgeNode | None) -> Reducer:
 
 
 def _gate_node(step: Gate, judge: JudgeNode | None) -> Reducer:
-    """The gated VoteNode: ``VoteNode(..., gate=GateNode(observe, cmp, threshold, otherwise=,
-    abstain_band=))``; a judge-weighted ``then`` keeps its judge."""
+    """A panel gate's decision reducer.
+
+    E4b's one-call form keeps its bytes: a vote on a rule name with ``"abstain"`` or a judge or
+    writer fallback is ``VoteNode(..., gate=GateNode(observe, cmp, threshold, otherwise=,
+    abstain_band=))``. Every other decision (any reducer step, or the implicit decision-only
+    ``Vote()`` of a gate with no step, GT-6) is a ``DecisionReducer``: the step and a gate whose
+    ``otherwise`` is ``"abstain"``; the Gate's branches act on the fallback branch (P3).
+    """
 
     when, band = step.when, step.abstain_if
+    decision = _decision_step(step)
+    if not isinstance(when, GateCondition):
+        # sf.answered(): the decision call needs no gate; DECIDE reads its result (CA-10).
+        return step_node(decision, judge)
+    otherwise = step._otherwise()
+    fallback = otherwise if isinstance(otherwise, JudgePick | Synthesize) else _ABSTAIN
     gate = GateNode(
         when.ref.observe,
         when.cmp,
         when.threshold,
-        otherwise=_fallback_node(step.otherwise),
+        otherwise=_fallback_node(fallback),
         abstain_band=None if band is None else (band.lo, band.hi),
     )
-    return _vote_node(step.then, judge, gate)
+    if isinstance(decision, Vote) and is_rule_name(decision.over):
+        return _vote_node(decision, judge, gate)
+    node = step_node(decision, judge)
+    return DecisionReducer(node, gate)
+
+
+def _decision_step(gate: Gate) -> Step:
+    """GT-6: ``then`` when it is a reducer step, else ``otherwise``, else an implicit vote."""
+
+    for value in (gate.then, gate.otherwise):
+        if is_step(value) and not isinstance(value, Synthesize):
+            return value
+    return Vote()
+
+
+def _panel_gate(fanout: Fanout, gate: Gate, judge: JudgeNode | None) -> BranchNode:
+    """A panel gate with a recipe or word branch: the block decides, the branches act (E4c)."""
+
+    decision: Reducer = _gate_node(gate, judge)
+    lazy = None
+    if isinstance(gate.otherwise, JudgePick | Synthesize):
+        # E4c lazy fallback: call #1 decides with no fallback call; the otherwise body is the full
+        # E4b gated vote (call #2), with its judge or writer call.
+        lazy, decision = decision, LazyDecision(decision)
+    chosen = _decision_step(gate)
+    when = gate.when
+
+    def body(value: Branch) -> Body:  # noqa: PLR0911
+        if value is chosen:
+            return decision
+        if lazy is not None and value is gate.otherwise:
+            return lazy
+        if is_step(value):
+            return step_node(value, judge)
+        return _branch_body(value, ())
+
+    condition = (
+        BranchCondition(when.ref.observe, when.cmp, when.threshold)
+        if isinstance(when, GateCondition)
+        else BranchCondition("answered", "eq", True)
+    )
+    return BranchNode(
+        condition=condition,
+        estimates=_estimates(gate),
+        then=body(gate.then),
+        otherwise=body(gate._otherwise()),
+        panel=_fusion_of(fanout, decision),
+    )
+
+
+def _input_gate(gate: Gate, active: _Active, *, skip_member: bool = False) -> BranchNode:
+    """An input gate: its internal BranchNode, each recipe branch lowered (E4c). A
+    ``skip_member`` of a Fanout (ans:Q16) has no otherwise (None = skip)."""
+
+    when = gate.when
+    if isinstance(when, BudgetCondition):
+        # BU-6: the unit is resolved against the candidate's sf.WithBudget at compile
+        # (BU-12, BU-13).
+        condition = BranchCondition(f"budget.remaining:{when.unit or ''}", when.cmp, when.value)
+    else:
+        assert isinstance(when, LabelCondition)
+        condition = BranchCondition(when.observe, when.cmp, when.value, when.selector)
+    return BranchNode(
+        condition=condition,
+        then=_branch_body(gate.then, active),
+        otherwise=None if skip_member else _branch_body(gate._otherwise(), active),
+        estimates=_estimates(gate),
+    )
+
+
+def _estimates(
+    gate: Gate,
+) -> tuple[dict[str, float | int] | None, dict[str, float | int] | None]:
+    then, otherwise = gate.estimates
+    return (
+        None if then is None else then._spec(),
+        None if otherwise is None else otherwise._spec(),
+    )
+
+
+def _budget(value: WithBudget, active: _Active) -> Recipe:
+    inner = _lower(value.recipe, active)
+    return (
+        value
+        if inner is value.recipe
+        else WithBudget(inner, budget_usd=value.budget_usd, max_tokens=value.max_tokens)
+    )
+
+
+def _branch_body(value: Branch, active: _Active) -> Body:
+    if isinstance(value, str):
+        return cast("Body", value)
+    assert isinstance(value, Recipe)
+    return _lower(value, active)
 
 
 def _fallback_node(otherwise: Fallback) -> Literal["abstain"] | JudgeNode | Model:
@@ -389,6 +524,8 @@ def _lowered(values: tuple[Recipe, ...], active: _Active) -> tuple[Recipe, ...]:
 
 # The recipe kinds that can hold a chain, and how each one lowers. A Model holds none.
 _LOWERINGS: tuple[tuple[type, Callable[[Any, _Active], Recipe]], ...] = (
+    (WithBudget, _budget),
+    (Gate, _input_gate),
     (Pipeline, _chain),
     (FusionNode, _fusion),
     (CorrectiveLoop, _loop),

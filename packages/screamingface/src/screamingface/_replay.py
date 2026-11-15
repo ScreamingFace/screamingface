@@ -205,7 +205,12 @@ def _with_reproduction(report: Report, reproduction: Reproduction | None) -> Rep
     (result,) = report.candidates
     judged = copy.copy(result)
     object.__setattr__(judged, "reproduction", reproduction)
-    return Report(benchmark=report.benchmark, case_count=report.case_count, candidates=(judged,))
+    return Report(
+        benchmark=report.benchmark,
+        case_count=report.case_count,
+        candidates=(judged,),
+        run_id=report.run_id,
+    )
 
 
 def _unjudged(report: Report) -> Report:

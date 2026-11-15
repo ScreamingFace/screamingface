@@ -1,12 +1,13 @@
 ---
 id: OME-1816
 linear_url: https://linear.app/openmined/issue/OME-1816/engine-logs-each-runs-own-rss-current-and-peak-at-run-start-cases-load
-status: in_review
+status: done
 type: improvement
 priority: none
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1314
 created: 2026-11-03
+closed: 2026-11-04
 ---
 
 # Engine logs each run's own RSS (current and peak) at run start, Cases load and run end

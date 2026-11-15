@@ -9,10 +9,16 @@ from screamingface._results.store import ResultStore, atomic_json, storage_error
 
 
 def prepare(
-    store: ResultStore, evaluation: _Evaluation, candidates: tuple[Candidate, ...]
+    store: ResultStore,
+    evaluation: _Evaluation,
+    candidates: tuple[Candidate, ...],
+    *,
+    report_id: str | None = None,
 ) -> dict[int, dict]:
+    # FEATURE (OME-1785, spec D8): keyed by the Run's id, so `sf.runs.get(id).report()` finds it;
+    # by the Run's `client_key` when the Engine did not register it.
     context = {
-        "id": uuid4().hex,
+        "id": report_id or uuid4().hex,
         "owner_pid": os.getpid(),
         "state": "running",
         "benchmark": asdict(evaluation.benchmark),

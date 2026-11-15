@@ -131,4 +131,12 @@ STAND_IN_METADATA: dict[str, dict[str, object]] = {
     # OME-1479: mathvista's solver and scorer pick the letter or the free-form rule by
     # question_type; the stand-in Cases are multiple choice.
     "mathvista": {"question_type": "multi_choice", "answer_type": "text"},
+    # OME-1854: macbench's scorer picks its multiple-choice or numeric rule by task_type and
+    # its metric groups by subset_name; the stand-in Cases are multiple choice.
+    "macbench": {
+        "task_type": "mcq",
+        "subset_name": "afm-image",
+        "tolerance": 0.0,
+        "relative": None,
+    },
 }

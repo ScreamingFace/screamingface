@@ -54,6 +54,9 @@ data:
   # replica count above — it is silent: runs are accepted with a 202, land in buckets nobody
   # polls, and expire at `run_queue_max_age_s` with nothing to say why.
   URL4_CLOUD_RUN_QUEUE_BUCKET_COUNT: {{ .Values.config.runQueueBucketCount | quote }}
+  {{- if .Values.config.runQueueCallerInflightCap }}
+  URL4_CLOUD_RUN_QUEUE_CALLER_INFLIGHT_CAP: {{ .Values.config.runQueueCallerInflightCap | quote }}
+  {{- end }}
   # The shared events stream's own limits (uniform executor, PRD 01 §4).
   #
   # INVARIANT: rendered here AND in the runner pool's env from the SAME values (`values.events.*`)
@@ -72,6 +75,9 @@ data:
   URL4_CLOUD_EVENTS_MAX_MSGS_PER_SUBJECT: {{ .Values.events.maxMsgsPerSubject | quote }}
   URL4_CLOUD_EVENTS_MAX_AGE_S: {{ .Values.events.maxAgeS | quote }}
   URL4_CLOUD_EVENTS_REPLICAS: {{ .Values.events.replicas | quote }}
+  # The outcome stream (OME-1785, spec R11); the runner pool renders the same two values.
+  URL4_CLOUD_CANDIDATE_OUTCOMES_MAX_AGE_S: {{ .Values.candidateOutcomes.maxAgeS | quote }}
+  URL4_CLOUD_CANDIDATE_OUTCOMES_MAX_BYTES: {{ .Values.candidateOutcomes.maxBytes | int64 | quote }}
   {{- with .Values.config.aigatewayBaseUrl }}
   # Enables the App's own `GET /v1/models` catalog endpoint (OME-625), which reads aigateway
   # using the CALLER's forwarded credential — it needs no credential of its own. Unset =>
@@ -105,6 +111,25 @@ data:
   # NOTE: the ACCESS KEY is not here either. It is auto-generated when unset, so it must be
   # stable across upgrades — which means living in the Secret the chart can `lookup`. Both
   # halves of the pair therefore arrive by `envFrom.secretRef`, from one source.
+  {{- end }}
+  # The run blob store's OWN storage (OME-1540; #1603 review) — separate from the artifact store
+  # above, so a full blob store fails uploads and never result delivery.
+  #
+  # INVARIANT: rendered from the SAME `blobs.storage` stanza in both ConfigMaps (the App uploads
+  # and serves; the pool's children read blobs for model calls), so a one-sided edit cannot point
+  # the writer and the reader at different blob stores.
+  {{- $blobBackend := include "screamingface-engine.blobBackend" . }}
+  URL4_CLOUD_BLOB_STORE: {{ $blobBackend | quote }}
+  {{- if and (eq $blobBackend "filesystem") .Values.blobs.storage.filesystemDir }}
+  # WHY gated on a non-empty value: "" would override the code's default (a sibling of the
+  # artifact directory) with `Path("")`, the working directory.
+  URL4_CLOUD_BLOBS_DIR: {{ .Values.blobs.storage.filesystemDir | quote }}
+  {{- end }}
+  {{- if eq $blobBackend "s3" }}
+  URL4_CLOUD_BLOB_S3_ENDPOINT_URL: {{ include "screamingface-engine.blobEndpointUrl" . | quote }}
+  URL4_CLOUD_BLOB_S3_BUCKET: {{ .Values.blobs.storage.s3.bucket | quote }}
+  URL4_CLOUD_BLOB_S3_REGION: {{ .Values.blobs.storage.s3.region | quote }}
+  # NOTE: both halves of the blob key pair travel by Secret (`secret-blob-storage.yaml`).
   {{- end }}
   # OTLP span export for the control-plane `url4.accept` span (OME-1218). The SAME keys the pool
   # gets, from one helper — see `screamingface-engine.tracingEnv` for why they must match. These

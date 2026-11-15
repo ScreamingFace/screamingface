@@ -3,7 +3,7 @@ import socket
 from collections.abc import AsyncIterator, Callable, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Literal, NamedTuple
+from typing import Any, Literal, NamedTuple
 from urllib.parse import urlsplit
 
 import pytest
@@ -161,6 +161,7 @@ class RecordingJobRunner(IdentityAwareJobRunner):
         shape: RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        enqueued_at: Any = None,
     ) -> str:
         if self._conflict:
             raise JobAlreadyExists(topic)

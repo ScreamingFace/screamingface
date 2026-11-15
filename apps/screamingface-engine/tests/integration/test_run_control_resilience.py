@@ -68,6 +68,7 @@ class _RecordingJobRunner(IdentityAwareJobRunner):
         shape: RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        enqueued_at: Any = None,
     ) -> str:
         del url4, deadline_s, traceparent, credential, identity, cache
         del answer_seed, client_version, shape

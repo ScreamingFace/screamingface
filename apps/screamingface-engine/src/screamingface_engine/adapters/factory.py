@@ -8,8 +8,13 @@
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 
+from screamingface_engine.adapters.candidate_outcomes_jetstream import (
+    CandidateOutcomesStreamConfig,
+    JetStreamCandidateOutcomeStream,
+)
 from screamingface_engine.adapters.jetstream import EventsStreamConfig, JetStreamPublisher
 from screamingface_engine.adapters.queue_runner import ControlClient, QueueJobRunner
+from screamingface_engine.candidate_outcomes import CandidateOutcomeStream
 from screamingface_engine.config import Settings
 from screamingface_engine.runner_queue import RunQueue
 from url4.streaming.interfaces import JobRunner
@@ -20,6 +25,7 @@ def build_job_runner(
     *,
     extra_models: Callable[[], Sequence[str]] | None = None,
     world_digest: str | None = None,
+    outcomes: CandidateOutcomeStream | None = None,
 ) -> JobRunner | None:
     """Selects the `JobRunner` adapter for `settings.runner`.
 
@@ -31,6 +37,8 @@ def build_job_runner(
 
     ``world_digest`` (OME-1770 review) is the App's one read of its world config, stamped on each
     run as ``URL4_CLOUD_WORLD_DIGEST``.
+
+    ``outcomes`` (OME-1785) receives the queued-cancel tombstone's Candidate outcome.
     """
     if settings.runner == "queue":
         # The OME-1086 substrate (OME-1090): one durable queue + a fixed worker pool. The
@@ -71,6 +79,7 @@ def build_job_runner(
             world_digest=world_digest,
             depth_ceiling=settings.run_queue_depth_ceiling,
             caller_inflight_cap=settings.run_queue_caller_inflight_cap,
+            outcomes=outcomes,
         )
     return None
 
@@ -82,4 +91,16 @@ def events_stream_config(settings: Settings) -> EventsStreamConfig:
         max_msgs_per_subject=settings.events_max_msgs_per_subject,
         max_age_s=settings.events_max_age_s,
         replicas=settings.events_replicas,
+    )
+
+
+def build_candidate_outcome_stream(settings: Settings) -> JetStreamCandidateOutcomeStream:
+    """The outcome stream as the chart configures it (`candidateOutcomes.*`), for the App and
+    the runner pool alike (spec R11)."""
+    return JetStreamCandidateOutcomeStream(
+        settings.nats_url,
+        config=CandidateOutcomesStreamConfig(
+            max_age_s=settings.candidate_outcomes_max_age_s,
+            max_bytes=settings.candidate_outcomes_max_bytes,
+        ),
     )

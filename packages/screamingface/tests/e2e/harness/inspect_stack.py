@@ -52,6 +52,9 @@ class InspectEngineProcess(EngineProcess):
                 # Explicit, so the boot does not depend on the checkout-relative
                 # fallback inside screamingface_engine.local.
                 "URL4_RUNNER_CONFIG": str(engine_dir / "url4.toml"),
+                # Each stack its own Run registry (OME-1785): a local Engine holds its database
+                # file exclusively, and the default one in the home dir is shared by every stack.
+                "URL4_CLOUD_DATABASE_URL": f"sqlite://{self._work_dir / 'engine.sqlite3'}",
                 # No web tools: TAVILY_API_KEY deliberately absent (deny by default).
             }
         )

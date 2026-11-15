@@ -13,7 +13,7 @@ dependencies = [
     # Pinned exactly, matching apps/scoreboard: the built-in migrations package this service
     # depends on is still labelled experimental upstream, so a patch bump can move the operation
     # set a committed migration file was written against.
-    "tortoise-orm[asyncpg]==1.1.8",
+    "tortoise-orm[asyncpg]==1.1.9",
     "uvicorn[standard]>=0.52.1",
 ]
 

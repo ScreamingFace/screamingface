@@ -179,7 +179,7 @@ class Leaderboards:
                 "POST",
                 _SCORES_PATH,
                 json=payload,
-                headers={"Idempotency-Key": candidate_result.run_id},
+                headers={"Idempotency-Key": candidate_result.attempt_id},
                 replay_safe=True,
                 operation=_SUBMIT_OPERATION,
             ),
@@ -345,7 +345,7 @@ class AsyncLeaderboards:
                 "POST",
                 _SCORES_PATH,
                 json=payload,
-                headers={"Idempotency-Key": candidate_result.run_id},
+                headers={"Idempotency-Key": candidate_result.attempt_id},
                 replay_safe=True,
                 operation=_SUBMIT_OPERATION,
             ),
@@ -812,7 +812,7 @@ def _submission(
         "metadata": {
             "benchmark_revision": candidate_result.benchmark.revision,
             "candidate_kind": candidate_result.kind,
-            "run_id": candidate_result.run_id,
+            "run_id": candidate_result.attempt_id,
         },
     }
     # INVARIANT (OME-1053): absence means "use the authenticated submitter" while a supplied

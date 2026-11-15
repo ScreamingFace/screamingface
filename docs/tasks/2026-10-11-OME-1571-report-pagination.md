@@ -1,11 +1,12 @@
 ---
 id: OME-1571
 linear_url: https://linear.app/openmined/issue/OME-1571/paginate-notebook-report-results-with-exact-case-navigation-and
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [client-sf, agentic, autonomous]
 created: 2026-10-11
+closed: 2026-10-11
 ---
 
 # Paginate notebook report results with exact Case navigation and complete downloads
@@ -19,3 +20,5 @@ Acceptance and implementation evidence: `docs/spec/2026-10-11-report-pagination.
 Live Colab verification revealed widget-manager incompatibility and an invalid localhost file link. Follow-up spec/plan/work: `2026-10-11-colab-report-compatibility`. Preserve Colab's compatible widgets, publish its page changes within callbacks, and use its native download API while retaining the Jupyter async/server-link path.
 
 Colab follow-up verified: completed report paging, exact navigation, native Case clicks/filter focus and two actual complete JSON downloads pass in restarted Colab with widgets 7.7.1. All final SDK gates pass (96.18% coverage); two independent reviews have zero findings. The broader widgets-7 run’s 19 live-progress/headless failures all reproduce on unchanged main and remain documented. Draft remains open for owner review.
+
+Shipped in #1347 (squash-merged as `8e0c0a298` on 2026-10-11). Linear is Done. Umbrella OME-1448 closed on 2026-11-04.

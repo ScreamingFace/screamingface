@@ -33,7 +33,9 @@ class _Queue:
     def __init__(self) -> None:
         self.fail = False
 
-    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None, enqueued_at: Any = None
+    ) -> None:
         if self.fail:
             raise nats.errors.TimeoutError()
 

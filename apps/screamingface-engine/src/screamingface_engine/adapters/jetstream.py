@@ -725,6 +725,9 @@ class JetStreamPublisher(_JetStreamConnection, EventPublisher):
         # Topics whose subject already ended when this publisher's run started (a queued-cancel
         # tombstone that won the race against the claim): their frames are dropped (I-EV4).
         self._ended: set[str] = set()
+        # Per topic: the ack of this run's own terminal frame. A duplicate ack means another
+        # writer's terminal took that sequence mid-run, so this run's end was not stored.
+        self._terminal_acks: dict[str, asyncio.Future[api.PubAck]] = {}
         self.publish_conflicts: Counter[str] = Counter()
 
     async def publish(self, topic: str, event: OutboundFrame) -> None:
@@ -751,6 +754,7 @@ class JetStreamPublisher(_JetStreamConnection, EventPublisher):
         self._acks[ack] = None
         if isinstance(event, TerminatedEvent):
             self._offsets.pop(topic, None)
+            self._terminal_acks[topic] = ack
 
     async def _rebase(self, topic: str, producer_sequence: int) -> int | None:
         """The subject sequence for a frame the url4 producer numbered `producer_sequence`, or
@@ -773,6 +777,7 @@ class JetStreamPublisher(_JetStreamConnection, EventPublisher):
         if producer_sequence == 1 or topic not in self._offsets:
             await self.flush()
             self._ended.discard(topic)
+            self._terminal_acks.pop(topic, None)
             _, last = await self._tail(topic)
             if isinstance(last, TerminatedEvent):
                 self._ended.add(topic)
@@ -781,6 +786,19 @@ class JetStreamPublisher(_JetStreamConnection, EventPublisher):
         if topic in self._ended:
             return None
         return producer_sequence + self._offsets[topic]
+
+    def dropped(self, topic: str) -> bool:
+        """Whether this run's end did not land: the subject had already ended when the run's
+        first frame went out (I-EV4), or another writer's terminal took the sequence of this
+        run's terminal mid-run, which the broker answers with a duplicate ack. FEATURE
+        (OME-1785): the run child sends its Candidate outcome only when its own terminal frame
+        landed, which this tells it. Read after `flush`, when the terminal's ack is settled."""
+        if topic in self._ended:
+            return True
+        ack = self._terminal_acks.get(topic)
+        if ack is None or not ack.done() or ack.cancelled() or ack.exception() is not None:
+            return False
+        return bool(ack.result().duplicate)
 
     async def publish_next(
         self, topic: str, event: OutboundFrame, *, writer: str | None = None

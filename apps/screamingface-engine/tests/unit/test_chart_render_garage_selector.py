@@ -45,21 +45,38 @@ def _matches(selector: dict[str, str], labels: dict[str, str]) -> bool:
     return all(labels.get(key) == value for key, value in selector.items())
 
 
+# The release renders `<release>-<nameOverride>`; the results Garage and, since OME-1540 (#1603
+# review, owner decision 2026-11-03), the separate blob-store Garage are picked by EXACT name —
+# a "garage in the name" lookup would return whichever of the two renders first.
+_FULLNAME = "url4-cloud-url4-cloud"
+_RESULTS_GARAGE = f"{_FULLNAME}-garage"
+_BLOBS_GARAGE = f"{_FULLNAME}-garage-blobs"
+
+
+def _named(docs: list[dict[str, Any]], kind: str, name: str) -> dict[str, Any]:
+    return next(d for d in docs if d["kind"] == kind and d["metadata"]["name"] == name)
+
+
 def test_the_app_service_does_not_select_garage_pods() -> None:
     docs = _render()
-    garage = next(
-        d for d in docs if d["kind"] == "StatefulSet" and "garage" in d["metadata"]["name"]
-    )
+    garage = _named(docs, "StatefulSet", _RESULTS_GARAGE)
+    blobs = _named(docs, "StatefulSet", _BLOBS_GARAGE)
     garage_pod_labels = garage["spec"]["template"]["metadata"]["labels"]
+    blob_pod_labels = blobs["spec"]["template"]["metadata"]["labels"]
     services = [d for d in docs if d["kind"] == "Service"]
-    garage_services = [s for s in services if "garage" in s["metadata"]["name"]]
-    app_services = [s for s in services if s not in garage_services]
-    assert app_services and garage_services
+    garage_service = _named(docs, "Service", _RESULTS_GARAGE)
+    blob_service = _named(docs, "Service", _BLOBS_GARAGE)
+    app_services = [s for s in services if s not in (garage_service, blob_service)]
+    assert app_services
     for service in app_services:
         assert not _matches(service["spec"]["selector"], garage_pod_labels), service["metadata"]
-    for service in garage_services:
-        assert _matches(service["spec"]["selector"], garage_pod_labels)
+        assert not _matches(service["spec"]["selector"], blob_pod_labels), service["metadata"]
+    assert _matches(garage_service["spec"]["selector"], garage_pod_labels)
     assert _matches(garage["spec"]["selector"]["matchLabels"], garage_pod_labels)
+    # INVARIANT (OME-1540): each Garage Service selects ONLY its own Garage's pods.
+    assert not _matches(garage_service["spec"]["selector"], blob_pod_labels)
+    assert _matches(blob_service["spec"]["selector"], blob_pod_labels)
+    assert not _matches(blob_service["spec"]["selector"], garage_pod_labels)
 
 
 def test_the_garage_selector_is_the_app_identity_plus_the_garage_component() -> None:
@@ -71,9 +88,7 @@ def test_the_garage_selector_is_the_app_identity_plus_the_garage_component() -> 
     app = next(
         d for d in docs if d["kind"] == "Deployment" and "runner" not in d["metadata"]["name"]
     )
-    garage = next(
-        d for d in docs if d["kind"] == "StatefulSet" and "garage" in d["metadata"]["name"]
-    )
+    garage = _named(docs, "StatefulSet", _RESULTS_GARAGE)
     identity = app["spec"]["selector"]["matchLabels"]
     expected = {**identity, "app.kubernetes.io/component": "garage"}
     assert garage["spec"]["selector"]["matchLabels"] == expected

@@ -88,11 +88,21 @@ async def test_no_setting_holds_an_aigateway_credential() -> None:
     #                           ANY artifact id, so it grants read on the artifact store — no
     #                           provider or model credentials. Empty by default, and an empty key
     #                           disables signed fetches rather than acting as a universal one.
+    #   blob_s3_access_key      the blob store's S3 access key ID (OME-1540; #1603 review, owner
+    #                           decision 2026-11-03) — an identifier, like artifact_s3_access_key.
+    #   blob_s3_secret_key      a VALUE, from a Secret (`<fullname>-blob-storage`, by named
+    #                           secretKeyRef), exactly like artifact_s3_secret_key. WHY the App must
+    #                           hold it: it writes uploads to and reads them back from the blob
+    #                           store, which is separate from the artifact store by design.
+    #                           Blast radius if leaked: read/write on the blob bucket only. No
+    #                           artifact, provider or model credentials.
     assert suspicious == {
         "jwt_secret",
         "artifact_s3_access_key",
         "artifact_s3_secret_key",
         "artifact_signing_key",
+        "blob_s3_access_key",
+        "blob_s3_secret_key",
     }, "a new secret-shaped setting appeared — confirm it is sourced from a Secret reference"
 
 

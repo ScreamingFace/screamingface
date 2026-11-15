@@ -70,14 +70,14 @@ def test_a_held_row_is_offered_its_fingerprint_with_the_warning_and_no_file_chan
 def test_an_unchanged_row_is_told_there_is_nothing_to_bump(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """gsm8k computes the id it publishes (075954bfd63059e0), so nothing about its exam moved
+    """gsm8k computes the id it publishes (7eebba58799a2f22), so nothing about its exam moved
     since the id was set: the command says so instead of printing a move to the same id."""
 
     status: int = _bump().main(["gsm8k"])
 
     out: str = capsys.readouterr().out
     assert status == 0
-    assert "075954bfd63059e0" in out
+    assert "7eebba58799a2f22" in out
     assert "nothing to bump" in out
 
 
@@ -135,7 +135,7 @@ def test_a_new_row_without_an_id_is_told_to_set_one(
 
     from screamingface_engine_inspect import benchmarks, single_shot
 
-    # WHY gsm8k as the stand-in: its fingerprint, 075954bfd63059e0, is also its published id,
+    # WHY gsm8k as the stand-in: its fingerprint, 7eebba58799a2f22, is also its published id,
     # so unsetting the id leaves a row exactly like a new one.
     spec = next(row for row in benchmarks.BENCHMARKS if row.key == "gsm8k")
     monkeypatch.setattr(benchmarks, "BENCHMARKS", (replace(spec, published_revision=None),))
@@ -146,7 +146,7 @@ def test_a_new_row_without_an_id_is_told_to_set_one(
 
     out: str = capsys.readouterr().out
     assert status == 0
-    assert 'published_revision="075954bfd63059e0"' in out
+    assert 'published_revision="7eebba58799a2f22"' in out
     assert "test_published_revisions.py" in out
     assert "test_benchmark_fingerprints.py" in out
     assert "nothing to bump" not in out

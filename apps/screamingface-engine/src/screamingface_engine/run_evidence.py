@@ -20,7 +20,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+from decimal import Decimal
+from typing import Protocol, cast
 
+from screamingface_engine.candidate_outcomes import (
+    OUTCOME_STATUSES,
+    CandidateOutcome,
+    OutcomeStatus,
+    storable_error_code,
+)
 from url4.streaming.interfaces import EventPublisher
 from url4.streaming.protocol import OutboundFrame, TerminatedEvent
 from url4.streaming.trace import format_traceparent, parse_traceparent, valid_traceparent
@@ -162,13 +170,97 @@ def _outcome_without_a_frame(task: asyncio.Task[object]) -> tuple[str, str | Non
     return "failed", f"{type(error).__name__}: {error}"
 
 
+class TerminalPublisher(Protocol):
+    """The slice of an events publisher a terminal writer needs."""
+
+    async def publish(self, topic: str, event: OutboundFrame) -> None: ...
+
+
+async def publish_landed(publisher: TerminalPublisher, topic: str, frame: TerminatedEvent) -> bool:
+    """Publish a terminal frame from a writer that is not the run, and say whether it landed.
+
+    FEATURE (OME-1785, E5 P1 spec R3): a writer publishes its Candidate's outcome only when its
+    own terminal frame is the one on `url4-events`. The JetStream publisher's `publish_next`
+    writes nothing after another terminal frame and says so; a publisher without it has no such
+    rule, so its frame lands.
+    """
+    publish_next = getattr(publisher, "publish_next", None)
+    if publish_next is None:
+        await publisher.publish(topic, frame)
+        return True
+    return bool(await publish_next(topic, frame))
+
+
+NO_TERMINAL_FRAME = "no_terminal_frame"
+"""The error code of a Candidate whose run ended without a terminal frame (OME-1785)."""
+
+
+class SettlementWatch(TerminalWatch):
+    """A `TerminalWatch` that also keeps the terminal frame's error CODE, which a Candidate's
+    outcome stores on its own (E5 P1 spec R3). `error` stays the evidence line's `code: message`.
+
+    INVARIANT (spec R3): ``landed`` is the status of the last terminal frame the inner publisher
+    ACCEPTED. A publish that raises leaves it unchanged, so a frame that never reached
+    `url4-events` never becomes an outcome.
+    """
+
+    def __init__(self, inner: EventPublisher) -> None:
+        super().__init__(inner)
+        self.error_code: str | None = None
+        self.landed: str | None = None
+
+    async def publish(self, topic: str, event: OutboundFrame) -> None:
+        await super().publish(topic, event)
+        if not isinstance(event, TerminatedEvent):
+            return
+        # INVARIANT: the code and the evidence line's error are the last landed terminal frame's,
+        # like `outcome`, so the two records of one run agree (spec R3).
+        error = event.data.error
+        self.error_code = None if error is None else error.code
+        if error is None:
+            self.error = None
+        self.landed = event.data.status
+
+
+def settlement_of(
+    watch: SettlementWatch,
+    task: asyncio.Task[object],
+    *,
+    cost_usd: Decimal | None = None,
+) -> CandidateOutcome:
+    """The Candidate's outcome, from the same verdict as the evidence line.
+
+    INVARIANT (spec R3): one classifier. A landed terminal frame decides it; without one, the
+    task decides it, as `outcome_of` does.
+    """
+    if watch.landed is not None:
+        return CandidateOutcome(
+            _status(watch.landed), storable_error_code(watch.error_code), cost_usd
+        )
+    status, _ = _outcome_without_a_frame(task)
+    if status == "stopped":
+        return CandidateOutcome("stopped", cost_usd=cost_usd)
+    # WHY `failed` for `unknown` too: a Candidate has no `unknown` state, and nobody saw this run
+    # succeed. The code says there was no frame, so the case stays findable.
+    return CandidateOutcome("failed", NO_TERMINAL_FRAME, cost_usd)
+
+
+def _status(value: str) -> OutcomeStatus:
+    if value in OUTCOME_STATUSES:
+        return cast(OutcomeStatus, value)
+    raise ValueError(f"not a terminal frame status: {value!r}")
+
+
 __all__ = [
+    "NO_TERMINAL_FRAME",
     "SCHEDULED",
     "TERMINATED",
     "adopt_or_mint_traceparent",
     "log_scheduled",
     "log_terminated",
+    "SettlementWatch",
     "TerminalWatch",
     "outcome_of",
+    "settlement_of",
     "trace_id_of",
 ]

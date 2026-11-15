@@ -23,9 +23,10 @@ from screamingface_engine_inspect.local_tasks import scorer_source_pins, source_
 from screamingface_engine_inspect.prepare import TASK_REPLAY_CASES
 
 #: The rows whose scorer is ours but not their Task's (OME-1701: paws and boolq since PR 1,
-#: chembench since PR 2, math since PR 3, the three AIME rows since PR 7).
+#: chembench since PR 2, math since PR 3, the three AIME rows since PR 7; macbench since
+#: OME-1854, chembench's letter rule applied to its sibling eval).
 _DEVIATING_ROWS: frozenset[str] = frozenset(
-    {"paws", "boolq", "chembench", "math", "aime24", "aime25", "aime26"}
+    {"paws", "boolq", "chembench", "math", "aime24", "aime25", "aime26", "macbench"}
 )
 
 

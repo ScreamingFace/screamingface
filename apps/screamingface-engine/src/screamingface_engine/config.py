@@ -8,6 +8,8 @@ from pydantic import Field, PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env, runner_queue, subjects
+from screamingface_engine.artifacts.blobs import ATTACHMENT_MEDIA_TYPES, DEFAULT_BLOB_MAX_BYTES
+from screamingface_engine.candidate_outcomes import DEFAULT_OUTCOMES_MAX_AGE_S
 
 RunnerBackend = Literal["none", "queue"]
 ArtifactStoreBackend = Literal["filesystem", "s3"]
@@ -45,6 +47,12 @@ STUDIO_CORS_ORIGINS = (
     "http://tauri.localhost",
     "https://tauri.localhost",
 )
+
+
+# The Client's default admission budget (`packages/screamingface`, `_engine/admission.py`): how
+# long it re-sends a start the Engine refused with 503. Named here, not imported: the Engine never
+# imports the Client. `run_pending_grace_s` must exceed it (E5 P1 spec R5).
+CLIENT_ADMISSION_BUDGET_S = 900.0
 
 
 class Settings(BaseSettings):
@@ -127,6 +135,40 @@ class Settings(BaseSettings):
     # decision on OME-892). Hourly is far finer than the 48h TTL it enforces, and one
     # directory scan an hour costs nothing.
     artifact_sweep_interval_s: float = 3600.0
+    # FEATURE: the run blob store (OME-1540; spec OME-1535 F1b, §4). Owner decision 2026-10-28
+    # (Q4a): one blob is at most the spec's per-run attachment total, and only the five spec
+    # attachment types are kept. Over the cap → 413 `x.blob_too_large`; any other type → 415
+    # `x.blob_unsupported_media_type`. Blobs share `artifact_ttl_s` and its sweep.
+    # INVARIANT (#1603 review round 3): never above DEFAULT_BLOB_MAX_BYTES. The Runner's
+    # `blob_store_from_env` reads with the default policy, so a larger App cap would store a
+    # blob the Runner then refuses as `x.blob_digest_mismatch`; it is refused at config load.
+    blob_max_bytes: int = Field(default=DEFAULT_BLOB_MAX_BYTES, gt=0, le=DEFAULT_BLOB_MAX_BYTES)
+    blob_media_types: list[str] = Field(
+        default_factory=lambda: [
+            "image/png",
+            "image/jpeg",
+            "image/gif",
+            "image/webp",
+            "application/pdf",
+        ]
+    )
+    # FEATURE: the run blob store's OWN storage (#1603 review, owner decision 2026-11-03) — a
+    # client filling it fails uploads and never touches result delivery. Every field reads the
+    # `job_env.BLOB_*` name (`URL4_CLOUD_` + field name), so the App and the Runner resolve one
+    # store through `artifacts.wiring.blob_objects_from_values`.
+    #
+    # INVARIANT (#1603 review round 2, owner decision 2026-11-04): `None` = NO blob store — blob
+    # upload and fetch are off (the App's blob routes answer 503). Never the artifact store. The
+    # chart always sets it.
+    # INVARIANT: an explicit "s3" never borrows the artifact bucket or credentials.
+    blob_store: ArtifactStoreBackend | None = None
+    blobs_dir: str = ""
+    blob_s3_endpoint_url: str = ""
+    blob_s3_bucket: str = ""
+    blob_s3_region: str = job_env.DEFAULT_ARTIFACT_S3_REGION
+    blob_s3_access_key: str = ""
+    # AIDEV-NOTE: credential material — Secret only, never logged, never in a ConfigMap.
+    blob_s3_secret_key: str = ""
     # FEATURE: tie a run's lifetime to its audience (OME-890).
     #
     # WHY 120s: a run whose last WebSocket subscriber disconnects gets this long to get one back
@@ -149,6 +191,20 @@ class Settings(BaseSettings):
     #
     # INVARIANT: advisory only — the run is never failed or stopped by this bound.
     unclaimed_run_warn_s: float = Field(default=300.0, ge=0.0)
+    # FEATURE: runner pool autoscaling on claimable queue demand (spec D2).
+    #
+    # WHY 15 s: the KEDA HPA reads `/runner-demand` every 15 s, so one sample per poll is enough
+    # and a read is at most one sample old (owner decision 2026-11-10). One sample is one
+    # `CONSUMER.INFO` per bucket (16, about 1 per second), small next to the workers' own fetch
+    # loop. 0 disables the sampler; the endpoint then answers 404.
+    runner_demand_sample_s: float = Field(default=15.0, ge=0.0)
+    # WHY 30 s: two missed samples (the validator's floor is 2 x the sample interval). A sample
+    # older than this makes `/runner-demand` answer 503, so the KEDA scaler errors and the HPA
+    # keeps the replica count.
+    #
+    # INVARIANT: the endpoint never answers a demand it did not read; a stale reading is an
+    # error, never a 0 (a false 0 scales a loaded pool down to its minimum).
+    runner_demand_stale_s: float = Field(default=30.0, gt=0.0)
     # INVARIANT: stateless iat window (seconds) — now a CLOCK-SKEW tolerance only: a mint
     # from more than one window in the future is rejected. It never bounds lifetime.
     iat_window_s: int = 60
@@ -266,6 +322,32 @@ class Settings(BaseSettings):
     # the gateway it manages credentials through is the one running beside it.
     local_aigateway_base_url: str = LOCAL_AIGATEWAY_BASE_URL
 
+    # --- the Run registry (OME-1785, E5 P1) ---------------------------------------------------
+    # FEATURE: first-class Runs. The registry's database: SQLite locally, the `engine` database
+    # on the shared Postgres server hosted (spec D2). Empty means Runs are off on a hosted App.
+    # AIDEV-NOTE: credential material (it carries the password). It reaches the pod from a
+    # Secret, never a ConfigMap, and is never logged.
+    database_url: str = ""
+    # WHY 30 days (spec R7): long enough to come back to last month's runs; the hourly sweep
+    # deletes Runs created before it.
+    run_retention_s: float = Field(default=30 * 86_400.0, gt=0, allow_inf_nan=False)
+    # WHY 1800 s (spec R5): how long a bound-but-unscheduled or unstarted Candidate still reads
+    # `running`. It must exceed the Client's admission budget, or a Client still waiting for
+    # admission would read `interrupted` (validated below).
+    run_pending_grace_s: float = Field(default=1800.0, allow_inf_nan=False)
+    # WHY 48 h (spec R6): past both `url4-candidate-outcomes` and `url4-runq`'s 24 h retention, so
+    # reconcile settles a Candidate `lost` only once no outcome can still arrive.
+    run_lost_after_s: float = Field(default=48 * 3600.0, gt=0, allow_inf_nan=False)
+    # How often the App sweeps the registry (spec R6, R7), after the sweep it runs at start.
+    run_sweep_interval_s: float = Field(default=3600.0, gt=0, allow_inf_nan=False)
+    # The outcome stream `url4-candidate-outcomes` (spec R11), declared by the App and the runner
+    # pool at startup from these values (`candidateOutcomes.*` in the chart). When it is full, a
+    # publish is refused rather than an older, unwritten outcome dropped.
+    candidate_outcomes_max_age_s: float = Field(
+        default=DEFAULT_OUTCOMES_MAX_AGE_S, gt=0, allow_inf_nan=False
+    )
+    candidate_outcomes_max_bytes: int = Field(default=64 * 1024**2, gt=0)
+
     # --- shared events stream (uniform executor, PRD 01) --------------------------------------
     # ONE stream holds every run's frames (`url4-events`, subject `url4-cloud.<topic>`). The App
     # and the worker declare it at startup from these values and apply a changed limit; no
@@ -319,6 +401,9 @@ class Settings(BaseSettings):
     # WHY a ceiling at all: the serving half must stop accepting when the queue is deeper than
     # the fleet can drain in a reasonable time, rather than piling up unbounded work. THIS unit
     # only declares the setting; the admission decision lands with the cutover (OME-1086).
+    # It bounds the UNCLAIMED backlog — runs no worker has claimed yet — not the queue
+    # stream's held messages, which also hold every running run until its end
+    # (docs/spec/2026-11-10-queue-depth-unclaimed.md D6).
     run_queue_depth_ceiling: int = Field(default=runner_queue.DEFAULT_DEPTH_CEILING, ge=1)
     # FEATURE (OME-1091): how many bucket subjects the queue is split into for per-caller
     # fairness. The worker pulls round-robin across buckets, so one caller's runs cannot be
@@ -327,9 +412,8 @@ class Settings(BaseSettings):
     # the worker must poll each pull.
     run_queue_bucket_count: int = Field(default=runner_queue.DEFAULT_BUCKET_COUNT, ge=1)
     # FEATURE (OME-1091): the per-caller in-flight cap — how many of one caller's runs may be
-    # admitted at once, so one caller's 9-candidate evaluation cannot occupy every slot. 8
-    # matches the Client's fan-out, so one ordinary Evaluation fits while a second concurrent
-    # one is refused until the first's runs finish.
+    # admitted at once, so one caller cannot occupy every slot. Default 24 (OME-1314). The
+    # Client reads the enforced value from `GET /v1/limits` and sizes its fan-out from it.
     run_queue_caller_inflight_cap: int = Field(
         default=runner_queue.DEFAULT_CALLER_INFLIGHT_CAP, ge=1
     )
@@ -381,6 +465,31 @@ class Settings(BaseSettings):
     # the endpoint.
     worker_metrics_port: int = Field(default=9109, ge=0)
 
+    @field_validator("blob_store", mode="before")
+    @classmethod
+    def _empty_blob_store_is_unset(cls, value: object) -> object:
+        # WHY: an env var rendered empty means "not set", not an invalid backend name.
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("blob_media_types")
+    @classmethod
+    def _blob_media_types_are_attachment_types(cls, value: list[str]) -> list[str]:
+        """Refuse any type outside `ATTACHMENT_MEDIA_TYPES` (#1603 review, owner 2026-11-03).
+
+        INVARIANT: the setting can only NARROW the five attachment types. `text/html` or
+        `image/svg+xml` would have the engine serve uploaded script from its own origin, and
+        every type here has a magic-byte signature the store verifies at ingest.
+        """
+        normalized = [t.strip().lower() for t in value]
+        unknown = [t for t in normalized if t not in ATTACHMENT_MEDIA_TYPES]
+        if unknown:
+            raise ValueError(
+                f"blob_media_types may only list attachment types "
+                f"({', '.join(sorted(ATTACHMENT_MEDIA_TYPES))}); refused: "
+                + ", ".join(repr(t) for t in unknown)
+            )
+        return normalized
+
     @field_validator("run_queue_stream")
     @classmethod
     def _reject_sweepable_run_queue_stream(cls, value: str) -> str:
@@ -416,6 +525,45 @@ class Settings(BaseSettings):
             return job_env.DEFAULT_ARTIFACTS_DIR
         return value
 
+    @field_validator("run_pending_grace_s")
+    @classmethod
+    def _grace_outlasts_admission(cls, value: float) -> float:
+        if value <= CLIENT_ADMISSION_BUDGET_S:
+            raise ValueError(
+                f"run_pending_grace_s={value} must exceed the Client's admission budget "
+                f"({CLIENT_ADMISSION_BUDGET_S} s), or a Client waiting for admission reads "
+                f"as interrupted"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _tombstone_outlasts_a_runnable_message(self) -> Self:
+        """INVARIANT (E5 P1 spec D12): a cancel's tombstone is the only thing that keeps a queued
+        run from executing, so the events stream must keep it until the run's deadline. A bound
+        run's deadline counts from its bind, which precedes any cancel of it, so the deadline
+        alone is the bound. WHY not the queue's retention: it counts from the publish, which can
+        come after the tombstone."""
+        if self.events_max_age_s <= self.job_deadline_s:
+            raise ValueError(
+                f"events_max_age_s={self.events_max_age_s} must exceed job_deadline_s "
+                f"({self.job_deadline_s} s), or a canceled run can execute after its tombstone "
+                f"expires"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _lost_after_outlasts_retention(self) -> Self:
+        """INVARIANT (spec R6): reconcile settles a Candidate `lost` only once no outcome or
+        queued run can still arrive, so the window must outlast both streams' retention."""
+        retained = max(self.run_queue_max_age_s, self.candidate_outcomes_max_age_s)
+        if self.run_lost_after_s <= retained:
+            raise ValueError(
+                f"run_lost_after_s={self.run_lost_after_s} must exceed the outcome and run "
+                f"queue retention ({retained} s), or reconcile settles a Candidate `lost` "
+                f"before its outcome can arrive"
+            )
+        return self
+
     @model_validator(mode="after")
     def _enforce_ack_wait_floor(self) -> Self:
         """INVARIANT: the worker's heartbeat cadence is derived as ``ack_wait / 3`` (capped
@@ -430,5 +578,21 @@ class Settings(BaseSettings):
                 f"run_queue_ack_wait_s={self.run_queue_ack_wait_s} is below the floor of 3s — "
                 f"the worker derives its heartbeat as ack_wait/3 and refuses to run one that "
                 f"would hammer the broker or fall behind the redelivery clock"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _demand_staleness_outlasts_two_samples(self) -> Self:
+        """INVARIANT (runner-pool autoscaling, plan change 4): with the sampler on, a sample must
+        survive one slow read. A stale window under two intervals turns one late sample into a
+        503, and the autoscaler into a no-op, on a healthy broker."""
+        if (
+            self.runner_demand_sample_s > 0
+            and self.runner_demand_stale_s < 2 * self.runner_demand_sample_s
+        ):
+            raise ValueError(
+                f"runner_demand_stale_s={self.runner_demand_stale_s} must be at least twice "
+                f"runner_demand_sample_s ({self.runner_demand_sample_s} s), or one slow read "
+                f"turns /runner-demand into a 503"
             )
         return self

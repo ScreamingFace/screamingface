@@ -63,3 +63,4 @@ Diagnostics only: standard library, no prompt or Case content in any line.
   reduce memory, none logs process RSS (`worker.memory_watch` samples the tree, unchanged), so
   no duplication. Gates re-run: `run_gates.py screamingface-engine --base origin/main` — ALL
   GATES GREEN.
+- **Merged:** PR #1656, squash `27fc73f9a`, 2026-11-04. Merging main (#1636) dropped the `count` local, so `cases_loaded` now logs `cases=selection.count` in `board_cases_handler` (merge `f31c32e1a`).

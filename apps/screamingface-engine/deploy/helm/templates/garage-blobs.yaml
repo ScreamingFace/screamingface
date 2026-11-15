@@ -1,0 +1,192 @@
+{{/*
+The SECOND bundled Garage: the run blob store's own (OME-1540; #1603 review, owner decision
+2026-11-03). A copy of `garage.yaml`'s results Garage — same image, same self-configuration
+flags, same security posture — with its own name, component label, volume, bucket and key pair.
+
+WHY a second Garage and not a second bucket on the first: the chart creates buckets only through
+Garage's `--default-bucket` (ONE per instance) and has no bootstrap Job by design (see
+garage.yaml), and two buckets on one volume share its capacity anyway. A separate volume is
+what makes "a full blob store fails uploads, never result delivery" true.
+
+Rendered when the blob backend is s3 and `blobs.storage.s3.endpointUrl` is empty.
+
+AIDEV-NOTE: kept a parallel template rather than a shared `define`, because garage.yaml's own
+text is pinned by `test_deploy_time_chart_contract.py` (the flags, `key: URL4_CLOUD_ARTIFACT_*`).
+A change to one Garage's container spec belongs in both; `verify_chart_wiring.py` asserts the
+two render the same image, args and security context. ONE deliberate difference: this Garage's
+`rpc_secret` is random and comes from the blob Secret (`GARAGE_RPC_SECRET`), never a value
+derived from the release name (#1603 security review).
+
+INVARIANT: `app.kubernetes.io/component: garage-blobs`, never `garage` — the results Garage's
+Service selects on `component: garage`, and a shared value would load-balance result reads onto
+the blob store.
+INVARIANT: the key pair comes from `secret-blob-storage.yaml`, the same Secret the App and the
+pool read for blobs.
+*/}}
+{{- if include "screamingface-engine.blobGarageEnabled" . }}
+{{- $name := printf "%s-garage-blobs" (include "screamingface-engine.fullname" .) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+data:
+  garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir = "/var/lib/garage/data"
+    db_engine = "sqlite"
+    replication_factor = 1
+    # Cluster-internal only: this store is reached by the App and by the runner pool's pods,
+    # never from
+    # outside. The read path deliberately goes THROUGH the App (spec D4) rather than handing a
+    # client a presigned URL, so nothing off-cluster ever needs to resolve this endpoint.
+    rpc_bind_addr = "[::]:3901"
+    rpc_public_addr = "127.0.0.1:3901"
+    # rpc_secret is NOT here: it is random, held in the blob Secret, and given to Garage as
+    # GARAGE_RPC_SECRET (supported since Garage v0.8.2) — see secret-blob-storage.yaml.
+
+    [s3_api]
+    s3_region = {{ .Values.blobs.storage.s3.region | quote }}
+    api_bind_addr = "[::]:3900"
+    root_domain = ".s3.garage"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: s3
+      port: 3900
+      targetPort: s3
+      protocol: TCP
+  selector:
+    {{- include "screamingface-engine.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: garage-blobs
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "screamingface-engine.labels" . | nindent 4 }}
+spec:
+  # INVARIANT: 1. See the WHY above — two Garage processes on one metadata store is corruption.
+  replicas: 1
+  serviceName: {{ $name }}
+  selector:
+    matchLabels:
+      {{- include "screamingface-engine.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: garage-blobs
+  template:
+    metadata:
+      labels:
+        {{- include "screamingface-engine.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: garage-blobs
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: garage
+          image: {{ .Values.garage.image | quote }}
+          # The three self-configuration flags (see the header). `command` is NOT optional
+          # decoration: dxflrs/garage:v2.3.0 ships NO Entrypoint — only
+          # `Cmd: ["/garage", "server"]` — so bare `args` would REPLACE that Cmd wholesale and
+          # the kubelet would try to exec the literal string "server"
+          # (`exec: "server": executable file not found in $PATH`, CrashLoopBackOff).
+          command: ["/garage"]
+          args:
+            - server
+            - --single-node
+            - --default-access-key
+            - --default-bucket
+          env:
+            # Garage ADOPTS this pair on first boot rather than minting its own, which is what
+            # keeps the chart declarative. Read from the same Secret the engine reads, so the
+            # store and its clients cannot drift onto different credentials.
+            - name: GARAGE_DEFAULT_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "screamingface-engine.blobSecretName" . }}
+                  key: URL4_CLOUD_BLOB_S3_ACCESS_KEY
+            - name: GARAGE_DEFAULT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "screamingface-engine.blobSecretName" . }}
+                  key: URL4_CLOUD_BLOB_S3_SECRET_KEY
+            # The cluster RPC secret (#1603 security review): random, from the blob Secret —
+            # never derived from the release name.
+            - name: GARAGE_RPC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "screamingface-engine.blobSecretName" . }}
+                  key: GARAGE_RPC_SECRET
+            - name: GARAGE_DEFAULT_BUCKET
+              value: {{ .Values.blobs.storage.s3.bucket | quote }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            # NOT readOnlyRootFilesystem: Garage writes its metadata and data trees at runtime.
+            # They live on the mounted volume, which is why this is a narrower exception than it
+            # looks — but the root filesystem still has to be writable for its lock files.
+            runAsNonRoot: true
+            runAsUser: 1000
+          ports:
+            - name: s3
+              containerPort: 3900
+              protocol: TCP
+            - name: rpc
+              containerPort: 3901
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /etc/garage.toml
+              subPath: garage.toml
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/garage
+          resources:
+            {{- toYaml .Values.blobs.storage.garage.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+        {{- if not .Values.blobs.storage.garage.persistence.enabled }}
+        # AIDEV-NOTE: emptyDir means every artifact is lost on a Garage restart. Acceptable only
+        # for a throwaway test cluster — a client redeeming across that restart gets the same 404
+        # this ticket exists to remove.
+        - name: data
+          emptyDir: {}
+        {{- end }}
+      {{- /* WHY: the blob Garage runs on the App's node pool and tolerates its taints. `affinity` is
+      not copied: its pod affinity names App pod labels, and Garage pods carry other labels. Use
+      `nodeSelector` for node placement. */}}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.blobs.storage.garage.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          {{- toYaml .Values.blobs.storage.garage.persistence.accessModes | nindent 10 }}
+        {{- with .Values.blobs.storage.garage.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.blobs.storage.garage.persistence.size | quote }}
+  {{- end }}
+{{- end }}

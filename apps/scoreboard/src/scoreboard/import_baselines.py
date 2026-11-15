@@ -28,7 +28,9 @@ def load_baselines_json(raw_json: str) -> list[BaselineImportRow]:
     try:
         return _BASELINES_ADAPTER.validate_python(payload)
     except ValidationError as exc:
-        raise ValueError(f"invalid baseline import payload: {exc}") from exc
+        # INVARIANT: diagnostics name fields/problems, never rejected private attribution.
+        errors = exc.errors(include_input=False, include_context=False, include_url=False)
+        raise ValueError(f"invalid baseline import payload: {json.dumps(errors)}") from None
 
 
 async def import_baselines(rows: Sequence[BaselineImportRow]) -> list[BaselineSchema]:

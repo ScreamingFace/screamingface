@@ -20,6 +20,7 @@ from pydantic import (
 )
 from pydantic_core import InitErrorDetails, PydanticCustomError
 
+from .baseline_metadata import BaselineObservation, BaselineProvenance
 from .credit_metadata import (
     MAX_AUTHORS,
     AuthorEmail,
@@ -199,6 +200,9 @@ def _validate_bounded_metadata(value: dict[str, Any] | None) -> dict[str, Any] |
         )
     if len(json.dumps(value)) > _METADATA_MAX_BYTES:
         raise ValueError(f"metadata must serialize to at most {_METADATA_MAX_BYTES} bytes")
+    # INVARIANT: imported evidence must round-trip through SQLite, PostgreSQL JSONB
+    # and the public UTF-8 response. Check keys and nested values before persistence.
+    validate_storable_json(value)
     return value
 
 
@@ -1473,7 +1477,7 @@ class LeaderboardStoreEntry(LeaderboardEntry):
     source_id: str = Field(exclude=True)
 
 
-class BaselineSchema(BaseModel):
+class BaselineSchema(BaselineObservation):
     """Read DTO for an imported single-model baseline ('line to beat')."""
 
     model_config = ConfigDict(extra="forbid")
@@ -1485,7 +1489,10 @@ class BaselineSchema(BaseModel):
     source: str
     source_url: str | None
     imported_at: datetime
+    last_imported_at: datetime | None = None
     metadata: dict[str, Any] | None
+    # WHY: computed from the current board scope and evidence, never accepted from import JSON.
+    ranking_eligible: bool = False
     # FEATURE: OME-323 — manual open/closed correction, mirrors ScoreSchema's field.
     openness_override: Literal["open", "closed"] | None = None
 
@@ -1551,7 +1558,7 @@ class FrontierResponse(FrontierResult):
     benchmark_id: str
 
 
-class BaselineImportRow(BaseModel):
+class BaselineImportRow(BaselineProvenance):
     """Input DTO for importing a single-model baseline score (e.g. from LMArena /
     Artificial Analysis). Re-importing the same (benchmark_id, model_name, source)
     updates the existing row rather than duplicating it (see BaselineStore).

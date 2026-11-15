@@ -1,9 +1,9 @@
 ---
 ticket: OME-1763
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-11-03
-finished:
+finished: 2026-11-06
 ---
 
 # Benchmark catalog summary
@@ -114,3 +114,8 @@ actual theme button. No cache or fallback request fan-out was added. The recorde
 performance comparison remains the 2026-11-04 measurement; production speedup still
 requires measurement after deployment. Ready to publish for external review; not
 merged or deployed by this task.
+
+## Closure — 2026-11-06
+
+Merged [PR #1659](https://github.com/ScreamingFace/screamingface/pull/1659) on 2026-11-06 as
+`f4f03ab30f25889f60fdcfdee13df50cac1b29a0`, approved by Khoa (option C). Linear is Done for OME-1763 and OME-1383.

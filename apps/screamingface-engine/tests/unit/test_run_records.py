@@ -6,6 +6,7 @@ FEATURE: first-class Runs (OME-1785).
 from __future__ import annotations
 
 import hashlib
+import unicodedata
 from datetime import UTC, datetime, tzinfo
 from typing import cast, get_args
 
@@ -188,15 +189,15 @@ def test_a_run_query_needs_an_aware_datetime_since(since: object) -> None:
 @pytest.mark.parametrize(
     ("one", "other"),
     [
-        ("Jürgen@x.org", "Jürgen@x.org"),  # NFC and NFD forms of the same email
-        ("straße@x.org", "STRASSE@x.org"),  # casefold, not lower
+        ("Jürgen@x.org", "JÜRGEN@X.ORG"),  # every letter lowercases, as aigateway's account key
+        ("JÜRGEN@X.ORG", "jÜrgen@x.org"),
     ],
 )
-def test_one_email_in_different_unicode_forms_is_one_owner(one: str, other: str) -> None:
+def test_one_email_in_different_cases_is_one_owner(one: str, other: str) -> None:
     assert owner_key(one) == owner_key(other)
 
 
-def test_a_fold_that_decomposes_is_still_one_owner() -> None:
-    # WHY: casefold can turn a composed character into a decomposed sequence, so the folded text
-    # is normalised again; otherwise these two forms of one email would own two sets of Runs.
-    assert owner_key("ΐ@x.org") == owner_key("Ϊ́@x.org")
+def test_a_decomposed_character_is_another_owner() -> None:
+    # WHY: no Unicode normalisation, as aigateway's account key. At worst one person whose email
+    # arrives in two forms sees two sets of their own Runs; two people never share one.
+    assert owner_key("ΐ@x.org") != owner_key(unicodedata.normalize("NFD", "ΐ") + "@x.org")

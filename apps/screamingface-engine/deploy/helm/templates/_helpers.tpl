@@ -356,3 +356,73 @@ would leave the App to refuse startup with a less specific message than this one
 {{- fail "artifactStorage.backend=s3 needs either artifactStorage.s3.endpointUrl or garage.enabled=true" -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+The run blob store's backend (OME-1540; #1603 review, owner decision 2026-11-03).
+`blobs.storage.backend: ""` takes the SAME backend as `artifactStorage.backend` — the same KIND
+of store, never the same store: every blob setting below points at its own directory, bucket,
+endpoint and Secret.
+*/}}
+{{- define "screamingface-engine.blobBackend" -}}
+{{- $backend := .Values.blobs.storage.backend | default .Values.artifactStorage.backend -}}
+{{- if not (has $backend (list "filesystem" "s3")) -}}
+{{- fail (printf "blobs.storage.backend resolved to %q; it must be filesystem or s3" $backend) -}}
+{{- end -}}
+{{- $backend -}}
+{{- end -}}
+
+{{/*
+Whether the chart renders its SECOND bundled Garage for blobs: an s3 blob backend with no
+endpoint of the operator's own. That is the default S3 shape, so blobs and results land on two
+Garages with two volumes — a full blob volume fails uploads and nothing else.
+*/}}
+{{- define "screamingface-engine.blobGarageEnabled" -}}
+{{- if and (eq (include "screamingface-engine.blobBackend" .) "s3") (not .Values.blobs.storage.s3.endpointUrl) -}}
+true
+{{- end -}}
+{{- end -}}
+
+{{- define "screamingface-engine.blobEndpointUrl" -}}
+{{- if .Values.blobs.storage.s3.endpointUrl -}}
+{{- .Values.blobs.storage.s3.endpointUrl -}}
+{{- else -}}
+{{- printf "http://%s-garage-blobs:3900" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The Secret holding the blob store's key pair. Same shape as `artifactSecretName`: an
+`existingSecret` wins, else the chart creates `<fullname>-blob-storage`.
+INVARIANT: its keys are `URL4_CLOUD_BLOB_S3_ACCESS_KEY` / `URL4_CLOUD_BLOB_S3_SECRET_KEY` —
+distinct from the artifact pair, so the two `envFrom` Secrets on one pod cannot shadow each other.
+*/}}
+{{- define "screamingface-engine.blobSecretName" -}}
+{{- if .Values.blobs.storage.s3.existingSecret -}}
+{{- .Values.blobs.storage.s3.existingSecret -}}
+{{- else -}}
+{{- printf "%s-blob-storage" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The blob store's key pair as two NAMED env entries (OME-1540), for the App and the runner pool.
+Empty unless the blob backend is s3.
+
+WHY `secretKeyRef` and not `envFrom` like the artifact pair: the chart's blob Secret also carries
+`GARAGE_RPC_SECRET` for the bundled blob Garage. `envFrom` would hand that cluster secret to every
+App and runner process; naming the two keys keeps it on the Garage pod alone.
+*/}}
+{{- define "screamingface-engine.blobCredentialEnv" -}}
+{{- if eq (include "screamingface-engine.blobBackend" .) "s3" }}
+- name: URL4_CLOUD_BLOB_S3_ACCESS_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "screamingface-engine.blobSecretName" . }}
+      key: URL4_CLOUD_BLOB_S3_ACCESS_KEY
+- name: URL4_CLOUD_BLOB_S3_SECRET_KEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "screamingface-engine.blobSecretName" . }}
+      key: URL4_CLOUD_BLOB_S3_SECRET_KEY
+{{- end }}
+{{- end -}}

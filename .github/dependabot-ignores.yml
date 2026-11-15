@@ -15,6 +15,8 @@
 #                range admits the ignored version.
 #   ci_matrix  — read `matrix_key` from `workflow`. Liftable when the matrix covers the ignored
 #                version. Use this when WE are the blocker, not upstream — say so plainly.
+#   (omitted)  — no probe applies (e.g. an upstream data regression); the audit warns, the note
+#                says what lifts it, and it is lifted by hand.
 ignores:
   - directory: /apps/aigateway-ui
     dependency: typescript
@@ -131,3 +133,49 @@ ignores:
       of the Engine's pin (the single source of truth), and test_inspect_pin_conformance.py in
       both packages fails on drift. Held only for the Engine, the SDK moved alone to 0.3.270
       (#1119, #1135). Held and lifted together with the Engine's entries.
+
+  - directory: /apps/screamingface-engine
+    dependency: tortoise-orm
+    versions: ""
+    ticket: OME-1800
+    note: >-
+      NOT upstream-blocked, and no probe applies: held so it moves by hand, together with the
+      SDK's runtime extra and aigateway. The runtime extra installs the Engine and aigateway into
+      one local process, so all three must pin one version; Dependabot groups per directory and
+      would bump one alone. test_tortoise_pin_conformance.py in the Engine and the SDK fails on
+      drift. With no version floor the audit prints "cannot parse a version floor" — expected.
+
+  - directory: /packages/screamingface
+    dependency: tortoise-orm
+    versions: ""
+    ticket: OME-1800
+    note: >-
+      NOT upstream-blocked; see the Engine's tortoise-orm entry. Held and moved together with it.
+
+  - directory: /apps/aigateway
+    dependency: tortoise-orm
+    versions: ""
+    ticket: OME-1800
+    note: >-
+      NOT upstream-blocked; see the Engine's tortoise-orm entry. Held and moved together with it:
+      aigateway's own CI does not run the pin conformance test, so a bump here alone would merge
+      green and fail the Engine and SDK lanes later.
+
+  - directory: /packages/screamingface
+    dependency: litellm
+    versions: ">=1.104.6"
+    ticket: OME-1879
+    note: >-
+      Upstream data regression, no probe applies: litellm 1.104.6+ bundles a model map with no
+      openrouter/* rows (1.104.2 has 477), and the gateway forces that bundled map
+      (LITELLM_LOCAL_MODEL_COST_MAP=True), so OpenRouter reasoning_effort breaks (#1725).
+      test_runtime_litellm_model_map.py catches it. Lift once litellm restores the rows or the
+      gateway registers its own OpenRouter rows.
+
+  - directory: /apps/aigateway
+    dependency: litellm
+    versions: ">=1.104.6"
+    ticket: OME-1879
+    note: >-
+      Same upstream regression; see the /packages/screamingface litellm entry. Held and lifted
+      together with it.

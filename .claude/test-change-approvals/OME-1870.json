@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1870",
+  "branch": "OME-1870-runner-pool-autoscaling",
+  "approver": "owner — approved in session 2026-11-11 (two answers): the render check for drainGraceS with the _ENABLED fixture change, and the tolerance key in the expected scaleUp dict",
+  "date": "2026-11-11",
+  "scope": "tests/unit/test_chart_render_runner_autoscaling.py: add runnerPool.drainGraceS 57600 and runnerPool.terminationGracePeriodSeconds 57625 to the _ENABLED fixture; add \"tolerance\": \"0\" to the expected scaleUp dict in test_enabled_behavior_carries_the_scaling_windows. Nothing else in the file changes.",
+  "reason": "PR #1738 review: (R2) with autoscaling on, the chart now refuses runnerPool.drainGraceS < config.jobDeadlineS, because a scale-down may remove a busy pod and a shorter drain stops its runs; the shared fixture used the chart default drainGraceS 30, so every enabled render would be refused. (R1) the ScaledObject now renders behavior.scaleUp.tolerance \"0\", because the HPA's default 10 % tolerance stalls scale-up (3 pods x 4 slots at demand 13); the test asserts the exact behavior dict, so the expected dict gains that key.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_chart_render_runner_autoscaling.py": {
+      "base_blob": "6cb73462a2f2426b9d168662c39ba81fcd660de2",
+      "approved_blob": "051d121cead749cbe60be108b23408c479b21d48"
+    }
+  }
+}

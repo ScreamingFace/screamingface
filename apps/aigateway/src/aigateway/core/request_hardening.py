@@ -43,6 +43,14 @@ _CALLBACK_DYNAMIC_FIELDS: frozenset[str] = frozenset(
         "arize_api_key",
         "arize_space_key",
         "arize_space_id",
+        # WHY: litellm 1.104 added two Arize dynamic params that steer which prompt/response
+        # traces Arize keeps. A caller setting them turns a chat request into a telemetry
+        # control, the same category as the arize host+key fields above. Found by running
+        # test_litellm_dynamic_callback_parameter_set_is_covered under the Studio runtime's
+        # litellm 1.104.2 (review finding on #1707, OME-1853); this lock still pins 1.102.1,
+        # where the two names are simply unknown, so listing them early is harmless.
+        "arize_error_sampling_rate",
+        "arize_success_sampling_rate",
         "posthog_api_key",
         "posthog_host",
         "braintrust_api_key",

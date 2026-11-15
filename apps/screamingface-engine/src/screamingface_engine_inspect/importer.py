@@ -69,6 +69,7 @@ from screamingface_engine_inspect.judge_shape import (
 # WHY a runtime import is safe here: provenance_facts imports only the stdlib and yaml,
 # never this module, so no cycle (OME-1455).
 from screamingface_engine_inspect.provenance_facts import read_provenance_facts
+from screamingface_engine_inspect.scorer_metrics import MEAN_OVER_ATTEMPTS_REDUCER
 
 if TYPE_CHECKING:
     # WHY type-only: import_replay imports this module, so a runtime import would cycle.
@@ -117,10 +118,30 @@ def _custom_metrics(task: Any) -> tuple[str, ...]:
 
 #: inspect's reducer when a Task declares epochs but names none (``Epochs`` docstring).
 _INSPECT_DEFAULT_REDUCER: str = "mean"
+#: inspect's averaging reducers: refused by name wherever a Task declares them (the mean over
+#: Attempts is read from ``pass_at_1`` alone, spec D16).
+_AVERAGING_REDUCERS: frozenset[str] = frozenset({"mean", "median", "mode"})
 
 
-def task_attempts(task: Any) -> int:
-    """How many Attempts each Case gets: the Task's epochs when they mean "any of N", else 1.
+@dataclass(frozen=True)
+class TaskAttempts:
+    """What a Task's epochs mean for the Benchmark: how many Attempts, which fold, what is
+    left out (``docs/spec/2026-11-09-attempts-mean-fold.md``)."""
+
+    #: Attempts per Case; 1 for a Task with no epochs, or one epoch.
+    attempts: int = 1
+    #: ``pass_at_1`` when the Case score is the mean over Attempts (the fold and the tally read
+    #: it); None under the any-of-N rule, where the row names a reducer only beside an honoured
+    #: whole-run metric (OME-1527), and for one Attempt.
+    epoch_reducer: str | None = None
+    #: Reducers the Task also declares that the row does not reproduce (ZeroBench's ``pass_at_5``
+    #: and ``5_of_5_reliability`` beside its ``pass_at_1``), named in the row's comment.
+    dropped_reducers: tuple[str, ...] = ()
+
+
+def task_attempts(task: Any) -> TaskAttempts:
+    """How many Attempts each Case gets, and by which rule they fold: the Task's epochs when
+    they mean "any of N" or "the mean over N", else 1 or a refusal by name.
 
     FEATURE: several Attempts per Case (OME-1458). ``epochs=N`` runs every Sample N times and
     folds the N scores with a reducer. Our Benchmark asks each Case N times and marks a Check
@@ -129,40 +150,58 @@ def task_attempts(task: Any) -> int:
     2; MBPP's ``Epochs(5, ["mean", "pass_at_1", "pass_at_2", "pass_at_5"])`` → refused,
     naming ``mean``.
 
-    INVARIANT: every declared reducer must be any-match at N, or the Task is refused by name:
-    ``pass_at_k`` with k < N is inspect's unbiased estimator, a different number from any-of-N
-    (spec §2.1), and ``mean`` is an average. One epoch is one Attempt, so
-    ``Epochs(1, "mode")`` (lab_bench) imports as before.
+    FEATURE: the mean over Attempts (2026-11-09 amendment, D15 to D17). inspect's ``pass_at(1)``
+    over N epochs is 1 − C(N−c, 1)/C(N, 1) = c/N, the share of epochs at full marks; a Task
+    whose FIRST declared reducer is inspect's own ``pass_at(1)`` imports as N Attempts folded by
+    the mean, and every other reducer it declares is recorded as not reproduced. Worked example:
+    ZeroBench's ``Epochs(5, ["pass_at_1", "pass_at_5", "5_of_5_reliability"])`` → 5 Attempts,
+    ``epoch_reducer="pass_at_1"``, dropped ``pass_at_5`` and ``5_of_5_reliability``.
+
+    INVARIANT: under the any-of-N rule every declared reducer must be any-match at N, or the
+    Task is refused by name: ``pass_at_k`` with k < N is inspect's unbiased estimator, a
+    different number from any-of-N (spec §2.1), and ``mean`` is an average. An any-of-N
+    headline beside ``pass_at_1`` is refused naming ``pass_at_1``: inspect publishes both
+    numbers and a row carries one fold. ``mean``, ``median`` and ``mode`` are refused wherever
+    they appear. One epoch is one Attempt, so ``Epochs(1, "mode")`` (lab_bench) imports as before.
 
     INVARIANT: the name alone is not the rule. ``at_least(1, value=0.5)`` is logged as
     ``at_least_1`` but counts a half-right answer; any parameter other than ``k`` (a
     ``value`` below full marks, a ``value_to_float``) is refused, naming it. And any eval
-    may register its own reducer as ``max``: one whose code is not inspect's own ``max`` /
-    ``at_least`` / ``pass_at`` is refused, naming it (at scores [0, 1] a first-epoch
-    "max" publishes 0 where our fold publishes 1.0).
+    may register its own reducer as ``max`` or ``pass_at``: one whose code is not inspect's
+    own ``max`` / ``at_least`` / ``pass_at`` is refused, naming it (at scores [0, 1] a
+    first-epoch "max" publishes 0 where our fold publishes 1.0).
     """
 
     from inspect_ai._util.registry import registry_params
     from inspect_ai.scorer._reducer.registry import reducer_log_names
 
-    from screamingface_engine_inspect.scorer_metrics import any_match_reducers
+    from screamingface_engine_inspect.scorer_metrics import (
+        any_match_reducers,
+        attempts_reducers,
+    )
 
     epochs: int | None = getattr(task, "epochs", None)
     if epochs is None or epochs <= 1:
-        return 1
+        return TaskAttempts()
     reducers: list[Any] | None = getattr(task, "epochs_reducer", None)
     names: list[str] = (reducer_log_names(reducers) if reducers else None) or [
         _INSPECT_DEFAULT_REDUCER
     ]
-    own_reducers: dict[str, Any] = any_match_reducers(epochs)
-    any_match: frozenset[str] = frozenset(own_reducers)
-    refused: list[str] = [name for name in names if name not in any_match]
-    if refused:
-        raise ImporterError(
-            f"the task declares epochs={epochs} with reducer {', '.join(refused)}: only "
-            f"any-of-{epochs} reducers ({', '.join(sorted(any_match))}) import as "
-            f"{epochs} Attempts per Case; this one would publish a different number (OME-1458)"
-        )
+    own_reducers: dict[str, Any] = attempts_reducers(epochs)
+    any_match: frozenset[str] = frozenset(any_match_reducers(epochs))
+    # WHY the first declared (our convention, not inspect's): inspect publishes one set of
+    # metrics per reducer, side by side, with no headline of its own; the tally already replays
+    # the first declared one for an honoured whole-run metric (import_replay), so the importer
+    # keys on the same one. For ZeroBench that order comes from a set literal (TOP_N = {1, 5}).
+    mean_fold: bool = names[0] == MEAN_OVER_ATTEMPTS_REDUCER
+    _refuse_unfoldable_reducers(epochs, names, any_match, mean_fold)
+    # WHY only the kept names from here: a dropped reducer computes nothing on our side, so
+    # its code and parameters are not read; the headline's are.
+    kept: list[tuple[str, Any]] = [
+        (name, reducer)
+        for name, reducer in zip(names, reducers or [], strict=True)
+        if not mean_fold or name == MEAN_OVER_ATTEMPTS_REDUCER
+    ]
     # WHY: a registry name is a label any eval can claim (registering `max` even overwrites
     # inspect's entry), but every call of inspect's own factory, imported directly, returns
     # a reduce function sharing one code object; a look-alike cannot.
@@ -171,29 +210,67 @@ def task_attempts(task: Any) -> int:
     }
     impostors: list[str] = [
         name
-        for name, reducer in zip(names, reducers or [], strict=True)
+        for name, reducer in kept
         if (code := _reduce_code(reducer)) is None or code is not builtin_code[name]
     ]
     if impostors:
         raise ImporterError(
             f"the task declares epochs={epochs} with reducer {', '.join(impostors)}: the name "
-            f"is a built-in any-of-{epochs} reducer's, but the code is not inspect's own; "
+            f"is a built-in reducer's, but the code is not inspect's own; "
             "its rule cannot be read, so it would publish a different number (OME-1458)"
         )
-    # WHY: every name is any-match from here, so the Task declared its reducers; a tuned
-    # threshold behind an any-match name is a different rule.
+    # WHY: every kept name is inspect's own from here, so the Task declared its reducers; a
+    # tuned threshold behind a known name is a different rule.
     tuned: list[str] = [
         f"{name}({', '.join(f'{key}={value!r}' for key, value in params.items())})"
-        for name, reducer in zip(names, reducers or [], strict=True)
+        for name, reducer in kept
         if (params := _tuned_params(registry_params(reducer)))
     ]
     if tuned:
         raise ImporterError(
-            f"the task declares epochs={epochs} with reducer {', '.join(tuned)}: only "
-            f"any-of-{epochs} at full marks imports as {epochs} Attempts per Case; a tuned "
+            f"the task declares epochs={epochs} with reducer {', '.join(tuned)}: only a reducer "
+            f"at full marks imports as {epochs} Attempts per Case; a tuned "
             "threshold would publish a different number (OME-1458)"
         )
-    return epochs
+    if mean_fold:
+        return TaskAttempts(
+            attempts=epochs,
+            epoch_reducer=MEAN_OVER_ATTEMPTS_REDUCER,
+            dropped_reducers=tuple(name for name in names if name != MEAN_OVER_ATTEMPTS_REDUCER),
+        )
+    return TaskAttempts(attempts=epochs)
+
+
+def _refuse_unfoldable_reducers(
+    epochs: int, names: list[str], any_match: frozenset[str], mean_fold: bool
+) -> None:
+    """Refuse by name the declared reducers neither fold computes (spec §3, D16): an averaging
+    reducer anywhere, ``pass_at_1`` beside an any-of-N headline, and under the any-of-N rule any
+    name outside the any-of-N three."""
+
+    averaging: list[str] = [name for name in names if name in _AVERAGING_REDUCERS]
+    if averaging:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {', '.join(averaging)}: an average "
+            f"over epochs imports only as inspect's own pass_at_1 (the mean over {epochs} "
+            "Attempts) and any-of-N reducers "
+            f"({', '.join(sorted(any_match))}) import as {epochs} Attempts per Case; this one "
+            "would publish a different number (OME-1458)"
+        )
+    if not mean_fold and MEAN_OVER_ATTEMPTS_REDUCER in names:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {MEAN_OVER_ATTEMPTS_REDUCER} beside "
+            f"the any-of-{epochs} headline {names[0]}: inspect publishes an any-of-{epochs} "
+            "number and the mean over Attempts, and a row carries one fold; import it by hand, "
+            "naming the one the card publishes (OME-1458)"
+        )
+    refused: list[str] = [name for name in names if name not in any_match]
+    if refused and not mean_fold:
+        raise ImporterError(
+            f"the task declares epochs={epochs} with reducer {', '.join(refused)}: only "
+            f"any-of-{epochs} reducers ({', '.join(sorted(any_match))}) import as "
+            f"{epochs} Attempts per Case; this one would publish a different number (OME-1458)"
+        )
 
 
 def _reduce_code(reducer: object) -> CodeType | None:
@@ -471,9 +548,9 @@ def _whole_run_choice(
     metric the row cannot name, or a Task with its own epoch reducer. The tally reduces each
     Case's Scores the way inspect does before any metric runs: with inspect's default mean
     when the Task names no reducer, or with the Task's own any-of-N reducer when its epochs
-    are Attempts (``task_attempts`` above 1, which has proved every reducer is inspect's own
-    ``max``, ``at_least_1`` or ``pass_at_N``). Any other reducer (coconot's word map, HLE's
-    ``attempt_preserving_mean``) is refused.
+    are Attempts (``task_attempts`` above 1, which has proved every reducer it kept is inspect's
+    own ``max``, ``at_least_1``, ``pass_at_N`` or ``pass_at_1``). Any other reducer (coconot's
+    word map, HLE's ``attempt_preserving_mean``) is refused.
     """
 
     from inspect_ai.scorer._reducer.registry import reducer_log_names
@@ -483,7 +560,7 @@ def _whole_run_choice(
     if choice == "mean":
         return None, metric
     reducers: list[Any] | None = getattr(task, "epochs_reducer", None)
-    if reducers and task_attempts(task) == 1:
+    if reducers and task_attempts(task).attempts == 1:
         names: list[str] = reducer_log_names(reducers) or ["<unnamed>"]
         raise ImporterError(
             f"cannot honour {metric}: the task declares its own epoch reducer "

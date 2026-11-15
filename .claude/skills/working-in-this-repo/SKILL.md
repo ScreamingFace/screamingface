@@ -9,7 +9,7 @@ ScreamingFace is a **polyglot monorepo** worked on by multiple developers concur
 
 > **Re-foundation (July 2026).** The legacy `apps/desktop` and `apps/server` (plus `web/`, `infra/`, root `Makefile`, and the old `docs/` tree) were removed; the full pre-teardown state is preserved at tag **`legacy-monorepo-2026-07-08`**. The URL4 protocol and ScreamingFace Client SDK now live as separately gated packages. Setup lives in **`CONTRIBUTING.md`**; per-app guardrails in each app's `CLAUDE.md`.
 
-> **`apps/desktop` still exists on disk and is NOT a component.** Its only tracked files are two build artifacts, `out/main/index.js` and `out/preload/index.js`, left behind by that teardown, and a `release-desktop.yml` workflow survives alongside them. Nothing imports either. Do not treat the directory as a live app or resurrect from it; removing the leftovers is an owner decision, not a routing question (noted 2026-09-22, `OME-1266`).
+> **`apps/desktop` is gone.** Its last two tracked files, the build artifacts `out/main/index.js` and `out/preload/index.js` left behind by that teardown, were removed on `OME-1853` (2026-11-09); the `release-desktop.yml` workflow that survived beside them builds `apps/screamingface-studio`. Do not resurrect the legacy desktop app from the tag.
 
 ## 1. Component taxonomy
 

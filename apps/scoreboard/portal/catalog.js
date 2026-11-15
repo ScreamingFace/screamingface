@@ -4,13 +4,21 @@
   var P = window.ScorePortal;
   var L = window.SFLeaderboardLogic;
   var PAGE_SIZE = 9;
+  var SCORED_PREFERENCE = "sf_catalog_has_scores";
 
   function init() {
     var nodes = {};
-    ["status", "cards", "more", "search", "scored", "count", "clear", "include", "controls"].forEach(function (name) {
+    ["status", "cards", "more", "search", "scored", "count", "controls"].forEach(function (name) {
       nodes[name] = document.getElementById("benchmark-" + name);
     });
     if (!nodes.cards) return;
+    // STORY: retain the visitor's filter across refreshes in this tab session.
+    nodes.scored.checked = true;
+    try {
+      nodes.scored.checked = window.sessionStorage.getItem(SCORED_PREFERENCE) !== "false";
+    } catch (_) {
+      // WHY: blocked storage must not prevent browsing with the default filter.
+    }
     var catalog = [];
     var matches = [];
     var shown = 0;
@@ -26,6 +34,10 @@
         nodes.cards.appendChild(P.benchmarkCard(b, { best: b.best_score }));
       }
       nodes.more.hidden = shown >= matches.length;
+      // STORY: announce progress after paging as well as filtering.
+      nodes.count.textContent = "Showing " + shown + " of " + matches.length +
+        " matching benchmark" + (matches.length === 1 ? "" : "s") +
+        (nodes.scored.checked ? " with scores" : "");
     }
 
     function applyFilters() {
@@ -37,13 +49,9 @@
       shown = 0;
       P.clear(nodes.cards);
       nodes.cards.hidden = false;
-      nodes.clear.hidden = !nodes.search.value;
-      nodes.include.hidden = !nodes.scored.checked || searched.length === matches.length;
-      nodes.count.textContent = matches.length + " matching benchmark" + (matches.length === 1 ? "" : "s") +
-        (nodes.scored.checked ? " with scores" : "");
       if (!matches.length) {
         P.showEmpty(nodes.status, searched.length ?
-          "Matching benchmarks have no scores yet. Include benchmarks without scores to see them." :
+          "Matching benchmarks have no scores yet. Uncheck “Has scores” to see them." :
           "No benchmarks match your search.");
       } else P.setStatus(nodes.status, null);
       showNext();
@@ -51,17 +59,15 @@
 
     nodes.more.addEventListener("click", showNext);
     nodes.search.addEventListener("input", applyFilters);
-    nodes.scored.addEventListener("change", applyFilters);
-    nodes.clear.addEventListener("click", function () {
-      nodes.search.value = "";
+    function changeScoredFilter() {
+      try {
+        window.sessionStorage.setItem(SCORED_PREFERENCE, String(nodes.scored.checked));
+      } catch (_) {
+        // WHY: filtering still works when storage is denied or full.
+      }
       applyFilters();
-      nodes.search.focus();
-    });
-    nodes.include.addEventListener("click", function () {
-      nodes.scored.checked = false;
-      applyFilters();
-      nodes.scored.focus();
-    });
+    }
+    nodes.scored.addEventListener("change", changeScoredFilter);
 
     P.fetchJson("/v1/benchmarks/summary").then(function (data) {
       // No fallback to 86 detailed requests: a failed summary has an explicit error state.

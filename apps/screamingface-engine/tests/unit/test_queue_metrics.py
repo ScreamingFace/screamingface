@@ -10,6 +10,7 @@ scrape time), and the max-deliveries counter is the queue's terminal-failure sig
 
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from typing import Any
 
 from prometheus_client import CollectorRegistry
 
@@ -30,7 +31,9 @@ class _FakeQueue:
         self._depth = depth
         self._oldest_age = oldest_age
 
-    async def publish(self, message: bytes, *, identity: Mapping[str, str] | None = None) -> None:
+    async def publish(
+        self, message: bytes, *, identity: Mapping[str, str] | None = None, enqueued_at: Any = None
+    ) -> None:
         raise NotImplementedError
 
     async def depth(self) -> int:

@@ -17,6 +17,7 @@ const products = [
   { name: 'Get started with SF Client', path: '/sf-client' },
   { name: 'API reference', path: '/sf-client/api/modules' },
   { name: 'Learn more', path: '/learn' },
+  { name: 'Roadmap', path: '/roadmap' },
 ]
 
 const currentProduct = computed(() => {
@@ -24,6 +25,7 @@ const currentProduct = computed(() => {
   if (path.startsWith('/sf-client/api')) return 'API reference'
   if (path.startsWith('/sf-client')) return 'Get started with SF Client'
   if (path.startsWith('/learn')) return 'Learn more'
+  if (path.startsWith('/roadmap')) return 'Roadmap'
   return 'Home'
 })
 

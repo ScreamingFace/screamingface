@@ -1,9 +1,9 @@
 ---
 ticket: OME-1652   # one PR for E4b parts 2 and 3, under epic OME-1290
 stack: screamingface-engine, screamingface, repo
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-15
-finished:
+finished: 2026-11-05
 ---
 
 # e4b-evidence-completeness — E4b part 2, evidence completeness
@@ -814,3 +814,11 @@ no code, no snapshot, no golden and no url4 file.
     per bullet. The 100-character limit of §2.2 applies to the README only; the README has 0
     added lines over 100.
   - The §2.0 upstream check printed `True` on all eight lines. No upstream artifact was missing.
+
+## Landed on main
+
+The commit ids in the unit sections above are branch commits. On `main`, this unit is part of
+`ea79d69e4` (PR #1680, OME-1652), squash-merged on 2026-11-05. #1460 and #1461 first merged on
+2026-10-30 into their parent stack branches, not into `main` (the repo keeps a branch after merge,
+so GitHub did not retarget them). PR #1680 then squash-merged the same parts 2 to 7 change onto
+`main` as `ea79d69e4` on 2026-11-05.

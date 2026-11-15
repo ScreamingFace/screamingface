@@ -142,13 +142,16 @@ async def test_engine_runs_each_fallback_fixture_offline(fallback: str) -> None:
     )
 
     assert record["status"] == "completed"
-    # ans:Q1: the fallback call runs on every Case (cost spent), exactly once
+    # E4c (OME-1291, lazy-fallback #23, owner-approved edit): the fallback call runs only when the
+    # gate takes it (this Case's agreement fails), exactly once. Call #1 decides and is pending;
+    # call #2 (op_synthesis_2) writes today's evidence byte for byte (LF-4, LF-13).
     assert len(seen) == 4
     assert sorted(request["model"] for request in seen) == sorted(
         ["prov/alpha", "prov/beta", "prov/gamma", route]
     )
     assert operation(record, f"op_{fallback}_1")["output"] == reply
-    combine = operation(record, "op_synthesis_1")["combine"]
+    assert "combine" not in operation(record, "op_synthesis_1")
+    combine = operation(record, "op_synthesis_2")["combine"]
     assert combine["agreement"] == 0.6666666666666666
     assert combine["gate"] == {
         "observe": "agreement",

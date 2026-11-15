@@ -20,16 +20,22 @@ from fastapi.staticfiles import StaticFiles
 
 from screamingface_engine import job_env
 from screamingface_engine.access_log import install_access_log_filter
-from screamingface_engine.adapters.factory import build_job_runner
+from screamingface_engine.adapters.factory import build_candidate_outcome_stream, build_job_runner
 from screamingface_engine.artifacts import (
     ArtifactReader,
     ArtifactStore,
     S3ArtifactStore,
 )
-from screamingface_engine.artifacts.wiring import s3_config_from_values
+from screamingface_engine.artifacts.blobs import BlobPolicy, BlobStore
+from screamingface_engine.artifacts.wiring import (
+    BlobStoreNotConfigured,
+    blob_objects_from_values,
+    s3_config_from_values,
+)
 from screamingface_engine.auth import Clock, default_clock, install_problem_handlers
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
+from screamingface_engine.candidate_outcomes import CandidateOutcomeStream
 from screamingface_engine.catalog import build_executable_catalog_service
 from screamingface_engine.catalog.cache import CatalogService
 from screamingface_engine.catalog.port import ModelParameterSource
@@ -54,6 +60,7 @@ from screamingface_engine.metrics import (
     register_max_deliveries_metrics,
     register_queue_metrics,
     register_reaper_metrics,
+    register_runner_demand_metrics,
     register_sync_metrics,
 )
 from screamingface_engine.ops import router as ops_router
@@ -62,13 +69,18 @@ from screamingface_engine.rest import (
     SubscriberGate,
     artifact_router,
     benchmark_router,
+    blob_router,
     catalog_router,
     connection_router,
     operator_router,
 )
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.cache_entries import router as cache_entries_router
+from screamingface_engine.rest.limits import router as limits_router
 from screamingface_engine.rest.mounts import install_mounts
+from screamingface_engine.rest.runs import router as runs_router
+from screamingface_engine.runner_demand import DemandSource, RunnerDemandSampler
+from screamingface_engine.runs.wiring import install_runs
 from screamingface_engine.schemas import customize_openapi
 from screamingface_engine.tracing.loader import load_span_sink
 from screamingface_engine.tracing.relay import SpanSink
@@ -89,11 +101,14 @@ _ROUTERS = (
     router,
     rest_router,
     artifact_router,
+    blob_router,
     benchmark_router,
     operator_router,
+    limits_router,
     catalog_router,
     connection_router,
     cache_entries_router,
+    runs_router,
     ws_router,
     ops_router,
 )
@@ -125,6 +140,7 @@ def create_app(
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     span_sink: SpanSink | None = None,
     operators: OperatorRegistry = BUILTIN_OPERATORS,
+    outcomes: CandidateOutcomeStream | None = None,
 ) -> FastAPI:
     """Build the App instance.
 
@@ -155,20 +171,7 @@ def create_app(
     _install_gateway_adapters(app, connections, community_cache)
     _install_discovery_registries(app, benchmarks, operators)
     app.state.metrics = build_metrics()
-    # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
-    # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
-    # (OME-929).
-    app.state.artifact_store = _build_artifact_reader(settings)
-    # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
-    # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
-    # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
-    # backlog immediately; the periodic task covers a hosted App that stays up for weeks
-    # between redeploys — startup-only would let parcels pool until the next
-    # restart (owner decision on OME-892).
-    #
-    # AIDEV-NOTE: with `artifact_store=s3` the sweeper is a no-op by design — expiry is the
-    # bucket's lifecycle rule. See `artifacts.s3.S3ArtifactStore.sweep`.
-    _install_artifact_sweeper(app, app.state.artifact_store, settings)
+    _install_storage(app, settings)
     _register_metrics(app)
     # FEATURE: the shared events stream's own signals — store use and publish conflicts
     # (uniform executor, PRD 01 §4 Observability). A stream that can refresh its own usage
@@ -188,9 +191,13 @@ def create_app(
         settings,
         clock if clock is not None else default_clock,
     )
+    # FEATURE: runner pool autoscaling on claimable queue demand (spec D2).
+    _install_runner_demand_sampler(
+        app, job_runner, settings, clock if clock is not None else default_clock
+    )
     # FEATURE: a run the queue gave up on must end in a named failure, not silence
     # (OME-1090).
-    _install_max_deliveries_advisor(app, settings)
+    _install_max_deliveries_advisor(app, settings, outcomes)
     if clock is not None:
         app.state.clock = clock
     _install_surfaces(app, span_sink)
@@ -304,6 +311,11 @@ def _register_runner_metrics(app: FastAPI) -> None:
     # until now a number only the code enforcing it could see. Through a getter like the rest,
     # so it is read at SCRAPE time rather than captured at boot.
     register_active_runs_metrics(app.state.metrics, lambda: app.state.job_runner)
+    # FEATURE (runner-pool autoscaling, spec D3): the runner-demand snapshot as gauges for
+    # operators. `getattr`, because the sampler's installer runs after this registration.
+    register_runner_demand_metrics(
+        app.state.metrics, lambda: getattr(app.state, "runner_demand", None)
+    )
 
 
 # RFC 7518 §3.2: an HMAC key must be at least as long as the hash output — 32 bytes for SHA-256.
@@ -352,6 +364,87 @@ def _build_artifact_reader(settings: Settings) -> ArtifactReader:
     return ArtifactStore(Path(settings.artifacts_dir))
 
 
+def _install_storage(app: FastAPI, settings: Settings) -> None:
+    """The result spill store, the run blob store on its own backend, and their TTL sweep."""
+    # FEATURE: deliver large results in full (OME-892) — the serve side of the spill store.
+    # FEATURE: and survive a multi-pod deployment, where that store cannot be a local disk
+    # (OME-929).
+    app.state.artifact_store = _build_artifact_reader(settings)
+    # FEATURE: the run blob store (OME-1540) — on its own backend (#1603 review).
+    app.state.blob_store = _build_blob_store(settings)
+    # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
+    # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
+    # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
+    # backlog immediately; the periodic task covers a hosted App that stays up for weeks
+    # between redeploys — startup-only would let parcels pool until the next
+    # restart (owner decision on OME-892).
+    #
+    # AIDEV-NOTE: with `artifact_store=s3` the sweeper is a no-op by design — expiry is the
+    # bucket's lifecycle rule. See `artifacts.s3.S3ArtifactStore.sweep`.
+    _install_artifact_sweeper(app, app.state.artifact_store, settings)
+
+
+def _build_blob_store(settings: Settings) -> BlobStore | None:
+    """The run blob store on ITS OWN backend (#1603 review, owner decision 2026-11-03).
+
+    WHY through `blob_objects_from_values`: the Runner resolves its blob store with the same
+    function from the same `job_env` names, so the two halves read one store.
+
+    INVARIANT: `runner="queue"` with a filesystem blob store is refused, for the reason
+    `_build_artifact_reader` refuses filesystem artifacts — the Runner reading a blob runs in
+    another pod, whose disk does not hold this App's uploads.
+
+    INVARIANT (#1603 review round 2, owner decision 2026-11-04): no blob store of its own →
+    None, and the blob routes answer 503 (`rest.blobs._store`) — the engine's shape for an
+    unconfigured optional dependency (the catalog, the community cache). Never the artifact store.
+    """
+    if settings.runner == "queue" and settings.blob_store == "filesystem":
+        raise ValueError(
+            f"runner='{settings.runner}' reads blobs from a worker pod that cannot see this "
+            f"App's disk. Set {job_env.BLOB_STORE}=s3 and the {job_env.BLOB_S3_BUCKET} "
+            f"settings, or use runner='none' for a single-process deployment."
+        )
+    try:
+        objects = blob_objects_from_values(_blob_values(settings))
+    except BlobStoreNotConfigured as exc:
+        _logger.warning("run blob store disabled: %s", exc)
+        return None
+    policy = BlobPolicy(
+        max_bytes=settings.blob_max_bytes,
+        media_types=frozenset(t.strip().lower() for t in settings.blob_media_types),
+        # FEATURE: #1603 review — every blob the App keeps opens with its type's signature.
+        verify_signature=True,
+    )
+    return BlobStore(objects, policy)
+
+
+def _blob_values(settings: Settings) -> dict[str, str]:
+    """`Settings` rendered into the env-named shape the shared wiring reads."""
+    return {
+        job_env.BLOB_STORE: settings.blob_store or "",
+        job_env.BLOBS_DIR: settings.blobs_dir,
+        job_env.BLOB_S3_ENDPOINT_URL: settings.blob_s3_endpoint_url,
+        job_env.BLOB_S3_BUCKET: settings.blob_s3_bucket,
+        job_env.BLOB_S3_REGION: settings.blob_s3_region,
+        job_env.BLOB_S3_ACCESS_KEY: settings.blob_s3_access_key,
+        job_env.BLOB_S3_SECRET_KEY: settings.blob_s3_secret_key,
+        job_env.ARTIFACT_STORE: settings.artifact_store,
+        job_env.ARTIFACTS_DIR: settings.artifacts_dir,
+        job_env.ARTIFACT_S3_ENDPOINT_URL: settings.artifact_s3_endpoint_url,
+        job_env.ARTIFACT_S3_BUCKET: settings.artifact_s3_bucket,
+        job_env.ARTIFACT_S3_REGION: settings.artifact_s3_region,
+        job_env.ARTIFACT_S3_ACCESS_KEY: settings.artifact_s3_access_key,
+        job_env.ARTIFACT_S3_SECRET_KEY: settings.artifact_s3_secret_key,
+    }
+
+
+async def _sweep_blobs(app: FastAPI, ttl_seconds: float) -> None:
+    """FEATURE (OME-1540, owner decision Q4a): blobs share the artifact TTL and its cadence."""
+    blobs: BlobStore | None = getattr(app.state, "blob_store", None)
+    if blobs is not None:
+        await asyncio.to_thread(blobs.sweep, ttl_seconds=ttl_seconds)
+
+
 def _install_artifact_sweeper(app: FastAPI, store: ArtifactReader, settings: Settings) -> None:
     """Wire the artifact TTL sweep: once at startup, then every sweep interval for life.
 
@@ -363,6 +456,7 @@ def _install_artifact_sweeper(app: FastAPI, store: ArtifactReader, settings: Set
 
     async def _sweep_once() -> None:
         await asyncio.to_thread(store.sweep, ttl_seconds=settings.artifact_ttl_s)
+        await _sweep_blobs(app, settings.artifact_ttl_s)
 
     async def _sweep_forever() -> None:
         while True:
@@ -457,6 +551,7 @@ def _install_periodic(
     sweep: Callable[[], Awaitable[object]],
     failure_message: str,
     on_start: Callable[[], None],
+    sweep_on_start: bool = False,
 ) -> None:
     """Run ``sweep`` every ``tick_s`` seconds as ONE asyncio task on the App's own event loop,
     stored on ``app.state.<task_attr>``, started at startup and cancelled at shutdown.
@@ -465,14 +560,22 @@ def _install_periodic(
     unclaimed-run warner): each policy owns no task, and this is the one place the loop is
     written.
 
+    ``sweep_on_start`` runs one sweep as soon as the task starts, before the first sleep (the
+    runner-demand sampler: its first reading must not wait a full tick). Default False: the reaper
+    and the warner keep their behaviour.
+
     INVARIANT: a failed sweep is logged with ``failure_message`` and the cadence continues — a
     policy whose loop died silently would LOOK like "nothing happened". `CancelledError` is a
     BaseException and still propagates, so shutdown is unaffected.
     """
 
     async def _sweep_forever() -> None:
+        # WHY a delay variable: `sweep_on_start` makes only the FIRST wait 0 s; every later wait
+        # is `tick_s`. One loop body keeps the failure handling in one place.
+        delay = 0.0 if sweep_on_start else tick_s
         while True:
-            await asyncio.sleep(tick_s)
+            await asyncio.sleep(delay)
+            delay = tick_s
             try:
                 await sweep()
             except Exception:
@@ -551,7 +654,63 @@ def _install_unclaimed_run_warner(
     )
 
 
-def _install_max_deliveries_advisor(app: FastAPI, settings: Settings) -> None:
+def _install_runner_demand_sampler(
+    app: FastAPI,
+    job_runner: JobRunner | None,
+    settings: Settings,
+    clock: Clock,
+) -> None:
+    """Wire the runner-demand sampler: one periodic task per App process that reads every bucket
+    consumer each `runner_demand_sample_s` and keeps the last good sample for `GET /runner-demand`
+    and the gauges.
+
+    Same shape as `_install_unclaimed_run_warner`: one task per App process, the loop is the
+    shared `_install_periodic`. It does not touch admission state. It samples once at startup so
+    the first reading does not wait a full tick.
+    """
+    app.state.runner_demand = None
+    app.state.runner_demand_task = None
+    if not isinstance(job_runner, DemandSource) or settings.runner_demand_sample_s <= 0:
+        # WHY structural: only a queue-backed runner reads bucket consumers. A stream-only App,
+        # the in-process runner and `URL4_CLOUD_RUNNER_DEMAND_SAMPLE_S=0` install nothing, and
+        # `/runner-demand` answers 404.
+        return
+    if getattr(job_runner, "reads_buckets", True) is False:
+        # WHY getattr: app.py reaches runners only through structural protocols and does not
+        # import `QueueJobRunner`. A `QueueJobRunner` over a queue without `bucket_readings`
+        # (unit-test fakes) is still a `DemandSource`; this check keeps it from logging a
+        # TypeError every tick. Default True keeps any other `DemandSource` installed.
+        return
+    sampler = RunnerDemandSampler(job_runner, stale_s=settings.runner_demand_stale_s, clock=clock)
+    app.state.runner_demand = sampler
+
+    def _armed() -> None:
+        # AIDEV-NOTE: the single-replica assumption is LOGGED, like the reaper's and the
+        # warner's. Every App replica would serve its own reading; the chart pins one replica.
+        _logger.info(
+            "runner demand sampler armed sample_s=%.1f stale_s=%.1f (assumes a single replica)",
+            settings.runner_demand_sample_s,
+            settings.runner_demand_stale_s,
+        )
+
+    # INVARIANT: one failed sample must not kill the sampler. The loop logs it, and the last good
+    # sample ages out to stale, so `/runner-demand` answers 503 and the HPA holds the count.
+    _install_periodic(
+        app,
+        task_attr="runner_demand_task",
+        tick_s=settings.runner_demand_sample_s,
+        sweep=sampler.sample,
+        failure_message=(
+            "runner demand sample failed; /runner-demand goes stale (503) if this persists"
+        ),
+        on_start=_armed,
+        sweep_on_start=True,
+    )
+
+
+def _install_max_deliveries_advisor(
+    app: FastAPI, settings: Settings, outcomes: CandidateOutcomeStream | None = None
+) -> None:
     """Wire the max-deliveries advisory subscriber: a background task that publishes a
     named terminal failure for each run the queue gave up on (OME-1090).
 
@@ -566,7 +725,9 @@ def _install_max_deliveries_advisor(app: FastAPI, settings: Settings) -> None:
         return
     from screamingface_engine.adapters.max_deliveries import MaxDeliveriesAdvisor
 
-    advisor = MaxDeliveriesAdvisor(settings.nats_url, run_queue_stream=settings.run_queue_stream)
+    advisor = MaxDeliveriesAdvisor(
+        settings.nats_url, run_queue_stream=settings.run_queue_stream, outcomes=outcomes
+    )
     app.state.max_deliveries_advisor = advisor
 
     async def _start() -> None:
@@ -714,6 +875,13 @@ def _read_world_once() -> WorldFile | None:  # pragma: no cover - env wiring (IN
         return None
 
 
+def _close_with_app(app: FastAPI, *closers: Callable[[], Awaitable[None]] | None) -> None:
+    """Run each adapter's `aclose` at shutdown, in order; a None is an adapter not built."""
+    for close in closers:
+        if close is not None:
+            app.router.on_shutdown.append(close)
+
+
 def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INFRA rule, spec §11)
     """Production entrypoint (used by `cli.py` via uvicorn's factory mode).
 
@@ -724,6 +892,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
     settings = Settings()
     _require_prod_secret(settings)
     stream = build_stream_consumer(settings)
+    outcomes = build_candidate_outcome_stream(settings)
     world_file = _read_world_once()
     # Catalog first (OME-880): the job runner needs the admitted-model overlay so a
     # dynamically admitted model is routable by the very next scheduled run.
@@ -734,6 +903,7 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         settings,
         extra_models=None if catalog is None else (lambda: catalog.admitted_model_ids),
         world_digest=None if world_file is None else world_file.digest,
+        outcomes=outcomes,
     )
     if job_runner is None:
         logging.warning(
@@ -755,24 +925,26 @@ def create_app_from_env() -> FastAPI:  # pragma: no cover - env/NATS wiring (INF
         community_cache=community_cache,
         benchmarks=BUILTIN_BENCHMARKS,
         span_sink=control_plane_span_sink(os.environ),
+        outcomes=outcomes,
     )
     # The App owns the configured limits: declare the shared events stream (and apply a
     # changed limit) before the first request, and fail startup on a config it cannot apply.
     app.router.on_startup.append(stream.declare_events_stream)
     app.router.on_shutdown.append(stream.close)
-    if job_runner is not None:
-        # The queue runner owns a control connection of its own (OME-1090). `getattr` rather
-        # than an isinstance: the factory returns the port, and the app must not import a
-        # concrete adapter.
-        aclose = getattr(job_runner, "aclose", None)
-        if aclose is not None:
-            app.router.on_shutdown.append(aclose)
-    if catalog is not None:
-        app.router.on_shutdown.append(catalog.aclose)
-    if connections is not None:
-        app.router.on_shutdown.append(connections.aclose)
-    if community_cache is not None:
-        app.router.on_shutdown.append(community_cache.aclose)
+    # FEATURE (OME-1785): first-class Runs. On with `URL4_CLOUD_DATABASE_URL`, off without it;
+    # the outcome stream is declared either way, since the App's terminal writers publish to it.
+    install_runs(app, settings, outcomes, local=False)
+    # The queue runner owns a control connection of its own (OME-1090). `getattr` rather than
+    # an isinstance: the factory returns the port, and the app must not import a concrete adapter.
+    # WHY the outcome stream last: the runner's last tombstone still publishes to it.
+    _close_with_app(
+        app,
+        getattr(job_runner, "aclose", None),
+        None if catalog is None else catalog.aclose,
+        None if connections is None else connections.aclose,
+        None if community_cache is None else community_cache.aclose,
+        outcomes.close,
+    )
     # FEATURE (uniform executor PRD 04): every declared mount is a route of its own, projected
     # into /openapi.json, and every call runs as a DIRECT run on the worker pool.
     install_mounts(

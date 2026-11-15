@@ -7,7 +7,7 @@ import re
 import warnings
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
@@ -36,10 +36,14 @@ from screamingface._evaluation.topology import (
     _operation_shape,
     _RecipeTopology,
     _SampleTopology,
+    _SignalTopology,
     _topology_source,
 )
 from screamingface._operation_bindings import OPERATION_BINDING_PARAM
+from screamingface._surface.budget import WithBudget
 from screamingface._surface.lowering import lower
+from screamingface._surface.selectors import LLMClassifier
+from screamingface.branch import GATE_IN_LOOP, BranchNode, LazyDecision, _is_skip_member
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
 from screamingface.errors import PlanningError
 from screamingface.fusion import FusionNode, _consistency_member
@@ -59,9 +63,12 @@ from screamingface.warnings import DuplicateMembersWarning, JudgeWriterWarning
 if TYPE_CHECKING:
     from screamingface._evaluation.answer_rule import _BenchmarkAnswerRule
     from screamingface._evaluation.benchmark import _CheckSurface
+    from screamingface._evaluation.branch import _BranchState, _Reuse, _SkipSelection
     from screamingface._evaluation.operators import _OperatorCatalog
 
-type _CandidateKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
+type _CandidateKind = Literal[
+    "model", "fusion", "pipeline", "corrective_loop", "self_corrective", "gate"
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +94,10 @@ class _ResolvedRecipe:
     # The reducer's label ("Rank", "Concat", "Reduce('top_k')") when this Recipe's output is a
     # selection for the next Pipeline stage, else None; also the flag the compile checks read.
     selection: str | None = None
+    # The member panel (`$panel_N`) a Fanout's synthesizer reads, when the Fanout has one (a
+    # numeric quorum, an optional member or a skip-Gate member), else None. A panel Gate's
+    # second reducer step reads the same panel.
+    panel: str | None = None
 
 
 # The member params that a consistency sample call sets itself (ans:Q3): it keeps every other
@@ -193,9 +204,30 @@ def _children(value: Recipe) -> tuple[Recipe | Reducer, ...]:
         children = (*value.members, value.judge)
     elif isinstance(value, SelfCorrective):
         children = (value.member,)
+    elif isinstance(value, WithBudget):
+        children = (value.recipe,)
+    elif isinstance(value, BranchNode):
+        children = tuple(
+            child
+            for child in (value.panel, value.then, value.otherwise)
+            if isinstance(child, Recipe | Reducer)
+        )
     else:
         children = ()
     return children
+
+
+def _refuse_gates_in_loop(loop: CorrectiveLoop | SelfCorrective) -> None:
+    """GT-27 (ans:Q26): a loop runs its members in an isolated recorder, so a Gate's budget and
+    attribution would break inside one; refuse a Gate in a member or the judge."""
+
+    pending: list[Recipe | Reducer] = list(_children(loop))
+    while pending:
+        value = pending.pop()
+        if isinstance(value, BranchNode):
+            raise ValueError(GATE_IN_LOOP)
+        if isinstance(value, Recipe):
+            pending.extend(_children(value))
 
 
 class _CandidateCompiler:
@@ -226,6 +258,22 @@ class _CandidateCompiler:
         self._claims = claims
         self._fingerprints: Counter[CallFingerprint] = Counter()
         self._reads_accounting = False
+        # E4c: the Gate renderer's counters and active tree, and the depth of gated bodies being
+        # compiled (a model call inside one carries its binding param, branch-core D3).
+        self._branch: _BranchState | None = None
+        self._gated_depth = 0
+        # E4c lazy fallback: the signal calls a decision call made, which call #2 reads again. Set
+        # only while _reducer_synthesizer compiles the signals of a `reuse=` combine call.
+        self._reused_signals: Mapping[str, _SignalTopology] = MappingProxyType({})
+        # E4c LF-22: the consistency samples of each combine call (by binding), which a Gate's
+        # second reducer step reads again (`_Reuse.samples`).
+        self._samples: dict[str, _CompiledSamples] = {}
+        # E4c skip members: the sources a member Gate puts before the panel (its AFTER and DECIDE),
+        # and the member Gate being compiled now.
+        self._hoist: list[Node] | None = None
+        self._skip_member: int | None = None
+        # E4c budget: the candidate's sf.WithBudget (every call then carries its binding param).
+        self._budget: WithBudget | None = None
 
     @property
     def claims(self) -> Mapping[CallFingerprint, int]:
@@ -248,6 +296,9 @@ class _CandidateCompiler:
     def compile(self, recipe: Recipe) -> _CompiledCandidate:
         if getattr(recipe, "optional", False):
             raise ValueError(OPTIONAL_MEMBERS_ONLY)
+        if isinstance(recipe, WithBudget):
+            # BU-1 (ans:Q19): the one cap of the candidate; the inner recipe compiles as usual.
+            self._budget, recipe = recipe, recipe.recipe
         # Corrective loops are ROOT-ONLY by construction (member/judge positions
         # reject them), so this dispatch is the single loop entry point.
         if isinstance(recipe, CorrectiveLoop | SelfCorrective):
@@ -255,6 +306,7 @@ class _CandidateCompiler:
             # import here would be a cycle.
             from screamingface._evaluation.corrective import _compile_corrective
 
+            _refuse_gates_in_loop(recipe)
             root = _compile_corrective(self, recipe, self._check_surface)
         else:
             root = self._recipe(recipe)
@@ -276,7 +328,7 @@ class _CandidateCompiler:
             if isinstance(recipe, FusionNode | CorrectiveLoop)
             else ()
         )
-        sources = [*self._sources, _topology_source(root.topology)]
+        sources = [*self._sources, *self._budget_source(), _topology_source(root.topology)]
         return _CompiledCandidate(
             kind=root.kind,
             url4=render(expr(*sources, intent=Text(root.reference))),
@@ -284,6 +336,72 @@ class _CandidateCompiler:
             operations=tuple(self._operations),
             members=members,
             parameter_assignments=tuple(self._parameter_assignments),
+        )
+
+    def _branch_state(self) -> _BranchState:
+        """The Gate renderer's state for this compile (E4c), created on the first Gate."""
+
+        if self._branch is None:
+            from screamingface._evaluation.branch import _BranchState
+
+            self._branch = _BranchState()
+        return self._branch
+
+    def _attributed(
+        self, binding: str, params: tuple[tuple[str, str], ...]
+    ) -> tuple[tuple[str, str], ...]:
+        """``params`` with the ``binding`` param first inside a gated body (branch-core D3).
+
+        WHY: the Engine attributes a call by its (path, params) fingerprint; in a gated body the
+        fingerprint must have one claimant, and a body call that did not run must not be confused
+        with a sibling on the same route.
+        """
+
+        attributed = self._gated_depth or self._budget is not None
+        return ((OPERATION_BINDING_PARAM, binding), *params) if attributed else params
+
+    def _selector_call(self, selector: LLMClassifier, binding: str) -> None:
+        """One LLMClassifier call (E4c selectors): ``;optional``, so a failure takes the default."""
+
+        route = _canonical_model(selector.model.model)
+        params = ((OPERATION_BINDING_PARAM, binding), *resolved_params(selector.model.params))
+        call = self._count_call(binding, _model_route(route), params)
+        self._sources.append(
+            src(
+                RelExpr(
+                    path=call.path,
+                    context=render(struct({"input": "$input"})),
+                    intent=Text(_url4_text(selector._template())),
+                    params=params,
+                ),
+                name=binding,
+                weight=0.0,
+                required=False,
+            )
+        )
+        operation_id = f"op_{binding}"
+        self._operations.append(
+            _compiled_operation(
+                id=operation_id, kind="selector", label="label model selector", depends_on=()
+            )
+        )
+        self._record_parameter_assignment(operation_id, route, selector.model.params)
+
+    def _budget_source(self) -> tuple[Node, ...]:
+        """BU-1: the candidate's Budget as a typed budget annotation on one marker source, with the
+        execution annotation ``budget_mode=advisory`` (the calls that always run may pass it)."""
+
+        budget = self._budget
+        if budget is None:
+            return ()
+        return (
+            src(
+                Text("budget"),
+                name="_sf_budget",
+                weight=0.0,
+                budgets=budget._caps(),
+                annotations=(("budget_mode", "advisory"),),
+            ),
         )
 
     def _append_source(self, value: Node) -> None:
@@ -319,7 +437,7 @@ class _CandidateCompiler:
         del self._sources[start:]
         return resolved, captured
 
-    def _recipe(
+    def _recipe(  # noqa: PLR0911
         self,
         recipe: Recipe,
         *,
@@ -350,14 +468,27 @@ class _CandidateCompiler:
                     input_dependencies=input_dependencies,
                     synthesis=synthesis,
                 )
+            if isinstance(recipe, BranchNode):
+                from screamingface._evaluation.branch import compile_branch
+
+                return compile_branch(
+                    self,
+                    recipe,
+                    input_context=input_context,
+                    input_dependencies=input_dependencies,
+                )
             raise TypeError("candidate must be a sf.Model or a sf.Pipeline")
         finally:
             self._active.remove(identity)
 
-    def _compile_fusion(
+    def _compile_fusion(  # noqa: PLR0911
         self, fusion: FusionNode, input_context: str, input_dependencies: tuple[str, ...]
     ) -> _ResolvedRecipe:
         member_params = injected_member_params(fusion.signals)
+        if any(_is_skip_member(member) for member in fusion.members):
+            from screamingface._evaluation.branch import compile_skip_fusion
+
+            return compile_skip_fusion(self, fusion, input_context, input_dependencies)
         if fusion.quorum == "all" and not any(member.optional for member in fusion.members):
             members = tuple(
                 self._recipe(
@@ -413,21 +544,23 @@ class _CandidateCompiler:
             )
         )
         if reads_rows:
-            return self._fusion(
+            resolved = self._fusion(
                 fusion,
                 members,
                 input_context=input_context,
                 input_dependencies=input_dependencies,
                 panel=f"${panel}",
             )
-        context = render(struct({"input": input_context, "outputs": f"${panel}"}))
-        return self._fusion(
-            fusion,
-            members,
-            input_context=input_context,
-            input_dependencies=input_dependencies,
-            context=context,
-        )
+        else:
+            context = render(struct({"input": input_context, "outputs": f"${panel}"}))
+            resolved = self._fusion(
+                fusion,
+                members,
+                input_context=input_context,
+                input_dependencies=input_dependencies,
+                context=context,
+            )
+        return replace(resolved, panel=f"${panel}")
 
     def _model(
         self,
@@ -446,10 +579,10 @@ class _CandidateCompiler:
         selected: Mapping[str, str | int | float | bool] = (
             {**model.params, **member_params} if member_params else model.params
         )
-        params = resolved_params(selected)
         route = _canonical_model(model.model)
         self._model_count += 1
         binding = f"model_{self._model_count}"
+        params = self._attributed(binding, resolved_params(selected))
         operation_id = f"op_{binding}"
         call = self._count_call(binding, _model_route(route), params)
         self._sources.append(
@@ -508,6 +641,8 @@ class _CandidateCompiler:
         input_dependencies: tuple[str, ...],
         context: str | None = None,
         panel: str | None = None,
+        skip: _SkipSelection | None = None,
+        reuse: _Reuse | None = None,
     ) -> _ResolvedRecipe:
         binding = self._next_binding("synthesis")
         operation_id = f"op_{binding}"
@@ -524,6 +659,8 @@ class _CandidateCompiler:
                 input_dependencies=input_dependencies,
                 dependencies=dependencies,
                 panel=panel,
+                skip=skip,
+                reuse=reuse,
             )
         context = context if context is not None else _fusion_context(input_context, members)
         if isinstance(synthesizer, Model):
@@ -553,7 +690,11 @@ class _CandidateCompiler:
     ) -> _ResolvedRecipe:
         synthesizer = _canonical_model(model.model)
         prompt = model.prompt or DEFAULT_SYNTHESIS_PROMPT
-        call = self._count_call(binding, _model_route(synthesizer), resolved_params(model.params))
+        call = self._count_call(
+            binding,
+            _model_route(synthesizer),
+            self._attributed(binding, resolved_params(model.params)),
+        )
         self._sources.append(
             src(
                 RelExpr(
@@ -650,6 +791,8 @@ class _CandidateCompiler:
         input_dependencies: tuple[str, ...],
         dependencies: tuple[str, ...],
         panel: str | None = None,
+        skip: _SkipSelection | None = None,
+        reuse: _Reuse | None = None,
     ) -> _ResolvedRecipe:
         """Compile a reducer to ONE combine call whose intent is the canonical spec.
 
@@ -681,20 +824,31 @@ class _CandidateCompiler:
         sources = self._claim_accounting_sources(fusion, reducer, members)
         # E4b part 7: the sample calls come after the members and before the signal calls, so the
         # operation order is members, samples, signals, combine.
-        samples = self._sample_panels(fusion, input_context, input_dependencies)
+        samples = (
+            reuse.samples
+            if reuse is not None and reuse.samples is not None
+            else self._sample_panels(fusion, input_context, input_dependencies)
+        )
+        self._samples[binding] = samples
         # Lazy: reducer_signals imports this module's helpers at module top.
         from screamingface._evaluation.reducer_signals import _compile_signals
 
         plan = reducer._combine_plan()
-        signals = _compile_signals(
-            self,
-            fusion,
-            plan,
-            members,
-            input_context=input_context,
-            dependencies=dependencies,
-            panel=panel,
-        )
+        outer = self._reused_signals
+        if reuse is not None:
+            self._reused_signals = reuse.signals
+        try:
+            signals = _compile_signals(
+                self,
+                fusion,
+                plan,
+                members,
+                input_context=input_context,
+                dependencies=dependencies,
+                panel=panel,
+            )
+        finally:
+            self._reused_signals = outer
         # The combine call reads the same question-and-panel value a Model synthesizer does,
         # plus the references of the model calls it reads (the signals).
         self._append_combine(
@@ -707,12 +861,15 @@ class _CandidateCompiler:
                 sources=sources,
                 panel=panel,
                 samples=samples.references,
+                skip=skip,
             ),
             spec_text=spec,
             label=f"{fusion.name} combine",
             # WHY the samples last (P7): S/_case_views.py takes depends_on[:len(members)] as the
             # member producers, so the members stay first and the signal calls keep their place.
             depends_on=(*dependencies, *signals.operation_ids, *samples.operation_ids),
+            # E4c lazy fallback: call #1 of a gated vote with a judge or writer fallback decides.
+            phase="decide" if isinstance(reducer, LazyDecision) else None,
         )
         return _ResolvedRecipe(
             reference=f"${binding}",
@@ -916,16 +1073,20 @@ class _CandidateCompiler:
         spec_text: str,
         label: str,
         depends_on: tuple[str, ...],
+        phase: Literal["decide"] | None = None,
     ) -> None:
         """Attach one ``/ensemble/combine/v1`` source and its ``combine`` operation."""
 
+        params: tuple[tuple[str, str], ...] = ((OPERATION_BINDING_PARAM, binding),)
+        if phase is not None:
+            params = (*params, ("phase", phase))
         self._sources.append(
             src(
                 RelExpr(
                     path=COMBINE_ROUTE,
                     context=context,
                     intent=Text(spec_text),
-                    params=((OPERATION_BINDING_PARAM, binding),),
+                    params=params,
                 ),
                 name=binding,
                 weight=0.0,
@@ -979,6 +1140,7 @@ def _fusion_context(
     sources: Mapping[str, object] | None = None,
     panel: str | None = None,
     samples: Mapping[str, str] | None = None,
+    skip: _SkipSelection | None = None,
 ) -> str:
     """Build canonical JSON at runtime so arbitrary answers remain safely escaped.
 
@@ -998,6 +1160,12 @@ def _fusion_context(
         }
     else:
         value["panel"] = panel
+    # E4c skip members (C11): each skip-Gate member's DECIDE record, and a numeric quorum's floor.
+    # WHY before samples and signals: the replay rule _CONTEXT_SIGNALS finds signals at the end.
+    if skip is not None and skip.selection:
+        value["selection"] = dict(skip.selection)
+    if skip is not None and skip.floor is not None:
+        value["floor"] = skip.floor
     if samples:
         value["samples"] = dict(samples)
     if signals:
@@ -1128,7 +1296,9 @@ def _warn_block_judge_writer(name: str | None, position: int, stages: tuple[Reci
     )
 
 
-def _judge_routes(stage: Recipe, active: frozenset[int] = frozenset()) -> frozenset[str]:
+def _judge_routes(  # noqa: PLR0911
+    stage: Recipe, active: frozenset[int] = frozenset()
+) -> frozenset[str]:
     """The canonical routes of the judges that a stage's answer comes from, else empty (P9).
 
     WHY a set: a gated vote may read two judges (a scores judge and the gate's fallback label
@@ -1140,6 +1310,14 @@ def _judge_routes(stage: Recipe, active: frozenset[int] = frozenset()) -> frozen
     ``active`` ids stop a cyclic value (only built by hand), which the compiler names.
     """
 
+    if isinstance(stage, BranchNode) and id(stage) not in active:
+        # E4c: a Gate's judges are its panel's and its branches' (a lazy E4b fallback judge sits
+        # in the otherwise body, call #2).
+        return frozenset(
+            route
+            for value in (stage.panel, stage.then, stage.otherwise)
+            for route in _judge_routes_of(value, active | {id(stage)})
+        )
     answer = _answer_value(stage)
     if id(stage) in active or answer is None:
         return frozenset()
@@ -1150,6 +1328,20 @@ def _judge_routes(stage: Recipe, active: frozenset[int] = frozenset()) -> frozen
         for call in answer._combine_plan().signal_calls
         if call.key in _JUDGE_CALL_KEYS
     )
+
+
+def _judge_routes_of(value: object, active: frozenset[int]) -> frozenset[str]:
+    if isinstance(value, LazyDecision):
+        value = value.full
+    if isinstance(value, Recipe):
+        return _judge_routes(value, active)
+    if isinstance(value, Reducer):
+        return frozenset(
+            _canonical_model(call.model)
+            for call in value._combine_plan().signal_calls
+            if call.key in _JUDGE_CALL_KEYS
+        )
+    return frozenset()
 
 
 def _answer_value(stage: Recipe) -> Recipe | Reducer | None:

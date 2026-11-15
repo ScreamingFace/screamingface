@@ -121,8 +121,12 @@ def test_every_page_opens_with_the_grant_banner_above_the_rail(page: str) -> Non
     banner = doc.one(cls="grant-banner")
     rail = doc.one("div", "rail")
 
-    # INVARIANT: the banner is the body's first element and sits above the rail.
-    first_element = next(child for child in body.children if isinstance(child, _Node))
+    # INVARIANT: the banner is the first visible section, after the keyboard skip link.
+    first_element = next(
+        child
+        for child in body.children
+        if isinstance(child, _Node) and child.attrs.get("class") != "skip-link"
+    )
     assert first_element is banner
     assert banner.order < rail.order
 
@@ -215,12 +219,12 @@ def test_board_about_note_carries_the_approved_copy_and_url4_link() -> None:
     _assert_new_tab(url4)
 
 
-def test_board_summary_counts_submissions() -> None:
+def test_board_summary_counts_results() -> None:
     value = _page("benchmark.html").one(id="summary-specs")
     assert value.parent is not None
     label = value.parent.one("span", "k")
 
-    assert label.text() == "Submissions shown"
+    assert label.text() == "Results shown"
 
 
 def test_board_chart_key_names_all_submissions() -> None:

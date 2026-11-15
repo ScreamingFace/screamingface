@@ -40,7 +40,7 @@ from starlette.datastructures import Headers
 
 from screamingface_engine import job_env
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
-from screamingface_engine.adapters.memory import InMemoryEventStream
+from screamingface_engine.adapters.memory import InMemoryCandidateOutcomeStream, InMemoryEventStream
 from screamingface_engine.app import create_app
 from screamingface_engine.benchmarks import (
     BENCHMARK_ASSETS_ENV,
@@ -72,6 +72,7 @@ from screamingface_engine.request_scope import (
 )
 from screamingface_engine.rest.mounts import register_mounts
 from screamingface_engine.runner.fair_share import FairShareGate
+from screamingface_engine.runs.wiring import install_runs
 from screamingface_engine.world.config import config_file_digest, load_config
 from screamingface_engine.world.factory import SharedWorld, direct_mount_paths
 from screamingface_engine.world.models.registry import LOCAL_MODEL_PROVIDERS
@@ -435,6 +436,21 @@ def _install_local_node(
     app.router.on_shutdown.append(_close_shared_node)
 
 
+def _install_fair_share(
+    app: FastAPI, job_runner: InProcessJobRunner, io_gate: FairShareGate
+) -> None:
+    """Expose the one gate every local run shares, and close it after the runner."""
+    register_fair_share_metrics(app.state.metrics, lambda: io_gate)
+    # On app.state for operators and tests: the one gate every local run shares. Read-only
+    # by convention — nothing outside `runner.fair_share` mutates it.
+    app.state.fair_share_gate = io_gate
+    app.router.on_shutdown.append(job_runner.aclose)
+    # WHY after `job_runner.aclose`: shutdown cancels every in-flight run first, and each
+    # cancelled fetch releases its permit in a `finally` — closing the gate before those
+    # releases land would drop them on a dead object instead of the books.
+    app.router.on_shutdown.append(io_gate.aclose)
+
+
 def create_local_app(
     settings: Settings | None = None,
     *,
@@ -454,6 +470,9 @@ def create_local_app(
     # ONE object, handed to both sides — it is an `EventStream`, so it satisfies the App's
     # `EventConsumer` and the runner's `EventPublisher` at once. That shared instance IS the bus.
     stream = InMemoryEventStream(max_frames_per_topic=settings.local_stream_max_frames)
+    # FEATURE (OME-1785): every local run's outcome, for the Run registry's one writer. Held in
+    # memory like the frames, so a restart loses the unwritten ones and reconcile settles them.
+    outcomes = InMemoryCandidateOutcomeStream()
 
     # WHY the import is function-local: it is THE line that crosses the layering boundary, and
     # keeping it here means the crossing happens when a local App is actually built rather than on
@@ -520,6 +539,7 @@ def create_local_app(
             if catalog is not None and local_model_prefixes
             else None
         ),
+        outcomes=outcomes,
     )
     # INVARIANT: local mode keeps the caller-managed rows that back its BYOK controls; the
     # read-only availability listing is the deployed (Hosted) Engine policy and must not replace
@@ -534,15 +554,11 @@ def create_local_app(
         connections=connections,
         benchmarks=benchmarks,
     )
-    register_fair_share_metrics(app.state.metrics, lambda: io_gate)
-    # On app.state for operators and tests: the one gate every local run shares. Read-only
-    # by convention — nothing outside `runner.fair_share` mutates it.
-    app.state.fair_share_gate = io_gate
-    app.router.on_shutdown.append(job_runner.aclose)
-    # WHY after `job_runner.aclose`: shutdown cancels every in-flight run first, and each
-    # cancelled fetch releases its permit in a `finally` — closing the gate before those
-    # releases land would drop them on a dead object instead of the books.
-    app.router.on_shutdown.append(io_gate.aclose)
+    # WHY the runner's hooks first: shutdown hooks run in order, so in-flight runs are cancelled,
+    # and their `stopped` outcomes published, while the Runs writer still consumes them.
+    _install_fair_share(app, job_runner, io_gate)
+    # FEATURE (OME-1785): first-class Runs, on a SQLite file migrated at start (spec R9).
+    install_runs(app, settings, outcomes, local=True)
     # FEATURE (C8): the local node route (the eval path), installed after ALL routes and after
     # the runner/gate shutdown hooks whose ordering it depends on. `install_node_route` asserts
     # the route order rather than trusting it — a development shape, never a deployment option.

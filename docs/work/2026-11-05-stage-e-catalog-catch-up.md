@@ -1,9 +1,9 @@
 ---
 ticket: OME-1839
 stack: repo
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-05
-finished:
+finished: 2026-11-07
 ---
 
 # stage-e-catalog-catch-up — Retire the Profile-era models from the AIGateway catalog
@@ -260,8 +260,15 @@ until the follow-up moves them.
     `openapi.yaml` exports; `solutions/README.md`.
   - This repository: this ledger, the spec, the plan, and the `docs/tasks/` mirror at PR-open.
 - **Commits:** `screamingface-design` `b08b5ed` — docs(catalog): retire the Profile-era AIGateway
-  models after Stage E. This repository: the docs commit carrying this ledger, the spec, the plan
-  and the task mirror.
+  models after Stage E, squash-merged as `01368cdab85cb925be3d0ccd0efa0472246d0be8` (#34) on
+  2026-11-06.
+  This repository: the docs commit carrying this ledger, the spec, the plan and the task mirror,
+  squash-merged to `main` as `188246268ebf4b833e29bd78b38c3f2ef3a836af` (#1691) on 2026-11-06.
+- **Tools at close (2026-11-07, plan step 11):** the shared checkout's `solutions/_tools/` and
+  `_coverage/contracts.json` were replaced with the reviewed copy. The review patch has SHA-256
+  `98f0c5e5817954b7de3fc41cdfb2f12ceaada2007222e8ac465a5553824f11d8`. The shared checkout's
+  catalog copy predates design `main` and was left as it is, so the suite passes only against a
+  catalog at design `main`: there the same files pass all 178 tests.
 - **Gates:** tool suite 178 tests OK (173 before the 2026-11-06 review, which added five);
   `ruff check` and `ruff format --check` clean on `solutions/_tools`, run from the repository root
   and from `solutions/_tools`; export 105 operations, 41 OpenAPI schemas, 9 providers, 0 denied

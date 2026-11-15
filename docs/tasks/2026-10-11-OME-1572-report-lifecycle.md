@@ -1,11 +1,12 @@
 ---
 id: OME-1572
 linear_url: https://linear.app/openmined/issue/OME-1572/track-interrupted-saved-reports-and-show-notebook-recovery-guidance
-status: in_progress
+status: done
 type: feature
 priority: high
 labels: [client-sf, agentic, autonomous]
 created: 2026-10-11
+closed: 2026-10-12
 ---
 
 # Track interrupted saved reports and show notebook recovery guidance
@@ -23,3 +24,5 @@ Draft #1348 follow-up: keep the prepared evaluation scope active while saved Can
 Draft #1348 shared-store follow-up: coordinated POSIX updates preserve live foreign evaluation ownership and all outstanding owners remain discoverable after death, including older markers and overlapping presentation. Sync/async all-corrupt evaluation selection now runs inside recovery tracking and settles handled failure ready; existing saved-key errors remain unchanged. Added 14 real-process/selection regressions, bringing focused lifecycle/notice coverage to 85 cases. All final SDK gates pass (96.18% coverage); Standards and Spec reviews have zero remaining findings. Existing tests and UI unchanged.
 
 Draft #1348 run-ID follow-up: supported run-ID aliases now track the canonical evaluation before fetch, including source/destination settlement and cancellation. Eight new regressions bring lifecycle tests to 93; these plus 18 inherited saved-run tests pass. All SDK gates pass (96.18% coverage), both reviews have zero actionable findings, and prior tests remain unchanged. Missing/ambiguous errors and corrupt-selection behavior are preserved.
+
+Shipped in #1348 (squash-merged as `90392e95e` on 2026-10-12). Linear is Done. Umbrella OME-1448 closed on 2026-11-04.

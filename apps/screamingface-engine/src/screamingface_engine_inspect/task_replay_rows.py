@@ -57,6 +57,7 @@ from screamingface_engine_inspect.importer import (
 )
 from screamingface_engine_inspect.prepare import LICENSE_TODO, TaskReplayCasesSpec
 from screamingface_engine_inspect.provenance_facts import ProvenanceFacts, provenance_row_lines
+from screamingface_engine_inspect.scorer_metrics import MEAN_OVER_ATTEMPTS_REDUCER
 
 if TYPE_CHECKING:
     from screamingface_engine_inspect.single_shot import RetrievalPolicyDeclaration
@@ -233,6 +234,7 @@ def _refuse_injectable_import(
         *imported.facts.named_scores,
         *imported.facts.dropped_scorers,
         *imported.facts.dropped_metrics,
+        *imported.facts.dropped_reducers,
         imported.facts.whole_run_metric,
         imported.facts.mean_instead_of,
         imported.facts.epoch_reducer,
@@ -426,6 +428,66 @@ def _license_lines(
     return lines
 
 
+def _attempts_lines(facts: TaskReplayFacts) -> list[str]:
+    """The Attempts declaration of a row (OME-1458): ``attempts`` above 1 with the comment
+    naming its fold, and ``epoch_reducer`` when the row names one. A mean-over-Attempts row
+    (``pass_at_1``, 2026-11-09 amendment) also names the reducers it does not reproduce and
+    carries a review TODO on the card's wording; every other row renders exactly as before."""
+
+    lines: list[str] = []
+    mean_fold: bool = facts.epoch_reducer == MEAN_OVER_ATTEMPTS_REDUCER
+    if facts.attempts > 1 and mean_fold:
+        # FEATURE (2026-11-09 amendment of OME-1458): the Task's headline reducer is inspect's
+        # pass_at(1), so the Case score is the mean over its Attempts; the card must say so.
+        lines.extend(
+            [
+                f"        # The Task's epochs={facts.attempts} are averaged: each Case is asked",
+                f"        # {facts.attempts} times and scores the share of Attempts fully right,",
+                "        # inspect's pass_at(1).",
+                f"        attempts={facts.attempts},",
+            ]
+        )
+        if facts.dropped_reducers:
+            lines.extend(
+                [
+                    f"        # The eval also reports {', '.join(facts.dropped_reducers)} over the",
+                    "        # Attempts; this row publishes the mean only, so those are not",
+                    "        # reproduced. Name them in the description.",
+                ]
+            )
+        lines.append(
+            f'        # TODO(review): the description must say "mean over {facts.attempts} '
+            'Attempts", never "pass@1".'
+        )
+    elif facts.attempts > 1:
+        # WHY only above 1 (OME-1458): every one-epoch Task's row renders byte-identically.
+        lines.extend(
+            [
+                f"        # The Task's epochs={facts.attempts} are any-match: each Case is asked",
+                f"        # {facts.attempts} times and a Check is met if any Attempt met it.",
+                f"        attempts={facts.attempts},",
+            ]
+        )
+    if facts.epoch_reducer is not None and mean_fold:
+        lines.extend(
+            [
+                "        # The fold and the whole-run tally both read it: the Case score is the",
+                "        # share of Attempts fully right.",
+                f'        epoch_reducer="{facts.epoch_reducer}",',
+            ]
+        )
+    elif facts.epoch_reducer is not None:
+        # WHY only beside an honoured metric (OME-1527): it is what the metric reads per Case.
+        lines.extend(
+            [
+                "        # The whole-run metric reads each Case's Attempt Scores reduced by the",
+                "        # Task's own reducer, as inspect does before any metric runs.",
+                f'        epoch_reducer="{facts.epoch_reducer}",',
+            ]
+        )
+    return lines
+
+
 def _benchmark_row_lines(
     key: str,
     imported: TaskReplayImport,
@@ -499,24 +561,7 @@ def _benchmark_row_lines(
         # WHY only when set (OME-1602, F6): the grader reads every letter the Candidate picks,
         # as the eval's multiple_choice solver asked; every other row renders byte-identically.
         lines.append("        multiple_correct=True,")
-    if facts.attempts > 1:
-        # WHY only above 1 (OME-1458): every one-epoch Task's row renders byte-identically.
-        lines.extend(
-            [
-                f"        # The Task's epochs={facts.attempts} are any-match: each Case is asked",
-                f"        # {facts.attempts} times and a Check is met if any Attempt met it.",
-                f"        attempts={facts.attempts},",
-            ]
-        )
-    if facts.epoch_reducer is not None:
-        # WHY only beside an honoured metric (OME-1527): it is what the metric reads per Case.
-        lines.extend(
-            [
-                "        # The whole-run metric reads each Case's Attempt Scores reduced by the",
-                "        # Task's own reducer, as inspect does before any metric runs.",
-                f'        epoch_reducer="{facts.epoch_reducer}",',
-            ]
-        )
+    lines.extend(_attempts_lines(facts))
     if retrieval_policy is not None:
         # WHY only when set (OME-1527, R13): every other row renders byte-identically. The id
         # and domains were checked when declared, so json quoting cannot be escaped.
