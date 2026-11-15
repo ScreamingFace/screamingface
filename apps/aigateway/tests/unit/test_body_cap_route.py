@@ -1,7 +1,7 @@
 """The body cap as wired into the real app and its setting (OME-1542).
 
 # FEATURE: image and file input across the gateway (OME-1529).
-# INVARIANT: the cap is app-wide, configurable through `AIGW_MAX_REQUEST_BYTES`, 8 MiB by default
+# INVARIANT: the cap is app-wide, configurable through `AIGW_MAX_REQUEST_BYTES`, 12 MiB by default
 # (MMMU's largest Case is 3.78 MB inline — Khoa, OME-1542), and refuses inside the call-id layer.
 """
 
@@ -13,9 +13,9 @@ from pydantic import ValidationError
 from aigateway.config import Settings
 
 
-def test_the_default_limit_is_eight_mebibytes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_default_limit_is_twelve_mebibytes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AIGW_MAX_REQUEST_BYTES", raising=False)
-    assert Settings().max_request_bytes == 8 * 1024 * 1024
+    assert Settings().max_request_bytes == 12 * 1024 * 1024
 
 
 def test_the_limit_reads_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:

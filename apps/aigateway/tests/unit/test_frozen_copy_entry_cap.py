@@ -1,7 +1,7 @@
 """A capture run can record a picture call as large as the gateway accepts (OME-1756).
 
 FEATURE: OME-1307 frozen copy. One entry holds the request plus the response the caller received,
-as compact JSON. The gateway accepts a request body of up to ``max_request_bytes`` (8 MiB).
+as compact JSON. The gateway accepts a request body of up to ``max_request_bytes`` (12 MiB).
 INVARIANT: the default entry cap is that request cap plus a fixed response headroom, so a picture
 call at the request cap fits one entry. Two calls still do not fit, and only their capture fails
 (see ``FROZEN_COPY_RESPONSE_HEADROOM_BYTES``): a response over the headroom, and a request that
@@ -40,7 +40,7 @@ from tests.unit.test_frozen_copy_support import (
 
 _REQUEST_CAP_ENV = "AIGW_MAX_REQUEST_BYTES"
 _ENTRY_CAP_ENV = "AIGW_FROZEN_COPY_MAX_ENTRY_BYTES"
-_DEFAULT_REQUEST_CAP = 8 * 1024 * 1024
+_DEFAULT_REQUEST_CAP = 12 * 1024 * 1024
 
 
 @pytest.fixture
