@@ -24,6 +24,23 @@ model is refused by name before any chat call. Spec: `docs/spec/2026-11-09-blind
 ## Progress
 
 - 2026-11-09: spec approved (Q1–Q3 = a); plan `docs/plan/2026-11-09-blind-model-admission.md` (9 TDD tasks, 3 code-forced deviations flagged).
+- 2026-11-15 (readiness for PR-open after #1588): merged `origin/main` (01e8c8fa0) then
+  `origin/OME-1545-engine-attachment-parts` (837ad8dc0). The main merge conflicted only in
+  #1587-owned files (`dag/_graph_admission.py`, `dag/_run_files.py`, `dag/remote_nodes.py`,
+  `peer/_bytes.py`, `docs/work/2026-10-22-file-refs-carry.md`); resolved to main's version,
+  which equals the OME-1545 tip byte for byte. No test changed in the resolution. This branch's
+  delta over the OME-1545 tip is still only the OME-1809 files. `OME-1809.json` unchanged: the
+  test file's base blob is still e7a07c1f7 on the OME-1545 tip; it validates against that base
+  (vs `origin/main` the file is new, so no approval is consulted). Gates vs `origin/main`:
+  screamingface-engine green, repo green; url4 red on the append-only check only, for the five
+  OME-1545-approved url4 test edits (their approval is bound to the OME-1545 branch). Against
+  `origin/OME-1545-engine-attachment-parts` the url4 gate is green. It clears when #1588 merges.
+  aigateway gate (as pre-push runs it) green. Not pushed: pre-push runs the url4 gate vs main
+  and fails on the check above. Live re-run on a local integration of #1588 + #1750 + this
+  branch: `refusal_text_only_member.url4` → terminated `intent_error`, permanent, names
+  llama-3.3-70b for images and PDFs; one `GET /v1/models`, 0 chat calls, no cost.usage ($0).
+  The sync `GET /` answer is 502 `internal_error`: `rest/routes.py::_sanitized_error` scrubs
+  `intent_error` because it is not in `ENGINE_ERROR_CODES` (OME-941 behavior, not this branch).
 
 ## Test plan
 
