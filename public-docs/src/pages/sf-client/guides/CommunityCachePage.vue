@@ -54,8 +54,8 @@ except sf.cache.CachePullError as exc:
 
     <p>
       A local engine starts with only your own cache. Pull the hosted community cache into it, and
-      your local runs answer every model call the community has already made for free. With your local
-      stack running, it takes one command.
+      your local runs answer every model call the community has already made for free. With your
+      local stack running, it takes one command.
     </p>
 
     <ThemedDiagram
@@ -66,9 +66,7 @@ except sf.cache.CachePullError as exc:
 
     <h2>Before you start</h2>
 
-    <p>
-      You need <code>screamingface[runtime]</code> installed. It provides the local gateway.
-    </p>
+    <p>You need <code>screamingface[runtime]</code> installed. It provides the local gateway.</p>
 
     <CodeBlock :code="install" language="bash" />
 
@@ -78,13 +76,13 @@ except sf.cache.CachePullError as exc:
 
     <p>
       This creates the local gateway database, which the pull loads rows into, and turns request
-      caching on. If you exported <code>AIGW_REQUEST_CACHE_ENABLED=false</code>, unset it first: with
-      caching off, the gateway does not serve from its store.
+      caching on. If you exported <code>AIGW_REQUEST_CACHE_ENABLED=false</code>, unset it first:
+      with caching off, the gateway does not serve from its store.
     </p>
 
     <p>
-      If your stack uses a data directory other than the default <code>~/.screamingface</code>, start
-      it with that directory and point the pull at it:
+      If your stack uses a data directory other than the default <code>~/.screamingface</code>,
+      start it with that directory and point the pull at it:
     </p>
 
     <CodeBlock :code="upDataDir" language="bash" />
@@ -119,8 +117,8 @@ except sf.cache.CachePullError as exc:
     <h2>3 · Check the result</h2>
 
     <p>
-      The pull returns a <code>PullResult</code>. Your counts depend on what the community cache holds
-      when you run it.
+      The pull returns a <code>PullResult</code>. Your counts depend on what the community cache
+      holds when you run it.
     </p>
 
     <CodeBlock :code="pullResult" language="python" />
@@ -128,8 +126,8 @@ except sf.cache.CachePullError as exc:
     <ul>
       <li><code>complete=True</code> means the pull reached the last page.</li>
       <li>
-        <code>rows_added</code> counts rows new to your local cache. Rows you already had are kept and
-        not counted.
+        <code>rows_added</code> counts rows new to your local cache. Rows you already had are kept
+        and not counted.
       </li>
       <li>
         <code>rows_skipped</code> counts rows your local gateway cannot serve. They are not loaded.
@@ -139,8 +137,8 @@ except sf.cache.CachePullError as exc:
     <h2>4 · Run your evaluation</h2>
 
     <p>
-      Run as usual. <code>use_cache=True</code> is the default, so every call already in the cache is
-      answered from it for free. A call that is not in the cache runs fresh and is billed to the
+      Run as usual. <code>use_cache=True</code> is the default, so every call already in the cache
+      is answered from it for free. A call that is not in the cache runs fresh and is billed to the
       provider account that runs it.
     </p>
 
@@ -187,8 +185,8 @@ except sf.cache.CachePullError as exc:
         <RouterLink to="/learn/caching">Caching and compute</RouterLink> for how the cache works.
       </li>
       <li>
-        <RouterLink to="/sf-client/api/cache">Shared cache reference</RouterLink> for every parameter
-        of <code>sf.cache</code>.
+        <RouterLink to="/sf-client/api/cache">Shared cache reference</RouterLink> for every
+        parameter of <code>sf.cache</code>.
       </li>
     </ul>
   </DocLayout>

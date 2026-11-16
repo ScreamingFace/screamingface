@@ -128,8 +128,9 @@ const readOut = `(0.6667, Decimal('0.4662255'))`
 
       <template #tab-1>
         <p>
-          A local engine comes with <code>medxpert</code> ready to run: 2,450 expert-level medical multiple-choice
-          questions, graded by exact match against the published key, so no judge model is called.
+          A local engine comes with <code>medxpert</code> ready to run: 2,450 expert-level medical
+          multiple-choice questions, graded by exact match against the published key, so no judge
+          model is called.
         </p>
 
         <div class="not-prose">
@@ -139,14 +140,14 @@ const readOut = `(0.6667, Decimal('0.4662255'))`
     </Tabs>
 
     <Note>
-      A local engine started with <code>screamingface up</code> comes with <code>medxpert</code>
-      ready to run; the hosted engine serves the full set (<code>ifeval</code>, <code>draco</code>
+      A local engine started with <code>screamingface up</code> comes with
+      <code>medxpert</code> ready to run; the hosted engine serves the full set
+      (<code>ifeval</code>, <code>draco</code>
       (deep research) and more) with no setup. To run more benchmarks on a local engine, run
-      <code>just local-stack-notebooks</code> from
-      <code>packages/screamingface/</code> in a repository checkout. List what an engine serves with
-      <code>sf.benchmarks.list()</code>, and see
-      <RouterLink to="/sf-client/guides/benchmarks">Choose a benchmark</RouterLink> for how to pick
-      one.
+      <code>just local-stack-notebooks</code> from <code>packages/screamingface/</code> in a
+      repository checkout. List what an engine serves with <code>sf.benchmarks.list()</code>, and
+      see <RouterLink to="/sf-client/guides/benchmarks">Choose a benchmark</RouterLink> for how to
+      pick one.
     </Note>
 
     <h2>5 · Read the score</h2>

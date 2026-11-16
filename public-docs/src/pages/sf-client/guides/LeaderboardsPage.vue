@@ -339,25 +339,25 @@ replay.candidates.only.reproduction  # None: no published score to compare`
 
     <p>
       <code>submit</code> takes the evaluated <code>CandidateResult</code> directly, so you never
-      re-enter the score. Pass <code>report.candidates.only</code> for a single candidate, or iterate
-      <code>report.candidates</code> to publish every candidate in the report.
+      re-enter the score. Pass <code>report.candidates.only</code> for a single candidate, or
+      iterate <code>report.candidates</code> to publish every candidate in the report.
     </p>
 
     <p>Two optional arguments add credit and context:</p>
 
     <ul>
       <li>
-        <strong><code>authors=[...]</code>:</strong> the exact, ordered credit line. One to ten email
-        addresses, duplicates preserved, in the order you give. It never adds the authenticated
-        submitter for you; omit it to use the leaderboard's default credit line. Authorship grants
-        credit, not ownership or access to a private submission.
+        <strong><code>authors=[...]</code>:</strong> the exact, ordered credit line. One to ten
+        email addresses, duplicates preserved, in the order you give. It never adds the
+        authenticated submitter for you; omit it to use the leaderboard's default credit line.
+        Authorship grants credit, not ownership or access to a private submission.
       </li>
       <li>
         <strong><code>paper_url="https://…"</code>:</strong> the paper that reports the result. An
         <code>http</code> or <code>https</code> link of at most 2,048 characters, with a host and no
-        whitespace, control characters or user info. The Client checks the shape before any HTTP; the
-        leaderboard does not verify that the link resolves or that the authors wrote the paper. No
-        paper yet? Leave it out and add the link later with <code>edit</code>.
+        whitespace, control characters or user info. The Client checks the shape before any HTTP;
+        the leaderboard does not verify that the link resolves or that the authors wrote the paper.
+        No paper yet? Leave it out and add the link later with <code>edit</code>.
       </li>
     </ul>
 
@@ -367,12 +367,12 @@ replay.candidates.only.reproduction  # None: no published score to compare`
 
     <ul>
       <li>
-        <strong><code>authors_metadata</code>:</strong> maps each credited author's full email address
-        to a flat object. Known keys: <code>full_name</code> and <code>institution</code>.
+        <strong><code>authors_metadata</code>:</strong> maps each credited author's full email
+        address to a flat object. Known keys: <code>full_name</code> and <code>institution</code>.
       </li>
       <li>
-        <strong><code>paper_metadata</code>:</strong> one flat object. Known keys: <code>title</code>,
-        <code>url</code> and <code>citation</code>.
+        <strong><code>paper_metadata</code>:</strong> one flat object. Known keys:
+        <code>title</code>, <code>url</code> and <code>citation</code>.
       </li>
     </ul>
 
@@ -384,11 +384,11 @@ replay.candidates.only.reproduction  # None: no published score to compare`
     </p>
 
     <p>
-      Each <code>authors_metadata</code> key must match a credited author, ignoring case, and removing
-      an author removes their metadata. The portal reads an author's metadata by the published
-      identifier: normally the email's local part, with the full address kept when two authors share
-      a local part. Keep the original full addresses when sending edits; public keys are not edit
-      keys.
+      Each <code>authors_metadata</code> key must match a credited author, ignoring case, and
+      removing an author removes their metadata. The portal reads an author's metadata by the
+      published identifier: normally the email's local part, with the full address kept when two
+      authors share a local part. Keep the original full addresses when sending edits; public keys
+      are not edit keys.
     </p>
     <table>
       <thead>
@@ -429,8 +429,8 @@ replay.candidates.only.reproduction  # None: no published score to compare`
       </tbody>
     </table>
     <p>
-      The SDK checks object shapes; the board checks bounds, author matching and link rules. Keys and
-      text must be valid Unicode with no NUL character. <code>paper_metadata.url</code> and
+      The SDK checks object shapes; the board checks bounds, author matching and link rules. Keys
+      and text must be valid Unicode with no NUL character. <code>paper_metadata.url</code> and
       <code>paper_url</code> are the same link; if you supply both, they must agree.
     </p>
 

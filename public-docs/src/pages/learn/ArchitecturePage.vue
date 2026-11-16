@@ -103,9 +103,9 @@ const components = [
       />
       <figcaption>
         <strong>Local.</strong> The Client drives an engine on your own machine; model calls fan out
-        through the gateway to the providers you hold keys for. Its cache accumulates across runs and
-        can pull from the shared community cache, and the engine submits a verifiable result to the
-        public leaderboard.
+        through the gateway to the providers you hold keys for. Its cache accumulates across runs
+        and can pull from the shared community cache, and the engine submits a verifiable result to
+        the public leaderboard.
       </figcaption>
     </figure>
 
@@ -123,8 +123,8 @@ const components = [
       />
       <figcaption>
         <strong>Cloud.</strong> The Client reaches a ScreamingFace-run engine and gateway in the
-        cloud that call providers on subsidised tokens, so you need no keys of your own. The cache is
-        shared across the community and grows with every run.
+        cloud that call providers on subsidised tokens, so you need no keys of your own. The cache
+        is shared across the community and grows with every run.
       </figcaption>
     </figure>
 

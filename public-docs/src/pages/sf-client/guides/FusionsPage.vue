@@ -371,8 +371,8 @@ const synthesizeSig = `sf.Synthesize(
       A model synthesizer is one way to close the block. A <strong>reducer</strong> closes it with a
       rule instead of a newly written answer: <code>sf.Vote()</code>, for instance, returns the
       answer most members agree on, unchanged. The
-      <RouterLink to="/sf-client/guides/map-reduce">map-reduce</RouterLink> guide covers the full set
-      of reducers, judges and narrow steps, and the
+      <RouterLink to="/sf-client/guides/map-reduce">map-reduce</RouterLink> guide covers the full
+      set of reducers, judges and narrow steps, and the
       <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> has their signatures.
     </p>
 
@@ -461,12 +461,12 @@ const synthesizeSig = `sf.Synthesize(
     </p>
 
     <p>
-      <strong>Mark members optional.</strong> A member built with <code>optional=True</code> may fail
-      without stopping the fusion. Its failure is tolerated, and it drops out of the answers the
-      synthesizer reads. A member left required (the default) must succeed: if a required member
-      fails, the fusion fails even when the quorum could otherwise be met. Below, two frontier models
-      are required and a faster model is optional, so the fusion survives losing it as long as the
-      quorum of two is met.
+      <strong>Mark members optional.</strong> A member built with <code>optional=True</code> may
+      fail without stopping the fusion. Its failure is tolerated, and it drops out of the answers
+      the synthesizer reads. A member left required (the default) must succeed: if a required member
+      fails, the fusion fails even when the quorum could otherwise be met. Below, two frontier
+      models are required and a faster model is optional, so the fusion survives losing it as long
+      as the quorum of two is met.
     </p>
 
     <div class="not-prose">
