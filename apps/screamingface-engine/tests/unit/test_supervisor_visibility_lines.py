@@ -139,12 +139,19 @@ async def test_an_escaping_exception_logs_outcome_error(caplog: pytest.LogCaptur
     assert line.startswith("run finished topic=t-boom outcome=error ran_s=")
 
 
+class _Stamped(_Msg):
+    """A message carrying the App's enqueue stamp header (`_Msg` itself has none)."""
+
+    def __init__(self, topic: str, stamp: str, *, queued_for_s: float = 0.0) -> None:
+        super().__init__(topic, queued_for_s=queued_for_s)
+        self.headers: dict[str, str] | None = {ENQUEUED_AT_HEADER: stamp}
+
+
 async def test_a_malformed_enqueue_stamp_falls_back_to_the_delivery_time(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     worker = _worker(_Publisher(), _Launcher(_Proc(code=0)), InMemoryCandidateOutcomeStream())
-    msg = _Msg("t-bad", queued_for_s=42)
-    msg.headers = {ENQUEUED_AT_HEADER: "not-a-timestamp"}
+    msg = _Stamped("t-bad", "not-a-timestamp", queued_for_s=42)
     with caplog.at_level(logging.INFO, logger=LOGGER):
         await worker._supervisor.supervise(msg)  # type: ignore[arg-type]
 
