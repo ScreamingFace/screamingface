@@ -159,3 +159,23 @@ async def test_control_characters_in_the_benchmark_cannot_forge_a_log_line(
     (line,) = _lines(caplog, "run created ")
     assert "benchmark=a?run created run=forged?[0m cases=" in line
     assert "\n" not in line
+
+
+@pytest.mark.parametrize(
+    "sneaky",
+    ["\x85", " ", " ", "\x9b", "​", "﻿"],
+    ids=["NEL", "LINE SEP", "PARA SEP", "CSI", "ZWSP", "BOM"],
+)
+async def test_unicode_separators_and_format_characters_are_escaped_too(
+    caplog: pytest.LogCaptureFixture, registry: Registry, sneaky: str
+) -> None:
+    # WHY (security review round 2): a line break is not only `\n` — NEL, U+2028/9 and the C1
+    # controls split lines in some viewers, and format characters hide text. Every Unicode
+    # category C* plus Zl/Zp becomes `?`.
+    engine = _Engine(registry)
+    with caplog.at_level(logging.INFO, logger="screamingface_engine.rest.runs"):
+        response = await engine.create(ADA, benchmark=f"a{sneaky}b")
+
+    assert response.status_code == 201
+    (line,) = _lines(caplog, "run created ")
+    assert "benchmark=a?b cases=" in line

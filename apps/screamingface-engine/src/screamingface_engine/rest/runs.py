@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import unicodedata
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
@@ -246,14 +247,21 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
 
 
 def _loggable(text: str) -> str:
-    """Caller text made safe for one log line: every control character becomes `?`.
+    """Caller text made safe for one log line: every control, format, separator-line character
+    becomes `?`.
 
-    WHY: `RunSpec` admits any non-NUL character in `benchmark`, so a newline or an escape
-    sequence inside it could start a forged second line or recolour an operator's terminal
-    (security review, 2026-11-16). The value is for correlation, not display — `?` keeps the
-    line one line and the field greppable.
+    WHY: `RunSpec` admits any non-NUL character in `benchmark`, so a newline, NEL, U+2028, an
+    escape sequence or an invisible format character inside it could start a forged second
+    line, hide text or recolour an operator's terminal (security review, 2026-11-16). The value
+    is for correlation, not display — `?` keeps the line one line and the field greppable.
+    INVARIANT: every Unicode category `C*` (Cc, Cf, Cs, Co, Cn) and `Zl`/`Zp` is replaced.
     """
-    return "".join("?" if ord(ch) < 32 or ord(ch) == 127 else ch for ch in text)
+    return "".join(
+        "?"
+        if unicodedata.category(ch)[0] == "C" or unicodedata.category(ch) in ("Zl", "Zp")
+        else ch
+        for ch in text
+    )
 
 
 @router.get(
