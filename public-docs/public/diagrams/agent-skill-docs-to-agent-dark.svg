@@ -15,8 +15,8 @@
 <rect x="580" y="90" width="250" height="96" fill="#131519" stroke="#2c303a" stroke-width="1"/>
 <text x="705.0" y="114" font-size="12" fill="#e8eaed" text-anchor="middle" font-weight="600" letter-spacing="0.04em">agent-skill/</text>
 <text x="705.0" y="136" font-size="10.5" fill="#9aa0aa" text-anchor="middle">committed to the repository</text>
-<text x="705.0" y="153" font-size="10.5" fill="#9aa0aa" text-anchor="middle">SKILL.md and one reference</text>
-<text x="705.0" y="170" font-size="10.5" fill="#9aa0aa" text-anchor="middle">for each page</text>
+<text x="705.0" y="153" font-size="10.5" fill="#9aa0aa" text-anchor="middle">SKILL.md: rules and an</text>
+<text x="705.0" y="170" font-size="10.5" fill="#9aa0aa" text-anchor="middle">index of links</text>
 <rect x="580" y="230" width="250" height="96" fill="#131519" stroke="#2c303a" stroke-width="1"/>
 <text x="705.0" y="254" font-size="12" fill="#e8eaed" text-anchor="middle" font-weight="600" letter-spacing="0.04em">dist/</text>
 <text x="705.0" y="276" font-size="10.5" fill="#9aa0aa" text-anchor="middle">served at docs.screamingface.ai</text>

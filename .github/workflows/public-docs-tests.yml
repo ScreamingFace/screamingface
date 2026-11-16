@@ -74,7 +74,7 @@ jobs:
 
       # The agent skill (public-docs/agent-skill) is generated from the docs pages and committed,
       # because the marketplace installs it from git. Regenerating it must change nothing, and
-      # `git status` (not `git diff`) is the check so that a new, untracked reference file fails too.
+      # `git status` (not `git diff`) is the check so that a new, untracked generated file fails too.
       - name: Regenerate the agent skill
         run: npm run build:skill
       - name: Agent skill matches the docs

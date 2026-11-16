@@ -89,7 +89,7 @@ def docs_to_agent(theme):
     s.heading("From docs to agent", "ONE GENERATOR WRITES THE SKILL AND THE MARKDOWN ENDPOINTS FROM THE SAME PAGES")
     s.box(40, 150, 200, 96, "Docs pages", ["public-docs/src/pages"])
     s.box(290, 150, 230, 96, "Generator", ["npm run build:skill", "npm run build"], accent=True)
-    s.box(580, 90, 250, 96, "agent-skill/", ["committed to the repository", "SKILL.md and one reference", "for each page"])
+    s.box(580, 90, 250, 96, "agent-skill/", ["committed to the repository", "SKILL.md: rules and an", "index of links"])
     s.box(580, 230, 250, 96, "dist/", ["served at docs.screamingface.ai", "<route>.md, llms.txt,", "llms-full.txt"])
     s.box(890, 50, 310, 80, "Claude Code", ["claude plugin install", "docs@screamingface"])
     s.box(890, 140, 310, 96, "Other agents", ["npx skills add", "ScreamingFace/screamingface", "--skill screamingface"])

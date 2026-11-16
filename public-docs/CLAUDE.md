@@ -15,7 +15,7 @@ being built out per section.
 - **Build**: `npm run build` (type-check + Vite build)
 - **Preview**: `npm run preview`
 - **Markdown view**: `npm run build` also writes `dist/<route>.md`, `dist/llms.txt` and `dist/llms-full.txt` (`scripts/build-skill.mjs --dist`, run by `postbuild`)
-- **Agent skill references**: `npm run build:skill`
+- **Agent skill index**: `npm run build:skill` (writes `agent-skill/skills/screamingface/SKILL.md`: the preamble and an index of links to each page and its `h2`/`h3` headings)
 - **Type-check**: `npm run type-check` (`vue-tsc --noEmit`)
 - **Lint**: `npm run lint` (oxlint + eslint, auto-fix)
 - **Format**: `npm run format` (Prettier, `src/`)

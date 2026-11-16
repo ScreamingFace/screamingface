@@ -36,9 +36,10 @@ const updateOtherAgents = `npx skills update`
   >
     <p>
       The ScreamingFace skill gives a coding agent the ScreamingFace Client docs: a
-      <code>SKILL.md</code> with the rules for writing <code>screamingface</code> code and an index,
-      and one Markdown reference for each docs page. It is generated from this site, and its version
-      is the docs version, <code>{{ version.label }}</code
+      <code>SKILL.md</code> with the rules for writing <code>screamingface</code> code and an index
+      of links to each docs page and to its sections. The skill holds no copy of a page: the links
+      open the docs. The index is generated from this site, and its version is the docs version,
+      <code>{{ version.label }}</code
       >.
     </p>
 

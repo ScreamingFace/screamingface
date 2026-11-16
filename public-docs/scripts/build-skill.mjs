@@ -1,7 +1,7 @@
 // Generates the Markdown view of the docs from the pages themselves.
 //
 //   node scripts/build-skill.mjs --dist   writes dist/<route>.md, dist/llms.txt, dist/llms-full.txt
-//   node scripts/build-skill.mjs          writes agent-skill/skills/screamingface/references/*.md
+//   node scripts/build-skill.mjs          writes agent-skill/skills/screamingface/SKILL.md and the plugin manifest
 //
 // Every route is rendered with Vite SSR and `@vue/server-renderer` (scripts/ssr-entry.ts), the
 // page header and the `.prose-content` body are converted with turndown, and the build fails
@@ -68,6 +68,35 @@ function stripComments(html) {
   return result
 }
 
+/** The text of an element as `textContent` reads it: tags dropped, no space added. */
+function textContentOf(html) {
+  return decodeEntities(html.replace(/<[^>]+>/g, ''))
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * The `h2`, `h3` and `h4` headings of a page body in document order, except those inside a
+ * `.not-prose` element, which is what `DocLayout` enhances.
+ */
+function pageHeadings(body) {
+  const skipped = []
+  for (const m of body.matchAll(/<(\w+)\b[^>]*\bclass="[^"]*\bnot-prose\b[^"]*"[^>]*>/g)) {
+    const end = m.index + balancedElement(body, m.index, m[1]).length
+    skipped.push([m.index, end])
+  }
+  const headings = []
+  for (const m of body.matchAll(/<(h[234])\b([^>]*)>([\s\S]*?)<\/\1>/g)) {
+    if (skipped.some(([from, to]) => m.index >= from && m.index < to)) continue
+    headings.push({
+      level: Number(m[1][1]),
+      text: textContentOf(m[3]),
+      id: (m[2].match(/\bid="([^"]*)"/) ?? [])[1],
+    })
+  }
+  return headings
+}
+
 /** The page header (title, description) and the page body of a rendered docs page. */
 function extractPage(html, route) {
   const clean = stripComments(html)
@@ -83,6 +112,7 @@ function extractPage(html, route) {
       title: h1 ? textOf(h1[1]).replace(/\s+/g, ' ') : '',
       description: '',
       body: h1 ? root.replace(h1[0], '') : root,
+      headings: [],
     }
   }
   const body = balancedElement(clean, bodyAt, 'div')
@@ -96,14 +126,10 @@ function extractPage(html, route) {
     title = h1 ? textOf(h1[1]) : ''
     description = p ? textOf(p[1]) : ''
   }
-  return { title, description, body }
+  return { title, description, body, headings: pageHeadings(body) }
 }
 
 // ---------------------------------------------------------------- Markdown conversion
-
-function slug(route) {
-  return route.replace(/^\//, '').replace(/\//g, '-') || 'index'
-}
 
 function language(node) {
   for (let a = node.parentNode, depth = 0; a && depth < 5; a = a.parentNode, depth++) {
@@ -307,14 +333,23 @@ function llmsTxt(groups, byRoute, version) {
   return `${out.join('\n')}\n`
 }
 
-function skillIndex(groups, byRoute) {
+/** The address of a docs page, or of a section of it. */
+function pageUrl(route, id) {
+  return `${SITE}${route}${id ? `#${id}` : ''}`
+}
+
+/** One entry for each page, with one nested entry for each `h2` and `h3` heading of it. */
+function skillIndex(groups, byRoute, assignHeadingIds) {
   const out = []
   for (const g of groups) {
     out.push(`### ${g.title}`, '')
     for (const route of g.routes) {
       const p = byRoute.get(route)
       const desc = p.description ? `: ${p.description}` : ''
-      out.push(`- [${p.title || route}](references/${slug(route)}.md)${desc}`)
+      out.push(`- [${p.title || route}](${pageUrl(route)})${desc}`)
+      for (const { heading, id } of assignHeadingIds(p.headings)) {
+        if (heading.level <= 3) out.push(`  - [${heading.text}](${pageUrl(route, id)})`)
+      }
     }
     out.push('')
   }
@@ -322,16 +357,13 @@ function skillIndex(groups, byRoute) {
 }
 
 /** SKILL.md from the template, and the plugin manifest, both stamped with the docs version. */
-function writeSkill(groups, byRoute, version) {
+function writeSkill(groups, byRoute, version, assignHeadingIds) {
   const template = fs.readFileSync(path.join(PLUGIN_DIR, 'SKILL.template.md'), 'utf8')
   const skill = template
     .replaceAll('{{version}}', version)
-    .replace('{{index}}', skillIndex(groups, byRoute))
-  const refs = new Set(fs.readdirSync(path.join(SKILL_DIR, 'references')))
-  const missing = [...skill.matchAll(/\]\(references\/([^)#]+)/g)]
-    .map((m) => m[1])
-    .filter((file) => !refs.has(file))
-  if (missing.length) throw new Error(`SKILL.md links to missing references: ${missing.join(', ')}`)
+    .replace('{{index}}', skillIndex(groups, byRoute, assignHeadingIds))
+  if (/\]\((?!https:)/.test(skill))
+    throw new Error('SKILL.md has a link that is not a public docs address')
   if (skill.includes('{{')) throw new Error('SKILL.md has an unfilled placeholder')
   write(path.join(SKILL_DIR, 'SKILL.md'), skill.endsWith('\n') ? skill : `${skill}\n`)
   const plugin = {
@@ -365,11 +397,9 @@ async function main() {
     const groups = await navGroups(vite, pages)
     const ordered = groups.flatMap((g) => g.routes)
     const known = new Set(pages.map((p) => p.route))
-    const mode = dist ? 'endpoint' : 'skill'
-    const converter = makeConverter((route) => {
-      if (!known.has(route)) return null
-      return mode === 'endpoint' ? `${route === '/' ? '/index' : route}.md` : `${slug(route)}.md`
-    })
+    const converter = makeConverter((route) =>
+      known.has(route) ? `${route === '/' ? '/index' : route}.md` : null,
+    )
     const markdown = new Map()
     const failures = []
     for (const route of ordered) {
@@ -390,18 +420,13 @@ async function main() {
       write(path.join(out, 'llms-full.txt'), `${[...markdown.values()].join('\n---\n\n')}`)
       console.log(`dist: ${markdown.size} pages, llms.txt, llms-full.txt (docs version ${version})`)
     } else {
-      const refs = path.join(SKILL_DIR, 'references')
-      fs.rmSync(refs, { recursive: true, force: true })
+      const { assignHeadingIds } = await vite.ssrLoadModule('/src/lib/slug.ts')
       const skillGroups = groups
         .map((g) => ({ ...g, routes: g.routes.filter((route) => !SKILL_EXCLUDE.has(route)) }))
         .filter((g) => g.routes.length)
-      for (const [route, md] of markdown) {
-        if (!SKILL_EXCLUDE.has(route)) write(path.join(refs, `${slug(route)}.md`), md)
-      }
-      writeSkill(skillGroups, byRoute, version)
-      console.log(
-        `skill: ${markdown.size - SKILL_EXCLUDE.size} references, SKILL.md, plugin.json (docs version ${version})`,
-      )
+      writeSkill(skillGroups, byRoute, version, assignHeadingIds)
+      const links = skillGroups.flatMap((g) => g.routes).length
+      console.log(`skill: SKILL.md (${links} pages), plugin.json (docs version ${version})`)
     }
   } finally {
     await vite.close()
