@@ -51,10 +51,19 @@ function decodeEntities(text) {
   return text.replace(/&(amp|lt|gt|quot|#39);/g, (_match, name) => ENTITIES[name])
 }
 
+/** Removes every tag, also one that the removal of another tag leaves behind. */
+function stripTags(html, replacement) {
+  let previous
+  let result = html
+  do {
+    previous = result
+    result = result.replace(/<[^<>]*>/g, replacement)
+  } while (result !== previous)
+  return result
+}
+
 function textOf(html) {
-  return decodeEntities(html.replace(/<[^>]+>/g, ' '))
-    .replace(/\s+/g, ' ')
-    .trim()
+  return decodeEntities(stripTags(html, ' ')).replace(/\s+/g, ' ').trim()
 }
 
 /** Removes every HTML comment, also one that the removal of another comment leaves behind. */
@@ -70,9 +79,7 @@ function stripComments(html) {
 
 /** The text of an element as `textContent` reads it: tags dropped, no space added. */
 function textContentOf(html) {
-  return decodeEntities(html.replace(/<[^>]+>/g, ''))
-    .replace(/\s+/g, ' ')
-    .trim()
+  return decodeEntities(stripTags(html, '')).replace(/\s+/g, ' ').trim()
 }
 
 /**
