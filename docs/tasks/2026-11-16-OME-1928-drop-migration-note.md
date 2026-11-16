@@ -1,13 +1,13 @@
 ---
 id: OME-1928
 linear_url: https://linear.app/openmined/issue/OME-1928/drop-the-migration-note-column-from-the-pair-marker-l4c-2
-status: in_review
+status: done
 type: task
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-11-16
-closed:
+closed: 2026-11-16
 ---
 
 # Drop the migration_note column from the pair marker (L4c-2)
@@ -22,3 +22,4 @@ that brings. Close-out spec `docs/spec/2026-10-29-ome-1138-closeout.md` §4.3.
 
 - Ledger: `docs/work/2026-11-08-drop-migration-note.md`
 - 2026-11-16: filed under `OME-1138`; the PR opened. In Review.
+- 2026-11-16: PR #1843 merged as `086bc723b`; Linear Done with the close-comment.
