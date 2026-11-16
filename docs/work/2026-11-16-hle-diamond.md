@@ -1,9 +1,9 @@
 ---
 ticket: OME-1863
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-11-16
-finished:
+finished: 2026-11-16
 ---
 
 # hle-diamond — add HLE-Diamond as its own Benchmark
@@ -40,8 +40,8 @@ scores.
 ## Test plan
 
 - Task contract: the loader reads `cais/hle-diamond` at the pinned commit; a row becomes the
-  Sample inspect_evals' `record_to_sample` builds, except the id (`hle_diamond_` prefix) and
-  the added `partition` metadata; the system prompt and scorer spec equal hle's defaults.
+  Sample inspect_evals' `record_to_sample` builds, plus the added `partition` metadata; the
+  solver, scorer, generation settings and epoch reducer equal inspect_evals' hle Task's.
 - Parity: one text row and one picture row through the real Task, capture and scorer adapter;
   the Candidate sees the system prompt + question (+ picture bytes), the judge's prompt is
   inspect's byte for byte.
@@ -56,7 +56,22 @@ scores.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, plus `importer.py` (one rule, below), `test_benchmark_declaration.py`
+  (the fifth per-Benchmark table) and `.claude/test-change-approvals/OME-1863.json` (the five
+  prior test tables that gain a row). No stand-in metadata entry: `regex_judge` reads none.
+  Fidelity Record: `apps/screamingface-engine/docs/benchmarks-fidelity/` (see Commits).
+- **Commits:** `a7e78f15f` feat(screamingface-engine): add HLE-Diamond as its own Benchmark;
+  a follow-up commit carries the Fidelity Record, this outcome and the mirror.
+- **Gates:** relevant tests only (owner rule): the 2 new test files, the 5 edited tables, every
+  catalogue-wide row sweep and every importer test, 1,747 passed; ruff clean; pyright on the
+  touched files, extra-less as CI runs it, 0 errors. Mutation: dropping the `partition` line
+  turns 4 tests red. `hle`'s fingerprint unchanged (`d30effc2a0698079`).
 - **Deviations:**
+  - The planned `hle_diamond_` Case-id prefix was dropped. The Engine numbers Cases 1..N per
+    Benchmark and the Case Digest leaves inspect's Sample id out, so it protected nothing.
+  - The importer refused a local Task whose scorer lives in inspect_evals (`_home_in_eval_package`);
+    it now accepts that for local Tasks only. `test_a_scorer_from_another_evals_package_is_still_refused`
+    still passes.
+  - `hle`'s BibTeX moved into `_HLE_CITATION`, shared by both rows (same value, same fingerprint).
+  - Frontier score is 74.3% (Claude Fable 5.2), the top no-tools row of the authors' table, not
+    the ticket's 59.9% (GPT-6 Astra's row in the same table).

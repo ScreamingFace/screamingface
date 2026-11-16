@@ -7893,9 +7893,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         human_baseline=NotPublished(
             reason="neither the HLE paper nor the HLE-Diamond release reports a human accuracy",
         ),
-        # Frontier score: the authors' own HLE-Diamond table, no tools, reasoning high (read
-        # 2026-11-16). The same table gives Claude Fable 5.2 79.4% on the reasoning half and
-        # 69.2% on the knowledge half; GPT-6 Astra, which led at launch, is at 59.9%.
+        # Frontier score: the top row of the authors' own HLE-Diamond table, no tools, reasoning
+        # high; the post is dated 2026-09-22 and shows no later update date (read 2026-11-16),
+        # so as_of is that month. The same table gives Claude Fable 5.2 79.4% on the reasoning
+        # half and 69.2% on the knowledge half; GPT-6 Astra is third at 59.9%.
         frontier_score=FrontierScore(
             score=0.743,
             model="Claude Fable 5.2",
