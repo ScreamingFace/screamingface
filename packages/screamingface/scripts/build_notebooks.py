@@ -2102,17 +2102,18 @@ def _picture_benchmarks_e2e() -> NotebookNode:
         nbformat.v4.new_markdown_cell("""\
 # Picture Benchmarks — two Cases each, on the local stack or dev
 
-Nine Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
+Eleven Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
 TableQA (biology tables), MMMU multiple choice and MMMU open (college exam questions about
 charts, diagrams and photos), MathVista (maths over plots and figures), LABBench2's FigQA2
-and TableQA2 image (harder biology figures and tables, free answers) and MaCBench (chemistry
-and materials science: molecules, crystal structures, spectra, lab photos) with every question,
+and TableQA2 image (harder biology figures and tables, free answers), MaCBench (chemistry
+and materials science: molecules, crystal structures, spectra, lab photos), ZeroBench (hard
+visual reasoning) and EnigmaEval (puzzle-hunt puzzles) with every question,
 and Humanity's Last Exam (HLE, expert questions across 100+ subjects) with 342 of its 2,500
 questions. Each picture is saved inside its Case when the Benchmark is imported, so
 nothing is fetched at run time.
 
 This notebook is a smoke test for the picture path, not a ranking. It points at **either** the
-local stack **or** dev with one variable, lists which of the nine that Engine serves, and runs
+local stack **or** dev with one variable, lists which of the eleven that Engine serves, and runs
 two Cases of each with one cheap model that reads pictures. Two Cases are enough to catch a run
 that breaks on pictures, for example one that goes over its memory budget.
 
@@ -2128,10 +2129,11 @@ on `:9108`, Scoreboard on `:9106`) and opens Jupyter on `examples/`. Without a c
 its own environment with the `inspect` extra the imported Benchmarks need (a few minutes,
 once).
 
-**HLE's and LABBench2's datasets are gated.** cais/hle and EdisonScientific/labbench2 on
-Hugging Face each ask you to accept their terms once; then set `HF_TOKEN` (or run
+**HLE's, LABBench2's, ZeroBench's and EnigmaEval's datasets are gated.** cais/hle,
+EdisonScientific/labbench2, jonathan-roberts1/zerobench and cais/EnigmaEval on Hugging Face each
+ask you to accept their terms once; then set `HF_TOKEN` (or run
 `huggingface-cli login`) before `just local-stack-notebooks`. Without a token the local stack
-skips those three Benchmarks with a warning and serves the other six.
+skips those five Benchmarks with a warning and serves the other six.
 
 **Hosted.** fusion.screamingface.ai, behind a Cloudflare Access login. `sf.connect()` opens that
 login in your browser. **Dev** is the team's test deployment, fusion.dev, behind the same login.
@@ -2139,7 +2141,7 @@ login in your browser. **Dev** is the team's test deployment, fusion.dev, behind
 Two things differ between local and the deployed targets:
 
 - **On a Mac, the local stack serves FigQA, TableQA, HLE, the two LABBench2 Benchmarks and
-  MaCBench.** MMMU and MathVista have
+  MaCBench.** MMMU, MathVista, ZeroBench and EnigmaEval have
   their Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
   Pillow writes different PNG bytes on macOS, so a Mac's own prepared Cases cannot match it, and
   a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE, LABBench2 and
@@ -2187,11 +2189,11 @@ sf.connect()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 2. Which picture Benchmarks this Engine serves
 
-The nine ids below are the catalogue ids of the nine picture Benchmarks. The cell lists the
+The eleven ids below are the catalogue ids of the eleven picture Benchmarks. The cell lists the
 ones this Engine serves and names each one it can't run with its likely reason:
 
 - the local stack runs on a Mac, and the Benchmark's Case Digest is sealed on Linux. A local
-  Engine lists every Benchmark it knows, prepared or not, so these three show in the catalogue
+  Engine lists every Benchmark it knows, prepared or not, so these five show in the catalogue
   on a Mac although it has no Cases for them; the cell skips them before it reads the catalogue;
 - the Engine has no `inspect` extra, so it serves no imported Benchmark at all;
 - the Benchmark is not merged into this Engine yet.
@@ -2211,6 +2213,7 @@ PICTURE_BENCHMARKS = {
     "inspect-zerobench": "exact match of the text in the last curly braces, no judge",
     "inspect-macbench": "the eval's own answer-tag parser: letters as a set for multiple "
     "choice, a tolerance window for numbers, no judge",
+    "enigmaeval": "the authors' answer-tag parser and normaliser: exact match, no judge",
 }
 # Their pictures are re-saved by Pillow at preparation, so their Case Digest is sealed on Linux.
 SEALED_ON_LINUX = {
@@ -2218,6 +2221,7 @@ SEALED_ON_LINUX = {
     "inspect-mmmu_open",
     "inspect-mathvista",
     "inspect-zerobench",
+    "enigmaeval",
 }
 
 catalogue = sf.benchmarks.list()
@@ -2228,7 +2232,7 @@ local_mac = TARGET == "local" and platform.system() == "Darwin"
 served = []
 for benchmark_id in PICTURE_BENCHMARKS:
     # The Mac check comes first: a local Engine lists every Benchmark it knows, prepared or
-    # not, so on a Mac these four are in the catalogue with no Cases behind them.
+    # not, so on a Mac these five are in the catalogue with no Cases behind them.
     if local_mac and benchmark_id in SEALED_ON_LINUX:
         print(f"skipped  {benchmark_id}: its Case Digest is sealed on Linux, so a Mac has no Cases")
     elif benchmark_id in served_ids:
@@ -2352,6 +2356,18 @@ inside the question's own tolerance window. The eval's answer-tag parser grades 
 judge tokens are spent: the run costs only the model's own calls."""),
         nbformat.v4.new_code_cell("""\
 run_two_cases("inspect-macbench")"""),
+        nbformat.v4.new_markdown_cell("""\
+### EnigmaEval: puzzle-hunt puzzles, one word or phrase out
+
+Each Case is one puzzle from a puzzle hunt (a crossword with a twist, a cipher grid, a picture
+rebus), given as text and up to 20 pictures with no instructions on how to solve it. The prompt
+is the authors' own (simple-evals): the system text names the answer type, and the model must
+put its answer inside answer tags. The authors' normaliser grades it (lowercase, letters and
+digits only, a comma in the answer compares as a set), so no judge is spent. One Attempt per
+Case. Its Case Digest is sealed on Linux, so a local Mac skips it, and the dataset is gated: the
+cell prints the score, never the expected answer."""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("enigmaeval")"""),
         nbformat.v4.new_markdown_cell("""\
 ## 6. Inspect the results
 

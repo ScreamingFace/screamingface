@@ -104,10 +104,12 @@ inline, and the authors' PNG re-save does not bring them under:
   `.claude/test-change-approvals/OME-1874.json`, the mirror. Changed: `pyproject.toml` (the
   vendor dir in the ruff, pyright and coverage fences), `prepare.py` (the held-out constant and
   the row), `benchmarks.py` (the row), the five row tables. No `STAND_IN_METADATA` entry: the
-  scorer reads no metadata. No notebook change: the row uses `12_inspect_evals_benchmarks`, as
-  the LABBench2 rows did at first.
-- **Commits:** one, `feat(screamingface-engine): add EnigmaEval puzzle-hunt Benchmark as a local
-  Task (OME-1874)`.
+  scorer reads no metadata. Second commit (16 Nov): EnigmaEval joins the picture notebook
+  `18_picture_benchmarks` (builder `scripts/build_notebooks.py`, regenerated notebook, its test
+  `test_picture_benchmarks_notebook.py` with an approval entry, the SDK README line), as ZeroBench
+  did: a local Mac skips it (sealed on Linux) and the cell runs two Cases with paid runs off.
+- **Commits:** two: `feat(screamingface-engine): add EnigmaEval puzzle-hunt Benchmark as a local
+  Task (OME-1874)` and `feat(screamingface): add EnigmaEval to the picture notebook (OME-1874)`.
 - **Import, sealed on linux/amd64** (the Engine Dockerfile's builder stage built with
   `--platform linux/amd64` plus a `uv sync --frozen --no-dev --extra benchmarks` layer; OrbStack,
   Rosetta; the worktree's `src/` mounted read-only; written to scratch copies of the two files
