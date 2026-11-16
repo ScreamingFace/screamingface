@@ -34,6 +34,10 @@
         nodes.cards.appendChild(P.benchmarkCard(b, { best: b.best_score }));
       }
       nodes.more.hidden = shown >= matches.length;
+      // STORY: announce progress after paging as well as filtering.
+      nodes.count.textContent = "Showing " + shown + " of " + matches.length +
+        " matching benchmark" + (matches.length === 1 ? "" : "s") +
+        (nodes.scored.checked ? " with scores" : "");
     }
 
     function applyFilters() {
@@ -45,8 +49,6 @@
       shown = 0;
       P.clear(nodes.cards);
       nodes.cards.hidden = false;
-      nodes.count.textContent = matches.length + " matching benchmark" + (matches.length === 1 ? "" : "s") +
-        (nodes.scored.checked ? " with scores" : "");
       if (!matches.length) {
         P.showEmpty(nodes.status, searched.length ?
           "Matching benchmarks have no scores yet. Uncheck “Has scores” to see them." :

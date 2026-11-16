@@ -1,9 +1,9 @@
 """screamingface.budget.v1: the method-owner Budget records, SDK side (OME-1289, erd s11).
 
-FEATURE/STORY: the four records an E4c call layer writes and a compare reads (``Budget`` declared on
+FEATURE/STORY: the four records the E4c call layer writes and a Gate reads (``Budget`` declared on
 a request, one ``BudgetCharge`` per sent call, one ``BudgetRefusal`` per call not sent, and the
 ``BudgetState`` that holds them). They mirror ``screamingface_engine.budget``: the same fields,
-field order and rules. There is no charge rule here: the E4c call layer is the producer, and
+field order and rules. There is no charge rule here: the Engine call layer is the producer, and
 ``budget_cases.json`` (an Engine contract fixture) binds the two mirrors.
 INVARIANT: a ``BudgetState`` equals the fold of its own charges (``remaining = max(cap - spent,
 0)``; ``None`` is unpriced, never zero), so a decoded ledger cannot disagree with itself.
@@ -16,13 +16,16 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Context, Decimal, localcontext
-from typing import Literal, get_args
+from typing import TYPE_CHECKING, Literal, get_args
 
 from screamingface._report_primitives import _optional_number, _required_number
 
+if TYPE_CHECKING:
+    from screamingface._surface.budget import Remaining
+
 type BudgetUnit = Literal["usd", "tokens"]
 type ChargeSource = Literal["live", "cache_reference", "unpriced"]
-type BudgetStage = Literal["model", "synthesis", "judge", "writer"]
+type BudgetStage = Literal["model", "synthesis", "judge", "writer", "selector"]
 
 BUDGET_SCHEMA = "screamingface.budget.v1"
 
@@ -148,12 +151,46 @@ class BudgetCharge:
         return cls(**_fields(value, _CHARGE_KEYS, "BudgetCharge"))  # type: ignore[arg-type]
 
 
+_CALL_CHARGE_KEYS = ("usd", "tokens")
+
+
+@dataclass(frozen=True, slots=True)
+class CallCharge:
+    """What one provider call charged the Budget, per unit (E4c ans:Q32; the Engine writes it).
+
+    A cache hit charges its ORIGINAL cost, so a replay shows the live run's spend. ``None`` is
+    unpriced: it adds nothing to the spend (the ledger rule above).
+    """
+
+    usd: float | None
+    tokens: float | None
+
+    def __post_init__(self) -> None:
+        for name in _CALL_CHARGE_KEYS:
+            number = _optional_number(getattr(self, name), f"CallCharge {name}")
+            if number is not None and number < 0:
+                raise ValueError(f"CallCharge {name} must not be negative")
+            object.__setattr__(self, name, number)
+
+    def amount(self, unit: BudgetUnit) -> float | None:
+        """The charge in ``unit``; None when the call is unpriced in it."""
+        return self.usd if unit == "usd" else self.tokens
+
+    def to_dict(self) -> dict[str, object]:
+        return {"usd": self.usd, "tokens": self.tokens}
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, object]) -> CallCharge:
+        """Rebuild a CallCharge from its exact to_dict shape."""
+        return cls(**_fields(value, _CALL_CHARGE_KEYS, "CallCharge"))  # type: ignore[arg-type]
+
+
 _REFUSAL_KEYS = ("operation_id", "member_id", "stage", "estimated", "reason")
 
 
 @dataclass(frozen=True, slots=True)
 class BudgetRefusal:
-    """One call that was not sent because it would exceed the cap (written by E4c)."""
+    """One call that was not sent because it would exceed the cap (the Engine writes it)."""
 
     operation_id: str
     member_id: str | None
@@ -260,4 +297,23 @@ class BudgetState:
         return cls(**_fields(value, _STATE_KEYS, "BudgetState"))  # type: ignore[arg-type]
 
 
-__all__ = ["BUDGET_SCHEMA", "Budget", "BudgetCharge", "BudgetRefusal", "BudgetState"]
+def remaining(unit: BudgetUnit | None = None) -> Remaining:
+    """``sf.budget.remaining()``: what the candidate's ``sf.WithBudget`` has left after the calls
+    that already ran, as a number a ``sf.Gate`` condition compares (E4c, BU-6). Name the unit when
+    the Budget declares both: ``sf.budget.remaining("usd")``."""
+
+    # WHY lazy: the surface builds on the recipe machinery; this module is a leaf of the report.
+    from screamingface._surface import budget as surface
+
+    return surface.remaining(unit)
+
+
+__all__ = [
+    "BUDGET_SCHEMA",
+    "Budget",
+    "BudgetCharge",
+    "BudgetRefusal",
+    "BudgetState",
+    "CallCharge",
+    "remaining",
+]

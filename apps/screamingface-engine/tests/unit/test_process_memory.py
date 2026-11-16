@@ -69,9 +69,9 @@ def test_peak_normalises_ru_maxrss_units_per_platform(
 
 
 def test_peak_reads_this_process_and_is_at_least_current() -> None:
+    current = process_memory.current_resident_bytes()
     peak = process_memory.peak_resident_bytes()
     assert peak >= resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    current = process_memory.current_resident_bytes()
     if current is not None:
         assert peak >= current
 

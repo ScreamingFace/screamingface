@@ -1,13 +1,13 @@
 ---
 id: OME-1869
 linear_url: https://linear.app/openmined/issue/OME-1869/count-only-unclaimed-runs-in-the-run-queues-depth-and-oldest-age
-status: triage
+status: done
 type: bug
 priority: medium
 labels: [bug, screamingface-engine, agentic]
 parent:
 created: 2026-11-10
-closed:
+closed: 2026-11-11
 ---
 
 # Count only unclaimed runs in the run queue's depth and oldest age
@@ -23,3 +23,4 @@ the first undelivered message's age. `held()` keeps the old stream count.
 - 2026-11-10: filed as a `bug` (Triage, unassigned, Irina + Kevin tagged); fix on branch
   `OME-1869-queue-depth-unclaimed`. Owner approved deleting 4 tests that pinned the old reading.
 - Ledger: `docs/work/2026-11-10-queue-depth-unclaimed.md`
+- 2026-11-11: PR #1737 merged as `5bdaa8569`; Linear Done with the close-comment.

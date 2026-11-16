@@ -121,8 +121,12 @@ def test_every_page_opens_with_the_grant_banner_above_the_rail(page: str) -> Non
     banner = doc.one(cls="grant-banner")
     rail = doc.one("div", "rail")
 
-    # INVARIANT: the banner is the body's first element and sits above the rail.
-    first_element = next(child for child in body.children if isinstance(child, _Node))
+    # INVARIANT: the banner is the first visible section, after the keyboard skip link.
+    first_element = next(
+        child
+        for child in body.children
+        if isinstance(child, _Node) and child.attrs.get("class") != "skip-link"
+    )
     assert first_element is banner
     assert banner.order < rail.order
 

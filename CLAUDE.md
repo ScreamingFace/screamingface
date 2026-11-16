@@ -19,7 +19,6 @@ Stack, CI lane and release lane per component: the `working-in-this-repo` routin
 - `apps/screamingface-studio` — Tauri desktop app (TypeScript, Python, Rust; no CI yet)
 - `packages/url4` — url4 grammar, AST and DAG executor (PyPI)
 - `packages/screamingface` — the Client SDK (PyPI)
-- `apps/desktop` — build leftovers only, **not a component** (OME-1266)
 - Public website lives in the separate `screamingface-web` repo; this monorepo does not
   publish GitHub Pages.
 - `docs/` — SDLC artifacts: `spec/ plan/ tasks/ work/ diagrams/` (see `docs/README.md`)

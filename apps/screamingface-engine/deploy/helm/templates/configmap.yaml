@@ -54,6 +54,9 @@ data:
   # replica count above — it is silent: runs are accepted with a 202, land in buckets nobody
   # polls, and expire at `run_queue_max_age_s` with nothing to say why.
   URL4_CLOUD_RUN_QUEUE_BUCKET_COUNT: {{ .Values.config.runQueueBucketCount | quote }}
+  {{- if .Values.config.runQueueCallerInflightCap }}
+  URL4_CLOUD_RUN_QUEUE_CALLER_INFLIGHT_CAP: {{ .Values.config.runQueueCallerInflightCap | quote }}
+  {{- end }}
   # The shared events stream's own limits (uniform executor, PRD 01 §4).
   #
   # INVARIANT: rendered here AND in the runner pool's env from the SAME values (`values.events.*`)

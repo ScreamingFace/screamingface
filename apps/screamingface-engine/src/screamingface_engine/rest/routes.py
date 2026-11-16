@@ -441,10 +441,10 @@ async def _schedule(
     except RunQueueUnavailable as exc:
         # FEATURE: an honest, retryable answer when the run queue is down (OME-948 R5's queue
         # analog, under OME-1086). Before this branch the broker's error escaped as a naked
-        # plain-text 500. Nothing was queued and the reservation is already released, so an
-        # identical retry is safe. The detail is generic: no broker vocabulary for the client.
+        # plain-text 500. An identical retry is safe: the broker deduplicates it on the topic
+        # within its duplicate window. The detail is generic: no broker vocabulary for the client.
         _logger.warning(
-            "run not scheduled topic=%s: the run queue is unavailable", topic, exc_info=True
+            "run start not confirmed topic=%s: the run queue is unavailable", topic, exc_info=True
         )
         raise ProblemException(
             status=503,

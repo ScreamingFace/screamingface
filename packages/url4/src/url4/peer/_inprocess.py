@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from url4.dag.attachments import current_attachments
 from url4.io.layer import FetchRequest, FetchResult
 from url4.peer import _dispatch
 from url4.wire.subrequest import SubrequestCall
@@ -34,7 +35,13 @@ async def fetch_ex(node: Url4Node, request: FetchRequest) -> FetchResult:
     call = getattr(request, "call", None)
     if isinstance(call, SubrequestCall) and _serves_endpoint(node, call.path):
         context, intent, params = call.endpoint_parts()
-        req = _dispatch.Request(path=call.path, context=context, intent=intent, params=params)
+        req = _dispatch.Request(
+            path=call.path,
+            context=context,
+            intent=intent,
+            params=params,
+            attachments=current_attachments(),  # same as the wire path's call_endpoint (F2)
+        )
         body = await _dispatch._text(node._endpoints[call.path](req))
         return FetchResult(body, None)  # the wire path's endpoint branch declares no media type
     return await _dispatch.fetch_ex(node, request)

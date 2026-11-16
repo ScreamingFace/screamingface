@@ -314,6 +314,7 @@ class Client:
         leaderboard. At most 1,000 ids.
         """
 
+        from screamingface._engine.limits import caller_inflight_cap_sync
         from screamingface._evaluation.runner import evaluate_sync
         from screamingface._evaluation.url4 import evaluate_url4_sync
 
@@ -368,6 +369,7 @@ class Client:
             use_cache=use_cache,
             load_operators=self._operator_catalog.load,
             cases=cases,
+            load_caller_cap=lambda: caller_inflight_cap_sync(self._http),
         )
 
     def _evaluate_replay(
@@ -830,6 +832,7 @@ class AsyncClient:
         leaderboard. At most 1,000 ids.
         """
 
+        from screamingface._engine.limits import caller_inflight_cap_async
         from screamingface._evaluation.runner import evaluate_async
         from screamingface._evaluation.url4 import evaluate_url4_async
 
@@ -883,6 +886,7 @@ class AsyncClient:
             use_cache=use_cache,
             load_operators=self._operator_catalog.load,
             cases=cases,
+            load_caller_cap=lambda: caller_inflight_cap_async(self._http),
         )
 
     async def _evaluate_replay(

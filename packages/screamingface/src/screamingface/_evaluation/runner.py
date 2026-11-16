@@ -74,13 +74,19 @@ type _AsyncBenchmarkLoading = Callable[
 ]
 type _SyncOperatorLoading = Callable[[], _OperatorCatalog]
 type _AsyncOperatorLoading = Callable[[], Awaitable[_OperatorCatalog]]
+type _SyncCallerCapLoading = Callable[[], int]
+type _AsyncCallerCapLoading = Callable[[], Awaitable[int]]
 
+# The fan-out FALLBACK: used when no cap loader is wired (`load_caller_cap=None`), and by
+# `_engine/limits.py` when the Engine does not answer `GET /v1/limits` (an Engine older than
+# OME-1314 admits 8 per caller). The ONE definition of that 8; the Engine's answer sets the
+# fan-out otherwise.
 _MAX_CANDIDATES_IN_FLIGHT = 8
 _NAMED_CALLS = 3
 _logger = logging.getLogger(__name__)
 
 
-def evaluate_sync(
+def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order (OME-1314 adds the cap read)
     load_benchmark: _SyncBenchmarkLoading,
     transport: SyncRunTransport,
     load_models: _SyncModelLoading,
@@ -95,6 +101,7 @@ def evaluate_sync(
     load_operators: _SyncOperatorLoading | None = None,
     use_cache: bool = True,
     cases: object = None,
+    load_caller_cap: _SyncCallerCapLoading | None = None,
 ) -> Report:
     """Run the complete synchronous Evaluation workflow behind the Client interface."""
 
@@ -137,6 +144,9 @@ def evaluate_sync(
     preflight_sync(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
+    # WHY before `open_run_sync`: every Engine discovery read happens before the Run exists, so a
+    # slow `GET /v1/limits` never leaves a registered Run with no start.
+    cap = _caller_cap_sync(selected_candidates, load_caller_cap)
     run_id = open_run_sync(transport, benchmark, evaluation.case_count, selected_candidates)
     with _prepared_results(transport, evaluation, selected_candidates):
         observer = _sync_event_observer(
@@ -148,7 +158,14 @@ def evaluate_sync(
             check_disclosure=check_disclosure,
         )
         try:
-            outcomes = _settled_sync(transport, evaluation, selected_candidates, observer, run_id)
+            outcomes = _settled_sync(
+                transport,
+                evaluation,
+                selected_candidates,
+                observer,
+                run_id,
+                cap=cap,
+            )
             # OME-1739 F6 (the roll-call check) runs per Candidate inside the decode, so a
             # mismatch is a named Candidate failure and never reaches a Partial Report.
             report = completed_report(evaluation, outcomes, run_id)
@@ -159,7 +176,7 @@ def evaluate_sync(
         return report
 
 
-async def evaluate_async(
+async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
     load_benchmark: _AsyncBenchmarkLoading,
     transport: AsyncRunTransport,
     load_models: _AsyncModelLoading,
@@ -174,6 +191,7 @@ async def evaluate_async(
     load_operators: _AsyncOperatorLoading | None = None,
     use_cache: bool = True,
     cases: object = None,
+    load_caller_cap: _AsyncCallerCapLoading | None = None,
 ) -> Report:
     """Run the complete asynchronous Evaluation workflow behind the Client interface."""
 
@@ -215,6 +233,8 @@ async def evaluate_async(
     await preflight_async(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
+    # WHY before `open_run_async`: see the sync twin.
+    cap = await _caller_cap_async(selected_candidates, load_caller_cap)
     run_id = await open_run_async(transport, benchmark, evaluation.case_count, selected_candidates)
     with _prepared_results(transport, evaluation, selected_candidates):
         observer = _async_event_observer(
@@ -227,7 +247,12 @@ async def evaluate_async(
         )
         try:
             outcomes = await _settled_async(
-                transport, evaluation, selected_candidates, observer, run_id
+                transport,
+                evaluation,
+                selected_candidates,
+                observer,
+                run_id,
+                cap=cap,
             )
             # OME-1739 F6: see the sync twin; the check lives in the per-Candidate decode.
             report = completed_report(evaluation, outcomes, run_id)
@@ -285,16 +310,41 @@ async def _operators_async(
     return await load_operators()
 
 
+def _caller_cap_sync(
+    candidates: Sequence[Candidate], load_caller_cap: _SyncCallerCapLoading | None
+) -> int:
+    """The fan-out for this Evaluation: read ONCE from the Engine, only when 2+ Candidates run.
+
+    WHY not for one Candidate: there is no fan-out to size, so the request would be pure cost.
+    """
+
+    if load_caller_cap is None or len(candidates) < 2:
+        return _MAX_CANDIDATES_IN_FLIGHT
+    return load_caller_cap()
+
+
+async def _caller_cap_async(
+    candidates: Sequence[Candidate], load_caller_cap: _AsyncCallerCapLoading | None
+) -> int:
+    """The async twin of ``_caller_cap_sync``."""
+
+    if load_caller_cap is None or len(candidates) < 2:
+        return _MAX_CANDIDATES_IN_FLIGHT
+    return await load_caller_cap()
+
+
 def _settled_sync(
     transport: SyncRunTransport,
     evaluation: _Evaluation,
     candidates: tuple[Candidate, ...],
     observer: _SyncEventObserver | None,
     run_id: str | None = None,
+    *,
+    cap: int,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
     try:
         return _run_candidates_sync(
-            transport, candidates, observer, completion_callback(evaluation, observer)
+            transport, candidates, observer, completion_callback(evaluation, observer), cap=cap
         )
     except _CandidatesFailed as failed:
         settled = failed.settled
@@ -309,10 +359,12 @@ async def _settled_async(
     candidates: tuple[Candidate, ...],
     observer: _AsyncEventObserver | None,
     run_id: str | None = None,
+    *,
+    cap: int,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
     try:
         return await _run_candidates_async(
-            transport, candidates, observer, completion_callback(evaluation, observer)
+            transport, candidates, observer, completion_callback(evaluation, observer), cap=cap
         )
     except _CandidatesFailed as failed:
         settled = failed.settled
@@ -738,6 +790,8 @@ def _run_candidates_sync(
     candidates: tuple[Candidate, ...],
     observer: _SyncEventObserver | None,
     on_complete: Callable[[Candidate, _RunOutcome], None] | None = None,
+    *,
+    cap: int = _MAX_CANDIDATES_IN_FLIGHT,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
     def run(candidate: Candidate) -> _RunOutcome:
         selected_observer = None if observer is None else observer.bind(candidate)
@@ -755,7 +809,7 @@ def _run_candidates_sync(
     run_isolated = _isolated_sync(run, observer, aborting)
 
     with ThreadPoolExecutor(
-        max_workers=min(len(candidates), _MAX_CANDIDATES_IN_FLIGHT),
+        max_workers=min(len(candidates), cap),
         thread_name_prefix="screamingface-candidate",
     ) as executor:
         futures: tuple[Future[_RunOutcome | _Failed], ...] = ()
@@ -892,8 +946,10 @@ async def _run_candidates_async(
     candidates: tuple[Candidate, ...],
     observer: _AsyncEventObserver | None,
     on_complete: Callable[[Candidate, _RunOutcome], None] | None = None,
+    *,
+    cap: int = _MAX_CANDIDATES_IN_FLIGHT,
 ) -> tuple[tuple[Candidate, _RunOutcome], ...]:
-    gate = asyncio.Semaphore(_MAX_CANDIDATES_IN_FLIGHT)
+    gate = asyncio.Semaphore(cap)
 
     async def run(candidate: Candidate) -> _RunOutcome:
         async with gate:

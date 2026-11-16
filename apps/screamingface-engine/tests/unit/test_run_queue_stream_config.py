@@ -18,7 +18,7 @@ from nats.js.errors import BadRequestError
 from pydantic import ValidationError
 
 from screamingface_engine.config import Settings
-from screamingface_engine.runner_queue import RunQueue, encode_message
+from screamingface_engine.runner_queue import PublishOutcomeUnknown, RunQueue, encode_message
 from screamingface_engine.subjects import (
     RUN_QUEUE_STREAM,
     RUN_QUEUE_SUBJECT,
@@ -347,3 +347,32 @@ async def test_a_wake_up_failure_never_fails_the_publish() -> None:
 
     assert len(fake.published) == 1
     assert len(core.calls) == 1, "the wake-up must still be attempted"
+
+
+# --- OME-1859: only the run's own send is an unknown outcome -------------------------------
+
+
+class _SendTimesOut(_FakeJetStream):
+    async def publish(self, *args: Any, **kwargs: Any) -> object:
+        raise nats.errors.TimeoutError
+
+
+class _DeclareTimesOut(_FakeJetStream):
+    async def add_stream(self, **kwargs: Any) -> object:
+        raise nats.errors.TimeoutError
+
+
+async def test_an_unanswered_send_is_an_unknown_outcome() -> None:
+    """The broker may have stored the run, so the runner holds the caller's slot on this type."""
+    with pytest.raises(PublishOutcomeUnknown) as caught:
+        await _queue(_SendTimesOut()).publish(encode_message("t1", "'hi'", 60))
+
+    assert isinstance(caught.value.__cause__, nats.errors.TimeoutError)
+
+
+async def test_a_timeout_before_the_send_is_not_an_unknown_outcome() -> None:
+    """Nothing was sent, so it stays a plain timeout and the slot is released."""
+    with pytest.raises(nats.errors.TimeoutError) as caught:
+        await _queue(_DeclareTimesOut()).publish(encode_message("t1", "'hi'", 60))
+
+    assert not isinstance(caught.value, PublishOutcomeUnknown)

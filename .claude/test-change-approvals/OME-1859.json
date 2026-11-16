@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1859",
+  "branch": "OME-1859-jetstream-publish-unknown-outcome",
+  "approver": "Tauquir Ahmed (owner), who on 2026-11-10 chose the rule that an unknown publish outcome keeps the caller's slot, including this prior-test edit, after the #1732 review",
+  "date": "2026-11-10",
+  "scope": "One prior test and nothing else. test_queue_admission.py: test_a_schedule_cancelled_mid_publish_releases_its_reservation becomes test_a_schedule_cancelled_mid_publish_keeps_its_slot_for_the_retry: the same cancel mid-publish, now asserting, through the caller's cap count (`_cap_count`), that the caller still holds one slot and that, once its retry of the same topic lands, it holds one slot still (counted once); the docstring says why. No other test, helper or fixture changes.",
+  "reason": "OME-1859 (spec docs/spec/2026-11-10-jetstream-publish-unknown-outcome.md, D1-D3): a JetStream publish is at-least-once, so after the run's own send goes unanswered, or a cancel lands while it is in flight, the broker may have stored the run. Releasing the slot there let a stored run execute uncounted (the #1648 review's two repros). This test pinned the release on a cancel mid-publish; it now pins the held slot and that the landed retry is counted once.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_queue_admission.py": {
+      "base_blob": "d16796b04294c0571f43347f48dc34fe1265895f",
+      "approved_blob": "547295dbdb948bd94ab6cf5ed8350fe60b71e18c"
+    }
+  }
+}

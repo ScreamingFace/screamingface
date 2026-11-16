@@ -18,6 +18,7 @@ from test_signal_accounting_connector import _attempt, _cost
 
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.request_scope import RequestScope, request_scope
+from screamingface_engine.world.branch import install_branch_runtime
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from screamingface_engine.world.combine import install_combine_runtime
 from screamingface_engine.world.config import ModelSpec
@@ -107,6 +108,8 @@ async def run_candidate(
     try:
         install_candidate_invocation(world.node)
         install_combine_runtime(world.node, BUILTIN_OPERATORS)
+        # E4c (OME-1291): a gated fallback compiles to the Gate's branch endpoints.
+        install_branch_runtime(world.node)
         with request_scope(RequestScope(origin="run")):
             result = await url4_run(_wrapped_candidate(candidate), io=world.node)
     finally:

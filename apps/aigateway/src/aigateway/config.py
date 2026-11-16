@@ -177,17 +177,21 @@ class Settings(BaseSettings):
         default=None, validation_alias="AIGW_REMOTE_ENDPOINTS_CONFIG"
     )
 
-    # FEATURE (OME-1542): the request body cap, app-wide, on the bytes actually delivered. 8 MiB
-    # because MMMU's largest Case is 3.78 MB with its pictures inline (Khoa, OME-1542); HLE and
-    # MathVista are not measured yet, so the headroom is a guess. Over it: 413 naming the limit.
+    # FEATURE (OME-1542): the request body cap, app-wide, on the bytes actually delivered. Over
+    # it: 413 naming the limit.
+    # WHY 12 MiB (PR #1588, HupBaHa's review 2026-11-13, epic OME-1529): url4 admits up to
+    # 8,000,000 decoded attachment bytes per run (`MAX_ATTACHMENT_BYTES`) and sends them base64
+    # inline, 4/3 of that = 10,666,668 bytes. The old 8 MiB cap refused a legal 6.5 MB image.
+    # INVARIANT: this default is at least url4's attachment cap in base64 plus the prompt and JSON
+    # envelope; 12,582,912 leaves 1,916,244 bytes for them. Lower it only with url4's cap.
     max_request_bytes: int = Field(
-        default=8 * 1024 * 1024, gt=0, validation_alias="AIGW_MAX_REQUEST_BYTES"
+        default=12 * 1024 * 1024, gt=0, validation_alias="AIGW_MAX_REQUEST_BYTES"
     )
 
     # FEATURE: OME-1307 — one frozen-copy entry (request plus response JSON) is at most this many
     # bytes. A larger one is not stored; the capture is reported as `failed` (design F3).
-    # INVARIANT (OME-1756): by default the cap is the request cap plus the response headroom (10 MiB
-    # with the 8 MiB request cap), so a call fits unless its response is over 2 MiB or its request
+    # INVARIANT (OME-1756): by default the cap is the request cap plus the response headroom (14 MiB
+    # with the 12 MiB request cap), so a call fits unless its response is over 2 MiB or its request
     # grows when re-serialised (the two exceptions listed at `FROZEN_COPY_RESPONSE_HEADROOM_BYTES`;
     # both still answer the caller). It is computed from the validated request cap, so raising
     # `AIGW_MAX_REQUEST_BYTES` raises it too; declared after `max_request_bytes` because the

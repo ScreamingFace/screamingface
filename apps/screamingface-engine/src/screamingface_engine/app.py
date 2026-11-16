@@ -60,6 +60,7 @@ from screamingface_engine.metrics import (
     register_max_deliveries_metrics,
     register_queue_metrics,
     register_reaper_metrics,
+    register_runner_demand_metrics,
     register_sync_metrics,
 )
 from screamingface_engine.ops import router as ops_router
@@ -75,8 +76,10 @@ from screamingface_engine.rest import (
 )
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.cache_entries import router as cache_entries_router
+from screamingface_engine.rest.limits import router as limits_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.rest.runs import router as runs_router
+from screamingface_engine.runner_demand import DemandSource, RunnerDemandSampler
 from screamingface_engine.runs.wiring import install_runs
 from screamingface_engine.schemas import customize_openapi
 from screamingface_engine.tracing.loader import load_span_sink
@@ -101,6 +104,7 @@ _ROUTERS = (
     blob_router,
     benchmark_router,
     operator_router,
+    limits_router,
     catalog_router,
     connection_router,
     cache_entries_router,
@@ -186,6 +190,10 @@ def create_app(
         job_runner,
         settings,
         clock if clock is not None else default_clock,
+    )
+    # FEATURE: runner pool autoscaling on claimable queue demand (spec D2).
+    _install_runner_demand_sampler(
+        app, job_runner, settings, clock if clock is not None else default_clock
     )
     # FEATURE: a run the queue gave up on must end in a named failure, not silence
     # (OME-1090).
@@ -303,6 +311,11 @@ def _register_runner_metrics(app: FastAPI) -> None:
     # until now a number only the code enforcing it could see. Through a getter like the rest,
     # so it is read at SCRAPE time rather than captured at boot.
     register_active_runs_metrics(app.state.metrics, lambda: app.state.job_runner)
+    # FEATURE (runner-pool autoscaling, spec D3): the runner-demand snapshot as gauges for
+    # operators. `getattr`, because the sampler's installer runs after this registration.
+    register_runner_demand_metrics(
+        app.state.metrics, lambda: getattr(app.state, "runner_demand", None)
+    )
 
 
 # RFC 7518 §3.2: an HMAC key must be at least as long as the hash output — 32 bytes for SHA-256.
@@ -538,6 +551,7 @@ def _install_periodic(
     sweep: Callable[[], Awaitable[object]],
     failure_message: str,
     on_start: Callable[[], None],
+    sweep_on_start: bool = False,
 ) -> None:
     """Run ``sweep`` every ``tick_s`` seconds as ONE asyncio task on the App's own event loop,
     stored on ``app.state.<task_attr>``, started at startup and cancelled at shutdown.
@@ -546,14 +560,22 @@ def _install_periodic(
     unclaimed-run warner): each policy owns no task, and this is the one place the loop is
     written.
 
+    ``sweep_on_start`` runs one sweep as soon as the task starts, before the first sleep (the
+    runner-demand sampler: its first reading must not wait a full tick). Default False: the reaper
+    and the warner keep their behaviour.
+
     INVARIANT: a failed sweep is logged with ``failure_message`` and the cadence continues — a
     policy whose loop died silently would LOOK like "nothing happened". `CancelledError` is a
     BaseException and still propagates, so shutdown is unaffected.
     """
 
     async def _sweep_forever() -> None:
+        # WHY a delay variable: `sweep_on_start` makes only the FIRST wait 0 s; every later wait
+        # is `tick_s`. One loop body keeps the failure handling in one place.
+        delay = 0.0 if sweep_on_start else tick_s
         while True:
-            await asyncio.sleep(tick_s)
+            await asyncio.sleep(delay)
+            delay = tick_s
             try:
                 await sweep()
             except Exception:
@@ -629,6 +651,60 @@ def _install_unclaimed_run_warner(
         sweep=warner.sweep,
         failure_message="unclaimed-run sweep failed; retrying next interval",
         on_start=_armed,
+    )
+
+
+def _install_runner_demand_sampler(
+    app: FastAPI,
+    job_runner: JobRunner | None,
+    settings: Settings,
+    clock: Clock,
+) -> None:
+    """Wire the runner-demand sampler: one periodic task per App process that reads every bucket
+    consumer each `runner_demand_sample_s` and keeps the last good sample for `GET /runner-demand`
+    and the gauges.
+
+    Same shape as `_install_unclaimed_run_warner`: one task per App process, the loop is the
+    shared `_install_periodic`. It does not touch admission state. It samples once at startup so
+    the first reading does not wait a full tick.
+    """
+    app.state.runner_demand = None
+    app.state.runner_demand_task = None
+    if not isinstance(job_runner, DemandSource) or settings.runner_demand_sample_s <= 0:
+        # WHY structural: only a queue-backed runner reads bucket consumers. A stream-only App,
+        # the in-process runner and `URL4_CLOUD_RUNNER_DEMAND_SAMPLE_S=0` install nothing, and
+        # `/runner-demand` answers 404.
+        return
+    if getattr(job_runner, "reads_buckets", True) is False:
+        # WHY getattr: app.py reaches runners only through structural protocols and does not
+        # import `QueueJobRunner`. A `QueueJobRunner` over a queue without `bucket_readings`
+        # (unit-test fakes) is still a `DemandSource`; this check keeps it from logging a
+        # TypeError every tick. Default True keeps any other `DemandSource` installed.
+        return
+    sampler = RunnerDemandSampler(job_runner, stale_s=settings.runner_demand_stale_s, clock=clock)
+    app.state.runner_demand = sampler
+
+    def _armed() -> None:
+        # AIDEV-NOTE: the single-replica assumption is LOGGED, like the reaper's and the
+        # warner's. Every App replica would serve its own reading; the chart pins one replica.
+        _logger.info(
+            "runner demand sampler armed sample_s=%.1f stale_s=%.1f (assumes a single replica)",
+            settings.runner_demand_sample_s,
+            settings.runner_demand_stale_s,
+        )
+
+    # INVARIANT: one failed sample must not kill the sampler. The loop logs it, and the last good
+    # sample ages out to stale, so `/runner-demand` answers 503 and the HPA holds the count.
+    _install_periodic(
+        app,
+        task_attr="runner_demand_task",
+        tick_s=settings.runner_demand_sample_s,
+        sweep=sampler.sample,
+        failure_message=(
+            "runner demand sample failed; /runner-demand goes stale (503) if this persists"
+        ),
+        on_start=_armed,
+        sweep_on_start=True,
     )
 
 

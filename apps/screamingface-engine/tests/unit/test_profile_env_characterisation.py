@@ -1,7 +1,9 @@
-"""Local listing ambiguity characterization and worker fakes shared by queue tests.
+"""Worker fakes left from the retired Profile queue/env carrier coverage.
 
-The retired Profile queue/env carrier coverage left with OME-1449. The listing's 409 ambiguity
-rule is an independent retained consumer obligation from OME-1199 and remains pinned here.
+The carrier coverage left with OME-1449. The Local listing's label-rule ambiguity, pinned here
+for OME-1199, left with OME-1832: the Engine selects the row the gateway flags `effective`, and
+no effective row with two or more active ones is refused before any write
+(`test_connections_aigateway_effective_writes.py`).
 """
 
 import asyncio
@@ -9,14 +11,7 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
-import httpx
-import pytest
-
-from screamingface_engine.connections.aigateway import AigatewayConnections
-from screamingface_engine.connections.port import Caller, ConnectionConflict
 from url4.streaming.protocol import TerminatedEvent
-
-pytestmark = pytest.mark.asyncio
 
 # --- the worker's fakes: the slice of the queue, the publisher and the child the claim path
 # touches, mirroring `test_worker_claim.py` -----------------------------------------------------
@@ -79,94 +74,3 @@ class _FakeQueue:
             return served
         await asyncio.sleep(timeout_s)
         return []
-
-
-# The Local listing refuses when more than one managed row exists, whatever its status.
-
-
-def _adapter(
-    rows: list[dict[str, object]], *, listed: str = "not_connected"
-) -> AigatewayConnections:
-    def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/v1/provider-access":
-            # OME-1138 L7b: the Local status is the one the gateway lists, never the row's.
-            access = [{"provider": "openrouter", "status": listed}]
-            return httpx.Response(200, json={"providers": access})
-        if request.url.path == "/v1/providers":
-            return httpx.Response(
-                200,
-                json={
-                    "object": "list",
-                    "data": [
-                        {
-                            "object": "provider",
-                            "id": "openrouter",
-                            "display_name": "OpenRouter",
-                            "auth_methods": ["api_key"],
-                        }
-                    ],
-                },
-            )
-        return httpx.Response(200, json={"connections": rows})
-
-    client = httpx.AsyncClient(
-        base_url="http://aigateway.test", transport=httpx.MockTransport(handler)
-    )
-    return AigatewayConnections(client)
-
-
-def _managed_row(connection_id: str, status: str) -> dict[str, object]:
-    return {
-        "id": connection_id,
-        "account_id": "00000000-0000-0000-0000-000000000099",
-        "provider": "openrouter",
-        "label": "screamingface",
-        "status": status,
-        "auth_type": "api_key",
-        "account": None,
-        "credential_locator": {"service": "must-not-leak", "account": "default"},
-        "created_at": "2026-07-31T00:00:00Z",
-        "last_used_at": None,
-        "last_refreshed_at": None,
-        "error_message": None,
-        "is_duplicate": False,
-    }
-
-
-_ROW_A = "00000000-0000-0000-0000-000000000001"
-_ROW_B = "00000000-0000-0000-0000-000000000002"
-
-
-@pytest.mark.parametrize("other_status", ["pending", "expired", "error", "revoked"])
-async def test_one_active_and_one_other_managed_row_of_any_status_is_a_conflict(
-    other_status: str,
-) -> None:
-    """# INVARIANT (legacy, pinned): the label rule (`_selection`, `connections/aigateway_rows.py`;
-    since OME-1138 L7b only the fallback for a gateway listing no `effective` flag) counts every
-    managed-label row for the provider regardless of `status`; two of them refuse with
-    `ConnectionConflict` (409 at the REST edge). The gateway's default listing already hides
-    revoked rows (`OAuthConnectionStore.list` excludes them), so in practice the rule reads
-    "more than one NON-REVOKED managed row of any status" — but the adapter itself is
-    status-blind, which is what a gateway-side reproduction (A3) must know.
-    """
-    adapter = _adapter([_managed_row(_ROW_A, "active"), _managed_row(_ROW_B, other_status)])
-
-    with pytest.raises(ConnectionConflict):
-        await adapter.list(Caller())
-
-
-async def test_two_non_active_managed_rows_are_a_conflict_too() -> None:
-    adapter = _adapter([_managed_row(_ROW_A, "pending"), _managed_row(_ROW_B, "error")])
-
-    with pytest.raises(ConnectionConflict):
-        await adapter.list(Caller())
-
-
-async def test_a_single_non_active_managed_row_is_not_a_conflict() -> None:
-    """Control: one managed row, whatever its status, is selected rather than refused."""
-    adapter = _adapter([_managed_row(_ROW_A, "pending")], listed="pending")
-
-    (connection,) = await adapter.list(Caller())
-
-    assert connection.status == "pending"
-    assert connection.auth_method == "api_key"

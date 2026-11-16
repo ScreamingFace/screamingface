@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -29,16 +28,23 @@ from screamingface._evaluation.results import report_from_url4_outcome
 from screamingface._evaluation.topology import (
     _operation_shape,
     _RecipeTopology,
+    _result_binding,
     _topology_bindings,
     _topology_from_expression,
     _TopologyBinding,
 )
+from screamingface._operation_bindings import FINAL_BINDING, GATE_BLOCK, gate_join
 from screamingface.errors import ExecutionError
 from screamingface.events import Event
 from screamingface.operation import OperationInfo
 from screamingface.report import Report
+from screamingface.url4 import (
+    _JOIN_MODEL,
+    _combine_operator_pairs,
+    _topology_children,
+    _validate_topology,
+)
 from screamingface.url4 import _calls as _url4_calls
-from screamingface.url4 import _combine_operator_pairs, _validate_topology
 
 #: What a raw-URL4 or replay evaluation is called before it runs: in the progress output, and as
 #: its Run's benchmark, with 0 (unknown) Cases.
@@ -248,15 +254,18 @@ def _replayed_url4(value: str) -> _Replay:
     calls = {name: (call.model, call.dependencies) for name, call in parsed_calls.items()}
     final = _final_binding(candidate.intent.value, calls, topology)
     _validate_topology(candidate, topology, parsed_calls, final)
+    bindings = _topology_bindings(topology)
+    selectors = _gate_selectors(topology)
+    calls = _with_join_edges(calls, bindings, selectors)
     selected = (
-        set(_topology_bindings(topology))
+        set(bindings)
         if topology.kind in {"corrective_loop", "self_corrective"}
-        else _dependency_closure(final, calls)
+        else _dependency_closure(gate_join(final), calls)
     )
     pinned = _combine_operator_pairs(parsed_calls)
     # No I/O here: the form check shares its message with the corrective-loop recompile.
     _OperatorCatalog.from_pinned(pinned)
-    recovered = _candidate_from_topology(url4, topology, calls, selected)
+    recovered = _candidate_from_topology(url4, topology, bindings, calls, selected, selectors)
     labels = {operation.id: operation.label for operation in recovered.operations}
     kinds = {operation.id: operation.kind for operation in recovered.operations}
     seeded = tuple(
@@ -286,10 +295,11 @@ def _require_known_operators(
 def _candidate_from_topology(
     url4: str,
     topology: _RecipeTopology,
+    bindings: dict[str, _TopologyBinding],
     calls: dict[str, tuple[str, tuple[str, ...]]],
     selected: set[str],
+    selectors: dict[str, tuple[str, ...]],
 ) -> Candidate:
-    bindings = _topology_bindings(topology)
     corrective = topology.kind in {"corrective_loop", "self_corrective"}
     fusion_names = _direct_fusion_output_names(topology)
     operations = tuple(
@@ -300,10 +310,10 @@ def _candidate_from_topology(
     members = (
         tuple(
             _member_projection(
-                operation_id=f"op_{member.binding}",
+                operation_id=f"op_{_result_binding(member)}",
                 name=member.name,
                 kind=_candidate_kind(member.kind),
-                models=_models(member.binding, calls),
+                models=_models(_result_binding(member), calls, selectors),
             )
             for member in topology.members
         )
@@ -313,7 +323,7 @@ def _candidate_from_topology(
     models = (
         tuple(dict.fromkeys(calls[name][0] for name in bindings if calls[name][0] != COMBINE_MODEL))
         if corrective
-        else _models(topology.binding, calls)
+        else _models(_result_binding(topology), calls, selectors)
     )
     return _compiled_candidate(
         name=topology.name,
@@ -346,8 +356,7 @@ def _direct_fusion_output_names(value: _RecipeTopology) -> dict[str, str]:
     def visit(node: _RecipeTopology) -> None:
         if node.kind in {"model", "reducer"}:
             return
-        children = node.stages if node.kind == "pipeline" else node.members
-        for child in children:
+        for child in _child_nodes(node):
             visit(child)
         if node.synthesizer is not None:
             visit(node.synthesizer)
@@ -364,6 +373,18 @@ def _direct_fusion_output_names(value: _RecipeTopology) -> dict[str, str]:
     return selected
 
 
+def _child_nodes(node: _RecipeTopology) -> tuple[_RecipeTopology, ...]:
+    """The recipe children a Fusion name walk enters (E4c: a Gate's panel and recipe branches)."""
+
+    if node.kind == "gate":
+        return tuple(
+            child
+            for child in (node.panel, node.then_branch, node.otherwise_branch)
+            if isinstance(child, _RecipeTopology)
+        )
+    return node.stages if node.kind == "pipeline" else node.members
+
+
 def _candidate_text(root: object) -> str:
     if isinstance(root, Expression):
         for node in root.sources:
@@ -378,20 +399,20 @@ def _candidate_text(root: object) -> str:
     )
 
 
-def _candidate_calls(candidate: Expression) -> dict[str, tuple[str, tuple[str, ...]]]:
-    return {name: (call.model, call.dependencies) for name, call in _url4_calls(candidate).items()}
-
-
 def _final_binding(
     intent: str,
     calls: dict[str, tuple[str, tuple[str, ...]]],
     topology: _RecipeTopology,
 ) -> str:
-    match = re.fullmatch(r"\$(model_\d+|synthesis_\d+|loop_candidate)", intent)
+    match = FINAL_BINDING.fullmatch(intent)
     if match is None:
         raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
     selected = match.group(1)
-    if topology.kind in {"corrective_loop", "self_corrective"}:
+    if GATE_BLOCK.fullmatch(selected):
+        # E4c: the result of a Gate block is its JOIN call, which must be a decoded call.
+        if gate_join(selected) not in calls:
+            raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
+    elif topology.kind in {"corrective_loop", "self_corrective"}:
         if selected != topology.binding:
             raise ValueError("Evaluation URL4 Candidate has an unsupported result binding")
     elif selected not in calls:
@@ -418,15 +439,61 @@ def _dependency_closure(
     return selected
 
 
+def _gate_selectors(node: _RecipeTopology) -> dict[str, tuple[str, ...]]:
+    """Each Gate's JOIN, mapped to the selector calls it lists (only a tree root lists any)."""
+
+    gates = {}
+    if node.kind == "gate":
+        gates[node.join_binding] = tuple(selector.binding for selector in node.selectors)
+    for child in _topology_children(node):
+        gates |= _gate_selectors(child)
+    return gates
+
+
+def _with_join_edges(
+    calls: dict[str, tuple[str, tuple[str, ...]]],
+    bindings: dict[str, _TopologyBinding],
+    selectors: dict[str, tuple[str, ...]],
+) -> dict[str, tuple[str, tuple[str, ...]]]:
+    """Give each Gate's JOIN the edges of its operation: its panel, its bodies, its selectors.
+
+    WHY (E4c): the JOIN's context names only Gate helpers, so its parsed dependencies are empty
+    and a dependency closure through it (``sf.Gate >> sf.Model``) would miss every model the Gate
+    may call; each of them is part of the Candidate even when a Case does not run it.
+    """
+
+    edges = dict(calls)
+    for join, own in selectors.items():
+        model, dependencies = edges[join]
+        block = (*bindings[join].operation_dependencies, *own)
+        edges[join] = (model, tuple(dict.fromkeys((*dependencies, *block))))
+    return edges
+
+
 def _models(
     name: str,
     calls: dict[str, tuple[str, tuple[str, ...]]],
+    selectors: dict[str, tuple[str, ...]],
 ) -> tuple[str, ...]:
+    """The routes ``name`` reaches, in call order; ``selectors`` maps a Gate's JOIN to its own.
+
+    WHY a selector moves to its JOIN (E4c): the url4 hoists a selector call above its Gate tree,
+    but the compiler lists a Gate's models as panel, bodies, then selectors (``_Gate._resolved``),
+    and a Candidate's models are ordered.
+    """
+
     selected = _dependency_closure(name, calls)
+    hoisted = {selector for join in selected for selector in selectors.get(join, ())}
+    ordered: list[str] = []
+    for key in calls:
+        if key in selected and key not in hoisted:
+            ordered.extend((key, *selectors.get(key, ())))
     # INVARIANT: the combine route is a join, never a model a Run needs available.
     return tuple(
         dict.fromkeys(
-            route for key, (route, _) in calls.items() if key in selected and route != COMBINE_MODEL
+            route
+            for route in (calls[binding][0] for binding in ordered)
+            if route not in (COMBINE_MODEL, _JOIN_MODEL)
         )
     )
 

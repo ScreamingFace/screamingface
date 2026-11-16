@@ -137,30 +137,22 @@ def _compile_signals(
     models: list[str] = []
     for signal, role in zip(signals, roles, strict=True):
         route = _canonical_model(signal.model)
-        feed, feed_dependencies, projection = context, dependencies, None
-        if signal.field is not None:
-            projection = _projection_source(
-                compiler,
-                fusion,
-                signal,
-                spec_text=projections[signal.key],
-                context=context,
-                dependencies=dependencies,
-            )
-            # PM-6: the writer reads this one call and nothing else.
-            feed, feed_dependencies = f"${projection.binding}", (f"op_{projection.binding}",)
-        source = _model_signal_source(
+        # E4c lazy fallback (LF-16): call #2 reads the signal call that call #1 made (a scores
+        # judge runs once per Case), so only the fallback call is new in the gated body.
+        entry = compiler._reused_signals.get(signal.key) or _new_signal(
             compiler,
             fusion,
-            signal if panel is None or role != "judge" else panel_judge_signal(signal),
-            route=route,
+            signal,
             role=role,
-            context=feed,
-            dependencies=feed_dependencies,
+            route=route,
+            context=context,
+            dependencies=dependencies,
+            projection_spec=projections.get(signal.key),
+            panel=panel,
         )
-        references[signal.key] = f"${source.binding}"
-        topology.append(_SignalTopology(signal.key, source, projection))
-        operation_ids.append(f"op_{source.binding}")
+        references[signal.key] = f"${entry.source.binding}"
+        topology.append(entry)
+        operation_ids.append(f"op_{entry.source.binding}")
         models.append(route)
     return _CompiledSignals(
         references=MappingProxyType(references),
@@ -168,6 +160,45 @@ def _compile_signals(
         operation_ids=tuple(operation_ids),
         models=tuple(models),
     )
+
+
+def _new_signal(
+    compiler: _CandidateCompiler,
+    fusion: FusionNode,
+    signal: _ModelSignal,
+    *,
+    role: _SignalRole,
+    route: str,
+    context: str,
+    dependencies: tuple[str, ...],
+    projection_spec: str | None,
+    panel: str | None,
+) -> _SignalTopology:
+    """Append one signal call (and the projection a writer reads) and describe it."""
+
+    feed, feed_dependencies, projection = context, dependencies, None
+    if signal.field is not None:
+        assert projection_spec is not None
+        projection = _projection_source(
+            compiler,
+            fusion,
+            signal,
+            spec_text=projection_spec,
+            context=context,
+            dependencies=dependencies,
+        )
+        # PM-6: the writer reads this one call and nothing else.
+        feed, feed_dependencies = f"${projection.binding}", (f"op_{projection.binding}",)
+    source = _model_signal_source(
+        compiler,
+        fusion,
+        signal if panel is None or role != "judge" else panel_judge_signal(signal),
+        route=route,
+        role=role,
+        context=feed,
+        dependencies=feed_dependencies,
+    )
+    return _SignalTopology(signal.key, source, projection)
 
 
 def _signal_call_role(signal: _ModelSignal) -> _SignalRole:
