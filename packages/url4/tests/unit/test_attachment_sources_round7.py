@@ -491,8 +491,9 @@ async def test_case_attachments_count_toward_the_entry_cap() -> None:
 
 @pytest.mark.asyncio
 async def test_eight_million_bytes_are_within_the_cap() -> None:
-    # WHY the name keeps "eight million": the cap was 8,000,000 when this was written; it is
-    # MAX_ATTACHMENT_BYTES now (6,000,000 since PR #1588, sized to the gateway's request cap).
+    # WHY the name keeps "eight million": the cap was 8,000,000 when this was written, 6,000,000
+    # in PR #1588 round 5, and 8,000,000 again once the gateway's request cap rose to 12 MiB
+    # (OME-1926); the test reads MAX_ATTACHMENT_BYTES, so it holds whatever the cap is.
     io, model, text = _many(2, MAX_ATTACHMENT_BYTES // 2)
     assert await run(text, io, process=model) == "ok"
     assert sum(len(a.body) for a in model.seen[0]) == MAX_ATTACHMENT_BYTES

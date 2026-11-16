@@ -1,11 +1,11 @@
 """A chat request carrying url4's largest legal attachment passes the gateway's real body cap.
 
 FEATURE: image and PDF inputs (epic ``OME-1529``, unit ``OME-1545``; PR #1588 review blocker 2,
-owner decision 2026-11-13). url4 admits at most ``MAX_ATTACHMENT_BYTES`` decoded attachment bytes
+owner decision 2026-11-15). url4 admits at most ``MAX_ATTACHMENT_BYTES`` decoded attachment bytes
 per run and the Engine sends them base64-encoded in every model call. INVARIANT: such a call, with
 the Engine's 256 KiB envelope reserve, is not refused ``request_too_large`` by the real app at its
-default cap; a picture past the old 8,000,000-byte url4 cap (the reviewer's 6,500,000-byte case
-is already over) still is.
+default cap (12 MiB since OME-1926; the old 8 MiB default refused it); a picture well past url4's
+cap still is.
 
 url4's cap is read from its source with ``ast``, never imported: url4 is not installed in this
 project. The Engine suite holds the twin
@@ -76,9 +76,11 @@ def test_url4s_largest_legal_picture_is_not_refused_by_the_body_cap(
 def test_a_picture_past_the_aligned_cap_is_refused_by_the_body_cap(
     default_cap, authenticated_client
 ) -> None:
+    # WHY 1,500,000 over: 9,500,000 decoded bytes encode to 12,666,668 — over the 12 MiB cap by
+    # themselves, so the refusal does not hinge on the envelope's size.
     resp = authenticated_client.post(
         "/v1/chat/completions",
-        content=_picture_request(6_500_000),
+        content=_picture_request(_url4_attachment_cap() + 1_500_000),
         headers={"content-type": "application/json"},
     )
 
@@ -137,7 +139,7 @@ def test_the_engines_request_at_exactly_the_cap_passes_the_body_cap(
     assert resp.status_code != 413, resp.text
     assert "request_too_large" not in resp.text
     # WHY: the next refusal after the body cap — this test provisions no provider profile —
-    # proves the whole 8,388,608-byte body was read, parsed as JSON and routed by its model.
+    # proves the whole 12,582,912-byte body was read, parsed as JSON and routed by its model.
     assert resp.json()["detail"] == {
         "code": "profile_not_found",
         "provider": "anthropic",

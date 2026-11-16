@@ -1,9 +1,10 @@
 """A run holding url4's largest legal attachments still fits in one gateway request (OME-1545).
 
 FEATURE: image and PDF inputs (epic ``OME-1529``; PR #1588 review blocker 2, owner decision
-2026-11-13). Every model call of a url4 run carries the run's files as base64 ``data:`` URIs, and
-the gateway refuses a body over its cap with a permanent 413 ``request_too_large``. Before, url4
-admitted 8,000,000 decoded bytes, which encode to 10,666,668 — every such run failed every call.
+2026-11-15). Every model call of a url4 run carries the run's files as base64 ``data:`` URIs, and
+the gateway refuses a body over its cap with a permanent 413 ``request_too_large``. url4 admits
+8,000,000 decoded bytes, which encode to 10,666,668 — over the gateway's old 8 MiB default, so
+every such run failed every call; the gateway default rose to 12 MiB (OME-1926) to fit it.
 
 INVARIANT: ``4 * ceil(cap / 3)`` for the files, plus the base64 padding of 20 entries, plus a
 per-part overhead for each, plus the request envelope reserve, is at most the gateway's default
@@ -159,7 +160,7 @@ async def test_a_call_carrying_the_cap_in_one_picture_is_delivered_under_the_gat
 # INVARIANT: ``apps/aigateway/tests/fixtures/url4_attachment_cap_request/recipe.json`` expands to
 # EXACTLY the bytes the Engine delivers for a call carrying url4's largest legal picture, at the
 # gateway cap and one byte over it. aigateway's ``test_url4_attachment_cap_request.py`` posts the
-# SAME expansion into the real gateway app at its default cap: 8,388,608 bytes pass, 8,388,609
+# SAME expansion into the real gateway app at its default cap: 12,582,912 bytes pass, 12,582,913
 # are ``413 request_too_large``. The two halves share data, never code (apps do not import each
 # other), so the recipe is the one size contract between them.
 # AIDEV-NOTE: when the Engine's request envelope changes on purpose, this half fails first with
@@ -282,7 +283,7 @@ async def test_the_engine_delivers_exactly_the_recipes_bytes_at_the_gateway_boun
     side: str,
 ) -> None:
     # STORY: the reviewer's "real Engine-to-Gateway boundary": what the Engine really sends at
-    # 8,388,608 and 8,388,609 bytes is, byte for byte, what aigateway's half posts to its app.
+    # 12,582,912 and 12,582,913 bytes is, byte for byte, what aigateway's half posts to its app.
     recipe = _recipe()
     total = recipe["boundary_bytes"][side]
     prompt = recipe["prompt_fill"] * _text_room(recipe, total)
@@ -298,9 +299,10 @@ async def test_the_engine_delivers_exactly_the_recipes_bytes_at_the_gateway_boun
     assert _first_difference(body, _expanded(recipe, total)) is None
 
 
-def test_at_the_attachment_cap_a_call_has_about_388_kb_of_text_room() -> None:
+def test_at_the_attachment_cap_a_call_has_about_1_9_mb_of_text_room() -> None:
     # WHY: pins the number ``url4/dag/_caps.py``'s WHY comment states — the JSON-encoded text a
-    # model call may carry beside one cap-sized picture before the gateway returns 413.
+    # model call may carry beside one cap-sized picture before the gateway returns 413:
+    # 12,582,912 - 10,666,668 (the picture's base64) - 209 (the envelope) = 1,916,035.
     room = _text_room(_recipe(), _gateway_body_cap())
 
-    assert 387_000 <= room <= 389_000
+    assert 1_915_000 <= room <= 1_917_000
