@@ -1,9 +1,9 @@
 ---
 ticket: OME-1894
 stack: repo
-status: in_progress
+status: done
 started: 2026-11-12
-finished:
+finished: 2026-11-16
 ---
 
 # agent-skill-and-md-endpoints: Experience using SF with Claude Code / Codex is good
@@ -109,5 +109,5 @@ The prompt block with a copy button, the troubleshooting table (symptom, cause, 
 - **Deviations:** (1) No probe file: `check-deployed.sh` replaces it (spec D15). (2) No `CopyBlock` component: the existing `CodeBlock` has the copy button. (3) The nav entry is in "How-to guides", not "Get started". (4) The Caddy `basicauth` example and the "Remaining for go-live" section of `public-docs/README.md` are unchanged. (5) The skill holds an index of links in place of 44 reference files (spec D3, D9), after the review of the first version.
 - **Agent tests:** `sf-skill-test/test-first-fusion.md` (outside the repository) holds four runs of one prompt. With only `Skill` and `Read` and the local pages, the agent wrote a `Fanout >> Synthesize` chain whose names are in `__all__` and whose signatures match, and listed the pages it read. With only `Skill` and `WebFetch`, every fetch returned the page title, because the live site serves no `.md` file before the deploy. The code was not executed.
 - **Installs from GitHub:** `npx skills add "ScreamingFace/screamingface#<branch>"` and `claude plugin marketplace add "ScreamingFace/screamingface#<branch>"` install the skill with 320 index links.
-- **Not verified:** the `Content-Type` of a deployed `.md` file and the live fetch test, until the merge and deploy and `check-deployed.sh`; the hosted login prompt; the execution of an agent's output; CodeQL alerts #25 and #26 on the older commit.
+- **Not verified:** the `Content-Type` of a deployed `.md` file and the live fetch test, until the merge and deploy and `check-deployed.sh`; the hosted login prompt; the execution of an agent's output.
 - **Review report:** in this ledger, for the new page.
