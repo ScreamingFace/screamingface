@@ -130,6 +130,15 @@ _AUTHORS_PROMPT_SHA256: dict[str, tuple[tuple[str, str, str | None, str], tuple[
             "fc686cc75ae04fe559c288f8a33d8f96d5b50e581cf97bbce7502eb91764673e",
         ),
     ),
+    # Previous answers but no [image_1]: the authors add the previous-answers sentence and no
+    # picture sentence. Without this row a builder that always adds the picture sentence passes.
+    "text only, with previous answers": (
+        ("[Name] X\nno pictures here", "stand-in", _NORMAL_PREV_ANSWERS, "PuzzledPint"),
+        (
+            "9d8ddac59a770883bad6851ac00a3cc18d54465d4a72e33f38d3d06e905c667f",
+            "fc686cc75ae04fe559c288f8a33d8f96d5b50e581cf97bbce7502eb91764673e",
+        ),
+    ),
 }
 
 _CANARY: str = (
@@ -416,8 +425,13 @@ def _score(reply: str, gold: str) -> Score:
         ("RIGHT", "The answer is RIGHT.", 0.0),
     ],
 )
-def test_the_scorer_marks_as_the_authors_code_marks(gold: str, reply: str, value: float) -> None:
-    """INVARIANT: the authors' reader and normaliser decide; our scorer only maps to 1 or 0."""
+def test_the_scorer_marks_as_the_authors_code_marks(
+    gold: str, reply: str, value: float, no_network: None
+) -> None:
+    """INVARIANT: the authors' reader and normaliser decide; our scorer only maps to 1 or 0.
+
+    Graded with the network refused, because a run pod has none: grading must fetch nothing.
+    """
 
     score: Score = _score(reply, gold)
 
@@ -427,8 +441,8 @@ def test_the_scorer_marks_as_the_authors_code_marks(gold: str, reply: str, value
     )
 
 
-def test_a_reply_with_no_answer_box_says_so() -> None:
-    """The Report shows why a reply scored 0 when it never filled the box."""
+def test_a_reply_with_no_answer_box_says_so(no_network: None) -> None:
+    """The Report shows why a reply scored 0 when it never filled the box, offline as in a pod."""
 
     score: Score = _score("I could not solve it.", "RIGHT")
 
