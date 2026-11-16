@@ -43,6 +43,6 @@ site's Divio split: a reference page for `sf.runs` and a how-to guide for managi
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:** as planned (2 new pages + 5 edits).
-- **Commits:** <filled at commit>
+- **Commits:** 77194c409 — docs(public-docs): add sf.runs reference and a Managing experiments guide
 - **Gates:** `npm run type-check` ✓ · `npm run lint` ✓ · `npm run build` ✓.
 - **Deviations:** none.
