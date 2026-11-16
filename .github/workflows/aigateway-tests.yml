@@ -86,6 +86,8 @@ jobs:
 
       - name: Test report
         uses: dorny/test-reporter@v3
+        # Publishing only: the test step fails the job; a spent GITHUB_TOKEN limit must not.
+        continue-on-error: true
         if: always()
         with:
           name: AI Gateway Test Results (${{ matrix.python-version }})
@@ -94,6 +96,8 @@ jobs:
 
       - name: Coverage report
         uses: orgoro/coverage@v3.3
+        # Publishing only: the test step fails the job; a spent GITHUB_TOKEN limit must not.
+        continue-on-error: true
         if: always() && github.event_name == 'pull_request'
         with:
           coverageFile: apps/aigateway/coverage.xml
