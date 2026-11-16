@@ -29,7 +29,6 @@ from test_case_result_memory import _CANDIDATE, _MODEL, _reply, _write_bundle  #
 from screamingface_engine.artifacts.filesystem import FilesystemArtifactStore  # noqa: E402
 from screamingface_engine.benchmarks import link_candidate, result_body  # noqa: E402
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS  # noqa: E402
-from screamingface_engine.benchmarks.contract import CandidateResult  # noqa: E402
 from screamingface_engine.benchmarks.grading_endpoints import compact_json  # noqa: E402
 from screamingface_engine.runner.main import build_executor  # noqa: E402
 from screamingface_engine.subjects import RUN_ROOT_NODE  # noqa: E402
@@ -95,21 +94,30 @@ class _BrokenSink:
 
 
 @pytest.fixture
-def capture(monkeypatch: pytest.MonkeyPatch) -> list[CandidateResult]:
-    """Records each CandidateResult the aggregate hands to the result body.
+def capture(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Records the expected text of each result body the aggregate hands to the spool.
 
-    WHY the patch: deliver_result imports HeldResultBody from result_body at call time, so the
-    model it delivers is the one the aggregate produced.
+    WHY at write_result_body: deliver_result calls result_body.write_result_body at call time
+    for every ResultBody, held or parked, so the capture does not depend on how the aggregate
+    holds its Cases. For a held body the expected text is also checked against
+    compact_json(as_payload()), the bytes before memory fix 3.
     """
 
-    seen: list[CandidateResult] = []
-    original = result_body.HeldResultBody
+    seen: list[str] = []
+    original = result_body.write_result_body
 
-    def _recording(result: CandidateResult) -> Any:
-        seen.append(result)
-        return original(result)
+    def _recording(body: result_body.ResultBody, write: Any) -> None:
+        # WHY the original: encode_result_body calls the module's write_result_body,
+        # which is this wrapper while the patch is on.
+        pieces: list[str] = []
+        original(body, pieces.append)
+        expected = "".join(pieces)
+        if isinstance(body, result_body.HeldResultBody):
+            assert expected == compact_json(body.result.as_payload())
+        seen.append(expected)
+        original(body, write)
 
-    monkeypatch.setattr(result_body, "HeldResultBody", _recording)
+    monkeypatch.setattr(result_body, "write_result_body", _recording)
     return seen
 
 
@@ -162,19 +170,19 @@ async def _run(
 
 @pytest.mark.asyncio
 async def test_a_small_result_rides_inline_byte_identical(
-    tmp_path: Path, capture: list[CandidateResult]
+    tmp_path: Path, capture: list[str]
 ) -> None:
     result, terminated = await _run(tmp_path, 5, {})
 
     assert terminated.data.status == "succeeded"
     assert len(capture) == 1
     assert result.data.artifact is None
-    assert result.data.body == compact_json(capture[0].as_payload())
+    assert result.data.body == capture[0]
 
 
 @pytest.mark.asyncio
 async def test_a_spilled_result_redeems_to_byte_identical_bytes(
-    tmp_path: Path, capture: list[CandidateResult]
+    tmp_path: Path, capture: list[str]
 ) -> None:
     result, terminated = await _run(tmp_path, 5, {"URL4_CLOUD_RESULT_INLINE_CAP_BYTES": "1024"})
 
@@ -183,7 +191,7 @@ async def test_a_spilled_result_redeems_to_byte_identical_bytes(
     artifact = result.data.artifact
     assert artifact is not None
     data = (tmp_path / "art" / artifact.id).read_bytes()
-    expected = compact_json(capture[0].as_payload()).encode("utf-8")
+    expected = capture[0].encode("utf-8")
     assert data == expected
     assert artifact.size_bytes == len(data)
     assert artifact.sha256 == hashlib.sha256(data).hexdigest()
@@ -192,9 +200,7 @@ async def test_a_spilled_result_redeems_to_byte_identical_bytes(
 
 
 @pytest.mark.asyncio
-async def test_the_run_body_is_never_a_spool_reference(
-    tmp_path: Path, capture: list[CandidateResult]
-) -> None:
+async def test_the_run_body_is_never_a_spool_reference(tmp_path: Path, capture: list[str]) -> None:
     result, terminated = await _run(tmp_path, 5, {"URL4_CLOUD_RESULT_INLINE_CAP_BYTES": "1024"})
 
     assert terminated.data.status == "succeeded"

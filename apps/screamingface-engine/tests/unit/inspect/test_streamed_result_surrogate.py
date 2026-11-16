@@ -37,7 +37,6 @@ from test_case_result_memory import _CANDIDATE, _MODEL, _reply, _write_bundle  #
 from screamingface_engine.benchmarks import link_candidate  # noqa: E402
 from screamingface_engine.benchmarks import result_body as result_body_module  # noqa: E402
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS  # noqa: E402
-from screamingface_engine.benchmarks.contract import CandidateResult  # noqa: E402
 from screamingface_engine.benchmarks.grading_endpoints import compact_json  # noqa: E402
 from screamingface_engine.runner.main import build_executor  # noqa: E402
 from screamingface_engine.subjects import RUN_ROOT_NODE  # noqa: E402
@@ -140,27 +139,45 @@ async def _run_hosted(tmp_path: Path, inline_cap: int | None) -> tuple[_Recorder
     return recorder, gateway.calls
 
 
+def _capture_bodies(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Record the expected text of each result body the aggregate hands to the spool.
+
+    WHY at write_result_body: deliver_result calls it at call time for every ResultBody, held
+    or parked, so the capture does not depend on how the aggregate holds its Cases. For a held
+    body the expected text is also checked against compact_json(as_payload()).
+    """
+
+    captured: list[str] = []
+    original = result_body_module.write_result_body
+
+    def capturing_writer(body: result_body_module.ResultBody, write: Any) -> None:
+        # WHY the original: encode_result_body calls the module's write_result_body,
+        # which is this wrapper while the patch is on.
+        pieces: list[str] = []
+        original(body, pieces.append)
+        expected = "".join(pieces)
+        if isinstance(body, result_body_module.HeldResultBody):
+            assert expected == compact_json(body.result.as_payload())
+        captured.append(expected)
+        original(body, write)
+
+    monkeypatch.setattr(result_body_module, "write_result_body", capturing_writer)
+    return captured
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("inline_cap", [None, 1024], ids=["inline", "spilled"])
 async def test_a_lone_surrogate_fails_its_case_and_the_body_stays_exact(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, inline_cap: int | None
 ) -> None:
-    captured: list[CandidateResult] = []
-    held = result_body_module.HeldResultBody
-
-    def capturing_body(result: CandidateResult) -> Any:
-        captured.append(result)
-        return held(result)
-
-    # WHY the module attribute: deliver_result imports HeldResultBody at call time.
-    monkeypatch.setattr(result_body_module, "HeldResultBody", capturing_body)
+    captured = _capture_bodies(monkeypatch)
 
     recorder, calls = await _run_hosted(tmp_path, inline_cap)
 
     assert calls == _CASES
     assert recorder.data_of("terminated").status == "succeeded"
     assert len(captured) == 1, "the aggregate must hand exactly one result to the spool"
-    expected = compact_json(captured[0].as_payload())
+    expected = captured[0]
     result = recorder.data_of("result")
     if inline_cap is None:
         assert result.artifact is None
