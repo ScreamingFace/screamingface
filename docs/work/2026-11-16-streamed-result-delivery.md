@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1835
 stack: screamingface-engine
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-11-16
@@ -89,7 +89,7 @@ case no longer doubles. The peak that remains is the `CaseResult` list (unit 2).
     medxpert_aggregate_result,aggregate_result_methods,streamed_aggregate_routes}.py` and
     `tests/unit/inspect/test_{report_memory_script,streamed_result_memory,streamed_result_hosted,
     streamed_result_surrogate,streamed_judged_aggregate}.py`.
-- **Commits:** one local commit on `worktree-streamed-result-delivery` (not pushed).
+- **Commits:** on branch `OME-1835-streamed-result-delivery`; the PR is squash-merged.
 - **Gates:** engine gates green (`run_gates.py screamingface-engine --base origin/main`);
   inspect lane 3,046 passed (3,035 before the unit). One gate run hung in the coverage
   pytest step (all workers idle at 0% CPU for 27 min; stopped, no stack available without
