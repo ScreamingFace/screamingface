@@ -1,9 +1,9 @@
 ---
 ticket: OME-1569
 stack: repo
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-10-10
-finished:
+finished: 2026-10-11
 ---
 
 # url4-rds-code-pointer (reshaped) — code-pointer intents run as RDS calls
@@ -70,3 +70,7 @@ or accepts their defaults.
   - The Lean `v1` profile gains `fetchPrompt`.
   - `v1_not_conforms_iff` now names {bare token, `url4://` reference, absolute URI}.
   - New theorem `v1_act_eq_invokeLocal_iff`: only a relative URI runs code.
+
+## Landed on main
+
+- `06d7e055d` (#1342), squash-merged 2026-10-11 00:27 UTC. Implementation ledger: `docs/work/2026-10-10-url4-rds-code-pointer-impl.md`. Linear OME-1569 Done 2026-11-16.
