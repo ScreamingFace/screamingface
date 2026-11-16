@@ -8,6 +8,8 @@ MMLU-Pro bundle, a stub gateway through ``httpx.MockTransport``, and no network.
 stage functions at run time, only those that exist, and restores every wrapper when the run
 ends, even when it fails.
 
+Unit 2: the parked face adds the stages 2p and 3p.
+
 Usage:
     uv run --extra inspect python scripts/bench/report_memory.py single 2000
     uv run --extra inspect python scripts/bench/report_memory.py fusion 1000
@@ -112,7 +114,12 @@ class _Stages:
 def _probe_aggregate(stages: _Stages) -> None:
     owner = ba.BenchmarkAggregation
     name = next(
-        (n for n in ("aggregate_result_async", "aggregate_async") if hasattr(owner, n)), None
+        (
+            n
+            for n in ("aggregate_body_async", "aggregate_result_async", "aggregate_async")
+            if hasattr(owner, n)
+        ),
+        None,
     )
     if name is None:
         return
@@ -139,6 +146,24 @@ def _probe_finalize(stages: _Stages) -> None:
         return wrapper
 
     stages.wrap(ba, "finalize_candidate_result", make)
+
+
+def _probe_builder(stages: _Stages) -> None:
+    try:
+        builder = importlib.import_module("screamingface_engine.benchmarks.result_builder")
+    except ImportError:
+        return
+
+    def make(original: Any) -> Any:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            stages.mark("2p marking done (Cases parked, projections held)")
+            body = original(*args, **kwargs)
+            stages.mark("3p builder finished (light result and head)")
+            return body
+
+        return wrapper
+
+    stages.wrap(getattr(builder, "CandidateResultBuilder", None), "finish_body", make)
 
 
 def _probe_payload(stages: _Stages) -> None:
@@ -207,6 +232,7 @@ def _probe_build_result(stages: _Stages) -> None:
 def _install(stages: _Stages) -> None:
     _probe_aggregate(stages)
     _probe_finalize(stages)
+    _probe_builder(stages)
     _probe_payload(stages)
     _probe_compact_json(stages)
     _probe_spool(stages)

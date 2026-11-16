@@ -79,6 +79,7 @@ from screamingface_engine.benchmarks.protocol import (
     preserve_candidate_outcome,
 )
 from screamingface_engine.benchmarks.provenance import ProvenanceFields
+from screamingface_engine.benchmarks.result_builder import ParkedResultBody
 from screamingface_engine.benchmarks.selection import CaseSelection
 from screamingface_engine.benchmarks.shared_grading.attempt_fold import (
     ANY_ATTEMPT_FOLD,
@@ -767,13 +768,13 @@ def install_imported_benchmark(node: Url4Node, assets: Path, benchmark_id: str) 
             async_aggregate_endpoint(
                 label=benchmark.benchmark.title,
                 available_case_count=benchmark.benchmark.case_count,
-                aggregate=_judged_aggregate_result(benchmark, root, node),
+                aggregate=_judged_aggregate_body(benchmark, root, node),
             )
             if benchmark.judge is not None
             else async_aggregate_endpoint(
                 label=benchmark.benchmark.title,
                 available_case_count=benchmark.benchmark.case_count,
-                aggregate=_aggregate_result(benchmark, root),
+                aggregate=_aggregate_body(benchmark, root),
             ),
         ),
     ]
@@ -1154,14 +1155,51 @@ async def benchmark_aggregate_result_async(
     *,
     case_ids: tuple[int, ...],
 ) -> CandidateResult:
+    return await _benchmark_aggregate(
+        benchmark,
+        raw_case_grades,
+        root,
+        case_ids=case_ids,
+        face=BenchmarkAggregation.aggregate_result_async,
+    )
+
+
+async def benchmark_aggregate_body_async(
+    benchmark: ImportedBenchmark,
+    raw_case_grades: str,
+    root: Path,
+    *,
+    case_ids: tuple[int, ...],
+) -> ParkedResultBody:
+    """:func:`benchmark_aggregate_result_async` with each marked Case parked.
+
+    FEATURE memory fix 3 (OME-1835), unit 2: the hosted aggregate routes use this face. Its body
+    writes the bytes of the held result's ``as_payload()``.
+    """
+    return await _benchmark_aggregate(
+        benchmark,
+        raw_case_grades,
+        root,
+        case_ids=case_ids,
+        face=BenchmarkAggregation.aggregate_body_async,
+    )
+
+
+async def _benchmark_aggregate[T](
+    benchmark: ImportedBenchmark,
+    raw_case_grades: str,
+    root: Path,
+    *,
+    case_ids: tuple[int, ...],
+    face: Callable[..., Awaitable[T]],
+) -> T:
     # WHY one store per call: a run's Scores live exactly as long as its aggregate, so two
     # runs (or a retried aggregate) never read each other's marks.
     kept: dict[int, Any] = {}
     metric_factory: Callable[[], Any] | None = benchmark.whole_run_metric_factory
     # WHY: Inspect scorers are already async; preserve their endpoint's log scope.
-    return await benchmark.aggregation(
-        None if metric_factory is None else kept
-    ).aggregate_result_async(
+    return await face(
+        benchmark.aggregation(None if metric_factory is None else kept),
         raw_case_grades,
         benchmark_id=benchmark.benchmark.id,
         benchmark_revision=benchmark.benchmark.revision,
@@ -1192,13 +1230,13 @@ async def benchmark_aggregate_async(
     ).as_payload()
 
 
-def _aggregate_result(
+def _aggregate_body(
     benchmark: ImportedBenchmark, root: Path
-) -> Callable[[str, tuple[int, ...]], Awaitable[CandidateResult]]:
+) -> Callable[[str, tuple[int, ...]], Awaitable[ParkedResultBody]]:
     async def aggregate_handler(
         case_evaluations: str, case_ids: tuple[int, ...]
-    ) -> CandidateResult:
-        return await benchmark_aggregate_result_async(
+    ) -> ParkedResultBody:
+        return await benchmark_aggregate_body_async(
             benchmark, case_evaluations, root, case_ids=case_ids
         )
 
@@ -1221,10 +1259,23 @@ def _judged_aggregate_result(
     benchmark: ImportedBenchmark, root: Path, node: Url4Node
 ) -> Callable[[str, tuple[int, ...]], Awaitable[CandidateResult]]:
     """The judged face: bind the judge transport, grade on the CALLER's loop."""
+    return _judged_handler(benchmark, root, node, benchmark_aggregate_result_async)
 
-    async def aggregate_handler(
-        case_evaluations: str, case_ids: tuple[int, ...]
-    ) -> CandidateResult:
+
+def _judged_aggregate_body(
+    benchmark: ImportedBenchmark, root: Path, node: Url4Node
+) -> Callable[[str, tuple[int, ...]], Awaitable[ParkedResultBody]]:
+    """The judged face, parked (memory fix 3, unit 2)."""
+    return _judged_handler(benchmark, root, node, benchmark_aggregate_body_async)
+
+
+def _judged_handler[T](
+    benchmark: ImportedBenchmark,
+    root: Path,
+    node: Url4Node,
+    aggregate: Callable[..., Awaitable[T]],
+) -> Callable[[str, tuple[int, ...]], Awaitable[T]]:
+    async def aggregate_handler(case_evaluations: str, case_ids: tuple[int, ...]) -> T:
         # WHY the lazy import: judge_provider drags in inspect_ai; benchmark
         # registration happens at engine import in every mode, and only a judged
         # benchmark's GRADING needs the provider (the scorer adapter's own lazy-import rule).
@@ -1256,7 +1307,7 @@ def _judged_aggregate_result(
                 scope.enter_context(
                     judge_filling_model_role(benchmark.judge.model_role, benchmark.judge.model)
                 )
-            return await benchmark_aggregate_result_async(
+            return await aggregate(
                 benchmark,
                 case_evaluations,
                 root,
@@ -1693,6 +1744,7 @@ __all__ = [
     "RetrievalPolicyDeclaration",
     "benchmark_aggregate",
     "benchmark_aggregate_async",
+    "benchmark_aggregate_body_async",
     "install_imported_benchmark",
     "single_shot_benchmark",
 ]
