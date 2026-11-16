@@ -6,7 +6,7 @@ Landing: `public-docs`, `.claude-plugin/`, `.github/workflows`, `docs/diagrams`,
 
 ## 1. Shape of the delivery
 
-One pull request with three commits. Each commit is approved before it is made, and push is approved separately. No Linear issue is created: `OME-1894` exists.
+One pull request. Commits 1 to 3 are built. Commits 4 to 8 follow the amendment in section 9. Each commit is approved before it is made, and push is approved separately. No Linear issue is created: `OME-1894` exists.
 
 | Commit | Scope | Spec decisions |
 |---|---|---|
@@ -95,3 +95,39 @@ Verification: the page renders locally with the copy button and the three tabs; 
 - A page that uses a browser-only API would fail the render. All 44 routes rendered in the spike, and the generator fails the build on a new failure.
 - The names check needs network access to install a release in CI.
 - The committed references change with every docs change and every release.
+
+## 9. Amendment: index in place of references, copy-link button, formatting
+
+Spec decisions D3, D4, D9, D13, D14, D18, D20, D21 and D22 change the skill from copies of the pages to an index of links, add the heading copy-link button, and format `public-docs/src`. Commits 2 and 3 above are built as described; commit 7 replaces what they built.
+
+| Commit | Scope | Spec decisions |
+|---|---|---|
+| 4 | This amendment of the spec, plan and ledger | all |
+| 5 | Copy-link button in `DocLayout.vue` | D20 |
+| 6 | `src/lib/slug.ts`, shared by `DocLayout.vue` and the generator | D21 |
+| 7 | The index replaces the references | D3, D4, D9, D13, D14, D18 |
+| 8 | `npm run format` over `public-docs/src` | D22 |
+
+**Commit 5**
+
+- `public-docs/src/components/layout/DocLayout.vue`: the `#` anchor becomes a `<button class="heading-anchor">` with the inlined lucide `link` icon, `aria-label` and `data-tip` "Copy link to this section: <heading text>". A click copies `origin + pathname + search + #id`, sets the tip to "Link copied" for two seconds, and falls back to the address bar hash. CSS shows the button on heading hover and focus, shows the tooltip, keeps the icon visible at low contrast on touch screens.
+- Verification in Edge headless through the Chrome DevTools Protocol: every `h2`, `h3` and `h4` outside `.not-prose` has one button; the click calls `navigator.clipboard.writeText` with the expected address; the tip changes and returns; the button is reachable by keyboard.
+
+**Commit 6**
+
+- `public-docs/src/lib/slug.ts` exports `slugify` and `assignHeadingIds(headings, taken)`, moved unchanged from `DocLayout.vue` (the same lower-casing, character filter, hyphen collapse and `-2`, `-3` suffixes for repeats). `DocLayout.vue` imports them.
+- Verification: type-check, lint and build pass; the ids that `DocLayout` assigns are the same before and after, checked in the browser for three pages.
+
+**Commit 7**
+
+- `scripts/build-skill.mjs`: records every `h2`, `h3` and `h4` of each page during the conversion (level, text, an id the author set, whether it is inside `.not-prose`), assigns ids with `assignHeadingIds`, writes the index into `SKILL.md`, and no longer writes `references/`. `agent-skill/skills/screamingface/references/` is deleted.
+- `agent-skill/SKILL.template.md`: the links to `references/...` become public docs addresses, and the text about reference files becomes: the index links each page and its sections, and `.md` added to a page address returns the page as Markdown. The generator checks that every route that the template links exists.
+- `scripts/check-skill-names.mjs`: reads the built `dist/**/*.md` instead of the references. The workflow already runs `npm run build` first.
+- `public-docs/src/pages/sf-client/AgentSkillPage.vue`: the intro, "How it is built" and the troubleshooting table describe an index of links. `public-docs/CLAUDE.md` and the diagram label ("SKILL.md: rules and an index of links") follow.
+- Verification: `build:skill` and `build` idempotent; a browser check over all pages that every index link points at an id on its page; `claude plugin validate` and `npx skills add --skill screamingface` still pass; the skill is a few tens of KB.
+
+**Commit 8**
+
+- `npm run format` (`prettier --write src/`). Verification: `npx prettier --check src` passes; the hash of all `dist/**/*.md` and `llms*.txt` is equal before and after.
+
+After the commits: the PR title and body and the OME-1894 description in Linear drop the references and name the index, the copy-link button and the formatting.

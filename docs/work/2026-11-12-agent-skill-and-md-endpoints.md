@@ -14,19 +14,22 @@ Publish a `screamingface` agent skill and plain-text docs endpoints, both genera
 
 ## Planned changes
 
-- `public-docs/agent-skill/skills/screamingface/SKILL.md` and `references/*.md`, generated.
+- `public-docs/agent-skill/skills/screamingface/SKILL.md`, generated: preamble and an index of links to the docs pages and their `h2` and `h3` headings. No `references/` folder (spec D3, D9).
 - `public-docs/scripts/` generator, a shared `sfClientVersion()` module used by `vite.config.ts` and the generator, and the `build:skill` script in `public-docs/package.json`.
 - `public-docs/agent-skill/.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` at the repository root.
 - `public-docs/src/pages/sf-client/AgentSkillPage.vue`, its route, its nav entry, and a row in `public-docs/CLAUDE.md`.
 - `dist/<route>.md`, `dist/llms.txt` and `dist/llms-full.txt`, written by the build.
 - A CI drift check in `.github/workflows/`.
 - A one-line fix in `public-docs/README.md`.
+- `public-docs/src/components/layout/DocLayout.vue`: the copy-link button on section headings (D20). `public-docs/src/lib/slug.ts`: the shared heading slug (D21).
+- `public-docs/src` formatted with Prettier (D22).
 - `docs/diagrams/` source, SVG and PNG for "From docs to agent".
 - The exact file list is fixed in `docs/plan/` before implementation.
 
 ## Test plan
 
 - `npm run build:skill` is idempotent: a second run changes no file.
+- Every heading link in the index points at an id that `DocLayout` assigns, checked in a browser for all pages. The copy-link button copies the page address with `#<id>`, checked in a browser. Formatting leaves every `dist/**/*.md` equal.
 - The generator renders all 43 docs pages (the 44th route is the not-found catch-all) without error.
 - The drift check fails when a page changes and the skill is not regenerated, and when a name in the references is missing from the SDK's `__all__`.
 - `claude plugin validate` passes on the repository root and on the plugin folder.
