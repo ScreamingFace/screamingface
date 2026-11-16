@@ -107,6 +107,7 @@ The reference is the CAIS harness at `22ed307`. Where inspect_evals v0.20.0 (who
   - Harness: a `system` role (`user` only for o1 models), then a `user` turn (`fork:hle_eval/run_model_predictions.py:23-27`).
 - **What differs.** Every byte of text is equal on all 1,000 Cases (Checks run 9), but the Candidate receives the prompt as user text, not as a system turn. The judge never sees it: it quotes the kept Sample question, which equals the row's `question` on 1,000 of 1,000 Cases, and the judge prompt bytes equal inspect's on 3,360 of 3,360 sheets.
 - **Severity / bound.** `possibly-score-changing`, `unknown`. A Candidate may follow a system instruction differently from user text. Bounding it needs a paired Candidate run over the 1,000 Cases (Recommended paid runs).
+- **After this audit:** the row now declares it with a `# NAMED DEVIATION` comment beside its other deviations, and the README's "Asking and scoring" says so. Comment and prose only; the fingerprint does not move.
 
 ### D6 — a lower-case grade letter fails the Case here and scores 0.0 with a warning in inspect
 
@@ -126,6 +127,7 @@ The reference is the CAIS harness at `22ed307`. Where inspect_evals v0.20.0 (who
 - **Severity / bound.** `cosmetic`, `0`.
   - `partition` sits in private Grading Material only. It never appears in a Candidate input (`test_hle_diamond_cases.py:111`, passed) and never in a judge prompt (bytes equal on 3,360 of 3,360).
   - The labels are not part of any Case.
+- **After this audit:** the README's "What is ours" now names both lines.
 
 ## Checks run
 

@@ -32,18 +32,23 @@ corrected.
 
 ## What is ours
 
-One line: each Case keeps the row's `partition` (`reasoning` or `knowledge`) in its Sample
-metadata. That metadata is private Grading Material, never shown to the Candidate, and nothing
-reads it today. It is inside the Case Digest, so keeping it now means a per-half score can be
-added later without changing the Cases.
+Two things, both marked `OURS` in the module.
+
+- Each Case keeps the row's `partition` (`reasoning` or `knowledge`) in its Sample metadata.
+  That metadata is private Grading Material, never shown to the Candidate, and nothing reads it
+  today. It is inside the Case Digest, so keeping it now means a per-half score can be added
+  later without changing the Cases.
+- The Task leaves out inspect_evals' `version=` and `metadata=` labels, which name inspect_evals'
+  own Sample set, not this one. Neither is part of any Case.
 
 ## Asking and scoring
 
 Exactly as the `hle` Benchmark: inspect_evals' `system_mc` system prompt asks for an
-explanation, an answer and a confidence; the judge, glm-5.3-flash through our gateway, grades
-the final answer with inspect_evals' `regex_judge` prompt, up to three tries. The headline is
-the mean of correct/incorrect over the Cases run (a reply the judge cannot grade counts wrong,
-the CAIS leaderboard's accounting). The Candidate's stated confidence is published beside it.
+explanation, an answer and a confidence. It reaches the Candidate as user text ahead of the
+question, not as a system turn (the plugin's Named Deviation, as on `hle`). The judge,
+glm-5.3-flash through our gateway, grades the final answer with inspect_evals' `regex_judge`
+prompt, up to three tries. The headline is the mean of correct/incorrect over the Cases run (a
+reply the judge cannot grade counts wrong, the CAIS leaderboard's accounting). The Candidate's stated confidence is published beside it.
 No per-half score is published (owner decision, 2026-11-16).
 
 ## Dataset

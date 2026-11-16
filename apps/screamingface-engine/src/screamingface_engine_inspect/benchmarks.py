@@ -7921,6 +7921,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # which leaves out a reply the judge could not grade; this Benchmark reports the mean
         # per-Case score (chosen at import, OME-1527, as on hle), where such a Case counts 0
         # (failure_policy withhold). That is the CAIS leaderboard's accounting.
+        # NAMED DEVIATION (the plugin's, capture.py and picture_input.py): the eval's system
+        # prompt reaches the Candidate as user text ahead of the question, every byte equal,
+        # not as a system turn as inspect and the CAIS harness send it. Unbounded until a
+        # paired Candidate run (Fidelity Record D5).
         judge=JudgeSpec(
             # The hle row's judge: inspect_evals' default.yaml primary "grader" (owner
             # decision on OME-1478, 2026-11-02).

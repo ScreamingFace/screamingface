@@ -59,9 +59,11 @@ scores.
 - **Actual files:** as planned, plus `importer.py` (one rule, below), `test_benchmark_declaration.py`
   (the fifth per-Benchmark table) and `.claude/test-change-approvals/OME-1863.json` (the five
   prior test tables that gain a row). No stand-in metadata entry: `regex_judge` reads none.
-  Fidelity Record: `apps/screamingface-engine/docs/benchmarks-fidelity/` (see Commits).
-- **Commits:** `a7e78f15f` feat(screamingface-engine): add HLE-Diamond as its own Benchmark;
-  a follow-up commit carries the Fidelity Record, this outcome and the mirror.
+  Fidelity Record: `apps/screamingface-engine/docs/benchmarks-fidelity/hle_diamond.md`.
+- **Commits:** `a7e78f15f` the Benchmark; `682644804` this outcome, the mirror and the
+  frontier-score comment; `9e870b6e5` the Fidelity Record (`not-comparable`: the judge differs,
+  as on `hle`; everything else measured matches); a last commit declares the record's two
+  findings (the system prompt sent as user text on the row, both `OURS` lines in the README).
 - **Gates:** relevant tests only (owner rule): the 2 new test files, the 5 edited tables, every
   catalogue-wide row sweep and every importer test, 1,747 passed; ruff clean; pyright on the
   touched files, extra-less as CI runs it, 0 errors. Mutation: dropping the `partition` line
