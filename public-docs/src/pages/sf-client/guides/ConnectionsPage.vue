@@ -43,6 +43,14 @@ const readOneOut = `Connection(provider='openrouter', display_name='OpenRouter',
 
 const remove = `sf.disconnect("openrouter")`
 
+const credit = `status = sf.credits()                 # how the connection you run against is doing
+status.account.amount_usd             # your balance (needs a management key)
+status.key.amount_usd                 # the spending cap on the key you run with`
+
+const manageKey = `client = sf.Client()
+client.set_credit_management_key("openrouter", api_key="sk-or-v1-…")
+client.clear_credit_management_key("openrouter")`
+
 const panelProviders: Provider[] = [
   { id: 'anthropic', name: 'Anthropic', status: 'disconnected' },
   { id: 'antigravity', name: 'Antigravity', status: 'disconnected' },
@@ -309,9 +317,41 @@ const panelProviders: Provider[] = [
       must be HTTPS.
     </p>
 
+    <h2>See your provider credit</h2>
+
+    <p>
+      Open <code>sf.connect()</code> in a notebook and each connected provider shows the current key
+      allowance and account balance. For programmatic access, <code>sf.credits()</code> reads the
+      connection the engine runs against. It only reads, so a low balance never stops a run, and for
+      now it covers <code>openrouter</code> only.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="8" :code="credit" />
+    </div>
+
+    <p>
+      Don't add the two figures together: <code>account</code> is your OpenRouter balance,
+      <code>key</code> is the spending cap on the key you run with. Reading the balance takes a
+      <strong>management key</strong>, which the engine stores encrypted and never hands back. Set or
+      clear it on the Client (the connection card offers the same):
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="9" :code="manageKey" />
+    </div>
+
+    <p>
+      Hosted engines show a single <code>hosted</code> allowance instead and skip the management-key
+      setup. The card refreshes every five minutes while it's on screen, and an OpenRouter run warns
+      you about a recent zero balance without holding up. For every field and state, see the
+      <RouterLink to="/sf-client/api/credits">Credits API reference</RouterLink>.
+    </p>
+
     <h2>Links</h2>
 
     <ul>
+      <li><RouterLink to="/sf-client/api/credits">Credits (API reference)</RouterLink></li>
       <li>
         <a
           href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"
