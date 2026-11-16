@@ -57,9 +57,11 @@ def _amount_html(label: str, amount: CreditAmount, *, primary: bool = False) -> 
     )
 
 
-def credit_html(status: CreditStatus) -> str:
+def credit_html(status: CreditStatus, *, hosted: bool | None = None) -> str:
     name = "OpenRouter" if status.provider == "openrouter" else status.provider
-    hosted = status.account.reason == "hosted_unavailable"
+    # WHY: panels know their mode even when a failed lookup loses the hosted marker.
+    if hosted is None:
+        hosted = status.account.reason == "hosted_unavailable"
     if hosted:
         amounts = _amount_html("Hosted allowance", status.hosted, primary=True)
         help_text = "Remaining allowance on your platform key."

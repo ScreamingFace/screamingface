@@ -282,3 +282,38 @@ regex execution path, dependency, migration, or UI change. The manifest preserve
 actual author consent and explicitly distinguishes it from independent review.
 GitHub confirms HupBaHa, IonesioJunior, and keelancj are still requested. Sergio's
 round-two approval is recorded on GitHub; SDK/Gateway owner reviews remain pending.
+
+## Independent-review fixes — 2026-11-16
+
+Owner approved both notebook fixes. Credit-only refreshes must preserve provider
+controls and unsent API keys while still updating notices and the refresh timer.
+Both static and interactive credit displays must use the panel's hosted context
+so failed or malformed lookups cannot switch hosted users to personal-account labels.
+
+Add regression tests first for manual/automatic refresh with unsaved provider input,
+and successful-to-failed readings in hosted/personal modes. Keep existing tests
+unchanged. Run SDK gates and visually inspect the local notebook at desktop/mobile
+sizes in light/dark themes before updating PR #1753. No live keys are needed.
+
+### Independent-review fix outcome
+
+Credit-only rendering now updates the notice, credit section, and refresh timer
+without replacing provider controls. Static and interactive cards pass their known
+hosted mode to the credit renderer. Its standalone fallback remains compatible.
+
+Six new regression cases cover manual/automatic refresh, subsequent key submission,
+and HTTP/malformed lookup failures in hosted and personal modes. Before the fix,
+four cases failed for the reported bugs and two personal-mode controls passed.
+All SDK gates now pass, including full tests with the 95% coverage floor, Node
+lifecycle tests, types, lint/format, deterministic notebooks, build and distribution.
+Log: `/private/tmp/ome893-notebook-fixes-gates.log`.
+
+A real Jupyter preview confirmed an unsent synthetic key survives both refresh
+paths. Hosted failure retains only the Hosted allowance label. Inspected screenshots
+at 1280px and 390px in light/dark themes; no card horizontal overflow and mobile
+refresh controls remain reachable. Preview and captures are local ignored artifacts
+under `output/playwright/credits-fixes*`; no live keys or provider requests were used.
+
+Wisdom review: three private UI modules changed; existing tests, public API, storage,
+provider calculations and requests are unchanged. No dependency or schema change.
+The fix is ready for PR review; merge and the remaining code-owner reviews are pending.

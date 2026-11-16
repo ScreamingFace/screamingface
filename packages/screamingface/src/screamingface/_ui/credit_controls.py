@@ -50,7 +50,7 @@ class _NotebookCreditView:
             self._state.provider_mutations_enabled,
         )
         if self._credit_control_key == control_key and self.root.children:
-            self.root.children[0].value = credit_html(status)
+            self.root.children[0].value = credit_html(status, hosted=self._state.hosted)
             return
         self._clear_credit_controls()
         self._credit_control_key = control_key
@@ -58,10 +58,15 @@ class _NotebookCreditView:
             item.provider == "openrouter" and item.status == "connected"
             for item in self._state.connections
         ):
-            self.root.children = (widgets.HTML(value=credit_html(status)),)
+            self.root.children = (
+                widgets.HTML(value=credit_html(status, hosted=self._state.hosted)),
+            )
             return
         row = self._controls(status)
-        self.root.children = (widgets.HTML(value=credit_html(status)), row)
+        self.root.children = (
+            widgets.HTML(value=credit_html(status, hosted=self._state.hosted)),
+            row,
+        )
 
     def _controls(self, status: CreditStatus) -> Any:
         widgets = self._widgets

@@ -184,11 +184,12 @@ def static_panel_html(
         if (access or rows)
         else ""
     )
+    credits = credit_html(state.credit_status, hosted=state.hosted) if state.credit_status else ""
     return (
         f"{_STYLE}<div class='sf-ui sf-connections {NO_MATH}' "
         "aria-label='ScreamingFace connections'>"
         f"{_header_html(engine)}{table}"
-        f"{credit_html(state.credit_status) if state.credit_status else ''}</div>"
+        f"{credits}</div>"
     )
 
 
@@ -252,7 +253,9 @@ class _NotebookConnectionView:
             self._rows.remove_class("sf-conn-tbl")
 
     def render_credit_update(self) -> None:
-        self.render()
+        # INVARIANT: credit polling must not replace unsaved provider controls.
+        self.render_notice()
+        self._credit_view._render_credits()
         # WHY: manual refresh restarts the browser timer as well as the kernel cooldown.
         if self._credit_bridge is not None:
             self._credit_bridge.send({"type": "refreshed"})
