@@ -87,7 +87,8 @@ chose the worker-side write, with a guard on their side (D8).
   pod and its old annotation. Without this write, an idle pod could keep cost 3 until its next
   run. The worker cannot read the annotation (no `get` verb), so it writes.
 - No write after the drain signal (SIGTERM). The pod is then in deletion, and the cost has no
-  effect.
+  effect. The claim loop stops the writer task when it sees the signal, so one last attempt can
+  go out in the seconds before that (a pull waits up to 5 s).
 
 ### D3. A failed write never stops or delays a run
 
@@ -95,14 +96,19 @@ chose the worker-side write, with a guard on their side (D8).
   cannot raise.
 - The write runs in its own task, outside the supervisors' TaskGroup. An exception in it cannot
   cancel a run.
-- A failure (timeout, connection error, non-2xx status) is logged at WARNING and counted. The
-  worker continues.
+- A failure (timeout, connection error, non-2xx status) is counted, and the worker continues.
+  Only the FIRST failure of a streak is logged at WARNING. The next failures of the streak are
+  logged at DEBUG, and the first good write after a streak at INFO. WHY: without the Role or the
+  network rule, each retry fails, and one warning per retry would have no end. The counter has
+  the rate.
 - Retry: while the last write failed, the writer tries again after a backoff of 1 s, doubled to a
   maximum of 30 s. A new count wakes the retry at once (the 1 s minimum still applies). The retry
   stops when a write succeeds. WHY a retry at all: without it, a pod keeps a wrong cost until its
   next run starts or ends, which can be hours. This is not a periodic timer: when the last write
   succeeded, the worker sends nothing.
-- HTTP timeout: 5 s for the whole request.
+- HTTP timeout: 5 s for the whole request (`asyncio.timeout`, not the per-phase `httpx` limit).
+- A removed chart value must not mount a token: the chart renders `automountServiceAccountToken`
+  as a literal `true` or `false`, never as an empty value.
 
 ### D4. Fail open on a missing prerequisite
 

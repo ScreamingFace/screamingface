@@ -53,7 +53,27 @@ identity, all behind one switch that is off by default. Spec:
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files:** as planned, plus four more new test files from the review fix round and one
+  from the log change: `test_chart_render_runner_deletion_cost_values.py`,
+  `test_kube_pod_cost_writer_failures.py`, `test_worker_deletion_cost_drain_stop.py`,
+  `test_worker_deletion_cost_retry_backoff.py`, `test_worker_deletion_cost_logging.py`.
+  `templates/NOTES.txt` did not change (it does not say that the runner mounts no token).
+- **Commits:** `9db4c0994` docs (spec, plan, ledger, mirror); the `feat` commit that holds this
+  Outcome. Not pushed. No PR yet.
+- **Gates:** `uv run .claude/scripts/run_gates.py screamingface-engine` — ALL GATES GREEN
+  (append-only check, ruff, ruff format, pyright, layering, pytest with coverage), 2026-11-16.
+- **Build:** tiered-build run `wf_3c8a9ebb-38f` (3 waves, 5 tasks, 18 agents). Design review:
+  ACCEPT-WITH-FIXES, 12 findings. Fixed: F1 (writer task stops at the drain signal), F2 (a removed
+  `deletionCost.enabled` rendered an empty `automountServiceAccountToken`, which mounts a token),
+  F3 (a bad CA file crashed the worker), F4 (5 s for the whole request), F6, F7 (a count during a
+  good write skipped one backoff), F8, F9, F11 (a private-attribute assert), F12 (one WARNING per
+  failure streak, then DEBUG; spec D3 updated).
 - **Deviations:**
+  - `DELETION_COST_ANNOTATION` is in `worker/kube_pod.py`, not in `worker/deletion_cost.py` as
+    the plan said (review F5, accepted): the adapter is the only code that names the annotation.
+  - The composition root has a helper, `build_deletion_cost_publisher` in `worker/loop.py`, so
+    that it has its own tests (review F9).
+  - `build_pod_cost_writer` has `# noqa: PLR0911` (one early return per prerequisite).
+  - Open: the kind walkthrough of the spec's Acceptance. Not done yet.
+  - Open (review, low): the writer task is cancelled when the claim loop sees the drain signal,
+    not in the signal handler. One last attempt can go out for up to about 5 s after SIGTERM.
