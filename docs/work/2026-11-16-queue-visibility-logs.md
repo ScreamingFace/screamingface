@@ -1,7 +1,7 @@
 ---
 ticket: OME-1924
 stack: screamingface-engine
-status: planned
+status: in_progress
 started: 2026-11-16
 finished:
 ---

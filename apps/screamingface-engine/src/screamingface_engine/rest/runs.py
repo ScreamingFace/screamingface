@@ -228,6 +228,20 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
         ) from exc
     if not created:
         response.status_code = 200
+    # FEATURE: queue visibility in the logs (OME-1924). WHY here and not at run start: the
+    # Benchmark, Case count and Candidates are known only on the Run record; the start route
+    # sees just `run_id` + Candidate index, so on-call joins the two lines by `run=`.
+    # INVARIANT: `owner` is the sha256 owner key — the email is never logged. Candidate NAMES
+    # are the caller's text, so only their count appears.
+    _logger.info(
+        "run created run=%s owner=%s benchmark=%s cases=%d candidates=%d created=%s",
+        record.id,
+        owner,
+        record.benchmark,
+        record.case_count,
+        len(record.candidates),
+        created,
+    )
     return RunBody.of(record)
 
 
