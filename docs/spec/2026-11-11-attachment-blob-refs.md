@@ -212,9 +212,10 @@ No error or log carries file bytes, the grant, the run id or the tenant's email.
 - Target: about 20 MB per run, inline to providers; no provider uploads (owner, 2026-11-11).
 - The gateway gets bytes by fetching from the engine with a grant, not by reading the bucket
   (owner, 2026-11-11). Tenant and run authorization stays in the engine.
-- The url4 cap first drops to about 6,000,000 bytes in a separate fix (owner, 2026-11-11).
+- The url4 cap first drops to about 6,000,000 bytes in a separate fix (owner, 2026-11-11;
+  superseded 2026-11-15 — the gateway cap rose to 12 MiB instead and url4 stays at 8,000,000).
 - Benchmark Case pictures stay inline; only url4 attachments go by reference.
-- The cap follows the path: 20 MB by reference, about 6 MB inline.
+- The cap follows the path: 20 MB by reference, 8,000,000 bytes inline.
 - Inline and reference media share one cache key; the `KEY_REVISION` bump and the loss of old
   picture frozen copies are accepted.
 
