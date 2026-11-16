@@ -32,5 +32,7 @@ exactly as `hle` is. `hle` does not change.
   5.2); the ticket's 59.9% is GPT-6 Astra's row in that same table.
 - 2026-11-16: all 272 Diamond pictures checked: each declares the type its bytes are, so no
   picture-type fix is needed beyond inspect_evals' own.
+- 2026-11-16: PR opened as a draft on branch `OME-1863-hle-diamond`, with the Fidelity Record
+  (`not-comparable`, the judge differs; everything else measured matches).
 - Owner steps left: confirm the test-change approvals manifest, a paid 2-Case smoke run, and
   the dev chart pin bump.
