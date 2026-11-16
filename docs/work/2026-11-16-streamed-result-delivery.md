@@ -1,7 +1,7 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface-engine
-status: planned   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-11-16
 finished:
 ---
@@ -53,9 +53,66 @@ tracemalloc, KiB per Case above the start of the aggregate; synthetic MMLU-Pro, 
 Also checked: a result assembled one Case at a time, each Case through a JSON round trip, is
 byte-identical to today's (120 Cases, 720 operations, 1,218,105 bytes).
 
+## Measured after the unit (2026-11-16, this branch)
+
+`scripts/bench/report_memory.py`, same harness and units as the baseline. The url4 hand-off
+carries an 87-char reference; the result goes to the artifact store in chunks.
+
+| Stage | 1 model, N=2,000 | 5 members + synthesizer, N=1,000 | same, one emoji in one answer, N=300 |
+|---|---|---|---|
+| Candidate Result bytes | 3.8 | 9.9 | 9.9 |
+| `CaseResult` list held | 10.2 | 30.5 | 31.6 |
+| + finalize (peak of the run) | 11.6 | 31.9 | 32.7 |
+| spool delivered (peak) | 11.5 | 31.8 | 32.6 |
+| `str` + url4's copy | — (none) | — (none) | — (none) |
+| bytes + store write | — (none) | — (none) | — (none) |
+| held until the run ends | −1.7 | −2.5 | −1.8 |
+
+Peak: 14.3 → 11.6 (1 model), 39.1 → 31.9 (Fusion), 77.6 → 32.7 (one emoji). The one-emoji
+case no longer doubles. The peak that remains is the `CaseResult` list (unit 2).
+
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
+- **Actual files** (all under `apps/screamingface-engine/`):
+  - New: `artifacts/spool.py` (`ResultSpool`), `benchmarks/result_body.py` (`ResultBody`,
+    `HeldResultBody`, `write_result_body`; now owns `compact_json`),
+    `scripts/bench/report_memory.py` (unit 0).
+  - Changed: `artifacts/{ports,filesystem,s3,delivery,__init__}.py` (`StreamingArtifactWriter`,
+    `ArtifactSink`, `result_too_large_message`); `benchmarks/grading_endpoints.py`
+    (`deliver_result`, `deliver_result_sync`); `runner/{executor,main,operation_capture}.py`
+    (redeem in `build_result`, one spool per run); the aggregates in
+    `shared_grading/{benchmark_aggregation,incremental,incremental_routes,serving}.py`,
+    `medxpert/{aggregate,runtime}.py` and `screamingface_engine_inspect/single_shot.py` now
+    return the `CandidateResult`; `error_text.py` (comment).
+  - New tests: `tests/unit/test_{result_body,result_spool,result_spool_wiring,build_result_spool,
+    deliver_result,filesystem_artifact_sink,s3_artifact_sink,result_too_large_message,
+    medxpert_aggregate_result,aggregate_result_methods,streamed_aggregate_routes}.py` and
+    `tests/unit/inspect/test_{report_memory_script,streamed_result_memory,streamed_result_hosted,
+    streamed_result_surrogate,streamed_judged_aggregate}.py`.
+- **Commits:** one local commit on `worktree-streamed-result-delivery` (not pushed).
+- **Gates:** engine gates green (`run_gates.py screamingface-engine --base origin/main`);
+  inspect lane 3,046 passed (3,035 before the unit). One gate run hung in the coverage
+  pytest step (all workers idle at 0% CPU for 27 min; stopped, no stack available without
+  root). Two later runs (unit suite verbose: 9,364 passed in 26 s; full gates) did not hang.
+  Watch for it in CI.
+- **How it was built:** tiered-build workflow (Opus plan and review, Haiku implementers, one
+  fix round). Review verdict ACCEPT-WITH-FIXES; findings F1–F13; all fixed except F7 and F9
+  below.
 - **Deviations:**
+  - The append-only test gate forbids lowering `_AGGREGATE_KIB_PER_CASE` in
+    `test_case_result_memory.py`. The tighter bounds are in the new file
+    `test_streamed_result_memory.py` (Fusion 40.5, one emoji 39.5, held 1.0 KiB/Case). The old
+    path fails all three bounds (48.95, 83.46, 7.1/36.3).
+  - The spool errors are local to `artifacts/` (the layering gate forbids a url4-engine import
+    there); the runner maps them to `result_too_large` and `result_spool_unredeemed`.
+  - The spool is made only when the store has `open_sink` (`StreamingArtifactWriter`); a test
+    double store keeps today's path.
+  - The plan said a lone surrogate fails the run in `build_result`. It does not, on this branch
+    or on `main`: `CaseResultStore.append` turns it into a Case failure (`missing_case_row`)
+    first. `test_streamed_result_surrogate.py` pins that behaviour.
+  - **F7 (open, owner decision):** `result_spool_unredeemed` is not in `ENGINE_ERROR_CODES`.
+    Adding it means a change to `ALLOWLISTED_CODES` in `test_terminal_error_detail.py`, a
+    protected constant that records a security decision.
+  - **F9 (accepted as documented, owner decision):** if the run ends during the final commit,
+    the committed artifact has no ticket. The store's TTL sweep or bucket lifecycle removes it.
+    See the KNOWN WINDOW comment in `artifacts/spool.py`.
