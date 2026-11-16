@@ -1,9 +1,9 @@
 ---
 ticket: OME-1928
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-08
-finished:
+finished: 2026-11-16
 ---
 
 # drop-migration-note — drop the `migration_note` column from the pair marker (OME-1138 close-out, L4c-2)
@@ -102,9 +102,11 @@ plus the existing `needs_postgres` marker suites.
   `tests/integration/test_migration_0017_drop_migration_note_postgres.py` (5 tests), the
   approved prior test `tests/unit/test_migration_0012_provider_credential_slots.py`, and the spec
   and plan amendments.
-- **Commits:** on `OME-1928-drop-migration-note` from `origin/main` `adea815d7`, which already
-  carries L4c-1: `refactor(aigateway): drop the migration_note column from the pair marker`,
-  with this ledger, the mirror and `.claude/test-change-approvals/OME-1928.json`.
+- **Commits:** `086bc723b` refactor(aigateway): drop the migration_note column from the pair
+  marker (#1843), squash-merged 2026-11-16 13:44 UTC. Linear `OME-1928` Done with the
+  close-comment. The branch held one commit from `origin/main` `adea815d7`, which already carries
+  L4c-1: `refactor(aigateway): drop the migration_note column from the pair marker`, with this
+  ledger, the mirror and `.claude/test-change-approvals/OME-1928.json`.
 - **Gates (2026-11-16, base `origin/main` `adea815d7`):** ruff, ruff format, pyright, the
   enterprise guard and the full suite with coverage green (7901 passed, 119 skipped, 94.16%). The
   append-only check admits the one approved prior test through `OME-1928.json`.
