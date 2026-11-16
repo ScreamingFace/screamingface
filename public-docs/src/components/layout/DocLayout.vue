@@ -4,6 +4,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Menu, X } from 'lucide-vue-next'
 import { useCodeLangStore } from '@/stores/codelangStore'
 import { useDocNavigation, type NavEntry } from '@/composables/useDocNavigation'
+import { assignHeadingIds } from '@/lib/slug'
 import NavTree from './NavTree.vue'
 
 interface Props {
@@ -55,14 +56,6 @@ const saveSidebarScroll = () => {
 // container, not the window.
 const content = ref<HTMLElement | null>(null)
 
-const slugify = (text: string) =>
-  text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-
 // The lucide `link` icon, inlined because the buttons are created outside Vue.
 const LINK_ICON =
   '<svg class="heading-anchor__icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" ' +
@@ -103,19 +96,17 @@ const sectionLinkButton = (h: HTMLElement) => {
 const enhanceHeadings = () => {
   const root = content.value
   if (!root) return
-  const used = new Set<string>()
-  root.querySelectorAll<HTMLElement>('h2, h3, h4').forEach((h) => {
-    if (h.closest('.not-prose')) return
-    if (!h.id) {
-      const base = slugify(h.textContent ?? '') || 'section'
-      let id = base
-      let n = 2
-      while (used.has(id) || document.getElementById(id)) id = `${base}-${n++}`
-      h.id = id
-    }
-    used.add(h.id)
-    if (!h.querySelector('.heading-anchor')) h.appendChild(sectionLinkButton(h))
-  })
+  const headings = [...root.querySelectorAll<HTMLElement>('h2, h3, h4')]
+    .filter((h) => !h.closest('.not-prose'))
+    .map((el) => ({ el, text: el.textContent ?? '', id: el.id }))
+  assignHeadingIds(headings, (id) => document.getElementById(id) !== null).forEach(
+    ({ heading, id }) => {
+      heading.el.id = id
+      if (!heading.el.querySelector('.heading-anchor')) {
+        heading.el.appendChild(sectionLinkButton(heading.el))
+      }
+    },
+  )
 }
 
 const scrollToHash = () => {
