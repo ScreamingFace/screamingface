@@ -11,6 +11,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Literal, Protocol, runtime_checkable
 
+from .credit_models import CreditStatus
+
 AuthMethod = Literal["api_key", "oauth"]
 ConnectionStatus = Literal[
     "not_connected",
@@ -143,6 +145,20 @@ class ConnectionTimeout(ConnectionError):
     status = 504
     title = "Gateway Timeout"
     detail = "AI Gateway did not respond in time"
+
+
+class Credits(Protocol):
+    """Execution-scoped credit operations, independent of their provider adapter."""
+
+    async def read(self, caller: Caller, provider: str, *, refresh: bool) -> CreditStatus: ...
+    async def configure(self, caller: Caller, provider: str, api_key: str) -> None: ...
+    async def remove(self, caller: Caller, provider: str) -> None: ...
+
+
+@runtime_checkable
+class HasCredits(Protocol):
+    @property
+    def credits(self) -> Credits: ...
 
 
 @runtime_checkable

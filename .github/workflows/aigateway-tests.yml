@@ -3,10 +3,12 @@ name: AI Gateway Tests
 on:
   push:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "apps/aigateway/**"
       - ".github/workflows/aigateway-tests.yml"
   pull_request:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "apps/aigateway/**"
       - ".github/workflows/aigateway-tests.yml"
   workflow_dispatch:
