@@ -74,6 +74,36 @@ identity, all behind one switch that is off by default. Spec:
   - The composition root has a helper, `build_deletion_cost_publisher` in `worker/loop.py`, so
     that it has its own tests (review F9).
   - `build_pod_cost_writer` has `# noqa: PLR0911` (one early return per prerequisite).
-  - Open: the kind walkthrough of the spec's Acceptance. Not done yet.
   - Open (review, low): the writer task is cancelled when the claim loop sees the drain signal,
     not in the signal handler. One last attempt can go out for up to about 5 s after SIGTERM.
+- **Kind walkthrough (2026-11-16, kind `sf-prod`, Kubernetes 1.37):** the cluster ran
+  `086bc723b`, which has the same engine source as this branch's base. The test images were that
+  build plus this branch's five changed engine files (`worker/` and `config.py`). The chart was
+  this branch's chart with `runnerPool.deletionCost.enabled=true`, 3 pods of 2 slots. A delay
+  proxy in front of the real aigateway held each chat completion for 40 s, so a run kept its slot
+  for about 42 s. Model: `openrouter/openai/gpt-4o-mini`, `inspect-gsm8k`, `limit=1`.
+  - Render on the cluster: ServiceAccount `url4-cloud-runner`; runner pods use it with the token
+    mounted and the three env entries; the App pod is unchanged. PASS.
+  - No Role: each write got 403. Each pod logged ONE warning; the `error` counter rose (5, then
+    11); no annotation; a run ended `ok=True`. PASS.
+  - Role added, no restart: all 3 pods had cost `0` within 22 s, and each logged "writes work
+    again". PASS.
+  - Scale-down 3 -> 2, four trials. The annotation was equal to the `slots_busy` gauge on each
+    pod, and it was on the pod about 3 s after the submit. The victim was an idle pod each time:
+    t1 costs (0, 2, 0); t2 (2, 1, 0); t3 (1, 2, 0); t4 (1, 2, 0). In t3 and t4 the idle pod was
+    the OLDEST pod and the busy pods were newer, so the age rule alone would not have chosen it.
+    All 11 runs ended `ok=True`. A new pod had cost `0` in seconds (the start write). PASS.
+  - Guard (reference ValidatingAdmissionPolicy, now in the chart README). Without it, the runner
+    token patched ANOTHER pod, a label and another annotation (HTTP 200): the guard is required.
+    With it, those patches and a cost of `-5` got HTTP 422, the worker's own write passed, and a
+    fifth scale-down trial passed with 0 write errors. Get and list of pods and secrets were 403
+    in both cases. PASS.
+  - Not tested on kind: the network rule (kind has no default-deny policy for runner egress).
+  - Side finding, not from this change: a run that was submitted about 30 s after the rollout,
+    while an old pod was still in its drain, was delivered twice (`redeliveries_total` 1 on the
+    second pod, after `ack_wait` 60 s). The SDK then failed with "SF Engine emitted duplicate root
+    started Events" and the run was cancelled. A second run 2 minutes later was `ok`. Not filed.
+  - Restore: `helm rollback sf 13` failed once with a server-side-apply conflict on
+    `.spec.replicas` (my `kubectl scale`); `--force-conflicts` fixed it. The cluster is back on
+    `local-086bc723b1b7` with 2 runner pods; a smoke run was `ok`. Test files are in
+    `~/sf-kind/ome-1931/`.

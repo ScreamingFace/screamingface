@@ -463,6 +463,51 @@ part of the platform change.
    `controller.kubernetes.io/pod-deletion-cost`, and ONLY on its own pod. The bound token carries
    the pod name in `request.userInfo.extra['authentication.kubernetes.io/pod-name']`. Compare it
    with the name of the patched pod. The request shape is above.
+
+   A reference policy, tested on kind (Kubernetes 1.37, 2026-11-16). With it, the worker's write
+   passes. A patch of another pod, of another annotation, of a label, or with a cost that is not
+   a small non-negative integer gets HTTP 422. The platform owns the real policy:
+
+   ```yaml
+   apiVersion: admissionregistration.k8s.io/v1
+   kind: ValidatingAdmissionPolicy
+   metadata:
+     name: url4-runner-deletion-cost-guard
+   spec:
+     failurePolicy: Fail
+     matchConstraints:
+       resourceRules:
+         - apiGroups: [""]
+           apiVersions: ["v1"]
+           operations: ["UPDATE"]   # a PATCH reaches admission as UPDATE
+           resources: ["pods"]
+     matchConditions:
+       - name: runner-service-account
+         expression: >-
+           request.userInfo.username == "system:serviceaccount:sf-fusion:url4-cloud-runner"
+     validations:
+       - message: "the runner may patch its own pod only"
+         expression: >-
+           'authentication.kubernetes.io/pod-name' in request.userInfo.extra &&
+           request.userInfo.extra['authentication.kubernetes.io/pod-name'][0] == object.metadata.name
+       - message: "the runner may change the pod-deletion-cost annotation only"
+         expression: >-
+           object.spec == oldObject.spec &&
+           object.metadata.labels == oldObject.metadata.labels &&
+           object.metadata.annotations.all(k,
+             k == 'controller.kubernetes.io/pod-deletion-cost' ||
+             (k in oldObject.metadata.annotations &&
+              oldObject.metadata.annotations[k] == object.metadata.annotations[k])) &&
+           oldObject.metadata.annotations.all(k,
+             k == 'controller.kubernetes.io/pod-deletion-cost' || k in object.metadata.annotations)
+       - message: "the cost must be a small non-negative integer"
+         expression: >-
+           !('controller.kubernetes.io/pod-deletion-cost' in object.metadata.annotations) ||
+           object.metadata.annotations['controller.kubernetes.io/pod-deletion-cost'].matches('^[0-9]{1,3}$')
+   ```
+
+   Bind it with a `ValidatingAdmissionPolicyBinding` (`validationActions: [Deny]`) that selects
+   the `sf-fusion` namespace.
 3. A network rule. The namespace is default-deny, and runner pods
    (`app.kubernetes.io/name: url4-runner`) have no egress to the API server. Without this rule,
    each write times out after 5 s and the feature has no effect:
