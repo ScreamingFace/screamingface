@@ -23,6 +23,8 @@ Docs version: 0.1.12. This skill is generated from https://docs.screamingface.ai
 3. A run is paid on your own provider keys when you use a local engine. Read the cost from `report.usage.cost_usd`. See [Usage](https://docs.screamingface.ai/sf-client/api/usage).
 4. Use only names in `sf.__all__`. [The sf namespace](https://docs.screamingface.ai/sf-client/api/modules) lists the modules, and the API reference pages in the index list every public name.
 5. Read an error by its code. [Errors](https://docs.screamingface.ai/sf-client/api/errors) lists the classes and the codes.
+6. Open the docs page from the index for any name, signature or default before you use it. Do not rely on memory.
+7. End every answer with a `Sources` list: each docs address you opened or took a fact from, one per line. If you opened none, write `Sources: none`.
 
 ## Index
 
