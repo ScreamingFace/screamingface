@@ -25,7 +25,9 @@ per-provider limit of 4 upstream calls does not bound memory.
 
 The cost scales with fan-out, not with the run's cap, so the 8 MB cap cannot rise safely. A
 separate small fix lowers the url4 cap to about 6,000,000 bytes so admitted runs fit the
-gateway's 8 MiB body cap. This spec is what lets it rise again.
+gateway's 8 MiB body cap. This spec is what lets it rise again. (Superseded 2026-11-15: the
+inline cap is 8,000,000 bytes (PR #1588) and the gateway's default body cap rose to 12 MiB to fit
+it, per HupBaHa's review of 2026-11-13.)
 
 ## 2. Goals
 
@@ -148,7 +150,7 @@ An attachment is one content part, in the same position F2 puts inline parts tod
   slots × ~27 MB serialised body is about 430 MB at worst, which does not fit 512 Mi with the
   process baseline. The builder either raises the gateway's memory limit or sets the budget below
   that worst case, and records the numbers.
-- `AIGW_MAX_REQUEST_BYTES` (8 MiB) applies to the body the caller sends. A reference request is a
+- `AIGW_MAX_REQUEST_BYTES` (12 MiB) applies to the body the caller sends. A reference request is a
   few KB, so it passes. The upstream body is bounded by the resolved-size check against the run
   cap instead.
 
@@ -167,10 +169,10 @@ An attachment is one content part, in the same position F2 puts inline parts tod
   bytes verified and encoded once per run and shared across calls, and the body streamed from
   that shared encoding. The research measured this at 19 MB for 20 calls against 438 MB today.
 - The cap follows the path (owner, 2026-11-11). A run whose attachments go by reference is capped
-  at 20,000,000 bytes; a run on the inline path keeps the lower cap (about 6,000,000 bytes) that
-  fits the gateway's 8 MiB body cap. url4's run admission takes the cap from the engine, which
-  knows its path from configuration before the run starts. The gateway's body cap does not
-  change.
+  at 20,000,000 bytes; a run on the inline path keeps the lower cap (8,000,000 bytes, PR #1588)
+  that fits the gateway's 12 MiB body cap (8,000,000 in base64 is 10,666,668 bytes). url4's run
+  admission takes the cap from the engine, which knows its path from configuration before the run
+  starts. The reference path does not change the gateway's body cap.
 - Configuration is explicit: the engine sends references only when its gateway config says the
   gateway accepts them. No probing per request.
 
