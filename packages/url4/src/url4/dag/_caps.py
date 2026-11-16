@@ -35,6 +35,22 @@ from url4.dag.attachment import Attachment
 from url4.dag.node import gather_or_cancel
 
 MAX_ATTACHMENTS = 20
+# WHY 8,000,000 (#1450 F1b; PR #1588 review blocker 2 → owner decision 2026-11-15): every model
+# call sends the run's files base64-encoded in ONE gateway request, and AIGateway refuses a body
+# over its request cap (``apps/aigateway/src/aigateway/config.py`` ``max_request_bytes``) with a
+# permanent 413. 4 * ceil(8,000,000 / 3) = 10,666,668 encoded bytes; over 20 entries the padding
+# adds at most 8 / 3 each, so 10,666,720 at worst. That was over the gateway's old 8 MiB
+# (8,388,608) default — every call of a cap-sized run was a 413 — so the gateway default rose to
+# 12 MiB (12,582,912, OME-1926) rather than this cap dropping to 6,000,000 (#1588 round 5,
+# superseded): 1,633,568 bytes stay for the parts' ``data:`` prefixes and JSON (20 x 1 KiB) and
+# the request envelope (256 KiB reserve). Pinned across layers by the Engine's
+# ``test_url4_attachment_cap_fits_the_gateway.py`` and aigateway's
+# ``test_url4_attachment_cap_request.py``, bound byte for byte by one shared recipe
+# (``apps/aigateway/tests/fixtures/url4_attachment_cap_request/recipe.json``).
+# AIDEV-NOTE: the cap leaves a model call about 1.9 MB of JSON-encoded text (prompt, member
+# answers, parameters) beside one cap-sized picture (1,916,035 B; a little less over 20 files).
+# Beyond it the gateway returns a permanent 413 ``request_too_large``; a v2 picture Case plus
+# url4 attachments in one call can also exceed it — neither is checked before the call.
 MAX_ATTACHMENT_BYTES = 8_000_000
 
 

@@ -123,11 +123,12 @@ def _case(fill: bytes, size: int) -> tuple[Attachment, str]:
 
 @pytest.mark.asyncio
 async def test_case_attachment_blobs_served_past_the_cap_are_refused_within_a_chunk() -> None:
-    a, a_hex = _case(b"a", 4_000_000)
-    b, b_hex = _case(b"b", 4_000_000)
-    # The store serves 9 MB for each digest: the Case already holds 8 MB, so every byte the
-    # reads add beyond the Case sizes is over the cap.
-    io = _Oversized({f"/blob/sha256/{a_hex}": 9_000_000, f"/blob/sha256/{b_hex}": 9_000_000})
+    a, a_hex = _case(b"a", CAP // 2)
+    b, b_hex = _case(b"b", CAP - CAP // 2)
+    # The store serves 9/8 of the cap for each digest: the Case already holds the whole cap, so
+    # every byte the reads add beyond the Case sizes is over it.
+    over = CAP * 9 // 8
+    io = _Oversized({f"/blob/sha256/{a_hex}": over, f"/blob/sha256/{b_hex}": over})
     seen: list[tuple[Attachment, ...]] = []
 
     async def model(sources: str, intent: str | None, scope: object) -> str:
@@ -170,9 +171,10 @@ async def test_an_honest_read_of_a_case_digest_still_fits() -> None:
 
 def test_a_counted_keys_read_draws_only_its_bytes_beyond_the_counted_size() -> None:
     budget = CapBudget()
-    budget.charge("k", 5_000_000)
-    budget.charge_bytes("k", 5_000_000)  # an honest re-read: nothing beyond the counted size
-    budget.charge_bytes("other", 3_000_000)  # exactly at the cap
+    counted = CAP * 5 // 8
+    budget.charge("k", counted)
+    budget.charge_bytes("k", counted)  # an honest re-read: nothing beyond the counted size
+    budget.charge_bytes("other", CAP - counted)  # exactly at the cap
     with pytest.raises(ResolutionError) as caught:
         budget.charge_bytes("k", 1)  # one byte past the counted size
     assert caught.value.code == ErrorCode.ATTACHMENTS_TOO_LARGE
@@ -180,8 +182,9 @@ def test_a_counted_keys_read_draws_only_its_bytes_beyond_the_counted_size() -> N
 
 def test_settling_a_counted_key_again_gives_its_read_back() -> None:
     budget = CapBudget()
-    budget.charge("k", 5_000_000)
-    budget.charge_bytes("k", 6_000_000)  # 1 MB beyond: counted live
-    budget.charge("k", 5_000_000)  # the read landed: counted once, its live bytes released
-    budget.charge_bytes("other", 3_000_000)  # 5 + 3 = 8 MB: fits
+    counted = CAP * 5 // 8
+    budget.charge("k", counted)
+    budget.charge_bytes("k", counted + CAP // 8)  # an eighth of the cap beyond: counted live
+    budget.charge("k", counted)  # the read landed: counted once, its live bytes released
+    budget.charge_bytes("other", CAP - counted)  # exactly the cap in all: fits
     budget.raise_if_refused()

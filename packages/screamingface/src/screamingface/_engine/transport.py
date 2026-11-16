@@ -249,6 +249,9 @@ class Url4CloudTransport:
 
         Returns the Run's id, or None with one notice when the Engine did not register it (D7).
         """
+        from screamingface._engine.credit_notice import check_sync
+
+        check_sync(self._http, candidates)
         client_key = new_client_key()
         result = _runs.create_sync(
             _runs.marked_request(self._http),
@@ -833,6 +836,9 @@ class AsyncUrl4CloudTransport:
         self, benchmark: str, case_count: int, candidates: tuple[Candidate, ...]
     ) -> str | None:
         """Async twin of the sync `open_run`."""
+        from screamingface._engine.credit_notice import check_async
+
+        await check_async(self._http, candidates)
         client_key = new_client_key()
         result = await _runs.create_async(
             _runs.marked_async_request(self._http),

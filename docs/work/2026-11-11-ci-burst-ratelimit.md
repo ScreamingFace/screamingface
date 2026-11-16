@@ -1,12 +1,12 @@
 ---
 ticket: OME-1878
 stack: repo
-status: in_progress
+status: done
 started: 2026-11-11
-finished:
+finished: 2026-11-16
 ---
 
-# ci-burst-ratelimit — a burst of merges to main no longer fails runs on the GITHUB_TOKEN rate limit
+# ci-burst-ratelimit — a burst of merges to main costs fewer GITHUB_TOKEN calls and no longer fails Release Please, the Preview reconcile or the test lanes' report steps
 
 ## Intent
 
@@ -39,6 +39,13 @@ burst cost less and stops failing runs for bookkeeping that the next run redoes 
 
 - The workflow YAML parses; the repo gates pass; preview tests are green.
 
+## Scope (narrowed 2026-11-16, PR #1742 review by HupBaHa)
+
+This unit lowers the burst's token use and stops three run kinds failing on it. It does NOT cover
+the default CodeQL workflow: its Analyze jobs still upload SARIF through the installation token
+and can fail with `API rate limit exceeded for installation` in a burst (6 of the 60 failures on
+2026-11-11). Residual filed as `OME-1927` under `OME-733`.
+
 ## Spec/plan note
 
 Config-and-guard unit sized below a separate `docs/spec` + `docs/plan`. The design is the
@@ -46,7 +53,10 @@ Config-and-guard unit sized below a separate `docs/spec` + `docs/plan`. The desi
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+- **Actual files:** as planned — `.github/scripts/preview_contract.py`, `.github/scripts/test_preview_contract.py`, `.github/workflows/aigateway-tests.yml`, `.github/workflows/aigateway-ui-tests.yml`, `.github/workflows/release-please.yml`, `.github/workflows/report-intake-tests.yml`, `.github/workflows/scoreboard-tests.yml`, `.github/workflows/screamingface-engine-tests.yml`, `.github/workflows/screamingface-tests.yml`, `.github/workflows/url4-tests.yml`, `docs/tasks/2026-11-11-OME-1878-ci-burst-ratelimit.md`, `docs/work/2026-11-11-ci-burst-ratelimit.md`.
+- **Commits:** squash `7acd3fa27` (#1742, merged 2026-11-16); this ledger close-out in the follow-up PR.
+- **Gates:** repo gates green; `test_preview_contract.py` 23 passed (3 new); CI green on the
+  main-refreshed head `58b566d6c`.
+- **Deviations:** (1) #1742 was merged at 11:53Z with HupBaHa's CHANGES_REQUESTED (11:17Z)
+  outstanding — the merge gated on CI only; both review points are closed by this follow-up
+  (claim narrowed, ledger completed). (2) CodeQL is out of scope → `OME-1927`.
