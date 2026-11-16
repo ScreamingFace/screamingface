@@ -258,6 +258,6 @@ within baseline (`dag/_context.py` 455/455); `check_suppressions.py` 3/3; privat
   `packages/url4/tests/unit/test_attachment_sources_round7.py` (it said "6,000,000 since PR
   #1588"); approval `OME-1545.json` amended by the owner with the new `approved_blob`. The other
   four approved rewrites are untouched and pass at 8,000,000 (they read the constant).
-- **Gates (base `origin/main`):** aigateway ALL GREEN; screamingface-engine ALL GREEN; repo ALL
-  GREEN; url4 — append-only check red on the round7 comment until the approval amendment, then
-  re-run (see below).
+- **Gates (base `origin/main`):** aigateway, screamingface-engine, repo ALL GREEN; url4 ALL GREEN
+  after the owner's approval amendment (`54aa975ab`), which the append-only check reports as an
+  approved OME-1545 transition.
