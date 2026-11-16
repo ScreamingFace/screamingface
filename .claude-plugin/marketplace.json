@@ -1,0 +1,14 @@
+{
+  "name": "screamingface",
+  "description": "ScreamingFace agent skill, generated from the ScreamingFace Client docs",
+  "owner": {
+    "name": "OpenMined"
+  },
+  "plugins": [
+    {
+      "name": "docs",
+      "source": "./public-docs/agent-skill",
+      "description": "ScreamingFace Client docs as an agent skill"
+    }
+  ]
+}

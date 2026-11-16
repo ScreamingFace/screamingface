@@ -4,6 +4,7 @@ import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Menu, X } from 'lucide-vue-next'
 import { useCodeLangStore } from '@/stores/codelangStore'
 import { useDocNavigation, type NavEntry } from '@/composables/useDocNavigation'
+import { assignHeadingIds } from '@/lib/slug'
 import NavTree from './NavTree.vue'
 
 interface Props {
@@ -49,42 +50,63 @@ const saveSidebarScroll = () => {
 }
 
 // Deep-linkable headings: give every section heading in the prose a stable slug
-// id (from its text, kept if the author already set one), and append a hover "#"
-// anchor so a reader can grab the link. Scrolling uses scrollIntoView because the
-// doc content lives in a nested overflow container, not the window.
+// id (from its text, kept if the author already set one), and append a hover
+// "copy link" button (the lucide `link` icon) so a reader can grab the link.
+// Scrolling uses scrollIntoView because the doc content lives in a nested overflow
+// container, not the window.
 const content = ref<HTMLElement | null>(null)
 
-const slugify = (text: string) =>
-  text
-    .toLowerCase()
-    .trim()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
+// The lucide `link` icon, inlined because the buttons are created outside Vue.
+const LINK_ICON =
+  '<svg class="heading-anchor__icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" ' +
+  'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+  'stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>' +
+  '<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'
+const COPIED_MS = 2000
+
+const sectionLinkButton = (h: HTMLElement) => {
+  const label = `Copy link to this section: ${(h.textContent ?? '').trim()}`
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'heading-anchor'
+  button.setAttribute('aria-label', label)
+  button.dataset.tip = label
+  button.innerHTML = LINK_ICON
+  let timer: number | undefined
+  button.addEventListener('click', async () => {
+    const { origin, pathname, search } = window.location
+    try {
+      await navigator.clipboard.writeText(`${origin}${pathname}${search}#${h.id}`)
+      button.dataset.tip = 'Link copied'
+    } catch {
+      // No clipboard access: put the hash in the address bar so the reader can copy it.
+      window.history.replaceState(null, '', `#${h.id}`)
+      button.dataset.tip = 'Link is in the address bar'
+    }
+    button.dataset.state = 'done'
+    window.clearTimeout(timer)
+    timer = window.setTimeout(() => {
+      button.dataset.tip = label
+      delete button.dataset.state
+    }, COPIED_MS)
+  })
+  return button
+}
 
 const enhanceHeadings = () => {
   const root = content.value
   if (!root) return
-  const used = new Set<string>()
-  root.querySelectorAll<HTMLElement>('h2, h3, h4').forEach((h) => {
-    if (h.closest('.not-prose')) return
-    if (!h.id) {
-      const base = slugify(h.textContent ?? '') || 'section'
-      let id = base
-      let n = 2
-      while (used.has(id) || document.getElementById(id)) id = `${base}-${n++}`
-      h.id = id
-    }
-    used.add(h.id)
-    if (!h.querySelector('.heading-anchor')) {
-      const a = document.createElement('a')
-      a.className = 'heading-anchor'
-      a.href = `#${h.id}`
-      a.textContent = '#'
-      a.setAttribute('aria-label', 'Link to this section')
-      h.appendChild(a)
-    }
-  })
+  const headings = [...root.querySelectorAll<HTMLElement>('h2, h3, h4')]
+    .filter((h) => !h.closest('.not-prose'))
+    .map((el) => ({ el, text: el.textContent ?? '', id: el.id }))
+  assignHeadingIds(headings, (id) => document.getElementById(id) !== null).forEach(
+    ({ heading, id }) => {
+      heading.el.id = id
+      if (!heading.el.querySelector('.heading-anchor')) {
+        heading.el.appendChild(sectionLinkButton(heading.el))
+      }
+    },
+  )
 }
 
 const scrollToHash = () => {
@@ -404,32 +426,81 @@ const { prevPage, nextPage } = useDocNavigation(() => props.navigation)
 }
 
 /* Deep-linkable headings: offset the scroll target below the sticky navbar, and
-   reveal a "#" anchor on hover for grabbing the section link. */
+   reveal a "copy link" icon button on hover or keyboard focus. */
 .prose-content :deep(h2),
 .prose-content :deep(h3),
 .prose-content :deep(h4) {
   scroll-margin-top: 5rem;
 }
 
-.prose-content :deep(a.heading-anchor) {
-  margin-left: 0.4em;
+.prose-content :deep(button.heading-anchor) {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  vertical-align: middle;
+  margin-left: 0.5em;
+  padding: 0.2em;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
   color: var(--color-muted-foreground);
-  text-decoration: none;
-  font-weight: 400;
+  font-size: 0.7em;
+  line-height: 1;
+  cursor: pointer;
   opacity: 0;
   transition: opacity 0.12s ease-in-out;
 }
 
-.prose-content :deep(h2:hover a.heading-anchor),
-.prose-content :deep(h3:hover a.heading-anchor),
-.prose-content :deep(h4:hover a.heading-anchor),
-.prose-content :deep(a.heading-anchor:focus) {
-  opacity: 0.55;
+.prose-content :deep(h2:hover button.heading-anchor),
+.prose-content :deep(h3:hover button.heading-anchor),
+.prose-content :deep(h4:hover button.heading-anchor),
+.prose-content :deep(button.heading-anchor:focus-visible),
+.prose-content :deep(button.heading-anchor[data-state='done']) {
+  opacity: 0.7;
 }
 
-.prose-content :deep(a.heading-anchor:hover) {
-  opacity: 0.95;
+.prose-content :deep(button.heading-anchor:hover),
+.prose-content :deep(button.heading-anchor:focus-visible) {
+  opacity: 1;
   color: var(--accent-text-low);
-  text-decoration: none;
+}
+
+.prose-content :deep(button.heading-anchor:focus-visible) {
+  outline: 2px solid var(--accent-text-low);
+  outline-offset: 2px;
+}
+
+/* The tooltip reads `data-tip`: "Copy link to this section: ..." and, after a click, "Link copied". */
+.prose-content :deep(button.heading-anchor::after) {
+  content: attr(data-tip);
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  z-index: 10;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-sans, inherit);
+  font-size: 0.75rem;
+  font-weight: 400;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease-in-out;
+}
+
+.prose-content :deep(button.heading-anchor:hover::after),
+.prose-content :deep(button.heading-anchor:focus-visible::after),
+.prose-content :deep(button.heading-anchor[data-state='done']::after) {
+  opacity: 1;
+}
+
+/* No hover on touch screens: keep the icon visible, but quiet. */
+@media (hover: none) {
+  .prose-content :deep(button.heading-anchor) {
+    opacity: 0.4;
+  }
 }
 </style>

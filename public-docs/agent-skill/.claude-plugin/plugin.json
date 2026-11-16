@@ -1,0 +1,8 @@
+{
+  "name": "docs",
+  "description": "ScreamingFace Client docs as an agent skill",
+  "version": "0.1.12",
+  "author": {
+    "name": "OpenMined"
+  }
+}

@@ -487,8 +487,7 @@ report.failures    # what failed, and why`
       hosted engine serves <code>draco-3pass</code>, and a local engine started with
       <code>screamingface up</code> comes with <code>medxpert</code> ready to run. To run more
       benchmarks on a local engine from a repository checkout, run
-      <code>just local-stack-notebooks</code> from
-      <code>packages/screamingface/</code>.
+      <code>just local-stack-notebooks</code> from <code>packages/screamingface/</code>.
     </p>
 
     <div class="not-prose">

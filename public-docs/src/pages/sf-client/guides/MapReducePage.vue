@@ -83,7 +83,8 @@ sf.Fanout([a, b], signals={"cons": sf.Consistency(n=3)}) >> sf.ArgMax("cons")
 sf.Fanout([a, b], signals={"lp": sf.Logprob("prob")}) >> sf.ArgMax("lp")
 
 # Among the two cheapest answers, take the majority.
-sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</script>
+sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`
+</script>
 
 <template>
   <DocLayout
@@ -94,12 +95,11 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
   >
     <p>
       In ScreamingFace, every <RouterLink to="/sf-client/guides/fusions">fusion</RouterLink> can be
-      constructed as a map-reduce pipeline. A <strong>dispatch</strong> stage puts the question to the
-      member models. A
-      <strong>reduce</strong> stage turns what comes back into a single answer, and that answer is
-      what the benchmark grades. Two optional stages can sit in between: <strong>map</strong>
-      attaches a number, called a <strong>signal</strong>, to each answer independently, and
-      <strong>filter</strong> drops answers before the reducer sees them.
+      constructed as a map-reduce pipeline. A <strong>dispatch</strong> stage puts the question to
+      the member models. A <strong>reduce</strong> stage turns what comes back into a single answer,
+      and that answer is what the benchmark grades. Two optional stages can sit in between:
+      <strong>map</strong> attaches a number, called a <strong>signal</strong>, to each answer
+      independently, and <strong>filter</strong> drops answers before the reducer sees them.
     </p>
 
     <p>
@@ -163,52 +163,184 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
         </g>
         <!-- dispatch: three plain answers -->
         <g>
-          <rect x="28.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-azure-500);stroke-width:1.5" />
-          <text x="44.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">a</text>
+          <rect
+            x="28.0"
+            y="46"
+            width="32"
+            height="18"
+            rx="3"
+            style="fill: var(--surface); stroke: var(--data-azure-500); stroke-width: 1.5"
+          />
+          <text x="44.0" y="59" text-anchor="middle" style="fill: var(--text); font-size: 12px">
+            a
+          </text>
         </g>
         <g>
-          <rect x="67.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-azure-500);stroke-width:1.5" />
-          <text x="83.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">b</text>
+          <rect
+            x="67.0"
+            y="46"
+            width="32"
+            height="18"
+            rx="3"
+            style="fill: var(--surface); stroke: var(--data-azure-500); stroke-width: 1.5"
+          />
+          <text x="83.0" y="59" text-anchor="middle" style="fill: var(--text); font-size: 12px">
+            b
+          </text>
         </g>
         <g>
-          <rect x="106.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-azure-500);stroke-width:1.5" />
-          <text x="122.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">c</text>
+          <rect
+            x="106.0"
+            y="46"
+            width="32"
+            height="18"
+            rx="3"
+            style="fill: var(--surface); stroke: var(--data-azure-500); stroke-width: 1.5"
+          />
+          <text x="122.0" y="59" text-anchor="middle" style="fill: var(--text); font-size: 12px">
+            c
+          </text>
         </g>
         <!-- map: each answer scored (teal bar) -->
         <g>
-          <rect x="224.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-teal-500);stroke-width:1.5" />
-          <text x="240.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">a</text>
-          <rect x="224.0" y="68" width="32" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
+          <rect
+            x="224.0"
+            y="46"
+            width="32"
+            height="18"
+            rx="3"
+            style="fill: var(--surface); stroke: var(--data-teal-500); stroke-width: 1.5"
+          />
+          <text x="240.0" y="59" text-anchor="middle" style="fill: var(--text); font-size: 12px">
+            a
+          </text>
+          <rect
+            x="224.0"
+            y="68"
+            width="32"
+            height="3.5"
+            rx="1.5"
+            style="fill: var(--data-teal-500)"
+          />
         </g>
         <g>
-          <rect x="263.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-teal-500);stroke-width:1.5" />
-          <text x="279.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">b</text>
-          <rect x="263.0" y="68" width="13" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
+          <rect
+            x="263.0"
+            y="46"
+            width="32"
+            height="18"
+            rx="3"
+            style="fill: var(--surface); stroke: var(--data-teal-500); stroke-width: 1.5"
+          />
+          <text x="279.0" y="59" text-anchor="middle" style="fill: var(--text); font-size: 12px">
+            b
+          </text>
+          <rect
+            x="263.0"
+            y="68"
+            width="13"
+            height="3.5"
+            rx="1.5"
+            style="fill: var(--data-teal-500)"
+          />
         </g>
         <g>
-          <rect x="302.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-teal-500);stroke-width:1.5" />
-          <text x="318.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">c</text>
-          <rect x="302.0" y="68" width="23" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
+          <rect
+            x="302.0"
+            y="46"
+            width="32"
+            height="18"
+            rx="3"
+            style="fill: var(--surface); stroke: var(--data-teal-500); stroke-width: 1.5"
+          />
+          <text x="318.0" y="59" text-anchor="middle" style="fill: var(--text); font-size: 12px">
+            c
+          </text>
+          <rect
+            x="302.0"
+            y="68"
+            width="23"
+            height="3.5"
+            rx="1.5"
+            style="fill: var(--data-teal-500)"
+          />
         </g>
         <!-- filter: top two kept, b dropped -->
         <g>
-          <rect x="420.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-orange-500);stroke-width:1.5" />
-          <text x="436.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">a</text>
-          <rect x="420.0" y="68" width="32" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
+          <rect
+            x="420.0"
+            y="46"
+            width="32"
+            height="18"
+            rx="3"
+            style="fill: var(--surface); stroke: var(--data-orange-500); stroke-width: 1.5"
+          />
+          <text x="436.0" y="59" text-anchor="middle" style="fill: var(--text); font-size: 12px">
+            a
+          </text>
+          <rect
+            x="420.0"
+            y="68"
+            width="32"
+            height="3.5"
+            rx="1.5"
+            style="fill: var(--data-teal-500)"
+          />
         </g>
         <g opacity="0.3">
-          <rect x="459.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-orange-500);stroke-width:1.5" stroke-dasharray="3 2" />
-          <text x="475.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">b</text>
-          <rect x="459.0" y="68" width="13" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
+          <rect
+            x="459.0"
+            y="46"
+            width="32"
+            height="18"
+            rx="3"
+            style="fill: var(--surface); stroke: var(--data-orange-500); stroke-width: 1.5"
+            stroke-dasharray="3 2"
+          />
+          <text x="475.0" y="59" text-anchor="middle" style="fill: var(--text); font-size: 12px">
+            b
+          </text>
+          <rect
+            x="459.0"
+            y="68"
+            width="13"
+            height="3.5"
+            rx="1.5"
+            style="fill: var(--data-teal-500)"
+          />
         </g>
         <g>
-          <rect x="498.0" y="46" width="32" height="18" rx="3" style="fill:var(--surface);stroke:var(--data-orange-500);stroke-width:1.5" />
-          <text x="514.0" y="59" text-anchor="middle" style="fill:var(--text);font-size:12px">c</text>
-          <rect x="498.0" y="68" width="23" height="3.5" rx="1.5" style="fill:var(--data-teal-500)" />
+          <rect
+            x="498.0"
+            y="46"
+            width="32"
+            height="18"
+            rx="3"
+            style="fill: var(--surface); stroke: var(--data-orange-500); stroke-width: 1.5"
+          />
+          <text x="514.0" y="59" text-anchor="middle" style="fill: var(--text); font-size: 12px">
+            c
+          </text>
+          <rect
+            x="498.0"
+            y="68"
+            width="23"
+            height="3.5"
+            rx="1.5"
+            style="fill: var(--data-teal-500)"
+          />
         </g>
         <!-- reduce: one final answer -->
         <g>
-          <rect x="655.0" y="46" width="32" height="18" rx="3" style="fill:var(--data-green-500);stroke:var(--data-green-500);stroke-width:1.5" fill-opacity="0.18" />
+          <rect
+            x="655.0"
+            y="46"
+            width="32"
+            height="18"
+            rx="3"
+            style="fill: var(--data-green-500); stroke: var(--data-green-500); stroke-width: 1.5"
+            fill-opacity="0.18"
+          />
         </g>
         <g class="sub" text-anchor="middle" style="font-size: 12px">
           <a href="#dispatch"><text x="83" y="162">dispatch</text></a>
@@ -278,11 +410,11 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
     <p>
       <code>sf.Fanout(members)</code> is the simplest dispatch: it broadcasts the question to every
       member in parallel and returns a <strong>panel</strong> with one answer per member. Nothing is
-      scored or chosen yet. Members are usually <code>sf.Model</code> instances, each identified by a
-      provider-prefixed model id (see <RouterLink to="/sf-client/guides/models">Models</RouterLink>);
-      since fusions nest, a member can also be another fusion. The fan-out is also where you declare
-      signals measured from each member's own response, with <code>signals=</code>, covered under Map
-      below.
+      scored or chosen yet. Members are usually <code>sf.Model</code> instances, each identified by
+      a provider-prefixed model id (see
+      <RouterLink to="/sf-client/guides/models">Models</RouterLink>); since fusions nest, a member
+      can also be another fusion. The fan-out is also where you declare signals measured from each
+      member's own response, with <code>signals=</code>, covered under Map below.
     </p>
 
     <p>
@@ -314,9 +446,9 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
     <h3>Choosing a reducer</h3>
 
     <p>
-      Reducers differ in where the final answer comes from: copied verbatim from one member, computed
-      from the members' answers, or newly written by a model. Several decide using a signal, the
-      number covered in the next section. The
+      Reducers differ in where the final answer comes from: copied verbatim from one member,
+      computed from the members' answers, or newly written by a model. Several decide using a
+      signal, the number covered in the next section. The
       <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> has full signatures.
     </p>
 
@@ -360,8 +492,8 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
       A <strong>signal</strong> is a named number on each answer: a stated confidence, a judge's
       score, a cost. Every answer carries a <code>signals</code> map of name to number, for example
       <code>{ "conf": 90, "cost_usd": 0.004 }</code>. A step names the one it wants (as
-      <code>weights=</code>, <code>by=</code> or <code>where=</code>), and you can read them yourself
-      with <code>answer.signals["name"]</code>. Signals come from three places:
+      <code>weights=</code>, <code>by=</code> or <code>where=</code>), and you can read them
+      yourself with <code>answer.signals["name"]</code>. Signals come from three places:
     </p>
 
     <ul>
@@ -371,8 +503,8 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
         something about a member's own answer as it comes back, with no extra step in the chain:
         <ul>
           <li>
-            <code>sf.Verbalized(pattern)</code>: a number the model states in its text, pulled out by
-            a regex (e.g. a <code>Confidence: 90</code> line).
+            <code>sf.Verbalized(pattern)</code>: a number the model states in its text, pulled out
+            by a regex (e.g. a <code>Confidence: 90</code> line).
           </li>
           <li>
             <code>sf.Logprob(...)</code>: how certain the model was, from the token probabilities of
@@ -392,8 +524,8 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
       <li>
         <strong>Recorded by the engine</strong>, always present with nothing to declare: each call's
         <code>cost_usd</code>, <code>latency_ms</code>, <code>tokens_in</code> and
-        <code>tokens_out</code>, plus any field of a JSON answer read as <code>field:&lt;path&gt;</code>
-        (e.g. <code>field:confidence</code>).
+        <code>tokens_out</code>, plus any field of a JSON answer read as
+        <code>field:&lt;path&gt;</code> (e.g. <code>field:confidence</code>).
       </li>
     </ul>
 
@@ -473,15 +605,15 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
     <p>
       A missing value is not an error. If an answer lacks the signal (say a model skipped its
       <code>Confidence:</code> line), the value is <code>None</code> and that answer sits out the
-      step. An unknown name is an error: a name that no earlier step provides raises before any model
-      is called, so a typo never costs you a run.
+      step. An unknown name is an error: a name that no earlier step provides raises before any
+      model is called, so a typo never costs you a run.
     </p>
 
     <h3>Signals in practice</h3>
 
     <p>
-      A few canonical patterns. Each declares or reads a different signal, then lets a reducer act on
-      it:
+      A few canonical patterns. Each declares or reads a different signal, then lets a reducer act
+      on it:
     </p>
 
     <CodeBlock :code="examples" language="python" />
@@ -509,16 +641,16 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
     <h2 id="filter">Filter: drop answers before reducing</h2>
 
     <p>
-      A <strong>selector</strong> removes answers from the panel, usually by reading a signal, so the
-      reducer only sees the ones worth keeping. This matters most for <code>sf.Synthesize</code>,
-      which reads every answer it's given. A selector is not terminal: a reducer still has to follow
-      it.
+      A <strong>selector</strong> removes answers from the panel, usually by reading a signal, so
+      the reducer only sees the ones worth keeping. This matters most for
+      <code>sf.Synthesize</code>, which reads every answer it's given. A selector is not terminal: a
+      reducer still has to follow it.
     </p>
 
     <ul>
       <li>
-        <code>sf.Rank(k, by=...)</code> keeps the top <code>k</code> by a signal. The count is fixed:
-        always <code>k</code>, as long as that many answers carry the signal.
+        <code>sf.Rank(k, by=...)</code> keeps the top <code>k</code> by a signal. The count is
+        fixed: always <code>k</code>, as long as that many answers carry the signal.
       </li>
       <li>
         <code>sf.Filter(where=...)</code> keeps every answer that clears a threshold. The count
@@ -558,15 +690,21 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
         </g>
         <rect class="box enrich" x="20" y="38" width="196" height="120" />
         <text x="36" y="62" class="lbl">signal "conf"</text>
-        <text x="40" y="88" style="fill:var(--text);font-size:12.5px">a</text>
-        <rect x="58" y="80" width="94.5" height="8" rx="2" style="fill:var(--data-teal-500)" />
-        <text x="196" y="88" text-anchor="end" style="fill:var(--text-2);font-size:12.5px">90</text>
-        <text x="40" y="112" style="fill:var(--text);font-size:12.5px">b</text>
-        <rect x="58" y="104" width="63.0" height="8" rx="2" style="fill:var(--data-teal-500)" />
-        <text x="196" y="112" text-anchor="end" style="fill:var(--text-2);font-size:12.5px">60</text>
-        <text x="40" y="136" style="fill:var(--text);font-size:12.5px">c</text>
-        <rect x="58" y="128" width="78.8" height="8" rx="2" style="fill:var(--data-teal-500)" />
-        <text x="196" y="136" text-anchor="end" style="fill:var(--text-2);font-size:12.5px">75</text>
+        <text x="40" y="88" style="fill: var(--text); font-size: 12.5px">a</text>
+        <rect x="58" y="80" width="94.5" height="8" rx="2" style="fill: var(--data-teal-500)" />
+        <text x="196" y="88" text-anchor="end" style="fill: var(--text-2); font-size: 12.5px">
+          90
+        </text>
+        <text x="40" y="112" style="fill: var(--text); font-size: 12.5px">b</text>
+        <rect x="58" y="104" width="63.0" height="8" rx="2" style="fill: var(--data-teal-500)" />
+        <text x="196" y="112" text-anchor="end" style="fill: var(--text-2); font-size: 12.5px">
+          60
+        </text>
+        <text x="40" y="136" style="fill: var(--text); font-size: 12.5px">c</text>
+        <rect x="58" y="128" width="78.8" height="8" rx="2" style="fill: var(--data-teal-500)" />
+        <text x="196" y="136" text-anchor="end" style="fill: var(--text-2); font-size: 12.5px">
+          75
+        </text>
         <rect class="box narrow" x="300" y="24" width="344" height="60" />
         <rect class="box reduce" x="300" y="112" width="344" height="60" />
         <g class="lbl">
@@ -584,7 +722,10 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
       </figcaption>
     </figure>
 
-    <p>Keep the two most confident answers, then have a model write the final answer from just those two:</p>
+    <p>
+      Keep the two most confident answers, then have a model write the final answer from just those
+      two:
+    </p>
 
     <div class="not-prose">
       <NbCell :count="4" :code="narrow"><NbTextOut :text="narrowOut" /></NbCell>
@@ -605,8 +746,8 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
       cascades and pipelines are dispatch strategies too. They add <strong>control flow</strong>,
       deciding <em>which</em> members run and in what order, often by reading the same signals you
       have seen here. <code>sf.Gate</code> is the first control-flow piece: it reads a signal and
-      decides whether to answer or abstain. What each strategy hands to the stages after it depends on
-      the strategy; this page covers what follows a fan-out.
+      decides whether to answer or abstain. What each strategy hands to the stages after it depends
+      on the strategy; this page covers what follows a fan-out.
     </p>
 
     <h2>See also</h2>

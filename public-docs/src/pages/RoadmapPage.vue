@@ -123,7 +123,8 @@ const ITEMS: Item[] = [
     theme: 'E4c',
     ome: 'OME-1291',
     title: 'Routers, cascades, gates',
-    blurb: 'Decide per case what runs: route, cascade, gate, and cap, so only the needed models are called.',
+    blurb:
+      'Decide per case what runs: route, cascade, gate, and cap, so only the needed models are called.',
     detail:
       'A fusion can decide what to run before spending anything, so the paths it skips cost nothing. Route by keyword, by an LLM classifier, or by a small decision model; send a case to one model or to several; and build cascades that only escalate to a bigger model when the cheap one fails or looks unsure.\n\nIt also adds gates that trigger on agreement, a judge that runs only when it is actually needed, and a hard budget cap per fusion. The report shows what was skipped and why.',
     bucket: 'now',
@@ -137,7 +138,8 @@ const ITEMS: Item[] = [
     theme: 'E20',
     ome: 'OME-1309',
     title: 'External results',
-    blurb: 'See how a method did on established leaderboards, as grounding, not as a reproducible entry.',
+    blurb:
+      'See how a method did on established leaderboards, as grounding, not as a reproducible entry.',
     detail:
       'Results from other leaderboards and arenas are shown for context: they tell you how a method did on established boards and how that compares, which is informative. They are marked as outside results, grayed out, with a source link, and do not become first-class, reproducible entries on our leaderboard.\n\nEach records where it came from, the date it was read, and who added it. Hand-entered results stay editable without losing their history.',
     bucket: 'now',
@@ -163,7 +165,8 @@ const ITEMS: Item[] = [
     epic: 'Scale & limits',
     theme: 'E6',
     title: 'Scale the platform',
-    blurb: 'Many more people can submit evaluations and have them run in parallel, under fair limits.',
+    blurb:
+      'Many more people can submit evaluations and have them run in parallel, under fair limits.',
     detail:
       'Load testing and fair-share scheduling raise how many users can run evaluations at the same time, with balancing so one heavy run does not starve the rest. Usage stays under fair per-user limits.',
     bucket: 'now',
@@ -205,7 +208,7 @@ const ITEMS: Item[] = [
     title: 'Auto-generated docs',
     blurb: 'Keep the docs generated from the source of truth so they do not drift.',
     detail:
-      'Docs are regenerated from the product itself whenever it changes, in the OpenMined voice, then reviewed before they go live. A cleanup pass fixes places where today\'s docs have fallen behind.\n\nThe result is docs that keep up with the product instead of being hand-maintained.',
+      "Docs are regenerated from the product itself whenever it changes, in the OpenMined voice, then reviewed before they go live. A cleanup pass fixes places where today's docs have fallen behind.\n\nThe result is docs that keep up with the product instead of being hand-maintained.",
     bucket: 'now',
     status: 'in-progress',
     eta: 'Nov 2026',
@@ -220,7 +223,7 @@ const ITEMS: Item[] = [
     title: 'Live eval progress',
     blurb: 'Watch an evaluation as it runs, step by step, instead of waiting for one final result.',
     detail:
-      'See what is queued, running, and finished as it happens, with counts and cost for each step. You can open a single model\'s answer, or a result reused from cache, before the whole run finishes.\n\nNo more waiting for one final result at the end.',
+      "See what is queued, running, and finished as it happens, with counts and cost for each step. You can open a single model's answer, or a result reused from cache, before the whole run finishes.\n\nNo more waiting for one final result at the end.",
     bucket: 'next',
     status: 'planned',
     votes: 29,
@@ -295,7 +298,7 @@ const ITEMS: Item[] = [
     title: 'Prompt optimization',
     blurb: 'Automatically tune the prompts in a fusion, instead of hand-editing them.',
     detail:
-      'Let the toolkit search for better prompts against your benchmark, the way DSPy does, rather than tuning them by hand. Each model\'s prompt can be pushed toward higher scores at lower cost.\n\nA frequent request from researchers.',
+      "Let the toolkit search for better prompts against your benchmark, the way DSPy does, rather than tuning them by hand. Each model's prompt can be pushed toward higher scores at lower cost.\n\nA frequent request from researchers.",
     bucket: 'next',
     status: 'planned',
     votes: 17,
@@ -494,7 +497,8 @@ const ITEMS: Item[] = [
     epic: 'Private data',
     theme: 'url4',
     title: 'Private data in url4',
-    blurb: 'Reference private data from a url4 line, so a fusion can run over data that cannot leave home.',
+    blurb:
+      'Reference private data from a url4 line, so a fusion can run over data that cannot leave home.',
     detail:
       'A url4 expression could point at a private data resource, via Syftspace, as an input. This lets a fusion run over sensitive data that stays where it lives.\n\nScope and demand are still open.',
     bucket: 'exploring',
@@ -637,7 +641,7 @@ const ITEMS: Item[] = [
     title: 'Cross-provider signals',
     blurb: 'Attach confidence signals to each answer and combine on them.',
     detail:
-      'Each model answer can come with a signal: a confidence score it states out loud, the model\'s own probability, how consistent it is across tries, plus cost and latency. Your rules can use those signals to weight votes, keep the strongest answers, or require agreement.\n\nReports show the signal and where it came from.',
+      "Each model answer can come with a signal: a confidence score it states out loud, the model's own probability, how consistent it is across tries, plus cost and latency. Your rules can use those signals to weight votes, keep the strongest answers, or require agreement.\n\nReports show the signal and where it came from.",
     bucket: 'shipped',
     status: 'done',
     votes: 15,
@@ -954,7 +958,6 @@ onMounted(async () => {
                   <span aria-hidden="true">{{ isExpanded(item.id) ? '▴' : '▾' }}</span>
                 </button>
               </template>
-
             </article>
           </div>
         </section>
@@ -966,7 +969,9 @@ onMounted(async () => {
       <p class="kicker">How the buckets work</p>
       <dl class="defs">
         <div v-for="b in BUCKETS" :key="b.key" class="def">
-          <dt>{{ b.label }}<span class="def__band">{{ b.band }}</span></dt>
+          <dt>
+            {{ b.label }}<span class="def__band">{{ b.band }}</span>
+          </dt>
           <dd>{{ b.note }}</dd>
         </div>
       </dl>
