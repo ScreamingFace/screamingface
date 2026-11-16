@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1932
 stack: screamingface-engine
 status: in_progress   # planned | in_progress | done | blocked
 started: 2026-11-16
@@ -92,8 +92,8 @@ Case, the same for 1 model and for the 5-member Fusion) and the same at N=500 an
     case_result_store_text,deliver_result_body,parked_aggregate,parked_late_accounting,
     result_builder,parked_result_review_fixes}.py`, `tests/unit/inspect/test_{parked_result_hosted,
     parked_result_memory,report_memory_parked_stages,scoring_projection_whole_run_parity}.py`.
-- **Commits:** one local commit on `parked-case-results` (stacked on
-  `OME-1835-streamed-result-delivery`; not pushed).
+- **Commits:** on branch `OME-1932-parked-case-results` (stacked on
+  `OME-1835-streamed-result-delivery`); the PR is squash-merged.
 - **Gates:** engine gates green (`--base origin/OME-1835-streamed-result-delivery`; the
   append-only check passes, so no prior test changed); inspect lane 3,055 passed (3,046 before).
 - **How it was built:** tiered-build workflow (Opus plan, Haiku and Opus implementers). The
