@@ -395,7 +395,7 @@ def global_cache_headers(
     """The closed provenance header set for this request, as a plain mapping.
 
     INVARIANT: the header set is CLOSED and carries no identity — no account, no
-    profile, no credential name. ``X-AIGW-Cache-Write`` appears on a miss only,
+    connection, no credential name. ``X-AIGW-Cache-Write`` appears on a miss only,
     because "what did the write do" is meaningless for a hit or a bypass.
 
     WHY a mapping and not just a mutator: the streaming path returns a FRESH
