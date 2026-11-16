@@ -12,7 +12,7 @@
     },
     "packages/url4/tests/unit/test_attachment_sources_round7.py": {
       "base_blob": "d39f2694e90ede0935db998a0dfa805378d568d7",
-      "approved_blob": "e287a2b776d2a2fd571117c81dbba5eb53dd473c"
+      "approved_blob": "3c6503925db271a0112a0712349f2687cc545997"
     },
     "packages/url4/tests/unit/test_blob_live_budget.py": {
       "base_blob": "55d98cc6149cbc6b10995ccee99df644e3baaced",
@@ -26,5 +26,13 @@
       "base_blob": "4dae5d8d5acdfaa0b4331abb6b802434467d0adf",
       "approved_blob": "778ee537417984527b825b8dc35210d0b68de107"
     }
-  }
+  },
+  "amendments": [
+    {
+      "date": "2026-11-16",
+      "file": "packages/url4/tests/unit/test_attachment_sources_round7.py",
+      "scope": "WHY comment only (lines 493-495): the cap history now reads 8,000,000 -> 6,000,000 (round 5) -> 8,000,000 again (OME-1926 raised the gateway cap to 12 MiB). No code change.",
+      "previous_approved_blob": "e287a2b776d2a2fd571117c81dbba5eb53dd473c"
+    }
+  ]
 }
