@@ -70,7 +70,9 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         "unknown_identity",
         # dag/nodes.py:548 — a duration and a literal, no values.
         "timeout",
-        # runner/executor.py:574 — two byte counts, no values.
+        # runner/executor.py::_RunState.build_result and (OME-1835) artifacts/spool.py::
+        # ResultTooLarge, raised by benchmarks/grading_endpoints.py::deliver_result. Both use
+        # artifacts/delivery.py::result_too_large_message — two byte counts, no values.
         "result_too_large",
         # world/connector.py::_replay_refusal, world/web_tools.py::FrozenToolResults.lookup
         # (OME-1307) — a replay the frozen copy cannot answer. Each raise site uses a fixed message

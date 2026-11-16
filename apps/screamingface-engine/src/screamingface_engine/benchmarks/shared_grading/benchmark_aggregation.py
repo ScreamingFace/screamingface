@@ -79,7 +79,7 @@ from screamingface_engine.benchmarks.aggregation import (
     scored_case_result,
 )
 from screamingface_engine.benchmarks.case_records import abstain_mark
-from screamingface_engine.benchmarks.contract import CaseId, CaseResult, Failure
+from screamingface_engine.benchmarks.contract import CandidateResult, CaseId, CaseResult, Failure
 from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.graded_answer import GradedAnswer
 from screamingface_engine.benchmarks.media_parking import park_cases_media
@@ -94,6 +94,7 @@ from screamingface_engine.benchmarks.shared_grading.case_grades import (
     CaseGradeReader,
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import CasePayload, TextPayload
+from screamingface_engine.process_memory import log_process_memory
 
 #: How many Cases a judged Benchmark's final aggregate marks at once (OME-1527, R4).
 #: WHY 4: a judged Case's hook spends its time waiting on a judge call through the AI
@@ -285,8 +286,31 @@ class BenchmarkAggregation:
 
         # WHY the sync face stays: every existing benchmark's aggregate handler is a
         # sync url4 endpoint; only the async face below changes who drives the loop.
+        return self.aggregate_result(
+            raw_case_grades,
+            benchmark_id=benchmark_id,
+            benchmark_revision=benchmark_revision,
+            selected_cases=selected_cases,
+            grading_material=grading_material,
+            scorer=scorer,
+            case_metadata=case_metadata,
+        ).as_payload()
+
+    def aggregate_result(
+        self,
+        raw_case_grades: str,
+        *,
+        benchmark_id: str,
+        benchmark_revision: str,
+        selected_cases: Sequence[SelectedCase],
+        grading_material: Callable[[int], object | None],
+        scorer: Callable[[Sequence[CaseResult]], CandidateScore],
+        case_metadata: Callable[[int], Mapping[str, Any]] | None = None,
+    ) -> CandidateResult:
+        """:meth:`aggregate` as the model, not the wire dict — same args, same marks."""
+
         return _run_sync(
-            self.aggregate_async(
+            self.aggregate_result_async(
                 raw_case_grades,
                 benchmark_id=benchmark_id,
                 benchmark_revision=benchmark_revision,
@@ -297,7 +321,7 @@ class BenchmarkAggregation:
             )
         )
 
-    async def aggregate_async(
+    async def aggregate_result_async(
         self,
         raw_case_grades: str,
         *,
@@ -307,7 +331,7 @@ class BenchmarkAggregation:
         grading_material: Callable[[int], object | None],
         scorer: Callable[[Sequence[CaseResult]], CandidateScore],
         case_metadata: Callable[[int], Mapping[str, Any]] | None = None,
-    ) -> dict[str, Any]:
+    ) -> CandidateResult:
         """:meth:`aggregate`, awaited on the CALLER's loop — same args, same result.
 
         WHY it exists (OME-1240): a hook that makes model calls (a judged imported
@@ -321,8 +345,11 @@ class BenchmarkAggregation:
         after another through :meth:`iter_case_results`; above 1, through
         :meth:`_concurrent_case_results`. Either way results arrive, and progress is
         published, in roll-call order.
+
+        FEATURE (memory fix 3, OME-1835): the model is returned so the endpoint can stream it.
         """
 
+        log_process_memory("aggregate_start", cases=len(selected_cases))
         with grading_progress(
             benchmark_id, benchmark_revision, scorer, failure_policy=self.failure_policy
         ):
@@ -351,6 +378,7 @@ class BenchmarkAggregation:
                         scorer,
                         failure_policy=self.failure_policy,
                     )
+            log_process_memory("aggregate_marked", cases=len(case_results))
             # FEATURE (OME-1271, PR 5): park each Case's pictures and files in the run's
             # result store, under the sha256 its echoed placeholder carries, so a researcher
             # can open one later. WHY a thread: the store's writer is synchronous, and this is
@@ -366,6 +394,7 @@ class BenchmarkAggregation:
                 failure_policy=self.failure_policy,
                 inverted_grade=self.inverted_grade,
             )
+            log_process_memory("aggregate_finalized", cases=finalized.case_count)
             observed = {case.case_id for case in case_results}
             for case in finalized.cases:
                 if case.case_id not in observed:
@@ -376,7 +405,32 @@ class BenchmarkAggregation:
                         scorer,
                         failure_policy=self.failure_policy,
                     )
-            return finalized.as_payload()
+            return finalized
+
+    async def aggregate_async(
+        self,
+        raw_case_grades: str,
+        *,
+        benchmark_id: str,
+        benchmark_revision: str,
+        selected_cases: Sequence[SelectedCase],
+        grading_material: Callable[[int], object | None],
+        scorer: Callable[[Sequence[CaseResult]], CandidateScore],
+        case_metadata: Callable[[int], Mapping[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """:meth:`aggregate_result_async` as the v1 wire dict."""
+
+        return (
+            await self.aggregate_result_async(
+                raw_case_grades,
+                benchmark_id=benchmark_id,
+                benchmark_revision=benchmark_revision,
+                selected_cases=selected_cases,
+                grading_material=grading_material,
+                scorer=scorer,
+                case_metadata=case_metadata,
+            )
+        ).as_payload()
 
     async def iter_case_results(
         self,

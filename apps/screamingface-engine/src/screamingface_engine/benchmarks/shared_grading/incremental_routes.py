@@ -59,7 +59,7 @@ def aggregate_result_endpoint(
     async def aggregate(raw: str, case_ids: tuple[int, ...]):
         scoring = load(case_ids)
         try:
-            return await scoring.finish(raw)
+            return await scoring.finish_result(raw)
         except ValueError as exc:
             raise CaseFinalizationError(
                 "invalid completed Case results", code="benchmark_contract_error", permanent=True
@@ -77,5 +77,5 @@ def batch_result_endpoint(
     return aggregate_endpoint(
         label=label,
         available_case_count=available_case_count,
-        aggregate=lambda raw, case_ids: load(case_ids).aggregate(raw),
+        aggregate=lambda raw, case_ids: load(case_ids).aggregate_result(raw),
     )
