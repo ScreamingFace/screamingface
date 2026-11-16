@@ -1,7 +1,7 @@
 ---
 id: OME-1924
 linear_url: https://linear.app/openmined/issue/OME-1924/show-who-owns-each-queued-run-and-when-it-will-start-and-give-the
-status: in_progress
+status: in_review
 type: task
 priority: 3
 labels: [screamingface-engine, agentic, design-session]
