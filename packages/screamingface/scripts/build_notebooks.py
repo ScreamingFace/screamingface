@@ -2102,17 +2102,18 @@ def _picture_benchmarks_e2e() -> NotebookNode:
         nbformat.v4.new_markdown_cell("""\
 # Picture Benchmarks — two Cases each, on the local stack or dev
 
-Nine Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
+Eleven Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
 TableQA (biology tables), MMMU multiple choice and MMMU open (college exam questions about
 charts, diagrams and photos), MathVista (maths over plots and figures), LABBench2's FigQA2
-and TableQA2 image (harder biology figures and tables, free answers) and MaCBench (chemistry
-and materials science: molecules, crystal structures, spectra, lab photos) with every question,
-and Humanity's Last Exam (HLE, expert questions across 100+ subjects) with 342 of its 2,500
-questions. Each picture is saved inside its Case when the Benchmark is imported, so
-nothing is fetched at run time.
+and TableQA2 image (harder biology figures and tables, free answers), ZeroBench (hard reasoning
+over pictures) and MaCBench (chemistry and materials science: molecules, crystal structures,
+spectra, lab photos) with every question, Humanity's Last Exam (HLE, expert questions across
+100+ subjects) with 342 of its 2,500 questions, and HLE-Diamond (the HLE authors' cleaned 1,000
+questions) with 272 of them. Each picture is saved inside its Case when the Benchmark is
+imported, so nothing is fetched at run time.
 
 This notebook is a smoke test for the picture path, not a ranking. It points at **either** the
-local stack **or** dev with one variable, lists which of the nine that Engine serves, and runs
+local stack **or** dev with one variable, lists which of the eleven that Engine serves, and runs
 two Cases of each with one cheap model that reads pictures. Two Cases are enough to catch a run
 that breaks on pictures, for example one that goes over its memory budget.
 
@@ -2128,23 +2129,23 @@ on `:9108`, Scoreboard on `:9106`) and opens Jupyter on `examples/`. Without a c
 its own environment with the `inspect` extra the imported Benchmarks need (a few minutes,
 once).
 
-**HLE's and LABBench2's datasets are gated.** cais/hle and EdisonScientific/labbench2 on
-Hugging Face each ask you to accept their terms once; then set `HF_TOKEN` (or run
-`huggingface-cli login`) before `just local-stack-notebooks`. Without a token the local stack
-skips those three Benchmarks with a warning and serves the other six.
+**HLE's, HLE-Diamond's and LABBench2's datasets are gated.** cais/hle, cais/hle-diamond and
+EdisonScientific/labbench2 on Hugging Face each ask you to accept their terms once; then set
+`HF_TOKEN` (or run `huggingface-cli login`) before `just local-stack-notebooks`. Without a token
+the local stack skips those four Benchmarks with a warning and serves the rest.
 
 **Hosted.** fusion.screamingface.ai, behind a Cloudflare Access login. `sf.connect()` opens that
 login in your browser. **Dev** is the team's test deployment, fusion.dev, behind the same login.
 
 Two things differ between local and the deployed targets:
 
-- **On a Mac, the local stack serves FigQA, TableQA, HLE, the two LABBench2 Benchmarks and
-  MaCBench.** MMMU and MathVista have
+- **On a Mac, the local stack serves FigQA, TableQA, HLE, HLE-Diamond, the two LABBench2
+  Benchmarks and MaCBench.** MMMU and MathVista have
   their Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
   Pillow writes different PNG bytes on macOS, so a Mac's own prepared Cases cannot match it, and
-  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE, LABBench2 and
-  MaCBench keep each picture's bytes as the dataset ships them, so their Case Digest seals the
-  same on a Mac.
+  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE, HLE-Diamond,
+  LABBench2 and MaCBench keep each picture's bytes as the dataset ships them, so their Case
+  Digest seals the same on a Mac.
 - **The per-run memory budget is enforced only on a Linux deployment.** A local Engine watches
   no memory, so a run that uses too much memory fails on dev and never locally (section 7)."""),
         nbformat.v4.new_markdown_cell("""\
@@ -2187,7 +2188,7 @@ sf.connect()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 2. Which picture Benchmarks this Engine serves
 
-The nine ids below are the catalogue ids of the nine picture Benchmarks. The cell lists the
+The eleven ids below are the catalogue ids of the eleven picture Benchmarks. The cell lists the
 ones this Engine serves and names each one it can't run with its likely reason:
 
 - the local stack runs on a Mac, and the Benchmark's Case Digest is sealed on Linux. A local
@@ -2206,6 +2207,8 @@ PICTURE_BENCHMARKS = {
     "inspect-mmmu_open": "judge (a judge model reads the reply against the answer)",
     "inspect-mathvista": "exact match of the letter or the text after 'ANSWER:', no judge",
     "inspect-hle": "judge (HLE's regex_judge compares the final answer with the reference)",
+    "hle_diamond": "judge (the same regex_judge and judge as inspect-hle, over the Diamond "
+    "questions)",
     "labbench2_figqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
     "labbench2_tableqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
     "inspect-zerobench": "exact match of the text in the last curly braces, no judge",
@@ -2243,8 +2246,8 @@ for benchmark_id in PICTURE_BENCHMARKS:
 
 The Case count, the revision (the pin on the imported Cases: two Engines showing the same
 revision ask the same questions) and how the Benchmark is graded. `inspect-mmmu_open`,
-`inspect-hle` and the two LABBench2 Benchmarks spend judge tokens; the other five grade by
-matching the answer, for free."""),
+`inspect-hle`, `hle_diamond` and the two LABBench2 Benchmarks spend judge tokens; the others
+grade by matching the answer, for free."""),
         nbformat.v4.new_code_cell("""\
 for benchmark_id in served:
     card = sf.benchmarks.get(benchmark_id)
@@ -2272,7 +2275,8 @@ MODEL"""),
 ## 5. Run two Cases of each — paid, off by default
 
 `RUN_EVALUATION = False` keeps every cell below free: each one prints what it would run and stops.
-Set it to `True` to spend. Each run is `sf.evaluate(MODEL, benchmark=..., limit=2)`; a run that
+Set it to `True` to spend. Each run is `sf.evaluate(MODEL, benchmark=..., limit=2)`, or names its
+two Case ids with `cases=` when the first two would miss the pictures; a run that
 fails is recorded with its error code, so one failing Benchmark never stops the others. The
 pinned cache stays at its default (off), so every run makes fresh model calls."""),
         nbformat.v4.new_code_cell("""\
@@ -2282,15 +2286,19 @@ reports = {}
 run_errors = {}
 
 
-def run_two_cases(benchmark_id):
-    \"\"\"Run two Cases of one served picture Benchmark; keep its Report or its error.\"\"\"
+def run_two_cases(benchmark_id, cases=None):
+    \"\"\"Run two Cases of one served picture Benchmark (its first two, or the Case ids in
+    `cases`); keep its Report or its error.\"\"\"
 
     if benchmark_id not in served:
         return f"{benchmark_id}: not served by this Engine, skipped"
     if not RUN_EVALUATION:
         return f"{benchmark_id}: set RUN_EVALUATION = True to run 2 Cases (paid model calls)"
     try:
-        outcome = sf.evaluate(MODEL, benchmark=benchmark_id, limit=2)
+        if cases is None:
+            outcome = sf.evaluate(MODEL, benchmark=benchmark_id, limit=2)
+        else:
+            outcome = sf.evaluate(MODEL, benchmark=benchmark_id, cases=cases)
     except sf.ScreamingFaceError as exc:
         run_errors[benchmark_id] = exc
         outcome = f"{benchmark_id}: run failed with {exc.code}: {exc.message}"
@@ -2317,6 +2325,19 @@ stack first; on dev, once the deployment that carries this Benchmark is up. Sect
 picture the model saw and the judge's own words on each Case."""),
         nbformat.v4.new_code_cell("""\
 run_two_cases("inspect-hle")"""),
+        nbformat.v4.new_markdown_cell("""\
+### HLE-Diamond: a text Case from one half, a picture Case from the other
+
+HLE-Diamond is its own Benchmark, not a subset of HLE: the HLE authors' cleaned 1,000
+questions, half marked reasoning and half knowledge, asked with HLE's prompt and graded by the
+same regex_judge and glm-5.3-flash judge, so the OpenRouter key from the panel pays for the judge
+on the local stack. Its first five Cases are all text questions, so `limit=2` would never send a
+picture. The cell names two Case ids instead (a Case id is its position in the Benchmark, 1 to
+1,000): Case 1 is a text question from the reasoning half and Case 501 a picture question from
+the knowledge half, so two Cases cover both paths and both halves. A run that names its Cases
+cannot be submitted to the leaderboard; this is a smoke test, so that costs nothing."""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("hle_diamond", cases=[1, 501])"""),
         nbformat.v4.new_markdown_cell("""\
 ### LABBench2: a figure and a table, free answers
 
@@ -2397,13 +2418,15 @@ picture"""),
         nbformat.v4.new_markdown_cell("""\
 ### The judge's evidence on the judged Benchmarks
 
-`inspect-mmmu_open`, `inspect-hle` and the two LABBench2 Benchmarks are judged. Each Case's check
-evidence carries the judge's own explanation verbatim, the way `12_inspect_evals_benchmarks`
-section 7 shows it, so a surprising score can be read, not just counted."""),
+`inspect-mmmu_open`, `inspect-hle`, `hle_diamond` and the two LABBench2 Benchmarks are judged.
+Each Case's check evidence carries the judge's own explanation verbatim, the way
+`12_inspect_evals_benchmarks` section 7 shows it, so a surprising score can be read, not just
+counted."""),
         nbformat.v4.new_code_cell("""\
 for benchmark_id in (
     "inspect-mmmu_open",
     "inspect-hle",
+    "hle_diamond",
     "labbench2_figqa2_img",
     "labbench2_tableqa2_img",
 ):

@@ -1,13 +1,13 @@
 ---
 id: OME-1753
 linear_url: https://linear.app/openmined/issue/OME-1753/price-an-openrouter-refusal-with-a-policy-notice-at-dollar0
-status: in_progress
+status: done
 type: fix
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1287
 created: 2026-10-27
-closed:
+closed: 2026-11-16
 ---
 
 # Price an OpenRouter refusal with a policy notice at $0
@@ -22,3 +22,7 @@ needs no `usage`.
 
 - Spec: `docs/spec/2026-10-26-openrouter-pre-output-refusal-zero.md` §10
 - Ledger: `docs/work/2026-10-27-openrouter-refusal-notice-zero.md`
+
+## Close
+
+- 2026-11-16: PR #1583 squash-merged as `581c20969` on 2026-10-27; live on prod since 2026-10-28. Linear Done 2026-11-16 with a close-comment that names the PR and the merge commit; checked against `origin/main`.

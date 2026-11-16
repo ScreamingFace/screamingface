@@ -98,6 +98,8 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "mmmu_open": "judged",
     # OME-1478: HLE, graded by inspect_evals' own regex_judge with the grader role bound.
     "hle": "judged",
+    # OME-1863: HLE-Diamond, a local Task graded by the same regex_judge as hle.
+    "hle_diamond": "judged",
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, graded by the authors' exact-match judge.
     "labbench2_figqa2_img": "judged",
     "labbench2_tableqa2_img": "judged",

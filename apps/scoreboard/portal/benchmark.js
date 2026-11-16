@@ -441,6 +441,11 @@
         state.rows = window.SFExternalResults
           ? window.SFExternalResults.selectRows(state.entries, data && data.baselines, 50)
           : state.entries;
+        if (window.SFExternalResults) {
+          window.SFExternalResults.renderComparisonNotes(
+            document.getElementById("external-comparison"), state.rows
+          );
+        }
         // Cost-based comparisons still require recorded runs, not imported reference numbers.
         state.entries = state.rows.filter(function (row) { return !row.external; });
         if (state.rows.length === 0) {

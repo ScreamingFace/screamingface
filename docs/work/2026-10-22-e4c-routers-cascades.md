@@ -1,9 +1,9 @@
 ---
 ticket: OME-1864 (engine), OME-1865 (SDK), OME-1866 (aigateway); epic OME-1291
 stack: screamingface
-status: in_progress
+status: done
 started: 2026-10-22
-finished:
+finished: 2026-11-13
 ---
 
 # e4c-routers-cascades — choose whether a model runs (OME-1291)
@@ -341,3 +341,7 @@ E4b fallback, `sf.Cascade`, Keywords and LabelModel selectors, skip-Gate members
   waits for Kevin's confirmation in the thread; HupBaHa's re-review is pending; S1,
   H3 and H4 are decided (Log 2026-11-12 review round 2). The three-PR split became one PR (deviation 17); the
   Linear leaves are OME-1864/1865/1866.
+
+## Landed on main
+
+- `baedbd47a` (#1733), squash-merged 2026-11-13 18:45 UTC. The **Open** item above was written before the merge. Linear OME-1864, OME-1865 and OME-1866 Done 2026-11-16. The epic OME-1291 stays open; the follow-ups are listed above.

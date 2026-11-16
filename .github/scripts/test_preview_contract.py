@@ -303,3 +303,69 @@ def test_workflows_keep_oidc_away_from_forks_and_serialize_admission() -> None:
     assert "schedule:" in admission
     assert "screamingface-preview-admission" in admission
     assert "cancel-in-progress: false" in admission
+
+
+# -- a rate-limited reconcile is skipped, not failed (ci-burst-ratelimit, 2026-11-11) ----------
+# STORY: as a maintainer merging a burst of PRs, the repo's GITHUB_TOKEN hourly limit runs out;
+# the 5-minute reconcile then logs a warning and exits 0 — the next run reconciles — instead of
+# failing (and emailing the merger) on bookkeeping. A per-PR command still fails on it.
+
+
+def _http_error(code: int, body: str):
+    import io
+    import urllib.error
+
+    return urllib.error.HTTPError(
+        "https://api.github.test", code, "x", {}, io.BytesIO(body.encode())
+    )
+
+
+@pytest.mark.parametrize("code", [403, 429])
+def test_a_rate_limited_reconcile_warns_and_exits_cleanly(
+    monkeypatch, capsys, code: int
+) -> None:
+    contract = load_contract()
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+
+    def limited(_request):
+        raise _http_error(
+            code, '{"message": "API rate limit exceeded for installation."}'
+        )
+
+    monkeypatch.setattr(contract.urllib.request, "urlopen", limited)
+    monkeypatch.setattr("sys.argv", ["preview_contract.py", "reconcile"])
+    contract.main()
+    assert "::warning::" in capsys.readouterr().out
+
+
+def test_a_forbidden_reconcile_that_is_not_a_rate_limit_still_fails(
+    monkeypatch,
+) -> None:
+    contract = load_contract()
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+
+    def forbidden(_request):
+        raise _http_error(403, '{"message": "Resource not accessible by integration"}')
+
+    monkeypatch.setattr(contract.urllib.request, "urlopen", forbidden)
+    monkeypatch.setattr("sys.argv", ["preview_contract.py", "reconcile"])
+    with pytest.raises(RuntimeError, match="Resource not accessible"):
+        contract.main()
+
+
+def test_a_rate_limited_pull_request_command_still_fails(monkeypatch) -> None:
+    contract = load_contract()
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+
+    def limited(_request):
+        raise _http_error(
+            403, '{"message": "API rate limit exceeded for installation."}'
+        )
+
+    monkeypatch.setattr(contract.urllib.request, "urlopen", limited)
+    monkeypatch.setattr("sys.argv", ["preview_contract.py", "guard", "--number", "7"])
+    with pytest.raises(contract.RateLimited):
+        contract.main()

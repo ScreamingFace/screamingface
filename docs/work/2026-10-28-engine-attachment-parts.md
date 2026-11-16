@@ -233,3 +233,31 @@ within baseline (`dag/_context.py` 455/455); `check_suppressions.py` 3/3; privat
   is streamed (more than one chunk, each ≤ 64 KiB); mutations `streamed_json_body` → `None` and
   `_CHUNK` = 128 KiB both fail it. Merged `origin/main` (lockfile commits). Gates vs
   `origin/main`: url4, screamingface-engine, aigateway, repo ALL GREEN; module size within baseline.
+
+### Round 7 (2026-11-16) — blocker 2 resolved the other way: gateway cap 12 MiB, url4 cap back to 8,000,000
+
+- **Owner decision (2026-11-15):** raise AIGateway's default request cap to 12 MiB instead of
+  lowering url4's cap — landed as `OME-1926` / #1835 (`max_request_bytes` 12,582,912; frozen-copy
+  entry cap 14,680,064). This supersedes round 5: `MAX_ATTACHMENT_BYTES` is 8,000,000 again, as on
+  `origin/main` before #1588, so the spec (F1b, error table), `DEFAULT_BLOB_MAX_BYTES`,
+  `test_fair_share_byte_budget.py` and the #1587 "one byte over" cases are exact again — the round
+  5/6 "deferred follow-ups" close without edits.
+- **Arithmetic:** 4·⌈8,000,000/3⌉ = 10,666,668 encoded; 20-entry padding bound 10,666,720; + 20 ×
+  1 KiB part overhead (20,480) + 256 KiB envelope reserve (262,144) = 10,949,344 ≤ 12,582,912
+  (1,633,568 spare). Text room at the cap with the recipe's 209-byte envelope:
+  12,582,912 − 10,666,668 − 209 = 1,916,035 (was 388,399).
+- **Merged `origin/main`** (brings #1835; clean). Re-cut the shared recipe: picture 8,000,000
+  decoded, `gateway_cap_bytes` 12,582,912, boundary passes 12,582,912 / refused 12,582,913. The
+  round-6 tests keep their shape: the Engine half streams exactly the recipe bytes at both boundary
+  sizes through the real `_ModelEndpoint`; the Gateway half posts the same bytes into the real app
+  at its default cap. The text-room test pins ~1.9 MB; the gateway "past the cap" case is url4's
+  cap + 1,500,000 (9,500,000 → 12,666,668 encoded, over the cap by itself; the reviewer's
+  6,500,000-byte picture now passes). `_caps.py` WHY + AIDEV-NOTE, `errors.py`, both specs
+  (`OME-1535` limits line → 12 MiB; blob-refs decision log → superseded) updated.
+- **Round-5 file touched again:** only the WHY comment in
+  `packages/url4/tests/unit/test_attachment_sources_round7.py` (it said "6,000,000 since PR
+  #1588"); approval `OME-1545.json` amended by the owner with the new `approved_blob`. The other
+  four approved rewrites are untouched and pass at 8,000,000 (they read the constant).
+- **Gates (base `origin/main`):** aigateway, screamingface-engine, repo ALL GREEN; url4 ALL GREEN
+  after the owner's approval amendment (`54aa975ab`), which the append-only check reports as an
+  approved OME-1545 transition.

@@ -2,6 +2,7 @@ name: screamingface-engine-tests
 on:
   push:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "apps/screamingface-engine/**"
       # the wire contract (`url4.streaming`) and the engine both ship from here
       - "packages/url4/**"
@@ -18,6 +19,7 @@ on:
       - ".github/workflows/screamingface-engine-tests.yml"
   pull_request:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "apps/screamingface-engine/**"
       # the wire contract (`url4.streaming`) and the engine both ship from here
       - "packages/url4/**"
@@ -120,6 +122,8 @@ jobs:
           fi
       - name: Test report
         uses: dorny/test-reporter@v3
+        # Publishing only: the test step fails the job; a spent GITHUB_TOKEN limit must not.
+        continue-on-error: true
         if: always()
         with:
           name: screamingface-engine Test Results (${{ matrix.python-version }})
@@ -127,6 +131,8 @@ jobs:
           reporter: java-junit
       - name: Coverage report
         uses: orgoro/coverage@v3.3
+        # Publishing only: the test step fails the job; a spent GITHUB_TOKEN limit must not.
+        continue-on-error: true
         if: always() && github.event_name == 'pull_request'
         with:
           coverageFile: apps/screamingface-engine/coverage.xml

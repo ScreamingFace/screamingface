@@ -5,13 +5,14 @@
     "the picture's base64 in the 'picture' slot and prompt_fill repeated in the 'prompt' slot until the",
     "body is exactly the wanted size. Picture bytes: 0..255 repeated, cut to decoded_bytes.",
     "Engine half (byte-identical to the real _ModelEndpoint delivery): apps/screamingface-engine/tests/unit/test_url4_attachment_cap_fits_the_gateway.py",
-    "Gateway half (expanded into the real app at its default cap): apps/aigateway/tests/unit/test_url4_attachment_cap_request.py"
+    "Gateway half (expanded into the real app at its default cap): apps/aigateway/tests/unit/test_url4_attachment_cap_request.py",
+    "Contract (owner, 2026-11-15; PR #1588 blocker 2): url4 admits 8,000,000 decoded bytes (10,666,668 base64); the gateway's default request cap is 12 MiB = 12,582,912 bytes (OME-1926). Earlier cut: 6,000,000 / 8,388,608."
   ],
   "model": "anthropic/claude-haiku-4-5",
   "intent": "Answer.",
   "picture": {
     "media_type": "image/png",
-    "decoded_bytes": 6000000
+    "decoded_bytes": 8000000
   },
   "slots": {
     "picture": "@PICTURE@",
@@ -19,9 +20,9 @@
   },
   "prompt_fill": "p",
   "envelope": "{\"model\":\"anthropic/claude-haiku-4-5\",\"messages\":[{\"role\":\"system\",\"content\":\"Answer.\"},{\"role\":\"user\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,@PICTURE@\"}},{\"type\":\"text\",\"text\":\"@PROMPT@\"}]}]}",
-  "gateway_cap_bytes": 8388608,
+  "gateway_cap_bytes": 12582912,
   "boundary_bytes": {
-    "passes": 8388608,
-    "refused": 8388609
+    "passes": 12582912,
+    "refused": 12582913
   }
 }

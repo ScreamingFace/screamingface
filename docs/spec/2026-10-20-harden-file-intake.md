@@ -38,7 +38,8 @@ decision) — Codex keeps it, and is the only provider that does.
 
 - Setting `max_request_bytes` (`AIGW_MAX_REQUEST_BYTES`), default **8 MiB = 8 388 608 bytes**,
   `gt=0`. Basis: MMMU's largest Case is 3.78 MB inline (Khoa, OME-1542, 2026-10-20); 8 leaves room
-  for HLE / MathVista, which are not measured yet.
+  for HLE / MathVista, which are not measured yet. Raised to 12 MiB = 12 582 912 bytes on
+  2026-11-15 so url4's 8,000,000-byte attachment cap fits in base64 (PR #1588).
 - Pure ASGI middleware, app-wide (every route reads its body through it), inside `CallIdMiddleware`
   so refusals carry the call id.
   - A declared `Content-Length` over the limit: 413 at once; the body is never read.

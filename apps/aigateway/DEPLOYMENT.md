@@ -297,6 +297,33 @@ refused as ambiguous (`409 connection_ambiguous`; the availability listing shows
 none the user connects the provider again. Profile rows the purge kept for such an account stay
 inert. Source: `docs/spec/2026-10-29-ome-1138-closeout.md` §4.2 and §4.10 item 5.
 
+**The `migration_note` column goes in two releases (L4c).** An image declares every field of its
+marker model in its queries, so the column outlives the field by one gateway release:
+
+- L4c-1 (migration `0016_forget_migration_note`, `396298f6c`, #1774; gateway 1.0.1) stops
+  declaring the field and runs no SQL; the column stays, unread and unwritten.
+- L4c-2 (migration `0017_drop_migration_note`) drops the column. From an image that includes
+  L4c-1 the upgrade has no window. From an image before L4c-1, one pre-upgrade Job runs `0016` and
+  `0017` while the old Pods still serve. Until the new Pod is ready, a Connection write on an old
+  Pod (creating, re-keying or deleting a Connection, an OAuth connect) can answer a server error:
+  the queries that lock or insert the marker row name every declared field. Model calls and
+  listings keep working, because marker reads name their columns. The owner accepts this window
+  (2026-11-16).
+- `0017` also refuses, with nothing changed, while any marker row is `quarantined` or carries a
+  note; the precondition above leaves none.
+
+**Rolling back below L4c-1 needs the `0017` downgrade first.** The chart's migration Job runs only
+before an install or an upgrade, never on `helm rollback`. Before rolling back from an image that
+includes L4c-2 to one older than L4c-1, run the downgrade in a gateway Pod of the current image:
+
+```bash
+python -m tortoise -c aigateway.db.TORTOISE_CONFIG downgrade models 0016_forget_migration_note
+```
+
+It re-adds the column, nullable and empty, which the running image does not read. A rollback to an
+image that includes L4c-1 needs no downgrade. Source: `docs/spec/2026-10-29-ome-1138-closeout.md`
+§4.3 and §4.10 item 4.
+
 **The retired Profile routes answer 410.** Since E3 (`08f534317`, #1464) the 13 Profile routes
 under `/v1/auth/profiles`, `/v1/auth/{provider}/profiles` and
 `/v1/admin/accounts/{account_id}/profiles` answer `410 Gone` with `Cache-Control: private, no-store`

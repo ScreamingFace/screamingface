@@ -262,6 +262,9 @@ BASELINE_PUBLISHED_FIELDS = frozenset(
         "observed_at",
         # Owner-approved E20 comparison policy: eligibility is public, attribution is not.
         "ranking_eligible",
+        # Owner-approved public update history (2026-11-10); no actor identity.
+        "observation_revision",
+        "observation_updated_at",
         "metadata",
         "model_name",
         "openness_override",
