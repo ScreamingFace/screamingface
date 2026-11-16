@@ -1,7 +1,7 @@
 ---
 id: OME-1894
 linear_url: https://linear.app/openmined/issue/OME-1894/experience-using-sf-with-claude-code-codex-is-good
-status: Done
+status: done
 type: task
 priority: high
 labels: [repo-dev-processes, agentic, autonomous]
