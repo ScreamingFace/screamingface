@@ -1,9 +1,9 @@
 ---
 ticket: OME-893
 stack: aigateway
-status: in_progress
+status: done
 started: 2026-11-11
-finished:
+finished: 2026-11-16
 ---
 
 # Provider credit visibility
@@ -317,3 +317,16 @@ under `output/playwright/credits-fixes*`; no live keys or provider requests were
 Wisdom review: three private UI modules changed; existing tests, public API, storage,
 provider calculations and requests are unchanged. No dependency or schema change.
 The fix is ready for PR review; merge and the remaining code-owner reviews are pending.
+
+## Outcome
+
+- **Actual files:** as planned: Gateway credit service, OpenRouter adapter and routes; Engine
+  credit port, adapter and REST routes; SDK credit API, run-start notice and notebook card;
+  e2e fake gateway credit route; CI workflow; spec, plan, mirrors and this ledger.
+- **Commits:** `95f172afd` — squash of [PR #1753](https://github.com/ScreamingFace/screamingface/pull/1753), merged 2026-11-16.
+- **Gates:** CI green at merge, including golden-replay and CodeQL. Sergey approved round 2.
+- **Deviations:** the CodeQL sha256 fingerprint alert was dismissed as a false positive (the
+  digest stays inside the encrypted blob) rather than changed in code. The notice for a
+  negative balance was declined per spec; only a verified zero triggers it.
+- **Open follow-up:** the live SDK → Engine → Gateway check, deferred to dev, can now run on
+  staging after the 2026-11-16 promotion.

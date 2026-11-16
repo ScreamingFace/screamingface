@@ -1,13 +1,13 @@
 ---
 id: OME-1892
 linear_url: https://linear.app/openmined/issue/OME-1892/show-provider-credit-in-the-sdk-and-notebook-connection-card
-status: In Progress
+status: Done
 type: feature
 priority: medium
 labels: [client-sf, agentic, autonomous]
 parent: OME-1294
 created: 2026-11-11
-closed:
+closed: 2026-11-16
 ---
 
 # Show provider credit in the SDK and notebook connection card
@@ -23,4 +23,4 @@ Ledger: `docs/work/2026-11-11-provider-credit.md`.
 Branch: `OME-893-provider-credit`.
 
 Owner approved the notebook preview and requested PR publication. Full live HTTP
-end-to-end verification is deferred to dev. These issues remain open for review.
+end-to-end verification is deferred to dev. Merged [PR #1753](https://github.com/ScreamingFace/screamingface/pull/1753) as `95f172afd`. Linear is Done.
