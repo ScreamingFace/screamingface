@@ -1,12 +1,12 @@
 ---
 id: OME-1926
 linear_url: https://linear.app/openmined/issue/OME-1926/raise-the-aigateway-request-body-cap-to-12-mib-so-url4-attachments-fit
-status: in_progress
+status: done
 type: task
 priority: 0
 labels: [aigateway, agentic, autonomous]
 created: 2026-11-15
-closed:
+closed: 2026-11-16
 ---
 
 # Raise the AIGateway request-body cap to 12 MiB so url4 attachments fit
