@@ -451,16 +451,19 @@ class RunSupervisor:
                     "duplicate claim of %s acked away; the run is already executing here", topic
                 )
                 await msg.ack()
-                self._log_finished(topic, "duplicate", started)
+                logger.info("run claim dropped topic=%s reason=duplicate", topic)
                 return
             self._topics_in_flight.add(topic)
             # Registered as STARTING from here until the child registers (or fails to):
             # a cancel that lands in the spawn window is answered from this set, so it is
             # acknowledged — not ignored while the child runs to a second terminal frame.
             self._starting.add(topic)
+            ending = "error"  # replaced below unless `_claim` raises (M1: never a stale name)
             try:
                 await self._claim(msg, topic)
+                ending = self._endings.pop(topic, "unknown")
             finally:
+                self._endings.pop(topic, None)
                 self._starting.discard(topic)
                 # The cancel mark is per-run (a stale entry would misclassify a LATER run
                 # of the same topic), and the control loop can now set it for a run with
@@ -469,7 +472,7 @@ class RunSupervisor:
                 self._topics_in_flight.discard(topic)
                 # FEATURE: queue visibility in the logs (OME-1924). Every claim that reached
                 # here ends with one `run finished` line, whatever path ended it.
-                self._log_finished(topic, self._endings.pop(topic, "unknown"), started)
+                self._log_finished(topic, ending, started)
 
     def _log_finished(self, topic: str, outcome: str, started: float) -> None:
         logger.info(
@@ -541,7 +544,7 @@ class RunSupervisor:
             await self._enact_accepted_cancel(msg, topic)
             return
         if await self._already_settled(msg, topic):
-            self._endings[topic] = "settled"
+            self._endings.setdefault(topic, "settled")
             return
         # FEATURE: queue visibility in the logs (OME-1924): the claim is real from here — a
         # child is about to run. `waited_s` joins the runner log to the App's `run scheduled`.
@@ -615,6 +618,7 @@ class RunSupervisor:
             # the ack leaves the message for redelivery: the next attempt re-runs this check
             # and, once the broker is readable again, the dedupe answer is the real one.
             logger.warning("stream tail unreadable for %s; leaving the claim for redelivery", topic)
+            self._endings[topic] = "redelivery"
             return True
         if already_terminal:
             await msg.ack()
@@ -706,6 +710,7 @@ class RunSupervisor:
         frames, which is the very duplication the probe exists to prevent.
         """
         if await self._refuse_cross_pod_duplicate(msg, topic):
+            self._endings[topic] = "duplicate"
             return True
         if not self._capability_expired(msg):
             return False

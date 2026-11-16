@@ -75,7 +75,7 @@ units — owner decision 2026-11-16.
    `run claimed topic=%s waited_s=%.0f` right after the claim gates pass (before `_run_child`),
    `waited_s = now − _published_at(msg)`; `run finished topic=%s outcome=%s ran_s=%.0f` in
    `supervise`'s `finally`, `outcome` = the terminal classification already computed at
-   `:760-764` (or the ack path's name for the early acks: `duplicate`, `settled`, `expired`…).
+   `:760-764` (or the early-ack path's own name: `duplicate` — another worker owns the run; `settled` — a terminal frame is already on the stream; `redelivery` — the tail was unreadable and the claim is left for the broker; `error` — the claim raised; an expired or refused run keeps the `failed` it published). The in-process duplicate claim logs `run claim dropped topic=… reason=duplicate` instead — the original run is still executing, so no `run finished` for that topic may appear.
    The runner has no owner key (the message body carries the raw identity env, which is never
    logged); the topic joins the line to the App's `run scheduled`.
 4. **Notice (`unclaimed.py`).** The warner takes an optional `demand: Callable[[], RunnerDemand |
