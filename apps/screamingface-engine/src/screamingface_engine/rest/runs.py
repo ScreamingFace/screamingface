@@ -237,12 +237,23 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
         "run created run=%s owner=%s benchmark=%s cases=%d candidates=%d created=%s",
         record.id,
         owner,
-        record.benchmark,
+        _loggable(record.benchmark),
         record.case_count,
         len(record.candidates),
         created,
     )
     return RunBody.of(record)
+
+
+def _loggable(text: str) -> str:
+    """Caller text made safe for one log line: every control character becomes `?`.
+
+    WHY: `RunSpec` admits any non-NUL character in `benchmark`, so a newline or an escape
+    sequence inside it could start a forged second line or recolour an operator's terminal
+    (security review, 2026-11-16). The value is for correlation, not display — `?` keeps the
+    line one line and the field greppable.
+    """
+    return "".join("?" if ord(ch) < 32 or ord(ch) == 127 else ch for ch in text)
 
 
 @router.get(

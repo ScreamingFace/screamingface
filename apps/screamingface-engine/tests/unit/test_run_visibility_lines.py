@@ -143,3 +143,19 @@ async def test_a_start_without_identity_logs_anonymous(caplog: pytest.LogCapture
 
     assert resp.status_code == 202
     assert "owner=anonymous run=- candidate=-" in _scheduled(caplog)
+
+
+async def test_control_characters_in_the_benchmark_cannot_forge_a_log_line(
+    caplog: pytest.LogCaptureFixture, registry: Registry
+) -> None:
+    # INVARIANT (security review, 2026-11-16): `benchmark` is the caller's text and RunSpec
+    # admits any non-NUL character, so a newline inside it must not start a second, forged
+    # `run created` line. Control characters are replaced by `?` before logging.
+    engine = _Engine(registry)
+    with caplog.at_level(logging.INFO, logger="screamingface_engine.rest.runs"):
+        response = await engine.create(ADA, benchmark="a\nrun created run=forged\x1b[0m")
+
+    assert response.status_code == 201
+    (line,) = _lines(caplog, "run created ")
+    assert "benchmark=a?run created run=forged?[0m cases=" in line
+    assert "\n" not in line
