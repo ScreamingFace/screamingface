@@ -79,11 +79,13 @@ from screamingface_engine.benchmarks.aggregation import (
     scored_case_result,
 )
 from screamingface_engine.benchmarks.case_records import abstain_mark
+from screamingface_engine.benchmarks.case_result_store import bound_case_results
 from screamingface_engine.benchmarks.contract import CandidateResult, CaseId, CaseResult, Failure
 from screamingface_engine.benchmarks.definition import FailurePolicy
 from screamingface_engine.benchmarks.graded_answer import GradedAnswer
 from screamingface_engine.benchmarks.media_parking import park_cases_media
 from screamingface_engine.benchmarks.progress import completed_case, grading_progress
+from screamingface_engine.benchmarks.result_builder import CandidateResultBuilder, ParkedResultBody
 from screamingface_engine.benchmarks.shared_grading.attempt_fold import (
     ANY_ATTEMPT_FOLD,
     AttemptFold,
@@ -354,36 +356,23 @@ class BenchmarkAggregation:
             benchmark_id, benchmark_revision, scorer, failure_policy=self.failure_policy
         ):
             case_results: list[CaseResult] = []
-            marking: Callable[..., AsyncGenerator[CaseResult]] = (
-                self.iter_case_results
-                if self.case_grading_concurrency == 1
-                else self._concurrent_case_results
-            )
-            stream: AsyncGenerator[CaseResult] = marking(
+
+            def keep(result: CaseResult) -> CaseResult:
+                case_results.append(result)
+                return result
+
+            marked = await self._mark_cases(
                 raw_case_grades,
+                benchmark_id=benchmark_id,
+                benchmark_revision=benchmark_revision,
                 selected_cases=selected_cases,
                 grading_material=grading_material,
+                scorer=scorer,
                 case_metadata=case_metadata,
+                keep=keep,
             )
-            # WHY aclosing: a raise mid-stream must still run the stream's cleanup now
-            # (cancelling Cases still being marked), not whenever it is garbage-collected.
-            async with aclosing(stream):
-                async for result in stream:
-                    case_results.append(result)
-                    # INVARIANT: publish only after canonical grading; observing never regrades.
-                    completed_case(
-                        benchmark_id,
-                        benchmark_revision,
-                        result,
-                        scorer,
-                        failure_policy=self.failure_policy,
-                    )
-            log_process_memory("aggregate_marked", cases=len(case_results))
-            # FEATURE (OME-1271, PR 5): park each Case's pictures and files in the run's
-            # result store, under the sha256 its echoed placeholder carries, so a researcher
-            # can open one later. WHY a thread: the store's writer is synchronous, and this is
-            # the run's event loop.
-            await asyncio.to_thread(park_cases_media, [case.input for case in selected_cases])
+            log_process_memory("aggregate_marked", cases=marked)
+            await _park_selected_media(selected_cases)
             # Stage 5 — fold the marks into the class results.
             finalized = finalize_candidate_result(
                 benchmark_id=benchmark_id,
@@ -406,6 +395,117 @@ class BenchmarkAggregation:
                         failure_policy=self.failure_policy,
                     )
             return finalized
+
+    async def aggregate_body_async(
+        self,
+        raw_case_grades: str,
+        *,
+        benchmark_id: str,
+        benchmark_revision: str,
+        selected_cases: Sequence[SelectedCase],
+        grading_material: Callable[[int], object | None],
+        scorer: Callable[[Sequence[CaseResult]], CandidateScore],
+        case_metadata: Callable[[int], Mapping[str, Any]] | None = None,
+    ) -> ParkedResultBody:
+        """:meth:`aggregate_result_async` with each marked Case parked.
+
+        FEATURE memory fix 3 (OME-1835), unit 2: each Case's wire JSON goes to the run's
+        Case-result store as it is marked; the scorer and the live progress share one projection
+        per Case; the body writes the held bytes.
+
+        INVARIANT: the same marks, the same progress order and the same three memory points as
+        :meth:`aggregate_result_async`; ``encode_result_body`` of the body equals
+        ``compact_json`` of that face's payload.
+        """
+
+        log_process_memory("aggregate_start", cases=len(selected_cases))
+        with grading_progress(
+            benchmark_id, benchmark_revision, scorer, failure_policy=self.failure_policy
+        ):
+            # WHY the store is read here: the binding belongs to the run; with none bound the
+            # builder keeps each Case's fragment in memory and the bytes are the same.
+            builder = CandidateResultBuilder(
+                benchmark_id=benchmark_id,
+                benchmark_revision=benchmark_revision,
+                selected_cases=list(selected_cases),
+                scorer=scorer,
+                failure_policy=self.failure_policy,
+                inverted_grade=self.inverted_grade,
+                parked=True,
+                store=bound_case_results(),
+            )
+            # INVARIANT: progress keeps the builder's projection, never the full Case.
+            marked = await self._mark_cases(
+                raw_case_grades,
+                benchmark_id=benchmark_id,
+                benchmark_revision=benchmark_revision,
+                selected_cases=selected_cases,
+                grading_material=grading_material,
+                scorer=scorer,
+                case_metadata=case_metadata,
+                keep=builder.add,
+            )
+            log_process_memory("aggregate_marked", cases=marked)
+            await _park_selected_media(selected_cases)
+            # Stage 5 — fold the marks into the class results.
+            body = builder.finish_body()
+            log_process_memory("aggregate_finalized", cases=body.case_count)
+            # WHY ``filled``: a selected Case with no Case Result is filled at finish, after
+            # marking, so its progress is published here, as the held face does.
+            for case in builder.filled:
+                completed_case(
+                    benchmark_id,
+                    benchmark_revision,
+                    case,
+                    scorer,
+                    failure_policy=self.failure_policy,
+                )
+            return body
+
+    async def _mark_cases(
+        self,
+        raw_case_grades: str,
+        *,
+        benchmark_id: str,
+        benchmark_revision: str,
+        selected_cases: Sequence[SelectedCase],
+        grading_material: Callable[[int], object | None],
+        scorer: Callable[[Sequence[CaseResult]], CandidateScore],
+        case_metadata: Callable[[int], Mapping[str, Any]] | None,
+        keep: Callable[[CaseResult], CaseResult],
+    ) -> int:
+        """Mark every Case in roll-call order; hand each to ``keep`` and publish what it returns.
+
+        ``keep`` decides what is held: the held face keeps the Case itself, the parked face
+        parks it and keeps its scoring projection. Returns the number of marked Cases.
+        """
+
+        marked = 0
+        marking: Callable[..., AsyncGenerator[CaseResult]] = (
+            self.iter_case_results
+            if self.case_grading_concurrency == 1
+            else self._concurrent_case_results
+        )
+        stream: AsyncGenerator[CaseResult] = marking(
+            raw_case_grades,
+            selected_cases=selected_cases,
+            grading_material=grading_material,
+            case_metadata=case_metadata,
+        )
+        # WHY aclosing: a raise mid-stream must still run the stream's cleanup now
+        # (cancelling Cases still being marked), not whenever it is garbage-collected.
+        async with aclosing(stream):
+            async for result in stream:
+                marked += 1
+                # INVARIANT: publish only after canonical grading; observing never regrades.
+                completed_case(
+                    benchmark_id,
+                    benchmark_revision,
+                    keep(result),
+                    scorer,
+                    failure_policy=self.failure_policy,
+                )
+        return marked
 
     async def aggregate_async(
         self,
@@ -936,6 +1036,17 @@ def _run_sync[T](coroutine: Awaitable[T]) -> T:
 
 async def _awaited[T](coroutine: Awaitable[T]) -> T:
     return await coroutine
+
+
+async def _park_selected_media(selected_cases: Sequence[SelectedCase]) -> None:
+    """Park the selected Cases' pictures and files; both aggregate faces call this once.
+
+    FEATURE (OME-1271, PR 5): park each Case's pictures and files in the run's result store,
+    under the sha256 its echoed placeholder carries, so a researcher can open one later.
+    WHY a thread: the store's writer is synchronous, and this is the run's event loop.
+    """
+
+    await asyncio.to_thread(park_cases_media, [case.input for case in selected_cases])
 
 
 def _missing_attempt(selected: SelectedCase) -> CaseResult:

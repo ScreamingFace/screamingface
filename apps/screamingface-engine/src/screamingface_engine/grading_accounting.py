@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import contextvars
+import json
 import logging
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence, Set
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from screamingface_engine.benchmarks.result_body import compact_json
 from screamingface_engine.observations import RunObservations, current_observations
 from screamingface_engine.operation_accounting import (
     OperationAccounting,
@@ -111,30 +113,74 @@ def accounting_for_grading_evidence(
     calls = current_request_accounting()
     if registry is None or calls is None:
         return None
-    request_keys = _request_keys_for_owner(registry, owner)
+    request_keys = _request_keys_for_owner(registry.keys_by_owner, registry.owners_by_key, owner)
     if not request_keys:
         return None
     _index_new_calls(registry, calls)
     return _accounting_for_keys(registry.calls_by_key, request_keys)
 
 
-def reconcile_candidate_grading_accounting(result: CandidateResult) -> None:
-    """Finalize Evidence accounting after every grading owner has registered."""
+@dataclass(frozen=True, slots=True)
+class GradingAccountingView:
+    """A frozen copy of the run's grading join, taken once when marking ends.
+
+    FEATURE memory fix 3 (OME-1835), unit 2: the final Evidence accounting of a Candidate Result
+    is computed from this view, for the held result and for the parked body alike.
+    WHY a copy: the parked body is written on a worker thread (``asyncio.to_thread``). The live
+    registry and ledger belong to the run loop, where another grading stream may still index
+    or register. The worker only reads this view, so it never changes shared state.
+    INVARIANT: taken at the same point as today's reconcile (the complete Candidate Result), so
+    every grading owner has registered and the two-owner revocation sees all of them.
+    """
+
+    keys_by_owner: Mapping[GradingEvidenceOwner, frozenset[ModelRequestKey]]
+    owners_by_key: Mapping[ModelRequestKey, frozenset[GradingEvidenceOwner]]
+    calls_by_key: Mapping[ModelRequestKey, tuple[RequestAccounting, ...]]
+
+    def accounting_for(self, owner: GradingEvidenceOwner) -> OperationAccounting | None:
+        """One Evidence item's final accounting (the rule of accounting_for_grading_evidence)."""
+
+        request_keys = _request_keys_for_owner(self.keys_by_owner, self.owners_by_key, owner)
+        if not request_keys:
+            return None
+        return _accounting_for_keys(self.calls_by_key, request_keys)
+
+
+def grading_accounting_view() -> GradingAccountingView | None:
+    """The run's grading join, frozen; None when no registry or no request ledger is bound.
+
+    None is the only case in which reconcile changes nothing, so a caller that gets None
+    writes every Evidence accounting as it is.
+    """
 
     registry = _registry.get()
     calls = current_request_accounting()
     if registry is None or calls is None:
-        return
+        return None
     _index_new_calls(registry, calls)
+    return GradingAccountingView(
+        keys_by_owner={owner: frozenset(keys) for owner, keys in registry.keys_by_owner.items()},
+        owners_by_key={key: frozenset(owners) for key, owners in registry.owners_by_key.items()},
+        calls_by_key={key: tuple(found) for key, found in registry.calls_by_key.items()},
+    )
+
+
+def reconcile_candidate_grading_accounting(result: CandidateResult) -> None:
+    """Finalize Evidence accounting after every grading owner has registered."""
+
+    view = grading_accounting_view()
+    if view is None:
+        return
     # INVARIANT: verdict routes may project before a later owner registers the same request key.
     # The complete Candidate Result is the first boundary that can revoke provisional attribution
     # for every affected Evidence item, so it is the authority that leaves the Engine.
+    # INVARIANT: reconcile_case_accounting_text is the wire twin of this loop; change both.
     for case in result.cases:
         if case.grade is None:
             continue
         for check in case.grade.checks:
             for evidence in check.evidence:
-                evidence.accounting = accounting_for_grading_evidence(
+                evidence.accounting = view.accounting_for(
                     GradingEvidenceOwner(
                         benchmark_id=result.benchmark_id,
                         case_id=case.case_id,
@@ -144,12 +190,46 @@ def reconcile_candidate_grading_accounting(result: CandidateResult) -> None:
                 )
 
 
+def reconcile_case_accounting_text(
+    text: str, *, benchmark_id: str, case_id: int | str, view: GradingAccountingView
+) -> str:
+    """One parked Case's wire JSON with each Evidence item's final accounting.
+
+    FEATURE memory fix 3 (OME-1835), unit 2: the wire twin of
+    ``reconcile_candidate_grading_accounting``, for one Case parked as compact JSON. Change both.
+    INVARIANT: a Case whose accounting does not change is returned VERBATIM (the parked bytes);
+    a changed Case is encoded again with ``compact_json``, so its key order stays the same.
+    """
+
+    record = json.loads(text)
+    grade = record["grade"]
+    if grade is None:
+        return text
+    changed = False
+    for check in grade["checks"]:
+        for evidence in check["evidence"]:
+            accounting = view.accounting_for(
+                GradingEvidenceOwner(
+                    benchmark_id=benchmark_id,
+                    case_id=case_id,
+                    check_id=check["id"],
+                    sequence=evidence["sequence"],
+                )
+            )
+            wire = None if accounting is None else accounting.model_dump(by_alias=True)
+            if compact_json(wire) != compact_json(evidence["accounting"]):
+                evidence["accounting"] = wire
+                changed = True
+    return compact_json(record) if changed else text
+
+
 def _request_keys_for_owner(
-    registry: _Registry,
+    keys_by_owner: Mapping[GradingEvidenceOwner, Set[ModelRequestKey]],
+    owners_by_key: Mapping[ModelRequestKey, Set[GradingEvidenceOwner]],
     owner: GradingEvidenceOwner,
 ) -> tuple[ModelRequestKey, ...]:
-    keys = registry.keys_by_owner.get(owner, set())
-    if not keys or any(registry.owners_by_key.get(key) != {owner} for key in keys):
+    keys = keys_by_owner.get(owner, set())
+    if not keys or any(owners_by_key.get(key) != {owner} for key in keys):
         return ()
     return tuple(sorted(keys))
 
@@ -178,10 +258,13 @@ def _accounting_for_keys(
 
 
 __all__ = [
+    "GradingAccountingView",
     "GradingEvidenceOwner",
     "accounting_for_grading_evidence",
     "capture_grading_requests",
+    "grading_accounting_view",
     "grading_case_for_request",
     "reconcile_candidate_grading_accounting",
+    "reconcile_case_accounting_text",
     "register_grading_request",
 ]
