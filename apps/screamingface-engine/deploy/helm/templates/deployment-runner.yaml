@@ -81,6 +81,12 @@ the derived default `replicas × workerSlots` has no meaning once `replicas` var
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- /* The runner ServiceAccount guard (OME-1931, spec D6): with `deletionCost.enabled`, the pod
+needs an account the platform can bind the pod-patch Role to. `serviceAccount.create: false` means
+the account is made outside the chart, so its name must be given. */ -}}
+{{- if and .Values.runnerPool.deletionCost.enabled (not .Values.runnerPool.serviceAccount.create) (not .Values.runnerPool.serviceAccount.name) -}}
+{{- fail "runnerPool.serviceAccount.name must be set when runnerPool.deletionCost.enabled is true and runnerPool.serviceAccount.create is false: the runner pod needs the name of the ServiceAccount the platform binds the pod-patch Role to" -}}
+{{- end -}}
 {{- if lt (float64 .Values.runnerPool.terminationGracePeriodSeconds) $minimum -}}
 {{- fail (printf "runnerPool.terminationGracePeriodSeconds (%v) must be >= runnerPool.drainGraceS (%v) + kill grace (%v) + terminal-publish budget (%v) = %v: the kubelet SIGKILLs the pod at the termination deadline, and a drain cut short interrupts every in-flight run" (float64 .Values.runnerPool.terminationGracePeriodSeconds) (float64 .Values.runnerPool.drainGraceS) $killGraceS $publishBudgetS $minimum) -}}
 {{- /* INVARIANT: `{{- end }}`, NOT `{{- end -}}`. The trailing `-}}` trims the newline after
@@ -138,10 +144,13 @@ spec:
       # INVARIANT: kubelet's legacy Docker-link env injection MUST stay off — the same rule as
       # the App Deployment. The worker's env is the runner-env ConfigMap + the secrets below.
       enableServiceLinks: false
-      # The worker needs no cluster API at all — it talks to NATS and forks children. No token
-      # is mounted, and the ServiceAccount exists for pod identity only.
-      automountServiceAccountToken: false
-      serviceAccountName: {{ include "screamingface-engine.serviceAccountName" . }}
+      # The worker needs no cluster API, except with `runnerPool.deletionCost.enabled` (OME-1931):
+      # then it PATCHes its OWN pod's `pod-deletion-cost` annotation, mounts the token of the
+      # runner's own ServiceAccount, and nothing else. Off (the default): no token is mounted, and
+      # the App's ServiceAccount exists for pod identity only.
+      # WHY if/else and not the raw value: a removed (null) value would render empty, and Kubernetes then mounts the token.
+      automountServiceAccountToken: {{ if .Values.runnerPool.deletionCost.enabled }}true{{ else }}false{{ end }}
+      serviceAccountName: {{ include "screamingface-engine.runnerServiceAccountName" . }}
       # INVARIANT: must stay above `runnerPool.drainGraceS` — the kubelet SIGKILLs the pod at
       # this deadline, and a drain cut short interrupts every in-flight run.
       terminationGracePeriodSeconds: {{ .Values.runnerPool.terminationGracePeriodSeconds }}
@@ -228,6 +237,20 @@ spec:
               value: {{ .Values.runnerPool.drainGraceS | quote }}
             - name: URL4_CLOUD_WORKER_METRICS_PORT
               value: {{ .Values.runnerPool.metricsPort | quote }}
+            {{- if .Values.runnerPool.deletionCost.enabled }}
+            # FEATURE (OME-1931, spec D5/D6): the worker writes its busy slot count as its own
+            # pod's `pod-deletion-cost`. The pod identity comes from the downward API.
+            - name: URL4_CLOUD_WORKER_DELETION_COST_ENABLED
+              value: "true"
+            - name: URL4_CLOUD_WORKER_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: URL4_CLOUD_WORKER_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- end }}
             {{- /* Unset (null) leaves the key OUT so `Settings` reads its own default (one warm
             child per slot) — NOT rendered as empty, which would override that default with 0
             warm children. `kindIs "invalid"` is what distinguishes "unset" from the legal value
