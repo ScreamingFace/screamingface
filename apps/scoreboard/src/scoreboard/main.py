@@ -13,7 +13,7 @@ from .config import Settings
 from .db import close_db, init_db
 from .logs import configure as configure_logging
 from .portal import register_portal
-from .routes import catalog, health, leaderboard, scores
+from .routes import baseline_history, catalog, health, leaderboard, scores
 from .scores.baseline_store import BaselineStore
 from .scores.store import ScoreStore
 from .validation import safe_request_validation_handler
@@ -200,6 +200,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(leaderboard.router)
+    app.include_router(baseline_history.router)
     app.include_router(catalog.router)
     app.include_router(scores.router)
     register_portal(app, settings)
