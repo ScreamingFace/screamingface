@@ -132,7 +132,9 @@ def test_part_5_gate_records_and_specs_have_no_band() -> None:
 
     for name in L47_GATE_FILES:
         specs = _combine_specs((_DATA / name).read_text(encoding="utf-8"))
-        assert len(specs) == 1, name
+        # E4c (OME-1291, lazy-fallback #23, owner-approved edit): a judge or writer fallback
+        # compiles to call #1 and call #2 with the same spec bytes (FB-I1); others to one call.
+        assert len(set(specs)) == 1, name
         assert '"abstain_band"' not in specs[0], name
         gate = parse_spec(specs[0]).gate
         assert gate is not None, name
@@ -676,11 +678,20 @@ def test_in_band_is_a_final_abstain_and_logs_its_outcome(
 
 
 def test_in_band_is_an_abstain_word() -> None:
-    words = ("no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band")
+    # E4c (OME-1291, budget #6, owner-approved edit)
+    words = (
+        "no_votes",
+        "cut_not_met",
+        "output_missing",
+        "gate_not_met",
+        "in_band",
+        "budget_refused",
+    )
 
     assert get_args(AbstainReason) == words
     assert ABSTAIN_REASONS == words
-    assert get_args(AnswerReason)[-2:] == ("gate_not_met", "in_band")
+    # E4c (OME-1291, budget #6, owner-approved edit)
+    assert get_args(AnswerReason)[-3:] == ("gate_not_met", "in_band", "budget_refused")
     assert get_args(GateBranch) == ("majority", "fallback", "band")
     assert NoVotes(reason="in_band").reason == "in_band"
     result = ResultRecord(member_id=None, value=None, status="abstain", reason="in_band")

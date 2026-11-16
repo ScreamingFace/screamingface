@@ -7,7 +7,7 @@ its exact stored value as the title (ans:Q3); a missing value is an em dash with
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from fractions import Fraction
 from html import escape
@@ -17,7 +17,7 @@ from screamingface._case_views import accounting_index, judge_link
 from screamingface._ui.text import short
 
 if TYPE_CHECKING:
-    from screamingface.case_result import CaseResult
+    from screamingface.case_result import CaseOperation, CaseResult
     from screamingface.combine_evidence import (
         CombineAnswerRow,
         CombineEvidence,
@@ -117,11 +117,36 @@ def combine_sections_html(candidate: CandidateResult, case: CaseResult) -> str:
             # step, so the full trace (every extract and model call entry) is not built.
             judge_link(op.operation_id, op.combine, graph, accounting_of),
             graph,
+            _skip_selectors(op.operation_id, op.combine, graph, case.operations),
         )
         if op.combine is not None
         else _no_evidence_section(op.operation_id, graph)
         for op in steps
     )
+
+
+def _skip_selectors(
+    operation_id: str,
+    evidence: CombineEvidence,
+    graph: Mapping[str, OperationInfo],
+    operations: Sequence[CaseOperation],
+) -> dict[str, str]:
+    """E4c RP-13: each skipped member's selector id, read from its member Gate's decision record.
+
+    The combine step's member producers are the first entries of its ``depends_on`` (a skip-Gate
+    member's producer is its JOIN ``op_gate_N``)."""
+
+    node = graph.get(operation_id)
+    if not evidence.skipped or node is None:
+        return {}
+    decisions = {op.operation_id: op.decision for op in operations if op.decision is not None}
+    producers = node.depends_on[: len(evidence.members)]
+    selectors: dict[str, str] = {}
+    for row, producer in zip(evidence.members, producers, strict=False):
+        decision = decisions.get(producer)
+        if row.member_id in evidence.skipped and decision is not None:
+            selectors[row.member_id] = decision.when.observe.partition(":")[2]
+    return selectors
 
 
 def _is_combine(graph: Mapping[str, OperationInfo], operation_id: str) -> bool:
@@ -162,6 +187,7 @@ def _section(
     evidence: CombineEvidence,
     link: Mapping[str, str | None],
     graph: Mapping[str, OperationInfo],
+    skipped_by: Mapping[str, str] | None = None,
 ) -> str:
     """One Combine section: the heading, the step chips, the member table, the tally table."""
     columns = tuple(
@@ -176,7 +202,10 @@ def _section(
         + "<th scope='col'>chosen</th>"
     )
     left_out = _left_out(evidence)
-    rows = "".join(_member_row(row, evidence, columns, keys, left_out) for row in evidence.members)
+    rows = "".join(
+        _member_row(row, evidence, columns, keys, left_out, skipped_by or {})
+        for row in evidence.members
+    )
     return (
         f"<div class='sf-cmb'>{_heading(graph, operation_id)}"
         f"<div class='sf-chips'>{_chips(evidence, link)}</div>"
@@ -390,12 +419,17 @@ def _member_row(
     columns: tuple[str, ...],
     keys: tuple[str, ...],
     left_out: Mapping[str, int],
+    skipped_by: Mapping[str, str],
 ) -> str:
     """C1-C8: one member row; a failed or excluded member gets the ``sf-cmb__out`` class. A member
-    that a narrow step left out says at which step and why (rebuild-display §4)."""
+    that a narrow step left out says at which step and why (rebuild-display §4). E4c RP-13: a
+    member a skip-Gate did not select reads ``not_selected``, apart from a narrow step's cut."""
     opening = "<tr>" if row.status == "answered" else "<tr class='sf-cmb__out'>"
     status = "answered" if row.status == "answered" else f"{row.status} · {row.reason}"
-    if row.member_id in left_out:
+    if row.member_id in (evidence.skipped or ()):
+        selector = skipped_by.get(row.member_id)
+        status = "not_selected" + ("" if selector is None else f" · not selected by {selector}")
+    elif row.member_id in left_out:
         status = f"left out at step {left_out[row.member_id]}"
         if row.reason is not None:  # NR-I3 gives every left-out member a reason; never "None"
             status += ": " + row.reason.replace("_", " ")

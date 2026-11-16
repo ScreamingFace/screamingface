@@ -85,6 +85,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "17_frames.ipynb": _frames_oracle_e2e(),
         "18_picture_benchmarks.ipynb": _picture_benchmarks_e2e(),
         "19_map_select_reduce.ipynb": _map_select_reduce(),
+        "20_routers_cascades.ipynb": _routers_cascades(),
     }
 
 
@@ -2634,8 +2635,8 @@ confident_mean, best_two_vote"""),
 A gate keeps the majority answer only when it is strong enough. `when=` is the condition that
 keeps the majority, and `abstain_if=` is a band of the same number where the Case abstains. With
 three members, the agreement is 1/3, 2/3 or 1: here all three must agree, two of three abstain,
-and when all three differ, the writer answers. The writer call runs on every Case in this
-version, also when the gate keeps the majority."""),
+and when all three differ, the writer answers. The writer runs only on the Cases where all three
+differ: a branch that the gate does not take makes no call."""),
         nbformat.v4.new_code_cell("""\
 agreement = sf.agreement()
 gated_vote = sf.Fanout(ROUTES) >> sf.Gate(
@@ -2699,6 +2700,221 @@ recipes = {
     "logprob-vote": logprob_vote,
 }
 candidates = [sf.Pipeline([recipe], name=name) for name, recipe in recipes.items()]
+report = (
+    sf.evaluate(candidates, benchmark=BENCHMARK, limit=LIMIT, progress=True)
+    if RUN_EVALUATION
+    else None
+)
+report"""),
+    )
+
+
+def _routers_cascades() -> NotebookNode:
+    # FEATURE (E4c, OME-1291, docs DC-10): the README "Choose whether a model runs" recipes, one
+    # cell each, with real routes. STORY: as a researcher, I copy a router or a cascade that builds
+    # as it is. tests/test_example_20_recipes.py runs the cells and compiles every recipe offline.
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# Routers, cascades and a budget
+
+Three words have one meaning each in this toolkit:
+
+- **Routing**: a `sf.Gate` decides before any answer exists, from a label of the question
+  (`sf.RegexClassifier`, `sf.LLMClassifier`) or from what the budget has left
+  (`sf.budget.remaining()`).
+- **Cascade**: a `sf.Gate` decides after an answer exists, from a number on that answer
+  (`sf.agreement()` or a declared signal). The next tier answers the original question.
+- **Orchestration**: multi-step controllers, debate and agent loops. They are not in this toolkit
+  yet.
+
+A branch that is not selected makes zero model calls, and the report says why. Each cell below
+builds one recipe and shows it. Building a recipe makes no request. A recipe gives the decision
+shape of a paper family only; it does not reproduce the numbers of a paper. The last cell
+evaluates the recipes, and it is off by default. The README section "Choose whether a model runs"
+gives the rules."""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
+screamingface prepare inspect-gsm8k  # first run only: download pinned Benchmark assets
+screamingface up                     # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(
+            _TARGET_SETUP
+            + """
+
+BENCHMARK = "inspect-gsm8k"
+LIMIT = 3
+
+PANEL = [
+    "openrouter/openai/gpt-4o-mini",
+    "openrouter/openai/gpt-4.1-mini",
+    "openrouter/openai/gpt-4.1-nano",
+]
+SMALL = "openrouter/openai/gpt-4.1-nano"
+LARGE = "openrouter/openai/gpt-4.1"
+ROUTER = "openrouter/openai/gpt-4o-mini"  # the small model that gives a label
+CODER = sf.Model("openrouter/openai/gpt-4.1-mini", prompt="You write and fix Python code.")
+GENERAL = "openrouter/openai/gpt-4o-mini"
+math_panel = sf.Fanout(PANEL) >> sf.Vote(over="last_number", normalize="numeric")"""
+        ),
+        nbformat.v4.new_markdown_cell("""\
+## Routing"""),
+        nbformat.v4.new_code_cell("""\
+# Regex router (binary routers): no model call to route.
+topic = sf.RegexClassifier(
+    [("math", r"(?i)\\b(integral|equation|sum)\\b"), ("code", r"(?i)\\bpython\\b")]
+)
+d1_keyword_router = sf.Gate(
+    when=sf.label(topic) == "math",
+    then=math_panel,
+    otherwise=sf.Gate(when=sf.label(topic) == "code", then=CODER, otherwise=GENERAL),
+)
+d1_keyword_router"""),
+        nbformat.v4.new_code_cell("""\
+# LLM classifier router (GraphRouter; OrgAgent DIRECT, LIGHT, FULL): a small LLM gives the label.
+kind = sf.LLMClassifier(ROUTER, labels=["math", "code", "other"])
+d2_label_router = sf.Gate(
+    when=sf.label(kind) == "math",
+    then=math_panel,
+    otherwise=sf.Gate(when=sf.label(kind) == "code", then=CODER, otherwise=GENERAL),
+)
+d2_label_router"""),
+        nbformat.v4.new_code_cell("""\
+# Router robustness: a jailbreak pattern fails the Case with fail_closed and no model call; a
+# medical question goes to the large model.
+jailbreak = sf.RegexClassifier([("jailbreak", r"(?i)ignore (all|previous) instructions")])
+domain = sf.LLMClassifier(ROUTER, labels=["medical", "other"])
+d3_guarded_router = sf.Gate(
+    when=sf.label(jailbreak) == "jailbreak",
+    then=sf.fail(),
+    otherwise=sf.Gate(when=sf.label(domain) == "medical", then=LARGE, otherwise=d2_label_router),
+)
+d3_guarded_router"""),
+        nbformat.v4.new_markdown_cell("""\
+## Cascades
+
+A cascade takes its tiers as arguments, from top to bottom. Each `sf.escalate_if(...)` is a line
+between two tiers: it is the condition to call the next tier. Nothing escalates unless a line says
+so. A tier that fails fails the Case, a tier whose number is missing fails it with
+`signal_missing`, and a tier that abstains makes the Case abstain. Only
+`sf.escalate_if(sf.unanswered())` escalates when a tier fails or abstains."""),
+        nbformat.v4.new_code_cell("""\
+# COPE, Frugal KG, CARGO: the large model answers only when the panel does not agree.
+d4_cope_cascade = sf.Cascade(
+    math_panel,
+    sf.escalate_if(sf.agreement() < 0.8),
+    LARGE,
+)
+d4_cope_cascade"""),
+        nbformat.v4.new_markdown_cell("""\
+`sf.Cascade` is a short form. It returns nested `sf.Gate` values: the tier's `sf.Fanout` stays as
+you wrote it, and the Gate keeps the answer on the opposite condition of the line. The two values
+below are equal, and they compile to the same url4."""),
+        nbformat.v4.new_code_cell("""\
+gate_form = sf.Fanout(PANEL) >> sf.Gate(
+    when=sf.agreement() >= 0.8,
+    then=sf.Vote(over="last_number", normalize="numeric"),
+    otherwise=LARGE,
+)
+assert gate_form == d4_cope_cascade
+gate_form"""),
+        nbformat.v4.new_code_cell("""\
+# STEER, per full answer: a small model's token probability decides (OpenRouter models only).
+d5_steer_answer_cascade = sf.Cascade(
+    sf.Fanout([ROUTER], signals={"lp": sf.Logprob("prob")}) >> sf.Vote(),
+    sf.escalate_if(sf.signal("lp").chosen() < 0.7),  # the chosen member's value
+    LARGE,
+)
+d5_steer_answer_cascade"""),
+        nbformat.v4.new_code_cell("""\
+# First success: the next model runs only when the one before fails or abstains.
+d6_first_success = sf.Cascade(
+    PANEL[0],
+    sf.escalate_if(sf.unanswered()),
+    PANEL[1],
+    sf.escalate_if(sf.unanswered()),
+    PANEL[2],
+)
+d6_first_success"""),
+        nbformat.v4.new_code_cell("""\
+# Adaptive sampling (ACAR): two samples; five new samples only when the two do not agree. Tier 2
+# does not use the two samples again, so an escalated Case pays for 2 + 5 samples.
+d10_adaptive_sampling = sf.Cascade(
+    sf.Fanout(sf.samples(SMALL, 2)) >> sf.Vote(over="last_number", normalize="numeric"),
+    sf.escalate_if(sf.agreement() < 1.0),
+    sf.Fanout(sf.samples(SMALL, 5, seeds=range(2, 7)))
+    >> sf.Vote(over="last_number", normalize="numeric"),
+)
+d10_adaptive_sampling"""),
+        nbformat.v4.new_markdown_cell("""\
+## Set-valued routing and the budget"""),
+        nbformat.v4.new_code_cell("""\
+# Team of Thoughts, SMART-D: a manager label picks the experts; an expert that is not picked
+# makes no call. The writer gets the answers of the experts that ran.
+experts = sf.LLMClassifier(ROUTER, labels=["algebra", "geometry", "arithmetic"], multi=True)
+
+
+def expert(topic: str) -> sf.Model:
+    return sf.Model("openrouter/openai/gpt-4.1-mini", prompt=f"You are an expert in {topic}.")
+
+
+d7_manager_subset = sf.Fanout(
+    [
+        sf.Gate(when=sf.labels(experts).has("algebra"), then=expert("algebra")),
+        sf.Gate(when=sf.labels(experts).has("geometry"), then=expert("geometry")),
+        sf.Gate(when=sf.labels(experts).has("arithmetic"), then=expert("arithmetic")),
+    ]
+) >> sf.Synthesize(LARGE, prompt="Write the final answer. The last line is: ANSWER: <number>")
+d7_manager_subset"""),
+        nbformat.v4.new_code_cell("""\
+# Willingness to pay (OmniRouter, RouterBench): sf.budget.remaining() needs a sf.WithBudget root.
+d8_budget_choice = sf.WithBudget(
+    sf.Gate(when=sf.budget.remaining() >= 0.02, then=LARGE, otherwise=SMALL), budget_usd=0.05
+)
+# A cost cap per Case (MTRouter, VineLM) around the d4 cascade.
+d9_budget_cap = sf.WithBudget(d4_cope_cascade, budget_usd=0.05)
+d8_budget_choice, d9_budget_cap"""),
+        nbformat.v4.new_markdown_cell("""\
+## Evaluate the recipes
+
+⚠️ This cell calls models and costs money 💵. Each recipe gets a name, so the report can tell
+them apart, and the "Branches" section of each Case shows the branch that each Gate took and the
+branches that did not run. `report.candidates[name].url4` is the compiled recipe.
+
+**`inspect-gsm8k` needs an Engine with the `inspect` extra** (see
+`12_inspect_evals_benchmarks`)."""),
+        nbformat.v4.new_code_cell("""\
+RUN_EVALUATION = False
+
+recipes = {
+    "d1-keyword-router": d1_keyword_router,
+    "d2-label-router": d2_label_router,
+    "d3-guarded-router": d3_guarded_router,
+    "d4-cope-cascade": d4_cope_cascade,
+    "d5-steer-answer-cascade": d5_steer_answer_cascade,
+    "d6-first-success": d6_first_success,
+    "d7-manager-subset": d7_manager_subset,
+    "d8-budget-choice": d8_budget_choice,
+    "d9-budget-cap": d9_budget_cap,
+    "d10-adaptive-sampling": d10_adaptive_sampling,
+}
+
+
+def named(name: str, recipe: sf.Recipe) -> sf.Recipe:
+    # A sf.WithBudget stays at the root, so the name goes on the recipe inside it.
+    if isinstance(recipe, sf.WithBudget):
+        return sf.WithBudget(
+            sf.Pipeline([recipe.recipe], name=name),
+            budget_usd=recipe.budget_usd,
+            max_tokens=recipe.max_tokens,
+        )
+    return sf.Pipeline([recipe], name=name)
+
+
+candidates = [named(name, recipe) for name, recipe in recipes.items()]
 report = (
     sf.evaluate(candidates, benchmark=BENCHMARK, limit=LIMIT, progress=True)
     if RUN_EVALUATION

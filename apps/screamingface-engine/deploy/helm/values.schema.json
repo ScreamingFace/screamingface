@@ -368,6 +368,14 @@
               "minimum": 1,
               "description": "Seconds between KEDA reads of /runner-demand."
             },
+            "targetPerPod": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "exclusiveMinimum": 0,
+              "description": "Per-pod target of the HPA AverageValue metric, in runs per pod. null = runnerPool.workerSlots. Set below workerSlots / 1.1 (3.6 for 4 slots) when KEDA drops scaleUp.tolerance (KEDA < 2.18). Must not exceed runnerPool.workerSlots."
+            },
             "scaleUp": {
               "type": "object",
               "properties": {
@@ -399,6 +407,10 @@
             "scaleDown": {
               "type": "object",
               "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "false renders selectPolicy Disabled: the pool never shrinks by itself. Scale-up is unchanged."
+                },
                 "stabilizationS": {
                   "type": "integer",
                   "minimum": 0

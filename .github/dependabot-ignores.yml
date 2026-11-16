@@ -15,6 +15,8 @@
 #                range admits the ignored version.
 #   ci_matrix  — read `matrix_key` from `workflow`. Liftable when the matrix covers the ignored
 #                version. Use this when WE are the blocker, not upstream — say so plainly.
+#   (omitted)  — no probe applies (e.g. an upstream data regression); the audit warns, the note
+#                says what lifts it, and it is lifted by hand.
 ignores:
   - directory: /apps/aigateway-ui
     dependency: typescript
@@ -158,3 +160,22 @@ ignores:
       NOT upstream-blocked; see the Engine's tortoise-orm entry. Held and moved together with it:
       aigateway's own CI does not run the pin conformance test, so a bump here alone would merge
       green and fail the Engine and SDK lanes later.
+
+  - directory: /packages/screamingface
+    dependency: litellm
+    versions: ">=1.104.6"
+    ticket: OME-1879
+    note: >-
+      Upstream data regression, no probe applies: litellm 1.104.6+ bundles a model map with no
+      openrouter/* rows (1.104.2 has 477), and the gateway forces that bundled map
+      (LITELLM_LOCAL_MODEL_COST_MAP=True), so OpenRouter reasoning_effort breaks (#1725).
+      test_runtime_litellm_model_map.py catches it. Lift once litellm restores the rows or the
+      gateway registers its own OpenRouter rows.
+
+  - directory: /apps/aigateway
+    dependency: litellm
+    versions: ">=1.104.6"
+    ticket: OME-1879
+    note: >-
+      Same upstream regression; see the /packages/screamingface litellm entry. Held and lifted
+      together with it.

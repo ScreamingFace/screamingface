@@ -33,6 +33,7 @@ from screamingface_engine.benchmarks import (
 )
 from screamingface_engine.benchmarks.registry import served_routes
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
+from screamingface_engine.world.branch import install_branch_runtime
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from screamingface_engine.world.classification import CLASSIFY_ROUTE, ClassificationEndpoint
 from screamingface_engine.world.combine import install_combine_runtime
@@ -167,6 +168,23 @@ def _bare_read_side_world(resolved: WorldConfig) -> Url4Node:
     return node
 
 
+def _install_engine_runtimes(node: Url4Node) -> None:
+    """The engine capability every benchmark world serves, installed once beside the Benchmarks."""
+
+    install_candidate_invocation(node)
+    # The corrective loop's generic gate/select/answer endpoints are engine
+    # capability, not benchmark surface — installed once beside the candidate
+    # invocation for every world that runs benchmarks.
+    install_corrective_runtime(node)
+    # The deterministic combine endpoint (OME-1289 E4a) is engine capability too:
+    # one route, the built-in operators, installed once for every benchmark world and
+    # never a direct mount (the snapshot above is taken before it exists).
+    install_combine_runtime(node, BUILTIN_OPERATORS)
+    # The sf.Gate branch endpoints (OME-1291 E4c): pure AFTER/DECIDE/OPEN/JOIN routes,
+    # installed once, never a direct mount.
+    install_branch_runtime(node)
+
+
 async def build_world(
     *,
     env: Mapping[str, str],
@@ -238,15 +256,7 @@ async def build_world(
         async with AsyncExitStack() as cleanup:
             cleanup.push_async_callback(world.aclose)
             try:
-                install_candidate_invocation(world.node)
-                # The corrective loop's generic gate/select/answer endpoints are engine
-                # capability, not benchmark surface — installed once beside the candidate
-                # invocation for every world that runs benchmarks.
-                install_corrective_runtime(world.node)
-                # The deterministic combine endpoint (OME-1289 E4a) is engine capability too:
-                # one route, the built-in operators, installed once for every benchmark world and
-                # never a direct mount (the snapshot above is taken before it exists).
-                install_combine_runtime(world.node, BUILTIN_OPERATORS)
+                _install_engine_runtimes(world.node)
                 benchmarks.install(
                     world.node,
                     assets_root=(

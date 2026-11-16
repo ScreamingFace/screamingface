@@ -142,6 +142,15 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+      {{- /* WHY: Garage runs on the same node pool as the gateway. No affinity: an affinity names gateway pod labels, which Garage does not carry. */}}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
   {{- if .Values.snapshot.garage.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:

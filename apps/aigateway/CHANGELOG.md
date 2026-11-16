@@ -4,6 +4,18 @@ All notable changes to the ScreamingFace AI Gateway are documented here.
 This project follows [Semantic Versioning](https://semver.org/) and uses
 release tags of the form `aigateway-v<version>`.
 
+## [1.0.1](https://github.com/ScreamingFace/screamingface/compare/aigateway-v1.0.0...aigateway-v1.0.1) (2026-11-13)
+
+
+### Bug Fixes
+
+* **repo:** bump every live lock file's security alerts and re-seal MMMU, MathVista and cyse4 (OME-1853) ([633fe28](https://github.com/ScreamingFace/screamingface/commit/633fe282771fe80d779333258a90679c7c71c8ce))
+
+
+### Refactors
+
+* **aigateway:** stop declaring migration_note on the pair marker ([#1774](https://github.com/ScreamingFace/screamingface/issues/1774)) ([396298f](https://github.com/ScreamingFace/screamingface/commit/396298f6c0b85e2881e66df6cbf3bb86f49bff5d))
+
 ## [1.0.0](https://github.com/ScreamingFace/screamingface/compare/aigateway-v0.2.0...aigateway-v1.0.0) (2026-11-11)
 
 

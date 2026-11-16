@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 
-from screamingface_engine.combine.endpoint import COMBINE_ROUTE, run_combine
+from screamingface_engine.combine.endpoint import COMBINE_ROUTE, PendingCombine, run_combine_call
 from screamingface_engine.combine.ports import (
     REPLY_LOGPROB_KEYS,
     CallFingerprint,
@@ -34,7 +34,9 @@ from screamingface_engine.operation_accounting import SignalAccounting, combine_
 from screamingface_engine.operation_calls import (
     OperationCall,
     current_operation_calls,
+    provider_calls_by_fingerprint,
     record_combine_call,
+    record_pending_combine_call,
 )
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request, Url4Node
@@ -66,7 +68,7 @@ class CombineRoute:
 
     def __call__(self, request: Request) -> str:
         try:
-            outcome = run_combine(
+            outcome = run_combine_call(
                 self._registry,
                 request.params,
                 request.context,
@@ -75,6 +77,11 @@ class CombineRoute:
             )
         except CombineError as exc:
             raise ResolutionError(str(exc), code=exc.code, permanent=True) from exc
+        if isinstance(outcome, PendingCombine):
+            # E4c lazy fallback: a decision call on the fallback branch is not an answer; DECIDE
+            # reads its gate record by the call's binding (branch-core D11).
+            record_pending_combine_call(COMBINE_ROUTE, request.params, outcome.record, outcome.kept)
+            return ""
         record_combine_call(COMBINE_ROUTE, request.params, outcome.output, outcome.evidence)
         return outcome.output
 
@@ -94,10 +101,7 @@ def _read_member_accounting(sources: MemberSources) -> dict[str, dict[str, float
     if calls is None:
         logger.warning("combine accounting signals unavailable: no operation-call recorder")
         return {}
-    index: dict[CallFingerprint, list[OperationCall]] = {}
-    for call in calls:
-        if call.combine is None:
-            index.setdefault((call.path, call.params), []).append(call)
+    index = provider_calls_by_fingerprint(calls)
     unmatched = 0
     asked_without = 0
     result: dict[str, dict[str, float | None]] = {}

@@ -61,7 +61,7 @@ the derived default `replicas × workerSlots` has no meaning once `replicas` var
 `minReplicas >= 1` is the schema's job (`minimum: 1`). `kindIs "invalid"` tests for an unset
 (null) value, as for `warmChildren` above. The drain must also cover the longest run
 (`config.jobDeadlineS`): a scale-down may remove a busy pod, and a shorter drain stops its runs
-(spec D5). */ -}}
+(spec D5). A per-pod target above `workerSlots` lets claimable runs wait, so it is refused too. */ -}}
 {{- if .Values.runnerPool.autoscaling.enabled -}}
 {{- if kindIs "invalid" .Values.runnerPool.autoscaling.maxReplicas -}}
 {{- fail "runnerPool.autoscaling.maxReplicas must be set when runnerPool.autoscaling.enabled is true: the HPA needs an upper bound, and the namespace quota and node pool are sized from it" -}}
@@ -74,6 +74,11 @@ the derived default `replicas × workerSlots` has no meaning once `replicas` var
 {{- end -}}
 {{- if lt (float64 .Values.runnerPool.drainGraceS) (float64 .Values.config.jobDeadlineS) -}}
 {{- fail (printf "runnerPool.drainGraceS (%v) must be >= config.jobDeadlineS (%v) when runnerPool.autoscaling.enabled is true: a scale-down may remove a busy pod, and a drain shorter than the longest run stops its runs (runner-pool autoscaling spec D5)" (float64 .Values.runnerPool.drainGraceS) (float64 .Values.config.jobDeadlineS)) -}}
+{{- end -}}
+{{- if not (kindIs "invalid" .Values.runnerPool.autoscaling.targetPerPod) -}}
+{{- if gt (float64 .Values.runnerPool.autoscaling.targetPerPod) (float64 .Values.runnerPool.workerSlots) -}}
+{{- fail (printf "runnerPool.autoscaling.targetPerPod (%v) must not exceed runnerPool.workerSlots (%v): a pod cannot run more runs than its slots, so a larger target lets claimable runs wait" (float64 .Values.runnerPool.autoscaling.targetPerPod) (float64 .Values.runnerPool.workerSlots)) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- if lt (float64 .Values.runnerPool.terminationGracePeriodSeconds) $minimum -}}

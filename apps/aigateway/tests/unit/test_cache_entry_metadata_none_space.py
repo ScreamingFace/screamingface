@@ -126,8 +126,14 @@ def test_every_none_combination_maps_to_a_faithful_hit_reference(
         reference = cache_reference_from_entry_metadata(meta)
         payload = reference.as_json()
 
-        # INVARIANT: the stored usage comes back verbatim, re-labelled only as cached evidence.
-        assert payload["usage"] == {**usage, "source": "cached_converted_response"}, case
+        # INVARIANT: the stored usage comes back verbatim, re-labelled only as cached evidence,
+        # when the capture certifies it; a partial capture withholds it (E4c ans:Q21b).
+        expected_usage = (
+            {**usage, "source": "cached_converted_response"}
+            if status in _CERTIFYING
+            else TokenUsage(status="unavailable", source="cached_converted_response").as_json()
+        )
+        assert payload["usage"] == expected_usage, case
         # INVARIANT: only a certifying capture may certify a price (ERD §3.5).
         expected_cost = cost if status in _CERTIFYING else DirectCost.unavailable().as_json()
         assert payload["direct_cost"] == expected_cost, case
