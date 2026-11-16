@@ -82,3 +82,64 @@ async def test_a_repeated_create_logs_created_false(
     assert again.status_code == 200
     (line,) = _lines(caplog, "run created ")
     assert line.endswith("created=False")
+
+
+# --- identity on `run scheduled` at start ---------------------------------------------------
+
+
+def _scheduled(caplog: pytest.LogCaptureFixture) -> str:
+    (line,) = [
+        r.getMessage() for r in caplog.records if r.getMessage().startswith("run scheduled topic=")
+    ]
+    return line
+
+
+async def test_scheduled_owner_matches_run_history_key(
+    caplog: pytest.LogCaptureFixture, registry: Registry
+) -> None:
+    engine = _Engine(registry)
+    run_id = (await engine.create(ADA)).json()["id"]
+    caplog.clear()
+    with caplog.at_level(logging.DEBUG):
+        resp = await engine.start("topic-a", run_id, candidate="1", **ADA)
+
+    assert resp.status_code == 202
+    line = _scheduled(caplog)
+    assert f"owner={ADA_KEY}" in line
+    assert f"run={run_id} candidate=1" in line
+    _no_email_anywhere(caplog)
+
+
+async def test_an_unbound_start_logs_dashes(
+    caplog: pytest.LogCaptureFixture, registry: Registry
+) -> None:
+    engine = _Engine(registry)
+    with caplog.at_level(logging.INFO, logger="screamingface_engine.rest.routes"):
+        resp = await engine.start("topic-b", **ADA)
+
+    assert resp.status_code == 202
+    line = _scheduled(caplog)
+    assert f"owner={ADA_KEY}" in line
+    assert line.endswith("run=- candidate=-")
+
+
+async def test_a_start_without_identity_logs_anonymous(caplog: pytest.LogCaptureFixture) -> None:
+    # STORY: a hosted Engine with Runs off and no identity header — the line still has a
+    # readable owner field, never a blank or an exception.
+    from test_runs_routes import LIFETIME_S, SECRET, TOKEN_T0, WINDOW_S
+
+    from screamingface_engine.auth import JwtCodec
+
+    engine = _Engine(None)
+    token = JwtCodec(secret=SECRET, iat_window_s=WINDOW_S, capability_lifetime_s=LIFETIME_S).sign(
+        "topic-c", TOKEN_T0
+    )
+    with caplog.at_level(logging.INFO, logger="screamingface_engine.rest.routes"):
+        resp = await engine.client.get(
+            "/",
+            params={"q": "gpt(hi)"},
+            headers={"URL4-Capability": token, "Prefer": "respond-async"},
+        )
+
+    assert resp.status_code == 202
+    assert "owner=anonymous run=- candidate=-" in _scheduled(caplog)
