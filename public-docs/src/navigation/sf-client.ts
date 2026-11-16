@@ -69,6 +69,7 @@ export const sfClientReferenceNavigation: NavEntry[] = [
       },
       { title: 'Benchmark', path: '/sf-client/api/benchmarks' },
       { title: 'Connections', path: '/sf-client/api/connections' },
+      { title: 'Credits', path: '/sf-client/api/credits' },
       {
         title: 'Results & grading',
         children: [

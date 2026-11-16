@@ -144,6 +144,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/ConnectionsPage.vue'),
     },
     {
+      path: '/sf-client/api/credits',
+      name: 'sf-client-api-credits',
+      component: () => import('@/pages/sf-client/api/CreditsPage.vue'),
+    },
+    {
       path: '/sf-client/api/modules',
       name: 'sf-client-api-modules',
       component: () => import('@/pages/sf-client/api/ModulesPage.vue'),
