@@ -2274,6 +2274,35 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         shuffle_seed=20260917,
         license="mit",
     ),
+    # hle_diamond — imported by Task replay on 2026-11-16 from
+    #   screamingface_engine_inspect.local_tasks.hle_diamond.hle_diamond:hle_diamond.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face cais/hle-diamond
+    #     pin revision 04eeb7efa7e3e4f83a00cbd5ce436a38fd5dda23
+    "hle_diamond": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.hle_diamond.hle_diamond:hle_diamond",
+        task_args={
+            "scorer": {
+                "scorer": "regex_judge",
+                "graders": ["grader"],
+                "args": {
+                    "template": "regex_judge_template",
+                    "instructions": "regex_judge_instructions",
+                    "max_grader_attempts": 3,
+                },
+            }
+        },
+        case_count=1000,
+        case_digest="ba7f9bc0bd5b23a0635a2b1082aa0035f7bb43ad51662a87274ea38f1bc5aa3b",
+        case_set_digest="18047330f8c25fd5347051c7c0ef8c63c22c5f65e72bd38ba30a880a713fc505",
+        keep_sample_metadata=True,
+        keep_sample_input=True,
+        source_pins={
+            "cais/hle-diamond": "04eeb7efa7e3e4f83a00cbd5ce436a38fd5dda23",
+        },
+        needs_hf_token=True,
+        license="mit",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 
