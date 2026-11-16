@@ -1308,6 +1308,7 @@ runtime = [
 [package.metadata]
 requires-dist = [
     { name = "aiosqlite", marker = "extra == 'runtime'", specifier = "==0.22.1" },
+    { name = "anywidget", marker = "extra == 'notebook'", specifier = ">=0.9.21,<1" },
     { name = "bcrypt", marker = "extra == 'runtime'", specifier = "==5.0.0" },
     { name = "cryptography", marker = "extra == 'runtime'", specifier = "==50.0.2" },
     { name = "datasets", marker = "extra == 'runtime'", specifier = "==5.1.0" },
