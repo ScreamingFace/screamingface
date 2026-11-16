@@ -18,6 +18,7 @@ from test_unclaimed_run_warner import GRACE, T0, _Audience, _Runner
 
 from screamingface_engine.runner_demand import RunnerDemand
 from screamingface_engine.unclaimed import UNCLAIMED_MESSAGE, UnclaimedRunWarner
+from url4.streaming.protocol import LogEvent
 
 LOGGER = "screamingface_engine.unclaimed"
 
@@ -50,6 +51,13 @@ def _warned_lines(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [m for m in messages if m.startswith("unclaimed run warned")]
 
 
+def _frame(audience: _Audience) -> LogEvent:
+    """The one notice frame, narrowed to the LogEvent the warner sends."""
+    [(_, frame)] = audience.notices
+    assert isinstance(frame, LogEvent)
+    return frame
+
+
 @pytest.mark.asyncio
 async def test_the_notice_log_line_names_waiting_and_running(
     caplog: pytest.LogCaptureFixture,
@@ -60,7 +68,7 @@ async def test_the_notice_log_line_names_waiting_and_running(
         await _warner(runner, audience, demand=lambda: _demand(8)).sweep()
 
     assert _warned_lines(caplog) == ["unclaimed run warned topic=t wait_s=302 waiting=6 running=8"]
-    [(_, frame)] = audience.notices
+    frame = _frame(audience)
     assert frame.data.body == UNCLAIMED_MESSAGE
     assert frame.data.attributes == {"run.wait_s": 301, "run.queue_waiting": 6}
 
@@ -76,7 +84,7 @@ async def test_unknown_counts_log_dashes_and_add_no_attribute(
         await _warner(runner, audience).sweep()
 
     assert _warned_lines(caplog) == ["unclaimed run warned topic=t wait_s=302 waiting=- running=-"]
-    [(_, frame)] = audience.notices
+    frame = _frame(audience)
     assert frame.data.attributes == {"run.wait_s": 301}
 
 
@@ -100,7 +108,7 @@ async def test_a_depth_not_yet_read_adds_no_attribute(caplog: pytest.LogCaptureF
         await _warner(runner, audience, demand=lambda: _demand(8)).sweep()
 
     assert _warned_lines(caplog) == ["unclaimed run warned topic=t wait_s=302 waiting=- running=8"]
-    [(_, frame)] = audience.notices
+    frame = _frame(audience)
     assert frame.data.attributes == {"run.wait_s": 301}
 
 
