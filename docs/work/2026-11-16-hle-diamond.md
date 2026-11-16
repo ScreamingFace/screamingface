@@ -77,3 +77,11 @@ scores.
   - `hle`'s BibTeX moved into `_HLE_CITATION`, shared by both rows (same value, same fingerprint).
   - Frontier score is 74.3% (Claude Fable 5.2), the top no-tools row of the authors' table, not
     the ticket's 59.9% (GPT-6 Astra's row in the same table).
+  - Added after review: the picture notebook (`18_picture_benchmarks`, via
+    `scripts/build_notebooks.py`) runs `hle_diamond` too. Its first five Cases are text, so the
+    cell names `cases=[1, 501]` (a reasoning text Case and a knowledge picture Case) instead of
+    `limit=2`; `test_picture_benchmarks_notebook.py` gains the id (approval entry added).
+- **Local smoke (2026-11-16, owner's run):** `hle_diamond` Cases 1-2 on the local stack with
+  gemini-3-flash-preview: both scored 0 (answers 0 and 2 against 624 and 8), the glm-5.3-flash
+  judge graded each in one try, confidence 85, coverage 1.0, $0.0027 Candidate cost. The picture
+  Case (501) is not run yet.
