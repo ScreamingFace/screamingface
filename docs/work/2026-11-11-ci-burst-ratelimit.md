@@ -53,15 +53,10 @@ Config-and-guard unit sized below a separate `docs/spec` + `docs/plan`. The desi
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** as planned — `.github/scripts/preview_contract.py`, `.github/scripts/test_preview_contract.py`, `.github/workflows/aigateway-tests.yml`, `.github/workflows/aigateway-ui-tests.yml`, `.github/workflows/release-please.yml`, `.github/workflows/report-intake-tests.yml`, `.github/workflows/scoreboard-tests.yml`, `.github/workflows/screamingface-engine-tests.yml`, `.github/workflows/screamingface-tests.yml`, `.github/workflows/url4-tests.yml`, `.../2026-11-11-OME-1878-ci-burst-ratelimit.md`, `docs/work/2026-11-11-ci-burst-ratelimit.md`.
+- **Actual files:** as planned — `.github/scripts/preview_contract.py`, `.github/scripts/test_preview_contract.py`, `.github/workflows/aigateway-tests.yml`, `.github/workflows/aigateway-ui-tests.yml`, `.github/workflows/release-please.yml`, `.github/workflows/report-intake-tests.yml`, `.github/workflows/scoreboard-tests.yml`, `.github/workflows/screamingface-engine-tests.yml`, `.github/workflows/screamingface-tests.yml`, `.github/workflows/url4-tests.yml`, `docs/tasks/2026-11-11-OME-1878-ci-burst-ratelimit.md`, `docs/work/2026-11-11-ci-burst-ratelimit.md`.
 - **Commits:** squash `7acd3fa27` (#1742, merged 2026-11-16); this ledger close-out in the follow-up PR.
 - **Gates:** repo gates green; `test_preview_contract.py` 23 passed (3 new); CI green on the
   main-refreshed head `58b566d6c`.
 - **Deviations:** (1) #1742 was merged at 11:53Z with HupBaHa's CHANGES_REQUESTED (11:17Z)
   outstanding — the merge gated on CI only; both review points are closed by this follow-up
   (claim narrowed, ledger completed). (2) CodeQL is out of scope → `OME-1927`.
-
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
