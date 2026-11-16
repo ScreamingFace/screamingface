@@ -626,8 +626,19 @@ def _install_unclaimed_run_warner(
         # starts at once), and it is the one that answers `accepted_ages()`. A stream-only App
         # and `URL4_CLOUD_UNCLAIMED_RUN_WARN_S=0` install nothing, and no task is created.
         return
+
+    def _fresh_demand():  # noqa: ANN202 - the warner's `DemandReader`, resolved at call time
+        # WHY late binding: the demand sampler is installed by `_install_runner_demand_sampler`,
+        # possibly after this warner; reading `app.state` per sweep needs no install order.
+        sampler = getattr(app.state, "runner_demand", None)
+        return None if sampler is None else sampler.fresh()
+
     warner = UnclaimedRunWarner(
-        job_runner, registry, grace_s=settings.unclaimed_run_warn_s, frame_clock=clock
+        job_runner,
+        registry,
+        grace_s=settings.unclaimed_run_warn_s,
+        frame_clock=clock,
+        demand=_fresh_demand,
     )
     app.state.unclaimed_warner = warner
 

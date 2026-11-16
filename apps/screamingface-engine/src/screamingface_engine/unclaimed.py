@@ -38,15 +38,21 @@ single `AudienceListener` slot stays the reaper's: this module POLLS `has_subscr
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from screamingface_engine import notices
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.reaper import tick_for_grace
+from screamingface_engine.runner_demand import RunnerDemand
 from url4.streaming.interfaces import JobStatus
 from url4.streaming.protocol import OutboundFrame
 
 _logger = logging.getLogger(__name__)
+
+# `RunnerDemandSampler.fresh`: (demand, sampled_at, age_s) of a fresh sample, or None.
+type DemandReader = Callable[[], tuple[RunnerDemand, datetime, float] | None]
 
 UNCLAIMED_MESSAGE = "the runner service is at capacity; your run is queued and has not started yet"
 """The user-facing notice body. INVARIANT: no internals — see the module docstring."""
@@ -87,10 +93,15 @@ class UnclaimedRunWarner:
         *,
         grace_s: float,
         frame_clock: notices.Clock,
+        demand: DemandReader | None = None,
     ) -> None:
         self._runs = runs
         self._audience = audience
         self._grace_s = grace_s
+        # FEATURE: queue visibility in the logs (OME-1924). Optional on purpose: the warner's
+        # policy tests and an App without the demand sampler run without it, and an unknown
+        # count is logged `-`, never a made-up 0.
+        self._demand = demand
         # WHY the App's clock (`create_app(clock=...)`): the notice's `time` is a wire value,
         # stamped by the same clock every other App-built frame uses.
         self._frame_clock = frame_clock
@@ -140,11 +151,34 @@ class UnclaimedRunWarner:
             return
         # AIDEV-NOTE: accepted race — a run claimed between the read above and this notify gets
         # the notice just before its StartedEvent. The window is one broker round trip.
+        waiting, running = self._counts()
+        attributes: dict[str, str | int | float | bool | None] = {"run.wait_s": int(age)}
+        if waiting is not None:
+            # The user's frame: how many runs wait fleet-wide — a count, not a position, and
+            # not a word of internals (the TEXT stays `UNCLAIMED_MESSAGE`, see the invariant).
+            attributes["run.queue_waiting"] = waiting
         self._audience.notify(
-            topic,
-            notices.warn(topic, self._frame_clock, UNCLAIMED_MESSAGE, {"run.wait_s": int(age)}),
+            topic, notices.warn(topic, self._frame_clock, UNCLAIMED_MESSAGE, attributes)
         )
-        _logger.info("unclaimed run warned topic=%s wait_s=%.0f", topic, age)
+        _logger.info(
+            "unclaimed run warned topic=%s wait_s=%.0f waiting=%s running=%s",
+            topic,
+            age,
+            "-" if waiting is None else waiting,
+            "-" if running is None else running,
+        )
+
+    def _counts(self) -> tuple[int | None, int | None]:
+        """(runs waiting unclaimed, runs executing) as far as this App can see; None = unknown.
+
+        WHY no slot total: `slots_total` is a worker-side gauge the App never sees, and a
+        per-bucket cap is not a fleet count — so the line says what is true and nothing more.
+        """
+        reader = getattr(self._runs, "queue_snapshot", None)
+        waiting: int | None = None if reader is None else reader()[0]
+        fresh = self._demand() if self._demand is not None else None
+        running = None if fresh is None else fresh[0].running
+        return waiting, running
 
 
 __all__ = ["UNCLAIMED_MESSAGE", "NoticeAudience", "QueuedRuns", "UnclaimedRunWarner"]
