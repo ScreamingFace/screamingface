@@ -4,6 +4,25 @@ All notable changes to the ScreamingFace AI Gateway are documented here.
 This project follows [Semantic Versioning](https://semver.org/) and uses
 release tags of the form `aigateway-v<version>`.
 
+## [1.1.0](https://github.com/ScreamingFace/screamingface/compare/aigateway-v1.0.1...aigateway-v1.1.0) (2026-11-16)
+
+
+### Features
+
+* **e4c:** routers, cascades and per-Case budgets (OME-1864, OME-1865, OME-1866) ([#1733](https://github.com/ScreamingFace/screamingface/issues/1733)) ([baedbd4](https://github.com/ScreamingFace/screamingface/commit/baedbd47afd2b007caea403712b5d29a049fc174))
+* **engine:** build image and file content parts from the run's url4 attachments ([#1588](https://github.com/ScreamingFace/screamingface/issues/1588)) ([97ec418](https://github.com/ScreamingFace/screamingface/commit/97ec4183ce550882ee93fc00308a6b2986b696b0))
+* show OpenRouter credit and hosted key allowances ([#1753](https://github.com/ScreamingFace/screamingface/issues/1753)) ([95f172a](https://github.com/ScreamingFace/screamingface/commit/95f172afdc77b1e0d9f60ee126db9307aeab4dc6))
+
+
+### Bug Fixes
+
+* **aigateway:** run the migrate Job and Garage on the chart's node placement ([#1798](https://github.com/ScreamingFace/screamingface/issues/1798)) ([babcaf1](https://github.com/ScreamingFace/screamingface/commit/babcaf11a2d68f68c0ffef240f8b7acf7c6526a9))
+
+
+### Refactors
+
+* **aigateway:** drop the migration_note column from the pair marker ([#1843](https://github.com/ScreamingFace/screamingface/issues/1843)) ([086bc72](https://github.com/ScreamingFace/screamingface/commit/086bc723b1b739a4e1ab1a5e345aef4855b7c148))
+
 ## [1.0.1](https://github.com/ScreamingFace/screamingface/compare/aigateway-v1.0.0...aigateway-v1.0.1) (2026-11-13)
 
 
