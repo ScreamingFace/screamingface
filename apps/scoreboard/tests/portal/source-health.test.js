@@ -14,6 +14,9 @@ const P = {el:node, EM_DASH:"—", formatDate:v=>v,
   link(cls, href, text) { const n=node("a",cls,text); n.setAttribute("href",href); return n; }};
 const context={window:{ScorePortal:P},URL};
 vm.createContext(context);
+vm.runInContext(fs.readFileSync(path.join(__dirname,"../../portal/main.js"),"utf8"),context);
+P.comparisonNote = context.window.ScorePortal.comparisonNote;
+context.window.ScorePortal = P;
 vm.runInContext(fs.readFileSync(path.join(__dirname,"../../portal/external-results.js"),"utf8"),context);
 const external = context.window.SFExternalResults;
 const baseline={id:"outside",model_name:"Example model",score:0.8,ranking_eligible:true,source_url:"https://example.org/table"};
