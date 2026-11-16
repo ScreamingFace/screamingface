@@ -38,6 +38,11 @@ MEDIA_STYLE = """<style>
  border:1px solid var(--sf-line)}
 </style>"""
 _QUESTION_CLOSE = "</div>"
+#: Scrolls the question box to the picture just opened, once it is drawn. WHY: a click redraws
+#: the whole page, and the redrawn question box starts scrolled to its top, so without this an
+#: EnigmaEval puzzle's tenth picture would jump the reader back to the tips above it. An inline
+#: handler because the kernel cannot run script in the page; the HTML widget keeps attributes.
+_SCROLL_TO_PICTURE = "this.scrollIntoView({block:'nearest'})"
 
 
 class MediaPanel:
@@ -73,6 +78,8 @@ class MediaPanel:
         # WHY by sha256: the same picture opened once shows on every Case and page that has it.
         # Ordered oldest-opened first, so the bound drops the one opened longest ago.
         self._kept: OrderedDict[str, str] = OrderedDict()
+        # The sha256 of the picture this click opened, for the one redraw that follows it.
+        self._just_opened: str | None = None
         self.notice = widgets.HTML()
         self.notice.add_class("sf-case-media")
 
@@ -124,7 +131,13 @@ class MediaPanel:
         item: CaseMedia | None = self._targets.get(target) if isinstance(target, str) else None
         if item is not None:
             self.open(item)
-            self._redraw()
+            # WHY only for this redraw: a later one (paging, another Case) must not pull the
+            # question box back down to a picture opened earlier.
+            self._just_opened = item.sha256
+            try:
+                self._redraw()
+            finally:
+                self._just_opened = None
 
     def open(self, item: CaseMedia) -> None:
         """Fetch ``item``: keep a picture to draw, or save a file and say where it went."""
@@ -160,7 +173,10 @@ class MediaPanel:
 
         kept: str | None = self._kept.get(item.sha256)
         if kept is not None:
-            return f"<img class='sf-media-img' src='{kept}' alt='{escape(str(item))}'>"
+            scroll: str = (
+                f' onload="{_SCROLL_TO_PICTURE}"' if item.sha256 == self._just_opened else ""
+            )
+            return f"<img class='sf-media-img' src='{kept}' alt='{escape(str(item))}'{scroll}>"
         target: str = f"sf-media-{uuid4().hex}"
         self._targets[target] = item
         # WHY no inner element: ipyevents reports the innermost clicked element, and only the

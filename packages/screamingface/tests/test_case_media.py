@@ -285,6 +285,23 @@ def test_show_picture_draws_the_picture_in_place_of_its_line(tmp_path: Path, mon
     assert "Show picture" not in browser.cases.value
 
 
+def test_the_picture_just_opened_scrolls_into_view_once(tmp_path: Path, monkeypatch) -> None:
+    # WHY: a click redraws the whole page, and the redrawn question box starts at its top, so an
+    # EnigmaEval puzzle's pictures at the bottom of its tips jumped out of view on every click.
+    # Only the redraw that follows the click scrolls; a later one (paging) must leave it alone.
+    monkeypatch.setattr(
+        "screamingface._default_client.fetch_media", _fetch_from({_PNG_SHA256: _PNG_BYTES})
+    )
+    browser = _browser(_ENGINE_ECHO, tmp_path, monkeypatch)
+    scroll: str = "onload=\"this.scrollIntoView({block:'nearest'})\""
+
+    _click(browser, "Show picture")
+    assert re.search(rf"<img class='sf-media-img' [^>]*{re.escape(scroll)}>", browser.cases.value)
+
+    browser._redraw_page()
+    assert "sf-media-img" in browser.cases.value and scroll not in browser.cases.value
+
+
 def _picture_after(text: str) -> str:
     """A Case whose message is ``text`` first and the picture after it, as MMMU's often are."""
 
