@@ -58,8 +58,8 @@ identity, all behind one switch that is off by default. Spec:
   `test_kube_pod_cost_writer_failures.py`, `test_worker_deletion_cost_drain_stop.py`,
   `test_worker_deletion_cost_retry_backoff.py`, `test_worker_deletion_cost_logging.py`.
   `templates/NOTES.txt` did not change (it does not say that the runner mounts no token).
-- **Commits:** `9db4c0994` docs (spec, plan, ledger, mirror); the `feat` commit that holds this
-  Outcome. Not pushed. No PR yet.
+- **Commits:** `9db4c0994` docs (spec, plan, ledger, mirror); `b364ff504` feat; `3caa90ce8` kind walkthrough
+  and reference guard; `31d2ccb94` changelog. PR #1856.
 - **Gates:** `uv run .claude/scripts/run_gates.py screamingface-engine` — ALL GATES GREEN
   (append-only check, ruff, ruff format, pyright, layering, pytest with coverage), 2026-11-16.
 - **Build:** tiered-build run `wf_3c8a9ebb-38f` (3 waves, 5 tasks, 18 agents). Design review:
