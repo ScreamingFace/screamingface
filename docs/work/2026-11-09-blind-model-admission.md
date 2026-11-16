@@ -79,3 +79,8 @@ model is refused by name before any chat call. Spec: `docs/spec/2026-11-09-blind
   `/v1/models` with a chat body, so the fail-closed admission now refuses the run retryably.
   Needs an approved amendment (mock serves `/v1/models` listing `MODEL` with `["text","image"]`).
   Engine gate: 1 failed / 8014 passed.
+- PR-open (2026-11-16): merged origin/main after #1588 (OME-1545) squash-merged as 97ec4183c. 10 conflicts,
+  all from that squash: 8 files take main's (OME-1545 final) version; `world/connector.py` and
+  `test_fair_share_fetch_bytes.py` keep this branch's (main's copy equals the OME-1545 tip, so only
+  OME-1809's changes differ). Approval blobs unchanged (base e7a07c1f7 on main, approved b42ae1922).
+  Gates green vs origin/main: screamingface-engine, url4, repo.
