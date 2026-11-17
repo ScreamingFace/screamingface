@@ -45,7 +45,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import deque
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from url4.io.layer import (
@@ -287,6 +289,7 @@ class FairShareIOLayer:
     # Conditionally bound in __init__ (annotation only — no class attribute, so
     # hasattr/isinstance stay false when the inner adapter lacks the port).
     fetch_ex: Any
+    fetch_bytes: Any
     fetch_holdings: Any
     processor_routes: Any
     default_route: Any
@@ -297,6 +300,11 @@ class FairShareIOLayer:
         self._run = run
         if isinstance(inner, SupportsFetchEx):
             self.fetch_ex = self._gated_fetch_ex
+        # WHY getattr, not an isinstance test: mirrors url4's BoundedIOLayer, which reads the
+        # binary-safe port duck-typed. Without it every https attachment source fails
+        # `unsupported_mode` in local mode, which always wraps the run's io here (e2e F2).
+        if (fetch_bytes := getattr(inner, "fetch_bytes", None)) is not None:
+            self.fetch_bytes = partial(self._gated, fetch_bytes)
         if isinstance(inner, SupportsHoldings):
             self.fetch_holdings = self._gated_fetch_holdings
         if isinstance(inner, SupportsProcessorRoutes):
@@ -327,6 +335,13 @@ class FairShareIOLayer:
         await self._gate.acquire(self._run)
         try:
             return await self._inner.fetch_ex(request)  # type: ignore[attr-defined]
+        finally:
+            self._gate.release(self._run)
+
+    async def _gated(self, port: Callable[..., Awaitable[Any]], *args: Any) -> Any:
+        await self._gate.acquire(self._run)
+        try:
+            return await port(*args)
         finally:
             self._gate.release(self._run)
 

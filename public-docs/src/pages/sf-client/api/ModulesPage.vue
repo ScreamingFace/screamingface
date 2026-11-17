@@ -66,8 +66,8 @@ if reproduction is not None:
       attributes and methods: <code>client.benchmarks</code>, <code>client.evaluate(...)</code>. On
       the <code>sf</code> module, the same names act on a default Client the library creates and
       manages for you, so a script or notebook can call <code>sf.evaluate(...)</code> without
-      constructing one. <code>sf.events</code>, <code>sf.reports</code>, <code>sf.cache</code> and
-      <code>sf.analytics</code> exist only on the module.
+      constructing one. <code>sf.events</code>, <code>sf.reports</code>, <code>sf.runs</code>,
+      <code>sf.cache</code> and <code>sf.analytics</code> exist only on the module.
     </p>
 
     <div class="not-prose">
@@ -250,6 +250,35 @@ if reproduction is not None:
         <tr>
           <td><code>delete(report_id, *, directory=None)</code></td>
           <td><code>None</code>. Removes the saved report from disk.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>sf.runs</h2>
+
+    <p>
+      Lists and reopens your engine-owned Runs — the record each evaluation leaves behind, visible
+      from any machine signed in as you for 30 days. It is documented on the
+      <RouterLink to="/sf-client/api/runs">Runs</RouterLink> page, with the
+      <RouterLink to="/sf-client/guides/managing-experiments">Managing experiments</RouterLink> guide
+      for the workflow.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Function</th>
+          <th>Returns</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>list(*, state=None, since=None, limit=50)</code></td>
+          <td>Your <code>Run</code>s, newest first. <code>list_async</code> is the awaitable form.</td>
+        </tr>
+        <tr>
+          <td><code>get(run_id)</code></td>
+          <td>One <code>Run</code> by its id. <code>get_async</code> is the awaitable form.</td>
         </tr>
       </tbody>
     </table>

@@ -1,7 +1,7 @@
 ---
 id: OME-1607
 linear_url: https://linear.app/openmined/issue/OME-1607/large-judged-runs-die-with-memoryerror-in-the-runner-child-and-the
-status: in_progress
+status: in_review
 type: task
 priority: high
 labels: [screamingface-engine, agentic, autonomous]
@@ -24,3 +24,9 @@ uses the transport source, which the SDK ignores.
 - 2026-10-14: built on one branch; review fixes applied; measured on kind (`draco-3pass` 444 MiB
   peak, was `MemoryError`). PR opened. Follow-ups found while verifying: wall-clock span times
   (engine) and a too-strict span check (SDK), `max_deliveries` transport source.
+
+## Status sync
+
+- 2026-11-16: status set to `in_review` to match Linear. PR #1420 squash-merged as `bc08d99d5`
+  on 2026-10-14. Open before close: the owner decides if the per-call RSS finding needs a
+  follow-up issue. Child OME-1648 (#1468) is also In Review.

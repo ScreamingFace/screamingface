@@ -262,7 +262,14 @@ def main() -> int:
         if floor is None:
             print(f"{WARN} {directory}  {dep} {versions}: cannot parse a version floor")
             continue
-        blocker = item["blocker"]
+        blocker = item.get("blocker")
+        if (
+            blocker is None
+        ):  # no probe applies (e.g. an upstream data regression): the note says why
+            print(
+                f"{WARN} {directory}  {dep} {versions}: no blocker probe; lift by hand"
+            )
+            continue
         probe = PROBES.get(blocker.get("kind"))
         if probe is None:
             print(

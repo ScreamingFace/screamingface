@@ -3,12 +3,12 @@
   "branch": "OME-1907-wrapped-answer-letter",
   "approver": "owner, who on 2026-11-13 chose to pin the wrapped-answer rule into every row it grades and to hold the published revisions, and on 2026-11-17 chose the review-round-2 fix (every answer in a wrapped list unwrapped); the pins below exist to flag exactly this change",
   "date": "2026-11-17",
-  "scope": "Prior-test edits in two files and nothing else. (1) test_benchmark_fingerprints.py: 47 literals in _FINGERPRINTS move to the fingerprint the rows now compute, because the wrapped_letter package's source is hashed into the 46 option-mark rows and into mathvista; the comment above the held rows says why. No published_revision moves and no other row changes. (2) test_scorer_source_pins.py: mathvista joins _DEVIATING_ROWS, since its scorer is now ours (the wrapped-answer mathvista scorer), and the comment says since when. No assertion, helper or other row changes.",
+  "scope": "Prior-test edits in two files and nothing else. (1) test_benchmark_fingerprints.py: 47 literals in _FINGERPRINTS move to the fingerprint the rows now compute, because the wrapped_letter package's source is hashed into the 46 option-mark rows and into mathvista; the comment above the held rows says why. No published_revision moves and no other row changes; the base is main after #1780, #1781 and #1785 merged (hle_diamond's row arrives from main unchanged). (2) test_scorer_source_pins.py: mathvista joins _DEVIATING_ROWS, since its scorer is now ours (the wrapped-answer mathvista scorer), and the comment says since when. No assertion, helper or other row changes.",
   "reason": "The fingerprint literals exist so a change to how a Benchmark grades fails loudly instead of moving silently. This change is that by design: a grading fix that keeps every Case, which the OME-1610 rule (docs/adding-an-imported-benchmark.md, 'Changing a Benchmark's published revision') says updates only the literal and holds the id. The scorer-source pin lists every row whose scorer is not its Task's own; mathvista now is one.",
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
-      "base_blob": "ddba96e9da05106dbb205ae7081d9f33d85fda65",
-      "approved_blob": "e33b2e2a2cc35735b990dfee417e7cf3cb90ff94"
+      "base_blob": "240791322961a36566221c5598f2ac574539c793",
+      "approved_blob": "7fda66989eb34ac9c00ce7cf4f8a89211df1cd99"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_scorer_source_pins.py": {
       "base_blob": "1825af1f15cd73db77caedf9c296a6d5b281b52a",

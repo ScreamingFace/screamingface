@@ -1,9 +1,9 @@
 ---
 ticket: OME-1155
 stack: aigateway + url4 + screamingface-engine
-status: in_progress
+status: done
 started: 2026-09-14
-finished:
+finished: 2026-09-17
 ---
 
 # OME-1155 — PR #930 review findings: the missing spec, the silent restore, and the untested edges
@@ -145,3 +145,9 @@ FEATURE: standard metadata (cost, latency, tokens) on every cached response — 
   - **Still open, deliberately not done here:** runtime validation of
     `usage_accounting.schema.json` (a design decision, not a defect), and the `archive_paired` /
     `archive_matched` naming proximity (both `Literal`-constrained; a glossary line would do).
+
+## Landed on main
+
+- `0d2c00f82` (#930), squash-merged 2026-09-17 15:52 UTC, with the OME-1203 round-2 fixes. Follow-up
+  after the owner decision of 2026-09-28: `16bb09ae3` (#1100, OME-1397). Linear OME-1155 Done
+  2026-11-16. The items under **Still open** above have no ticket.

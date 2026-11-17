@@ -102,6 +102,23 @@ class CaseResultStore:
     def read(self, key: str) -> dict[str, Any]:
         """The record parked under ``key``. Raises ``CaseResultStoreError`` for anything else."""
 
+        text: str = self.read_text(key)
+        try:
+            record: object = json.loads(text)
+        except ValueError:  # pragma: no cover - a matching digest means these are our bytes
+            raise CaseResultStoreError(f"Case-result row {key!r} is corrupt") from None
+        if not isinstance(record, dict):  # pragma: no cover - append takes only mappings
+            raise CaseResultStoreError(f"Case-result row {key!r} is corrupt")
+        return record
+
+    def read_text(self, key: str) -> str:
+        """The exact compact JSON text parked under ``key`` (no trailing newline).
+
+        FEATURE memory fix 3 (OME-1835), unit 2: the parked result body writes a parked Case
+        verbatim, so it needs the text, not the decoded record. Raises ``CaseResultStoreError``
+        for anything else, as ``read`` does.
+        """
+
         with self._lock:
             if self._file is None:
                 raise CaseResultStoreError("the Case-result store is closed")
@@ -116,13 +133,8 @@ class CaseResultStore:
             raise CaseResultStoreError(f"Case-result row {key!r} is unreadable: {exc}") from None
         if len(encoded) != entry.length or hashlib.sha256(encoded).digest() != entry.sha256:
             raise CaseResultStoreError(f"Case-result row {key!r} is corrupt")
-        try:
-            record: object = json.loads(encoded)
-        except ValueError:  # pragma: no cover - a matching digest means these are our bytes
-            raise CaseResultStoreError(f"Case-result row {key!r} is corrupt") from None
-        if not isinstance(record, dict):  # pragma: no cover - append takes only mappings
-            raise CaseResultStoreError(f"Case-result row {key!r} is corrupt")
-        return record
+        # WHY no decode guard: the digest matched, so these are the bytes append encoded from a str.
+        return encoded.decode("utf-8")
 
     def close(self) -> None:
         """Delete every parked row. Idempotent; a closed store refuses reads and appends."""

@@ -734,6 +734,13 @@ runnerPool:
     # Seconds between KEDA reads of `/runner-demand`. The App samples the queue every 15 s
     # (`runner_demand_sample_s`), so a read is at most one sample old.
     pollingIntervalS: 15
+    # The per-pod target of the HPA AverageValue metric, in runs per pod. null = `workerSlots`.
+    # Set it BELOW `workerSlots / 1.1` (3.6 for 4 slots) when the cluster's KEDA ScaledObject CRD
+    # drops `scaleUp.tolerance` (KEDA < 2.18, e.g. the AKS add-on 2.17.2). Then the HPA's default
+    # 10 % band can never hold a pool that has more claimable runs than slots. Cost: about 11 %
+    # more pods (4 / 3.6). Set it back to null when KEDA >= 2.18 is live, or the pool stays about 11 %
+    # larger than needed. The chart refuses a value above `workerSlots`.
+    targetPerPod: null
     # WHY up at once, 4 pods per 15 s: a waiting user is the cost this feature removes, and the
     # signal already excludes runs that no new pod could claim.
     scaleUp:
@@ -750,11 +757,38 @@ runnerPool:
       tolerance: 0
     # WHY down slowly, 1 pod per 60 s after a 300 s window: the ReplicaSet may delete a BUSY pod,
     # which then drains up to `drainGraceS` while its runs still count in the demand. A slow step
-    # limits that cost (spec D5; `pod-deletion-cost` is a follow-up).
+    # limits that cost (spec D5). With `runnerPool.deletionCost.enabled` (OME-1931), the ReplicaSet
+    # deletes idle pods first.
     scaleDown:
+      # false renders `selectPolicy: Disabled`: the pool grows on demand and never shrinks by
+      # itself. WHY: a scale-down can pick a BUSY pod, which holds its node and quota while it
+      # drains (up to `drainGraceS`). Use false while `runnerPool.deletionCost` is off or its
+      # platform prerequisites are missing (OME-1931).
+      # Scale-up is unchanged. At the maximum, the pool costs the same as `minReplicas = maxReplicas`.
+      enabled: true
       stabilizationS: 300
       podsPerStep: 1
       stepS: 60
+
+  # FEATURE (OME-1931): the worker writes its busy slot count as its OWN pod's
+  # `controller.kubernetes.io/pod-deletion-cost` annotation, so a scale-down (KEDA, a rollout, a
+  # manual one) deletes an idle pod first. Off by default. WHY opt-in: the worker then needs a
+  # ServiceAccount token, and the platform must first bind a Role (`pods: [patch]`, guarded to
+  # this annotation on the own pod) and allow egress to the API server (README, "Idle pods first
+  # on scale-down"). It does not need `autoscaling.enabled`.
+  # INVARIANT: false renders the runner pod as before (the App's ServiceAccount, no token, no new
+  # env) and no runner ServiceAccount.
+  deletionCost:
+    enabled: false
+  # The runner pool's OWN ServiceAccount, used only when `deletionCost.enabled` is true. WHY its
+  # own: the platform binds the pod-patch Role to the runner alone, never to the App.
+  # `create: false` uses an account made outside the chart; then `name` is required (the render
+  # fails without it).
+  serviceAccount:
+    create: true
+    # "" = `<fullname>-runner` (`url4-cloud-runner` with `fullnameOverride: url4-cloud`).
+    name: ""
+    annotations: {}
 
 # Shared HMAC key for a mount result's short-lived artifact URL (OQ-3.2, contracts.md C6,
 # uniform executor PRD 05). A mount result over 1 MiB answers 303 to a URL the App SIGNS; the
@@ -828,6 +862,14 @@ nats:
   natsBox:
     enabled: false
 
+# Placement of the chart's pods. Each value names the workloads it reaches:
+#   nodeSelector and tolerations: the App, the runner pool, both Garage StatefulSets and the
+#   migrate Job.
+#   affinity: the App and the runner pool only. Garage and the migrate Job carry other labels.
+#   To put Garage and the migrate Job on a node pool, use `nodeSelector`, not a nodeAffinity.
+# Changing placement restarts a Garage pod. When its persistence is on, its PersistentVolume
+# (Azure Disk) is zonal, so the new pool must have a node in the disk's zone, or the Garage
+# pod stays Pending.
 nodeSelector: {}
 tolerations: []
 affinity: {}

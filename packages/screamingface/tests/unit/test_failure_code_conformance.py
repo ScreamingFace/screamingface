@@ -103,3 +103,8 @@ def test_the_sdk_copy_matches_the_engine_copy() -> None:
 )
 def test_provider_phase_timeout_codes_are_accepted(code: str) -> None:
     assert _failure(code).code == code
+
+
+def test_the_sdk_copy_declares_fail_closed() -> None:
+    # E4c (OME-1291, guards #7): a Case a guard refused carries `fail_closed`; the SDK must read it.
+    assert _failure("fail_closed").code == "fail_closed"

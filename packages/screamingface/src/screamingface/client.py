@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.classification import Classification
     from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
+    from screamingface.credit import CreditStatus
     from screamingface.events import Event
     from screamingface.media import CaseMedia, FetchedMedia
     from screamingface.recipe import Recipe
@@ -116,6 +117,54 @@ class Client:
             self._scoreboard_url,
             analytics_engine_url=self._engine_url,
         )
+
+    def credits(self, provider: str = "openrouter", *, refresh: bool = True) -> CreditStatus:
+        """Read credits for the connection selected by the Engine for execution."""
+        import httpx
+
+        from screamingface.credit import _decode, _path, _unavailable
+        from screamingface.errors import ScreamingFaceError
+
+        self._require_open()
+        _require_secure_connection_origin(self._engine_url)
+        path = _path(provider, refresh=refresh)
+        try:
+            response = self._http_request("GET", path)
+        except (httpx.HTTPError, ScreamingFaceError):
+            return _unavailable(provider)
+        return _decode(response, provider)
+
+    def set_credit_management_key(self, provider: str, *, api_key: str) -> None:
+        """Verify and securely store a management key for the current execution connection."""
+        import httpx
+
+        from screamingface.credit import _path, _secret, _setup_result
+        from screamingface.errors import ScreamingFaceError
+
+        self._require_open()
+        _require_secure_connection_origin(self._engine_url)
+        path, secret = _path(provider) + "/management-key", _secret(api_key)
+        try:
+            response = self._http_request("PUT", path, json={"api_key": secret})
+        except (httpx.HTTPError, ScreamingFaceError):
+            response = None
+        _setup_result(response)
+
+    def clear_credit_management_key(self, provider: str) -> None:
+        """Remove the saved management key for this caller and provider."""
+        import httpx
+
+        from screamingface.credit import _path, _setup_result
+        from screamingface.errors import ScreamingFaceError
+
+        self._require_open()
+        _require_secure_connection_origin(self._engine_url)
+        path = _path(provider) + "/management-key"
+        try:
+            response = self._http_request("DELETE", path)
+        except (httpx.HTTPError, ScreamingFaceError):
+            response = None
+        _setup_result(response)
 
     @property
     def engine_url(self) -> str:
@@ -639,6 +688,54 @@ class AsyncClient:
             self._scoreboard_url,
             analytics_engine_url=self._engine_url,
         )
+
+    async def credits(self, provider: str = "openrouter", *, refresh: bool = True) -> CreditStatus:
+        """Read credits for the connection selected by the Engine for execution."""
+        import httpx
+
+        from screamingface.credit import _decode, _path, _unavailable
+        from screamingface.errors import ScreamingFaceError
+
+        self._require_open()
+        _require_secure_connection_origin(self._engine_url)
+        path = _path(provider, refresh=refresh)
+        try:
+            response = await self._http_request("GET", path)
+        except (httpx.HTTPError, ScreamingFaceError):
+            return _unavailable(provider)
+        return _decode(response, provider)
+
+    async def set_credit_management_key(self, provider: str, *, api_key: str) -> None:
+        """Verify and securely store a management key for the current execution connection."""
+        import httpx
+
+        from screamingface.credit import _path, _secret, _setup_result
+        from screamingface.errors import ScreamingFaceError
+
+        self._require_open()
+        _require_secure_connection_origin(self._engine_url)
+        path, secret = _path(provider) + "/management-key", _secret(api_key)
+        try:
+            response = await self._http_request("PUT", path, json={"api_key": secret})
+        except (httpx.HTTPError, ScreamingFaceError):
+            response = None
+        _setup_result(response)
+
+    async def clear_credit_management_key(self, provider: str) -> None:
+        """Remove the saved management key for this caller and provider."""
+        import httpx
+
+        from screamingface.credit import _path, _setup_result
+        from screamingface.errors import ScreamingFaceError
+
+        self._require_open()
+        _require_secure_connection_origin(self._engine_url)
+        path = _path(provider) + "/management-key"
+        try:
+            response = await self._http_request("DELETE", path)
+        except (httpx.HTTPError, ScreamingFaceError):
+            response = None
+        _setup_result(response)
 
     @property
     def engine_url(self) -> str:
