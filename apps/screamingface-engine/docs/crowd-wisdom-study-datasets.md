@@ -44,8 +44,15 @@ The study's questions in later releases:
 ## 2. The exact BTF-3 prompt
 
 The template is the "No Evidence Forecaster" prompt of Bench to the Future (arXiv 2506.21558,
-Appendix A.1), copied verbatim into the study's `forecast_prompts.BTF`. Four placeholders are
-filled from the dataset row:
+Appendix A.1), as the study's `forecast_prompts.BTF` holds it. It is **a shortened copy, not the paper's text word for word**: against the paper's own source
+(the arXiv e-print, `main.tex:539-611`), the study's copy is 3,268 bytes where the paper's is
+5,918. It drops every worked example (Musk and Trump under the 80% tip, Miami and San Francisco
+under base rates, and the examples under status quo, seasonality, trends, influential people and
+scope), the whole tip "Sometimes there are multiple data sources for the same number…", and the
+parentheticals under (11), and it changes "happen on the originally stated timeframe" to "in".
+The steps (a) to (e), the tips' headings and the closing line are the paper's.
+
+Four placeholders are filled from the dataset row:
 - `{question}`, `{background}` and `{resolution_criteria}` come from the columns of the same names;
 - `{today}` is the date part of `present_date`.
 
@@ -53,9 +60,10 @@ No resolution column reaches the prompt (`resolution`, `resolution_explanation`,
 columns). The `<research>` block stays empty, which is the paper's own setting for a forecaster
 with no evidence.
 
-**One line was changed.** The paper's closing line, "The last thing you write is your final answer
+**Then one more line was changed for the runs.** The paper's closing line, "The last thing you write is your final answer
 as a probability between 0 and 1.", was replaced with a fixed answer line
-(`bench_formats.btf_render(..., arm="tight")`). Everything above it is unchanged. The reason: on
+(`bench_formats.btf_render(..., arm="tight")`). Everything above it is the study's copy as
+described above. The reason: on
 six test questions, three small models gave a readable answer 6 times in 18 with the original line
 and 18 times in 18 with the new one, and no model got worse.
 
