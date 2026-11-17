@@ -248,6 +248,65 @@ def check_input_modalities(messages: Iterable[Any], *, provider: str, modalities
                 )
 
 
+_UNSUPPORTED_MEDIA_TYPE = 415
+_MEDIA_PART_TYPES = ("image_url", "file")
+
+
+def provider_media_refusal(
+    status: object, messages: object, *, provider: str
+) -> UnsupportedContentPart | None:
+    """The content-part refusal for a provider's 415 on a request that carries media (OME-1946).
+
+    # WHY: a provider that answers HTTP 415 to a request with image/file parts is refusing a
+    # part's media type (seen: HF router -> DeepInfra on a GIF) — the same fact the admission
+    # refusals above state before dispatch, so the caller gets the same typed 422 (the Engine
+    # translates it to url4 `intent_error`) instead of a generic `provider_error`.
+    # INVARIANT: only a 415, and only with at least one `image_url`/`file` part; anything else
+    # returns None and keeps the existing mapping. Never raises on malformed messages.
+    # WHY no upstream text in `reason`: it is provider-influenced; the reason names only the
+    # request's own MIME types (distinct, request order). A remote image's MIME is unknown.
+    # The upstream does not say WHICH part it refused, so `part_type` is the first media part's.
+    """
+    if type(status) is not int or status != _UNSUPPORTED_MEDIA_TYPE:
+        return None
+    part_types: list[str] = []
+    mimes: list[str] = []
+    for part in _media_parts(messages):
+        part_type = cast("str", part["type"])
+        part_types.append(part_type)
+        mime = _declared_mime(part, part_type)
+        if mime is not None and mime not in mimes:
+            mimes.append(mime)
+    if not part_types:
+        return None
+    reason = "provider_unsupported_media"
+    if mimes:
+        reason = f"{reason} {','.join(mimes)}"
+    return UnsupportedContentPart(provider=provider, part_type=part_types[0], reason=reason)
+
+
+def _media_parts(messages: object) -> Iterable[Mapping[str, Any]]:
+    if not isinstance(messages, list):
+        return
+    for message in cast("list[object]", messages):
+        content = message.get("content") if isinstance(message, Mapping) else None
+        if not isinstance(content, list):
+            continue
+        for part in cast("list[object]", content):
+            if isinstance(part, Mapping) and part.get("type") in _MEDIA_PART_TYPES:
+                yield cast("Mapping[str, Any]", part)
+
+
+def _declared_mime(part: Mapping[str, Any], part_type: str) -> str | None:
+    value = part.get(part_type)
+    if part_type == "image_url":
+        raw = value.get("url") if isinstance(value, Mapping) else value
+    else:
+        raw = value.get("file_data") if isinstance(value, Mapping) else None
+    inline = parse_data_uri(raw) if isinstance(raw, str) else None
+    return inline.mime if inline is not None else None
+
+
 def part_kind(part: MediaPart | RemoteImagePart) -> Literal["image", "file"]:
     return "image" if isinstance(part, RemoteImagePart) else part.kind
 
