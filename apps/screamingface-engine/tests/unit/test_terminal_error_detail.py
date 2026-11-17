@@ -673,3 +673,50 @@ def test_the_control_plane_set_is_exactly_the_supervisors_own_constants() -> Non
     }
     assert raised == CONTROL_PLANE_TERMINAL_CODES
     assert not (CONTROL_PLANE_TERMINAL_CODES & ENGINE_ERROR_CODES), "a code has one policy, not two"
+
+
+# --- a refusal's code crosses, its text does not (2026-11-17, image-input matrix) ---------------
+#
+# WHY: a gateway refusal (an image sent to a text-only model) ends the run `intent_error`,
+# permanent, before any provider call. Scrubbed to `internal_error`, a sync caller cannot tell
+# "this model can't read your file" from an Engine crash. The connector mints the code from the
+# gateway's 422 body, so the MESSAGE is upstream text and stays withheld; the code vouches for
+# nothing and is therefore not reserved.
+
+
+@pytest.mark.asyncio
+async def test_intent_error_is_reported_as_itself_without_its_message() -> None:
+    from screamingface_engine.error_text import PUBLIC_UNVOUCHED_CODES
+
+    assert "intent_error" in PUBLIC_UNVOUCHED_CODES
+    topic = "topic-intent-error"
+    refusal = (
+        "openrouter cannot accept a image_url content part: modality_unsupported image "
+        f"/srv/engine/connector.py {PROVIDER_SECRET}"
+    )
+    resp = await _get_terminal(
+        topic,
+        _terminated(
+            topic, "failed", error=ErrorInfo(code="intent_error", message=refusal, permanent=True)
+        ),
+    )
+
+    body = resp.json()
+    assert body["code"] == "intent_error", "a refusal is not an internal error"
+    assert body["detail"] == "the run failed", "the refusal's upstream text never crosses"
+    assert body["permanent"] is True
+    raw = resp.content.decode()
+    assert PROVIDER_SECRET not in raw
+    assert "/srv/engine" not in raw
+    assert "modality_unsupported" not in raw
+
+
+def test_public_unvouched_codes_are_not_reserved_and_have_one_policy() -> None:
+    """An upstream must stay free to report `intent_error` (the gateway's 422 maps to it), and a
+    code has one policy, not two."""
+    from screamingface_engine.error_text import ENGINE_RESERVED_CODES, PUBLIC_UNVOUCHED_CODES
+
+    assert not (PUBLIC_UNVOUCHED_CODES & ENGINE_RESERVED_CODES)
+    assert not (PUBLIC_UNVOUCHED_CODES & ENGINE_ERROR_CODES)
+    assert not (PUBLIC_UNVOUCHED_CODES & CONTROL_PLANE_TERMINAL_CODES)
+    assert not (PUBLIC_UNVOUCHED_CODES & set(EXCLUDED_CODES))
