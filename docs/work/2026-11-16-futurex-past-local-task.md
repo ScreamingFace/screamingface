@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # Linear skipped by the user's decision (2026-11-16): no issue, no epic, no `Refs: OME-N`
 stack: screamingface-engine
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-16
-finished:
+finished: 2026-11-16
 ---
 
 # futurex-past-local-task — serve FutureX-Past as a local inspect Task
@@ -78,7 +78,11 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
   - `c8dadab6c` adds the Benchmarks.
   - `e463be2e9` applies the review and first-audit fixes.
   - The next commit fixes the second audit's two findings.
-  - The last commit adds the Fidelity Records.
+  - The last commit adds the Fidelity Records, written from the third audit pass at
+    `abb05ea9b`. `futurex_past` is `not-comparable`, by design (judge model; closed-book), with
+    every deviation declared. `futurex_past_study` is `unverified`: grading is the study's to
+    the last bit, and only the declared sampling difference stays open. `just engine
+    fidelity-check` reports both as fresh.
   - No OME id: Linear is skipped.
 - **Review round** (sf-code-review, and both sf-benchmark-fidelity audits at `c8dadab6c`):
   - `futurex_past`:
