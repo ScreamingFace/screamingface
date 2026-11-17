@@ -1,6 +1,6 @@
 # Contracts — frozen copy retention
 
-**Base:** `origin/main` at `e9db97cfb`. Paths are relative to the repo root.
+**Base:** `origin/main` at `f683cd2e6` (before stack A). Paths are relative to the repo root.
 One section for each connection that this spec adds or changes. Test numbers refer to the TDD
 tables: `S-n` in `prd/copy-sweep.md`, `K-n` in `prd/score-claim.md`, `R-n` in
 `prd/expired-copy-replay.md`. `CH-n` tests are named with their PRD.
@@ -32,7 +32,7 @@ Error bodies of the gateway use the shape that the frozen copy routes use today:
   and changes nothing. A seal by a caller that is not the owner answers the 404
   `frozen_copy_not_found` of today, for each state. `[implied]`
 - **Caller side:** the engine reads a seal as done only when the body says `sealed`
-  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:686-690]`. A
+  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:716-720]`. A
   410 thus gives the partial reason `seal`. No engine change. `[implied]`
 - **Idempotency:** a repeat seal of a sealed copy returns it unchanged, as today.
 - **Contract tests:** `prd/copy-sweep.md` CH-2, S-9.
@@ -55,7 +55,7 @@ Error bodies of the gateway use the shape that the frozen copy routes use today:
 - **Caller side (engine):** 410 with `frozen_copy_expired` → permanent failure, code
   `frozen_copy_unavailable`, the engine's own expired text. No retry: a retry of a replay call
   reads the next occurrence
-  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1499-1502]`.
+  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1529-1532]`.
 - **Contract tests:** `prd/expired-copy-replay.md` CH-1, CH-3, R-1, R-2, R-3, R-4, R-6.
 
 ## K4 — Scoreboard → AI Gateway, claim (new) — sync, HTTP
@@ -88,9 +88,11 @@ Error bodies of the gateway use the shape that the frozen copy routes use today:
   - The gateway takes the row lock of the copy, reads the status under the lock, and sets
     `claimed_at` only for `sealed` with `claimed_at IS NULL`. `[proposed]`
 - **Failure behavior, caller side:** the decision table of `prd/score-claim.md` §3.4. The
-  caller reads `detail.code` and `detail.state`. Each answer that the table does not name is
-  "unavailable": this includes a 404 with no `detail.code` (a wrong URL, or a gateway with no
-  claim route). `[proposed]`
+  caller reads `detail.code` and `detail.state`. It reads a 200 as a claim only when the body
+  is a JSON object with `status == "sealed"` and with `already` as a boolean, and, when the
+  body has an `id`, that `id` is the copy id that it sent. Each answer that the table does not
+  name is "unavailable": this includes each other 200, and a 404 with no `detail.code` (a wrong
+  URL, or a gateway with no claim route). The submit then fails closed (K5, 503). `[proposed]`
 - **Failure behavior, callee side:** a database error gives 500 and no change. `[implied]`
 - **Network:** the gateway NetworkPolicy must admit the scoreboard pod. In the chart, add one
   element to `networkPolicy.allowFrom` that has both the namespace selector and the pod selector
@@ -120,6 +122,8 @@ Error bodies of the gateway use the shape that the frozen copy routes use today:
   `[existing packages/screamingface/src/screamingface/_scoreboard/leaderboards.py:182]`.
 - **Order on the callee side:** identity → benchmark check → claim (K4) → store. The claim is
   outside each database transaction. `[proposed]`
+- **OpenAPI:** only the description text of the 422 and of the 503 changes. The response model
+  of the 503 does not change. `[stated ans:Q28]`
 - **Contract tests:** `prd/score-claim.md` CH-1, CH-2, K-9 to K-16, K-35.
 
 ## K6 — Operator → AI Gateway, sweep command (new) — process, CLI
@@ -194,6 +198,10 @@ Error bodies of the gateway use the shape that the frozen copy routes use today:
     transaction, with the statement of "End of a purge" below (`prd/copy-sweep.md` S16).
   - Expiry rule under the lock: `status = sealed`, `claimed_at IS NULL`, and
     `now ≥ COALESCE(retention_from, sealed_at) + ttl` (`erd.md` §2.4).
+  - The expiry rule reads its candidates with one SQL filter: `status = sealed`, `claimed_at IS
+    NULL`, and a clock start at or before `now − ttl`. The code passes that cutoff as a
+    parameter. The filter only selects candidates; the check under the row lock decides.
+    `[proposed]`
 - **Purge (one transaction for each chunk):** delete at most 500 entries of one marked copy by
   id, selected with `FOR UPDATE SKIP LOCKED` → commit → wait 200 ms.
 - **End of a purge:** when a chunk finds no row, set `purged_at` with one statement that has
@@ -232,6 +240,8 @@ Error bodies of the gateway use the shape that the frozen copy routes use today:
   - If the gateway does not answer, the pass stops, the task writes one WARNING record, waits
     10 minutes and starts the pass again from the first Score. It repeats until one pass
     completes. Then the task ends. `[proposed]`
+  - After a database error in a pass, the task writes one ERROR record with the type of the
+    error, waits the same 10 minutes and starts a new pass. `[stated ans:Q29]`
   - At the end of a complete pass, the task writes one INFO record with the number of Scores
     and the count of each result.
   - If one or more results are not `claimed` or `already`, it writes one WARNING record with

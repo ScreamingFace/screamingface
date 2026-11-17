@@ -1,6 +1,6 @@
 # Test plan — frozen copy retention
 
-**Base:** `origin/main` at `e9db97cfb`. Paths are relative to the repo root.
+**Base:** `origin/main` at `f683cd2e6` (before stack A). Paths are relative to the repo root.
 The test cases are in the TDD tables of the three PRDs. This file gives the rules that apply to
 all of them, the risk register, and the checks for the release to production.
 
@@ -14,7 +14,8 @@ all of them, the risk register, and the checks for the release to production.
 5. **Characterization tests** (`CH-n`, marked CHAR) pin the behavior of today. They pass before
    the change, and they must pass after it.
 6. **No test deletes or weakens an existing test** without the approval record that the repo
-   needs for a test change (`.claude/test-change-approvals`).
+   needs for a test change (`.claude/test-change-approvals`). C1 changes two assertions of stack
+   A tests with that record `[stated ans:Q27]` (`prd/copy-sweep.md` §7).
 7. **No test calls a network service.** The scoreboard tests use a fake claim client or an
    `httpx` mock transport. No test calls a model provider.
 8. **A race test uses a fixed order** (two connections; A holds the lock; the test starts B;
@@ -54,7 +55,7 @@ Test ids: `S-n` = `prd/copy-sweep.md`, `K-n` = `prd/score-claim.md`,
 | X12 | The dry-run document or a log record leaks account names | Low | Medium | S-25, K-23, K-31 |
 | X13 | The sweep stops with no signal (for example after each start of the pod) | Medium: storage grows again | Low | S-23, S-24; the run log record; §5.1 |
 | X14 | A Score that was stored before the new scoreboard is live names a copy that is open, abandoned or not known to the gateway | Low: that Score cannot be reproduced, as today | Low (none of 376 on 2026-11-16) | K-20, K-31; §5.2. The list is information for the owner; the Score stays `[stated ans:Q20]` |
-| X15 | The scoreboard is not live with a gateway URL in the 90 days after the release of C1, so no copy of a Score that exists is claimed, and those copies expire | High: no repair | Low | The order of §7.1 of `00-overview.md` (stack B before C1); K-28; §5.2 (3, 4) before C1. No code enforces the order `[stated ans:Q22]` |
+| X15 | The scoreboard is not live with a gateway URL in the 90 days after the release of C1, so no copy of a Score that exists is claimed, and those copies expire | High: no repair | Low | The order of §7.1 of `00-overview.md` (stack B before C1); the merge rule of `00-overview.md` §2 (C1 is not merged until steps 3 and 4 of §7.1 are done in production, because a merge to `main` goes out with the next gateway release); K-28; §5.2 (3, 4) before C1. No code enforces the order `[stated ans:Q22]` |
 
 ## 4. Gates
 
@@ -62,6 +63,12 @@ Run the gates of each stack that a pull request touches, as `.claude/sdlc.local.
 For `apps/aigateway`: `uv run ruff check`, `uv run ruff format --check`, `uv run pyright`,
 `uv run python scripts/check_no_enterprise.py`, `uv run pytest --cov=aigateway --cov-fail-under=80 -q`.
 For `apps/scoreboard` and `apps/screamingface-engine`: the gates in the same file.
+
+The chart checks of the scoreboard are not in those gates. The scoreboard tests have no Helm
+test and no YAML library, and this spec adds none. The checks go into
+`.github/scripts/verify_chart_wiring.py`, which the workflow `charts.yml` runs. Before a push
+of B2, run it by hand from the repo root: `python3 .github/scripts/verify_chart_wiring.py` (it
+needs `helm` and PyYAML).
 
 The Postgres lane is not in that file. It runs in CI only
 `[existing .github/workflows/aigateway-tests.yml:91]`. For stack A, for B1 and for C1, run it locally
@@ -144,8 +151,8 @@ After the release:
 6. A submit of a test run with `capture=True` to a test board gives a Score, and its copy has
    `claimed_at` set.
 
-Do the checks 3 and 4 before the release of C1. This is the order rule of `00-overview.md`
-§7.1. No code enforces it.
+Do the checks 3 and 4 before the merge of C1, and thus before its release. These are the order
+rule and the merge rule of `00-overview.md` §2 and §7.1. No code enforces them.
 
 ### 5.3 Stack C (expiry)
 
@@ -157,8 +164,8 @@ Do the checks 3 and 4 before the release of C1. This is the order rule of `00-ov
    ```
    Expected: one value that is the time of the release, and `NULL` for the copies sealed after
    it.
-2. The public docs with the new rule are published, and they name the day of that value
-   (`prd/expired-copy-replay.md` R9).
+2. The public docs with the new rule are published: C3 is merged after C1 is merged. The docs
+   name no date `[stated ans:Q32]` (`prd/expired-copy-replay.md` R9).
 3. For information: `python -m aigateway.frozen_copy_sweep --cutoff <that time + 90 days>`
    shows the copies that expire first. No person must approve this document. The numbers must
    be near the forecast of `00-overview.md` §9.3. If a copy of a Score is in the candidates,

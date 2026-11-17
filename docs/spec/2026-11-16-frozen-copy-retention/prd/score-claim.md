@@ -1,6 +1,7 @@
 # PRD: a Score claims its frozen copy
 
-**Source:** ans:Q2, ans:Q9, ans:Q10, ans:Q11, ans:Q14, ans:Q17, ans:Q20, ans:Q25 ·
+**Source:** ans:Q2, ans:Q9, ans:Q10, ans:Q11, ans:Q14, ans:Q17, ans:Q20, ans:Q25, ans:Q28,
+ans:Q29 ·
 **Priority:** P0 (must be live in production before the expiry rule is released)
 **Lifecycle:** existing (characterize + delta) in `apps/scoreboard`; planned in `apps/aigateway`
 **Owner:** unassigned
@@ -147,6 +148,9 @@ does the same pass by hand.
   - Then the scoreboard answers 503 with `detail.code = frozen_copy_check_unavailable` and a
     `Retry-After` header
   - And no Score is stored. The SDK makes 3 attempts in total with the same key.
+  - A 200 counts as a claim only when its body is a JSON object with `status: "sealed"` and
+    with `already` as true or false; if the body has an `id`, it must be the copy id of the
+    submit. Each other 200 is such an answer: the submit fails closed. `[proposed]`
   - A 404 with no `detail.code`, or with a different code, is such an answer. It comes from a
     wrong gateway URL, or from a gateway that does not have the claim route. Only a 404 with
     `detail.code = frozen_copy_not_found` means "the gateway does not know this copy" (C6).
@@ -239,6 +243,10 @@ does the same pass by hand.
   - Then the pass stops, and the task writes one WARNING record
   - And the task waits 10 minutes and starts the pass again from the first Score
   - And it repeats this until one pass completes. Then the task ends.
+  - Given a database error stops a pass
+  - Then the task writes one ERROR record with the type of the error, waits the same 10
+    minutes and starts a new pass. The task does not end before one pass completes.
+    `[stated ans:Q29]`
 - **C21. The pass reports its result.** `[stated ans:Q20]` M×M Must
   - Given a pass completes
   - Then the task writes one INFO record with the number of Scores and the count of each
@@ -267,12 +275,12 @@ does the same pass by hand.
 
 | Gateway answer to the claim | The scoreboard does this |
 |---|---|
-| 200 (`already` true or false) | call the store; the Score is stored |
+| 200 with `status: "sealed"` and `already` true or false (C7) | call the store; the Score is stored |
 | 410 with `detail.state = expired` | answer 422 `frozen_copy_expired`; store nothing |
 | 409 with `detail.code = frozen_copy_not_sealed` | answer 422 `frozen_copy_unavailable`; store nothing |
 | 410 with `detail.state = abandoned` | answer 422 `frozen_copy_unavailable`; store nothing |
 | 404 with `detail.code = frozen_copy_not_found` | answer 422 `frozen_copy_unavailable`; store nothing |
-| each other answer (a different 404, 401, 403, 5xx), a timeout, a connection error | answer 503 `frozen_copy_check_unavailable`; store nothing |
+| each other answer (a different 200, a different 404, 401, 403, 5xx), a timeout, a connection error | answer 503 `frozen_copy_check_unavailable`; store nothing |
 
 The value of `capture_status` in the submit does not change this table. `[stated ans:Q10]`
 
@@ -293,6 +301,9 @@ The value of `capture_status` in the submit does not change this table. `[stated
 - The scoreboard settings go into `Settings` with the `SCOREBOARD_` prefix
   `[existing apps/scoreboard/src/scoreboard/config.py:37-39]`, the chart `config:` block
   `[existing apps/scoreboard/charts/scoreboard/values.yaml:30-48]` and its ConfigMap template.
+  The chart checks (the three keys are in the ConfigMap; the default URL is empty) go into
+  `.github/scripts/verify_chart_wiring.py`. The scoreboard tests have no Helm test and no YAML
+  library, and this spec adds none. `[proposed]`
 - The scoreboard refuses to start when the URL is set and the actor is empty. `[proposed]`
 
 ### 4.2 Security
@@ -375,7 +386,7 @@ Test files: `apps/aigateway/tests/unit/test_frozen_copy_claim.py`,
 | K-5 | gateway, `cloudflare_headers` mode: an email outside the claim list answers 403; an empty list 503; no header 401; an untrusted peer 403 (C13) | unit | `[stated ans:Q14]` | H×L | new dependency modeled on `require_admin` |
 | K-6 | gateway: `jwt` mode answers 503; `disabled` mode accepts the call with an empty list (C13) | unit | `[proposed]` | M×M | mode branches |
 | K-7 | gateway: an email in `AIGATEWAY_ADMIN_EMAILS` only cannot claim, and an email in the claim list only cannot call an admin route | unit | `[stated ans:Q14]` | H×L | two separate lists |
-| K-8 | scoreboard client: 200, 404 `frozen_copy_not_found`, 409, 410 (both states) each map to one typed result; a 404 with no code, a 401, a 403, a 5xx, a timeout and a connection error all map to `unavailable` (C7) | unit | `[proposed]` | H×M | small class over `httpx.AsyncClient` with a mock transport; match on `detail.code` and `detail.state` |
+| K-8 | scoreboard client: a 200 with `status: "sealed"` and `already` as a boolean, 404 `frozen_copy_not_found`, 409, 410 (both states) each map to one typed result; a 200 with an empty object, with a different `status`, with an `already` that is not a boolean or with a different `id`, a 404 with no code or with `detail: "Not Found"`, a 401, a 403, a 5xx, a timeout and a connection error all map to `unavailable` (C7) | unit | `[proposed]` | H×M | small class over `httpx.AsyncClient` with a mock transport; one lookup table on the status with `detail.code`, `detail.state` or the 200 body; each answer that is not in the table is `unavailable` |
 | K-9 | submit: an `expired` result answers 422 `frozen_copy_expired`, and the store is not called (C5) | integration | `[stated ans:Q2]` | H×M | claim before `store.submit` |
 | K-10 | submit: `not_sealed`, `abandoned` and `not_found` each answer 422 `frozen_copy_unavailable`, and the store is not called (C6) | integration | `[stated ans:Q10]` | H×M | one refusal branch |
 | K-11 | submit: an `unavailable` result answers 503 `frozen_copy_check_unavailable` with `Retry-After`, and the store is not called (C7) | integration | `[stated ans:Q9]` | H×M | map in one helper |
@@ -397,7 +408,7 @@ Test files: `apps/aigateway/tests/unit/test_frozen_copy_claim.py`,
 | K-27 | command: `--dry-run` prints each Score that names a copy and makes no gateway call (K9) | integration | `[proposed]` | L×M | branch before the client call |
 | K-28 | start: with a gateway URL, the app start sends one claim for the copy of each stored Score, public and private boards (C18) | integration | `[stated ans:Q25]` | H×M | the lifespan starts one task that calls the pass function of K-18 |
 | K-29 | start: the app serves a request while the pass waits on a claim that does not return (C19) | integration | `[stated ans:Q25]` | M×M | `asyncio.create_task`; do not await it in the lifespan |
-| K-30 | start: an `unavailable` result stops the pass with one WARNING record; after the wait of 10 minutes the pass starts again from the first Score, and the task ends after one complete pass (C20) | unit | `[proposed]` | H×M | loop with injected `sleep` |
+| K-30 | start: an `unavailable` result stops the pass with one WARNING record; after the wait of 10 minutes the pass starts again from the first Score, and the task ends after one complete pass; a database error in a pass gives one ERROR record and the same wait (C20) | unit | `[proposed]` `[stated ans:Q29]` | H×M | loop with injected `sleep` |
 | K-31 | start: a complete pass writes one INFO record with the counts; results that are not `claimed` or `already` give one WARNING record with their Score ids and copy ids, and no user identity (C21) | unit | `[stated ans:Q20]` | M×M | build both records from the result list |
 | K-32 | start: with no gateway URL, the lifespan starts no task and no HTTP call is made (C22) | integration | `[proposed]` | M×M | guard on the setting |
 | K-33 | start: shutdown cancels the task while it waits for the next attempt, and the lifespan exits (C23) | unit | `[proposed]` | L×M | cancel and await the task in the lifespan exit |
@@ -422,7 +433,9 @@ Test files: `apps/aigateway/tests/unit/test_frozen_copy_claim.py`,
   complexity limit of the repo
   `[existing apps/scoreboard/src/scoreboard/routes/scores.py:285-287]`. Call the helper after
   the benchmark check and before `store.submit`
-  `[existing apps/scoreboard/src/scoreboard/routes/scores.py:385]`.
+  `[existing apps/scoreboard/src/scoreboard/routes/scores.py:385]`. In the OpenAPI document of
+  the route, only the description text of the 503 and of the 422 changes. The response model
+  of the 503 does not change, so no scoreboard test changes. `[stated ans:Q28]`
 - **Claim pass.** One function reads the Scores and sends the claims. It returns the result
   for each Score. It stops at the first `unavailable` result. Put it next to the claim client.
 - **Command.** `apps/scoreboard/src/scoreboard/claim_copies.py`, run with `python -m`. Exemplar
@@ -432,7 +445,8 @@ Test files: `apps/aigateway/tests/unit/test_frozen_copy_claim.py`,
   reference to it, and stops it at exit
   `[existing apps/scoreboard/src/scoreboard/main.py:101-107]`. Order at exit: cancel the task
   and await it, close the claim client, then `close_db()`. The task calls the pass
-  function in the retry loop of C20, with an injected `sleep` for the tests.
+  function in the retry loop of C20, with an injected `sleep` for the tests. The loop also
+  tries again after a database error `[stated ans:Q29]`.
 - **Do not** call the gateway inside `ScoreStore.submit` or inside a transaction.
 - **Do not** add a release call, a job on a schedule or a CronJob. The one background task
   that is permitted is the claim pass at start `[stated ans:Q25]`: it ends after one complete
