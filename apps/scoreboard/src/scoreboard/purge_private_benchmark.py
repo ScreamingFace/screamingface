@@ -22,7 +22,7 @@ from tortoise.transactions import in_transaction
 from .config import Settings
 from .db import DEFAULT_CONNECTION, close_db, init_db
 from .export_private_submissions import format_jsonl_bytes
-from .scores.models import Baseline, Benchmark, Score
+from .scores.models import Baseline, Benchmark, BenchmarkRevision, Score
 from .scores.schemas import ScoreSchema
 from .scores.store import ScoreStore
 
@@ -47,6 +47,9 @@ def _validated_digest(value: str) -> str:
 
 async def _delete_benchmark(connection: BaseDBAsyncClient, benchmark_id: str) -> None:
     """Delete and verify the one locked benchmark; split out for rollback-path testing."""
+    # OME-1708: the revision history goes first, explicitly; SQLite counts cascaded rows in the
+    # delete count, which the exactly-one check below would refuse. Same transaction as the caller.
+    await BenchmarkRevision.filter(benchmark_id=benchmark_id).using_db(connection).delete()
     deleted = await Benchmark.filter(id=benchmark_id).using_db(connection).delete()
     if deleted != 1:
         raise PurgeRefused(

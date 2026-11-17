@@ -35,6 +35,7 @@ from .frontier import FrontierMember, HistoryRow
 from .models import Benchmark, IdempotencyKey, Score, ScoreMetadataEvent, ScoreReproduction
 from .pareto import ParetoEntry
 from .reproduction_cost import reproduction_cost
+from .revisions import record_revision
 from .schemas import (
     SATURATION_VERDICTS,
     BenchmarkSchema,
@@ -1318,6 +1319,12 @@ class ScoreStore:
             # so a mis-seeded private board can be flipped back.
             defaults["visibility"] = visibility
         benchmark, _ = await Benchmark.update_or_create(defaults=defaults, id=benchmark_id)
+        if revision is not None:
+            await record_revision(
+                benchmark_id,
+                revision,
+                None if isinstance(case_count, _Unset) else case_count,
+            )
         return benchmark_to_schema(benchmark)
 
     async def has_registered_revision(self) -> bool:
