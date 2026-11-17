@@ -54,6 +54,15 @@
       <h1 id="benchmark-name">Leaderboard</h1>
     </header>
 
+    <!-- Which revision of the benchmark the stats, chart and table below describe. A
+         dropdown when the benchmark has had two or more revisions, plain text with one. -->
+    <div id="revision-selector" class="revision-selector" data-section="revision" hidden>
+      <label class="revision-selector__label" for="revision-select">Revision</label>
+      <select id="revision-select" class="revision-selector__select" hidden></select>
+      <span id="revision-static" class="revision-selector__static" hidden></span>
+    </div>
+    <p id="revision-notice" class="revision-notice" role="status" hidden></p>
+
     <p class="lead" id="benchmark-desc"></p>
 
     <div class="note" data-section="note">
@@ -146,6 +155,7 @@
   <script src="pareto-chart.js" defer></script>
   <script src="main.js" defer></script>
   <script src="external-results.js" defer></script>
+  <script src="revision-selector.js" defer></script>
   <script src="benchmark.js" defer></script>
   <script src="subscribe.js" defer></script>
   <script src="theme.js" defer></script>

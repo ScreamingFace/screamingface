@@ -12,9 +12,32 @@
 (function (P) {
   "use strict";
 
-  function historyRow(s) {
+  // Every run stays listed, with the revision it was graded under. The id
+  // links to that revision's leaderboard; rows under an earlier revision are dimmed.
+  function revisionCell(s, benchmarkId, currentRevision) {
+    var td = P.el("td", "mono", "");
+    var revision = s.benchmark_revision;
+    if (!revision) {
+      td.textContent = "—";
+      return td;
+    }
+    var isCurrent = revision === currentRevision;
+    // The board's own address in whichever form this page is served at, plus the revision as a
+    // query parameter; Latest gets none, so the link keeps meaning "whatever is current".
+    var target = new URL(P.boardHref(benchmarkId), window.location.href);
+    if (!isCurrent) target.searchParams.set("revision", revision);
+    td.appendChild(P.link(null, target.href, String(revision).slice(0, 8)));
+    if (isCurrent) td.appendChild(P.el("span", "revision-tag", "latest"));
+    return td;
+  }
+
+  function historyRow(s, benchmarkId, currentRevision) {
     var tr = document.createElement("tr");
+    if (currentRevision && s.benchmark_revision && s.benchmark_revision !== currentRevision) {
+      tr.className = "revision-older";
+    }
     tr.appendChild(P.el("td", null, P.formatDate(s.submitted_at)));
+    tr.appendChild(revisionCell(s, benchmarkId, currentRevision));
     tr.appendChild(P.el("td", "cell-wrap", P.formatSubmitter(s.submitted_by)));
     tr.appendChild(P.el("td", "cell-wrap", P.formatAuthors(s.authors)));
     tr.appendChild(P.el("td", "num", P.formatScore(s.score)));
@@ -114,8 +137,27 @@
 
     resolveBenchmarkName(benchmarkId).then(setBenchmarkName);
 
+    // Which revision is current comes from /revisions (the history response itself is unchanged).
+    // Best-effort: without it the column still shows each run's revision, just no "latest" tag.
+    var currentRevision = P.fetchJson(
+      "/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "/revisions"
+    ).then(
+      function (data) {
+        var rows = (data && data.revisions) || [];
+        var current = rows.filter(function (row) { return row.current; })[0];
+        return current ? current.revision : null;
+      },
+      function () { return null; }
+    );
+
     P.fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "/" + encodeURIComponent(specId) + "/history?limit=20").then(
       function (data) {
+        return currentRevision.then(function (current) { return [data, current]; });
+      }
+    ).then(
+      function (pair) {
+        var data = pair[0];
+        var current = pair[1];
         var submissions = (data && data.submissions) || [];
         if (submissions.length === 0) {
           P.showEmpty(statusNode, "No runs of this submission yet.");
@@ -129,7 +171,7 @@
 
         var body = document.getElementById("history-body");
         P.clear(body);
-        submissions.forEach(function (s) { body.appendChild(historyRow(s)); });
+        submissions.forEach(function (s) { body.appendChild(historyRow(s, benchmarkId, current)); });
 
         P.setStatus(statusNode, null);
         contentNode.hidden = false;

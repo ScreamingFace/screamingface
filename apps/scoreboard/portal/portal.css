@@ -767,3 +767,54 @@ td.col-run { white-space: nowrap; }
   transform: translateY(calc(-100% - var(--space-4)));
 }
 .skip-link:focus { transform: none; }
+
+/* The revision selector under the benchmark title (mockup option A). It scopes the
+   stats, chart and table below it, so it sits above them, not beside the table. */
+.revision-selector {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin: calc(-1 * var(--space-6)) 0 var(--space-6);
+  font-family: var(--f-mono);
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+.revision-selector[hidden] { display: none; }
+.revision-selector__label { text-transform: uppercase; letter-spacing: .06em; font-size: var(--text-micro); }
+.revision-selector__select {
+  /* Long labels shrink inside the row instead of widening the page on a phone. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: var(--border-hairline) solid var(--line-2);
+  border-radius: var(--radius-none);
+  padding: var(--space-2) var(--space-3);
+}
+.revision-selector__select:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
+.revision-selector__static { color: var(--ink); }
+.revision-notice { font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2); margin: 0 0 var(--space-5); }
+.revision-notice[hidden] { display: none; }
+.revision-pointer {
+  font: inherit;
+  color: var(--accent-text);
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.revision-pointer:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
+/* The history page: the current revision is tagged; runs under earlier revisions are dimmed. */
+.revision-tag {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1);
+  border: var(--border-hairline) solid var(--accent-solid);
+  font-size: var(--text-micro);
+  color: var(--ink);
+}
+tr.revision-older td { color: var(--ink-2); }

@@ -419,87 +419,207 @@
     setBenchmarkCrumb(crumbNode, id);
     initTabStrip(id);
 
-    P.showLoading(statusNode, "Loading leaderboard…");
-    wrap.hidden = true;
-    legend.hidden = true;
+    var R = window.SFRevisionSelector;
+    var revisions = [];
 
-    P.fetchJson("/v1/leaderboard/" + encodeURIComponent(id) + "?top=50").then(
-      function (data) {
-        var b = data && data.benchmark;
-        if (b) {
-          var name = b.display_name || b.id;
-          nameNode.textContent = name;
-          setBenchmarkCrumb(crumbNode, name);
-          descNode.textContent = b.description || "";
-          // At /benchmarks/<id>/ the server already wrote this board's title, with the words a
-          // search result shows. Only the shared benchmark.html still needs one from here.
-          if (!P.atBoardAddress()) document.title = name + " — screamingface";
-        }
-        state.entries = (data && data.entries) || [];
-        // Keep the fetched community points even when imports displace table rows.
-        var chartEntries = state.entries;
-        state.rows = window.SFExternalResults
-          ? window.SFExternalResults.selectRows(state.entries, data && data.baselines, 50)
-          : state.entries;
-        if (window.SFExternalResults) {
-          window.SFExternalResults.renderComparisonNotes(
-            document.getElementById("external-comparison"), state.rows
-          );
-        }
-        // Cost-based comparisons still require recorded runs, not imported reference numbers.
-        state.entries = state.rows.filter(function (row) { return !row.external; });
-        if (state.rows.length === 0) {
-          // The table shell renders on the zero-entry path too, so a benchmark with no
-          // submissions still shows the column structure. renderSummary/renderClimb
-          // hide themselves when passed an empty list, so the reader gets the
-          // column headers plus the empty-state line and nothing misleading.
+    // `?revision=` scopes the board and the frontier; absent means Latest, exactly as
+    // before. Every switch re-runs this load, so it resets what a previous revision left behind.
+    function load(revision) {
+      var scope = revision ? "&revision=" + encodeURIComponent(revision) : "";
+      P.showLoading(statusNode, "Loading leaderboard…");
+      wrap.hidden = true;
+      legend.hidden = true;
+      // The frontier card only ever un-hides itself, so a switch must hide the previous value.
+      var frontierCard = document.getElementById("summary-frontier-card");
+      if (frontierCard) frontierCard.hidden = true;
+
+      P.fetchJson("/v1/leaderboard/" + encodeURIComponent(id) + "?top=50" + scope).then(
+        function (data) {
+          var b = data && data.benchmark;
+          if (b) {
+            var name = b.display_name || b.id;
+            nameNode.textContent = name;
+            setBenchmarkCrumb(crumbNode, name);
+            descNode.textContent = b.description || "";
+            // At /benchmarks/<id>/ the server already wrote this board's title, with the words a
+            // search result shows. Only the shared benchmark.html still needs one from here.
+            if (!P.atBoardAddress()) document.title = name + " — screamingface";
+          }
+          state.entries = (data && data.entries) || [];
+          // Keep the fetched community points even when imports displace table rows.
+          var chartEntries = state.entries;
+          state.rows = window.SFExternalResults
+            ? window.SFExternalResults.selectRows(state.entries, data && data.baselines, 50)
+            : state.entries;
+          if (window.SFExternalResults) {
+            window.SFExternalResults.renderComparisonNotes(
+              document.getElementById("external-comparison"), state.rows
+            );
+          }
+          // Cost-based comparisons still require recorded runs, not imported reference numbers.
+          state.entries = state.rows.filter(function (row) { return !row.external; });
+          if (state.rows.length === 0) {
+            // The table shell renders on the zero-entry path too, so a benchmark with no
+            // submissions still shows the column structure. renderSummary/renderClimb
+            // hide themselves when passed an empty list, so the reader gets the
+            // column headers plus the empty-state line and nothing misleading.
+            renderSummary(state.rows);
+            renderClimb(state.rows);
+            renderHead(document.getElementById("leaderboard-head"));
+            P.clear(document.getElementById("leaderboard-body"));
+            showEmptyBoard(statusNode);
+            wrap.hidden = false;
+            // No rows at all: the key would point at nothing.
+            legend.hidden = true;
+            renderParetoChart(chartEntries);
+            return;
+          }
           renderSummary(state.rows);
           renderClimb(state.rows);
           renderHead(document.getElementById("leaderboard-head"));
-          P.clear(document.getElementById("leaderboard-body"));
-          P.showEmpty(statusNode, "No submissions yet. Be the first.");
+          renderBody(document.getElementById("leaderboard-body"));
+          P.setStatus(statusNode, null);
           wrap.hidden = false;
-          // No rows at all: the key would point at nothing.
-          legend.hidden = true;
+          // The frontier key appears only when a row actually carries the mark. If frontier
+          // publication is unavailable, or every cost is null, nothing is
+          // marked — and a key for a symbol that appears nowhere reads as 'no submission
+          // here is good value', which is the opposite of what the gate is saying.
+          legendPareto.hidden = !state.entries.some(L.isParetoMarked);
+          legend.hidden = state.entries.length === 0;
+          var leaderKey = document.getElementById("legend-highest");
+          if (leaderKey) leaderKey.hidden = !state.entries.some(function (row) {
+            return row.score === bestScore(state.rows);
+          });
+          // Last, after the table is visible: the chart can only ever add to the page.
           renderParetoChart(chartEntries);
-          return;
+        },
+        function (err) {
+          if (err && err.status === 404 && revision) {
+            // The revision list was unavailable and the URL named an id the board does not have:
+            // fall back to Latest and say so, rather than calling the benchmark missing.
+            showRevisionNotice(R.notFoundNotice(revision));
+            replaceSearch(null);
+            load(null);
+            return;
+          }
+          if (err && err.status === 404) {
+            setBenchmarkCrumb(crumbNode, "");
+            showNotFound(statusNode, "Benchmark not found.");
+            return;
+          }
+          P.showError(statusNode, P.describeError(err, {
+            generic: "Could not load leaderboard — try again later.",
+          }));
         }
-        renderSummary(state.rows);
-        renderClimb(state.rows);
-        renderHead(document.getElementById("leaderboard-head"));
-        renderBody(document.getElementById("leaderboard-body"));
-        P.setStatus(statusNode, null);
-        wrap.hidden = false;
-        // The frontier key appears only when a row actually carries the mark. If frontier
-        // publication is unavailable, or every cost is null, nothing is
-        // marked — and a key for a symbol that appears nowhere reads as 'no submission
-        // here is good value', which is the opposite of what the gate is saying.
-        legendPareto.hidden = !state.entries.some(L.isParetoMarked);
-        legend.hidden = state.entries.length === 0;
-        var leaderKey = document.getElementById("legend-highest");
-        if (leaderKey) leaderKey.hidden = !state.entries.some(function (row) {
-          return row.score === bestScore(state.rows);
-        });
-        // Last, after the table is visible: the chart can only ever add to the page.
-        renderParetoChart(chartEntries);
-      },
-      function (err) {
-        if (err && err.status === 404) {
-          setBenchmarkCrumb(crumbNode, "");
-          showNotFound(statusNode, "Benchmark not found.");
-          return;
-        }
-        P.showError(statusNode, P.describeError(err, {
-          generic: "Could not load leaderboard — try again later.",
-        }));
-      }
-    );
+      );
 
-    // Independent of the fetch above: a failure here just leaves the card
-    // hidden (its default state in the markup), never surfaces an error.
-    P.fetchJson("/v1/leaderboard/" + encodeURIComponent(id) + "/frontier").then(
-      renderFrontier,
-      function () {}
+      // Independent of the fetch above: a failure here just leaves the card
+      // hidden (its default state in the markup), never surfaces an error.
+      P.fetchJson(
+        "/v1/leaderboard/" + encodeURIComponent(id) + "/frontier" + (scope ? "?" + scope.slice(1) : "")
+      ).then(
+        renderFrontier,
+        function () {}
+      );
+    }
+
+    // An empty Latest after a bump points to the earlier revision's results
+    // instead of switching to it silently; any other empty board keeps the original line.
+    function showEmptyBoard(node) {
+      var pointer = R ? R.emptyLatestPointer(revisions, currentSelection()) : null;
+      if (!pointer) {
+        P.showEmpty(node, "No submissions yet. Be the first.");
+        return;
+      }
+      P.showEmpty(node, pointer.text + " ");
+      var button = P.el("button", "revision-pointer", "Show them");
+      button.type = "button";
+      button.addEventListener("click", function () { choose(pointer.revision); });
+      node.appendChild(button);
+    }
+
+    function currentSelection() {
+      var requested = R.requestedRevision(window.location.search);
+      return R.resolveSelection(revisions, requested).selected;
+    }
+
+    function replaceSearch(row) {
+      if (!window.history || !window.history.replaceState) return;
+      var search = row ? R.searchWith(window.location.search, row) : (function () {
+        var params = new URLSearchParams(window.location.search);
+        params.delete("revision");
+        var text = params.toString();
+        return text ? "?" + text : "";
+      })();
+      window.history.replaceState(null, "", window.location.pathname + search);
+    }
+
+    function showRevisionNotice(text) {
+      var notice = document.getElementById("revision-notice");
+      if (!notice) return;
+      notice.textContent = text;
+      notice.hidden = !text;
+    }
+
+    function choose(row) {
+      var select = document.getElementById("revision-select");
+      if (select) select.value = row.revision;
+      replaceSearch(row);
+      showRevisionNotice("");
+      load(row.current ? null : row.revision);
+    }
+
+    // The selector sits under the title and scopes everything below it.
+    function renderRevisionSelector(selected) {
+      var box = document.getElementById("revision-selector");
+      var select = document.getElementById("revision-select");
+      var plain = document.getElementById("revision-static");
+      if (!box || !select || !plain || !revisions.length) return;
+      if (revisions.length === 1) {
+        plain.textContent = R.staticLabel(revisions[0]);
+        plain.hidden = false;
+        select.hidden = true;
+      } else {
+        P.clear(select);
+        revisions.forEach(function (row, index) {
+          var option = P.el("option", null, R.optionLabel(row, index));
+          option.value = row.revision;
+          select.appendChild(option);
+        });
+        select.value = selected.revision;
+        select.onchange = function () {
+          for (var i = 0; i < revisions.length; i++) {
+            if (revisions[i].revision === select.value) choose(revisions[i]);
+          }
+        };
+        select.hidden = false;
+        plain.hidden = true;
+      }
+      box.hidden = false;
+    }
+
+    if (!R) {
+      load(null);
+      return;
+    }
+    // The revision list decides which revision to load, so it is read first. If it cannot be read,
+    // the board still loads, scoped by the URL alone.
+    P.fetchJson("/v1/leaderboard/" + encodeURIComponent(id) + "/revisions").then(
+      function (data) {
+        revisions = (data && data.revisions) || [];
+        var requested = R.requestedRevision(window.location.search);
+        var resolution = R.resolveSelection(revisions, requested);
+        if (resolution.notFound) {
+          showRevisionNotice(R.notFoundNotice(requested));
+          replaceSearch(null);
+        }
+        if (resolution.selected) renderRevisionSelector(resolution.selected);
+        var selected = resolution.selected;
+        load(selected && !selected.current ? selected.revision : null);
+      },
+      function () {
+        load(R.requestedRevision(window.location.search));
+      }
     );
   }
 

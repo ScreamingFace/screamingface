@@ -168,3 +168,41 @@ Review-fix outcome:
   writes succeeded. MAX remains explicitly inferred; historical frontier claims are off.
 - Schema check: Tortoise `makemigrations` reports "No changes detected".
 - PR 2's portal work remains on its separate branch; this commit changes no portal files.
+
+### PR 2 — portal selector (2026-11-17, stacked on PR 1)
+
+- **Actual files:**
+  - `portal/revision-selector.js`: pure labels, URL state, fallback and empty-Latest pointer.
+  - `portal/benchmark.html` and `benchmark.js`: the selector under the title, `load(revision)`
+    re-run on each switch, the not-found notice and the empty-Latest pointer.
+  - `portal/spec.html` and `spec.js`: the Revision column, the "latest" tag and dimmed older
+    rows.
+  - `portal/portal.css`.
+  - `tests/portal/revision-selector.test.js` (8), wired into the sdlc card gate and
+    `scoreboard-tests.yml`.
+- **Gates:** `run_gates.py scoreboard` all green: the full pytest suite plus every portal
+  Node suite, the new one included. No prior test was edited.
+- **Visual check:** a local scoreboard on this branch with seeded sample boards, at 1280px:
+  - MMLU-Pro on Latest and on Previous;
+  - LAB-Bench's empty Latest with the pointer;
+  - IFEval's single revision as plain text;
+  - an unknown `?revision=` with its fallback notice;
+  - the history page's Revision column.
+
+  At 390px, headless Chrome clips the existing page too. The dropdown now shrinks inside
+  its row anyway. The owner looks before the PR.
+- **Deviations:**
+  - Served portal files may not carry ticket ids, agent markers (`FEATURE:`,
+    `INVARIANT`) or repository paths (`test_portal_static.py`). The portal comments use
+    plain prose instead.
+  - The selector sits under the title and the "Follow this board" button, above the
+    description. That is option A's place, with the page's existing follow button
+    between them.
+- **Rebase onto main (2026-11-18):** PR 1 merged with the review fixes above, and main gained
+  board addresses (`/benchmarks/<id>/`, OME-1953). Adjustments:
+  - `benchmark.js` keeps main's rule that only `benchmark.html` sets the page title.
+  - The history page's revision links use the board's own address (`P.boardHref`) instead
+    of `benchmark.html?id=`. The old form still works, because its redirect keeps `revision`.
+  - Latest is now always listed first. An earlier revision can therefore arrive with no end
+    date, and its label reads "from 9 Oct 2026" instead of a bare day. One new test.
+  - The gate card and CI keep main's new `board-url.test.js` alongside the new suite.
