@@ -7376,10 +7376,16 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             # may serve glm-5.3-flash at another precision.
             model="openrouter/z-ai/glm-5.3-flash",
             model_role="grader",
-            # default.yaml's judge stanza, which the scorer asks its role with; the guard
-            # admits each because the wire carries the same value. web_search=false is the
-            # house judges' retrieval-free grading (HealthBench's precedent).
-            params=(("temperature", "0"), ("max_tokens", "32768"), ("web_search", "false")),
+            # default.yaml's judge stanza, which the scorer asks its role with; the role is
+            # bound with these pins, so the stanza fills only what they leave unset and the
+            # guard sees the pinned values. web_search=false is the house judges'
+            # retrieval-free grading (HealthBench's precedent).
+            # NAMED DEVIATION (OME-1939): default.yaml caps the judge at max_tokens 32768; on
+            # about 1.5% of Cases glm-5.3-flash spent all of it reasoning and wrote no GRADE
+            # line, so the Case counted 0 whatever the Candidate answered. This row pins
+            # 131072, glm-5.3-flash's output limit on OpenRouter (checked 2026-11-17). A
+            # Case whose judge still writes no grade after 3 attempts counts 0, as above.
+            params=(("temperature", "0"), ("max_tokens", "131072"), ("web_search", "false")),
             # The scorer re-asks its judge in the same words, up to max_grader_attempts=3, when
             # a reply has no GRADE line; each re-ask after a live reply skips the gateway cache,
             # so the three attempts are three draws, as under inspect's own eval().
@@ -7889,8 +7895,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             # may serve glm-5.3-flash at another precision.
             model="openrouter/z-ai/glm-5.3-flash",
             model_role="grader",
-            # default.yaml's judge stanza, as on hle.
-            params=(("temperature", "0"), ("max_tokens", "32768"), ("web_search", "false")),
+            # default.yaml's judge stanza, as on hle, with hle's raised cap.
+            # NAMED DEVIATION (OME-1939): max_tokens 131072, not default.yaml's 32768; see the
+            # hle row for why.
+            params=(("temperature", "0"), ("max_tokens", "131072"), ("web_search", "false")),
             # The scorer re-asks its judge in the same words, up to max_grader_attempts=3, when
             # a reply has no GRADE line; each re-ask after a live reply skips the gateway cache,
             # so the three attempts are three draws, as under inspect's own eval().
