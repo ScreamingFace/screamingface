@@ -41,14 +41,28 @@ def current_resident_bytes(statm: Path = STATM, page_size: int | None = None) ->
     return resident_pages * (page_size if page_size is not None else os.sysconf("SC_PAGE_SIZE"))
 
 
-def peak_resident_bytes(*, maxrss: int | None = None, platform: str = sys.platform) -> int:
+def peak_resident_bytes(
+    *, maxrss: int | None = None, platform: str = sys.platform, current: int | None = None
+) -> int:
     """This process's peak resident bytes since it started (``getrusage`` ``ru_maxrss``).
 
     WHY the platform switch: Linux reports ``ru_maxrss`` in KiB, macOS in bytes.
+
+    INVARIANT (OME-1925): the result is never below the current reading. A live read (no
+    ``maxrss`` given) folds in :func:`current_resident_bytes` itself; an explicit ``current``
+    is folded in too.
+    WHY: on Linux the two come from different counters. ``statm`` sums the per-CPU RSS counters
+    exactly, while ``ru_maxrss`` is ``max(hiwater_rss, get_mm_rss())`` and ``get_mm_rss`` is an
+    approximate per-CPU read; the kernel only updates ``hiwater_rss`` "when about to *lower*"
+    RSS and tells collectors to read RSS too (``fs/proc/task_mmu.c`` ``task_mem``). CI saw
+    current exceed peak by 24 pages with no time between the reads, so reordering cannot fix it.
     """
     if maxrss is None:
         maxrss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return maxrss if platform == "darwin" else maxrss * 1024
+        if current is None:
+            current = current_resident_bytes()
+    peak = maxrss if platform == "darwin" else maxrss * 1024
+    return peak if current is None else max(peak, current)
 
 
 def _mib(value: int) -> str:

@@ -757,16 +757,38 @@ runnerPool:
       tolerance: 0
     # WHY down slowly, 1 pod per 60 s after a 300 s window: the ReplicaSet may delete a BUSY pod,
     # which then drains up to `drainGraceS` while its runs still count in the demand. A slow step
-    # limits that cost (spec D5; `pod-deletion-cost` is a follow-up).
+    # limits that cost (spec D5). With `runnerPool.deletionCost.enabled` (OME-1931), the ReplicaSet
+    # deletes idle pods first.
     scaleDown:
       # false renders `selectPolicy: Disabled`: the pool grows on demand and never shrinks by
       # itself. WHY: a scale-down can pick a BUSY pod, which holds its node and quota while it
-      # drains (up to `drainGraceS`). Use false until idle pods are removed first (OME-1871).
+      # drains (up to `drainGraceS`). Use false while `runnerPool.deletionCost` is off or its
+      # platform prerequisites are missing (OME-1931).
       # Scale-up is unchanged. At the maximum, the pool costs the same as `minReplicas = maxReplicas`.
       enabled: true
       stabilizationS: 300
       podsPerStep: 1
       stepS: 60
+
+  # FEATURE (OME-1931): the worker writes its busy slot count as its OWN pod's
+  # `controller.kubernetes.io/pod-deletion-cost` annotation, so a scale-down (KEDA, a rollout, a
+  # manual one) deletes an idle pod first. Off by default. WHY opt-in: the worker then needs a
+  # ServiceAccount token, and the platform must first bind a Role (`pods: [patch]`, guarded to
+  # this annotation on the own pod) and allow egress to the API server (README, "Idle pods first
+  # on scale-down"). It does not need `autoscaling.enabled`.
+  # INVARIANT: false renders the runner pod as before (the App's ServiceAccount, no token, no new
+  # env) and no runner ServiceAccount.
+  deletionCost:
+    enabled: false
+  # The runner pool's OWN ServiceAccount, used only when `deletionCost.enabled` is true. WHY its
+  # own: the platform binds the pod-patch Role to the runner alone, never to the App.
+  # `create: false` uses an account made outside the chart; then `name` is required (the render
+  # fails without it).
+  serviceAccount:
+    create: true
+    # "" = `<fullname>-runner` (`url4-cloud-runner` with `fullnameOverride: url4-cloud`).
+    name: ""
+    annotations: {}
 
 # Shared HMAC key for a mount result's short-lived artifact URL (OQ-3.2, contracts.md C6,
 # uniform executor PRD 05). A mount result over 1 MiB answers 303 to a URL the App SIGNS; the

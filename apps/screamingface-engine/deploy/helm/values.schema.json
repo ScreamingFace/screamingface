@@ -343,6 +343,36 @@
           "minimum": 1,
           "description": "The worker's Prometheus /metrics port (prometheus_client.start_http_server)."
         },
+        "deletionCost": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Opt-in (OME-1931): the worker writes its busy slot count as its own pod's controller.kubernetes.io/pod-deletion-cost annotation, so a scale-down deletes idle pods first. Needs a platform Role (pods: patch, guarded to this annotation on the own pod) and API-server egress for the runner pods.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "serviceAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The runner pool's own ServiceAccount, used only when runnerPool.deletionCost.enabled is true. create: false uses an account made outside the chart; then name is required.",
+          "properties": {
+            "create": {
+              "type": "boolean"
+            },
+            "name": {
+              "type": "string",
+              "description": "Empty = <fullname>-runner."
+            },
+            "annotations": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          }
+        },
         "autoscaling": {
           "type": "object",
           "description": "Opt-in horizontal autoscaling of the pool: a KEDA ScaledObject on GET /runner-demand (claimable queue demand). When enabled, runnerPool.replicas is ignored, and maxReplicas plus runnerPool.maxAckPending are required (the render fails without them).",

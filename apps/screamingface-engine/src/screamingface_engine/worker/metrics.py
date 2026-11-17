@@ -6,8 +6,8 @@ App's `/metrics`. The chart exposes the port on the runner pool Deployment.
 
 The metrics are the Observability section's list: slots busy and total, claim latency,
 run duration, redelivery count, child exit codes (137 = OOM), worker restarts, and the
-drain count. Cardinality is bounded: the only label is the child's exit code, which is
-an integer.
+drain count. Cardinality is bounded: the labels are the child's exit code (an
+integer), a terminal code, and a write outcome (ok, error).
 
 LAYERING: this module imports `prometheus_client` and, for the publish-conflicts family,
 `screamingface_engine.metrics` (the control plane's own module) — allowed one-way, per
@@ -57,6 +57,7 @@ class WorkerMetrics:
     started: Counter
     drains: Counter
     terminals: Counter
+    deletion_cost_writes: Counter
 
 
 def build_worker_metrics() -> WorkerMetrics:
@@ -168,6 +169,15 @@ def build_worker_metrics() -> WorkerMetrics:
             "screamingface_engine_worker_terminals_total",
             "Terminal frames the worker wrote for runs whose child published none, by code.",
             ["code"],
+            registry=registry,
+        ),
+        # OME-1931: the worker's own pod-deletion-cost writes (`worker/deletion_cost.py`). A rising
+        # `error` count means the writes fail (no Role, no API-server egress): the pool then acts
+        # as it does without the feature.
+        deletion_cost_writes=Counter(
+            "screamingface_engine_worker_deletion_cost_writes_total",
+            "Writes of this pod's pod-deletion-cost annotation, labeled by outcome (ok, error).",
+            ["outcome"],
             registry=registry,
         ),
     )

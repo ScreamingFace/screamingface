@@ -201,8 +201,31 @@ def _gateway_cache_opt_out() -> AbstractContextManager[RequestScope]:
     return request_scope(without_gateway_cache(current_scope()))
 
 
+def _pinned_generation_settings(params: Sequence[tuple[str, str]]) -> GenerateConfig:
+    """The row's pinned judge params that inspect's ``GenerateConfig`` has a field for.
+
+    WHY: a scorer that looks up its role with a stanza (``get_model(role=..., config=...)``)
+    gets the stanza's settings filled into every field the bound model left unset. Bound
+    bare, the stanza's values would reach ``_refuse_config_overrides`` and a pin that differs
+    from them would be refused on every call. Worked example (OME-1939): hle pins
+    ``max_tokens=131072`` and inspect_evals' default.yaml stanza says ``max_tokens=32768``;
+    bound bare, the judge asks for 32768 and the guard refuses it; bound with these settings,
+    the role keeps 131072 and the guard admits it. A pin with no ``GenerateConfig`` field
+    (``web_search``) is left out here and still reaches the wire through the transport.
+    """
+
+    # WHY model_params: the same coercion the guard compares against ("131072" → 131072).
+    carried: dict[str, object] = model_params(dict(params))
+    known: dict[str, object] = {
+        name: value for name, value in carried.items() if name in GenerateConfig.model_fields
+    }
+    return GenerateConfig.model_validate(known)
+
+
 @contextmanager
-def judge_filling_model_role(role: str, model: str) -> Iterator[None]:
+def judge_filling_model_role(
+    role: str, model: str, params: Sequence[tuple[str, str]] = ()
+) -> Iterator[None]:
     """Fill one inspect model role with our gateway judge for one grading pass.
 
     Most inspect judges never name a model — they call ``get_model(role="grader")``
@@ -210,6 +233,10 @@ def judge_filling_model_role(role: str, model: str) -> Iterator[None]:
     loop nobody has, so this binds ``role`` to ``screamingface/<model>``: the scorer's
     lookup then resolves to THIS provider, and the call rides the bound transport
     like any named judge (OME-1370).
+
+    ``params`` are the row's pinned judge params. The bound model carries the ones inspect
+    names as its own settings, so a scorer's stanza cannot overwrite a pin
+    (:func:`_pinned_generation_settings`). The wire still sends only the pins.
 
     WHY save-and-restore through ``init_model_roles``: inspect exposes no token for
     its ``model_roles`` ContextVar, so the previous mapping is put back by value.
@@ -219,7 +246,8 @@ def judge_filling_model_role(role: str, model: str) -> Iterator[None]:
     """
 
     previous: dict[str, Any] = dict(model_roles())
-    init_model_roles({**previous, role: get_model(f"{PROVIDER_NAME}/{model}")})
+    bound: Any = get_model(f"{PROVIDER_NAME}/{model}", config=_pinned_generation_settings(params))
+    init_model_roles({**previous, role: bound})
     try:
         yield
     finally:
@@ -355,15 +383,17 @@ def _refuse_config_overrides(
     delivers zero set fields (verified 2026-09-24), so defaults never trip this.
 
     WHY a setting the pins already carry passes (OME-1478): it is not dropped, the wire sends
-    it with that very value. HLE's judge asks for its role with ``temperature=0`` and
-    ``max_tokens=32768`` (inspect_evals' default.yaml judge stanza); its row pins the same
-    two, so neither setting is lost. A different value is still refused. AIDEV-NOTE: this
-    guard sees generation settings only; model args a scorer passes beside a role lookup
-    (hle's OpenRouter fp8 provider pin) never reach it, so the row must name such a loss.
+    it with that very value. HLE's judge asks for its role with inspect_evals' default.yaml
+    stanza (``temperature=0``, ``max_tokens=32768``); the role is bound with the row's pins
+    (``temperature=0``, ``max_tokens=131072``, OME-1939), which the stanza cannot overwrite,
+    so the judge asks with exactly the pinned values. A different value is still refused.
+    AIDEV-NOTE: this guard sees generation settings only; model args a scorer passes beside a
+    role lookup (hle's OpenRouter fp8 provider pin) never reach it, so the row must name such a
+    loss.
     """
 
     # WHY model_params: it is how the connector turns the pinned params into the chat body,
-    # so "carried" means exactly what reaches the gateway (``"32768"`` → ``32768``).
+    # so "carried" means exactly what reaches the gateway (``"131072"`` → ``131072``).
     carried: dict[str, object] = model_params(dict(pinned))
     overridden: list[str] = sorted(
         name

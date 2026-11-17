@@ -47,8 +47,8 @@ from screamingface_engine_inspect.judge_provider import (  # noqa: E402
 )
 from screamingface_engine_inspect.scorer_adapter import inspect_grade_case  # noqa: E402
 
-#: HLE's default.yaml judge stanza, as the row pins it.
-_PINS: tuple[tuple[str, str], ...] = (("temperature", "0"), ("max_tokens", "32768"))
+#: HLE's judge settings as the row pins them (max_tokens raised to 131072, OME-1939).
+_PINS: tuple[tuple[str, str], ...] = (("temperature", "0"), ("max_tokens", "131072"))
 
 #: The live judge's replies in order: the first has no grade line, the second grades.
 _LIVE_REPLIES: tuple[str, ...] = ("I think the response is probably fine.", "GRADE: C")
@@ -91,7 +91,7 @@ async def _grade(gateway: _CachingGateway, redraw_repeats: bool) -> Any:
     transport = JudgeTransport(fetch=gateway, params=_PINS, redraw_repeats=redraw_repeats)
     with (
         request_scope(RequestScope(origin="run")),
-        judge_filling_model_role("grader", "judge-4"),
+        judge_filling_model_role("grader", "judge-4", _PINS),
         bound_judge_transport(transport),
     ):
         scorer = regex_judge(
