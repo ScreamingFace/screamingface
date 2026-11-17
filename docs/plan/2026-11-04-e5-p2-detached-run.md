@@ -335,7 +335,8 @@ Paths are under `packages/screamingface/src/screamingface/`. Tests are under
 Tests, on a new stub Engine, `tests/_run_engine.py`, that serves `POST /runs`, the Run event
 stream, the Run's reads and each Candidate's result:
 - The recorded runs from E2 give the same `_RunOutcome` through the Engine's record.
-- A Candidate waiting for a slot shows as queued.
+- A Candidate waiting for a slot shows as waiting for Engine capacity, with no attempt number,
+  until it starts.
 - 256 Candidates are followed without a thread each.
 - On the follow path: results come back in declared order; a Candidate that settles first completes
   first; a failed Candidate's row shows while its sibling runs; an owner abort sends one `DELETE

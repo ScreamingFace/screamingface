@@ -387,15 +387,16 @@ run.cancel()
 - The transport port is "follow a Run". `run_transport` on `Client` and `AsyncClient` takes a
   transport of that shape; the per-Candidate `run()` port is removed.
 - Removed from the Client: the in-flight pool sized from `GET /v1/limits` (`_engine/limits.py`,
-  #1745), since the driver fills the same cap, the 900 s admission loop and its
-  `waiting_for_capacity` and `admitted` notices, the per-Candidate token, WebSocket and start (with
-  its 428 resend, replay acknowledgement and start refusals), gap replay requests, the cancel sweep,
+  #1745), since the driver fills the same cap, the 900 s admission loop, the per-Candidate token,
+  WebSocket and start (with its 428 resend, replay acknowledgement and start refusals), gap replay requests, the cancel sweep,
   the `X-SF-Run` headers and the unbound path.
 - The context is fetched from the context route and checked against the Run's checksum. A saved
   result is fetched again from the result route and checked against the record's checksum. The local
   manifest keeps the Run id and index. Manifests saved before P2 keep their artifact ticket.
 - `on_event` and the progress table are fed from the Run's event stream. A Candidate waiting for a
-  slot shows as queued, from `candidate.state`.
+  slot shows as waiting for Engine capacity while its `candidate.state` is `pending`, with no
+  attempt number, and as capacity available once it starts (the `waiting_for_capacity` and
+  `admitted` notices, now fed from the stream).
 - One follower per Run resolves each Candidate's outcome; there is no thread per Candidate.
 
 ## 5. Landings
