@@ -204,6 +204,23 @@ class Settings(BaseSettings):
         validation_alias="AIGW_FROZEN_COPY_MAX_ENTRY_BYTES",
     )
 
+    # FEATURE (OME-1947): the frozen copy retention sweep. It has no switch: each gateway always
+    # runs it (owner decision Q22). Interval = time between two periodic runs; idle time = an open
+    # copy with no new entry for this long becomes `abandoned`; budget = most entries one run
+    # deletes.
+    # AIDEV-NOTE: advice, not a check (the idle time has no lower limit tied to the engine, Q18):
+    # keep the idle time above the engine run deadline (16 hours), or the sweep abandons the copy
+    # of a run that is still in progress (spec prd/copy-sweep.md section 4.1).
+    frozen_copy_sweep_interval_seconds: int = Field(
+        default=3600, ge=60, validation_alias="AIGW_FROZEN_COPY_SWEEP_INTERVAL_SECONDS"
+    )
+    frozen_copy_open_idle_seconds: int = Field(
+        default=86_400, gt=0, validation_alias="AIGW_FROZEN_COPY_OPEN_IDLE_SECONDS"
+    )
+    frozen_copy_sweep_max_entries: int = Field(
+        default=100_000, ge=1, validation_alias="AIGW_FROZEN_COPY_SWEEP_MAX_ENTRIES"
+    )
+
     # Admin cache-snapshot upload cap (OME-952): the COMPRESSED archive size accepted by
     # POST /v1/admin/cache/snapshots. Deliberately on the compressed bytes — that is what
     # crosses the wire and fills the spool directory — and deliberately generous: the DRACO
