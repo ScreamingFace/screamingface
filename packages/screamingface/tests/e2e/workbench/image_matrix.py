@@ -54,6 +54,10 @@ class Cell:
     spend_usd: Decimal | None
     reason: str | None
     case: str | None = None
+    # Gateway chat spans under the cell's trace; ``None`` when not counted. WHY: a refusal is
+    # recognised by its code, and url4 also raises ``intent_error`` for a malformed expression,
+    # so only "no chat call reached the gateway" proves the cell was refused before the model.
+    chat_calls: int | None = None
 
 
 def modality_of(media_type: str) -> Modality:
@@ -98,15 +102,17 @@ def _normalise(text: str) -> str:
 
 
 def answer_contains(answer: str, expected: str) -> bool:
-    """Whether ``answer`` holds ``expected``, case- and whitespace-insensitively.
+    """Whether ``answer`` holds ``expected`` as a whole token, case- and whitespace-insensitively.
 
-    A numeric value must stand alone: ``17392`` does not contain ``7392``, because a model that
-    misread one digit of a longer number did not read the picture. Spaced-out digits
-    (``7 3 9 2``) do not match either: only runs of whitespace collapse, none are removed.
+    The value must stand alone: ``17392`` does not contain ``7392`` and ``HELIOTROPES`` does not
+    contain ``HELIOTROPE``, because a model that misread part of a longer token did not read the
+    picture. A decimal neighbour (``7392.5``, ``0.7392``) is a different number; a full stop
+    ending the sentence is not. Spaced-out digits (``7 3 9 2``) do not match either: only runs
+    of whitespace collapse, none are removed.
     """
     needle = re.escape(_normalise(expected))
-    before = r"(?<!\d)" if expected[:1].isdigit() else ""
-    after = r"(?!\d)" if expected[-1:].isdigit() else ""
+    before = r"(?<!\w)(?<!\d\.)" if expected[:1].isalnum() else ""
+    after = r"(?!\w)(?!\.\d)" if expected[-1:].isalnum() else ""
     return re.search(f"{before}{needle}{after}", _normalise(answer)) is not None
 
 
@@ -168,6 +174,16 @@ def _cell_failure(cell: Cell) -> str | None:
     return None
 
 
+def _chat_call_failure(cell: Cell) -> str | None:
+    """A ``refused`` cell whose trace still shows a gateway chat call was not refused up front."""
+    if cell.observed == "refused" and cell.chat_calls:
+        return (
+            f"{_where(cell)}: refused ({cell.code or 'no code'}) but {cell.chat_calls} gateway"
+            " chat call(s) ran under its trace — not a refusal before the model"
+        )
+    return None
+
+
 def _cases_every_model_missed(cells: Sequence[Cell]) -> list[str]:
     """Benchmark Cases on which every model expected to answer answered wrong."""
     by_case: dict[str, list[Cell]] = defaultdict(list)
@@ -182,6 +198,16 @@ def _cases_every_model_missed(cells: Sequence[Cell]) -> list[str]:
 
 
 def verdict(cells: Sequence[Cell]) -> list[str]:
-    """The matrix's failures, in plain words; an empty list is a pass."""
-    failures = [reason for cell in cells if (reason := _cell_failure(cell)) is not None]
+    """The matrix's failures, in plain words; an empty list is a pass.
+
+    An empty matrix fails: a run that evaluated no cell proved nothing (unknown is never a pass).
+    """
+    if not cells:
+        return ["matrix: no cell was evaluated — nothing proves the picture arrived"]
+    failures = [
+        reason
+        for cell in cells
+        for reason in (_cell_failure(cell), _chat_call_failure(cell))
+        if reason is not None
+    ]
     return failures + _cases_every_model_missed(cells)

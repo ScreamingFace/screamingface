@@ -220,3 +220,41 @@ def test_every_benchmark_model_missing_a_gold_case_fails() -> None:
 
 def test_skipped_unknown_cell_is_not_a_failure_nor_a_pass_signal() -> None:
     assert verdict([_cell(expected="unknown", observed="skipped", reason="no row")]) == []
+
+
+@pytest.mark.parametrize(
+    ("answer", "expected", "ok"),
+    [
+        ("HELIOTROPES", "HELIOTROPE", False),  # a word must stand alone too
+        ("unheliotrope", "HELIOTROPE", False),
+        ("7392.5", "7392", False),  # a decimal tail is a different number
+        ("0.7392", "7392", False),
+        ("It is 7392.", "7392", True),  # a sentence full stop is not a decimal
+        ("(7392)", "7392", True),
+        ('"Heliotrope"', "HELIOTROPE", True),
+    ],
+)
+def test_answer_contains_is_a_whole_token(answer: str, expected: str, ok: bool) -> None:
+    assert answer_contains(answer, expected) is ok
+
+
+def test_an_empty_matrix_fails() -> None:
+    """Unknown is never a pass: a run that evaluated nothing must not go green."""
+    [reason] = verdict([])
+    assert "no cell" in reason
+
+
+def test_refused_cell_with_gateway_chat_calls_fails() -> None:
+    """Review Focus 1: a refusal that still reached the gateway's chat route is not a refusal."""
+    cell = _cell(
+        model=MISTRAL, expected="refuse", observed="refused", code="intent_error", chat_calls=1
+    )
+    [reason] = verdict([cell])
+    assert MISTRAL in reason and "chat call" in reason
+
+
+def test_refused_cell_with_zero_chat_calls_passes() -> None:
+    cell = _cell(
+        model=MISTRAL, expected="refuse", observed="refused", code="intent_error", chat_calls=0
+    )
+    assert verdict([cell]) == []
