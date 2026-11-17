@@ -308,7 +308,7 @@ def test_image_input_matrix_parameters_are_complete_and_carry_no_secret() -> Non
         "GATEWAY_URL",
         "EVENTS_PATH",
     }
-    assert len(params["MODELS"]) == 5
+    assert len(params["MODELS"]) == 8
     assert params["MEDIA"] == [
         "image/png",
         "image/jpeg",
@@ -318,7 +318,7 @@ def test_image_input_matrix_parameters_are_complete_and_carry_no_secret() -> Non
     ]
     assert params["PATHS"] == ["url4", "benchmark"]
     assert params["FIXTURE_REF"].strip()
-    assert params["BUDGET_USD"] == 0.5
+    assert params["BUDGET_USD"] == 1.0
 
 
 def test_image_input_matrix_reads_the_key_from_env_only() -> None:

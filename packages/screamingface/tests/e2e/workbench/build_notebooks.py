@@ -343,12 +343,16 @@ MODELS = [
     "openrouter/openai/gpt-5-nano",
     "openrouter/anthropic/claude-haiku-5.5",
     "openrouter/meta-llama/llama-4-scout",  # images, no PDF
+    # The models the OME-1529 timeline's evidence grid shows green for image + PDF on OpenRouter.
+    "openrouter/google/gemini-2.5-flash",
+    "openrouter/anthropic/claude-haiku-4.5",
+    "openrouter/openai/gpt-4o-mini",
     "openrouter/mistralai/mistral-small-24b-instruct-2501",  # text-only control
 ]
 MEDIA = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]
 PATHS = ["url4", "benchmark"]
 FIXTURE_REF = "6c127c630615b08fa4435fb1b130392606243bbc"  # the commit that added the fixtures
-BUDGET_USD = 0.5
+BUDGET_USD = 1.0  # url4 calls count at their estimate; measured spend is ~$0.06
 ENGINE_URL = "http://127.0.0.1:9108"
 SCOREBOARD_URL = "http://127.0.0.1:9106"  # always explicit, never the hosted leaderboard
 GATEWAY_URL = "http://127.0.0.1:9105"
