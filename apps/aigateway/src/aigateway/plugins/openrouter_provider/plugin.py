@@ -237,6 +237,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             self.settings,
             publishable_upstream_ids(catalog.ids),
             input_modalities=catalog.input_modalities,
+            created=catalog.created,
         )
 
     async def admit_model(
