@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1947",
+  "branch": "frozen-copy-retention",
+  "approver": "Ionesio Junior (owner)",
+  "date": "2026-11-17",
+  "scope": "Assertion only, two assertions of test_0014_creates_both_tables_with_the_design_columns. (1) The equality check of the column set of frozen_copies (`set(copies) == {eight names}`) becomes a subset check (`{eight names} <= set(copies)`). (2) The check of the nullable columns of frozen_copies is limited to the eight columns of 0014; its expected result stays [provenance, sealed_at]. The eight names do not change. No other edit to that test or file.",
+  "reason": "OME-1947 adds migration 0018_frozen_copy_retention, which adds the nullable columns claimed_at, swept_at and purged_at to frozen_copies. The test migrates to the newest migration, so the exact column set and the exact list of nullable columns of 0014 can no longer be true. The eight design columns of 0014 and their null rules are still asserted; the new columns are asserted in tests/unit/test_frozen_copy_retention_migration.py (S-28). Owner approvals in the session of 2026-11-17: the first assertion ('approved + change of the one existing test'), then the second assertion (answer 'Yes, limit to 0014 columns').",
+  "files": {
+    "apps/aigateway/tests/unit/test_frozen_copy_migration.py": {
+      "base_blob": "2ff02b0f7306af249bbbd636304d63761a4cbbae",
+      "approved_blob": "afb1ea1d5c7879038b1aad8072994419203ac47e"
+    }
+  }
+}
