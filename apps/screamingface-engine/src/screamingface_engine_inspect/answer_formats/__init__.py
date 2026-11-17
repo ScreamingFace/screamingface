@@ -6,7 +6,7 @@ of 200 replies as no answer. The grader stays as inspect wrote it; the page says
 so a cheap smoke run can be checked first.
 
 Think of it as the instructions printed at the top of an exam paper: they belong to the marking
-scheme, not to one question, so they are written once per scorer (95 catalogue rows share 38
+scheme, not to one question, so they are written once per scorer (96 catalogue rows share 38
 scorers) and the Engine appends them to every row graded by that scorer. A row's own prose
 stays hand-written in its catalogue entry; this sentence follows it.
 
