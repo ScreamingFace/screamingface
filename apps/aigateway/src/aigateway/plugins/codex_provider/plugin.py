@@ -70,7 +70,7 @@ class CodexProviderPlugin(ProviderPluginBase):
     # subscription models ride the ChatGPT backend Responses endpoint, which
     # only accepts OAuth tokens — chat_handler.py rejects sk-/sk-proj- keys
     # outright. The set-api-key endpoint therefore returns
-    # api_key_not_supported for codex. Routing API-key profiles to the OpenAI
+    # api_key_not_supported for codex. Routing API-key connections to the OpenAI
     # platform API instead is a possible follow-up.
     custom_llm_provider = "codex"
     provider_display_name = "Codex"
@@ -230,7 +230,7 @@ async def _model_unsupported(body: dict[str, Any]) -> HTTPException:
 
     # WHY 403: the request is fine; the account's entitlement refuses the model (a free plan
     # is refused every model, a plus plan every retired slug). Codex keeps the default
-    # no-mark status hook, so the profile stays authenticated. The message is
+    # no-mark status hook, so the connection stays authenticated. The message is
     # gateway-authored: no upstream text.
     # WHY available_models is fetched here: the refusal is exactly when the caller needs the
     # account's real list, and this is the one place holding that account's own credential.

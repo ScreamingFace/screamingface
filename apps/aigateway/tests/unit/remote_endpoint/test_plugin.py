@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -119,11 +118,6 @@ async def test_the_strategy_builds_a_bearer_header_from_the_stored_key() -> None
 
         async def delete(self, service: str, account: str) -> None:
             raise AssertionError("the strategy must not delete")
-
-        async def mutate(
-            self, service: str, account: str, mutator: Callable[[str | None], str | None]
-        ) -> None:
-            raise AssertionError("the strategy must not mutate")
 
     strategy = first.api_key_strategy_for("n", credential_store=_Store())
 

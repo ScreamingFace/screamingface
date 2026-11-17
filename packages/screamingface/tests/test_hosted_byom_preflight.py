@@ -50,7 +50,7 @@ _DETAILS = {
     "contract_id": "pc_byom_fixture",
     "model": {"id": _BYOM, "gateway_provider": _ENDPOINT, "upstream_id": "model_v1"},
     "context": {
-        "scope": "account_profile",
+        "scope": "account_connection",
         "auth_mode": "api_key",
         "revision": "ctx_byom_fixture",
         "source_revision": None,

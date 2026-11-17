@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -51,11 +50,6 @@ class _Blobs:
 
     async def delete(self, service: str, account: str) -> None:
         self.value = None
-
-    async def mutate(
-        self, service: str, account: str, mutator: Callable[[str | None], str | None]
-    ) -> None:
-        self.value = mutator(self.value)
 
 
 def _plugin_a() -> RemoteEndpointPlugin:

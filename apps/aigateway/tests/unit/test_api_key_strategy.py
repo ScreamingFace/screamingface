@@ -25,13 +25,6 @@ class FakeStore:
     async def delete(self, service: str, account: str) -> None:
         self.data.pop((service, account), None)
 
-    async def mutate(self, service: str, account: str, mutator) -> None:
-        next_value = mutator(await self.read(service, account))
-        if next_value is None:
-            self.data.pop((service, account), None)
-        else:
-            self.data[(service, account)] = next_value
-
 
 def _strategy(store: FakeStore | None = None) -> tuple[ApiKeyStrategy, FakeStore]:
     store = store or FakeStore()

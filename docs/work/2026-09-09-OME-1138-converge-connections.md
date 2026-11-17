@@ -1,9 +1,9 @@
 ---
 ticket: OME-1138
 stack: aigateway   # umbrella coordination ledger; consumer stacks get their own sub-issue ledgers
-status: done
+status: in_progress
 started: 2026-09-09
-finished: 2026-11-16
+finished:
 ---
 
 # OME-1138 — Deprecate Profiles and converge on Connections (umbrella: P0 baseline + P1 design)
@@ -278,6 +278,14 @@ through Connections, one per account and provider; the Profile routes answer 410
 - **Linear:** the Stage E close comment is posted, the epic is Done, and `OME-1315`, `OME-1035`
   and `OME-1026` are no longer blocked by it. `OME-1750` has the purge outcome above.
 
+## Reopened (2026-11-17)
+
+The close review found Profile wording the close-out had not covered: the provider plugins'
+credential errors, the Gemini 401, about 25 gateway comments, eight unused test-double `mutate`
+methods and one SDK fixture scope. Two follow-up leaves carry it in #1874: `OME-1940` (gateway) and
+`OME-1941` (SDK). The epic is In Progress until both close. Spec:
+`docs/spec/2026-11-16-ome-1138-leftover-profile-wording.md`.
+
 ## Test plan
 
 - P0: record existing gate results for aigateway and the meta tool checks (baseline only,
@@ -306,4 +314,4 @@ through Connections, one per account and provider; the Profile routes answer 410
   moved to c1c92562 during the pass and the branch was deliberately not moved; the Linear update
   was applied on 2026-09-14 after re-authorisation; the unit
   stayed `in_progress` while A2 and later stages awaited separate approval, and closed on
-  2026-11-16 (see "Epic close").
+  2026-11-16 (see "Epic close"); it reopened on 2026-11-17 (see "Reopened (2026-11-17)").

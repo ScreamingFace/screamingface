@@ -16,7 +16,7 @@ that does not participate, with a reason from the closed vocabulary. Nothing her
 raises into the request path, because the cache may never become an availability
 dependency.
 
-INVARIANT: identity is structurally absent. There is no account, profile, user,
+INVARIANT: identity is structurally absent. There is no account, connection, user,
 auth-mode or credential parameter on this signature, so the only rule set it can
 possibly consult is the auth-mode-INDEPENDENT one — which is what makes the plan
 the same for every caller sending the same call.
@@ -24,7 +24,7 @@ the same for every caller sending the same call.
 AIDEV-NOTE: the async half — the store read, the write-back and the response
 headers — deliberately lives in the route layer. Keeping THIS half free of I/O is
 what lets the identity-invariance and projection-purity properties be tested
-without a profile, a connection, a credential blob or a database.
+without a connection, a credential blob or a database.
 """
 
 from __future__ import annotations

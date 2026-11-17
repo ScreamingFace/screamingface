@@ -75,7 +75,7 @@ _CLIENT_AUTH_HEADER_NAMES = {"authorization", "x-api-key", "proxy-authorization"
 
 
 def _credential_service_for(credential_name: str) -> str:
-    """Namespace the stored credential slot by provider + profile/connection."""
+    """Namespace the stored credential slot by provider + connection."""
     return f"aigateway:huggingface:{credential_name}"
 
 
