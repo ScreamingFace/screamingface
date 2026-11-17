@@ -7804,7 +7804,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "run, and its pin of the judge to fp8 endpoints cannot be sent through our "
             "gateway. The authors' leaderboard was judged by their own set-up, not this "
             "judge, so its scores are a reference, not a like-for-like match. No generation "
-            "settings are imposed. No mid-run check surface."
+            "settings are imposed."
         ),
         focus="HLE's authors' cleaned 1,000 questions, 27% with a picture (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/cais/hle-diamond",

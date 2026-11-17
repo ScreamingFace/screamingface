@@ -35,7 +35,7 @@ description is not part of the revision, so no published revision or fingerprint
 
 ## Acceptance
 
-- The scan of all 95 assembled descriptions plus medxpert (96 pages) finds the mention on ifeval only;
+- The scan of all 96 assembled descriptions plus medxpert (97 pages) finds the mention on ifeval only;
   fingerprint and published-revision tests pass unedited.
 
 ## Outcome (fill at the end — required before COMMIT)
@@ -44,3 +44,4 @@ description is not part of the revision, so no published revision or fingerprint
 - **Commits:** the one commit on `OME-1908-drop-midrun-check-sentence`.
 - **Gates:** with the inspect extra, the new test file plus the fingerprint, published-revision, imported-Benchmark, provenance, Task-replay assembly, scorer Draft Feedback, local ifeval and owner opt-in files: 986 passed; extra-less, `test_benchmark_display_metadata.py` 19 passed. On main the new test fails for the 76 rows and ifeval (78 failed). ruff check, ruff format and pyright clean on the touched files.
 - **Deviations:** none from the plan. The 76 edits were made by a script that keeps every string fragment before the cut byte-for-byte and rewraps only the tail; a comparison of old and new descriptions confirmed each new text is the old one with exactly the sentence removed (14 distinct wordings), and no non-string line changed.
+- **After merging main (2026-11-17):** main had added `hle_diamond` (OME-1863) with the retired sentence 'No mid-run check surface.' at its end; the new test caught it (1 failed), so the sentence comes off that row too, 77 descriptions in all, across 97 pages. With it: the guard, fingerprint and published-revision test files give 380 passed, so no identity moves.

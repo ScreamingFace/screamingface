@@ -5,7 +5,7 @@
 
 FEATURE: Benchmark page prose. Draft Feedback is a Benchmark's mid-run answer to "is this draft
 good enough yet?", which a Corrective Loop recipe asks for; a Benchmark without the offer
-refuses such a recipe before any money moves. Not offering it is the default (95 of 96 rows),
+refuses such a recipe before any money moves. Not offering it is the default (96 of 97 pages),
 so a page saying "no mid-run check" is noise, and a page saying a corrective loop is
 "legitimate" where none is offered misleads. Only the page of a Benchmark that offers it says
 so (today ifeval, the owner's one exception, OME-1513).
