@@ -4,6 +4,9 @@
 
 ### Added
 
+- The notebook filter of `sf.models.list()` and `sf.benchmarks.list()` matches each word of the
+  query, in any order: `claude 5.5` shows the entries that contain both words.
+
 - `sf.credits()` now renders as a notebook card in the connection panel's style, instead of
   the plain dataclass repr. An unavailable amount says why ("Not connected", "Key
   rejected", "Lookup failed", "Not supported", "Unreadable response", "Not available on
