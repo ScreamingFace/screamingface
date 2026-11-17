@@ -453,3 +453,59 @@ def test_options_wrapped_one_by_one_are_an_unordered_set_match() -> None:
 
     assert judge.purposes == ["route"]
     assert graded.score == 1.0
+
+
+# ── Codex review, round 1 ───────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("text", "number"),
+    [
+        ("1e3", 1000.0),  # scientific notation is a whole number, not "1"
+        ("2.5E-2", 0.025),
+        ("1/2", None),  # an expression: the judge reads it
+        ("10^3", None),
+        ("1-2", None),
+        ("1_000", None),  # Python's float accepts this; a reply's number does not
+        ("inf", None),
+        ("nan", None),
+        ("$1,234.5", 1234.5),
+        ("+7", 7.0),
+        (".5", 0.5),
+    ],
+)
+def test_only_a_whole_plain_number_is_read_by_rule(text: str, number: float | None) -> None:
+    """A partial read would score a wrong number with no judge call (Codex review)."""
+
+    assert g.to_float(text) == number
+
+
+def test_an_expression_goes_to_the_judge_instead_of_being_half_read() -> None:
+    judge = _Judge(_ROUTE_B, "\\boxed{0.5}")
+
+    graded: g.Graded = _grade(judge, [0.5], "1/2")
+
+    assert judge.purposes == ["route", "number"]
+    assert graded.score == 1.0
+
+
+@pytest.mark.parametrize("predicted", [1e200, -1e200, float("inf"), float("-inf"), float("nan")])
+def test_an_extreme_or_non_finite_number_scores_zero_without_raising(predicted: float) -> None:
+    """``1e200`` overflowed when squared; a Case must score 0, not fail (Codex review)."""
+
+    assert g.number_score(predicted, 100.0) == 0.0
+
+
+def test_a_judge_that_extracts_infinity_scores_zero() -> None:
+    judge = _Judge(_ROUTE_B, "\\boxed{inf}")
+
+    graded: g.Graded = _grade(judge, [100.0], "a huge amount")
+
+    assert graded.score == 0.0
+
+
+@pytest.mark.parametrize("text", ["e3", "E-2", "$e3", "-.e5", "$", "%", "1,23", "1.2.3"])
+def test_a_malformed_number_goes_to_the_judge_instead_of_raising(text: str) -> None:
+    """An exponent with no mantissa passed the first pattern and then raised (Codex review)."""
+
+    assert g.to_float(text) is None

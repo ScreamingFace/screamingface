@@ -29,6 +29,7 @@ Execution order for one level-3/4 reply (``grade_level_34``):
 from __future__ import annotations
 
 import json
+import math
 import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -161,24 +162,31 @@ def label_score(gold: Sequence[object], predicted: Sequence[object]) -> float:
 # ── numbers (Futurex-Eval utils.py, to_float / is_number) ───────────────────────────────────
 
 
-def _is_number(text: str) -> bool:
-    """WHY: Futurex-Eval's ``is_number``: no inner space, a digit somewhere, and a number at the
-    start or the end (so ``$115`` and ``115%`` count, ``about 115`` does not)."""
-
-    stripped: str = text.strip()
-    if not stripped or " " in stripped or "\n" in stripped or not re.search(r"\d", stripped):
-        return False
-    return bool(re.search(r"^-?[\d,.]|[\d,.]$", stripped))
+#: A whole plain number: an optional sign and dollar, digits with optional thousands commas, an
+#: optional decimal part and exponent, an optional percent sign. Nothing else may surround it.
+_PLAIN_NUMBER: Final[re.Pattern[str]] = re.compile(
+    r"[-+]?\$?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?%?"
+)
 
 
 def to_float(text: str) -> float | None:
-    """The number a bare-number reply states, or None (Futurex-Eval's ``to_float``)."""
+    """The number a bare-number reply states, or None so the judge reads it.
 
-    found: re.Match[str] | None = re.search(r"-?[\d,.]+", text) if _is_number(text) else None
+    WHY whole-match, not upstream's ``utils.to_float`` (first numeric run): upstream reaches
+    ``to_float`` only after its LLM extractor has rewritten the answer as a number. This rule
+    stands in for that extractor, so it accepts only a reply that IS a plain number (``$115``,
+    ``115%``, ``6,923.23``, ``1e3``); an expression such as ``1/2`` or ``10^3`` would otherwise be
+    half-read as 1 or 10 with no judge call (Codex review).
+    """
+
+    stripped: str = text.strip()
     try:
-        return float(found.group(0).replace(",", "")) if found else None
-    except ValueError:
-        return None
+        value: float | None = (
+            float(re.sub(r"[$,%]", "", stripped)) if _PLAIN_NUMBER.fullmatch(stripped) else None
+        )
+    except ValueError:  # INVARIANT: never raise for a reply; the judge reads what this cannot
+        value = None
+    return value if value is not None and math.isfinite(value) else None
 
 
 def normalize_gold(gold: Sequence[Any]) -> list[Any]:
@@ -218,7 +226,10 @@ def number_score(predicted: float, gold: float) -> float:
     """
 
     sigma: float = 0.01 if gold == 0 else 0.05 * gold
-    return max(0.0, 1.0 - ((predicted - gold) / sigma) ** 2)
+    distance: float = abs((predicted - gold) / sigma)
+    # WHY the guard: a prediction one sigma away or more scores 0 anyway, and squaring an extreme
+    # one (1e200) overflows; a non-finite one (inf, nan) is no prediction (Codex review).
+    return 1.0 - distance**2 if math.isfinite(distance) and distance < 1.0 else 0.0
 
 
 # ── the judge's questions (our wording, Futurex-Eval's decisions) ───────────────────────────

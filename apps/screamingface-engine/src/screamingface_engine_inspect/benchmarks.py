@@ -7896,7 +7896,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past",
-        published_revision="25b22985d2393685",
+        published_revision="118a7a5a5df8e185",
         title="FutureX-Past",
         description=(
             "2,036 resolved real-world forecasting questions from FutureX, a live benchmark of "
@@ -7994,7 +7994,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past_study",
-        published_revision="c7f36b9308d98b50",
+        published_revision="0d516b151df8c19e",
         title="FutureX-Past (study scoring)",
         description=(
             "FutureX-Past as the crowd-wisdom study (behavior-aware LLM crowds for future "

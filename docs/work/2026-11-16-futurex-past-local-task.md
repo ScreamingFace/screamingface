@@ -115,12 +115,18 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
     difference of at most +0.0071) and the per-Case value of an unusable Case.
   - The study auditor found a `.pyc` in the study package. One of this session's own runs wrote
     it, and it has been removed.
+- **Codex review** (OpenAI Codex CLI, read-only, 3 rounds, approved):
+  - `to_float` now reads only a whole plain number. `1e3` reads as 1000, and an expression such
+    as `1/2` or `10^3` goes to the judge, where before it was half-read as 1 or 10.
+  - A malformed number (`e3`) reaches the judge instead of raising.
+  - `number_score` returns 0 for a prediction one σ or more away, or a non-finite one, instead of
+    overflowing on `1e200`.
 - **Gates (final head):**
   - `screamingface-engine`: ruff, format, pyright (extra-less, as CI runs it), layering, and
     pytest are green: 9,357 passed, 96.35% coverage. The append-only check against `origin/main`
     is red on exactly the seven shared table files (spec §9; they need an `OME-N` approval
     manifest).
-  - The inspect lane (`uv run --extra inspect pytest tests/unit/inspect`): 3,241 passed.
+  - The inspect lane (`uv run --extra inspect pytest tests/unit/inspect`): 3,267 passed.
   - The `screamingface` and `repo` stacks: all gates green.
 - **Deviations** (spec §11 records them as amendments):
   - Routing covers every level-3/4 question.
@@ -128,6 +134,7 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
     metric.
   - The level-3/4 reading rules now match upstream.
   - The study Benchmark drops unusable replies.
-  - The published revisions are `futurex_past` = `25b22985d2393685` and `futurex_past_study` =
-    `c7f36b9308d98b50`, each the fingerprint of the finished code. Earlier drafts had
-    `cbe050d3…`/`c3b5c2b7…` and `baf0c231…`/`a006da2f…`. Neither Benchmark was ever published.
+  - The published revisions are `futurex_past` = `118a7a5a5df8e185` and `futurex_past_study` =
+    `0d516b151df8c19e`, each the fingerprint of the finished code. Earlier drafts had
+    `cbe050d3…`/`c3b5c2b7…`, `baf0c231…`/`a006da2f…` and `25b22985…`/`c7f36b93…`. Neither
+    Benchmark was ever published.

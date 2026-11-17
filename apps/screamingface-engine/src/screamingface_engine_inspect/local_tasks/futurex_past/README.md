@@ -58,7 +58,7 @@ the upstream function.
 |---|---|---|
 | 1-2 | Labels normalised (quotes, wrappers, a lone letter upper-cased, Yes/No). One key: the prediction list must equal it. Several keys: set F1. | `eval.py` `estimate_score_level_1_2` |
 | 3-4, routing | The Judge decides, once per Case in each grading run, whether the answer is option labels, a number/text/ranking, or an unordered set. A Yes/No prompt whose key is not Yes/No skips the router. An unreadable route falls back to number/text/ranking. | `metric_router.py` `route_metric` |
-| 3-4, one number | A bare number is read by rule (LaTeX's `{,}` thousands separator read as a comma); prose goes to the Judge, which extracts the number from its first comma piece. Score = max(0, 1 − ((ŷ − y)/σ)²), σ = 5% of the key, 0.01 for a zero key. | `eval.py` `estimate_score_level_3_4`, `llm_judge_level_34.py` |
+| 3-4, one number | A whole plain number is read by rule (LaTeX's `{,}` thousands separator read as a comma); prose goes to the Judge, which extracts the number from its first comma piece. Score = max(0, 1 − ((ŷ − y)/σ)²), σ = 5% of the key, 0.01 for a zero key; a non-finite prediction scores 0. | `eval.py` `estimate_score_level_3_4`, `llm_judge_level_34.py` |
 | 3-4, one name | The Judge says whether the first comma piece of the answer matches the key, ignoring language and wording. | `judge_str_match` |
 | 3-4, a ranking | Option letters in any order → 1. The Judge's position-by-position Yes → 1. Otherwise 0.8 × the Judge's overlap count / k. | `judge_rank_overall` |
 | 3-4, an unordered set | The same set, case-folded → 1. Otherwise the Judge counts one-to-one matches m: 1 when m = k = \|prediction\|, else 0.8 × m / k. | `judge_unordered_set_overall` |
@@ -74,8 +74,11 @@ through the shared redraw loop.
 
 - The Judge model: upstream uses DeepSeek V4 Flash or GPT-4.1.
 - Reading the reply: upstream asks an LLM to extract the answer from the whole reply, so a
-  boxless reply can score there. Here the box is read by rule, and a bare number in it is read by
-  rule (`to_float`) instead of asking whether it is a number.
+  boxless reply can score there. Here the box is read by rule, and a box that is a whole plain
+  number (`$115`, `115%`, `6,923.23`, `1e3`) is read by rule instead of asking whether it is a
+  number. Anything else, such as `1/2` or `10^3`, goes to the Judge. Upstream's own `to_float`
+  would read only the first numeric run, but it only sees text its extractor has already
+  rewritten as a number.
 - `[Yes]` is read as `["Yes"]`.
 - Only a `\boxed{}` or `\text{}` wrapper is removed from a label; `\boxed{\textbf{A}}` does not
   read as `A`. Upstream's LLM extractor would read it.
