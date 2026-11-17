@@ -12,6 +12,7 @@ from tortoise.exceptions import FieldError
 from tortoise.expressions import Q
 from tortoise.query_api import execute_pypika
 
+from .baseline_store import BaselineStore
 from .models import Benchmark, Score
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,12 @@ async def _revalidate_visibility() -> set[str]:
     return {row["id"] for row in rows}
 
 
-async def list_benchmark_summaries() -> list[BenchmarkSummary]:
+def _best_score(row: dict[str, Any], imported: dict[str, float]) -> float | None:
+    candidates = [_candidate_score(row), imported.get(row["id"])]
+    return max((score for score in candidates if score is not None), default=None)
+
+
+async def list_benchmark_summaries(*, include_imported: bool = False) -> list[BenchmarkSummary]:
     benchmarks, candidates = Benchmark.get_table(), _ranked_candidates()
     query = (
         Query.from_(benchmarks)
@@ -125,9 +131,17 @@ async def list_benchmark_summaries() -> list[BenchmarkSummary]:
     # Scope and score selection share a statement snapshot. Transfer at most one
     # candidate per board; one unreadable candidate cannot fail the whole catalog.
     result = await execute_pypika(query, using_db=Tortoise.get_connection("default"))
+    # WHY opt-in: page indexing counts every displayed result; the homepage API's existing
+    # community-score contract stays unchanged. The bulk join avoids a read per board.
+    imported = (
+        await BaselineStore().best_ranked_scores([row["id"] for row in result.rows])
+        if include_imported
+        else {}
+    )
+    # INVARIANT: revalidate AFTER the imported-result read, immediately before publication.
     public_ids = await _revalidate_visibility()
     return [
-        BenchmarkSummary.model_validate({**row, "best_score": _candidate_score(row)})
+        BenchmarkSummary.model_validate({**row, "best_score": _best_score(row, imported)})
         for row in result.rows
         if row["id"] in public_ids
     ]
