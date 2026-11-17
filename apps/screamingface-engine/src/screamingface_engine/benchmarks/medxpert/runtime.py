@@ -185,7 +185,7 @@ BENCHMARK = ServedBenchmark(
     build_public_cases=_build_public_cases,
     check=_check,
     build_case_grade=build_case_grade,
-    reduce=reducing.aggregate,
+    reduce=reducing.aggregate_result,
     scoring=reducing.scoring,
 )
 

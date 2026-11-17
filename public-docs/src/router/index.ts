@@ -74,6 +74,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/guides/EvaluationPage.vue'),
     },
     {
+      path: '/sf-client/guides/managing-experiments',
+      name: 'sf-client-guides-experiments',
+      component: () => import('@/pages/sf-client/guides/ExperimentsPage.vue'),
+    },
+    {
       path: '/sf-client/guides/leaderboards',
       name: 'sf-client-guides-leaderboards',
       component: () => import('@/pages/sf-client/guides/LeaderboardsPage.vue'),
@@ -114,6 +119,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/UsagePage.vue'),
     },
     {
+      path: '/sf-client/api/runs',
+      name: 'sf-client-api-runs',
+      component: () => import('@/pages/sf-client/api/RunsPage.vue'),
+    },
+    {
       path: '/sf-client/api/clients',
       name: 'sf-client-api-clients',
       component: () => import('@/pages/sf-client/api/ClientsPage.vue'),
@@ -142,6 +152,11 @@ const router = createRouter({
       path: '/sf-client/api/connections',
       name: 'sf-client-api-connections',
       component: () => import('@/pages/sf-client/api/ConnectionsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/credits',
+      name: 'sf-client-api-credits',
+      component: () => import('@/pages/sf-client/api/CreditsPage.vue'),
     },
     {
       path: '/sf-client/api/modules',

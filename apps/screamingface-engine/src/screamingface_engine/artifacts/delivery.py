@@ -45,6 +45,15 @@ def allowed_result_bytes(inline_cap: int, hard_cap: int, *, spill_available: boo
     return hard_cap if spill_available else min(inline_cap, hard_cap)
 
 
+def result_too_large_message(size: int, allowed: int) -> str:
+    """The one text of a `result_too_large` refusal: two byte counts, no values.
+
+    WHY one owner: build_result and the result spool both refuse an oversized result, and the
+    message is user-visible. The code's audited raise sites are listed in error_text.py.
+    """
+    return f"result is {size} bytes, cap is {allowed} bytes"
+
+
 def decide_result_delivery(
     size: int, *, inline_cap: int, hard_cap: int, spill_available: bool
 ) -> ResultDelivery:
@@ -62,4 +71,9 @@ def decide_result_delivery(
     return ResultDelivery.INLINE if size <= inline_cap else ResultDelivery.SPILL
 
 
-__all__ = ["ResultDelivery", "allowed_result_bytes", "decide_result_delivery"]
+__all__ = [
+    "ResultDelivery",
+    "allowed_result_bytes",
+    "decide_result_delivery",
+    "result_too_large_message",
+]

@@ -314,10 +314,11 @@ The App also exports the same numbers as gauges: `screamingface_engine_runner_de
 
 **Scale-down.** The preStop drain protects runs on scale-down. Without
 `controller.kubernetes.io/pod-deletion-cost`, the ReplicaSet can pick a busy pod. That pod drains
-for up to `drainGraceS`, while an idle pod stays. The slow scale-down policy limits this cost;
-choosing an idle pod with `pod-deletion-cost` is a follow-up (OME-1871). Until that follow-up
-ships, set `scaleDown.enabled: false` to stop all scale-down. The pool then grows on demand and
-never shrinks by itself.
+for up to `drainGraceS`, while an idle pod stays. The slow scale-down policy limits this cost. Set
+`runnerPool.deletionCost.enabled: true` to make the ReplicaSet remove idle pods first (OME-1931,
+see "Idle pods first on scale-down" below). Until its platform prerequisites are live, you can set
+`scaleDown.enabled: false` to stop all scale-down. The pool then grows on demand and never shrinks
+by itself.
 
 **Infrastructure prerequisites (OpenMined/infrastructure, devops).**
 
@@ -346,6 +347,192 @@ never shrinks by itself.
    slots) in the values file. Check after the first sync:
    `kubectl -n sf-fusion get hpa keda-hpa-<fullname>-runner -o jsonpath='{.spec.behavior.scaleUp.tolerance}'`
    must print `0`. An empty output means the field was dropped. Then `targetPerPod` must be set.
+
+### Idle pods first on scale-down (`pod-deletion-cost`)
+
+OME-1931. Off by default. When `runnerPool.deletionCost.enabled` is `true`, each worker writes its
+busy slot count to the annotation `controller.kubernetes.io/pod-deletion-cost` on its OWN pod. On a
+scale-down, the ReplicaSet deletes the pod with the lowest cost first. Thus an idle pod (cost `0`)
+goes before a busy pod. A rollout and a manual scale-down use the same rule, so the value does not
+need `runnerPool.autoscaling.enabled`.
+
+When the worker writes:
+
+- At start, one write of the current count (usually `0`). A container restart keeps the pod and
+  its old annotation, and the worker cannot read it, so the worker writes.
+- After each change of the busy count: a claim batch that takes slots, or a run that ends. A burst
+  of changes gives one write of the last value. One write is in flight at most.
+- Not more than one write per second per pod. A change in that second is written when the second
+  ends.
+- No write after the drain signal (SIGTERM). The pod is then in deletion, and the cost has no
+  effect.
+
+The request is one `PATCH /api/v1/namespaces/<namespace>/pods/<pod>` with
+`Content-Type: application/merge-patch+json` and this body, and nothing else:
+
+```json
+{"metadata": {"annotations": {"controller.kubernetes.io/pod-deletion-cost": "3"}}}
+```
+
+The worker sends no GET, no LIST and no WATCH. It needs one verb: `patch` on `pods`.
+
+Values:
+
+```yaml
+runnerPool:
+  deletionCost:
+    enabled: true
+  serviceAccount:
+    create: true    # false: use an account made outside the chart; then `name` is required
+    name: ""        # "" = <fullname>-runner (url4-cloud-runner with fullnameOverride: url4-cloud)
+    annotations: {}
+```
+
+When `enabled` is `true`, the chart:
+
+- renders the ServiceAccount `<fullname>-runner` (when `serviceAccount.create` is `true`), with
+  `automountServiceAccountToken: false` on the object;
+- sets the runner pod's `serviceAccountName` to that account and its
+  `automountServiceAccountToken` to `true`;
+- adds three env entries: `URL4_CLOUD_WORKER_DELETION_COST_ENABLED=true`,
+  `URL4_CLOUD_WORKER_POD_NAME` (downward API `metadata.name`) and
+  `URL4_CLOUD_WORKER_POD_NAMESPACE` (downward API `metadata.namespace`);
+- refuses the render when `serviceAccount.create` is `false` and `serviceAccount.name` is empty.
+
+When `enabled` is `false`, the runner pod is as before: the App's ServiceAccount, no token and no
+new env. The chart renders no Role, RoleBinding, NetworkPolicy or admission policy in either case.
+With `fullnameOverride: url4-cloud`, the account is `url4-cloud-runner` in `sf-fusion`
+(`system:serviceaccount:sf-fusion:url4-cloud-runner`).
+
+The metric is `screamingface_engine_worker_deletion_cost_writes_total{outcome="ok"|"error"}` on the
+worker's metrics port (9109). A rising `error` count means that the writes fail. The gauge
+`screamingface_engine_worker_slots_busy` does not change.
+
+**Fail open.** The feature only improves the scale-down choice. It never stops or delays a run:
+
+- If the pod name, the pod namespace, `KUBERNETES_SERVICE_HOST`, the token file or the CA file is
+  missing, the worker logs ONE warning that names the missing item. Then it runs without the
+  feature. It does not exit.
+- A failed write (a timeout of 5 s, a connection error or a non-2xx status) is counted. The first
+  failure of a streak is logged at WARNING, the next ones at DEBUG, and the first good write after
+  a streak at INFO. The worker tries again after 1 s, doubled to a maximum of 30 s. A new count
+  starts the retry at once. The retry stops when a write succeeds.
+- Without the Role or the network path (items 1 and 3 below), each write fails, and the pool acts
+  as it does without this feature. When the platform adds them, the feature starts to work
+  without a restart.
+
+**Accepted risk: the token is in the runner container.** A run child is a process in the same
+container, with the same user, so it can read the ServiceAccount token. A child runs only engine
+code and built-in benchmarks, but it parses untrusted data (model outputs, datasets, caller
+expressions). With the guard of item 2 below, a stolen token can only set the deletion cost of its
+own pod. It cannot read Secrets, list pods or change other objects. Without the guard, the token
+can patch each pod in the namespace (labels, annotations, image). Thus the guard is a REQUIRED
+part of the platform change.
+
+**Platform prerequisites (OpenMined/infrastructure, not in this chart).**
+
+1. A Role with `pods: [patch]` and a RoleBinding to the runner ServiceAccount:
+
+   ```yaml
+   apiVersion: rbac.authorization.k8s.io/v1
+   kind: Role
+   metadata:
+     name: url4-cloud-runner-deletion-cost
+     namespace: sf-fusion
+   rules:
+     - apiGroups: [""]
+       resources: ["pods"]
+       verbs: ["patch"]
+   ---
+   apiVersion: rbac.authorization.k8s.io/v1
+   kind: RoleBinding
+   metadata:
+     name: url4-cloud-runner-deletion-cost
+     namespace: sf-fusion
+   roleRef:
+     apiGroup: rbac.authorization.k8s.io
+     kind: Role
+     name: url4-cloud-runner-deletion-cost
+   subjects:
+     - kind: ServiceAccount
+       name: url4-cloud-runner
+       namespace: sf-fusion
+   ```
+
+2. The guard: an admission policy that lets this account change ONLY the annotation
+   `controller.kubernetes.io/pod-deletion-cost`, and ONLY on its own pod. The bound token carries
+   the pod name in `request.userInfo.extra['authentication.kubernetes.io/pod-name']`. Compare it
+   with the name of the patched pod. The request shape is above.
+
+   A reference policy, tested on kind (Kubernetes 1.37, 2026-11-16). With it, the worker's write
+   passes. A patch of another pod, of another annotation, of a label, or with a cost that is not
+   a small non-negative integer gets HTTP 422. The platform owns the real policy:
+
+   ```yaml
+   apiVersion: admissionregistration.k8s.io/v1
+   kind: ValidatingAdmissionPolicy
+   metadata:
+     name: url4-runner-deletion-cost-guard
+   spec:
+     failurePolicy: Fail
+     matchConstraints:
+       resourceRules:
+         - apiGroups: [""]
+           apiVersions: ["v1"]
+           operations: ["UPDATE"]   # a PATCH reaches admission as UPDATE
+           resources: ["pods"]
+     matchConditions:
+       - name: runner-service-account
+         expression: >-
+           request.userInfo.username == "system:serviceaccount:sf-fusion:url4-cloud-runner"
+     validations:
+       - message: "the runner may patch its own pod only"
+         expression: >-
+           'authentication.kubernetes.io/pod-name' in request.userInfo.extra &&
+           request.userInfo.extra['authentication.kubernetes.io/pod-name'][0] == object.metadata.name
+       - message: "the runner may change the pod-deletion-cost annotation only"
+         expression: >-
+           object.spec == oldObject.spec &&
+           object.metadata.labels == oldObject.metadata.labels &&
+           object.metadata.annotations.all(k,
+             k == 'controller.kubernetes.io/pod-deletion-cost' ||
+             (k in oldObject.metadata.annotations &&
+              oldObject.metadata.annotations[k] == object.metadata.annotations[k])) &&
+           oldObject.metadata.annotations.all(k,
+             k == 'controller.kubernetes.io/pod-deletion-cost' || k in object.metadata.annotations)
+       - message: "the cost must be a small non-negative integer"
+         expression: >-
+           !('controller.kubernetes.io/pod-deletion-cost' in object.metadata.annotations) ||
+           object.metadata.annotations['controller.kubernetes.io/pod-deletion-cost'].matches('^[0-9]{1,3}$')
+   ```
+
+   Bind it with a `ValidatingAdmissionPolicyBinding` (`validationActions: [Deny]`) that selects
+   the `sf-fusion` namespace.
+3. A network rule. The namespace is default-deny, and runner pods
+   (`app.kubernetes.io/name: url4-runner`) have no egress to the API server. Without this rule,
+   each write times out after 5 s and the feature has no effect:
+
+   ```yaml
+   apiVersion: cilium.io/v2
+   kind: CiliumNetworkPolicy
+   metadata:
+     name: allow-url4-runner-egress-apiserver
+     namespace: sf-fusion
+   spec:
+     endpointSelector:
+       matchLabels:
+         app.kubernetes.io/name: url4-runner
+     egress:
+       - toEntities:
+           - kube-apiserver
+   ```
+
+4. In the same promotion: set `runnerPool.deletionCost.enabled: true` in the per-env values, and
+   remove the interim helper component `runner-deletion-cost` with its two port-9109 network
+   policies.
+
+The order is safe in both directions. If the value is on before items 1-3, the writes fail and the
+pool acts as before. If the interim helper and the worker both run, they write the same number.
 
 ## A private world config (OME-1770)
 

@@ -262,7 +262,7 @@ def test_hle_is_declared_with_the_maintained_judge_in_the_grader_role() -> None:
     assert row.judge.redraw_repeats is True
     assert dict(row.judge.params) == {
         "temperature": "0",
-        "max_tokens": "32768",
+        "max_tokens": "131072",
         "web_search": "false",
     }
     declaration: Any = TASK_REPLAY_CASES["hle"]

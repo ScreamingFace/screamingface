@@ -1,12 +1,12 @@
 ---
 id: OME-1866
 linear_url: https://linear.app/openmined/issue/OME-1866/carry-the-captured-calls-price-on-a-frozen-copy-replay
-status: in_progress
+status: done
 type: feature
 priority: 2
 labels: [aigateway, agentic, autonomous]
 created: 2026-11-10
-closed:
+closed: 2026-11-16
 ---
 
 # Carry the captured call's price on a frozen-copy replay
@@ -17,3 +17,7 @@ OME-1865 (SDK), OME-1866 (aigateway). Branch `OME-1864-e4c-routers-cascades`.
 Design: `docs/spec/2026-10-22-e4c-routers-cascades/`, plan `docs/plan/2026-10-22-e4c-routers-cascades.md`.
 Ledger: `docs/work/2026-10-22-e4c-routers-cascades.md`.
 Test approvals: `.claude/test-change-approvals/OME-1291.json`.
+
+## Close
+
+- 2026-11-16: PR #1733 (one PR for OME-1864/1865/1866) merged as `baedbd47a` on 2026-11-13. Follow-up: OME-1923. Linear Done 2026-11-16 with a close-comment that names the PR and the merge commit; checked against `origin/main`.

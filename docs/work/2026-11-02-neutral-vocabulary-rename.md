@@ -1,9 +1,9 @@
 ---
 ticket: OME-1812
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-02
-finished:
+finished: 2026-11-03
 ---
 
 # neutral-vocabulary-rename — OME-1138 close-out L5: neutral credential vocabulary, rename-only
@@ -87,7 +87,9 @@ RED first:
     changed line is an import, a module path, a keyword, an attribute read or a dropped argument;
     no semantic input value or existing expected literal changes. All 20 are pinned in the
     manifest.
-- **Commits:** `refactor(aigateway): name credentials and connections in the runtime vocabulary`.
+- **Commits:** `330e4204d` refactor(aigateway): name credentials and connections in the runtime
+  vocabulary (#1652), squash-merged 2026-11-03. Linear `OME-1812` Done. The mirror and this
+  ledger closed with the epic close (2026-11-16).
 - **RED seen:** the AST guard listed every `profile_name` site in src; `find_spec` found
   `profile_authorize` and no `connection_authorize`; `log_dispatch_failure` raised `TypeError`
   without the selector name; both admission refusals read "profile 'default'".
