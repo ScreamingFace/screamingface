@@ -147,3 +147,18 @@ async def test_only_get_reads_the_record(registry: Registry) -> None:
 
     assert summary is not None
     assert summary.candidates[0].record is None
+
+
+async def test_a_record_with_text_one_database_refuses_still_settles(registry: Registry) -> None:
+    """A run's error text is the provider's, and may hold a NUL or a lone surrogate. INVARIANT:
+    the outcome is written on either database, so it never blocks the outcomes behind it."""
+    run_id = await _scheduled(registry)
+    record = {"error": {"code": "boom", "message": "a\x00b\ud800", "details": {"n": float("inf")}}}
+
+    await registry.store.settle(TOPIC, CandidateOutcome("failed", "boom", record=record))
+
+    candidate = await _candidate(registry, run_id)
+    assert candidate.state == "failed"
+    assert candidate.record == {
+        "error": {"code": "boom", "message": "a�b�", "details": {"n": None}}
+    }

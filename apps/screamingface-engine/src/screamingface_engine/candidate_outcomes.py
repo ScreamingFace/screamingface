@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import re
 from collections.abc import AsyncGenerator, Awaitable, Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from decimal import (
     ROUND_CEILING,
@@ -65,25 +67,75 @@ def stored_cost(cost: Decimal) -> Decimal:
 
 
 def check_topic(topic: object) -> str:
-    """``topic`` if an outcome may name it: a non-empty string with no NUL. Both adapters and
-    the codec apply this one rule, so neither accepts an outcome the other would drop."""
+    """``topic`` if an outcome may name it: a non-empty string the registry can store
+    (`storable_text`). Both adapters and the codec apply this one rule, so neither accepts an
+    outcome the other would drop, nor one the registry could never write (#1759 review)."""
     if not isinstance(topic, str) or not topic:
         raise ValueError("an outcome names its topic")
-    if "\x00" in topic:
-        raise ValueError("an outcome's topic has no NUL")
+    if not storable_text(topic):
+        raise ValueError("an outcome's topic has no NUL and no lone surrogate")
     return topic
 
 
 UNSTORABLE_ERROR_CODE = "error_code_unstorable"
-"""Stands in for a terminal frame's error code that is too long for the registry or holds a NUL.
-url4 does not bound a code, so a producer names the case instead of losing the outcome."""
+"""Stands in for a terminal frame's error code that is too long for the registry, or is text it
+cannot store (`storable_text`). url4 does not bound a code, so a producer names the case instead of
+losing the outcome."""
 
 
 def storable_error_code(code: str | None) -> str | None:
     """``code`` if the registry can store it as it is, else `UNSTORABLE_ERROR_CODE`."""
-    if code is None or (len(code) <= ERROR_CODE_LENGTH and "\x00" not in code):
+    if code is None or (len(code) <= ERROR_CODE_LENGTH and storable_text(code)):
         return code
     return UNSTORABLE_ERROR_CODE
+
+
+# What Postgres JSONB refuses in text and SQLite keeps: a NUL, and a lone surrogate.
+_UNSTORABLE_TEXT = re.compile("[\x00\ud800-\udfff]")
+
+
+def storable_text(text: str) -> bool:
+    """Whether both registry databases can hold ``text``: no NUL and no lone surrogate (half of
+    a truncated emoji). INVARIANT: the one rule for every text the registry stores, so a request
+    is refused, and an outcome cleaned, by the same definition (review round 4)."""
+    return _UNSTORABLE_TEXT.search(text) is None
+
+
+MAX_RECORD_DEPTH = 32
+"""How deeply a record nests. The Engine's fold nests three levels; the bound keeps a hostile one
+from exhausting the stack, which would read as a crash and not as a malformed outcome."""
+
+
+def _storable(value: Any, depth: int) -> Any:
+    result = value
+    if isinstance(value, str):
+        result = _UNSTORABLE_TEXT.sub("\ufffd", value)
+    elif isinstance(value, float) and not math.isfinite(value):
+        result = None
+    elif isinstance(value, Mapping | list | tuple):
+        if depth >= MAX_RECORD_DEPTH:
+            raise ValueError(f"a record nests at most {MAX_RECORD_DEPTH} levels")
+        if isinstance(value, Mapping):
+            result = {
+                _storable(key, depth): _storable(item, depth + 1) for key, item in value.items()
+            }
+        else:
+            result = [_storable(item, depth + 1) for item in value]
+    return result
+
+
+def storable_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    """``record`` as either registry database stores it: U+FFFD for a NUL or a lone surrogate
+    in any text, and null for a number that is not finite.
+
+    WHY changed and not refused: the text is a provider's error message, and an outcome that
+    Postgres could never write would be redelivered for a day, holding back the outcomes fetched
+    with it. Its state, error code and cost must land.
+
+    Raises:
+        ValueError: ``record`` nests more than `MAX_RECORD_DEPTH` levels.
+    """
+    return _storable(record, 0)
 
 
 logger = logging.getLogger(__name__)
@@ -116,8 +168,12 @@ class CandidateOutcome:
     record: Mapping[str, Any] | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
-        if self.record is not None and not isinstance(self.record, Mapping):
-            raise ValueError("an outcome's record is a JSON object")
+        if self.record is not None:
+            if not isinstance(self.record, Mapping):
+                raise ValueError("an outcome's record is a JSON object")
+            # INVARIANT: every outcome's record can be written on either database, whoever
+            # built it: a producer here, or the codec reading another's.
+            object.__setattr__(self, "record", storable_record(self.record))
         if self.status not in OUTCOME_STATUSES:
             raise ValueError(f"an outcome status is one of {sorted(OUTCOME_STATUSES)}")
         cost = self.cost_usd
@@ -129,7 +185,10 @@ class CandidateOutcome:
         ):
             raise ValueError(f"a cost must be a finite amount from 0 up to {_MAX_COST} USD")
         if storable_error_code(self.error_code) != self.error_code:
-            raise ValueError(f"an error code is at most {ERROR_CODE_LENGTH} characters, no NUL")
+            raise ValueError(
+                f"an error code is at most {ERROR_CODE_LENGTH} characters, with no NUL and no "
+                "lone surrogate"
+            )
         if self.finished_at.utcoffset() is None:
             raise ValueError("an outcome's finished_at must be timezone-aware")
 
@@ -138,8 +197,9 @@ def encode_outcome(topic: str, outcome: CandidateOutcome) -> bytes:
     """The outcome's wire form. WHY the cost as a string: a JSON number is a float to most
     readers, and a float cannot hold an exact cost.
 
-    `ValueError` for one over `MAX_OUTCOME_BYTES`, which the stream would refuse: its producer
-    publishes it again without the record (E5 P2 spec §4.3).
+    `ValueError` for one over `MAX_OUTCOME_BYTES`, which the stream would refuse. Producers
+    publish `within_cap(topic, outcome)`, which leaves out a record that takes it over (E5 P2
+    spec §4.3).
     """
     cost = None if outcome.cost_usd is None else str(outcome.cost_usd)
     body: dict[str, Any] = {
@@ -256,6 +316,25 @@ class CandidateOutcomeStream(Protocol):
         ...
 
 
+def within_cap(topic: str, outcome: CandidateOutcome) -> CandidateOutcome:
+    """``outcome`` as it can be published: without its record when the record takes it over
+    `MAX_OUTCOME_BYTES` (E5 P2 spec §4.3). WHY: its state, error code and cost must land; the
+    Candidate then settles as one no runner reported a record for. Anything else `encode_outcome`
+    refuses is left for the publish to refuse."""
+    if outcome.record is None:
+        return outcome
+    try:
+        encode_outcome(topic, outcome)
+    except ValueError:
+        logger.warning(
+            "the outcome of %s is over %d bytes with its record; it is published without it",
+            topic,
+            MAX_OUTCOME_BYTES,
+        )
+        return replace(outcome, record=None)
+    return outcome
+
+
 async def publish_outcome(
     stream: CandidateOutcomeStream | None, topic: str, outcome: CandidateOutcome
 ) -> None:
@@ -268,7 +347,7 @@ async def publish_outcome(
     if stream is None:
         return
     try:
-        await stream.publish(topic, outcome)
+        await stream.publish(topic, within_cap(topic, outcome))
     except Exception:
         logger.exception("could not publish the candidate outcome of %s", topic)
 
@@ -285,4 +364,6 @@ __all__ = [
     "decode_outcome",
     "encode_outcome",
     "publish_outcome",
+    "storable_text",
+    "within_cap",
 ]

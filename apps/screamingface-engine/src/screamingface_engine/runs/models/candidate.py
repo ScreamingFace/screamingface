@@ -53,8 +53,9 @@ class Candidate(BaseCandidate):
         abstract = False
         table = "run_candidates"
         unique_together = (("run", "index"),)
-        # Reconcile's scan (spec R6): live Candidates by how long ago they were bound.
-        indexes = (("state", "bound_at"),)
+        # Reconcile's scan (spec R6): live Candidates by how long ago they were bound. The
+        # driver's tick (E5 P2 spec R9): the stops still owed, read every `run_driver_tick_s`.
+        indexes = (("state", "bound_at"), ("stop_owed",))
 
     run: fields.ForeignKeyRelation[Run] = fields.ForeignKeyField(
         "runs.Run", related_name="candidates", on_delete=fields.OnDelete.CASCADE

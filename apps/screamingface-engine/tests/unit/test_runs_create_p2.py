@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -44,12 +44,11 @@ def starts(*names: str, **flags: Any) -> list[dict[str, Any]]:
 
 
 class _Results:
-    """A run-results store that records what it is asked, and refuses every put when ``down``."""
+    """A run-results store in a folder that refuses every put when ``down``."""
 
     def __init__(self, root: Path, *, down: bool = False) -> None:
         self._folder = FilesystemRunResultStore(root)
         self.down = down
-        self.deleted: list[str] = []
 
     def put(self, key: str, body: bytes) -> None:
         if self.down:
@@ -58,11 +57,6 @@ class _Results:
 
     def open(self, key: str) -> ArtifactContent | None:
         return self._folder.open(key)
-
-    def delete(self, keys: Iterable[str]) -> None:
-        keys = list(keys)
-        self.deleted.extend(keys)
-        self._folder.delete(keys)
 
     def delete_older_than(self, cutoff: datetime) -> int:
         return 0
@@ -102,7 +96,12 @@ async def test_a_run_with_starts_reads_them_back_to_its_owner(
     body = (await engine.client.get(f"/runs/{created.json()['id']}", headers=ALICE)).json()
 
     assert created.status_code == 201
-    assert (body["detached"], body["deadline_at"], body["stopped_by"]) == (False, None, None)
+    # An attached Run stops a grace after it was created unless a follower holds it (R10).
+    assert (body["detached"], body["deadline_at"], body["stopped_by"]) == (
+        False,
+        "2026-11-02T12:02:00Z",
+        None,
+    )
     assert body["context"] is None
     assert [c["index"] for c in body["candidates"]] == [0, 1]
     assert [c["start"] for c in body["candidates"]] == [
@@ -335,19 +334,43 @@ async def test_a_run_whose_context_cannot_be_stored_is_not_registered(
     assert engine.app.state.run_drivers.woken == 0
 
 
-async def test_a_context_sent_again_for_the_same_run_is_deleted(
+async def test_a_stated_x_profile_is_refused_before_anything_is_kept(
     registry: Registry, tmp_path: Path
 ) -> None:
+    """`POST /runs` feeds the driver, so it refuses a selector as the start route does
+    (OME-1381): no Run, no context, no driver woken."""
+    engine = _engine(registry, tmp_path)
+
+    refused = await engine.create({**ALICE, "X-Profile": "a"}, candidates=starts(), context="ctx")
+
+    assert _problem(refused) == (400, "x_profile_unsupported")
+    assert refused.headers["Cache-Control"] == "private, no-store"
+    assert (await engine.client.get("/runs", headers=ALICE)).json()["runs"] == []
+    assert list((tmp_path / "results").rglob("*")) == []
+    assert engine.app.state.run_drivers.woken == 0
+
+
+async def test_post_runs_documents_the_x_profile_refusal(
+    registry: Registry, tmp_path: Path
+) -> None:
+    operation = _engine(registry, tmp_path).app.openapi()["paths"]["/runs"]["post"]
+
+    (header,) = [p for p in operation["parameters"] if p["name"] == "X-Profile"]
+    assert (header["in"], header["deprecated"]) == ("header", True)
+    assert "x_profile_unsupported" in operation["responses"]["400"]["description"]
+
+
+async def test_a_context_sent_again_for_the_same_run_leaves_the_runs_own(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """The repeated request's context is left to age (spec R13); the Run keeps its own."""
     engine = _engine(registry, tmp_path)
     first = (await engine.create(candidates=starts(), context="ctx")).json()
 
     again = await engine.create(candidates=starts(), context="ctx")
 
-    results = engine.app.state.run_results
     assert (again.status_code, again.json()["id"]) == (200, first["id"])
-    (deleted,) = results.deleted
-    assert deleted != context_key(first["id"]) and deleted.endswith("/context")
-    assert results.open(context_key(first["id"])) is not None
+    assert engine.app.state.run_results.open(context_key(first["id"])) is not None
 
 
 class _RegisterFails:
@@ -361,7 +384,7 @@ class _RegisterFails:
         raise ConnectionError("the database is down")
 
 
-async def test_a_context_whose_run_failed_to_register_is_deleted(
+async def test_a_run_that_failed_to_register_is_a_retryable_503(
     registry: Registry, tmp_path: Path
 ) -> None:
     engine = _engine(registry, tmp_path)
@@ -370,9 +393,7 @@ async def test_a_context_whose_run_failed_to_register_is_deleted(
     refused = await engine.create(candidates=starts(), context="ctx")
 
     assert refused.status_code == 503
-    (deleted,) = engine.app.state.run_results.deleted
-    assert deleted.endswith("/context")
-    assert engine.app.state.run_results.open(deleted) is None
+    assert (await engine.client.get("/runs", headers=ALICE)).json()["runs"] == []
 
 
 async def test_a_foreign_owner_cannot_read_the_run(registry: Registry, tmp_path: Path) -> None:
@@ -395,3 +416,175 @@ async def test_a_names_only_body_is_refused_with_a_code(registry: Registry, tmp_
 
     assert _problem(refused) == (422, "invalid_request")
     assert (await engine.client.get("/runs", headers=ALICE)).json()["runs"] == []
+
+
+@pytest.mark.parametrize(
+    ("url4", "status"),
+    [
+        ("gpt(" + "x" * 500_000 + ")", 201),
+        ("gpt(" + "x" * 530_000 + ")", 422),
+        # Counted as the run queue carries it: a control character is six bytes there.
+        ("gpt(" + "\x01" * 100_000 + ")", 422),
+        # An emoji is twelve bytes there, two escaped UTF-16 halves.
+        ("gpt(" + "\U0001f600" * 50_000 + ")", 422),
+    ],
+    ids=["under", "over", "over-once-escaped", "over-as-astral"],
+)
+async def test_a_start_too_large_for_the_run_queue_is_refused(
+    registry: Registry, tmp_path: Path, url4: str, status: int
+) -> None:
+    """A start is one run-queue message, which the broker bounds (1 MiB by default). INVARIANT:
+    a Run is never registered with a Candidate the Engine could not start."""
+    engine = _engine(registry, tmp_path)
+
+    resp = await engine.create(candidates=[{"name": "a", "url4": url4}])
+
+    assert resp.status_code == status
+    if status == 422:
+        assert resp.json()["code"] == "invalid_request"
+        assert len(resp.content) < 4_096
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"candidates": [{"name": "a", "url4": "gpt(half an emoji \ud83d)"}]},
+        {"candidates": [{"name": "a\ud83d", "url4": "gpt(a)"}]},
+        {"benchmark": "gsm8k\udc00"},
+    ],
+    ids=["url4", "name", "benchmark"],
+)
+async def test_a_lone_surrogate_is_a_coded_422_on_every_database(
+    registry: Registry, tmp_path: Path, body: dict[str, Any]
+) -> None:
+    """A truncated emoji leaves half a UTF-16 pair, which PostgreSQL text cannot hold. INVARIANT:
+    a body that can never be stored is the caller's 422, not a 503 that invites a retry."""
+    engine = _engine(registry, tmp_path)
+
+    # WHY encoded here: httpx cannot encode a lone surrogate; a client's JSON escapes it.
+    resp = await engine.client.post(
+        "/runs",
+        content=json.dumps({**BODY, **body}),
+        headers={**ALICE, "Content-Type": "application/json"},
+    )
+
+    assert _problem(resp) == (422, "invalid_request")
+    assert (await engine.client.get("/runs", headers=ALICE)).json()["runs"] == []
+
+
+@pytest.mark.parametrize("since", ["9999-12-31T23:59:59-12:00", "0001-01-01T00:00:00+14:00"])
+async def test_a_since_no_database_can_hold_is_a_coded_422(
+    registry: Registry, tmp_path: Path, since: str
+) -> None:
+    """Out of range once in UTC: Postgres cannot encode it. INVARIANT: a query that can never be
+    answered is the caller's 422, not a 503 that invites a retry."""
+    engine = _engine(registry, tmp_path)
+
+    resp = await engine.client.get("/runs", params={"since": since}, headers=ALICE)
+
+    assert _problem(resp) == (422, "invalid_request")
+
+
+async def test_a_non_ascii_candidate_name_reads_back_as_sent(
+    registry: Registry, tmp_path: Path
+) -> None:
+    engine = _engine(registry, tmp_path)
+
+    created = await engine.create(candidates=starts("α-модель", "b"))
+    run = (await engine.client.get(f"/runs/{created.json()['id']}", headers=ALICE)).json()
+
+    assert [c["name"] for c in run["candidates"]] == ["α-модель", "b"]
+
+
+async def test_a_deadline_no_duration_can_hold_is_a_coded_422(
+    registry: Registry, tmp_path: Path
+) -> None:
+    engine = _engine(registry, tmp_path)
+
+    refused = await engine.create(candidates=starts(), detach=True, deadline_s=-(10**20))
+
+    assert _problem(refused) == (422, "invalid_request")
+
+
+async def test_a_retry_matches_its_run_when_a_name_has_outer_spaces(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """A name is kept stripped, so the same body sent again must still read as the same Run."""
+    engine = _engine(registry, tmp_path)
+    spaced = [{"name": " a ", "url4": "gpt(a)"}]
+
+    first = await engine.create(candidates=spaced)
+    again = await engine.create(candidates=spaced)
+
+    assert (first.status_code, again.status_code) == (201, 200)
+    assert again.json()["id"] == first.json()["id"]
+
+
+class _RegistersThenLosesTheAnswer(_RegisterFails):
+    """A registry whose register commits, but whose answer never arrives."""
+
+    async def register(self, *args: Any) -> Any:
+        await self._store.register(*args)
+        raise ConnectionError("the answer was lost")
+
+
+async def test_a_run_that_registered_keeps_its_context_when_its_answer_is_lost(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """INVARIANT: a registered Run's context is never deleted, so its Report can be built on
+    another machine. The route cannot tell a failed register from a lost answer, so it asks."""
+    engine = _engine(registry, tmp_path)
+    engine.app.state.run_registry = _RegistersThenLosesTheAnswer(registry.store)
+
+    lost = await engine.create(candidates=starts(), context="ctx")
+    engine.app.state.run_registry = registry.store
+    again = await engine.create(candidates=starts(), context="ctx")
+
+    assert (lost.status_code, again.status_code) == (503, 200)
+    run_id = again.json()["id"]
+    served = await engine.client.get(f"/runs/{run_id}/context", headers=ALICE)
+    assert (served.status_code, served.content) == (200, b"ctx")
+
+
+async def test_a_client_that_leaves_mid_upload_is_no_server_error(
+    registry: Registry, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Review round 4: a notebook interrupted while sending its `POST /runs` is not a 500 and
+    not an ERROR on-call reads as a bug."""
+    import logging
+
+    from starlette.types import Message, Scope
+
+    engine = _engine(registry, tmp_path)
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return {"type": "http.disconnect"}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope: Scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/runs",
+        "raw_path": b"/runs",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"content-length", b"1000"),
+            (b"x-user-email", EMAIL.encode()),
+        ],
+        "client": ("127.0.0.1", 1),
+        "server": ("testserver", 80),
+    }
+    with caplog.at_level(logging.WARNING):
+        await engine.app(scope, receive, send)
+
+    (start,) = [message for message in sent if message["type"] == "http.response.start"]
+    assert start["status"] < 500
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]

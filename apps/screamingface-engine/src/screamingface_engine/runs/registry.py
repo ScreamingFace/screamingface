@@ -130,14 +130,14 @@ class RunRegistry(Protocol):
         run_id: str,
         reason: StopReason,
         *,
-        unless_followed_since: datetime | None = None,
+        past_deadline_at: datetime | None = None,
     ) -> bool:
         """Stop the Run while any Candidate is live (E5 P2 spec R9): keep the first reason, settle
         every unbound `pending` Candidate `stopped`, move every bound one to `scheduled`, and owe
         a stop to every live Candidate that has a topic. Returns whether this call stopped it.
 
-        With ``unless_followed_since``, an orphan stop does nothing when the Run was followed
-        after that time (R10).
+        With ``past_deadline_at``, a deadline stop does nothing unless the Run's deadline is at or
+        before that time: a follower that came back since the tick's read keeps the Run (R11).
         """
         ...
 
@@ -177,25 +177,29 @@ class RunRegistry(Protocol):
         ...
 
     async def due_runs(self, now: datetime) -> list[DueRun]:
-        """The Runs the driver's tick has work for: to drive, past their deadline, attached
-        with nobody following, or with stops still owed."""
+        """The Runs the driver's tick has work for: to drive, past their deadline, or with stops
+        still owed."""
         ...
 
-    async def pending_starts(self, run_id: str) -> StartPlan | None:
-        """What the driver needs to start the Run's next Candidates (R1)."""
+    async def pending_starts(self, run_id: str, *, inflight: int | None = None) -> StartPlan | None:
+        """What the driver needs to start the Run's next Candidates (R1). With ``inflight``, the
+        starts of only as many as fit beside the owner's in flight, across their Runs."""
         ...
 
     async def overdue(self, run_id: str, before: datetime) -> list[str]:
         """The topics of the Run's in-flight Candidates sent before ``before`` (R7)."""
         ...
 
-    async def followed(self, run_id: str, at: datetime) -> None:
-        """Stamp that the Run had a follower at ``at``; the stamp never moves back (R10)."""
+    async def hold(self, run_id: str) -> None:
+        """A follower holds the Run: move an attached, unstopped Run's deadline to
+        `orphan_grace` from now (the default deadline with the rule off). It never moves back,
+        and a detached Run's never moves (R10)."""
         ...
 
     async def settle_startless(self) -> int:
         """Settle the `pending` Candidates no start will ever reach: those of a Run a Client
-        from before P2 registered (R11). Returns how many it moved."""
+        from before P2 registered (R11), once it has been idle for P1's pending grace (1800 s).
+        Returns how many it moved."""
         ...
 
 

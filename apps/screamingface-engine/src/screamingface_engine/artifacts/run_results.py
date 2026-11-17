@@ -9,13 +9,12 @@ INVARIANT (D9a): the App builds every key, from the Run, the index and the resul
 never reads one from a runner. The checksum in a result's key means a second execution of one start
 never overwrites the first.
 
-INVARIANT (R13): retention deletes the keys a Run names, its context and each recorded result. An
-object no record names (a second execution, a lost outcome) is removed by age: by the bucket's
-31-day lifecycle rule on S3, by `delete_older_than` in a folder. So the S3 adapter never lists,
-and `artifacts/sigv4.py` keeps its one-object bound.
+INVARIANT (R13): every object is removed by age, never by name: by the bucket's 31-day lifecycle
+rule on S3, by `delete_older_than` in a folder, a day after the Runs' retention, so no object goes
+before the rows of its Run. So the S3 adapter never lists and never deletes, and
+`artifacts/sigv4.py` keeps its one-object bound.
 
-LAYERING: a shared leaf (`artifacts`). The runner puts results; the App puts contexts, reads and
-deletes.
+LAYERING: a shared leaf (`artifacts`). The runner puts results; the App puts contexts and reads.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ import re
 import shutil
 import tempfile
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -47,6 +46,8 @@ _PREFIX = re.compile(rf"^{_RUN}/{_INDEX}$")
 # The first retry's wait, and the longest one (R5).
 _FIRST_DELAY_S = 0.5
 _MAX_DELAY_S = 10.0
+EMPTY_RESULT_SHA256 = hashlib.sha256(b"").hexdigest()
+"""The checksum of the empty result each run writes before it spends, as its probe (R5)."""
 DEFAULT_RESULT_WRITE_BUDGET_S = 60.0
 """How long a runner retries a refused write before it fails the run (R5)."""
 
@@ -67,6 +68,20 @@ def result_key(prefix: str, sha256: str) -> str:
     return check_key(f"{_checked(_PREFIX, prefix)}/{sha256}")
 
 
+def recorded_result_key(run_id: str, index: int, record: object) -> str | None:
+    """The key of the result a Candidate's record names (D9a): its prefix and the record's
+    `result.sha256`. None when the record names none, or a malformed checksum. INVARIANT: the
+    one rule the result route serves by, and the runner's `result_key` stores under."""
+    result = record.get("result") if isinstance(record, dict) else None
+    digest = result.get("sha256") if isinstance(result, dict) else None
+    if not isinstance(digest, str):
+        return None
+    try:
+        return result_key(result_prefix(run_id, index), digest)
+    except ValueError:
+        return None
+
+
 def context_key(run_id: str) -> str:
     """Where the Client's context for a Run goes (D9b)."""
     return check_key(f"runs/{run_id}/context")
@@ -85,7 +100,12 @@ def _checked(pattern: re.Pattern[str], key: str) -> str:
 
 class RunResultStoreUnavailable(RuntimeError):
     """The store refused a result for the whole write budget. INVARIANT (R5): the run then ends
-    `failed` with `result_store_unavailable`, which is not permanent."""
+    `failed` with `result_store_unavailable`, which is not permanent. WHY on the class: the
+    spool path raises it through the grading code unwrapped, and the run's error reads `code`
+    and `permanent` off whatever reaches it."""
+
+    code = RESULT_STORE_UNAVAILABLE
+    permanent = False
 
 
 @runtime_checkable
@@ -101,10 +121,6 @@ class RunResultStore(Protocol):
 
     def open(self, key: str) -> ArtifactContent | None:
         """The object under ``key``, or None when it is absent."""
-        ...
-
-    def delete(self, keys: Iterable[str]) -> None:
-        """Remove these keys; an absent one is not an error."""
         ...
 
     def delete_older_than(self, cutoff: datetime) -> int:
@@ -130,10 +146,6 @@ class S3RunResultStore:
     def open(self, key: str) -> ArtifactContent | None:
         return self._store.object_content(check_key(key))
 
-    def delete(self, keys: Iterable[str]) -> None:
-        for key in keys:
-            self._store.delete_object(check_key(key))
-
     def delete_older_than(self, cutoff: datetime) -> int:
         """Always 0: the bucket's lifecycle rule removes by age (R13)."""
         return 0
@@ -146,30 +158,30 @@ class FilesystemRunResultStore:
         self._root = root
 
     def put(self, key: str, body: bytes) -> None:
-        path = self._root / check_key(key)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # WHY a rename: a reader never sees a partly written file.
-        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
-            handle.write(body)
-        os.replace(handle.name, path)
+        self._written(key, lambda target: target.write(body))
 
     def put_file(self, key: str, handle: IO[bytes], size: int, sha256: str) -> None:
+        handle.seek(0)
+        self._written(key, lambda target: shutil.copyfileobj(handle, target))
+
+    def _written(self, key: str, write: Callable[[IO[bytes]], object]) -> None:
+        """WHY a rename: a reader never sees a partly written file. WHY the temp file removed on
+        a failure (review round 5): a refused write is retried (R5), and each try would leave
+        one behind."""
         path = self._root / check_key(key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        handle.seek(0)
-        with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as target:
-            shutil.copyfileobj(handle, target)
-        os.replace(target.name, path)
+        target = tempfile.NamedTemporaryFile(dir=path.parent, delete=False)  # noqa: SIM115
+        try:
+            with target:
+                write(target)
+            os.replace(target.name, path)
+        except BaseException:
+            Path(target.name).unlink(missing_ok=True)
+            raise
 
     def open(self, key: str) -> ArtifactContent | None:
         path = self._root / check_key(key)
         return LocalFile(path) if path.is_file() else None
-
-    def delete(self, keys: Iterable[str]) -> None:
-        for key in keys:
-            path = self._root / check_key(key)
-            path.unlink(missing_ok=True)
-            self._prune(path.parent)
 
     def delete_older_than(self, cutoff: datetime) -> int:
         removed = 0
@@ -305,6 +317,7 @@ class _RunResultSink:
 
 __all__ = [
     "DEFAULT_RESULT_WRITE_BUDGET_S",
+    "EMPTY_RESULT_SHA256",
     "RESULT_STORE_MISSING",
     "RESULT_STORE_UNAVAILABLE",
     "FilesystemRunResultStore",
@@ -315,6 +328,7 @@ __all__ = [
     "S3RunResultStore",
     "check_key",
     "context_key",
+    "recorded_result_key",
     "result_key",
     "result_prefix",
     "write_result",

@@ -7,6 +7,7 @@ does not drop me, and while I follow, my attached Run keeps going.
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import replace
@@ -57,7 +58,9 @@ class _Runs:
         self.stopped_by: StopReason | None = None
         self.recorded: dict[int, dict[str, Any]] = {}
         self.down = 0
-        self.stamps: list[datetime] = []
+        self.holds = 0
+        # While set, every summary read waits: the route's poll is stalled.
+        self.stalled = False
 
     def move(self, index: int, state: CandidateState, topic: str | None = None) -> None:
         old = self.candidates[index]
@@ -69,6 +72,8 @@ class _Runs:
             raise ConnectionError("the database is down")
 
     async def summary(self, owner: OwnerKey, run_id: str) -> RunRecord | None:
+        while self.stalled:
+            await asyncio.sleep(0.01)
         self._fail()
         if (owner, run_id) != (OWNER, RUN_ID):
             return None
@@ -90,9 +95,9 @@ class _Runs:
         self._fail()
         return {i: self.recorded.get(i) for i in indexes}
 
-    async def followed(self, run_id: str, at: datetime) -> None:
+    async def hold(self, run_id: str) -> None:
         self._fail()
-        self.stamps.append(at)
+        self.holds += 1
 
     async def aclose(self) -> None:
         """The App's shutdown closes its registry."""
@@ -156,7 +161,8 @@ class _App:
         self.portal.call(self.stream.publish, frame.subject, frame)
 
     def follow(self, run_id: str = RUN_ID, headers: dict[str, str] = ALICE) -> WebSocketTestSession:
-        return self.client.websocket_connect(f"/runs/{run_id}/events", headers=headers)
+        # WHY a copy: the test client adds its handshake headers to the mapping it is given.
+        return self.client.websocket_connect(f"/runs/{run_id}/events", headers=dict(headers))
 
 
 def _next(ws: WebSocketTestSession, *, heartbeats: bool = False) -> dict[str, Any]:
@@ -279,6 +285,34 @@ def test_a_late_follower_gets_the_record_of_an_ended_candidate_and_the_events_of
     assert frames[-1] == {"type": "run.ended", "state": "canceled", "stopped_by": "canceled"}
 
 
+def test_a_succeeded_candidate_settles_once_its_record_lands(app_of: Callable[..., _App]) -> None:
+    """Review round 3: the driver may settle a Candidate from its terminal frame before the
+    runner's outcome lands (R7). Its settled frame waits for the record, which names the result
+    the Client fetches."""
+    runs = _Runs(("succeeded", "t0"))
+    app = app_of(runs)
+
+    with app.follow() as ws:
+        early = [_next(ws, heartbeats=True) for _ in range(3)]
+        runs.recorded[0] = RECORD
+        frames = _until(ws, "run.ended")
+
+    assert early == [{"type": "heartbeat"}] * 3
+    assert _of(frames, 0) == [("candidate.settled", ("succeeded", RECORD))]
+
+
+def test_a_succeeded_candidate_whose_record_never_lands_settles_after_the_outcome_grace(
+    app_of: Callable[..., _App],
+) -> None:
+    runs = _Runs(("succeeded", "t0"))
+    app = app_of(runs, run_outcome_grace_s=0.2)
+
+    with app.follow() as ws:
+        frames = _until(ws, "run.ended")
+
+    assert _of(frames, 0) == [("candidate.settled", ("succeeded", None))]
+
+
 def test_a_candidate_stopped_before_it_ran_settles_without_waiting_for_a_frame(
     app_of: Callable[..., _App],
 ) -> None:
@@ -316,13 +350,14 @@ def test_a_registry_failure_does_not_close_the_stream(app_of: Callable[..., _App
 
     with app.follow() as ws:
         assert _next(ws)["state"] == "scheduled"
-        stamped = len(runs.stamps)
+        held = runs.holds
         runs.down = 20
         app.publish(_log("t0", "during"))
         during = [_next(ws), _next(ws)]
         _wait(lambda: runs.down == 0, "the route stopped reading the registry")
-        _wait(lambda: len(runs.stamps) > stamped, "no stamp after the registry came back")
+        _wait(lambda: runs.holds > held, "no hold after the registry came back")
         app.publish(_ended("t0"))
+        runs.recorded[0] = RECORD  # the outcome writes state and record together
         runs.move(0, "succeeded")
         frames = _until(ws, "run.ended")
 
@@ -330,7 +365,7 @@ def test_a_registry_failure_does_not_close_the_stream(app_of: Callable[..., _App
     assert frames[-1]["type"] == "run.ended"
 
 
-def test_a_connected_follower_is_stamped_again(app_of: Callable[..., _App]) -> None:
+def test_a_connected_follower_holds_the_run_again(app_of: Callable[..., _App]) -> None:
     runs = _Runs(("pending", None))
     app = app_of(runs, run_follow_stamp_s=0.05)
 
@@ -338,12 +373,10 @@ def test_a_connected_follower_is_stamped_again(app_of: Callable[..., _App]) -> N
         _next(ws)
         for _ in range(6):
             _next(ws, heartbeats=True)
-        _wait(lambda: len(runs.stamps) >= 3, "a connected follower was not stamped again")
-
-    assert runs.stamps == sorted(runs.stamps)
+        _wait(lambda: runs.holds >= 3, "a connected follower did not hold the Run again")
 
 
-def test_a_follower_is_stamped_when_it_connects_and_when_it_leaves(
+def test_a_follower_holds_the_run_when_it_connects_and_when_it_leaves(
     app_of: Callable[..., _App],
 ) -> None:
     runs = _Runs(("pending", None))
@@ -351,16 +384,39 @@ def test_a_follower_is_stamped_when_it_connects_and_when_it_leaves(
 
     with app.follow() as ws:
         _next(ws)
-        assert len(runs.stamps) == 1
+        assert runs.holds == 1
 
-    _wait(lambda: len(runs.stamps) == 2, "a leaving follower was not stamped")
+    _wait(lambda: runs.holds == 2, "a leaving follower did not hold the Run")
+
+
+def test_a_follower_whose_frames_stall_still_holds_the_run(app_of: Callable[..., _App]) -> None:
+    """R10: the route holds on a timer of its own, not in the loop that sends frames, so a
+    follower that reads slowly (one fetching a result) holds its Run while its socket is open."""
+    runs = _Runs(("pending", None))
+    app = app_of(runs, run_follow_stamp_s=0.05)
+
+    with app.follow() as ws:
+        _next(ws)
+        runs.stalled = True
+        held = runs.holds
+        _wait(lambda: runs.holds >= held + 3, "a stalled follow stopped holding the Run")
+        runs.stalled = False
 
 
 # --- who may follow (spec D5) ------------------------------------------------------------
 
 
-@pytest.mark.parametrize("who", ["foreign", "unknown", "malformed", "no-identity", "runs-off"])
-def test_only_the_owner_follows_a_run(app_of: Callable[..., _App], who: str) -> None:
+@pytest.mark.parametrize(
+    ("who", "reason"),
+    [
+        ("foreign", "run_not_found"),
+        ("unknown", "run_not_found"),
+        ("malformed", "run_not_found"),
+        ("no-identity", "identity_required"),
+        ("runs-off", "runs_off"),
+    ],
+)
+def test_only_the_owner_follows_a_run(app_of: Callable[..., _App], who: str, reason: str) -> None:
     runs = _Runs(("scheduled", "t0"))
     app = app_of(None if who == "runs-off" else runs)
     run_id = {"unknown": "run_" + "0" * 32, "malformed": "nope"}.get(who, RUN_ID)
@@ -369,5 +425,60 @@ def test_only_the_owner_follows_a_run(app_of: Callable[..., _App], who: str) -> 
     with pytest.raises(WebSocketDisconnect) as refused, app.follow(run_id, headers) as ws:
         ws.receive_json()
 
-    assert refused.value.code == 1008
-    assert runs.stamps == []
+    assert (refused.value.code, refused.value.reason) == (1008, reason)
+    assert runs.holds == 0
+
+
+def test_a_registry_that_cannot_say_whose_the_run_is_asks_the_follower_to_retry(
+    app_of: Callable[..., _App],
+) -> None:
+    runs = _Runs(("scheduled", "t0"))
+    runs.down = 1
+    app = app_of(runs)
+
+    with pytest.raises(WebSocketDisconnect) as refused, app.follow() as ws:
+        ws.receive_json()
+
+    assert (refused.value.code, refused.value.reason) == (1013, "registry_unavailable")
+
+
+def test_a_settled_frame_names_the_candidates_attempt_and_error_code(
+    app_of: Callable[..., _App],
+) -> None:
+    """The Client builds a Candidate's outcome from this frame alone: the attempt names it and
+    keys its saved result, and the code says why one with no record ended (spec §4.2)."""
+    runs = _Runs(("scheduled", "t0"), ("pending", None))
+    app = app_of(runs)
+    runs.recorded[0] = RECORD
+    runs.move(0, "succeeded")
+    runs.candidates[1] = replace(runs.candidates[1], state="failed", error_code="start_refused")
+
+    with app.follow() as ws:
+        frames = _until(ws, "run.ended")
+
+    settled = {frame["index"]: frame for frame in frames if frame["type"] == "candidate.settled"}
+    assert (settled[0]["attempt_id"], settled[0]["error_code"]) == ("t0", None)
+    assert (settled[1]["attempt_id"], settled[1]["error_code"]) == (None, "start_refused")
+
+
+def test_a_follower_that_asks_for_no_events_gets_each_candidates_state_and_end(
+    app_of: Callable[..., _App],
+) -> None:
+    """`Run.wait()` needs only when the Run ends, so it asks for no events (`?events=false`):
+    the stream sends each Candidate's state, its settled frame and the Run's end, and still
+    holds an attached Run (R10)."""
+    runs = _Runs(("scheduled", "t0"))
+    app = app_of(runs)
+    app.publish(_log("t0", "old"))
+
+    url = f"/runs/{RUN_ID}/events?events=false"
+    with app.client.websocket_connect(url, headers=dict(ALICE)) as ws:
+        assert _next(ws) == {"type": "candidate.state", "index": 0, "state": "scheduled"}
+        app.publish(_log("t0", "one"))
+        app.publish(_ended("t0"))
+        runs.recorded[0] = RECORD
+        runs.move(0, "succeeded")
+        frames = _until(ws, "run.ended")
+
+    assert _of(frames, 0) == [("candidate.settled", ("succeeded", RECORD))]
+    assert runs.holds

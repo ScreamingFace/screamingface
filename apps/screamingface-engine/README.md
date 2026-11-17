@@ -453,20 +453,23 @@ DELETE /runs/{id}   → 202, or 204 when every Candidate is already terminal
 
 - **Owner.** Hosted, the verified `X-User-Email` (401 without it); local mode, `local`. Another
   owner's id answers `404` with `code: run_not_found`, exactly as an unknown one. No answer
-  carries the owner or the owner's email.
+  carries the owner or the owner's email. The App keeps the email, to start the Candidates, only
+  sealed (AES-256-GCM under `URL4_CLOUD_RUN_EMAIL_KEY`).
 - **Starts.** Each Candidate is `{name, url4, answer_seed, capture, use_cache,
   replay_frozen_copy}`, checked as the start route checks its headers. The App's driver starts
-  them, at most `URL4_CLOUD_RUN_DRIVER_INFLIGHT` (8) at once, under the owner's identity. A
-  Candidate named without its start is `422 invalid_request`.
+  them, as many at once as the per-caller cap admits (`GET /v1/limits`, 24), under the owner's
+  identity. A Candidate named without its start is `422 invalid_request`.
 - **Detach and deadline.** `detach: true` keeps the Run going with nobody following, until its
   `deadline_s` (default 48 h, at most 7 days: `422 deadline_too_long`; without `detach`: `422
-  deadline_needs_detach`). An attached Run stops, `stopped_by: "orphaned"`, once nobody has
-  followed it for `URL4_CLOUD_ORPHAN_GRACE_S` (120 s).
+  deadline_needs_detach`). An attached Run's `deadline_at` is `URL4_CLOUD_ORPHAN_GRACE_S` (120 s)
+  after its creation, and a follower holds it that far ahead: it stops, `stopped_by:
+  "orphaned"`, once nobody has followed it for that long.
 - **Context.** `context` is a string the Engine keeps as sent, in the run-results store under
   the Run, with its `sha256` and size on the Run; at most `URL4_CLOUD_RUN_CONTEXT_MAX_BYTES`
   (4 MiB, `422 context_too_large`). A store that cannot take it answers `503
   result_store_unavailable`, and no Run is registered. A body over
-  `URL4_CLOUD_RUN_REQUEST_MAX_BYTES` (8 MiB) answers `413 request_too_large`.
+  `URL4_CLOUD_RUN_REQUEST_MAX_BYTES` (8 MiB) answers `413 request_too_large`, and a stated
+  `X-Profile` `400 x_profile_unsupported`, as on the start route.
 - **Reads.** `GET /runs/{id}` adds `detached`, `deadline_at`, `stopped_by`, `context`, and each
   Candidate's `index`, `start` and `record` (the Candidate's usage, cache and capture facts, null
   until it ends). `?view=summary` and the list leave `start` and `record` out.
@@ -475,10 +478,11 @@ DELETE /runs/{id}   → 202, or 204 when every Candidate is already terminal
   result_not_found` before it ends, without a result, or past retention).
 - **Events.** One WebSocket for the whole Run: `candidate.state` (`pending`, `scheduled`, and
   `running` at a Candidate's first event), `candidate.event` (its CloudEvents, from the oldest the
-  stream holds), `candidate.settled` (state and record, once, after its terminal frame),
-  `run.ended` (state and `stopped_by`, then a 1000 close), and `heartbeat`. A follower is
-  stamped on connect, every `URL4_CLOUD_RUN_FOLLOW_STAMP_S` (30 s) and on leave; a registry
-  failure does not close the socket. A foreign or unknown Run closes it with 1008.
+  stream holds), `candidate.settled` (state, attempt, error code and record, once, after its
+  terminal frame), `run.ended` (state and `stopped_by`, then a 1000 close), and `heartbeat`. A
+  follower holds an attached Run on connect, every `URL4_CLOUD_RUN_FOLLOW_STAMP_S` (30 s) and on
+  leave, on a timer of its own, so one that reads slowly still holds it; a registry failure does
+  not close the socket. A foreign or unknown Run closes it with 1008.
 - **Codes.** Every 404 and 422 on `/runs` carries a `code`: `runs_off`, `run_not_found`,
   `invalid_request`, and the ones above.
 - **Raw starts.** `GET /?q=` never touches the Run registry. The `X-SF-Run` headers a Client

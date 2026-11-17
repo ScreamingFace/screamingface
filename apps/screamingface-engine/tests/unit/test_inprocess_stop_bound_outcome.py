@@ -62,3 +62,18 @@ async def test_without_an_outcome_stream_nothing_is_published() -> None:
     runner = InProcessJobRunner(InMemoryEventStream(), lambda env: _Executor())
 
     await runner.stop_bound(TOPIC)
+
+
+async def test_a_driver_started_topic_runs_once_in_this_process_even_after_it_ended() -> None:
+    """R14 (review round 3): the driver sends a start again when it cannot record that it was
+    sent; a local Run's start that already ran is refused as started, never run (and paid) a
+    second time. A raw start keeps today's rule: refused only while it runs."""
+    from url4.streaming.interfaces import JobAlreadyExists
+
+    outcomes = InMemoryCandidateOutcomeStream()
+    runner = _runner(_Executor(), outcomes)
+    await runner.schedule(TOPIC, "q", 10, exclusive=True)
+    await _published(outcomes)
+
+    with pytest.raises(JobAlreadyExists):
+        await runner.schedule(TOPIC, "q", 10, exclusive=True)

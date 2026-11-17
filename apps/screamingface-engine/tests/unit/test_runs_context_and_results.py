@@ -8,6 +8,7 @@ Run's context and each Candidate's result to build its Report, and nobody else c
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -111,7 +112,7 @@ async def test_a_context_gone_from_the_store_is_not_found(
 ) -> None:
     engine = _engine(registry, tmp_path)
     run_id = await _run(engine, context="ctx")
-    engine.app.state.run_results.delete([context_key(run_id)])
+    (tmp_path / "results" / context_key(run_id)).unlink()
 
     resp = await engine.client.get(f"/runs/{run_id}/context", headers=ALICE)
 
@@ -135,6 +136,23 @@ async def test_a_result_is_served_from_the_key_its_record_names(
     assert resp.content == RESULT
     assert resp.headers["content-type"].startswith("text/markdown")
     assert resp.headers["Cache-Control"] == "private, no-store"
+
+
+async def test_a_media_type_with_non_ascii_letters_is_served_as_plain_bytes(
+    registry: Registry, tmp_path: Path
+) -> None:
+    """Review round 3: a header is latin-1, so a recorded media type outside ASCII is never
+    sent as one; the result is still served."""
+    engine = _engine(registry, tmp_path)
+    run_id = await _run(engine)
+    engine.app.state.run_results.put(result_key(result_prefix(run_id, 1), DIGEST), RESULT)
+    await _settle(registry, run_id, 1, _with_result(media_type="text/данные"))
+
+    resp = await engine.client.get(f"/runs/{run_id}/candidates/1/result", headers=ALICE)
+
+    assert resp.status_code == 200
+    assert resp.content == RESULT
+    assert resp.headers["content-type"] == "application/octet-stream"
 
 
 @pytest.mark.parametrize(
@@ -219,3 +237,54 @@ async def test_records_reads_the_named_candidates_of_the_owners_run(
     assert await registry.store.records(OWNER, run_id, [1]) == {1: _with_result()}
     assert await registry.store.records(OWNER, run_id, [0, 1, 9]) == {0: None, 1: _with_result()}
     assert await registry.store.records(owner_key("bob@example.org"), run_id, [1]) is None
+
+
+# --- what the Run recorded (#1759 review) ---------------------------------------------------
+
+
+async def test_a_result_replaced_in_the_store_is_not_served(
+    registry: Registry, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """#1759 review: the store's length is the object's, so a replaced one would be served past
+    the size the Run recorded. A warning tells it from a result past retention."""
+    engine = _engine(registry, tmp_path)
+    run_id = await _run(engine)
+    engine.app.state.run_results.put(result_key(result_prefix(run_id, 0), DIGEST), RESULT * 2)
+    await _settle(registry, run_id, 0, _with_result())
+
+    with caplog.at_level(logging.WARNING, logger="screamingface_engine.rest.runs_objects"):
+        resp = await engine.client.get(f"/runs/{run_id}/candidates/0/result", headers=ALICE)
+
+    assert _code(resp) == (404, "result_not_found")
+    assert [r.getMessage() for r in caplog.records if r.name.endswith(".runs_objects")] == [
+        f"The stored result of Candidate 0 of Run {run_id} is {len(RESULT) * 2} bytes, not the "
+        f"{len(RESULT)} its Run recorded; it is served as absent"
+    ]
+
+
+async def test_a_context_replaced_in_the_store_is_not_served(
+    registry: Registry, tmp_path: Path
+) -> None:
+    engine = _engine(registry, tmp_path)
+    run_id = await _run(engine, context="ctx")
+    engine.app.state.run_results.put(context_key(run_id), b"a longer context")
+
+    resp = await engine.client.get(f"/runs/{run_id}/context", headers=ALICE)
+
+    assert _code(resp) == (404, "context_not_found")
+
+
+async def test_a_streamed_object_is_cut_at_the_size_the_run_recorded() -> None:
+    """An object replaced between the read of its length and its body sends no more than its
+    `Content-Length`."""
+    from screamingface_engine.artifacts.ports import RemoteStream
+    from screamingface_engine.rest.runs_objects import _as_recorded
+
+    async def body() -> AsyncIterator[bytes]:
+        yield b"abc"
+        yield b"defgh"
+
+    served = _as_recorded(RemoteStream(body(), 5), 5, "object")
+    assert isinstance(served, RemoteStream)
+    assert b"".join([chunk async for chunk in served.stream]) == b"abcde"
+    assert _as_recorded(RemoteStream(body(), 8), 5, "object") is None

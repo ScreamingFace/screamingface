@@ -64,3 +64,31 @@ async def test_a_run_p1_canceled_still_reads_canceled(tmp_path: Path) -> None:
     assert record is not None
     assert (record.state, record.stopped_by, record.detached) == ("canceled", "canceled", False)
     assert record.candidates[0].start is None
+
+
+async def test_a_run_p1_cancels_after_the_migration_still_reads_canceled(tmp_path: Path) -> None:
+    """R12, R15: while a deploy rolls, the App from before P2 still cancels by its flag alone,
+    after the migration has run. Such a Run must read `canceled`, not `interrupted`."""
+    path = tmp_path / "runs.sqlite3"
+    url = f"sqlite://{path}"
+    await _migrate_to(url, None)
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO runs (id, owner, client_key, benchmark, case_count, client_version,"
+            " canceled, created_at, last_activity_at, detached) VALUES (?, ?, 'k', 'gsm8k', 1,"
+            " '1.0', 1, ?, ?, 0)",
+            (RUN_ID, ALICE, T0.isoformat(), T0.isoformat()),
+        )
+        conn.execute(
+            'INSERT INTO run_candidates (run_id, "index", name, state, finished_at, stop_owed)'
+            " VALUES (?, 0, 'alpha', 'stopped', ?, 0)",
+            (RUN_ID, T0.isoformat()),
+        )
+
+    await db.init_db(url)
+    try:
+        record = await make_store(Clock(), True, T0, ORPHAN_GRACE).get(ALICE, RUN_ID)
+    finally:
+        await db.close_db()
+    assert record is not None
+    assert (record.state, record.stopped_by) == ("canceled", "canceled")

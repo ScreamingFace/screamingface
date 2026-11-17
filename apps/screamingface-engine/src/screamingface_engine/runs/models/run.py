@@ -13,7 +13,6 @@ from screamingface_engine.runs.records import (
     MAX_BENCHMARK_LENGTH,
     MAX_CLIENT_KEY_LENGTH,
     MAX_CLIENT_VERSION_LENGTH,
-    MAX_OWNER_EMAIL_LENGTH,
 )
 
 if TYPE_CHECKING:
@@ -45,19 +44,18 @@ class BaseRun(Model):
     created_at = fields.DatetimeField()
     # INVARIANT (spec §4.3): moves forward only, on every bind, schedule, settle and cancel.
     last_activity_at = fields.DatetimeField()
-    # E5 P2 spec D11: a detached Run stops at `deadline_at`; an attached one when nobody follows
-    # it (D10), or at `deadline_at` too when that rule is off.
+    # E5 P2 spec D10, D11: every Run the Engine drives stops at `deadline_at`. A detached Run's is
+    # fixed; a follower moves an attached Run's forward (R10). NULL for a Run without starts.
     detached = fields.BooleanField(default=False, db_default=False)
     deadline_at = fields.DatetimeField(null=True)
     # INVARIANT (E5 P2 spec D12): the first stop's reason, set once and never changed.
     stopped_by = fields.CharField(max_length=STOP_REASON_LENGTH, null=True)
-    # E5 P2 spec D8: the driver starts the Candidates as this owner after the Client has gone.
-    # AIDEV-NOTE: personal data; returned by no route, and never logged.
-    owner_email = fields.CharField(max_length=MAX_OWNER_EMAIL_LENGTH, null=True)
+    # E5 P2 spec D8, R16: the owner's email, sealed (`runs.sealing`); the driver opens it to start
+    # the Candidates as this owner after the Client has gone. AIDEV-NOTE: personal data; returned
+    # by no route, never logged, and never stored unsealed.
+    sealed_owner_email = fields.TextField(null=True)
     # E5 P2 spec D4: one driver per Run, by this lease. NULL when nobody holds it.
     driver_lease_until = fields.DatetimeField(null=True)
-    # INVARIANT (E5 P2 spec R10): moves forward only; the attached Run's orphan clock.
-    last_followed_at = fields.DatetimeField(null=True)
     # E5 P2 spec D9b: the Client's context lives in the run-results store; these name it.
     context_sha256 = fields.CharField(max_length=SHA256_LENGTH, null=True)
     context_bytes = fields.IntField(null=True)

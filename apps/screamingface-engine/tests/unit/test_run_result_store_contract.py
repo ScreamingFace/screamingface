@@ -10,6 +10,7 @@ sent, as `test_s3_artifact_store.py` does; the filesystem adapter against a temp
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -55,10 +56,6 @@ class _FakeS3:
     def _put(self, path: str, request: httpx.Request) -> httpx.Response:
         self.objects[path] = request.content
         return httpx.Response(200)
-
-    def _delete(self, path: str, _request: httpx.Request) -> httpx.Response:
-        self.objects.pop(path, None)
-        return httpx.Response(204)
 
     def _head(self, path: str, _request: httpx.Request) -> httpx.Response:
         if path not in self.objects:
@@ -147,21 +144,6 @@ async def test_a_missing_key_reads_as_absent(store: RunResultStore) -> None:
     assert store.open(result_key(result_prefix(RUN, 0), DIGEST)) is None
 
 
-@pytest.mark.asyncio
-async def test_delete_removes_the_named_keys_and_nothing_else(store: RunResultStore) -> None:
-    kept = result_key(result_prefix(RUN, 1), DIGEST)
-    gone = result_key(result_prefix(RUN, 0), DIGEST)
-    store.put(kept, BODY)
-    store.put(gone, BODY)
-    store.put(context_key(RUN), b"context")
-
-    store.delete([gone, context_key(RUN), result_key(result_prefix(RUN, 9), DIGEST)])
-
-    assert store.open(gone) is None
-    assert store.open(context_key(RUN)) is None
-    assert await _read(store, kept) == BODY
-
-
 def test_the_s3_put_is_one_signed_put_of_the_body() -> None:
     fake = _FakeS3()
     key = result_key(result_prefix(RUN, 0), DIGEST)
@@ -235,3 +217,20 @@ def _clock(step: float = 1.0) -> Callable[[], float]:
         return now[0]
 
     return tick
+
+
+def test_a_local_write_that_fails_leaves_no_temp_file(tmp_path: Path) -> None:
+    """#1759 review round 5: a refused write is retried (R5), and each try left a temp file in
+    the Candidate's folder, which retention could then not remove."""
+
+    class _Failing(io.BytesIO):
+        def read(self, size: int | None = -1) -> bytes:
+            raise OSError("no space left on device")
+
+    store = FilesystemRunResultStore(tmp_path)
+    key = result_key(result_prefix(RUN, 0), DIGEST)
+
+    with pytest.raises(OSError, match="no space"):
+        store.put_file(key, _Failing(b"x"), 1, DIGEST)
+
+    assert list((tmp_path / result_prefix(RUN, 0)).iterdir()) == []

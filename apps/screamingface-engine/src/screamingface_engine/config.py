@@ -4,7 +4,7 @@ environment variables."""
 from collections.abc import Mapping
 from typing import Any, Literal, Self
 
-from pydantic import Field, PrivateAttr, field_validator, model_validator
+from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from screamingface_engine import job_env, runner_queue, subjects
@@ -344,9 +344,9 @@ class Settings(BaseSettings):
     run_sweep_interval_s: float = Field(default=3600.0, gt=0, allow_inf_nan=False)
 
     # --- the Engine's driver (OME-1837, E5 P2) ------------------------------------------------
-    # FEATURE: a detached Run. How many of one Run's Candidates are in flight at once (spec R1);
-    # the run queue's per-caller cap is the same 8.
-    run_driver_inflight: int = Field(default=8, ge=1)
+    # FEATURE: a detached Run. How many of one owner's Candidates, across their Runs, are in
+    # flight at once is the runner's per-caller cap (`run_queue_caller_inflight_cap`, spec R1),
+    # so it has no setting.
     # WHY 60 s (spec R4): renewed every third of it, so two missed renewals still hold the lease,
     # and a dead App's Runs are taken over within a minute.
     run_driver_lease_s: float = Field(default=60.0, gt=0, allow_inf_nan=False)
@@ -363,8 +363,8 @@ class Settings(BaseSettings):
     topic_claim_budget_s: float = Field(default=5.0, gt=0, allow_inf_nan=False)
     # How often the Run event stream reads the registry (spec §4.2).
     run_events_poll_s: float = Field(default=1.0, gt=0, allow_inf_nan=False)
-    # How often the Run event stream stamps that a follower is connected (spec R10); a shorter
-    # `orphan_grace_s` shortens it (`follow_stamp_s`).
+    # How often the Run event stream holds a followed Run (spec R10); a shorter `orphan_grace_s`
+    # shortens it (`follow_stamp_s`).
     run_follow_stamp_s: float = Field(default=30.0, gt=0, allow_inf_nan=False)
     # The Client's context, and the whole `POST /runs` body (spec D9b, §4.1).
     run_context_max_bytes: int = Field(default=4 * 1024**2, gt=0)
@@ -372,6 +372,9 @@ class Settings(BaseSettings):
     # A detached Run's deadline when it names none, and the longest it may name (spec D11).
     run_detached_deadline_s: float = Field(default=48 * 3600.0, gt=0, allow_inf_nan=False)
     run_detached_deadline_max_s: float = Field(default=7 * 86_400.0, gt=0, allow_inf_nan=False)
+    # The key that seals each Run's owner email at rest (spec R16): 32 bytes, base64. A hosted App
+    # with Runs on refuses to start without it (`runs.wiring`). Never logged.
+    run_email_key: SecretStr | None = None
     # The outcome stream `url4-candidate-outcomes` (spec R11), declared by the App and the runner
     # pool at startup from these values (`candidateOutcomes.*` in the chart). When it is full, a
     # publish is refused rather than an older, unwritten outcome dropped.
@@ -570,12 +573,12 @@ class Settings(BaseSettings):
 
     @property
     def follow_stamp_s(self) -> float:
-        """How often the Run event stream stamps a follower: `run_follow_stamp_s`, or half of a
-        shorter `orphan_grace_s`.
+        """How often the Run event stream holds a followed Run: `run_follow_stamp_s`, or half of
+        a shorter `orphan_grace_s`.
 
-        INVARIANT (E5 P2 spec R10): a follower is stamped at least twice per grace, so one late
-        stamp never reads as an orphaned Run. WHY derived, not refused: a deployment that sets a
-        short grace alone, as P1 allowed, still starts.
+        INVARIANT (E5 P2 spec R10): a follower holds its Run at least twice per grace, so one
+        late hold never lets the Run reach its deadline. WHY derived, not refused: a deployment
+        that sets a short grace alone, as P1 allowed, still starts.
         """
         if self.orphan_grace_s:
             return min(self.run_follow_stamp_s, self.orphan_grace_s / 2)

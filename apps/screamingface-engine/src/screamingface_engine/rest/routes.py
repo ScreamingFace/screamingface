@@ -31,7 +31,7 @@ from screamingface_engine.auth import (
     new_topic,
 )
 from screamingface_engine.cache_intent import parse_cache_control
-from screamingface_engine.catalog.admission import RunModelAdmission
+from screamingface_engine.catalog.admission import RunModelAdmission, run_model_admission
 from screamingface_engine.client_provenance import parse_user_agent
 from screamingface_engine.config import Settings
 from screamingface_engine.error_text import (
@@ -169,20 +169,8 @@ def _deps(request: Request) -> _Deps:
         # Direct attribute, no getattr fallback: create_app always builds the store, so
         # its absence is a wiring bug that must fail loudly, not degrade to 404s.
         artifact_store=state.artifact_store,
-        model_admission=_model_admission(state),
+        model_admission=run_model_admission(state),
     )
-
-
-def _model_admission(state: Any) -> RunModelAdmission | None:
-    """The App's run-admission port, or None.
-
-    WHY getattr and an isinstance check, unlike the direct attributes above: the
-    model-parameter source is optional (no gateway configured), and a test or an App wired
-    without ``create_app`` may hand in a source that cannot admit — scheduling then works as it
-    did before this port existed.
-    """
-    source = getattr(state, "model_parameters", None)
-    return source if isinstance(source, RunModelAdmission) else None
 
 
 @dataclass(frozen=True)

@@ -478,6 +478,30 @@ The Secret holding the App's run-results key pair: an `existingSecret` wins, els
 `<fullname>-run-results-storage`. INVARIANT: its keys are `URL4_CLOUD_RUN_RESULTS_S3_*`, distinct
 from the artifact and blob pairs.
 */}}
+{{/*
+The Secret holding the key that seals each Run's owner email (E5 P2 spec R16): the operator's
+`database.emailKey.existingSecret`, else the one the chart generates (`secret-run-email-key.yaml`).
+*/}}
+{{- define "screamingface-engine.runEmailKeySecretName" -}}
+{{- if .Values.database.emailKey.existingSecret -}}
+{{- .Values.database.emailKey.existingSecret -}}
+{{- else -}}
+{{- printf "%s-run-email-key" (include "screamingface-engine.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+The key in that Secret: the operator's `existingSecretKey` in their own Secret; in the one the
+chart generates, always `URL4_CLOUD_RUN_EMAIL_KEY` (#1759 review round 4).
+*/}}
+{{- define "screamingface-engine.runEmailKeySecretKey" -}}
+{{- if .Values.database.emailKey.existingSecret -}}
+{{- .Values.database.emailKey.existingSecretKey -}}
+{{- else -}}
+URL4_CLOUD_RUN_EMAIL_KEY
+{{- end -}}
+{{- end -}}
+
 {{- define "screamingface-engine.runResultsSecretName" -}}
 {{- if .Values.runResults.storage.s3.existingSecret -}}
 {{- .Values.runResults.storage.s3.existingSecret -}}

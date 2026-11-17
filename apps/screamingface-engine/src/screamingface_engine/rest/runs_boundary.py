@@ -12,14 +12,16 @@ from fastapi import Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from starlette.exceptions import HTTPException
-from starlette.requests import HTTPConnection
+from starlette.requests import ClientDisconnect, HTTPConnection
 from starlette.types import Message
 
 from screamingface_engine import job_env
 from screamingface_engine.artifacts.run_results import RESULT_STORE_UNAVAILABLE
 from screamingface_engine.auth import ProblemException
+from screamingface_engine.ports import IdentityAwareJobRunner, QueueReadError
 from screamingface_engine.rest.capped_body import BodyTooLarge, capped_body
 from screamingface_engine.rest.gateway_route import problem_responses
+from screamingface_engine.rest.selector import refuse_selector
 from screamingface_engine.rest.stopping import QUEUE_UNAVAILABLE_RETRY_AFTER_S, stop_topic
 from screamingface_engine.runs.db import UNAVAILABLE_ERRORS
 from screamingface_engine.runs.ids import RUN_ID_PATTERN
@@ -92,8 +94,7 @@ class RunsRoute(APIRoute):
         async def runs_route_handler(request: Request) -> Response:
             # WHY before `route_handler`: that is where FastAPI reads and parses the body, so an
             # unparseable one would otherwise answer 422 ahead of Runs off and identity.
-            request_registry(request)
-            request_owner(request)
+            _admit(request, self.methods)
             try:
                 return await route_handler(await _capped(request))
             except RequestValidationError as exc:
@@ -126,6 +127,18 @@ class RunsRoute(APIRoute):
         return runs_route_handler
 
 
+def _admit(request: Request, methods: set[str] | None) -> None:
+    """Runs off (404) and no identity (401) first; then, on `POST /runs`, a stated selector (400).
+
+    WHY the selector: `POST /runs` feeds the driver, which schedules, so it refuses one as the
+    start route does (OME-1381), before the body is read.
+    """
+    request_registry(request)
+    request_owner(request)
+    if methods and "POST" in methods:
+        refuse_selector(request.headers, problem_headers=dict(PRIVATE_HEADERS))
+
+
 async def _capped(request: Request) -> Request:
     """``request`` with its body read up to `run_request_max_bytes` (E5 P2 spec §4.1): a body
     over it is a 413 before any of it is parsed. WHY a new `Request`: FastAPI reads the body
@@ -138,6 +151,16 @@ async def _capped(request: Request) -> Request:
     except BodyTooLarge as exc:
         raise problem(
             status=413, title="Content Too Large", detail=str(exc), code=REQUEST_TOO_LARGE
+        ) from None
+    except ClientDisconnect:
+        # WHY a 400 and a debug line (review round 4): a client interrupted mid-upload is not a
+        # server failure; nobody reads the answer, and on-call must not see it as a bug.
+        _logger.debug("a POST /runs client left before its body arrived")
+        raise problem(
+            status=400,
+            title="Bad Request",
+            detail="the request body did not arrive whole",
+            code=MALFORMED_BODY,
         ) from None
 
     async def replay() -> Message:
@@ -254,6 +277,19 @@ async def stop_candidate(request: Request, topic: str) -> None:
     # No runner: this App schedules nothing, so nothing of the Run is on one.
     if job_runner is not None:
         await stop_topic(job_runner, request.app.state.stream, topic, bound=True)
+
+
+async def candidate_stop_landed(request: Request, topic: str) -> bool:
+    """Whether the stop of ``topic`` has landed (`IdentityAwareJobRunner.stop_landed`). WHY an
+    unreadable tail reads as not landed: the cancel itself succeeded, and the driver's next tick
+    finishes the stop it still owes."""
+    job_runner = request.app.state.job_runner
+    if not isinstance(job_runner, IdentityAwareJobRunner):
+        return True
+    try:
+        return await job_runner.stop_landed(topic)
+    except QueueReadError:
+        return False
 
 
 def private_failure(exc: BaseException) -> BaseException:

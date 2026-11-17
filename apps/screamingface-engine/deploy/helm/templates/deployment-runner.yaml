@@ -130,7 +130,9 @@ spec:
         checksum/runner-env: {{ include (print $.Template.BasePath "/configmap-runner-env.yaml") . | sha256sum }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret-artifact-storage.yaml") . | sha256sum }}
         checksum/blob-secret: {{ include (print $.Template.BasePath "/secret-blob-storage.yaml") . | sha256sum }}
-        checksum/run-results-secret: {{ include (print $.Template.BasePath "/secret-run-results-storage.yaml") . | sha256sum }}
+        # The Secret NAMES too, as the App's (#1759 review): an operator's Secret is rotated by
+        # naming a new one.
+        checksum/run-results-secret: {{ printf "%s\n%s\n%s" (include (print $.Template.BasePath "/secret-run-results-storage.yaml") .) .Values.runResults.storage.s3.existingSecret .Values.runResults.storage.s3.poolExistingSecret | sha256sum }}
         checksum/tavily: {{ include (print $.Template.BasePath "/secret-tavily.yaml") . | sha256sum }}
         {{- if include "screamingface-engine.worldConfigEnabled" . }}
         # OME-1770: the SAME supplied content revision as the App's — see `worldConfig`. Warm

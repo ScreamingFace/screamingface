@@ -734,13 +734,18 @@ buckets — apply it to the results bucket and to the blob bucket:
 }
 ```
 
-Save it as `lifecycle.json` and apply it with any S3 client, once per bucket, e.g.
+The **run-results store** (E5 P2) needs a rule of its own too, one day longer than the Runs'
+retention: `"Expiration": { "Days": 31 }`. The App deletes a Run's rows after 30 days and never
+deletes its objects; the rule removes every context, result and probe, after the Run.
+
+Save each rule as `lifecycle.json` and apply it with any S3 client, once per bucket, e.g.
 `aws s3api put-bucket-lifecycle-configuration --endpoint-url <endpoint> --bucket <bucket>
 --lifecycle-configuration file://lifecycle.json`. With the bundled stores that is the results
-Garage (`<fullname>-garage`, bucket `artifactStorage.s3.bucket`) and the blob Garage
-(`<fullname>-garage-blobs`, bucket `blobs.storage.s3.bucket`), each with its own key pair from
-its own Secret. Check that your store supports lifecycle expiry before relying on it; without
-it, objects grow until removed by hand.
+Garage (`<fullname>-garage`, bucket `artifactStorage.s3.bucket`), the blob Garage
+(`<fullname>-garage-blobs`, bucket `blobs.storage.s3.bucket`) and, with Runs on, the run-results
+Garage (`<fullname>-garage-run-results`, bucket `runResults.storage.s3.bucket`, the 31-day
+rule), each with its own key pair from its own Secret. Check that your store supports lifecycle
+expiry before relying on it; without it, objects grow until removed by hand.
 
 ### Using storage you already run
 
@@ -776,11 +781,24 @@ runResults:
 
 With `endpointUrl` empty the chart renders `<fullname>-garage-run-results`, a parallel of the blob
 Garage: its own volume, its own key pair in `<fullname>-run-results-storage` (generated and adopted
-on first boot), a random RPC secret only the Garage pod receives. It has no lifecycle rule and no
-backup, so it is a test cluster's store; production names a durable bucket with a 31-day rule
-(`DEPLOYMENT.md`: the run-results store). With `endpointUrl` set, no Garage renders, and the render
+on first boot), a random RPC secret only the Garage pod receives. It has no backup, so it is a
+test cluster's store; production names a durable bucket (`DEPLOYMENT.md`: the run-results store).
+Either way the bucket's 31-day lifecycle rule is what removes its objects, since the App's
+retention deletes a Run's rows only (see Expiry). With `endpointUrl` set, no Garage renders, and the render
 fails unless the credentials are supplied. The App and the pool read the key pair by named
-`secretKeyRef`, and carry a `checksum/run-results-secret` annotation so a rotation rolls both.
+`secretKeyRef`, and carry a `checksum/run-results-secret` annotation so a rotation rolls both. The
+annotation hashes the chart's own Secret and the names of `existingSecret` and
+`poolExistingSecret`, so rotate an operator's Secret by naming a new one (a versioned name): a key
+changed in place inside the same Secret does not roll the pods. The chart's own Secret is kept on
+uninstall (`helm.sh/resource-policy: keep`), as the bundled Garage's volume is, so a reinstall opens
+the data it kept.
+
+**Network policy.** The App and the runner pool both reach the run-results store: the App to
+store and serve contexts and results, the pool to write each run's result. A platform
+NetworkPolicy must admit both to it: to the bundled Garage's pods
+(`app.kubernetes.io/component: garage-run-results`) on port 3900, or to the external bucket's
+endpoint. Without that rule a driver-started run fails `result_store_unavailable` before any model
+call, after the write budget, and `POST /runs` with a context answers 503.
 
 ## Blob storage (OME-1540)
 

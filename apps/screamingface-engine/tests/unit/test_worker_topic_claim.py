@@ -106,6 +106,39 @@ async def test_a_dead_holders_claim_is_taken_over_by_exactly_one_contender() -> 
     assert (await claims.claim(TOPIC, "probe")).holder == winner
 
 
+class _LateAnswer(InMemoryTopicClaims):
+    """A claim the bucket commits at once, whose answer reaches ``late`` only on ``release``."""
+
+    def __init__(self, late: str) -> None:
+        super().__init__()
+        self.late = late
+        self.committed = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def claim(self, topic: str, worker_id: str) -> Claim:
+        claim = await super().claim(topic, worker_id)
+        if worker_id == self.late:
+            self.committed.set()
+            await self.release.wait()
+        return claim
+
+
+async def test_a_claim_whose_answer_is_late_is_not_run_beside_a_takeover() -> None:
+    """#1759 review: w1's claim commits but its answer is late, so w1 cannot yet answer for it.
+    w2 asks, hears nothing, takes the claim over and runs. When w1's answer lands, its own claim
+    is no longer the bucket's, and w1 does not run."""
+    claims, fleet = _LateAnswer("w1"), _Fleet()
+    first = asyncio.create_task(_gate("w1", claims, fleet).admit(TOPIC))
+    await claims.committed.wait()
+
+    assert await _gate("w2", claims, fleet).admit(TOPIC)
+    claims.release.set()
+
+    assert not await first
+    assert TOPIC not in fleet.claimed["w1"]
+    assert (await claims.claim(TOPIC, "probe")).holder == "w2"
+
+
 async def test_a_contender_never_answers_for_a_topic_it_does_not_hold() -> None:
     claims, fleet = InMemoryTopicClaims(), _Fleet()
     assert await _gate("w1", claims, fleet).admit(TOPIC)

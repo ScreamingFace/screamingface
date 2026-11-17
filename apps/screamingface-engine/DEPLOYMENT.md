@@ -28,6 +28,20 @@ database only when its volume is empty.
      --from-literal=database-url='postgres://engine:<the password>@<postgres host>:5432/engine'
    ```
 
+   The App holds at most 5 connections to the database (Tortoise's default pool). Each follower
+   of a Run reads it once a second, and each live Run's driver a few times every few seconds, so
+   for more than a few dozen followers raise the pool on the URL, within the server's
+   `max_connections`: `…:5432/engine?maxsize=20`.
+
+   With Runs on, the chart also generates the key that seals each Run's owner email at rest
+   (`URL4_CLOUD_RUN_EMAIL_KEY`, E5 P2 spec R16) into `<release>-run-email-key`, and keeps it
+   across upgrades. To hold it yourself, put 32 random bytes in base64 (`openssl rand -base64 32`)
+   in a Secret and set `database.emailKey.existingSecret`. Deleting or replacing the key fails the
+   pending Candidates of every Run in flight (`owner_unreadable`). The App does not start with
+   Runs on and no key. The generated Secret survives `helm uninstall`. A deployment rendered
+   without access to the cluster's Secrets (`helm template`, Argo CD) gets a new key on every
+   render, so it must use `existingSecret`.
+
 3. Let the App and the migrate Job reach the database. Both run in the Engine's namespace, as
    pods labelled `app.kubernetes.io/component: control-plane` and
    `app.kubernetes.io/component: migrate`. A namespace with a `default-deny` NetworkPolicy needs an
@@ -103,18 +117,20 @@ is refused and logged rather than an older outcome dropped.
 With Runs on, every result of a run the Engine's driver starts, and each Run's context, is kept in
 an S3 bucket of its own for the Run's 30 days (E5 P2 spec D9a). The render fails with Runs on and
 no store. By default the chart renders a third bundled Garage (`<fullname>-garage-run-results`):
-one replica, no backup and no lifecycle rule, which suits a test cluster only. In production:
+one replica and no backup, which suits a test cluster only. Like the other two bundled Garages it
+gets no lifecycle rule from the chart: apply the rule of step 1 to it once, as the chart README's
+Expiry section shows, or nothing in it is removed. In production:
 
 1. Create a durable bucket, and give it a lifecycle rule one day longer than the Runs' retention,
-   31 days. Retention deletes the objects a Run names; the rule removes the ones nothing names (a
-   second execution of one start, a lost outcome).
+   31 days. The rule is what removes every object: retention deletes a Run's rows only, so no
+   object goes before its Run.
 
    ```json
    {"Rules": [{"ID": "expire-run-results", "Status": "Enabled", "Filter": {"Prefix": ""},
                "Expiration": {"Days": 31}}]}
    ```
 
-2. Create two keys: the App's, with read, write and delete on the bucket; the runner pool's, which
+2. Create two keys: the App's, with read and write on the bucket; the runner pool's, which
    may only write, since a runner never reads a result back. Put each in a Secret with the keys
    `URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY` and `URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY`.
 
@@ -131,8 +147,14 @@ one replica, no backup and no lifecycle rule, which suits a test cluster only. I
          poolExistingSecret: <the pool's Secret>
    ```
 
-A runner retries a write the store refuses for `runResults.writeBudgetS` (60 s), then fails the
-run `result_store_unavailable`, which the Client may retry. A pool with no store fails such a run
+4. Admit the App and the runner pool to the store in the platform's NetworkPolicy: the bundled
+   Garage's pods (`app.kubernetes.io/component: garage-run-results`) on port 3900, or the
+   bucket's endpoint. The chart renders no policy of its own (chart README: Run-results storage).
+
+Before any model call, a driver-started run writes one empty object to check that the store
+answers. A runner retries a write the store refuses for `runResults.writeBudgetS` (60 s), then
+fails the run `result_store_unavailable`, which the Client may retry; a store unreachable from
+the pool is found then, before the run spends anything. A pool with no store fails such a run
 `result_store_missing` before any model call.
 
 The runner pool also creates a NATS key-value bucket, `url4-claims`, at startup, with the event
@@ -148,17 +170,39 @@ and registers nothing, and the context and result routes answer the same until i
 A Client follows a Run on one WebSocket, `GET /runs/{id}/events`, which the App checks against
 the Run's owner like every `/runs` route. The edge must pass the verified `X-User-Email` on the
 WebSocket upgrade, as it does on HTTP requests: without it the App closes the socket at once
-(1008, `identity_required`). Check it on staging before a P2 Client is released:
+(1008, `identity_required`). Check it on staging before a P2 Client is released. The App
+accepts the upgrade before it checks the owner, so the HTTP status says nothing; read the first
+frame or the close:
 
 ```sh
-curl -sS -o /dev/null -w '%{http_code}\n' -H 'Connection: Upgrade' -H 'Upgrade: websocket' \
-  -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
-  https://<engine host>/runs/<one of your Run ids>/events
+uv run --no-project --with websockets python - <<'EOF'
+import asyncio, websockets
+
+async def main():
+    url = "wss://<engine host>/runs/<one of your Run ids>/events"
+    auth = {}  # the headers your edge needs to sign you in, as for an HTTP request
+    try:
+        async with websockets.connect(url, additional_headers=auth) as ws:
+            try:
+                print("frame:", (await asyncio.wait_for(ws.recv(), 10))[:80])
+            except websockets.ConnectionClosed:
+                print("closed:", ws.close_code, ws.close_reason)
+    except websockets.InvalidStatus as refused:
+        print("refused by the edge:", refused.response.status_code)
+
+asyncio.run(main())
+EOF
 ```
 
-`101` means the edge passed the identity; `403` means the App refused it.
+- A frame: the edge passed the identity.
+- `closed: 1008 identity_required`: it did not.
+- `closed: 1008 run_not_found`: the Run is not one of yours.
+- `closed: 1008 runs_off`: Runs are off on this Engine.
+- `closed: 1013 registry_unavailable`: the Runs database did not answer; try again.
+- `refused by the edge`: the edge did not sign you in; fix `auth` and try again.
 
-While a follower is connected, the App stamps the Run every `URL4_CLOUD_RUN_FOLLOW_STAMP_S`
-(30 s); an attached Run nobody has followed for `URL4_CLOUD_ORPHAN_GRACE_S` (120 s) is stopped.
-The driver's lease and the follow stamps live in Postgres, so the Run routes add no reason to
+While a follower is connected, the App holds an attached Run's deadline
+`URL4_CLOUD_ORPHAN_GRACE_S` (120 s) ahead, every `URL4_CLOUD_RUN_FOLLOW_STAMP_S` (30 s); an
+attached Run nobody has followed for that long reaches its deadline and stops as `orphaned`.
+The driver's lease and every Run's deadline live in Postgres, so the Run routes add no reason to
 keep the App at one replica beyond those it already has (E5 P2 spec D5).

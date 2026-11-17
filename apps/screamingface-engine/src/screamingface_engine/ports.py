@@ -30,6 +30,18 @@ from url4.streaming.interfaces import JobRunner
 from url4.streaming.protocol import CachePolicy, OutboundFrame
 
 
+class QueueReadError(RuntimeError):
+    """The stream tail could not be read — a TRANSIENT broker failure, not an answer.
+
+    Distinct from "no frame" (which `last_frame` returns as `None`): this says the read
+    itself failed — a `nats.errors.Error` that is not a JetStream `APIError` (a request
+    timeout, a closed connection, a reconnect in flight). Callers that must not mistake
+    "unreadable" for "empty" — the worker's claim-time dedupe gate — catch this and skip
+    the claim, leaving the message for redelivery, instead of either acting on a phantom
+    `None` or letting the error escape into a shared task group.
+    """
+
+
 class StoppedBeforeSchedule(Exception):
     """`schedule()` found its topic already stopped by a bound stop (E5 P1 spec D12): nothing
     runs. WHY an error and not a normal return: the start must answer as canceled, and must not
@@ -130,3 +142,12 @@ class IdentityAwareJobRunner(JobRunner):
         starting. Any other substrate stops it as usual.
         """
         await self.stop(topic)
+
+    async def stop_landed(self, topic: str) -> bool:
+        """Whether a stop of ``topic`` has landed, so the Run need no longer owe it (E5 P2 spec
+        R9). True here: a substrate where nothing else can run the topic once it is stopped.
+
+        Raises:
+            QueueReadError: the stream could not be read: not an answer.
+        """
+        return True

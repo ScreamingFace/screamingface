@@ -15,6 +15,7 @@ import pytest
 
 from screamingface_engine.candidate_outcomes import (
     MAX_OUTCOME_BYTES,
+    MAX_RECORD_DEPTH,
     CandidateOutcome,
     decode_outcome,
     encode_outcome,
@@ -91,3 +92,116 @@ def test_an_outcome_too_large_to_publish_is_refused_at_encode() -> None:
 
     with pytest.raises(ValueError, match="bytes"):
         encode_outcome("t1", CandidateOutcome("failed", finished_at=FINISHED, record=record))
+
+
+@pytest.mark.asyncio
+async def test_an_outcome_whose_record_takes_it_over_the_cap_is_published_without_it() -> None:
+    """§4.3, review round 4: the producer publishes it again without the record, so its state,
+    error code and cost still land; the Candidate settles as one no runner reported."""
+    from screamingface_engine.candidate_outcomes import publish_outcome
+
+    class _Stream:
+        """Refuses what the JetStream codec refuses: anything `encode_outcome` would."""
+
+        def __init__(self) -> None:
+            self.published: list[tuple[str, CandidateOutcome]] = []
+
+        async def publish(self, topic: str, outcome: CandidateOutcome) -> None:
+            encode_outcome(topic, outcome)
+            self.published.append((topic, outcome))
+
+    stream = _Stream()
+    record = {"error": {"message": "x" * MAX_OUTCOME_BYTES}}
+    sent = CandidateOutcome(
+        "failed", "provider_error", cost_usd=Decimal("0.5"), finished_at=FINISHED, record=record
+    )
+
+    await publish_outcome(cast(Any, stream), "t1", sent)
+
+    (published,) = [outcome for topic, outcome in stream.published if topic == "t1"]
+    assert (published.status, published.error_code, published.cost_usd) == (
+        "failed",
+        "provider_error",
+        Decimal("0.5"),
+    )
+    assert published.record is None
+
+
+# --- a record every registry database can store ---------------------------------------------
+
+
+def test_a_record_keeps_only_what_either_database_can_store() -> None:
+    """WHY: Postgres JSONB refuses a NUL, a lone surrogate and a non-finite number, which SQLite
+    keeps; an outcome that could never be written would be redelivered until it expired."""
+    record = {
+        "error": {"message": "a\x00b\ud800c", "details": {"k\x00": [float("nan"), 1.5, "\udfff"]}},
+        "usage": {"input_tokens": 3},
+    }
+
+    outcome = CandidateOutcome("failed", finished_at=FINISHED, record=record)
+
+    assert outcome.record == {
+        "error": {"message": "a�b�c", "details": {"k�": [None, 1.5, "�"]}},
+        "usage": {"input_tokens": 3},
+    }
+
+
+def test_a_decoded_record_is_storable_whatever_its_producer_sent() -> None:
+    body = json.loads(encode_outcome("t1", CandidateOutcome("failed", finished_at=FINISHED)))
+    body["record"] = {"error": {"message": "a\x00b"}}
+
+    _, outcome = decode_outcome(json.dumps(body).encode())
+
+    assert outcome.record == {"error": {"message": "a�b"}}
+
+
+def _nested(depth: int) -> dict[str, Any]:
+    record: dict[str, Any] = {}
+    for _ in range(depth - 1):
+        record = {"d": record}
+    return record
+
+
+def test_a_record_nested_past_the_limit_is_malformed_not_a_crash() -> None:
+    """INVARIANT: the outcome writer skips a malformed outcome; anything else it raises restarts
+    it on the same message, holding back every outcome behind it."""
+    body = json.loads(encode_outcome("t1", CandidateOutcome("failed", finished_at=FINISHED)))
+    body["record"] = _nested(1_200)
+
+    with pytest.raises(ValueError, match="record"):
+        decode_outcome(json.dumps(body).encode())
+
+
+def test_a_record_as_deep_as_the_limit_is_kept() -> None:
+    record = _nested(MAX_RECORD_DEPTH)
+
+    assert CandidateOutcome("failed", finished_at=FINISHED, record=record).record == record
+    with pytest.raises(ValueError, match="record"):
+        CandidateOutcome("failed", finished_at=FINISHED, record=_nested(MAX_RECORD_DEPTH + 1))
+
+
+def test_a_storable_record_is_kept_as_it_is() -> None:
+    record = {"error": {"message": "plain ünïcode 😱"}, "cache_hits": 2}
+
+    assert CandidateOutcome("failed", finished_at=FINISHED, record=record).record == record
+
+
+@pytest.mark.parametrize("field", ["topic", "error_code"])
+def test_an_outcome_with_a_lone_surrogate_the_registry_cannot_store_is_malformed(
+    field: str,
+) -> None:
+    """#1759 review: a lone surrogate passed the topic and error-code checks and round-tripped
+    through JSON, but Postgres refused it, so the outcome was delivered again and again."""
+    body = json.loads(
+        encode_outcome("t1", CandidateOutcome("failed", "boom", finished_at=FINISHED))
+    )
+    body[field] = "a\ud800b"
+
+    with pytest.raises(ValueError):
+        decode_outcome(json.dumps(body).encode())
+
+
+def test_a_producers_error_code_with_a_lone_surrogate_is_named_unstorable() -> None:
+    from screamingface_engine.candidate_outcomes import UNSTORABLE_ERROR_CODE, storable_error_code
+
+    assert storable_error_code("a\udfffb") == UNSTORABLE_ERROR_CODE

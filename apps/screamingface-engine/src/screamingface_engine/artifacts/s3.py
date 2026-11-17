@@ -212,10 +212,6 @@ class S3ArtifactStore:
             stream=self._stream(key), size_bytes=int(head.headers.get("content-length", 0))
         )
 
-    def delete_object(self, key: str) -> None:
-        """Remove the object under `key`. Absence is not an error: a delete races expiry."""
-        self._request("DELETE", key, allow_missing=True)
-
     def put_object_if_absent(self, key: str, data: bytes) -> bool:
         """Create `key` only if no object holds it yet; True when this call created it.
 

@@ -29,12 +29,13 @@ from tortoise.migrations.executor import MigrationExecutor
 
 from screamingface_engine.artifacts.run_results import RunResultStore
 from screamingface_engine.candidate_outcomes import CandidateOutcomeStream
-from screamingface_engine.catalog.admission import RunModelAdmission
+from screamingface_engine.catalog.admission import run_model_admission
 from screamingface_engine.config import Settings
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.runs import db
 from screamingface_engine.runs.consumer import DEFAULT_RETRY_S, OutcomeWriter
 from screamingface_engine.runs.driver import DriverSettings, RunDrivers
+from screamingface_engine.runs.sealing import EmailSeal, decode_key
 from screamingface_engine.runs.store import TortoiseRunStore
 from screamingface_engine.runs.sweeps import RunSweeper
 from url4.streaming.interfaces import EventConsumer, JobRunner
@@ -152,8 +153,21 @@ async def open_run_store(
         started_at=clock(),
         orphan_grace=timedelta(seconds=settings.orphan_grace_s),
         default_deadline=timedelta(seconds=settings.run_detached_deadline_s),
+        seal=email_seal(settings),
         context=context,
     )
+
+
+def email_seal(settings: Settings) -> EmailSeal:
+    """What seals each Run's owner email (spec R16): the configured key, or one made for this
+    process when there is none (local mode, which stores no email, and tests)."""
+    key = settings.run_email_key
+    if key is None:
+        return EmailSeal.for_process()
+    try:
+        return EmailSeal(decode_key(key.get_secret_value()))
+    except ValueError as exc:
+        raise RunsConfigError(f"URL4_CLOUD_RUN_EMAIL_KEY is not a usable key: {exc}") from None
 
 
 async def _require_a_reachable_database(url: str) -> None:
@@ -251,13 +265,12 @@ class _RunsLifecycle:
             retention=timedelta(seconds=self._settings.run_retention_s),
             clock=_utc_now,
             results=self._run_results,
-            objects=store.stored_objects,
         )
-        # WHY awaited: Candidates the last process left, and expired Runs, are cleared before the
-        # App serves; the loop then sweeps every interval.
-        await sweeper.sweep_once()
+        # WHY awaited: the Candidates the last process left are settled before the App serves,
+        # and before the drivers start; the loop sweeps at once, and then every interval.
+        await sweeper.reconcile()
         self._app.state.run_sweep_task = loop.create_task(
-            sweeper.run(interval_s=self._settings.run_sweep_interval_s, sweep_first=False)
+            sweeper.run(interval_s=self._settings.run_sweep_interval_s)
         )
         self._start_drivers(store, loop)
 
@@ -266,14 +279,13 @@ class _RunsLifecycle:
         Candidates the last process left are settled first."""
         if not isinstance(self._job_runner, IdentityAwareJobRunner) or self._events is None:
             return
-        source = getattr(self._app.state, "model_parameters", None)
         drivers = RunDrivers(
             store,
             self._job_runner,
             stream=self._events,
-            settings=DriverSettings.from_settings(self._settings),
+            settings=DriverSettings.from_settings(self._settings, self._job_runner),
             clock=_utc_now,
-            model_admission=source if isinstance(source, RunModelAdmission) else None,
+            model_admission=run_model_admission(self._app.state),
         )
         self._app.state.run_drivers = drivers
         self._app.state.run_driver_task = loop.create_task(drivers.run())
@@ -335,8 +347,9 @@ def install_runs(
     reads it per request.
 
     With ``job_runner`` and ``events`` the App also drives every Run that has starts
-    (`app.state.run_drivers`, E5 P2 spec R1); ``run_results`` is the store retention deletes a
-    Run's objects from (R13). Without them nothing is driven, as before.
+    (`app.state.run_drivers`, E5 P2 spec R1); ``run_results`` is the store the Run routes read
+    from, and, in a folder, the one retention removes old results from by age (R13). Without
+    them nothing is driven, as before.
     """
     app.state.run_registry = None
     app.state.outcome_writer_task = None
@@ -352,6 +365,14 @@ def install_runs(
         raise RunsConfigError(
             "URL4_CLOUD_DATABASE_URL is a SQLite URL; a hosted Engine needs Postgres, because a "
             "pod's SQLite file is wiped on every restart"
+        )
+    if not local and url and settings.run_email_key is None:
+        # INVARIANT (spec R16): a hosted Run keeps its owner's email, so only ever sealed under a
+        # key that outlives this process; one made per process would strand every Run in flight
+        # at the next restart.
+        raise RunsConfigError(
+            "URL4_CLOUD_RUN_EMAIL_KEY is not set; a hosted Engine with Runs on seals each Run's "
+            "owner email with it (DEPLOYMENT.md: turn Runs on)"
         )
     lifecycle = _RunsLifecycle(
         app,

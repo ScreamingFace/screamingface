@@ -11,17 +11,18 @@ index and the checksum in its record, so no request names a key of its own.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
+from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Path, Request, Response
 
-from screamingface_engine.artifacts.ports import ArtifactContent
+from screamingface_engine.artifacts.ports import ArtifactContent, LocalFile, RemoteStream
 from screamingface_engine.artifacts.run_results import (
     RunResultStore,
     context_key,
-    result_key,
-    result_prefix,
+    recorded_result_key,
 )
 from screamingface_engine.auth import ProblemException
 from screamingface_engine.rest.artifacts import content_response
@@ -40,13 +41,17 @@ from screamingface_engine.rest.runs_boundary import (
 from screamingface_engine.runs.ids import RUN_ID_PATTERN
 from screamingface_engine.runs.records import MAX_CANDIDATES
 
+_logger = logging.getLogger(__name__)
 CONTEXT_NOT_FOUND = "context_not_found"
 RESULT_NOT_FOUND = "result_not_found"
 _CONTEXT_MEDIA_TYPE = "text/plain; charset=utf-8"
 _OCTETS = "application/octet-stream"
 # A media type as a runner records it. WHY checked: it becomes a response header, so anything
-# else (a control character, say) is served as plain bytes instead.
-_MEDIA_TYPE = re.compile(r"[\w.+-]{1,64}/[\w.+-]{1,64}(?:; ?[\w.+-]+=[\w.+\"-]{1,64}){0,3}")
+# else (a control character, say) is served as plain bytes instead. WHY ASCII: a header is
+# latin-1, and `\w` alone admits letters it cannot encode.
+_MEDIA_TYPE = re.compile(
+    r"[\w.+-]{1,64}/[\w.+-]{1,64}(?:; ?[\w.+-]+=[\w.+\"-]{1,64}){0,3}", re.ASCII
+)
 
 router = APIRouter(
     prefix="/runs",
@@ -77,19 +82,67 @@ async def _open(request: Request, key: str) -> ArtifactContent | None:
         raise result_store_unavailable(exc) from None
 
 
-def _result_of(run_id: str, index: int, record: Any) -> tuple[str, str] | None:
-    """The key and media type of the result a Candidate's record names, if it names one."""
-    result = record.get("result") if isinstance(record, dict) else None
-    if not isinstance(result, dict) or not isinstance(result.get("sha256"), str):
+def _result_of(run_id: str, index: int, record: Any) -> tuple[str, str, int] | None:
+    """The key, media type and size of the result a Candidate's record names, if it names one
+    with a size."""
+    key = recorded_result_key(run_id, index, record)
+    if key is None:
         return None
-    try:
-        key = result_key(result_prefix(run_id, index), result["sha256"])
-    except ValueError:
+    size = record["result"].get("size_bytes")
+    if not isinstance(size, int) or isinstance(size, bool) or size < 0:
         return None
-    media_type = result.get("media_type")
+    media_type = record["result"].get("media_type")
     if not isinstance(media_type, str) or _MEDIA_TYPE.fullmatch(media_type) is None:
         media_type = _OCTETS
-    return key, media_type
+    return key, media_type, size
+
+
+def _as_recorded(content: ArtifactContent, size: int, what: str) -> ArtifactContent | None:
+    """``content`` if it is the ``size`` bytes the Run recorded, its stream cut at that size;
+    else None, and the object ``what`` names is served as absent, with a warning.
+
+    WHY (#1759 review): the store's own length is the object's, so an object damaged or replaced
+    in the store would be served past the size the Run bounds. The Client checks the checksum.
+    The warning tells a damaged object from one past retention, which both answer 404.
+    """
+    found: int | None
+    if isinstance(content, LocalFile):
+        try:
+            found = content.path.stat().st_size
+        except OSError:
+            found = None  # gone since it was opened: absent, with nothing to warn of
+    else:
+        found = content.size_bytes
+    if found != size:
+        if found is not None:
+            _logger.warning(
+                "The stored %s is %d bytes, not the %d its Run recorded; it is served as absent",
+                what,
+                found,
+                size,
+            )
+        return None
+    if isinstance(content, LocalFile):
+        return content
+    return RemoteStream(_at_most(content.stream, size), size)
+
+
+async def _at_most(stream: AsyncIterator[bytes], size: int) -> AsyncIterator[bytes]:
+    """``stream`` cut at ``size`` bytes. WHY: an object replaced between the read of its length
+    and its body must not send more than its `Content-Length` says."""
+    left = size
+    try:
+        async for chunk in stream:
+            if len(chunk) >= left:
+                if left:
+                    yield chunk[:left]
+                return
+            left -= len(chunk)
+            yield chunk
+    finally:
+        close = getattr(stream, "aclose", None)
+        if close is not None:
+            await close()
 
 
 @router.get(
@@ -112,6 +165,8 @@ async def get_context(request: Request, run_id: str) -> Response:
     if run is None:
         raise run_not_found(run_id)
     content = None if run.context is None else await _open(request, context_key(run_id))
+    if content is not None and run.context is not None:
+        content = _as_recorded(content, run.context.size_bytes, f"context of Run {run_id}")
     if content is None:
         raise _not_found("this Run has no context to serve", CONTEXT_NOT_FOUND)
     return content_response(content, _CONTEXT_MEDIA_TYPE, PRIVATE_HEADERS)
@@ -150,6 +205,8 @@ async def get_result(
         raise run_not_found(run_id)
     named = _result_of(run_id, index, records.get(index))
     content = None if named is None else await _open(request, named[0])
+    if named is not None and content is not None:
+        content = _as_recorded(content, named[2], f"result of Candidate {index} of Run {run_id}")
     if named is None or content is None:
         raise _not_found(f"Candidate {index} of this Run has no result", RESULT_NOT_FOUND)
     return content_response(content, named[1], PRIVATE_HEADERS)

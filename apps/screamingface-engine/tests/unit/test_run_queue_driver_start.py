@@ -113,3 +113,40 @@ async def test_the_queue_runner_carries_the_driver_fields_into_its_message() -> 
     assert (first[job_env.RESULT_PREFIX], first[job_env.EXCLUSIVE]) == (PREFIX, "1")
     assert job_env.RESULT_PREFIX not in second
     assert job_env.EXCLUSIVE not in second
+
+
+class _Tail(_Publisher):
+    def __init__(self, frame: Any) -> None:
+        self.frame = frame
+
+    async def last_frame(self, topic: str) -> Any:
+        if isinstance(self.frame, Exception):
+            raise self.frame
+        return self.frame
+
+
+@pytest.mark.asyncio
+async def test_a_stop_lands_only_once_the_stream_ends_in_a_terminal_frame() -> None:
+    """#1759 review: a stop a worker took is not done until its stopped frame is durable."""
+    from screamingface_engine.ports import QueueReadError
+    from url4.streaming.protocol import TerminatedData, TerminatedEvent, source_for
+
+    def runner(frame: Any) -> QueueJobRunner:
+        return QueueJobRunner(
+            queue=_Queue(),
+            publisher=_Tail(frame),
+            control=_Control(),
+            clock=lambda: datetime(2026, 11, 12, tzinfo=UTC),
+            capability_lifetime_s=60,
+            depth_ceiling=10,
+            caller_inflight_cap=8,
+        )
+
+    stopped = TerminatedEvent(
+        id="e1", source=source_for("t1"), subject="t1", data=TerminatedData(status="stopped")
+    )
+
+    assert await runner(stopped).stop_landed("t1")
+    assert not await runner(None).stop_landed("t1")
+    with pytest.raises(QueueReadError):
+        await runner(QueueReadError("down")).stop_landed("t1")

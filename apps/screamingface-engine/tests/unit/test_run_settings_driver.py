@@ -14,7 +14,6 @@ from screamingface_engine.config import Settings
 def test_the_defaults_are_the_specs() -> None:
     settings = Settings()
 
-    assert settings.run_driver_inflight == 8
     assert settings.run_driver_lease_s == 60
     assert settings.run_driver_tick_s == 15
     assert settings.run_outcome_grace_s == 120
@@ -59,7 +58,6 @@ def test_a_context_cap_that_does_not_fit_the_body_is_refused() -> None:
 @pytest.mark.parametrize(
     "field",
     [
-        "run_driver_inflight",
         "run_driver_lease_s",
         "run_driver_tick_s",
         "run_outcome_grace_s",

@@ -1,9 +1,10 @@
 """The Engine's driver: it starts each Run's Candidates, and stops a Run when it should stop.
 
 FEATURE: a detached Run (OME-1837), E5 P2 spec R1 to R4 and R7 to R11. The Client sends a Run once
-with every Candidate's start; from then on the Engine starts them, at most `inflight` at a time,
-whether or not anyone is following, and stops the Run on a cancel, at a detached Run's deadline, or
-when nobody has followed an attached Run for `orphan_grace_s`.
+with every Candidate's start; from then on the Engine starts them, with at most `inflight` of the
+owner's in flight across their Runs, whether or not anyone is following, and stops the Run on a
+cancel or at its deadline: a detached Run's is fixed, and a follower holds an attached Run's
+`orphan_grace_s` ahead (R10).
 
 INVARIANT (R4): one driver per Run. Each Run is driven under its lease in the registry, taken and
 renewed by a conditional write, so of two App processes only one starts its Candidates, and a
@@ -27,7 +28,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Protocol, cast
 
-from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.artifacts.run_results import result_prefix
 from screamingface_engine.auth.token import new_topic
 from screamingface_engine.candidate_outcomes import (
@@ -38,9 +38,11 @@ from screamingface_engine.candidate_outcomes import (
 )
 from screamingface_engine.catalog.admission import RunModelAdmission
 from screamingface_engine.config import Settings
-from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
+from screamingface_engine.ports import IdentityAwareJobRunner, QueueReadError, StoppedBeforeSchedule
 from screamingface_engine.runner_queue import RunQueueUnavailable
+from screamingface_engine.runs.db import UNAVAILABLE_ERRORS
 from screamingface_engine.runs.records import (
+    P1_PENDING_GRACE,
     CandidateStart,
     DueRun,
     OwnerKey,
@@ -53,15 +55,25 @@ from screamingface_engine.runs.stopping import make_stops
 from screamingface_engine.scheduling import schedule_run
 from screamingface_engine.stopping import stop_topic
 from url4.streaming.interfaces import EventConsumer, JobAlreadyExists, JobRunnerAtCapacity
-from url4.streaming.protocol import CachePolicy, TerminatedEvent
+from url4.streaming.protocol import CachePolicy, OutboundFrame, TerminatedEvent
 from url4.streaming.trace import format_traceparent
 
 logger = logging.getLogger(__name__)
 
 # The verified identity a start carries (`job_env.IDENTITY_HEADER_ENV`): the Run's owner (R1).
 _OWNER_HEADER = "X-User-Email"
-# The code of a permanent refusal that names none.
+# A start that failed on one of these sent nothing, or nothing known: the queue or the Run
+# registry could not be reached, and the same start goes again.
+_UNREACHABLE: tuple[type[Exception], ...] = (RunQueueUnavailable, *UNAVAILABLE_ERRORS)
+# The code of a refusal that names none.
 _REFUSED = "start_refused"
+
+
+class OwnerUnreadable(Exception):  # noqa: N818 - a refusal, read by its `code`
+    """The Run's sealed email cannot be opened with this App's key (R16), so no start can say
+    whose it is: its Candidate fails, before anything is sent."""
+
+    code = "owner_unreadable"
 
 
 @dataclass(frozen=True)
@@ -69,7 +81,7 @@ class DriverSettings:
     """The driver's timings. ``retry_s`` is the fixed backoff when the runner gives no delay
     (R14: the in-process runner never does)."""
 
-    inflight: int = 8
+    inflight: int = 24
     lease_s: float = 60.0
     tick_s: float = 15.0
     outcome_grace_s: float = 120.0
@@ -78,9 +90,13 @@ class DriverSettings:
     retry_s: float = 5.0
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> DriverSettings:
+    def from_settings(cls, settings: Settings, job_runner: object) -> DriverSettings:
+        """``inflight`` is the per-caller cap the runner enforces (OME-1314), or the setting it
+        is built from when the runner states none: a Run's owner is one caller, so the driver
+        starts as many of the owner's Candidates as the queue admits for that caller."""
+        cap = getattr(job_runner, "caller_inflight_cap", None)
         return cls(
-            inflight=settings.run_driver_inflight,
+            inflight=cap if isinstance(cap, int) else settings.run_queue_caller_inflight_cap,
             lease_s=settings.run_driver_lease_s,
             tick_s=settings.run_driver_tick_s,
             outcome_grace_s=settings.run_outcome_grace_s,
@@ -97,10 +113,12 @@ class DriverRegistry(Protocol):
     ) -> Awaitable[bool]: ...
     def release_run(self, run_id: str, held_until: datetime) -> Awaitable[None]: ...
     def due_runs(self, now: datetime) -> Awaitable[list[DueRun]]: ...
-    def pending_starts(self, run_id: str) -> Awaitable[StartPlan | None]: ...
+    def pending_starts(
+        self, run_id: str, *, inflight: int | None = None
+    ) -> Awaitable[StartPlan | None]: ...
     def overdue(self, run_id: str, before: datetime) -> Awaitable[list[str]]: ...
     def stop(
-        self, run_id: str, reason: StopReason, *, unless_followed_since: datetime | None = None
+        self, run_id: str, reason: StopReason, *, past_deadline_at: datetime | None = None
     ) -> Awaitable[bool]: ...
     def settle_startless(self) -> Awaitable[int]: ...
     def bind(
@@ -143,10 +161,19 @@ class RunDrivers:
         # The runner's last asked-for delay per Run (an at-capacity `Retry-After`).
         self._delays: dict[str, float] = {}
         self._woken = asyncio.Event()
-        # INVARIANT (R10): the start of the current run of good ticks. No orphan stop is made
-        # until it is `orphan_grace_s` old, so neither a restart nor a registry outage, during
+        # INVARIANT (R10): the start of the current run of good ticks. No attached Run is stopped
+        # at its deadline until it is `orphan_grace_s` old, so neither a restart nor a registry
+        # outage, during
         # which no follow could be recorded, stops a followed Run.
         self._healthy_since: datetime | None = None
+        # Per Run, when to read each overdue topic's last frame again (R7).
+        self._next_looks: dict[str, dict[str, datetime]] = {}
+        # When this process last settled startless Candidates (R11). WHY not every tick: only
+        # Runs a Client from before P2 registered have them, so the pass runs once per P1 grace.
+        self._startless_at: datetime | None = None
+        # The Runs whose last pass started nothing and settled nothing: their slots are full, so
+        # the next pass only re-reads counts, and waits a third of the lease (review round 4).
+        self._idle: set[str] = set()
 
     # --- the loop ------------------------------------------------------------------------------
 
@@ -198,53 +225,76 @@ class RunDrivers:
     def _pause(self, run_id: str) -> float:
         """The wait before the next pass: the runner's delay or the fixed backoff, and never
         longer than a third of the lease, so the lease is renewed in time (R4)."""
-        delay = self._delays.pop(run_id, None) or self._settings.retry_s
+        idle = self._settings.lease_s / 3 if run_id in self._idle else None
+        delay = self._delays.pop(run_id, None) or idle or self._settings.retry_s
         return max(1.0, min(delay, self._settings.lease_s / 3))
 
     # --- the tick (R9 to R11) ------------------------------------------------------------------
 
     async def tick(self) -> list[str]:
-        """One pass over the registry: stop Runs past their deadline and attached Runs nobody
-        follows, make owed stops, settle Candidates nothing will start, and return the Runs that
-        need a driver. A failed pass returns none and restarts the orphan clock."""
+        """One pass over the registry: stop Runs past their deadline, make owed stops, settle
+        Candidates nothing will start, and return the Runs that need a driver.
+
+        INVARIANT (R10, review round 4): only a tick that cannot read the due Runs returns none
+        and restarts the clock attached Runs' stops wait on. A later step that fails (one Run's
+        stop, the startless pass) is logged and the rest of the tick goes on, so one failing
+        statement never stops every Run from being driven.
+        """
         now = self._clock()
         try:
-            return await self._tick(now)
+            due = await self._registry.due_runs(now)
         except Exception:
             self._healthy_since = None
-            logger.exception("the Run driver's tick failed; no orphan stop until it recovers")
+            logger.exception("the Run driver's tick failed; no attached Run stops until it is back")
             return []
-
-    async def _tick(self, now: datetime) -> list[str]:
-        due = await self._registry.due_runs(now)
         if self._healthy_since is None:
             self._healthy_since = now
         if await self._stop_due(due, now):
-            due = await self._registry.due_runs(now)
+            due = await self._step("read the due Runs again", self._registry.due_runs(now), due)
         for run in due:
             if run.owed:
-                await self._make_stops(run.owed)
-        await self._registry.settle_startless()
+                await self._step("make the owed stops", self._make_stops(run.owed), None)
+        if self._startless_at is None or now - self._startless_at >= P1_PENDING_GRACE:
+            # A failed pass is made again on the next tick.
+            if await self._step("settle startless Candidates", self._startless(), False):
+                self._startless_at = now
         return [run.run_id for run in due if run.drive]
+
+    async def _startless(self) -> bool:
+        await self._registry.settle_startless()
+        return True
+
+    async def _step[T](self, what: str, step: Awaitable[T], otherwise: T) -> T:
+        try:
+            return await step
+        except Exception:
+            logger.exception("the Run driver's tick could not %s; the rest of it goes on", what)
+            return otherwise
 
     async def _stop_due(self, due: list[DueRun], now: datetime) -> bool:
         grace = timedelta(seconds=self._settings.orphan_grace_s)
         assert self._healthy_since is not None
-        orphans_allowed = now - self._healthy_since >= grace
+        holds_recorded = now - self._healthy_since >= grace
         stopped = False
         for run in due:
-            if run.past_deadline:
-                stopped |= await self._registry.stop(run.run_id, "deadline")
-            elif run.unfollowed and orphans_allowed:
-                # The stop checks the stamp again in its own transaction: a follower that came
-                # back since this read keeps the Run (R10).
-                stopped |= await self._registry.stop(
-                    run.run_id, "orphaned", unless_followed_since=now - grace
+            # WHY a detached Run at once: no follower moves its deadline, so an outage hides
+            # nothing from it (R10). WHY a flagged Run at once (review round 5): its stop is a
+            # cancel, which no follower undoes (R12).
+            if run.past_deadline and (run.detached or run.flagged or holds_recorded):
+                # The stop reads the deadline again in its own transaction: a follower that came
+                # back since this read keeps the Run (R11).
+                reason: StopReason = "deadline" if run.detached else "orphaned"
+                stopped |= await self._step(
+                    f"stop {run.run_id}",
+                    self._registry.stop(run.run_id, reason, past_deadline_at=now),
+                    False,
                 )
         return stopped
 
     async def _make_stops(self, topics: tuple[str, ...] | list[str]) -> None:
-        for topic, exc in await make_stops(self._registry, self._stop, list(topics)):
+        for topic, exc in await make_stops(
+            self._registry, self._stop, list(topics), landed=self._job_runner.stop_landed
+        ):
             # It stays owed, and the next tick makes it again (R9).
             logger.warning("stopping %s failed; the next tick tries again: %r", topic, exc)
 
@@ -265,16 +315,33 @@ class RunDrivers:
         return live
 
     async def _drive_held(self, run_id: str, now: datetime) -> bool:
-        plan = await self._registry.pending_starts(run_id)
+        plan = await self._registry.pending_starts(run_id, inflight=self._settings.inflight)
         if plan is None:
             return False
-        await self._settle_overdue(run_id, now)
+        settled = await self._settle_overdue(run_id, now)
+        if settled or (plan.pending and not plan.stopped):
+            self._idle.discard(run_id)
+        else:
+            self._idle.add(run_id)
         if not plan.stopped:
-            room = self._settings.inflight - plan.in_flight
-            for pending in plan.pending[: max(room, 0)]:
+            for pending in plan.pending:
+                if not await self._still_held(run_id):
+                    return False  # another App drives the Run now (R4)
                 if await self._start(plan, pending) is _Start.RETRY:
                     break
-        return bool(plan.pending) or plan.in_flight > 0
+        return plan.waiting > 0 or plan.in_flight > 0
+
+    async def _still_held(self, run_id: str) -> bool:
+        """Whether this driver still holds the Run's lease, renewing it once a third of it has
+        passed. WHY within a pass: one that starts many Candidates through a slow gateway could
+        outlast the lease, and another App's tick would then drive the same Run (R4)."""
+        held = self._leases.get(run_id)
+        if held is None:
+            return False
+        now = self._clock()
+        if held - now > timedelta(seconds=self._settings.lease_s * 2 / 3):
+            return True
+        return await self._renew(run_id, now)
 
     async def _renew(self, run_id: str, now: datetime) -> bool:
         until = now + timedelta(seconds=self._settings.lease_s)
@@ -286,6 +353,8 @@ class RunDrivers:
         return False
 
     async def _release(self, run_id: str) -> None:
+        self._next_looks.pop(run_id, None)
+        self._idle.discard(run_id)
         held = self._leases.pop(run_id, None)
         if held is None:
             return
@@ -320,9 +389,9 @@ class RunDrivers:
             if exc.retry_after_s is not None:
                 self._delays[plan.run_id] = float(exc.retry_after_s)
             result = _Start.RETRY
-        except RunQueueUnavailable:
+        except _UNREACHABLE:
             # Nothing is known to have started; the same start goes again (D6).
-            logger.warning("the run queue is unavailable; %s is retried", topic, exc_info=True)
+            logger.warning("the queue or the registry is down; %s is retried", topic, exc_info=True)
             result = _Start.RETRY
         except JobAlreadyExists:
             result = _Start.STARTED  # R14: the in-process runner holds a task for it
@@ -335,14 +404,17 @@ class RunDrivers:
     async def _schedule(
         self, plan: StartPlan, pending: PendingStart, topic: str, trace_id: str
     ) -> None:
+        if plan.owner_unreadable:
+            raise OwnerUnreadable  # `_refused` fails the Candidate; nothing is sent (R16)
         start: CandidateStart = pending.start
+        cache = CachePolicy() if start.use_cache else CachePolicy(participate=False)
         await schedule_run(
             self._job_runner,
             self._model_admission,
             topic,
             start.url4,
             self._settings.job_deadline_s,
-            cache=CachePolicy() if start.use_cache else CachePolicy(participate=False),
+            cache=cache,
             traceparent=format_traceparent(trace_id, secrets.token_hex(8)),
             identity=None if plan.owner_email is None else {_OWNER_HEADER: plan.owner_email},
             answer_seed=start.answer_seed,
@@ -352,39 +424,90 @@ class RunDrivers:
             result_prefix=result_prefix(plan.run_id, pending.index),
             exclusive=True,
         )
+        # FEATURE: queue visibility in the logs (OME-1924), the start route's line for a Run's
+        # own starts: `run`/`candidate` join it to `run created`. INVARIANT: `owner` is the
+        # sha256 owner key, never the email; the url4 is the caller's, so only its length.
+        logger.info(
+            "run scheduled topic=%s url4_chars=%d cache=%s owner=%s run=%s candidate=%d",
+            topic,
+            len(start.url4),
+            cache,
+            plan.owner,
+            plan.run_id,
+            pending.index,
+        )
 
     async def _refused(self, topic: str, exc: Exception) -> _Start:
-        """A refusal that says it is permanent settles the Candidate `failed` with its code; any
-        other failure is retried, since the start may still land (R1)."""
-        if getattr(exc, "permanent", False) is not True:
+        """A start refused for a reason the runner does not name as transient settles the
+        Candidate `failed`, with the refusal's code when it has one (R1).
+
+        WHY failed and not retried: the runner raises `JobRunnerAtCapacity` and
+        `RunQueueUnavailable` for what a retry can cure, and lets through what would fail the
+        same way again (a message the broker will never take). Retried, such a start would hold
+        its Run until the deadline. A refusal that says it is not permanent is still retried.
+        """
+        if getattr(exc, "permanent", None) is False:
             logger.warning("starting %s failed; it is retried", topic, exc_info=exc)
             return _Start.RETRY
         code = getattr(exc, "code", None)
         error_code = storable_error_code(code if isinstance(code, str) and code else _REFUSED)
+        # WHY the type alone: the error's text may quote the start, which carries prompts.
+        logger.warning(
+            "starting %s was refused (%s, %s); its Candidate fails",
+            topic,
+            type(exc).__name__,
+            error_code,
+        )
         await self._registry.settle(topic, CandidateOutcome("failed", error_code))
         return _Start.DONE
 
-    async def _settle_overdue(self, run_id: str, now: datetime) -> None:
+    async def _settle_overdue(self, run_id: str, now: datetime) -> int:
         """R7: a Candidate whose run ended but whose outcome never arrived settles from its
         terminal frame, once the frame is older than `outcome_grace_s`: state and error code, no
-        cost and no record, which the runner's own outcome fills if it lands later."""
+        cost and no record, which the runner's own outcome fills if it lands later. Returns how many
+        it settled."""
         grace = timedelta(seconds=self._settings.outcome_grace_s)
+        looked = self._next_looks.get(run_id, {})
+        next_looks: dict[str, datetime] = {}
+        settled = 0
         for topic in await self._registry.overdue(run_id, now - grace):
+            if looked.get(topic, now) > now:
+                next_looks[topic] = looked[topic]
+                continue
             try:
                 frame = await self._job_runner.last_frame(topic)
             except QueueReadError:
                 continue
-            if not isinstance(frame, TerminatedEvent) or frame.time is None:
+            ended, later = _read_frame(frame, now, grace)
+            if ended is None:
+                next_looks[topic] = later
                 continue
-            if frame.time + grace > now or frame.data.status not in OUTCOME_STATUSES:
-                continue
-            error = frame.data.error
+            error = ended.data.error
             outcome = CandidateOutcome(
-                cast(OutcomeStatus, frame.data.status),
+                cast(OutcomeStatus, ended.data.status),
                 storable_error_code(None if error is None else error.code),
-                finished_at=frame.time,
+                finished_at=later,
             )
             await self._registry.settle(topic, outcome)
+            settled += 1
+        self._next_looks[run_id] = next_looks
+        return settled
+
+
+def _read_frame(
+    frame: OutboundFrame | None, now: datetime, grace: timedelta
+) -> tuple[TerminatedEvent | None, datetime]:
+    """The terminal frame that settles its Candidate now, with its time; else None, with when
+    to read the topic's last frame again. WHY not on every pass (review round 3): a Candidate
+    can run for hours past the grace, and its Run's driver passes every few seconds."""
+    if (
+        isinstance(frame, TerminatedEvent)
+        and frame.time is not None
+        and frame.data.status in OUTCOME_STATUSES
+    ):
+        settles = frame.time + grace <= now
+        return (frame if settles else None), (frame.time if settles else frame.time + grace)
+    return None, now + grace  # still running, or nothing to read: look a grace later
 
 
 __all__ = ["DriverRegistry", "DriverSettings", "RunDrivers"]

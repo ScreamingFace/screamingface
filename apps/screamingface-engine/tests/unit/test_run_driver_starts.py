@@ -12,7 +12,9 @@ from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
+from typing import Any
 
+import asyncpg.exceptions as asyncpg_errors
 import pytest
 import pytest_asyncio
 from run_driver_support import SETTINGS, DriverRunner, drivers
@@ -29,7 +31,12 @@ from screamingface_engine import job_env
 from screamingface_engine.candidate_outcomes import CandidateOutcome
 from screamingface_engine.ports import StoppedBeforeSchedule
 from screamingface_engine.runner_queue import RunQueueUnavailable
-from screamingface_engine.runs.records import CandidateStart, RunRecord, owner_key
+from screamingface_engine.runs.records import (
+    P1_PENDING_GRACE,
+    CandidateStart,
+    RunRecord,
+    owner_key,
+)
 from url4.core.errors import ResolutionError
 from url4.streaming.interfaces import JobAlreadyExists, JobRunnerAtCapacity
 from url4.streaming.protocol import TerminatedData, TerminatedEvent, source_for
@@ -151,6 +158,93 @@ async def test_a_permanent_refusal_settles_the_candidate_failed_with_its_code(
     assert (candidate.state, candidate.error_code) == ("failed", "model_not_found")
 
 
+async def test_a_start_that_can_never_be_queued_fails_and_the_others_still_start(
+    registry: Registry,
+) -> None:
+    """R1: the runner names its transient refusals (at capacity, the queue unreachable); any
+    other error would fail the same way on every retry, so it must not hold the Run."""
+    run, _ = await registry.store.register(ALICE, start_spec("a", "b", "c"))
+    runner = DriverRunner()
+    runner.refusals = [ValueError("the message is larger than the broker takes")]
+    driver = drivers(registry.store, runner, registry.clock)
+
+    await driver.drive_once(run.id)
+
+    record = await _record(registry, run.id)
+    assert _states(record) == ["failed", "scheduled", "scheduled"]
+    assert record.candidates[0].error_code == "start_refused"
+    assert len(runner.starts) == 2
+
+
+async def test_a_refusal_that_says_it_is_not_permanent_is_retried(registry: Registry) -> None:
+    run, _ = await registry.store.register(ALICE, start_spec("a"))
+    runner = DriverRunner()
+    runner.refusals = [ResolutionError("try again", code="busy", permanent=False)]
+    driver = drivers(registry.store, runner, registry.clock)
+
+    await driver.drive_once(run.id)
+    assert _states(await _record(registry, run.id)) == ["pending"]
+    await driver.drive_once(run.id)
+
+    assert _states(await _record(registry, run.id)) == ["scheduled"]
+
+
+async def test_a_registry_that_cannot_bind_leaves_the_candidate_to_the_next_pass(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A database blip is not the start's fault: nothing was sent, and it is sent later."""
+    run, _ = await registry.store.register(ALICE, start_spec("a", "b"))
+    runner = DriverRunner()
+    driver = drivers(registry.store, runner, registry.clock)
+    real = registry.store.bind
+
+    async def down(*args: object, **kwargs: object) -> None:
+        raise ConnectionError("the database is down")
+
+    monkeypatch.setattr(registry.store, "bind", down)
+    await driver.drive_once(run.id)
+    assert _states(await _record(registry, run.id)) == ["pending", "pending"]
+    assert runner.starts == []
+
+    monkeypatch.setattr(registry.store, "bind", real)
+    await driver.drive_once(run.id)
+
+    assert _states(await _record(registry, run.id)) == ["scheduled", "scheduled"]
+
+
+@pytest.mark.parametrize(
+    "lost",
+    [
+        asyncpg_errors.ConnectionDoesNotExistError("the backend was terminated"),
+        asyncpg_errors.AdminShutdownError("the server is shutting down"),
+        asyncpg_errors.InterfaceError("connection is closed"),
+    ],
+)
+async def test_a_connection_lost_while_rebinding_leaves_the_candidate_to_the_next_pass(
+    registry: Registry, monkeypatch: pytest.MonkeyPatch, lost: Exception
+) -> None:
+    """R1: a query that loses its Postgres connection mid-flight is the database being down, not
+    the start being wrong, even when the next query works and could settle it `failed`."""
+    run, _ = await registry.store.register(ALICE, start_spec("a"))
+    runner = DriverRunner()
+    runner.refusals = [JobRunnerAtCapacity(8, 8)]
+    driver = drivers(registry.store, runner, registry.clock)
+    await driver.drive_once(run.id)  # the Candidate keeps its topic, pending
+    real = registry.store.bind
+
+    async def drop(*args: object, **kwargs: object) -> None:
+        raise lost
+
+    monkeypatch.setattr(registry.store, "bind", drop)
+    await driver.drive_once(run.id)
+    assert _states(await _record(registry, run.id)) == ["pending"]
+
+    monkeypatch.setattr(registry.store, "bind", real)
+    await driver.drive_once(run.id)
+
+    assert _states(await _record(registry, run.id)) == ["scheduled"]
+
+
 async def test_a_topic_the_in_process_runner_holds_counts_as_started(registry: Registry) -> None:
     """R14: that runner refuses a topic while its task runs, which means the start landed."""
     run, _ = await registry.store.register(ALICE, start_spec("a"))
@@ -236,10 +330,12 @@ async def test_a_candidate_waiting_for_a_slot_keeps_its_full_deadline(registry: 
 
 
 async def test_a_run_registered_without_starts_is_never_driven(registry: Registry) -> None:
-    """R11: a Run a Client from before P2 registered; the tick settles its Candidates."""
+    """R11: a Run a Client from before P2 registered; once idle for P1's pending grace, the
+    tick settles its Candidates."""
     run, _ = await registry.store.register(ALICE, spec("a"))
     runner = DriverRunner()
     driver = drivers(registry.store, runner, registry.clock)
+    registry.clock.advance(seconds=P1_PENDING_GRACE.total_seconds() + 1)
 
     await driver.tick()
 
@@ -286,8 +382,110 @@ def test_the_driver_settings_come_from_the_engine_settings() -> None:
     from screamingface_engine.runs.driver import DriverSettings
 
     settings = DriverSettings.from_settings(
-        Settings(run_driver_inflight=4, orphan_grace_s=60, job_deadline_s=3600)
+        Settings(run_queue_caller_inflight_cap=4, orphan_grace_s=60, job_deadline_s=3600),
+        DriverRunner(),
     )
 
     assert (settings.inflight, settings.orphan_grace_s, settings.job_deadline_s) == (4, 60, 3600)
     assert job_env.DRIVER_SPEC_VERSION == "3"
+
+
+def test_a_run_has_as_many_candidates_in_flight_as_the_runner_admits_for_one_caller() -> None:
+    """R1: a Run's fan-out is the per-caller cap the runner enforces (OME-1314), so the driver
+    never holds an evaluation below what the queue would admit, nor asks for more."""
+    from screamingface_engine.config import Settings
+    from screamingface_engine.runs.driver import DriverSettings
+
+    class _Capped(DriverRunner):
+        caller_inflight_cap = 6
+
+    settings = DriverSettings.from_settings(Settings(run_queue_caller_inflight_cap=24), _Capped())
+
+    assert settings.inflight == 6
+
+
+# --- a long pass keeps its lease (R4; review round 3) -----------------------------------------
+
+
+async def test_a_pass_whose_starts_outlast_a_third_of_the_lease_renews_it(
+    registry: Registry,
+) -> None:
+    """R4: a pass that starts many Candidates through a slow gateway renews the lease as it
+    goes, so no other App's tick finds it expired mid-pass."""
+    from screamingface_engine.runs.models import Run
+
+    run, _ = await registry.store.register(ALICE, start_spec("a", "b", "c"))
+    runner = DriverRunner()
+
+    async def slow(topic: str) -> None:
+        registry.clock.advance(seconds=SETTINGS.lease_s * 0.4)
+
+    runner.during_schedule = slow
+
+    await drivers(registry.store, runner, registry.clock).drive_once(run.id)
+
+    lease = (await Run.get(id=run.id)).driver_lease_until
+    assert len(runner.starts) == 3
+    assert lease is not None and lease > registry.clock()
+
+
+async def test_a_pass_that_lost_its_lease_mid_way_starts_nothing_more(registry: Registry) -> None:
+    """R4: another App took the lease while this pass ran, so this pass stops; one driver per
+    Run."""
+    run, _ = await registry.store.register(ALICE, start_spec("a", "b", "c"))
+    runner = DriverRunner()
+    other_until = registry.clock() + timedelta(hours=1)
+
+    async def taken(topic: str) -> None:
+        registry.clock.advance(seconds=SETTINGS.lease_s + 1)
+        await registry.store.lease_run(run.id, None, other_until)
+
+    runner.during_schedule = taken
+
+    live = await drivers(registry.store, runner, registry.clock).drive_once(run.id)
+
+    assert len(runner.starts) == 1
+    assert live is False
+
+
+async def test_a_long_running_candidates_last_frame_is_read_once_per_grace(
+    registry: Registry,
+) -> None:
+    """R7 (review round 3): a Candidate still running past the grace is looked at again only a
+    grace later, not on every pass of its Run (every few seconds, for hours)."""
+    run, _ = await registry.store.register(ALICE, start_spec("a"))
+    reads: list[str] = []
+
+    class _Counting(DriverRunner):
+        async def last_frame(self, topic: str) -> Any:
+            reads.append(topic)
+            return None
+
+    driver = drivers(registry.store, _Counting(), registry.clock)
+    await driver.drive_once(run.id)
+    registry.clock.advance(seconds=SETTINGS.outcome_grace_s + 1)
+
+    await driver.drive_once(run.id)
+    registry.clock.advance(seconds=SETTINGS.retry_s)
+    await driver.drive_once(run.id)
+    assert len(reads) == 1
+
+    registry.clock.advance(seconds=SETTINGS.outcome_grace_s)
+    await driver.drive_once(run.id)
+    assert len(reads) == 2
+
+
+async def test_a_pass_with_no_room_and_nothing_overdue_waits_a_third_of_the_lease(
+    registry: Registry,
+) -> None:
+    """R1, review round 4: a Run whose slots are full only polls its counts until one frees,
+    so it backs off to the lease's third instead of the retry delay; a pass that started a
+    Candidate keeps the retry delay."""
+    run, _ = await registry.store.register(ALICE, start_spec(*NAMES))
+    driver = drivers(registry.store, DriverRunner(), registry.clock)
+
+    await driver.drive_once(run.id)
+    assert driver._pause(run.id) == SETTINGS.retry_s
+
+    await driver.drive_once(run.id)
+    assert driver._pause(run.id) == SETTINGS.lease_s / 3

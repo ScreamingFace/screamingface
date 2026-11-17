@@ -70,6 +70,11 @@ logger = logging.getLogger(__name__)
 PULL_TIMEOUT_S = 5.0
 # How often the drain phase re-checks whether the in-flight children have finished.
 _DRAIN_POLL_S = 0.05
+# The least time a drain gives the outcomes still being retried (E5 P2 spec R6), even when its
+# runs used the whole grace. WHY 10: inside the chart's 15 s terminal-publish budget, which the
+# pod's termination grace adds after `drainGraceS` and the kill grace
+# (`deployment-runner.yaml`), so the kubelet does not cut it short.
+OUTCOME_DRAIN_FLOOR_S = 10.0
 
 
 # How often a pull that failed on a transient broker error is retried. Short: the claim
@@ -672,8 +677,9 @@ class Worker:
                 with contextlib.suppress(ProcessLookupError):
                     proc.terminate()
             await asyncio.sleep(_DRAIN_POLL_S)
-        # E5 P2 spec R6: the outcomes still being retried get what is left of the grace.
-        await self._supervisor.drain_outcomes(deadline - loop.time())
+        # E5 P2 spec R6: the outcomes still being retried get what is left of the grace, and
+        # at least the floor: a run killed just now queued its outcome at the deadline.
+        await self._supervisor.drain_outcomes(max(deadline - loop.time(), OUTCOME_DRAIN_FLOOR_S))
         # The drain phase is complete (the pool is empty) — the control loop's exit
         # signal (see `_control_loop` and P2-12).
         self._drained.set()

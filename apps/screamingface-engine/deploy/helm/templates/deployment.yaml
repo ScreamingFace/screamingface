@@ -43,7 +43,12 @@ spec:
         # secretKeyRef, which a running pod never re-reads — so a rotation must roll the App, as
         # it already rolls the runner pool.
         checksum/blob-secret: {{ include (print $.Template.BasePath "/secret-blob-storage.yaml") . | sha256sum }}
-        checksum/run-results-secret: {{ include (print $.Template.BasePath "/secret-run-results-storage.yaml") . | sha256sum }}
+        # E5 P2 spec R16 (#1759 review round 4): pods on two keys could not open each other's
+        # sealed emails, so a changed key rolls every App pod together.
+        checksum/run-email-key: {{ include (print $.Template.BasePath "/secret-run-email-key.yaml") . | sha256sum }}
+        # With `existingSecret` the chart renders no Secret, so the checksum takes the Secret's
+        # NAME too (#1759 review): rotate by naming a new Secret, and the pods roll.
+        checksum/run-results-secret: {{ printf "%s\n%s" (include (print $.Template.BasePath "/secret-run-results-storage.yaml") .) .Values.runResults.storage.s3.existingSecret | sha256sum }}
         {{- if include "screamingface-engine.artifactSigningConfigured" . }}
         # FX-81: the App SIGNS a mount result's 303 and VERIFIES it with this same key (OQ-3.2),
         # so a rotated signing Secret must roll the App — without this annotation the App keeps
@@ -153,6 +158,12 @@ spec:
                 secretKeyRef:
                   name: {{ . | quote }}
                   key: {{ $.Values.database.existingSecretKey | quote }}
+            # E5 P2 spec R16: the key that seals each Run's owner email, on the App only.
+            - name: URL4_CLOUD_RUN_EMAIL_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "screamingface-engine.runEmailKeySecretName" $ | quote }}
+                  key: {{ include "screamingface-engine.runEmailKeySecretKey" $ | quote }}
             {{- end }}
             {{- if include "screamingface-engine.worldConfigEnabled" . }}
             {{- include "screamingface-engine.worldConfigEnv" . | nindent 12 }}

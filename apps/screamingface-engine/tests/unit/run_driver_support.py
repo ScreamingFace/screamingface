@@ -36,6 +36,8 @@ class DriverRunner(IdentityAwareJobRunner):
         self.refusals: list[BaseException | None] = []
         self.stopped: list[str] = []
         self.failing_stops = 0
+        # Topics whose stop a worker took but whose terminal frame has not landed.
+        self.unlanded: set[str] = set()
         self.frames: dict[str, OutboundFrame] = {}
         # Run inside `schedule`, before it records: lets a test land a stop mid-start.
         self.during_schedule: Callable[[str], Awaitable[None]] | None = None
@@ -58,6 +60,9 @@ class DriverRunner(IdentityAwareJobRunner):
             self.failing_stops -= 1
             raise QueueReadError("the queue's tail could not be read")
         self.stopped.append(topic)
+
+    async def stop_landed(self, topic: str) -> bool:
+        return topic not in self.unlanded
 
     async def exists(self, topic: str) -> bool:
         return False

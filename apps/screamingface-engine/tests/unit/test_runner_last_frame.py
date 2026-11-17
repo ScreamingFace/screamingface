@@ -104,3 +104,23 @@ async def test_the_queue_runner_reads_the_events_stream() -> None:
     )
 
     assert await runner.last_frame(TOPIC) is frame
+
+
+async def test_the_driver_reads_the_queue_error_from_the_port_not_an_adapter() -> None:
+    """Review round 3 (CLAUDE.md: core never imports adapters): the error `last_frame` raises
+    is declared beside the port, and the adapter raises that same type."""
+    import ast
+    from pathlib import Path
+
+    import screamingface_engine.runs.driver as driver
+    from screamingface_engine import ports
+    from screamingface_engine.adapters import jetstream
+
+    tree = ast.parse(Path(driver.__file__).read_text())
+    imported = {
+        node.module
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module is not None
+    }
+    assert not any(module.startswith("screamingface_engine.adapters") for module in imported)
+    assert jetstream.QueueReadError is ports.QueueReadError

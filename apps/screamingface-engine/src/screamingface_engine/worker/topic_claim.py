@@ -11,7 +11,8 @@ bucket is unreachable or slow (the worker then runs, as it does today when it ca
 the repeat comes after both the claim and the terminal frame expired.
 
 INVARIANT: a worker answers for a topic only from `claimed`, the topics whose claim it won, from the
-win until it marks the claim finished. Never from `_starting`, which holds a topic from the moment
+win until it marks the claim finished. It runs a won claim only once a write made after it began
+answering still finds the claim its own. Never from `_starting`, which holds a topic from the moment
 its message is pulled, before any claim.
 
 LAYERING: the worker's. It imports the shared leaves `topic_claims` and `subjects`.
@@ -26,7 +27,7 @@ from typing import Any, Protocol
 
 from nats.errors import NoRespondersError
 
-from screamingface_engine.adapters.jetstream import QueueReadError
+from screamingface_engine.ports import QueueReadError
 from screamingface_engine.subjects import claim_subject_for
 from screamingface_engine.topic_claims import Claim, TopicClaims, TopicClaimsUnavailable
 
@@ -74,25 +75,40 @@ class ClaimGate:
         acks this copy away."""
         try:
             async with asyncio.timeout(self._budget_s):
-                runs = await self._admit(topic)
+                won = await self._won(topic)
+                return won is not None and await self._confirmed(topic, won)
         except (TopicClaimsUnavailable, TimeoutError) as exc:
             logger.warning(
                 "could not claim %s (%r); running it, as when nothing can tell", topic, exc
             )
             return True
-        if runs:
-            self._claimed.add(topic)
-        return runs
 
-    async def _admit(self, topic: str) -> bool:
+    async def _won(self, topic: str) -> Claim | None:
+        """The claim this worker won, or None: another worker has, or had, the run."""
         claim = await self._claims.claim(topic, self._worker_id)
         while (runs := await self._verdict(topic, claim)) is None:
             # The holder is gone and the run never ended: take its claim over. Of two workers
             # doing so, the compare-and-set lets exactly one through.
-            if await self._claims.take_over(topic, self._worker_id, claim.revision) is not None:
-                return True
+            taken = await self._claims.take_over(topic, self._worker_id, claim.revision)
+            if taken is not None:
+                return taken
             claim = await self._claims.claim(topic, self._worker_id)
-        return runs
+        return claim if runs else None
+
+    async def _confirmed(self, topic: str, won: Claim) -> bool:
+        """Answer for ``topic`` from now on, then write the claim once more at the revision won.
+
+        WHY (#1759 review): until this worker knew it had won, it could not answer for the
+        topic. A contender that asked in that gap heard nothing, and may have taken the claim
+        over; this write then fails, and this copy is acked away. A contender that asks from
+        now on is answered, so exactly one of the two runs.
+        """
+        self._claimed.add(topic)
+        if await self._claims.take_over(topic, self._worker_id, won.revision) is not None:
+            return True
+        self._claimed.discard(topic)
+        logger.warning("the claim of %s was taken over before this worker could answer", topic)
+        return False
 
     async def _verdict(self, topic: str, claim: Claim) -> bool | None:
         """True: this copy runs. False: another worker has, or had, the run. None: the holder is

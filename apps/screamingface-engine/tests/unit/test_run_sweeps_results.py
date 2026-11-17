@@ -1,16 +1,20 @@
-"""E5 P2 spec R13: retention deletes the objects a Run names before its rows.
+"""E5 P2 spec R13: retention deletes a Run's rows, and its objects go by age alone.
 
 FEATURE: a detached Run (OME-1837). STORY: as a researcher, my Run's results and context leave
 the Engine with my Run, 30 days on, and none outlives it for long.
+
+WHY by age (#1759 review round 5): the bucket's lifecycle rule on S3, and `delete_older_than` in
+a folder, remove every object a day after the retention, so a sweep deletes nothing by name.
 
 Same databases as `test_run_registry_contract.py`.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import IO
 
 import pytest
 import pytest_asyncio
@@ -23,7 +27,6 @@ from run_registry_support import (
 )
 
 from screamingface_engine.artifacts.ports import ArtifactContent
-from screamingface_engine.artifacts.run_results import context_key, result_key, result_prefix
 from screamingface_engine.candidate_outcomes import CandidateOutcome
 from screamingface_engine.runs.records import ContextRef, owner_key
 from screamingface_engine.runs.sweeps import RunSweeper
@@ -36,24 +39,19 @@ DIGEST = "a" * 64
 
 
 class _Results:
-    """A run-results store that records deletes, refusing those that name ``refused``."""
+    """A run-results store that records how it is asked to remove objects."""
 
-    def __init__(self, refused: str | None = None) -> None:
-        self.deleted: list[str] = []
-        self.refused = refused
+    def __init__(self) -> None:
         self.aged_before: list[datetime] = []
 
     def put(self, key: str, body: bytes) -> None:
         raise AssertionError("a sweep writes nothing")
 
-    def open(self, key: str) -> ArtifactContent | None:
-        return None
+    def put_file(self, key: str, handle: IO[bytes], size: int, sha256: str) -> None:
+        raise AssertionError("a sweep writes nothing")
 
-    def delete(self, keys: Iterable[str]) -> None:
-        keys = list(keys)
-        if self.refused is not None and self.refused in keys:
-            raise OSError("the store refused the delete")
-        self.deleted.extend(keys)
+    def open(self, key: str) -> ArtifactContent | None:
+        raise AssertionError("a sweep reads nothing")
 
     def delete_older_than(self, cutoff: datetime) -> int:
         self.aged_before.append(cutoff)
@@ -80,57 +78,32 @@ async def _finished_run(registry: Registry, client_key: str) -> str:
 
 
 def _sweeper(registry: Registry, results: _Results) -> RunSweeper:
-    return RunSweeper(
-        registry.store,
-        retention=RETENTION,
-        clock=registry.clock,
-        results=results,
-        objects=registry.store.stored_objects,
-    )
+    return RunSweeper(registry.store, retention=RETENTION, clock=registry.clock, results=results)
 
 
-async def test_a_run_names_its_context_and_its_recorded_results(registry: Registry) -> None:
-    run_id = await _finished_run(registry, "k1")
-
-    keys = await registry.store.stored_objects([run_id])
-
-    assert sorted(keys[run_id]) == sorted(
-        [context_key(run_id), result_key(result_prefix(run_id, 0), DIGEST)]
-    )
-
-
-async def test_a_sweep_deletes_a_runs_objects_and_then_its_rows(registry: Registry) -> None:
+async def test_a_sweep_expires_the_rows_and_leaves_the_objects_to_their_age(
+    registry: Registry,
+) -> None:
     run_id = await _finished_run(registry, "k1")
     results = _Results()
     registry.clock.advance(days=31)
 
     await _sweeper(registry, results).sweep_once()
 
-    assert sorted(results.deleted) == sorted(
-        [context_key(run_id), result_key(result_prefix(run_id, 0), DIGEST)]
-    )
     assert await registry.store.get(ALICE, run_id) is None
+    assert results.aged_before == [registry.clock() - RETENTION - timedelta(days=1)]
 
 
-async def test_a_run_whose_delete_failed_keeps_its_rows_and_the_others_go(
+async def test_the_apps_start_settles_lost_candidates_and_leaves_retention_to_the_loop(
     registry: Registry,
 ) -> None:
-    kept = await _finished_run(registry, "k1")
-    gone = await _finished_run(registry, "k2")
-    results = _Results(refused=context_key(kept))
+    """#1759 review round 5: retention waits for the loop, so nothing it does holds the App's
+    start."""
+    run_id = await _finished_run(registry, "k1")
+    results = _Results()
     registry.clock.advance(days=31)
 
-    await _sweeper(registry, results).sweep_once()
+    await _sweeper(registry, results).reconcile()
 
-    assert await registry.store.get(ALICE, kept) is not None
-    assert await registry.store.get(ALICE, gone) is None
-
-
-async def test_what_no_run_names_is_removed_by_age_a_day_after_the_retention(
-    registry: Registry,
-) -> None:
-    results = _Results()
-
-    await _sweeper(registry, results).sweep_once()
-
-    assert results.aged_before == [registry.clock() - RETENTION - timedelta(days=1)]
+    assert results.aged_before == []
+    assert await registry.store.get(ALICE, run_id) is not None

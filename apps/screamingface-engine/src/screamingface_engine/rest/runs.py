@@ -19,7 +19,7 @@ import hashlib
 import logging
 import re
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Request, Response
 
@@ -33,6 +33,7 @@ from screamingface_engine.rest.runs_boundary import (
     PRIVATE_HEADERS,
     PRIVATE_HEADERS_DOC,
     RunsRoute,
+    candidate_stop_landed,
     invalid_value,
     private_answer,
     private_failure,
@@ -46,6 +47,7 @@ from screamingface_engine.rest.runs_boundary import (
     stop_candidate,
 )
 from screamingface_engine.rest.runs_wire import RunBody, RunCreate, RunList
+from screamingface_engine.rest.selector import X_PROFILE_PARAMETER
 from screamingface_engine.runs.ids import RUN_ID_PATTERN, new_run_id
 from screamingface_engine.runs.records import (
     ContextRef,
@@ -103,6 +105,9 @@ def _spec(request: Request, body: RunCreate) -> RunSpec:
         if body.deadline_s > settings.run_detached_deadline_max_s:
             limit = int(settings.run_detached_deadline_max_s)
             raise _unprocessable(f"a deadline is at most {limit} s", DEADLINE_TOO_LONG)
+        # WHY here: a `timedelta` cannot hold every integer, so it is bounded before one is built.
+        if body.deadline_s <= 0:
+            raise _unprocessable("a deadline must be positive", INVALID_REQUEST)
     return RunSpec(
         client_key=body.client_key,
         benchmark=body.benchmark,
@@ -143,18 +148,6 @@ async def _store_context(request: Request, key: str, data: bytes) -> ContextRef:
     return ContextRef(hashlib.sha256(data).hexdigest(), len(data))
 
 
-async def _drop_context(request: Request, key: str) -> None:
-    """Delete a context written for a Run that was not registered. Best effort: what is left is
-    removed by age with the rest of what no Run names (spec R13)."""
-    store: RunResultStore | None = getattr(request.app.state, "run_results", None)
-    if store is None:
-        return
-    try:
-        await asyncio.to_thread(store.delete, [key])
-    except Exception:
-        _logger.warning("could not delete an unregistered Run's context; age removes it")
-
-
 async def _register(
     request: Request, registry: RunRegistry, owner: OwnerKey, spec: RunSpec, context: str | None
 ) -> tuple[RunRecord, bool]:
@@ -164,15 +157,10 @@ async def _register(
     key = context_key(spec.run_id)
     data = _context_bytes(request, context)
     ref = await _store_context(request, key, data)
-    created = False
-    try:
-        record, created = await registry.register(owner, dataclasses.replace(spec, context=ref))
-    finally:
-        # INVARIANT: a context is kept only under a Run that names it. A repeated `client_key`
-        # finds the first Run, which keeps its own.
-        if not created:
-            await _drop_context(request, key)
-    return record, created
+    # WHY nothing is deleted when no Run names this context (a register that failed, or a
+    # repeated `client_key`, whose first Run keeps its own): every object goes by age (spec
+    # R13), and a register whose answer was lost may still have committed a Run that names it.
+    return await registry.register(owner, dataclasses.replace(spec, context=ref))
 
 
 async def _read(
@@ -190,7 +178,12 @@ async def _stop_owed(request: Request, registry: RunRegistry, owner: OwnerKey, r
     stop succeeded (spec D12). Every stop is tried even when one fails; a failure whose topic is
     still owed is then raised as a private 503, and a retried cancel stops what is still owed."""
     topics = await registry.owed_stops(owner, run_id)
-    failed = await make_stops(registry, lambda topic: stop_candidate(request, topic), topics)
+    failed = await make_stops(
+        registry,
+        lambda topic: stop_candidate(request, topic),
+        topics,
+        landed=lambda topic: candidate_stop_landed(request, topic),
+    )
     if not failed:
         return
     # WHY recheck: a concurrent cancel may have completed the same stop, so this one's failure
@@ -221,6 +214,7 @@ async def _stop_owed(request: Request, registry: RunRegistry, owner: OwnerKey, r
         },
         **private_problems(
             {
+                400: "A stated `X-Profile` (`x_profile_unsupported`); no Run was registered.",
                 409: "That `client_key` names another evaluation (`client_key_conflict`).",
                 413: "The body is over `run_request_max_bytes` (`request_too_large`).",
                 422: "An invalid Run (`invalid_request`), a deadline past the cap "
@@ -232,7 +226,13 @@ async def _stop_owed(request: Request, registry: RunRegistry, owner: OwnerKey, r
         ),
     },
 )
-async def create_run(request: Request, response: Response, body: RunCreate) -> RunBody:
+async def create_run(
+    request: Request,
+    response: Response,
+    body: RunCreate,
+    # Documents the refusal in OpenAPI; `RunsRoute` is what decides.
+    _x_profile: Annotated[str | None, X_PROFILE_PARAMETER] = None,
+) -> RunBody:
     """201 with the new Run, or 200 with the caller's Run of the same `client_key`; 409
     `client_key_conflict` when that Run names another evaluation."""
     registry = request_registry(request)

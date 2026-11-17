@@ -103,6 +103,11 @@ async def test_no_setting_holds_an_aigateway_credential() -> None:
     #                           context, streams results back to their owner, and deletes both at
     #                           retention. Blast radius if leaked: read, write and delete on the
     #                           run-results bucket only. No provider or model credentials.
+    #   run_email_key           a VALUE, from a Secret (`<fullname>-run-email-key`, by named
+    #                           secretKeyRef). WHY the App must hold it: it seals each Run's owner
+    #                           email before writing the Run and opens it to start the Candidates
+    #                           (E5 P2 spec R16). Blast radius if leaked: with a copy of the Runs
+    #                           database too, the owners' emails. No provider or model credentials.
     assert suspicious == {
         "jwt_secret",
         "artifact_s3_access_key",
@@ -112,6 +117,7 @@ async def test_no_setting_holds_an_aigateway_credential() -> None:
         "blob_s3_secret_key",
         "run_results_s3_access_key",
         "run_results_s3_secret_key",
+        "run_email_key",
     }, "a new secret-shaped setting appeared — confirm it is sourced from a Secret reference"
 
 

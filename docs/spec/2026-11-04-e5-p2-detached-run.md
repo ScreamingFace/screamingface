@@ -114,7 +114,7 @@ Engine paths are relative to `apps/screamingface-engine/src/screamingface_engine
 | D9a | **The runner writes every result of a driver-started run to the run-results store,** whatever its size, at `runs/{run_id}/{index}/{sha256}` in a bucket of its own. The record carries the checksum, and the App builds the key from the Run, the index and that checksum; it never reads a key from the runner. Local mode uses a folder in the Engine data dir. | It already writes large results (§2); only the destination changes. One path for all sizes keeps the outcome small. The checksum in the key means a second execution never overwrites the first. The artifact bucket expires everything after 2 days and takes only sha256 keys. |
 | D9b | **The Engine keeps the Client's context in the run-results store and returns it to the owner.** With `POST /runs` the Client sends one `context` string holding what it needs to rebuild a Report: the benchmark's info, the selected Cases, and each compiled Candidate without its url4 and seed, which the start holds. The App writes it unread to `runs/{run_id}/context`, up to `run_context_max_bytes` (4 MiB), before it registers the Run, keeps its checksum and size on the Run, and serves it at `GET /runs/{id}/context`. | Without it a Report cannot be built on another machine or after a kernel restart (§2). The Engine never reads it, and an object store suits a blob of megabytes. The checksum lets the Client detect a context that was replaced in the store. |
 | D10 | **Every Run the Engine drives stops at its deadline, and a follower holds an attached Run's.** An attached Run's `deadline_at` starts at `created_at + orphan_grace_s` (120 s); while a follower is connected, the event route moves it to `now + orphan_grace_s` (R10). So an attached Run stops 120 s after its last follower left, or after it was registered if none came. | "Runs started the current way should behave exactly as today" (`OME-1611`). One stored field and one stop rule serve both kinds of Run (owner decision, 2026-11-18). |
-| D11 | **A detached Run's deadline is fixed.** `deadline_at = created_at + deadline`; the default is `run_detached_deadline_s` (48 h), settable per Run up to `run_detached_deadline_max_s` (7 days). No follower moves it. Following a detached Run never makes it attached, and an attached Run cannot be made detached. With the orphan rule off (R10), an attached Run gets the detached default and no follower moves it. | The owner knows at start when it ends. The spend cap is P4 (`OME-695`). |
+| D11 | **A detached Run's deadline is fixed.** `deadline_at = created_at + deadline`; the default is `run_detached_deadline_s` (48 h), settable per Run up to `run_detached_deadline_max_s` (7 days). No follower moves it. Following a detached Run never makes it attached, and an attached Run cannot be made detached. With the orphan rule off (R10), an attached Run's grace is the detached default: it ends that long after its last follower. | The owner knows at start when it ends. The spend cap is P4 (`OME-695`). |
 | D12 | **Every stop records its reason:** `canceled`, `orphaned` (an attached Run past its deadline) or `deadline` (a detached one). The first one wins. A Run stopped by `canceled` reads `canceled`; one stopped by `orphaned` or `deadline` reads `interrupted`. A `pending` Candidate is live until a stop settles it; P1's pending grace is removed. | A Candidate can wait hours behind a full per-caller cap. The grace was sized for the Client's 900 s loop, which is gone. |
 | D13 | **The Client follows a Run, not topics.** One owner-checked WebSocket carries every Candidate's events tagged with its index. A Candidate still running replays the events the stream holds; one that has ended sends its record. | One stream is what a live notebook and a reattaching one both need. Past progress lines are not kept. |
 | D14 | **`detach=True` returns a `Run`; the default returns a `Report`.** `Run.wait()` follows the Run and returns its `Report`. `Run.report()` works on any machine. Ctrl-C on an attached `evaluate` cancels the Run. **The Report is built in one place:** once the Run has ended, from the Engine's records, reusing each result already on this machine and fetching the rest. An attached follow fetches and saves each succeeded Candidate's result as it settles, for its live score, and the build reuses it. | The epic's API. P1's `Run.wait()` returns a `Run`; it is in no release. One build makes an attached Report and one rebuilt elsewhere equal by construction, and a follow that ended early leaves nothing to merge (owner decision, 2026-11-18). |
@@ -127,7 +127,7 @@ Engine paths are relative to `apps/screamingface-engine/src/screamingface_engine
 
 | Route | Request | Response |
 |---|---|---|
-| `POST /runs` | P1's body with `candidates: [{name, url4, answer_seed, capture, use_cache, replay_frozen_copy}]`, plus `context` (a string the Engine does not parse), `detach: bool` (default `false`) and `deadline_s: int \| null` | 201 or 200 with the Run as `?view=summary` reads it; 404 `runs_off` with Runs off; 413 `request_too_large` over `run_request_max_bytes` (8 MiB); 422 `deadline_too_long`, `deadline_needs_detach`, `context_too_large`, or `invalid_request` for any other invalid body (a url4 over 512 KiB as JSON, which one run-queue message could not carry, and a NUL or a lone surrogate in any text, which Postgres cannot hold, among them); 400 `x_profile_unsupported` for a stated `X-Profile`, as on the start route, before the body is read; 503 `result_store_unavailable` when the context cannot be stored, and then no Run is registered; a repeated `client_key` returns the first Run when its starts, `detach` and deadline match, else 409 `client_key_conflict` |
+| `POST /runs` | P1's body with `candidates: [{name, url4, answer_seed, capture, use_cache, replay_frozen_copy}]`, plus `context` (a string the Engine does not parse), `detach: bool` (default `false`) and `deadline_s: int \| null` | 201 or 200 with the Run as `?view=summary` reads it; 404 `runs_off` with Runs off; 413 `request_too_large` over `run_request_max_bytes` (8 MiB); 422 `deadline_too_long`, `deadline_needs_detach`, `context_too_large`, or `invalid_request` for any other invalid body (a url4 over 512 KiB as JSON, which one run-queue message could not carry, and a NUL or a lone surrogate in any text, which Postgres cannot hold, among them); 400 `x_profile_unsupported` for a stated `X-Profile`, as on the start route, before the body is read; 503 `result_store_unavailable` when the context cannot be stored, and then no Run is registered; a repeated `client_key` returns the first Run when its starts and `detach` match, and its deadline too when the request names one (one that named none took the default of its day), else 409 `client_key_conflict`; a body that does not arrive whole (the client left) is 400 `malformed_body`, logged at debug |
 | `GET /runs/{id}` | as P1 | adds `detached`, `deadline_at` (an attached Run's moves forward while it is followed), `stopped_by` and `context` (`sha256`, `size_bytes`; `null` for a Run that has none); each Candidate adds `index`, `start` and `record` (`null` until it ends). `GET /runs` (the list) carries neither `start` nor `record` |
 | `GET /runs/{id}?view=summary` | as P1 | the Run and its Candidates without `start` or `record`. `Run.progress()` and `Run.refresh()` read this |
 | `GET /runs/{id}/context` | owner-checked | the context as it was sent, streamed from the run-results store, for the Client to check against the Run's checksum; 404 `context_not_found` for a Run that has none, or after retention |
@@ -147,7 +147,7 @@ JSON objects whose `type` is the frame's name, in order per Candidate:
 |---|---|---|
 | `candidate.state` | `index`, `state` | when a Candidate becomes `scheduled`, and `running` at its first event; a follower that joins gets each live Candidate's current state first |
 | `candidate.event` | `index`, `event` (the Candidate's CloudEvent, unchanged) | each event of a running Candidate; a follower that joins late gets the events the stream still holds, from the oldest |
-| `candidate.settled` | `index`, `state`, `attempt_id`, `error_code`, `record` | once per Candidate, when it is terminal in the registry and the route has forwarded its events up to the terminal frame, if the stream holds one; at once for one that ended before the follower joined. `record` is `null` when no runner reported one (§4.3) |
+| `candidate.settled` | `index`, `state`, `attempt_id`, `error_code`, `record` | once per Candidate, when it is terminal in the registry and the route has forwarded its events up to the terminal frame, if the stream holds one; at once for one that ended before the follower joined. A `succeeded` Candidate whose record has not landed yet is held back for up to `run_outcome_grace_s` (120 s) from when the follower found it ended, so a record that follows an R7 settle still reaches the follower. `record` is `null` past that, and when no runner reported one (§4.3) |
 | `run.ended` | `state`, `stopped_by` | once, after every Candidate's `candidate.settled`; the route then closes the socket with 1000 |
 | `heartbeat` | none | every `ws_heartbeat_s` with nothing else to send |
 
@@ -165,7 +165,8 @@ JSON objects whose `type` is the frame's name, in order per Candidate:
   `registry_unavailable`, which the Client retries. WHY after the handshake: a close before it
   reaches a client as a bare HTTP 403. A Run deleted while followed closes it with 1008.
 - A Candidate's result frame is forwarded unchanged. Its artifact ticket is not redeemable for a
-  driver-started run; the Client reads the result route.
+  driver-started run; the Client reads the result route. A driver-started result over the inline
+  cap is written to the run-results store only, never also to the artifact bucket.
 - A follower that reconnects gets the same frames again. The Client drops events it has seen by
   their sequence, and does not treat a gap as an error: the stream holds at most 20,000 frames per
   Candidate and there is no replay request.
@@ -197,7 +198,8 @@ Reported by the runner when the run ends, and carried on the outcome:
 - **Size.** A record is a few KiB. The runner cuts `error.message`, `error.details` and
   `capture_partial_reasons` so the encoded record, measured with non-ASCII escaped as the codecs
   write it, stays under 48 KiB, marking what it cut. If the record is still larger, it reports the
-  outcome without it, so state, error code and cost are never lost to a large record.
+  outcome without it, so state, error code and cost are never lost to a large record. Every
+  producer checks the encoded outcome as well: one over 64 KiB is published without its record.
 - A Candidate has no record when no runner reported one: it was stopped before it ran, refused at
   start, lost, its child died before reporting, or its outcome was rebuilt from the stream (R7). Its
   state, error code and cost still come from its outcome. The Client reads a `succeeded` Candidate
@@ -213,11 +215,12 @@ Reported by the runner when the run ends, and carried on the outcome:
   The Run row also holds the sealed `owner_email` (R16) and `driver_lease_until`.
 - **`CandidateRecord`** gains `start` and `record`. The Candidate row also holds its `trace_id`.
   Reads other than `get` load neither. `summary(owner, run_id)` is `get` without them.
-- **`RunRegistry`** keeps P1's methods and changes two:
+- **`RunRegistry`** keeps P1's methods and changes three:
   - `settle(topic, outcome)` also stores the outcome's record, in the same transaction. State and
     error code are first-wins. A later outcome with the same state fills a cost or a record that is
     still empty, and changes nothing else.
   - `mark_scheduled(topic)` also stamps the bind time, so P1's clocks count from the real start.
+  - `cancel(owner, run_id)` returns the Run as `summary` reads it, without starts or records.
 - It gains:
   - `lease_run(run_id, held_until, until)` and `release_run(run_id, held_until)` (R4);
   - `due_runs(now)`: Runs to drive, Runs past their deadline (each saying whether it is detached),
@@ -232,8 +235,9 @@ Reported by the runner when the run ends, and carried on the outcome:
     the result route;
   - `expiring(older_than)`; `expire` takes the Run ids to delete, not a cutoff (R13).
 - **`RunResultStore`** (new port): `put(key, body)` for the runner, which already holds the result,
-  and for the App, which stores the context; `open(key)`, streaming, `delete(keys)` and
-  `delete_older_than(cutoff)` for the App. Adapters: an S3 bucket and a filesystem folder. The S3
+  and for the App, which stores the context; `open(key)`, streaming, and
+  `delete_older_than(cutoff)` for the App (R13: a folder's own expiry; a bucket's is its lifecycle
+  rule). Adapters: an S3 bucket and a filesystem folder. The S3
   adapter never lists the bucket, so its signer keeps sending one object per request.
 - **`IdentityAwareJobRunner`**: `schedule` gains `result_prefix` (`runs/{run_id}/{index}`) and
   `exclusive`, carried in the queue message, which is then version 3. The driver sets both on every
@@ -268,6 +272,9 @@ Reported by the runner when the run ends, and carried on the outcome:
     permanent is retried. A start that lost to a stop is not a refusal; the stop settles it (R9).
   - A `pending` Candidate whose publish is unknown is not counted among those in flight; the
     queue's own hold for that topic covers it.
+  - **No room:** a pass that started nothing and settled nothing waits a third of the lease (20 s)
+    before the next, instead of the retry delay: the Run's slots are full, and the pass would
+    only read its counts again.
   - Each pass loads the starts of only as many `pending` Candidates as fit beside the owner's in
     flight, so a Run waiting behind its owner's other Run loads none.
   - A Run that has a stop reason takes no new start (R9).
@@ -296,8 +303,9 @@ Reported by the runner when the run ends, and carried on the outcome:
   both expired. A second outcome for the topic changes no state (§4.4), and each copy writes its
   result under its own checksum (D9a).
 - **R4 Lease.** `run_driver_lease_s` is 60 s, renewed every third of it. A lease is taken by one
-  UPDATE guarded on the lease being empty, expired, or the value this driver last wrote. On a clean
-  shutdown the driver releases its leases.
+  UPDATE guarded on the lease being empty, expired, or the value this driver last wrote. A pass that
+  starts several Candidates renews it before each start once a third of it has passed, and ends if
+  another App has taken it. On a clean shutdown the driver releases its leases.
 - **R5 The record.** For a run started with a result prefix, the runner writes its result to the
   run-results store before it publishes the result frame, and its child reports the record with its
   outcome. A write that fails is retried with backoff for up to `run_result_write_budget_s` (60 s);
@@ -309,7 +317,8 @@ Reported by the runner when the run ends, and carried on the outcome:
   store it cannot reach fails the run `result_store_unavailable` before it spends.
 - **R6 The outcome is retried.** For a driver-started run, the worker retries an outcome publish
   that failed because the broker was unreachable or the stream full, with backoff, until the stream
-  accepts it or the worker drains. The retry runs apart from the run's queue message, which is acked
+  accepts it or the worker drains; a draining worker keeps retrying for at least 10 s after it has
+  stopped its last run. The retry runs apart from the run's queue message, which is acked
   as today, so it holds no worker slot. Any other refusal is logged and dropped, as today.
 - **R7 A missing outcome.** On its tick the driver reads the last frame of each `scheduled`
   Candidate's topic. If that is a terminal frame and its time plus `run_outcome_grace_s` (120 s) has
@@ -340,35 +349,44 @@ Reported by the runner when the run ends, and carried on the outcome:
   holds the Run for as long as its socket is open. `hold` never moves a deadline back, and leaves a
   detached or stopped Run alone.
   - **The clock runs only while the Engine can record a follow.** After the driver starts, and after
-    any tick that could not reach the registry, the tick stops no attached Run at its deadline
+    any tick that could not read the due Runs, the tick stops no attached Run at its deadline
     until `orphan_grace_s` of ticks have succeeded in a row. A detached Run's stop does not wait:
     no follower moves its deadline. The event route keeps a follower's socket open
     through a registry failure and holds at its next success. So neither an App restart nor a
-    database outage stops a Run that is being followed.
+    database outage stops a Run that is being followed. Any later step of a tick that fails (one
+    Run's stop, the startless pass) is logged and the rest of the tick goes on, and does not
+    restart the clock.
   - A Run registered by a Client from before P2 has no starts and no deadline, so nothing stops it
     for want of a follower.
-  - With `orphan_grace_s` set to 0 the rule is off, as the reaper is: an attached Run gets the
-    detached default deadline (D11), so that it still ends, and the route holds nothing.
+  - With `orphan_grace_s` set to 0 the rule is off, as the reaper is: the detached default (D11)
+    takes the grace's place, so an attached Run ends that long after its last follower, and a
+    followed one is never stopped.
 - **R11 Deadline.** The driver's tick (`run_driver_tick_s`, 15 s) stops every Run whose
   `deadline_at` has passed: a detached one as `deadline`, an attached one as `orphaned`. The stop
   checks the deadline again in its own transaction, so a follower that returned in between keeps
-  the Run. The same tick settles `stopped` any `pending` Candidate that has
-  no start: one registered by a Client from before P2.
+  the Run. Once every 1800 s per App, the tick also settles `stopped` each `pending` Candidate that
+  has no start (one registered by a Client from before P2) whose Run has been idle longer than P1's
+  pending grace (1800 s), so a released Client still starting it while a deploy rolls is not
+  refused. It settles them batch by batch until none is left, each Run's under its lock, in the
+  order a stop takes it (R9).
 - **R12 State.** P1 R5 with two changes: a `pending` Candidate always counts as live, and the
   `canceled` fact is `stopped_by == "canceled"`, not the cancel flag. `run_pending_grace_s` and its
   validator are removed. The migration sets `stopped_by = "canceled"` on every Run P1 canceled, and
   a Run whose flag is set with no reason reads `canceled` too: an App from before P2 may cancel
-  while a deploy rolls, after the migration ran.
-- **R13 Retention.** P1's 30-day sweep first lists the Runs it is about to delete, deletes the
-  objects each Run names, its context, each Candidate's result by the checksum in its record and
-  each started Candidate's empty-result probe (R5), and
-  only then deletes the rows of the Runs whose objects it deleted. A Run whose delete failed keeps
-  its rows for the next sweep. Objects no record names (a second execution of one start, a lost
-  outcome) are removed by age: on S3 by a lifecycle rule on the bucket one day longer than the
-  retention (31 days), and in a folder by the adapter's `delete_older_than`, which the sweep calls.
+  while a deploy rolls, after the migration ran. The next tick finishes that stop, recording
+  `canceled`, and no follower moves its deadline.
+- **R13 Retention.** P1's 30-day sweep deletes a Run's rows only. Every object in the run-results
+  store, a Run's context, each result and each probe (R5), is removed by age, a day after the
+  retention (31 days), so no object goes before the rows of its Run: on S3 by the bucket's lifecycle
+  rule, and in a folder by the adapter's `delete_older_than`, which the sweep calls. The App awaits
+  only reconcile before it serves; retention runs in the background sweep. WHY by age alone (#1759
+  review round 5): deleting each Run's objects one request at a time made retention as slow, and as
+  fallible, as the store. The chart sets no rule on a bundled Garage: it is applied once with any S3
+  client, as for the other two (the chart README's Expiry section).
 - **R14 Local mode.** The same driver runs over the in-process runner, which has no per-caller cap
   and gives no retry delay; the driver uses a fixed backoff. That runner refuses a topic while its
-  task is running, which the driver reads as "started". There is no owner email; the driver sends no
+  task is running, and a driver-started topic it has run at all in this process, which the driver
+  reads as "started", so a start sent again never runs twice. There is no owner email; the driver sends no
   identity, and no worker claims a topic. After a local restart, Candidates that were running read
   `lost` (P1 R6) and the driver starts the `pending` ones, so a detached local Run resumes on its
   own until its deadline. The reaper skips the topics of a Run that has starts, whoever attaches to
@@ -384,7 +402,7 @@ Reported by the runner when the run ends, and carried on the outcome:
   the Run, with a fresh 96-bit nonce per value, as `v1:<nonce>:<ciphertext>` (aigateway's
   `LocalSecretStore` format), and opens it only in the driver, to start a Candidate. The key is
   `run_email_key` (32 bytes, base64): a Secret the chart generates once and keeps across upgrades,
-  or the operator's own (`runs.emailKey.existingSecret`). Only the App reads it. A hosted App with
+  or the operator's own (`database.emailKey.existingSecret`). Only the App reads it. A hosted App with
   a Runs database refuses to start without it. Without a configured key (local mode, tests) the App
   makes one per process; local mode stores no email, so a restart loses nothing. The driver fails a
   Candidate whose Run's email it cannot open (the key was replaced) with `owner_unreadable`,
@@ -470,9 +488,8 @@ P1's one notice and runs with no Run record, as a released Client does.
   outcome still lands.
 - **Results:** a small and a large result are each written by the runner under their checksum and
   read from the route by a second client, streamed; a second execution does not overwrite the first;
-  the same bytes in two Runs are two objects; retention deletes a Run's context and recorded results
-  and keeps the rows of a Run whose delete failed, and the folder adapter removes by age what no
-  record names; a store that fails briefly at the end of a run is retried and the run succeeds; the
+  the same bytes in two Runs are two objects; retention deletes a Run's rows and no object, and
+  the folder adapter removes every object by age, a day after the retention; a store that fails briefly at the end of a run is retried and the run succeeds; the
   route serves only the key built from the Run, index and checksum; a pool with no run-results store
   fails the run `result_store_missing` before any model call.
 - **Stops:** a stop that fails is made again on the next tick; a start that loses to a stop does not
@@ -483,8 +500,8 @@ P1's one notice and runs with no Run record, as a released Client does.
   grace keeps it, as does one that returns between the tick's read and its stop; a follower that
   reads nothing for longer than the grace still holds it; a Run never followed is stopped 120 s
   after it was created; a followed Run survives an App restart and a registry outage longer than
-  the grace; a Run with no starts has no deadline; with the rule off, an attached Run stops at the
-  default deadline.
+  the grace; a Run with no starts has no deadline; with the rule off, an attached Run stops the
+  default deadline after its last follower.
 - **Detached:** runs with no follower; stops at `deadline_at` with `stopped_by: "deadline"`; a
   deadline over the cap is 422; a follower does not move its deadline, and following it and leaving
   does not stop it.
@@ -493,8 +510,9 @@ P1's one notice and runs with no Run record, as a released Client does.
   App without the key does not start; no log record, at DEBUG included, carries the email.
 - **Context:** it is served to the owner only, byte for byte as sent, and its checksum is on the
   Run; over the cap is 422; a Run is not registered when its context cannot be stored; a context
-  written for a repeated `client_key` is deleted; retention deletes it with the Run; no `/runs`
-  answer carries `owner_email`; a stated `X-Profile` is 400 and keeps neither a Run nor a context.
+  written for a repeated `client_key`, or for a Run that did not register, goes by age (R13); no
+  `/runs` answer carries `owner_email`; a stated `X-Profile` is 400 and keeps neither a Run nor a
+  context.
 - **Migration:** a Run P1 canceled still reads `canceled`; the tick settles a pre-P2 `pending`
   Candidate.
 - **Events:** a silent Run sends heartbeats; a late follower gets a running Candidate's events and
@@ -575,8 +593,17 @@ P1's one notice and runs with no Run record, as a released Client does.
   it never does.
 - **Losing the email key strands pending Candidates.** A Run whose email cannot be opened starts
   nothing more: its pending Candidates fail `owner_unreadable` (R16). The chart keeps its generated
-  key across upgrades; deleting that Secret, or replacing `existingSecret`, does this to every Run
-  in flight.
+  key across upgrades (`lookup`) and uninstalls (`resource-policy: keep`), and a changed key rolls
+  every App pod together, so no two pods hold different keys. Deleting that Secret, or replacing
+  `existingSecret`, does this to every Run in flight. A render that cannot read Secrets (`helm
+  template`, Argo CD, a deployer without read access) would mint a new key each time, so such a
+  deployment must set `database.emailKey.existingSecret`; this repo's environments deploy with
+  `helm upgrade`, where `lookup` works.
+- **Holds another App pod cannot write.** R10's clock watches only whether the driver's own pod
+  reaches the registry. With more than one App pod, a follower whose pod cannot write its holds,
+  while the driver's pod can, has its attached Run stopped as `orphaned` after 120 s. The App
+  runs one replica (§2), so the follower and the driver share a pod; this must be closed, with
+  the queue's caller counters, before the App scales out.
 - **A follower that stops reading for long loses its socket.** The route holds the Run on its own
   timer (R10), but a client that reads nothing past the WebSocket ping timeout (about 20 s) is
   disconnected, and the hold stops until it reconnects. The Client reconnects once a result fetch
@@ -600,6 +627,13 @@ P1's one notice and runs with no Run record, as a released Client does.
   already requires (§8). Size the namespace quota for the old pods a deploy keeps.
 - Confirm on staging that the edge passes `X-User-Email` on a WebSocket upgrade to
   `/runs/{id}/events`.
+- Confirm how each environment (preview, dev, staging, prod) renders the chart. Where it is
+  rendered without access to the cluster's Secrets (Argo CD, `helm template`), set
+  `database.emailKey.existingSecret` and `runResults.storage.s3.existingSecret` before Runs go on:
+  without `lookup`, every render mints a new email key, which rolls the App and fails the pending
+  Candidates of every Run in flight (`owner_unreadable`).
+- Size the App's Runs database pool (`?maxsize=` on its URL; Tortoise's default is 5) for the
+  followers expected: each follower reads its Run once a second.
 - Confirm that the broker's JetStream file store holds the outcome stream's 512 MiB (§4.4) beside
   `events.maxBytes`, on staging and prod, before the Engine PR deploys.
 
@@ -616,8 +650,10 @@ All by Tauquir (spec owner), approved 2026-11-11 to 2026-11-18.
   run-results store, and returns the starts and the context to the owner (D8, D9b).
 - The runner produces the record and writes every result itself. The record lives in Postgres and
   results in an object store; event frames are not stored (D9, D9a).
-- Retention deletes the objects a Run names, and a lifecycle rule removes the rest, so the S3
-  adapter never lists the bucket (R13).
+- Retention deletes a Run's rows only, and a lifecycle rule removes every object by age, so the
+  S3 adapter never lists the bucket and never deletes (R13). As for the two existing bundled
+  Garages, the chart sets no rule on the bundled run-results Garage: it is applied once with any
+  S3 client (the chart README's Expiry section).
 - P1's condition for a stateful App, that runners stay stateless, still holds: a runner keeps no
   database and nothing between runs; its one new access is a write-only key to the run-results
   bucket.

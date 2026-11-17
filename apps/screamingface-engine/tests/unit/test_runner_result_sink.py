@@ -11,7 +11,7 @@ import hashlib
 from collections.abc import AsyncIterator, Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import pytest
 
@@ -39,6 +39,10 @@ class _Refusing:
         self.puts = 0
 
     def put(self, key: str, body: bytes) -> None:
+        self.puts += 1
+        raise OSError("the bucket is unreachable")
+
+    def put_file(self, key: str, handle: IO[bytes], size: int, sha256: str) -> None:
         self.puts += 1
         raise OSError("the bucket is unreachable")
 
@@ -142,3 +146,79 @@ def test_a_prefix_on_a_pool_with_no_store_has_a_sink_with_none() -> None:
 
     assert sink is not None
     assert sink.store is None
+
+
+# --- the store answers before any model call (review of #1747) ------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_store_that_does_not_answer_fails_the_run_before_any_model_call() -> None:
+    """R5: a run that could not keep its result is found out before it spends, not after."""
+    built: list[bool] = []
+
+    async def world_factory() -> Any:
+        built.append(True)
+        raise AssertionError("no world may be built")
+
+    store = _Refusing()
+    executor = Url4Executor(
+        world_factory=world_factory, result_sink=ResultSink(PREFIX, store, budget_s=0)
+    )
+    steps: AsyncIterator[Any] = executor.execute("openai/gpt-5")
+
+    with pytest.raises(ResolutionError) as raised:
+        await anext(steps)
+
+    assert (raised.value.code, raised.value.permanent) == (RESULT_STORE_UNAVAILABLE, False)
+    assert built == []
+    assert store.puts == 1
+
+
+@pytest.mark.asyncio
+async def test_a_store_that_answers_is_written_once_before_the_world_is_built(
+    tmp_path: Path,
+) -> None:
+    """The check is a write, since the runner pool's key may only write. Its object is the
+    empty result's key under the Candidate's prefix, so it names nothing new."""
+    order: list[str] = []
+    store = FilesystemRunResultStore(tmp_path)
+
+    async def world_factory() -> Any:
+        order.append("world")
+        raise RuntimeError("stop here")
+
+    executor = Url4Executor(world_factory=world_factory, result_sink=ResultSink(PREFIX, store))
+    steps: AsyncIterator[Any] = executor.execute("openai/gpt-5")
+
+    with pytest.raises(Exception, match="stop here"):
+        await anext(steps)
+
+    assert _stored(tmp_path, "") == b""
+    assert order == ["world"]
+
+
+def test_a_driver_started_result_over_the_inline_cap_is_kept_once(tmp_path: Path) -> None:
+    """Review round 3: a driver-started run's result is read from its Run's result route only,
+    so it is not written to the artifact bucket as well; the ticket names its checksum."""
+    body = "x" * 2048
+    sink = ResultSink(PREFIX, FilesystemRunResultStore(tmp_path / "results"))
+    spill = FilesystemArtifactStore(tmp_path / "artifacts")
+
+    data = _RunState().build_result(body, inline_cap=1024, hard_cap=4096, store=spill, sink=sink)
+
+    digest = hashlib.sha256(body.encode()).hexdigest()
+    assert data.artifact is not None and data.artifact.sha256 == digest
+    assert _stored(tmp_path / "results", body) == body.encode()
+    assert not any(path.is_file() for path in (tmp_path / "artifacts").rglob("*"))
+
+
+def test_a_driver_started_result_needs_no_artifact_bucket_to_spill(tmp_path: Path) -> None:
+    """Review round 3: the run-results store holds it, so a pool with no artifact store does
+    not refuse it as too large."""
+    body = "x" * 2048
+    sink = ResultSink(PREFIX, FilesystemRunResultStore(tmp_path))
+
+    data = _RunState().build_result(body, inline_cap=1024, hard_cap=4096, store=None, sink=sink)
+
+    assert data.artifact is not None
+    assert _stored(tmp_path, body) == body.encode()

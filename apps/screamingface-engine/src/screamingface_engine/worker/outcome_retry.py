@@ -1,10 +1,11 @@
 """A driver-started run's outcome, published again until the stream takes it (E5 P2 spec R6).
 
-FEATURE: a detached Run (OME-1837). A Candidate whose outcome is lost stays `scheduled` until
-reconcile settles it `lost` 48 h later, holding one of its Run's 8 slots. For a run the Engine's
-driver started, the worker retries a publish the stream refused because its broker was unreachable
-or it was full (`OutcomeNotAccepted`), with backoff, until it lands or the worker drains. Any other
-refusal is logged and dropped, as before.
+FEATURE: a detached Run (OME-1837). A Candidate whose outcome is lost stays `scheduled`, holding
+one of its owner's slots (the runner's per-caller cap), until the driver settles it from its
+terminal frame `run_outcome_grace_s` later, with no cost and no record (R7). For a run the
+Engine's driver started, the worker retries a publish the stream refused because its broker was
+unreachable or it was full (`OutcomeNotAccepted`), with backoff, until it lands or the worker
+drains. Any other refusal is logged and dropped, as before.
 
 INVARIANT: a retry is a task of its own, apart from the run's queue message, which is acked as
 before, so it holds no worker slot. The drain awaits it.
@@ -19,7 +20,11 @@ import contextlib
 import logging
 from typing import Protocol
 
-from screamingface_engine.candidate_outcomes import CandidateOutcome, OutcomeNotAccepted
+from screamingface_engine.candidate_outcomes import (
+    CandidateOutcome,
+    OutcomeNotAccepted,
+    within_cap,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +59,7 @@ class OutcomeRetries:
 
     async def publish(self, topic: str, outcome: CandidateOutcome) -> None:
         """Publish ``outcome`` now; if the stream cannot take it now, keep trying apart."""
+        outcome = within_cap(topic, outcome)
         try:
             await self._stream.publish(topic, outcome)
         except OutcomeNotAccepted as exc:

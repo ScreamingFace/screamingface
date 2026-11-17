@@ -559,10 +559,12 @@ class RunSupervisor:
         AIDEV-NOTE: kept to ruff's `max-returns = 3` by delegating each gate. Add a new
         gate as another `_settled_*` helper returning ``bool``, never as a fourth return.
         """
+        # WHY first (#1759 review): a cancel accepted while the run started publishes its
+        # outcome too, and a driver-started run's goes out with retries (`_send_outcome`).
+        msg = self._finishing(msg, topic)
         if topic in self._cancelled:
             await self._enact_accepted_cancel(msg, topic)
             return
-        msg = self._finishing(msg, topic)
         if await self._already_settled(msg, topic):
             self._endings.setdefault(topic, "settled")
             return
@@ -713,7 +715,8 @@ class RunSupervisor:
         OME-1089's probe.
         """
         gate = self._claim_gate
-        if gate is None or not _exclusive(msg):
+        # WHY the topic, not the message: `_finishing` already decoded it (review round 5).
+        if gate is None or topic not in self._driver_topics:
             return await self._refuse_cross_pod_duplicate(msg, topic)
         if await gate.admit(topic):
             return False

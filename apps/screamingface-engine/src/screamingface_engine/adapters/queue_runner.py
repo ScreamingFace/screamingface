@@ -513,6 +513,20 @@ class QueueJobRunner(IdentityAwareJobRunner):
     async def stop(self, topic: str) -> None:
         await self._stop(topic, bound=False)
 
+    async def stop_landed(self, topic: str) -> bool:
+        """Whether the topic's stream ends in a terminal frame.
+
+        WHY (#1759 review): a worker that took the stop over the control subject may die
+        before it publishes its stopped frame, and another worker would then run the message's
+        redelivery. Until a terminal frame is on the stream the stop stays owed: the next one
+        reaches whichever worker holds the topic, or, with none answering, writes the
+        tombstone every copy is acked away by. An unreadable tail is no answer.
+        """
+        frame = await self._read_tail(topic)
+        if frame is _UNREADABLE_TAIL:
+            raise QueueReadError(f"stream tail unreadable for {topic}: run state unknown")
+        return isinstance(frame, TerminatedEvent)
+
     async def stop_bound(self, topic: str) -> None:
         """As `stop`, but a topic with no frame is tombstoned even when this process has no
         record of scheduling it (E5 P1 spec D12).

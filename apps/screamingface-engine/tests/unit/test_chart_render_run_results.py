@@ -121,6 +121,15 @@ def test_the_runner_pool_may_have_a_write_only_key_of_its_own() -> None:
     assert _named(docs, "Secret", f"{_FULLNAME}-run-results-storage") is None
 
 
+def test_a_pool_key_of_its_own_on_the_bundled_garage_refuses_to_render() -> None:
+    """The bundled Garage adopts one key pair, so a pool key of its own would get 403 on every
+    write, failing every run at its probe."""
+    result = _helm(_RUNS_ON, "runResults.storage.s3.poolExistingSecret=run-results-pool")
+
+    assert result.returncode != 0
+    assert "runResults.storage.s3.poolExistingSecret" in result.stderr
+
+
 def test_runs_on_without_a_store_refuses_to_render() -> None:
     result = _helm(_RUNS_ON, "runResults.storage.backend=")
 
@@ -139,3 +148,42 @@ def test_the_runner_pool_gets_its_write_budget() -> None:
     docs = _render(_RUNS_ON, "runResults.writeBudgetS=90")
 
     assert _config(docs, "-runner-env")["URL4_CLOUD_RUN_RESULT_WRITE_BUDGET_S"] == "90"
+
+
+def _checksums(docs: list[dict[str, Any]]) -> tuple[str, str]:
+    """The App's and the pool's `checksum/run-results-secret`."""
+    found: dict[bool, str] = {}
+    for doc in docs:
+        if doc["kind"] == "Deployment":
+            annotations = doc["spec"]["template"]["metadata"]["annotations"]
+            found[doc["metadata"]["name"].endswith("-runner")] = annotations[
+                "checksum/run-results-secret"
+            ]
+    return found[False], found[True]
+
+
+def test_naming_a_new_existing_secret_rolls_the_app_and_the_pool() -> None:
+    """#1759 review: with `existingSecret` the chart renders no Secret, so its checksum never
+    changed and a rotated Secret rolled nothing. A new name now rolls both."""
+    external = (_RUNS_ON, "runResults.storage.s3.endpointUrl=https://s3.example")
+    first = _checksums(_render(*external, "runResults.storage.s3.existingSecret=run-results-v1"))
+    second = _checksums(_render(*external, "runResults.storage.s3.existingSecret=run-results-v2"))
+    pool = _checksums(
+        _render(
+            *external,
+            "runResults.storage.s3.existingSecret=run-results-v1",
+            "runResults.storage.s3.poolExistingSecret=run-results-pool-v2",
+        )
+    )
+
+    assert first[0] != second[0] and first[1] != second[1]
+    assert pool[0] == first[0] and pool[1] != first[1]
+
+
+def test_the_generated_secret_outlives_an_uninstall_as_the_garage_volume_does() -> None:
+    """#1759 review: a reinstall that generated a new key pair could not open the Garage data the
+    kept volume holds."""
+    secret = _named(_render(_RUNS_ON), "Secret", f"{_FULLNAME}-run-results-storage")
+
+    assert secret is not None
+    assert secret["metadata"]["annotations"]["helm.sh/resource-policy"] == "keep"

@@ -11,6 +11,7 @@ artifact the result frame names; a write the store refuses is retried within the
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Callable
 from pathlib import Path
 from typing import IO
 
@@ -34,7 +35,11 @@ def test_a_spilled_result_is_kept_whole_under_its_prefix_and_checksum(tmp_path: 
     spool = ResultSpool(RunResultWriter(ResultSink(PREFIX, store)), inline_cap=8, hard_cap=10_000)
     body = "x" * 4000
 
-    reference = spool.deliver(lambda write: [write(body[i : i + 100]) for i in range(0, 4000, 100)])
+    def write_body(write: Callable[[str], None]) -> None:
+        for at in range(0, len(body), 100):
+            write(body[at : at + 100])
+
+    reference = spool.deliver(write_body)
     artifact = spool.redeem(reference)
 
     digest = hashlib.sha256(body.encode()).hexdigest()
@@ -76,3 +81,16 @@ def test_a_store_down_past_the_budget_fails_the_write(tmp_path: Path) -> None:
 def test_a_pool_with_no_store_opens_no_sink() -> None:
     with pytest.raises(RunResultStoreUnavailable):
         RunResultWriter(ResultSink(PREFIX, None)).open_sink()
+
+
+def test_a_spilled_result_the_store_refuses_fails_the_run_retryably(tmp_path: Path) -> None:
+    """R5 (review round 3): the spool path raises the store's error itself, and the run's error
+    reads `code` and `permanent` off it, so it is `result_store_unavailable`, not permanent, as
+    the inline path reports it."""
+    sink = RunResultWriter(ResultSink(PREFIX, _FlakyStore(tmp_path, 99), budget_s=0.0)).open_sink()
+    sink.write(b"chunk")
+
+    with pytest.raises(RunResultStoreUnavailable) as refused:
+        sink.commit()
+
+    assert (refused.value.code, refused.value.permanent) == ("result_store_unavailable", False)

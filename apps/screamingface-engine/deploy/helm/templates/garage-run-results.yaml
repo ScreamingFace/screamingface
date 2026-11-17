@@ -8,8 +8,9 @@ WHY a third Garage and not a bucket on the first: the chart creates buckets only
 artifact store expires everything after 2 days while a Run's results live for 30.
 
 Rendered with Runs on (`database.existingSecret`) when `runResults.storage.s3.endpointUrl` is
-empty. One replica, no backup and no lifecycle rule: a test cluster's store. Production names a
-durable bucket of its own (DEPLOYMENT.md: the run-results store).
+empty. One replica and no backup: a test cluster's store. As with the other two Garages, the
+chart sets no lifecycle rule; apply the 31-day one once (README: Expiry), or nothing in it is
+removed. Production names a durable bucket of its own (DEPLOYMENT.md: the run-results store).
 
 AIDEV-NOTE: kept a parallel template, as `garage-blobs.yaml` is; `verify_chart_wiring.py` asserts
 the three Garages render the same image, args and security context.
@@ -19,6 +20,9 @@ no Garage's Service load-balances onto another's store.
 INVARIANT: the key pair comes from `secret-run-results-storage.yaml`, the Secret the App reads.
 */}}
 {{- if include "screamingface-engine.runResultsGarageEnabled" . }}
+{{- if .Values.runResults.storage.s3.poolExistingSecret }}
+{{- fail "runResults.storage.s3.poolExistingSecret needs an external store (runResults.storage.s3.endpointUrl): the bundled run-results Garage adopts one key pair, and would refuse the pool's" }}
+{{- end }}
 {{- $name := printf "%s-garage-run-results" (include "screamingface-engine.fullname" .) -}}
 apiVersion: v1
 kind: ConfigMap

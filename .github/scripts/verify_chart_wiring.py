@@ -1093,6 +1093,8 @@ _runs_env = _garage_env(runs_sts)
 check(
     _runs_env["GARAGE_DEFAULT_ACCESS_KEY"]["valueFrom"]["secretKeyRef"]
     == {"name": _runs_secret, "key": "URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY"}
+    and _runs_env["GARAGE_DEFAULT_SECRET_KEY"]["valueFrom"]["secretKeyRef"]
+    == {"name": _runs_secret, "key": "URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY"}
     and _runs_env["GARAGE_RPC_SECRET"]["valueFrom"]["secretKeyRef"]
     == {"name": _runs_secret, "key": "GARAGE_RPC_SECRET"}
     and _runs_env["GARAGE_DEFAULT_BUCKET"]["value"]
@@ -1114,7 +1116,9 @@ for _deployment_name in (ENGINE_FULLNAME, f"{ENGINE_FULLNAME}-runner"):
         ref["secretRef"]["name"] for ref in _container["envFrom"] if "secretRef" in ref
     }
     check(
-        _named.get("URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY")
+        _named.get("URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY")
+        == {"name": _runs_secret, "key": "URL4_CLOUD_RUN_RESULTS_S3_ACCESS_KEY"}
+        and _named.get("URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY")
         == {"name": _runs_secret, "key": "URL4_CLOUD_RUN_RESULTS_S3_SECRET_KEY"}
         and _runs_secret not in _env_from
         and "GARAGE_RPC_SECRET" not in _named,

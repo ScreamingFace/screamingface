@@ -1,4 +1,5 @@
 from tortoise import fields, migrations
+from tortoise.indexes import Index
 from tortoise.migrations import operations as ops
 
 
@@ -23,17 +24,12 @@ class Migration(migrations.Migration):
         ),
         ops.AddField(
             model_name="Run",
-            name="owner_email",
-            field=fields.CharField(null=True, max_length=320),
+            name="sealed_owner_email",
+            field=fields.TextField(null=True),
         ),
         ops.AddField(
             model_name="Run",
             name="driver_lease_until",
-            field=fields.DatetimeField(null=True, auto_now=False, auto_now_add=False),
-        ),
-        ops.AddField(
-            model_name="Run",
-            name="last_followed_at",
             field=fields.DatetimeField(null=True, auto_now=False, auto_now_add=False),
         ),
         ops.AddField(
@@ -47,6 +43,8 @@ class Migration(migrations.Migration):
             field=fields.IntField(null=True),
         ),
         ops.AddField(model_name="Candidate", name="start", field=fields.JSONField(null=True)),
+        # The driver's tick reads the stops still owed every 15 s (E5 P2 spec R9).
+        ops.AddIndex(model_name="Candidate", index=Index(fields=["stop_owed"])),
         ops.AddField(model_name="Candidate", name="record", field=fields.JSONField(null=True)),
         ops.AddField(
             model_name="Candidate",

@@ -8,12 +8,16 @@ the wire.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, NewType, get_args
 
+# WHY the outcome's rule: SQLite keeps a surrogate only in a JSON column and fails on it
+# elsewhere, so a body that can never be stored is a 422, not a 503 that invites a retry.
+from screamingface_engine.candidate_outcomes import storable_text
 from screamingface_engine.runs.ids import RUN_ID_PATTERN
 
 CandidateState = Literal[
@@ -41,6 +45,11 @@ MAX_CLIENT_VERSION_LENGTH = 64
 MAX_CANDIDATE_NAME_LENGTH = 255
 MAX_CANDIDATES = 256
 MAX_CASE_COUNT = 2**31 - 1
+# A start is one run-queue message and one spec line for its runner, each bounded at 1 MiB (the
+# broker's default `max_payload`, `child_protocol.MAX_SPEC_BYTES`). Half of that, counted as
+# JSON carries the text, leaves room for the rest of the message. INVARIANT: a Run is never
+# registered with a Candidate the Engine could not start.
+MAX_START_URL4_BYTES = 512 * 1024
 # WHY 320: the longest address RFC 5321 allows (64 + 1 + 255).
 MAX_OWNER_EMAIL_LENGTH = 320
 _SHA256 = re.compile(r"[0-9a-f]{64}")
@@ -106,9 +115,15 @@ class CandidateStart:
     def __post_init__(self) -> None:
         if not self.url4.strip():
             raise ValueError("a start's url4 must not be blank")
-        # WHY: PostgreSQL text cannot hold a NUL, where SQLite can; one rule for both stores.
-        if "\x00" in self.url4:
-            raise ValueError("a start's url4 has no NUL")
+        if not storable_text(self.url4):
+            raise ValueError("a start's url4 has no NUL and no lone surrogate")
+        # WHY the cheap bound first: a start is also built on every read, and no character
+        # takes more than twelve bytes in JSON (an astral one is two `\uXXXX` halves), so only
+        # a long url4 is measured.
+        if len(self.url4) * 12 > MAX_START_URL4_BYTES and (
+            len(json.dumps(self.url4)) > MAX_START_URL4_BYTES
+        ):
+            raise ValueError(f"a start's url4 is at most {MAX_START_URL4_BYTES} bytes as JSON")
 
 
 @dataclass(frozen=True, slots=True)
@@ -166,8 +181,15 @@ class RunSpec:
             object.__setattr__(self, "owner_email", email)
 
     def _check_starts(self, names: tuple[str, ...]) -> None:
-        if self.starts and tuple(start.name.strip() for start in self.starts) != names:
-            raise ValueError("the starts must name the Candidates, in their order")
+        if self.starts:
+            if tuple(start.name.strip() for start in self.starts) != names:
+                raise ValueError("the starts must name the Candidates, in their order")
+            # INVARIANT: a start is stored under its Candidate's name, so it compares by that
+            # name when the same `client_key` is sent again.
+            stored = tuple(
+                replace(start, name=name) for start, name in zip(self.starts, names, strict=True)
+            )
+            object.__setattr__(self, "starts", stored)
         # WHY: only the Engine's driver starts a detached Run's Candidates, and it needs starts.
         if self.detach and not self.starts:
             raise ValueError("detach needs every Candidate's start")
@@ -188,8 +210,8 @@ def _candidate_names(candidates: tuple[str, ...]) -> tuple[str, ...]:
         raise ValueError("a Candidate name must not be blank")
     if any(len(name) > MAX_CANDIDATE_NAME_LENGTH for name in names):
         raise ValueError(f"a Candidate name is at most {MAX_CANDIDATE_NAME_LENGTH} characters")
-    if any("\x00" in name for name in names):
-        raise ValueError("a Candidate name has no NUL")
+    if not all(storable_text(name) for name in names):
+        raise ValueError("a Candidate name has no NUL and no lone surrogate")
     # WHY compared stripped: names that differ only by surrounding space read as one name.
     if len(set(names)) != len(names):
         raise ValueError("Candidate names must be unique within a Run")
@@ -202,9 +224,8 @@ def _text(field: str, value: str, limit: int) -> str:
         raise ValueError(f"{field} must not be blank")
     if len(stripped) > limit:
         raise ValueError(f"{field} is at most {limit} characters")
-    # WHY: PostgreSQL text cannot hold a NUL, where SQLite can; one rule for both stores.
-    if "\x00" in stripped:
-        raise ValueError(f"{field} has no NUL")
+    if not storable_text(stripped):
+        raise ValueError(f"{field} has no NUL and no lone surrogate")
     return stripped
 
 
@@ -248,6 +269,10 @@ class RunRecord:
     context: ContextRef | None = None
 
 
+# P1's pending grace, removed in P2 (R12): how long a released Client may take, in admission, to
+# start a Candidate it registered. Startless Candidates are settled only after it (R11).
+P1_PENDING_GRACE = timedelta(seconds=1800)
+
 # WHY a cap: one `GET /runs` page is one bounded query, never a scan of an owner's whole history.
 MAX_PAGE_SIZE = 200
 
@@ -269,6 +294,13 @@ class RunQuery:
             raise ValueError(f"limit must be between 1 and {MAX_PAGE_SIZE}")
         if self.since is not None and not is_aware(self.since):
             raise ValueError("since must be a timezone-aware datetime")
+        # WHY: a time out of range once in UTC is one Postgres cannot encode; it is the
+        # caller's 422 on both stores, not a 503 that invites a retry.
+        if self.since is not None:
+            try:
+                self.since.astimezone(UTC)
+            except OverflowError:
+                raise ValueError("since is out of range in UTC") from None
         if self.cursor is not None and not RUN_ID_PATTERN.fullmatch(self.cursor):
             raise ValueError("cursor must be a Run id")
 
@@ -286,16 +318,18 @@ class RunPage:
 class DueRun:
     """A Run the driver's tick has work for.
 
-    ``drive``: live, with starts, and nobody holds its lease (R4). ``past_deadline`` and
-    ``unfollowed``: live, not yet stopped, and past its deadline (R11) or attached with nobody
-    following it (R10). ``owed``: the topics a stop still owes (R9).
+    ``drive``: live, with starts, and nobody holds its lease (R4). ``past_deadline``: live, not
+    yet stopped, and past its deadline (R11), or ``flagged``: canceled by an older App's flag
+    alone (R12); ``detached`` says which stop reason a deadline is.
+    ``owed``: the topics a stop still owes (R9).
     """
 
     run_id: str
     drive: bool = False
     past_deadline: bool = False
-    unfollowed: bool = False
+    detached: bool = False
     owed: tuple[str, ...] = ()
+    flagged: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -316,6 +350,12 @@ class StartPlan:
     owner: OwnerKey
     owner_email: str | None
     client_version: str
+    # Whether the Run has a sealed email this App cannot open (the key was replaced): its
+    # Candidates fail `owner_unreadable` before any start (R16).
+    owner_unreadable: bool
     stopped: bool
     in_flight: int
+    # The first of the `pending` Candidates the driver may start now, by index; ``waiting``
+    # counts every `pending` Candidate that has a start.
     pending: tuple[PendingStart, ...] = field(default=())
+    waiting: int = 0

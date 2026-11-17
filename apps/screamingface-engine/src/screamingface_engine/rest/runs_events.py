@@ -11,7 +11,8 @@ stream itself. It holds no driver state, so any App pod serves it. On its own ro
 INVARIANT (spec §4.2): per Candidate, frames go out in order: its state, its events up to its
 terminal frame, then `candidate.settled` once; `run.ended` comes after every `candidate.settled`.
 INVARIANT (R10): a registry failure never closes the socket, so a database outage never orphans a
-Run that is being followed.
+Run that is being followed; and the route holds the Run on a timer of its own, beside the loop that
+sends frames, so a follower that reads slowly still holds it while its socket is open.
 """
 
 from __future__ import annotations
@@ -22,7 +23,6 @@ import json
 import logging
 import time
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -50,6 +50,8 @@ _NORMAL = 1000
 _INTERNAL_ERROR = 1011
 _POLICY_VIOLATION = 1008
 _TRY_AGAIN_LATER = 1013
+# Why the route itself ends a follow, beside the close code.
+_CLOSE_REASONS = {_POLICY_VIOLATION: RUN_NOT_FOUND}
 _HEARTBEAT = '{"type":"heartbeat"}'
 # How long a Candidate's `candidate.settled` waits for its terminal frame once the registry says
 # it ended. WHY a bound: a subscription that stalls must not keep the follower from the record.
@@ -75,8 +77,13 @@ class _Follow:
         owner: OwnerKey,
         run_id: str,
         settings: Settings,
+        *,
+        events: bool = True,
     ) -> None:
         self._ws = ws
+        # Without events (`?events=false`), the follow sends states, settled frames and the end:
+        # all `Run.wait()` reads. It still holds an attached Run.
+        self._events = events
         self._registry = registry
         self._owner = owner
         self._run_id = run_id
@@ -90,24 +97,26 @@ class _Follow:
         self._pumps: dict[int, asyncio.Task[None]] = {}
         self._through: set[int] = set()  # pumps that forwarded their terminal frame
         self._waiting: dict[int, float] = {}  # since when a settle waits for its frame
+        self._unrecorded: dict[int, float] = {}  # since when a settle waits for its record
         self._settled: set[int] = set()
-        self._stamped_at: float | None = None
+        self._held_at: float | None = None
         self._failing = False
 
     async def run(self, first: RunRecord) -> None:
-        await self._stamp()
+        await self._hold()
         writer = asyncio.ensure_future(self._writer())
         inbound = asyncio.ensure_future(self._inbound())
         poller = asyncio.ensure_future(self._poll(first))
+        holder = asyncio.ensure_future(self._holder())
         try:
             await asyncio.wait([writer, inbound], return_when=asyncio.FIRST_COMPLETED)
         finally:
-            tasks = [writer, inbound, poller, *self._pumps.values()]
+            tasks = [writer, inbound, poller, holder, *self._pumps.values()]
             for task in tasks:
                 task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await asyncio.gather(*tasks, return_exceptions=True)
-            await self._stamp()
+            await self._hold()
 
     # --- the socket ----------------------------------------------------------------------
 
@@ -120,7 +129,7 @@ class _Follow:
                 item = _HEARTBEAT
             try:
                 if isinstance(item, int):
-                    await self._ws.close(code=item)
+                    await self._ws.close(code=item, reason=_CLOSE_REASONS.get(item))
                     return
                 await self._ws.send_text(item)
             except (WebSocketDisconnect, RuntimeError):
@@ -138,7 +147,6 @@ class _Follow:
         try:
             while True:
                 if run is not None:
-                    await self._stamp_when_due()
                     if await self._apply(run):
                         await self._out.put(_NORMAL)
                         return
@@ -169,19 +177,24 @@ class _Follow:
             _logger.debug("the registry failure", exc_info=exc)
         self._failing = True
 
-    async def _stamp_when_due(self) -> None:
-        since = None if self._stamped_at is None else time.monotonic() - self._stamped_at
-        if since is None or since >= self._settings.follow_stamp_s:
-            await self._stamp()
+    async def _holder(self) -> None:
+        """R10: hold the Run every `follow_stamp_s` while the socket is open. WHY a task of its
+        own: `_poll` waits on the bounded outbound queue, so a follower that reads slowly (one
+        fetching a result) stalls it, and must not stop holding its Run."""
+        while True:
+            await asyncio.sleep(self._settings.run_events_poll_s)
+            since = None if self._held_at is None else time.monotonic() - self._held_at
+            if since is None or since >= self._settings.follow_stamp_s:
+                await self._hold()
 
-    async def _stamp(self) -> None:
-        """R10: the Run had a follower now. A stamp that fails is due again at the next poll."""
+    async def _hold(self) -> None:
+        """A hold that fails is due again at the holder's next look."""
         try:
-            await self._registry.followed(self._run_id, datetime.now(UTC))
+            await self._registry.hold(self._run_id)
         except Exception as exc:
             self._failed(exc)
             return
-        self._stamped_at = time.monotonic()
+        self._held_at = time.monotonic()
 
     # --- the frames ------------------------------------------------------------------------
 
@@ -210,7 +223,7 @@ class _Follow:
         if shown is None or (shown == "pending" and state == "scheduled"):
             self._shown[candidate.index] = state
             await self._out.put(_frame(type="candidate.state", index=candidate.index, state=state))
-        if state == "scheduled" and candidate.attempt_id is not None:
+        if self._events and state == "scheduled" and candidate.attempt_id is not None:
             self._pump_from(candidate.index, candidate.attempt_id)
 
     async def _ready(self, candidate: CandidateRecord) -> bool:
@@ -218,7 +231,7 @@ class _Follow:
         or the stream holds no terminal frame to wait for. One that ended before this follower
         saw it live settles at once, with its record and none of its past events."""
         index, topic = candidate.index, candidate.attempt_id
-        if index not in self._shown or topic is None or index in self._through:
+        if not self._events or index not in self._shown or topic is None or index in self._through:
             return True
         pump = self._pumps.get(index)
         waited = time.monotonic() - self._waiting.setdefault(index, time.monotonic())
@@ -251,6 +264,9 @@ class _Follow:
         if records is None:
             raise _RunGone
         for candidate in ended:
+            record = records.get(candidate.index)
+            if record is None and self._awaits_record(candidate):
+                continue  # the next poll reads it again
             pump = self._pumps.pop(candidate.index, None)
             if pump is not None:
                 pump.cancel()
@@ -259,11 +275,29 @@ class _Follow:
                     type="candidate.settled",
                     index=candidate.index,
                     state=candidate.state,
-                    record=records.get(candidate.index),
+                    # WHY both: the Client builds the outcome from this frame alone. The attempt
+                    # names it and keys its saved result; the code says why a Candidate with no
+                    # record ended (`start_refused`, `worker_draining`).
+                    attempt_id=candidate.attempt_id,
+                    error_code=candidate.error_code,
+                    record=record,
                 )
             )
             self._settled.add(candidate.index)
         return True
+
+    def _awaits_record(self, candidate: CandidateRecord) -> bool:
+        """Whether a succeeded Candidate's settled frame waits for its record: for up to
+        `run_outcome_grace_s` after this follower first found it ended without one.
+
+        WHY (review round 3): the driver settles a Candidate from its terminal frame when the
+        runner's outcome is late (R7), and the outcome fills the record after. The Client builds
+        the outcome from the settled frame alone, and a succeeded one without its record names
+        no result to fetch. Past the grace the frame goes as it is: the outcome is lost."""
+        if candidate.state != "succeeded" or candidate.attempt_id is None:
+            return False
+        since = self._unrecorded.setdefault(candidate.index, time.monotonic())
+        return time.monotonic() - since < self._settings.run_outcome_grace_s
 
     async def _last_frame(self, topic: str) -> OutboundFrame | None:
         read = getattr(self._job_runner, "last_frame", None)
@@ -300,34 +334,39 @@ def _quietly(task: asyncio.Task[None]) -> None:
         _logger.debug("a Run event pump ended", exc_info=task.exception())
 
 
-@router.websocket("/runs/{run_id}/events")
-async def run_events(websocket: WebSocket, run_id: str) -> None:
-    """Closes with 1008 before the handshake completes when Runs are off, the caller has no
-    identity, or the Run is not the caller's; with 1013 when the registry cannot say whose it
-    is."""
-    registry: RunRegistry | None = getattr(websocket.app.state, "run_registry", None)
-    owner = request_caller(websocket)
-    refusal = None
-    if registry is None:
-        refusal = RUNS_OFF
-    elif owner is None:
-        refusal = "identity_required"
-    elif not RUN_ID_PATTERN.fullmatch(run_id):
-        refusal = RUN_NOT_FOUND
-    if refusal is not None or registry is None or owner is None:
-        await websocket.close(code=_POLICY_VIOLATION, reason=refusal or RUN_NOT_FOUND)
-        return
+async def _admitted(
+    registry: RunRegistry | None, owner: OwnerKey | None, run_id: str
+) -> RunRecord | tuple[int, str]:
+    """The Run, for its owner; else why the follow is refused, as a close code and reason."""
+    if registry is None or owner is None:
+        return _POLICY_VIOLATION, RUNS_OFF if registry is None else "identity_required"
     try:
-        run = await registry.summary(owner, run_id)
+        run = await registry.summary(owner, run_id) if RUN_ID_PATTERN.fullmatch(run_id) else None
     except Exception:
         _logger.warning("the event stream of %s could not read the registry", run_id)
-        await websocket.close(code=_TRY_AGAIN_LATER, reason="registry_unavailable")
-        return
-    if run is None:
-        await websocket.close(code=_POLICY_VIOLATION, reason=RUN_NOT_FOUND)
-        return
+        return _TRY_AGAIN_LATER, "registry_unavailable"
+    return (_POLICY_VIOLATION, RUN_NOT_FOUND) if run is None else run
+
+
+@router.websocket("/runs/{run_id}/events")
+async def run_events(websocket: WebSocket, run_id: str) -> None:
+    """Closes with 1008 and the Problem's code as its reason when Runs are off (`runs_off`), the
+    caller has no identity (`identity_required`), or the Run is not the caller's
+    (`run_not_found`); with 1013 `registry_unavailable` when the registry cannot say whose it
+    is, which a follower retries. `?events=false` leaves out every `candidate.event`."""
+    registry: RunRegistry | None = getattr(websocket.app.state, "run_registry", None)
+    owner = request_caller(websocket)
+    admitted = await _admitted(registry, owner, run_id)
+    # WHY accept first: a close before the handshake reaches the client as a bare HTTP 403,
+    # whatever its code, so a follower could not tell "retry" (1013) from "not yours" (1008).
     await websocket.accept()
-    await _Follow(websocket, registry, owner, run_id, websocket.app.state.settings).run(run)
+    if isinstance(admitted, tuple) or registry is None or owner is None:
+        code, reason = admitted if isinstance(admitted, tuple) else (_POLICY_VIOLATION, RUNS_OFF)
+        await websocket.close(code=code, reason=reason)
+        return
+    events = websocket.query_params.get("events") != "false"
+    settings = websocket.app.state.settings
+    await _Follow(websocket, registry, owner, run_id, settings, events=events).run(admitted)
 
 
 __all__ = ["router"]

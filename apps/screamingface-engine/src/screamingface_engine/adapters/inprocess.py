@@ -380,7 +380,8 @@ class InProcessJobRunner(IdentityAwareJobRunner):
 
         Raises:
             JobRunnerAtCapacity: too many runs already in flight.
-            JobAlreadyExists: a run for this topic is still running.
+            JobAlreadyExists: a run for this topic is still running, or, for a driver-started
+                (``exclusive``) start, has run in this process at all.
         """
         name = job_name(topic)
         # Before the capacity check: a canceled start answers as canceled, never "retry".
@@ -389,7 +390,11 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         if self._active >= self._max_concurrent:
             raise JobRunnerAtCapacity(self._active, self._max_concurrent)
         existing = self._tasks.get(name)
-        if existing is not None and not existing.done():
+        # INVARIANT (E5 P2 spec R14, review round 3): a driver-started topic runs once. The
+        # driver sends a start again when it could not record that it sent it, and a local run
+        # that has already ended must not run, and spend, a second time; the driver reads this
+        # refusal as "started". A raw start is refused only while its run is live, as before.
+        if existing is not None and (exclusive or not existing.done()):
             raise JobAlreadyExists(name)
         # FEATURE (OME-940): decide the run's traceparent HERE, adopting the caller's or minting
         # one, so the control plane can name the run it is scheduling and `job_env.TRACEPARENT`

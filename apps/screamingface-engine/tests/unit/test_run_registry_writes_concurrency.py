@@ -107,9 +107,13 @@ async def test_binds_and_a_cancel_of_one_run_never_deadlock(registry: Registry) 
     )
 
     record = await registry.store.get(ALICE, run.id)
-    assert record is not None and record.state == "canceled"
-    # A bind either landed before the cancel, which then stopped it, or was refused after it.
-    assert {c.state for c in record.candidates} == {"stopped"}
+    assert record is not None and record.stopped_by == "canceled"
+    # A bind either landed before the cancel, so its start may have landed and it stays
+    # scheduled, owed a stop (R9), or was refused after it and the cancel stopped it.
+    bound = sorted(f"{c.index:064d}" for c in record.candidates if c.state == "scheduled")
+    assert {c.state for c in record.candidates} <= {"scheduled", "stopped"}
+    assert sorted(await registry.store.owed_stops(ALICE, run.id)) == bound
+    assert record.state == ("running" if bound else "canceled")
 
 
 async def test_a_cancel_racing_the_last_outcome_never_cancels_a_finished_run(

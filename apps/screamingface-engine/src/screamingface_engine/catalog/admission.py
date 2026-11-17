@@ -128,10 +128,23 @@ class RunModelAdmission(Protocol):
         ...
 
 
+def run_model_admission(state: object) -> RunModelAdmission | None:
+    """The App's run-admission port, or None: what the start route and the Run driver admit
+    a run's models with.
+
+    WHY getattr and an isinstance check: the model-parameter source is optional (no gateway
+    configured), and a test or an App wired without ``create_app`` may hand in a source that
+    cannot admit — scheduling then works as it did before this port existed.
+    """
+    source = getattr(state, "model_parameters", None)
+    return source if isinstance(source, RunModelAdmission) else None
+
+
 __all__ = [
     "AdmissionAnswer",
     "AdmittedModels",
     "ModelAdmissionSource",
     "RunModelAdmission",
     "is_dynamically_admissible",
+    "run_model_admission",
 ]

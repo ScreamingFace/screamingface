@@ -73,3 +73,44 @@ async def test_any_other_runs_refused_outcome_is_dropped_as_today() -> None:
 
     assert stream.published == []
     assert retries.pending == 0
+
+
+async def test_a_drain_whose_runs_used_its_whole_grace_still_lets_outcomes_land(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R6 (review round 3): a run killed at the end of the drain grace has its outcome queued
+    for retry right then; it still gets the outcome floor, inside the pod's terminal-publish
+    budget, instead of none."""
+    from test_worker_claim import _FakePublisher, _FakeQueue
+    from test_worker_claim import _worker as claim_worker
+
+    from screamingface_engine.worker import loop as worker_loop
+
+    worker = claim_worker(_FakeQueue(), _FakePublisher(), drain_grace_s=0.0)
+    granted: list[float] = []
+
+    async def drain_outcomes(grace_s: float) -> None:
+        granted.append(grace_s)
+
+    monkeypatch.setattr(worker._supervisor, "drain_outcomes", drain_outcomes)
+
+    await worker._drain()
+
+    assert granted == [worker_loop.OUTCOME_DRAIN_FLOOR_S]
+
+
+async def test_a_cancel_accepted_while_a_driver_started_run_starts_retries_its_outcome() -> None:
+    """#1759 review: the cancel branch ran before the run was known as driver-started, so its
+    `stopped` outcome was published once, and a refusal left the Candidate scheduled."""
+    stream = _Refusing(2)
+    worker, retries = _worker_with(stream)
+    msg = _driver_started(_Msg("t-canceled"))
+    worker._supervisor._cancelled.add("t-canceled")  # noqa: SLF001 - accepted while starting
+
+    await worker._supervisor.supervise(msg)
+    await retries.drain(grace_s=5)
+
+    assert msg.acked
+    assert [(topic, outcome.status) for topic, outcome in stream.published] == [
+        ("t-canceled", "stopped")
+    ]

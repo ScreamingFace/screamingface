@@ -34,6 +34,7 @@ from screamingface_engine.runs.records import (
     StopReason,
     is_terminal_run,
 )
+from screamingface_engine.runs.sealing import EmailSeal
 from screamingface_engine.runs.state import derive_state
 
 # The non-terminal Candidate states: the only ones a write may move a Candidate out of.
@@ -71,8 +72,9 @@ class StoreCore:
 
     ``outcomes_survive_restart`` is the outcome stream's `survives_restart`, and ``started_at``
     when this process started: together they decide what reconcile may settle (P1 spec R6).
-    ``orphan_grace`` is the attached Run's follow rule (E5 P2 spec R10; zero turns it off) and
-    ``default_deadline`` a detached Run's deadline when it names none (D11).
+    ``orphan_grace`` is how long a follower holds an attached Run (E5 P2 spec R10; zero turns
+    the rule off), ``default_deadline`` a detached Run's deadline when it names none (D11), and
+    ``seal`` what seals the owner's email (R16; a key per process when none is given).
     """
 
     def __init__(
@@ -84,6 +86,7 @@ class StoreCore:
         started_at: datetime,
         orphan_grace: timedelta,
         default_deadline: timedelta,
+        seal: EmailSeal | None = None,
         context: TortoiseContext | None = None,
     ) -> None:
         if orphan_grace < timedelta(0) or default_deadline <= timedelta(0):
@@ -92,8 +95,12 @@ class StoreCore:
         self._lost_after = lost_after
         self._outcomes_survive_restart = outcomes_survive_restart
         self._started_at = started_at
-        self._orphan_grace = orphan_grace
+        # How far a follower's hold moves an attached Run's deadline (R10). WHY the default
+        # deadline with the rule off (review round 5): an unfollowed Run must still end, and a
+        # followed one must not be stopped at 48 h while someone watches it.
+        self._held_for = orphan_grace or default_deadline
         self._default_deadline = default_deadline
+        self._seal = seal or EmailSeal.for_process()
         # The Engine's own Tortoise context (`db.open_context`), or None to use the current one.
         self._context = context
 
@@ -175,6 +182,10 @@ def _run_record(rows: Iterable[dict[str, Any]]) -> RunRecord:
     ordered = sorted(rows, key=lambda row: row["index"])
     first = ordered[0]
     stopped_by = cast(StopReason | None, first["run_stopped_by"])
+    if stopped_by is None and first["run_canceled"]:
+        # E5 P2 spec R12, R15: every P2 stop records its reason with the flag, so a flag alone
+        # is a cancel by an App from before P2, made while a deploy rolled after the migration.
+        stopped_by = "canceled"
     state = derive_state(
         [cast(CandidateState, row["state"]) for row in ordered],
         canceled=stopped_by == "canceled",

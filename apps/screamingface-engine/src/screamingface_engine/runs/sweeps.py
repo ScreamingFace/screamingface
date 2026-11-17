@@ -1,4 +1,4 @@
-"""The App's Run sweeps: reconcile (E5 P1 spec R6) and retention (R7), at start and hourly.
+"""The App's Run sweeps: reconcile (E5 P1 spec R6) at start and hourly, and retention (R7) hourly.
 
 FEATURE: first-class Runs (OME-1785). Modelled on the artifact sweeper (`app.py`): one sweep at
 start clears what the last process left, and a periodic one covers an App that stays up for
@@ -29,8 +29,10 @@ class Sweepable(Protocol):
 
 
 class RunSweeper:
-    """``results`` and ``objects`` are the run-results store and the registry's read of the keys
-    each Run names (E5 P2 spec R13); without them a sweep deletes rows only."""
+    """``results`` is the run-results store: a sweep deletes nothing in it by name. On S3 the
+    bucket's lifecycle rule removes every object by age; in a folder, `delete_older_than` does,
+    which the sweep calls (E5 P2 spec R13). WHY by age alone (#1759 review round 5): deleting each
+    Run's objects one request at a time made retention as slow, and as fallible, as the store."""
 
     def __init__(
         self,
@@ -39,13 +41,18 @@ class RunSweeper:
         retention: timedelta,
         clock: Callable[[], datetime],
         results: RunResultStore | None = None,
-        objects: Callable[[Sequence[str]], Awaitable[dict[str, list[str]]]] | None = None,
     ) -> None:
         self._registry = registry
         self._retention = retention
         self._clock = clock
         self._results = results
-        self._objects = objects
+
+    async def reconcile(self) -> None:
+        """Settle `lost` the Candidates the last process left (R6): what the App awaits before it
+        serves. WHY not the whole sweep: removing a folder's old results walks the folder, which
+        must not hold the App's start."""
+        if lost := await self._registry.reconcile():
+            logger.info("Run sweep: %d Candidates lost", lost)
 
     async def sweep_once(self) -> None:
         lost = await self._registry.reconcile()
@@ -54,36 +61,16 @@ class RunSweeper:
         # WHY batches until one deletes nothing: `expiring` lists one batch at a time, and a
         # batch that deletes nothing would be listed again forever.
         while batch := await self._registry.expiring(cutoff):
-            cleared = await self._delete_objects(batch)
-            deleted = await self._registry.expire(cleared) if cleared else 0
+            deleted = await self._registry.expire(batch)
             expired += deleted
             if not deleted:
                 break
         if self._results is not None:
-            # R13: what no Run names (a second execution, a lost outcome) goes by age, a day after
-            # the retention; on S3 the bucket's own rule does it, and this is a no-op.
+            # R13: a day after the retention, so no Run's object goes before its rows; on S3 the
+            # bucket's own rule does it, and this is a no-op.
             await asyncio.to_thread(self._results.delete_older_than, cutoff - timedelta(days=1))
         if lost or expired:
             logger.info("Run sweep: %d Candidates lost, %d Runs expired", lost, expired)
-
-    async def _delete_objects(self, batch: Sequence[str]) -> list[str]:
-        """The Runs of ``batch`` whose objects are deleted, so their rows may go (R13).
-
-        INVARIANT: a Run's rows outlive its objects, so a delete that failed is retried by the
-        next sweep, which finds the Run again.
-        """
-        if self._results is None or self._objects is None:
-            return list(batch)
-        keys = await self._objects(batch)
-        cleared: list[str] = []
-        for run_id in batch:
-            try:
-                await asyncio.to_thread(self._results.delete, keys.get(run_id, []))
-            except Exception:
-                logger.warning("could not delete the objects of %s; keeping it", run_id)
-                continue
-            cleared.append(run_id)
-        return cleared
 
     async def run(self, *, interval_s: float, sweep_first: bool = True) -> None:
         """Sweep now (unless ``sweep_first`` is False), then every ``interval_s``, until
