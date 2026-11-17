@@ -78,7 +78,8 @@ class Settings(BaseSettings):
     # FEATURE: OME-1909 — who may move an old entry onto a Benchmark's bumped revision
     # (`POST /v1/scores/{id}/regrades`). Verified emails, comma-separated in the environment
     # (`SCOREBOARD_REGRADE_IDENTITIES=a@x.test,b@x.test`); `NoDecode` for the reason
-    # `allowed_networks` records above.
+    # `allowed_networks` records above. Matched CASE-INSENSITIVELY (both sides casefolded): an
+    # email's case carries no identity, and the mesh header need not match the operator's typing.
     # INVARIANT: empty by default, so a deployment that never set it has no re-graders. The route
     # also refuses everyone in `disabled` mode, where the identity header is an unverified claim.
     regrade_identities: Annotated[tuple[str, ...], NoDecode] = Field(default=())

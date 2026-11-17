@@ -20,6 +20,7 @@ from httpx import ASGITransport, AsyncClient, Response
 
 from scoreboard.config import Settings
 from scoreboard.main import create_app
+from scoreboard.routes.dependencies import MISSING_IDENTITY_DETAIL, UNTRUSTED_PEER_DETAIL
 from scoreboard.scores.models import Benchmark, Score
 
 SUBMITTER = "alice@example.test"
@@ -82,26 +83,30 @@ async def _make_app(tortoise_db: None, **settings: object) -> FastAPI:
     return app
 
 
-def _client(app: FastAPI) -> AsyncClient:
-    """An HTTP client whose peer (127.0.0.1) is inside the trusted network below."""
-    return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+def _client(app: FastAPI, peer: tuple[str, int] | None = None) -> AsyncClient:
+    """An HTTP client; by default its peer (127.0.0.1) is inside the trusted network below."""
+    transport = ASGITransport(app=app) if peer is None else ASGITransport(app=app, client=peer)
+    return AsyncClient(transport=transport, base_url="http://test")
 
 
 @pytest_asyncio.fixture
-async def client(
-    tortoise_db: None, monkeypatch: pytest.MonkeyPatch
-) -> AsyncGenerator[AsyncClient, None]:
-    """A client on a `cloudflare_headers` app whose only re-grader is REGRADER."""
+async def cloudflare_app(tortoise_db: None, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
+    """A `cloudflare_headers` app trusting 127.0.0.1 whose only re-grader is REGRADER."""
     # Same pins as `cloudflare_app` in test_score_reproductions.py: FORWARDED_ALLOW_IPS must be
     # disjoint from allowed_networks, and ASGITransport's fake peer is 127.0.0.1.
     monkeypatch.setenv("FORWARDED_ALLOW_IPS", "192.0.2.1")
-    app: FastAPI = await _make_app(
+    return await _make_app(
         tortoise_db,
         auth_mode="cloudflare_headers",
         allowed_networks="127.0.0.1/32",
         regrade_identities=(REGRADER,),
     )
-    async with _client(app) as http:
+
+
+@pytest_asyncio.fixture
+async def client(cloudflare_app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+    """A client on `cloudflare_app` from the trusted peer."""
+    async with _client(cloudflare_app) as http:
         yield http
 
 
@@ -157,6 +162,55 @@ async def test_a_regrade_is_refused_for_everyone_when_auth_is_disabled(tortoise_
 
 
 @pytest.mark.asyncio
+async def test_a_refused_caller_learns_nothing_about_its_body(tortoise_db: None) -> None:
+    # INVARIANT: the refusal is a dependency, so it answers before body validation. A malformed
+    # body is the same 403, never the 422 that would tell the caller what the route expects.
+    app: FastAPI = await _make_app(tortoise_db, regrade_identities=(REGRADER,))
+    async with _client(app) as http:
+        malformed: Response = await http.post(
+            f"/v1/scores/{uuid4()}/regrades", json={}, headers=_as(REGRADER)
+        )
+
+    assert malformed.status_code == 403
+    assert _code(malformed) == "regrade_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_a_regrade_without_identity_is_401_and_stores_nothing(client: AsyncClient) -> None:
+    # The route reads identity through `verified_identity` itself (not `VerifiedIdentity`), so the
+    # header rule is pinned here: no header, or a blank one, is 401 before anything else.
+    source_id: str = await _submit_source(client)
+
+    missing: Response = await client.post(f"/v1/scores/{source_id}/regrades", json=_regrade())
+    blank: Response = await client.post(
+        f"/v1/scores/{source_id}/regrades", json=_regrade(), headers=_as("  ")
+    )
+    malformed: Response = await client.post(f"/v1/scores/{source_id}/regrades", json={})
+
+    assert missing.status_code == 401
+    assert missing.json() == {"detail": MISSING_IDENTITY_DETAIL}
+    assert blank.status_code == 401
+    assert malformed.status_code == 401
+    assert await Score.filter(regraded_from_id__isnull=False).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_a_regrade_from_an_untrusted_peer_is_403_even_naming_a_regrader(
+    cloudflare_app: FastAPI,
+) -> None:
+    # INVARIANT: the peer network is checked BEFORE the header is read, so an untrusted peer
+    # naming REGRADER is refused without its identity claim ever being consulted.
+    async with _client(cloudflare_app) as trusted:
+        source_id: str = await _submit_source(trusted)
+    async with _client(cloudflare_app, peer=("203.0.113.5", 443)) as untrusted:
+        refused: Response = await _post_regrade(untrusted, source_id)
+
+    assert refused.status_code == 403
+    assert refused.json() == {"detail": UNTRUSTED_PEER_DETAIL}
+    assert await Score.filter(regraded_from_id__isnull=False).count() == 0
+
+
+@pytest.mark.asyncio
 async def test_a_verified_identity_outside_the_regrade_list_is_refused(
     client: AsyncClient,
 ) -> None:
@@ -170,6 +224,18 @@ async def test_a_verified_identity_outside_the_regrade_list_is_refused(
     assert _code(outsider) == "not_allowed"
     assert owner.status_code == 403
     assert _code(owner) == "not_allowed"
+
+
+@pytest.mark.asyncio
+async def test_the_regrade_list_matches_an_identity_in_any_case(client: AsyncClient) -> None:
+    # An email's case carries no identity: the mesh header and the operator's list need not agree.
+    source_id: str = await _submit_source(client)
+
+    created: Response = await _post_regrade(client, source_id, who="Carol@Example.TEST")
+
+    assert created.status_code == 201, created.text
+    stored: Score = await Score.get(id=created.json()["id"])
+    assert stored.regraded_by == "Carol@Example.TEST"  # stored as the mesh verified it
 
 
 @pytest.mark.asyncio
@@ -248,6 +314,8 @@ async def test_a_second_regrade_of_one_source_is_409(client: AsyncClient) -> Non
     assert first.status_code == 201, first.text
     assert second.status_code == 409
     assert _code(second) == "already_regraded"
+    # WHY: a retry whose first answer was lost can find the row it made.
+    assert second.json()["detail"]["existing_score_id"] == first.json()["id"]
     assert await Score.filter(regraded_from_id=source_id).count() == 1
 
 
@@ -315,8 +383,8 @@ async def test_a_regrade_is_credited_to_the_source_submitter_and_names_who_regra
     assert str(getattr(stored, "regraded_from_id")) == source_id
     assert stored.regraded_by == REGRADER
     assert body["regraded_from"] == source_id
-    # WHY: an email, so it is published like `submitted_by`, the local part only.
-    assert body["regraded_by"] == "carol"
+    # WHY: an email, so it is stored for audit and on no read schema.
+    assert "regraded_by" not in body
     # The frozen copy belongs to the source (one copy, one score), so the re-grade names none.
     assert stored.frozen_copy_id is None
     assert stored.capture_status is None
@@ -347,7 +415,7 @@ async def test_the_score_read_names_the_source_only_on_a_regraded_row(
 
     assert regraded.status_code == 200, regraded.text
     assert regraded.json()["regraded_from"] == source_id
-    assert regraded.json()["regraded_by"] == "carol"
+    assert "regraded_by" not in regraded.json()
     # Backwards compatible: an ordinary row's read gains no key at all.
     assert "regraded_from" not in original.json()
     assert "regraded_by" not in original.json()

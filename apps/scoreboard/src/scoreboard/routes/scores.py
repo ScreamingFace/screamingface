@@ -21,7 +21,7 @@ import logging
 from typing import Annotated, Any, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from fastapi.exceptions import RequestValidationError
 from tortoise.exceptions import OperationalError
 
@@ -47,6 +47,7 @@ from scoreboard.scores.models import Benchmark, Score
 from scoreboard.scores.schemas import (
     CaptureStatus,
     CodedErrorResponse,
+    ExistingRegradeResponse,
     FieldErrorDetail,
     FieldErrorResponse,
     MessageErrorResponse,
@@ -837,7 +838,8 @@ REGRADE_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": (
             "`{code: regrade_unavailable}`: this deployment runs with authentication disabled, so "
             "nobody may re-grade. `{code: not_allowed}`: the verified identity is not a re-grader "
-            "(SCOREBOARD_REGRADE_IDENTITIES). A string `detail`: an untrusted peer network."
+            "(SCOREBOARD_REGRADE_IDENTITIES, compared case-insensitively). A string `detail`: an "
+            "untrusted peer network. Every 401/403 is answered before the body is validated."
         ),
     },
     status.HTTP_404_NOT_FOUND: {
@@ -845,11 +847,12 @@ REGRADE_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": "`{code: unknown_score}`: no such score, or one on a private board.",
     },
     status.HTTP_409_CONFLICT: {
-        "model": CodedErrorResponse | MessageErrorResponse,
+        "model": CodedErrorResponse | ExistingRegradeResponse | MessageErrorResponse,
         "description": (
             "`{code: not_current_revision}`: the body's benchmark revision is not the board's "
-            "registered one, or is the source's own. `{code: already_regraded}`: the source "
-            "already has its re-grade. `{code: already_on_board}`: this exact result is already on "
+            "registered one, or is the source's own. `{code: already_regraded, existing_score_id}` "
+            "(`ExistingRegradeResponse`): the source already has its re-grade, and this names it. "
+            "`{code: already_on_board}`: this exact result is already on "
             "the board at that revision. A string `detail`: the board's visibility changed "
             "mid-request; retry."
         ),
@@ -867,11 +870,11 @@ REGRADE_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
 }
 
 
-def _regrade_refusal(status_code: int, code: str, message: str) -> HTTPException:
+def _regrade_refusal(status_code: int, code: str, message: str, **extra: str) -> HTTPException:
     """One `{code, message}` refusal of a re-grade, never shared-cacheable (it depends on who)."""
     return HTTPException(
         status_code=status_code,
-        detail={"code": code, "message": message},
+        detail={"code": code, "message": message, **extra},
         headers=PRIVATE_CACHE_HEADERS,
     )
 
@@ -879,8 +882,13 @@ def _regrade_refusal(status_code: int, code: str, message: str) -> HTTPException
 async def _regrader(request: Request) -> str:
     """The verified identity of a caller allowed to re-grade, or the 403 / 401 refusal.
 
+    A FastAPI dependency (`Regrader`), so every refusal here is answered before the body is
+    validated: a caller who may not re-grade learns nothing about why its body would be refused.
+
     INVARIANT (OME-1909): `disabled` mode refuses BEFORE the header is read. There the header is
     an unverified claim, so naming a listed re-grader would be enough to re-credit the board.
+    INVARIANT: the peer and header checks are `verified_identity`'s, called here rather than
+    through `VerifiedIdentity` only so the `disabled` refusal can come first.
     """
     settings = cast(Settings, request.app.state.settings)
     if not identity_is_verified(settings.auth_mode):
@@ -891,11 +899,15 @@ async def _regrader(request: Request) -> str:
             "disabled",
         )
     identity = await verified_identity(request)
-    if identity not in settings.regrade_identities:
+    allowed: set[str] = {entry.casefold() for entry in settings.regrade_identities}
+    if identity.casefold() not in allowed:
         raise _regrade_refusal(
             status.HTTP_403_FORBIDDEN, "not_allowed", "this identity may not re-grade scores"
         )
     return identity
+
+
+Regrader = Annotated[str, Depends(_regrader)]
 
 
 async def _regrade_source(source_id: UUID, submission: ScoreSubmission) -> Score:
@@ -920,7 +932,6 @@ _REGRADE_CONFLICTS: dict[type[Exception], tuple[str, str]] = {
         "not_current_revision",
         "a re-grade must be at the board's registered revision, and not the source's own",
     ),
-    SourceAlreadyRegraded: ("already_regraded", "this score has already been re-graded"),
     RegradeResultOnBoard: (
         "already_on_board",
         "this exact result is already on the board at that revision",
@@ -930,6 +941,13 @@ _REGRADE_CONFLICTS: dict[type[Exception], tuple[str, str]] = {
 
 def _regrade_store_refusal(exc: Exception) -> HTTPException:
     """The 409 for a re-grade the store refused, by what lost (OME-1909)."""
+    if isinstance(exc, SourceAlreadyRegraded):
+        return _regrade_refusal(
+            status.HTTP_409_CONFLICT,
+            "already_regraded",
+            "this score has already been re-graded; existing_score_id names the re-grade",
+            existing_score_id=str(exc.existing_score_id),
+        )
     conflict = _REGRADE_CONFLICTS.get(type(exc))
     if conflict is not None:
         return _regrade_refusal(status.HTTP_409_CONFLICT, *conflict)
@@ -953,6 +971,7 @@ async def regrade_score(
     submission: ScoreSubmission,
     request: Request,
     response: Response,
+    regraded_by: Regrader,
 ) -> ScoreSchema:
     """Store a replay of a score at the board's new revision, credited to the score's submitter.
 
@@ -960,19 +979,18 @@ async def regrade_score(
     re-grader replays an entry's pinned cache against the new revision and posts the result here,
     as a normal `ScoreSubmission`. The board stores a NEW row: the result is the replay's, the
     credit (`submitted_by`, `authors`) is the source's, `regraded_from` names the source, and
-    `regraded_by` names the re-grader (published masked, like `submitted_by`). The body's frozen
-    copy and capture status are ignored (that copy names the source), and the source row is never
-    changed.
+    the re-grader is stored (`regraded_by`) but on no read schema. The body's frozen copy and
+    capture status are ignored (that copy names the source), and the source row is never changed.
 
     The checks run in a fixed order: `disabled` auth (403 `regrade_unavailable`), identity (401 /
     403), not a re-grader (403 `not_allowed`), the source exists and is public (404
     `unknown_score`), another benchmark (422 `different_benchmark`), not the registered revision or
     the source's own (409 `not_current_revision`), then a second re-grade of one source (409
-    `already_regraded`, from the unique index, not a pre-read).
+    `already_regraded` naming `existing_score_id`, from the unique index, not a pre-read). The
+    first three run before the body is validated.
     """
     # INVARIANT: identity-scoped on every answer: each refusal depends on who asked.
     response.headers.update(PRIVATE_CACHE_HEADERS)
-    regraded_by = await _regrader(request)
     store = cast(ScoreStore, request.app.state.score_store)
     try:
         source = await _regrade_source(source_id, submission)

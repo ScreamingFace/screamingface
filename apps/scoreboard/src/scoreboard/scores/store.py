@@ -215,9 +215,8 @@ def _score_to_schema(model: Score) -> ScoreSchema:
         capture_status=cast("CaptureStatus | None", model.capture_status),
         answer_seed=model.answer_seed,
         case_digest=model.case_digest,
-        # FEATURE: OME-1909 — the re-grade link and who made it (published masked, an email).
+        # FEATURE: OME-1909 — the re-grade link. `regraded_by` stays off every DTO (an email).
         regraded_from=cast("UUID | None", getattr(model, "regraded_from_id")),
-        regraded_by=model.regraded_by,
     )
 
 
@@ -914,7 +913,12 @@ class SourceAlreadyRegraded(Exception):
 
     WHY its own type: the unique index on `scores.regraded_from_id` raises `IntegrityError`, which
     subclasses `OperationalError` and would be answered 503 store-unavailable.
+    ``existing_score_id`` is the re-grade that won, so a retried request can find the row it made.
     """
+
+    def __init__(self, existing_score_id: UUID) -> None:
+        super().__init__(f"already re-graded as {existing_score_id}")
+        self.existing_score_id = existing_score_id
 
 
 class RegradeNotCurrent(Exception):
@@ -1996,8 +2000,8 @@ class ScoreStore:
            source (one copy, one score, OME-1596), and the digest is only ever set with a status.
         3. Insert under the board's lock, re-checked public (`_insert_regrade`).
         4. On a unique clash, ask the database what lost: this source's re-grade
-           (`SourceAlreadyRegraded`), the same result already on the board
-           (`RegradeResultOnBoard`), or a source deleted mid-request (None, a 404).
+           (`SourceAlreadyRegraded`, naming the re-grade that exists), the same result already on
+           the board (`RegradeResultOnBoard`), or a source deleted mid-request (None, a 404).
 
         The CALLER has checked who asks, that the source is on a public board, and that the replay
         names the source's benchmark.
@@ -2033,8 +2037,11 @@ class ScoreStore:
             row: Score = await self._insert_regrade(submission.benchmark_id, kwargs)
         except IntegrityError:
             # Fresh reads outside the failed transaction, which PostgreSQL has already aborted.
-            if await Score.exists(regraded_from_id=source.pk):
-                raise SourceAlreadyRegraded(str(source.pk)) from None
+            existing: Score | None = (
+                await Score.filter(regraded_from_id=source.pk).only("id").first()
+            )
+            if existing is not None:
+                raise SourceAlreadyRegraded(existing.id) from None
             if await Score.exists(content_hash=content_hash):
                 raise RegradeResultOnBoard(str(source.pk)) from None
             if not await Score.exists(id=source.pk):

@@ -248,5 +248,5 @@ class Score(BaseScore):
     )
     # FEATURE: OME-1909 — the verified identity of the team member who re-graded the row. Credit
     # (`submitted_by`, `authors`) stays the source's; this records who did the work.
-    # INVARIANT: an email, so the public read publishes its local part only, like `submitted_by`.
+    # INVARIANT: an email, so it is on NO read schema; it is stored for the board's own audit.
     regraded_by = fields.CharField(max_length=255, null=True)
