@@ -53,11 +53,20 @@ called at the top of `call_model` before `_attachment_parts`, `connector.py:469`
 
 **Once per run:** a run-scoped slot (a `ContextVar` set inside `run_expression_scope`, holding one
 `asyncio.Future`/lock) memoizes the outcome — success or the raised error — so parallel members
-block on one read and all fail with the same refusal. Graders stay out: a grading call already
-refuses files (`connector.py:1655`), and its model is not in the Candidate's routes.
+block on one read and all fail with the same refusal.
 
-**Benchmark route:** unchanged. A Benchmark run whose Cases carry files is still refused at the
-Cases route (C9, #1645); the new check sees the same models and the same answer.
+**Benchmark runs: the union rule** (owner decision 2026-11-17, HupBaHa's #1853 review). A Benchmark
+run's linked Candidate rides as an inert text source named `candidate`, but the run is linked
+client-side, so that name is not a trust marker: a forged one could hide a blind model called
+outside it. Admission therefore checks the union of the Candidate's routes and every literal model
+route the run executes (`run_model_routes`). Accepted trade-off: a protocol that names a text-only
+judge as a literal route refuses a file-carrying run, even though a grading call never receives
+files (`connector.py`, spec D6). A judge reached only through a route chosen at run time is not
+checked (gateway backstop, Q3).
+
+**Benchmark Cases route:** unchanged. A Benchmark run whose Cases carry files is still refused at
+the Cases route (C9, #1645), which checks only the Candidate; the run check above may additionally
+refuse a literal text-only judge (the union rule).
 
 ## 4. Non-goals
 
