@@ -421,13 +421,15 @@ def live_judge_from_text(raw: str) -> LiveJudge:
 
     Raises:
         ValueError: the list is blank or names an empty id (``""``, ``","``, ``"3,,4"``). A blank
-            list read as "no live judge" would quietly re-grade nothing.
+            list read as "no live judge" would quietly re-grade nothing. Also ``all`` in any other
+            case or inside a list (``"ALL"``, ``"all,3"``): read as a Case id, it would quietly
+            re-grade almost nothing for a caller who meant every Case.
     """
-    text = raw.strip()
+    text: str = raw.strip()
     if text == LIVE_JUDGE_ALL:
         return LIVE_JUDGE_ALL
     ids: list[str] = [part.strip() for part in text.split(",")]
-    if not all(ids):
+    if not all(ids) or any(case_id.lower() == LIVE_JUDGE_ALL for case_id in ids):
         raise ValueError(f"must be {LIVE_JUDGE_ALL} or a comma list of Case ids, got {raw!r}")
     return frozenset(ids)
 

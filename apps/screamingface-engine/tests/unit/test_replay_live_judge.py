@@ -14,9 +14,11 @@ A separate module (append-only gate).
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Any, Literal
+from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
@@ -34,26 +36,36 @@ from frozen_copy_support import (
 from httpx import ASGITransport
 
 from screamingface_engine import job_env
+from screamingface_engine.activity.observer import ActivityObserver
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
+from screamingface_engine.benchmarks.definition import link_candidate
 from screamingface_engine.candidate_scope import candidate_invocation_scope
+from screamingface_engine.capture_outcomes import capture_outcomes
 from screamingface_engine.config import Settings
+from screamingface_engine.grading_accounting import capture_grading_requests
 from screamingface_engine.grading_call_scope import grading_call_scope
+from screamingface_engine.job_env import LiveJudge
+from screamingface_engine.observations import RunObservations
+from screamingface_engine.operation_calls import capture_request_accounting
 from screamingface_engine.request_scope import (
     REPLAY_FROZEN_COPY_HEADER,
     REPLAY_LIVE_JUDGE_HEADER,
     FrozenCopyHeaderError,
     RequestScope,
     parse_live_judge,
+    request_scope,
 )
 from screamingface_engine.runner.main import RunnerConfigError, request_scope_from_env
 from screamingface_engine.runner_queue import decode_message, encode_message
 from screamingface_engine.testing import InMemoryEventStream
+from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.config import ModelSpec
+from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
+from url4.dag import run as execute
 from url4.streaming.interfaces import ExecStep, Executor, TraceContext
 from url4.streaming.protocol import CachePolicy
-
-LiveJudge = frozenset[str] | Literal["all"]
 
 # The gateway answers a live call and a replayed call with different text, so the answer alone
 # says which route served it; the recorded paths say it a second way.
@@ -106,6 +118,16 @@ def test_a_blank_live_judge_list_is_refused(raw: str) -> None:
     # list sends "", and reading that as "no live judge" would quietly re-grade nothing.
     with pytest.raises(FrozenCopyHeaderError, match=REPLAY_LIVE_JUDGE_HEADER):
         parse_live_judge(raw, COPY)
+
+
+@pytest.mark.parametrize("raw", ["ALL", "All", "all,3", "3, ALL"])
+def test_all_in_another_case_or_inside_a_list_is_refused(raw: str) -> None:
+    # Read as a Case id, `ALL` or `all,3` would send almost no judge live for a caller who meant
+    # every Case. The header and env readers share one grammar, so both refuse it.
+    with pytest.raises(FrozenCopyHeaderError, match=REPLAY_LIVE_JUDGE_HEADER):
+        parse_live_judge(raw, COPY)
+    with pytest.raises(ValueError, match=job_env.REPLAY_LIVE_JUDGE):
+        job_env.replay_live_judge_from_env({job_env.REPLAY_LIVE_JUDGE: raw})
 
 
 def test_a_scope_cannot_name_live_judges_without_a_replay() -> None:
@@ -180,6 +202,112 @@ async def test_a_call_outside_grading_replays_even_under_all() -> None:
     assert gateway.paths() == [REPLAY_CHAT]
 
 
+# ── a real judged recipe, solo and Fusion ──────────────────────────────────────────────────
+
+# FrontierScience (olympic format) is a judged Imported Benchmark: an inspect scorer asks this
+# judge model for `GRADE: C`. Its judge call is identified the way production identifies it (the
+# scorer's grading tag and the judge provider's request-key registry), not by a test-set tag.
+JUDGE_MODEL = "openrouter/openai/gpt-5.4"
+SOLO = "(answer:0.0:/writer($input)!'Answer')!'$answer'"
+# A Fusion: two members (writer, writer-b) and a synthesizer (synth) that reads both answers.
+FUSION = (
+    "(a:0.0:/writer($input)!'Answer',b:0.0:/writer-b($input)!'Answer',"
+    "answer:0.0:/synth($a,$b)!'Synthesize')!'$answer'"
+)
+
+
+def _write_case_one(cases: Path) -> None:
+    """Write FrontierScience's one olympic-format Case and its reference answer under ``cases``."""
+    (cases / "targets").mkdir(parents=True)
+    (cases / "cases.json").write_text(json.dumps([{"id": 1, "input": "Explain."}]))
+    (cases / "targets" / "1.json").write_text(
+        json.dumps({"target": "Reference", "metadata": {"format": "olympic"}})
+    )
+
+
+async def _judged_replay(
+    root: Path, candidate: str, live: LiveJudge
+) -> tuple[dict[str, Any], list[tuple[str, str]]]:
+    """Replay FrontierScience Case 1 with ``live`` judges; the result and every (path, model)."""
+    from screamingface_engine_inspect.benchmarks import imported_benchmark
+
+    benchmark = imported_benchmark("frontierscience")
+    _write_case_one(root / benchmark.benchmark.id)
+    calls: list[tuple[str, str]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        """Answer live and replayed calls alike; record which route each model's call took."""
+        model: str = json.loads(request.content)["model"]
+        calls.append((request.url.path, model))
+        answer: str = "GRADE: C" if model == JUDGE_MODEL else "Answer"
+        return httpx.Response(
+            200, json={"choices": [{"message": {"content": answer}, "finish_reason": "stop"}]}
+        )
+
+    models: tuple[str, ...] = ("writer", "writer-b", "synth", JUDGE_MODEL)
+    async with httpx.AsyncClient(
+        base_url="http://gateway", transport=httpx.MockTransport(respond)
+    ) as client:
+        world = await build_aigateway_world(
+            AigatewayConfig(
+                base_url="http://gateway",
+                default_model="writer",
+                models=tuple(ModelSpec(id=name) for name in models),
+                allow_outbound=False,
+            ),
+            client=client,
+        )
+        install_candidate_invocation(world.node)
+        benchmark.benchmark.install(world.node, root)
+        run = RunObservations((ActivityObserver,))
+        scope: RequestScope = replay_scope(replay_live_judge=live)
+        try:
+            with (
+                request_scope(scope),
+                capture_outcomes() as tally,
+                run.bind(),
+                capture_request_accounting(),
+                capture_grading_requests(),
+            ):
+                # Play the executor's binding of a replay run's tally (`runner/executor.py`).
+                tally.mode, tally.frozen_copy_id = "replay", COPY
+                result: dict[str, Any] = json.loads(
+                    await execute(
+                        link_candidate(candidate, benchmark.benchmark.protocol(1)),
+                        io=world.node,
+                    )
+                )
+        finally:
+            await run.aclose()
+            await world.aclose()
+    return result, calls
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("candidate", [SOLO, FUSION], ids=["solo", "fusion"])
+@pytest.mark.parametrize(
+    ("live", "judge_route"),
+    [("all", CHAT), (frozenset({"1"}), CHAT), (frozenset({"2"}), REPLAY_CHAT)],
+    ids=["all", "case-1-named", "other-case-named"],
+)
+async def test_a_judged_recipe_sends_only_judge_calls_live_and_replays_writer_and_synth(
+    tmp_path: Path, candidate: str, live: LiveJudge, judge_route: str
+) -> None:
+    pytest.importorskip("inspect_ai")
+
+    result, calls = await _judged_replay(tmp_path, candidate, live)
+
+    assert result["score"] == 1.0, result
+    judge_paths: set[str] = {path for path, model in calls if model == JUDGE_MODEL}
+    answer_paths: set[str] = {path for path, model in calls if model != JUDGE_MODEL}
+    # The judge call goes live only when its Case (id 1, an int, named as "1") is named.
+    assert judge_paths == {judge_route}
+    # Every member and synthesizer call is part of the Candidate, so it always replays.
+    assert answer_paths == {REPLAY_CHAT}
+    answer_models: set[str] = {model for _path, model in calls if model != JUDGE_MODEL}
+    assert answer_models == ({"writer", "writer-b", "synth"} if candidate == FUSION else {"writer"})
+
+
 # ── the job env (the carrier between the App and the run) ──────────────────────────────────
 
 
@@ -232,6 +360,7 @@ class _NeverExecutor(Executor):
     async def execute(  # type: ignore[override]
         self, url4: str, *, trace: TraceContext | None = None
     ) -> Any:  # pragma: no cover - the run is never started
+        """Never called: the env tests read the env the runner builds and start no run."""
         raise NotImplementedError
         yield ExecStep  # pragma: no cover
 
@@ -311,9 +440,9 @@ async def _start(
 
 @pytest.mark.asyncio
 async def test_the_start_route_schedules_and_echoes_the_live_judge_cases() -> None:
-    runner = _LiveJudgeRecordingRunner()
+    runner: _LiveJudgeRecordingRunner = _LiveJudgeRecordingRunner()
 
-    resp = await _start(
+    resp: httpx.Response = await _start(
         runner,
         "live-ok",
         {REPLAY_FROZEN_COPY_HEADER: COPY, REPLAY_LIVE_JUDGE_HEADER: "q-9, 3"},
@@ -329,9 +458,9 @@ async def test_the_start_route_schedules_and_echoes_the_live_judge_cases() -> No
 async def test_a_plain_replay_calls_the_port_without_a_live_judge_argument() -> None:
     # WHY pinned: a run that names no live judge reaches the job runner port exactly as before
     # OME-1909, so a substrate that predates the argument still schedules it.
-    runner = _LiveJudgeRecordingRunner()
+    runner: _LiveJudgeRecordingRunner = _LiveJudgeRecordingRunner()
 
-    resp = await _start(runner, "live-absent", {REPLAY_FROZEN_COPY_HEADER: COPY})
+    resp: httpx.Response = await _start(runner, "live-absent", {REPLAY_FROZEN_COPY_HEADER: COPY})
 
     assert resp.status_code == 202
     assert REPLAY_LIVE_JUDGE_HEADER not in resp.headers
@@ -350,9 +479,9 @@ async def test_a_plain_replay_calls_the_port_without_a_live_judge_argument() -> 
 async def test_a_bad_live_judge_header_is_a_400_and_nothing_is_scheduled(
     headers: dict[str, str],
 ) -> None:
-    runner = _LiveJudgeRecordingRunner()
+    runner: _LiveJudgeRecordingRunner = _LiveJudgeRecordingRunner()
 
-    resp = await _start(runner, "live-bad", headers)
+    resp: httpx.Response = await _start(runner, "live-bad", headers)
 
     assert resp.status_code == 400
     assert resp.json()["code"] == "malformed_header"

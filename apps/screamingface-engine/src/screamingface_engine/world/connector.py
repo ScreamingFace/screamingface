@@ -14,7 +14,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 from weakref import WeakKeyDictionary
 
 import httpx
@@ -1407,15 +1407,15 @@ def _chat_replay_copy(scope: RequestScope) -> str | None:
     Example: ``replay_live_judge=frozenset({"7"})`` — the judge call for Case 7 goes live; the
     judge call for Case 8 and every Candidate call replay.
     """
-    copy_id = scope.replay_frozen_copy
-    live = scope.replay_live_judge
+    copy_id: str | None = scope.replay_frozen_copy
+    live: frozenset[str] | Literal["all"] | None = scope.replay_live_judge
     # INVARIANT (OME-1909): a Candidate call ALWAYS replays, and that check wins over the grading
     # tag. `current_grading_case()` can still name a Case inside a Candidate invocation — the grade
     # hook's tag is a ContextVar, inherited by any task it spawns — but a re-grade makes no
     # Candidate model call: a fresh answer would no longer be the published run's answer.
     if copy_id is None or live is None or in_candidate_invocation():
         return copy_id
-    case = current_grading_case()
+    case: int | str | None = current_grading_case()
     named: bool = case is not None and (live == "all" or str(case) in live)
     return None if named else copy_id
 
