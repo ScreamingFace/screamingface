@@ -320,6 +320,44 @@ async def test_a_second_regrade_of_one_source_is_409(client: AsyncClient) -> Non
 
 
 @pytest.mark.asyncio
+async def test_a_later_revision_may_regrade_the_same_source_again(client: AsyncClient) -> None:
+    """The root source re-grades once per revision, so the next grading change strands nothing."""
+    # WHY (OME-1909): a re-grade row has no pinned cache, so after the board moves again only the
+    # ROOT source can be replayed. One re-grade per source ever would strand every re-graded entry.
+    source_id: str = await _submit_source(client)
+    first: Response = await _post_regrade(client, source_id)
+    await Benchmark.filter(id="hle").update(revision="rev-3")
+
+    later: Response = await _post_regrade(client, source_id, benchmark_revision="rev-3", score=0.5)
+    again: Response = await _post_regrade(client, source_id, benchmark_revision="rev-3", score=0.25)
+
+    assert first.status_code == 201, first.text
+    assert later.status_code == 201, later.text
+    # The same revision twice is still the one-re-grade rule, naming the rev-3 re-grade.
+    assert again.status_code == 409
+    assert _code(again) == "already_regraded"
+    assert again.json()["detail"]["existing_score_id"] == later.json()["id"]
+    revisions: list[str] = sorted(
+        str(row.benchmark_revision) for row in await Score.filter(regraded_from_id=source_id)
+    )
+    assert revisions == [NEW_REVISION, "rev-3"]
+
+
+@pytest.mark.asyncio
+async def test_a_regrade_of_a_different_case_count_is_422(client: AsyncClient) -> None:
+    """A body grading another number of Cases than the source is not a re-grade of it."""
+    # WHY (OME-1909): the board does not take the posted body on trust. A replay of 3 Cases posted
+    # against a 4-Case source would rank a score measured on a different exam.
+    source_id: str = await _submit_source(client)
+
+    fewer: Response = await _post_regrade(client, source_id, total_questions=3)
+
+    assert fewer.status_code == 422
+    assert _code(fewer) == "different_case_count"
+    assert await Score.filter(regraded_from_id__isnull=False).count() == 0
+
+
+@pytest.mark.asyncio
 async def test_two_concurrent_regrades_of_one_source_store_exactly_one(
     client: AsyncClient,
 ) -> None:

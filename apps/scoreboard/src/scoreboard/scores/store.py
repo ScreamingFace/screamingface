@@ -909,10 +909,11 @@ class ReproductionRunIdConflict(Exception):
 
 
 class SourceAlreadyRegraded(Exception):
-    """The source score already has its one re-grade (OME-1909); answered 409 `already_regraded`.
+    """The source already has its re-grade at this revision (OME-1909); 409 `already_regraded`.
 
-    WHY its own type: the unique index on `scores.regraded_from_id` raises `IntegrityError`, which
-    subclasses `OperationalError` and would be answered 503 store-unavailable.
+    WHY its own type: the unique index on (`regraded_from_id`, `benchmark_revision`) raises
+    `IntegrityError`, which subclasses `OperationalError` and would be answered 503
+    store-unavailable.
     ``existing_score_id`` is the re-grade that won, so a retried request can find the row it made.
     """
 
@@ -1983,7 +1984,7 @@ class ScoreStore:
     async def regrade(
         self, source: Score, submission: ScoreSubmission, *, regraded_by: str
     ) -> ScoreSchema | None:
-        """Store ``submission`` as the one re-grade of ``source``; None if the source is gone.
+        """Store ``submission`` as ``source``'s one re-grade at its revision; None if it is gone.
 
         FEATURE: OME-1909 — a re-grade is a NEW row, not an edit of the source. The result
         (score, revision, cost, client) is the replay's; everything that says WHO is the source's.
@@ -1999,7 +2000,7 @@ class ScoreStore:
         2. Clear the frozen copy, its capture status and its case digest. The copy belongs to the
            source (one copy, one score, OME-1596), and the digest is only ever set with a status.
         3. Insert under the board's lock, re-checked public (`_insert_regrade`).
-        4. On a unique clash, ask the database what lost: this source's re-grade
+        4. On a unique clash, ask the database what lost: this source's re-grade at this revision
            (`SourceAlreadyRegraded`, naming the re-grade that exists), the same result already on
            the board (`RegradeResultOnBoard`), or a source deleted mid-request (None, a 404).
 
@@ -2007,7 +2008,8 @@ class ScoreStore:
         names the source's benchmark.
 
         INVARIANT: insert first and map the clash, never a pre-read. A pre-read loses a race to a
-        second re-grade of the same source; the unique index on `regraded_from_id` cannot.
+        second re-grade of the same source; the unique index on (`regraded_from_id`,
+        `benchmark_revision`) cannot. A later revision may re-grade the same root again.
         """
         # Stage 0 — only a replay that will rank in the source's place.
         revision: str | None = _resolve_benchmark_revision(submission)
@@ -2038,7 +2040,9 @@ class ScoreStore:
         except IntegrityError:
             # Fresh reads outside the failed transaction, which PostgreSQL has already aborted.
             existing: Score | None = (
-                await Score.filter(regraded_from_id=source.pk).only("id").first()
+                await Score.filter(regraded_from_id=source.pk, benchmark_revision=revision)
+                .only("id")
+                .first()
             )
             if existing is not None:
                 raise SourceAlreadyRegraded(existing.id) from None

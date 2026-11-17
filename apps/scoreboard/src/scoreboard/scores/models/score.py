@@ -216,11 +216,15 @@ class Score(BaseScore):
         # WHY `unique_together` and not `unique=True` on the field: the migration then adds an
         # index (SQLite) or a constraint (PostgreSQL). Altering the field instead makes Tortoise
         # REBUILD `scores` on SQLite, which drops it under the tables whose foreign keys point here.
-        # INVARIANT (OME-1909): one source score has at most one re-grade. The second request for
-        # the same source trips this index; the route maps the clash to 409 `already_regraded`
-        # instead of pre-reading, so two concurrent re-grades cannot both win. NULL may repeat.
+        # INVARIANT (OME-1909): one source score has at most one re-grade PER REVISION. The second
+        # request for the same source at the same revision trips this index; the route maps the
+        # clash to 409 `already_regraded` instead of pre-reading, so two concurrent re-grades
+        # cannot both win. NULL may repeat.
+        # WHY the revision in the key: a re-grade row has no pinned cache of its own, so after the
+        # next grading change only the ROOT source can be replayed again; it must be re-gradable
+        # once under each later revision, or every re-graded entry is stranded.
         # WHY a constraint and not `unique=True`: the same SQLite rebuild hazard as above.
-        unique_together = (("frozen_copy_id",), ("regraded_from",))
+        unique_together = (("frozen_copy_id",), ("regraded_from", "benchmark_revision"))
         indexes = (
             ("benchmark_id", "score"),
             ("benchmark_id", "spec_id", "submitted_at"),

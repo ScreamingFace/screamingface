@@ -11,8 +11,8 @@ from tests.unit.test_migration_0022_baseline_metadata import _migrate
 _INSERT_SCORE = (
     "INSERT INTO scores (id, version, spec_id, url4_expression, submitted_at, score, "
     "total_questions, ran_with_providers, verified_by_screamingface, benchmark_id, "
-    "regraded_from_id) VALUES (?, 1, 'spec-1', 'url4://x', '2026-11-01 12:00:00', 0.5, 4, "
-    "'[\"openai\"]', 1, 'demo', ?)"
+    "regraded_from_id, benchmark_revision) VALUES (?, 1, 'spec-1', 'url4://x', "
+    "'2026-11-01 12:00:00', 0.5, 4, '[\"openai\"]', 1, 'demo', ?, ?)"
 )
 
 
@@ -50,17 +50,21 @@ def test_regrade_migration_keeps_existing_scores_as_ordinary_rows(tmp_path: Path
     assert row == (row_id, 0.5, None, None)
 
 
-def test_regrade_migration_allows_one_regrade_per_source_and_many_ordinary_rows(
+def test_regrade_migration_allows_one_regrade_per_source_and_revision_and_many_ordinary_rows(
     tmp_path: Path,
 ) -> None:
-    # INVARIANT (OME-1909): the unique index lets NULL repeat (every ordinary row) and refuses a
-    # second row naming the same source.
+    """The index lets NULL repeat and refuses a second re-grade of one source at one revision."""
+    # INVARIANT (OME-1909): every ordinary row has a NULL link, so NULL must repeat. A second row
+    # naming the same source at the same revision is refused; at a LATER revision it is allowed,
+    # because only the root source keeps a pinned cache to replay after the next grading change.
     database: Path = tmp_path / "regrade.sqlite3"
     source_id: str = _seed_legacy_score(database)
     _migrate(database, "0024_score_regraded_from")
 
     with sqlite3.connect(database) as connection:
-        connection.execute(_INSERT_SCORE, (str(uuid4()), None))
-        connection.execute(_INSERT_SCORE, (str(uuid4()), source_id))
+        connection.execute(_INSERT_SCORE, (str(uuid4()), None, "rev-2"))
+        connection.execute(_INSERT_SCORE, (str(uuid4()), None, "rev-2"))
+        connection.execute(_INSERT_SCORE, (str(uuid4()), source_id, "rev-2"))
+        connection.execute(_INSERT_SCORE, (str(uuid4()), source_id, "rev-3"))
         with pytest.raises(sqlite3.IntegrityError):
-            connection.execute(_INSERT_SCORE, (str(uuid4()), source_id))
+            connection.execute(_INSERT_SCORE, (str(uuid4()), source_id, "rev-2"))

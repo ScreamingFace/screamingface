@@ -1843,6 +1843,35 @@ for label, extra in (("default", ()), ("prod", SCOREBOARD_PROD_ARGS)):
         f"scoreboard ({label} values): the ConfigMap sets the DB pool bounds explicitly as "
         f"integers with 0 <= min <= max and max >= 1 (got {pool_bounds})",
     )
+    # OME-1909: who may re-grade is a chart value, empty unless an environment names someone, so
+    # an install that never set it has no re-graders (the app's `regrade_identities` default).
+    check(
+        scoreboard_config.get("SCOREBOARD_REGRADE_IDENTITIES") == "",
+        f"scoreboard ({label} values): the ConfigMap renders SCOREBOARD_REGRADE_IDENTITIES, "
+        "empty by default, so nobody may re-grade until an environment names them",
+    )
+
+# OME-1909: the list renders as the comma-separated text the app's `regrade_identities` parser
+# splits (`config.py`), so each email a values file names reaches the app as one identity.
+regrade_config = find(
+    render(
+        SCOREBOARD_CHART,
+        SCOREBOARD_RELEASE,
+        "--set",
+        "config.regradeIdentities={ci-a@example.test,ci-b@example.test}",
+    ),
+    "ConfigMap",
+)["data"]
+regrade_identities = [
+    entry
+    for part in regrade_config.get("SCOREBOARD_REGRADE_IDENTITIES", "").split(",")
+    if (entry := part.strip())
+]
+check(
+    regrade_identities == ["ci-a@example.test", "ci-b@example.test"],
+    "scoreboard: config.regradeIdentities renders as the comma-separated list the app splits "
+    f"into one identity per email (got {regrade_identities})",
+)
 
 print(f"\n{checks - len(failures)}/{checks} checks passed")
 if failures:

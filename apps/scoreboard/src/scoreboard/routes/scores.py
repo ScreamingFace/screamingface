@@ -851,7 +851,8 @@ REGRADE_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
         "description": (
             "`{code: not_current_revision}`: the body's benchmark revision is not the board's "
             "registered one, or is the source's own. `{code: already_regraded, existing_score_id}` "
-            "(`ExistingRegradeResponse`): the source already has its re-grade, and this names it. "
+            "(`ExistingRegradeResponse`): the source already has its re-grade at this revision, "
+            "and this names it. "
             "`{code: already_on_board}`: this exact result is already on "
             "the board at that revision. A string `detail`: the board's visibility changed "
             "mid-request; retry."
@@ -861,7 +862,8 @@ REGRADE_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
         "model": CodedErrorResponse | ValidationErrorResponse,
         "description": (
             "`{code: different_benchmark}`: the body names another benchmark than the source's. "
-            "A list `detail`: the body failed validation."
+            "`{code: different_case_count}`: the body's `total_questions` is not the source's, so "
+            "it is not a re-grade of the same Cases. A list `detail`: the body failed validation."
         ),
     },
     status.HTTP_503_SERVICE_UNAVAILABLE: SUBMIT_SCORE_RESPONSES[
@@ -915,6 +917,9 @@ async def _regrade_source(source_id: UUID, submission: ScoreSubmission) -> Score
 
     INVARIANT (OME-894): a score on a private board is the SAME 404 as an unknown id. Its rows
     belong to their submitter alone, and a re-grader is not that submitter.
+    INVARIANT (OME-1909): a re-grade replays the source's Cases, so its Case count is the
+    source's. The board does not take the posted body on trust: a replay of fewer or more Cases
+    (a partial run, the wrong source) would rank a number measured on a different exam.
     """
     source = await Score.get_or_none(id=source_id)
     if source is None or await turned_private(cast(str, getattr(source, "benchmark_id"))):
@@ -922,6 +927,13 @@ async def _regrade_source(source_id: UUID, submission: ScoreSubmission) -> Score
     if submission.benchmark_id != cast(str, getattr(source, "benchmark_id")):
         raise _regrade_refusal(
             422, "different_benchmark", "a re-grade must name the source score's benchmark"
+        )
+    if submission.total_questions != source.total_questions:
+        raise _regrade_refusal(
+            422,
+            "different_case_count",
+            f"a re-grade must grade the source score's {source.total_questions} Cases, "
+            f"not {submission.total_questions}",
         )
     return source
 
@@ -984,10 +996,12 @@ async def regrade_score(
 
     The checks run in a fixed order: `disabled` auth (403 `regrade_unavailable`), identity (401 /
     403), not a re-grader (403 `not_allowed`), the source exists and is public (404
-    `unknown_score`), another benchmark (422 `different_benchmark`), not the registered revision or
-    the source's own (409 `not_current_revision`), then a second re-grade of one source (409
-    `already_regraded` naming `existing_score_id`, from the unique index, not a pre-read). The
-    first three run before the body is validated.
+    `unknown_score`), another benchmark (422 `different_benchmark`), another Case count (422
+    `different_case_count`), not the registered revision or the source's own (409
+    `not_current_revision`), then a second re-grade of one source at the same revision (409
+    `already_regraded` naming `existing_score_id`, from the unique index, not a pre-read). A later
+    revision may re-grade the same source again. The first three run before the body is
+    validated.
     """
     # INVARIANT: identity-scoped on every answer: each refusal depends on who asked.
     response.headers.update(PRIVATE_CACHE_HEADERS)
