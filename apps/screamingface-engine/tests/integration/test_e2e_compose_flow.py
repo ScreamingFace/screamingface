@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from screamingface_engine.app import create_app
 from screamingface_engine.auth import JwtCodec
 from screamingface_engine.config import Settings
-from screamingface_engine.job_env import RunShape
+from screamingface_engine.job_env import LiveJudge, RunShape
 from screamingface_engine.ports import IdentityAwareJobRunner
 from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.testing.mock_runner import publish_mock_run
@@ -59,6 +59,7 @@ class MockRunnerJobRunner(IdentityAwareJobRunner):
         shape: RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        replay_live_judge: LiveJudge | None = None,
         enqueued_at: Any = None,
     ) -> str:
         self.scheduled.append((topic, url4, deadline_s))
