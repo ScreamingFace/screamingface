@@ -1305,7 +1305,11 @@ def _judged_handler[T](
                 # A role-based scorer asks inspect for "the grader" — answer
                 # with the pinned judge, for this grading pass only (OME-1370).
                 scope.enter_context(
-                    judge_filling_model_role(benchmark.judge.model_role, benchmark.judge.model)
+                    judge_filling_model_role(
+                        benchmark.judge.model_role,
+                        benchmark.judge.model,
+                        benchmark.judge.params,
+                    )
                 )
             return await aggregate(
                 benchmark,
