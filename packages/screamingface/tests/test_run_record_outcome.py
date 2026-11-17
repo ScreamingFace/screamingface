@@ -182,5 +182,31 @@ def test_a_malformed_record_is_a_contract_error(change: dict[str, Any]) -> None:
 
 
 def test_a_candidate_that_has_not_ended_has_no_outcome() -> None:
-    with pytest.raises(ValueError, match="not ended"):
+    """#1878 review: an Engine contract error that says to upgrade, not a bare ValueError."""
+    with pytest.raises(ExecutionError) as raised:
         candidate_outcome(RUN_ID, _candidate("scheduled", None))
+
+    assert raised.value.code == "engine_contract_error"
+
+
+def test_a_failure_whose_message_the_engine_cut_to_nothing_keeps_its_code() -> None:
+    """The Engine trims an oversized record's error message, possibly to nothing; the
+    Candidate still fails with its own code, as the Client's fold read it."""
+    failure = _recorded("failure")
+    record = {**failure, "error": {**failure["error"], "message": ""}}
+
+    with pytest.raises(ExecutionError) as raised:
+        candidate_outcome(RUN_ID, _candidate("failed", record, error_code="provider_error"))
+
+    assert (raised.value.code, raised.value.message) == ("provider_error", "")
+
+
+def test_a_failure_keeps_the_candidates_own_error_code_over_its_records() -> None:
+    """#1878 review: the Candidate's error code is first-wins on the Engine; the record gives
+    the message and details."""
+    record = _recorded("failure")
+
+    with pytest.raises(ExecutionError) as raised:
+        candidate_outcome(RUN_ID, _candidate("failed", record, error_code="first_wins"))
+
+    assert (raised.value.code, raised.value.message) == ("first_wins", "upstream überlastet (529)")

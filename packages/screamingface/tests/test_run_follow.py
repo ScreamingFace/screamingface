@@ -142,15 +142,16 @@ def test_every_frame_reaches_the_follower_in_order_and_the_run_end_returns() -> 
     assert ended == follow.RunEnded(state="complete", stopped_by=None)
     assert [type(frame).__name__ for frame in seen] == [
         "CandidateState",
+        "Quiet",
         "CandidateState",
         "CandidateEvent",
         "CandidateEvent",
         "CandidateSettled",
     ]
-    first, last = seen[2], seen[3]
+    first, last = seen[3], seen[4]
     assert isinstance(first, follow.CandidateEvent) and isinstance(first.event, Log)
     assert isinstance(last, follow.CandidateEvent) and isinstance(last.event, Terminated)
-    assert seen[4] == follow.CandidateSettled(
+    assert seen[5] == follow.CandidateSettled(
         index=0, state="succeeded", attempt_id=TOPIC, error_code=None, record={"trace_id": "t"}
     )
 
@@ -327,3 +328,89 @@ async def test_the_async_follower_awaits_each_frame_and_reconnects_the_same_way(
 
     assert ended.state == "complete"
     assert [type(frame).__name__ for frame in seen] == ["CandidateEvent", "CandidateSettled"]
+
+
+# --- review round 4 -------------------------------------------------------------------------
+
+
+class _Raised(Exception):
+    pass
+
+
+def _raises_with_its_cause(frame: object) -> None:
+    try:
+        raise KeyError("the cause")
+    except KeyError as inner:
+        raise _Raised("the handler failed") from inner
+
+
+def test_a_handlers_error_keeps_its_own_cause() -> None:
+    """What the caller's handler raised reaches the caller whole: its `__cause__` says why."""
+    engine = _Engine([_settled(0), ENDED])
+
+    with pytest.raises(_Raised) as raised:
+        follow.follow_sync(
+            engine.connect,
+            RUN_ID,
+            _raises_with_its_cause,
+            detached=False,
+            budget_s=5.0,
+            base_delay_s=0.0,
+        )
+
+    assert isinstance(raised.value.__cause__, KeyError)
+
+
+@pytest.mark.asyncio
+async def test_an_async_handlers_error_keeps_its_own_cause() -> None:
+    engine = _AsyncEngine([_settled(0), ENDED])
+
+    async def handler(frame: object) -> None:
+        _raises_with_its_cause(frame)
+
+    with pytest.raises(_Raised) as raised:
+        await follow.follow_async(
+            engine.connect, RUN_ID, handler, detached=False, budget_s=5.0, base_delay_s=0.0
+        )
+
+    assert isinstance(raised.value.__cause__, KeyError)
+
+
+def test_a_result_frame_is_skipped_without_decoding_its_body() -> None:
+    """The result is fetched from the result route, so the frame that carries it inline (up to
+    MiBs) is not parsed: only its head, which names its type, is read."""
+    head = _frame("candidate.event", index=0, event=_cloudevent(1, kind="ai.url4.result"))
+    # Cut off past the event's type: a body that would not even parse.
+    unparsable = head[: head.index('"data"')] + '"data": {"body": "' + "x" * 1000
+    engine = _Engine([unparsable, _settled(0), ENDED])
+
+    ended, seen = _follow(engine)
+
+    assert ended.state == "complete"
+    assert [type(frame).__name__ for frame in seen] == ["CandidateSettled"]
+
+
+@pytest.mark.parametrize("frame", ["{}", json.dumps({"type": ""})], ids=["absent", "empty"])
+def test_a_frame_with_no_type_is_a_contract_error(frame: str) -> None:
+    """#1878 review: only a named kind this Client does not know is skipped."""
+    with pytest.raises(ExecutionError) as raised:
+        _follow(_Engine([frame]))
+
+    assert raised.value.code == "engine_contract_error"
+
+
+def test_a_replay_that_carries_a_late_record_is_delivered() -> None:
+    """#1878 review: the Engine sends a succeeded Candidate without its record past its outcome
+    grace, and may fill the record after; a reconnect's replay carrying it is not dropped."""
+    record = {"trace_id": "t"}
+    engine = _Engine(
+        [_settled(0), _closed(1006)],
+        [_settled(0, record=record), _settled(0, record=record), ENDED],
+    )
+
+    _, seen = _follow(engine)
+
+    assert [frame.record for frame in seen if isinstance(frame, follow.CandidateSettled)] == [
+        None,
+        record,
+    ]

@@ -69,6 +69,9 @@ class _ListenerSink:
     def connection(self, notice: _ConnectionNotice) -> None:
         getattr(self.listener, "connection", lambda _n: None)(notice)
 
+    def quiet(self) -> None:
+        pass
+
 
 class _AsyncListenerSink(_ListenerSink):
     async def state(self, index: int, state: str) -> None:  # type: ignore[override]

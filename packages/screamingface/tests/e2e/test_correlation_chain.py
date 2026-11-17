@@ -256,21 +256,27 @@ def gateway_log(tmp_path_factory: pytest.TempPathFactory):
     work_dir = tmp_path_factory.mktemp("correlation-logs")
     backend = CacheSeededGateway(snapshot=snapshot, manifest=manifest, work_dir=work_dir)
     seen: list[str] = []
+    ids: set[str] = set()
     with replay_stack(backend, work_dir=work_dir, assets_dir=assets) as stack:
         with sf.Client(engine_url=stack.engine_url) as client:
             try:
-                client.evaluate(
+                report = client.evaluate(
                     sf.Model(CANDIDATE_MODEL),
                     benchmark=BOARD,
                     limit=1,
                     progress=False,
                     on_event=lambda event: seen.append(getattr(event, "traceparent", "") or ""),
                 )
-            except sf.ScreamingFaceError:
-                pass  # the log is the evidence either way — see the wire fixture's note
+                # WHY the Report too: a Candidate that ends before the follow first sees it
+                # sends its record, which carries its trace id, and none of its events.
+                ids |= {c.trace_id for c in report.candidates if c.trace_id}
+            except sf.ScreamingFaceError as exc:
+                # the log is the evidence either way — see the wire fixture's note
+                if exc.trace_id:
+                    ids.add(exc.trace_id)
     yield {
         "text": (work_dir / "aigateway.log").read_text(errors="replace"),
-        "trace_ids": _trace_ids([v for v in seen if v]),
+        "trace_ids": ids | _trace_ids([v for v in seen if v]),
     }
 
 

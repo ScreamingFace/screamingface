@@ -9,8 +9,8 @@ Candidates' outcomes come from the Engine's records (`run_record.py`). The calle
 socket, so this module holds the protocol alone and both transports share it.
 
 INVARIANT (§4.2): a reconnect replays what the Engine still holds, and the follower delivers no
-event and no settled Candidate twice. A gap is not an error: the stream keeps 20,000 frames per
-Candidate and there is no replay request.
+event twice, and no settled Candidate twice once a frame has carried its record. A gap is not an
+error: the stream keeps 20,000 frames per Candidate and there is no replay request.
 INVARIANT (D15): a follow that outlives the sign-in ends with how to pick the Run up; it never
 starts a login of its own.
 """
@@ -21,11 +21,12 @@ import asyncio
 import inspect
 import json
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import AbstractAsyncContextManager, AbstractContextManager
 from dataclasses import dataclass
-from typing import NoReturn, Protocol, cast
+from typing import NoReturn, Protocol
 
 from websockets.exceptions import ConnectionClosed, InvalidStatus, WebSocketException
 
@@ -34,6 +35,7 @@ from screamingface._core.ports import _ConnectionNotice, _ConnectionState
 from screamingface._core.retry import _RETRYABLE_STATUS
 from screamingface._engine.contract import display_event
 from screamingface._engine.reconnect import _RecoveryWindow, reconnect_delay
+from screamingface._engine.wire_checks import WireChecks
 from screamingface.errors import AuthenticationError, ExecutionError
 from screamingface.events import Event
 
@@ -74,6 +76,17 @@ class CandidateSettled:
     error_code: str | None
     record: Mapping[str, object] | None
 
+    @property
+    def awaits_record(self) -> bool:
+        """Whether it succeeded without its record: the Engine sends one past its outcome
+        grace, and may fill the record after (#1878 review)."""
+        return self.state == "succeeded" and self.record is None
+
+
+@dataclass(frozen=True, slots=True)
+class Quiet:
+    """A heartbeat: the Engine had nothing else to send, so time has passed with no frame."""
+
 
 @dataclass(frozen=True, slots=True)
 class RunEnded:
@@ -81,7 +94,8 @@ class RunEnded:
     stopped_by: str | None
 
 
-type Frame = CandidateState | CandidateEvent | CandidateSettled
+type Frame = CandidateState | CandidateEvent | CandidateSettled | Quiet
+_QUIET = Quiet()
 type ConnectionCallback = Callable[[_ConnectionNotice], None]
 
 
@@ -109,22 +123,35 @@ class _Frames:
         self._settled: set[int] = set()
 
     def accept(self, raw: str | bytes) -> Frame | RunEnded | None:
+        if _result_event(raw):
+            # The result is fetched from the result route, so its frame (up to MiBs) is not parsed.
+            return None
         frame = _object(_json(raw))
+        kind = frame.get("type")
+        # WHY the type first: a list or an object is unhashable, and the lookup would raise
+        # TypeError, which the follow would take for an interruption and cancel the Run. An
+        # absent or empty type is malformed, not a newer kind (#1878 review).
+        if not isinstance(kind, str) or not kind:
+            _malformed()
+        if kind == "heartbeat":
+            return _QUIET
         decode = {
             "candidate.state": _state,
             "candidate.event": self._event,
             "candidate.settled": self._settle,
             "run.ended": _ended,
-        }.get(cast(str, frame.get("type")))
-        # None: a heartbeat, or a kind newer than this Client, which has nothing to show.
+        }.get(kind)
+        # None: a kind newer than this Client, which has nothing to show.
         return None if decode is None else decode(frame)
 
     def _event(self, frame: Mapping[str, object]) -> CandidateEvent | None:
         index = _index(frame)
         try:
             event = display_event(_object(frame.get("event")))
-        except ExecutionError:
-            # WHY dropped, not raised: events are for display; the outcome is the record's.
+        except (ExecutionError, ValueError, TypeError):
+            # WHY dropped, not raised: events are for display; the outcome is the record's. The
+            # public event types refuse what they cannot hold with ValueError or TypeError, and
+            # a raise here would end the follow, which the runner reads as an interruption.
             _logger.warning("An event of Candidate %d did not decode and is not shown", index)
             return None
         if event is None or event.sequence <= self._sequences.get(index, 0):
@@ -143,7 +170,9 @@ class _Frames:
         )
         if index in self._settled:
             return None
-        self._settled.add(index)
+        if not settled.awaits_record:
+            # WHY not for one awaiting its record: a reconnect's replay may carry it.
+            self._settled.add(index)
         return settled
 
 
@@ -157,19 +186,26 @@ def follow_sync(
     budget_s: float = RECONNECT_BUDGET_S,
     base_delay_s: float = RECONNECT_BASE_DELAY_S,
 ) -> RunEnded:
-    """Follow the Run until it ends, handing each frame to ``on_frame``."""
+    """Follow the Run until it ends, handing each frame to ``on_frame`` on this thread; what
+    ``on_frame`` raises ends the follow at once."""
     frames = _Frames()
     recovery = _RecoveryWindow(budget_s, started_at=time.monotonic())
     reconnecting = False
     while True:
+        handler_error: BaseException | None = None
+        delay = 0.0
         try:
             with open_socket() as socket:
                 reconnecting = _connected(recovery, on_connection, reconnecting)
                 return _pump_sync(socket, frames, on_frame)
         except _HandlerRaised as raised:
-            raise raised.original from None
+            handler_error = raised.original
         except (WebSocketException, OSError, TimeoutError) as exc:
             delay = _lost(exc, recovery, run_id, detached, base_delay_s)
+        if handler_error is not None:
+            # WHY raised outside the `except`: there it would take this wrapper as its context
+            # and need `from None`, which erases the handler error's own `__cause__`.
+            raise handler_error
         _notify(on_connection, "reconnecting", recovery.attempts)
         reconnecting = True
         time.sleep(delay)
@@ -190,14 +226,18 @@ async def follow_async(
     recovery = _RecoveryWindow(budget_s, started_at=time.monotonic())
     reconnecting = False
     while True:
+        handler_error: BaseException | None = None
+        delay = 0.0
         try:
             async with open_socket() as socket:
                 reconnecting = _connected(recovery, on_connection, reconnecting)
                 return await _pump_async(socket, frames, on_frame)
         except _HandlerRaised as raised:
-            raise raised.original from None
+            handler_error = raised.original
         except (WebSocketException, OSError, TimeoutError) as exc:
             delay = _lost(exc, recovery, run_id, detached, base_delay_s)
+        if handler_error is not None:
+            raise handler_error  # see `follow_sync`
         _notify(on_connection, "reconnecting", recovery.attempts)
         reconnecting = True
         await asyncio.sleep(delay)
@@ -205,7 +245,8 @@ async def follow_async(
 
 def _pump_sync(socket: _SyncSocket, frames: _Frames, on_frame: Callable[[Frame], None]) -> RunEnded:
     while True:
-        accepted = frames.accept(socket.recv(timeout=_RECEIVE_TIMEOUT_S))
+        raw = socket.recv(timeout=_RECEIVE_TIMEOUT_S)
+        accepted = frames.accept(raw)
         if isinstance(accepted, RunEnded):
             return accepted
         if accepted is not None:
@@ -376,6 +417,26 @@ def _ended(frame: Mapping[str, object]) -> RunEnded:
     return RunEnded(_text(frame.get("state")), _optional_text(frame.get("stopped_by")))
 
 
+#: How much of a frame is read to tell a result event from the rest; its type comes before its
+#: data, which may be MiBs.
+_HEAD_CHARS = 4096
+_EVENT_FRAME = re.compile(r'\s*\{\s*"type"\s*:\s*"candidate\.event"')
+_RESULT_TYPE = re.compile(r'"type"\s*:\s*"ai\.url4\.result"')
+
+
+def _result_event(raw: str | bytes) -> bool:
+    """Whether ``raw`` is a `candidate.event` frame carrying a result event, read from its head
+    alone. INVARIANT: only a match before the event's `"data"` counts, where every quote is the
+    JSON's own (a string's quotes are escaped), so another frame is never taken for one; a frame
+    this misses is parsed and dropped as before."""
+    head = raw[:_HEAD_CHARS]
+    text = head.decode("utf-8", "replace") if isinstance(head, bytes) else head
+    if _EVENT_FRAME.match(text) is None:
+        return False
+    data = text.find('"data"')
+    return _RESULT_TYPE.search(text if data < 0 else text[:data]) is not None
+
+
 def _json(raw: str | bytes) -> object:
     try:
         return json.loads(raw)
@@ -383,39 +444,22 @@ def _json(raw: str | bytes) -> object:
         _malformed()
 
 
-def _object(value: object) -> Mapping[str, object]:
-    if not isinstance(value, dict):
-        _malformed()
-    return cast(Mapping[str, object], value)
+_CHECK = WireChecks("The SF Engine sent a malformed Run event frame")
+_object = _CHECK.object
+_text = _CHECK.text
+_malformed = _CHECK.malformed
 
 
 def _optional_object(value: object) -> Mapping[str, object] | None:
-    return None if value is None else _object(value)
-
-
-def _index(frame: Mapping[str, object]) -> int:
-    index = frame.get("index")
-    if isinstance(index, bool) or not isinstance(index, int) or index < 0:
-        _malformed()
-    return index
-
-
-def _text(value: object) -> str:
-    if not isinstance(value, str) or not value:
-        _malformed()
-    return value
+    return WireChecks.optional(value, _object)
 
 
 def _optional_text(value: object) -> str | None:
-    return None if value is None else _text(value)
+    return WireChecks.optional(value, _text)
 
 
-def _malformed() -> NoReturn:
-    raise ExecutionError(
-        "The SF Engine sent a malformed Run event frame",
-        code="engine_contract_error",
-        permanent=True,
-    )
+def _index(frame: Mapping[str, object]) -> int:
+    return _CHECK.count(frame.get("index"))
 
 
 __all__ = [

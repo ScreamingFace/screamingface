@@ -11,6 +11,7 @@ INVARIANT (D16): an Engine older than P2 answers the new body with a 422 or 404 
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import Callable
@@ -267,3 +268,144 @@ async def test_the_async_twins_share_the_contract() -> None:
         context = await wire.context_async(request, RUN_ID, CONTEXT_REF)
 
     assert (created.id, context) == (RUN_ID, CONTEXT)
+
+
+def test_a_stop_reason_this_client_does_not_know_reads_as_none(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#1878 review round 3: a newer Engine may add a stop reason. The Run still reads, with
+    `stopped_by` None (its `state` still says how it ended), so a released Client can open it."""
+    record = _p2_record(state="interrupted", stopped_by="drained")
+    # WHY a fresh set: "logged once" is per process, so another test that read the same reason
+    # first must not change what this one sees.
+    monkeypatch.setattr(wire, "_UNKNOWN_STOP_REASONS", set())
+
+    with caplog.at_level("WARNING"):
+        run = wire.get_sync(_request(_answer(200, record), []), RUN_ID)
+        again = wire.get_sync(_request(_answer(200, record), []), RUN_ID)
+
+    assert (run.state, run.stopped_by, again.stopped_by) == ("interrupted", None, None)
+    assert sum("drained" in r.getMessage() for r in caplog.records) == 1
+
+
+@pytest.mark.parametrize("value", ["", 7, ["canceled"]])
+def test_a_stop_reason_that_is_not_text_is_still_malformed(value: object) -> None:
+    with pytest.raises(ExecutionError) as raised:
+        wire.get_sync(_request(_answer(200, _p2_record(stopped_by=value)), []), RUN_ID)
+
+    assert raised.value.code == "engine_contract_error"
+
+
+@pytest.mark.parametrize(
+    ("detach", "said"),
+    [(True, "sf.runs.list()"), (False, "stops it within 2 minutes")],
+)
+def test_a_lost_answer_to_post_runs_says_the_run_may_exist_and_what_becomes_of_it(
+    detach: bool, said: str
+) -> None:
+    """#1878 review rounds 4 and 5: the Engine may have registered the Run and started it before
+    the answer was lost. A detached Run is found by when it was made (a Run shows no client
+    key); an attached one stops with nobody following it."""
+
+    def timed_out(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("no answer", request=request)
+
+    with pytest.raises(EngineUnavailableError) as raised:
+        wire.create_sync(_request(timed_out, []), _run_request(detach=detach))
+
+    message = str(raised.value)
+    assert "may" in message and said in message
+    assert "k" * 32 not in message
+
+
+@pytest.mark.parametrize(
+    ("detach", "said"),
+    [(True, "until its deadline"), (False, "stops it within 2 minutes")],
+)
+def test_a_registration_this_client_cannot_read_names_the_run_it_started(
+    detach: bool, said: str
+) -> None:
+    """#1878 review: the Engine registered and started the Run before the Client failed to read
+    its answer (a newer Engine's state, say), so the error names the Run and what becomes of it.
+    WHY the id and not the client key: a Run never shows its client key."""
+    newer = _p2_record(state="paused")
+
+    with pytest.raises(ExecutionError) as raised:
+        wire.create_sync(_request(_answer(201, newer), []), _run_request(detach=detach))
+
+    assert raised.value.code == "engine_contract_error"
+    assert newer["id"] in str(raised.value) and said in str(raised.value)
+    assert f"sf.runs.get({newer['id']!r})" in (raised.value.hint or "")
+
+
+def test_candidates_are_read_in_index_order() -> None:
+    """#1878 review: the Report pairs each Candidate with the context's at its position."""
+    record = _p2_record()
+    record["candidates"].reverse()
+
+    run = wire.get_sync(_request(_answer(200, record), []), RUN_ID)
+
+    assert [(c.index, c.name) for c in run.candidates] == [(0, "alpha"), (1, "beta")]
+
+
+@pytest.mark.parametrize(
+    "indexes", [(1, 1), (0, 2), (-1, 0), (1, 2)], ids=["duplicate", "gap", "negative", "shifted"]
+)
+def test_candidate_indexes_that_are_not_each_position_once_are_malformed(
+    indexes: tuple[int, int],
+) -> None:
+    record = _p2_record()
+    for candidate, index in zip(record["candidates"], indexes, strict=True):
+        candidate["index"] = index
+
+    with pytest.raises(ExecutionError) as raised:
+        wire.get_sync(_request(_answer(200, record), []), RUN_ID)
+
+    assert raised.value.code == "engine_contract_error"
+
+
+def test_a_start_named_for_another_candidate_is_malformed() -> None:
+    record = _p2_record()
+    record["candidates"][0]["start"] = {"name": "beta", "url4": "/gsm8k?model=openai/beta"}
+
+    with pytest.raises(ExecutionError) as raised:
+        wire.get_sync(_request(_answer(200, record), []), RUN_ID)
+
+    assert raised.value.code == "engine_contract_error"
+
+
+@pytest.mark.parametrize(
+    ("detach", "said"),
+    [(True, "sf.runs.list()"), (False, "stops it within 2 minutes")],
+)
+def test_ctrl_c_while_post_runs_waits_says_the_run_may_exist(detach: bool, said: str) -> None:
+    """#1878 review: the Engine may have registered the Run before the interruption. The
+    interruption is kept, with a note on what becomes of the Run."""
+
+    def interrupted(request: httpx.Request) -> httpx.Response:
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt) as raised:
+        wire.create_sync(_request(interrupted, []), _run_request(detach=detach))
+
+    note = " ".join(raised.value.__notes__)
+    assert "may have been registered" in note and said in note
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_post_runs_says_the_run_may_exist() -> None:
+    async def cancelled(method: str, path: str, json: object = None) -> httpx.Response:
+        raise asyncio.CancelledError
+
+    with pytest.raises(asyncio.CancelledError) as raised:
+        await wire.create_async(cancelled, _run_request(detach=True))
+
+    assert "sf.runs.list()" in " ".join(raised.value.__notes__)
+
+
+def test_a_registration_with_no_id_to_read_says_where_to_find_the_run() -> None:
+    """#1878 review: with no id to name, the Run is found by when it was made."""
+    with pytest.raises(ExecutionError) as raised:
+        wire.create_sync(_request(_answer(201, {"state": "paused"}), []), _run_request(detach=True))
+
+    assert "sf.runs.list()" in (raised.value.hint or "")

@@ -18,7 +18,7 @@ import copy
 import warnings
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from url4 import Expression, Source, Text, Url4Error, build
@@ -265,19 +265,16 @@ def _run_sync(
     progress: bool | None,
 ) -> Report:
     try:
-        # WHY the cast: a replay is never detached, so it always returns its Report.
-        report = cast(
-            Report,
-            evaluate_url4_sync(
-                client._transport,
-                plan.url4,
-                on_event,
-                progress,
-                answer_seed=plan.answer_seed,
-                # The Engine refuses X-Capture with X-Replay-Frozen-Copy (S6).
-                capture=False,
-                replay_frozen_copy=plan.pinned_cache,
-            ),
+        # A replay is never detached: the overload types it as its Report.
+        report = evaluate_url4_sync(
+            client._transport,
+            plan.url4,
+            on_event,
+            progress,
+            answer_seed=plan.answer_seed,
+            # The Engine refuses X-Capture with X-Replay-Frozen-Copy (S6).
+            capture=False,
+            replay_frozen_copy=plan.pinned_cache,
         )
     except ExecutionError as exc:
         if exc.code != "replay_unsupported":
@@ -301,18 +298,15 @@ async def _run_async(
     progress: bool | None,
 ) -> Report:
     try:
-        # WHY the cast: a replay is never detached, so it always returns its Report.
-        report = cast(
-            Report,
-            await evaluate_url4_async(
-                client._transport,
-                plan.url4,
-                on_event,
-                progress,
-                answer_seed=plan.answer_seed,
-                capture=False,
-                replay_frozen_copy=plan.pinned_cache,
-            ),
+        # A replay is never detached: the overload types it as its Report.
+        report = await evaluate_url4_async(
+            client._transport,
+            plan.url4,
+            on_event,
+            progress,
+            answer_seed=plan.answer_seed,
+            capture=False,
+            replay_frozen_copy=plan.pinned_cache,
         )
     except ExecutionError as exc:
         if exc.code != "replay_unsupported":

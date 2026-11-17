@@ -183,11 +183,13 @@ def _ran_sync(
     it (E5 P2 spec D1); a `run()`-only one runs it here.
     """
     from screamingface._evaluation.following import followed_sync
+    from screamingface._evaluation.reattach import settled_from_records
     from screamingface._evaluation.runner import open_run_sync
 
     if isinstance(transport, _RunFollowing):
         run_id = transport.register_run(None, (candidate,))
-        return run_id, _lone(followed_sync(transport, run_id, (candidate,), observer, None))
+        recorded, kept = followed_sync(transport, run_id, (candidate,), observer, None)
+        return run_id, _lone(settled_from_records(transport, (candidate,), recorded, kept))
     pool = cast(SyncRunTransport, transport)
     # INVARIANT (spec D8): raw URL4 and replay register too, right before the first token.
     run_id = open_run_sync(pool, URL4_RUN_LABEL, 0, (candidate,))
@@ -199,11 +201,14 @@ async def _ran_async(
 ) -> tuple[str | None, _RunOutcome]:
     """The async twin of ``_ran_sync``."""
     from screamingface._evaluation.following import followed_async
+    from screamingface._evaluation.reattach import refetched_async, settled_from_records
     from screamingface._evaluation.runner import open_run_async
 
     if isinstance(transport, _AsyncRunFollowing):
         run_id = await transport.register_run(None, (candidate,))
-        settled = await followed_async(transport, run_id, (candidate,), observer, None)
+        recorded, kept = await followed_async(transport, run_id, (candidate,), observer, None)
+        recorded, kept = await refetched_async(transport, (candidate,), recorded, kept)
+        settled = settled_from_records(transport, (candidate,), recorded, kept)
         return run_id, _lone(settled)
     pool = cast(AsyncRunTransport, transport)
     run_id = await open_run_async(pool, URL4_RUN_LABEL, 0, (candidate,))
@@ -211,7 +216,7 @@ async def _ran_async(
 
 
 def _lone(settled: _Settled) -> _RunOutcome:
-    # WHY safe: the follow raises a lone Candidate's own error (`following._lone_raised`).
+    # WHY safe: the build raises a lone Candidate's own error (`reattach._lone_raised`).
     ((_, outcome),) = settled
     assert isinstance(outcome, _RunOutcome)
     return outcome

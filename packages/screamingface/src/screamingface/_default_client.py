@@ -15,6 +15,7 @@ from screamingface.client import (
     DEFAULT_ENGINE_URL,
     DEFAULT_SCOREBOARD_URL,
     Client,
+    _deadline_seconds,
     _evaluation_candidates,
 )
 
@@ -341,6 +342,8 @@ def evaluate(
     if pinned_cache is not None or score_id is not None:
         if detach:
             raise TypeError("a replay cannot be detached; it follows its run")
+        # The Client refuses a deadline before any replay starts; so does this door.
+        _deadline_seconds(detach, deadline)
         # The Client checks the replay options; this door passes everything through.
         return client._evaluate_replay(
             candidates=candidates,

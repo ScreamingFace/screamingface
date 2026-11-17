@@ -13,29 +13,33 @@ fold did: the error's message, code and permanence, with the frame's data as its
 
 from __future__ import annotations
 
-import re
-from collections.abc import Callable, Mapping
-from datetime import datetime
-from decimal import Decimal, InvalidOperation
-from typing import Literal, NoReturn, cast
+from collections.abc import Mapping
+from typing import Literal, cast
 
 from screamingface._client_provenance import valid_client_version
-from screamingface._core.ports import _RunOutcome, _RunResult
+from screamingface._core.ports import CANDIDATE_ENDED, _RunOutcome, _RunResult
 from screamingface._engine.contract import usage_value
-from screamingface._engine.runs import CandidateRecord
+from screamingface._engine.runs import _SHA256, CandidateRecord
+from screamingface._engine.wire_checks import WireChecks
 from screamingface._report_primitives import capture_status_value
 from screamingface.errors import ExecutionError
 from screamingface.report import Usage
-
-_ENDED = frozenset({"succeeded", "failed", "timed_out", "stopped", "lost"})
-_SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
 def candidate_outcome(run_id: str, candidate: CandidateRecord) -> _RunOutcome:
     """The outcome of a Candidate that has ended, from its record; raises when it did not
     succeed. ``run_id`` is the Run's id, which names the Candidate's result route."""
-    if candidate.state not in _ENDED:
-        raise ValueError(f"Candidate {candidate.name!r} has not ended")
+    if candidate.state not in CANDIDATE_ENDED:
+        # WHY a contract error (#1878 review): a state this Client does not know as an end (a
+        # newer Engine's, say) failed the Candidate with a bare ValueError, with no code and no
+        # hint, even when it succeeded on the Engine.
+        raise ExecutionError(
+            f"The SF Engine reports Candidate {candidate.name!r} as {candidate.state!r}, which "
+            "this Client does not know as an end",
+            code="engine_contract_error",
+            permanent=True,
+            hint="Upgrade the screamingface Client.",
+        )
     record = candidate.record
     if candidate.state != "succeeded":
         raise _failure(candidate, record)
@@ -87,9 +91,17 @@ def _failure(candidate: CandidateRecord, record: Mapping[str, object] | None) ->
     permanent = error.get("permanent")
     if not (permanent is None or isinstance(permanent, bool)):
         _malformed()
+    message = error.get("message")
+    # WHY any string: the Engine trims an oversized record's message, possibly to nothing,
+    # and the Client's fold read it as any string; the Candidate still fails with its code.
+    if not isinstance(message, str):
+        _malformed()
+    code = _text(error.get("code"))
     return ExecutionError(
-        _text(error.get("message")),
-        code=_text(error.get("code")),
+        message,
+        # WHY the row's first (#1878 review): the Candidate's error code is first-wins on the
+        # Engine; the record gives the message and details.
+        code=candidate.error_code or code,
         permanent=permanent,
         details=error.get("details"),
     )
@@ -123,63 +135,18 @@ def _reasons(value: object) -> tuple[str, ...]:
     return tuple(cast(list[str], value))
 
 
-def _object(value: object) -> Mapping[str, object]:
-    if not isinstance(value, dict):
-        _malformed()
-    return cast(Mapping[str, object], value)
-
-
-def _optional[T](value: object, decode: Callable[[object], T]) -> T | None:
-    return None if value is None else decode(value)
-
-
-def _text(value: object) -> str:
-    if not isinstance(value, str) or not value:
-        _malformed()
-    return value
-
-
-def _count(value: object) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-        _malformed()
-    return value
+_CHECK = WireChecks("The SF Engine sent a malformed Candidate record")
+_object = _CHECK.object
+_optional = WireChecks.optional
+_text = _CHECK.text
+_count = _CHECK.count
+_time = _CHECK.time
+_amount = _CHECK.decimal
+_malformed = _CHECK.malformed
 
 
 def _sha256(value: object) -> str:
-    if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
-        _malformed()
-    return value
-
-
-def _amount(value: object) -> Decimal:
-    # WHY a string only: the record writes money as a fixed-point string, never a float.
-    if not isinstance(value, str):
-        _malformed()
-    try:
-        amount = Decimal(value)
-    except InvalidOperation:
-        _malformed()
-    if not amount.is_finite():
-        _malformed()
-    return amount
-
-
-def _time(value: object) -> datetime:
-    try:
-        moment = datetime.fromisoformat(_text(value))
-    except ValueError:
-        _malformed()
-    if moment.tzinfo is None:
-        _malformed()
-    return moment
-
-
-def _malformed() -> NoReturn:
-    raise ExecutionError(
-        "The SF Engine sent a malformed Candidate record",
-        code="engine_contract_error",
-        permanent=True,
-    )
+    return _CHECK.matching(value, _SHA256)
 
 
 __all__ = ["candidate_outcome"]

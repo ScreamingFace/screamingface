@@ -551,9 +551,8 @@ screamingface status""",
         nbformat.v4.new_code_cell(_TARGET_SETUP),
         nbformat.v4.new_markdown_cell("""\
 Local mode uses the local Engine's Run database. `TARGET = "hosted"` uses
-`fusion.screamingface.ai` and needs your Cloudflare Access login. Run metadata is visible on any
-machine signed in as the same owner, but `Run.report()` opens only a Report saved on this
-machine.
+`fusion.screamingface.ai` and needs your Cloudflare Access login. A Run, and its Report, open on
+any machine signed in as the same owner.
 
 `sf.connect()` shows the provider panel: on hosted it first asks you to log in, then on either
 target connect the provider of the Model in section 1 (OpenRouter) before evaluating."""),
@@ -563,8 +562,9 @@ target connect the provider of the Model in section 1 (OpenRouter) before evalua
 
 Set `RUN_EVALUATION = True` only when you are ready to make model calls. `report.run_id` is the id
 of the evaluation's Run. Each Candidate also has its own `attempt_id`: one attempt of one
-Candidate, not the Run (`CandidateResult.run_id` is its deprecated old name). An Engine without
-Runs still evaluates, but `report.run_id` is `None`."""),
+Candidate, not the Run (`CandidateResult.run_id` is its deprecated old name). With
+`detach=True`, `sf.evaluate` returns the `Run` at once and the Engine runs it to its end without
+this notebook."""),
         nbformat.v4.new_code_cell("""\
 MODEL = sf.Model("openrouter/google/gemini-3-flash-preview")
 RUN_EVALUATION = False
@@ -639,18 +639,18 @@ else:
     }
 snapshot"""),
         nbformat.v4.new_markdown_cell("""\
-`run.wait()` polls until the Run finishes and returns it; it raises `TimeoutError` past
-`timeout`. It blocks the cell, so it is off by default."""),
+`run.wait()` follows the Run until it ends and returns its Report. It blocks the cell, so it is
+off by default."""),
         nbformat.v4.new_code_cell("""\
 WAIT_FOR_COMPLETION = False
-finished_run = run.wait(timeout=300) if WAIT_FOR_COMPLETION and run is not None else None
-finished_run.state if finished_run is not None else "Not waiting.\""""),
+waited_report = run.wait() if WAIT_FOR_COMPLETION and run is not None else None
+waited_report if waited_report is not None else "Not waiting.\""""),
         nbformat.v4.new_markdown_cell("""\
 ## 4. Open the Run's Report
 
-`Run.report()` reads the results saved on this machine; the Engine does not keep model output.
-It raises `ExecutionError` with `code="run_not_finished"` while the Run is running, and
-`code="results_not_local"` when another machine ran it."""),
+`Run.report()` opens the Run's Report on any machine: the one saved here, else built from the
+records and results the Engine keeps for 30 days. It raises `ExecutionError` with
+`code="run_not_finished"` while the Run is running."""),
         nbformat.v4.new_code_cell("""\
 if run is None:
     recovered_report = "No Run to open yet."

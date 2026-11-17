@@ -1130,6 +1130,7 @@
           "__init__": "method (self, id: 'str', state: 'RunState', created_at: 'datetime', finished_at: 'datetime | None', benchmark: 'str', candidates: 'tuple[CandidateRun, ...]', detached: 'bool' = False, deadline_at: 'datetime | None' = None, stopped_by: 'StopReason | None' = None) -> None",
           "benchmark": "field",
           "cancel": "method (self) -> 'None'",
+          "cancel_async": "method (self) -> 'None'",
           "candidates": "field",
           "cost_usd": "property",
           "created_at": "field",
@@ -1138,11 +1139,15 @@
           "finished_at": "field",
           "id": "field",
           "progress": "method (self) -> 'RunProgress'",
+          "progress_async": "method (self) -> 'RunProgress'",
           "refresh": "method (self) -> 'Run'",
+          "refresh_async": "method (self) -> 'Run'",
           "report": "method (self) -> 'Report'",
+          "report_async": "method (self) -> 'Report'",
           "state": "field",
           "stopped_by": "field",
-          "wait": "method (self) -> 'Report'"
+          "wait": "method (self) -> 'Report'",
+          "wait_async": "method (self) -> 'Report'"
         }
       },
       "RunProgress": {

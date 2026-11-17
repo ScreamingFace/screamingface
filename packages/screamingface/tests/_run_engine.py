@@ -39,6 +39,8 @@ class RunEngineState:
     # Result fetches: the headers each carried, and how many to drop before answering.
     fetch_headers: list[dict[str, str]] = field(default_factory=list)
     drop_fetches: int = 0
+    # How many result fetches to answer with a 500 (an application error, not retried there).
+    fail_fetches: int = 0
     # A "hold" step sets `holding` and waits for `release` (bounded), keeping the stream open.
     holding: threading.Event = field(default_factory=threading.Event)
     release: threading.Event = field(default_factory=threading.Event)
@@ -53,6 +55,8 @@ class RunEngineState:
     # The context `GET /runs/{id}/context` serves instead of the one sent, to test the check.
     served_context: str | None = None
     follow_headers: list[dict[str, str]] = field(default_factory=list)
+    # Each follow's query string (`events=false` for a follower that needs only the end).
+    follow_queries: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -205,6 +209,7 @@ class _Handler(BaseHTTPRequestHandler):
         with state.lock:
             state.followed.append(path)
             state.follow_headers.append(dict(self.headers))
+            state.follow_queries.append(urlsplit(self.path).query)
             script: Sequence[str | int] = state.connections.pop(0) if state.connections else [1011]
         self._accept()
         self._play(script)
@@ -216,6 +221,11 @@ class _Handler(BaseHTTPRequestHandler):
             state.fetch_headers.append(dict(self.headers))
             drop = state.drop_fetches > 0
             state.drop_fetches -= 1 if drop else 0
+            fail = not drop and state.fail_fetches > 0
+            state.fail_fetches -= 1 if fail else 0
+        if fail:
+            self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"code": "internal_error"})
+            return
         if drop:
             # A reset: the connection ends with no answer.
             self.close_connection = True
@@ -380,6 +390,9 @@ class CollectingSink:
     def connection(self, notice: Any) -> None:
         pass
 
+    def quiet(self) -> None:
+        pass
+
 
 class AsyncCollectingSink:
     """The async twin of ``CollectingSink``."""
@@ -398,6 +411,9 @@ class AsyncCollectingSink:
         self.outcomes[index] = outcome
 
     def connection(self, notice: Any) -> None:
+        pass
+
+    def quiet(self) -> None:
         pass
 
 

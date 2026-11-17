@@ -18,7 +18,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from typing import Any, NoReturn
 
-from screamingface._engine.runs import StartRequest
+from screamingface._core.ports import StartRequest
 from screamingface._evaluation.model import (
     Candidate,
     _compiled_evaluation,
@@ -96,7 +96,8 @@ def evaluation_from_context(
             required_models=tuple(value["required_models"]),
             selected_cases=None if selected is None else tuple(selected),
         )
-    except (ValueError, KeyError, TypeError, AttributeError) as exc:
+    except (ValueError, KeyError, TypeError, AttributeError, RecursionError) as exc:
+        # RecursionError: a context nested deeper than the parser goes (#1878 review).
         raise _invalid_error() from exc
     return evaluation, candidates
 

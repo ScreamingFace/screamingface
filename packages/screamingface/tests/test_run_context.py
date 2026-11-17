@@ -134,3 +134,13 @@ def test_a_context_with_a_different_number_of_candidates_is_refused() -> None:
         evaluation_from_context(context, (start_request(candidate), start_request(candidate)))
 
     assert raised.value.code == "run_context_invalid"
+
+
+def test_a_context_nested_deeper_than_the_parser_goes_is_refused() -> None:
+    """#1878 review: a RecursionError reads as the context this Client cannot read."""
+    nested = "[" * 50_000 + "]" * 50_000
+
+    with pytest.raises(ExecutionError) as raised:
+        evaluation_from_context(nested, (start_request(_candidate()),))
+
+    assert raised.value.code == "run_context_invalid"

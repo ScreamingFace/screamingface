@@ -246,3 +246,268 @@ async def test_an_async_on_event_that_raises_cancels_the_run_once() -> None:
         await _aevaluate(transport, "a", "b", on_event=explode)
 
     assert transport.canceled == [RUN_ID]
+
+
+class _FailsToPrepare(_Following):
+    """Registers the Run, then cannot set up this machine's result store."""
+
+    def prepare_results(self, evaluation, candidates):
+        raise OSError("No space left on device")
+
+
+class _AsyncFailsToPrepare(_AsyncFollowing):
+    def prepare_results(self, evaluation, candidates):
+        raise OSError("No space left on device")
+
+
+def test_a_failure_between_registering_and_following_cancels_the_run() -> None:
+    # INVARIANT (D14, review fix): the Engine starts the Candidates when the Run is registered,
+    # so an evaluation that stops before it follows must not leave the Run spending.
+    transport = _FailsToPrepare(_ok("a"))
+
+    with pytest.raises(OSError, match="No space left"):
+        _evaluate(transport, "a")
+
+    assert transport.canceled == [RUN_ID]
+
+
+@pytest.mark.asyncio
+async def test_an_async_failure_between_registering_and_following_cancels_the_run() -> None:
+    transport = _AsyncFailsToPrepare(_ok("a"))
+
+    with pytest.raises(OSError, match="No space left"):
+        await _aevaluate(transport, "a")
+
+    assert transport.canceled == [RUN_ID]
+
+
+class _Saving:
+    """A transport that can rebuild a Run (`_RunReattaching`), counting what it fetches."""
+
+    def __init__(self, barrier: threading.Barrier | None = None) -> None:
+        self.fetched: list[str] = []
+        self._barrier = barrier
+
+    def adopt_run(self, run_id: str, candidates: Any) -> None:
+        pass
+
+    def wait_run(self, run_id: str, *, detached: bool) -> None:
+        pass
+
+    def save_result(self, candidate: Any, outcome: Any) -> Any:
+        if self._barrier is not None:
+            self._barrier.wait()
+        self.fetched.append(candidate.name)
+        return outcome
+
+
+def test_a_run_rebuilt_from_the_engine_downloads_its_results_together() -> None:
+    """`report()` on another machine fetches its Candidates' results side by side, not one
+    after another."""
+    from screamingface._evaluation import reattach
+
+    saving = _Saving(threading.Barrier(2, timeout=5))
+    candidates = (_models("a")[0], _models("b")[0])
+    settled = reattach.settled_from_records(
+        saving, cast(Any, candidates), (valid_outcome("a"), valid_outcome("b"))
+    )
+
+    assert [type(outcome) for _, outcome in settled] == [type(valid_outcome("a"))] * 2
+    assert sorted(saving.fetched) == ["a", "b"]
+
+
+def test_the_build_reuses_what_the_follow_kept_and_fetches_only_the_rest() -> None:
+    """E5 P2 spec D14: one build for every Report of a Run; an attached follow's results are
+    reused, not fetched again, and a Candidate that did not succeed keeps its error."""
+    from screamingface._evaluation import reattach
+    from screamingface._evaluation.outcome import _Failed
+
+    saving = _Saving()
+    candidates = cast(Any, (_models("a")[0], _models("b")[0], _models("c")[0]))
+    failed = ExecutionError("it failed", code="candidate_failed")
+    kept = valid_outcome("a")
+
+    settled = reattach.settled_from_records(
+        saving, candidates, (valid_outcome("a"), valid_outcome("b"), failed), {0: kept}
+    )
+
+    assert saving.fetched == ["b"]
+    assert settled[0][1] is kept
+    assert isinstance(settled[2][1], _Failed) and settled[2][1].error is failed
+
+
+class _AsyncRefetching(_AsyncFollowing):
+    """An async transport that fetches results, counting what the build fetched again."""
+
+    def __init__(self, *script: tuple[Any, ...]) -> None:
+        super().__init__(*script)
+        self.fetched: list[str] = []
+
+    async def save_result(self, candidate: Any, outcome: Any) -> Any:
+        self.fetched.append(candidate.name)
+        return outcome
+
+
+@pytest.mark.asyncio
+async def test_an_async_result_the_follow_could_not_fetch_is_fetched_when_the_run_ends() -> None:
+    """E5 P2 spec D14: the failure the follow hands over carries the Candidate's recorded
+    outcome, and the build fetches its result again."""
+    from screamingface._core.ports import with_recorded
+
+    failed = with_recorded(ExecutionError("edge down", code="x"), valid_outcome("a"))
+    transport = _AsyncRefetching(("settled", "a", "succeeded", failed), _ok("b"))
+
+    report = await _aevaluate(transport, "a", "b")
+
+    assert [candidate.name for candidate in report.candidates] == ["a", "b"]
+    assert transport.fetched == ["a"]
+    assert transport.canceled == []
+
+
+def test_a_result_the_follow_could_not_fetch_and_the_build_cannot_either_fails_its_candidate() -> (
+    None
+):
+    from screamingface._core.ports import with_recorded
+
+    class _Refetching(_Following):
+        def adopt_run(self, run_id: str, candidates: Any) -> None:
+            pass
+
+        def wait_run(self, run_id: str, *, detached: bool) -> None:
+            pass
+
+        def save_result(self, candidate: Any, outcome: Any) -> Any:
+            raise ExecutionError("still down", code="result_store_unavailable")
+
+    failed = with_recorded(ExecutionError("edge down", code="x"), valid_outcome("a"))
+    transport = _Refetching(("settled", "a", "succeeded", failed), _ok("b"))
+
+    with pytest.raises(ExecutionError) as raised:
+        _evaluate(transport, "a", "b")
+
+    assert raised.value.code == "candidates_failed"
+    assert transport.canceled == []
+
+
+def _waiting_sink(clock: list[float]) -> tuple[Any, Any]:
+    from test_admission_retry import _PAIR, _Observer
+
+    from screamingface._evaluation import following
+
+    observer = _Observer()
+    sink = following._SyncFollow(
+        _PAIR, cast(Any, observer), None, waiting_after_s=5.0, clock=lambda: clock[0]
+    )
+    return sink, observer
+
+
+def test_a_candidate_pending_only_until_the_first_tick_shows_no_capacity_wait() -> None:
+    """#1878 review round 4: every Candidate is `pending` until the driver's first tick, so a
+    brief `pending` is not a wait for capacity."""
+    clock = [0.0]
+    sink, observer = _waiting_sink(clock)
+
+    sink.state(0, "pending")
+    clock[0] = 1.0
+    sink.state(0, "scheduled")
+
+    assert observer.listeners["queued"].notices == []
+
+
+def test_a_candidate_still_pending_after_a_while_shows_it_waits_for_capacity() -> None:
+    clock = [0.0]
+    sink, observer = _waiting_sink(clock)
+
+    sink.state(0, "pending")
+    clock[0] = 6.0
+    sink.state(1, "running")  # any later frame looks at who is still pending
+    sink.state(0, "scheduled")
+
+    assert observer.listeners["queued"].notices == [
+        ("waiting_for_capacity", None),
+        ("admitted", None),
+    ]
+
+
+def test_a_candidate_pending_while_only_heartbeats_arrive_shows_it_waits_for_capacity() -> None:
+    """#1878 review round 5: with every Candidate waiting for a slot, heartbeats are all the
+    Run's stream sends, and the wait must still show."""
+    clock = [0.0]
+    sink, observer = _waiting_sink(clock)
+
+    sink.state(0, "pending")
+    clock[0] = 6.0
+    sink.quiet()
+
+    assert observer.listeners["queued"].notices == [("waiting_for_capacity", None)]
+
+
+def test_the_follow_waits_before_saying_a_candidate_waits_for_capacity() -> None:
+    from screamingface._evaluation import following
+
+    assert following._WAITING_AFTER_S > 0
+
+
+@pytest.mark.asyncio
+async def test_an_async_build_fetches_its_results_side_by_side_as_the_sync_one_does() -> None:
+    """#1878 review round 5: an AsyncClient's Report of a Run read elsewhere fetched one result
+    at a time."""
+    import asyncio
+
+    from screamingface._evaluation import reattach
+
+    live = most = 0
+
+    class _Saving:
+        async def save_result(self, candidate: Any, outcome: Any) -> Any:
+            nonlocal live, most
+            live += 1
+            most = max(most, live)
+            await asyncio.sleep(0.01)
+            live -= 1
+            return outcome
+
+    outcomes = tuple(valid_outcome(str(index)) for index in range(6))
+    candidates = cast(Any, tuple(object() for _ in outcomes))
+
+    fetched, kept = await reattach.refetched_async(_Saving(), candidates, outcomes, {})
+
+    assert most == reattach._DOWNLOADS
+    assert fetched == outcomes and sorted(kept) == list(range(6))
+
+
+class _InterruptedSaving(_Saving):
+    """Candidate "a"'s fetch is interrupted (Ctrl-C) while "b"'s is still downloading."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.downloading = threading.Event()
+        self.release = threading.Event()
+
+    def save_result(self, candidate: Any, outcome: Any) -> Any:
+        if candidate.name == "a":
+            self.downloading.wait(5)
+            raise KeyboardInterrupt
+        self.downloading.set()
+        self.release.wait(5)
+        return outcome
+
+
+def test_ctrl_c_in_the_build_does_not_wait_for_the_downloads_still_running() -> None:
+    """#1878 review: leaving a `with ThreadPoolExecutor` block waits for every running
+    download, so the interrupt seemed to hang until they finished."""
+    import time
+
+    from screamingface._evaluation import reattach
+
+    saving = _InterruptedSaving()
+    candidates = (_models("a")[0], _models("b")[0])
+    began = time.monotonic()
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            reattach.settled_from_records(
+                saving, cast(Any, candidates), (valid_outcome("a"), valid_outcome("b"))
+            )
+        assert time.monotonic() - began < 2
+    finally:
+        saving.release.set()

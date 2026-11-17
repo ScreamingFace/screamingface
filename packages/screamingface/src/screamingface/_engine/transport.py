@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import ssl
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 import httpx
@@ -29,12 +30,69 @@ from screamingface._engine.result_download import (
 )
 from screamingface._engine.run_client import AsyncRunClient, FollowTimings, RunClient
 from screamingface._engine.run_follow import RECONNECT_BASE_DELAY_S, RECONNECT_BUDGET_S
-from screamingface._engine.trace import TraceContext
+from screamingface._engine.runs import RunRecord
 from screamingface._evaluation.model import Candidate, _Evaluation
 from screamingface.errors import AuthenticationError, EngineUnavailableError, ExecutionError
 
+if TYPE_CHECKING:
+    from screamingface._results.store import ResultStore
 
-class Url4CloudTransport:
+
+class _KeptResults:
+    """What both transports keep for an evaluation's results: this machine's result store,
+    the Run each attached evaluation's Candidates were registered under (OME-1785), and each
+    detached Run as its registration answered."""
+
+    def __init__(self, engine_url: str, *, save_results: bool) -> None:
+        from screamingface._results.store import ResultStore
+
+        self._result_store: ResultStore | None = ResultStore() if save_results else None
+        if self._result_store is not None:
+            from screamingface._results.recovery_notice import show_recoverable_results
+
+            show_recoverable_results(self._result_store, engine_url)
+        self._result_contexts: dict[int, tuple[Candidate, dict]] = {}
+        # FEATURE (OME-1785): the Run each Candidate belongs to; its local manifest is keyed by it.
+        # Kept from registering to `prepare_results`, holding the Candidate so its id is not reused.
+        self._report_ids: dict[int, tuple[Candidate, str]] = {}
+        self._detached: dict[str, RunRecord] = {}
+
+    def adopt_run(self, run_id: str, candidates: tuple[Candidate, ...]) -> None:
+        """Key ``candidates``' saved results by ``run_id``, a Run registered elsewhere."""
+        self._report_ids.update({id(candidate): (candidate, run_id) for candidate in candidates})
+
+    def detached_run(self, run_id: str) -> RunRecord | None:
+        """The detached Run as its registration answered, once: the Client returns it without
+        reading the Run again, a read whose failure would lose the id of a Run that spends."""
+        return self._detached.pop(run_id, None)
+
+    def prepare_results(self, evaluation, candidates) -> Path | None:
+        from screamingface._results.evaluation import prepare
+        from screamingface._results.lifecycle import evaluation_path
+
+        if self._result_store is not None:
+            contexts = prepare(
+                self._result_store,
+                evaluation,
+                candidates,
+                report_id=_report_id(self._report_ids, candidates),
+            )
+            self._result_contexts.update(
+                {id(candidate): (candidate, contexts[id(candidate)]) for candidate in candidates}
+            )
+            if contexts:
+                return evaluation_path(
+                    self._result_store.directory, next(iter(contexts.values()))["id"]
+                )
+        return None
+
+    def finish_results(self, candidates) -> None:
+        for candidate in candidates:
+            self._result_contexts.pop(id(candidate), None)
+            self._report_ids.pop(id(candidate), None)
+
+
+class Url4CloudTransport(_KeptResults):
     """Synchronous transport: register an evaluation as a Run, follow it, keep its results."""
 
     def __init__(
@@ -46,16 +104,7 @@ class Url4CloudTransport:
         reconnect_budget_s: float = RECONNECT_BUDGET_S,
         reconnect_base_delay_s: float = RECONNECT_BASE_DELAY_S,
     ) -> None:
-        from screamingface._results.store import ResultStore
-
-        self._result_store = ResultStore() if save_results else None
-        if self._result_store is not None:
-            from screamingface._results.recovery_notice import show_recoverable_results
-
-            show_recoverable_results(self._result_store, engine_url)
-        self._result_contexts = {}
-        # FEATURE (OME-1785): the Run each Candidate belongs to; its local manifest is keyed by it.
-        self._report_ids: dict[int, str] = {}
+        super().__init__(engine_url, save_results=save_results)
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
@@ -92,62 +141,48 @@ class Url4CloudTransport:
         from screamingface._engine.credit_notice import check_sync
 
         check_sync(self._http, candidates)
-        run_id = self._runs.register(evaluation, candidates, detach=detach, deadline_s=deadline_s)
-        self._report_ids.update({id(candidate): run_id for candidate in candidates})
-        return run_id
+        run = self._runs.register(evaluation, candidates, detach=detach, deadline_s=deadline_s)
+        _registered(self._report_ids, self._detached, evaluation, candidates, run, detach=detach)
+        return run.id
 
     def follow_run(self, run_id: str, candidates: tuple[Candidate, ...], sink: _RunSink) -> None:
-        self._runs.follow(run_id, candidates, sink, self._save_result)
+        # WHY no sign-in: a follow never starts one (E5 P2 spec D15); a fetch that would need
+        # one ends the follow with how to pick the Run up.
+        self._runs.follow(
+            run_id,
+            candidates,
+            sink,
+            lambda candidate, outcome: self._save_result(candidate, outcome, login=False),
+        )
 
     def cancel_run(self, run_id: str) -> None:
         self._runs.cancel(run_id)
-
-    def adopt_run(self, run_id: str, candidates: tuple[Candidate, ...]) -> None:
-        """Key ``candidates``' saved results by ``run_id``, a Run registered elsewhere."""
-        self._report_ids.update({id(candidate): run_id for candidate in candidates})
-
-    def save_result(self, candidate: Candidate, outcome: _RunOutcome) -> _RunOutcome:
-        return self._save_result(candidate, outcome)
 
     def wait_run(self, run_id: str, *, detached: bool) -> None:
         """Follow the Run until it ends, showing nothing (`Run.wait`)."""
         self._runs.wait(run_id, detached=detached)
 
-    def _save_result(self, candidate: Candidate, outcome: _RunOutcome) -> _RunOutcome:
+    async def wait_run_async(self, run_id: str, *, detached: bool) -> None:
+        """``wait_run`` on the event loop (`Run.wait_async`): cancelling it ends the follow."""
+        await self._runs.wait_async(run_id, detached=detached)
+
+    def save_result(self, candidate: Candidate, outcome: _RunOutcome) -> _RunOutcome:
+        """Fetch the settled Candidate's result and keep it: saved here, or read into memory.
+        A result already saved here with the record's checksum is not fetched again."""
+        return self._save_result(candidate, outcome)
+
+    def _save_result(
+        self, candidate: Candidate, outcome: _RunOutcome, *, login: bool = True
+    ) -> _RunOutcome:
         if self._result_store is None:
-            return fetch_result_sync(self._http, outcome)
+            return fetch_result_sync(self._http, outcome, login=login)
         saved = self._result_store.record(
             self._engine_url,
             candidate,
             outcome,
-            _take_result_context(self._result_contexts, candidate),
+            _result_context(self._result_contexts, candidate),
         )
-        return download_sync(self._http, saved, lambda: _mint_sync(self._http))
-
-    def prepare_results(self, evaluation, candidates) -> Path | None:
-        from screamingface._results.evaluation import prepare
-        from screamingface._results.lifecycle import evaluation_path
-
-        if self._result_store is not None:
-            contexts = prepare(
-                self._result_store,
-                evaluation,
-                candidates,
-                report_id=self._report_ids.get(id(candidates[0])) if candidates else None,
-            )
-            self._result_contexts.update(
-                {id(candidate): (candidate, contexts[id(candidate)]) for candidate in candidates}
-            )
-            if contexts:
-                return evaluation_path(
-                    self._result_store.directory, next(iter(contexts.values()))["id"]
-                )
-        return None
-
-    def finish_results(self, candidates) -> None:
-        for candidate in candidates:
-            self._result_contexts.pop(id(candidate), None)
-            self._report_ids.pop(id(candidate), None)
+        return download_sync(self._http, saved, lambda: _mint_sync(self._http), login=login)
 
     def close(self) -> None:
         self._result_contexts.clear()
@@ -158,7 +193,7 @@ class Url4CloudTransport:
                 self._caller_auth.close()
 
 
-class AsyncUrl4CloudTransport:
+class AsyncUrl4CloudTransport(_KeptResults):
     """The async twin of ``Url4CloudTransport``."""
 
     def __init__(
@@ -170,15 +205,7 @@ class AsyncUrl4CloudTransport:
         reconnect_budget_s: float = RECONNECT_BUDGET_S,
         reconnect_base_delay_s: float = RECONNECT_BASE_DELAY_S,
     ) -> None:
-        from screamingface._results.store import ResultStore
-
-        self._result_store = ResultStore() if save_results else None
-        if self._result_store is not None:
-            from screamingface._results.recovery_notice import show_recoverable_results
-
-            show_recoverable_results(self._result_store, engine_url)
-        self._result_contexts = {}
-        self._report_ids: dict[int, str] = {}
+        super().__init__(engine_url, save_results=save_results)
         self._engine_url = engine_url
         self._owns_auth = caller_auth is None
         self._caller_auth = caller_auth or _default_caller_auth(engine_url)
@@ -209,55 +236,45 @@ class AsyncUrl4CloudTransport:
         from screamingface._engine.credit_notice import check_async
 
         await check_async(self._http, candidates)
-        run_id = await self._runs.register(
+        run = await self._runs.register(
             evaluation, candidates, detach=detach, deadline_s=deadline_s
         )
-        self._report_ids.update({id(candidate): run_id for candidate in candidates})
-        return run_id
+        _registered(self._report_ids, self._detached, evaluation, candidates, run, detach=detach)
+        return run.id
 
     async def follow_run(
         self, run_id: str, candidates: tuple[Candidate, ...], sink: _AsyncRunSink
     ) -> None:
-        await self._runs.follow(run_id, candidates, sink, self._save_result)
+        async def save(candidate: Candidate, outcome: _RunOutcome) -> _RunOutcome:
+            # WHY no sign-in: see `Url4CloudTransport.follow_run`.
+            return await self._save_result(candidate, outcome, login=False)
+
+        await self._runs.follow(run_id, candidates, sink, save)
 
     async def cancel_run(self, run_id: str) -> None:
         await self._runs.cancel(run_id)
 
-    async def _save_result(self, candidate: Candidate, outcome: _RunOutcome) -> _RunOutcome:
+    async def wait_run_async(self, run_id: str, *, detached: bool) -> None:
+        """Follow the Run until it ends, showing nothing (`Run.wait_async`): cancelling it ends
+        the follow."""
+        await self._runs.wait(run_id, detached=detached)
+
+    async def save_result(self, candidate: Candidate, outcome: _RunOutcome) -> _RunOutcome:
+        """The async twin of ``Url4CloudTransport.save_result``."""
+        return await self._save_result(candidate, outcome)
+
+    async def _save_result(
+        self, candidate: Candidate, outcome: _RunOutcome, *, login: bool = True
+    ) -> _RunOutcome:
         if self._result_store is None:
-            return await fetch_result_async(self._http, outcome)
+            return await fetch_result_async(self._http, outcome, login=login)
         saved = self._result_store.record(
             self._engine_url,
             candidate,
             outcome,
-            _take_result_context(self._result_contexts, candidate),
+            _result_context(self._result_contexts, candidate),
         )
-        return await download_async(self._http, saved, lambda: _mint_async(self._http))
-
-    def prepare_results(self, evaluation, candidates) -> Path | None:
-        from screamingface._results.evaluation import prepare
-        from screamingface._results.lifecycle import evaluation_path
-
-        if self._result_store is not None:
-            contexts = prepare(
-                self._result_store,
-                evaluation,
-                candidates,
-                report_id=self._report_ids.get(id(candidates[0])) if candidates else None,
-            )
-            self._result_contexts.update(
-                {id(candidate): (candidate, contexts[id(candidate)]) for candidate in candidates}
-            )
-            if contexts:
-                return evaluation_path(
-                    self._result_store.directory, next(iter(contexts.values()))["id"]
-                )
-        return None
-
-    def finish_results(self, candidates) -> None:
-        for candidate in candidates:
-            self._result_contexts.pop(id(candidate), None)
-            self._report_ids.pop(id(candidate), None)
+        return await download_async(self._http, saved, lambda: _mint_async(self._http), login=login)
 
     async def close(self) -> None:
         self._result_contexts.clear()
@@ -268,41 +285,60 @@ class AsyncUrl4CloudTransport:
                 await asyncio.to_thread(self._caller_auth.close)
 
 
-def _take_result_context(contexts, candidate):
+def _registered(
+    report_ids: dict[int, tuple[Candidate, str]],
+    detached: dict[str, RunRecord],
+    evaluation: _Evaluation | None,
+    candidates: tuple[Candidate, ...],
+    run: RunRecord,
+    *,
+    detach: bool,
+) -> None:
+    """WHY only an attached evaluation's Candidates: its results are saved under the Run's id
+    (`prepare_results`). A detached or raw-URL4 Run's never are here, so remembering them would
+    only grow a long-lived Client with every evaluate."""
+    if detach:
+        detached[run.id] = run
+    elif evaluation is not None:
+        report_ids.update({id(candidate): (candidate, run.id) for candidate in candidates})
+
+
+def _report_id(
+    report_ids: dict[int, tuple[Candidate, str]], candidates: tuple[Candidate, ...]
+) -> str | None:
+    """The Run ``candidates`` were registered under, forgetting it: it is read once."""
+    bound = [report_ids.pop(id(candidate), None) for candidate in candidates]
+    first = bound[0] if bound else None
+    return first[1] if first is not None and first[0] is candidates[0] else None
+
+
+def _result_context(contexts, candidate):
     # WHY: retain the actual object until retirement; an integer identity alone
     # can be reused after a failed/abandoned evaluation releases its candidates.
-    selected = contexts.pop(id(candidate), None)
+    # WHY read, not taken: the Report's build fetches again a result its follow could not
+    # (spec D14), and that save must keep the Candidate in its evaluation; `finish_results`
+    # retires the context.
+    selected = contexts.get(id(candidate))
     return selected[1] if selected is not None and selected[0] is candidate else None
 
 
-def _mint_sync(http: httpx.Client, *, trace: TraceContext | None = None) -> str:
-    # AIDEV-NOTE (OME-967): `trace` is keyword-with-default so the capability mint stays
-    # callable without one (artifact redemption, and a prior contract test). The RUN path
-    # always passes it — minting is the first outbound call, and a mint failure is one of
-    # the three pre-first-frame classes this ticket exists to make joinable.
+def _mint_sync(http: httpx.Client) -> str:
+    """A capability for redeeming a pre-P2 artifact ticket, a saved result, or case media."""
     try:
-        response = http.post(
-            "/token", headers=_trace_headers(trace), extensions={_REPLAY_SAFE: True}
-        )
+        response = http.post("/token", extensions={_REPLAY_SAFE: True})
     except httpx.HTTPError as exc:
         raise EngineUnavailableError(
-            "Could not reach the SF Engine capability endpoint",
-            engine_url=_http_origin(http),
-            trace_id=trace.trace_id if trace else None,
+            "Could not reach the SF Engine capability endpoint", engine_url=_http_origin(http)
         ) from exc
     return _token(response)
 
 
-async def _mint_async(http: httpx.AsyncClient, *, trace: TraceContext | None = None) -> str:
+async def _mint_async(http: httpx.AsyncClient) -> str:
     try:
-        response = await http.post(
-            "/token", headers=_trace_headers(trace), extensions={_REPLAY_SAFE: True}
-        )
+        response = await http.post("/token", extensions={_REPLAY_SAFE: True})
     except httpx.HTTPError as exc:
         raise EngineUnavailableError(
-            "Could not reach the SF Engine capability endpoint",
-            engine_url=_http_origin(http),
-            trace_id=trace.trace_id if trace else None,
+            "Could not reach the SF Engine capability endpoint", engine_url=_http_origin(http)
         ) from exc
     return _token(response)
 
@@ -323,11 +359,9 @@ def _token(response: httpx.Response) -> str:
     return payload["token"].strip()
 
 
-def _require_success(
-    response: httpx.Response, operation: str, *, trace_id: str | None = None
-) -> None:
+def _require_success(response: httpx.Response, operation: str) -> None:
     if not response.is_success:
-        _raise_response(response, operation, trace_id=trace_id)
+        _raise_response(response, operation)
 
 
 # How much of an unstructured body may reach an exception message. Long enough to carry a
@@ -358,13 +392,7 @@ def _body_summary(response: httpx.Response) -> str:
     return f"{status}: {collapsed}"
 
 
-def _raise_response(
-    response: httpx.Response, operation: str, *, trace_id: str | None = None
-) -> None:
-    # WHY the id reaches THIS function (OME-967): every response-derived failure funnels
-    # here — mint, start, stop, artifact. A pre-first-frame failure is far more often an
-    # Engine problem+json than an httpx transport error, so attaching the id only on the
-    # transport branch would miss the common case.
+def _raise_response(response: httpx.Response, operation: str) -> None:
     detail, code, details = _problem_parts(response)
     exception = AuthenticationError if response.status_code in {401, 403} else ExecutionError
     if exception is AuthenticationError:
@@ -374,7 +402,6 @@ def _raise_response(
             status=response.status_code,
             permanent=True,
             details=details,
-            trace_id=trace_id,
         )
     raise ExecutionError(
         f"Could not {operation}: {detail}",
@@ -382,7 +409,6 @@ def _raise_response(
         status=response.status_code,
         permanent=response.status_code < 500,
         details=details,
-        trace_id=trace_id,
     )
 
 
@@ -434,11 +460,6 @@ def _websocket_ssl_context(engine_url: str) -> ssl.SSLContext | None:
     if urlsplit(engine_url).scheme != "https":
         return None
     return httpx.create_ssl_context()
-
-
-def _trace_headers(trace: TraceContext | None) -> dict[str, str]:
-    """The run's trace context as headers, or nothing when there is no trace to send."""
-    return trace.headers() if trace is not None else {}
 
 
 def _http_origin(http: httpx.Client | httpx.AsyncClient) -> str:

@@ -8,7 +8,7 @@ import time
 from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import TYPE_CHECKING, Any, Literal, cast, overload
 
 from screamingface._analytics.tracking import tracked
 from screamingface._client_connections import (
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     )
     from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels, Benchmarks, Models
     from screamingface._engine.connections import AsyncConnections, Connections
+    from screamingface._engine.runs import RunRecord
     from screamingface._scoreboard.leaderboards import AsyncLeaderboards, Leaderboards
     from screamingface._ui.connections import ConnectionPanel
     from screamingface.classification import Classification
@@ -451,6 +452,7 @@ class Client:
 
         self._require_open()
         deadline_s = _deadline_seconds(detach, deadline)
+        _detached_options(detach, on_event, progress)
         if pinned_cache is not None or score_id is not None:
             if detach:
                 raise TypeError("a replay cannot be detached; it follows its run")
@@ -519,7 +521,11 @@ class Client:
         from screamingface import runs
         from screamingface._engine import runs as wire
 
-        return runs._run(wire.get_sync(self._http_request, evaluated, summary=True), self)
+        return runs._run(
+            _detached_run(self._transport, evaluated)
+            or wire.get_sync(self._http_request, evaluated, summary=True),
+            self,
+        )
 
     def _evaluate_replay(
         self,
@@ -806,8 +812,6 @@ class AsyncClient:
         self._engine_url = _engine_origin(engine_url)
         self._scoreboard_url = _scoreboard_origin(scoreboard_url)
         self._closed = False
-        # A synchronous Client for this Engine, made for the first detached Run's methods.
-        self._runs_client: Client | None = None
         self._auth_listeners = _AuthListeners()
         self._access_tokens = _AccessTokenStore()
         _seed_access_tokens(
@@ -981,8 +985,6 @@ class AsyncClient:
     async def aclose(self) -> None:
         if self._closed:
             return
-        if self._runs_client is not None:
-            await asyncio.to_thread(self._runs_client.close)
         try:
             await self._transport.close()
         finally:
@@ -1142,6 +1144,7 @@ class AsyncClient:
 
         self._require_open()
         deadline_s = _deadline_seconds(detach, deadline)
+        _detached_options(detach, on_event, progress)
         if pinned_cache is not None or score_id is not None:
             if detach:
                 raise TypeError("a replay cannot be detached; it follows its run")
@@ -1204,16 +1207,16 @@ class AsyncClient:
 
     async def _evaluated(self, evaluated: Report | str) -> Report | Run:
         """The Report, or, for a detached evaluation, its Run, whose methods read and follow it
-        through a synchronous Client for this Engine (E5 P2 spec D14)."""
+        on this Client's own async transport (E5 P2 spec D14): await `run.wait_async()`."""
         if not isinstance(evaluated, str):
             return evaluated
         from screamingface import runs
         from screamingface._engine import runs as wire
 
-        record = await wire.get_async(self._http_request, evaluated, summary=True)
-        if self._runs_client is None:
-            self._runs_client = Client(engine_url=self._engine_url)
-        return runs._run(record, self._runs_client)
+        record = _detached_run(self._transport, evaluated) or await wire.get_async(
+            self._http_request, evaluated, summary=True
+        )
+        return runs._bound(record, runs._AsyncRuns(self))
 
     async def _evaluate_replay(
         self,
@@ -1352,6 +1355,13 @@ class AsyncClient:
         )
 
 
+def _detached_run(transport: object, run_id: str) -> RunRecord | None:
+    """The detached Run as its registration answered, from a transport that keeps it."""
+    # WHY by name: a test's fake transport keeps none, and its Run is read from the Engine.
+    detached_run = getattr(transport, "detached_run", None)
+    return cast("RunRecord | None", detached_run(run_id)) if callable(detached_run) else None
+
+
 def _deadline_seconds(detach: object, deadline: object) -> int | None:
     """``deadline`` in whole seconds, refused at the door (E5 P2 spec D11): only a detached Run
     has one, and it is a positive `timedelta`."""
@@ -1363,10 +1373,19 @@ def _deadline_seconds(detach: object, deadline: object) -> int | None:
         raise TypeError("deadline must be a datetime.timedelta")
     if not detach:
         raise ValueError("deadline needs detach=True: an attached Run ends when you stop following")
-    seconds = int(deadline.total_seconds())
-    if seconds <= 0:
-        raise ValueError("deadline must be positive")
-    return seconds
+    if deadline.total_seconds() < 1:
+        raise ValueError("deadline must be at least 1 second")
+    return int(deadline.total_seconds())
+
+
+def _detached_options(detach: bool, on_event: object, progress: object) -> None:
+    """A detached evaluation returns before anything runs, so nothing would reach `on_event` or
+    the progress output: refused at the door rather than silently ignored."""
+    if detach and (on_event is not None or progress):
+        raise TypeError(
+            "on_event and progress need an attached evaluation; follow a detached Run with "
+            "run.wait()"
+        )
 
 
 def _use_cache_value(use_cache: object) -> None:

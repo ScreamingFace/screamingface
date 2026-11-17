@@ -2210,23 +2210,28 @@ run.state  # "running", "complete", "partial", "errored", "canceled" or "interru
 run.cost_usd  # the sum of the costs known so far
 run.progress()  # RunProgress(done=..., total=..., cost_usd=...)
 report = run.wait()  # follow the Run until it ends, then its Report
-report = run.report()  # a finished Run's Report, from this machine or the Engine
+report = run.report()  # a finished Run's Report, built from the Engine on any machine
 run.cancel()  # stops every Candidate still running, and the ones not started yet
 
 recent = sf.runs.list(state="complete", limit=10)
-# In async code: await sf.runs.get_async(...), await sf.runs.list_async(...)
+# In async code: await sf.runs.get_async(...), await sf.runs.list_async(...),
+# await run.refresh_async(), run.progress_async(), run.wait_async(), run.report_async(),
+# run.cancel_async(). A Run an AsyncClient returns is read through that AsyncClient, so it
+# takes only the _async methods.
 ```
 
-Without `detach`, `evaluate` follows its Run and returns the Report, as before. If nobody follows
+Without `detach`, `evaluate` follows its Run and returns the Report, as before; `on_event` and
+`progress` need it, since a detached `evaluate` returns before anything runs. If nobody follows
 an attached Run for 2 minutes (the notebook closed, the network dropped), the Engine stops it, and
 it reads `interrupted`. A detached Run runs until it ends or its `deadline` (48 hours by default,
 7 days at most), whoever follows it; `run.stopped_by` says why a stopped Run ended (`"canceled"`,
 `"orphaned"` or `"deadline"`).
 
 A `Run` is a snapshot: `refresh()`, `progress()` and `wait()` read the Engine again. An unknown
-id, or another person's, raises `KeyError`. `run.report()` reads the results saved on this
-machine (`sf.reports`); on another machine it builds the Report from the Engine and saves it
-here, and while the Run is running it raises `ExecutionError("run_not_finished")`. Stopping an
+id, or another person's, raises `KeyError`. `run.report()` builds the Report from the Engine,
+as the evaluation that started the Run built its own, reusing the results already saved on this
+machine (`sf.reports`) and saving the rest here; while the Run is running it raises
+`ExecutionError("run_not_finished")`. Stopping an
 `evaluate` with Ctrl-C cancels its Run, so it reads `canceled`. If your sign-in expires while
 you follow a Run, the follow ends with how to pick it up again; the Run itself goes on.
 

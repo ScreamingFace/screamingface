@@ -313,8 +313,12 @@
 * **screamingface:** `evaluate(..., detach=True, deadline=timedelta(...))` returns the
   evaluation's `sf.runs.Run` at once, and the Engine runs it whether or not the notebook stays
   (`OME-1837`). `sf.runs.get(run_id).wait()` and `.report()` give its Report from any machine,
-  built from the Engine when this machine does not hold the results. `Run` gains `detached`,
-  `deadline_at` and `stopped_by`.
+  built from the Engine's records exactly as the evaluation that started it built its own,
+  reusing the results already saved here. `Run` gains `detached`,
+  `deadline_at` and `stopped_by`, and `refresh_async()`, `progress_async()`, `wait_async()`,
+  `report_async()` and `cancel_async()` for async code. A Run an `AsyncClient` returns is read
+  through that AsyncClient, so its synchronous methods raise `TypeError`. A detached evaluation
+  refuses `on_event` and `progress`, which only a follower could show.
 
 ### Features
 * **screamingface:** read benchmark datasets from a separate folder. `screamingface up --benchmark-assets-dir PATH` points the Engine's `URL4_BENCHMARK_ASSETS` at `PATH` instead of `<data-dir>/benchmark-assets`, so an app can ship the datasets read-only in its bundle. A missing folder fails `up` before any service starts. The running stack records the folder in `runtime.json`; `status --json` (new `benchmark_assets_dir` key) and `doctor` (a `benchmark assets dir` line) report it and the bundle status from it, and `restart` keeps it. `prepare` still writes to the data directory and refuses the option. Without the option nothing changes.
