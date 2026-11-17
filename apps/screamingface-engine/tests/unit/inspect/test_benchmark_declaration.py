@@ -328,6 +328,8 @@ def test_every_builtin_benchmark_declares_its_actual_policy() -> None:
         # never decides, or whose prompt overflows the Candidate's window, fails by name and
         # counts 0 in the mean (OME-1642) — withhold.
         "frames_oracle": ("withhold", "single_shot", "medium"),
+        "futurex_past": ("coverage_declare", "single_shot", "hard"),
+        "futurex_past_study": ("coverage_declare", "single_shot", "hard"),
         "inspect-math": ("withhold", "single_shot", "medium"),
     }
     actual = {

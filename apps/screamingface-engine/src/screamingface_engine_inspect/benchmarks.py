@@ -7894,6 +7894,175 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
         with_check_surface=False,
     ),
+    BenchmarkSpec(
+        key="futurex_past",
+        published_revision="cbe050d3b82631c9",
+        title="FutureX-Past",
+        description=(
+            "2,036 resolved real-world forecasting questions from FutureX, a live benchmark of "
+            "future prediction: sports results, rankings, prices, releases and other events "
+            "from January to November 2026, in English and Chinese. Each question is the "
+            "dataset's own prompt, word for word, ending in a \\boxed{} answer. Four levels: "
+            "pick one option (1), pick every right option (2), and open answers (3 and 4): "
+            "a number, a name or a ranked list. Levels 1-2 are marked by rule; levels 3-4 by our "
+            "house Judge following the FutureX authors' scorer (numbers within 5% of the truth "
+            "score partially, rankings earn 0.8 of their overlap). The headline is the paper's "
+            "overall score: the four level means weighted 10/20/30/40. The events have already "
+            "happened and no search is given, so a model trained after an event may simply know "
+            "it: this is a closed-book exam on resolved events, not the live FutureX leaderboard."
+        ),
+        focus="Forecasting real-world events, closed-book",
+        dataset_url="https://huggingface.co/datasets/futurex-ai/Futurex-Past",
+        # The live leaderboard's best agents, with search, stay well below 1 on levels 3-4;
+        # closed-book on resolved events is no easier for a model trained before them.
+        difficulty="hard",
+        # WHY coverage_declare: a whole-run metric admits no other policy yet (OME-1642). A
+        # Case whose Candidate call failed leaves the score and is reported in Coverage, as the
+        # paper excludes a missing prediction (§3.4.2).
+        failure_policy="coverage_declare",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.futurex_past.futurex_past:futurex_past — a
+        #   LOCAL Task: our own eval in inspect's shape, so there is no eval.yaml and no inspect
+        #   porter to credit; every field below was written by hand from the paper and from
+        #   Futurex-Eval@2626f7a2 (spec docs/spec/2026-11-16-futurex-past-local-task.md).
+        # NAMED DEVIATION: the answer is read from the reply's last \boxed{} by rule; Futurex-Eval
+        #   asks an LLM to extract it, so a boxless reply can score there and scores 0 here.
+        # NAMED DEVIATION: the one key "[Yes]" (not a Python literal) is read as ["Yes"].
+        # NAMED DEVIATION: a level missing from a run renormalises the tier weights (upstream
+        #   counts it 0); identical on every full run.
+        # NAMED DEVIATION: an unreadable judge reply fails the Case as judge_reply_invalid
+        #   after two redraws (upstream scores it 0), and a rank overlap count is capped at k.
+        scorer="screamingface_engine_inspect.local_tasks.futurex_past.futurex_past:futurex_score",
+        scorer_kwargs={"judge_model": "screamingface/openrouter/openai/gpt-5.4"},
+        whole_run_metric=(
+            "screamingface_engine_inspect.local_tasks.futurex_past.futurex_past:"
+            "futurex_tier_weighted"
+        ),
+        judge=JudgeSpec(
+            # NAMED DEVIATION: Futurex-Eval judges with DeepSeek V4 Flash or GPT-4.1. This
+            # Benchmark pins the house judge FRAMES, XSTest and HealthBench also call, for judge
+            # consistency across our judged Benchmarks (owner decision 2026-09-29).
+            model="openrouter/openai/gpt-5.4",
+            # Futurex-Eval asks its judge at temperature 0; grading is retrieval-free and the
+            # token cap is an engine-side safety bound (HealthBench's precedent).
+            params=(("temperature", "0"), ("max_tokens", "4096"), ("web_search", "false")),
+        ),
+        # Judged benchmark, and judge feedback on a forecast would leak the outcome.
+        with_check_surface=False,
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2508.11987",
+        authors="Zeng et al., 2025",
+        citation=(
+            "@misc{zeng2025futurexadvancedlivebenchmark,\n"
+            "      title={FutureX: An Advanced Live Benchmark for LLM Agents in Future "
+            "Prediction},\n"
+            "      author={Zhiyuan Zeng and Jiashuo Liu and Siyuan Chen and Tianci He and Yali "
+            "Liao and Jinpeng Wang and Zaiyuan Wang and Yang Yang and Lingyue Yin and Mingren Yin "
+            "and Zhenwei Zhu and Tianle Cai and Zehui Chen and Jiecao Chen and Yantao Du and Xiang "
+            "Gao and Jiacheng Guo and Liang Hu and Jianpeng Jiao and Xiangsheng Li and Jingkai Liu "
+            "and Shuang Ni and Zhoufutu Wen and Ge Zhang and Kaiyuan Zhang and Xin Zhou and Jose "
+            "Blanchet and Xipeng Qiu and Mengdi Wang and Wenhao Huang},\n"
+            "      year={2025},\n"
+            "      eprint={2508.11987},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2508.11987},\n"
+            "}"
+        ),
+        # The authors' scorer, which publishes no licence: re-implemented, never copied.
+        harness_url=(
+            "https://github.com/Futurex-ai/Futurex-Eval/tree/2626f7a297cd87c73a45408e23af8d838f5b60e5"
+        ),
+        license="Apache-2.0",
+        license_note=(
+            "The FutureX-Past questions are Apache-2.0 (futurex-ai/Futurex-Past). The scoring "
+            "follows Futurex-Eval, which publishes no licence, so its rules are re-implemented "
+            "and its judge prompts re-worded here; no Futurex-Eval code is copied."
+        ),
+        human_baseline=NotPublished(reason="the FutureX paper reports no human score"),
+        frontier_score=NotPublished(
+            reason=(
+                "the paper and leaderboard score agents with search on the live weekly "
+                "questions, not closed-book on this archive"
+            )
+        ),
+        notebook="21_futurex_past",
+    ),
+    BenchmarkSpec(
+        key="futurex_past_study",
+        published_revision="c3b5c2b7d55e84c3",
+        title="FutureX-Past (study scoring)",
+        description=(
+            "FutureX-Past as the crowd-wisdom study (behavior-aware LLM crowds for future "
+            "prediction) scored it, to replicate that study's numbers: the 1,118 questions of "
+            "the 2026-08-02 release, which holds all 100 of the study's questions with the "
+            "study's exact answer keys. Same prompts as futurex_past, word for word. No Judge: "
+            "the boxed answer is split on commas, case-folded and compared with the key as text "
+            "by the study's own code (level 1 exact, level 2 set F1, levels 3-4 0.8 of the "
+            "overlap unless the order is exact), and the headline weights the level means "
+            "10/20/30/40. Names and numbers must match as text, so this scores below "
+            "futurex_past on levels 3-4 by design; use futurex_past for a score on the FutureX "
+            "authors' scale. Pass the study's 100 Case positions as cases=[...] (README) to "
+            "rerun its runs; the study's best committee scored 0.302."
+        ),
+        focus="Replicating a forecasting study, exact-match scoring",
+        dataset_url="https://huggingface.co/datasets/futurex-ai/Futurex-Past",
+        difficulty="hard",
+        # WHY coverage_declare: a whole-run metric admits no other policy yet (OME-1642), and it
+        # is the study's own NO_RESPONSE rule: a Case that got no reply leaves the denominator.
+        failure_policy="coverage_declare",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.futurex_past.futurex_past_study:
+        #   futurex_past_study — a LOCAL Task. The marking scheme is the study's
+        #   committee_kit/metrics.py, vendored byte for byte (vendor/study_metrics.py, sha256
+        #   pinned by test_local_task_futurex_past_study.py); the paper below is the dataset's.
+        scorer=(
+            "screamingface_engine_inspect.local_tasks.futurex_past.futurex_past_study:"
+            "futurex_study_score"
+        ),
+        whole_run_metric=(
+            "screamingface_engine_inspect.local_tasks.futurex_past.futurex_past_study:"
+            "study_tier_weighted"
+        ),
+        # No judge and no Draft Feedback: feedback on a forecast would leak the outcome.
+        with_check_surface=False,
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2508.11987",
+        authors="Zeng et al., 2025",
+        citation=(
+            "@misc{zeng2025futurexadvancedlivebenchmark,\n"
+            "      title={FutureX: An Advanced Live Benchmark for LLM Agents in Future "
+            "Prediction},\n"
+            "      author={Zhiyuan Zeng and Jiashuo Liu and Siyuan Chen and Tianci He and Yali "
+            "Liao and Jinpeng Wang and Zaiyuan Wang and Yang Yang and Lingyue Yin and Mingren Yin "
+            "and Zhenwei Zhu and Tianle Cai and Zehui Chen and Jiecao Chen and Yantao Du and Xiang "
+            "Gao and Jiacheng Guo and Liang Hu and Jianpeng Jiao and Xiangsheng Li and Jingkai Liu "
+            "and Shuang Ni and Zhoufutu Wen and Ge Zhang and Kaiyuan Zhang and Xin Zhou and Jose "
+            "Blanchet and Xipeng Qiu and Mengdi Wang and Wenhao Huang},\n"
+            "      year={2025},\n"
+            "      eprint={2508.11987},\n"
+            "      archivePrefix={arXiv},\n"
+            "      primaryClass={cs.AI},\n"
+            "      url={https://arxiv.org/abs/2508.11987},\n"
+            "}"
+        ),
+        # The study's code is not public; as for FRAMES, the harness link is the questions at
+        # the pinned commit.
+        harness_url=(
+            "https://huggingface.co/datasets/futurex-ai/Futurex-Past/tree/3c2e39690de35eb1fcc621251f56343c72bae8c4"
+        ),
+        license="Apache-2.0",
+        license_note=(
+            "The FutureX-Past questions are Apache-2.0 (futurex-ai/Futurex-Past). The scoring "
+            "code is the crowd-wisdom study's, contributed by its author under this "
+            "repository's Apache-2.0 licence."
+        ),
+        human_baseline=NotPublished(reason="the FutureX paper reports no human score"),
+        frontier_score=NotPublished(
+            reason="the study reports committee scores on 100 questions, not a model on all 1,118"
+        ),
+        notebook="21_futurex_past",
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 

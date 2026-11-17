@@ -100,6 +100,9 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     "hle": "judged",
     # OME-1863: HLE-Diamond, a local Task graded by the same regex_judge as hle.
     "hle_diamond": "judged",
+    # FutureX-Past: a local Task judged on levels 3-4; its study twin is marked by rule.
+    "futurex_past": "judged",
+    "futurex_past_study": "free_text",
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, graded by the authors' exact-match judge.
     "labbench2_figqa2_img": "judged",
     "labbench2_tableqa2_img": "judged",

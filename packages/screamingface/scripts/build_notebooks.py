@@ -87,6 +87,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "19_map_select_reduce.ipynb": _map_select_reduce(),
         "20_routers_cascades.ipynb": _routers_cascades(),
         "21_runs.ipynb": _runs(),
+        "21_futurex_past.ipynb": _futurex_past_e2e(),
     }
 
 
@@ -2263,6 +2264,111 @@ is the only brake. Raise it in steps and read the cost in `report.usage` as you 
 The questions and their Wikipedia articles have been public since 2024 and may be in a model's
 training data; a high score says the model answers these questions, not that it would answer new
 ones."""),
+    )
+
+
+def _futurex_past_e2e() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# FutureX-Past — forecasting questions whose outcomes are known
+
+[FutureX](https://arxiv.org/abs/2508.11987) is a live benchmark of real-world forecasting: every
+week it asks agents about events that have not happened yet. **FutureX-Past** is its archive of
+questions that have since resolved, from January to November 2026: sports results, rankings,
+prices, releases. Each question is the dataset's own prompt, word for word, and asks for the
+answer in a `\\boxed{}` at the end of the reply.
+
+Two Benchmarks read this archive:
+
+- **`futurex_past`** (2,036 questions) is scored the way the FutureX authors score it today.
+  Levels 1-2 (pick one option, pick every right option) are marked by rule. Levels 3-4 (a
+  number, a name or a ranked list) go to our house Judge, which first decides whether a list is
+  a ranking or an unordered set and then compares meanings across wording and language. Numbers
+  score by distance: within 5% of the truth earns partial credit. The headline weights the four
+  level means 10/20/30/40, as the paper does.
+- **`futurex_past_study`** (1,118 questions, the 2026-08-02 release) is scored the way the
+  crowd-wisdom study scored it, with the study's own code and no Judge. Answers must equal the
+  key as text after case-folding. It exists to replicate that study's numbers, so it sits below
+  `futurex_past` on levels 3-4 by design.
+
+**Read a score with this in mind.** The events have already happened, and no search is given.
+A model trained after an event may simply know it, so this is a closed-book exam on resolved
+events, not the live FutureX leaderboard."""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## 0. Before running",
+                """\
+screamingface prepare futurex_past        # first run only: download the questions
+screamingface prepare futurex_past_study  # the study's release, for section 4
+screamingface up                          # start Gateway :9105, Scoreboard :9106, and Engine :9108
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(f"{_TARGET_SETUP}\n\nsf.connect()"),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Read the Benchmark's card
+
+`futurex_past` is a Benchmark we author ourselves (origin `screamingface`). The card carries the
+pinned dataset release, the Judge it pins, and the scoring caveats."""),
+        nbformat.v4.new_code_cell("""\
+sf.benchmarks.get("futurex_past")"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Run a few questions with one model
+
+The prompt asks for nothing but the boxed answer, so a short reply is enough; a reasoning model
+still needs room to think before it writes the box."""),
+        nbformat.v4.new_code_cell("""\
+# No `temperature` here on purpose: several current reasoning models reject the parameter
+# outright (see 13_contracteval for the provider-by-provider detail).
+PARAMS = {"max_tokens": 4096}
+
+solo = sf.Model(model="openrouter/openai/gpt-5.5", params=PARAMS)
+report = sf.evaluate(solo, benchmark="futurex_past", limit=5)
+report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Read the per-question outcomes
+
+Each case carries its level and, on levels 3-4, the route the Judge chose (`legacy_type_a` for
+option labels, `legacy_type_b` for a number, a name or a ranking, `unordered_set` for a set). A
+reply with no box scores 0; a case whose Judge never gave a readable reply shows as failed."""),
+        nbformat.v4.new_code_cell("""\
+for case in report.candidates.only.cases:
+    grade = case.grade
+    if grade is None or case.failures:
+        print(case.case_id, case.status, [failure.code for failure in case.failures])
+        continue
+    evidence = grade.checks[0].evidence[0]
+    level, route = evidence.metadata.get("level"), evidence.metadata.get("route")
+    print(case.case_id, grade.score, level, route)"""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Rerun the crowd-wisdom study's 100 questions
+
+The study scored its committees on 100 FutureX-Past questions; its best, the three cluster
+medoids fused by vote, scored 0.302. `STUDY_CASES` are those questions' positions in
+`futurex_past_study`. A run on chosen cases cannot be submitted to the leaderboard."""),
+        nbformat.v4.new_code_cell("""\
+# fmt: off
+STUDY_CASES = [
+    172, 182, 188, 189, 202, 212, 234, 242, 261, 266, 273, 276, 284, 289, 291, 293, 297,
+    311, 338, 341, 365, 378, 386, 397, 401, 403, 427, 431, 438, 439, 454, 468, 494, 501,
+    507, 515, 518, 527, 543, 560, 578, 600, 603, 609, 615, 622, 630, 663, 664, 707, 713,
+    731, 738, 749, 759, 762, 763, 764, 783, 785, 789, 794, 799, 810, 812, 814, 826, 834,
+    836, 839, 847, 852, 878, 887, 896, 906, 909, 923, 957, 959, 971, 976, 979, 989, 991,
+    993, 1006, 1013, 1021, 1035, 1040, 1045, 1056, 1058, 1065, 1068, 1070, 1075, 1107,
+    1114
+]
+# fmt: on
+
+study_report = sf.evaluate(solo, benchmark="futurex_past_study", cases=STUDY_CASES)
+study_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. Before you scale up
+
+A `limit=N` run is a smoke test, not a ranking: the four levels weigh differently, and five
+cases will not sample them evenly. One pass over all 2,036 questions is about 2,036 Candidate
+calls per model, plus up to three short Judge calls for each of the 664 level-3/4 questions (route,
+then match or rank). The study Benchmark calls no Judge. There is no spend cap in this stack, so
+`limit` is the only brake."""),
     )
 
 
