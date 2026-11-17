@@ -61,6 +61,7 @@ There is no automated test setup in this project.
 | `/sf-client/guides/pipelines`             | `src/pages/sf-client/guides/PipelinesPage.vue`    |
 | `/sf-client/guides/benchmarks`            | `src/pages/sf-client/guides/BenchmarksPage.vue`   |
 | `/sf-client/guides/running-an-evaluation` | `src/pages/sf-client/guides/EvaluationPage.vue`   |
+| `/sf-client/guides/managing-experiments`  | `src/pages/sf-client/guides/ExperimentsPage.vue`  |
 | `/sf-client/guides/leaderboards`          | `src/pages/sf-client/guides/LeaderboardsPage.vue` |
 | `/sf-client/guides/reproduce-and-share`   | `src/pages/sf-client/guides/Url4Page.vue`         |
 | `/sf-client/api/recipes`                  | `src/pages/sf-client/api/RecipesPage.vue`         |
@@ -69,6 +70,7 @@ There is no automated test setup in this project.
 | `/sf-client/api/reports`                  | `src/pages/sf-client/api/ReportsPage.vue`         |
 | `/sf-client/api/candidate-result`         | `src/pages/sf-client/api/CandidateResultPage.vue` |
 | `/sf-client/api/usage`                    | `src/pages/sf-client/api/UsagePage.vue`           |
+| `/sf-client/api/runs`                     | `src/pages/sf-client/api/RunsPage.vue`            |
 | `/sf-client/api/clients`                  | `src/pages/sf-client/api/ClientsPage.vue`         |
 | `/sf-client/api/fusions`                  | `src/pages/sf-client/api/FusionsPage.vue`         |
 | `/sf-client/api/reducers`                 | `src/pages/sf-client/api/ReducersPage.vue`        |

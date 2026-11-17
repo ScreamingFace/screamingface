@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1901",
+  "branch": "OME-1901-undeclare-migration-note",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-09",
+  "scope": "The one prior test file listed at GREEN and approved by the owner on 2026-11-09. test_compatibility_paths_retired.py: test_a_leftover_note_is_neither_read_nor_written retires, because the pair marker model no longer declares migration_note and so can neither read nor write it; _plant writes no note, and claim_pair, imported only by that test, goes with it; the docstring INVARIANT names the two steps (the model stops declaring the field, and L4c-2 drops the column one release later). Every changed prior test file is pinned byte-exact (1).",
+  "reason": "OME-1138 close-out, L4c-1 (spec docs/spec/2026-10-29-ome-1138-closeout.md section 4.3; owner decision 2026-11-09): the model stops declaring migration_note and migration 0016 removes it from the migration state only, so a prior test that wrote and read the note through the model changes with it.",
+  "files": {
+    "apps/aigateway/tests/unit/core/provider_access/test_compatibility_paths_retired.py": {
+      "base_blob": "b63fc7335ef426d8bf9c436e19913d2ff530a4a5",
+      "approved_blob": "d8eb4fa8c85132957e1eb5533442111f8b0772e9"
+    }
+  }
+}

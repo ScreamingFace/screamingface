@@ -27,15 +27,15 @@ import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from pathlib import Path
 
 from url4.cli._command import run_command
 from url4.cli._config import _HEALTH_PATH, ConfigError, ProviderSpec, ServeConfig, resolve
+from url4.cli._files import FileData, read_text
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.layer import resolve_shelf
 from url4.peer._asgi import lifespan as _lifespan
 from url4.peer._asgi import send_error as _send_error
-from url4.peer.server import Request, Url4Node
+from url4.peer.server import DataProvider, Request, Url4Node
 
 EndpointHandler = Callable[[Request], Awaitable[str]]
 HoldingsHandler = Callable[[str | None], Awaitable[str]]
@@ -148,10 +148,7 @@ async def _provide(spec: ProviderSpec, timeout: float, collection: str | None = 
     if spec.value is not None:
         return spec.value
     if spec.file is not None:
-        try:
-            return await asyncio.to_thread(Path(spec.file).read_text, encoding="utf-8")
-        except OSError as exc:
-            raise ResolutionError(f"data file {spec.file!r} cannot be read: {exc}") from exc
+        return await read_text(spec.file)
     if spec.command is not None:
         argv = [token.replace("{collection}", collection or "") for token in spec.command]
         return await run_command(argv, "", timeout)
@@ -159,8 +156,19 @@ async def _provide(spec: ProviderSpec, timeout: float, collection: str | None = 
     raise ResolutionError("provider declares no source")  # pragma: no cover
 
 
-def make_data_provider(spec: ProviderSpec, timeout: float) -> DataCallable:
-    """A ``Url4Node.data`` provider backed by a :class:`ProviderSpec`."""
+def make_data_provider(spec: ProviderSpec, timeout: float) -> DataProvider:
+    """A ``Url4Node.data`` provider backed by a :class:`ProviderSpec`.
+
+    A ``file`` provider also reads binary-safe, in chunks (:class:`~url4.cli._files.FileData`);
+    a ``value`` provider is its ``str``; a ``command`` provider is text only.
+    INVARIANT (PR #1587 round 11, owner 2026-11-06): a ``value`` is handed over as the plain
+    ``str`` it is — held in memory, exact size — so a run's live byte cap admits it as an
+    attached blob (``peer._bytes``); wrapped in a callable it was a refused whole-body read.
+    """
+    if spec.file is not None:
+        return FileData(spec.file)
+    if spec.value is not None:
+        return spec.value
 
     async def provider() -> str:
         return await _provide(spec, timeout)

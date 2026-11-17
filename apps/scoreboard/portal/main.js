@@ -424,6 +424,15 @@ window.ScorePortal = (function () {
     return card;
   }
 
+  function comparisonNote(row) {
+    var metadata = row.metadata || {};
+    var note = metadata.comparison_note;
+    if (typeof note !== "string" || !note.trim()) {
+      note = metadata.comparison && metadata.comparison.prompt_note;
+    }
+    return typeof note === "string" ? note.trim() : "";
+  }
+
   /* ---- public surface -------------------------------------------------- */
   var api = {
     getApiBase: getApiBase,
@@ -434,6 +443,7 @@ window.ScorePortal = (function () {
     el: el,
     link: link,
     httpUrlOrNull: httpUrlOrNull,
+    comparisonNote: comparisonNote,
     paperLink: paperLink,
     setStatus: setStatus,
     showLoading: showLoading,

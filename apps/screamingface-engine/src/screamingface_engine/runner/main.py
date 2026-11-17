@@ -24,7 +24,8 @@ import httpx
 
 from screamingface_engine import child_protocol, job_env
 from screamingface_engine.adapters.jetstream import JetStreamPublisher
-from screamingface_engine.artifacts import ArtifactWriter
+from screamingface_engine.artifacts import ArtifactWriter, StreamingArtifactWriter
+from screamingface_engine.artifacts.spool import ResultSpool
 from screamingface_engine.artifacts.wiring import result_writer_from_env
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
@@ -181,6 +182,19 @@ def result_delivery_from_env(env: Mapping[str, str]) -> tuple[int, int, Artifact
     # The store construction lives in `result_writer_from_env`, the one place the run path's
     # spill store is chosen.
     return inline_cap, hard_cap, result_writer_from_env(env)
+
+
+def result_spools(
+    store: ArtifactWriter | None, *, inline_cap: int, hard_cap: int
+) -> Callable[[], ResultSpool] | None:
+    """Each run's result spool over the run's result store (memory fix 3, OME-1835).
+
+    None when the store cannot stream (a test double): such a run keeps today's whole-string
+    path.
+    """
+    if not isinstance(store, StreamingArtifactWriter):
+        return None
+    return functools.partial(ResultSpool, store, inline_cap=inline_cap, hard_cap=hard_cap)
 
 
 async def run_and_reclaim(
@@ -513,6 +527,7 @@ def build_executor(
         media_writer=artifact_store,
         # WHY local and not the artifact store: see `benchmarks.case_result_store`.
         case_results=new_case_result_store,
+        result_spools=result_spools(artifact_store, inline_cap=inline_cap, hard_cap=hard_cap),
     )
 
 

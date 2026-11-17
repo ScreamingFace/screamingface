@@ -1,13 +1,13 @@
 ---
 id: OME-1881
 linear_url: https://linear.app/openmined/issue/OME-1881/size-the-evaluate-fan-out-from-the-engines-per-caller-cap
-status: in_progress
+status: done
 type: feature
 priority: medium
 labels: [client-sf, agentic, autonomous]
 parent: OME-1314
 created: 2026-11-11
-closed:
+closed: 2026-11-16
 ---
 
 # Size the evaluate fan-out from the Engine's per-caller cap
@@ -21,3 +21,7 @@ uses 8 when the Engine gives no value, so it is safe against every Engine versio
 - 2026-11-12: PR #1745 review (khoaguin, non-blocking): each fallback of the cap read now logs its
   cause at DEBUG (status code or error type, never the body). Two concurrent `evaluate()` calls by
   one caller each send up to the cap: recorded as watch-list W8 in the spec (no change now).
+
+## Close
+
+- 2026-11-16: PR #1745 squash-merged as `c7c9c14d8` on 2026-11-12. Engine half OME-1880 (#1744) stays open for the infra handoff. Linear Done 2026-11-16 with a close-comment that names the PR and the merge commit; checked against `origin/main`.

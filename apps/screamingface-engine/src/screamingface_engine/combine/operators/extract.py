@@ -221,8 +221,22 @@ def _re2_window(text: str, size: int) -> str:
 
 def check_regex_pattern(args: OpArgs) -> None:
     """regex@1's pattern and ignore_case rules plus its RE2 compile (filter@1 reuses them)."""
+    compile_regex(args)
+
+
+def compile_regex(args: OpArgs) -> Any:
+    """``check_regex_pattern`` that returns the RE2 object (E4c Keywords compiles once)."""
     _check_regex_values(args)
-    _compile(args)
+    return _compile(args)
+
+
+def re2_head(text: str, size: int) -> str:
+    """The FIRST ``size`` characters of ``text``, as RE2 reads them (E4c Keywords).
+
+    WHY the head: a Keywords selector labels the question, whose topic sits at its start; the
+    answer rules read the end of a reply (``_re2_window``).
+    """
+    return _SURROGATE.sub("\ufffd", text[:size])
 
 
 def regex_finds(text: str, args: OpArgs) -> bool:

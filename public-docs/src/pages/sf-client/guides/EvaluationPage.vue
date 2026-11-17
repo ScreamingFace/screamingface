@@ -375,6 +375,13 @@ client.close()`
       take that option.
     </p>
 
+    <p>
+      <code>sf.reports</code> reopens results on <em>this</em> machine. To find, follow or cancel the
+      run itself — from any notebook signed in as you, for 30 days — use its
+      <code>report.run_id</code> and the
+      <RouterLink to="/sf-client/guides/managing-experiments">Managing experiments</RouterLink> guide.
+    </p>
+
     <div class="not-prose">
       <NbCell :count="10" :code="noSave" />
     </div>

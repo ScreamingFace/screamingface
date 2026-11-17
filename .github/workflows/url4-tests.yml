@@ -82,6 +82,8 @@ jobs:
 
       - name: Test report
         uses: dorny/test-reporter@v3
+        # Publishing only: the test step fails the job; a spent GITHUB_TOKEN limit must not.
+        continue-on-error: true
         if: always()
         with:
           name: url4 Test Results (${{ matrix.python-version }})
@@ -90,6 +92,8 @@ jobs:
 
       - name: Coverage report
         uses: orgoro/coverage@v3.3
+        # Publishing only: the test step fails the job; a spent GITHUB_TOKEN limit must not.
+        continue-on-error: true
         if: always() && github.event_name == 'pull_request' && matrix.python-version == '3.12'
         with:
           coverageFile: packages/url4/coverage.xml

@@ -54,6 +54,19 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 
+{{/*
+The runner pool's ServiceAccount (OME-1931, spec D6). Off: the App's account, as before. On: the
+runner's own account, `<fullname>-runner` unless `runnerPool.serviceAccount.name` is set - the
+platform binds the pod-patch Role to it, never to the App's.
+*/}}
+{{- define "screamingface-engine.runnerServiceAccountName" -}}
+{{- if .Values.runnerPool.deletionCost.enabled -}}
+{{- default (printf "%s-runner" (include "screamingface-engine.fullname" .)) .Values.runnerPool.serviceAccount.name -}}
+{{- else -}}
+{{- include "screamingface-engine.serviceAccountName" . -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "screamingface-engine.image" -}}
 {{- printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) -}}
 {{- end -}}

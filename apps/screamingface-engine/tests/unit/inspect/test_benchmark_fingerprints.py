@@ -159,6 +159,7 @@ _FINGERPRINTS: dict[str, str] = {
     "drop": "9be2d9ed4b5f1a67",
     "bbh": "467f06b54836a6f8",
     "medmcqa": "60e9f16fbe7c0227",
+    "hle_diamond": "9640c5c7e59fc61e",
     # The hand-built Benchmark (screamingface_engine.benchmarks.medxpert).
     "medxpert": "1e5a3b8a461a52f7",
 }

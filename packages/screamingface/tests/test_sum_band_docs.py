@@ -40,6 +40,7 @@ _FUSION = "### Fusion as a named recipe"
 _SUM = "### Sum signals and the abstain band"
 _CONSISTENCY = "### Consistency samples"  # E4b part 7, after the restack on part 6
 _INSTALL = "## Install"
+_ROUTING = "### Choose whether a model runs"  # E4c (OME-1291, docs #8, owner-approved edit)
 _BROWSE = "### Browse completed Case results"
 _COMBINE = "### Combine steps in the report"
 _ACCOUNTING = "### Completed accounting breakdown"
@@ -73,9 +74,10 @@ _WEIGHT = (
     f" less, or larger than `{_MAX_WEIGHT_TEXT}` (the largest float divided by 256), gets no"
     " weight, and the vote leaves it out with `no_weight`."
 )
+# E4c (OME-1291, docs #5-#7, owner-approved edit): the band runs no fallback.
 _COST = (
-    "A judge or writer fallback still runs on every Case, also when the number is in the band; its"
-    " reply is not read."
+    "When the number is in the band, a judge or writer fallback does not run: the band runs no"
+    " fallback and makes no call."
 )
 _SCOPE = (
     "A sum adds the signals of one member. To compare the panel, gate on `sf.signal(name).mean()`."
@@ -124,7 +126,8 @@ def test_readme_sum_section_sits_after_fusion_and_states_the_rules() -> None:
     assert "abstain_if" in inspect.signature(sf.Gate).parameters
     assert repr(sys.float_info.max / 256) == _MAX_WEIGHT_TEXT
     # Restack on part 6 (2026-10-16): part 7 adds its section directly after this one.
-    assert _headings_between(_FUSION, _INSTALL) == [_FUSION, _SUM, _CONSISTENCY]
+    # E4c (OME-1291, docs #8, owner-approved edit): the routing section follows part 7's.
+    assert _headings_between(_FUSION, _INSTALL) == [_FUSION, _SUM, _CONSISTENCY, _ROUTING]
     assert _headings_between(_SIGNALS, _FUSION) == [_SIGNALS, _GATE]
     section = _section(_SUM)
     for phrase in (

@@ -1,12 +1,12 @@
 ---
 id: OME-1569
 linear_url: https://linear.app/openmined/issue/OME-1569
-status: in_progress
+status: done
 type: feature
 priority: 3
 labels: [url4-engine, agentic, autonomous]
 created: 2026-10-10
-closed:
+closed: 2026-11-16
 ---
 
 # url4 2.0: run code-pointer intents and named jobs as RDS calls (+ audit fixes)
@@ -18,3 +18,7 @@ forwarded prompts, nearest-group strictness, the 422 status default).
 Spec: `docs/spec/2026-10-10-url4-rds-code-pointer/` · Ledgers:
 `docs/work/2026-10-10-url4-rds-code-pointer-impl.md`,
 `docs/work/2026-10-10-url4-rds-code-pointer.md`.
+
+## Close
+
+- 2026-11-16: PR #1342 (url4 2.0, with the audit fixes) squash-merged as `06d7e055d` on 2026-10-11. Linear Done 2026-11-16 with a close-comment that names the PR and the merge commit; checked against `origin/main`.
