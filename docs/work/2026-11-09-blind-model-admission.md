@@ -84,3 +84,10 @@ model is refused by name before any chat call. Spec: `docs/spec/2026-11-09-blind
   `test_fair_share_fetch_bytes.py` keep this branch's (main's copy equals the OME-1545 tip, so only
   OME-1809's changes differ). Approval blobs unchanged (base e7a07c1f7 on main, approved b42ae1922).
   Gates green vs origin/main: screamingface-engine, url4, repo.
+- Review round 1 (2026-11-17, HupBaHa on #1853): a top-level text source named `candidate` was
+  trusted as the Benchmark Candidate, so a forged one hid a blind model called outside it. Owner
+  decision: admit the union of the Candidate's routes and the run's literal routes. Accepted cost:
+  a protocol naming a text-only judge as a literal route refuses a file-carrying run, although
+  judges never get files (D6). The branch's own Benchmark test now asserts the union; new
+  regression `test_a_forged_candidate_does_not_hide_a_blind_model_called_outside_it` (RED on
+  f47102b5f, GREEN after). Main merged; engine and repo gates green vs origin/main.
