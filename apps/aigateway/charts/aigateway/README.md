@@ -89,6 +89,8 @@ Full runbook — including
 destructive rollback and pruning queries:
 `apps/aigateway/DEPLOYMENT.md`.
 
+`config.frozenCopySweep` sets the frozen copy retention sweep (OME-1947): the interval, the idle time of an open copy, and the purge budget of one run. It has no switch; each gateway runs it. See "Frozen copy retention sweep (OME-1947)" in `apps/aigateway/DEPLOYMENT.md`.
+
 ## Who may connect
 
 `networkPolicy.clientPodNames` defaults to `url4-cloud`, `url4-runner` and `aigateway-ui`. In
