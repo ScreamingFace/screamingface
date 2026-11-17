@@ -1,6 +1,6 @@
 # ERD — frozen copy retention
 
-**Base:** `origin/main` at `e9db97cfb`. Paths are relative to the repo root.
+**Base:** `origin/main` at `f683cd2e6` (before stack A). Paths are relative to the repo root.
 Source tags are defined in `00-overview.md` §3.
 
 This spec changes one table, `frozen_copies` (AI Gateway database). It adds no table. The
@@ -126,7 +126,7 @@ replay or claim gets a clear answer and not "unknown copy". The rows are not del
     engine deadline of 16 hours
     `[existing apps/screamingface-engine/src/screamingface_engine/config.py:222]`, plus 90
     seconds until the supervisor stops the process
-    `[existing apps/screamingface-engine/src/screamingface_engine/worker/supervisor.py:1030-1054]`.
+    `[existing apps/screamingface-engine/src/screamingface_engine/worker/supervisor.py:1072-1096]`.
   - The setting has no lower limit. `[stated ans:Q18]` A value below the engine deadline can
     abandon the copy of a run that is in progress. The operator must keep it above the
     deadline.
@@ -139,6 +139,10 @@ replay or claim gets a clear answer and not "unknown copy". The rows are not del
   - For a copy that was sealed before the release of the rule, the clock starts at the release
     (`retention_from`). For a copy that is sealed after it, the clock starts at the seal.
     `[stated ans:Q7]`
+  - The sweep reads the candidates of this rule with one SQL filter: condition 1, and a clock
+    start at or before `now − ttl`. The code passes that cutoff as a parameter. It does not
+    read all sealed rows into memory. The filter only selects candidates. The mark evaluates
+    both conditions again under the row lock, and that check decides. `[proposed]`
   - The rule has no switch and no date setting. It is active in each gateway that has the code
     of pull request C1. `[stated ans:Q22]` No person approves a list before the sweep deletes.
     `[stated ans:Q23]`
@@ -178,8 +182,8 @@ replay or claim gets a clear answer and not "unknown copy". The rows are not del
   - The purge reads swept copies with `purged_at IS NULL`. Swept rows stay forever, so this
     query must not read all of them. The index gives it only the rows that still have entries.
   - The idle rule reads `status = 'open'` (some hundreds of rows). The expiry rule reads
-    `status = 'sealed'` and filters on `claimed_at`, `retention_from` and `sealed_at` (at most
-    about 130 000 rows
+    `status = 'sealed'` and filters in SQL on `claimed_at`, `retention_from` and `sealed_at`,
+    with the cutoff `now − ttl` as a parameter (at most about 130 000 rows
     at the current rate). The index prefix `status` is sufficient for both.
 - The table is small (12 908 rows on 2026-11-16, about 1 400 new rows each day). Confirm the
   plans with `EXPLAIN` in the Postgres test lane. Do not add more indexes without a measured

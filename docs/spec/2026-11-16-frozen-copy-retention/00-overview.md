@@ -1,9 +1,12 @@
 # Frozen copy retention — stop the unbounded growth of the pinned cache store
 
-**Issue:** OME-1947 (`bug`, no parent epic; filed 2026-11-17) · **Status:** approved by the
-owner on 2026-11-17, after review round 6 (its fixes were checked by the author only); the plan is next
+**Issue:** OME-1947 (`bug`, no parent epic; filed 2026-11-17; all stacks stay under this issue
+`[stated ans:Q26]`) · **Status:** approved by the owner on 2026-11-17, after review round 6.
+Stack A is built (pull request #1911). The plans for stacks B and C are written and reviewed,
+and the owner decided Q26 to Q32 (§5.4). The text of round 7 was checked by the author only.
 **Date:** 2026-11-16
-**Base:** `origin/main` at `e9db97cfb` (each `[existing …]` anchor is on this commit)
+**Base:** `origin/main` at `f683cd2e6` (each `[existing …]` anchor is on this commit, before
+stack A; the base moved from `e9db97cfb` on 2026-11-17, when stack A was put on the new `main`)
 
 ## 1. Summary
 
@@ -66,6 +69,8 @@ check compares each pushed branch with `main`, so stacked branches for A2 and A3
   `[stated ans:Q21]`. Tests S-23 to S-25, S-32 of `prd/copy-sweep.md`.
 
 **Stack B — claims (must be live in production before C1 is released)**
+Two pull requests: B1 (gateway), and B2 with B3 as one pull request with one commit for each
+(scoreboard). Each branch is cut from `main` after the pull request of stack A (#1911) is merged.
 - B1: the gateway claim route and its guard. Tests K-1 to K-7 of `prd/score-claim.md`.
 - B2: the scoreboard client, the submit route, settings, chart. Tests CH-1 to CH-3, K-8 to
   K-17, K-23, K-24, K-26, K-35 of `prd/score-claim.md`.
@@ -73,12 +78,19 @@ check compares each pushed branch with `main`, so stacked branches for A2 and A3
   of `prd/score-claim.md`.
 
 **Stack C — expiry (released after stack B is live in production)**
+Three pull requests (C1, C2, C3). Each is cut from `main` after #1911 is merged, and they are not
+stacked. Cause: C1 changes two assertions of stack A tests with the owner's approval record
+`[stated ans:Q27]`; the record names one branch, and the pre-push check compares each pushed
+branch with `main`.
 - C1: migration 0019 (the column `retention_from` and its stamp), the expiry rule in the
   sweep and its setting `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS`, gateway 410 for an expired
   copy. Tests S-1, S-4, S-6, S-14, S-33, S-35, S-37 of `prd/copy-sweep.md` (S-6 before S-1),
-  K-25 of `prd/score-claim.md`, and CH-1, R-1 to R-3 of `prd/expired-copy-replay.md`.
+  K-25 of `prd/score-claim.md`, and CH-1, R-1 to R-3 of `prd/expired-copy-replay.md`. C1 also
+  moves the rule classes of the sweep to `core/frozen_copy/sweep_rules.py`, so that no file is
+  above 450 lines `[stated ans:Q30]`.
 - C2: engine message. Tests CH-2, CH-3, R-4 to R-7 of `prd/expired-copy-replay.md`.
-- C3: public docs, glossary, E14 rows Q33–Q36, model docstring. Checked in the review.
+- C3: public docs, glossary, E14 rows Q33–Q36, model docstring. Checked in the review. C3 is
+  merged after C1 is merged. The docs state the rule and give no date `[stated ans:Q32]`.
 
 A1 is the base of all stacks. B1 depends on A1 only. C1 depends on A2 (the sweep) and on B1
 (the claim store method that S-14 uses).
@@ -87,6 +99,11 @@ A1 is the base of all stacks. B1 depends on A1 only. C1 depends on A2 (the sweep
 copies of the Scores that exist have their claim before the 90-day clock starts. No code
 enforces this order `[stated ans:Q22]`. If the order is wrong, 90 days remain in which one
 start of a scoreboard with a gateway URL claims the copies (`test-plan.md` X15).
+
+**Merge rule.** C1 is not merged until steps 3 and 4 of §7.1 are done in production. Cause: a
+merge to `main` goes out with the next gateway release (release-please has the component
+`apps/aigateway`, and the tag `aigateway-v*` starts the release workflow). The pull request of
+C1 can be open and reviewed before that; its body states this rule. No code enforces it.
 
 Test ids that are not used: S-3, S-18, S-19, S-20, S-26, S-30 (`prd/copy-sweep.md` §7).
 
@@ -167,7 +184,20 @@ copy, and the claim pass reports the Score in its list (Q20).
 | Q25 | With the 90-day rule automatic, how do the Scores that exist get their claim? | "Scoreboard claims at start": each time the scoreboard starts, it claims the copies of all stored Scores in the background | Changes Q17, narrows Q19. `prd/score-claim.md` C18 to C23 |
 
 The answers Q2, Q5, Q7 and Q8 go into the E14 design record as rows Q33–Q36
-(`prd/expired-copy-replay.md` §4.3).
+(`prd/expired-copy-replay.md` §4.3). Those four numbers are row numbers of the E14 design
+record. This ledger does not use them.
+
+### 5.4 Round 7 (2026-11-17, after the plans for stacks B and C)
+
+| Id | Question | Answer | Note |
+|---|---|---|---|
+| Q26 | Stacks B and C each touch two or more apps. One issue, or one sub-issue for each app? | "all under OME-1947": no sub-issue for each app | Each pull request body has `Refs: OME-1947`. The issue stays open until stack C is released |
+| Q27 | C1 gives the sweep a second rule, so two assertions of stack A tests fail. Is the change approved? | Approved, assertion only: `tests/unit/test_frozen_copy_sweep.py` (`report.marked == {"abandoned": 1}`) and `tests/unit/test_frozen_copy_sweep_cli.py` (`out["marked"] == {"abandoned": 2}`) get the key `expired` with 0 | The record `.claude/test-change-approvals/OME-1947.json` is updated in the C1 pull request: the branch name of C1, and the blobs computed after the last edit of each file. `prd/copy-sweep.md` §7 |
+| Q28 | The new 503 of the submit has a `detail` object. Does its OpenAPI response model change? | "go with recommended": description only. The description text changes, and the response model does not | No scoreboard test changes. `prd/score-claim.md` §7.1 |
+| Q29 | The claim pass at start tries again when the gateway does not answer. What does it do after a database error? | "yes": the task waits 10 minutes and starts a new pass, as for a gateway that does not answer | `prd/score-claim.md` C20, K-30; `contracts.md` K9 |
+| Q30 | The second rule takes `sweep.py` above 450 lines. Move the rule classes, or keep one file? | "yes": C1 moves the rule classes to `core/frozen_copy/sweep_rules.py`; no file is above 450 lines | No behavior change. `prd/copy-sweep.md` §7.1 |
+| Q31 | Where does the start log show the 90-day setting? | "recommended": a second record, "frozen copy expiry armed (unclaimed_ttl_s=…)". The record of stack A, "frozen copy sweep armed (…)", does not change | No stack A test changes. Corrects the notes of S-32 and S-37. `prd/copy-sweep.md` §4.1 |
+| Q32 | Do the public docs name the date on which the rule starts? | "doesn't matter and shouldn't be in the docs": the docs state the rule only and give no date. A pinned cache with no submitted Score is deleted 90 days after it is sealed; for a cache sealed before the rule started, the 90 days count from the start of the rule. No person is named for a release day | Q7 and Q24 stay: the release still stamps the clock start in the database. C3 is merged after C1 is merged, not on a fixed day. `prd/expired-copy-replay.md` R2, R9; `test-plan.md` §5.3 (2) |
 
 ## 6. What stays `[proposed]`
 
@@ -201,12 +231,14 @@ No step needs an approval. `[stated ans:Q22]` `[stated ans:Q23]`
 | 2 | Release B1. Set the claim list and the NetworkPolicy peer. | — |
 | 3 | Test the claim route from a scoreboard pod (a random UUID must give 404 `frozen_copy_not_found`). Release B2 and B3 with the gateway URL and actor. At start, each scoreboard pod claims the copies of all Scores. | `test-plan.md` §5.2 (1, 2) |
 | 4 | Verify the claims: the summary record of the pass, and the SQL check that each copy of a Score is `sealed` and claimed. Give the list of exceptions to the owner for information `[stated ans:Q20]`. | `test-plan.md` §5.2 (3 to 6) |
-| 5 | Release C1 (migration 0019 stamps the clock) and C2. Publish C3 with the date of the production release of C1. | `test-plan.md` §5.3 (1 to 3) |
+| 5 | Merge C1 (not before step 4 is done: the merge rule of §2) and release it; migration 0019 stamps the clock. Release C2. Merge C3 after C1 is merged; the docs give no date `[stated ans:Q32]`. | `test-plan.md` §5.3 (1 to 3) |
 | 6 | 90 days after step 5, the first copies expire with no further action. | The run log record shows the count; `test-plan.md` §5.3 (4) |
 
 Step 1 needs no other step. It can be released as soon as stack A is merged.
 
-Step 5 comes after step 4. This is the order rule of §2. No code enforces it.
+Step 5 comes after step 4. This is the order rule of §2. C1 is also not merged before step 4
+is done (the merge rule of §2): a merge to `main` goes out with the next gateway release. No
+code enforces the two rules.
 
 ### 7.2 Compatibility during the release
 
@@ -230,7 +262,9 @@ Step 5 comes after step 4. This is the order rule of §2. No code enforces it.
 - Gateway values: the four sweep settings (`prd/copy-sweep.md` §4.1; the defaults are
   correct for production) and `AIGW_FROZEN_COPY_CLAIM_EMAILS`. Three settings come with stack
   A, and `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` comes with C1. No switch and no date.
-  `[stated ans:Q22]`
+  `[stated ans:Q22]` In a chart template, a number goes through `int64` before `quote`: Helm
+  renders a number of 1 000 000 or more from a values file as `1e+06`, and the gateway refuses
+  that text. The default period (7 776 000) is such a number.
 - Gateway NetworkPolicy: one `allowFrom` element for the scoreboard pods (`contracts.md` K4).
 - Gateway trusted networks: confirm that the address range of the scoreboard pods is in
   `AIGW_ALLOWED_NETWORKS`.
@@ -351,7 +385,8 @@ after 2026-11-16.
   only when a call ends, so the time of one call is not the limit; the deadline is.
 - The gateway runs one replica in production. The design also works with more
   (`contracts.md` K7).
-- Stack B is live in production before C1 is released.
+- Stack B is live in production before C1 is released, and C1 is not merged before that
+  (the merge rule of §2).
 - After a restore of the gateway database, the operator runs `claim_copies` at once
   (`test-plan.md` §5.4). The design does not protect a copy that lost its claim and is past
   its period (`erd.md` §2.8).
@@ -453,3 +488,12 @@ of pull requests correct. The fixes that are in this version:
 | Minor: the column drop of a downgrade on SQLite; the test seam of the trigger; two release checks (count, uuid cast); tests that could not fail where they were; the pull request of the period setting; the shutdown order of the scoreboard; two wording gaps in §1 and §2; a repeat with the same key for an old Score | `RunSQL` drop in both downgrades; `sleep` and `now` bound in the constructor and `app.state.frozen_copy_sweep_trigger`; count before and after, `::uuid[]`; K-25 moved to C1, S-6 before S-1, K-26 narrowed, new test S-36; the setting and S-37 in C1; cancel, then client, then database, with test K-34; text corrected; C12 extended with test K-35 and risk X6 |
 
 The fixes of round 6 were checked by the author only.
+
+**Round 7 (2026-11-17).** The plans for stacks B and C were written, and one independent review
+read them. Its result was "ready with fixes": three major and thirteen minor findings, all
+applied in the plans. The major ones: the scoreboard read each 200 of the claim route as a
+claim; a merge of C1 to `main` goes out with the next gateway release; a file with an approved
+test change got a later edit. The plan work also corrected this spec: the engine line anchors
+after the move of the base, the SQL filter of the expiry rule, the merge rule, the 200 rule of
+the claim client, the shape of the pull requests of stacks B and C, and the chart checks. The
+owner then decided Q26 to Q32 (§5.4). The text of round 7 was checked by the author only.

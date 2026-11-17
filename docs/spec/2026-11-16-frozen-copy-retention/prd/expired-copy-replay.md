@@ -1,7 +1,7 @@
 # PRD: a replay of an expired copy, and the public promise
 
-**Source:** ans:Q2, ans:Q8, ans:Q10, ans:Q22, ans:Q24 · **Priority:** P1 (released with the
-expiry rule, 90 days before the first copy can expire)
+**Source:** ans:Q2, ans:Q8, ans:Q10, ans:Q22, ans:Q24, ans:Q32 · **Priority:** P1 (released
+with the expiry rule, 90 days before the first copy can expire)
 **Lifecycle:** existing (characterize + delta) in `apps/aigateway`, `apps/screamingface-engine`,
 `public-docs`, `CONTEXT.md`
 **Owner:** unassigned
@@ -43,13 +43,13 @@ change. `[stated ans:Q8]`
   `[existing apps/screamingface-engine/src/screamingface_engine/capture_outcomes.py:90-105]`
   It maps `frozen_copy_unavailable` to its own fixed text "the frozen copy is not available for
   replay", as a permanent failure.
-  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1523-1541]`
+  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1553-1571]`
   Each other failure status with no replay header becomes the same code and text.
-  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1506-1520]`
+  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1536-1550]`
 - The web-tool lookup of a replay has the same two codes, with its own fixed texts.
-  `[existing apps/screamingface-engine/src/screamingface_engine/world/web_tools.py:155-176]`
+  `[existing apps/screamingface-engine/src/screamingface_engine/world/web_tools.py:152-175]`
 - The engine has no check of the copy before the run. The first replay call finds the problem.
-  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1490-1502]`
+  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1520-1532]`
 - The SDK shows the engine's message text as it is. Its reproduction logic reads only the code
   strings `frozen_copy_miss` and `frozen_copy_unavailable`.
   `[existing packages/screamingface/src/screamingface/_reproduction.py:62-68]`
@@ -73,17 +73,18 @@ message and keeps the code. The docs, the glossary and the design record state t
     message: "the frozen copy expired: no leaderboard score used it in its retention period, and
     the gateway deleted its answers"
   - And the user sees that message in the failure of the replay.
-- **R2. The public docs state the rule.** `[stated ans:Q8]` Must
+- **R2. The public docs state the rule.** `[stated ans:Q8]` `[stated ans:Q32]` Must
   - Given the page "Caching", section "Reproducing a submission"
   - Then it no longer says "kept forever". It says, in the words of the docs: a pinned cache
     that a leaderboard score uses is kept for as long as the score exists on the board; a pinned
-    cache that no score uses is deleted 90 days after the run ends; for a run that ended before
-    the date of this rule, the 90 days start on that date (the page names the date, which is
-    the day of the production release of pull request C1 `[stated ans:Q24]`); submit the score
-    before that time; a replay of a deleted pinned cache fails with a message that says it
-    expired.
+    cache with no submitted score is deleted 90 days after it is sealed (a run seals its pinned
+    cache when it ends); for a pinned cache that was sealed before the rule started, the 90 days
+    count from the start of the rule; submit the score before that time; a replay of a deleted
+    pinned cache fails with a message that says it expired.
+  - And it gives no date for the start of the rule, and it names no release day and no person.
+    The docs state the rule only. `[stated ans:Q32]`
   - And it says that the rule also applies to a local engine: a pinned cache in a local
-    gateway is deleted 90 days after the run ends, because no score can use it there.
+    gateway is deleted 90 days after it is sealed, because no score can use it there.
     `[stated ans:Q22]`
   - And it says which submit is refused `[stated ans:Q10]`: a score can be submitted with a
     pinned cache only when the service holds that pinned cache complete. A run whose pinned
@@ -99,7 +100,7 @@ message and keeps the code. The docs, the glossary and the design record state t
   - Given `CONTEXT.md`, entry "Pinned Cache"
   - Then the first sentence does not say "permanent". Proposed text: "The record of every model
     answer and web-tool result of one captured run. It is kept while a Leaderboard Score names
-    it; if no Score names it, the AI gateway deletes it 90 days after the run ends."
+    it; if no Score names it, the AI gateway deletes it 90 days after it is sealed."
 
 ### 3.2 Error paths
 
@@ -119,7 +120,7 @@ message and keeps the code. The docs, the glossary and the design record state t
   - Then the old engine fails the call as permanent with `frozen_copy_unavailable` and its old
     text. No retry occurs, and no crash.
   - This is true today: a failure status with no replay header becomes that code
-    `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1506-1509]`.
+    `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1536-1539]`.
     The 410 must thus never carry the `X-AIGW-Replay` header.
 - **R7. The code string does not change.** `[stated ans:Q8]` H×M Must
   - Given the engine has this change
@@ -131,12 +132,14 @@ message and keeps the code. The docs, the glossary and the design record state t
   - Given the 410 body carries a `message`
   - Then the engine uses its own fixed text and not the text of the gateway, as it does for the
     two codes of today
-    `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1526-1528]`.
+    `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1556-1558]`.
 - **R9. The docs are public before a copy can expire.** `[implied]` H×L Must
-  - Given pull request C1 is released in production (its migration starts the 90-day clock of
+  - Given pull request C1 is merged (the production release of C1 starts the 90-day clock of
     the copies that exist, `erd.md` §5)
-  - Then the docs change of R2 is published on that day, and it names that day. The first copy
-    cannot expire until 90 days after that day, so each user has about 90 days of notice.
+  - Then pull request C3, with the docs change of R2, is merged after C1 is merged. The first
+    copy cannot expire until 90 days after the production release of C1, so the docs are public
+    before the first expiry.
+  - The docs give no date, and C3 is not tied to the day of a release. `[stated ans:Q32]`
   - No code waits for the docs. `[stated ans:Q22]` If the docs are late, the notice is shorter
     by that delay.
 - **R10. A partial replay.** `[implied]` M×L Must
@@ -160,7 +163,7 @@ message and keeps the code. The docs, the glossary and the design record state t
 - Docs text uses "pinned cache". The glossary says to avoid "Frozen Copy" in text for users
   `[existing CONTEXT.md:190]`.
 - The engine message uses "frozen copy", as the two messages next to it do
-  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1516-1520]`.
+  `[existing apps/screamingface-engine/src/screamingface_engine/world/connector.py:1546-1550]`.
   `[proposed]`
 - The engine message names no number of days. The period is a gateway setting, and the engine
   must not repeat its value. `[proposed]`
@@ -171,7 +174,7 @@ message and keeps the code. The docs, the glossary and the design record state t
 |---|---|---|
 | Q33 | Retention (2026-11-16) | Reverses E14 Q15. A copy that a Score claims is kept forever. A sealed copy with no claim is deleted 90 days after its clock starts. Spec: `docs/spec/2026-11-16-frozen-copy-retention`. |
 | Q34 | Open copies (2026-11-16) | An open copy that gets no entry for 24 hours is abandoned, and its entries are deleted. A replay never read an open copy. |
-| Q35 | Clock of copies sealed before the rule (2026-11-16) | Their 90 days start on the date the rule goes live, not on their seal date. The release writes that date into the database; no setting holds it. |
+| Q35 | Clock of copies sealed before the rule (2026-11-16) | Their 90 days start when the rule goes live, not at their seal. The release writes that time into the database; no setting holds it. The public docs name no date. |
 | Q36 | Notice to users (2026-11-16) | Public docs and the error message only. No SDK change. |
 
 ### 4.4 Observability
@@ -204,8 +207,8 @@ Test files: `apps/aigateway/tests/unit/test_frozen_copy_replay.py` (add),
 | # | Test (RED) | Level | Source | Risk | GREEN note |
 |---|---|---|---|---|---|
 | CH-1 | CHAR: a replay of an open or unknown copy answers 404 `frozen_copy_unavailable` | unit | `[existing routes/frozen_copies.py:94-110]` | — | passes today (`test_replay_of_an_open_or_unknown_copy_is_404_unavailable`) |
-| CH-2 | CHAR: the engine maps a 404 `frozen_copy_unavailable` to its fixed text, permanent | unit | `[existing connector.py:1537-1538]` | — | passes today |
-| CH-3 | CHAR: the engine maps a failure status with no replay header to `frozen_copy_unavailable` (R6) | unit | `[existing connector.py:1506-1509]` | — | passes today; it is the proof for old engines |
+| CH-2 | CHAR: the engine maps a 404 `frozen_copy_unavailable` to its fixed text, permanent | unit | `[existing connector.py:1567-1568]` | — | passes today |
+| CH-3 | CHAR: the engine maps a failure status with no replay header to `frozen_copy_unavailable` (R6) | unit | `[existing connector.py:1536-1539]` | — | passes today; it is the proof for old engines |
 | R-1 | gateway: a chat replay of an `expired` copy answers 410 `frozen_copy_expired`, `state: expired`, with no `X-AIGW-Replay` header (R1) | unit | `[stated ans:Q8]` | H×M | new branch in `_sealed_copy` |
 | R-2 | gateway: a tool lookup of an `expired` copy answers the same 410 (R1) | unit | `[stated ans:Q8]` | H×M | both routes use `_sealed_copy` |
 | R-3 | gateway: a replay of an `abandoned` copy answers 404 `frozen_copy_unavailable` (R5) | unit | `[implied]` | M×M | falls into the branch of today |
@@ -218,7 +221,8 @@ Items R2, R3 and R4 are text edits with no automated test: `CachingPage.vue` (th
 "Reproducing a submission"), `02-frozen-copy-design.md` (rows Q33–Q36, F1, F2),
 `apps/aigateway/src/aigateway/core/frozen_copy/models.py:6-7` (F1, F2), `CONTEXT.md:187`. The
 reviewer checks them against §3.1, §4.3 and `erd.md` §2.5 (I6, I7). The reviewer also searches the
-public docs for "kept forever" in text about the pinned cache; no such text must remain.
+public docs for "kept forever" in text about the pinned cache; no such text must remain. The
+reviewer also confirms that the page gives no date for the start of the rule `[stated ans:Q32]`.
 
 ### 7.1 Implementation notes
 
@@ -226,7 +230,7 @@ public docs for "kept forever" in text about the pinned cache; no such text must
   `expired` → raise 410; all other cases → the 404 of today. Shape in `contracts.md` K3.
 - **Engine.** `replay_refusal_code` reads only a 404 today. Add the one case: status 410 with
   `detail.code == "frozen_copy_expired"`. Keep the engine's own list of codes
-  `[existing apps/screamingface-engine/src/screamingface_engine/error_text.py:79-80]` as it is:
+  `[existing apps/screamingface-engine/src/screamingface_engine/error_text.py:82-83]` as it is:
   the code that leaves the engine is still `frozen_copy_unavailable`.
 - **Do not** add `frozen_copy_expired` to the codes that the engine sends to a client.
-- **Do not** edit the old rows Q15 or the text of old specs. Add rows, as Q31 did for Q22.
+- **Do not** edit the old rows Q15 or the text of old specs. Add rows, as E14 Q31 did for E14 Q22.

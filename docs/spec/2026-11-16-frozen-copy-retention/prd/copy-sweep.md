@@ -46,10 +46,10 @@ of a swept copy gets is specified in `prd/expired-copy-replay.md`.
 - A copy has two states, `open` and `sealed`. `[existing core/frozen_copy/models.py:21-22]`
 - The engine seals a copy only when the run's process reaches the end of its work. It never
   seals after a cancellation.
-  `[existing apps/screamingface-engine/src/screamingface_engine/runner/executor.py:1111-1113]`
+  `[existing apps/screamingface-engine/src/screamingface_engine/runner/executor.py:1144-1146]`
   A cancel by the user, a deadline, a memory kill, a hard-wall kill, a crash and a pod drain all
   leave the copy `open`. A run that the queue delivers again opens a second copy.
-  `[existing apps/screamingface-engine/src/screamingface_engine/runner/executor.py:1117-1127]`
+  `[existing apps/screamingface-engine/src/screamingface_engine/runner/executor.py:1150-1160]`
 - The supervisor process does not know the copy id, so it cannot close the copy for a killed
   child. The id is only in the memory of the child process.
   `[existing apps/screamingface-engine/src/screamingface_engine/capture_outcomes.py:136]`
@@ -251,10 +251,16 @@ key in `charts/aigateway/values.yaml` and a line in `templates/configmap.yaml`
   result reports a partial capture. The time of one model call (1800 seconds,
   `[existing apps/screamingface-engine/url4.toml:56]`) is not the limit, because a run can have
   many calls with no stored entry (a call that streams, or that is too large, stores none).
-- At start, the gateway logs the values of these settings. `[proposed]`
+- At start, the gateway logs the values of these settings, in two records. The record of
+  stack A, "frozen copy sweep armed (…)", has the three settings of stack A. C1 adds a second
+  record, "frozen copy expiry armed (unclaimed_ttl_s=…)", for the period. The record of stack A
+  does not change. `[stated ans:Q31]`
+- In the chart template, each number goes through `int64` before `quote`. Helm renders a number
+  of 1 000 000 or more from a values file as `1e+06`, and the gateway refuses that text. The
+  default period (7 776 000) is such a number. `[proposed]`
 - Stack A adds three of the four settings (interval, idle time, purge budget).
   `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` is used only by the expiry rule, so C1 adds it:
-  the field in `config.py`, the chart value, its limit test and its line in the start log.
+  the field in `config.py`, the chart value, its limit test and its own start log record.
   `[proposed]`
 
 ### 4.2 Performance and load
@@ -358,12 +364,12 @@ Test files: `apps/aigateway/tests/unit/test_frozen_copy_sweep.py`,
 | S-28 | migration 0018: three columns, index, downgrade, silent autodetector | unit | `[proposed]` | M×L | see `erd.md` §5 |
 | S-29 | the purge stops when the mean time of the last 10 chunks is above 5 s, and reports the cause (S24) | unit | `[proposed]` | M×H | injected clock around each chunk |
 | S-31 | Postgres: with the row lock of an idle open copy held by a seal that then commits, the mark that waited leaves the copy `sealed` with its entries (S25) | integration | `[proposed]` | H×L | the idle branch checks `status = open` under the lock |
-| S-32 | at start, the gateway logs the values of the sweep settings (§4.1) | unit | `[proposed]` | M×L | one log record in the lifespan; three settings in A3, and C1 adds the fourth (S-37) |
+| S-32 | at start, the gateway logs the values of the sweep settings (§4.1) | unit | `[proposed]` | M×L | one log record in the lifespan with the three settings of stack A; C1 adds a second record for the fourth setting (S-37) `[stated ans:Q31]` |
 | S-33 | migration 0019: the column `retention_from`; each row that is `sealed` gets one value, and each other row keeps `NULL`; the value read back through the model is timezone-aware and compares correctly with `sealed_at`; downgrade; silent autodetector (S5) | unit | `[stated ans:Q24]` | H×M | a `RunPython` step that passes one UTC time as a parameter of one `UPDATE`; see `erd.md` §5 |
 | S-34 | the command with `--run` marks and purges in one pass, with the same result as one periodic run; `--max-entries` sets the budget (S26) | unit | `[proposed]` | M×M | the command and the trigger call one function |
 | S-35 | a dry run lists an unclaimed sealed copy for the rule `expired` when its period ended, also with a future `--cutoff`, and changes no row (S7, S21) | unit | `[proposed]` | M×M | the dry run calls the rule code of C1 |
 | S-36 | Postgres: two runs mark the same idle copy at the same time: one marks it, the other skips it, and `entries` and `swept_at` are written one time (S18) | integration | `[proposed]` | M×L | the second mark reads the status under the row lock and skips a copy that is not `open` |
-| S-37 | `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS`: the gateway refuses to start with a value of 0 or less; the expiry rule uses the value; the start log shows it (§4.1) | unit | `[stated ans:Q2]` | M×L | C1 adds the setting to `Settings`, the chart and the start log |
+| S-37 | `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS`: the gateway refuses to start with a value of 0 or less; the expiry rule uses the value; a second start log record shows it (§4.1) | unit | `[stated ans:Q2]` `[stated ans:Q31]` | M×L | C1 adds the setting to `Settings` and the chart, and one new start log record; the record of stack A does not change |
 
 Ids that are not used: S-3, S-18, S-19, S-20, S-26 and S-30. They tested the two switches and
 the approved list `[stated ans:Q22]` `[stated ans:Q23]`.
@@ -371,6 +377,14 @@ the approved list `[stated ans:Q22]` `[stated ans:Q23]`.
 Pull requests: A1 has CH-1, CH-2, S-9, S-28. A2 has S-2, S-5, S-7, S-8, S-10 to S-13, S-15 to
 S-17, S-21, S-22, S-27, S-29, S-31, S-34, S-36. A3 has S-23 to S-25, S-32. C1 has S-1, S-4, S-6,
 S-14, S-33, S-35, S-37. In C1, write S-6 before S-1.
+
+**Two assertions of stack A tests change in C1.** `build_frozen_copy_sweep` gets a second rule,
+so each run report has the key `expired`. The owner approved the two assertion-only changes
+`[stated ans:Q27]`: in `tests/unit/test_frozen_copy_sweep.py`, `report.marked == {"abandoned":
+1}` becomes `{"abandoned": 1, "expired": 0}`; in `tests/unit/test_frozen_copy_sweep_cli.py`,
+`out["marked"] == {"abandoned": 2}` becomes `{"abandoned": 2, "expired": 0}`. The approval
+record pins the bytes of each file, so no new test of C1 goes into these two files. S-35 is in
+the new test file of the expiry rule.
 
 **How to write the race tests (S-13 to S-16, S-31, S-36).** Use two database connections and a fixed order:
 connection A takes the lock and waits on an event; the test starts B; the test lets A commit;
@@ -385,7 +399,8 @@ under the lock. S-15 is the one test in which B must end with `lock timeout`.
 ### 7.1 Implementation notes
 
 - **Where the code goes.** A new module `core/frozen_copy/sweep.py` holds the rules and the
-  purge. The command is `aigateway/frozen_copy_sweep.py` (run with `python -m`). The periodic
+  purge. In C1, the rule classes move to `core/frozen_copy/sweep_rules.py`, so that no file is
+  above 450 lines; `sweep.py` keeps each public name `[stated ans:Q30]`. The command is `aigateway/frozen_copy_sweep.py` (run with `python -m`). The periodic
   trigger is a small class next to the sweep module. `[proposed]`
 - **Exemplars.**
   - Row lock and transaction: `FrozenCopyStore.seal`
