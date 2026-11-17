@@ -39,6 +39,7 @@ from screamingface_engine.config import Settings
 from screamingface_engine.error_text import (
     CONTROL_PLANE_TERMINAL_CODES,
     ENGINE_ERROR_CODES,
+    PUBLIC_UNVOUCHED_CODES,
     public_message,
 )
 from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
@@ -106,8 +107,9 @@ def _sanitized_error(error: ErrorInfo | None) -> tuple[str | None, str | None, b
        embeds ``{token!r}`` of the caller's expression with no limit of its own.
 
     A code in :data:`CONTROL_PLANE_TERMINAL_CODES` (the supervisor's own ``cancelled``,
-    ``queue_expired``, ``deadline_exceeded``, ``spawn_failed``) is reported as itself, with its
-    message withheld.
+    ``queue_expired``, ``deadline_exceeded``, ``spawn_failed``) or in
+    :data:`PUBLIC_UNVOUCHED_CODES` (``intent_error``, a refusal that may carry gateway text) is
+    reported as itself, with its message withheld.
 
     An unvouched or withheld message yields ``None``, and the caller falls back to the fixed
     table detail for the status. NOTE that ``_SCRUBBED_CODE`` is the genuine ``internal_error``
@@ -121,8 +123,10 @@ def _sanitized_error(error: ErrorInfo | None) -> tuple[str | None, str | None, b
         return error.code, public_message(error.message, default=""), error.permanent
     # The control plane's own terminal reason keeps its code — a cancelled or expired run is not
     # an engine fault — but, like every unvouched code, never its message (`spawn_failed` carries
-    # `str(exc)`). Anything else is scrubbed to `internal_error`.
-    code = error.code if error.code in CONTROL_PLANE_TERMINAL_CODES else _SCRUBBED_CODE
+    # `str(exc)`). So does a refusal (`intent_error`), whose message may be gateway text. Anything
+    # else is scrubbed to `internal_error`.
+    public = error.code in CONTROL_PLANE_TERMINAL_CODES or error.code in PUBLIC_UNVOUCHED_CODES
+    code = error.code if public else _SCRUBBED_CODE
     return code, None, error.permanent
 
 
