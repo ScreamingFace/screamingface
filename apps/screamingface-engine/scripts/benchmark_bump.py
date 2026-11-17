@@ -115,24 +115,27 @@ def _report(key: str, ids: _Ids) -> str:
         f'{_FINGERPRINT_PINS}:\n      "{key}": "{ids.fingerprint}",',
         f"{_CHANGELOG}: one line naming {key}, the old and new id, and why it moved.",
         "Tell the team (a post in the team channel) and name who signed off in the PR body.",
+        "After the deploy, re-grade every old entry that has a pinned cache onto the new id "
+        "(OME-1909); an entry with no pinned cache needs a fresh run.",
     ]
     checklist: str = "".join(f"  {number}. {step}\n" for number, step in enumerate(steps, 1))
     return f"""\
 WARNING: moving {key}'s published revision hides every leaderboard result under
-{ids.published} and marks every submission to it outdated.
-Move it ONLY on a fundamental change: a changed Case set, or a new Benchmark. A refactor, a
-grading fix or a package bump that keeps the same Cases is NOT a reason to move it.
+{ids.published} until it is re-graded onto the new id (OME-1909), and marks every
+submission to it outdated.
+Move it when the Cases or the grading change, or for a new Benchmark. A refactor, a code
+move or a package bump that leaves every grade the same is NOT a reason to move it.
 A move needs the owner's sign-off before it merges. This command edits nothing.
 
 {key}
   publishes (hand-set):        {ids.published}
   computes (fingerprint now):  {ids.fingerprint}
 
-Same Cases? Keep the id. Edit only:
+Only code moved, every grade the same? Keep the id. Edit only:
   {_FINGERPRINT_PINS}
       "{key}": "{ids.fingerprint}",
 
-Fundamental change, and the owner signed off? Edit by hand, in one PR:
+Cases or grading changed, and the owner signed off? Edit by hand, in one PR:
 {checklist}"""
 
 
