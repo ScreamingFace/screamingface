@@ -16,11 +16,11 @@ from typing import Any
 import nbformat
 
 from workbench.evidence import TraceChain
+from workbench.image_notebook import ANSWER_CAP
 from workbench.redaction import redact, redact_tree
 from workbench.runner import NotebookRun
 
 MATRIX_FILE = "matrix.json"
-ANSWER_CAP = 200  # image input matrix spec §3.5: the answer excerpt per row
 _HEADER = "| target | notebook | outcome | trace ids | reasons |\n|---|---|---|---|---|\n"
 
 

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import nbformat
 
+from workbench import bundle, image_notebook
 from workbench.bundle import write_bundle
 from workbench.evidence import Hop, TraceChain
 from workbench.redaction import redact
@@ -181,3 +182,11 @@ def test_a_malformed_matrix_is_kept_as_reported_not_dropped(tmp_path: Path) -> N
     )
     body = (out / "matrix.json").read_text()
     assert KEY not in body and json.loads(body) == "oops [REDACTED]"
+
+
+def test_bundle_and_notebook_cap_answers_at_one_shared_limit() -> None:
+    """Both sides cap ``matrix.json`` answers; one constant, so the two caps cannot drift."""
+    import inspect
+
+    assert bundle.ANSWER_CAP == image_notebook.ANSWER_CAP
+    assert "ANSWER_CAP =" not in inspect.getsource(bundle), "bundle must import the cap"

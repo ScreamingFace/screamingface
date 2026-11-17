@@ -19,7 +19,14 @@ from workbench.build_notebooks import (
     serialize,
 )
 from workbench.image_matrix import Cell, verdict
-from workbench.image_notebook import coverage_failures, matrix_rows, reported_trace_ids
+from workbench.image_notebook import (
+    Budget,
+    coverage_failures,
+    html_table,
+    matrix_rows,
+    reported_trace_ids,
+    upstream_calls,
+)
 from workbench.redaction import redact
 from workbench.runner import RESULT_PREFIX
 
@@ -355,3 +362,39 @@ def test_image_input_matrix_verdict_cell_fails_on_any_failure() -> None:
     ns["media_failures"] = ["benchmark m b#1: fetched media digest differs"]
     with pytest.raises(AssertionError, match="digest differs"):
         exec(_matrix_code(contains="assert not failures"), ns)
+
+
+def test_image_input_matrix_evidence_cell_fills_chat_calls_so_the_verdict_sees_them(
+    tmp_path,
+) -> None:
+    """Review Focus 1 hinges on this cell: a refused cell whose trace shows a provider dispatch
+    must fail the verdict. Dropping the ``replace(chat_calls=...)`` would leave every count at
+    ``None`` and pass any refusal, so the cell itself is executed here, not only compiled."""
+    from dataclasses import replace
+    from decimal import Decimal
+    from pathlib import Path
+
+    log = tmp_path / "runtime.log"
+    log.write_text(
+        f"2026-11-17T10:00:00Z [gateway] INFO: dispatch failed provider=openrouter status=400 "
+        f"trace_id={_TID2} gateway_call_id=c1\n",
+        encoding="utf-8",
+    )
+    refused = Cell(
+        "url4", "t", "image/png", "refuse", "refused", None, "intent_error", _TID2, None, None
+    )
+    unrun = Cell("url4", "s", "image/png", "answer", "skipped", None, None, None, None, "budget")
+    ns: dict[str, Any] = {
+        "EVENTS_PATH": str(log),
+        "Path": Path,
+        "replace": replace,
+        "cells": [refused, unrun],
+        "upstream_calls": upstream_calls,
+        "html_table": html_table,
+        "display": lambda _obj: None,
+        "HTML": str,
+        "budget": Budget(Decimal("0.5")),
+    }
+    exec(_matrix_code(contains="Path(EVENTS_PATH).read_text("), ns)
+    assert [c.chat_calls for c in ns["cells"]] == [1, None]
+    assert any("1 gateway chat call(s) ran" in f for f in verdict(ns["cells"]))
