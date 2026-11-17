@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import io
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
-from _reconnect_engine import RESULT_BODY, StubEngine, candidate, stub_engine
+from _reconnect_engine import candidate
+from _run_engine import ended, event, run_engine, settled
 
 from screamingface._core.ports import _ConnectionListener, _ConnectionNotice
 from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
@@ -28,6 +30,7 @@ from screamingface.events import Event, Started
 
 _RECONNECTING = _ConnectionNotice(state="reconnecting", attempt=2)
 _RECONNECTED = _ConnectionNotice(state="reconnected")
+BODY = b'{"cases": []}'
 
 
 class _Listener:
@@ -47,8 +50,51 @@ class _Listener:
             raise RuntimeError("progress renderer defect")
 
 
-def _transport(engine: StubEngine) -> Url4CloudTransport:
-    return Url4CloudTransport(engine.url, reconnect_base_delay_s=0.01)
+class _ListenerSink:
+    """A follow sink that hands Candidate 0's events and the Run's notices to ``listener``."""
+
+    def __init__(self, listener: Any) -> None:
+        self.listener = listener
+        self.outcome: Any = None
+
+    def state(self, index: int, state: str) -> None:
+        pass
+
+    def event(self, index: int, event: Event) -> None:
+        self.listener(event)
+
+    def settled(self, index: int, state: str, outcome: Any) -> None:
+        self.outcome = outcome
+
+    def connection(self, notice: _ConnectionNotice) -> None:
+        getattr(self.listener, "connection", lambda _n: None)(notice)
+
+
+class _AsyncListenerSink(_ListenerSink):
+    async def state(self, index: int, state: str) -> None:  # type: ignore[override]
+        pass
+
+    async def event(self, index: int, event: Event) -> None:  # type: ignore[override]
+        self.listener(event)
+
+    async def settled(self, index: int, state: str, outcome: Any) -> None:  # type: ignore[override]
+        self.outcome = outcome
+
+
+def _dropping(drops: int) -> list[list[str | int]]:
+    """A Run whose stream drops (1012) ``drops`` times before it ends."""
+    script: list[list[str | int]] = [[event(0, n + 1), 1012] for n in range(drops)]
+    return [*script, [event(0, drops + 1), settled(0, BODY), ended()]]
+
+
+def _follow(url: str, sink: _ListenerSink) -> Any:
+    transport = Url4CloudTransport(url, reconnect_base_delay_s=0.01)
+    try:
+        run_id = transport.register_run(None, (candidate(),))
+        transport.follow_run(run_id, (candidate(),), sink)
+    finally:
+        transport.close()
+    return sink.outcome
 
 
 def _expected_two_outages() -> list[tuple[str, int | None]]:
@@ -61,14 +107,10 @@ def _expected_two_outages() -> list[tuple[str, int | None]]:
 
 def test_transport_sends_one_notice_per_attempt_and_one_on_resume() -> None:
     listener = _Listener()
-    with stub_engine(drops=2) as engine:
-        transport = _transport(engine)
-        try:
-            outcome = transport.run(candidate(), listener)
-        finally:
-            transport.close()
+    with run_engine(_dropping(2), {0: BODY}) as engine:
+        outcome = _follow(engine.url, _ListenerSink(listener))
 
-    assert outcome.result_body == RESULT_BODY
+    assert outcome.result_body == BODY.decode()
     assert [(n.state, n.attempt) for n in listener.notices] == _expected_two_outages()
     assert all(isinstance(event, Event) for event in listener.events)
 
@@ -76,39 +118,33 @@ def test_transport_sends_one_notice_per_attempt_and_one_on_resume() -> None:
 @pytest.mark.asyncio
 async def test_async_transport_sends_the_same_notices() -> None:
     listener = _Listener()
-    with stub_engine(drops=2) as engine:
+    sink = _AsyncListenerSink(listener)
+    with run_engine(_dropping(2), {0: BODY}) as engine:
         transport = AsyncUrl4CloudTransport(engine.url, reconnect_base_delay_s=0.01)
         try:
-            outcome = await transport.run(candidate(), listener)
+            run_id = await transport.register_run(None, (candidate(),))
+            await transport.follow_run(run_id, (candidate(),), sink)
         finally:
             await transport.close()
 
-    assert outcome.result_body == RESULT_BODY
+    assert sink.outcome.result_body == BODY.decode()
     assert [(n.state, n.attempt) for n in listener.notices] == _expected_two_outages()
 
 
 def test_a_failing_listener_does_not_end_the_run() -> None:
     # INVARIANT: progress is decorative; a renderer defect must not stop paid work.
     listener = _Listener(fail=True)
-    with stub_engine() as engine:
-        transport = _transport(engine)
-        try:
-            outcome = transport.run(candidate(), listener)
-        finally:
-            transport.close()
+    with run_engine(_dropping(1), {0: BODY}) as engine:
+        outcome = _follow(engine.url, _ListenerSink(listener))
 
-    assert outcome.result_body == RESULT_BODY
+    assert outcome.result_body == BODY.decode()
     assert [n.state for n in listener.notices] == ["reconnecting", "reconnected"]
 
 
 def test_a_plain_callback_receives_only_public_events() -> None:
     events: list[object] = []
-    with stub_engine() as engine:
-        transport = _transport(engine)
-        try:
-            transport.run(candidate(), events.append)
-        finally:
-            transport.close()
+    with run_engine(_dropping(1), {0: BODY}) as engine:
+        _follow(engine.url, _ListenerSink(events.append))
 
     assert events
     assert all(isinstance(event, Event) for event in events)

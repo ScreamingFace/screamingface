@@ -32,6 +32,17 @@ class _ResultArtifact:
 
 
 @dataclass(frozen=True, slots=True)
+class _RunResult:
+    """Where a driver-started Candidate's result is kept (E5 P2 spec D9a): the Run's result
+    route for the Candidate at ``index``, checked against ``size_bytes`` and ``sha256``."""
+
+    run_id: str
+    index: int
+    size_bytes: int
+    sha256: str
+
+
+@dataclass(frozen=True, slots=True)
 class _RunOutcome:
     """Transport-neutral root result retained for strict Report decoding.
 
@@ -80,6 +91,9 @@ class _RunOutcome:
     capture_replay: str | None = None
     # The partial reasons the run counted (design §5.2), sorted. Empty when complete or unknown.
     capture_partial_reasons: tuple[str, ...] = ()
+    # FEATURE (OME-1837): a Candidate the Engine started keeps its result in the Run's
+    # run-results store; the Client reads it from the result route (E5 P2 spec D9a).
+    run_result: _RunResult | None = None
 
 
 # FEATURE: OME-1066 adds the two capacity states — a start the Engine did not admit yet
@@ -177,3 +191,81 @@ class _ResultPersistence(Protocol):
     def prepare_results(
         self, evaluation: _Evaluation, candidates: tuple[Candidate, ...]
     ) -> Path | None: ...
+
+
+class _RunSink(Protocol):
+    """What a followed Run reports to the runner, per Candidate by its index (E5 P2 spec §4.2)."""
+
+    def state(self, index: int, state: str) -> None: ...
+
+    def event(self, index: int, event: Event) -> None: ...
+
+    def settled(self, index: int, state: str, outcome: _RunOutcome | Exception) -> None: ...
+
+    def connection(self, notice: _ConnectionNotice) -> None: ...
+
+
+class _AsyncRunSink(Protocol):
+    async def state(self, index: int, state: str) -> None: ...
+
+    async def event(self, index: int, event: Event) -> None: ...
+
+    async def settled(self, index: int, state: str, outcome: _RunOutcome | Exception) -> None: ...
+
+    def connection(self, notice: _ConnectionNotice) -> None: ...
+
+
+@runtime_checkable
+class _RunFollowing(Protocol):
+    """A transport the Engine drives (E5 P2 spec D1, D13): it registers the whole evaluation as a
+    Run, with every Candidate's start, and follows it; the runner starts no Candidate.
+
+    A transport without it (a test fake with `run()` alone) keeps the per-Candidate path until
+    the Client port PR removes it.
+    """
+
+    def register_run(
+        self,
+        evaluation: _Evaluation | None,
+        candidates: tuple[Candidate, ...],
+        *,
+        detach: bool = False,
+        deadline_s: int | None = None,
+    ) -> str: ...
+
+    def follow_run(
+        self, run_id: str, candidates: tuple[Candidate, ...], sink: _RunSink
+    ) -> None: ...
+
+    def cancel_run(self, run_id: str) -> None: ...
+
+    def close(self) -> None: ...
+
+
+@runtime_checkable
+class _AsyncRunFollowing(Protocol):
+    """The async twin of `_RunFollowing`. AIDEV-NOTE: `isinstance` sees only the names, so
+    each caller checks the twin matching the transport it holds."""
+
+    async def register_run(
+        self,
+        evaluation: _Evaluation | None,
+        candidates: tuple[Candidate, ...],
+        *,
+        detach: bool = False,
+        deadline_s: int | None = None,
+    ) -> str: ...
+
+    async def follow_run(
+        self, run_id: str, candidates: tuple[Candidate, ...], sink: _AsyncRunSink
+    ) -> None: ...
+
+    async def cancel_run(self, run_id: str) -> None: ...
+
+    async def close(self) -> None: ...
+
+
+#: What a Client holds until the Client port PR leaves one port: a transport the Engine drives,
+#: or a `run()`-only one (every test fake).
+type _SyncTransport = SyncRunTransport | _RunFollowing
+type _AsyncTransport = AsyncRunTransport | _AsyncRunFollowing

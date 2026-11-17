@@ -1,9 +1,10 @@
 """The Client's `/runs` wire client (E5 P1 spec §4.1, D7; plan C1).
 
 FEATURE: first-class Runs (OME-1785). STORY: as a researcher, every evaluation I start is
-recorded on the Engine, and a failure to record it never stops the evaluation.
+recorded on the Engine, and the Engine runs it (E5 P2 spec D1).
 
-INVARIANT (D7): any failure of `POST /runs` is one `Unavailable`, never an exception.
+INVARIANT (P2 D2): Runs are required, so a `POST /runs` that registered nothing raises: an older
+Engine with the upgrade to make, any other refusal with its code (`test_runs_wire_p2.py`).
 INVARIANT (§4.1): on reads and cancel, only a 404 with code `run_not_found` means the id is
 unknown; any other 404 means the Engine does not serve Runs.
 """
@@ -22,7 +23,12 @@ import pytest
 from screamingface._core.retry import RetryingAsyncTransport, RetryingTransport
 from screamingface._core.wire import _REPLAY_SAFE
 from screamingface._engine import runs as wire
-from screamingface.errors import AuthenticationError, EngineUnavailableError, ExecutionError
+from screamingface.errors import (
+    AuthenticationError,
+    EngineCapabilityError,
+    EngineUnavailableError,
+    ExecutionError,
+)
 
 RUN_ID = "run_" + "a" * 32
 _Handler = Callable[[httpx.Request], httpx.Response]
@@ -83,7 +89,10 @@ _SPEC = wire.RunRequest(
     client_key="k" * 32,
     benchmark="gsm8k",
     case_count=3,
-    candidates=("alpha", "beta"),
+    candidates=(
+        wire.StartRequest(name="alpha", url4="(@)!'alpha'"),
+        wire.StartRequest(name="beta", url4="(@)!'beta'"),
+    ),
     client_version="9.9.9",
 )
 
@@ -106,8 +115,11 @@ def test_create_returns_the_run(status: int) -> None:
         "client_key": "k" * 32,
         "benchmark": "gsm8k",
         "case_count": 3,
-        "candidates": ["alpha", "beta"],
+        "candidates": [start.body() for start in _SPEC.candidates],
         "client_version": "9.9.9",
+        "context": None,
+        "detach": False,
+        "deadline_s": None,
     }
     # WHY replay-safe: `client_key` makes the call idempotent, so a lost answer may be re-sent.
     assert sent.extensions.get(_REPLAY_SAFE) is True
@@ -133,33 +145,30 @@ def test_a_lost_create_answer_is_resent_with_the_same_client_key() -> None:
 
 
 @pytest.mark.parametrize(
-    "answer",
+    ("answer", "raised"),
     [
-        _problem(401, "identity_required"),
-        _problem(404),
-        httpx.Response(404, text="Not Found"),
-        _problem(422),
-        _problem(503),
-        httpx.Response(500, text="boom"),
-        httpx.Response(201, text="not json"),
-        httpx.Response(201, json={"id": RUN_ID}),
+        (_problem(401, "identity_required"), AuthenticationError),
+        (_problem(404), EngineCapabilityError),
+        (httpx.Response(404, text="Not Found"), EngineCapabilityError),
+        (_problem(422), EngineCapabilityError),
+        (_problem(503), ExecutionError),
+        (httpx.Response(500, text="boom"), ExecutionError),
+        (httpx.Response(201, text="not json"), ExecutionError),
+        (httpx.Response(201, json={"id": RUN_ID}), ExecutionError),
     ],
     ids=["401", "404-problem", "404-plain", "422", "503", "500", "not-json", "malformed"],
 )
-def test_any_failed_create_is_unavailable(answer: httpx.Response) -> None:
-    result = wire.create_sync(_request(lambda _r: answer, []), _SPEC)
-
-    assert isinstance(result, wire.Unavailable)
-    assert result.reason
+def test_any_failed_create_raises(answer: httpx.Response, raised: type[Exception]) -> None:
+    with pytest.raises(raised):
+        wire.create_sync(_request(lambda _r: answer, []), _SPEC)
 
 
-def test_an_unreachable_engine_is_unavailable() -> None:
+def test_an_unreachable_engine_raises_on_create() -> None:
     def refuse(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused", request=request)
 
-    result = wire.create_sync(_request(refuse, []), _SPEC)
-
-    assert isinstance(result, wire.Unavailable)
+    with pytest.raises(EngineUnavailableError):
+        wire.create_sync(_request(refuse, []), _SPEC)
 
 
 # --- GET /runs/{id} and DELETE /runs/{id} -------------------------------------------------
@@ -309,7 +318,8 @@ async def test_async_twins_share_the_contract() -> None:
 
     request = _async_request(respond)
 
-    assert isinstance(await wire.create_async(request, _SPEC), wire.Unavailable)
+    with pytest.raises(EngineCapabilityError):
+        await wire.create_async(request, _SPEC)
     with pytest.raises(KeyError):
         await wire.cancel_async(request, RUN_ID)
 
@@ -321,10 +331,11 @@ def test_a_run_id_not_minted_by_the_engine_is_refused(run_id: str) -> None:
 
     with pytest.raises(ExecutionError) as caught:
         wire.get_sync(_request(lambda _r: httpx.Response(200, json=body), []), RUN_ID)
-    created = wire.create_sync(_request(lambda _r: httpx.Response(201, json=body), []), _SPEC)
+    with pytest.raises(ExecutionError) as created:
+        wire.create_sync(_request(lambda _r: httpx.Response(201, json=body), []), _SPEC)
 
     assert caught.value.code == "engine_contract_error"
-    assert isinstance(created, wire.Unavailable)
+    assert created.value.code == "engine_contract_error"
 
 
 def test_a_page_that_adds_nothing_ends_the_list() -> None:

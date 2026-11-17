@@ -1,271 +1,98 @@
-"""A lost stream stops only its own Run; a completed Run is never stopped (OME-1067).
+"""A lost follow ends its own evaluation; a completed Run is never stopped (OME-1067).
 
 FEATURE: OME-1067 — one lost socket must not destroy work that is healthy or already done.
-STORY: as a researcher running several Candidates, when one Candidate's stream is lost past
-its reconnect budget, only that Candidate fails; a sibling that already finished keeps its
-result, and a sibling that is still running finishes.
+STORY: as a researcher, when my follow of a Run is lost past its reconnect budget, my evaluation
+says so and the Run is left to the Engine; and a Run whose Candidates have all finished is never
+canceled, even when my callback raises on its last frame.
 
-Spec: `docs/spec/2026-09-28-sdk-run-isolation.md` §4.1 C3 and §4.2 (bug B2).
+Since E5 P2 the Engine drives each Run and stops a Candidate itself (spec D1); the Client cancels
+the whole Run only for Ctrl-C or its caller's own failure (D14).
 """
 
 from __future__ import annotations
 
-import asyncio
-import threading
-import time
-from concurrent.futures import ThreadPoolExecutor
-
+import httpx
 import pytest
-from _isolation_engine import (
-    ARTIFACT_BODY,
-    RunPlan,
-    StubEngine,
-    candidate,
-    isolation_engine,
-    result_body,
-    url4_of,
-)
+from _run_engine import RUN_ID, ended, event, run_engine, settled, state
+from test_client_run import _engine as _catalog_engine
+from test_evaluation_outcome import valid_body
 
-from screamingface._engine.transport import AsyncUrl4CloudTransport, Url4CloudTransport
+import screamingface as sf
+from screamingface._engine.run_client import FollowTimings
 from screamingface.errors import ExecutionError
-from screamingface.events import Terminated
+
+BODY = valid_body().encode()
+_MODELS = [sf.Model("provider/opus", name="left"), sf.Model("provider/opus", name="right")]
 
 
-def _wait_until_started(engine: StubEngine, name: str) -> str:
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        token = engine.state.capability_of(url4_of(name))
-        if token is not None:
-            return token
-        time.sleep(0.01)
-    raise AssertionError(f"the Run of {name!r} never started")
+class _CallerBug(Exception):
+    pass
 
 
-def _lost_and_healthy() -> tuple[dict[str, RunPlan], threading.Event]:
-    hold = threading.Event()
-    return (
-        {
-            # Every reconnect is refused with a transient 503, so the outage budget runs out.
-            url4_of("lost"): RunPlan(first="drop", reconnects=[503] * 500),
-            url4_of("healthy"): RunPlan(hold=hold),
-        },
-        hold,
-    )
+def _client(url: str, *, budget_s: float = 5.0) -> sf.Client:
+    client = sf.Client(engine_url=url, http_transport=httpx.MockTransport(_catalog_engine))
+    client._transport._runs._timings = FollowTimings(budget_s, 0.0)  # type: ignore[union-attr]
+    return client
 
 
-# --- C3: an outage past its budget stops only the lost Run ------------------------------
+def _async_client(url: str) -> sf.AsyncClient:
+    return sf.AsyncClient(engine_url=url, http_transport=httpx.MockTransport(_catalog_engine))
 
 
 def test_a_stream_lost_past_its_budget_stops_only_its_own_run() -> None:
-    # INVARIANT (spec 4.1 C3): the sibling is independently attached and healthy; the lost
-    # Run's budget is not its budget. It must finish and return its result.
-    plans, hold = _lost_and_healthy()
-    with isolation_engine(plans) as engine:
-        transport = Url4CloudTransport(
-            engine.url, reconnect_budget_s=0.3, reconnect_base_delay_s=0.01
-        )
-        try:
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                healthy = pool.submit(transport.run, candidate("healthy"), None)
-                _wait_until_started(engine, "healthy")
-                with pytest.raises(ExecutionError) as caught:
-                    transport.run(candidate("lost"), None)
-                hold.set()
-                outcome = healthy.result(timeout=10)
-        finally:
-            transport.close()
+    script = [[state(0, "scheduled"), settled(1, BODY), 1011]]
+    with run_engine(script, {1: BODY}) as engine, _client(engine.url, budget_s=0.0) as client:
+        with pytest.raises(ExecutionError) as raised:
+            client.evaluate(_MODELS, benchmark="draco", progress=False)
 
-    assert caught.value.code == "websocket_disconnected"
-    assert outcome.result_body == result_body(url4_of("healthy"))
-    assert engine.state.deleted == [engine.state.capability_of(url4_of("lost"))]
+    assert raised.value.code == "websocket_disconnected"
+    assert RUN_ID in raised.value.message
+    assert engine.state.deleted == []
 
 
-@pytest.mark.asyncio
-async def test_async_a_stream_lost_past_its_budget_stops_only_its_own_run() -> None:
-    plans, hold = _lost_and_healthy()
-    with isolation_engine(plans) as engine:
-        transport = AsyncUrl4CloudTransport(
-            engine.url, reconnect_budget_s=0.3, reconnect_base_delay_s=0.01
-        )
-        try:
-            healthy = asyncio.create_task(transport.run(candidate("healthy"), None))
-            await asyncio.to_thread(_wait_until_started, engine, "healthy")
-            with pytest.raises(ExecutionError) as caught:
-                await transport.run(candidate("lost"), None)
-            hold.set()
-            outcome = await asyncio.wait_for(healthy, timeout=10)
-        finally:
-            await transport.close()
+def _raise_on_the_last(index: int):
+    def on_event(event: sf.Event) -> None:
+        if event.sequence == 2 and event.run_id.endswith(f"{index:032x}"):
+            raise _CallerBug("the notebook cell's handler failed")
 
-    assert caught.value.code == "websocket_disconnected"
-    assert outcome.result_body == result_body(url4_of("healthy"))
-    assert engine.state.deleted == [engine.state.capability_of(url4_of("lost"))]
+    return on_event
 
 
-# --- 4.2 / B2: a Run whose terminal frame arrived is out of every stop's reach -----------
-
-
-def _completed_with_held_artifact() -> tuple[dict[str, RunPlan], threading.Event]:
-    fetch_hold = threading.Event()
-    return (
-        {url4_of("done"): RunPlan(artifact=True, artifact_hold=fetch_hold)},
-        fetch_hold,
-    )
+_DONE_THEN_LAST_EVENT = [
+    [settled(0, BODY), event(1, 1), settled(1, BODY), event(1, 2), ended()],
+]
 
 
 def test_an_owner_sweep_never_stops_a_completed_run() -> None:
-    # INVARIANT (spec 4.2): once the terminal frame is accepted the Run is complete. A sweep
-    # that lands while its result is still being fetched must not send a stop for it — the
-    # Run is not running, and the caller gets the result it paid for.
-    plans, fetch_hold = _completed_with_held_artifact()
-    with isolation_engine(plans) as engine:
-        transport = Url4CloudTransport(engine.url)
-        try:
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                done = pool.submit(transport.run, candidate("done"), None)
-                assert engine.state.artifact_requested.wait(10)
-                transport.cancel_active()
-                fetch_hold.set()
-                outcome = done.result(timeout=10)
-        finally:
-            transport.close()
+    """A callback that raises once every Candidate has settled sends no cancel."""
+    with run_engine(_DONE_THEN_LAST_EVENT, {0: BODY, 1: BODY}) as engine:
+        with _client(engine.url) as client, pytest.raises(_CallerBug):
+            client.evaluate(
+                _MODELS, benchmark="draco", progress=False, on_event=_raise_on_the_last(1)
+            )
 
-    assert outcome.result_body == ARTIFACT_BODY
     assert engine.state.deleted == []
 
 
 @pytest.mark.asyncio
 async def test_async_an_owner_sweep_never_stops_a_completed_run() -> None:
-    plans, fetch_hold = _completed_with_held_artifact()
-    with isolation_engine(plans) as engine:
-        transport = AsyncUrl4CloudTransport(engine.url)
-        try:
-            done = asyncio.create_task(transport.run(candidate("done"), None))
-            assert await asyncio.to_thread(engine.state.artifact_requested.wait, 10)
-            await transport.cancel_active()
-            fetch_hold.set()
-            outcome = await asyncio.wait_for(done, timeout=10)
-        finally:
-            await transport.close()
-
-    assert outcome.result_body == ARTIFACT_BODY
-    assert engine.state.deleted == []
-
-
-@pytest.mark.asyncio
-async def test_async_a_cancelled_completed_run_leaves_nothing_for_the_sweep() -> None:
-    # WHY this case: a cancelled async Run deliberately keeps its capability registered so
-    # the Evaluation's sweep can stop it (see `AsyncUrl4CloudTransport.run`). A Run that was
-    # already COMPLETE when the cancel landed must not be on that list.
-    plans, _fetch_hold = _completed_with_held_artifact()
-    with isolation_engine(plans) as engine:
-        transport = AsyncUrl4CloudTransport(engine.url)
-        try:
-            done = asyncio.create_task(transport.run(candidate("done"), None))
-            assert await asyncio.to_thread(engine.state.artifact_requested.wait, 10)
-            done.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await done
-            await transport.cancel_active()
-        finally:
-            await transport.close()
+    with run_engine(_DONE_THEN_LAST_EVENT, {0: BODY, 1: BODY}) as engine:
+        async with _async_client(engine.url) as client:
+            with pytest.raises(_CallerBug):
+                await client.evaluate(
+                    _MODELS, benchmark="draco", progress=False, on_event=_raise_on_the_last(1)
+                )
 
     assert engine.state.deleted == []
-
-
-# --- 4.2 (review): complete at the terminal FRAME, before the caller's callback ----------
-
-
-def _is_terminal(event: object) -> bool:
-    return isinstance(event, Terminated)
-
-
-def test_a_sweep_during_a_slow_terminal_callback_never_stops_the_completed_run() -> None:
-    # INVARIANT (spec 4.2): the Run is complete when its terminal frame is accepted — not
-    # when the caller's callback for that frame returns. A slow callback is not a live Run.
-    in_callback, release = threading.Event(), threading.Event()
-
-    def slow(event: object) -> None:
-        if _is_terminal(event):
-            in_callback.set()
-            release.wait(10)
-
-    with isolation_engine({url4_of("done"): RunPlan()}) as engine:
-        transport = Url4CloudTransport(engine.url)
-        try:
-            with ThreadPoolExecutor(max_workers=1) as pool:
-                done = pool.submit(transport.run, candidate("done"), slow)
-                assert in_callback.wait(10)
-                transport.cancel_active()
-                release.set()
-                outcome = done.result(timeout=10)
-        finally:
-            transport.close()
-
-    assert outcome.result_body == result_body(url4_of("done"))
-    assert engine.state.deleted == []
-    assert engine.state.stop_frames == []
 
 
 def test_a_raising_terminal_callback_sends_no_stop_for_the_completed_run() -> None:
-    # WHY: the socket's interrupt arm sends `ai.url4.stop` for a Run that is still running.
-    # The callback's error still reaches the caller, but the finished Run is not "stopped".
-    def raising(event: object) -> None:
-        if _is_terminal(event):
-            raise RuntimeError("callback failed")
+    """While a sibling still runs, the same callback failure does cancel the Run (C1c)."""
+    script = [[event(1, 1), event(1, 2), "hold"]]
+    with run_engine(script, {}) as engine, _client(engine.url) as client:
+        with pytest.raises(_CallerBug):
+            client.evaluate(
+                _MODELS, benchmark="draco", progress=False, on_event=_raise_on_the_last(1)
+            )
 
-    with isolation_engine({url4_of("done"): RunPlan()}) as engine:
-        transport = Url4CloudTransport(engine.url)
-        try:
-            with pytest.raises(RuntimeError, match="callback failed"):
-                transport.run(candidate("done"), raising)
-        finally:
-            transport.close()
-
-    assert engine.state.deleted == []
-    assert engine.state.stop_frames == []
-
-
-@pytest.mark.asyncio
-async def test_async_a_sweep_during_a_slow_terminal_callback_never_stops_the_completed_run() -> (
-    None
-):
-    in_callback, release = asyncio.Event(), asyncio.Event()
-
-    async def slow(event: object) -> None:
-        if _is_terminal(event):
-            in_callback.set()
-            await release.wait()
-
-    with isolation_engine({url4_of("done"): RunPlan()}) as engine:
-        transport = AsyncUrl4CloudTransport(engine.url)
-        try:
-            done = asyncio.create_task(transport.run(candidate("done"), slow))
-            await asyncio.wait_for(in_callback.wait(), timeout=10)
-            await transport.cancel_active()
-            release.set()
-            outcome = await asyncio.wait_for(done, timeout=10)
-        finally:
-            await transport.close()
-
-    assert outcome.result_body == result_body(url4_of("done"))
-    assert engine.state.deleted == []
-    assert engine.state.stop_frames == []
-
-
-@pytest.mark.asyncio
-async def test_async_a_raising_terminal_callback_sends_no_stop_for_the_completed_run() -> None:
-    async def raising(event: object) -> None:
-        if _is_terminal(event):
-            raise RuntimeError("callback failed")
-
-    with isolation_engine({url4_of("done"): RunPlan()}) as engine:
-        transport = AsyncUrl4CloudTransport(engine.url)
-        try:
-            with pytest.raises(RuntimeError, match="callback failed"):
-                await transport.run(candidate("done"), raising)
-        finally:
-            await transport.close()
-
-    assert engine.state.deleted == []
-    assert engine.state.stop_frames == []
+    assert engine.state.deleted == [f"/runs/{RUN_ID}"]

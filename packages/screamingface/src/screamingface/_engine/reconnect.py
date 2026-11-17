@@ -1,5 +1,6 @@
 """Per-outage recovery accounting shared by both WebSocket transports."""
 
+import random
 from dataclasses import dataclass
 
 # WHY 2: the first re-login repairs an expired Access session; the second covers a login
@@ -16,6 +17,8 @@ class _RecoveryWindow:
     _deadline: float | None = None
     _connected_at: float | None = None
     _challenges: int = 0
+    # When the follow began, for the elapsed time a lost connection reports.
+    started_at: float = 0.0
 
     def connected(self, now: float) -> None:
         self._connected_at = now
@@ -46,3 +49,9 @@ class _RecoveryWindow:
             self.attempts = 0
         self._connected_at = None
         return self._deadline
+
+
+def reconnect_delay(attempt: int, base_s: float, *, max_s: float = 15.0) -> float:
+    """Full-jitter backoff (AWS): uniform in [0, min(cap, base * 2^attempt)]."""
+    cap = min(max_s, base_s * (2**attempt))
+    return random.random() * cap

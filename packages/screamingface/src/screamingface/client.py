@@ -28,7 +28,12 @@ if TYPE_CHECKING:
 
     import httpx
 
-    from screamingface._core.ports import AsyncRunTransport, SyncRunTransport
+    from screamingface._core.ports import (
+        AsyncRunTransport,
+        SyncRunTransport,
+        _AsyncTransport,
+        _SyncTransport,
+    )
     from screamingface._engine.catalog import AsyncBenchmarks, AsyncModels, Benchmarks, Models
     from screamingface._engine.connections import AsyncConnections, Connections
     from screamingface._scoreboard.leaderboards import AsyncLeaderboards, Leaderboards
@@ -103,7 +108,7 @@ class Client:
             auth=self._scoreboard_auth,
             transport=scoreboard_transport,
         )
-        self._transport: SyncRunTransport = (
+        self._transport: _SyncTransport = (
             run_transport
             if run_transport is not None
             else Url4CloudTransport(self._engine_url, self._engine_auth, save_results=save_results)
@@ -734,7 +739,7 @@ class AsyncClient:
             auth=self._scoreboard_auth,
             transport=scoreboard_transport,
         )
-        self._transport: AsyncRunTransport = (
+        self._transport: _AsyncTransport = (
             run_transport
             if run_transport is not None
             else AsyncUrl4CloudTransport(
