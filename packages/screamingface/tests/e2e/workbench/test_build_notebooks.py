@@ -18,6 +18,9 @@ from workbench.build_notebooks import (
     render_golden_candidate,
     serialize,
 )
+from workbench.image_matrix import Cell, verdict
+from workbench.image_notebook import coverage_failures, matrix_rows, reported_trace_ids
+from workbench.redaction import redact
 from workbench.runner import RESULT_PREFIX
 
 
@@ -44,7 +47,9 @@ def test_every_notebook_has_parameters_result_and_target_metadata() -> None:
         tags = [t for c in nb.cells for t in c.metadata.get("tags", [])]
         assert "parameters" in tags and "workbench-result" in tags, stem
         assert nb.metadata["workbench"]["targets"], stem
-        assert nb.metadata["workbench"]["required_result"] == ["trace_ids"], stem
+        # Every notebook reports trace ids; a notebook may declare more (image_input_matrix).
+        assert "trace_ids" in nb.metadata["workbench"]["required_result"], stem
+    assert build()["quickstart"].metadata["workbench"]["required_result"] == ["trace_ids"]
 
 
 def test_every_code_cell_compiles() -> None:
@@ -251,3 +256,102 @@ def test_the_builder_refuses_a_notebook_without_one_result_cell_and_marker(
     cells = [_code(src, *tags) for src, tags in sources]
     with pytest.raises(ValueError, match=why):
         _notebook("bad", cells, {"targets": ["replay"], "required_result": ["trace_ids"]})
+
+
+# --- image_input_matrix (image input matrix plan Task 5) ---------------------------------------
+
+
+def _matrix_code(tag: str | None = None, contains: str | None = None) -> str:
+    for cell in build()["image_input_matrix"].cells:
+        if cell.cell_type != "code":
+            continue
+        if tag and tag in cell.metadata.get("tags", []):
+            return cell.source
+        if contains and contains in cell.source:
+            return cell.source
+    raise AssertionError(f"no image_input_matrix cell with tag={tag} contains={contains}")
+
+
+def test_image_input_matrix_is_local_only_and_requires_the_matrix() -> None:
+    nb = build()["image_input_matrix"]
+    assert nb.metadata["workbench"] == {
+        "targets": ["local"],
+        "required_result": ["trace_ids", "matrix"],
+    }
+    assert (NOTEBOOK_DIR / "image_input_matrix.ipynb").is_file()
+    tagged = [c for c in nb.cells if "workbench-result" in c.metadata.get("tags", [])]
+    assert len(tagged) == 1
+
+
+def test_image_input_matrix_parameters_are_complete_and_carry_no_secret() -> None:
+    source = _matrix_code(tag="parameters")
+    assert redact(source) == source
+    assert "OPENROUTER_API_KEY" not in source and "sk-" not in source
+    ns: dict[str, Any] = {}
+    exec(source, ns)
+    params = {k: v for k, v in ns.items() if not k.startswith("__")}
+    assert set(params) == {
+        "MODELS",
+        "MEDIA",
+        "PATHS",
+        "FIXTURE_REF",
+        "BUDGET_USD",
+        "ENGINE_URL",
+        "SCOREBOARD_URL",
+        "GATEWAY_URL",
+        "EVENTS_PATH",
+    }
+    assert len(params["MODELS"]) == 5
+    assert params["MEDIA"] == [
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "application/pdf",
+    ]
+    assert params["PATHS"] == ["url4", "benchmark"]
+    assert params["FIXTURE_REF"].strip()
+    assert params["BUDGET_USD"] == 0.5
+
+
+def test_image_input_matrix_reads_the_key_from_env_only() -> None:
+    setup = _matrix_code(contains="client.connect(")
+    assert 'os.environ["OPENROUTER_API_KEY"]' in setup
+
+
+def test_image_input_matrix_result_cell_reports_ids_and_matrix(capsys) -> None:
+    """The result cell reports only ids that reached a model (the chain can find them) and the
+    whole matrix, before the verdict cell asserts anything."""
+    answered = Cell("url4", "m", "image/png", "answer", "answered", "7392", None, _TID, None, None)
+    refused = Cell(
+        "url4", "t", "image/png", "refuse", "refused", None, "intent_error", _TID2, None, None
+    )
+    ns: dict[str, Any] = {
+        "json": json,
+        "cells": [answered, refused],
+        "reported_trace_ids": reported_trace_ids,
+        "matrix_rows": matrix_rows,
+    }
+    exec(_matrix_code(tag="workbench-result"), ns)
+    (line,) = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith(RESULT_PREFIX)]
+    payload = json.loads(line[len(RESULT_PREFIX) :])
+    assert payload["trace_ids"] == [_TID]
+    assert [row["observed"] for row in payload["matrix"]] == ["answered", "refused"]
+
+
+def test_image_input_matrix_verdict_cell_fails_on_any_failure() -> None:
+    wrong = Cell("url4", "m", "image/png", "answer", "wrong", "1111", None, _TID, None, None)
+    ns: dict[str, Any] = {
+        "cells": [wrong],
+        "media_failures": [],
+        "verdict": verdict,
+        "coverage_failures": coverage_failures,
+    }
+    with pytest.raises(AssertionError, match="picture was not read"):
+        exec(_matrix_code(contains="assert not failures"), ns)
+    ns["cells"] = [
+        Cell("url4", "m", "image/png", "answer", "answered", "7392", None, _TID, None, None)
+    ]
+    ns["media_failures"] = ["benchmark m b#1: fetched media digest differs"]
+    with pytest.raises(AssertionError, match="digest differs"):
+        exec(_matrix_code(contains="assert not failures"), ns)

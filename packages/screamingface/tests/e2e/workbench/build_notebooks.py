@@ -317,7 +317,240 @@ def _quickstart() -> Any:
     return _notebook("quickstart", cells, meta)
 
 
-_BUILDERS: Final[dict[str, Callable[[], Any]]] = {"quickstart": _quickstart}
+# --- image_input_matrix (image input matrix spec §3, plan Task 5) -----------------------------
+
+_MATRIX_TITLE = """
+# Image input matrix: every capable model reads the picture, every blind one is refused
+
+Sends known-answer fixtures (a 4-digit token as png, jpeg, gif and webp; a code word in a
+text PDF) to each model as url4 attachments, and runs hand-picked gold Cases of a picture
+Benchmark through `client.evaluate(..., cases=[...])`. The expected outcome per cell comes from
+the local gateway's `/v1/models`: a model listing the modality must answer with the known
+value; one that does not must be refused before any paid call. A model the listing does not
+describe is skipped, never passed.
+
+Fixtures are fetched from `raw.githubusercontent.com` at `FIXTURE_REF` and checked against
+`manifest.json` before any model call, so a stale ref is a setup error. Local target only:
+it spends real tokens (`BUDGET_USD` caps the run). The `workbench-result` cell reports the
+matrix before the verdict cell asserts on it.
+"""
+
+# WHY openrouter/-prefixed routes: the same route form `sf.Model` takes on the local target
+# (quickstart). `image_matrix.expectation` matches the gateway's ids exactly or by their tail.
+_MATRIX_PARAMETERS = """
+MODELS = [
+    "openrouter/google/gemini-3-flash-preview",
+    "openrouter/openai/gpt-5-nano",
+    "openrouter/anthropic/claude-haiku-5.5",
+    "openrouter/meta-llama/llama-4-scout",  # images, no PDF
+    "openrouter/mistralai/mistral-small-24b-instruct-2501",  # text-only control
+]
+MEDIA = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]
+PATHS = ["url4", "benchmark"]
+FIXTURE_REF = "6c127c630615b08fa4435fb1b130392606243bbc"  # the commit that added the fixtures
+BUDGET_USD = 0.5
+ENGINE_URL = "http://127.0.0.1:9108"
+SCOREBOARD_URL = "http://127.0.0.1:9106"  # always explicit, never the hosted leaderboard
+GATEWAY_URL = "http://127.0.0.1:9105"
+EVENTS_PATH = ""  # the runtime.log holding the gateway's lines; the local target injects it
+"""
+
+# WHY the sys.path insert: the kernel runs in notebooks/, and the cell logic it shares with the
+# unit tests lives in the `workbench` package under tests/e2e.
+_MATRIX_SETUP = """
+import hashlib
+import json
+import os
+import sys
+from dataclasses import replace
+from decimal import Decimal
+from pathlib import Path
+
+import httpx
+from IPython.display import HTML, display
+
+import screamingface as sf
+
+E2E_ROOT = Path.cwd().resolve().parents[1]
+if str(E2E_ROOT) not in sys.path:
+    sys.path.insert(0, str(E2E_ROOT))
+
+from workbench.image_matrix import expectation, verdict  # noqa: E402
+from workbench.image_notebook import (  # noqa: E402
+    BENCHMARK_CASE_ESTIMATE_USD,
+    BENCHMARK_MEDIA,
+    PROMPT,
+    URL4_CALL_ESTIMATE_USD,
+    Budget,
+    benchmark_run_cells,
+    coverage_failures,
+    html_table,
+    matrix_rows,
+    reported_trace_ids,
+    skipped_cell,
+    upstream_calls,
+    url4_cell,
+)
+from workbench.image_url4 import fixture_url, run_attachment, verify_fixture  # noqa: E402
+
+FIXTURES = E2E_ROOT / "workbench" / "fixtures" / "image_input"
+"""
+
+# WHY every check here raises before the first paid call (Review Focus 3): a stale ref, a
+# missing log or an empty listing would otherwise read as models failing to see the picture.
+_MATRIX_PREFLIGHT = """
+if not SCOREBOARD_URL:
+    raise ValueError("SCOREBOARD_URL must be explicit")
+if not EVENTS_PATH or not Path(EVENTS_PATH).is_file():
+    raise ValueError(f"EVENTS_PATH must name the local runtime.log, got {EVENTS_PATH!r}")
+client = sf.Client(engine_url=ENGINE_URL, scoreboard_url=SCOREBOARD_URL)
+client.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])
+http = httpx.Client(timeout=600)
+listing = http.get(f"{GATEWAY_URL}/v1/models").raise_for_status().json()
+manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
+fixtures = [entry for entry in manifest if entry["media_type"] in MEDIA]
+for entry in fixtures:
+    entry["url"] = fixture_url(FIXTURE_REF, entry["path"])
+    verify_fixture(http, entry["url"], entry["sha256"])  # FixtureError names the URL
+gold = json.loads((FIXTURES / "gold_cases.json").read_text(encoding="utf-8"))
+budget = Budget(Decimal(str(BUDGET_USD)))
+cells = []
+checked_cases = []
+media_failures = []
+print(f"{len(fixtures)} fixtures verified at {FIXTURE_REF}; {len(gold)} gold Cases")
+"""
+
+_MATRIX_URL4 = """
+for model in MODELS if "url4" in PATHS else []:
+    for entry in fixtures:
+        media_type = entry["media_type"]
+        expected = expectation(listing, model, media_type)
+        if expected == "unknown":
+            cells.append(
+                skipped_cell("url4", model, media_type, expected, "not in the gateway listing")
+            )
+            continue
+        if not budget.allows(URL4_CALL_ESTIMATE_USD):
+            why = f"budget: ${budget.spent} of ${budget.limit} spent"
+            cells.append(skipped_cell("url4", model, media_type, expected, why))
+            continue
+        outcome = run_attachment(http, ENGINE_URL, model, entry["url"], media_type, PROMPT)
+        cell = url4_cell(model, media_type, expected, outcome, entry["expected"], chat_calls=None)
+        if cell.observed != "refused":
+            budget.charge(outcome.spend_usd)
+        cells.append(cell)
+        print(f"url4 {model} {media_type}: {cell.observed} ({cell.code or 'ok'})")
+"""
+
+# WHY the text-only control runs one gold Case only: it is expected to be refused at admission
+# for the whole run, so a second Case adds spend risk and no evidence.
+_MATRIX_BENCHMARK = """
+by_benchmark = {}
+for entry in gold:
+    by_benchmark.setdefault(entry["benchmark"], []).append(entry)
+for model in MODELS if "benchmark" in PATHS else []:
+    expected = expectation(listing, model, BENCHMARK_MEDIA)
+    for benchmark, golds in by_benchmark.items():
+        run_golds = golds[:1] if expected == "refuse" else golds
+        projected = BENCHMARK_CASE_ESTIMATE_USD * len(run_golds)
+        why = None
+        if expected == "unknown":
+            why = "not in the gateway listing"
+        elif not budget.allows(projected):
+            why = f"budget: ${budget.spent} of ${budget.limit} spent"
+        if why is not None:
+            for entry in run_golds:
+                label = f"{benchmark}#{entry['case']}"
+                cells.append(
+                    skipped_cell("benchmark", model, BENCHMARK_MEDIA, expected, why, case=label)
+                )
+            continue
+        report = None
+        error = None
+        try:
+            report = client.evaluate(
+                sf.Model(model),
+                benchmark=benchmark,
+                cases=[entry["case"] for entry in run_golds],
+                progress=False,
+            )
+        except sf.ScreamingFaceError as exc:
+            error = exc
+            report = getattr(exc, "partial_report", None)
+        run_cells, run_cases = benchmark_run_cells(
+            model, benchmark, run_golds, expected, report, error
+        )
+        budget.charge(run_cells[0].spend_usd, estimate=projected)
+        cells += run_cells
+        checked_cases += [(model, case) for case in run_cases]
+        for cell in run_cells:
+            print(f"benchmark {model} {cell.case}: {cell.observed} ({cell.code or 'ok'})")
+"""
+
+# WHY fetch every Case picture back (spec §3.4): the Case Result names the digest-verified
+# picture that was sent; fetching it proves the Engine holds exactly those bytes.
+_MATRIX_MEDIA = """
+for model, case in checked_cases:
+    where = f"benchmark {model} case {case.case_id}"
+    if not case.media:
+        media_failures.append(f"{where}: the Case Result names no picture")
+    for media in case.media:
+        try:
+            data = client.fetch_media(media).data
+        except sf.ScreamingFaceError as exc:
+            media_failures.append(f"{where}: fetch_media failed ({exc.code})")
+            continue
+        if hashlib.sha256(data).hexdigest() != media.sha256:
+            media_failures.append(f"{where}: fetched media digest differs from {media.sha256}")
+"""
+
+# WHY counted after every call, not per call: the runtime writes its log asynchronously, and a
+# line read too early would undercount a refused cell's upstream calls.
+_MATRIX_EVIDENCE = """
+gateway_log = Path(EVENTS_PATH).read_text(errors="replace")
+cells = [
+    replace(cell, chat_calls=upstream_calls(gateway_log, cell.trace_id)) if cell.trace_id else cell
+    for cell in cells
+]
+display(HTML(html_table(cells)))
+print(f"spend: ${budget.spent} of ${budget.limit} (url4 calls at their estimate)")
+"""
+
+_MATRIX_RESULT = """
+print(
+    "WORKBENCH_RESULT="
+    + json.dumps({"trace_ids": reported_trace_ids(cells), "matrix": matrix_rows(cells)})
+)
+"""
+
+_MATRIX_VERDICT = """
+failures = verdict(cells) + coverage_failures(cells) + media_failures
+assert not failures, "\\n".join(failures)
+"""
+
+
+def _image_input_matrix() -> Any:
+    cells = [
+        _markdown(_MATRIX_TITLE),
+        _code(_MATRIX_PARAMETERS, "parameters"),
+        _code(_MATRIX_SETUP),
+        _code(_MATRIX_PREFLIGHT),
+        _code(_MATRIX_URL4),
+        _code(_MATRIX_BENCHMARK),
+        _code(_MATRIX_MEDIA),
+        _code(_MATRIX_EVIDENCE),
+        _code(_MATRIX_RESULT, RESULT_TAG),
+        _code(_MATRIX_VERDICT),
+        _code("http.close()\nclient.close()"),
+    ]
+    meta = {"targets": ["local"], "required_result": ["trace_ids", "matrix"]}
+    return _notebook("image_input_matrix", cells, meta)
+
+
+_BUILDERS: Final[dict[str, Callable[[], Any]]] = {
+    "quickstart": _quickstart,
+    "image_input_matrix": _image_input_matrix,
+}
 
 
 def serialize(nb: nbformat.NotebookNode) -> str:

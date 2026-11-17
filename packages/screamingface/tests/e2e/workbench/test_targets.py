@@ -167,6 +167,21 @@ def test_local_target_serves_through_an_inspect_engine_on_the_up_gateway(
     assert [e[0] for e in events[-2:]] == ["engine-stop", "down"]
 
 
+def test_local_target_injects_the_gateway_url_and_its_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The image input matrix reads ``/v1/models`` from the Gateway and counts upstream calls
+    in the gateway's lines of ``runtime.log``; both come from the target, never a guess."""
+    _paid_opt_in(monkeypatch)
+    monkeypatch.setenv("SCREAMINGFACE_E2E_ASSETS", str(_prepared_assets(tmp_path)))
+    _fake_stack(monkeypatch, ["ifeval"])
+    work = tmp_path / "work"
+    with start_target("local", work) as target:
+        assert target.params["GATEWAY_URL"] == "http://127.0.0.1:9105"
+        assert target.params["EVENTS_PATH"] == str(work / "data" / "runtime.log")
+        assert target.params["RECIPE"] == "authored"
+
+
 def test_runtime_cli_scrubs_the_foreign_gateway_database(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

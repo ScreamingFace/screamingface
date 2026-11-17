@@ -236,7 +236,15 @@ def local_stack(work_dir: Path, assets: Path) -> Iterator[LiveTarget]:
                 ServiceLogSource("aigateway", data_dir / "runtime.log", service="gateway"),
             ),
             required_hops=("engine", "aigateway"),
-            params={"RECIPE": "authored", "EXPECT_CACHED": False},
+            # GATEWAY_URL / EVENTS_PATH: the image input matrix reads the Gateway's
+            # /v1/models and counts upstream calls in its runtime.log lines. Every notebook
+            # gets them; one that does not read them ignores them.
+            params={
+                "RECIPE": "authored",
+                "EXPECT_CACHED": False,
+                "GATEWAY_URL": f"http://127.0.0.1:{_LOCAL_GATEWAY_PORT}",
+                "EVENTS_PATH": str(data_dir / "runtime.log"),
+            },
         )
     finally:
         try:
