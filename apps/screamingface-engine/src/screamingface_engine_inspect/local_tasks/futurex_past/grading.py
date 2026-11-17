@@ -67,7 +67,7 @@ class ExtractedNumber:
 # WHY one level of nesting: ``\boxed{\text{a, b}}`` is common on free-text levels; a pattern
 # without it read such a reply as boxless (the study's 2026-08-08 defect).
 _BOXED: Final[re.Pattern[str]] = re.compile(r"\\boxed\s*\{((?:[^{}]|\{[^{}]*\})*)\}")
-_TEXT_WRAPPER: Final[re.Pattern[str]] = re.compile(r"\\text\s*\{(.*)\}", re.DOTALL)
+_TEXT_OPENING: Final[re.Pattern[str]] = re.compile(r"\\text\s*\{")
 
 
 def last_boxed(reply: str) -> str | None:
@@ -82,13 +82,30 @@ def last_boxed(reply: str) -> str | None:
 
 
 def unwrap_text(box: str | None) -> str | None:
-    """The box without a whole-content ``\\text{...}`` wrapper, as Futurex-Eval's extractor
-    hands its scorer the content inside the braces."""
+    """The box without a ``\\text{...}`` wrapper that encloses ALL of it, as Futurex-Eval's
+    extractor hands its scorer the content inside the braces; any other text unchanged.
 
-    if box is None:
-        return None
-    wrapped: re.Match[str] | None = _TEXT_WRAPPER.fullmatch(box)
-    return wrapped.group(1).strip() if wrapped else box
+    INVARIANT (fidelity audit U7): the wrapper's own opening brace must close at the very end.
+    ``\\text{A}, \\text{B}`` is two wrapped options, not one wrapper, so it stays as it is and
+    ``reply_tokens`` unwraps each option instead.
+    """
+
+    opening: re.Match[str] | None = _TEXT_OPENING.match(box) if box is not None else None
+    if box is None or opening is None:
+        return box
+    closing: int | None = _closing_brace(box, opening.end())
+    return box[opening.end() : closing].strip() if closing == len(box) - 1 else box
+
+
+def _closing_brace(text: str, start: int) -> int | None:
+    """The index of the brace that closes the one opened just before ``start``, or None."""
+
+    depth: int = 1
+    for index in range(start, len(text)):
+        depth += {"{": 1, "}": -1}.get(text[index], 0)
+        if depth == 0:
+            return index
+    return None
 
 
 def answer_tokens(box: str | None) -> list[str]:
@@ -96,6 +113,13 @@ def answer_tokens(box: str | None) -> list[str]:
     split; Futurex-Eval's ``extract_answers`` for a non-number)."""
 
     return [token.strip() for token in (box or "").split(",") if token.strip()]
+
+
+def reply_tokens(box: str | None) -> list[str]:
+    """The answer items of a ``futurex_past`` reply: a whole-box wrapper removed, the rest split
+    on commas, and a wrapper around each single item removed (``\\text{A}, \\text{B}``)."""
+
+    return [unwrap_text(token) or token for token in answer_tokens(unwrap_text(box))]
 
 
 # ── levels 1-2: labels (Futurex-Eval eval.py, estimate_score_level_1_2) ──────────────────────
@@ -359,7 +383,7 @@ async def grade_level_34(ask: Ask, question: str, gold: Sequence[Any], box: str 
     """Score one level-3/4 reply the Futurex-Eval way (``estimate_routed_scores``)."""
 
     text: str | None = unwrap_text(box)
-    tokens: list[str] = answer_tokens(text)
+    tokens: list[str] = reply_tokens(box)
     if not tokens or text is None:
         # WHY no call: a missing prediction scores 0 in the official roll-up.
         return Graded(score=0.0, route="no_answer")

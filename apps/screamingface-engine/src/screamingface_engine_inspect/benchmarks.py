@@ -7896,7 +7896,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past",
-        published_revision="baf0c231ff399094",
+        published_revision="25b22985d2393685",
         title="FutureX-Past",
         description=(
             "2,036 resolved real-world forecasting questions from FutureX, a live benchmark of "
@@ -7934,6 +7934,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   after two redraws (upstream scores it 0), and a rank overlap count is capped at k.
         # NAMED DEVIATION: the router gets three asks (upstream two), and every judge question
         #   one 4,096-token cap (upstream 5,000 for judges, 512 for the router and set count).
+        # NAMED DEVIATION: an abstained Case whose grading failed reaches the headline as a bare
+        #   0 with no level and is left out of it (upstream counts a scoring failure 0).
         scorer="screamingface_engine_inspect.local_tasks.futurex_past.futurex_past:futurex_score",
         scorer_kwargs={"judge_model": "screamingface/openrouter/openai/gpt-5.4"},
         whole_run_metric=(
@@ -7992,7 +7994,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past_study",
-        published_revision="a006da2f219ea0bd",
+        published_revision="c7f36b9308d98b50",
         title="FutureX-Past (study scoring)",
         description=(
             "FutureX-Past as the crowd-wisdom study (behavior-aware LLM crowds for future "

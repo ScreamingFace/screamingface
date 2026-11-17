@@ -66,11 +66,10 @@ from screamingface_engine_inspect.judge_redraw import (
 from screamingface_engine_inspect.local_tasks.futurex_past.grading import (
     Ask,
     Graded,
-    answer_tokens,
     grade_level_34,
     label_score,
     last_boxed,
-    unwrap_text,
+    reply_tokens,
 )
 
 # ── pins ────────────────────────────────────────────────────────────────────────────────────
@@ -220,8 +219,9 @@ def futurex_score(judge_model: str = JUDGE_MODEL) -> Scorer:
         level, gold = case_key(state)
         box: str | None = last_boxed(state.output.completion)
         if level <= 2:
-            # WHY unwrap first: ``\boxed{\text{B, C}}`` is the options B and C (spec §3).
-            value: float = label_score(gold, answer_tokens(unwrap_text(box)))
+            # WHY reply_tokens: ``\boxed{\text{B, C}}`` and ``\boxed{\text{B}, \text{C}}`` are
+            # both the options B and C (spec §3; fidelity audit U1, U7).
+            value: float = label_score(gold, reply_tokens(box))
             return Score(value=value, answer=box or "", metadata={"level": level})
         redraws: list[int] = []
         ask: Ask = _asker(get_model(judge_model), state.sample_id, redraws)

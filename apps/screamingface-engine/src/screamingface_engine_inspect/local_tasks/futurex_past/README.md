@@ -41,8 +41,9 @@ with its own answer format (`\boxed{...}`), so nothing is added.
 ## Reading the reply
 
 The answer is the content of the **last** `\boxed{...}` in the reply, with one level of nested
-braces allowed. In `futurex_past`, a `\text{...}` wrapper around the whole box is removed, and
-the content is split on commas; a reply with no box has no answer and scores 0. In
+braces allowed. In `futurex_past`, a `\text{...}` wrapper around the whole box is removed, the
+content is split on commas, and a `\text{...}` around a single item is removed too
+(`\text{A}, \text{B}` reads as A and B); a reply with no box has no answer and scores 0. In
 `futurex_past_study`, the study's own reader is used (see below), and a reply with no usable
 answer leaves the score.
 
@@ -93,6 +94,10 @@ through the shared redraw loop.
   reported in Coverage. The paper excludes a missing prediction too (§3.4.2), although upstream's
   weekly script counts it as 0. The Engine allows no other policy with a whole-run metric yet
   (OME-1642).
+- A Case whose Candidate abstained and whose grading then failed reaches the headline as a bare 0
+  with no level (`single_shot._metric_sample`). It cannot be placed in a level, so it is left out
+  of the headline; its Case Result shows 0. Upstream counts a scoring failure as 0 in its level.
+  The two agree on every run where no abstained Case fails grading.
 
 ### Upstream notes
 
@@ -124,8 +129,9 @@ licence, and `test_local_task_futurex_past_study.py` pins each sha256.
   a cell from both sides of the fraction. That covers no answer in the box, and a box the study's
   `interpret_answer` rejects against the question's own prompt (a hedge such as `maybe`, every
   option selected, an option the question does not offer). Its Score shows
-  `study_usable: false` and the reason. A Candidate call that failed leaves it too
-  (`coverage_declare`).
+  `study_usable: false` and the reason, and its per-Case value is still the study's mark of
+  its tokens (so the per-Case mean includes it; only the headline leaves it out). A Candidate
+  call that failed leaves it too (`coverage_declare`).
 - Both sides are case-folded and whitespace-collapsed (the study's `corpus.normalise`).
 - Level 1: the list must equal the key. Level 2: set F1. Levels 3-4: 1 for an exact ordered
   match, else 0.8 × overlap / k. Names and numbers compare as text, with no Judge and no σ, so this
@@ -156,9 +162,14 @@ from the study package by `tests/fixtures/futurex_past_study/make_replication_fi
 **To replicate a run, sample as the study did.** The study called every model at temperature 0
 and, when a reply was cut off, called again with a larger token cap. The Benchmark does not set
 the Candidate's sampling. Pass `temperature: 0` in the Candidate's params where the provider
-accepts it, and leave room in `max_tokens`. A committee that reaches no majority was scored 0 in
-the study; a ScreamingFace fusion always answers (a tie keeps the first member's answer), so this
-case does not arise on the Engine.
+accepts it, and leave room in `max_tokens`.
+
+**A committee tie is a Candidate-side difference.** The study scored a committee with no majority
+0 and kept it in the score (its fused-medoids committee tied on 2 of the 100 questions). A
+ScreamingFace fusion answers on a tie (the contributor's fusions keep the first member's answer),
+so on those questions it is marked on a real answer: the headline can differ from the study's by
+up to +0.0071 (2 level-1 Cases). Grading is the study's either way; this is what the Candidate
+writes.
 
 ## Baselines
 

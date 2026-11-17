@@ -74,8 +74,12 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
     both built by the committed `tests/fixtures/futurex_past_study/make_replication_fixture.py`.
   - A seventh shared table gains the two keys: `test_whole_run_metric.py`. It is the list of rows
     whose non-mean headline is an owner decision.
-- **Commits:** `c8dadab6c` adds the Benchmarks. The next commit applies the review and fidelity
-  fixes. The commit after that adds the Fidelity Records. No OME id: Linear is skipped.
+- **Commits:**
+  - `c8dadab6c` adds the Benchmarks.
+  - `e463be2e9` applies the review and first-audit fixes.
+  - The next commit fixes the second audit's two findings.
+  - The last commit adds the Fidelity Records.
+  - No OME id: Linear is skipped.
 - **Review round** (sf-code-review, and both sf-benchmark-fidelity audits at `c8dadab6c`):
   - `futurex_past`:
     - a whole-box `\text{}` wrapper is now removed at levels 1-2;
@@ -97,12 +101,22 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
       study's 38 exclusions.
     - The match is to 1e-12, not bit-exact: Python 3.11 and 3.12 round `statistics.fmean`'s last
       bit differently, and the study's kit gives our values under 3.12.
+- **Second audit round** (both auditors, at `e463be2e9`):
+  - `futurex_past`, U7: the whole-box unwrap was greedy, so options wrapped one by one were
+    misread. The unwrap is now brace-balanced, and each item loses its own wrapper
+    (`reply_tokens`).
+  - `futurex_past`, U6: an abstained Case whose grading failed leaves the headline. This is now
+    declared on the row and in the README.
+  - `futurex_past_study`: the README now states the committee-tie difference (a Candidate-side
+    difference of at most +0.0071) and the per-Case value of an unusable Case.
+  - The study auditor found a `.pyc` in the study package. One of this session's own runs wrote
+    it, and it has been removed.
 - **Gates (final head):**
   - `screamingface-engine`: ruff, format, pyright (extra-less, as CI runs it), layering, and
     pytest are green: 9,357 passed, 96.35% coverage. The append-only check against `origin/main`
     is red on exactly the seven shared table files (spec §9; they need an `OME-N` approval
     manifest).
-  - The inspect lane (`uv run --extra inspect pytest tests/unit/inspect`): 3,229 passed.
+  - The inspect lane (`uv run --extra inspect pytest tests/unit/inspect`): 3,241 passed.
   - The `screamingface` and `repo` stacks: all gates green.
 - **Deviations** (spec §11 records them as amendments):
   - Routing covers every level-3/4 question.
@@ -110,6 +124,6 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
     metric.
   - The level-3/4 reading rules now match upstream.
   - The study Benchmark drops unusable replies.
-  - `futurex_past`'s published revision moved from `cbe050d3b82631c9` to `baf0c231ff399094`, and
-    `futurex_past_study`'s from `c3b5c2b7d55e84c3` to `a006da2f219ea0bd`. Neither was ever
-    published: both are the fingerprint on the day the Benchmark was finished.
+  - The published revisions are `futurex_past` = `25b22985d2393685` and `futurex_past_study` =
+    `c7f36b9308d98b50`, each the fingerprint of the finished code. Earlier drafts had
+    `cbe050d3…`/`c3b5c2b7…` and `baf0c231…`/`a006da2f…`. Neither Benchmark was ever published.

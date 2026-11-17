@@ -534,3 +534,12 @@ def test_a_case_without_a_level_beside_leveled_cases_leaves_the_headline() -> No
     scores: list[SampleScore] = [_sample_score(1.0, 1, 1), _sample_score(0.0, None, 2)]
 
     assert _headline(scores) == pytest.approx(1.0)
+
+
+@pytest.mark.asyncio
+async def test_options_wrapped_one_by_one_are_read_at_level_2(no_network: None) -> None:
+    """``\\boxed{\\text{C}, \\text{P}}`` is the options C and P (fidelity audit U7)."""
+
+    outcome = await _grade("futurex_past", _ROWS[1], "\\boxed{\\text{C}, \\text{P}}")
+
+    assert outcome.score == 1.0

@@ -406,3 +406,50 @@ def test_a_route_followed_by_prose_is_unreadable_as_upstream_reads_it(reply: str
     ``{`` (fidelity U4); trailing prose makes it unreadable, and the route falls back."""
 
     assert g.parse_route(reply) is None
+
+
+@pytest.mark.parametrize(
+    ("box", "unwrapped"),
+    [
+        ("\\text{A, B}", "A, B"),
+        ("\\text { Beijing }", "Beijing"),
+        # each option wrapped on its own: the first \text{ closes early, so no whole unwrap
+        ("\\text{A}, \\text{B}", "\\text{A}, \\text{B}"),
+        ("\\text{A} and \\text{B}", "\\text{A} and \\text{B}"),
+        ("\\text{a {b} c}", "a {b} c"),
+        ("plain", "plain"),
+        (None, None),
+    ],
+)
+def test_only_a_wrapper_that_closes_at_the_end_is_removed(
+    box: str | None, unwrapped: str | None
+) -> None:
+    """Balanced, not greedy (fidelity audit U7): ``\\text{A}, \\text{B}`` is two wrapped options."""
+
+    assert g.unwrap_text(box) == unwrapped
+
+
+@pytest.mark.parametrize(
+    ("box", "tokens"),
+    [
+        ("\\text{A}, \\text{B}", ["A", "B"]),
+        ("\\text{A, B}", ["A", "B"]),
+        ("T1, \\text{AG.AL}", ["T1", "AG.AL"]),
+    ],
+)
+def test_the_reply_tokens_lose_their_wrappers_whole_or_one_by_one(
+    box: str, tokens: list[str]
+) -> None:
+    """Futurex-Eval's extractor takes "the content inside the braces"; the rule reads both a
+    wrapped box and options wrapped one by one."""
+
+    assert g.reply_tokens(box) == tokens
+
+
+def test_options_wrapped_one_by_one_are_an_unordered_set_match() -> None:
+    judge = _Judge(_ROUTE_SET)
+
+    graded: g.Graded = _grade(judge, ["T1", "AG.AL"], "\\text{AG.AL}, \\text{T1}")
+
+    assert judge.purposes == ["route"]
+    assert graded.score == 1.0
