@@ -68,27 +68,34 @@ RED first for each unit. Test ids are those of `prd/copy-sweep.md` §7.
 - The build found a second assertion in the same test that 0018 breaks (the exact list of
   nullable columns of `frozen_copies`). The owner approved a second assertion-only change on
   2026-11-17: the check is limited to the eight columns of 0014. The record has both changes.
-- The approval record names the branch `frozen-copy-retention`. The matcher compares the
-  current branch name, so the record must get the new name when the branch is renamed at
-  PR-open.
+- The approval record names the PR branch `OME-1947-frozen-copy-retention-stack-a` (the matcher
+  compares the current branch name).
 - `tortoise-dev` companion skill (mandatory in the card) is not installed on this machine. The
   migration and the model follow the house pattern of migrations 0015 to 0017, as the plan
   names them. Proposed to the owner: install the plugin.
-- No commit is made until the owner orders it.
+- 2026-11-17: the owner ordered the commits and one pull request for A1, A2 and A3.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-State on 2026-11-17: the code of A1, A2 and A3 is built and reviewed. No commit is made; the
-owner has not ordered one. `status` stays `in_progress` until the commits exist.
+State on 2026-11-17: the code of A1, A2 and A3 is built, reviewed and committed. `status` stays
+`in_progress` until the pull request is merged.
 
 - **Actual files:** as planned, plus:
   - `tests/unit/test_frozen_copy_sweep_support.py` (shared test helpers; review finding F10)
   - `tests/unit/test_chart_render_frozen_copy_sweep.py` (chart render test)
   - the chart is at `apps/aigateway/charts/aigateway/` (the plan wrote `charts/aigateway/`)
-- **Commits:** none yet. Planned: three commits, one for each pull request (messages in the plan).
+- **Commits** (branch `OME-1947-frozen-copy-retention-stack-a`, rebased on `origin/main` f683cd2e6;
+  one pull request, squash-merge):
+  - 7ba4f2321 — docs(aigateway): spec and stack A plan for frozen copy retention (OME-1947)
+  - 5db471fa0 — feat(aigateway): add frozen copy retention states and migration 0018 (OME-1947)
+  - 4bc50d705 — feat(aigateway): sweep abandoned frozen copies (OME-1947)
+  - 5ceafc31a — feat(aigateway): run the frozen copy sweep on a periodic trigger (OME-1947)
+  - one more docs commit records this outcome and the PR branch name in the approval record.
 - **Gates:** `uv run .claude/scripts/run_gates.py aigateway` → ALL GATES GREEN (approved
   OME-1947 test transition; append-only check; ruff check; ruff format; pyright; enterprise
   check; pytest with coverage: 7,966 passed, 125 skipped, coverage 94.16%).
+  Run again after the rebase, with `--base` at the merge base with `origin/main` (f683cd2e6):
+  ALL GATES GREEN.
   Postgres lane, `AIGW_TEST_PG=1 uv run pytest -m needs_postgres`: 80 passed, 5 failed. The 5
   failures are all in `tests/integration/test_cache_snapshot_upload_postgres.py` with
   `FileNotFoundError: 'pg_dump'`: this machine has no `pg_dump`. This work does not touch that
@@ -103,6 +110,7 @@ owner has not ordered one. `status` stays `in_progress` until the commits exist.
   K7 names the `now` input.
 - **Deviations:**
   - The existing test needed two assertion changes, not one. The owner approved both.
+  - One pull request for A1, A2 and A3, not three (owner decision; point 14 of the plan).
   - The build corrections are at the end of the plan (13 points).
   - `tortoise-dev` companion skill not installed; house pattern of 0015 to 0017 used.
   - `main.py` is 527 lines and `config.py` is 506 lines; both were above 450 before this work.
