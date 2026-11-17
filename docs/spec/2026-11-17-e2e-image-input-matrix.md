@@ -71,7 +71,7 @@ admission and the gateway use):
 - Prompt: "Reply with only the number (or word) shown in the attached file." The check
   normalises case and whitespace and asserts the expected value is in the answer.
 - Expression: one model call per (model, media) cell with a single `src=<url>;accept=<type>`
-  source. How a raw url4 model call is submitted through the SDK is spike **S0** (§6).
+  source, sent straight to the Engine (§6, S0).
 
 ### 3.4 Benchmark path — gold Cases
 
@@ -118,11 +118,9 @@ workbench). Test code, fixtures and docs only; no shipped package changes.
 
 ## 6. Open questions
 
-- **S0 (spike, first plan task):** can `client.evaluate(url4=…)` run a bare model call with an
-  attachment source, or does it require a complete evaluation URL4 bound to a Benchmark? If it
-  cannot, the url4 path submits through the SDK's lower-level url4 entry point used by
-  `_evaluation/url4.py`; if that needs a shipped SDK change, the url4 path stops and comes back
-  to the owner before any SDK edit.
+- **S0 — resolved 2026-11-17:** `evaluate(url4=…)` only replays a Benchmark-owned evaluation
+  URL4, so the url4 path calls the local Engine directly (`POST /token`, then `GET /?q=<url4>`
+  with a client-minted `traceparent`). No SDK change. Details in the plan.
 - **Fixture ref after squash-merge:** a branch commit can be garbage-collected after the squash.
   The plan pins `FIXTURE_REF` to a commit on `main` in a one-line follow-up once the fixtures
   merge, and the sha256 check makes a stale ref fail loudly.

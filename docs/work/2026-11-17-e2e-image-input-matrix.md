@@ -1,7 +1,7 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: python
-status: planned   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-11-17
 finished:
 ---
@@ -17,7 +17,7 @@ Spec: `docs/spec/2026-11-17-e2e-image-input-matrix.md`.
 
 ## Planned changes
 
-- Spec (this step), then a plan in `docs/plan/`.
+- Spec + plan: `docs/plan/2026-11-17-e2e-image-input-matrix.md` (tasks 1–6).
 
 ## Test plan
 
