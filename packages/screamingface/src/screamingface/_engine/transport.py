@@ -108,6 +108,9 @@ _logger = logging.getLogger(__name__)
 # is echoed on the start response as the Engine's acknowledgement.
 _CAPTURE = "X-Capture"
 _REPLAY_FROZEN_COPY = "X-Replay-Frozen-Copy"
+# FEATURE (OME-1909): a re-grade's live judge Cases, sent beside `X-Replay-Frozen-Copy` and echoed
+# back in the same canonical text by an Engine that honoured it.
+_REPLAY_LIVE_JUDGE = "X-Replay-Live-Judge"
 
 
 def _reconnect_delay(
@@ -418,6 +421,7 @@ class Url4CloudTransport:
                 answer_seed=candidate.answer_seed,
                 capture=candidate.capture,
                 replay_frozen_copy=candidate.replay_frozen_copy,
+                replay_live_judge=candidate.replay_live_judge,
                 use_cache=candidate.use_cache,
                 admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
                 on_event=on_event,
@@ -917,6 +921,7 @@ class AsyncUrl4CloudTransport:
                 answer_seed=candidate.answer_seed,
                 capture=candidate.capture,
                 replay_frozen_copy=candidate.replay_frozen_copy,
+                replay_live_judge=candidate.replay_live_judge,
                 use_cache=candidate.use_cache,
                 admission=_new_admission(self._admission_budget_s, self._reconnect_base_delay_s),
                 on_event=on_event,
@@ -1278,6 +1283,7 @@ def _start_sync(
     on_event: object = None,
     wait: Callable[[float], bool] | None = None,
     run_headers: Mapping[str, str] | None = None,
+    replay_live_judge: str | None = None,
 ) -> None:
     """Start the Run; while the Engine has no free capacity (503), wait and send it again.
 
@@ -1301,6 +1307,7 @@ def _start_sync(
             replay_frozen_copy=replay_frozen_copy,
             use_cache=use_cache,
             run_headers=run_headers,
+            replay_live_judge=replay_live_judge,
         )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
@@ -1309,7 +1316,7 @@ def _start_sync(
         if wait(delay):
             raise _start_abandoned(trace_id)
     _finish_start(response, admission, on_event, trace_id)
-    _require_replay_ack(response, replay_frozen_copy, trace_id)
+    _require_replay_ack(response, replay_frozen_copy, trace_id, replay_live_judge)
 
 
 def _send_start_sync(
@@ -1323,6 +1330,7 @@ def _send_start_sync(
     replay_frozen_copy: str | None = None,
     use_cache: bool = True,
     run_headers: Mapping[str, str] | None = None,
+    replay_live_judge: str | None = None,
 ) -> httpx.Response:
     """One start request, re-sent only while the WebSocket attach is still registering."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -1337,7 +1345,7 @@ def _send_start_sync(
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
                     **_answer_seed_header(answer_seed),
-                    **_frozen_copy_headers(capture, replay_frozen_copy),
+                    **_frozen_copy_headers(capture, replay_frozen_copy, replay_live_judge),
                     **_cache_headers(use_cache),
                     **(run_headers or {}),
                 },
@@ -1551,6 +1559,7 @@ async def _start_async(
     on_event: object = None,
     wait: Callable[[float], Awaitable[bool]] | None = None,
     run_headers: Mapping[str, str] | None = None,
+    replay_live_judge: str | None = None,
 ) -> None:
     """Async twin of `_start_sync` — the same capacity wait (OME-1066)."""
     admission = admission or _new_admission(_ADMISSION_BUDGET_S, _RECONNECT_BASE_DELAY_S)
@@ -1567,6 +1576,7 @@ async def _start_async(
             replay_frozen_copy=replay_frozen_copy,
             use_cache=use_cache,
             run_headers=run_headers,
+            replay_live_judge=replay_live_judge,
         )
         delay = _readmission_delay(response, admission, trace_id)
         if delay is None:
@@ -1575,7 +1585,7 @@ async def _start_async(
         if await wait(delay):
             raise _start_abandoned(trace_id)
     _finish_start(response, admission, on_event, trace_id)
-    _require_replay_ack(response, replay_frozen_copy, trace_id)
+    _require_replay_ack(response, replay_frozen_copy, trace_id, replay_live_judge)
 
 
 async def _send_start_async(
@@ -1589,6 +1599,7 @@ async def _send_start_async(
     replay_frozen_copy: str | None = None,
     use_cache: bool = True,
     run_headers: Mapping[str, str] | None = None,
+    replay_live_judge: str | None = None,
 ) -> httpx.Response:
     """Async twin of `_send_start_sync`."""
     for delay in _ATTACH_RETRY_DELAYS:
@@ -1603,7 +1614,7 @@ async def _send_start_async(
                     "Prefer": "respond-async",
                     **_trace_headers(trace),
                     **_answer_seed_header(answer_seed),
-                    **_frozen_copy_headers(capture, replay_frozen_copy),
+                    **_frozen_copy_headers(capture, replay_frozen_copy, replay_live_judge),
                     **_cache_headers(use_cache),
                     **(run_headers or {}),
                 },
@@ -1641,26 +1652,37 @@ def _cache_headers(use_cache: bool) -> dict[str, str]:
     return {} if use_cache else {"Cache-Control": "no-cache"}
 
 
-def _frozen_copy_headers(capture: bool, replay_frozen_copy: str | None) -> dict[str, str]:
+def _frozen_copy_headers(
+    capture: bool, replay_frozen_copy: str | None, replay_live_judge: str | None = None
+) -> dict[str, str]:
     """The frozen-copy mode as start headers; nothing for a normal run.
 
     INVARIANT (OME-1307): absence is the transport default, and the public `evaluate` keeps it:
     capture is opt-in (`capture=True`). `X-Capture` is sent only when true, and
     `X-Replay-Frozen-Copy` only for a replay; the Engine refuses both together, so this helper
     refuses to build both.
+    FEATURE (OME-1909): `X-Replay-Live-Judge` only for a re-grade that names live judge Cases, and
+    only beside the copy (the Engine refuses it alone).
     """
     if capture and replay_frozen_copy is not None:
         raise ValueError("capture and replay_frozen_copy are mutually exclusive")
+    if replay_live_judge is not None and replay_frozen_copy is None:
+        raise ValueError("replay_live_judge needs replay_frozen_copy")
     headers: dict[str, str] = {}
     if capture:
         headers[_CAPTURE] = "true"
     if replay_frozen_copy is not None:
         headers[_REPLAY_FROZEN_COPY] = replay_frozen_copy
+    if replay_live_judge is not None:
+        headers[_REPLAY_LIVE_JUDGE] = replay_live_judge
     return headers
 
 
 def _require_replay_ack(
-    response: httpx.Response, replay_frozen_copy: str | None, trace_id: str | None
+    response: httpx.Response,
+    replay_frozen_copy: str | None,
+    trace_id: str | None,
+    replay_live_judge: str | None = None,
 ) -> None:
     """A replay start must be echoed back with its own copy id.
 
@@ -1676,6 +1698,19 @@ def _require_replay_ack(
     ):
         raise ExecutionError(
             "SF Engine did not acknowledge the frozen copy replay, so the Run was stopped",
+            code="replay_unsupported",
+            permanent=True,
+            trace_id=trace_id,
+        )
+    # INVARIANT (OME-1909): a re-judge never silently becomes a replay-only run. An Engine that
+    # predates the header ignores it and replays every judge call, handing back the old grades as
+    # new ones; its start carries no echo. The code is the replay one so the caller stops the run.
+    if replay_live_judge is not None and response.headers.get(_REPLAY_LIVE_JUDGE) != (
+        replay_live_judge
+    ):
+        raise ExecutionError(
+            "SF Engine did not acknowledge the live judge calls of the re-grade, so the Run was "
+            "stopped",
             code="replay_unsupported",
             permanent=True,
             trace_id=trace_id,

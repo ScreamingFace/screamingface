@@ -4,6 +4,13 @@
 
 ### Added
 
+* `Client.regrade(score_id)` and `AsyncClient.regrade` move a published score onto its
+  Benchmark's current revision (`OME-1909`): the score's url4 is rebuilt against today's
+  Benchmark, replayed from its pinned cache with its answer seed at no Candidate cost, and posted
+  as a new entry credited to the score's submitter. `live_judge="all"` or a list of Case ids sends
+  those judge calls live. Any cache miss submits nothing (`regrade_incomplete`). For ScreamingFace
+  re-graders only; `LeaderboardError.existing_score_id` names the re-grade a repeat ran into.
+
 - Notebook credits now show account credit separately from the key spending cap,
   with optional account settings and visible-only five-minute refresh. OpenRouter
   evaluations emit a nonblocking notice for a confirmed zero read within five minutes.

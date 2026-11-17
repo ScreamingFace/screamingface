@@ -10,6 +10,7 @@ from screamingface._benchmark_identity import benchmark_id as _benchmark_id
 from screamingface._catalogue_vocabulary import ATTEMPTS_KEY, INVERTED_GRADE_KEY
 from screamingface._core.wire import mapping as _wire_mapping
 from screamingface._core.wire import text as _wire_text
+from screamingface._core.wire import text_tuple as _wire_text_tuple
 from screamingface._ui.catalog import _ModelCatalog
 from screamingface.discovery import BenchmarkProvenance, ModelInfo, PublishedScore
 from screamingface.errors import PlanningError
@@ -29,6 +30,9 @@ class _BenchmarkEntry:
     attempts: int
     provenance: BenchmarkProvenance | None
     saturation: str
+    # FEATURE (OME-1909): the old published revisions a score may be re-graded from. WHY a
+    # default: the local seed twin and older fixtures build entries without it.
+    regradable_from: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +166,11 @@ def _benchmark_entry(item: Mapping[str, object]) -> _BenchmarkEntry:
         attempts=_attempts(item),
         provenance=_provenance(item),
         saturation=_saturation(item),
+        # WHY absent is empty (OME-1909): an older Engine sends no key, and reads as "nothing
+        # regradable", so a re-grade against it is refused, never guessed.
+        regradable_from=_wire_text_tuple(
+            item.get("regradable_from", []), "Benchmark regradable_from", _catalog_invalid
+        ),
     )
 
 

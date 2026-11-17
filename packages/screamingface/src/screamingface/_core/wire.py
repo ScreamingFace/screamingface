@@ -33,4 +33,12 @@ def text(value: object, label: str, invalid: _Invalid) -> str:
     return cast(str, value).strip()
 
 
+def text_tuple(value: object, label: str, invalid: _Invalid) -> tuple[str, ...]:
+    """Return a JSON array of non-blank texts as a tuple, or delegate failure policy."""
+
+    if not isinstance(value, list):
+        invalid(f"{label} must be an array")
+    return tuple(text(item, label, invalid) for item in cast(list[object], value))
+
+
 __all__: list[str] = []
