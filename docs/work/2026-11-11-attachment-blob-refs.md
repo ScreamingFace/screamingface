@@ -1,9 +1,9 @@
 ---
 ticket: OME-1890
 stack: repo
-status: in_progress   # planned | in_progress | done | blocked
+status: done
 started: 2026-11-11
-finished:
+finished: 2026-11-13
 ---
 
 # attachment-blob-refs — spec: attachments by blob reference, engine to gateway

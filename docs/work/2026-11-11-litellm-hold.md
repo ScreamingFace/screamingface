@@ -1,9 +1,9 @@
 ---
 ticket: OME-1879
 stack: repo
-status: in_progress
+status: done
 started: 2026-11-11
-finished:
+finished: 2026-11-13
 ---
 
 # litellm-hold — hold litellm below 1.104.6 until OpenRouter rows are back in its bundled map

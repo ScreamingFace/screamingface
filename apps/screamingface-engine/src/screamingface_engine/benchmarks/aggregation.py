@@ -21,20 +21,15 @@ from screamingface_engine.benchmarks.contract import (
     CorrectiveLoopOutcome,
     Failure,
     OperationOutput,
-    candidate_coverage,
     is_declared_failure_code,
     validate_case_id,
 )
 from screamingface_engine.benchmarks.definition import FailurePolicy
-from screamingface_engine.benchmarks.echoed_input import echoed_input
 from screamingface_engine.benchmarks.failure_classes import (
     UPSTREAM_FALLBACK_CODE,
 )
 from screamingface_engine.benchmarks.grading_endpoints import CandidateAnswer
-from screamingface_engine.benchmarks.replay_stability import replay_stable_failure
-from screamingface_engine.capture_outcomes import record_case_results
 from screamingface_engine.error_text import public_identifier, public_message
-from screamingface_engine.grading_accounting import reconcile_candidate_grading_accounting
 
 
 class SelectedCase(BaseModel):
@@ -128,7 +123,13 @@ def finalize_candidate_result(
 
     ``inverted_grade`` marks a Benchmark whose Case scores are already 1 − the eval's grade
     (OME-1400); it rides the result so a replayed report can show it.
+
+    FEATURE memory fix 3 unit 2: runs on CandidateResultBuilder, the one finalize implementation.
     """
+
+    # WHY lazy: result_builder imports this module (SelectedCase, policy_cases); a module-level
+    # import would be a cycle.
+    from screamingface_engine.benchmarks.result_builder import CandidateResultBuilder
 
     selection = [
         case if isinstance(case, SelectedCase) else SelectedCase.model_validate(case)
@@ -141,70 +142,18 @@ def finalize_candidate_result(
         failure if isinstance(failure, Failure) else Failure.model_validate(failure)
         for failure in failures
     ]
-    selected_ids = [case.case_id for case in selection]
-    if len(selected_ids) != len(set(selected_ids)):
-        raise ValueError("selected Case sequence cannot contain duplicate case_id values")
-    produced_ids = [case.case_id for case in produced_cases]
-    if len(produced_ids) != len(set(produced_ids)):
-        raise ValueError("CandidateResult cannot contain duplicate case_id values")
-    unexpected = set(produced_ids) - set(selected_ids)
-    if unexpected:
-        raise ValueError(
-            f"CandidateResult contains unselected case_id values {sorted(unexpected, key=str)!r}"
-        )
-    produced_by_id = {case.case_id: case for case in produced_cases}
-    typed_cases = [
-        produced_by_id.get(selected.case_id)
-        or CaseResult(
-            status="failed",
-            case_id=selected.case_id,
-            input=selected.input,
-            output=None,
-            finish_reason=None,
-            refusal=None,
-            grade=None,
-            failures=[
-                Failure(
-                    stage="aggregation",
-                    code="case_result_missing",
-                    message="the selected Case produced no Case Result",
-                    retryable=None,
-                    case_id=selected.case_id,
-                    metadata={},
-                )
-            ],
-            metadata=selected.metadata,
-        )
-        for selected in selection
-    ]
-    # FEATURE: OME-1775 — R1 needs each Case's final result; every final Case result passes here,
-    # once per Candidate. Unknown, retryable and time-based failures may recover on replay;
-    # only positively identified deterministic failures are eligible for the stored-proof check.
-    record_case_results((case.case_id, not replay_stable_failure(case)) for case in typed_cases)
-
-    scoring_cases = policy_cases(typed_cases, failure_policy)
-    scored = scorer(scoring_cases) if scoring_cases is not None else None
-    # FEATURE (OME-1271): this is where a Candidate result leaves the engine, so here each
-    # Case's echoed input loses its pictures' base64 to their placeholders.
-    # INVARIANT: after the scorer, so grading and scoring saw the real Case; a text Case's
-    # input is the same string, so its result is byte-identical.
-    typed_cases = [
-        case.model_copy(update={"input": echoed_input(case.input)}) for case in typed_cases
-    ]
-    result = CandidateResult(
+    builder = CandidateResultBuilder(
         benchmark_id=benchmark_id,
         benchmark_revision=benchmark_revision,
-        case_count=len(typed_cases),
-        score=scored.score if scored is not None else None,
-        coverage=candidate_coverage(typed_cases, len(typed_cases)),
-        metrics=scored.metrics if scored is not None else {},
-        cases=typed_cases,
+        selected_cases=selection,
+        scorer=scorer,
+        failure_policy=failure_policy,
         failures=typed_failures,
         inverted_grade=inverted_grade,
-        scores=scored.scores if scored is not None else {},
     )
-    reconcile_candidate_grading_accounting(result)
-    return result
+    for case in produced_cases:
+        builder.add(case)
+    return builder.finish_result()
 
 
 def public_error(

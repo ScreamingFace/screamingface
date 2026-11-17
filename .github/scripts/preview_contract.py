@@ -348,6 +348,10 @@ def _parse_time(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+class RateLimited(RuntimeError):
+    """The repo's GITHUB_TOKEN hourly limit ran out (a burst of pushes shares it)."""
+
+
 class GitHub:
     def __init__(self) -> None:
         self.repo = os.environ["GITHUB_REPOSITORY"]
@@ -372,6 +376,10 @@ class GitHub:
                 content = response.read()
         except urllib.error.HTTPError as error:
             detail = error.read().decode(errors="replace")
+            if error.code in (403, 429) and "rate limit" in detail.lower():
+                raise RateLimited(
+                    f"GitHub API {method} {path}: {error.code}: {detail}"
+                ) from error
             raise RuntimeError(
                 f"GitHub API {method} {path}: {error.code}: {detail}"
             ) from error
@@ -525,7 +533,15 @@ def main() -> None:
             for name, value in outputs.items():
                 output.write(f"{name}={value}\n")
     elif args.command == "reconcile":
-        reconcile()
+        # WHY skip, not fail: reconcile is idempotent bookkeeping that the cron reruns every
+        # 5 minutes; failing it on a spent token limit only emails whoever merged last.
+        # Per-PR commands below still fail hard — a PR's status is never silently skipped.
+        try:
+            reconcile()
+        except RateLimited as error:
+            print(
+                f"::warning::preview reconcile skipped, retried by the next run: {error}"
+            )
     elif args.command == "guard":
         github = GitHub()
         pull = github.pull(args.number)

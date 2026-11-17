@@ -1,7 +1,7 @@
 ---
 id: OME-1398
 linear_url: https://linear.app/openmined/issue/OME-1398/aigateway-uidocs-remove-stale-x-profile-selection-guidance
-status: completed
+status: done
 type: task
 priority: medium
 labels: [aigateway, agentic, autonomous]

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1926
 stack: aigateway
-status: in_progress
+status: done
 started: 2026-11-15
-finished:
+finished: 2026-11-16
 ---
 
 # gateway-request-cap — raise the AIGateway request-body cap to 12 MiB

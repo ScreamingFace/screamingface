@@ -1,13 +1,13 @@
 ---
 id: OME-1890
 linear_url: https://linear.app/openmined/issue/OME-1890/write-the-spec-for-carrying-url4-attachments-to-the-gateway-by-blob
-status: in_review
+status: done
 type: task
 priority: medium
 labels: [screamingface-engine, agentic, autonomous, task]
 parent: OME-1889
 created: 2026-11-11
-closed:
+closed: 2026-11-13
 ---
 
 # Write the spec for carrying url4 attachments to the gateway by blob reference

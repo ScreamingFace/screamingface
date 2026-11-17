@@ -195,8 +195,8 @@ test("external-only board uses normal ranked table cells and source instead of c
   assert.equal(link.attrs.href, BASELINE.source_url);
   assert.equal(link.attrs.rel, "noopener noreferrer");
   assert.equal(link.attrs.target, "_blank");
-  assert.equal(link.textContent, "Original result ↗");
-  assert.equal(link.attrs["aria-label"], "Original result for GPT-4o (opens in a new tab)");
+  assert.equal(link.textContent, "Source ↗");
+  assert.equal(link.attrs["aria-label"], "Source for GPT-4o (opens in a new tab)");
   assert.equal(nodes(first).filter((n) => n.tag === "button").length, 0);
   assert.equal(page.ids["leaderboard-status"].hidden, true);
   assert.equal(page.ids["summary-best"].textContent, "0.932");
@@ -262,18 +262,19 @@ test("imports cannot displace fetched community frontier points from the cost ch
   assert.equal(importsOnlyInTable.charts.at(-1).length, 50);
 });
 
-test("comparison notes are readable through a native disclosure, not just a tooltip", async () => {
+test("comparison notes use one board disclosure instead of row controls", async () => {
   const page = await renderBoard([], [BASELINE]);
-  const model = cell(rows(page)[0], 2);
-  const details = model.children.find((node) => node.tag === "details");
+  assert.ok(!nodes(rows(page)[0]).some((node) => node.tag === "details"));
+  const details = page.ids["external-comparison"];
   assert.ok(details, "provide a disclosure usable by touch and keyboard");
   assert.equal(details.children[0].tag, "summary");
-  assert.equal(details.children[0].textContent, "Comparison");
-  assert.equal(details.children[1].textContent, BASELINE.metadata.comparison_note);
+  assert.equal(details.children[0].textContent, "Comparison notes");
+  assert.equal(details.children[1].children[0].children[1].textContent, BASELINE.metadata.comparison_note);
   assert.equal(details.children[1].attrs["aria-hidden"], undefined);
   for (const note of [null, "", "  ", 123]) {
     const empty = await renderBoard([], [{ ...BASELINE, metadata: { comparison_note: note } }]);
     assert.ok(!nodes(rows(empty)[0]).some((node) => node.tag === "details"));
+    assert.equal(empty.ids["external-comparison"].hidden, true);
   }
 });
 
@@ -336,7 +337,50 @@ test("only explicitly eligible external results affect ranks, counts and score b
 test("verified review prompt differences are available in the comparison disclosure", async () => {
   const note = "Different prompts; same graded answer format.";
   const page = await renderBoard([], [{ ...BASELINE, metadata: { comparison: { prompt_note: note } } }]);
-  const details = cell(rows(page)[0], 2).children.find((node) => node.tag === "details");
+  const details = page.ids["external-comparison"];
   assert.ok(details);
-  assert.equal(details.children[1].textContent, note);
+  assert.equal(details.children[1].children[0].children[1].textContent, note);
+});
+
+
+test("shared comparison notes appear once and distinct notes retain their models", async () => {
+  const page = await renderBoard([], [
+    BASELINE,
+    { ...BASELINE, model_name: "Second model", score: 0.9 },
+    { ...BASELINE, model_name: "Third model", score: 0.8, metadata: { comparison_note: "Different setup." } },
+    { ...BASELINE, model_name: "Pending", ranking_eligible: false, metadata: { comparison_note: "Hidden note." } },
+  ]);
+  const details = page.ids["external-comparison"];
+  assert.equal(details.hidden, false);
+  const groups = details.children[1].children;
+  assert.equal(groups.length, 2);
+  assert.equal(groups[0].children[0].textContent, "GPT-4o, Second model");
+  assert.equal(groups[0].children[1].textContent, BASELINE.metadata.comparison_note);
+  assert.equal(groups[1].children[0].textContent, "Third model");
+  assert.equal(groups[1].children[1].textContent, "Different setup.");
+  assert.ok(rows(page).every((row) => !nodes(row).some((node) => node.tag === "details")));
+});
+
+test("board comparison notes remain plain text and disappear when no imports are displayed", async () => {
+  const note = "<img onerror=alert(1)>";
+  const page = await renderBoard([], [{ ...BASELINE, metadata: { comparison_note: note } }]);
+  const details = page.ids["external-comparison"];
+  assert.equal(details.children[1].children[0].children[1].textContent, note);
+  assert.ok(!nodes(details).some((node) => ["img", "script"].includes(node.tag)));
+  page.context.SFExternalResults.renderComparisonNotes(details, []);
+  assert.equal(details.hidden, true);
+  assert.equal(details.children.length, 0);
+});
+
+test("edited external rows link to history while initial imports do not", async () => {
+  const page = await renderBoard([], [Object.assign({}, BASELINE, {
+    id: "external-id", benchmark_id: "hle", observation_revision: 2,
+    observation_updated_at: "2026-11-10T10:00:00Z",
+  })]);
+  const link = nodes(cell(rows(page)[0], 7)).find(n => n.tag === "a");
+  assert.equal(link.textContent, "Updated");
+  assert.equal(link.attrs.href, "external-result-history.html?benchmark=hle&result=external-id");
+  assert.equal(link.attrs["aria-label"], "View update history for GPT-4o");
+  const initial = await renderBoard([], [Object.assign({}, BASELINE, { observation_revision: 1 })]);
+  assert.equal(nodes(cell(rows(initial)[0], 7)).filter(n => n.tag === "a").length, 0);
 });

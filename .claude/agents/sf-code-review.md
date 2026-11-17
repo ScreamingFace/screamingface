@@ -272,6 +272,31 @@ findings block when they demonstrate a grading-integrity violation.
   "no penalty" — the score is wrong in the candidate's favor and nobody knows. So
   `spine/rubric.py` fails the whole case instead. It also dedupes verdicts so "criteria
   met" can never exceed "criteria judged". A diff relaxing either is blocking.
+- **Grading must never reward a hedge.** A **hedge** is a reply that lists several
+  answers so that one of them matches the key, like `ANSWER: (A) (B) (C) (D)` on a
+  four-option question. If a hedge can score 1, a model gets full marks by listing every
+  option. inspect's own parser already refuses the plain hedge `ANSWER: A B C D`. The
+  danger is code we add on top to be more forgiving, such as unwrapping `$B$`, removing
+  `**`, or retrying on a cleaned-up copy. That code only runs after inspect found no
+  answer, so every mistake it makes gives the model a point it didn't earn.
+  [PR 1783](https://github.com/ScreamingFace/screamingface/pull/1783) did exactly this.
+  It unwrapped only the first `(A)`, read the hedge as A, and would have given full
+  marks on 46 Benchmarks to a model that listed every option.
+
+  **How to check:** take each reply the new code accepts, remove the decoration by hand,
+  and grade that plain version with inspect at the pinned version. The new code must
+  never give more credit than the plain version gets. The author's table of replies that
+  should now pass is not enough. Ask for tests on replies that must still fail:
+  - **every option wrapped:** `ANSWER: (A) (B) (C) (D)` must stay no answer;
+  - **mixed wrappers:** `ANSWER: (A), [B]` reads both letters, never just A;
+  - **a changed answer:** in `ANSWER: (A)` … `Final ANSWER: $C$`, the retracted A must
+    never win (PR 1783's first review round);
+  - **a retry over several cleaned copies:** it keeps the first copy that scores, so
+    check that each copy only removes decoration and never brings in a new answer.
+
+  A forgiving grader without these tests is Action required. The same mistake broke
+  inspect_ai's own attempt at this fix
+  ([PR 5058](https://github.com/UKGovernmentBEIS/inspect_ai/pull/5058), 5 tests).
 - **Goldens are byte-exact, and drift is a bug, not noise.** A golden file is a
   recorded correct run. Replaying it must reproduce it byte-for-byte, in a fixed
   compare order (expression-sha → case statuses → failure codes → coverage → score as a

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Added
+
+- Notebook credits now show account credit separately from the key spending cap,
+  with optional account settings and visible-only five-minute refresh. OpenRouter
+  evaluations emit a nonblocking notice for a confirmed zero read within five minutes.
+
+* `sf.credits()`, `Client.credits()` and `AsyncClient.credits()` expose independent provider
+  account balance, key allowance, and hosted allowance observations. OpenRouter account totals
+  require a verified management key; unknown amounts remain unavailable. Clients can set or
+  remove the management key, and the connection card shows balances with manual refresh.
+  Hosted allowance comes from the caller's limited OpenRouter execution key; the platform
+  account balance is never exposed.
+
 ### Breaking changes
 
 * **screamingface:** `sf.Gate` is the one branch construct (E4c, `OME-1291`). `then=` and `otherwise=` each take a reducer step (after a `sf.Fanout`), a recipe (a route, a `sf.Model`, a chain or another `sf.Gate`), `sf.abstain()` or `sf.fail()`. The E4b limits are gone: `then=` is not only `sf.Vote()`, and a gated vote can read `over=sf.Extract(...)`. A Gate whose condition reads a label of the input (`sf.label(sel) == "x"`) is a recipe, and nested Gates give an N-way choice. A Gate whose `otherwise=` is a recipe runs it only when the comparison is false: when the panel gives no answer, the Case abstains, and when the number is missing, the Case fails with `signal_missing`. See the README section "Choose whether a model runs".

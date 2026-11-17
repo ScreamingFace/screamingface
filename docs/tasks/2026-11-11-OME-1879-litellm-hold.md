@@ -1,13 +1,13 @@
 ---
 id: OME-1879
 linear_url: https://linear.app/openmined/issue/OME-1879
-status: in_review
+status: done
 type: task
 priority: 2
 labels: [repo-dev-processes, agentic, autonomous]
 parent: OME-1320
 created: 2026-11-11
-closed: null
+closed: 2026-11-13
 ---
 
 # Hold litellm below 1.104.6 until its bundled map has OpenRouter rows again

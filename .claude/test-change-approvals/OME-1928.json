@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1928",
+  "branch": "OME-1928-drop-migration-note",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-09",
+  "scope": "The one prior test file listed in the ledger and approved by the owner on 2026-11-09. test_migration_0012_provider_credential_slots.py: the column test migrates to 0012 instead of head, because from 0017 on head no longer has the migration_note column that 0012 creates. Every changed prior test file is pinned byte-exact (1).",
+  "reason": "OME-1138 close-out, L4c-2 (spec docs/spec/2026-10-29-ome-1138-closeout.md section 4.3; owner decision 2026-11-09): migration 0017 drops provider_credential_slots.migration_note, so a prior test that checked the column at head pins the migration it describes.",
+  "files": {
+    "apps/aigateway/tests/unit/test_migration_0012_provider_credential_slots.py": {
+      "base_blob": "85b21bb2157c20742bf06a7cc4ce5a1814de1932",
+      "approved_blob": "eba33b6902b3665ea5a610d8c056430ec5631e0c"
+    }
+  }
+}

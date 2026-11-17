@@ -10,6 +10,7 @@ from screamingface_engine.rest.benchmarks import router as benchmark_router
 from screamingface_engine.rest.blobs import router as blob_router
 from screamingface_engine.rest.catalog import router as catalog_router
 from screamingface_engine.rest.connections import router as connection_router
+from screamingface_engine.rest.credits import router as credit_router
 from screamingface_engine.rest.interest import DenyAllGate, SubscriberGate
 from screamingface_engine.rest.operators import router as operator_router
 from screamingface_engine.rest.routes import router
@@ -22,6 +23,7 @@ __all__ = [
     "blob_router",
     "catalog_router",
     "connection_router",
+    "credit_router",
     "operator_router",
     "router",
 ]
