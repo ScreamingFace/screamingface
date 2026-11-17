@@ -1,34 +1,34 @@
-"""Your Runs on the Engine: list, reopen, wait on and cancel them (E5 P1 spec §4.4).
+"""Your Runs on the Engine: list, reopen, wait on and cancel them (E5 P1 spec §4.4, P2 §4.6).
 
-Every ``sf.evaluate`` is recorded as a Run, and ``report.run_id`` names it. A Run is listed from
-any notebook or machine signed in as you, for 30 days. ``sf.reports`` is separate: it opens the
-results saved on this machine.
+Every ``sf.evaluate`` is a Run, and ``report.run_id`` names it; ``sf.evaluate(..., detach=True)``
+returns the Run at once and the Engine runs it without you. A Run is listed from any notebook or
+machine signed in as you, for 30 days, and its Report can be built on any of them.
+``sf.reports`` is separate: it opens the results saved on this machine.
 
-e.g. ``sf.runs.get(report.run_id).wait().report()``.
+e.g. ``sf.runs.get(run_id).wait()``.
 """
 
 from __future__ import annotations
 
 import asyncio
 import builtins
-import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from screamingface import reports
+from screamingface._core.ports import _RunReattaching
 from screamingface._default_client import default_client
 from screamingface._engine import runs as _wire
-from screamingface._engine.runs import CandidateState, RunState
+from screamingface._engine.runs import CandidateState, RunState, StopReason
 from screamingface._evaluation.outcome import with_run_id
 from screamingface.errors import ExecutionError
 from screamingface.report import Report
 
-# Test seams: production code never replaces them.
-_sleep = time.sleep
-_monotonic = time.monotonic
-_POLL_FIRST_S = 1.0
-_POLL_MAX_S = 10.0
+if TYPE_CHECKING:
+    from screamingface.client import Client
+
 _CANDIDATE_DONE: frozenset[str] = frozenset({"succeeded", "failed", "timed_out", "stopped", "lost"})
 
 
@@ -65,8 +65,13 @@ class Run:
     finished_at: datetime | None
     benchmark: str
     candidates: tuple[CandidateRun, ...]
-    # Set by `_run`, never by a caller: the Engine call the methods read the Run again with.
-    _request: _wire.Request = field(init=False, repr=False, compare=False)
+    #: E5 P2: a detached Run runs without a follower until ``deadline_at``; ``stopped_by`` says
+    #: why a Run that was stopped ended (``"canceled"``, ``"orphaned"`` or ``"deadline"``).
+    detached: bool = False
+    deadline_at: datetime | None = None
+    stopped_by: StopReason | None = None
+    # Set by `_run`, never by a caller: the Client the methods read and follow the Run with.
+    _client: Client = field(init=False, repr=False, compare=False)
     # A one-Candidate Run's attempt: a raw-URL4 or replay evaluation saves its result under it.
     _attempt_id: str | None = field(init=False, repr=False, compare=False)
 
@@ -78,7 +83,8 @@ class Run:
 
     def refresh(self) -> Run:
         """The Run as the Engine has it now."""
-        return _run(_wire.get_sync(self._request, self.id), self._request)
+        record = _wire.get_sync(self._client._http_request, self.id, summary=True)
+        return _run(record, self._client)
 
     def progress(self) -> RunProgress:
         """Read the Engine again and say how far the Run has got."""
@@ -86,24 +92,18 @@ class Run:
         done = sum(1 for c in now.candidates if c.state in _CANDIDATE_DONE)
         return RunProgress(done=done, total=len(now.candidates), cost_usd=now.cost_usd)
 
-    def wait(self, *, timeout: float | None = None) -> Run:
-        """Poll the Engine until the Run has finished, and return it; a finished Run at once.
+    def wait(self) -> Report:
+        """Follow the Run until it ends, and return its Report; a finished Run's at once.
 
-        Raises ``TimeoutError`` when it is still running after ``timeout`` seconds.
+        It works from any machine: the Report is this machine's saved one, else built from the
+        Engine (``report()``). Raises ``login_expired`` when the sign-in expires while following;
+        the Run goes on, and ``wait()`` picks it up again once you sign in.
         """
-        deadline = None if timeout is None else _monotonic() + timeout
-        delay = _POLL_FIRST_S
-        current = self
-        while current.state == "running":
-            if deadline is not None:
-                remaining = deadline - _monotonic()
-                if remaining <= 0:
-                    raise TimeoutError(f"Run {self.id} is still running after {timeout} s")
-                delay = min(delay, remaining)
-            _sleep(delay)
-            delay = min(delay * 2, _POLL_MAX_S)
-            current = self.refresh()
-        return current
+        if self.state == "running" and self.refresh().state == "running":
+            transport = self._client._transport
+            if isinstance(transport, _RunReattaching):
+                transport.wait_run(self.id, detached=self.detached)
+        return self.report()
 
     def report(self) -> Report:
         """The Run's Report, from the results saved on this machine (spec D9).
@@ -127,21 +127,20 @@ class Run:
             if exc.partial_report is not None:
                 exc.partial_report = with_run_id(exc.partial_report, self.id)
             raise
-        if saved is None:
-            raise ExecutionError(
-                f"The results of Run {self.id} are not on this machine",
-                code="results_not_local",
-                permanent=True,
-                hint="Open the report on the machine that ran the evaluation.",
-            )
-        return with_run_id(saved, self.id)
+        if saved is not None:
+            return with_run_id(saved, self.id)
+        from screamingface._evaluation.reattach import engine_report
+
+        # E5 P2 spec D9b, D14: built from the Engine's context, records and results, as an
+        # attached evaluation builds it, and saved here when this Client saves results.
+        return engine_report(self._client, self.id)
 
     def cancel(self) -> None:
         """Stop every Candidate of the Run still running, and refuse its later starts (D12).
 
         A finished Run is left as it is.
         """
-        _wire.cancel_sync(self._request, self.id)
+        _wire.cancel_sync(self._client._http_request, self.id)
 
 
 def list(
@@ -155,9 +154,9 @@ def list(
         raise ValueError("since must be a timezone-aware datetime")
     if limit < 1:
         raise ValueError("limit must be at least 1")
-    request = _request()
-    records = _wire.list_sync(request, state=state, since=since, limit=limit)
-    return [_run(record, request) for record in records]
+    client = default_client()
+    records = _wire.list_sync(client._http_request, state=state, since=since, limit=limit)
+    return [_run(record, client) for record in records]
 
 
 def get(run_id: str) -> Run:
@@ -166,8 +165,8 @@ def get(run_id: str) -> Run:
     Raises ``KeyError`` for an unknown id, or another caller's, and
     ``ExecutionError("runs_unavailable")`` when the Engine does not serve Runs.
     """
-    request = _request()
-    return _run(_wire.get_sync(request, run_id), request)
+    client = default_client()
+    return _run(_wire.get_sync(client._http_request, run_id, summary=True), client)
 
 
 async def list_async(
@@ -192,11 +191,7 @@ def _saved(report_id: str | None) -> Report | None:
         return None
 
 
-def _request() -> _wire.Request:
-    return default_client()._http_request
-
-
-def _run(record: _wire.RunRecord, request: _wire.Request) -> Run:
+def _run(record: _wire.RunRecord, client: Client) -> Run:
     run = Run(
         id=record.id,
         state=record.state,
@@ -207,8 +202,11 @@ def _run(record: _wire.RunRecord, request: _wire.Request) -> Run:
             CandidateRun(name=c.name, state=c.state, cost_usd=c.cost_usd, error_code=c.error_code)
             for c in record.candidates
         ),
+        detached=record.detached,
+        deadline_at=record.deadline_at,
+        stopped_by=record.stopped_by,
     )
-    object.__setattr__(run, "_request", request)
+    object.__setattr__(run, "_client", client)
     only = record.candidates[0].attempt_id if len(record.candidates) == 1 else None
     object.__setattr__(run, "_attempt_id", only)
     return run

@@ -72,8 +72,9 @@ def run_context(evaluation: _Evaluation | None, candidates: Sequence[Candidate])
 
 def evaluation_from_context(
     context: str, starts: Sequence[StartRequest]
-) -> tuple[_Evaluation, tuple[Candidate, ...]]:
-    """The evaluation and its Candidates, from the Run's context and its Candidates' starts."""
+) -> tuple[_Evaluation | None, tuple[Candidate, ...]]:
+    """The evaluation and its Candidates, from the Run's context and its Candidates' starts;
+    the evaluation is None for a raw-url4 or replay Run, which has no benchmark."""
     try:
         value = json.loads(context)
         if not isinstance(value, dict) or value.get("schema") != SCHEMA:
@@ -84,6 +85,8 @@ def evaluation_from_context(
         candidates = tuple(
             _candidate(data, start) for data, start in zip(described, starts, strict=True)
         )
+        if value["benchmark"] is None:
+            return None, candidates
         selected = value["selected_cases"]
         evaluation = _compiled_evaluation(
             benchmark=BenchmarkInfo(**value["benchmark"]),

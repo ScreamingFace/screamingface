@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast, overload
 
 from url4 import Expression, Source, Text, build
 
@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     )
 
 
+@overload
 def evaluate_url4_sync(
     transport: _SyncTransport,
     url4: str,
@@ -75,8 +76,58 @@ def evaluate_url4_sync(
     replay_frozen_copy: str | None = None,
     load_operators: _SyncOperatorLoading | None = None,
     use_cache: bool = True,
-) -> Report:
-    """Execute one already-linked evaluation expression unchanged."""
+    detach: Literal[False] = False,
+    deadline_s: int | None = None,
+) -> Report: ...
+
+
+@overload
+def evaluate_url4_sync(
+    transport: _SyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: Literal[True] = ...,
+    deadline_s: int | None = None,
+) -> str: ...
+
+
+@overload
+def evaluate_url4_sync(
+    transport: _SyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str: ...
+
+
+def evaluate_url4_sync(
+    transport: _SyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str:
+    """Execute one already-linked evaluation expression unchanged; with ``detach``, register its
+    Run and return the Run's id instead."""
 
     from screamingface._evaluation.runner import (
         _abort_event_observer,
@@ -99,6 +150,12 @@ def evaluate_url4_sync(
     if replay_frozen_copy is not None:
         candidate = _with_replay_frozen_copy(candidate, replay_frozen_copy)
     candidate = _cache_intent(candidate, use_cache)
+    if detach:
+        from screamingface._evaluation.runner import _following
+
+        return _following(transport).register_run(
+            None, (candidate,), detach=True, deadline_s=deadline_s
+        )
     observer = _sync_event_observer(
         on_event,
         progress,
@@ -165,6 +222,7 @@ def _cache_intent(candidate: Candidate, use_cache: bool) -> Candidate:
     return candidate if use_cache else _without_cache(candidate)
 
 
+@overload
 async def evaluate_url4_async(
     transport: _AsyncTransport,
     url4: str,
@@ -175,7 +233,56 @@ async def evaluate_url4_async(
     replay_frozen_copy: str | None = None,
     load_operators: _AsyncOperatorLoading | None = None,
     use_cache: bool = True,
-) -> Report:
+    detach: Literal[False] = False,
+    deadline_s: int | None = None,
+) -> Report: ...
+
+
+@overload
+async def evaluate_url4_async(
+    transport: _AsyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: Literal[True] = ...,
+    deadline_s: int | None = None,
+) -> str: ...
+
+
+@overload
+async def evaluate_url4_async(
+    transport: _AsyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str: ...
+
+
+async def evaluate_url4_async(
+    transport: _AsyncTransport,
+    url4: str,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    replay_frozen_copy: str | None = None,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str:
     """Asynchronously execute one already-linked evaluation expression unchanged."""
 
     from screamingface._evaluation.runner import (
@@ -198,6 +305,12 @@ async def evaluate_url4_async(
     if replay_frozen_copy is not None:
         candidate = _with_replay_frozen_copy(candidate, replay_frozen_copy)
     candidate = _cache_intent(candidate, use_cache)
+    if detach:
+        from screamingface._evaluation.runner import _async_following
+
+        return await _async_following(transport).register_run(
+            None, (candidate,), detach=True, deadline_s=deadline_s
+        )
     observer = _async_event_observer(
         on_event,
         progress,

@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from threading import Event as ThreadEvent
 from threading import Lock
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast, overload
 
 if TYPE_CHECKING:
     from screamingface.errors import PlanningError
@@ -90,6 +90,72 @@ _NAMED_CALLS = 3
 _logger = logging.getLogger(__name__)
 
 
+@overload
+def evaluate_sync(
+    load_benchmark: _SyncBenchmarkLoading,
+    transport: _SyncTransport,
+    load_models: _SyncModelLoading,
+    load_model_details: _SyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _SyncCallerCapLoading | None = None,
+    detach: Literal[False] = False,
+    deadline_s: int | None = None,
+) -> Report: ...
+
+
+@overload
+def evaluate_sync(
+    load_benchmark: _SyncBenchmarkLoading,
+    transport: _SyncTransport,
+    load_models: _SyncModelLoading,
+    load_model_details: _SyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _SyncCallerCapLoading | None = None,
+    detach: Literal[True] = ...,
+    deadline_s: int | None = None,
+) -> str: ...
+
+
+@overload
+def evaluate_sync(
+    load_benchmark: _SyncBenchmarkLoading,
+    transport: _SyncTransport,
+    load_models: _SyncModelLoading,
+    load_model_details: _SyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _SyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _SyncCallerCapLoading | None = None,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str: ...
+
+
 def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order (OME-1314 adds the cap read)
     load_benchmark: _SyncBenchmarkLoading,
     transport: _SyncTransport,
@@ -106,8 +172,11 @@ def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order (OME-131
     use_cache: bool = True,
     cases: object = None,
     load_caller_cap: _SyncCallerCapLoading | None = None,
-) -> Report:
-    """Run the complete synchronous Evaluation workflow behind the Client interface."""
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str:
+    """Run the complete synchronous Evaluation workflow behind the Client interface; with
+    ``detach``, register the Run and return its id instead (E5 P2 spec D11, D14)."""
 
     from screamingface._evaluation.compilation import compile_evaluation
     from screamingface._evaluation.outcome import completed_report
@@ -148,6 +217,10 @@ def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order (OME-131
     preflight_sync(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
+    if detach:
+        return _following(transport).register_run(
+            evaluation, selected_candidates, detach=True, deadline_s=deadline_s
+        )
     cap, run_id = _opened_sync(
         transport, evaluation, selected_candidates, benchmark, load_caller_cap
     )
@@ -179,6 +252,72 @@ def evaluate_sync(  # noqa: PLR0915 - the Evaluation's phases, in order (OME-131
         return report
 
 
+@overload
+async def evaluate_async(
+    load_benchmark: _AsyncBenchmarkLoading,
+    transport: _AsyncTransport,
+    load_models: _AsyncModelLoading,
+    load_model_details: _AsyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _AsyncCallerCapLoading | None = None,
+    detach: Literal[False] = False,
+    deadline_s: int | None = None,
+) -> Report: ...
+
+
+@overload
+async def evaluate_async(
+    load_benchmark: _AsyncBenchmarkLoading,
+    transport: _AsyncTransport,
+    load_models: _AsyncModelLoading,
+    load_model_details: _AsyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _AsyncCallerCapLoading | None = None,
+    detach: Literal[True] = ...,
+    deadline_s: int | None = None,
+) -> str: ...
+
+
+@overload
+async def evaluate_async(
+    load_benchmark: _AsyncBenchmarkLoading,
+    transport: _AsyncTransport,
+    load_models: _AsyncModelLoading,
+    load_model_details: _AsyncModelDetailsLoading,
+    candidates: Recipe | Sequence[Recipe],
+    benchmark: str,
+    limit: int | None,
+    on_event: Callable[[Event], None | Awaitable[None]] | None,
+    progress: bool | None,
+    answer_seed: int | None = None,
+    capture: bool = False,
+    load_operators: _AsyncOperatorLoading | None = None,
+    use_cache: bool = True,
+    cases: object = None,
+    load_caller_cap: _AsyncCallerCapLoading | None = None,
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str: ...
+
+
 async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
     load_benchmark: _AsyncBenchmarkLoading,
     transport: _AsyncTransport,
@@ -195,8 +334,11 @@ async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
     use_cache: bool = True,
     cases: object = None,
     load_caller_cap: _AsyncCallerCapLoading | None = None,
-) -> Report:
-    """Run the complete asynchronous Evaluation workflow behind the Client interface."""
+    detach: bool = False,
+    deadline_s: int | None = None,
+) -> Report | str:
+    """Run the complete asynchronous Evaluation workflow behind the Client interface; with
+    ``detach``, register the Run and return its id instead."""
 
     from screamingface._evaluation.compilation import compile_evaluation
     from screamingface._evaluation.outcome import completed_report
@@ -236,6 +378,10 @@ async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
     await preflight_async(
         selected_candidates, load_model_details, answer_seed=answer_seed, prefetched=prefetched
     )
+    if detach:
+        return await _async_following(transport).register_run(
+            evaluation, selected_candidates, detach=True, deadline_s=deadline_s
+        )
     cap, run_id = await _opened_async(
         transport, evaluation, selected_candidates, benchmark, load_caller_cap
     )
@@ -264,6 +410,19 @@ async def evaluate_async(  # noqa: PLR0915 - see evaluate_sync
             raise
         _conclude_evaluation(observer, report, capture)
         return report
+
+
+def _following(transport: _SyncTransport) -> _RunFollowing:
+    """The transport, when the Engine drives Runs; a detached Run needs one (E5 P2 spec D1)."""
+    if not isinstance(transport, _RunFollowing):
+        raise TypeError("detach=True needs a run transport that registers Runs on the SF Engine")
+    return transport
+
+
+def _async_following(transport: _AsyncTransport) -> _AsyncRunFollowing:
+    if not isinstance(transport, _AsyncRunFollowing):
+        raise TypeError("detach=True needs a run transport that registers Runs on the SF Engine")
+    return transport
 
 
 def _opened_sync(

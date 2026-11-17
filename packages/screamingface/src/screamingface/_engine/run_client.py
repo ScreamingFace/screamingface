@@ -127,6 +127,16 @@ class RunClient:
     def cancel(self, run_id: str) -> None:
         runs.cancel_sync(runs.marked_request(self._http, timeout=_CANCEL_TIMEOUT_S), run_id)
 
+    def wait(self, run_id: str, *, detached: bool) -> run_follow.RunEnded:
+        return run_follow.follow_sync(
+            lambda: self._socket(run_id),
+            run_id,
+            lambda _frame: None,
+            detached=detached,
+            budget_s=self._timings.budget_s,
+            base_delay_s=self._timings.base_delay_s,
+        )
+
     def _socket(self, run_id: str) -> AbstractContextManager[sync_ws.ClientConnection]:
         return sync_ws.connect(
             events_url(self._engine_url, run_id),

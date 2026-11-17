@@ -265,6 +265,18 @@ class _AsyncRunFollowing(Protocol):
     async def close(self) -> None: ...
 
 
+@runtime_checkable
+class _RunReattaching(Protocol):
+    """A transport that can rebuild a Run's Report on any machine (E5 P2 spec D14): it keeps a
+    settled Candidate's result as an attached evaluation does, and follows a Run to its end."""
+
+    def adopt_run(self, run_id: str, candidates: tuple[Candidate, ...]) -> None: ...
+
+    def save_result(self, candidate: Candidate, outcome: _RunOutcome) -> _RunOutcome: ...
+
+    def wait_run(self, run_id: str, *, detached: bool) -> None: ...
+
+
 #: What a Client holds until the Client port PR leaves one port: a transport the Engine drives,
 #: or a `run()`-only one (every test fake).
 type _SyncTransport = SyncRunTransport | _RunFollowing

@@ -102,6 +102,17 @@ class Url4CloudTransport:
     def cancel_run(self, run_id: str) -> None:
         self._runs.cancel(run_id)
 
+    def adopt_run(self, run_id: str, candidates: tuple[Candidate, ...]) -> None:
+        """Key ``candidates``' saved results by ``run_id``, a Run registered elsewhere."""
+        self._report_ids.update({id(candidate): run_id for candidate in candidates})
+
+    def save_result(self, candidate: Candidate, outcome: _RunOutcome) -> _RunOutcome:
+        return self._save_result(candidate, outcome)
+
+    def wait_run(self, run_id: str, *, detached: bool) -> None:
+        """Follow the Run until it ends, showing nothing (`Run.wait`)."""
+        self._runs.wait(run_id, detached=detached)
+
     def _save_result(self, candidate: Candidate, outcome: _RunOutcome) -> _RunOutcome:
         if self._result_store is None:
             return fetch_result_sync(self._http, outcome)

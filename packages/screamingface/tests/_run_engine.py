@@ -46,6 +46,12 @@ class RunEngineState:
     refuse_create: tuple[int, str | None] | None = None
     # The headers each `POST /runs` and each events upgrade carried.
     post_headers: list[dict[str, str]] = field(default_factory=list)
+    # `GET /runs/{id}`: the Run's state, and each Candidate's settled frame, by index, which the
+    # read reports as the Candidate's state, attempt, error code and record.
+    run_state: str = "complete"
+    settled_by_index: dict[int, dict[str, Any]] = field(default_factory=dict)
+    # The context `GET /runs/{id}/context` serves instead of the one sent, to test the check.
+    served_context: str | None = None
     follow_headers: list[dict[str, str]] = field(default_factory=list)
 
 
@@ -187,17 +193,24 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 - stdlib handler API
         path = urlsplit(self.path).path
-        state = self.server.state
         if self.headers.get("Upgrade", "").casefold() == "websocket":
-            with state.lock:
-                state.followed.append(path)
-                state.follow_headers.append(dict(self.headers))
-                script: Sequence[str | int] = (
-                    state.connections.pop(0) if state.connections else [1011]
-                )
-            self._accept()
-            self._play(script)
-            return
+            self._follow(path)
+        elif path.endswith("/context") or path.count("/") == 2:
+            self._read_run(path)
+        else:
+            self._result(path)
+
+    def _follow(self, path: str) -> None:
+        state = self.server.state
+        with state.lock:
+            state.followed.append(path)
+            state.follow_headers.append(dict(self.headers))
+            script: Sequence[str | int] = state.connections.pop(0) if state.connections else [1011]
+        self._accept()
+        self._play(script)
+
+    def _result(self, path: str) -> None:
+        state = self.server.state
         with state.lock:
             state.fetched.append(path)
             state.fetch_headers.append(dict(self.headers))
@@ -207,8 +220,7 @@ class _Handler(BaseHTTPRequestHandler):
             # A reset: the connection ends with no answer.
             self.close_connection = True
             return
-        index = int(path.rsplit("/", 2)[-2])
-        body = state.results.get(index)
+        body = state.results.get(int(path.rsplit("/", 2)[-2]))
         if body is None:
             self._json(HTTPStatus.NOT_FOUND, {"code": "result_not_found"})
             return
@@ -217,6 +229,60 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _read_run(self, path: str) -> None:
+        state = self.server.state
+        with state.lock:
+            state.fetched.append(self.path)
+            sent = state.registered[-1] if state.registered else None
+        if sent is None:
+            self._json(HTTPStatus.NOT_FOUND, {"code": "run_not_found"})
+            return
+        if path.endswith("/context"):
+            body = (state.served_context or sent["context"] or "").encode()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        full = "view=summary" not in self.path
+        context = sent["context"].encode() if sent["context"] else None
+        candidates = []
+        for index, start in enumerate(sent["candidates"]):
+            frame = state.settled_by_index.get(index)
+            candidate: dict[str, Any] = {
+                "index": index,
+                "name": start["name"],
+                "state": "pending" if frame is None else frame["state"],
+                "attempt_id": None if frame is None else frame["attempt_id"],
+                "started_at": None,
+                "finished_at": None,
+                "cost_usd": None,
+                "error_code": None if frame is None else frame["error_code"],
+            }
+            if full:
+                candidate["start"] = start
+                candidate["record"] = None if frame is None else frame["record"]
+            candidates.append(candidate)
+        self._json(
+            HTTPStatus.OK,
+            {
+                "id": path.split("/")[2],
+                "state": state.run_state,
+                "created_at": "2026-11-14T09:00:00Z",
+                "finished_at": None,
+                "benchmark": sent["benchmark"],
+                "case_count": sent["case_count"],
+                "detached": sent["detach"],
+                "deadline_at": None,
+                "stopped_by": None,
+                "context": None
+                if context is None
+                else {"sha256": hashlib.sha256(context).hexdigest(), "size_bytes": len(context)},
+                "candidates": candidates,
+            },
+        )
 
     def _play(self, script: Sequence[str | int]) -> None:
         for item in script:
@@ -227,6 +293,8 @@ class _Handler(BaseHTTPRequestHandler):
             if isinstance(item, int):
                 _send_close(self.wfile, item)
                 return
+            if '"run.ended"' in item:
+                self.server.state.run_state = json.loads(item)["state"]
             _send_text(self.wfile, item)
         _send_close(self.wfile, 1000)
 
@@ -266,7 +334,16 @@ def run_engine(
     refuse_create: tuple[int, str | None] | None = None,
 ) -> Iterator[RunEngine]:
     # WHY copied: the stub pops each connection's script, and tests share module-level scripts.
+    settled_frames = {
+        frame["index"]: frame
+        for script in connections
+        for item in script
+        if isinstance(item, str)
+        and item.startswith("{")
+        and (frame := json.loads(item)).get("type") == "candidate.settled"
+    }
     state = RunEngineState(
+        settled_by_index=settled_frames,
         connections=[list(script) for script in connections],
         results=dict(results),
         drop_fetches=drop_fetches,

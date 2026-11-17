@@ -45,6 +45,13 @@
 
 * **screamingface:** the E4b gate fallback runs only on the Cases where the gate takes it (E4c, `OME-1291`). An `sf.JudgePick` or `sf.Synthesize` in `otherwise=` makes no call when the gate keeps the majority or the number is in the abstain band, and its failure fails only the Cases that take it. The cost of a gated recipe goes down, and its operation list changes: the fallback operation is not in the Cases that did not run it. A url4 that an E4b SDK compiled runs as before, with the fallback on every Case.
 
+* **screamingface:** the Engine now runs every `evaluate` as a Run it drives (`OME-1837`). The
+  Client sends the evaluation once and follows it on one connection; it starts no Candidate
+  itself. `evaluate` therefore needs an Engine that runs Runs: an older Engine raises
+  `EngineCapabilityError` with the upgrade to make, and an Engine with Runs off raises
+  `ExecutionError("runs_off")` (an evaluation no longer runs without a Run). `Run.wait()` now
+  follows the Run and returns its `Report` (it returned the `Run`, and took `timeout=`).
+
 * **screamingface:** `evaluate` no longer captures a pinned cache by default. Capture is now
   opt-in: pass `capture=True` to `sf.evaluate`, `Client.evaluate` or `AsyncClient.evaluate` to
   store the run's answers so the score can be reproduced. A run without `capture=True` has no
@@ -302,6 +309,12 @@
   An Engine that does not record Runs runs every `evaluate` as before, with one
   `EvaluationWarning`, and `Report.run_id` is `None`. The local Engine of `screamingface up`
   keeps its Runs in `engine.sqlite3` in the data directory.
+
+* **screamingface:** `evaluate(..., detach=True, deadline=timedelta(...))` returns the
+  evaluation's `sf.runs.Run` at once, and the Engine runs it whether or not the notebook stays
+  (`OME-1837`). `sf.runs.get(run_id).wait()` and `.report()` give its Report from any machine,
+  built from the Engine when this machine does not hold the results. `Run` gains `detached`,
+  `deadline_at` and `stopped_by`.
 
 ### Features
 * **screamingface:** read benchmark datasets from a separate folder. `screamingface up --benchmark-assets-dir PATH` points the Engine's `URL4_BENCHMARK_ASSETS` at `PATH` instead of `<data-dir>/benchmark-assets`, so an app can ship the datasets read-only in its bundle. A missing folder fails `up` before any service starts. The running stack records the folder in `runtime.json`; `status --json` (new `benchmark_assets_dir` key) and `doctor` (a `benchmark assets dir` line) report it and the bundle status from it, and `restart` keeps it. `prepare` still writes to the data directory and refuses the option. Without the option nothing changes.

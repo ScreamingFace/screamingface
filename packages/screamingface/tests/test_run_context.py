@@ -49,6 +49,8 @@ def test_the_context_and_the_starts_give_back_the_same_evaluation() -> None:
     context = run_context(evaluation, (seeded,))
     rebuilt, candidates = evaluation_from_context(context, (start_request(seeded),))
 
+    assert rebuilt is not None
+
     assert candidates == (seeded,)
     assert (rebuilt.benchmark, rebuilt.case_count, rebuilt.selected_cases) == (
         evaluation.benchmark,
