@@ -6,7 +6,7 @@ verdict_reason: "Two by-design differences. First, levels 3-4 are routed, matche
 audited: 2026-11-16
 audited_at: 55d7f087f   # local head of branch futurex-past-local-task, NOT main (unmerged; rebased onto origin/main cc5cfd36d)
 fingerprint:
-  benchmark: 118a7a5a5df8e185
+  benchmark: a4593e342d18b512
   harness_url: https://github.com/Futurex-ai/Futurex-Eval/tree/2626f7a297cd87c73a45408e23af8d838f5b60e5
 references:
   paper: https://arxiv.org/abs/2508.11987v3
@@ -265,3 +265,10 @@ the roll-up vectors. Results are as in the Dimensions table.
   reporting upstream.
 - **inspect_evals.** FutureX is not in inspect_evals 0.20.0; those references record installed
   versions only.
+
+## Since the audit (2026-11-17, OME-1952)
+
+The fingerprint moved from `118a7a5a5df8e185` to `a4593e342d18b512` because the package's
+sibling module `futurex_past_study.py` gained the `study_headline` metric (the maintainer's
+review), and the fingerprint hashes every `.py` file of the package. No file this Benchmark
+grades with changed: `futurex_past.py` and `grading.py` are byte-identical to the audited ones.

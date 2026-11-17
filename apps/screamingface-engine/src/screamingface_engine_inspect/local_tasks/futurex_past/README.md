@@ -134,7 +134,7 @@ licence, and `test_local_task_futurex_past_study.py` pins each sha256.
   option selected, an option the question does not offer). Its Score shows
   `study_usable: false` and the reason, and its per-Case value is still the study's mark of
   its tokens (so the per-Case mean includes it; only the headline leaves it out). A Candidate
-  call that failed leaves it too (`coverage_declare`).
+  call that failed leaves it too (`coverage_declare`). The run metric `excluded` counts them.
 - Both sides are case-folded and whitespace-collapsed (the study's `corpus.normalise`).
 - Level 1: the list must equal the key. Level 2: set F1. Levels 3-4: 1 for an exact ordered
   match, else 0.8 × overlap / k. Names and numbers compare as text, with no Judge and no σ, so this

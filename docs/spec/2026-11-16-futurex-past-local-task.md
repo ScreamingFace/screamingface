@@ -263,3 +263,12 @@ the fidelity audits, or from the code review; the ledger lists them too.
   its `interpret_answer` decided usability. The study's `bench_formats.py` is now vendored too,
   and the study roll-up leaves such a Case out. The replication test covers all 27 models and
   every one of the study's 38 exclusions.
+
+### Amendment after the maintainer's review (2026-11-17, OME-1952)
+
+- **The excluded count is published.** `futurex_past_study`'s row now honours `study_headline`,
+  which returns the study's score (`study_score`, the headline, unchanged) beside `answered` and
+  `excluded` as run metrics, so a Report shows how many Cases left the score. Counting them as 0
+  instead would break the replication of the study's numbers, so they still leave the score.
+- **The test-change approval** is `.claude/test-change-approvals/OME-1952.json`, keyed to this
+  branch (`futurex-past-local-task`), which the open PR keeps.

@@ -6,7 +6,7 @@ verdict_reason: "grading is the study's to the last bit (prompt, reply reading, 
 audited: 2026-11-16
 audited_at: 55d7f087f
 fingerprint:
-  benchmark: 0d516b151df8c19e
+  benchmark: d6ced6d27a3d18ef
   harness_url: https://huggingface.co/datasets/futurex-ai/Futurex-Past/tree/3c2e39690de35eb1fcc621251f56343c72bae8c4
 references:
   paper: https://arxiv.org/abs/2508.11987v3
@@ -144,7 +144,8 @@ study's numbers.
    `published_revision` changed (`:8048`).
 2. **Tests.** `uv run --extra inspect pytest tests/unit/inspect/test_local_task_futurex_past_study.py tests/unit/inspect/test_local_task_futurex_past.py tests/unit/inspect/test_futurex_past_grading.py -q -p no:cacheprovider`
    gave `189 passed`.
-3. **Our side.** `fingerprint 0d516b151df8c19e judge None params None`;
+3. **Our side.** `fingerprint 0d516b151df8c19e judge None params None` (at the audit; now
+   `d6ced6d27a3d18ef`, see "Since the audit" below);
    `samples 1118 case_digest f59af636… declared f59af636…`; `Sample.input == Case input on all: True`.
    The parquet is `snapshots/3c2e39690de35eb1fcc621251f56343c72bae8c4`, sha256 `55ecf4f1…`.
 4. **Prompts and gold**, under 3.11.7 and 3.12.1: `input != futurex_render: []`; both prompt
@@ -209,3 +210,14 @@ last bit, and the record can be re-issued as `comparable-to-paper` on that evide
 - **[inspect_evals](https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0) has no FutureX
   eval** and is not a reference. Futurex-Eval@2626f7a2 is `futurex_past`'s reference, not this
   Benchmark's.
+
+## Since the audit (2026-11-17, OME-1952)
+
+The maintainer's review asked that the Cases leaving the headline be visible. The row's whole-run
+metric is now `study_headline` (`futurex_past_study.py`), which returns
+`{"study_score": …, "answered": …, "excluded": …}` with `whole_run_headline="study_score"`.
+`study_score` is computed by the same `_study_score` over the same `_usable` Cases as
+`study_tier_weighted`, which is unchanged and still pins the replication tests, so every number
+above holds; `answered` and `excluded` are published beside it as run metrics. The fingerprint
+moved from `0d516b151df8c19e` to `d6ced6d27a3d18ef` for this reason alone (the row's metric
+reference and headline key are Benchmark identity). No grading or roll-up rule changed.

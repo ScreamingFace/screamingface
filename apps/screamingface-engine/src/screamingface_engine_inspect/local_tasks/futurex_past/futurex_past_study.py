@@ -156,13 +156,40 @@ def study_tier_weighted() -> Metric:
     carries a level (the no-network lane's stand-ins) gives the plain mean."""
 
     def compute(scores: list[SampleScore]) -> float:
+        return _study_score([sample for sample in scores if _usable(sample)])
+
+    return compute
+
+
+def _study_score(kept: list[SampleScore]) -> float:
+    """``tier_weighted`` over the usable Cases; the plain mean when none carries a level."""
+
+    by_level: dict[int, list[float]] | None = leveled(kept)
+    if by_level is None:
+        return sum(s.score.as_float() for s in kept) / len(kept) if kept else 0.0
+    weighted: float | None = tier_weighted(by_level)
+    # None only when no level holds a Case.
+    return 0.0 if weighted is None else float(weighted)
+
+
+@metric
+def study_headline() -> Metric:
+    """The row's whole-run metric: the study's score beside the counts it rests on.
+
+    ``study_score`` is ``study_tier_weighted`` (the row's ``whole_run_headline``); ``answered``
+    and ``excluded`` are published beside it as run metrics, so a Report shows how many
+    Cases left the headline (an unusable reply or an abstain). WHY (maintainer review on
+    ScreamingFace/screamingface#1897): the study drops those Cases, so 1 right answer and 99
+    hedges score 1.0; the count makes that visible without changing the study's number.
+    """
+
+    def compute(scores: list[SampleScore]) -> dict[str, float | int]:
         kept: list[SampleScore] = [sample for sample in scores if _usable(sample)]
-        by_level: dict[int, list[float]] | None = leveled(kept)
-        if by_level is None:
-            return sum(s.score.as_float() for s in kept) / len(kept) if kept else 0.0
-        weighted: float | None = tier_weighted(by_level)
-        # None only when no level holds a Case.
-        return 0.0 if weighted is None else float(weighted)
+        return {
+            "study_score": _study_score(kept),
+            "answered": len(kept),
+            "excluded": len(scores) - len(kept),
+        }
 
     return compute
 

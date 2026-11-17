@@ -362,3 +362,85 @@ async def test_through_the_engine_an_unusable_reply_leaves_the_study_headline(
 
     assert [case["status"] for case in result["cases"]] == ["scored", "scored"]
     assert result["score"] == 1.0
+
+
+# ── the published excluded count (maintainer review, OME-1952) ───────────────────────────────
+
+
+def test_the_rows_metric_publishes_the_study_score_beside_the_excluded_count() -> None:
+    """1 right answer and 99 hedges: the study's score is 1.0, as in the study, but the run
+    metric ``excluded`` says 99 Cases left it."""
+
+    right: SampleScore = SampleScore(
+        score=Score(value=1.0, metadata={"level": 1, "study_usable": True}),
+        sample_id="right",
+        sample_metadata={"level": 1},
+    )
+    hedges: list[SampleScore] = [
+        SampleScore(
+            score=Score(value=0.0, metadata={"level": 1, "study_usable": False}),
+            sample_id=f"hedge-{n}",
+            sample_metadata={"level": 1},
+        )
+        for n in range(99)
+    ]
+    compute: Any = study.study_headline()
+
+    assert compute([right, *hedges]) == {"study_score": 1.0, "answered": 1, "excluded": 99}
+
+
+def test_the_row_names_the_study_score_as_its_headline() -> None:
+    from screamingface_engine_inspect.benchmarks import BENCHMARKS
+
+    [row] = [spec for spec in BENCHMARKS if spec.key == "futurex_past_study"]
+
+    assert row.whole_run_metric is not None
+    assert row.whole_run_metric.endswith(":study_headline")
+    assert row.whole_run_headline == "study_score"
+
+
+@pytest.mark.asyncio
+async def test_through_the_engine_the_report_shows_how_many_cases_left_the_score(
+    tmp_path: Path, no_network: None
+) -> None:
+    """End to end: one right answer, one boxless reply → headline 1.0 and excluded 1."""
+
+    from test_whole_run_metric import _row
+
+    from screamingface_engine_inspect.benchmarks import imported_benchmark
+    from screamingface_engine_inspect.local_tasks.futurex_past.futurex_past import (
+        record_to_sample,
+    )
+    from screamingface_engine_inspect.prepare import (
+        TASK_REPLAY_CASES,
+        PreparedCase,
+        _write_cases,  # pyright: ignore[reportPrivateUsage]
+        prepared_case,
+    )
+    from screamingface_engine_inspect.single_shot import benchmark_aggregate_async
+
+    row: dict[str, Any] = {
+        "id": "6877aaaa",
+        "prompt": 'Predict: "Lightning vs. Blues".\n\\boxed{Lightning} or \\boxed{Blues}',
+        "end_time": "2026-07-17",
+        "level": 1,
+        "title": "Lightning vs. Blues",
+        "ground_truth": '["Blues"]',
+    }
+    prepared: list[PreparedCase] = []
+    for case_id in (1, 2):
+        sample = record_to_sample({**row, "end_time": f"2026-07-1{case_id}"})
+        case = prepared_case(
+            sample, case_id, str(sample.input), TASK_REPLAY_CASES["futurex_past_study"]
+        )
+        prepared.append(json.loads(json.dumps(case)))
+    _write_cases(prepared, tmp_path)
+    rows: str = json.dumps([_row(1, "\\boxed{Blues}"), _row(2, "I cannot tell.")])
+
+    result: dict[str, Any] = await benchmark_aggregate_async(
+        imported_benchmark("futurex_past_study"), rows, tmp_path, case_ids=(1, 2)
+    )
+
+    assert result["score"] == 1.0
+    assert result["metrics"]["answered"] == 1
+    assert result["metrics"]["excluded"] == 1

@@ -7896,7 +7896,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past",
-        published_revision="118a7a5a5df8e185",
+        published_revision="a4593e342d18b512",
         title="FutureX-Past",
         description=(
             "2,036 resolved real-world forecasting questions from FutureX, a live benchmark of "
@@ -7994,7 +7994,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past_study",
-        published_revision="0d516b151df8c19e",
+        published_revision="d6ced6d27a3d18ef",
         title="FutureX-Past (study scoring)",
         description=(
             "FutureX-Past as the crowd-wisdom study (behavior-aware LLM crowds for future "
@@ -8004,7 +8004,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "the boxed answer is split on commas, case-folded and compared with the key as text "
             "by the study's own code (level 1 exact, level 2 set F1, levels 3-4 0.8 of the "
             "overlap unless the order is exact). As in the study, a reply with no usable answer "
-            "(none in the box, a hedge, every option) leaves the score, and the headline weights "
+            "(none in the box, a hedge, every option) leaves the score, and the run reports how "
+            "many did as the run metric excluded; the headline weights "
             "the level means 10/20/30/40. Names and numbers must match as text, so this scores "
             "below futurex_past on levels 3-4 by design; use futurex_past for a score on the "
             "FutureX authors' scale. Pass the study's 100 Case positions as cases=[...] "
@@ -8026,10 +8027,14 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "screamingface_engine_inspect.local_tasks.futurex_past.futurex_past_study:"
             "futurex_study_score"
         ),
+        # The dict form of the study's score: study_score is the headline; answered and
+        # excluded (unusable replies and abstains, which leave the score as in the study) are
+        # published beside it as run metrics (maintainer review, OME-1952).
         whole_run_metric=(
             "screamingface_engine_inspect.local_tasks.futurex_past.futurex_past_study:"
-            "study_tier_weighted"
+            "study_headline"
         ),
+        whole_run_headline="study_score",
         # No judge and no Draft Feedback: feedback on a forecast would leak the outcome.
         with_check_surface=False,
         origin="screamingface",
