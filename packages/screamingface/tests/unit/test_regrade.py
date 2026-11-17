@@ -156,8 +156,11 @@ class _Board:
         self.gated = gated
         self.regrade = regrade or httpx.Response(201, json=_created())
         self.posts: list[tuple[str, dict[str, Any]]] = []
+        self.reads: list[str] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            self.reads.append(request.url.path)
         if request.method == "POST":
             self.posts.append((request.url.path, json.loads(request.read())))
             # Any other POST (a reproduction record) is answered 500, so it cannot pass unseen.
@@ -264,7 +267,7 @@ def test_regrade_posts_to_the_regrades_route_of_the_source_score() -> None:
 
 @pytest.mark.parametrize("stage", ["candidate", "grading"])
 def test_one_cache_miss_refuses_the_whole_regrade_and_submits_nothing(stage: str) -> None:
-    engine = _StagedMiss(stage, cases=((1, None), (2, "frozen_copy_miss"), (3, None)))
+    engine = _Staged(stage, cases=((1, None), (2, "frozen_copy_miss"), (3, None)))
     board = _Board(public=_source())
 
     with _client(engine, _Catalog(regradable_from=[OLD_REVISION]), board) as client:
@@ -277,8 +280,8 @@ def test_one_cache_miss_refuses_the_whole_regrade_and_submits_nothing(stage: str
     assert board.posts == []
 
 
-class _StagedMiss(_Replayer):
-    """The replay fake, its failed Cases' failures moved to one stage (a judge call missing)."""
+class _Staged(_Replayer):
+    """The replay fake, its failed Cases' failures moved to one stage (`grading`: a judge call)."""
 
     def __init__(self, stage: str, **arguments: Any) -> None:
         super().__init__(benchmark_revision=NEW_REVISION, **arguments)
@@ -292,6 +295,35 @@ class _StagedMiss(_Replayer):
             for failure in case["failures"]:
                 failure["stage"] = self._stage
         return replace(outcome, result_body=json.dumps(body))
+
+
+@pytest.mark.parametrize("live_judge", [["2"], "all"], ids=["named", "all"])
+def test_a_failed_live_judge_refuses_the_regrade_retryably(live_judge: Any) -> None:
+    # Case 2's live judge call hits an outage (`upstream_error`, not a cache miss). Submitting would
+    # spend the source's one re-grade on a score lowered by the outage.
+    engine = _Staged("grading", cases=((1, None), (2, "upstream_error"), (3, None)))
+    board = _Board(public=_source())
+
+    with _client(engine, _Catalog(regradable_from=[OLD_REVISION]), board) as client:
+        with pytest.raises(ExecutionError) as caught:
+            client.regrade(SCORE_ID, live_judge=live_judge, progress=False)
+
+    assert caught.value.code == "regrade_incomplete"
+    assert caught.value.retryable is True
+    assert caught.value.details == {"failed_live_cases": [2]}
+    assert board.posts == []
+
+
+def test_the_same_failure_on_a_replayed_case_is_the_sources_own_and_is_submitted() -> None:
+    # Live set `1`; Case 2 replayed its judge from the copy, so its failure is the source run's
+    # own, replayed identically, and the re-grade goes ahead.
+    engine = _Staged("grading", cases=((1, None), (2, "upstream_error"), (3, None)))
+    board = _Board(public=_source())
+
+    with _client(engine, _Catalog(regradable_from=[OLD_REVISION]), board) as client:
+        client.regrade(SCORE_ID, live_judge=["1"], progress=False)
+
+    assert [path for path, _ in board.posts] == [REGRADE_PATH]
 
 
 # --- refusals before any run ------------------------------------------------------------------
@@ -349,6 +381,43 @@ def test_regrade_refuses_a_partial_capture_before_any_run(
     assert caught.value.reproduction.reason == reason
     # Refused from the score alone: not even the catalogue is read.
     assert catalog.limits == []
+    assert board.posts == []
+
+
+def test_a_private_score_the_caller_submitted_is_refused_before_any_run() -> None:
+    # Only the gated read serves it: a private score this identity submitted. The board's re-grade
+    # route refuses every private-board source, so reading it would replay (paying for live judges)
+    # and only then be refused. Stand-in: `_ForbiddenTransport` raises if a run starts.
+    engine = _ForbiddenTransport()
+    catalog = _Catalog(regradable_from=[OLD_REVISION])
+    board = _Board(gated=_source())
+
+    with _client(engine, catalog, board) as client:
+        with pytest.raises(LeaderboardError) as caught:
+            client.regrade(SCORE_ID, live_judge="all")
+
+    assert (caught.value.code, caught.value.status) == ("unknown_score", 404)
+    assert engine.called is False
+    # The gated read is never asked: the public read's 404 is the answer.
+    assert board.reads == [PUBLIC_PATH]
+    assert catalog.limits == []
+    assert board.posts == []
+
+
+@pytest.mark.parametrize(
+    "url4",
+    ["((not a url4", _benchmark_url4(CASE_COUNT, OLD_REVISION)],
+    ids=["does-not-parse", "no-candidate-part"],
+)
+def test_a_published_url4_with_no_candidate_part_has_its_own_code(url4: str) -> None:
+    board = _Board(public=_source(url4_expression=url4))
+
+    with _client(_ForbiddenTransport(), _Catalog(regradable_from=[OLD_REVISION]), board) as c:
+        with pytest.raises(PlanningError) as caught:
+            c.regrade(SCORE_ID)
+
+    # Not `not_regradable`: the revision is listed; the score's own url4 is what is wrong.
+    assert caught.value.code == "invalid_published_url4"
     assert board.posts == []
 
 

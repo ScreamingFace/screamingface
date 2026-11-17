@@ -244,6 +244,51 @@ async def published_score_async(
     return _decode_requested_score(payload, scoreboard_url, score_id)
 
 
+def _not_public(score_id: UUID) -> tuple[str, str]:
+    """The 404 of a re-grade source the public read does not serve (OME-1909)."""
+    return (
+        "unknown_score",
+        f"Score {str(score_id)!r} was not found, or it is private; a private score cannot be "
+        "re-graded",
+    )
+
+
+def public_score_sync(
+    request: Callable[..., httpx.Response], scoreboard_url: str, value: object
+) -> PublishedScore:
+    """The public read alone, never the gated fallback: a re-grade's source (OME-1909).
+
+    WHY no gated fallback: the board's re-grade route refuses every source on a private board, so
+    a private score the caller may read would replay (live judges paid) and only then be refused.
+    """
+    score_id: UUID = _score_id(value)
+    payload: object = _sync_json(
+        request,
+        scoreboard_url,
+        "GET",
+        f"{_PUBLIC_SCORES_PATH}/{score_id}",
+        replay_safe=True,
+        missing=_not_public(score_id),
+    )
+    return _decode_requested_score(payload, scoreboard_url, score_id)
+
+
+async def public_score_async(
+    request: Callable[..., Awaitable[httpx.Response]], scoreboard_url: str, value: object
+) -> PublishedScore:
+    """Async twin of `public_score_sync`."""
+    score_id: UUID = _score_id(value)
+    payload: object = await _async_json(
+        request,
+        scoreboard_url,
+        "GET",
+        f"{_PUBLIC_SCORES_PATH}/{score_id}",
+        replay_safe=True,
+        missing=_not_public(score_id),
+    )
+    return _decode_requested_score(payload, scoreboard_url, score_id)
+
+
 __all__ = [
     "PublishedScore",
     "pinned_cache_id",
@@ -252,4 +297,6 @@ __all__ = [
     "published_from_score",
     "published_score_async",
     "published_score_sync",
+    "public_score_async",
+    "public_score_sync",
 ]

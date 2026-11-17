@@ -207,6 +207,12 @@ class Leaderboards:
 
         return published_score_sync(self._request, self._scoreboard_url, score_id)
 
+    def _public_score(self, score_id: UUID | str) -> PublishedScore:
+        """The public read of one score alone: the only source a re-grade may have (OME-1909)."""
+        from screamingface._scoreboard.replay_reads import public_score_sync
+
+        return public_score_sync(self._request, self._scoreboard_url, score_id)
+
     def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
         return _decode_score(
@@ -292,7 +298,7 @@ class Leaderboards:
         self, source: UUID | str, candidate_result: CandidateResult
     ) -> LeaderboardScore:
         """Post a re-grade of `source` and return the new entry. Internal: `regrade` calls it."""
-        selected = _score_id(source)
+        selected: UUID = _score_id(source)
         return _decode_score(
             scoreboard_url=self._scoreboard_url,
             payload=_sync_json(
@@ -396,6 +402,12 @@ class AsyncLeaderboards:
 
         return await published_score_async(self._request, self._scoreboard_url, score_id)
 
+    async def _public_score(self, score_id: UUID | str) -> PublishedScore:
+        """Async twin of the sync `_public_score`."""
+        from screamingface._scoreboard.replay_reads import public_score_async
+
+        return await public_score_async(self._request, self._scoreboard_url, score_id)
+
     async def get_score(self, score_id: UUID | str) -> LeaderboardScore:
         selected = _score_id(score_id)
         return _decode_score(
@@ -481,7 +493,7 @@ class AsyncLeaderboards:
         self, source: UUID | str, candidate_result: CandidateResult
     ) -> LeaderboardScore:
         """Async twin of the sync `_submit_regrade`."""
-        selected = _score_id(source)
+        selected: UUID = _score_id(source)
         return _decode_score(
             scoreboard_url=self._scoreboard_url,
             payload=await _async_json(
@@ -619,12 +631,12 @@ def _regrade_refusal(response: httpx.Response, scoreboard_url: str) -> Leaderboa
     INVARIANT: only an uncoded 409 (the board changed mid-request) and a 429 or 5xx are retryable.
     A coded refusal is permanent, `already_regraded` too: it names the re-grade that won.
     """
-    status = response.status_code
-    details = _error_details(response)
-    suffix = f" ({details})" if isinstance(details, str) and details else ""
-    coded = _coded_detail(response)
-    code = _status_code(status, _REGRADE_OPERATION) if coded is None else str(coded["code"])
-    conflict = status == 409 and coded is None
+    status: int = response.status_code
+    details: object = _error_details(response)
+    suffix: str = f" ({details})" if isinstance(details, str) and details else ""
+    coded: Mapping[str, object] | None = _coded_detail(response)
+    code: str = _status_code(status, _REGRADE_OPERATION) if coded is None else str(coded["code"])
+    conflict: bool = status == 409 and coded is None
     return LeaderboardError(
         f"Could not {_REGRADE_OPERATION} the Scoreboard: HTTP {status}{suffix}",
         scoreboard_url=scoreboard_url,
@@ -642,10 +654,10 @@ def _regrade_refusal(response: httpx.Response, scoreboard_url: str) -> Leaderboa
 def _coded_detail(response: httpx.Response) -> Mapping[str, object] | None:
     """The board's `{code, message, ...}` refusal detail, or None for any other body."""
     try:
-        payload = response.json()
+        payload: object = response.json()
     except ValueError:
         return None
-    detail = payload.get("detail") if isinstance(payload, Mapping) else None
+    detail: object = payload.get("detail") if isinstance(payload, Mapping) else None
     if (
         isinstance(detail, Mapping)
         and isinstance(detail.get("code"), str)
@@ -657,7 +669,7 @@ def _coded_detail(response: httpx.Response) -> Mapping[str, object] | None:
 
 def _existing_score_id(detail: Mapping[str, object]) -> UUID | None:
     """The re-grade an `already_regraded` refusal names; None when the board named none."""
-    value = detail.get("existing_score_id")
+    value: object = detail.get("existing_score_id")
     if not isinstance(value, str):
         return None
     try:
