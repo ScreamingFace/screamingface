@@ -90,7 +90,8 @@ State on 2026-11-17: the code of A1, A2 and A3 is built, reviewed and committed.
   - 5db471fa0 — feat(aigateway): add frozen copy retention states and migration 0018 (OME-1947)
   - 4bc50d705 — feat(aigateway): sweep abandoned frozen copies (OME-1947)
   - 5ceafc31a — feat(aigateway): run the frozen copy sweep on a periodic trigger (OME-1947)
-  - one more docs commit records this outcome and the PR branch name in the approval record.
+  - bd6e50418 — docs(aigateway): record the stack A outcome and the PR branch of the approval record (OME-1947)
+  - Pull request: https://github.com/ScreamingFace/screamingface/pull/1911
 - **Gates:** `uv run .claude/scripts/run_gates.py aigateway` → ALL GATES GREEN (approved
   OME-1947 test transition; append-only check; ruff check; ruff format; pyright; enterprise
   check; pytest with coverage: 7,966 passed, 125 skipped, coverage 94.16%).

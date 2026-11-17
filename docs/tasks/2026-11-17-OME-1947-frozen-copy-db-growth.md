@@ -1,7 +1,7 @@
 ---
 id: OME-1947
 linear_url: https://linear.app/openmined/issue/OME-1947/frozen-copies-are-never-deleted-so-the-production-gateway-database
-status: triage
+status: in_review
 type: bug
 priority: high
 labels: [bug, aigateway, agentic]
@@ -25,3 +25,7 @@ runs that did not end normally; no reader can use them.
 - 2026-11-17: the owner approved the plan for stack A and the assertion-only change of one
   existing test (record `.claude/test-change-approvals/OME-1947.json`). Work started; ledger
   `docs/work/2026-11-17-frozen-copy-retention-stack-a.md`.
+- 2026-11-17: stack A (A1, A2, A3) is in one pull request:
+  https://github.com/ScreamingFace/screamingface/pull/1911 (branch
+  `OME-1947-frozen-copy-retention-stack-a`). Stacks B and C come after it; the issue stays open
+  until stack C is released.
