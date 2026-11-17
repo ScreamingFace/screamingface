@@ -38,7 +38,7 @@ single `AudienceListener` slot stays the reaper's: this module POLLS `has_subscr
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
@@ -177,23 +177,25 @@ class UnclaimedRunWarner:
         warned run itself and say `waiting=0` (HupBaHa, #1840). The snapshot stays the fallback
         for a runner without the fresh read.
         """
-        waiting = await self._fresh_waiting()
-        if waiting is None:
+        fresh = getattr(self._runs, "unclaimed_now", None)
+        if fresh is not None:
+            # INVARIANT (HupBaHa, #1840 round 2): a runner with the fresh read never falls back
+            # to the snapshot, whose pre-publish depth can be the stale 0. A failed fresh read
+            # reports `-`, not a guess.
+            waiting = await self._fresh_waiting(fresh)
+        else:
             reader = getattr(self._runs, "queue_snapshot", None)
             waiting = None if reader is None else reader()[0]
         fresh = self._demand() if self._demand is not None else None
         running = None if fresh is None else fresh[0].running
         return waiting, running
 
-    async def _fresh_waiting(self) -> int | None:
-        """The runner's fresh unclaimed count, or None when it has none or the read fails.
+    async def _fresh_waiting(self, fresh: Callable[[], Awaitable[int]]) -> int | None:
+        """The runner's fresh unclaimed count, or None when the read fails.
 
         WHY catch everything: this is a diagnostic on a notice already decided; a broker hiccup
         here must never stop the notice, it only turns the count into `-`.
         """
-        fresh = getattr(self._runs, "unclaimed_now", None)
-        if fresh is None:
-            return None
         try:
             return await fresh()
         except Exception:

@@ -175,7 +175,7 @@ async def test_a_run_scheduled_into_an_empty_queue_is_counted_when_warned(
 
 
 @pytest.mark.asyncio
-async def test_an_unreadable_fresh_depth_falls_back_to_the_snapshot(
+async def test_an_unreadable_fresh_depth_logs_a_dash_not_the_snapshot(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     class _BrokenFresh(_CountingRunner):
@@ -187,4 +187,52 @@ async def test_an_unreadable_fresh_depth_falls_back_to_the_snapshot(
     with caplog.at_level(logging.INFO, logger=LOGGER):
         await _warner(runner, audience).sweep()
 
-    assert _warned_lines(caplog) == ["unclaimed run warned topic=t wait_s=302 waiting=6 running=-"]
+    # #1840 round 2: a failed fresh read is `-`; the snapshot (6 here) is never used instead.
+    assert _warned_lines(caplog) == ["unclaimed run warned topic=t wait_s=302 waiting=- running=-"]
+    assert "run.queue_waiting" not in _frame(audience).data.attributes
+
+
+@pytest.mark.asyncio
+async def test_a_failed_fresh_read_after_scheduling_never_reports_the_stale_zero(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # HupBaHa's #1840 round-2 repro: schedule one run (snapshot (0, None)), then the fresh
+    # depth read raises. The notice must say `waiting=-`, not the stale 0.
+    from datetime import timedelta
+
+    from test_queue_admission import _FakeControl, _FakePublisher
+
+    from screamingface_engine.adapters.queue_runner import QueueJobRunner
+
+    class _FailingAfterSchedule(_LiveQueue):
+        def __init__(self) -> None:
+            super().__init__()
+            self.fail = False
+
+        async def depth(self) -> int:
+            if self.fail:
+                raise TimeoutError("broker slow")
+            return await super().depth()
+
+    queue = _FailingAfterSchedule()
+    now = [T0]
+    runner = QueueJobRunner(
+        queue=queue,
+        publisher=_FakePublisher(),
+        control=_FakeControl(),
+        clock=lambda: now[0],
+        capability_lifetime_s=10_000.0,
+    )
+    await runner.schedule("t", "'hi'", 60)
+    assert runner.queue_snapshot()[0] == 0
+    queue.fail = True
+    now[0] = T0 + timedelta(seconds=GRACE + 1)
+
+    audience = _Audience({"t"})
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        await _warner(runner, audience).sweep()
+
+    assert _warned_lines(caplog) == [
+        f"unclaimed run warned topic=t wait_s={int(GRACE + 1)} waiting=- running=-"
+    ]
+    assert "run.queue_waiting" not in _frame(audience).data.attributes
