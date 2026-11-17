@@ -17,7 +17,7 @@
 - A re-grade makes **no Candidate model call**. Any `frozen_copy_miss` on a Candidate call refuses the whole re-grade: no partial score, no submit.
 - Judge calls go live only when the caller names them (`live_judge=`); otherwise every judge call replays too.
 - Who may re-grade: identities listed in the Scoreboard setting `regrade_identities`; the route refuses everyone in `auth_mode="disabled"`.
-- The new entry: `submitted_by` and `authors` copied from the source score; `regraded_from` = source id (unique); `regraded_by` = caller; `frozen_copy_id` NULL (the column is unique and belongs to the source).
+- The new entry: `submitted_by` and `authors` copied from the source score; `regraded_from` = source id (unique per source and revision, so the root can be re-graded again under each later revision); `regraded_by` = caller; `frozen_copy_id` NULL (the column is unique and belongs to the source).
 - Revision, not grade: the score's own `case_digest` hashes grades and is never compared for a re-grade.
 - Prior-test edits carry `.claude/test-change-approvals/OME-1909.json` (byte-exact, `.claude/scripts/approved_test_changes.py`).
 - Repo conventions: plain `test_` functions, typed locals, a one-line intuition docstring on every function, `uv run --isolated` for tests, no `Co-Authored-By`, stage explicit paths.
@@ -27,7 +27,7 @@
 1. **A Fusion entry** (several members plus a synthesiser): the rebuilt url4 must keep the whole Candidate part byte-identical and change only the Benchmark part. Pinned in Task 4 with a Fusion url4.
 2. **An entry already on the current revision** (re-graded once, or submitted after the bump): refuse before any run, `already_current`. Task 4.
 3. **A partially captured entry** (`capture_status="partial"`) or one with no pinned cache: refuse before any run, reusing `_not_reproducible`. Task 4.
-4. **Two people re-grade the same entry at once:** the second gets 409 `already_regraded`, from the unique `regraded_from` column, not from a read-then-write check. Task 3.
+4. **Two people re-grade the same entry at once:** the second gets 409 `already_regraded`, from the unique (`regraded_from`, `benchmark_revision`) index, not from a read-then-write check. Task 3.
 5. **A private entry** the caller cannot read: refuse with the Scoreboard's own 404, never a silent skip. Task 4.
 
 ---
@@ -102,13 +102,13 @@ def test_no_declaration_serves_an_empty_list() -> None:
 - Test: `apps/scoreboard/tests/unit/scores/test_regrade_route.py` (new)
 
 **Interfaces:**
-- Produces: `POST /v1/scores/{source_id}/regrades`, body = the normal `ScoreSubmission`, identity via `VerifiedIdentity` (`routes/dependencies.py:58`), returns 201 + `ScoreSchema`. Columns: `regraded_from` (nullable UUID FK to scores, unique), `regraded_by` (nullable `CharField(255)`).
-- Refusals, in order: `auth_mode="disabled"` → 403 `regrade_unavailable`; identity not in `regrade_identities` → 403 `not_allowed`; unknown source → 404 `unknown_score`; body `benchmark_id` differs from the source's → 422 `different_benchmark`; body `benchmark_revision` is not the board's registered revision, or equals the source's → 409 `not_current_revision`; second re-grade of one source → 409 `already_regraded` (unique violation caught, not pre-read).
+- Produces: `POST /v1/scores/{source_id}/regrades`, body = the normal `ScoreSubmission`, identity via `VerifiedIdentity` (`routes/dependencies.py:58`), returns 201 + `ScoreSchema`. Columns: `regraded_from` (nullable UUID FK to scores, unique together with `benchmark_revision`), `regraded_by` (nullable `CharField(255)`).
+- Refusals, in order: `auth_mode="disabled"` → 403 `regrade_unavailable`; identity not in `regrade_identities` → 403 `not_allowed`; unknown source → 404 `unknown_score`; body `benchmark_id` differs from the source's → 422 `different_benchmark`; body `total_questions` differs from the source's → 422 `different_case_count`; body `benchmark_revision` is not the board's registered revision, or equals the source's → 409 `not_current_revision`; second re-grade of one source at the same revision → 409 `already_regraded` (unique violation caught, not pre-read).
 - The created row: `submitted_by`, `authors` from the source; `regraded_from`, `regraded_by` set; `frozen_copy_id`, `capture_status` NULL; `verified_by_screamingface` copied from the source.
 
 - [ ] **Step 1: Write the failing tests**: one per refusal above, plus `test_a_regrade_is_credited_to_the_source_submitter_and_names_who_regraded_it` (asserts `submitted_by == source.submitted_by`, `regraded_by ==` the test's caller identity, `regraded_from == source.id`) and `test_the_regraded_entry_ranks_under_the_new_revision_and_the_source_does_not`.
 - [ ] **Step 2: Run, expect FAIL** — `cd apps/scoreboard && uv run --isolated pytest -q tests/unit/scores/test_regrade_route.py`.
-- [ ] **Step 3: Implement** the migration (two nullable columns, unique index on `regraded_from`; passes `check_rollback_safety.py`), the fields, the setting, the route.
+- [ ] **Step 3: Implement** the migration (two nullable columns, unique index on (`regraded_from`, `benchmark_revision`); passes `check_rollback_safety.py`), the fields, the setting, the route.
 - [ ] **Step 4: Run, expect PASS**, plus the migration test the app already has (`git grep -l "0023_baseline_history" apps/scoreboard/tests`) and `tests/unit/scores/test_reproduction*.py`.
 - [ ] **Step 5: Commit** `feat(scoreboard): accept a re-grade of a score, linked to it and credited to its submitter`.
 
@@ -146,6 +146,7 @@ def test_no_declaration_serves_an_empty_list() -> None:
 ### After the deploy (owner, not code)
 
 1. Post to the team before merging (rule step 4): the 47 boards move; MMLU-Pro and LAB-Bench users are named in the revision rule's history.
-2. Add the operators to `regrade_identities` in the Scoreboard's deployment values.
-3. Run the batch from a repo checkout: for each of the 130 cached entries on the 30 boards (`https://leaderboard.screamingface.ai/v1/leaderboard/inspect-<id>`, `pinned_cache` set, revision = the old one), `sf.Client().regrade(score_id)`; log each new id or refusal. About an hour.
-4. The 8 entries with no pinned cache need fresh paid runs (owner's call).
+2. Add the operators to `regrade_identities` in the Scoreboard's deployment values (the chart's `config.regradeIdentities`, set per environment in the infra repo).
+3. Engine deployed and the Scoreboard seed re-run first; check https://leaderboard.screamingface.ai/v1/leaderboard/inspect-<id> shows the new revision before the batch.
+4. Run the batch from a repo checkout, over the cached entries the live board lists at run time (138 entries on 30 boards on 2026-11-17: 130 with a pinned cache, 8 without): for each entry with `pinned_cache` set and the old revision (`https://leaderboard.screamingface.ai/v1/leaderboard/inspect-<id>`), `sf.Client().regrade(score_id)`; log each new id or refusal. About an hour.
+5. The entries with no pinned cache (8 on 2026-11-17) need fresh paid runs (owner's call).

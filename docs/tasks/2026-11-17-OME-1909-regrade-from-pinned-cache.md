@@ -28,5 +28,6 @@ wrapped-answer-letter change touches; their old ids are in the comments of
 - 2026-11-13: filed under epic `OME-1299` as a design session.
 - 2026-11-17: rule change, plan and build in one PR stacked on #1783.
 - Pending the owner: post to the team before merging, set `regrade_identities`, and after the
-  deploy re-grade the 130 cached entries on the 30 boards and rerun the 8 with no pinned cache.
+  deploy (and the Scoreboard seed showing the new revision) re-grade the cached entries the live
+  board lists (130 of 138 on 30 boards on 2026-11-17) and rerun the 8 with no pinned cache.
 - Ledger: `docs/work/2026-11-17-regrade-from-pinned-cache.md`
