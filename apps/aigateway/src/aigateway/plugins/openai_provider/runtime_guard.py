@@ -205,7 +205,7 @@ def _has_unsafe_litellm_global_state(litellm: Any, model: object) -> bool:
 
 # The caller-facing 503 is deliberately sanitized, so these are the operator's only
 # evidence — hence naming the variable and its truthiness trap explicitly.
-# INVARIANT: DIAGNOSTIC, never a transcript — no model, message, profile, account or
+# INVARIANT: DIAGNOSTIC, never a transcript — no model, message, connection, account or
 # credential may appear in them.
 _MODIFIER_FOOTGUN = (
     " LiteLLM reads LITELLM_MODIFY_PARAMS as bool(os.getenv(...)), so ANY non-empty value "

@@ -28,6 +28,12 @@ from screamingface_engine.artifacts import (
     ResultDelivery,
     allowed_result_bytes,
     decide_result_delivery,
+    result_too_large_message,
+)
+from screamingface_engine.artifacts.spool import (
+    ResultSpool,
+    UnredeemedResultReference,
+    bound_result_spool,
 )
 from screamingface_engine.benchmarks.picture_admission import run_expression_scope
 from screamingface_engine.benchmarks.registry import served_routes
@@ -47,6 +53,7 @@ from screamingface_engine.world.accounting import PRICING_VERSION, UNPRICED, acc
 from screamingface_engine.world.connector import open_frozen_copy, seal_frozen_copy
 from screamingface_engine.world.factory import WorldFactory, direct_mount_paths
 from url4.core.errors import ErrorCode, ResolutionError
+from url4.dag import refuse_remote_nodes
 from url4.dag import run as url4_run
 from url4.io.layer import IOLayer
 from url4.observe import (
@@ -70,6 +77,7 @@ from url4.streaming.protocol import (
     SpanData,
     TokenUsage,
 )
+from url4.streaming.protocol.signals import ResultArtifact
 from url4.streaming.protocol.taxonomy import CostBreakdown
 
 _logger = logging.getLogger(__name__)
@@ -654,8 +662,12 @@ class _RunState:
         hard_cap: int,
         store: ArtifactWriter | None,
         media_type: str | None = None,
+        spool: ResultSpool | None = None,
     ) -> ResultData:
         """Build the final `ResultData`: inline, spilled whole, or refused — never cut.
+
+        A body that is the run spool's reference is the streamed result: it returns that
+        ticket with no second encode or write.
 
         FEATURE: deliver large results in full instead of cutting them off at 1 MiB
         (OME-892). Three-way fork by UTF-8 size, HARD CAP FIRST: (1) over `hard_cap` —
@@ -678,6 +690,9 @@ class _RunState:
         INVARIANT: no branch emits a truncated body — the truncate-and-still-succeed
         path of GitHub #642 is unrepresentable here.
         """
+        artifact = _redeemed_artifact(spool, result_str)
+        if artifact is not None:
+            return ResultData(media_type=media_type, artifact=artifact)
         encoded = result_str.encode("utf-8")
         # The hard-cap-first decision lives in `decide_result_delivery`, so the boundary and
         # which check wins are defined once (T6).
@@ -690,7 +705,7 @@ class _RunState:
         if decision is ResultDelivery.TOO_LARGE:
             allowed = allowed_result_bytes(inline_cap, hard_cap, spill_available=store is not None)
             raise ResolutionError(
-                f"result is {len(encoded)} bytes, cap is {allowed} bytes",
+                result_too_large_message(len(encoded), allowed),
                 code="result_too_large",
                 permanent=True,
             )
@@ -729,6 +744,23 @@ class _RunState:
         if len(self._providers_models) == 1:
             return next(iter(self._providers_models))
         return "mixed", "mixed"
+
+
+def _redeemed_artifact(spool: ResultSpool | None, body: str) -> ResultArtifact | None:
+    """The artifact a spooled result reference stands for, or None for any other body.
+
+    FEATURE: memory fix 3 (OME-1835).
+
+    INVARIANT: fail closed. If the run's spool issued a reference and the run body is not
+    exactly one, the run fails with result_spool_unredeemed (permanent). The only known cause
+    is an expression that used an aggregate output over the inline cap inside another node.
+    """
+    if spool is None:
+        return None
+    try:
+        return spool.redeem(body)
+    except UnredeemedResultReference as exc:
+        raise ResolutionError(str(exc), code="result_spool_unredeemed", permanent=True) from exc
 
 
 def _bind_frozen_copy_mode(tally: CaptureTally) -> None:
@@ -1085,6 +1117,7 @@ class Url4Executor(Executor):
                 hard_cap=self._hard_cap,
                 store=self._artifact_store,
                 media_type=eval_result.media_type,
+                spool=bound_result_spool(),
             )
             subtree = state.build_subtree()
             # FEATURE (OME-1069): recorded BEFORE the Completed yield, because
@@ -1135,18 +1168,25 @@ class Url4Executor(Executor):
             return await self._dispatch_direct(url4, trace, bridge)
         # FEATURE (OME-1548): a picture Benchmark's Cases route reads the linked Candidate from
         # the run's own url4, to refuse a model that can't see pictures before any paid call.
+        # INVARIANT (OME-1811, #1450 F1b / §4): an engine run is a node context like
+        # `Url4Node.evaluate`, so every url4:// remote-node call fails
+        # `x.remote_node_unsupported` (permanent) before any DNS lookup or request.
         with run_expression_scope(url4):
             if trace is not None:
-                body = await url4_run(
-                    url4,
-                    self._io,
-                    observer=bridge,
-                    trace_id=trace.trace_id,
-                    root_span_id=trace.root_span_id,
-                    **self._run_kwargs,
+                body = await refuse_remote_nodes(
+                    url4_run(
+                        url4,
+                        self._io,
+                        observer=bridge,
+                        trace_id=trace.trace_id,
+                        root_span_id=trace.root_span_id,
+                        **self._run_kwargs,
+                    )
                 )
             else:
-                body = await url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+                body = await refuse_remote_nodes(
+                    url4_run(url4, self._io, observer=bridge, **self._run_kwargs)
+                )
         return _EvalResult(body)
 
     async def _dispatch_direct(

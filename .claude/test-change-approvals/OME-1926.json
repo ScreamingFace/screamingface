@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1926",
+  "branch": "OME-1926-gateway-request-cap",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-11-15",
+  "scope": "Default-cap constant only. test_body_cap_route.py: test_the_default_limit_is_eight_mebibytes renamed test_the_default_limit_is_twelve_mebibytes, 8*1024*1024 -> 12*1024*1024, docstring 8 MiB -> 12 MiB. test_frozen_copy_entry_cap.py: _DEFAULT_REQUEST_CAP 8*1024*1024 -> 12*1024*1024, docstring (8 MiB) -> (12 MiB). Nothing else in either file.",
+  "reason": "Owner decision 2026-11-15 (PR #1588 review, HupBaHa 2026-11-13): url4 admits 8,000,000 decoded attachment bytes, which base64-encode to 10,666,668 and exceeded the 8,388,608-byte gateway request cap (deterministic 413). The gateway default rises to 12,582,912, leaving 1,916,244 bytes of prompt/JSON envelope.",
+  "files": {
+    "apps/aigateway/tests/unit/test_body_cap_route.py": {
+      "base_blob": "f5eeb63f3e79937ff5a04c8f501a704cd66a9786",
+      "approved_blob": "da5c61361e0718daf480773ab8616a6a7158ecfb"
+    },
+    "apps/aigateway/tests/unit/test_frozen_copy_entry_cap.py": {
+      "base_blob": "f95ba3b26b164e9cddcc44605ab8f23d0f358cc7",
+      "approved_blob": "74261b3a1396a2741d1c6225546d180a73e74440"
+    }
+  }
+}

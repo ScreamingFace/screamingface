@@ -100,6 +100,11 @@ class StartBinding(NamedTuple):
     on_scheduled: Callable[[], Awaitable[None]]
     # When the bind began, for a bound start: its run's deadline counts from here (D12).
     bound_at: datetime | None = None
+    # The Run and Candidate index the start NAMED (OME-1924): for the `run scheduled` log line,
+    # so on-call joins it to `run created`. Set even when the bind itself failed — the start
+    # still named them; `None` only for a start without the headers.
+    run_id: str | None = None
+    candidate: int | None = None
 
 
 async def bind_start(request: Request, topic: str) -> StartBinding:
@@ -130,8 +135,10 @@ async def bind_start(request: Request, topic: str) -> StartBinding:
         _logger.warning("run bind failed topic=%s; starting unbound", topic, exc_info=True)
         # WHY keep `bound_at`: the bind may have committed with its acknowledgement lost, so a
         # cancel can still tombstone the topic (D12). An earlier deadline only shortens the run.
-        return StartBinding(_unbound, bound_at)
-    return StartBinding(functools.partial(confirm_scheduled, request, topic), bound_at)
+        return StartBinding(_unbound, bound_at, run_id, candidate)
+    return StartBinding(
+        functools.partial(confirm_scheduled, request, topic), bound_at, run_id, candidate
+    )
 
 
 def canceled_before_schedule() -> ProblemException:

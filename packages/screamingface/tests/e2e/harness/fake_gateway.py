@@ -211,6 +211,28 @@ class FakeGateway:
             ]
         return json.dumps({"object": "list", "data": rows}).encode()
 
+    def _credit_projection(self, provider: str) -> bytes | None:
+        with self._lock:
+            if provider not in {row.normalized.provider for row in self._by_model.values()}:
+                return None
+        unknown = {
+            "status": "unavailable",
+            "amount_usd": None,
+            "as_of": None,
+            "reason": "not_connected",
+        }
+        return json.dumps(
+            {
+                "object": "credit_status",
+                "provider": provider,
+                "account": unknown,
+                "key": unknown,
+                "hosted": unknown,
+                "connection_token": None,
+                "management_key_configured": False,
+            }
+        ).encode()
+
     def _record_refusal(self, refusal: RefusedRequest) -> None:
         with self._lock:
             self._refusals.append(refusal)
@@ -255,7 +277,18 @@ class _Handler(BaseHTTPRequestHandler):
             self._reply(200, self.gateway._catalog_projection(), "application/json")
             return
         parsed = urlsplit(self.path)
-        if parsed.path == "/v1/model-parameters":
+        parts = parsed.path.split("/")
+        if (len(parts) == 4 or (len(parts) == 5 and parts[4] == "key")) and parts[:3] == [
+            "",
+            "v1",
+            "credits",
+        ]:
+            body = self.gateway._credit_projection(parts[3])
+            if body is None:
+                self._refuse_unroutable()
+            else:
+                self._reply(200, body, "application/json")
+        elif parsed.path == "/v1/model-parameters":
             self._reply_model_details(parsed.query)
         else:
             self._refuse_unroutable()

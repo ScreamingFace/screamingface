@@ -712,6 +712,18 @@ class QueueJobRunner(IdentityAwareJobRunner):
         """
         return self._depth_snapshot, self._oldest_age
 
+    async def unclaimed_now(self) -> int:
+        """The unclaimed-run count read from the queue NOW, not the admission cache.
+
+        FEATURE: queue visibility in the logs (OME-1924). WHY not `queue_snapshot()`: admission
+        refreshes `_depth_snapshot` before it publishes and counts its own runs only in
+        `_reserved`, so the cached depth can read 0 for the very run the unclaimed notice warns
+        about (HupBaHa, #1840). Running runs are not counted, as in `queue_snapshot`.
+        INVARIANT: read-only. It touches no admission state (`_depth_snapshot`, reservations,
+        `_admission_lock`).
+        """
+        return await self._queue.depth()
+
     @property
     def reads_buckets(self) -> bool:
         """True when the injected queue can read every bucket consumer (`RunQueue` always can).

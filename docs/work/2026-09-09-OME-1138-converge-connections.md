@@ -237,8 +237,54 @@ from 17048f5d on branch `OME-1138-converge-connections` in the shared checkout. 
 - Guidance cleanup `OME-1398` merged in PR #1210 as `57e78d71a9582b238ac4fe7cf0f682cb012c06a2`.
 - The owner confirmed that no legacy queue messages carrying `AIGATEWAY_PROFILE` remain. Coordinated
   leaves `OME-1449` (Engine) and `OME-1450` (URL4) remove the carrier without a compatibility reader.
-- The umbrella remains in progress for D18 (`OME-1375`), production readiness (`OME-1333`) and
-  final Stage E retirement (`OME-1209`).
+- The umbrella then remained in progress for D18 (`OME-1375`), production readiness (`OME-1333`)
+  and final Stage E retirement (`OME-1209`); all three have since closed (see "Epic close").
+
+## Epic close (2026-11-16)
+
+Every leaf under OME-1138 is Done, except `OME-1324` (duplicate), `OME-1401` and `OME-1333`
+(canceled by the owner). The gateway resolves, lists and writes provider credentials only
+through Connections, one per account and provider; the Profile routes answer 410.
+
+- **Stage E** (`OME-1209`): E1 `OME-1618` #1432, E1b `OME-1640` #1449, E2a `OME-1647` #1458,
+  E2b `OME-1645` #1456, E3 `OME-1651` #1464, E3b `OME-1682` #1480, E4a `OME-1685` #1491,
+  E4b `OME-1695` #1516, E4c `OME-1703` #1523, E5a `OME-1715` #1541, E5b `OME-1750` #1573,
+  E5c `OME-1759` #1596.
+- **Close-out** (`docs/spec/2026-10-29-ome-1138-closeout.md`): L1 `OME-1778` #1610, L2
+  `OME-1776` #1607, L3 `OME-1839` #1691 and screamingface-design#34, L4a `OME-1784` #1614,
+  L4b `OME-1798` #1642, L4c-1 `OME-1901` #1774, L4c-2 `OME-1928` #1843, L5 `OME-1812` #1652,
+  L6 `OME-1781`, `OME-1782` and `OME-1783` #1613, L7a `OME-1819` #1660, L7b `OME-1830` #1684
+  with its follow-up `OME-1832` #1754, L7c `OME-1824` #1678, L8 `OME-1779` #1611, L9 `OME-1831`
+  #1685, L10 `OME-1780` #1612, #1637 and #1641, L11a #1609.
+- **Releases:** gateway 1.0.0 (Stage E and the close-out up to L10), 1.0.1 (L4c-1) and 1.1.0
+  (L4c-2); Engine 2.0.0 (L7b) and 2.1.0 (`OME-1832`).
+- **Rollout:** stage and prod run `0016` and `0017` with their next gateway deploy, in the window
+  the owner accepted on 2026-11-16 (`apps/aigateway/DEPLOYMENT.md`). Rolling back below 1.0.1
+  needs the `0017` downgrade first.
+- **E5b purge outcome (rec-7):** applied on 2026-10-28 in each environment, on `main-581c20969`,
+  which contains E5a and E5b. Each run was a dry run, a backup of the rows it would delete, the
+  apply with a journal, and a second dry run.
+
+  | Environment | Dry run | Deleted | Second dry run | Read-only check after |
+  |---|---|---|---|---|
+  | dev | 31 accounts; 24 index rows; every other counter 0 | 24 index rows | every counter 0 | `credential_blobs` 50 → 26; no index rows; Connections unchanged |
+  | stage | 30 accounts; every counter 0 | nothing | every counter 0 | nothing to check |
+  | prod | 33 accounts; 6 index rows; every other counter 0 | 6 index rows | every counter 0 | `credential_blobs` 7; no index rows |
+
+  No run skipped an account, and no run found the legacy index. The L4a counts are in
+  `docs/work/2026-10-29-retire-quarantine-and-x-profile.md`.
+- **Records:** the L5 mirror and ledger (`OME-1812`), left open after #1652 merged, close with
+  this change.
+- **Linear:** the Stage E close comment is posted, the epic is Done, and `OME-1315`, `OME-1035`
+  and `OME-1026` are no longer blocked by it. `OME-1750` has the purge outcome above.
+
+## Reopened (2026-11-17)
+
+The close review found Profile wording the close-out had not covered: the provider plugins'
+credential errors, the Gemini 401, about 25 gateway comments, eight unused test-double `mutate`
+methods and one SDK fixture scope. Two follow-up leaves carry it in #1874: `OME-1940` (gateway) and
+`OME-1941` (SDK). The epic is In Progress until both close. Spec:
+`docs/spec/2026-11-16-ome-1138-leftover-profile-wording.md`.
 
 ## Test plan
 
@@ -267,4 +313,5 @@ from 17048f5d on branch `OME-1138-converge-connections` in the shared checkout. 
 - **Deviations:** first units reordered (D7 conflict presented for re-approval); `origin/main`
   moved to c1c92562 during the pass and the branch was deliberately not moved; the Linear update
   was applied on 2026-09-14 after re-authorisation; the unit
-  stays `in_progress` while A2 and later stages await separate approval.
+  stayed `in_progress` while A2 and later stages awaited separate approval, and closed on
+  2026-11-16 (see "Epic close"); it reopened on 2026-11-17 (see "Reopened (2026-11-17)").

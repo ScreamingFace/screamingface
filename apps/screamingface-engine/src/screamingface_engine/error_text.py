@@ -28,6 +28,7 @@ __all__ = [
     "CONTROL_PLANE_TERMINAL_CODES",
     "ENGINE_ERROR_CODES",
     "ENGINE_RESERVED_CODES",
+    "PUBLIC_UNVOUCHED_CODES",
     "public_identifier",
     "public_message",
 ]
@@ -70,7 +71,9 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         "unknown_identity",
         # dag/nodes.py:548 — a duration and a literal, no values.
         "timeout",
-        # runner/executor.py:574 — two byte counts, no values.
+        # runner/executor.py::_RunState.build_result and (OME-1835) artifacts/spool.py::
+        # ResultTooLarge, raised by benchmarks/grading_endpoints.py::deliver_result. Both use
+        # artifacts/delivery.py::result_too_large_message — two byte counts, no values.
         "result_too_large",
         # world/connector.py::_replay_refusal, world/web_tools.py::FrozenToolResults.lookup
         # (OME-1307) — a replay the frozen copy cannot answer. Each raise site uses a fixed message
@@ -109,6 +112,20 @@ constants by ``test_the_control_plane_set_is_exactly_the_supervisors_own_constan
 ENGINE_RESERVED_CODES: frozenset[str] = ENGINE_ERROR_CODES | CONTROL_PLANE_TERMINAL_CODES
 """Every code a public boundary reads as engine-authored. No upstream may mint one of these
 (``world/connector.py::_raise_for_status``), or it could borrow the engine's voice."""
+
+PUBLIC_UNVOUCHED_CODES: frozenset[str] = frozenset({"intent_error"})
+"""Codes a public boundary reports AS THEMSELVES while withholding their message.
+
+``intent_error`` is how a run ends when the caller asked for something the target cannot do —
+most visibly a gateway refusal of an image or PDF part for a text-only model, raised before any
+provider call. Reported as ``internal_error`` it reads as an engine fault, so a sync caller cannot
+tell "this model can't read your file" from a crash.
+
+Unlike :data:`ENGINE_ERROR_CODES` the code vouches for NOTHING: ``world/connector.py`` mints it from
+the gateway's 422 body (``intent_error_for``), so its message is upstream text and never crosses.
+Precisely because an upstream may produce it, it is NOT in :data:`ENGINE_RESERVED_CODES` — reserving
+it would forbid that mapping. Disjoint from both other sets: a code has one policy, not two.
+"""
 
 
 def public_identifier(value: object) -> str | None:

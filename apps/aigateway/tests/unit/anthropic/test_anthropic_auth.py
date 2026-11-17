@@ -31,13 +31,6 @@ class _FakeStore:
     async def delete(self, service: str, account: str) -> None:
         self.payload = None
 
-    async def mutate(self, service: str, account: str, mutator) -> None:
-        next_value = mutator(await self.read(service, account))
-        if next_value is None:
-            await self.delete(service, account)
-        else:
-            await self.write(service, account, next_value)
-
 
 def _wrap(creds: dict) -> str:
     """Token payload as stored in aigateway:anthropic:<name>."""

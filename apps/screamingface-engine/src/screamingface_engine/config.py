@@ -465,6 +465,17 @@ class Settings(BaseSettings):
     # the endpoint.
     worker_metrics_port: int = Field(default=9109, ge=0)
 
+    # FEATURE (OME-1931): the worker writes its busy slot count as its OWN pod's
+    # `controller.kubernetes.io/pod-deletion-cost` annotation, so a ReplicaSet scale-down deletes
+    # an idle pod first (`worker/deletion_cost.py`, `worker/kube_pod.py`). The chart sets all three
+    # together (`runnerPool.deletionCost.enabled`; the pod name and namespace come from the
+    # downward API). WHY no validator: the feature on with a missing name or namespace is a
+    # fail-open case (spec D4) - `worker/kube_pod.py` logs one warning and the worker runs without
+    # the feature, because a crash loop of the runner pool would stop all runs.
+    worker_deletion_cost_enabled: bool = False
+    worker_pod_name: str | None = None
+    worker_pod_namespace: str | None = None
+
     @field_validator("blob_store", mode="before")
     @classmethod
     def _empty_blob_store_is_unset(cls, value: object) -> object:

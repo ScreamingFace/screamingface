@@ -13,15 +13,20 @@ once (:func:`allow_one_remote_hop`). Without a policy (bare ``url4.run()``) noth
 WHY a ContextVar: the policy belongs to one evaluation, not to the shared node or to the grammar;
 every task the run spawns copies the context, and the one :class:`_Policy` object is shared by
 reference, so a used hop stays used across the whole run.
-AIDEV-NOTE: deliberately not exported from ``url4`` / ``url4.dag``: it is no user option. It is
-lifted when a node-to-node authentication spec exists.
+INVARIANT (OME-1811 review): a refusal is never data. A row policy (``on_error=collect|skip``) or
+a guard may catch the error, but the policy records every refusal and ``url4.dag.run`` re-raises
+one its own graph swallowed (:func:`reraise_refusals_since`), so the run fails, not completes.
+AIDEV-NOTE: only :func:`refuse_remote_nodes` is exported (``url4.dag``, OME-1811), for a host that
+runs ``url4.dag.run`` itself as a node (the engine), so its runs refuse as ``Url4Node.evaluate``
+does. It can only tighten. Allowing a remote node is still no user option: ``allow_one_remote_hop``
+and ``check_remote_node`` stay private until a node-to-node authentication spec exists.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Iterable
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from url4.core.errors import ErrorCode, ResolutionError
 
@@ -30,6 +35,7 @@ from url4.core.errors import ErrorCode, ResolutionError
 class _Policy:
     hop: tuple[str, str] | None  # the (authority, path) a client may call, once; None = none
     used: bool = False
+    refusals: list[ResolutionError] = field(default_factory=list)  # every refusal, even caught
 
 
 _POLICY: ContextVar[_Policy | None] = ContextVar("url4_remote_nodes", default=None)
@@ -53,6 +59,38 @@ async def _under[T](policy: _Policy, evaluation: Awaitable[T]) -> T:
         _POLICY.reset(token)
 
 
+def remote_policy_active() -> bool:
+    """Whether this evaluation runs under a remote-node policy (a node context)."""
+    return _POLICY.get() is not None
+
+
+def refusal_mark() -> int:
+    """How many refusals this evaluation has raised so far (a run's starting mark)."""
+    policy = _POLICY.get()
+    return 0 if policy is None else len(policy.refusals)
+
+
+def reraise_refusals_since(mark: int) -> None:
+    """Raise the first refusal raised after ``mark`` that something caught instead of failing."""
+    policy = _POLICY.get()
+    if policy is not None and len(policy.refusals) > mark:
+        raise policy.refusals[mark]
+
+
+def reraise_remote_refusal(outcomes: Iterable[object]) -> None:
+    """Raise the first refusal THIS policy raised among gathered row outcomes (never a row).
+
+    WHY identity, not the error code: a row whose peer answered ``x.remote_node_unsupported`` is
+    that peer's error, and stays an error row; only this evaluation's own refusal is unswallowable.
+    """
+    policy = _POLICY.get()
+    refused = [] if policy is None else policy.refusals
+    for outcome in outcomes:
+        for refusal in refused:
+            if outcome is refusal:
+                raise refusal
+
+
 def check_remote_node(authority: str, path: str) -> None:
     """Raise ``x.remote_node_unsupported`` unless this evaluation may call ``authority`` now."""
     policy = _POLICY.get()
@@ -63,7 +101,7 @@ def check_remote_node(authority: str, path: str) -> None:
         # lowered itself) is a call the client did not build; it fails closed.
         policy.used = True
         return
-    raise _refused(authority, path)
+    raise _refuse(policy, authority, path)
 
 
 def precheck_remote_nodes(
@@ -90,23 +128,29 @@ def precheck_remote_nodes(
         if hop_free and policy.hop == (authority, path):
             hop_free = False
             continue
-        raise _refused(authority, path)
+        raise _refuse(policy, authority, path)
     for authority, path in maybe:
         if policy.used or policy.hop != (authority, path):
-            raise _refused(authority, path)
+            raise _refuse(policy, authority, path)
 
 
-def _refused(authority: str, path: str) -> ResolutionError:
-    return ResolutionError(
+def _refuse(policy: _Policy, authority: str, path: str) -> ResolutionError:
+    refusal = ResolutionError(
         f"remote-node calls are not supported in v1 (url4://{authority}{path})",
         code=ErrorCode.REMOTE_NODE_UNSUPPORTED,
         permanent=True,
     )
+    policy.refusals.append(refusal)
+    return refusal
 
 
 __all__ = [
     "allow_one_remote_hop",
     "check_remote_node",
     "precheck_remote_nodes",
+    "refusal_mark",
     "refuse_remote_nodes",
+    "remote_policy_active",
+    "reraise_refusals_since",
+    "reraise_remote_refusal",
 ]

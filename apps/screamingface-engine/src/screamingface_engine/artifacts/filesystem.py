@@ -31,8 +31,9 @@ import re
 import time
 import uuid
 from pathlib import Path
+from typing import BinaryIO
 
-from screamingface_engine.artifacts.ports import ArtifactContent, LocalFile
+from screamingface_engine.artifacts.ports import ArtifactContent, ArtifactSink, LocalFile
 from url4.streaming.protocol.signals import ResultArtifact
 
 _ARTIFACT_ID = re.compile(r"^[0-9a-f]{64}$")
@@ -61,17 +62,19 @@ class FilesystemArtifactStore:
         digest = hashlib.sha256(encoded).hexdigest()
         self._root.mkdir(parents=True, exist_ok=True)
         final = self._root / digest
-        # INVARIANT: a dedup hit re-stamps mtime — re-depositing a parcel restarts its
-        # TTL clock. Tickets are per run but the file is shared by content, so without
-        # the touch a byte-identical result re-arriving near (or past) the first copy's
-        # TTL would mint a fresh ticket pointing at a file the next sweep removes.
-        try:
-            os.utime(final)
-        except FileNotFoundError:
+        # The dedup and TTL rule lives in _restamp_existing.
+        if not _restamp_existing(final):
             tmp = self._root / f".{digest}.{uuid.uuid4().hex}.tmp"
             tmp.write_bytes(encoded)
             os.replace(tmp, final)
         return ResultArtifact(id=digest, size_bytes=len(encoded), sha256=digest)
+
+    def open_sink(self) -> ArtifactSink:
+        """Open a chunked write. The content is written to a temp file `.<uuid>.tmp` in the
+        store root and renamed to its digest name on commit. The sweeper already reaps `.tmp`
+        leftovers, so a sink abandoned by a crash ages out like any other parcel.
+        """
+        return _FilesystemSink(self._root)
 
     def content(self, artifact_id: str) -> ArtifactContent | None:
         """The stored content for `artifact_id`, or None when absent or malformed.
@@ -131,6 +134,66 @@ class FilesystemArtifactStore:
                 path.unlink(missing_ok=True)
                 removed += 1
         return removed
+
+
+class _FilesystemSink:
+    """One chunked write: hash and append to a temp file, publish under the digest on commit."""
+
+    def __init__(self, root: Path) -> None:
+        root.mkdir(parents=True, exist_ok=True)
+        self._root = root
+        self._tmp = root / f".{uuid.uuid4().hex}.tmp"
+        self._handle: BinaryIO = self._tmp.open("xb")
+        self._digest = hashlib.sha256()
+        self._size = 0
+        self._finished = False
+
+    def write(self, chunk: bytes) -> None:
+        self._refuse_if_finished()
+        self._handle.write(chunk)
+        self._digest.update(chunk)
+        self._size += len(chunk)
+
+    def commit(self) -> ResultArtifact:
+        self._refuse_if_finished()
+        if self._size == 0:
+            self.abort()
+            raise ValueError("an artifact cannot be empty")
+        digest = self._digest.hexdigest()
+        try:
+            self._handle.close()
+            final = self._root / digest
+            if not _restamp_existing(final):
+                os.replace(self._tmp, final)
+        finally:
+            # On the dedup branch the temp file is still here; abort removes it.
+            self.abort()
+        return ResultArtifact(id=digest, size_bytes=self._size, sha256=digest)
+
+    def abort(self) -> None:
+        self._finished = True
+        self._handle.close()
+        self._tmp.unlink(missing_ok=True)
+
+    def _refuse_if_finished(self) -> None:
+        if self._finished:
+            raise ValueError("artifact sink is closed")
+
+
+def _restamp_existing(final: Path) -> bool:
+    """True when `final` already exists; its mtime is then re-stamped. The ONE dedup rule.
+
+    INVARIANT: a dedup hit re-stamps mtime — re-depositing a parcel restarts its TTL clock.
+    Tickets are per run but the file is shared by content, so without the touch a
+    byte-identical result re-arriving near (or past) the first copy's TTL would mint a fresh
+    ticket pointing at a file the next sweep removes. Both write_bytes and the chunked sink
+    publish through this check, so the buffered and streamed paths agree on mtime.
+    """
+    try:
+        os.utime(final)
+    except FileNotFoundError:
+        return False
+    return True
 
 
 __all__ = ["FilesystemArtifactStore"]

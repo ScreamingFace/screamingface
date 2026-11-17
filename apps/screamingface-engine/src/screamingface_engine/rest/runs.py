@@ -11,7 +11,9 @@ and no answer carries the owner.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
@@ -228,7 +230,38 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
         ) from exc
     if not created:
         response.status_code = 200
+    # FEATURE: queue visibility in the logs (OME-1924). WHY here and not at run start: the
+    # Benchmark, Case count and Candidates are known only on the Run record; the start route
+    # sees just `run_id` + Candidate index, so on-call joins the two lines by `run=`.
+    # INVARIANT: `owner` is the sha256 owner key — the email is never logged. Candidate NAMES
+    # are the caller's text, so only their count appears.
+    _logger.info(
+        "run created run=%s owner=%s benchmark=%s cases=%d candidates=%d created=%s",
+        record.id,
+        owner,
+        _benchmark_token(record.benchmark),
+        record.case_count,
+        len(record.candidates),
+        created,
+    )
     return RunBody.of(record)
+
+
+_SAFE_BENCHMARK = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}")
+
+
+def _benchmark_token(text: str) -> str:
+    """The Benchmark as ONE unambiguous log token: itself when it is a plain name, else a hash.
+
+    WHY (HupBaHa, #1840): the Benchmark is caller text. Kept as-is, a space or `=` lets it forge
+    whole fields on the same line (`real owner=forged cases=0`), and an `@` can put an email in
+    the log, which the spec rules out. A plain name (letters, digits, `._:/+-`, no `@`, at most
+    128 characters) stays readable for on-call; anything else becomes `sha256:<16 hex>`, still
+    joinable across lines because the same text gives the same token.
+    """
+    if _SAFE_BENCHMARK.fullmatch(text):
+        return text
+    return "sha256:" + hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:16]
 
 
 @router.get(

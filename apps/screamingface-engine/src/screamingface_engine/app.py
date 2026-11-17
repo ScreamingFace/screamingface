@@ -48,7 +48,7 @@ if TYPE_CHECKING:  # the adapter is imported lazily at runtime; only the annotat
 
 from screamingface_engine.community_cache import CommunityCache, build_community_cache
 from screamingface_engine.connections import build_connections
-from screamingface_engine.connections.port import Connections
+from screamingface_engine.connections.port import Connections, Credits, HasCredits
 from screamingface_engine.cors import install_cors
 from screamingface_engine.logs import configure as configure_logging
 from screamingface_engine.metrics import (
@@ -72,6 +72,7 @@ from screamingface_engine.rest import (
     blob_router,
     catalog_router,
     connection_router,
+    credit_router,
     operator_router,
 )
 from screamingface_engine.rest import router as rest_router
@@ -107,6 +108,7 @@ _ROUTERS = (
     limits_router,
     catalog_router,
     connection_router,
+    credit_router,
     cache_entries_router,
     runs_router,
     ws_router,
@@ -136,6 +138,7 @@ def create_app(
     catalog: CatalogService | None = None,
     model_parameters: ModelParameterSource | None = None,
     connections: Connections | None = None,
+    credits: Credits | None = None,
     community_cache: CommunityCache | None = None,
     benchmarks: BenchmarkRegistry = EMPTY_BENCHMARKS,
     span_sink: SpanSink | None = None,
@@ -168,7 +171,7 @@ def create_app(
     app.state.job_runner = job_runner
     app.state.catalog = catalog
     app.state.model_parameters = model_parameters
-    _install_gateway_adapters(app, connections, community_cache)
+    _install_gateway_adapters(app, connections, community_cache, credits)
     _install_discovery_registries(app, benchmarks, operators)
     app.state.metrics = build_metrics()
     _install_storage(app, settings)
@@ -250,9 +253,17 @@ def _install_discovery_registries(
 
 
 def _install_gateway_adapters(
-    app: FastAPI, connections: Connections | None, community_cache: CommunityCache | None
+    app: FastAPI,
+    connections: Connections | None,
+    community_cache: CommunityCache | None,
+    credits: Credits | None,
 ) -> None:
     """Park the AI Gateway-backed ports on the App; a route answers 503 for one that is None."""
+    app.state.credits = (
+        credits
+        if credits is not None
+        else (connections.credits if isinstance(connections, HasCredits) else None)
+    )
     app.state.connections = connections
     app.state.community_cache = community_cache
 
@@ -626,8 +637,19 @@ def _install_unclaimed_run_warner(
         # starts at once), and it is the one that answers `accepted_ages()`. A stream-only App
         # and `URL4_CLOUD_UNCLAIMED_RUN_WARN_S=0` install nothing, and no task is created.
         return
+
+    def _fresh_demand():  # noqa: ANN202 - the warner's `DemandReader`, resolved at call time
+        # WHY late binding: the demand sampler is installed by `_install_runner_demand_sampler`,
+        # possibly after this warner; reading `app.state` per sweep needs no install order.
+        sampler = getattr(app.state, "runner_demand", None)
+        return None if sampler is None else sampler.fresh()
+
     warner = UnclaimedRunWarner(
-        job_runner, registry, grace_s=settings.unclaimed_run_warn_s, frame_clock=clock
+        job_runner,
+        registry,
+        grace_s=settings.unclaimed_run_warn_s,
+        frame_clock=clock,
+        demand=_fresh_demand,
     )
     app.state.unclaimed_warner = warner
 

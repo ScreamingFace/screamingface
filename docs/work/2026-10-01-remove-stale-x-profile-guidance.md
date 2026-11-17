@@ -1,7 +1,7 @@
 ---
 ticket: OME-1398
 stack: repo
-status: completed
+status: done
 started: 2026-10-01
 finished: 2026-10-01
 ---

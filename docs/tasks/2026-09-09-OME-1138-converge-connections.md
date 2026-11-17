@@ -29,7 +29,8 @@ First units await D7 re-approval; no sub-issues were created. Linear updated 202
 "Adapter-first revision (2026-09-14)" appended and one comment added; status unchanged.
 
 Execution approved 2026-09-14 (D7, D15, D17). Sub-issues: `OME-1198` (U0), `OME-1199` (U0e),
-`OME-1200` (U1, blocked by the two Stage 0 units). Stop after A1 for review.
+`OME-1200` (U1, blocked by the two Stage 0 units). Stop after A1 for review; each later stage
+started on its own approval.
 
 Stage 0 and A1 executed and committed 2026-09-14 (`OME-1198`, `OME-1199`, `OME-1200`): tests and
 code green; stopped after owner review before A2. Stage 0 commits are `48fa1d78` and `c7d767f7`;
@@ -48,3 +49,10 @@ or UI/API noun. Ledger `docs/work/2026-09-16-OME-1210-provider-identity-naming.m
 Closed without landing: `OME-1324` (duplicate of `OME-1322`, 2026-09-23), `OME-1401` (canceled
 2026-09-29, the owner waived the Stage D drain proof and census) and `OME-1333` (canceled
 2026-10-06, the owner's disposition that production already matches the post-migration state).
+
+Closed 2026-11-16. Stage E (E1 to E5c) and every close-out leaf (L1 to L11a, L4c-1, L4c-2) landed;
+the gateway uses Connections only, and the Profile routes answer 410. Releases: gateway 1.0.0,
+1.0.1 and 1.1.0; Engine 2.0.0 and 2.1.0. The ledger section "Epic close" lists each leaf with its
+PR. `OME-1315`, `OME-1035` and `OME-1026` are no longer blocked by this epic.
+
+- 2026-11-17: reopened for `OME-1940` and `OME-1941` (#1874).

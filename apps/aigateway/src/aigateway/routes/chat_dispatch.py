@@ -384,9 +384,9 @@ def convert_provider_response(
     The classification itself is core-owned and provider-neutral.
 
     WHY this raises directly instead of going through ``_safe_dispatch_failure_response``:
-    that path exists to flip a profile or OAuth connection to ERROR when a status means
+    that path exists to flip a connection to ERROR when a status means
     the stored credential is bad. A conversion failure says nothing about the credential
-    — the call authenticated and succeeded — so marking the profile would disable a
+    — the call authenticated and succeeded — so the flip would disable a
     working connection because of a gateway-side bug.
     """
     dumpable = cast(Any, provider_response)

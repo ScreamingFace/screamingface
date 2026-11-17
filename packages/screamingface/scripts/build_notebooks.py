@@ -86,6 +86,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "18_picture_benchmarks.ipynb": _picture_benchmarks_e2e(),
         "19_map_select_reduce.ipynb": _map_select_reduce(),
         "20_routers_cascades.ipynb": _routers_cascades(),
+        "21_runs.ipynb": _runs(),
     }
 
 
@@ -523,6 +524,176 @@ async with sf.AsyncClient(engine_url="http://127.0.0.1:9108") as async_client:
         nbformat.v4.new_code_cell("""\
 client.close()
 client.closed"""),
+    )
+
+
+def _runs() -> NotebookNode:
+    return _notebook(
+        nbformat.v4.new_markdown_cell("""\
+# Find and manage your Runs
+
+Every `sf.evaluate(...)` creates an Engine-owned Run: an id, a state, and an outcome and cost for
+each Candidate. This notebook starts one, finds it again from its id, follows its progress, opens
+its Report, and cancels a Run.
+
+Listing and inspecting Runs make no model calls. The evaluation is **off by default**, and
+cancellation needs an explicit Run id."""),
+        nbformat.v4.new_markdown_cell(
+            _before_running(
+                "## Before running",
+                """\
+screamingface prepare ifeval  # first run only: download the pinned Benchmark assets
+screamingface up
+screamingface status""",
+            )
+        ),
+        nbformat.v4.new_code_cell(_TARGET_SETUP),
+        nbformat.v4.new_markdown_cell("""\
+Local mode uses the local Engine's Run database. `TARGET = "hosted"` uses
+`fusion.screamingface.ai` and needs your Cloudflare Access login. Run metadata is visible on any
+machine signed in as the same owner, but `Run.report()` opens only a Report saved on this
+machine.
+
+`sf.connect()` shows the provider panel: on hosted it first asks you to log in, then on either
+target connect the provider of the Model in section 1 (OpenRouter) before evaluating."""),
+        nbformat.v4.new_code_cell("sf.connect()"),
+        nbformat.v4.new_markdown_cell("""\
+## 1. Start an evaluation (paid, off by default)
+
+Set `RUN_EVALUATION = True` only when you are ready to make model calls. `report.run_id` is the id
+of the evaluation's Run. Each Candidate also has its own `attempt_id`: one attempt of one
+Candidate, not the Run (`CandidateResult.run_id` is its deprecated old name). An Engine without
+Runs still evaluates, but `report.run_id` is `None`."""),
+        nbformat.v4.new_code_cell("""\
+MODEL = sf.Model("openrouter/google/gemini-3-flash-preview")
+RUN_EVALUATION = False
+
+report = sf.evaluate(MODEL, benchmark="ifeval", limit=1) if RUN_EVALUATION else None
+if report is None:
+    started = "No paid evaluation started. Set RUN_EVALUATION = True to opt in."
+else:
+    started = {
+        "run_id": report.run_id,
+        "attempts": [candidate.attempt_id for candidate in report.candidates],
+    }
+started"""),
+        nbformat.v4.new_markdown_cell("""\
+## 2. Find your Runs
+
+`sf.runs.list()` returns your Runs newest first. Filter by `state` to find active work, or by
+`since` (a timezone-aware datetime) for recent Runs. Listing works without starting anything."""),
+        nbformat.v4.new_code_cell("""\
+runs = sf.runs.list(limit=10)
+[
+    {
+        "id": item.id,
+        "benchmark": item.benchmark,
+        "state": item.state,
+        "created_at": item.created_at,
+        "finished_at": item.finished_at,
+        "cost_usd": item.cost_usd,
+    }
+    for item in runs
+]"""),
+        nbformat.v4.new_code_cell("""\
+from datetime import UTC, datetime, timedelta
+
+{
+    "running": [item.id for item in sf.runs.list(state="running", limit=10)],
+    "last_24h": [item.id for item in sf.runs.list(since=datetime.now(UTC) - timedelta(days=1))],
+}"""),
+        nbformat.v4.new_markdown_cell("""\
+## 3. Reopen a Run and follow its progress
+
+`sf.runs.get(run_id)` returns a snapshot that never changes. `run.refresh()` reads the Engine
+again, and `run.progress()` counts finished Candidates and known spend without waiting. A
+Candidate that did not succeed carries an `error_code`. This uses the Run started above, or else
+your newest Run."""),
+        nbformat.v4.new_code_cell("""\
+if report is not None and report.run_id is not None:
+    run_id = report.run_id
+else:
+    run_id = runs[0].id if runs else None
+run = sf.runs.get(run_id) if run_id is not None else None
+
+if run is None:
+    snapshot = "No Runs yet. Opt in to the evaluation in section 1 to create one."
+else:
+    run = run.refresh()
+    progress = run.progress()
+    snapshot = {
+        "id": run.id,
+        "state": run.state,
+        "finished_at": run.finished_at,
+        "progress": f"{progress.done}/{progress.total} Candidates, ${progress.cost_usd}",
+        "candidates": [
+            {
+                "name": item.name,
+                "state": item.state,
+                "cost_usd": item.cost_usd,
+                "error_code": item.error_code,
+            }
+            for item in run.candidates
+        ],
+    }
+snapshot"""),
+        nbformat.v4.new_markdown_cell("""\
+`run.wait()` polls until the Run finishes and returns it; it raises `TimeoutError` past
+`timeout`. It blocks the cell, so it is off by default."""),
+        nbformat.v4.new_code_cell("""\
+WAIT_FOR_COMPLETION = False
+finished_run = run.wait(timeout=300) if WAIT_FOR_COMPLETION and run is not None else None
+finished_run.state if finished_run is not None else "Not waiting.\""""),
+        nbformat.v4.new_markdown_cell("""\
+## 4. Open the Run's Report
+
+`Run.report()` reads the results saved on this machine; the Engine does not keep model output.
+It raises `ExecutionError` with `code="run_not_finished"` while the Run is running, and
+`code="results_not_local"` when another machine ran it."""),
+        nbformat.v4.new_code_cell("""\
+if run is None:
+    recovered_report = "No Run to open yet."
+else:
+    reopened_run = sf.runs.get(run.id)
+    try:
+        recovered_report = reopened_run.report()
+    except sf.ExecutionError as exc:
+        recovered_report = f"{exc.code}: {exc.hint}"
+recovered_report"""),
+        nbformat.v4.new_markdown_cell("""\
+## 5. Cancel a Run (explicit id required)
+
+Cancellation is run-wide: it stops every Candidate still running and refuses the Run's later
+starts (`run_canceled`). A finished Run is left as it is. Pick an id from section 2 only when you
+intend to stop that Run."""),
+        nbformat.v4.new_code_cell("""\
+CANCEL_RUN_ID = None
+
+if CANCEL_RUN_ID is not None:
+    run_to_cancel = sf.runs.get(CANCEL_RUN_ID)
+    run_to_cancel.cancel()
+    cancellation = f"Cancellation requested for {CANCEL_RUN_ID}"
+else:
+    cancellation = "No Run cancelled. Set CANCEL_RUN_ID to the Run you intend to stop."
+cancellation"""),
+        nbformat.v4.new_markdown_cell("""\
+Once its Candidates have stopped, a cancelled Run reads `"canceled"`."""),
+        nbformat.v4.new_code_cell("""\
+sf.runs.get(CANCEL_RUN_ID).state if CANCEL_RUN_ID is not None else "Nothing cancelled.\""""),
+        nbformat.v4.new_markdown_cell("""\
+## 6. When a Run cannot be read
+
+`sf.runs.get` raises `KeyError` for an unknown id, or another owner's. Against an Engine that does
+not serve Runs, `sf.runs.list` and `sf.runs.get` raise `ExecutionError` with
+`code="runs_unavailable"`. In async code, use `await sf.runs.list_async(...)` and
+`await sf.runs.get_async(run_id)`."""),
+        nbformat.v4.new_code_cell("""\
+unknown = "found"
+try:
+    sf.runs.get("run_does_not_exist")
+except KeyError:
+    unknown = "KeyError: no such Run for this owner"
+unknown"""),
     )
 
 
@@ -2102,17 +2273,18 @@ def _picture_benchmarks_e2e() -> NotebookNode:
         nbformat.v4.new_markdown_cell("""\
 # Picture Benchmarks — two Cases each, on the local stack or dev
 
-Nine Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
+Eleven Benchmarks show the Candidate a picture: LAB-Bench FigQA (biology figures), LAB-Bench
 TableQA (biology tables), MMMU multiple choice and MMMU open (college exam questions about
 charts, diagrams and photos), MathVista (maths over plots and figures), LABBench2's FigQA2
-and TableQA2 image (harder biology figures and tables, free answers) and MaCBench (chemistry
-and materials science: molecules, crystal structures, spectra, lab photos) with every question,
-and Humanity's Last Exam (HLE, expert questions across 100+ subjects) with 342 of its 2,500
-questions. Each picture is saved inside its Case when the Benchmark is imported, so
-nothing is fetched at run time.
+and TableQA2 image (harder biology figures and tables, free answers), ZeroBench (hard reasoning
+over pictures) and MaCBench (chemistry and materials science: molecules, crystal structures,
+spectra, lab photos) with every question, Humanity's Last Exam (HLE, expert questions across
+100+ subjects) with 342 of its 2,500 questions, and HLE-Diamond (the HLE authors' cleaned 1,000
+questions) with 272 of them. Each picture is saved inside its Case when the Benchmark is
+imported, so nothing is fetched at run time.
 
 This notebook is a smoke test for the picture path, not a ranking. It points at **either** the
-local stack **or** dev with one variable, lists which of the nine that Engine serves, and runs
+local stack **or** dev with one variable, lists which of the eleven that Engine serves, and runs
 two Cases of each with one cheap model that reads pictures. Two Cases are enough to catch a run
 that breaks on pictures, for example one that goes over its memory budget.
 
@@ -2128,23 +2300,23 @@ on `:9108`, Scoreboard on `:9106`) and opens Jupyter on `examples/`. Without a c
 its own environment with the `inspect` extra the imported Benchmarks need (a few minutes,
 once).
 
-**HLE's and LABBench2's datasets are gated.** cais/hle and EdisonScientific/labbench2 on
-Hugging Face each ask you to accept their terms once; then set `HF_TOKEN` (or run
-`huggingface-cli login`) before `just local-stack-notebooks`. Without a token the local stack
-skips those three Benchmarks with a warning and serves the other six.
+**HLE's, HLE-Diamond's and LABBench2's datasets are gated.** cais/hle, cais/hle-diamond and
+EdisonScientific/labbench2 on Hugging Face each ask you to accept their terms once; then set
+`HF_TOKEN` (or run `huggingface-cli login`) before `just local-stack-notebooks`. Without a token
+the local stack skips those four Benchmarks with a warning and serves the rest.
 
 **Hosted.** fusion.screamingface.ai, behind a Cloudflare Access login. `sf.connect()` opens that
 login in your browser. **Dev** is the team's test deployment, fusion.dev, behind the same login.
 
 Two things differ between local and the deployed targets:
 
-- **On a Mac, the local stack serves FigQA, TableQA, HLE, the two LABBench2 Benchmarks and
-  MaCBench.** MMMU and MathVista have
+- **On a Mac, the local stack serves FigQA, TableQA, HLE, HLE-Diamond, the two LABBench2
+  Benchmarks and MaCBench.** MMMU and MathVista have
   their Case Digest (the hash that proves a Case's bytes are the ones reviewed) sealed on Linux:
   Pillow writes different PNG bytes on macOS, so a Mac's own prepared Cases cannot match it, and
-  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE, LABBench2 and
-  MaCBench keep each picture's bytes as the dataset ships them, so their Case Digest seals the
-  same on a Mac.
+  a Mac skips those Benchmarks. Use dev, or a Linux machine, to run them. HLE, HLE-Diamond,
+  LABBench2 and MaCBench keep each picture's bytes as the dataset ships them, so their Case
+  Digest seals the same on a Mac.
 - **The per-run memory budget is enforced only on a Linux deployment.** A local Engine watches
   no memory, so a run that uses too much memory fails on dev and never locally (section 7)."""),
         nbformat.v4.new_markdown_cell("""\
@@ -2187,7 +2359,7 @@ sf.connect()"""),
         nbformat.v4.new_markdown_cell("""\
 ## 2. Which picture Benchmarks this Engine serves
 
-The nine ids below are the catalogue ids of the nine picture Benchmarks. The cell lists the
+The eleven ids below are the catalogue ids of the eleven picture Benchmarks. The cell lists the
 ones this Engine serves and names each one it can't run with its likely reason:
 
 - the local stack runs on a Mac, and the Benchmark's Case Digest is sealed on Linux. A local
@@ -2206,6 +2378,8 @@ PICTURE_BENCHMARKS = {
     "inspect-mmmu_open": "judge (a judge model reads the reply against the answer)",
     "inspect-mathvista": "exact match of the letter or the text after 'ANSWER:', no judge",
     "inspect-hle": "judge (HLE's regex_judge compares the final answer with the reference)",
+    "hle_diamond": "judge (the same regex_judge and judge as inspect-hle, over the Diamond "
+    "questions)",
     "labbench2_figqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
     "labbench2_tableqa2_img": "judge (the authors' exact-match prompt against the ideal answer)",
     "inspect-zerobench": "exact match of the text in the last curly braces, no judge",
@@ -2243,8 +2417,8 @@ for benchmark_id in PICTURE_BENCHMARKS:
 
 The Case count, the revision (the pin on the imported Cases: two Engines showing the same
 revision ask the same questions) and how the Benchmark is graded. `inspect-mmmu_open`,
-`inspect-hle` and the two LABBench2 Benchmarks spend judge tokens; the other five grade by
-matching the answer, for free."""),
+`inspect-hle`, `hle_diamond` and the two LABBench2 Benchmarks spend judge tokens; the others
+grade by matching the answer, for free."""),
         nbformat.v4.new_code_cell("""\
 for benchmark_id in served:
     card = sf.benchmarks.get(benchmark_id)
@@ -2272,7 +2446,8 @@ MODEL"""),
 ## 5. Run two Cases of each — paid, off by default
 
 `RUN_EVALUATION = False` keeps every cell below free: each one prints what it would run and stops.
-Set it to `True` to spend. Each run is `sf.evaluate(MODEL, benchmark=..., limit=2)`; a run that
+Set it to `True` to spend. Each run is `sf.evaluate(MODEL, benchmark=..., limit=2)`, or names its
+two Case ids with `cases=` when the first two would miss the pictures; a run that
 fails is recorded with its error code, so one failing Benchmark never stops the others. The
 pinned cache stays at its default (off), so every run makes fresh model calls."""),
         nbformat.v4.new_code_cell("""\
@@ -2282,15 +2457,19 @@ reports = {}
 run_errors = {}
 
 
-def run_two_cases(benchmark_id):
-    \"\"\"Run two Cases of one served picture Benchmark; keep its Report or its error.\"\"\"
+def run_two_cases(benchmark_id, cases=None):
+    \"\"\"Run two Cases of one served picture Benchmark (its first two, or the Case ids in
+    `cases`); keep its Report or its error.\"\"\"
 
     if benchmark_id not in served:
         return f"{benchmark_id}: not served by this Engine, skipped"
     if not RUN_EVALUATION:
         return f"{benchmark_id}: set RUN_EVALUATION = True to run 2 Cases (paid model calls)"
     try:
-        outcome = sf.evaluate(MODEL, benchmark=benchmark_id, limit=2)
+        if cases is None:
+            outcome = sf.evaluate(MODEL, benchmark=benchmark_id, limit=2)
+        else:
+            outcome = sf.evaluate(MODEL, benchmark=benchmark_id, cases=cases)
     except sf.ScreamingFaceError as exc:
         run_errors[benchmark_id] = exc
         outcome = f"{benchmark_id}: run failed with {exc.code}: {exc.message}"
@@ -2317,6 +2496,19 @@ stack first; on dev, once the deployment that carries this Benchmark is up. Sect
 picture the model saw and the judge's own words on each Case."""),
         nbformat.v4.new_code_cell("""\
 run_two_cases("inspect-hle")"""),
+        nbformat.v4.new_markdown_cell("""\
+### HLE-Diamond: a text Case from one half, a picture Case from the other
+
+HLE-Diamond is its own Benchmark, not a subset of HLE: the HLE authors' cleaned 1,000
+questions, half marked reasoning and half knowledge, asked with HLE's prompt and graded by the
+same regex_judge and glm-5.3-flash judge, so the OpenRouter key from the panel pays for the judge
+on the local stack. Its first five Cases are all text questions, so `limit=2` would never send a
+picture. The cell names two Case ids instead (a Case id is its position in the Benchmark, 1 to
+1,000): Case 1 is a text question from the reasoning half and Case 501 a picture question from
+the knowledge half, so two Cases cover both paths and both halves. A run that names its Cases
+cannot be submitted to the leaderboard; this is a smoke test, so that costs nothing."""),
+        nbformat.v4.new_code_cell("""\
+run_two_cases("hle_diamond", cases=[1, 501])"""),
         nbformat.v4.new_markdown_cell("""\
 ### LABBench2: a figure and a table, free answers
 
@@ -2397,13 +2589,15 @@ picture"""),
         nbformat.v4.new_markdown_cell("""\
 ### The judge's evidence on the judged Benchmarks
 
-`inspect-mmmu_open`, `inspect-hle` and the two LABBench2 Benchmarks are judged. Each Case's check
-evidence carries the judge's own explanation verbatim, the way `12_inspect_evals_benchmarks`
-section 7 shows it, so a surprising score can be read, not just counted."""),
+`inspect-mmmu_open`, `inspect-hle`, `hle_diamond` and the two LABBench2 Benchmarks are judged.
+Each Case's check evidence carries the judge's own explanation verbatim, the way
+`12_inspect_evals_benchmarks` section 7 shows it, so a surprising score can be read, not just
+counted."""),
         nbformat.v4.new_code_cell("""\
 for benchmark_id in (
     "inspect-mmmu_open",
     "inspect-hle",
+    "hle_diamond",
     "labbench2_figqa2_img",
     "labbench2_tableqa2_img",
 ):

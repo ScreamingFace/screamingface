@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 
 from screamingface_engine.activity_kinds import ActivityKind
+from screamingface_engine.artifacts.spool import ResultSpool, ResultTooLarge, bound_result_spool
+from screamingface_engine.benchmarks import result_body
 from screamingface_engine.benchmarks.contract import (
     CandidateInvocationStatus,
+    CandidateResult,
     CorrectiveLoopOutcome,
     OperationOutput,
     decode_candidate_invocation_record,
@@ -19,16 +24,20 @@ from screamingface_engine.benchmarks.failure_classes import (
     benchmark_definition_error,
 )
 from screamingface_engine.benchmarks.phases import observe_phase
+from screamingface_engine.benchmarks.result_body import compact_json
 from screamingface_engine.benchmarks.selection import CaseSelection
+from screamingface_engine.candidate_scope import in_candidate_invocation
+from screamingface_engine.process_memory import log_process_memory
 from url4.core.errors import ResolutionError
 from url4.peer.server import Request
 
 JsonObject = dict[str, Any]
+Deliverable = JsonObject | CandidateResult | result_body.ResultBody
 CaseGradeBuilder = Callable[[int, list[JsonObject]], JsonObject]
-AggregateAdapter = Callable[[str, tuple[int, ...]], JsonObject]
+AggregateAdapter = Callable[[str, tuple[int, ...]], Deliverable]
 #: The async face (OME-1240): a judged benchmark's adapter awaits model calls, so its
 #: endpoint must be awaited by the node on the RUN's own loop — see aggregate_endpoint.
-AsyncAggregateAdapter = Callable[[str, tuple[int, ...]], Awaitable[JsonObject]]
+AsyncAggregateAdapter = Callable[[str, tuple[int, ...]], Awaitable[Deliverable]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,7 +156,10 @@ def aggregate_endpoint(
     available_case_count: int,
     aggregate: AggregateAdapter,
 ) -> Callable[[Request], str]:
-    """Adapt ordered Case evaluations and their exact selection into Aggregation."""
+    """Adapt ordered Case evaluations and their exact selection into Aggregation.
+
+    A CandidateResult is streamed into the run spool (memory fix 3, OME-1835).
+    """
 
     positive_count(available_case_count, "available_case_count")
 
@@ -158,7 +170,7 @@ def aggregate_endpoint(
             result = aggregate(request.context, selection.case_ids)
         except (OSError, ValueError) as exc:
             raise benchmark_unavailable(str(exc)) from exc
-        return compact_json(result)
+        return deliver_result_sync(result)
 
     return endpoint
 
@@ -186,9 +198,94 @@ def async_aggregate_endpoint(
             result = await aggregate(request.context, selection.case_ids)
         except (OSError, ValueError) as exc:
             raise benchmark_unavailable(str(exc)) from exc
-        return compact_json(result)
+        return await deliver_result(result)
 
     return endpoint
+
+
+async def deliver_result(result: Deliverable) -> str:
+    """Encode an aggregate's result for url4: today's string, or the run spool's reference.
+
+    FEATURE memory fix 3 (OME-1835). A CandidateResult is written one Case at a time into the
+    run's spool in a worker thread (the run loop keeps its heartbeats). The spool returns the
+    text (at most the inline cap) or a ~90-char reference that build_result redeems for the
+    artifact ticket. A plain mapping, no bound spool, or a call inside a Candidate invocation
+    (where the endpoint cannot be the run's sink) takes today's path.
+    FEATURE unit 2: a ResultBody, such as the parked body of benchmarks/result_builder.py, takes
+    the CandidateResult path: streamed into the bound spool, else written whole with
+    encode_result_body.
+    INVARIANT: a store or disk failure propagates as itself. It is outside the (OSError,
+    ValueError) guard of the endpoint, so it is never reported as benchmark_unavailable.
+    Every CandidateResult delivery logs ``aggregate_delivered``, on the spool path or not.
+    """
+
+    if not isinstance(result, Mapping) and (spool := _run_spool()) is not None:
+        text = await asyncio.to_thread(_spooled_text, spool, _as_body(result))
+    else:
+        text = _whole_text(result)
+    _log_delivered(result)
+    return text
+
+
+def deliver_result_sync(result: Deliverable) -> str:
+    """:func:`deliver_result`'s sync face, for :func:`aggregate_endpoint`.
+
+    WHY on the calling thread: the sync face's whole aggregate already blocks the run loop
+    (see benchmark_aggregation._run_sync, the pre-existing contract), and the batch routes
+    that use it (MedXpertQA) give small results. Large benchmarks use the async face.
+    FEATURE unit 2: a ResultBody takes the CandidateResult path, as in :func:`deliver_result`.
+    INVARIANT: the same as :func:`deliver_result`; a store or disk failure propagates as itself.
+    """
+
+    if not isinstance(result, Mapping) and (spool := _run_spool()) is not None:
+        text = _spooled_text(spool, _as_body(result))
+    else:
+        text = _whole_text(result)
+    _log_delivered(result)
+    return text
+
+
+def _run_spool() -> ResultSpool | None:
+    """The bound spool a CandidateResult streams into; ``None`` takes today's whole string.
+
+    WHY ``None`` inside a Candidate invocation: there the endpoint is not the run's sink.
+    """
+
+    return None if in_candidate_invocation() else bound_result_spool()
+
+
+def _as_body(result: CandidateResult | result_body.ResultBody) -> result_body.ResultBody:
+    # WHY through the module object: tests replace result_body names at call time.
+    if isinstance(result, CandidateResult):
+        return result_body.HeldResultBody(result)
+    return result
+
+
+def _whole_text(result: Deliverable) -> str:
+    if isinstance(result, Mapping):
+        return compact_json(result)
+    if isinstance(result, CandidateResult):
+        return compact_json(result.as_payload())
+    return result_body.encode_result_body(result)
+
+
+def _spooled_text(spool: ResultSpool, body: result_body.ResultBody) -> str:
+    # WHY through the module object: the unit 1 capture tests replace result_body.write_result_body
+    # at call time.
+    try:
+        return spool.deliver(partial(result_body.write_result_body, body))
+    except ResultTooLarge as exc:
+        raise ResolutionError(str(exc), code="result_too_large", permanent=True) from exc
+
+
+def _log_delivered(result: Deliverable) -> None:
+    if isinstance(result, Mapping):
+        return
+    if isinstance(result, CandidateResult):
+        cases = result.case_count
+    else:
+        cases = int(result.head()["case_count"])
+    log_process_memory("aggregate_delivered", cases=cases)
 
 
 def positive_case_id(value: object) -> int:
@@ -230,12 +327,6 @@ def _decode_json(value: object, label: str) -> object:
         return json.loads(value)
     except ValueError as exc:
         raise benchmark_contract_error(f"{label} must be JSON: {exc}") from exc
-
-
-def compact_json(value: object) -> str:
-    """Encode a deterministic endpoint result without ASCII loss or padding."""
-
-    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
 def _raise_collected_failure(decoded: JsonObject, item_label: str) -> None:
@@ -308,6 +399,8 @@ __all__ = [
     "candidate_answer",
     "case_grade_endpoint",
     "compact_json",
+    "deliver_result",
+    "deliver_result_sync",
     "json_array",
     "json_object",
     "positive_case_id",

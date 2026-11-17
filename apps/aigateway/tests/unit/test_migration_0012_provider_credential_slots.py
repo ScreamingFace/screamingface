@@ -129,7 +129,7 @@ def test_0012_creates_the_marker_table_on_a_populated_database(
     db, url = populated_0011
     assert _TABLE not in _tables(db)
 
-    _tortoise(url, "migrate")
+    _tortoise(url, "migrate", "models", _MIGRATION)
 
     columns = _columns(db)
     assert set(columns) == _EXPECTED_COLUMNS

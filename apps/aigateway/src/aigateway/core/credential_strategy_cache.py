@@ -24,7 +24,7 @@ from collections.abc import Callable
 from typing import Any
 
 # (provider, auth_type, credential_name) — provider distinguishes same-named
-# profiles across providers; auth_type distinguishes oauth vs api_key strategies.
+# connections across providers; auth_type distinguishes oauth vs api_key strategies.
 StrategyKey = tuple[str, str, str]
 
 

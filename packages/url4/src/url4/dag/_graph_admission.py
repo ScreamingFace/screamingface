@@ -29,7 +29,7 @@ from url4.core.url_display import display_url
 from url4.dag.attachment_sources import not_static  # isort: skip
 from url4.dag.compiler import Graph  # isort: skip
 from url4.dag.node import DagNode  # isort: skip
-from url4.dag.nodes import LazyExprNode, MapNode, RelUrlNode, RemoteFetchNode  # isort: skip
+from url4.dag.nodes import LazyExprNode, MapNode, RelUrlNode  # isort: skip
 from url4.dag.nodes import WebFetchNode  # isort: skip
 from url4.dag.nodes.blob import BlobRefNode  # isort: skip
 from url4.dag.nodes.web_attach import NotStaticNode  # isort: skip
@@ -45,25 +45,6 @@ def refuse_prebuilt(target: Graph | DagNode) -> None:
         _refuse_node(node)
 
 
-def prebuilt_remote_calls(target: Graph | DagNode) -> tuple[tuple[str, str], ...]:
-    """Every ``(authority, path)`` remote-node call the pre-built ``target`` makes structurally.
-
-    FEATURE: PR #1587 review round 15 (F1b) — the run-start remote precheck's input for a target
-    with no AST. INVARIANT: the same calls ``run(text)``'s scan records — each ``RemoteFetchNode``
-    reachable through ``node_children`` (``Graph.walk``), plus those in text a node keeps for
-    later — and none inside a remote context (that text runs at the remote node).
-    """
-    graph = target if isinstance(target, Graph) else Graph(target)
-    calls: list[tuple[str, str]] = []
-    for node in graph.walk():
-        if isinstance(node, RemoteFetchNode):
-            calls.append((node.authority, node.path))
-        scan = _text_scan(node)
-        if scan is not None:
-            calls.extend(scan.remote_nodes)
-    return tuple(calls)
-
-
 def _refuse_node(node: DagNode) -> None:
     if isinstance(node, BlobRefNode):
         refuse_remote((FileRef(node.address),))
@@ -74,13 +55,17 @@ def _refuse_node(node: DagNode) -> None:
         # WHY not_static: the code a pre-built graph's attachment source already failed with
         # (rounds 7/8, pinned by tests) — now raised before any I/O instead of at execution.
         raise not_static(node.attachment.url)
-    scan = _text_scan(node)
+    scan = kept_text_scan(node)
     if scan is not None:
         _refuse_scan(scan)
 
 
-def _text_scan(node: DagNode) -> SourceScan | None:
-    """The scan of url4 text ``node`` keeps for later: a verbatim context, a body, a lazy group."""
+def kept_text_scan(node: DagNode) -> SourceScan | None:
+    """The scan of url4 text ``node`` keeps for later: a verbatim context, a body, a lazy group.
+
+    ``None`` too for a lazy group the strict grammar rejects; the remote-call walk
+    (:mod:`url4.dag._remote_walk`) then compiles it as the spawn hook does.
+    """
     scan = None
     if isinstance(node, RelUrlNode) and node.context and node.ctx_slots is None:
         # A context the lowering shipped verbatim (prose, or a holdings ref): judged exactly as
@@ -118,4 +103,4 @@ def _prebuilt(source: str) -> ParseError:
     )
 
 
-__all__ = ["prebuilt_remote_calls", "refuse_prebuilt"]
+__all__ = ["kept_text_scan", "refuse_prebuilt"]

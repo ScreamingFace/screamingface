@@ -69,9 +69,9 @@ def test_peak_normalises_ru_maxrss_units_per_platform(
 
 
 def test_peak_reads_this_process_and_is_at_least_current() -> None:
+    current = process_memory.current_resident_bytes()
     peak = process_memory.peak_resident_bytes()
     assert peak >= resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    current = process_memory.current_resident_bytes()
     if current is not None:
         assert peak >= current
 
@@ -186,3 +186,31 @@ def test_a_refused_board_selection_logs_no_memory_line(
     with caplog.at_level(logging.INFO, logger=LOGGER), pytest.raises(ResolutionError):
         board_cases_handler(lambda: board)(Request("/cases", "", "99", {}))
     assert _lines(caplog) == []
+
+
+# --- OME-1925: peak never reads below current ----------------------------------------------
+# WHY: on Linux `statm` (current) is an exact per-CPU sum while `ru_maxrss` (peak) is an
+# approximate read, so current can exceed peak with no time between the reads. CI saw
+# `assert 327237632 >= 327335936` (24 pages) after the reads were reordered.
+
+
+def test_peak_is_never_below_a_given_current_reading() -> None:
+    peak_kib = 800 * 1024
+    assert (
+        process_memory.peak_resident_bytes(maxrss=peak_kib, platform="linux", current=900 * MIB)
+        == 900 * MIB
+    )
+    assert (
+        process_memory.peak_resident_bytes(maxrss=peak_kib, platform="linux", current=700 * MIB)
+        == 800 * MIB
+    )
+    assert process_memory.peak_resident_bytes(maxrss=peak_kib, platform="linux") == 800 * MIB
+
+
+def test_the_live_peak_folds_in_the_current_reading(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _Usage:
+        ru_maxrss = 1024  # 1 MiB in KiB on Linux, 1 KiB on macOS: below current either way
+
+    monkeypatch.setattr(process_memory.resource, "getrusage", lambda _who: _Usage())
+    monkeypatch.setattr(process_memory, "current_resident_bytes", lambda: 327_335_936)
+    assert process_memory.peak_resident_bytes() >= 327_335_936

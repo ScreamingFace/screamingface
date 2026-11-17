@@ -1493,6 +1493,8 @@ class BaselineSchema(BaselineObservation):
     metadata: dict[str, Any] | None
     # WHY: computed from the current board scope and evidence, never accepted from import JSON.
     ranking_eligible: bool = False
+    observation_revision: int = 0
+    observation_updated_at: datetime | None = None
     # FEATURE: OME-323 — manual open/closed correction, mirrors ScoreSchema's field.
     openness_override: Literal["open", "closed"] | None = None
 

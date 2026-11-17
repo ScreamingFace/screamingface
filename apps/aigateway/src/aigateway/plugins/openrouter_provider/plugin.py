@@ -138,7 +138,7 @@ if TYPE_CHECKING:
 
 
 def _credential_service_for(credential_name: str) -> str:
-    """Namespace the stored credential slot by provider + profile/connection."""
+    """Namespace the stored credential slot by provider + connection."""
     return f"aigateway:openrouter:{credential_name}"
 
 

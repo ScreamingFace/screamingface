@@ -221,10 +221,10 @@ class Url4Node(CodeMounts):
         return path == self._eval_path or path.startswith(f"{self._eval_path}/")
 
     # --- the IOLayer ports (a node IS an io layer) ----------------------------------
-    # Thin delegates: the dispatch order lives in url4.peer._dispatch (the F2
-    # split) — one owner, so HTTP (url4.peer._http) and in-process behavior
-    # cannot diverge.
+    # Thin delegates: the dispatch order lives in url4.peer._dispatch (the F2 split) — one owner,
+    # so HTTP (url4.peer._http) and in-process behavior cannot diverge.
     fetch_bytes = _bytes.fetch_bytes  # binary-safe: a module function, bound as a method
+    eval_expression = _dispatch.eval_expression  # the remote precheck's eval-path port
 
     async def fetch(self, target: str, *, relative: bool) -> str:
         return await _dispatch.fetch(self, target, relative=relative)

@@ -1,9 +1,9 @@
 ---
 ticket: OME-1912
 stack: screamingface-engine
-status: in-progress
+status: done
 started: 2026-11-13
-finished:
+finished: 2026-11-13
 ---
 
 # keda-217-runner-target — runner autoscaling works on KEDA 2.17
@@ -68,3 +68,7 @@ Not run in this unit (orchestrator to run before commit):
 
 Code, tests and docs are written. The targeted checks pass. The full gates have not run, and the
 unit is not committed. No PR and no Linear issue exist yet.
+
+## Landed on main
+
+- `468474117` (#1796), squash-merged 2026-11-13 13:41 UTC. The Status section above was written before the commit. Linear OME-1912 Done 2026-11-16.
