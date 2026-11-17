@@ -7990,7 +7990,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
                 "questions, not closed-book on this archive"
             )
         ),
-        notebook="21_futurex_past",
+        notebook="22_futurex_past",
     ),
     BenchmarkSpec(
         key="futurex_past_study",
@@ -8067,7 +8067,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         frontier_score=NotPublished(
             reason="the study reports committee scores on 100 questions, not a model on all 1,118"
         ),
-        notebook="21_futurex_past",
+        notebook="22_futurex_past",
     ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )

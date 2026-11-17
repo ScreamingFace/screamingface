@@ -167,7 +167,7 @@ Benchmark here). Every other dimension should match or be a declared deviation.
   the issue. Until then, the append-only check is the one expected red gate. Every other gate is
   green.
 - **Cross-cutting.** A local Task ships its own example notebook
-  (`packages/screamingface/examples/21_futurex_past.ipynb` via `scripts/build_notebooks.py`), so
+  (`packages/screamingface/examples/22_futurex_past.ipynb` via `scripts/build_notebooks.py`), so
   the PR touches two components. The PR body says so; no sub-issues are filed.
 - Commits are conventional and carry no `Co-Authored-By` line. Nothing is pushed and no PR is
   opened without the contributor's explicit OK.

@@ -26,7 +26,7 @@ Paths below are relative to `apps/screamingface-engine/` unless they start with 
 | `tests/unit/inspect/test_futurex_past_grading.py` | new | the level-3/4 rules against a scripted judge (no network) |
 | `tests/unit/inspect/replayed_cases_helpers.py` | edit | `STAND_IN_METADATA["futurex_past"]`, realistic level-3 metadata |
 | `tests/unit/inspect/test_benchmark_declaration.py`, `test_inspect_imported_benchmarks.py`, `test_failure_policy_rows.py`, `test_published_revisions.py`, `test_benchmark_fingerprints.py` | edit | one row each (plus the row counts the failure-policy invariant asserts), as hle_diamond and medmcqa did |
-| `packages/screamingface/scripts/build_notebooks.py`, `packages/screamingface/examples/21_futurex_past.ipynb` | edit/new | the example notebook (generated, output-free) |
+| `packages/screamingface/scripts/build_notebooks.py`, `packages/screamingface/examples/22_futurex_past.ipynb` | edit/new | the example notebook (generated, output-free) |
 | `docs/benchmarks-fidelity/futurex_past.md` (under `apps/screamingface-engine/docs/`) | new | the Fidelity Record from `sf-benchmark-fidelity` |
 | `CHANGELOG.md` (Engine) | maybe | only if new Benchmarks get a line (to check against the hle_diamond precedent) |
 

@@ -36,7 +36,7 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
   `test_local_task_futurex_past_study.py`, `test_futurex_past_study_replication.py`, plus fixtures.
 - Shared test tables: stand-in metadata, declaration, family, failure policy, published revision,
   and fingerprint.
-- `packages/screamingface`: the example notebook `21_futurex_past`.
+- `packages/screamingface`: the example notebook `22_futurex_past`.
 - `apps/screamingface-engine/docs/benchmarks-fidelity/futurex_past.md` and
   `futurex_past_study.md`.
 

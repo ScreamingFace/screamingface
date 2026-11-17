@@ -87,7 +87,7 @@ def notebooks() -> dict[str, NotebookNode]:
         "19_map_select_reduce.ipynb": _map_select_reduce(),
         "20_routers_cascades.ipynb": _routers_cascades(),
         "21_runs.ipynb": _runs(),
-        "21_futurex_past.ipynb": _futurex_past_e2e(),
+        "22_futurex_past.ipynb": _futurex_past_e2e(),
     }
 
 

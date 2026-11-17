@@ -221,4 +221,4 @@ uv run python -m screamingface_engine_inspect.importer \
     --key futurex_past_study --whole-run-metric honour
 ```
 
-The example notebook is `packages/screamingface/examples/21_futurex_past.ipynb`.
+The example notebook is `packages/screamingface/examples/22_futurex_past.ipynb`.
