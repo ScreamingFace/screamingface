@@ -93,6 +93,7 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
     Raises:
         RunnerConfigError: ``CAPTURE`` or ``REPLAY_FROZEN_COPY`` is malformed, or both are set,
             for the same reason (a capture or replay must never silently run as a normal run).
+            ``REPLAY_LIVE_JUDGE`` is malformed or set without a replay (OME-1909).
             ``ANSWER_SEED`` is present but not an integer. This is the same
             refusal `job_env.answer_seed_from_env` always produced — a run silently executed
             without its declared seed would publish a score claiming a sitting it never had.
@@ -106,6 +107,12 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
         if capture and replay_frozen_copy is not None:
             raise ValueError(
                 f"{job_env.CAPTURE} and {job_env.REPLAY_FROZEN_COPY} cannot be set together"
+            )
+        replay_live_judge = job_env.replay_live_judge_from_env(env)
+        # INVARIANT (OME-1909): live judges ride only on a replay, as the start route enforces.
+        if replay_live_judge is not None and replay_frozen_copy is None:
+            raise ValueError(
+                f"{job_env.REPLAY_LIVE_JUDGE} is set without {job_env.REPLAY_FROZEN_COPY}"
             )
         direct = job_env.run_shape_from_env(env) == "direct"
     except ValueError as exc:
@@ -124,6 +131,7 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
         deadline=None if job_deadline is None else time.monotonic() + job_deadline,
         capture=capture,
         replay_frozen_copy=replay_frozen_copy,
+        replay_live_judge=replay_live_judge,
         local_runtime=job_env.local_runtime_from_env(env),
     )
 

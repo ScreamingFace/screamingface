@@ -171,6 +171,21 @@ FEATURE: OME-1307. Per-run, with the same invariant as :data:`CAPTURE`: a leftov
 another caller's paid run into a replay. Absent means a normal run.
 """
 
+REPLAY_LIVE_JUDGE = "URL4_CLOUD_REPLAY_LIVE_JUDGE"
+"""Which Cases' judge calls a replay run sends live: ``all``, or a comma list of Case ids.
+
+FEATURE: OME-1909 (re-grade from a pinned cache). Per-run, beside :data:`REPLAY_FROZEN_COPY` and
+only with it: a leftover value would turn another caller's free replay into paid judge calls.
+Absent means every judge call replays.
+"""
+
+LIVE_JUDGE_ALL: Literal["all"] = "all"
+"""The :data:`REPLAY_LIVE_JUDGE` value that sends every judge call of the replay live."""
+
+LiveJudge = frozenset[str] | Literal["all"]
+"""The Cases whose judge calls a replay sends live: every one (``"all"``), or these Case ids.
+A Case id is compared as text, so an int id ``7`` is named by ``"7"``."""
+
 LOCAL_RUNTIME = "URL4_LOCAL_RUNTIME"
 """Whether this run executes on the local runtime — `"1"`, or absent for a hosted run.
 
@@ -396,6 +411,59 @@ def replay_frozen_copy_from_env(env: Mapping[str, str]) -> str | None:
     if FROZEN_COPY_ID.fullmatch(raw) is None:
         raise ValueError(f"{REPLAY_FROZEN_COPY} must be a frozen copy id, got {raw!r}")
     return raw
+
+
+def live_judge_from_text(raw: str) -> LiveJudge:
+    """Read ``all`` or a comma list of Case ids into the Cases whose judge calls go live.
+
+    The ONE grammar of the value, shared by the header and env readers so the two carriers can
+    never disagree about what it means (FEATURE: OME-1909). Blanks around each id are trimmed.
+
+    Raises:
+        ValueError: the list is blank or names an empty id (``""``, ``","``, ``"3,,4"``). A blank
+            list read as "no live judge" would quietly re-grade nothing.
+    """
+    text = raw.strip()
+    if text == LIVE_JUDGE_ALL:
+        return LIVE_JUDGE_ALL
+    ids: list[str] = [part.strip() for part in text.split(",")]
+    if not all(ids):
+        raise ValueError(f"must be {LIVE_JUDGE_ALL} or a comma list of Case ids, got {raw!r}")
+    return frozenset(ids)
+
+
+def live_judge_text(live: LiveJudge) -> str:
+    """Render the live-judge Cases in their one canonical text: ``all``, or sorted ids."""
+    return ",".join(sorted(live)) if isinstance(live, frozenset) else live
+
+
+def replay_live_judge_env(live: LiveJudge | None) -> dict[str, str]:
+    """Render a replay's live-judge Cases as the Job env key that carries them.
+
+    ``None`` renders NOTHING, so a plain replay's env is byte-identical to today's.
+    """
+    if live is None:
+        return {}
+    return {REPLAY_LIVE_JUDGE: live_judge_text(live)}
+
+
+def replay_live_judge_from_env(env: Mapping[str, str]) -> LiveJudge | None:
+    """Read a replay's live-judge Cases back out of its environment.
+
+    Raises for the same reason as :func:`replay_frozen_copy_from_env`: the env is App-written, so
+    a malformed value is a bug, and a re-grade that silently replayed every judge would publish
+    the old grades as new ones.
+
+    Raises:
+        ValueError: the variable is present but blank or names an empty id.
+    """
+    raw = env.get(REPLAY_LIVE_JUDGE)
+    if raw is None:
+        return None
+    try:
+        return live_judge_from_text(raw)
+    except ValueError as exc:
+        raise ValueError(f"{REPLAY_LIVE_JUDGE} {exc}") from exc
 
 
 def local_runtime_from_env(env: Mapping[str, str]) -> bool:
@@ -662,6 +730,7 @@ WRITTEN_BY_APP = frozenset(
         ANSWER_SEED,
         CAPTURE,
         REPLAY_FROZEN_COPY,
+        REPLAY_LIVE_JUDGE,
         LOCAL_RUNTIME,
         CACHE_PARTICIPATE,
         CACHE_MAX_AGE_S,

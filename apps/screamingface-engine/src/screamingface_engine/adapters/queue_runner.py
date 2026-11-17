@@ -356,6 +356,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
         shape: job_env.RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        replay_live_judge: job_env.LiveJudge | None = None,
         enqueued_at: datetime | None = None,
     ) -> str:
         """Publish the run to the queue and return its job name.
@@ -412,6 +413,7 @@ class QueueJobRunner(IdentityAwareJobRunner):
                     shape=shape,
                     capture=capture,
                     replay_frozen_copy=replay_frozen_copy,
+                    replay_live_judge=replay_live_judge,
                     world_digest=self._world_digest,
                 )
                 await self._queue.publish(message, identity=identity, enqueued_at=enqueued_at)

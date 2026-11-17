@@ -55,6 +55,7 @@ PROFILE_HEADER = "X-Profile"
 ANSWER_SEED_HEADER = "X-Answer-Seed"
 CAPTURE_HEADER = "X-Capture"
 REPLAY_FROZEN_COPY_HEADER = "X-Replay-Frozen-Copy"
+REPLAY_LIVE_JUDGE_HEADER = "X-Replay-Live-Judge"
 CACHE_CONTROL_HEADER = "Cache-Control"
 TRACEPARENT_HEADER = "traceparent"
 
@@ -105,6 +106,11 @@ class RequestScope:
     ``replay_frozen_copy`` is the id of the copy a REPLAY run answers from, and ``None`` for any
     other run. INVARIANT: a producer never sets both; the header and env readers refuse that.
 
+    ``replay_live_judge`` (FEATURE: OME-1909, re-grade) names the Cases whose GRADING calls a
+    replay run sends live — ``"all"``, or their ids as text — and is ``None`` when every call
+    replays. INVARIANT: only with ``replay_frozen_copy``; outside a replay it would mean nothing,
+    so ``__post_init__`` refuses it. A Candidate call always replays (`world/connector.py`).
+
     ``local_runtime`` is True for a run that executes on the local runtime (Q23): its capture is
     `partial` with reason `local`, because its copy never leaves the local gateway.
     """
@@ -121,9 +127,14 @@ class RequestScope:
     deadline: float | None = None
     capture: bool = False
     replay_frozen_copy: str | None = None
+    replay_live_judge: frozenset[str] | Literal["all"] | None = None
     local_runtime: bool = False
 
     def __post_init__(self) -> None:
+        # INVARIANT (OME-1909): live judges exist only inside a replay. Both readers refuse the
+        # pair already; this stops a third producer from building a scope that claims a re-grade.
+        if self.replay_live_judge is not None and self.replay_frozen_copy is None:
+            raise ValueError("replay_live_judge needs replay_frozen_copy")
         # INVARIANT (FX-65): the scope OWNS what it holds. `frozen` stops a write to the scope's
         # fields, not a write to the caller's dict or `CachePolicy` (a mutable pydantic model)
         # that the field still points at — so a producer's later edit would reach a handler
@@ -291,6 +302,31 @@ def frozen_copy_mode_from_headers(
     return capture_text is not None, replay
 
 
+def parse_live_judge(raw: str | None, replay: str | None) -> frozenset[str] | Literal["all"] | None:
+    """The Cases whose judge calls the replay ``replay`` sends live, from the
+    ``X-Replay-Live-Judge`` header: ``"all"``, the named Case ids, or ``None`` when not sent.
+
+    FEATURE (OME-1909): the start route's reader, beside :func:`frozen_copy_mode_from_headers`. It
+    shares the env reader's grammar (`job_env.live_judge_from_text`), so the two carriers can
+    never disagree. WHY presence counts, unlike the other optional headers: a caller who sent the
+    header believes the run is a re-grade, and a blank value read as absence would quietly
+    replay every judge and hand back the old grades.
+
+    Raises:
+        FrozenCopyHeaderError: sent without ``X-Replay-Frozen-Copy``, or a blank list or id.
+    """
+    if raw is None:
+        return None
+    if replay is None:
+        raise FrozenCopyHeaderError(
+            f"{REPLAY_LIVE_JUDGE_HEADER} is honoured only with {REPLAY_FROZEN_COPY_HEADER}"
+        )
+    try:
+        return job_env.live_judge_from_text(raw)
+    except ValueError as exc:
+        raise FrozenCopyHeaderError(f"{REPLAY_LIVE_JUDGE_HEADER} {exc}") from None
+
+
 def current_scope() -> RequestScope:
     """The caller state bound for this task.
 
@@ -382,6 +418,7 @@ __all__ = [
     "CAPTURE_UNSUPPORTED_MESSAGE",
     "PROFILE_HEADER",
     "REPLAY_FROZEN_COPY_HEADER",
+    "REPLAY_LIVE_JUDGE_HEADER",
     "TRACEPARENT_HEADER",
     "X_PROFILE_UNSUPPORTED",
     "X_PROFILE_UNSUPPORTED_MESSAGE",
@@ -393,6 +430,7 @@ __all__ = [
     "current_scope",
     "forwarded_headers",
     "frozen_copy_mode_from_headers",
+    "parse_live_judge",
     "request_scope",
     "request_scope_from_headers",
     "requests_selector",

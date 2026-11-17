@@ -1395,6 +1395,31 @@ def _capture_target() -> tuple[CaptureTally, str] | None:
     return tally, tally.frozen_copy_id
 
 
+def _chat_replay_copy(scope: RequestScope) -> str | None:
+    """The frozen copy this chat call answers from, or ``None`` when it goes to the provider live.
+
+    FEATURE (OME-1909, re-grade): a replay run answers every call from its copy, except a
+    GRADING call for a Case the caller named in ``replay_live_judge`` (or every grading call,
+    under ``"all"``). That call then travels as a normal call does: `_recorded_completion` sends it
+    to `_fetch_completion`, its reply origin is live, and its cost is the live call's. It is not
+    captured either, because a replay run's tally is in replay mode (`_capture_target`).
+
+    Example: ``replay_live_judge=frozenset({"7"})`` — the judge call for Case 7 goes live; the
+    judge call for Case 8 and every Candidate call replay.
+    """
+    copy_id = scope.replay_frozen_copy
+    live = scope.replay_live_judge
+    # INVARIANT (OME-1909): a Candidate call ALWAYS replays, and that check wins over the grading
+    # tag. `current_grading_case()` can still name a Case inside a Candidate invocation — the grade
+    # hook's tag is a ContextVar, inherited by any task it spawns — but a re-grade makes no
+    # Candidate model call: a fresh answer would no longer be the published run's answer.
+    if copy_id is None or live is None or in_candidate_invocation():
+        return copy_id
+    case = current_grading_case()
+    named: bool = case is not None and (live == "all" or str(case) in live)
+    return None if named else copy_id
+
+
 async def _recorded_completion(
     http_client: httpx.AsyncClient,
     *,
@@ -1597,6 +1622,9 @@ async def _chat_completion_loop(
     operation_accounting: list[OperationAccounting | None] = []
     signal_accounting: list[SignalAccounting] = []
     reply_rounds: list[ReplyLogprobs | None] = []
+    # FEATURE (OME-1909): read once per logical call, so every round trip of a tool loop takes the
+    # same route — all replayed, or all live for a named Case's judge call.
+    replay_copy: str | None = _chat_replay_copy(scope)
     for _ in range(cfg.web_tool_max_iterations):
         # FEATURE (OME-1458): Attempt 2+ names itself to the gateway's cache on every round
         # trip of the turn; Attempt 1 adds nothing, so its body is byte-identical to before.
@@ -1615,7 +1643,7 @@ async def _chat_completion_loop(
             cache=scope.cache,
             max_tokens=sampling.get("max_tokens"),
             operation_accounting=operation_accounting,
-            replay_frozen_copy=scope.replay_frozen_copy,
+            replay_frozen_copy=replay_copy,
             signal_accounting=signal_accounting,
             reply_logprobs=reply_rounds,
         )

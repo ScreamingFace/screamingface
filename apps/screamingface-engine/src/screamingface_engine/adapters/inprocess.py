@@ -282,6 +282,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         shape: job_env.RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        replay_live_judge: job_env.LiveJudge | None = None,
     ) -> dict[str, str]:
         """The environment this run's `Executor` is built from.
 
@@ -323,10 +324,15 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         # INVARIANT: same reset (OME-1307). A leftover mode in the shared `_base_env` would turn the
         # next caller's normal run into a capture or a paid run into a replay, so both keys are
         # re-stated from THIS run.
-        env.pop(job_env.CAPTURE, None)
-        env.pop(job_env.REPLAY_FROZEN_COPY, None)
+        # OME-1909 adds the live-judge set to the reset: a leftover one would turn the next
+        # caller's free replay into paid judge calls.
+        for name in (job_env.CAPTURE, job_env.REPLAY_FROZEN_COPY, job_env.REPLAY_LIVE_JUDGE):
+            env.pop(name, None)
         env.update(job_env.capture_env(capture))
-        env.update(job_env.replay_frozen_copy_env(replay_frozen_copy))
+        env.update(
+            job_env.replay_frozen_copy_env(replay_frozen_copy)
+            | job_env.replay_live_judge_env(replay_live_judge)
+        )
         # INVARIANT (OME-908): local mode's downstream bound is the shared fair-share gate,
         # NEVER this env — a copy exported in the operator's shell would stack a per-run
         # `BoundedIOLayer` UNDER the gate and re-introduce exactly the static bound local
@@ -357,6 +363,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
         shape: job_env.RunShape = "expression",
         capture: bool = False,
         replay_frozen_copy: str | None = None,
+        replay_live_judge: job_env.LiveJudge | None = None,
         enqueued_at: datetime | None = None,
     ) -> str:
         """Spawn the run as a task and return its job name.
@@ -392,6 +399,7 @@ class InProcessJobRunner(IdentityAwareJobRunner):
                 shape=shape,
                 capture=capture,
                 replay_frozen_copy=replay_frozen_copy,
+                replay_live_judge=replay_live_judge,
             )
             return self._factory(env)
 
