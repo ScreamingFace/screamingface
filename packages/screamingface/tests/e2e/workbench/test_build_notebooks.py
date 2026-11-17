@@ -29,6 +29,7 @@ from workbench.image_notebook import (
 )
 from workbench.redaction import redact
 from workbench.runner import RESULT_PREFIX
+from workbench.verdict import declares_target
 
 
 @pytest.mark.parametrize("path", sorted(GOLDENS_DIR.glob("*.golden.json")), ids=lambda p: p.name)
@@ -398,3 +399,11 @@ def test_image_input_matrix_evidence_cell_fills_chat_calls_so_the_verdict_sees_t
     exec(_matrix_code(contains="Path(EVENTS_PATH).read_text("), ns)
     assert [c.chat_calls for c in ns["cells"]] == [1, None]
     assert any("1 gateway chat call(s) ran" in f for f in verdict(ns["cells"]))
+
+
+def test_a_local_only_notebook_is_not_collected_for_replay() -> None:
+    # REQUIRE_ALL turns any workbench skip into a failure, so a notebook that cannot run on
+    # replay must not be collected there at all (OME-1950).
+    matrix = NOTEBOOK_DIR / "image_input_matrix.ipynb"
+    assert declares_target(matrix, "local")
+    assert not declares_target(matrix, "replay")
