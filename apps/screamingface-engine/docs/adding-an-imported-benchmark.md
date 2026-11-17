@@ -422,7 +422,12 @@ move ships with:
    migration golden and the early-grade fixture), and in `test_benchmark_fingerprints.py`.
 3. A line in the Engine's `CHANGELOG.md` naming the Benchmark, the old and new id, and why.
 4. A post to the team, so the people using the Benchmark hear it from us first.
-5. After the deploy, a re-grade of every old entry that has a pinned cache (OME-1909), so the
+5. When only the grading changed, the old id and its Case Digest on the row, as the line the bump
+   command prints, e.g. `regradable_from=(("8f4e0e9c0864a6e7", "<case digest>"),),` (OME-1909).
+   Without it every re-grade onto the new id is refused, and assembly refuses a digest the Cases
+   no longer compute. A row that already lists pairs keeps them and adds this one. Hand-built
+   Benchmarks (medxpert) have no `regradable_from` path yet: their old entries need a fresh run.
+6. After the deploy, a re-grade of every old entry that has a pinned cache (OME-1909), so the
    board under the new id is not left empty.
 
 **A new Benchmark** sets `published_revision` to the fingerprint it computes on the day it is
