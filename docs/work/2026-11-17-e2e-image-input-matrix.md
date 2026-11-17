@@ -119,6 +119,18 @@ Spec: `docs/spec/2026-11-17-e2e-image-input-matrix.md`.
 - **Landing:** this branch now depends on the Engine leaf merging first (the notebook stays red
   on `main` until then).
 
+## Task 6 — models from the OME-1529 timeline (2026-11-17, paid)
+
+- Added the timeline's green OpenRouter models: `gemini-2.5-flash`, `claude-haiku-4.5`,
+  `gpt-4o-mini` (`b85c5cc72`). `gpt-4o-mini` + url4 PDF answered "2": the Engine sends the file
+  part with no filename, and OpenAI models never see it (a direct OpenRouter call returns 400
+  without one and reads it with one). Filed **OME-1942** (bug, Triage) and dropped `gpt-4o-mini`
+  (`24b1e2f88`).
+- **7-model run GREEN:** `test_notebook[local-image_input_matrix] PASSED`; url4 29 answered +
+  6 refused, Benchmark 8 answered + 1 refused + 4 wrong (tolerated). Spend $0.136.
+- **Hugging Face:** wired (patch kept in the scratchpad), blocked because the `.env` HF token
+  lacks "Make calls to Inference Providers" (403). The owner is asking Irina for access.
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:**
