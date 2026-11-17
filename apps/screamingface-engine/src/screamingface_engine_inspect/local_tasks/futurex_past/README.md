@@ -163,7 +163,9 @@ uninterpretable cells). It matches to 1e-12: Python 3.11 and 3.12 round `statist
 bit differently, and the study's kit gives our exact values under 3.12. The fixtures were generated
 from the study package by `tests/fixtures/futurex_past_study/make_replication_fixture.py`.
 
-**How the study chose its 100 questions** (from the study's own `DATASETS.md` and selection record):
+**How the study chose its 100 questions** (from the study's own `DATASETS.md` and selection record;
+[`docs/crowd-wisdom-study-datasets.md`](../../../../docs/crowd-wisdom-study-datasets.md) has the
+full provenance, including BTF-3's):
 
 - **Training cutoff.** Only questions resolving on or after 2026-02-16 were eligible (964 of the
   1,118), so the models could not have seen the outcome in training.

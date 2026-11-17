@@ -2,7 +2,7 @@
 benchmark: futurex_past_study
 origin: screamingface
 verdict: unverified
-verdict_reason: "grading is the study's to the last bit (prompt, reply reading, usability gate, per-Case mark and roll-up all match; 0/100 Cases differ; all 27 stored models and both fused committees reproduce rank.score_entry exactly under Python 3.12); one declared possibly-score-changing sampling deviation stays open (D3: the study called at temperature 0 and called again with a larger token cap when a reply was cut off; the row leaves sampling to the Candidate, README.md:182-185), settled per run by a Report showing temperature 0 and no truncated reply. audited_at 55d7f087f is the local unmerged head of branch futurex-past-local-task (base origin/main cc5cfd36d)"
+verdict_reason: "grading is the study's to the last bit (prompt, reply reading, usability gate, per-Case mark and roll-up all match; 0/100 Cases differ; all 27 stored models and both fused committees reproduce rank.score_entry exactly under Python 3.12); one declared possibly-score-changing sampling deviation stays open (D3: the study called at temperature 0 and called again with a larger token cap when a reply was cut off; the row leaves sampling to the Candidate, README.md:184-187), settled per run by a Report showing temperature 0 and no truncated reply. audited_at 55d7f087f is the local unmerged head of branch futurex-past-local-task (base origin/main cc5cfd36d)"
 audited: 2026-11-16
 audited_at: 55d7f087f
 fingerprint:
@@ -46,7 +46,7 @@ On the exam itself, the two examiners are one examiner:
 **What stays open is D3, which is declared.** It concerns what the Candidate writes, not how a
 reply is marked. The study called every model at temperature 0, and called again with a larger
 token cap when a reply was cut off. Our row leaves sampling to the Candidate; the README
-(`:182-185`) and the notebook's replication cell say to pass temperature 0. A run whose Report
+(`:184-187`) and the notebook's replication cell say to pass temperature 0. A run whose Report
 shows `temperature: 0` in the Candidate's params and no truncated reply is comparable to the
 study's numbers.
 
@@ -60,13 +60,13 @@ study's numbers.
 | metric | match | — | 0/100 | `vendor/study_metrics.py` lines 11-135, diffed against `study:3_results_report/committee_kit/metrics.py` lines 11 onward, gives `METRICS IDENTICAL` (whole file `2c94cb74…`). `normalise` (`futurex_past_study.py:81-88`) equals `study:3_results_report/committee_kit/corpus.py:27-33`. Per-Case marks are identical on every reply the study scores (row above). |
 | roll-up | match | — | 0/100 | Fixed vectors through the study's `tier_weighted` and our `study_tier_weighted` (`futurex_past_study.py:152-167`, `_usable` `:144-149`, `leveled` `futurex_past.py:243`): all-1, all-0, alternating and every-3rd-0.8 are each `exact True`. A vector with every 5th Case unusable gives `0.44908424908424904`, the same as `tier_weighted` over the usable subset. The first 10 Cases sent through the Engine's `zero_sample_score` (`candidate_abstained`) give `0.4501860712387028`, as expected (Checks 7). The study kit's `rank.score_entry` (`study:3_results_report/committee_kit/rank.py:159-175`) under 3.12, against ours over our scorer's marks and metadata: `ours == kit 3.12: 27 of 27`, `max \|ours - kit 3.11\| 5.55e-17`. Fused-medoids: replay `0.3019627378138016`, ours `0.3019627378138016`. Fused-dissimilar2: `0.2715224304851964` on both sides (committee ties kept as 0, as the study's `rank.decide` does). A failed call leaves the denominator on both sides (`coverage_declare`, `benchmarks.py:8070`; nemotron-3-super's 97 cells reproduce exactly). |
 | judge | not applicable | — | — | `judge None` on the row (Checks 3); the study marks by `item_score`, with no model. |
-| sampling | deviation | possibly-score-changing | unknown (D3; 0 on a run with temperature 0 and no truncated reply) | The study used `temperature=0.0` (`study:1_forecasting_prompts/llm_api.py:341`) and called again with a larger cap on truncation (`study:1_forecasting_prompts/run_openrouter.py:340`). Where a cell had more than one record, it kept the complete, interpretable one (`study:3_results_report/data/PROVENANCE.md:8`). Ours: `params None` on the row, one call. Declared in `README.md:182-185` and in the notebook's replication cell (`packages/screamingface/examples/21_futurex_past.ipynb`, `params={"max_tokens": 8192, "temperature": 0.0}`). |
+| sampling | deviation | possibly-score-changing | unknown (D3; 0 on a run with temperature 0 and no truncated reply) | The study used `temperature=0.0` (`study:1_forecasting_prompts/llm_api.py:341`) and called again with a larger cap on truncation (`study:1_forecasting_prompts/run_openrouter.py:340`). Where a cell had more than one record, it kept the complete, interpretable one (`study:3_results_report/data/PROVENANCE.md:8`). Ours: `params None` on the row, one call. Declared in `README.md:184-187` and in the notebook's replication cell (`packages/screamingface/examples/21_futurex_past.ipynb`, `params={"max_tokens": 8192, "temperature": 0.0}`). |
 
 ## Deviations
 
 ### D3 — sampling: the study fixed temperature 0 and called again on a truncated reply
 
-- **Declared.** `apps/screamingface-engine/src/screamingface_engine_inspect/local_tasks/futurex_past/README.md:182-185`,
+- **Declared.** `apps/screamingface-engine/src/screamingface_engine_inspect/local_tasks/futurex_past/README.md:184-187`,
   and the notebook's replication cell. Numbering follows the first audit at `c8dadab6c`, where D1
   and D2 were the denominator deviations.
 - **Where.** Theirs: `study:1_forecasting_prompts/llm_api.py:341`,
@@ -167,7 +167,7 @@ study's numbers.
    `5.551115123125783e-17`. fused-medoids `0.3019627378138016` and fused-dissimilar2
    `0.2715224304851964`, equal on both sides.
 9. **Greps** (`grep -n` / `cat -n` / `sed -n`). Ours: `grading.py` `70,112`; `futurex_past.py`
-   `128,243`; `benchmarks.py` `8047,8048,8070,8108,8121`; `README.md` `120,131,135,182,187,191`;
+   `128,243`; `benchmarks.py` `8047,8048,8070,8108,8121`; `README.md` `120,131,135,184,189,193`;
    `futurex_past_study.py` `66-67,71-78,81-88,106-120,136-138,144-149,152-167,178`;
    `vendor/study_formats.py` `48,204`; `scorer_adapter.py` `608-633`. Study (unchanged, hashes
    equal): `bench_formats.py` `35-39`; `run_openrouter.py` `340,997`; `umbc_verdict.py:69`;
@@ -188,7 +188,7 @@ last bit, and the record can be re-issued as `comparable-to-paper` on that evide
 
 - **The study and its paper agree on the denominator** (`study:5_paper/main.tex:630-642`;
   `study:3_results_report/committee_kit/rank.py:159-167`).
-- **A committee tie is a Candidate-side difference, now declared** (`README.md:187-191`). The
+- **A committee tie is a Candidate-side difference, now declared** (`README.md:189-193`). The
   study scored a committee tie 0 and kept it (`rank.py:84-87`); each fused committee tied on 2
   questions. A ScreamingFace fusion answers on a tie, which can move the headline by between 0 and
   +0.0071 (2 level-1 Cases). Grading is the study's either way. This record does not verify the

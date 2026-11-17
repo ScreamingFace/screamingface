@@ -130,6 +130,10 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
   - The README now states how the study chose its 100 questions: a 2026-02-16 training cutoff,
     seeds 20260808 and 20260815, every model answered, no purely numeric key. Only the README
     changed, so the fingerprints do not move.
+  - `apps/screamingface-engine/docs/crowd-wisdom-study-datasets.md` answers a maintainer's four
+    questions in one place: the dataset commits and download dates, the exact BTF-3 prompt (copied
+    byte for byte from the study's as-sent template), yes/no only with no web search, and numeric
+    FutureX answers with no `std`.
 - **Gates (final head):**
   - `screamingface-engine`: ruff, format, pyright (extra-less, as CI runs it), layering, and
     pytest are green: 9,357 passed, 96.35% coverage. The append-only check against `origin/main`
