@@ -473,16 +473,24 @@ class Client:
 
         1. `live_judge` is checked before any request. None (the default): every judge call
            replays from the copy too. `"all"`, or a list of Case id strings like `["3", "17"]`:
-           those Cases' judge calls are sent live (they cost money); Candidate calls always replay.
+           those Cases' judge calls are sent to the judge's provider, paid, with the gateway cache
+           off for the run, so an unchanged judge request is asked again rather than answered from
+           the cache; Candidate calls always replay.
         2. The score is read from the public read only. A private score, even one you submitted, is
            the board's 404 (`LeaderboardError`, `code="unknown_score"`) before any run: the board
            never re-grades a score on a private board.
-        3. A score with no pinned cache, or a `partial` capture, is refused before anything else
-           (`ReproductionError`, `code="not_reproducible"`).
+        3. A score that is itself a re-grade is refused (`PlanningError`,
+           `code="regrade_the_source"`, `details["root_score_id"]` naming the score it re-graded):
+           it has no pinned cache, so re-grade that root score instead. A score with no pinned
+           cache, or a `partial` capture, is refused before anything else (`ReproductionError`,
+           `code="not_reproducible"`).
         4. The current Benchmark is read from the Engine at the score's Case count.
         5. A score already on the current revision is refused (`PlanningError`,
            `code="already_current"`), and so is one whose revision the Benchmark does not list as
-           re-gradable, i.e. whose Cases may have changed (`code="not_regradable"`). The url4 is
+           re-gradable (`code="not_regradable"`). Each listed revision carries a Case Digest the
+           Engine checks against the Benchmark's current Cases when it builds the catalogue, a
+           tripwire for a later Case change; an old entry whose Cases differed is refused at step
+           7, because its pinned cache misses. The url4 is
            rebuilt: the current Benchmark part, around the score's Candidate part unchanged (a
            published url4 with no Candidate part is `code="invalid_published_url4"`).
         6. The run replays from the pinned cache with the score's answer seed, never capturing.
@@ -491,10 +499,12 @@ class Client:
         7. If any Case missed the copy, on a Candidate or a judge call, nothing is submitted
            (`ExecutionError`, `code="regrade_incomplete"`, `details["missed_cases"]`). With
            `live_judge`, any failure on a live-judged Case also submits nothing, retryably
-           (`details["failed_live_cases"]`): the board allows one re-grade per score.
+           (`details["failed_live_cases"]`): the board allows one re-grade per score and
+           revision.
         8. The result is posted to the score's re-grade route. The new entry is credited to the
            score's submitter and authors and links back to the score; the score is unchanged. A
-           second re-grade of one score is `LeaderboardError(code="already_regraded")` with
+           second re-grade of one score at the same revision is
+           `LeaderboardError(code="already_regraded")` with
            `existing_score_id` naming the first, so a batch can count it as done. The board's own
            refusals (`not_allowed`, `already_regraded`, `not_current_revision`) arrive only here,
            after the replay has run.

@@ -10,6 +10,8 @@
   as a new entry credited to the score's submitter. `live_judge="all"` or a list of Case ids sends
   those judge calls live. Any cache miss submits nothing (`regrade_incomplete`). For ScreamingFace
   re-graders only; `LeaderboardError.existing_score_id` names the re-grade a repeat ran into.
+  `LeaderboardScore.regraded_from` names the score a re-graded entry came from, and a re-grade
+  of a re-graded entry is refused (`regrade_the_source`) naming that root score to re-grade.
 
 - Notebook credits now show account credit separately from the key spending cap,
   with optional account settings and visible-only five-minute refresh. OpenRouter

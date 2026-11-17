@@ -32,11 +32,11 @@ from url4 import RelExpr, build, expr, render, src, text
 import screamingface as sf
 from screamingface import _reproduction
 from screamingface._core.ports import _RunOutcome
-from screamingface._engine.catalog_contract import _benchmark_entry, _decode_benchmark
 from screamingface._engine.transport import _start_async, _start_sync
 from screamingface._evaluation.benchmark import _decode_benchmark_resource
 from screamingface._evaluation.linking import _prepare_benchmark
 from screamingface._evaluation.url4 import _candidate_text
+from screamingface._scoreboard.leaderboards import _decode_score
 from screamingface.errors import ExecutionError, LeaderboardError, PlanningError, ReproductionError
 
 CASE_COUNT = 3
@@ -384,6 +384,42 @@ def test_regrade_refuses_a_partial_capture_before_any_run(
     assert board.posts == []
 
 
+def test_a_regrade_of_a_regrade_is_refused_naming_its_root_before_any_run() -> None:
+    """A re-graded entry has no pinned cache; the caller is told to re-grade its root instead."""
+    # WHY (OME-1909): only the root keeps its copy, and the board takes one re-grade per source
+    # and revision, so the root is what moves onto each later revision.
+    root: str = "af95c1d2-7e3b-4a6f-9c8d-1b2e3f4a5b6c"
+    catalog = _Catalog(regradable_from=[OLD_REVISION])
+    board = _Board(public=_source(frozen_copy_id=None, capture_status=None, regraded_from=root))
+
+    with _client(_ForbiddenTransport(), catalog, board) as client:
+        with pytest.raises(PlanningError) as caught:
+            client.regrade(SCORE_ID)
+
+    assert caught.value.code == "regrade_the_source"
+    assert caught.value.details == {"root_score_id": root}
+    assert root in str(caught.value)
+    # Refused from the score alone: not even the catalogue is read.
+    assert catalog.limits == []
+    assert board.posts == []
+
+
+def test_the_score_read_decodes_regraded_from_only_when_the_board_sends_it() -> None:
+    """A re-graded entry names its source; an ordinary or older-board entry reads as None."""
+    root: str = "af95c1d2-7e3b-4a6f-9c8d-1b2e3f4a5b6c"
+
+    assert _decode_score(_source(regraded_from=root)).regraded_from == UUID(root)
+    assert _decode_score(_source()).regraded_from is None
+
+
+def test_a_malformed_regraded_from_is_the_boards_contract_error() -> None:
+    """A non-UUID link is the board's contract error, never a bare ValueError."""
+    with pytest.raises(LeaderboardError) as caught:
+        _decode_score(_source(regraded_from="not-a-uuid"))
+
+    assert caught.value.code == "invalid_leaderboard"
+
+
 def test_a_private_score_the_caller_submitted_is_refused_before_any_run() -> None:
     # Only the gated read serves it: a private score this identity submitted. The board's re-grade
     # route refuses every private-board source, so reading it would replay (paying for live judges)
@@ -454,6 +490,9 @@ def test_live_judge_sends_the_header_only_when_asked(live_judge: Any, sent: str 
     # The canonical text the Engine echoes back: `all`, or the sorted unique ids.
     assert engine.candidate.replay_live_judge == sent
     assert engine.candidate.replay_frozen_copy == COPY
+    # WHY (OME-1909): a live judge call must reach the provider, so the run opts out of the
+    # gateway cache, which would answer an unchanged judge request with its stored reply.
+    assert engine.candidate.use_cache is (sent is None)
 
 
 @pytest.mark.parametrize(
@@ -674,38 +713,12 @@ async def test_the_async_regrade_refuses_a_cache_miss_too() -> None:
     assert board.posts == []
 
 
-# --- the catalogue field ----------------------------------------------------------------------
-
-
-def _entry_row(**extra: object) -> dict[str, object]:
-    """One catalogue listing row, as the Engine serves it."""
-
-    return {
-        "object": "benchmark",
-        "id": "draco",
-        "title": "DRACO",
-        "description": "Fixture DRACO Benchmark.",
-        "revision": NEW_REVISION,
-        "case_count": CASE_COUNT,
-        **extra,
-    }
-
-
-def test_the_catalogue_reads_the_revisions_a_benchmark_regrades_from() -> None:
-    listed = _benchmark_entry(_entry_row(regradable_from=[OLD_REVISION]))
-    # WHY absent is empty: an older Engine sends no key, and reads as "nothing regradable".
-    older = _benchmark_entry(_entry_row())
-
-    assert listed.regradable_from == (OLD_REVISION,)
-    assert older.regradable_from == ()
+# --- the Benchmark resource field -------------------------------------------------------------
 
 
 @pytest.mark.parametrize("value", ["old-revision", [""], [3], {"old": True}])
 def test_a_malformed_regradable_from_is_the_engines_contract_error(value: object) -> None:
-    # The catalogue read by id wraps the entry decoder's refusal as the Engine's contract error.
-    with pytest.raises(PlanningError) as listed:
-        _decode_benchmark(_entry_row(regradable_from=value), "draco")
-    assert listed.value.code == "invalid_catalogue"
+    """The Benchmark resource's `regradable_from` must be a list of revision strings."""
     resource: dict[str, object] = {
         "schema": "screamingface.benchmark.v1",
         "id": "draco",

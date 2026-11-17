@@ -796,9 +796,20 @@ def _decode_score(payload: object, scoreboard_url: str | None = None) -> Leaderb
             benchmark_revision=_optional_text(
                 root.get("benchmark_revision"), "Leaderboard score benchmark_revision"
             ),
+            # FEATURE (OME-1909): the board names a re-grade's source; absent on any other row.
+            regraded_from=_optional_uuid(
+                root.get("regraded_from"), "Leaderboard score regraded_from"
+            ),
         )
     except (TypeError, ValueError) as exc:
         _invalid(str(exc), exc)
+
+
+def _optional_uuid(value: object, name: str) -> UUID | None:
+    """An optional UUID field read from its text, or None when the board omits it."""
+
+    text: str | None = _optional_text(value, name)
+    return None if text is None else UUID(text)
 
 
 def _decode_metadata_events(payload: object) -> tuple[ScoreMetadataEvent, ...]:

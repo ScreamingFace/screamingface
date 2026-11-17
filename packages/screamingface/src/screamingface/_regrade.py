@@ -94,6 +94,25 @@ def _live_case_id(item: object) -> str:
     return case_id
 
 
+def _not_a_regrade(source: PublishedScore) -> None:
+    """Refuse a re-grade of a re-grade, naming the root score to re-grade instead.
+
+    FEATURE (OME-1909): a re-graded entry has no pinned cache of its own (the copy stays with the
+    score it was re-graded from), so only that root can be replayed again. The board allows one
+    re-grade per source and revision, so the root moves onto each later revision in its turn.
+    Example: `3c9a…` re-grades `af95…`; `regrade("3c9a…")` is refused naming `af95…`.
+    """
+
+    if source.regraded_from is not None:
+        raise PlanningError(
+            f"Score {source.score_id} is itself a re-grade of score {source.regraded_from} and has "
+            f"no pinned cache of its own; re-grade {source.regraded_from} instead",
+            code="regrade_the_source",
+            permanent=True,
+            details={"root_score_id": str(source.regraded_from)},
+        )
+
+
 def _replayable(source: PublishedScore) -> str:
     """The source's pinned cache, or the refusal of a capture a replay cannot name (Q14)."""
 
@@ -119,9 +138,11 @@ def _planned(
     INVARIANT (OME-1909): only the Benchmark part of the url4 is rebuilt. The Candidate part is the
     published text, unchanged, so every Candidate call is the request the copy holds; a Fusion's
     members and synthesiser included.
-    WHY `regradable_from` and not a Case comparison here: the Engine lists an old revision only when
-    that revision's Case Digest is the one its Cases compute now (checked at assembly), so a listed
-    revision means "the same Cases". The score's own `case_digest` hashes grades and is never read.
+    WHY `regradable_from` and not a Case comparison here: each listed old revision is declared with
+    a Case Digest, and the Engine checks that digest against the row's current Cases when it
+    builds the catalogue, a tripwire for a later Case change. It does not prove an old entry ran
+    on those Cases: an entry whose Cases differed is refused at replay, because its pinned cache
+    misses (`regrade_incomplete`). The score's own `case_digest` hashes grades and is never read.
     """
 
     current: str = resource.info.revision
@@ -162,7 +183,8 @@ def _complete(report: Report, source: PublishedScore, live_judge: str | None) ->
     still must. A score over the Cases that did replay would rank a run that never happened.
     INVARIANT (OME-1909): with live judges, ANY failure on a live-judged Case (every Case for
     `all`) refuses too, retryably: a judge outage (a 5xx, a timeout) would lower the score, and the
-    board allows one re-grade per source, so a passing outage would spend it on a wrong score.
+    board allows one re-grade per source and revision, so a passing outage would spend it on a
+    wrong score.
     WHY only those Cases: a replayed Case's failure is the source run's own, replayed identically.
     Example: live set `1,3`; Case 3's judge answers `upstream_error` -> refused; the same failure
     on Case 2 (replayed) is the source's own and is submitted as it was.
@@ -225,7 +247,9 @@ def regrade_sync(
     # Stage 2 — the source's PUBLIC read only: the board refuses to re-grade a private score, so
     # a private one is refused here, before a run (and any paid live judge call).
     source: PublishedScore = client.leaderboards._public_score(score_id)
-    # Stage 3 — a capture a replay cannot name starts nothing, not even the catalogue read.
+    # Stage 3 — a re-grade of a re-grade names its root; a capture a replay cannot name starts
+    # nothing, not even the catalogue read.
+    _not_a_regrade(source)
     pinned_cache: str = _replayable(source)
     # Stage 4 — the current Benchmark, built at the published Case count.
     resource: _BenchmarkResource = client._benchmark_resources.load(
@@ -244,6 +268,9 @@ def regrade_sync(
         capture=False,
         replay_frozen_copy=plan.pinned_cache,
         replay_live_judge=plan.live_judge,
+        # WHY (OME-1909): a live judge call must reach the provider; the gateway cache would answer
+        # an unchanged judge request with its stored reply. Replayed calls never read the cache.
+        use_cache=plan.live_judge is None,
     )
     # Stage 7 — one cache miss anywhere, or a failed live-judged Case, submits nothing.
     result: CandidateResult = _complete(report, source, plan.live_judge)
@@ -265,7 +292,9 @@ async def regrade_async(
     live: str | None = _live_judge_text(live_judge)
     # Stage 2 — the source's public read only.
     source: PublishedScore = await client.leaderboards._public_score(score_id)
-    # Stage 3 — a capture a replay cannot name starts nothing.
+    # Stage 3 — a re-grade of a re-grade names its root; a capture a replay cannot name starts
+    # nothing.
+    _not_a_regrade(source)
     pinned_cache: str = _replayable(source)
     # Stage 4 — the current Benchmark, built at the published Case count.
     resource: _BenchmarkResource = await client._benchmark_resources.load(
@@ -283,6 +312,9 @@ async def regrade_async(
         capture=False,
         replay_frozen_copy=plan.pinned_cache,
         replay_live_judge=plan.live_judge,
+        # WHY (OME-1909): a live judge call must reach the provider; the gateway cache would answer
+        # an unchanged judge request with its stored reply. Replayed calls never read the cache.
+        use_cache=plan.live_judge is None,
     )
     # Stage 7 — one cache miss anywhere, or a failed live-judged Case, submits nothing.
     result: CandidateResult = _complete(report, source, plan.live_judge)

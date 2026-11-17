@@ -64,6 +64,9 @@ class PublishedScore:
     benchmark_id: str
     benchmark_revision: str | None
     case_digest: str | None
+    # FEATURE (OME-1909): the score a re-graded entry was re-graded from; None otherwise, and on
+    # the lookup by copy id (a re-grade has no copy of its own).
+    regraded_from: UUID | None = None
 
 
 def published_from_score(score: LeaderboardScore) -> PublishedScore:
@@ -78,6 +81,7 @@ def published_from_score(score: LeaderboardScore) -> PublishedScore:
         benchmark_id=score.benchmark_id,
         benchmark_revision=score.benchmark_revision,
         case_digest=score.case_digest,
+        regraded_from=score.regraded_from,
     )
 
 
