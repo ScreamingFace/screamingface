@@ -80,8 +80,9 @@ EXACT: Mapping[str, AnswerFormat] = {
             sentence=(
                 "Answer format: end the reply with a line like 'ANSWER: 42'. Only the text "
                 "after ANSWER: on the reply's last line is graded, by normalised exact match; a "
-                "box or bold there is seen through, so 'ANSWER: \\boxed{42}' counts. A reply "
-                "with no ANSWER: line, such as '\\boxed{42}' or 'The answer is 42', scores 0."
+                "box or bold there is seen through, so 'ANSWER: \\boxed{42}' counts, but a "
+                "final period is not: 'ANSWER: 42.' scores 0. A reply with no ANSWER: line, "
+                "such as '\\boxed{42}' or 'The answer is 42', scores 0 too."
             ),
             case_input="What is 6 times 7?",
             material={
@@ -93,7 +94,7 @@ EXACT: Mapping[str, AnswerFormat] = {
                 },
             },
             accepted=("ANSWER: 42", "ANSWER: \\boxed{42}"),
-            rejected=("\\boxed{42}", "The answer is 42"),
+            rejected=("\\boxed{42}", "The answer is 42", "ANSWER: 42."),
         )
     ),
     "gsm8k": AnswerFormat(

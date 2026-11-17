@@ -186,9 +186,10 @@ LETTERS: Mapping[str, AnswerFormat] = {
             "Answer format: end the reply with a line ANSWER: and the bare answer. On a "
             "multiple-choice question that is the option letter, as in 'ANSWER: B'; a wrapped "
             "letter such as 'ANSWER: (B)' or 'ANSWER: $B' scores 0. On a yes/no-style "
-            "question it is that one word; on a counting, arithmetic, sorting or bracket "
-            "question it must match the key, case included; only bold, backticks and a final "
-            "period around it are ignored."
+            "question it is that one word, in any case, with at most a final period; bold or "
+            "backticks around it score 0. On a counting, arithmetic, sorting or bracket "
+            "question it must match the key, case included, and only bold, backticks and a "
+            "final period around it are ignored."
         ),
         case_input=(
             "Today is 11/11/2019. What is the date 24 hours later in MM/DD/YYYY?\n\n"

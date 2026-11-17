@@ -11,7 +11,9 @@ from screamingface_engine_inspect.answer_formats._format import AnswerFormat
 #: the letter is no answer. A mark after it is tolerated by the fallback pattern, which allows
 #: any non-word character after the letters: `ANSWER: B.` grades 1, and the sentence says only
 #: that much of the tolerant side. `ANSWER: $B` is the shape that cost a submitter a run
-#: (OME-1886).
+#: (OME-1886). `**ANSWER:** B`, the bold label chat models often write, scores 0 too: the strict
+#: pattern needs `ANSWER` at the start of a line, and in the fallback the `**` after the colon
+#: is a mark before the letter (`**ANSWER: B**` grades 1).
 CHOICE: Mapping[str, AnswerFormat] = {
     "inspect_ai.scorer:choice": AnswerFormat(
         sentence=(
@@ -19,11 +21,17 @@ CHOICE: Mapping[str, AnswerFormat] = {
             "option; a period after it, as in 'ANSWER: B.', still counts. Any mark between "
             "'ANSWER:' and the letter, such as 'ANSWER: $B', 'ANSWER: (B)', 'ANSWER: **B**' or "
             "'ANSWER: \\boxed{B}', is read as no answer and scores 0, even when the letter is "
-            "right."
+            "right; so is a bold label, as in '**ANSWER:** B'."
         ),
         case_input="Which seat is free?\n\nA) 1\nB) 2",
         material={"target": "B", "choices": ["1", "2"]},
         accepted=("ANSWER: B", "ANSWER: B."),
-        rejected=("ANSWER: $B", "ANSWER: (B)", "ANSWER: **B**", "ANSWER: \\boxed{B}"),
+        rejected=(
+            "ANSWER: $B",
+            "ANSWER: (B)",
+            "ANSWER: **B**",
+            "ANSWER: \\boxed{B}",
+            "**ANSWER:** B",
+        ),
     ),
 }

@@ -20,7 +20,8 @@ Stages, in execution order (:func:`with_answer_format`):
 
 Worked example — the MMLU-Pro row has no answer format of its own, so Stage 1 finds the one for
 `inspect_ai.scorer:choice`; on a Case whose key is B, its quoted replies grade `ANSWER: B` and
-`ANSWER: B.` → 1, and `ANSWER: $B`, `ANSWER: (B)`, `ANSWER: **B**`, `ANSWER: \\boxed{B}` → 0.
+`ANSWER: B.` → 1, and `ANSWER: $B`, `ANSWER: (B)`, `ANSWER: **B**`, `ANSWER: \\boxed{B}`,
+`**ANSWER:** B` → 0.
 
 One file per family of graders, grouped by how they read a reply: `_choice.py` (inspect's
 multiple-choice scorer), `_letters.py` (other letter scorers), `_exact.py` (exact, number,
