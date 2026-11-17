@@ -71,3 +71,8 @@ sha256 owner key, never the email (owner decision 2026-11-16).
      now; the warner prefers it and falls back to the snapshot on a failed read. New regression
      schedules one run through the real runner and expects `waiting=1`.
   All three regressions RED on 0c7154ace, GREEN after. Main merged; engine and repo gates green.
+- Review round 2 (2026-11-17, HupBaHa): a failed fresh read still fell back to the pre-publish
+  snapshot, so it could report the stale `waiting=0`. Now a runner with `unclaimed_now()` never
+  uses the snapshot; a failed read logs `waiting=-` and omits `run.queue_waiting`. New regression:
+  schedule one run, snapshot (0, None), fresh read raises → `waiting=-`. RED before, GREEN after;
+  main merged; engine and repo gates green.
