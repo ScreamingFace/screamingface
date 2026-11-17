@@ -200,3 +200,76 @@ def test_panel_never_uses_the_neutral_box_when_it_knows_the_mode() -> None:
     panel = _parse(credit_html(failed, hosted=False))
 
     assert panel.texts("sf-credits__label") == ["Account balance", "Key allowance"]
+
+
+# Independent review of PR #1883 (OME-1935): the shapes below reach the SDK in practice.
+
+
+@pytest.mark.parametrize(
+    ("account_reason", "note"),
+    [
+        (
+            "management_key_required",
+            "Add a management key in account settings to see this balance.",
+        ),
+        ("account_unverified", "Account association could not be verified."),
+    ],
+)
+def test_neutral_box_keeps_the_account_note_the_user_can_act_on(
+    account_reason: str, note: str
+) -> None:
+    # WHY: OpenRouter can answer `/key` without `limit_remaining`; the key is then
+    # unreadable, and the management-key hint is the only actionable thing to say.
+    status = _byok(_unavailable(account_reason), _unavailable("invalid_response"))
+    card = _parse(status._repr_html_())
+
+    assert card.texts("sf-credits__label") == ["Credits unavailable"]
+    assert card.texts("sf-credits__note") == [note]
+
+
+def test_the_sdk_failed_lookup_result_renders_the_neutral_box() -> None:
+    from screamingface.credit import _unavailable as sdk_unavailable
+
+    card = _parse(sdk_unavailable("openrouter")._repr_html_())
+
+    assert card.texts("sf-credits__label") == ["Credits unavailable"]
+    assert card.texts("sf-credits__note") == ["Lookup failed"]
+
+
+@pytest.mark.parametrize(
+    ("reason", "label"), [("not_connected", "Not connected"), ("unsupported", "Not supported")]
+)
+def test_gateway_wide_unavailable_results_render_the_neutral_box(reason: str, label: str) -> None:
+    # The Gateway leaves `hosted` at its default `hosted_unavailable` for these.
+    status = CreditStatus(
+        "openrouter", _unavailable(reason), _unavailable(reason), _unavailable("hosted_unavailable")
+    )
+    card = _parse(status._repr_html_())
+
+    assert card.texts("sf-credits__label") == ["Credits unavailable"]
+    assert card.texts("sf-credits__note") == [label]
+
+
+def test_hosted_with_a_failed_key_lookup_keeps_the_hosted_layout() -> None:
+    card = _parse(_hosted(_unavailable("lookup_failed"))._repr_html_())
+
+    assert card.texts("sf-credits__label") == ["Hosted allowance"]
+    assert card.texts("sf-credits__note") == ["Lookup failed"]
+
+
+def test_hosted_allowance_without_a_reading_says_so() -> None:
+    # The Engine reports `hosted_unavailable` with no job identity, or for a hosted key
+    # with no per-key limit.
+    card = _parse(_hosted(_unavailable("hosted_unavailable"))._repr_html_())
+
+    assert card.texts("sf-credits__value") == ["Unavailable"]
+    assert card.texts("sf-credits__note") == ["Not available on hosted"]
+
+
+def test_hosted_panel_keeps_its_layout_when_every_amount_is_unavailable() -> None:
+    from screamingface._ui.credit_view import credit_html
+
+    failed = _byok(_unavailable("lookup_failed"), _unavailable("lookup_failed"))
+    panel = _parse(credit_html(failed, hosted=True))
+
+    assert panel.texts("sf-credits__label") == ["Hosted allowance"]

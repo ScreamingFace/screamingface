@@ -6,8 +6,8 @@
 
 - `sf.credits()` now renders as a notebook card in the connection panel's style, instead of
   the plain dataclass repr. An unavailable amount says why ("Not connected", "Key
-  rejected", "Lookup failed", "Not supported", "Unreadable response"), in the card and in
-  the connection panel. When no amount is known, the card shows one "Credits unavailable"
+  rejected", "Lookup failed", "Not supported", "Unreadable response", "Not available on
+  hosted"), in the card and in the connection panel. When no amount is known, the card shows one "Credits unavailable"
   box (OME-1935).
 
 - Notebook credits now show account credit separately from the key spending cap,

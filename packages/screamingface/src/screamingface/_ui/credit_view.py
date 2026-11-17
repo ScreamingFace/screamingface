@@ -46,7 +46,13 @@ _REASON_NOTES: dict[str, str] = {
     "invalid_response": "Unreadable response",
     "management_key_required": "Add a management key in account settings to see this balance.",
     "account_unverified": "Account association could not be verified.",
+    # WHY: the Engine reports this when it has no job identity, or for a hosted key with
+    # no per-key limit; the card must still say why the allowance is missing.
+    "hosted_unavailable": "Not available on hosted",
 }
+
+#: Account notes the user can act on; the neutral box shows these before the key's reason.
+_ACTIONABLE_ACCOUNT_REASONS = frozenset({"management_key_required", "account_unverified"})
 
 
 def _amount_html(label: str, amount: CreditAmount, *, primary: bool = False) -> str:
@@ -90,7 +96,13 @@ def credit_html(status: CreditStatus, *, hosted: bool | None = None) -> str:
     # mode (the `sf.credits()` card) shows one neutral box instead of guessing. The panel
     # always passes `hosted`, so it never takes this path (OME-1935).
     if hosted is None and _nothing_known(status):
-        reason = status.key if status.key.reason else status.account
+        # WHY: an unreadable key next to a missing management key must still tell the
+        # user to add one; that hint is the only actionable thing to say (PR #1883 review).
+        reason = (
+            status.account
+            if status.account.reason in _ACTIONABLE_ACCOUNT_REASONS or not status.key.reason
+            else status.key
+        )
         return (
             f"{CREDIT_STYLE}<section class='sf-credits' aria-label='Provider credits'>{title}"
             "<div class='sf-credits__grid sf-credits__grid--hosted'>"

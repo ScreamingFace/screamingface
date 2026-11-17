@@ -60,9 +60,17 @@ follow-on to E5 P3.
 
 - **Actual files:** as planned: `credit.py` (`CreditStatus._repr_html_`),
   `_ui/credit_view.py` (shared reason labels, neutral box for an unknown mode,
-  `credit_card_html`), `tests/test_credit_repr.py` (17 tests), `CHANGELOG.md`; plus this
+  `credit_card_html`), `tests/test_credit_repr.py` (24 tests), `CHANGELOG.md`; plus this
   ledger, the spec, the plan and the mirror.
-- **Commits:** the commit carrying this ledger (`Refs: OME-1935`).
+- **Commits:** `1f703e895` (the card), then a review follow-up carrying this ledger
+  update (`Refs: OME-1935`).
+- **Independent review (PR #1883):** no serious findings. Fixed in the follow-up: the
+  neutral box now keeps the actionable management-key / account-unverified note instead of
+  the key's "Unreadable response"; `hosted_unavailable` gets the label "Not available on
+  hosted"; 8 tests added for shapes that reach the SDK (the real `_unavailable()` result,
+  Gateway-wide `not_connected` / `unsupported`, hosted with a failed key lookup, the
+  hosted panel with nothing known). The first PR body and ledger said 17 tests; there
+  were 16, now 24.
 - **Gates:** `run_gates.py screamingface` all green: append-only check, ruff check and
   format, pyright, full pytest with coverage ≥95%, the Node refresh test, notebook checks,
   `uv build`, distribution check. No prior test edited.

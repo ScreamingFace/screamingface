@@ -13,6 +13,8 @@ connection panel shows, so the two never disagree:
 - **Unavailable amounts** say why, in short factual words: `not_connected` → "Not
   connected", `credential_rejected` → "Key rejected", `lookup_failed` → "Lookup failed",
   `unsupported` → "Not supported", `invalid_response` → "Unreadable response".
+  `hosted_unavailable` → "Not available on hosted" (the Engine reports it with no job
+  identity, or for a hosted key with no per-key limit).
   `management_key_required` and `account_unverified` keep their current notes.
 - **Shared with the panel:** the labels live in the one renderer the connection panel
   and the card both use, so the panel gains them too and the two always agree.
@@ -20,7 +22,9 @@ connection panel shows, so the two never disagree:
   failed-lookup result): one neutral "Credits unavailable" box with the reason, instead
   of two empty BYOK boxes. The card cannot know whether the caller is hosted, so it does
   not guess. Any known amount keeps the normal layout: account "Lookup failed" next to a
-  $12.40 key allowance stays two boxes.
+  $12.40 key allowance stays two boxes. The neutral box shows the account's note when it
+  is one the user can act on ("Add a management key…", "Account association could not
+  be verified."), otherwise the key's reason.
 
 The card is a snapshot. It does not refresh; calling `sf.credits()` again does. It carries
 no snapshot hint; the "Checked … UTC" stamp dates it. The plain `repr()` and the dataclass
