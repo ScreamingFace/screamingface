@@ -9,6 +9,7 @@ from uuid import UUID
 
 from pydantic import (
     AfterValidator,
+    AliasChoices,
     BaseModel,
     ConfigDict,
     Field,
@@ -1212,6 +1213,27 @@ class ScoreSchema(BaseModel):
             "Latest reproduction time; only `GET /v1/scores/{id}` and "
             "`GET /v1/public/scores/{id}` carry it."
         ),
+    )
+    # FEATURE: OME-1909 — on a re-graded row, the score it was re-graded from and who re-graded it.
+    #
+    # INVARIANT: EXCLUDED WHEN ABSENT, for the reason `paper_url` records: an ordinary row's read,
+    # and the private JSONL export whose bytes authorise a purge, must not gain
+    # `"regraded_from": null` or `"regraded_by": null`.
+    # INVARIANT: `regraded_by` is a verified email, so it is published like `submitted_by`: the
+    # local part only in JSON (`SubmittedBy`), the full address kept for the staff export.
+    # WHY two aliases: the model's foreign key holds the id as `regraded_from_id` (the score read
+    # validates the ORM row directly), while a dict, such as FastAPI's own re-validation of a
+    # returned schema, carries it under the published name.
+    regraded_from: UUID | None = Field(
+        default=None,
+        validation_alias=AliasChoices("regraded_from_id", "regraded_from"),
+        exclude_if=lambda value: value is None,
+        description="The score this row re-grades onto the current revision. Absent otherwise.",
+    )
+    regraded_by: SubmittedBy = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Who re-graded this row (published like `submitted_by`). Absent otherwise.",
     )
     # WHY exclude None at the MODEL serializer: ScoreSchema also feeds private JSONL exports and
     # GET responses. A submit-time fact must not add `ranking_notice: null` to either, while a

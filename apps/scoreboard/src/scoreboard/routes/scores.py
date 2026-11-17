@@ -66,8 +66,11 @@ from scoreboard.scores.store import (
     CreditMetadataInvalid,
     FrozenCopyClaimed,
     PrivateBoardRequiresIdentity,
+    RegradeNotCurrent,
+    RegradeResultOnBoard,
     ReproductionRunIdConflict,
     ScoreStore,
+    SourceAlreadyRegraded,
 )
 
 router = APIRouter(prefix="/v1", tags=["scores"], route_class=MetadataValidationRoute)
@@ -825,3 +828,168 @@ async def record_reproduction(
     if not created:
         response.status_code = status.HTTP_200_OK
     return reproduction
+
+
+REGRADE_SCORE_RESPONSES: dict[int | str, dict[str, Any]] = {
+    status.HTTP_401_UNAUTHORIZED: OWNER_ONLY_RESPONSES[status.HTTP_401_UNAUTHORIZED],
+    status.HTTP_403_FORBIDDEN: {
+        "model": CodedErrorResponse | MessageErrorResponse,
+        "description": (
+            "`{code: regrade_unavailable}`: this deployment runs with authentication disabled, so "
+            "nobody may re-grade. `{code: not_allowed}`: the verified identity is not a re-grader "
+            "(SCOREBOARD_REGRADE_IDENTITIES). A string `detail`: an untrusted peer network."
+        ),
+    },
+    status.HTTP_404_NOT_FOUND: {
+        "model": CodedErrorResponse,
+        "description": "`{code: unknown_score}`: no such score, or one on a private board.",
+    },
+    status.HTTP_409_CONFLICT: {
+        "model": CodedErrorResponse | MessageErrorResponse,
+        "description": (
+            "`{code: not_current_revision}`: the body's benchmark revision is not the board's "
+            "registered one, or is the source's own. `{code: already_regraded}`: the source "
+            "already has its re-grade. `{code: already_on_board}`: this exact result is already on "
+            "the board at that revision. A string `detail`: the board's visibility changed "
+            "mid-request; retry."
+        ),
+    },
+    422: {
+        "model": CodedErrorResponse | ValidationErrorResponse,
+        "description": (
+            "`{code: different_benchmark}`: the body names another benchmark than the source's. "
+            "A list `detail`: the body failed validation."
+        ),
+    },
+    status.HTTP_503_SERVICE_UNAVAILABLE: SUBMIT_SCORE_RESPONSES[
+        status.HTTP_503_SERVICE_UNAVAILABLE
+    ],
+}
+
+
+def _regrade_refusal(status_code: int, code: str, message: str) -> HTTPException:
+    """One `{code, message}` refusal of a re-grade, never shared-cacheable (it depends on who)."""
+    return HTTPException(
+        status_code=status_code,
+        detail={"code": code, "message": message},
+        headers=PRIVATE_CACHE_HEADERS,
+    )
+
+
+async def _regrader(request: Request) -> str:
+    """The verified identity of a caller allowed to re-grade, or the 403 / 401 refusal.
+
+    INVARIANT (OME-1909): `disabled` mode refuses BEFORE the header is read. There the header is
+    an unverified claim, so naming a listed re-grader would be enough to re-credit the board.
+    """
+    settings = cast(Settings, request.app.state.settings)
+    if not identity_is_verified(settings.auth_mode):
+        raise _regrade_refusal(
+            status.HTTP_403_FORBIDDEN,
+            "regrade_unavailable",
+            "re-grading needs a verified identity; this deployment runs with authentication "
+            "disabled",
+        )
+    identity = await verified_identity(request)
+    if identity not in settings.regrade_identities:
+        raise _regrade_refusal(
+            status.HTTP_403_FORBIDDEN, "not_allowed", "this identity may not re-grade scores"
+        )
+    return identity
+
+
+async def _regrade_source(source_id: UUID, submission: ScoreSubmission) -> Score:
+    """The public score a re-grade replaces, or the 404 `unknown_score` / 422 refusal.
+
+    INVARIANT (OME-894): a score on a private board is the SAME 404 as an unknown id. Its rows
+    belong to their submitter alone, and a re-grader is not that submitter.
+    """
+    source = await Score.get_or_none(id=source_id)
+    if source is None or await turned_private(cast(str, getattr(source, "benchmark_id"))):
+        raise _regrade_refusal(status.HTTP_404_NOT_FOUND, "unknown_score", SCORE_NOT_FOUND_DETAIL)
+    if submission.benchmark_id != cast(str, getattr(source, "benchmark_id")):
+        raise _regrade_refusal(
+            422, "different_benchmark", "a re-grade must name the source score's benchmark"
+        )
+    return source
+
+
+# The `{code, message}` of each 409 the store answers a re-grade with, by what lost (OME-1909).
+_REGRADE_CONFLICTS: dict[type[Exception], tuple[str, str]] = {
+    RegradeNotCurrent: (
+        "not_current_revision",
+        "a re-grade must be at the board's registered revision, and not the source's own",
+    ),
+    SourceAlreadyRegraded: ("already_regraded", "this score has already been re-graded"),
+    RegradeResultOnBoard: (
+        "already_on_board",
+        "this exact result is already on the board at that revision",
+    ),
+}
+
+
+def _regrade_store_refusal(exc: Exception) -> HTTPException:
+    """The 409 for a re-grade the store refused, by what lost (OME-1909)."""
+    conflict = _REGRADE_CONFLICTS.get(type(exc))
+    if conflict is not None:
+        return _regrade_refusal(status.HTTP_409_CONFLICT, *conflict)
+    # The board changed between the check above and the locked insert; a retry sees one view.
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=VISIBILITY_CHANGED_DETAIL,
+        headers=PRIVATE_CACHE_HEADERS,
+    )
+
+
+@router.post(
+    "/scores/{source_id}/regrades",
+    response_model=ScoreSchema,
+    response_model_exclude_unset=True,
+    status_code=status.HTTP_201_CREATED,
+    responses=REGRADE_SCORE_RESPONSES,
+)
+async def regrade_score(
+    source_id: UUID,
+    submission: ScoreSubmission,
+    request: Request,
+    response: Response,
+) -> ScoreSchema:
+    """Store a replay of a score at the board's new revision, credited to the score's submitter.
+
+    FEATURE: OME-1909 — when a Benchmark's revision moves, its old entries stop ranking. A
+    re-grader replays an entry's pinned cache against the new revision and posts the result here,
+    as a normal `ScoreSubmission`. The board stores a NEW row: the result is the replay's, the
+    credit (`submitted_by`, `authors`) is the source's, `regraded_from` names the source, and
+    `regraded_by` names the re-grader (published masked, like `submitted_by`). The body's frozen
+    copy and capture status are ignored (that copy names the source), and the source row is never
+    changed.
+
+    The checks run in a fixed order: `disabled` auth (403 `regrade_unavailable`), identity (401 /
+    403), not a re-grader (403 `not_allowed`), the source exists and is public (404
+    `unknown_score`), another benchmark (422 `different_benchmark`), not the registered revision or
+    the source's own (409 `not_current_revision`), then a second re-grade of one source (409
+    `already_regraded`, from the unique index, not a pre-read).
+    """
+    # INVARIANT: identity-scoped on every answer: each refusal depends on who asked.
+    response.headers.update(PRIVATE_CACHE_HEADERS)
+    regraded_by = await _regrader(request)
+    store = cast(ScoreStore, request.app.state.score_store)
+    try:
+        source = await _regrade_source(source_id, submission)
+        created = await store.regrade(source, submission, regraded_by=regraded_by)
+    except (
+        RegradeNotCurrent,
+        SourceAlreadyRegraded,
+        RegradeResultOnBoard,
+        BenchmarkVisibilityChanged,
+    ) as exc:
+        raise _regrade_store_refusal(exc) from exc
+    except OperationalError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=STORE_UNAVAILABLE_DETAIL,
+        ) from exc
+    if created is None:
+        # The source was deleted between the read above and the insert.
+        raise _regrade_refusal(status.HTTP_404_NOT_FOUND, "unknown_score", SCORE_NOT_FOUND_DETAIL)
+    return created

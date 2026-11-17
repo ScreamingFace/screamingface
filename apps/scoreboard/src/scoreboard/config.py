@@ -75,6 +75,14 @@ class Settings(BaseSettings):
     :func:`scoreboard.core.auth.cloudflare_identity.peer_in_networks`.
     """
 
+    # FEATURE: OME-1909 — who may move an old entry onto a Benchmark's bumped revision
+    # (`POST /v1/scores/{id}/regrades`). Verified emails, comma-separated in the environment
+    # (`SCOREBOARD_REGRADE_IDENTITIES=a@x.test,b@x.test`); `NoDecode` for the reason
+    # `allowed_networks` records above.
+    # INVARIANT: empty by default, so a deployment that never set it has no re-graders. The route
+    # also refuses everyone in `disabled` mode, where the identity header is an unverified claim.
+    regrade_identities: Annotated[tuple[str, ...], NoDecode] = Field(default=())
+
     # FEATURE: explicit DB pool sizing (OME-1452).
     # WHY 1 / 5: Tortoise 1.1.8's PostgreSQL client defaults (`base_postgres/client.py`), which
     # override asyncpg's own 10 / 10 — so these are the values the pool already ran on, now
@@ -117,3 +125,11 @@ class Settings(BaseSettings):
         return tuple(
             ip_network(entry, strict=True) for part in value.split(",") if (entry := part.strip())
         )
+
+    @field_validator("regrade_identities", mode="before")
+    @classmethod
+    def _parse_regrade_identities(cls, value: object) -> object:
+        """Split the comma-separated email list, dropping blanks and surrounding spaces."""
+        if not isinstance(value, str):
+            return value
+        return tuple(entry for part in value.split(",") if (entry := part.strip()))
