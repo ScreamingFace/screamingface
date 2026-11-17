@@ -3,13 +3,17 @@
   "branch": "OME-1811-remote-node-refusal-main",
   "approver": "Sergey Bershadsky (owner)",
   "date": "2026-11-03",
-  "scope": "one value: the url4.dag EXPORTS ratchet 38 -> 39 for the new public export refuse_remote_nodes; no other test line changes",
+  "scope": "one value: the url4.dag EXPORTS ratchet 38 -> 39 for the new public export refuse_remote_nodes; no other test line changes; and one value in test_url4_private_import_ratchet.py: the tests private-url4-import baseline 7 -> 8 (no other test line changes)",
   "reason": "owner decision 2026-11-03 (session quiz 'Approve 38 -> 39'): engine runs must refuse url4:// remote-node calls (spec #1450 F1b, 'the engine's included'), through a supported url4 hook rather than a private import; the H2 ratchet pins the exact url4.dag __all__ size",
-  "note": "Re-pinned 2026-11-11 against origin/main (efca18049), owner approved: the change moved off the unmerged OME-1543/1545 stack. Same one-value change as approved 2026-11-03 (38 -> 39); only the base blob moved. Re-pinned again 2026-11-13 against origin/main (4f7bb6e15), owner approved (session quiz 'Re-pin and push'): #1587 merged and moved the same file's url4 export count 59 -> 61; this branch's change is still the one value 38 -> 39.",
+  "note": "Re-pinned 2026-11-11 against origin/main (efca18049), owner approved: the change moved off the unmerged OME-1543/1545 stack. Same one-value change as approved 2026-11-03 (38 -> 39); only the base blob moved. Re-pinned again 2026-11-13 against origin/main (4f7bb6e15), owner approved (session quiz 'Re-pin and push'): #1587 merged and moved the same file's url4 export count 59 -> 61; this branch's change is still the one value 38 -> 39. Added 2026-11-17, owner approved (session quiz 'One shared helper + bump to 8'): after main gained #1588's test_fair_share_fetch_bytes import, this branch's three remote-node tests pushed the tests/ private-url4-import count to 10; they now share one helper (_remote_node_tripwire.py), so the count is 8 and the baseline moves 7 -> 8.",
   "files": {
     "packages/url4/tests/unit/test_hygiene_ratchets.py": {
       "base_blob": "c2492021ac0480af78ba3bf7da06ab9273db68ea",
       "approved_blob": "c970cf7528edb9757feffeeaafdfcb96c13a8c8e"
+    },
+    "apps/screamingface-engine/tests/unit/test_url4_private_import_ratchet.py": {
+      "base_blob": "d8e49e50ba63cdf14103002769899b174e0afebf",
+      "approved_blob": "c2f13da5c18f122092f24bd949b85dbfaae6db6e"
     }
   }
 }

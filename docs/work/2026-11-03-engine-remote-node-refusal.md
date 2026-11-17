@@ -298,3 +298,9 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   round 2); RED on d79f0800c: 3, GREEN after. Round-6 prose / quoted-mention controls and the full
   url4 suite stay green. Mutation re-run with the final code: dropping the computed-route fallback
   turns 6 of the new round-12 url4 tests red.
+
+- 2026-11-17: merged main after #1851 (OME-1925, RSS fix) and #1588. The engine's private-url4-import
+  ratchet then counted 10 against 7 (#1588's `test_fair_share_fetch_bytes.py` plus this branch's three
+  remote-node tests, each importing `url4.io._guarded_transport`). Owner decision: the three tests now
+  share `tests/unit/_remote_node_tripwire.py` (one import, count 8) and the baseline moves 7 -> 8,
+  pinned in `.claude/test-change-approvals/OME-1811.json`. Gates green vs origin/main (engine, url4, repo).

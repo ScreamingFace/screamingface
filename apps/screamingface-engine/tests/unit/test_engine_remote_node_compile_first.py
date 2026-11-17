@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import httpx
 import pytest
+from _remote_node_tripwire import install_tripwire
 
-import url4.io._guarded_transport as gt
 from screamingface_engine.runner.executor import Url4Executor
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.io.http import HttpIOLayer, SourceGuard
@@ -56,7 +56,7 @@ class _Tripwire:
 @pytest.fixture
 def wire(monkeypatch: pytest.MonkeyPatch) -> _Tripwire:
     tripwire = _Tripwire()
-    monkeypatch.setattr(gt, "_inner_transport", lambda: httpx.MockTransport(tripwire.handler))
+    install_tripwire(monkeypatch, tripwire.handler)
     return tripwire
 
 
