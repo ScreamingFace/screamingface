@@ -1,9 +1,9 @@
 ---
 ticket: OME-1909
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-11-17
-finished:
+finished: 2026-11-17
 ---
 
 # regrade-from-pinned-cache — re-grade an old leaderboard entry from its pinned cache after a revision bump
@@ -42,6 +42,14 @@ revisions and the rule change that makes a grading change move the revision (own
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
+  - Rule (4856d193d): `docs/adding-an-imported-benchmark.md`, `scripts/benchmark_bump.py`, `test_benchmark_fingerprints.py` docstring and failure message. Plan (9416ab926): `docs/plan/2026-11-17-regrade-from-pinned-cache.md`.
+  - Engine, old revisions served (2f83f6bfa): `benchmarks/definition.py`, `screamingface_engine_inspect/benchmarks.py` (`BenchmarkSpec.regradable_from`, assembly refuses a stale Case Digest), `single_shot.py`, `test_regradable_from.py`.
+  - Engine, live judges on a replay (8e3fe0295, 347585e78): `adapters/inprocess.py`, `adapters/queue_runner.py`, `job_env.py`, `ports.py`, `request_scope.py`, `rest/routes.py`, `runner/main.py`, `runner_queue.py`, `world/connector.py`, `test_replay_live_judge.py`.
+  - Scoreboard re-grade route (90b46ac38, dd6207f48): `config.py` (`regrade_identities`), `routes/scores.py`, migration `0024_score_regraded_from.py`, `scores/models/score.py`, `scores/schemas.py`, `scores/store.py`, `test_regrade_route.py`, `test_migration_0024_score_regraded_from.py`.
+  - SDK `Client.regrade` (7afae6a9f, a89cd34ee): `_regrade.py`, `client.py`, `errors.py`, `_core/wire.py`, `_engine/catalog_contract.py`, `_engine/transport.py`, `_evaluation/benchmark.py`, `_evaluation/model.py`, `_evaluation/url4.py`, `_scoreboard/leaderboards.py`, `_scoreboard/replay_reads.py`, `CHANGELOG.md`, `tests/unit/test_regrade.py`.
+  - Bump of the 47 revisions (2347b5810): the 47 rows in `screamingface_engine_inspect/benchmarks.py` (`published_revision` + `regradable_from`), `test_published_revisions.py`, the OME-1907 comment in `test_benchmark_fingerprints.py`, Engine `CHANGELOG.md`.
+  - Prior-test edits (83fdb60dc): `test_benchmark_foundation.py`, `test_leaderboard_routes.py`, `public_surface_snapshot.json`, approval manifest `.claude/test-change-approvals/OME-1909.json`.
+- **Commits:** 4856d193d, 9416ab926, 2f83f6bfa, 8e3fe0295, 347585e78, 90b46ac38, dd6207f48, 7afae6a9f, a89cd34ee, 2347b5810, 83fdb60dc, and this docs commit, on top of #1783.
+- **Gates:** Engine with the inspect extra: 250 passed in `test_published_revisions.py`, `test_published_revision.py`, `test_benchmark_fingerprints.py`, `test_regradable_from.py`, `test_benchmark_bump.py`, `test_benchmark_foundation.py`; all 47 rows assemble, serve their new revision and list their old one. Scoreboard: 93 passed in `test_leaderboard_routes.py` and `test_regrade_route.py`. SDK: 59 passed in `test_public_surface.py` and `test_regrade.py`. ruff check and format clean on the touched Python files. The append-only check (vs main at a23e84311) passes for the Engine, Scoreboard and SDK stacks with the OME-1909 manifest. Each task's own test runs are in its review.
+- **Deviations:** no `to_dict` on `Benchmark`: the `regradable_from` key is emitted through `_metadata`. The live-judge decision sits one hop above `_recorded_completion`, not inside it. The Engine echoes the live set in `X-Replay-Live-Judge`, and the SDK refuses a re-judge when an Engine does not echo it. `regraded_by` is stored but on no read schema. A repeat re-grade answers 409 with `existing_score_id`. A re-grade reads only public scores. With `live_judge` set, any failure on a live-judged Case refuses the re-grade. The CHANGELOG names the 47 rows in one line; per-row old ids live in `test_published_revisions.py` comments. The manifest also pins #1783's two test edits, since `OME-1907.json` names #1783's branch.
+- **Owner verify:** post to the team before merging (the 47 boards move). Set `regrade_identities` in the Scoreboard's deployment values. After the deploy, run the batch re-grade of the 130 cached entries on the 30 boards (`sf.Client().regrade(score_id)`, logging each new id or refusal), and decide the 8 paid reruns for entries with no pinned cache. When #1783 merges and main is merged up, re-pin `OME-1909.json` against the new merge base.
