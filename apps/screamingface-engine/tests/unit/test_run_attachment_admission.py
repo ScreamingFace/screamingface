@@ -278,9 +278,10 @@ async def test_an_unreadable_model_list_fails_the_run_retryably_before_any_call(
 # --- T8: the Benchmark path is unchanged ------------------------------------------------------
 
 
-async def test_a_benchmark_run_checks_only_its_candidate_never_the_grader() -> None:
-    # A Benchmark run's url4 also names the protocol's grader; a text-only judge never gets a
-    # file (spec D6), so only the linked Candidate's routes count.
+async def test_a_benchmark_run_checks_its_candidate_and_the_protocols_literal_routes() -> None:
+    # Owner decision 2026-11-17 (HupBaHa, #1853): a `candidate` source is client-written, so it
+    # is not a trust marker. The protocol's literal routes are checked as well, a text-only
+    # judge included, although judges never receive files (spec D6).
     from test_picture_admission import _AGGREGATE_ROUTE, _BLIND_ROUTE, _CASES_ROUTE, _single
 
     from screamingface_engine.benchmarks.definition import link_candidate
@@ -300,7 +301,23 @@ async def test_a_benchmark_run_checks_only_its_candidate_never_the_grader() -> N
     routes = run_model_routes(
         run, frozenset({"/" + SEEING, _BLIND_ROUTE}), default_route=_BLIND_ROUTE
     )
-    assert routes == frozenset({"/" + SEEING})
+    assert routes == frozenset({"/" + SEEING, _BLIND_ROUTE})
+
+
+async def test_a_forged_candidate_does_not_hide_a_blind_model_called_outside_it() -> None:
+    # HupBaHa's #1853 repro: an inert `candidate` names a model that can see, while the run
+    # actually calls a text-only one. It must be refused before any chat call.
+    from screamingface_engine.benchmarks.definition import link_candidate
+
+    gw = _Gateway()
+    run = link_candidate(_members(SEEING), _members(BLIND))
+    with pytest.raises(ResolutionError) as caught:
+        await _run(run, (_png(),), gw)
+
+    assert caught.value.code == "intent_error"
+    assert caught.value.permanent is True
+    assert BLIND in str(caught.value)
+    assert gw.chats == []
 
 
 # --- T10: OME-1770 masking — a private route the caller cannot see is never named --------------

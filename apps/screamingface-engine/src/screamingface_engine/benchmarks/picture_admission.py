@@ -418,10 +418,9 @@ def run_model_routes(
 ) -> frozenset[str]:
     """The model routes a url4 run's files can reach.
 
-    - A run with a linked Candidate (a Benchmark run): exactly the Candidate's routes. The
-      protocol and graders are outside it, and a grading call carrying a file is refused by
-      name in the connector (spec D6), so a text-only judge never refuses the run.
-    - Otherwise every literal model route the url4 names, as it will execute.
+    - Every literal model route the url4 names, as it will execute.
+    - Plus the routes a linked Candidate (the inert ``candidate`` text source) names, which the
+      outer url4 only reaches through ``$candidate``.
     - Plus the node's default processor when some group fans out and reduces on it
       (:func:`_reduces_on_default`); a group that merges locally sends it nothing.
 
@@ -430,9 +429,15 @@ def run_model_routes(
     (owner Q3, 2026-11-09).
     """
 
-    candidate = candidate_model_routes(url4, model_routes)
-    found: set[str] = set(candidate or (local_route_paths(url4) & model_routes))
-    recipes = _candidate_recipes(url4) if candidate else [url4]
+    # WHY the union (owner decision 2026-11-17, HupBaHa's #1853 review): a Benchmark run is linked
+    # client-side, so a source named ``candidate`` is not a trust marker; anyone can name one.
+    # Checking only it let a blind model called outside it receive the run's files. Every
+    # literal route the url4 executes is checked as well. Cost: a protocol that names a
+    # text-only judge as a literal route refuses a file-carrying run, although judges never
+    # receive files (spec D6).
+    found: set[str] = set(candidate_model_routes(url4, model_routes))
+    found |= local_route_paths(url4) & model_routes
+    recipes = [*_candidate_recipes(url4), url4]
     if default_route in model_routes and any(_reduces_on_default(r) for r in recipes):
         found.add(default_route)
     return frozenset(found)
