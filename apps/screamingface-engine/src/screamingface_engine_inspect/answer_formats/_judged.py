@@ -210,4 +210,19 @@ JUDGED: Mapping[str, AnswerFormat] = {
             "scores 0."
         ),
     ),
+    # local_tasks/futurex_past/futurex_past.py `futurex_score` and grading.py `grade_level_34`:
+    # the last \boxed{} (grading.py `last_boxed`); levels 1-2 by rule (`label_score`), levels
+    # 3-4 routed and judged; a number scores max(0, 1 - ((y_hat - y) / sigma)^2), sigma 5% of
+    # the key (`number_score`), a ranking 0.8 * m / k when not exact (`_ranking`).
+    f"{_LOCAL}.futurex_past.futurex_past:futurex_score": AnswerFormat(
+        sentence=(
+            "Answer format: put the answer in \\boxed{}, as each question asks; only the last "
+            "\\boxed{} is read, and a reply with none scores 0. Option and Yes/No questions "
+            "(levels 1-2) are read by rule: a single correct option must match exactly, and "
+            "several are scored by overlap with the key. For open questions (levels 3-4) a "
+            "judge compares the box with the key: a number earns credit only within about 5% "
+            "of the true value, a ranking earns partial credit for overlap with the key, and "
+            "any other answer scores 1 when it matches the key, else 0."
+        ),
+    ),
 }
