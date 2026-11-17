@@ -1,9 +1,9 @@
 ---
 ticket: OME-1811
 stack: python
-status: in_progress
+status: done
 started: 2026-11-03
-finished:
+finished: 2026-11-17
 ---
 
 # engine-remote-node-refusal — engine runs refuse url4:// remote-node calls
@@ -304,3 +304,5 @@ every node evaluation, the engine's included, refuses with `x.remote_node_unsupp
   remote-node tests, each importing `url4.io._guarded_transport`). Owner decision: the three tests now
   share `tests/unit/_remote_node_tripwire.py` (one import, count 8) and the baseline moves 7 -> 8,
   pinned in `.claude/test-change-approvals/OME-1811.json`. Gates green vs origin/main (engine, url4, repo).
+
+- **Merged:** #1750 as 455166b0d on 2026-11-17 (HupBaHa approved; owner OK; CI green). OME-1811 Done.
