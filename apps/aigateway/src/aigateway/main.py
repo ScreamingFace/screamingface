@@ -29,6 +29,7 @@ from .core.auth.log_filter import (
 from .core.credential_blob.store import ORMStore
 from .core.credits.service import CreditService
 from .core.discovery_runtime import DiscoveryRuntime
+from .core.frozen_copy.sweep_trigger import build_sweep_trigger
 from .core.loader import load_plugins
 from .core.model_catalog import build_model_catalog
 from .core.parameter_discovery import DiscoveryLimits, HttpxDiscoveryClient
@@ -189,6 +190,9 @@ def _configure_fake_codex_oauth(app: FastAPI) -> None:
 async def _lifespan(app):
     database_url = app.state.settings.database_url.get_secret_value()
     await init_db(database_url)
+    # WHY: shutdown removes only a trigger that this lifespan built, so a later lifespan of the
+    # same app builds one from its own settings; a trigger that a test put there stays.
+    sweep_trigger_built = False
     try:
         # Install the encryption-at-rest provider BEFORE any credential read/write.
         # The JWT-secret bootstrap below goes through the now-encrypting ORMStore, so the
@@ -237,18 +241,42 @@ async def _lifespan(app):
                 app.state.settings.cache_snapshot_s3_bucket,
             )
 
+        # FEATURE (OME-1947): the frozen copy sweep is always armed; no setting turns it off (Q22).
+        # WHY getattr: a test can put its own trigger on app.state before the lifespan starts.
+        sweep_trigger = getattr(app.state, "frozen_copy_sweep_trigger", None)
+        if sweep_trigger is None:
+            sweep_trigger = build_sweep_trigger(app.state.settings)
+            app.state.frozen_copy_sweep_trigger = sweep_trigger
+            sweep_trigger_built = True
+        sweep_trigger.start()
+        logger.info(
+            "frozen copy sweep armed (interval_s=%s, open_idle_s=%s, max_entries=%s)",
+            app.state.settings.frozen_copy_sweep_interval_seconds,
+            app.state.settings.frozen_copy_open_idle_seconds,
+            app.state.settings.frozen_copy_sweep_max_entries,
+        )
+
         yield
     finally:
         # WHY nested `finally` blocks: a cancelled shutdown raises past `except Exception`, and
         # it must skip none of the steps after the one it hit; each still runs once, in order.
         try:
-            # The scheduler's owned task must never outlive the app: cancel and await it.
-            scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
+            # WHY first and in its own try: the sweep task must not outlive the app, and a failed
+            # stop must skip none of the steps after it.
+            sweep_trigger = getattr(app.state, "frozen_copy_sweep_trigger", None)
             try:
-                if scheduler is not None:
-                    await scheduler.stop()
+                if sweep_trigger is not None:
+                    await sweep_trigger.stop()
+                if sweep_trigger_built:
+                    app.state.frozen_copy_sweep_trigger = None
             finally:
-                await app.state.credits.aclose()
+                # The scheduler's owned task must never outlive the app: cancel and await it.
+                scheduler = getattr(app.state, "cache_snapshot_scheduler", None)
+                try:
+                    if scheduler is not None:
+                        await scheduler.stop()
+                finally:
+                    await app.state.credits.aclose()
         finally:
             # §9.12: closed explicitly here rather than left to __del__, which is not
             # guaranteed to run and cannot await. An unclosed handler leaks its connection
