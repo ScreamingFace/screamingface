@@ -1,9 +1,9 @@
 ---
 ticket: OME-1946
 stack: python
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-17
-finished:
+finished: 2026-11-17
 ---
 
 # gateway-415-refusal — a provider 415 on a media request is the `unsupported_content_part` refusal
@@ -46,7 +46,18 @@ text-only request keeps today's mapping. Not retried, not cached.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <counts>
-- **Deviations:** <or "none">
+- **Actual files:** as planned — `apps/aigateway/src/aigateway/core/content_parts.py`
+  (`provider_media_refusal`), `apps/aigateway/src/aigateway/routes/chat.py` (`_media_refusal_or`
+  in both dispatch-failure branches); tests `tests/unit/core/test_provider_media_refusal.py`
+  (15) and `tests/unit/huggingface/test_huggingface_media_415_route.py` (3).
+- **Commits:** a6ef3b020 — fix(aigateway): report a provider 415 on a file part as
+  unsupported_content_part
+- **Gates:** ruff check pass; ruff format --check pass (916 files); pyright 0 errors;
+  pytest 7920 passed, 119 skipped (serial — `pytest-xdist` is not installed in this app, so
+  `-n auto` is rejected); `check_no_enterprise.py` OK. RED confirmed: 2 route tests fail
+  without the fix (415 `provider_error`), the text-only control passes both ways.
+- **Deviations:** reason vocabulary chosen here: `provider_unsupported_media[ <mime,…>]` —
+  MIMEs are the request's own (distinct, request order); upstream text is never included.
+  `part_type` is the first media part's (the upstream does not say which part it refused).
+  Streaming is out of scope: a mid-stream failure still yields the SSE `provider_error` frame.
+  A plugin whose prepared body is no longer OpenAI-shaped falls back to today's mapping.
