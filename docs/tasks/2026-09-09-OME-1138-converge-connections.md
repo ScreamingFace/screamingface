@@ -1,12 +1,12 @@
 ---
 id: OME-1138
 linear_url: https://linear.app/openmined/issue/OME-1138/aigateway-deprecate-profiles-and-converge-on-connections
-status: in_progress
+status: done
 type: epic
 priority: high
 labels: [aigateway]
 created: 2026-09-08
-closed:
+closed: 2026-11-17
 ---
 
 # AIGateway: deprecate Profiles and converge on Connections
@@ -56,3 +56,5 @@ the gateway uses Connections only, and the Profile routes answer 410. Releases: 
 PR. `OME-1315`, `OME-1035` and `OME-1026` are no longer blocked by this epic.
 
 - 2026-11-17: reopened for `OME-1940` and `OME-1941` (#1874).
+- 2026-11-17: re-closed after #1874 merged as `d76e6a414`; `OME-1940` and `OME-1941` are
+  Done.

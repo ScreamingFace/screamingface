@@ -1,9 +1,9 @@
 ---
 ticket: OME-1940   # SDK leaf: OME-1941; both under OME-1138
 stack: aigateway
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-16
-finished:
+finished: 2026-11-17
 ---
 
 # retire-leftover-profile-wording — retire the Profile wording the OME-1138 close-out left
@@ -57,9 +57,11 @@ Spec: `docs/spec/2026-11-16-ome-1138-leftover-profile-wording.md`; plan:
   - Test doubles without `mutate` (spec §2.3): the eight files listed there.
   - SDK fixture: `packages/screamingface/tests/test_hosted_byom_preflight.py`.
   - Docs: this ledger, the spec and the plan.
-- **Commits:** `2e0aa6bfa` `fix(aigateway): name the credential, not a retired Profile, in
-  provider errors`; then the docs, the two mirrors and
-  `.claude/test-change-approvals/OME-1940.json` (nine prior test files pinned byte-exact).
+- **Commits:** `d76e6a414` fix(aigateway): name the credential, not a retired Profile, in
+  provider errors (#1874), squash-merged 2026-11-17 14:57 UTC. Linear `OME-1940` and `OME-1941`
+  Done with the close-comment. The branch held three commits on `origin/main` `889ec3104`: the
+  fix; the docs, the two mirrors and `.claude/test-change-approvals/OME-1940.json` (nine prior
+  test files pinned byte-exact); and the reopen of `OME-1138` with both mirrors In Review.
 - **Gates:** first run on `origin/main` `66962a178`.
   - RED: the 9 new cases failed on the old wording; GREEN: 9 passed.
   - `aigateway`: ruff check, ruff format, pyright (0 errors), `check_no_enterprise`, pytest
@@ -70,6 +72,10 @@ Spec: `docs/spec/2026-11-16-ome-1138-leftover-profile-wording.md`; plan:
   - `run_gates.py` stopped at the append-only check on the nine changed test files until
     `.claude/test-change-approvals/OME-1940.json` existed (plan step 7). With it, the full
     runner passed for both stacks on `a23e84311`, the nine files approved byte-exact.
+  - Final head on `889ec3104`: `run_gates.py` passed for `aigateway`, `screamingface` and
+    `repo`. PR CI green: test (3.12), test (3.13), golden-replay, images (aigateway), the SDK
+    tests on 3.12 to 3.14, the package build and the notebooks check. On `main` after the
+    merge: the gateway tests, the SDK tests and the E2E replay green.
 - **Deviations:**
   - The new tests are one parametrized module, not one addition per plugin test file (plan
     step 2). The four plugins share the contract, so one module states it once; the per-plugin
@@ -87,3 +93,11 @@ Spec: `docs/spec/2026-11-16-ome-1138-leftover-profile-wording.md`; plan:
   - The branch was fast-forwarded from `c1bca6a86` to `origin/main` `66962a178` before the
     first gate run, and the commit was rebased onto `a23e84311` before PR-open. Neither range
     touches the gateway, the SDK or the gate scripts; the gates are rerun on the new base.
+  - The review of #1874 found the two leaves filed under `OME-1138` after its 2026-11-16 close.
+    The owner chose to reopen the epic until both leaves closed; #1874 records the reopen, and
+    the close records re-close it.
+  - The two leaves and their mirrors were set In Progress at PR-open instead of In Review. The
+    same review caught it; both moved to In Review before the merge.
+  - For the reopen commit the branch was rebased onto `889ec3104`. Its four new commits
+    include #1854, which also edits the `OME-1138` ledger; the rebase had no conflict, and the
+    three gates were rerun there.
