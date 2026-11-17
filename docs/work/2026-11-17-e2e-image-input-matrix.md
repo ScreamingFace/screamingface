@@ -1,7 +1,7 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: python
-status: blocked   # planned | in_progress | done | blocked
+status: in_progress   # planned | in_progress | done | blocked
 started: 2026-11-17
 finished:
 ---
@@ -103,6 +103,21 @@ Spec: `docs/spec/2026-11-17-e2e-image-input-matrix.md`.
 - **Repro** (scratch script, same stack, $0): mistral png → `502 internal_error`, trace
   `3820e8590d9ffb82b56459199715d66e`; gemini pdf → `502 internal_error`, trace
   `f4eaf39bf93a004f74da9daf8cc44d81`; the Engine's `run terminated` lines above come from it.
+
+## Task 6 — re-run, GREEN (2026-11-17, paid, local on a Mac)
+
+- **Fixes for both blockers:** fixtures now come from jsDelivr (`8b874f558`, the PDF keeps
+  `application/pdf`), and the Engine reports `intent_error` on the sync answer with its message
+  withheld (branch `engine-public-intent-error`, `b546c09f5`; applied to this working tree for
+  the run only and reverted afterwards, nothing under `apps/` committed here).
+- **Run:** `test_notebook[local-image_input_matrix] PASSED` in 140 s, `FIXTURE_REF` 6c127c630,
+  first trace `b511703ec467449dcc87b45fdcfae3b8`.
+- **Matrix (34 cells, all as expected):** url4 19 answered (4 vision models × png/jpeg/gif/webp
+  plus pdf for gemini, gpt-5-nano and haiku) and 6 refused (mistral × 5 media, llama-4-scout pdf);
+  Benchmark 8 answered (4 vision models × FigQA Cases 1, 2) and 1 refused (mistral, admission).
+- **Measured spend:** $0.0406 (OpenRouter key usage delta).
+- **Landing:** this branch now depends on the Engine leaf merging first (the notebook stays red
+  on `main` until then).
 
 ## Outcome (fill at the end — required before COMMIT)
 
