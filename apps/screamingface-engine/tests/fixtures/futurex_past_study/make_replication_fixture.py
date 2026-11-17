@@ -1,7 +1,11 @@
 # pyright: reportMissingImports=false
 # WHY file-level: this script imports the crowd-wisdom study package (committee_kit,
 # fused_committee) from a path given on the command line; it is not in this repository.
-"""Build ``replication.json`` beside this file from the crowd-wisdom study package.
+"""Build ``replication_all_models.json`` beside this file from the crowd-wisdom study package.
+
+``replication.json`` beside it is the first, smaller fixture (three complete models and the fused
+committee, scored with ``metrics.futurex_score``), built by this script's first version at commit
+c8dadab6c; it is kept unchanged because its tests are.
 
 Not part of any test run: it needs the study package (not in this repository) and is kept so the
 fixture can be regenerated and checked. Run from the repository root::
@@ -10,8 +14,8 @@ fixture can be regenerated and checked. Run from the repository root::
         apps/screamingface-engine/tests/fixtures/futurex_past_study/make_replication_fixture.py \\
         <crowd-wisdom-package> <out.json> <Futurex-Past train parquet at 3c2e3969>
 
-WHY the study's own kit computes ``expected``: the fixture must carry the study's numbers, not
-ours, or the replication test would compare our scorer with itself.
+WHY the study's own kit computes ``expected`` (``rank.score_entry``): the fixture must carry
+the study's numbers, not ours, or the replication test would compare our scorer with itself.
 """
 
 from __future__ import annotations
@@ -45,10 +49,25 @@ def _read_csv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def _stored_cells(path: Path) -> dict[str, dict[str, dict[str, Any]]]:
+    """model → item → the stored tokens and whether the study excluded the cell (no answer, or
+    an uninterpretable box). A cell the study never got (a failed call) is absent."""
+
+    cells: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in _read_csv(path):
+        model: str = row["model"].split("/")[-1]
+        cells.setdefault(model, {})[row["item_id"]] = {
+            "tokens": json.loads(row["answer"] or "[]"),
+            "excluded": row["excluded"].strip().lower() == "true",
+        }
+    return cells
+
+
 def main(package: Path, out: Path, parquet_path: str) -> None:
     sys.path[:0] = [str(package / "3_results_report"), str(package / "4_fused_committee")]
     import fused_committee
-    from committee_kit import corpus, metrics
+    from committee_kit import corpus, rank
+    from committee_kit.spec import DEFAULT_AGGREGATION
 
     data: Path = package / "3_results_report" / "data"
     kit: Any = corpus.load("futurex", str(data))
@@ -59,34 +78,38 @@ def main(package: Path, out: Path, parquet_path: str) -> None:
         }
         for row in _read_csv(data / "futurex_gold.csv")
     }
-    raw: dict[str, dict[str, list[str]]] = {}
-    for row in _read_csv(data / "futurex_results.csv"):
-        model: str = row["model"].split("/")[-1]
-        raw.setdefault(model, {})[row["item_id"]] = json.loads(row["answer"] or "[]")
-    complete: list[str] = [m for m in kit.models if all(i in kit.answers[m] for i in kit.items)]
-    chosen: list[str] = sorted(complete)[:3]
-    answers: dict[str, Any] = {m: {i: raw[m][i] for i in kit.items} for m in chosen}
-    expected: dict[str, float] = {
-        m: metrics.futurex_score(kit.gold, kit.answers[m], kit.items) for m in chosen
-    }
+    answers: dict[str, Any] = _stored_cells(data / "futurex_results.csv")
+    # WHY rank.score_entry: it is the study's reporting path (and fused_committee.replay's); it
+    # drops a cell nothing usable answered from both sides of the fraction.
+    expected: dict[str, float] = {}
+    for entry in rank.model_entries(kit, set(kit.models)):
+        decisions: Any = rank.decisions_for(entry, kit, DEFAULT_AGGREGATION)
+        expected[entry.label] = rank.score_entry(kit, decisions, kit.items)["futurex_score"]
     call, _ = fused_committee.stored_reply_call("futurex")
     fused_model: Any = fused_committee.FusedModel("fused-medoids", call=call)
+    questions: list[dict[str, Any]] = fused_committee.load_questions("futurex")
     fused: dict[str, Any] = {
-        q["item_id"]: fused_model.answer("futurex", q)["answer"]
-        for q in fused_committee.load_questions("futurex")
+        q["item_id"]: fused_model.answer("futurex", q)["answer"] for q in questions
     }
-    answers["fused-medoids"] = {i: fused.get(i) for i in kit.items}
-    expected["fused-medoids"] = metrics.futurex_score(kit.gold, fused, kit.items)
+    # A committee with no majority abstained: the study scores it 0 and keeps it (rank.decide).
+    answers["fused-medoids"] = {
+        item: {"tokens": fused[item] or [], "excluded": False, "abstained": fused[item] is None}
+        for item in kit.items
+    }
+    expected["fused-medoids"] = fused_committee.replay("fused-medoids")["futurex"]["score"]
     fixture: dict[str, Any] = {
         "dataset_3c2e3969": _dataset_rows(parquet_path, list(kit.items)),
         "source": "crowd-wisdom-package 3_results_report/data + 4_fused_committee replay",
+        "prompts": {q["item_id"]: q["prompt"] for q in questions},
         "gold": {i: gold[i] for i in kit.items},
         "answers": answers,
         "expected": expected,
     }
-    text: str = json.dumps(fixture, ensure_ascii=False, indent=1, sort_keys=True)
+    # WHY compact: all 27 models' cells plus the 100 prompts; indented, the file nears the
+    # 500 KB pre-commit cap on added files.
+    text: str = json.dumps(fixture, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     out.write_text(text + "\n", encoding="utf-8")  # the end-of-file hook wants a newline
-    print(f"{len(complete)} complete models; chosen {chosen}; expected {expected}")
+    print(f"{len(answers)} entries; expected {expected}")
 
 
 if __name__ == "__main__":

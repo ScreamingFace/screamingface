@@ -7896,7 +7896,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past",
-        published_revision="cbe050d3b82631c9",
+        published_revision="baf0c231ff399094",
         title="FutureX-Past",
         description=(
             "2,036 resolved real-world forecasting questions from FutureX, a live benchmark of "
@@ -7932,6 +7932,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   counts it 0); identical on every full run.
         # NAMED DEVIATION: an unreadable judge reply fails the Case as judge_reply_invalid
         #   after two redraws (upstream scores it 0), and a rank overlap count is capped at k.
+        # NAMED DEVIATION: the router gets three asks (upstream two), and every judge question
+        #   one 4,096-token cap (upstream 5,000 for judges, 512 for the router and set count).
         scorer="screamingface_engine_inspect.local_tasks.futurex_past.futurex_past:futurex_score",
         scorer_kwargs={"judge_model": "screamingface/openrouter/openai/gpt-5.4"},
         whole_run_metric=(
@@ -7990,7 +7992,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past_study",
-        published_revision="c3b5c2b7d55e84c3",
+        published_revision="a006da2f219ea0bd",
         title="FutureX-Past (study scoring)",
         description=(
             "FutureX-Past as the crowd-wisdom study (behavior-aware LLM crowds for future "
@@ -7999,17 +8001,19 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "study's exact answer keys. Same prompts as futurex_past, word for word. No Judge: "
             "the boxed answer is split on commas, case-folded and compared with the key as text "
             "by the study's own code (level 1 exact, level 2 set F1, levels 3-4 0.8 of the "
-            "overlap unless the order is exact), and the headline weights the level means "
-            "10/20/30/40. Names and numbers must match as text, so this scores below "
-            "futurex_past on levels 3-4 by design; use futurex_past for a score on the FutureX "
-            "authors' scale. Pass the study's 100 Case positions as cases=[...] (README) to "
-            "rerun its runs; the study's best committee scored 0.302."
+            "overlap unless the order is exact). As in the study, a reply with no usable answer "
+            "(none in the box, a hedge, every option) leaves the score, and the headline weights "
+            "the level means 10/20/30/40. Names and numbers must match as text, so this scores "
+            "below futurex_past on levels 3-4 by design; use futurex_past for a score on the "
+            "FutureX authors' scale. Pass the study's 100 Case positions as cases=[...] "
+            "(README) to rerun its runs; the study's best committee scored 0.302."
         ),
         focus="Replicating a forecasting study, exact-match scoring",
         dataset_url="https://huggingface.co/datasets/futurex-ai/Futurex-Past",
         difficulty="hard",
-        # WHY coverage_declare: a whole-run metric admits no other policy yet (OME-1642), and it
-        # is the study's own NO_RESPONSE rule: a Case that got no reply leaves the denominator.
+        # WHY coverage_declare: a whole-run metric admits no other policy yet (OME-1642); a failed
+        # Candidate call leaves the denominator, the study's NO_RESPONSE rule for a failed call.
+        # A reply with no usable answer leaves it too, through the metric (study_tier_weighted).
         failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.futurex_past.futurex_past_study:

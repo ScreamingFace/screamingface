@@ -356,3 +356,53 @@ def test_each_judge_prompt_carries_the_question_or_items_it_compares() -> None:
     assert "Beijing" in g.match_prompt("北京", "Beijing")
     assert "roughly 5" in g.number_prompt("roughly 5")
     assert all(p in g.set_overlap_prompt(_QUESTION, ["x"], ["A"]) for p in ("['x']", "['A']"))
+
+
+# ── review findings (sf-code-review, fidelity audit U1-U4) ──────────────────────────────────
+
+
+def test_a_latex_thousands_separator_is_read_as_a_comma() -> None:
+    """``\\boxed{1{,}234}`` is 1234, not 1: read by rule, with no judge call."""
+
+    judge = _Judge(_ROUTE_B)
+
+    graded: g.Graded = _grade(judge, [1234.0], "1{,}234")
+
+    assert judge.purposes == ["route"]
+    assert graded.score == 1.0
+
+
+def test_a_number_in_prose_reaches_the_judge_as_its_first_comma_piece() -> None:
+    """Futurex-Eval judges ``model_prediction[0]``, the first comma piece (fidelity U2)."""
+
+    judge = _Judge(_ROUTE_B, "\\boxed{249.41}")
+
+    graded: g.Graded = _grade(judge, [249.41], "about 249.41, or 498.82")
+
+    assert judge.purposes == ["route", "number"]
+    assert "about 249.41" in judge.calls[1][1] and "498.82" not in judge.calls[1][1]
+    assert graded.score == 1.0
+
+
+def test_option_letters_reach_the_rank_judge_sorted_as_upstream_sorts_them() -> None:
+    """``judge_rank_overall`` sorts both letter lists before asking (fidelity U3)."""
+
+    judge = _Judge(_ROUTE_B, "\\boxed{No}", "\\boxed{1}")
+
+    _grade(judge, ["X", "B", "C"], "L, C, B")
+
+    assert "['B', 'C', 'L']" in judge.calls[1][1] and "['B', 'C', 'X']" in judge.calls[1][1]
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        '{"metric": "legacy_type_a", "reason": "labels"} because the options are fixed',
+        '```json\n{"metric": "legacy_type_a"}\n```\nExtra words',
+    ],
+)
+def test_a_route_followed_by_prose_is_unreadable_as_upstream_reads_it(reply: str) -> None:
+    """Upstream ``_parse_route`` calls ``json.loads`` on the whole reply when it opens with
+    ``{`` (fidelity U4); trailing prose makes it unreadable, and the route falls back."""
+
+    assert g.parse_route(reply) is None

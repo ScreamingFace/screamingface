@@ -57,7 +57,7 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
 - `futurex_past` registers with 2,036 Cases from `8299bfa1`, judged by the house judge, with a
   tier-weighted headline.
 - `futurex_past_study` registers with 1,118 Cases from `3c2e3969`, with no judge. It reproduces the
-  study's FutureX scores exactly.
+  study's reported FutureX score for all 27 models and the fused-medoids committee.
 - Every gate is green except the append-only check on the shared tables, which needs an `OME-N`
   approval (spec §9).
 
@@ -68,24 +68,48 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
     rules, instead of `futurex_past.py`. This avoids an import cycle.
   - `pyproject.toml`: the new `vendor/` joins the ruff, pyright and coverage exclusions that
     every other vendored scorer has.
-  - The fixture generator is committed as
-    `tests/fixtures/futurex_past_study/make_replication_fixture.py` instead of living in `.docs/`.
-    Rerun against the study package, it reproduces `replication.json` byte for byte.
+  - `vendor/study_formats.py`, the study's `bench_formats.py`, is also vendored. It is the
+    study's reply reader and interpretability gate (review round, below).
+  - Fixtures: `replication.json` (first round) and `replication_all_models.json` (review round),
+    both built by the committed `tests/fixtures/futurex_past_study/make_replication_fixture.py`.
   - A seventh shared table gains the two keys: `test_whole_run_metric.py`. It is the list of rows
     whose non-mean headline is an owner decision.
-- **Commits:** see `git log futurex-past-local-task` (no OME id: Linear skipped).
-- **Gates:**
-  - `screamingface-engine`: the append-only check is red, as expected, on exactly the seven
-    shared table files (spec §9; they need an `OME-N` approval manifest). Every other gate, run by
-    hand, is green: ruff check, ruff format, pyright (extra-less, as CI runs it), layering, and
-    pytest with 9,357 passed and 96.35% coverage (floor 80).
-  - The inspect lane (`uv run --extra inspect pytest tests/unit/inspect`): 3,201 passed.
+- **Commits:** `c8dadab6c` adds the Benchmarks. The next commit applies the review and fidelity
+  fixes. The commit after that adds the Fidelity Records. No OME id: Linear is skipped.
+- **Review round** (sf-code-review, and both sf-benchmark-fidelity audits at `c8dadab6c`):
+  - `futurex_past`:
+    - a whole-box `\text{}` wrapper is now removed at levels 1-2;
+    - `{,}` is read as a comma;
+    - a number in prose reaches the judge as its first comma piece;
+    - option letters reach the rank judge sorted;
+    - the router reply is parsed as upstream parses it;
+    - a failed router's redraws stay in evidence;
+    - a Case without a level beside leveled Cases leaves the headline, instead of switching it to
+      the plain mean;
+    - the token caps, the router's ask budget, the "yes anywhere" match reading and the
+      `\textbf` limit are declared in the README or on the row.
+  - `futurex_past_study`:
+    - Unusable replies are now marked and left out of the headline. The study dropped a reply with
+      no usable answer (no box, or a box its `interpret_answer` rejects) from both sides, through
+      `rank.score_entry`. The first version scored such replies 0 and kept them, which moved 21 of
+      27 study model scores.
+    - A test now reproduces all 27 models and the fused-medoids committee, and every one of the
+      study's 38 exclusions.
+    - The match is to 1e-12, not bit-exact: Python 3.11 and 3.12 round `statistics.fmean`'s last
+      bit differently, and the study's kit gives our values under 3.12.
+- **Gates (final head):**
+  - `screamingface-engine`: ruff, format, pyright (extra-less, as CI runs it), layering, and
+    pytest are green: 9,357 passed, 96.35% coverage. The append-only check against `origin/main`
+    is red on exactly the seven shared table files (spec §9; they need an `OME-N` approval
+    manifest).
+  - The inspect lane (`uv run --extra inspect pytest tests/unit/inspect`): 3,229 passed.
   - The `screamingface` and `repo` stacks: all gates green.
-- **Deviations:**
-  - Spec §4.2 said the router sees only lists. It now routes **every** level-3/4 question, as
-    upstream's `route_metric` does.
-  - Spec §6 said `withhold`. Both rows use `coverage_declare`, because the Engine refuses
-    `withhold` with a whole-run metric (OME-1642). It also matches the study's NO_RESPONSE rule
-    and the paper's §3.4.2.
-  - A number in prose goes to the judge whole. Upstream judges the first comma piece of its
-    LLM-extracted answer.
+- **Deviations** (spec §11 records them as amendments):
+  - Routing covers every level-3/4 question.
+  - Both rows use `coverage_declare`, because OME-1642 refuses `withhold` with a whole-run
+    metric.
+  - The level-3/4 reading rules now match upstream.
+  - The study Benchmark drops unusable replies.
+  - `futurex_past`'s published revision moved from `cbe050d3b82631c9` to `baf0c231ff399094`, and
+    `futurex_past_study`'s from `c3b5c2b7d55e84c3` to `a006da2f219ea0bd`. Neither was ever
+    published: both are the fingerprint on the day the Benchmark was finished.

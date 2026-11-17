@@ -58,7 +58,11 @@ from inspect_ai.scorer import (
 )
 from inspect_ai.solver import TaskState, generate
 
-from screamingface_engine_inspect.judge_redraw import JudgedItem, judge_until_parsed
+from screamingface_engine_inspect.judge_redraw import (
+    JudgedItem,
+    JudgeReplyUnparseable,
+    judge_until_parsed,
+)
 from screamingface_engine_inspect.local_tasks.futurex_past.grading import (
     Ask,
     Graded,
@@ -66,6 +70,7 @@ from screamingface_engine_inspect.local_tasks.futurex_past.grading import (
     grade_level_34,
     label_score,
     last_boxed,
+    unwrap_text,
 )
 
 # ── pins ────────────────────────────────────────────────────────────────────────────────────
@@ -184,9 +189,14 @@ def _asker(judge: Model, case: object, redraws: list[int]) -> Ask:
 
     def ask[V](prompt: str, parse: Callable[[str], V | None], purpose: str) -> Awaitable[V]:
         async def asked() -> V:
-            judged: JudgedItem[V] = await judge_until_parsed(
-                judge, prompt, parse, item=f"case {case} {purpose}"
-            )
+            try:
+                judged: JudgedItem[V] = await judge_until_parsed(
+                    judge, prompt, parse, item=f"case {case} {purpose}"
+                )
+            except JudgeReplyUnparseable as exc:
+                # WHY: the router falls back on this error; its spent redraws stay in evidence.
+                redraws.append(exc.redraws)
+                raise
             redraws.append(judged.redraws)
             return judged.verdict
 
@@ -210,7 +220,8 @@ def futurex_score(judge_model: str = JUDGE_MODEL) -> Scorer:
         level, gold = case_key(state)
         box: str | None = last_boxed(state.output.completion)
         if level <= 2:
-            value: float = label_score(gold, answer_tokens(box))
+            # WHY unwrap first: ``\boxed{\text{B, C}}`` is the options B and C (spec §3).
+            value: float = label_score(gold, answer_tokens(unwrap_text(box)))
             return Score(value=value, answer=box or "", metadata={"level": level})
         redraws: list[int] = []
         ask: Ask = _asker(get_model(judge_model), state.sample_id, redraws)
@@ -229,20 +240,34 @@ def futurex_score(judge_model: str = JUDGE_MODEL) -> Scorer:
 # ── the headline ────────────────────────────────────────────────────────────────────────────
 
 
-def tier_weighted_mean(scores: list[SampleScore], weights: dict[int, float]) -> float:
-    """Σ w_L · mean(level L) / Σ w_L over the levels present.
+def leveled(scores: list[SampleScore]) -> dict[int, list[float]] | None:
+    """The marks by level, or None when no Case carries a level (the stand-in lane).
 
-    NAMED DEVIATION (spec §4.4): Futurex-Eval counts an absent level as 0; the weights
-    renormalise here, which equals upstream whenever all four levels are present (every full
-    run). Cases without a level (the no-network lane's stand-ins) give the plain mean.
+    AIDEV-NOTE: a Case without a level beside leveled ones is left out. It is an abstained Case
+    whose grading failed, filed as a bare 0.0 with no metadata (``single_shot._metric_sample``);
+    it cannot be placed in a level, and the run must not stop after every call is paid.
     """
 
     by_level: dict[int, list[float]] = defaultdict(list)
     for sample in scores:
         level: object = (sample.sample_metadata or {}).get("level")
-        if level is None:
-            return sum(s.score.as_float() for s in scores) / len(scores)
-        by_level[int(str(level))].append(sample.score.as_float())
+        if level is not None:
+            by_level[int(str(level))].append(sample.score.as_float())
+    return dict(by_level) if by_level else None
+
+
+def tier_weighted_mean(scores: list[SampleScore], weights: dict[int, float]) -> float:
+    """Σ w_L · mean(level L) / Σ w_L over the levels present.
+
+    NAMED DEVIATION (spec §4.4): Futurex-Eval counts an absent level as 0; the weights
+    renormalise here, which equals upstream whenever all four levels are present (every full
+    run). A run where no Case carries a level (the no-network lane's stand-ins) gives the plain
+    mean.
+    """
+
+    by_level: dict[int, list[float]] | None = leveled(scores)
+    if by_level is None:
+        return sum(s.score.as_float() for s in scores) / len(scores)
     total: float = sum(weights[level] for level in by_level)
     weighted: float = sum(
         weights[level] * sum(values) / len(values) for level, values in by_level.items()

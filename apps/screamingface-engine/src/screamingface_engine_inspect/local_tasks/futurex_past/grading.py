@@ -289,12 +289,21 @@ def set_overlap_prompt(question: str, predicted: Sequence[str], answer: Sequence
 
 
 def parse_route(reply: str) -> str | None:
-    """The route in the judge's JSON, or None (fenced or embedded JSON is read, as upstream)."""
+    """The route in the judge's JSON, or None, read as upstream's ``_parse_route`` reads it.
 
-    text: str = re.sub(r"^```(?:json)?\s*|\s*```$", "", reply.strip(), flags=re.IGNORECASE)
-    found: re.Match[str] | None = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    WHY so strict: upstream strips a code fence only when the reply opens with one, and parses
+    the WHOLE reply when it opens with ``{``, so a JSON object followed by prose is unreadable
+    there and the question falls back to ``legacy_type_b`` (fidelity audit U4).
+    """
+
+    text: str = reply.strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
+    if not text.startswith("{"):
+        found: re.Match[str] | None = re.search(r"\{.*\}", text, flags=re.DOTALL)
+        text = found.group(0) if found else text
     try:
-        payload: object = json.loads(found.group(0)) if found else None
+        payload: object = json.loads(text)
     except json.JSONDecodeError:
         payload = None
     metric: object = payload.get("metric") if isinstance(payload, dict) else None
@@ -390,11 +399,15 @@ async def _type_b(ask: Ask, question: str, gold: list[Any], text: str, tokens: l
 
 
 async def _number(ask: Ask, text: str, key: float) -> float:
-    predicted: float | None = to_float(text)
+    # WHY {,}: LaTeX's thousands separator; read raw, ``1{,}234`` would be the number 1.
+    plain: str = text.replace("{,}", ",")
+    predicted: float | None = to_float(plain)
     if predicted is None:
         # AIDEV-NOTE: upstream asks an LLM whether the WHOLE reply is a number; a bare number is
-        # read by rule here (``to_float``) and only prose goes to the judge (spec §4.2).
-        extracted: ExtractedNumber = await ask(number_prompt(text), parse_number, "number")
+        # read by rule here (``to_float``) and only prose goes to the judge (spec §4.2) -- its
+        # first comma piece, as upstream judges ``model_prediction[0]`` (fidelity audit U2).
+        first: str = answer_tokens(plain)[0]
+        extracted: ExtractedNumber = await ask(number_prompt(first), parse_number, "number")
         predicted = extracted.value
     return 0.0 if predicted is None else number_score(predicted, key)
 
@@ -410,7 +423,11 @@ async def _ranking(ask: Ask, question: str, tokens: list[str], gold: list[Any]) 
     position Yes → 1; else 0.8 × overlap / k."""
 
     if _is_choice_list(gold) and _is_choice_list(tokens):
-        if sorted(item.strip() for item in gold) == sorted(item.strip() for item in tokens):
+        # WHY reassign: upstream sorts both letter lists and asks the rank judge about the
+        # sorted ones when they differ (fidelity audit U3).
+        gold = sorted(str(item).strip() for item in gold)
+        tokens = sorted(item.strip() for item in tokens)
+        if gold == tokens:
             return 1.0
     if await ask(rank_prompt(question, tokens, gold), parse_match, "rank"):
         return 1.0

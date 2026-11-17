@@ -241,3 +241,25 @@ It is not the FutureX authors' scoring. Free-text and ranking answers are compar
 strings, so it scores below `futurex_past` on levels 3–4. The README and the row say so, and point
 to `futurex_past` for a FutureX-comparable number. Its fidelity reference is the study's own
 code, not Futurex-Eval; the fidelity agent audits it against the study package.
+
+## 11. Amendments during implementation (2026-11-16)
+
+Recorded after the contributor approved this spec. Each one came from the Engine's rules, from
+the fidelity audits, or from the code review; the ledger lists them too.
+
+- §4.2 routing: the router sees **every** level-3/4 question, not only list answers, as upstream
+  `route_metric` does.
+- §6 and §10.3 failure policy: both rows are `coverage_declare`, not `withhold`, because the
+  Engine refuses `withhold` with a whole-run metric (OME-1642).
+- §3 reading, in `futurex_past`:
+  - a whole-box `\text{}` wrapper is removed at levels 1-2 too;
+  - LaTeX's `{,}` thousands separator is read as a comma;
+  - a number in prose reaches the judge as its first comma piece;
+  - option letters reach the rank judge sorted;
+  - the router reply is parsed as strictly as upstream's.
+  All of these follow upstream.
+- §10.2 and §10.3, in `futurex_past_study`: the study did **not** score a reply with no usable
+  answer as 0. Its `rank.score_entry` dropped such a cell from both sides of the fraction, and
+  its `interpret_answer` decided usability. The study's `bench_formats.py` is now vendored too,
+  and the study roll-up leaves such a Case out. The replication test covers all 27 models and
+  every one of the study's 38 exclusions.

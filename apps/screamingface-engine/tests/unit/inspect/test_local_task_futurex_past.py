@@ -485,3 +485,52 @@ async def test_a_level_3_case_asks_the_pinned_judge_to_route_then_to_match() -> 
         {"role": "user", "content": g.router_prompt(row["prompt"], ["Beijing"])}
     ]
     assert match_messages == [{"role": "user", "content": g.match_prompt("北京", "Beijing")}]
+
+
+# ── review findings ─────────────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_text_wrapped_box_of_options_is_unwrapped_before_the_split(
+    no_network: None,
+) -> None:
+    """``\\boxed{\\text{C, P}}`` is the options C and P (sf-code-review, fidelity U1)."""
+
+    outcome = await _grade("futurex_past", _ROWS[1], "\\boxed{\\text{C, P}}")
+
+    assert outcome.score == 1.0
+
+
+def test_a_router_that_never_parses_still_counts_its_redraws(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fallback route keeps the evidence of the redraws it spent (sf-code-review)."""
+
+    import asyncio
+
+    from screamingface_engine_inspect.judge_redraw import JudgeReplyUnparseable
+
+    async def never(*_args: Any, **_kwargs: Any) -> Any:
+        raise JudgeReplyUnparseable("no route", redraws=2)
+
+    monkeypatch.setattr(fx, "judge_until_parsed", never)
+    redraws: list[int] = []
+    ask = fx._asker(object(), 7, redraws)  # pyright: ignore[reportPrivateUsage, reportArgumentType]
+
+    async def route() -> str:
+        return await ask("route?", g.parse_route, "route")
+
+    with pytest.raises(JudgeReplyUnparseable):
+        asyncio.run(route())
+    assert redraws == [2]
+
+
+def test_a_case_without_a_level_beside_leveled_cases_leaves_the_headline() -> None:
+    """INVARIANT: the plain-mean fallback is for stand-in runs where no Case carries a level. In
+    a real run, a Case whose Candidate abstained and whose grading then failed reaches the metric
+    as a bare 0.0 with no metadata (``single_shot._metric_sample``); it cannot be placed in a
+    level, so it is left out of the per-level means instead of switching the formula."""
+
+    scores: list[SampleScore] = [_sample_score(1.0, 1, 1), _sample_score(0.0, None, 2)]
+
+    assert _headline(scores) == pytest.approx(1.0)

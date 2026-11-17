@@ -2345,7 +2345,9 @@ for case in report.candidates.only.cases:
 
 The study scored its committees on 100 FutureX-Past questions; its best, the three cluster
 medoids fused by vote, scored 0.302. `STUDY_CASES` are those questions' positions in
-`futurex_past_study`. A run on chosen cases cannot be submitted to the leaderboard."""),
+`futurex_past_study`. A run on chosen cases cannot be submitted to the leaderboard. The study
+called every model at temperature 0; a reply with no usable answer (no box, a hedge, every
+option) leaves the score, as it did in the study."""),
         nbformat.v4.new_code_cell("""\
 # fmt: off
 STUDY_CASES = [
@@ -2359,7 +2361,11 @@ STUDY_CASES = [
 ]
 # fmt: on
 
-study_report = sf.evaluate(solo, benchmark="futurex_past_study", cases=STUDY_CASES)
+# The study's sampling. Drop "temperature" for a model whose provider rejects it.
+study_model = sf.Model(
+    model="openrouter/openai/gpt-5.5", params={"max_tokens": 8192, "temperature": 0.0}
+)
+study_report = sf.evaluate(study_model, benchmark="futurex_past_study", cases=STUDY_CASES)
 study_report"""),
         nbformat.v4.new_markdown_cell("""\
 ## 5. Before you scale up

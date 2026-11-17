@@ -16,17 +16,21 @@ Execution order:
 
     1. ``futurex_past_study()`` → the shared ``load_futurex_past`` at commit 3c2e3969 (2026-08-02),
        the latest commit that holds all 100 of the study's questions with the study's exact keys.
-    2. ``futurex_study_score`` reads the last box, splits it on commas, case-folds both sides
-       (the study's ``corpus.normalise``) and calls the study's own ``item_score`` (vendored).
-    3. ``study_tier_weighted`` rolls up with the study's own ``tier_weighted``.
+    2. ``futurex_study_score`` reads the reply with the study's own ``futurex_parse`` and its
+       comma split, checks it with the study's ``interpret_answer`` (vendored), case-folds both
+       sides (the study's ``corpus.normalise``) and calls the study's ``item_score`` (vendored).
+    3. ``study_tier_weighted`` leaves out every Case with no usable answer, as the study's
+       ``rank.score_entry`` drops such a cell from both sides of the fraction, then rolls up with
+       the study's own ``tier_weighted``.
 
-INVARIANT: ``vendor/study_metrics.py`` is the study's code byte for byte; a test pins its sha256.
+INVARIANT: ``vendor/study_metrics.py`` and ``vendor/study_formats.py`` are the study's code byte
+for byte; a test pins each sha256.
 """
 
 from __future__ import annotations
 
-from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, Final
 
 from inspect_ai import Task, task
@@ -45,9 +49,14 @@ from inspect_ai.solver import TaskState, generate
 
 from screamingface_engine_inspect.local_tasks.futurex_past.futurex_past import (
     case_key,
+    leveled,
     load_futurex_past,
 )
-from screamingface_engine_inspect.local_tasks.futurex_past.grading import answer_tokens, last_boxed
+from screamingface_engine_inspect.local_tasks.futurex_past.grading import answer_tokens
+from screamingface_engine_inspect.local_tasks.futurex_past.vendor.study_formats import (
+    futurex_parse,
+    interpret_answer,
+)
 from screamingface_engine_inspect.local_tasks.futurex_past.vendor.study_metrics import (
     item_score,
     tier_weighted,
@@ -72,7 +81,7 @@ STUDY_CASES: Final[tuple[int, ...]] = (
 def normalise(token: object) -> str:
     """Case-fold and collapse whitespace, on BOTH sides of every comparison.
 
-    WHY a rewrite, not a copy: this one line is the study's ``committee_kit/corpus.py:28``
+    WHY a rewrite, not a copy: this one line is the study's ``committee_kit/corpus.py:27``
     ``normalise``; the rest of that file loads CSVs this Benchmark never reads.
     """
 
@@ -85,34 +94,74 @@ def study_item_score(level: int, gold: Sequence[Any], tokens: Sequence[str]) -> 
     return float(item_score(level, [normalise(t) for t in gold], [normalise(t) for t in tokens]))
 
 
+@dataclass(frozen=True, slots=True)
+class StudyReading:
+    """One reply as the study read it: its tokens, and whether the study would have scored it."""
+
+    tokens: list[str]
+    usable: bool
+    why: str | None
+
+
+def study_reading(reply: str, prompt: str) -> StudyReading:
+    """The study's own reading: ``futurex_parse`` (the last box), ``build_data``'s comma split,
+    and ``interpret_answer`` on the raw box against the question's own prompt.
+
+    WHY the gate (fidelity audit D1/D2): the study excluded a cell with no answer or with an
+    uninterpretable box (a hedge, every option, an option not offered) and dropped it from both
+    sides of its score; it never scored such a reply.
+    """
+
+    raw: str | None = futurex_parse(reply)["raw_box"]
+    tokens: list[str] = answer_tokens(raw)
+    if not tokens:
+        return StudyReading(tokens=tokens, usable=False, why="no answer in the box")
+    verdict: dict[str, Any] = interpret_answer(raw, prompt)
+    return StudyReading(tokens=tokens, usable=bool(verdict["interpretable"]), why=verdict["why"])
+
+
 @scorer(metrics=[mean(), stderr()])
 def futurex_study_score() -> Scorer:
-    """Level 1 exact list, level 2 set F1, levels 3-4 ordered overlap; no judge, no σ."""
+    """Level 1 exact list, level 2 set F1, levels 3-4 ordered overlap; no judge, no σ.
+
+    A reply with no usable answer is marked ``study_usable: False`` with the study's reason;
+    its value is the study's mark of its tokens (0 when there are none), and the headline
+    leaves it out.
+    """
 
     async def score(state: TaskState, target: Target) -> Score:
         level, gold = case_key(state)
-        box: str | None = last_boxed(state.output.completion)
-        # WHY the raw box: the study split its stored box text on commas without unwrapping.
-        value: float = study_item_score(level, gold, answer_tokens(box))
-        return Score(value=value, answer=box or "", metadata={"level": level})
+        reading: StudyReading = study_reading(state.output.completion, state.input_text)
+        value: float = study_item_score(level, gold, reading.tokens)
+        metadata: dict[str, Any] = {"level": level, "study_usable": reading.usable}
+        if reading.why is not None:
+            metadata["unusable_why"] = reading.why
+        return Score(value=value, answer=", ".join(reading.tokens), metadata=metadata)
 
     return score
 
 
+def _usable(sample: SampleScore) -> bool:
+    """False for a Case the study would have dropped: an unusable reply, or a Candidate that
+    abstained (the Engine's mark for an empty reply, ``candidate_abstained``)."""
+
+    metadata: dict[str, Any] = sample.score.metadata or {}
+    return metadata.get("study_usable") is not False and not metadata.get("candidate_abstained")
+
+
 @metric
 def study_tier_weighted() -> Metric:
-    """The study's ``tier_weighted``: level means weighted 10/20/30/40 over the levels present.
-    Cases without a level (the no-network lane's stand-ins) give the plain mean."""
+    """The study's ``rank.score_entry``: its ``tier_weighted`` over the Cases with a usable
+    answer, level means weighted 10/20/30/40 over the levels present. A run where no Case
+    carries a level (the no-network lane's stand-ins) gives the plain mean."""
 
     def compute(scores: list[SampleScore]) -> float:
-        by_level: dict[int, list[float]] = defaultdict(list)
-        for sample in scores:
-            level: object = (sample.sample_metadata or {}).get("level")
-            if level is None:
-                return sum(s.score.as_float() for s in scores) / len(scores)
-            by_level[int(str(level))].append(sample.score.as_float())
+        kept: list[SampleScore] = [sample for sample in scores if _usable(sample)]
+        by_level: dict[int, list[float]] | None = leveled(kept)
+        if by_level is None:
+            return sum(s.score.as_float() for s in kept) / len(kept) if kept else 0.0
         weighted: float | None = tier_weighted(by_level)
-        # None only for an empty run: no level holds a Case.
+        # None only when no level holds a Case.
         return 0.0 if weighted is None else float(weighted)
 
     return compute
