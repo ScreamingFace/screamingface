@@ -89,6 +89,17 @@ def verify_fixture(client: httpx.Client, url: str, sha256: str) -> None:
         raise FixtureError(url, f"sha256 {digest} does not match the manifest's {sha256}")
 
 
+def route_id(model: str) -> str:
+    """The url4 route form of a gateway id: ``:`` escaped as ``~``.
+
+    WHY: a url4 path segment admits no ``:``, so the Engine routes a gateway id like
+    ``huggingface/<org>/<model>:<provider>`` as ``…~<provider>`` (OME-873,
+    ``screamingface_engine.world.models.registry.encode_route_id``), and the SDK's ``sf.Model``
+    takes the same form (``sf.models.list()``). A no-op on an id without a colon.
+    """
+    return model.replace(":", "~")
+
+
 def attachment_expression(model: str, url: str, media_type: str, prompt: str) -> str:
     """``/<model>(src=<url>;accept=<type>)!'<prompt>'``, built with url4 and round-trip checked.
 
@@ -101,7 +112,7 @@ def attachment_expression(model: str, url: str, media_type: str, prompt: str) ->
     attachment = Source(value=Url(url), annotations=(("accept", media_type),))
     try:
         context = f"src={render(src(url, accept=media_type))}"
-        call = RelExpr(path=f"/{model}", context=context, intent=text(prompt))
+        call = RelExpr(path=f"/{route_id(model)}", context=context, intent=text(prompt))
         expression = render(call)
         # A top-level relative call parses as the one source of an intent-less carrier.
         tree = build(expression)

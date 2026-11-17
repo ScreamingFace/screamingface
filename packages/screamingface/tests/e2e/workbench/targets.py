@@ -40,6 +40,7 @@ _DEFAULT_TARGET: Final = "replay"
 
 PAID_ENV: Final = "SCREAMINGFACE_TEST_PAID"
 KEY_ENV: Final = "OPENROUTER_API_KEY"
+HF_LIVE_MODALITIES_ENV: Final = "AIGW_HUGGINGFACE_LIVE_MODALITIES"
 # The runtime's default ports (RuntimeConfig); passed explicitly to `up` so a stray
 # SCREAMINGFACE_*_PORT in the environment cannot move the stack away from these URLs.
 # The runtime's OWN Engine (9108) goes unused, as in `just local-stack-notebooks`: the
@@ -127,7 +128,9 @@ def _runtime_child_env() -> dict[str, str]:
     code; pinned, the runtime serves this tree or refuses to start, never a bundled copy.
     The BYOK key is deliberately absent — the notebook connects it from its own environment.
     """
-    return clean_env({SOURCE_ENVIRONMENT_VARIABLE: MODE_CHECKOUT})
+    # WHY live HF modalities: the gateway lists Hugging Face rows text-only unless it reads the
+    # router catalogue (OME-1537, off by default); the image input matrix needs that evidence.
+    return clean_env({SOURCE_ENVIRONMENT_VARIABLE: MODE_CHECKOUT, HF_LIVE_MODALITIES_ENV: "true"})
 
 
 def _runtime_cli(*args: str) -> None:

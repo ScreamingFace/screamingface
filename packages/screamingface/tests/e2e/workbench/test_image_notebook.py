@@ -153,15 +153,17 @@ def _cell(**over: Any) -> Cell:
     return Cell(**(base | over))
 
 
-def test_a_known_cell_left_unrun_is_a_coverage_failure() -> None:
-    """Unknown is never a pass: a cell the budget stopped proved nothing."""
+def test_every_cell_left_unrun_is_a_coverage_failure() -> None:
+    """Unknown is never a pass: a cell the budget stopped proved nothing, and neither did a model
+    the gateway does not list (a typo, an unconnected provider) — both fail, naming the reason."""
     cells = [
         _cell(observed="skipped", reason="budget exhausted"),
-        _cell(expected="unknown", observed="skipped", reason="not listed"),
+        _cell(expected="unknown", observed="skipped", reason="not in the gateway listing"),
         _cell(),
     ]
-    (failure,) = coverage_failures(cells)
-    assert "budget exhausted" in failure
+    budget, unlisted = coverage_failures(cells)
+    assert "budget exhausted" in budget
+    assert "not in the gateway listing" in unlisted
 
 
 def test_reported_trace_ids_are_the_cells_that_reached_a_model() -> None:

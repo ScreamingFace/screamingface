@@ -231,3 +231,23 @@ def test_an_unreachable_engine_is_a_transport_error() -> None:
     assert outcome.answer is None
     assert outcome.error_code == "transport_error"
     assert len(outcome.trace_id) == 32
+
+
+def test_a_colon_bearing_gateway_id_is_routed_with_the_engines_tilde_escape() -> None:
+    """Hugging Face ids carry a `:<provider>` suffix, which a url4 path segment does not admit;
+    the Engine routes them as `~` (OME-873, `registry.encode_route_id`)."""
+    expression = attachment_expression(
+        "huggingface/google/gemma-4-31B-it:deepinfra", URL, "image/png", PROMPT
+    )
+    assert expression.startswith("/huggingface/google/gemma-4-31B-it~deepinfra(")
+
+
+def test_route_id_escapes_only_the_colon() -> None:
+    """The SDK and the Engine address a model by its url4 route form (`sf.models.list()`)."""
+    from workbench.image_url4 import route_id
+
+    assert (
+        route_id("huggingface/openai/gpt-oss-120b:cerebras")
+        == "huggingface/openai/gpt-oss-120b~cerebras"
+    )
+    assert route_id("openrouter/google/gemini-2.5-flash") == "openrouter/google/gemini-2.5-flash"

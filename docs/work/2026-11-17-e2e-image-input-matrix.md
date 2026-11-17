@@ -131,6 +131,29 @@ Spec: `docs/spec/2026-11-17-e2e-image-input-matrix.md`.
 - **Hugging Face:** wired (patch kept in the scratchpad), blocked because the `.env` HF token
   lacks "Make calls to Inference Providers" (403). The owner is asking Irina for access.
 
+## Hugging Face — why it failed, what it took, what is left (2026-11-17, paid)
+
+Five separate causes, peeled one at a time; each was proved, not guessed.
+
+| # | Symptom | Cause (evidence) | Status |
+|---|---|---|---|
+| 1 | every HF call 403 | `.env` `HUGGINGFACE_KEY` (user IrinaMB, fine-grained) lacked "Make calls to Inference Providers"; router said so verbatim | fixed by Irina |
+| 2 | HF cells "not in the gateway listing" | the gateway lists only its seed ids, which carry a provider suffix (`huggingface/google/gemma-4-31B-it:deepinfra`); bare ids are never listed | notebook now uses seed ids |
+| 3 | HF rows would read text-only | `AIGW_HUGGINGFACE_LIVE_MODALITIES` defaults **off** (OME-1537): without it every HF row has no `input_modalities` and image parts to HF are refused. The workbench `local` target now sets it (allowlisted, target-set) | worked around in the workbench; **product default still off** |
+| 4 | `invalid expression path …:deepinfra` (url4) and `invalid_model_route` (Benchmark) | a url4 path segment admits no `:`. The Engine already routes `:` as `~` (OME-873, `registry.encode_route_id`), and `sf.Model` expects that route form (`sf.models.list()`); the notebook passed the raw gateway id | fixed in the notebook (`image_url4.route_id`) |
+| 5 | `Kimi-K3:deepinfra` + GIF → `internal_error` | DeepInfra answers **415 Unsupported media type** for GIF on Kimi-K3 (direct router call); PNG works. The router declares `image`, not per-format, and our 415 surfaces as a scrubbed `internal_error` | open |
+
+Also open, not HF: `gemini-2.5-flash` via url4 answered with the literal `src=https://…;accept=…` line once per run (PDF in one run, JPEG in the next). Direct OpenRouter calls with and without that text read `7392` 8/8, so the pipeline's request needs capturing before a cause is named.
+
+Result with 1–4 fixed: url4 — `gemma-4-31B-it` and `Kimi-K3` read png/jpeg/webp (`7392`), gemma also GIF; both refused PDF with 0 calls; `gpt-oss-120b` refused all media with 0 calls. Benchmark — gemma and Kimi answered FigQA Cases, `gpt-oss-120b` refused at admission.
+
+### What the product needs for HF image input
+
+1. Turn HF live modalities on where image input is offered (runtime `up`, hosted chart), or seed static modalities for the HF list; otherwise HF vision models are refused images by default.
+2. `sf.Model` could accept the gateway id and apply `encode_route_id` itself; today a user copying the gateway id gets `invalid_model_route`.
+3. Map a provider 415 (unsupported media type) to the refusal family (`unsupported_content_part` → `intent_error`) instead of a scrubbed `internal_error`; or carry per-format modality evidence.
+4. Find why one url4 call per run can reach the model with the `src=` line and no picture (capture the request).
+
 ## Outcome (fill at the end — required before COMMIT)
 
 - **Actual files:**

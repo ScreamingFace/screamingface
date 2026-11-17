@@ -236,11 +236,15 @@ def skipped_cell(
 
 
 def coverage_failures(cells: Sequence[Cell]) -> list[str]:
-    """Cells whose expectation was known but that never ran: unknown is never a pass."""
+    """Every cell that never ran, whatever its expectation: unknown is never a pass.
+
+    WHY an unknown expectation fails too: a model the gateway does not list (a typo, a provider
+    the notebook did not connect) would otherwise drop out of the matrix and leave it green.
+    """
     return [
         f"{c.path} {c.model} {c.case or c.media_type}: not run — {c.reason or 'no reason'}"
         for c in cells
-        if c.observed == "skipped" and c.expected != "unknown"
+        if c.observed == "skipped"
     ]
 
 

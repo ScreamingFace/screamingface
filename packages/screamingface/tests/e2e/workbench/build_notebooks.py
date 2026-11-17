@@ -347,6 +347,10 @@ MODELS = [
     "openrouter/google/gemini-2.5-flash",
     "openrouter/anthropic/claude-haiku-4.5",
     # gpt-4o-mini is out until OME-1942: a url4 PDF reaches it with no filename and is never read.
+    # Hugging Face router (needs HUGGINGFACE_KEY), ids exactly as the gateway seeds them.
+    "huggingface/google/gemma-4-31B-it:deepinfra",  # images, no PDF
+    "huggingface/moonshotai/Kimi-K3:deepinfra",
+    "huggingface/openai/gpt-oss-120b:cerebras",  # text-only control
     "openrouter/mistralai/mistral-small-24b-instruct-2501",  # text-only control
 ]
 MEDIA = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]
@@ -395,7 +399,12 @@ from workbench.image_notebook import (  # noqa: E402
     upstream_calls,
     url4_cell,
 )
-from workbench.image_url4 import fixture_url, run_attachment, verify_fixture  # noqa: E402
+from workbench.image_url4 import (  # noqa: E402
+    fixture_url,
+    route_id,
+    run_attachment,
+    verify_fixture,
+)
 
 FIXTURES = E2E_ROOT / "workbench" / "fixtures" / "image_input"
 """
@@ -409,6 +418,8 @@ if not EVENTS_PATH or not Path(EVENTS_PATH).is_file():
     raise ValueError(f"EVENTS_PATH must name the local runtime.log, got {EVENTS_PATH!r}")
 client = sf.Client(engine_url=ENGINE_URL, scoreboard_url=SCOREBOARD_URL)
 client.connect("openrouter", api_key=os.environ["OPENROUTER_API_KEY"])
+if any(model.startswith("huggingface/") for model in MODELS):
+    client.connect("huggingface", api_key=os.environ["HUGGINGFACE_KEY"])  # KeyError names it
 http = httpx.Client(timeout=600)
 listing = http.get(f"{GATEWAY_URL}/v1/models").raise_for_status().json()
 manifest = json.loads((FIXTURES / "manifest.json").read_text(encoding="utf-8"))
@@ -473,7 +484,7 @@ for model in MODELS if "benchmark" in PATHS else []:
         error = None
         try:
             report = client.evaluate(
-                sf.Model(model),
+                sf.Model(route_id(model)),  # the SDK takes the url4 route form
                 benchmark=benchmark,
                 cases=[entry["case"] for entry in run_golds],
                 progress=False,
