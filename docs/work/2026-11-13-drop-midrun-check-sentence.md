@@ -35,7 +35,7 @@ description is not part of the revision, so no published revision or fingerprint
 
 ## Acceptance
 
-- The scan of all 96 assembled descriptions plus medxpert finds the mention on ifeval only;
+- The scan of all 95 assembled descriptions plus medxpert (96 pages) finds the mention on ifeval only;
   fingerprint and published-revision tests pass unedited.
 
 ## Outcome (fill at the end — required before COMMIT)
