@@ -1,6 +1,6 @@
 {
   "issue": "OME-1947",
-  "branch": "frozen-copy-retention",
+  "branch": "OME-1947-frozen-copy-retention-stack-a",
   "approver": "Ionesio Junior (owner)",
   "date": "2026-11-17",
   "scope": "Assertion only, two assertions of test_0014_creates_both_tables_with_the_design_columns. (1) The equality check of the column set of frozen_copies (`set(copies) == {eight names}`) becomes a subset check (`{eight names} <= set(copies)`). (2) The check of the nullable columns of frozen_copies is limited to the eight columns of 0014; its expected result stays [provenance, sealed_at]. The eight names do not change. No other edit to that test or file.",

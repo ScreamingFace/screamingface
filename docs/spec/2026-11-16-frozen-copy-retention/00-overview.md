@@ -53,6 +53,9 @@ when the expiry rule is released; the release writes that time into the database
 | Infrastructure repo | Values for both services, NetworkPolicy peer | handoff, §7.3 |
 
 **Stack A — abandoned copies (needs no other service)**
+One pull request with one commit for each of A1, A2 and A3 (owner decision, 2026-11-17). Cause: the
+owner's approval record for the changed migration test names one branch, and the pre-push
+check compares each pushed branch with `main`, so stacked branches for A2 and A3 fail it.
 - A1: migration 0018 (three columns, one index), the two new states, seal only an open copy.
   Tests CH-1, CH-2, S-9, S-28 of `prd/copy-sweep.md`.
 - A2: the idle rule, the purge and the command; the three settings of stack A (idle time,

@@ -383,3 +383,7 @@ The code follows these points. Where a point and the text above disagree, the po
     450-line guide before this work. This work does not refactor them.
 13. **Local Postgres lane on Colima:** set
     `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock`. CI does not need it.
+14. **One pull request.** A1, A2 and A3 are one pull request on branch
+    `OME-1947-frozen-copy-retention-stack-a`, with one commit for each (owner decision,
+    2026-11-17). The approval record names one branch, and the pre-push check compares each
+    pushed branch with `main`, so stacked branches for A2 and A3 fail it.
