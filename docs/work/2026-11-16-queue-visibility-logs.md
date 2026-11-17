@@ -60,3 +60,14 @@ sha256 owner key, never the email (owner decision 2026-11-16).
   every Unicode C* and Zl/Zp character in `benchmark` becomes `?` — not in the spec. (3) The
   outcome holder is `_endings` (the supervisor already had `_outcomes`). (4) Owner key stays in logs
   as decided; the reviewer's HMAC-pseudonym suggestion is declined (it breaks the join on-call needs).
+
+- Review round 1 (2026-11-17, HupBaHa on #1840):
+  1. `run created` logged the caller's Benchmark text, so spaces/`=` forged fields on the same
+     line and an `@` could log an email. Now `_benchmark_token`: the name itself when it is plain
+     (`[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}`), else `sha256:<16 hex>`. The branch's own control-
+     character tests now expect the token; new field-injection and email-shaped regressions.
+  2. The 300 s notice read `queue_snapshot()`, which admission refreshes before publishing, so
+     it could say `waiting=0` for the warned run. `QueueJobRunner.unclaimed_now()` reads the queue
+     now; the warner prefers it and falls back to the snapshot on a failed read. New regression
+     schedules one run through the real runner and expects `waiting=1`.
+  All three regressions RED on 0c7154ace, GREEN after. Main merged; engine and repo gates green.
