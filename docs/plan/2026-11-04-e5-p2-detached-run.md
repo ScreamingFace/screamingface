@@ -34,8 +34,8 @@ Paths are under `apps/screamingface-engine/src/screamingface_engine/`. Tests are
 Changes state derivation (spec R12); the rest is not reachable yet.
 
 - `runs/migrations/0003_detached_run.py`:
-  - Run: `detached`, `deadline_at`, `stopped_by`, `owner_email`, `driver_lease_until`,
-    `last_followed_at`, `context_sha256`, `context_bytes`.
+  - Run: `detached`, `deadline_at`, `stopped_by`, `owner_email` (sealed, spec R16),
+    `driver_lease_until`, `context_sha256`, `context_bytes`.
   - Candidate: `start` (JSON), `record` (JSON), `trace_id`.
   - `stopped_by = "canceled"` on every Run whose P1 cancel flag is set (spec R12).
   - New non-null columns carry a `db_default`, as 0002's did: the migrate Job runs while the P1 App
@@ -50,14 +50,15 @@ Changes state derivation (spec R12); the rest is not reachable yet.
   - New: `lease_run`, `release_run`, `due_runs` (with each Run's owed topics), `pending_starts`,
     `overdue`, `expiring`, `settle_startless` (spec R11) and `summary`, which is `get` without
     `start` and `record`.
-  - New: `followed(run_id, at)`, which never moves the stamp back, as `_touch` does not
-    (`store.py:340`), and `stop(run_id, reason, unless_followed_since=None)` (spec R9). An orphan
-    stop passes its cutoff and does nothing when the Run was followed after it (spec R10).
+  - New: `hold(run_id)`, which moves an attached Run's deadline to the grace from now, never back,
+    and `stop(run_id, reason, past_deadline_at=None)` (spec R9). A deadline stop passes the tick's
+    time and does nothing when a follower moved the deadline past it (spec R10, R11).
   - `expire` takes the Run ids to delete (spec R13).
   - `register` takes the owner's email, the Run id the route minted and the context's checksum and
     size (E4 stores the context under that id first). Its `client_key` check also compares the
-    starts, `detach` and the deadline. With `orphan_grace_s` at 0 it gives an attached Run the
-    default deadline (spec R10).
+    starts, `detach` and the deadline. It gives an attached Run a deadline `orphan_grace_s` after
+    its creation, or the detached default with `orphan_grace_s` at 0 (spec R10). It writes the email
+    sealed by `runs/sealing.py` (spec R16), and `start_plan` opens it.
   - `cancel` calls `stop`. `bind` refuses a Run that has a stop reason; `mark_scheduled` on one
     marks the Candidate and returns False.
   - `mark_scheduled` stamps the bind time; `bind` does not. `reconcile` skips `pending` Candidates
@@ -72,17 +73,22 @@ Changes state derivation (spec R12); the rest is not reachable yet.
   `run_outcome_grace_s` (120), `run_result_write_budget_s` (60), `run_events_poll_s` (1),
   `run_follow_stamp_s` (30; a shorter non-zero `orphan_grace_s` lowers it to half that grace, as
   `Settings.follow_stamp_s`), `run_context_max_bytes` (4 MiB), `run_request_max_bytes` (8 MiB),
-  `run_detached_deadline_s` (48 h), `run_detached_deadline_max_s` (7 d).
+  `run_detached_deadline_s` (48 h), `run_detached_deadline_max_s` (7 d), `run_email_key` (spec R16;
+  `app.py` refuses a hosted App with a Runs database and no key).
+- `pyproject.toml`: `cryptography==50.0.1`, aigateway's pin, for AES-256-GCM.
+- `deploy/helm`: a chart-owned Secret holding a generated `URL4_CLOUD_RUN_EMAIL_KEY`, kept across
+  upgrades by `lookup`, or `runs.emailKey.existingSecret`; on the App only.
 
 Tests, on SQLite and Postgres through `run_registry_support.py`:
 - The lease: one of two drivers takes it; an expired lease is taken; a stale holder's renewal fails.
 - `due_runs` returns live Runs with a free lease, Runs past `deadline_at`, and stopped Runs with
   stops still owed.
-- `followed` stamps the Run. `due_runs` returns an attached Run with starts whose stamp, or creation
-  when it has none, is older than the grace; never a detached Run or one without starts; none at all
-  with the grace at 0, when an attached Run is registered with the default deadline. A later
-  `followed` with an earlier time changes nothing. An orphan `stop` does nothing when the Run was
-  followed after its cutoff.
+- An attached Run is registered with a deadline `orphan_grace_s` after its creation, or the default
+  deadline with the grace at 0. `hold` moves it forward, never back, and leaves a detached or
+  stopped Run alone; a Run without starts has no deadline. A deadline `stop` does nothing when a
+  `hold` moved the deadline past its time.
+- The Run row holds the sealed email, never the email, and `start_plan` opens it; a value sealed
+  under another key reads as unreadable.
 - `settle_startless` settles `pending` Candidates that have no start, and no others.
 - `stop`: the first reason wins; a `pending` Candidate without a topic settles `stopped`; one with a
   topic becomes `scheduled` and is owed a stop; a later `bind` is refused; `orphaned` and `deadline`
@@ -225,11 +231,12 @@ From this commit the Engine starts Candidates itself.
     Candidate `failed` with its code, through the registry; `StoppedBeforeSchedule` is not one and
     is left to the stop. The driver renews its lease on each pass.
   - `RunDrivers`: takes the leases of `due_runs` at start and every `run_driver_tick_s`. Each tick
-    it stops Runs past their deadline and attached Runs nobody follows (R10, R11), settles startless
+    it stops Runs past their deadline, an attached one as `orphaned` and a detached one as
+    `deadline` (R10, R11), settles startless
     `pending` Candidates (R11), makes owed stops again (R9), and settles overdue Candidates from
     `job_runner.last_frame`: a terminal frame older than `run_outcome_grace_s` settles the
-    Candidate, through the registry, with its state and error code (R7). It makes no orphan stop
-    until `orphan_grace_s` of ticks have succeeded in a row since it started or since a tick last
+    Candidate, through the registry, with its state and error code (R7). It stops no attached Run at its
+    deadline until `orphan_grace_s` of ticks have succeeded in a row since it started or since a tick last
     failed (R10). It releases its leases at shutdown. `POST /runs` wakes it so a new Run starts at
     once.
 - `reaper.py`: skips a topic bound to a Run that has starts (spec R14).
@@ -250,9 +257,11 @@ Tests, on `_fakes.RecordingJobRunner`, `InMemoryCandidateOutcomeStream` and the 
 The restart and repeated-start tests are written before any driver code.
 - The spec §6 Driver, Repeats, Lease, Reaper, Stops, Attached and Detached rows.
 - An App restart: `install_runs` twice over one database resumes the Run with the same topics.
-- A Run with no starts (registered P1's way) is not driven and never orphaned, and its `pending`
+- A Run with no starts (registered P1's way) is not driven and has no deadline, and its `pending`
   Candidates settle on the tick.
-- No orphan stop is made within the grace after the driver starts or after a failed tick.
+- No attached Run is stopped within the grace after the driver starts or after a failed tick; a
+  detached Run past its deadline is.
+- A Candidate whose Run's email cannot be opened fails `owner_unreadable` and nothing starts.
 - A raw WebSocket that attaches to a driver-started topic and leaves does not get it reaped.
 - A Candidate whose run ended with no outcome settles from its terminal frame, with its error code,
   and frees its slot; one whose terminal frame is younger than the grace is left alone.
@@ -280,9 +289,10 @@ The restart and repeated-start tests are written before any driver code.
   checks, since `RunsRoute` covers HTTP routes only (`rest/runs_boundary.py:79`). It polls the
   registry's `summary` and reads each live Candidate's event stream itself, forwards a Candidate's
   events up to its terminal frame before `candidate.settled`, sends every frame of spec §4.2,
-  heartbeat included, and stamps the Run through `registry.followed` when a follower connects, every
-  `run_follow_stamp_s` and when it leaves. A registry failure does not close the socket; the route
-  polls again and stamps at its next success.
+  heartbeat included, and holds an attached Run through `registry.hold` when a follower connects,
+  every `run_follow_stamp_s` and when it leaves, on a task of its own beside the one that sends
+  frames. A registry failure does not close the socket; the route polls again and holds at its next
+  success.
 - `README.md` (`## Runs — /runs`), `CHANGELOG.md`, `DEPLOYMENT.md`.
 
 Tests, on the `_Engine` harness in `test_runs_routes.py`:
@@ -317,14 +327,16 @@ Paths are under `packages/screamingface/src/screamingface/`. Tests are under
 - New `_engine/run_follow.py`, sync and async: one WebSocket per Run; frames routed by index;
   reconnect inside the Engine's 120 s grace; the D15 message when the login has expired.
 - `_engine/transport.py`: `Url4CloudTransport` gains `follow_run(...)`, which registers the Run,
-  follows it and yields each Candidate's `_RunOutcome`, built from the Engine's record and result.
+  follows it and reports each Candidate's state, events and record, on the caller's thread.
   Removed from it: the per-Candidate token, WebSocket and start, the admission loop, the cancel
   sweep (`DELETE /runs/{id}` only).
 - `_core/ports.py` and `_evaluation/runner.py`: the runner uses `follow_run` when the transport has
-  it, with one follower and no pool. A transport that has `run()` alone, which is every test fake,
+  it, with one follower and no pool. When a Candidate succeeds it fetches and saves the result
+  through `save_result` for the live score; when the Run ends it builds the Report once
+  (`_evaluation/reattach.py`) from the settled records, reusing the saved results. A transport that has `run()` alone, which is every test fake,
   keeps the pool path until the Client port PR removes it, so this PR's diff holds the feature only.
 - `_engine/result_download.py` and `_results/codec.py`: a saved result is re-fetched from the result
-  route and checked against the record's checksum; the manifest stores the Run id and index; a
+  route and checked against the record's checksum, unless one with that checksum is already here; the manifest stores the Run id and index; a
   manifest from before P2 keeps its artifact ticket and path.
 - `_engine/contract.py`: a stateless `display_event` decodes each forwarded event for `on_event`
   and the progress output. `_RunState`, which built the outcome, stays unused until the Client
@@ -337,7 +349,9 @@ stream, the Run's reads and each Candidate's result:
 - The recorded runs from E2 give the same `_RunOutcome` through the Engine's record.
 - A Candidate waiting for a slot shows as waiting for Engine capacity, with no attempt number,
   until it starts.
-- 256 Candidates are followed without a thread each.
+- 256 Candidates are followed on the caller's thread, with no thread per Candidate or result.
+- The attached Report and `Run.report()` come from one build, which reuses the results the follow
+  saved and fetches none of them again.
 - On the follow path: results come back in declared order; a Candidate that settles first completes
   first; a failed Candidate's row shows while its sibling runs; an owner abort sends one `DELETE
   /runs/{id}` and the siblings read `stopped`.
@@ -355,8 +369,9 @@ stream, the Run's reads and each Candidate's result:
 
 - `client.py` and `_default_client.py`: `evaluate(..., detach=False, deadline=None)`.
 - `runs.py`: `Run.progress()` and `Run.refresh()` read `?view=summary`; `Run.wait()` follows and
-  returns the `Report`; `Run.report()` reads the local store, else builds the Report from the
-  Engine's context, records and results and saves it.
+  returns the `Report`; `Run.report()` builds the Report from the Engine's context and records as the
+  attached evaluation does, reusing the results saved here; a Run from before P2, or one the Engine
+  no longer has, is read from the local store.
 - README "Your runs", `CHANGELOG.md`, `tests/public_surface_snapshot.json`; notebooks are
   regenerated only if their output changes.
 

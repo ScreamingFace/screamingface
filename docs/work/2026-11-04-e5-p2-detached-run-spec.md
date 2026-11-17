@@ -39,6 +39,12 @@ The decisions are the spec's §3, summarised in its §10.
 - **Actual files:** `docs/spec/2026-11-04-e5-p2-detached-run.md`,
   `docs/plan/2026-11-04-e5-p2-detached-run.md`, this ledger, and the `docs/tasks/` mirrors for
   `OME-1837`, `OME-1838` and `OME-1883`.
-- **Commits:** one, on branch `OME-1883-e5-p2-detached-run-spec`.
+- **Commits:** the spec and plan, then one commit per later owner decision, on branch
+  `OME-1883-e5-p2-detached-run-spec`.
+- **Revision, 2026-11-18 (owner decision after the code reviews):** one stop rule, in which every
+  Run the Engine drives has a deadline and a follower holds an attached Run's (D10, R10, R11); the
+  owner's email sealed at rest under a key only the App holds (D8, R16); the Report built once,
+  when the Run ends, from the Engine's records, with the attached follow still fetching each result
+  as it settles for its live score (D14, §4.6). The plan's E1, E3, E4, C1 and C2 follow.
 - **Gates:** none run locally; docs only. CI runs the repo gates on the PR.
 - **Deviations:** none.
