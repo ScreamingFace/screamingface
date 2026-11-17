@@ -1,9 +1,9 @@
 ---
 ticket: OME-1925
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-11-16
-finished:
+finished: 2026-11-17
 ---
 
 # rss-peak-max — peak RSS never reads below current RSS
@@ -33,3 +33,4 @@ finished:
 - **Commits:** see PR.
 - **Gates:** see PR.
 - **Deviations:** none. A residual race remains only if RSS drops between a caller's own current read and the live re-read inside `peak_resident_bytes()`; not worth module state unless it shows up.
+- **Merged:** #1851 as 3691bd8bc on 2026-11-17 (HupBaHa approved; CI green). OME-1925 Done.

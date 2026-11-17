@@ -155,12 +155,9 @@ async def dispatch_result(node: Url4Node, target: str) -> FetchResult:
         if q is None:
             raise missing_intent(path, "q=<expression>")
         collection = path[len(node._eval_path) + 1 :]
-        # AIDEV-NOTE: `processor` is consumed here, not re-attached by
-        # `reassemble` — it selects this run's processor, not an expression param.
+        expression, processor = _eval_parts(q, params)
         text = await node._run_text(
-            reassemble(q, params),
-            self_collection=collection or None,
-            processor=params.get("processor"),
+            expression, self_collection=collection or None, processor=processor
         )
         return FetchResult(text, None)
     route = data_route(node, target, path)
@@ -171,6 +168,22 @@ async def dispatch_result(node: Url4Node, target: str) -> FetchResult:
         code=ErrorCode.ENDPOINT_NOT_FOUND,
         permanent=True,
     )
+
+
+def eval_expression(node: Url4Node, target: str) -> tuple[str, str | None] | None:
+    """``(expression, processor)`` the eval path runs for ``target`` (the precheck's port).
+
+    INVARIANT (OME-1811 r10): exactly :func:`dispatch_result`'s routing and reassembly."""
+    path, sep, query = target.partition("?")
+    if path in node._endpoints or not node._is_eval_path(path) or not sep:
+        return None
+    params, q = extract_expression_params(query)
+    return None if q is None else _eval_parts(q, params)
+
+
+def _eval_parts(q: str, params: Mapping[str, str]) -> tuple[str, str | None]:
+    # AIDEV-NOTE: `processor` selects this run's processor; `reassemble` never re-attaches it.
+    return reassemble(q, params), params.get("processor")
 
 
 async def dispatch(node: Url4Node, target: str) -> str:
