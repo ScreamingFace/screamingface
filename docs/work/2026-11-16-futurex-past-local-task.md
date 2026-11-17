@@ -123,6 +123,13 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
   - A malformed number (`e3`) reaches the judge instead of raising.
   - `number_score` returns 0 for a prediction one σ or more away, or a non-finite one, instead of
     overflowing on `1e200`.
+- **Study provenance** (from a later copy of the contributor's study package: its `DATASETS.md`,
+  Hugging Face download records and selection record):
+  - The study downloaded FutureX-Past at `3c2e3969` on 2026-08-08 01:29 UTC, with file sha256
+    `55ecf4f1…`. The pin had been inferred from content; it is now confirmed.
+  - The README now states how the study chose its 100 questions: a 2026-02-16 training cutoff,
+    seeds 20260808 and 20260815, every model answered, no purely numeric key. Only the README
+    changed, so the fingerprints do not move.
 - **Gates (final head):**
   - `screamingface-engine`: ruff, format, pyright (extra-less, as CI runs it), layering, and
     pytest are green: 9,357 passed, 96.35% coverage. The append-only check against `origin/main`

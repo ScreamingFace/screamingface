@@ -142,8 +142,9 @@ licence, and `test_local_task_futurex_past_study.py` pins each sha256.
 - Headline: the study's `tier_weighted`, which applies the 10/20/30/40 weights over the levels
   present.
 
-**Replication.** Commit `3c2e3969` (2026-08-02) is the latest release holding all 100 of the
-study's questions, with the study's exact keys; a later release removed one. The study's
+**Replication.** The study downloaded commit `3c2e3969` (2026-08-02) on 2026-08-08 01:29 UTC.
+Its `huggingface_hub` download record gives that commit, and the file sha256 `55ecf4f1…`, which
+equals this Benchmark's pin. A later release removed one of the study's questions. The study's
 questions are these Case positions (1-based, file order), to pass as `cases=[...]`:
 
 ```
@@ -161,6 +162,22 @@ reproduces the study's reported score of all 27 models and of the fused-medoids 
 uninterpretable cells). It matches to 1e-12: Python 3.11 and 3.12 round `statistics.fmean`'s last
 bit differently, and the study's kit gives our exact values under 3.12. The fixtures were generated
 from the study package by `tests/fixtures/futurex_past_study/make_replication_fixture.py`.
+
+**How the study chose its 100 questions** (from the study's own `DATASETS.md` and selection record):
+
+- **Training cutoff.** Only questions resolving on or after 2026-02-16 were eligible (964 of the
+  1,118), so the models could not have seen the outcome in training.
+- **First draw.** 110 questions, seed 20260808.
+- **Final draw.** 100 of those, seed 20260815, balanced by level. Only questions that all 25 study
+  models answered, and whose answer is not purely a number, were eligible.
+- **Why no numbers.** The paper's numeric score needs a standard deviation the release does not
+  give, so an earlier draw that held 3 numeric answers was replaced.
+- **The result.** 28 questions at level 1, 47 at level 2, 16 at level 3 and 9 at level 4. Every
+  answer is option letters or names.
+
+None of these filters is applied to `futurex_past`, which serves all 2,036 questions. To score a
+model only on questions it cannot have seen, filter the Cases by `end_time` against its training
+cutoff.
 
 **To replicate a run, sample as the study did.** The study called every model at temperature 0
 and, when a reply was cut off, called again with a larger token cap. The Benchmark does not set
