@@ -30,6 +30,10 @@ Reading, in execution order:
        would make the draft win. The final answer is the last one, as inspect's prompt asks.
     3. still none → peel the next layer, at most ``MAX_LAYERS`` in all, then give up with
        inspect's own "no answer".
+    4. a peeled reading that leaves out an option letter the reply names after its last
+       `ANSWER:` is a hedge: `ANSWER: (A)/(B)` peels to `ANSWER: A/B`, which inspect's fallback
+       reads as A, so it is read as no answer instead. INVARIANT: grading never rewards a
+       hedge. inspect's own reading of a reply (stage 1) is never second-guessed.
 
 Worked example, key B: `ANSWER: $\\boxed{B}$` → inspect reads nothing (its lax pattern matches
 only the space before `$`) → layer 1 gives `ANSWER: \\boxed{B}`, still nothing → layer 2 gives
@@ -45,6 +49,7 @@ from __future__ import annotations
 import copy
 import re
 
+from inspect_ai._util.answer import answer_character
 from inspect_ai.model import ModelOutput
 from inspect_ai.scorer import CORRECT, Score, Scorer, Target
 from inspect_ai.solver import TaskState
@@ -80,6 +85,9 @@ _WRAPPERS: tuple[re.Pattern[str], ...] = (
 
 #: A single letter, number or word: what a later answer in a wrapped list holds (`[B]`).
 _ONE_WORD: re.Pattern[str] = re.compile(r"[A-Za-z\d]+")
+
+#: A capital letter standing alone, as a reply names an option: the B in `(B)`, `$B$`, `A/B`.
+_LONE_LETTER: re.Pattern[str] = re.compile(r"(?<![A-Za-z\d])[A-Z](?![A-Za-z\d])")
 
 
 def _label(match: re.Match[str]) -> str:
@@ -177,8 +185,30 @@ def parse_wrapped_answers(state: TaskState, multiple_correct: bool) -> set[str]:
     for reply in peeled_copies(state.output.completion):
         answers = parse_answers(_with_reply(state, reply), multiple_correct)
         if answers:
-            return answers
+            # Stage 4 — a hedge check on the peeled reading only (inspect's own is kept above).
+            return set() if _named_letters(state) - answers else answers
     return answers
+
+
+def _named_letters(state: TaskState) -> set[str]:
+    """Every option letter the reply names, standing alone, after its last `ANSWER:`.
+
+    WHY: inspect's fallback pattern stops at the first character that is not a letter, digit,
+    space or comma, so the peeled hedge `ANSWER: A/B` (from `ANSWER: (A)/(B)`) reads as A, and
+    so do `ANSWER: (A) - no wait, (B)` and letters on separate lines. A peeled reading that
+    leaves out an option letter the reply names is a hedge, read as no answer, as on main.
+    Only capitals count, so the article "a" never does. The check runs only on a peeled
+    reading, a reply main scored 0, so a wrong refusal can never cost a grade main gave.
+    """
+
+    labels: list[re.Match[str]] = list(_LABEL.finditer(state.output.completion))
+    if not labels:
+        return set()
+    options: set[str] = {answer_character(index) for index in range(len(state.choices))}
+    named: set[str] = {
+        found.group(0) for found in _LONE_LETTER.finditer(state.output.completion, labels[-1].end())
+    }
+    return named & options
 
 
 async def peeled_score(scorer: Scorer, state: TaskState, target: Target) -> Score | None:

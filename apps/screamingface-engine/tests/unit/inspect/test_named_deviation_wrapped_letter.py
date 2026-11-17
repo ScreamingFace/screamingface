@@ -148,6 +148,13 @@ _WRAPPED_HEDGES: list[str] = [
     "ANSWER: $A$, $B$",
     "ANSWER: (A), [B]",
     "ANSWER: $B$ (C)",
+    # Peeled, these read as A, because inspect's fallback stops at `/`, `-` or a line break:
+    # the hedge check refuses a peeled reading that leaves out a letter the reply names.
+    "ANSWER: (A)/(B)",
+    "ANSWER: (A) - no wait, (B)",
+    "ANSWER:\n(A)\n(B)",
+    # Accepted cost: a letter named outside the answer counts too. Main scored this 0 as well.
+    "ANSWER: **B** (not A)",
 ]
 
 
@@ -158,6 +165,20 @@ def test_a_hedge_across_wrapped_options_is_never_read_as_its_first_letter(reply:
 
     assert parse_answers(_state(reply), multiple_correct=False) == set()
     assert parse_wrapped_answers(_state(reply), multiple_correct=False) == set()
+
+
+def test_a_wrapped_hedge_is_refused_with_several_answers_allowed_too() -> None:
+    """With several answers allowed, `(A)/(B)` would read as A alone, a wrong set either way."""
+
+    assert parse_wrapped_answers(_state("ANSWER: (A)/(B)"), multiple_correct=True) == set()
+
+
+def test_inspect_own_reading_of_a_bare_hedge_is_kept() -> None:
+    """WHY: the hedge check runs only on a peeled reading. inspect reads the bare `ANSWER: A/B`
+    as A, and that reading is inspect's, kept as is, so no grade inspect gives today moves."""
+
+    assert parse_answers(_state("ANSWER: A/B"), multiple_correct=False) == {"A"}
+    assert parse_wrapped_answers(_state("ANSWER: A/B"), multiple_correct=False) == {"A"}
 
 
 #: A draft answer at the start of a line, then the final answer mid-line, both wrapped. inspect
