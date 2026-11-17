@@ -52,7 +52,7 @@ from screamingface_engine.request_scope import (
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
 from screamingface_engine.rest.interest import SubscriberGate
-from screamingface_engine.rest.runs_boundary import PRIVATE_HEADERS_DOC
+from screamingface_engine.rest.runs_boundary import PRIVATE_HEADERS_DOC, request_caller
 from screamingface_engine.rest.runs_start import (
     StartBinding,
     bind_start,
@@ -354,6 +354,11 @@ async def _admit_named_models(
         )
 
 
+def _dash(value: object | None) -> str:
+    """A log field's value, or `-` when unknown (OME-1924: never a blank or `None`)."""
+    return "-" if value is None else str(value)
+
+
 async def _schedule(
     deps: _Deps,
     topic: str,
@@ -369,6 +374,9 @@ async def _schedule(
     capture: bool = False,
     replay_frozen_copy: str | None = None,
     enqueued_at: datetime | None = None,
+    owner: str = "anonymous",
+    run_id: str | None = None,
+    candidate: int | None = None,
 ) -> None:
     """Schedule the run on the job runner; raise 409 if the runner reports it already exists.
 
@@ -404,11 +412,17 @@ async def _schedule(
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
+        # FEATURE: queue visibility in the logs (OME-1924). INVARIANT: `owner` is the sha256
+        # owner key (or `anonymous`), never the email; `run`/`candidate` join this line to the
+        # `run created` line of `POST /runs`, `-` for a start that named no Run.
         _logger.info(
-            "run scheduled topic=%s url4_chars=%d cache=%s",
+            "run scheduled topic=%s url4_chars=%d cache=%s owner=%s run=%s candidate=%s",
             topic,
             len(url4),
             cache,
+            owner,
+            _dash(run_id),
+            _dash(candidate),
         )
     except StoppedBeforeSchedule as exc:
         # Before the "scheduled" log and the accept span's enqueue: nothing was scheduled. Also
@@ -939,6 +953,9 @@ async def start_run(
                     capture=capture,
                     replay_frozen_copy=replay_frozen_copy,
                     enqueued_at=binding.bound_at,
+                    owner=request_caller(request) or "anonymous",
+                    run_id=binding.run_id,
+                    candidate=binding.candidate,
                 )
                 # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
                 # hold is not accept latency, and counting it would hide the queue-wait gap. So it

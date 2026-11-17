@@ -38,15 +38,21 @@ single `AudienceListener` slot stays the reaper's: this module POLLS `has_subscr
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from screamingface_engine import notices
 from screamingface_engine.adapters.jetstream import QueueReadError
 from screamingface_engine.reaper import tick_for_grace
+from screamingface_engine.runner_demand import RunnerDemand
 from url4.streaming.interfaces import JobStatus
 from url4.streaming.protocol import OutboundFrame
 
 _logger = logging.getLogger(__name__)
+
+# `RunnerDemandSampler.fresh`: (demand, sampled_at, age_s) of a fresh sample, or None.
+type DemandReader = Callable[[], tuple[RunnerDemand, datetime, float] | None]
 
 UNCLAIMED_MESSAGE = "the runner service is at capacity; your run is queued and has not started yet"
 """The user-facing notice body. INVARIANT: no internals — see the module docstring."""
@@ -87,10 +93,15 @@ class UnclaimedRunWarner:
         *,
         grace_s: float,
         frame_clock: notices.Clock,
+        demand: DemandReader | None = None,
     ) -> None:
         self._runs = runs
         self._audience = audience
         self._grace_s = grace_s
+        # FEATURE: queue visibility in the logs (OME-1924). Optional on purpose: the warner's
+        # policy tests and an App without the demand sampler run without it, and an unknown
+        # count is logged `-`, never a made-up 0.
+        self._demand = demand
         # WHY the App's clock (`create_app(clock=...)`): the notice's `time` is a wire value,
         # stamped by the same clock every other App-built frame uses.
         self._frame_clock = frame_clock
@@ -140,11 +151,56 @@ class UnclaimedRunWarner:
             return
         # AIDEV-NOTE: accepted race — a run claimed between the read above and this notify gets
         # the notice just before its StartedEvent. The window is one broker round trip.
+        waiting, running = await self._counts()
+        attributes: dict[str, str | int | float | bool | None] = {"run.wait_s": int(age)}
+        if waiting is not None:
+            # The user's frame: how many runs wait fleet-wide — a count, not a position, and
+            # not a word of internals (the TEXT stays `UNCLAIMED_MESSAGE`, see the invariant).
+            attributes["run.queue_waiting"] = waiting
         self._audience.notify(
-            topic,
-            notices.warn(topic, self._frame_clock, UNCLAIMED_MESSAGE, {"run.wait_s": int(age)}),
+            topic, notices.warn(topic, self._frame_clock, UNCLAIMED_MESSAGE, attributes)
         )
-        _logger.info("unclaimed run warned topic=%s wait_s=%.0f", topic, age)
+        _logger.info(
+            "unclaimed run warned topic=%s wait_s=%.0f waiting=%s running=%s",
+            topic,
+            age,
+            "-" if waiting is None else waiting,
+            "-" if running is None else running,
+        )
+
+    async def _counts(self) -> tuple[int | None, int | None]:
+        """(runs waiting unclaimed, runs executing) as far as this App can see; None = unknown.
+
+        WHY no slot total: `slots_total` is a worker-side gauge the App never sees, and a
+        per-bucket cap is not a fleet count — so the line says what is true and nothing more.
+        WHY a fresh read first (`unclaimed_now`): the cached `queue_snapshot` depth can omit the
+        warned run itself and say `waiting=0` (HupBaHa, #1840). The snapshot stays the fallback
+        for a runner without the fresh read.
+        """
+        fresh = getattr(self._runs, "unclaimed_now", None)
+        if fresh is not None:
+            # INVARIANT (HupBaHa, #1840 round 2): a runner with the fresh read never falls back
+            # to the snapshot, whose pre-publish depth can be the stale 0. A failed fresh read
+            # reports `-`, not a guess.
+            waiting = await self._fresh_waiting(fresh)
+        else:
+            reader = getattr(self._runs, "queue_snapshot", None)
+            waiting = None if reader is None else reader()[0]
+        fresh = self._demand() if self._demand is not None else None
+        running = None if fresh is None else fresh[0].running
+        return waiting, running
+
+    async def _fresh_waiting(self, fresh: Callable[[], Awaitable[int]]) -> int | None:
+        """The runner's fresh unclaimed count, or None when the read fails.
+
+        WHY catch everything: this is a diagnostic on a notice already decided; a broker hiccup
+        here must never stop the notice, it only turns the count into `-`.
+        """
+        try:
+            return await fresh()
+        except Exception:
+            _logger.debug("unclaimed-run check: fresh queue depth unreadable", exc_info=True)
+            return None
 
 
 __all__ = ["UNCLAIMED_MESSAGE", "NoticeAudience", "QueuedRuns", "UnclaimedRunWarner"]
