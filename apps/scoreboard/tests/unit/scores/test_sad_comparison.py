@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from decimal import Decimal
 from pathlib import Path
 
 import httpx
@@ -57,29 +58,39 @@ async def test_published_sad_import_round_trips_without_duplicate_rows(tortoise_
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "override",
+    "override,score,match",
     [
-        {"evaluated_case_count": 248},
-        {"benchmark_revision": "another-revision"},
-        {"question_set_sha256": "0" * 64},
-        {"grading_id": "ordinary-correct-incorrect"},
-        {
-            "original_score": 196,
-            "original_unit": "correct_count",
-            "conversion": "count_to_fraction",
-        },
+        ({"evaluated_case_count": 248}, None, "do not match the board"),
+        ({"benchmark_revision": "another-revision"}, None, "do not match the board"),
+        ({"question_set_sha256": "0" * 64}, None, "do not match the board"),
+        ({"grading_id": "ordinary-correct-incorrect"}, None, "do not match the board"),
+        (
+            {
+                "original_score": 196,
+                "original_unit": "correct_count",
+                "conversion": "count_to_fraction",
+            },
+            float(Decimal(196) / Decimal(249)),
+            "count conversion",
+        ),
     ],
 )
 async def test_sad_incompatible_second_row_rolls_back_batch(
-    tortoise_db: None, override: dict
+    tortoise_db: None, override: dict, score: float | None, match: str
 ) -> None:
     await _board()
     rows = _rows()
     metadata = deepcopy(rows[1].metadata)
     assert metadata is not None
     metadata["comparison"].update(override)
-    rows[1] = rows[1].model_copy(update={"metadata": metadata})
-    with pytest.raises(ValueError):
+    update: dict = {"metadata": metadata}
+    if score is not None:
+        # Without this, the row's declared score (0.857) mismatches the
+        # converted value regardless of the guard under test, so the raise
+        # below would not prove the count-conversion guard actually fired.
+        update["score"] = score
+    rows[1] = rows[1].model_copy(update=update)
+    with pytest.raises(ValueError, match=match):
         await import_baselines(rows)
     assert await Baseline.all().count() == 0
 
@@ -88,9 +99,9 @@ async def test_sad_incompatible_second_row_rolls_back_batch(
 async def test_sad_does_not_accept_plain_accuracy_or_stale_board_scope(tortoise_db: None) -> None:
     board = await _board()
     row = _rows()[0].model_copy(update={"metric_name": "accuracy"})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="do not match the board"):
         await import_baselines([row])
     await Benchmark.filter(id=board.id).update(revision="changed")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="reviewed profile matching the current board scope"):
         await import_baselines(_rows())
     assert await Baseline.all().count() == 0

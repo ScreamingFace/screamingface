@@ -145,8 +145,14 @@ reference-paper column. They retain the reported precision: Claude 3 Haiku
 | Coverage | The original Inspect report explicitly says the runs used the complete dataset for each task, and lists 249 samples for `facts_llms`. This is publisher evidence; historical run logs were not independently audited. |
 | Grading | `scorer.py` is byte-identical at report commit `5609f775bf0e84c12d045319d69a9678080ac1d9` and `v0.20.0`: SHA-256 `bd8a7856254c15e54b6baa184656a0a0c290653be447fa72fe09c0c46e9c1db1`. Dataset conversion and solver files are also identical. The facts task factory differs only in version metadata. |
 | Metric | SAD mean score: right = 1, wrong = 0, invalid format = chance credit (0.5 for this two-choice task). Use `metric_name: sad_score`, fraction units and identity conversion. Plain correct-count conversion is deliberately rejected. |
-| Prompts | Haiku used `plain`; Opus used `sp` (situational). Both used temperature 0, no answer assist and shuffled choices. The source seed is unspecified; our Engine pins seed 7. Record this as a permitted prompt/presentation difference, not identical rendered cases. |
+| Prompts | Haiku used `plain`; Opus used `sp` (situational). Both used temperature 0, no answer assist and shuffled choices. The source seed is unspecified; our Engine pins seed 7. Record this as a permitted prompt/presentation difference, not identical rendered cases. This board's own replay carries two further, unverified deviations from the source harness: the system prompt reaches the Candidate as leading user-turn text, not a system turn (D1), and Task replay does not apply temperature 0 (D2). Both are open and possibly score-changing. |
 | Model identity | The report names Claude 3 Haiku and Claude 3 Opus but not exact historical snapshots. Preserve those names without inventing provider model IDs. |
+
+D1 and D2 are the two open deviations in the Engine's
+[fidelity record](../../screamingface-engine/docs/benchmarks-fidelity/inspect-sad_facts_llms.md)
+for this benchmark (audited 2026-11-09, verdict `unverified`). Only a paired
+Candidate run bounds either one; until then this board's results rank beside
+inspect_evals' on a prompt/temperature difference the record does not yet bound.
 
 The profile's question-set digest identifies the source archive before answer
 shuffling. It is not the Engine's rendered-case digest. Eligibility does not claim
