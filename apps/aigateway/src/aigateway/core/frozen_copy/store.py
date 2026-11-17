@@ -121,8 +121,9 @@ class FrozenCopyStore:
     ) -> FrozenCopy | None:
         """Seal the owner's copy; ``None`` for an unknown copy or a non-owner (no leak).
 
-        Q28: the first seal stores ``provenance``. A repeat seal returns the sealed copy unchanged,
-        so it keeps the first provenance.
+        Q28: the first seal stores ``provenance``. A copy that is not open (a repeat seal, or a copy
+        the sweep made ``abandoned`` or ``expired``) is returned unchanged, so a sealed copy keeps
+        the first provenance.
         """
         async with in_transaction():
             copy = (
@@ -132,7 +133,7 @@ class FrozenCopyStore:
             )
             if copy is None:
                 return None
-            if copy.status == STATUS_SEALED:
+            if copy.status != STATUS_OPEN:
                 return copy
             copy.entries = await FrozenCopyEntry.filter(frozen_copy_id=copy.id).count()
             copy.provenance = provenance
