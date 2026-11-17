@@ -78,8 +78,10 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
   - `c8dadab6c` adds the Benchmarks.
   - `e463be2e9` applies the review and first-audit fixes.
   - The next commit fixes the second audit's two findings.
-  - The last commit adds the Fidelity Records, written from the third audit pass at
-    `abb05ea9b`. `futurex_past` is `not-comparable`, by design (judge model; closed-book), with
+  - A Fidelity Records commit, then a Codex-review fix. The branch was then rebased onto
+    `origin/main` `cc5cfd36d` and re-authored as Yiming Liao <yliao1@umbc.edu>, which changed
+    every hash. A last commit refreshes the records from a fourth audit pass at `55d7f087f`.
+  - The records: `futurex_past` is `not-comparable`, by design (judge model; closed-book), with
     every deviation declared. `futurex_past_study` is `unverified`: grading is the study's to
     the last bit, and only the declared sampling difference stays open. `just engine
     fidelity-check` reports both as fresh.
