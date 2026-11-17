@@ -39,10 +39,12 @@ reader and nothing to check.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
+from dataclasses import dataclass
 from typing import Protocol
 from weakref import WeakKeyDictionary
 
@@ -51,9 +53,13 @@ from screamingface_engine.benchmarks.candidate_input import (
     parse_candidate_input,
 )
 from screamingface_engine.benchmarks.contract import CANDIDATE_BINDING
-from screamingface_engine.benchmarks.expression_routes import local_route_paths
+from screamingface_engine.benchmarks.expression_routes import (
+    embedded_expressions,
+    local_route_paths,
+)
+from url4 import Attachment
 from url4.core.errors import ErrorCode, ResolutionError, Url4Error
-from url4.core.nodes import Expression, Source, Text
+from url4.core.nodes import Binding, Expression, Node, RelExpr, Source, Text, walk
 from url4.core.parser import build
 from url4.peer.server import Url4Node
 
@@ -74,6 +80,22 @@ it through :func:`cases_need_modalities`, so a new media format is one row here.
 is always a PDF (`candidate_input.py` refuses any other mime); Office formats become text
 before a Case is written (OME-1550), so they are never a modality.
 """
+
+
+def attachment_modality(media_type: str) -> str | None:
+    """The input type a url4 run file of ``media_type`` needs, or ``None`` for text.
+
+    WHY by media type: a url4 attachment carries no content-part type; its frozen media type is
+    what the connector turns into a part (`world/attachment_parts.py`), ``image/*`` an image part
+    and ``application/pdf`` a file part, so this is the same table seen from the url4 side.
+    """
+
+    bare = media_type.split(";", 1)[0].strip().lower()
+    if bare.startswith("image/"):
+        return IMAGE_MODALITY
+    if bare == "application/pdf":
+        return PDF_MODALITY
+    return None
 
 
 class ModelSightReader(Protocol):
@@ -103,6 +125,18 @@ _READERS: WeakKeyDictionary[Url4Node, ModelSightReader] = WeakKeyDictionary()
 _RUN_EXPRESSION: ContextVar[str | None] = ContextVar("picture_admission_run", default=None)
 
 
+@dataclass
+class _RunAdmission:
+    """The run's one admission of its files: the in-flight or finished check, shared."""
+
+    check: asyncio.Future[None] | None = None
+
+
+_RUN_ADMISSION: ContextVar[_RunAdmission | None] = ContextVar(
+    "picture_admission_run_files", default=None
+)
+
+
 def register_model_sight(node: Url4Node, reader: ModelSightReader) -> None:
     """Let ``node``'s Cases routes read model input types through ``reader``."""
 
@@ -114,9 +148,13 @@ def run_expression_scope(url4: str) -> Iterator[None]:
     """Bind the run's own url4 while it runs, so its Cases route can read the Candidate."""
 
     token = _RUN_EXPRESSION.set(url4)
+    # WHY a fresh holder per run: url4's member tasks copy this context, so they all see the
+    # SAME holder object, and a finished check (or its failure) dies with the run.
+    admission = _RUN_ADMISSION.set(_RunAdmission())
     try:
         yield
     finally:
+        _RUN_ADMISSION.reset(admission)
         _RUN_EXPRESSION.reset(token)
 
 
@@ -233,13 +271,29 @@ _REFUSALS: Mapping[str, tuple[str, str]] = {
 }
 """Each modality's log line and refusal sentence; the picture sentence is OME-1548's, verbatim."""
 
+_RUN_REFUSALS: Mapping[str, tuple[str, str]] = {
+    IMAGE_MODALITY: (
+        "url4 picture run refused text_only_models=%s",
+        "This run's attachments include pictures, and these models cannot take images: "
+        "{names}. The gateway reports them as text-only; a model it knows nothing about "
+        "counts as text-only too. Nothing was sent to a model.",
+    ),
+    PDF_MODALITY: (
+        "url4 pdf run refused models_without_pdf=%s",
+        "This run's attachments include PDFs, and these models cannot take PDFs: {names}. The "
+        "gateway does not list pdf among their input types; a model it knows nothing about "
+        "cannot take PDFs either. Nothing was sent to a model.",
+    ),
+}
+"""The same refusals for a url4 run's own files (OME-1809): there are no Cases to name."""
 
-def _refusal(modality: str, names: str) -> str:
-    log_line, sentence = _REFUSALS.get(
+
+def _refusal(modality: str, names: str, table: Mapping[str, tuple[str, str]] = _REFUSALS) -> str:
+    log_line, sentence = table.get(
         modality,
         (
             f"{modality} run refused models_without_{modality}=%s",
-            f"This Benchmark's Cases need {modality} input, and these models do not list "
+            f"This run needs {modality} input, and these models do not list "
             f"{modality} among their input types: {{names}}.",
         ),
     )
@@ -284,11 +338,178 @@ async def refuse_blind_candidate(node: Url4Node, *, needs: frozenset[str]) -> No
         raise ResolutionError(" ".join(reasons), code=ErrorCode.INTENT_ERROR, permanent=True)
 
 
+async def admit_run_attachments(
+    reader: ModelSightReader,
+    attachments: Sequence[Attachment],
+    *,
+    default_route: str | None,
+    private_routes: frozenset[str] = frozenset(),
+) -> None:
+    """Refuse a url4 run whose files reach a model that cannot take them, before any call.
+
+    FEATURE (OME-1809, spec 2026-11-09 §3): the Cases desk above, for a url4 run's OWN files.
+    Every model call of the run awaits one shared check, so the first call admits the run and
+    the gateway's model list is read once.
+
+    Stages: (1) only a Runner run binds a holder; (2) a run whose files are all text stops;
+    (3) the model routes the run can reach (:func:`run_model_routes`); (4) one list read, one
+    refusal naming every gap.
+
+    Raises:
+        ResolutionError: ``intent_error`` (permanent) naming each model and what it lacks; or the
+            reader's own retryable error when the model list cannot be read (fail closed).
+    """
+
+    holder: _RunAdmission | None = _RUN_ADMISSION.get()
+    url4: str | None = _RUN_EXPRESSION.get()
+    if holder is None or url4 is None:
+        return
+    needs = frozenset(
+        modality
+        for attachment in attachments
+        if (modality := attachment_modality(attachment.media_type)) is not None
+    )
+    if not needs:
+        return
+    if holder.check is None:
+        # INVARIANT: created before this coroutine's first await, so a sibling call scheduled
+        # in the same run finds it and never starts a second read of the model list.
+        holder.check = asyncio.ensure_future(
+            _check_run(
+                reader, url4, needs, default_route=default_route, private_routes=private_routes
+            )
+        )
+    # WHY shield: one cancelled member must not cancel the check its siblings await.
+    await asyncio.shield(holder.check)
+
+
+async def _check_run(
+    reader: ModelSightReader,
+    url4: str,
+    needs: frozenset[str],
+    *,
+    default_route: str | None,
+    private_routes: frozenset[str],
+) -> None:
+    model_ids: Mapping[str, str] = reader.model_routes()
+    routes = run_model_routes(url4, frozenset(model_ids), default_route=default_route)
+    if not routes:
+        return
+    listed: Mapping[str, Sequence[str]] = await reader.input_modalities()
+    # INVARIANT (OME-1770): a non-public route the caller's list does not carry is one the
+    # caller may not know exists. Naming it would confirm it; it is left to its own call, which
+    # answers url4's undeclared-route error (`world/connector.py` `_undeclared_route`).
+    models = [
+        model_ids[route]
+        for route in routes
+        if route not in private_routes or model_ids[route] in listed
+    ]
+    reasons: list[str] = [
+        _refusal(modality, ", ".join(lacking), _RUN_REFUSALS)
+        for modality in sorted(needs)
+        if (lacking := models_lacking(models, listed, modality))
+    ]
+    if reasons:
+        raise ResolutionError(" ".join(reasons), code=ErrorCode.INTENT_ERROR, permanent=True)
+
+
+def run_model_routes(
+    url4: str, model_routes: frozenset[str], *, default_route: str | None
+) -> frozenset[str]:
+    """The model routes a url4 run's files can reach.
+
+    - Every literal model route the url4 names, as it will execute.
+    - Plus the routes a linked Candidate (the inert ``candidate`` text source) names, which the
+      outer url4 only reaches through ``$candidate``.
+    - Plus the node's default processor when some group fans out and reduces on it
+      (:func:`_reduces_on_default`); a group that merges locally sends it nothing.
+
+    INVARIANT (best-effort, as :func:`local_route_paths`): an unreadable url4 names nothing and
+    fails on its own stream; a route only chosen at run time is left to the gateway backstop
+    (owner Q3, 2026-11-09).
+    """
+
+    # WHY the union (owner decision 2026-11-17, HupBaHa's #1853 review): a Benchmark run is linked
+    # client-side, so a source named ``candidate`` is not a trust marker; anyone can name one.
+    # Checking only it let a blind model called outside it receive the run's files. Every
+    # literal route the url4 executes is checked as well. Cost: a protocol that names a
+    # text-only judge as a literal route refuses a file-carrying run, although judges never
+    # receive files (spec D6).
+    found: set[str] = set(candidate_model_routes(url4, model_routes))
+    found |= local_route_paths(url4) & model_routes
+    recipes = [*_candidate_recipes(url4), url4]
+    if default_route in model_routes and any(_reduces_on_default(r) for r in recipes):
+        found.add(default_route)
+    return frozenset(found)
+
+
+def _candidate_recipes(url4: str) -> list[str]:
+    try:
+        root = build(url4)
+    except (Url4Error, RecursionError):
+        return []
+    if not isinstance(root, Expression):
+        return []
+    return [
+        source.value.value
+        for source in root.sources
+        if isinstance(source, Source)
+        and source.name == CANDIDATE_BINDING
+        and isinstance(source.value, Text)
+    ]
+
+
+def _reduces_on_default(url4: str) -> bool:
+    """Whether some group in ``url4`` fans out and reduces on the node's default processor.
+
+    Mirrors url4's lowering (``dag/_wiring.py`` ``_reduce_graph``): a parenthesised group whose
+    every source is a relative-expression call, at least one contributing (weight not 0.0),
+    fans out; its reduce is fetched from the default processor. Any other group merges its
+    sources locally (``default_process``) and calls no model.
+    """
+
+    try:
+        pending: list[Node] = [build(url4)]
+    except (Url4Error, RecursionError):
+        return False
+    while pending:
+        for child in walk(pending.pop()):
+            if isinstance(child, Expression) and _fans_out(child):
+                return True
+            pending.extend(embedded_expressions(child, as_executed=True))
+    return False
+
+
+def _fans_out(group: Expression) -> bool:
+    if group.intent is None or not group.sources:
+        return False
+    calls = [_call_weight(source) for source in group.sources]
+    return all(call is not None for call in calls) and any(
+        call is not None and call[0] != 0.0 for call in calls
+    )
+
+
+def _call_weight(source: Node) -> tuple[object] | None:
+    """``(weight,)`` when ``source`` is a relative-expression call url4 can fan out, else None."""
+
+    weight: object = None
+    value: Node = source
+    if isinstance(value, Source):
+        if value.expand:  # an expansion changes the source count: never a fan-out
+            return None
+        weight, value = value.weight, value.value
+    if isinstance(value, Binding):
+        value = value.value
+    return (weight,) if isinstance(value, RelExpr) else None
+
+
 __all__ = [
     "IMAGE_MODALITY",
     "PART_MODALITIES",
     "PDF_MODALITY",
     "ModelSightReader",
+    "admit_run_attachments",
+    "attachment_modality",
     "candidate_model_routes",
     "cases_need_modalities",
     "cases_need_pictures",
@@ -297,5 +518,6 @@ __all__ = [
     "refuse_blind_models",
     "register_model_sight",
     "run_expression_scope",
+    "run_model_routes",
     "text_only_models",
 ]

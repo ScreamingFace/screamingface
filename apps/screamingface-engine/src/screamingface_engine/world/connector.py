@@ -32,7 +32,10 @@ from screamingface_engine.benchmarks.case_context import (
     current_case_key,
 )
 from screamingface_engine.benchmarks.failure_classes import logprobs_unsupported
-from screamingface_engine.benchmarks.picture_admission import register_model_sight
+from screamingface_engine.benchmarks.picture_admission import (
+    admit_run_attachments,
+    register_model_sight,
+)
 from screamingface_engine.candidate_scope import in_candidate_invocation
 from screamingface_engine.capture_outcomes import (
     CAPTURE_FIELD,
@@ -127,6 +130,7 @@ from screamingface_engine.world.web_tools import (
     tavily_key,
     truncate_tool_result,
 )
+from url4 import Attachment
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.dag import GuardRetry, current_guard_retry
 from url4.io.static import StaticIOLayer
@@ -447,6 +451,27 @@ class _ModelEndpoint:
         self._tavily_http = tavily_http
         self._tavily_api_key = tavily_api_key
 
+    async def _admit_run_files(self, attachments: Sequence[Attachment]) -> None:
+        """OME-1809: admit the run's files once for the whole run (``admit_run_attachments``).
+
+        WHY a reader built here rather than held: `_GatewayModelSight` is stateless over the
+        world-level client and routes this handler already holds, and the run's one shared check
+        (not the reader) is what keeps the model list to one read per run. The handler's slots
+        stay the world-level allowlist (`test_request_scope_hardening`).
+        """
+        sight = _GatewayModelSight(
+            self._http_client,
+            {path: decode_route_id(spec.id) for path, spec in self._routes.items()},
+        )
+        await admit_run_attachments(
+            sight,
+            attachments,
+            default_route="/" + self._cfg.default_model,
+            private_routes=frozenset(
+                path for path, spec in self._routes.items() if not spec.public_schema
+            ),
+        )
+
     async def __call__(self, request: Request) -> str:
         # The route resolves to its whole spec, so the id and the capabilities it was declared
         # with travel together — the call can never run one route's model under another's flags.
@@ -490,6 +515,11 @@ class _ModelEndpoint:
                 current_case_attempt() if in_candidate_invocation() else None,
             )
             params = apply_answer_seed(params, egress.answer_seed)
+            # FEATURE (OME-1809): a url4 run's files are admitted ONCE for the whole run before
+            # any call is sent: one blind model fails the run by name, nothing paid. A grading
+            # call keeps its own refusal below (judges read text only, spec D6).
+            if request.attachments and current_grading_case() is None:
+                await self._admit_run_files(request.attachments)
             # FEATURE (OME-1545, spec F2/F3): the run's url4 files, read and verified before the
             # request is formed; empty for a text-only call, which then stays byte-identical.
             parts = await _attachment_parts(request)
