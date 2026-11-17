@@ -22,12 +22,17 @@ import pytest
 pytest.importorskip("inspect_ai")
 pytest.importorskip("inspect_evals")
 
+from inspect_ai.dataset import Sample  # noqa: E402
 from inspect_ai.model import ModelOutput  # noqa: E402
 from inspect_ai.scorer import CORRECT, INCORRECT, Score, Target  # noqa: E402
 from inspect_ai.solver import TaskState  # noqa: E402
 from inspect_ai.solver._multiple_choice import parse_answers  # noqa: E402
 from test_inspect_task_replay_benchmarks import _MCQ_CASES, _node, _scores  # noqa: E402
+from test_letter_list_key_imports import _grade  # noqa: E402
 
+from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (  # noqa: E402
+    CaseGradeOutcome,
+)
 from screamingface_engine_inspect.benchmarks import (  # noqa: E402
     BENCHMARKS,
     OPTION_MARK_READERS,
@@ -71,6 +76,13 @@ _WRAPPED: list[tuple[str, bool, set[str]]] = [
     ("ANSWER: **$B$**", False, {"B"}),
     ("**ANSWER:** B", False, {"B"}),
     ("__ANSWER:__ B", False, {"B"}),
+    # A list with each answer wrapped reads as its bare form, `ANSWER: A, B` (review of PR 1783).
+    ("ANSWER: (A), (B)", True, {"A", "B"}),
+    ("ANSWER: **A**, **B**", True, {"A", "B"}),
+    ("ANSWER: (A), [B]", True, {"A", "B"}),
+    ("ANSWER: $\\boxed{A}$, $\\boxed{B}$", True, {"A", "B"}),
+    # Prose after the answer keeps its brackets, as in the bare form `ANSWER: B (the second…)`.
+    ("ANSWER: $B$ (the second option)", False, {"B"}),
 ]
 
 #: Rows 21-24: refused by inspect and still refused. 21 and 23 are PR 5058's regression cases.
@@ -124,6 +136,27 @@ def test_a_reply_inspect_refuses_stays_refused(reply: str) -> None:
     """WHY: words after the letter, no label, or a letter past the options are not answers;
     reading them is what broke inspect_ai PR 5058."""
 
+    assert parse_wrapped_answers(_state(reply), multiple_correct=False) == set()
+
+
+#: One answer asked for, every option wrapped and listed: a hedge. inspect refuses the bare
+#: form (`ANSWER: A B C D`), so the peel must too (review of PR 1783: peeling only the first
+#: wrapper read these as A). `$B$ (C)` is refused as `B C`, a hedge, though `B (C)` reads B.
+_WRAPPED_HEDGES: list[str] = [
+    "ANSWER: (A) (B) (C) (D)",
+    "ANSWER: $A$, $B$, $C$, $D$",
+    "ANSWER: $A$, $B$",
+    "ANSWER: (A), [B]",
+    "ANSWER: $B$ (C)",
+]
+
+
+@pytest.mark.parametrize("reply", _WRAPPED_HEDGES)
+def test_a_hedge_across_wrapped_options_is_never_read_as_its_first_letter(reply: str) -> None:
+    """INVARIANT: the peel never reads a letter inspect refuses on the bare form. Reading the
+    first letter would only ever help the Candidate: a hedge over every option scores 1."""
+
+    assert parse_answers(_state(reply), multiple_correct=False) == set()
     assert parse_wrapped_answers(_state(reply), multiple_correct=False) == set()
 
 
@@ -185,6 +218,31 @@ async def test_the_scorer_adapter_grades_a_wrapped_letter_through_the_real_grade
             node = _node(benchmark, cases, Path(root))
             scores: list[object] = await _scores(node, benchmark, ["ANSWER: $B", "ANSWER: **B**"])
         assert scores == [1.0, 0.0], key
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("reply", "key", "exact"),
+    [("ANSWER: (B), (D)", ["B", "D"], 1.0), ("ANSWER: (A), (B)", ["A"], 0.0)],
+)
+async def test_a_wrapped_letter_list_grades_every_letter_on_a_several_letter_row(
+    reply: str, key: list[str], exact: float, no_network: None
+) -> None:
+    """End to end on cyse4_malware_analysis (multiple_correct): a wrapped list names every
+    letter in it, so it scores 1 on a key of exactly those letters and 0 on a key of its
+    first letter alone (review of PR 1783: the first letter alone used to be read)."""
+
+    sample = Sample(
+        id="m1",
+        input="Given this detonation report: {...}. Which processes were injected into?",
+        target=key,
+        choices=["explorer.exe", "svchost.exe", "lsass.exe", "rundll32.exe"],
+        metadata={"sha256": "ab", "attack": "ransomware", "topic": "process", "difficulty": "x"},
+    )
+
+    outcome: CaseGradeOutcome = await _grade("cyse4_malware_analysis", sample, reply)
+
+    assert outcome.score == exact
 
 
 @pytest.mark.asyncio

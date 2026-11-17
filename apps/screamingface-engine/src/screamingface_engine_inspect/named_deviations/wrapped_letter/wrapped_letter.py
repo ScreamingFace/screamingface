@@ -22,7 +22,9 @@ Reading, in execution order:
     1. inspect's own reader on the reply as written. An answer → done, unchanged.
     2. no answer → peel ONE layer from a copy, at the LAST `ANSWER:` only: a bold or
        underlined label (`**ANSWER:** B`) and the wrapper right after it (see ``_WRAPPERS``).
-       Read the copy again.
+       When the answer is a list, every later answer on that line is unwrapped too, so
+       `ANSWER: (A) (B) (C) (D)` becomes `ANSWER: A B C D`, the hedge inspect refuses, and is
+       never read as its first letter. Read the copy again.
        WHY the last only: inspect's strict pass prefers an `ANSWER:` that starts a line over a
        later one mid-line, so peeling a retracted draft (`ANSWER: (A)` ... `Final ANSWER: $C$`)
        would make the draft win. The final answer is the last one, as inspect's prompt asks.
@@ -76,6 +78,9 @@ _WRAPPERS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\[([^\[\]\n]+)\]"),
 )
 
+#: A single letter, number or word: what a later answer in a wrapped list holds (`[B]`).
+_ONE_WORD: re.Pattern[str] = re.compile(r"[A-Za-z\d]+")
+
 
 def _label(match: re.Match[str]) -> str:
     """`**ANSWER:**` → `ANSWER:`, keeping the colon wherever the reply put it."""
@@ -85,7 +90,8 @@ def _label(match: re.Match[str]) -> str:
 
 def peel_one_layer(reply: str) -> str:
     """The reply with one layer peeled at its last `ANSWER:`: the label unwrapped, then one
-    wrapper removed from what follows it. Every earlier part of the reply is kept as written."""
+    wrapper removed from the answer and from each later answer listed on its line. Every
+    earlier part of the reply is kept as written."""
 
     labels: list[re.Match[str]] = list(_LABEL.finditer(reply))
     if not labels:
@@ -100,8 +106,42 @@ def peel_one_layer(reply: str) -> str:
             (found for wrapper in _WRAPPERS if (found := wrapper.match(tail, site.end()))), None
         )
     if hit is not None:
-        tail = tail[: hit.start()] + hit.group(1) + tail[hit.end() :]
+        line_end: int = tail.find("\n", hit.end())
+        line_end = len(tail) if line_end < 0 else line_end
+        rest: str = _peel_listed_answers(tail[hit.end() : line_end], hit.re)
+        tail = tail[: hit.start()] + hit.group(1) + rest + tail[line_end:]
     return head + tail
+
+
+def _peel_listed_answers(rest: str, kind: re.Pattern[str]) -> str:
+    """The rest of the answer line with each later answer unwrapped once, so a wrapped list
+    reads as its bare form: `(A) (B) (C)` → `A B C`, which inspect refuses as a hedge.
+
+    Peeled: every wrapper of the first answer's ``kind`` (`**A**, **B**`), and any wrapper
+    around a single letter or word (the `[B]` in `(A), [B]`). WHY not every wrapper: prose
+    after the answer keeps its brackets, so `$B$ (the second option)` still reads B, as its
+    bare form does. One pass over the line as written, so a nested wrapper loses one layer per
+    try and ``MAX_LAYERS`` still caps the depth.
+    """
+
+    found: list[re.Match[str]] = sorted(
+        (
+            match
+            for wrapper in _WRAPPERS
+            for match in wrapper.finditer(rest)
+            if wrapper is kind or _ONE_WORD.fullmatch(match.group(1))
+        ),
+        key=lambda match: (match.start(), -match.end()),
+    )
+    pieces: list[str] = []
+    cursor: int = 0
+    for match in found:
+        if match.start() < cursor:  # inside, or overlapping, a wrapper already peeled
+            continue
+        pieces.append(rest[cursor : match.start()] + match.group(1))
+        cursor = match.end()
+    pieces.append(rest[cursor:])
+    return "".join(pieces)
 
 
 def peeled_copies(reply: str) -> list[str]:
