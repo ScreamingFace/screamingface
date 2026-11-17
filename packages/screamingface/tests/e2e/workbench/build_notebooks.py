@@ -346,7 +346,7 @@ MODELS = [
     # The models the OME-1529 timeline's evidence grid shows green for image + PDF on OpenRouter.
     "openrouter/google/gemini-2.5-flash",
     "openrouter/anthropic/claude-haiku-4.5",
-    "openrouter/openai/gpt-4o-mini",
+    # gpt-4o-mini is out until OME-1942: a url4 PDF reaches it with no filename and is never read.
     "openrouter/mistralai/mistral-small-24b-instruct-2501",  # text-only control
 ]
 MEDIA = ["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]

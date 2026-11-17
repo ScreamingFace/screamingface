@@ -308,7 +308,7 @@ def test_image_input_matrix_parameters_are_complete_and_carry_no_secret() -> Non
         "GATEWAY_URL",
         "EVENTS_PATH",
     }
-    assert len(params["MODELS"]) == 8
+    assert len(params["MODELS"]) == 7
     assert params["MEDIA"] == [
         "image/png",
         "image/jpeg",
