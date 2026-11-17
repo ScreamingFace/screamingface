@@ -89,12 +89,27 @@ def _listed_modalities(models_listing: Mapping[str, object], model: str) -> list
     return [m for m in listed if isinstance(m, str)] if isinstance(listed, list) else None
 
 
+PROVIDER_REFUSALS: Final = frozenset({("huggingface/moonshotai/Kimi-K3:deepinfra", "image/gif")})
+"""(model, media type) pairs the gateway admits but the provider rejects (OME-1946).
+
+WHY a table: a router lists ``image``, not each format, so admission cannot know; DeepInfra serves
+Kimi-K3 PNG/JPEG/WebP and answers 415 to a GIF. Each entry is expected to be REFUSED after exactly
+one provider call. Verified by a direct router call 2026-11-17; drop an entry when the provider
+changes or when per-format evidence reaches the listing.
+"""
+
+
 def expectation(models_listing: Mapping[str, object], model: str, media_type: str) -> Expected:
-    """``answer`` when the gateway lists the modality, ``refuse`` when not, else ``unknown``."""
+    """``answer`` when the gateway lists the modality, ``refuse`` when not, else ``unknown``.
+
+    A known provider refusal (:data:`PROVIDER_REFUSALS`) of a listed modality is ``refuse``.
+    """
     listed = _listed_modalities(models_listing, model)
     if listed is None:
         return "unknown"
-    return "answer" if _GRANTS[modality_of(media_type)] & set(listed) else "refuse"
+    if not _GRANTS[modality_of(media_type)] & set(listed):
+        return "refuse"
+    return "refuse" if (model, media_type) in PROVIDER_REFUSALS else "answer"
 
 
 def _normalise(text: str) -> str:
@@ -175,8 +190,13 @@ def _cell_failure(cell: Cell) -> str | None:
 
 
 def _chat_call_failure(cell: Cell) -> str | None:
-    """A ``refused`` cell whose trace still shows a gateway chat call was not refused up front."""
-    if cell.observed == "refused" and cell.chat_calls:
+    """A ``refused`` cell whose trace still shows a gateway chat call was not refused up front.
+
+    A known provider refusal (:data:`PROVIDER_REFUSALS`) is refused BY the provider, so exactly
+    one call is its evidence; a second would mean a retry of a permanent refusal.
+    """
+    allowed = 1 if (cell.model, cell.media_type) in PROVIDER_REFUSALS else 0
+    if cell.observed == "refused" and cell.chat_calls and cell.chat_calls > allowed:
         return (
             f"{_where(cell)}: refused ({cell.code or 'no code'}) but {cell.chat_calls} gateway"
             " chat call(s) ran under its trace — not a refusal before the model"

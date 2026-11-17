@@ -55,6 +55,10 @@ admission and the gateway use):
   - Benchmark path: a run-level `intent_error` from admission (`picture_admission.py`);
   - url4 path: the gateway's 422 `unsupported_content_part` surfaced as url4 `intent_error`
     (admission-time once PR #1853 merges; the assertion accepts either, keyed on the code).
+- **Provider refusal** (amended 2026-11-17, OME-1946): a listed modality that the provider still
+  rejects for one format (DeepInfra's Kimi-K3 answers 415 to a GIF) is pinned in
+  `image_matrix.PROVIDER_REFUSALS`. It is expected to be refused (`intent_error`, via the gateway's
+  `unsupported_content_part`) after exactly one provider call, not zero.
 - A model `/v1/models` lists as text-only but that answers correctly is reported as
   **capability table stale** — a failure, because the gateway would refuse it in production.
 

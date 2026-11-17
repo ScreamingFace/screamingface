@@ -258,3 +258,52 @@ def test_refused_cell_with_zero_chat_calls_passes() -> None:
         model=MISTRAL, expected="refuse", observed="refused", code="intent_error", chat_calls=0
     )
     assert verdict([cell]) == []
+
+
+# --- provider refusals (OME-1946) -------------------------------------------------------------
+#
+# A router lists `image`, not each format, so the gateway admits a GIF that the backend then
+# rejects (DeepInfra serves Kimi-K3 PNG/JPEG/WebP but answers 415 to a GIF). Such a cell is
+# expected to be REFUSED, and — unlike an admission refusal — after exactly one provider call.
+
+KIMI = "huggingface/moonshotai/Kimi-K3:deepinfra"
+KIMI_LISTING: dict[str, Any] = {"data": [{"id": KIMI, "input_modalities": ["text", "image"]}]}
+
+
+def test_a_known_provider_refusal_is_expected_as_a_refusal() -> None:
+    from workbench.image_matrix import PROVIDER_REFUSALS
+
+    assert (KIMI, "image/gif") in PROVIDER_REFUSALS
+    assert expectation(KIMI_LISTING, KIMI, "image/gif") == "refuse"
+    assert expectation(KIMI_LISTING, KIMI, "image/png") == "answer"
+
+
+def test_a_provider_refusal_may_spend_one_call_and_no_more() -> None:
+    def refused(calls: int) -> Cell:
+        return _cell(
+            model=KIMI,
+            media_type="image/gif",
+            expected="refuse",
+            observed="refused",
+            answer=None,
+            code="intent_error",
+            chat_calls=calls,
+        )
+
+    assert verdict([refused(1)]) == []
+    assert verdict([refused(2)]) != []
+    # An admission refusal elsewhere still allows none.
+    assert (
+        verdict(
+            [
+                _cell(
+                    expected="refuse",
+                    observed="refused",
+                    answer=None,
+                    code="intent_error",
+                    chat_calls=1,
+                )
+            ]
+        )
+        != []
+    )
