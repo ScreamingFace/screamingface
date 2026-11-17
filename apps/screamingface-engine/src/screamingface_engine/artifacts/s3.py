@@ -31,13 +31,15 @@ from __future__ import annotations
 
 import hashlib
 import re
+import tempfile
 from collections.abc import AsyncIterator, Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import IO
 
 import httpx
 
-from screamingface_engine.artifacts.ports import ArtifactContent, RemoteStream
+from screamingface_engine.artifacts.ports import ArtifactContent, ArtifactSink, RemoteStream
 from screamingface_engine.artifacts.sigv4 import (
     EMPTY_PAYLOAD_SHA256,
     Credentials,
@@ -132,6 +134,23 @@ class S3ArtifactStore:
         digest = hashlib.sha256(encoded).hexdigest()
         self._request("PUT", digest, payload_sha256=digest, content=encoded)
         return ResultArtifact(id=digest, size_bytes=len(encoded), sha256=digest)
+
+    def open_sink(self) -> ArtifactSink:
+        """Spool chunks to an anonymous local temp file, then PUT it in one streamed request
+        (memory fix 3). The store verifies the body against the signed sha256."""
+        return _S3Sink(self)
+
+    def _put_file(self, digest: str, handle: IO[bytes], size: int) -> None:
+        handle.seek(0)
+        # WHY Content-Length: without it httpx sends an iterator body with Transfer-Encoding:
+        # chunked, which an S3 PUT with a signed payload hash does not accept.
+        self._request(
+            "PUT",
+            digest,
+            payload_sha256=digest,
+            content=_file_chunks(handle),
+            extra_headers={"Content-Length": str(size)},
+        )
 
     # --- ArtifactReader -----------------------------------------------------------------
 
@@ -294,7 +313,7 @@ class S3ArtifactStore:
         key: str,
         *,
         payload_sha256: str = EMPTY_PAYLOAD_SHA256,
-        content: bytes | None = None,
+        content: bytes | Iterator[bytes] | None = None,
         allow_missing: bool = False,
         extra_headers: dict[str, str] | None = None,
         allow_precondition_failed: bool = False,
@@ -362,6 +381,53 @@ class S3ArtifactStore:
                         yield chunk
         except httpx.HTTPError as exc:
             raise S3StorageError(f"GET {key} could not reach object storage: {exc}") from exc
+
+
+class _S3Sink:
+    """One artifact written in chunks to a local temp file, then PUT in a single request.
+
+    WHY a temp file and not a buffer: the whole point of memory fix 3 is that a result never
+    exists whole in memory. The file is anonymous (no directory entry), so nothing is left
+    behind even if the process dies before commit.
+
+    INVARIANT: a ticket is returned only after the store acknowledged the PUT, as in write_bytes.
+    """
+
+    def __init__(self, store: S3ArtifactStore) -> None:
+        self._store = store
+        self._file: IO[bytes] = tempfile.TemporaryFile(prefix="sf-result-")
+        self._digest = hashlib.sha256()
+        self._size = 0
+        self._finished = False
+
+    def write(self, chunk: bytes) -> None:
+        if self._finished:
+            raise ValueError("artifact sink is closed")
+        self._file.write(chunk)
+        self._digest.update(chunk)
+        self._size += len(chunk)
+
+    def commit(self) -> ResultArtifact:
+        if self._finished:
+            raise ValueError("artifact sink is closed")
+        if self._size == 0:
+            self.abort()
+            raise ValueError("an artifact cannot be empty")
+        digest = self._digest.hexdigest()
+        try:
+            self._store._put_file(digest, self._file, self._size)
+        finally:
+            self.abort()
+        return ResultArtifact(id=digest, size_bytes=self._size, sha256=digest)
+
+    def abort(self) -> None:
+        self._finished = True
+        self._file.close()  # an anonymous TemporaryFile is gone once closed
+
+
+def _file_chunks(handle: IO[bytes]) -> Iterator[bytes]:
+    while chunk := handle.read(_STREAM_CHUNK_BYTES):
+        yield chunk
 
 
 def _raw_chunks(response: httpx.Response, size: int) -> Iterator[bytes]:

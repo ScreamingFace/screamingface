@@ -393,3 +393,83 @@ async def test_node_reduce_dispatches_to_first_registered_endpoint() -> None:
     result = await n.evaluate("(/leaf(x)!'go')!'pick'")
     assert result.text == "REDUCED"
     assert calls == ["/leaf", "/reducer"]
+
+
+# --- run attachments at the endpoint boundary (OME-1543 plan §3 U5) ---------------------------
+# FEATURE: image and PDF inputs (epic OME-1529). INVARIANT (F2/D6): an in-process endpoint call
+# carries the run's attachments on its Request; an HTTP ingress and a remote fetch carry none.
+
+_FILE_TEXT = "FILE-BODY-1543"
+_FILE_HEX = "167e64f381340d40fee2f729af65d0ccb26a773c4ded22552cc34bb7e7886d35"  # sha256(_FILE_TEXT)
+_FILE_REF = f"/blob/sha256/{_FILE_HEX}"
+
+
+async def test_in_process_endpoint_request_carries_run_attachments(node, wire):
+    from url4.dag.attachment import Attachment
+
+    node.data(_FILE_REF, _FILE_TEXT, media_type="text/plain")
+    await node.evaluate(f"/claude(src={_FILE_REF})!'Describe'")
+    (request,) = wire
+    assert request.attachments == (Attachment(f"sha256:{_FILE_HEX}", "text/plain"),)
+    assert request.attachments[0].body == _FILE_TEXT.encode()
+    assert _FILE_TEXT not in request.context  # the payload is the ref text, never the bytes
+
+
+async def test_http_endpoint_request_carries_no_attachments(node, wire):
+    from url4.dag.attachment import Attachment
+    from url4.dag.attachments import bind_run_files
+
+    # WHY bound in the caller: an in-process ASGI transport shares the caller's task context,
+    # so this proves the ingress itself drops the run binding (a real server never had it).
+    with bind_run_files([Attachment("sha256:" + "d" * 64, "image/png", b"x")]):
+        async with _http(node) as http:
+            response = await http.get("/claude", params={"q": "()!'x'"})
+    assert response.status_code == 200
+    (request,) = wire
+    assert request.attachments == ()
+
+
+async def test_remote_fetch_sends_no_attachment_data(monkeypatch):
+    import url4.io._guarded_transport as guarded_mod
+    from url4.dag import run
+    from url4.dag.attachment import Attachment
+    from url4.io.http import SourceGuard
+
+    sent: list[httpx.Request] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        sent.append(request)
+        return httpx.Response(200, text="REMOTE")
+
+    async def resolve(host: str, port: int) -> list[str]:
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(guarded_mod, "_inner_transport", lambda: httpx.MockTransport(record))
+    text = "(url4://peer.example/m('c')!'x', 'q')!'go'"
+
+    async def model(sources: str, intent: str | None, scope: object) -> str:
+        return "ok"
+
+    for attachments in ((), (Attachment("sha256:" + "e" * 64, "image/png", b"PNG"),)):
+        io = HttpIOLayer(
+            guard=SourceGuard(peer_hosts=frozenset({"peer.example"})), resolver=resolve
+        )
+        try:
+            await run(text, io, process=model, attachments=attachments)
+        finally:
+            await io.aclose()
+    plain, carried = sent
+    assert str(carried.url) == str(plain.url)
+    assert dict(carried.headers) == dict(plain.headers)
+    assert carried.content == plain.content == b""
+
+
+async def test_file_hex_is_the_digest_of_the_file_text():
+    import hashlib
+
+    assert hashlib.sha256(_FILE_TEXT.encode()).hexdigest() == _FILE_HEX
+
+
+async def test_request_without_attachments_argument_defaults_empty():
+    request = Request(path="/claude", context="c", intent="i", params={})
+    assert request.attachments == ()

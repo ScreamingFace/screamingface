@@ -1,0 +1,1015 @@
+{
+  "budget_choice_runs_then": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "input",
+      "when": {
+        "observe": "budget.remaining:usd",
+        "cmp": ">=",
+        "value": 0.02
+      },
+      "observed": 0.05,
+      "passed": true,
+      "wanted": "then",
+      "branch": "then",
+      "selectors": [],
+      "not_run": [
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": [
+        {
+          "unit": "usd",
+          "cap": 0.05,
+          "spent": 0.0,
+          "unpriced": 0,
+          "estimate": 0.03,
+          "refused": false
+        }
+      ],
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": null
+    }
+  },
+  "budget_lazy_judge_refused_answers_majority": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "panel",
+      "when": {
+        "observe": "agreement",
+        "cmp": ">=",
+        "value": 0.7
+      },
+      "observed": 0.6666666666666666,
+      "passed": false,
+      "wanted": "otherwise",
+      "branch": "then",
+      "selectors": [],
+      "not_run": [
+        {
+          "branch": "otherwise",
+          "reason": "budget_refused",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": [
+        {
+          "unit": "usd",
+          "cap": 0.005,
+          "spent": 0.003,
+          "unpriced": 0,
+          "estimate": 0.01,
+          "refused": true
+        }
+      ],
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": {
+        "operation_id": "op_synthesis_1",
+        "branch": "fallback"
+      }
+    }
+  },
+  "budget_tokens_refused": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "input",
+      "when": {
+        "observe": "budget.remaining:tokens",
+        "cmp": ">=",
+        "value": 1.0
+      },
+      "observed": 50.0,
+      "passed": true,
+      "wanted": "then",
+      "branch": null,
+      "selectors": [],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "budget_refused",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        },
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": [
+        {
+          "unit": "tokens",
+          "cap": 50,
+          "spent": 0,
+          "unpriced": 0,
+          "estimate": 100,
+          "refused": true
+        }
+      ],
+      "result": {
+        "status": "abstain",
+        "reason": "budget_refused"
+      },
+      "panel": null
+    }
+  },
+  "budget_two_units_unpriced": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "input",
+      "when": {
+        "observe": "budget.remaining:usd",
+        "cmp": ">=",
+        "value": 0.0
+      },
+      "observed": 0.05,
+      "passed": true,
+      "wanted": "then",
+      "branch": null,
+      "selectors": [],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "budget_refused",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        },
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 0,
+            "max": 0
+          }
+        }
+      ],
+      "budget": [
+        {
+          "unit": "usd",
+          "cap": 0.05,
+          "spent": 0.0,
+          "unpriced": 1,
+          "estimate": 0.001,
+          "refused": false
+        },
+        {
+          "unit": "tokens",
+          "cap": 50,
+          "spent": 0,
+          "unpriced": 1,
+          "estimate": 100,
+          "refused": true
+        }
+      ],
+      "result": {
+        "status": "abstain",
+        "reason": "budget_refused"
+      },
+      "panel": null
+    }
+  },
+  "cascade_abstains_gate_not_met": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "panel",
+      "when": {
+        "observe": "agreement",
+        "cmp": ">=",
+        "value": 0.8
+      },
+      "observed": 0.5,
+      "passed": false,
+      "wanted": "otherwise",
+      "branch": "otherwise",
+      "selectors": [],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 0,
+            "max": 0
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "abstain",
+        "reason": "gate_not_met"
+      },
+      "panel": {
+        "operation_id": "op_synthesis_1",
+        "branch": "fallback"
+      }
+    }
+  },
+  "cascade_escalates": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "panel",
+      "when": {
+        "observe": "agreement",
+        "cmp": ">=",
+        "value": 0.8
+      },
+      "observed": 0.5,
+      "passed": false,
+      "wanted": "otherwise",
+      "branch": "otherwise",
+      "selectors": [],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 0,
+            "max": 0
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": {
+        "operation_id": "op_synthesis_1",
+        "branch": "fallback"
+      }
+    },
+    "op_gate_2": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_2",
+      "kind": "panel",
+      "when": {
+        "observe": "agreement",
+        "cmp": ">=",
+        "value": 0.8
+      },
+      "observed": 0.5,
+      "passed": false,
+      "wanted": "otherwise",
+      "branch": "otherwise",
+      "selectors": [],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 0,
+            "max": 0
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": {
+        "operation_id": "op_synthesis_2",
+        "branch": "fallback"
+      }
+    }
+  },
+  "guard_tree_failed_selector": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "input",
+      "when": {
+        "observe": "label:sel_1",
+        "cmp": "eq",
+        "value": "jailbreak"
+      },
+      "observed": null,
+      "passed": false,
+      "wanted": "otherwise",
+      "branch": "otherwise",
+      "selectors": [
+        {
+          "id": "sel_1",
+          "kind": "keywords",
+          "status": "computed",
+          "labels": [],
+          "parse": "no_match",
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 11,
+          "input_sha256": "7133a2448b161474"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 0,
+            "max": 0
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": null
+    },
+    "op_gate_2": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_2",
+      "kind": "input",
+      "when": {
+        "observe": "label:sel_2",
+        "cmp": "eq",
+        "value": "unsafe"
+      },
+      "observed": null,
+      "passed": false,
+      "wanted": "otherwise",
+      "branch": "otherwise",
+      "selectors": [
+        {
+          "id": "sel_2",
+          "kind": "label_model",
+          "status": "failed",
+          "labels": null,
+          "parse": null,
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 11,
+          "input_sha256": "7133a2448b161474"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 0,
+            "max": 0
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": null
+    },
+    "op_gate_3": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_3",
+      "kind": "input",
+      "when": {
+        "observe": "label:sel_2",
+        "cmp": "eq",
+        "value": "medical"
+      },
+      "observed": null,
+      "passed": false,
+      "wanted": "otherwise",
+      "branch": "otherwise",
+      "selectors": [
+        {
+          "id": "sel_2",
+          "kind": "label_model",
+          "status": "failed",
+          "labels": null,
+          "parse": null,
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 11,
+          "input_sha256": "7133a2448b161474"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": null
+    },
+    "op_gate_4": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_4",
+      "kind": "input",
+      "when": {
+        "observe": "label:sel_3",
+        "cmp": "eq",
+        "value": "math"
+      },
+      "observed": "math",
+      "passed": true,
+      "wanted": "then",
+      "branch": "then",
+      "selectors": [
+        {
+          "id": "sel_3",
+          "kind": "keywords",
+          "status": "computed",
+          "labels": [
+            "math"
+          ],
+          "parse": "ok",
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 11,
+          "input_sha256": "7133a2448b161474"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": null
+    }
+  },
+  "keyword_router_body_refused": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "input",
+      "when": {
+        "observe": "label:sel_1",
+        "cmp": "eq",
+        "value": "math"
+      },
+      "observed": "math",
+      "passed": true,
+      "wanted": "then",
+      "branch": "then",
+      "selectors": [
+        {
+          "id": "sel_1",
+          "kind": "keywords",
+          "status": "computed",
+          "labels": [
+            "math"
+          ],
+          "parse": "ok",
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 11,
+          "input_sha256": "7133a2448b161474"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": null,
+      "result": null,
+      "panel": null
+    }
+  },
+  "keyword_router_selected": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "input",
+      "when": {
+        "observe": "label:sel_1",
+        "cmp": "eq",
+        "value": "math"
+      },
+      "observed": "math",
+      "passed": true,
+      "wanted": "then",
+      "branch": "then",
+      "selectors": [
+        {
+          "id": "sel_1",
+          "kind": "keywords",
+          "status": "computed",
+          "labels": [
+            "math"
+          ],
+          "parse": "ok",
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 18,
+          "input_sha256": "1078e3b81c4dc096"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": null
+    }
+  },
+  "label_router_code": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "input",
+      "when": {
+        "observe": "label:sel_1",
+        "cmp": "eq",
+        "value": "math"
+      },
+      "observed": "code",
+      "passed": false,
+      "wanted": "otherwise",
+      "branch": "otherwise",
+      "selectors": [
+        {
+          "id": "sel_1",
+          "kind": "label_model",
+          "status": "computed",
+          "labels": [
+            "code"
+          ],
+          "parse": "ok",
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 14,
+          "input_sha256": "692a9daa52e42c50"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 3,
+            "max": 3
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": null
+    },
+    "op_gate_2": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_2",
+      "kind": "input",
+      "when": {
+        "observe": "label:sel_1",
+        "cmp": "eq",
+        "value": "code"
+      },
+      "observed": "code",
+      "passed": true,
+      "wanted": "then",
+      "branch": "then",
+      "selectors": [
+        {
+          "id": "sel_1",
+          "kind": "label_model",
+          "status": "computed",
+          "labels": [
+            "code"
+          ],
+          "parse": "ok",
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 14,
+          "input_sha256": "692a9daa52e42c50"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": null
+    }
+  },
+  "lazy_judge_gate_fails": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "panel",
+      "when": {
+        "observe": "agreement",
+        "cmp": ">=",
+        "value": 0.7
+      },
+      "observed": 0.6666666666666666,
+      "passed": false,
+      "wanted": "otherwise",
+      "branch": "otherwise",
+      "selectors": [],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 0,
+            "max": 0
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": {
+        "operation_id": "op_synthesis_1",
+        "branch": "fallback"
+      }
+    }
+  },
+  "lazy_judge_gate_passes": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "panel",
+      "when": {
+        "observe": "agreement",
+        "cmp": ">=",
+        "value": 0.7
+      },
+      "observed": 1.0,
+      "passed": true,
+      "wanted": "then",
+      "branch": "then",
+      "selectors": [],
+      "not_run": [
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": {
+        "operation_id": "op_synthesis_1",
+        "branch": "majority"
+      }
+    }
+  },
+  "lazy_judge_no_voters": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "panel",
+      "when": {
+        "observe": "agreement",
+        "cmp": ">=",
+        "value": 0.7
+      },
+      "observed": null,
+      "passed": null,
+      "wanted": null,
+      "branch": null,
+      "selectors": [],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 0,
+            "max": 0
+          }
+        },
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "abstain",
+        "reason": "no_votes"
+      },
+      "panel": {
+        "operation_id": "op_synthesis_1",
+        "branch": null
+      }
+    }
+  },
+  "lazy_writer_in_band": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "panel",
+      "when": {
+        "observe": "mean:conf",
+        "cmp": ">=",
+        "value": 70.0
+      },
+      "observed": 50.0,
+      "passed": null,
+      "wanted": null,
+      "branch": null,
+      "selectors": [],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 0,
+            "max": 0
+          }
+        },
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "abstain",
+        "reason": "in_band"
+      },
+      "panel": {
+        "operation_id": "op_synthesis_1",
+        "branch": "band"
+      }
+    }
+  },
+  "skip_vote_members": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "input",
+      "when": {
+        "observe": "labels:sel_1",
+        "cmp": "has",
+        "value": "math"
+      },
+      "observed": [
+        "math",
+        "web"
+      ],
+      "passed": true,
+      "wanted": "then",
+      "branch": "then",
+      "selectors": [
+        {
+          "id": "sel_1",
+          "kind": "label_model",
+          "status": "computed",
+          "labels": [
+            "math",
+            "web"
+          ],
+          "parse": "ok",
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 14,
+          "input_sha256": "692a9daa52e42c50"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 0,
+            "max": 0
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": null
+    },
+    "op_gate_2": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_2",
+      "kind": "input",
+      "when": {
+        "observe": "labels:sel_1",
+        "cmp": "has",
+        "value": "code"
+      },
+      "observed": [
+        "math",
+        "web"
+      ],
+      "passed": false,
+      "wanted": "otherwise",
+      "branch": "otherwise",
+      "selectors": [
+        {
+          "id": "sel_1",
+          "kind": "label_model",
+          "status": "computed",
+          "labels": [
+            "math",
+            "web"
+          ],
+          "parse": "ok",
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 14,
+          "input_sha256": "692a9daa52e42c50"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "then",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": null,
+      "result": null,
+      "panel": null
+    },
+    "op_gate_3": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_3",
+      "kind": "input",
+      "when": {
+        "observe": "labels:sel_1",
+        "cmp": "has",
+        "value": "web"
+      },
+      "observed": [
+        "math",
+        "web"
+      ],
+      "passed": true,
+      "wanted": "then",
+      "branch": "then",
+      "selectors": [
+        {
+          "id": "sel_1",
+          "kind": "label_model",
+          "status": "computed",
+          "labels": [
+            "math",
+            "web"
+          ],
+          "parse": "ok",
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 14,
+          "input_sha256": "692a9daa52e42c50"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 0,
+            "max": 0
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "answered",
+        "reason": null
+      },
+      "panel": null
+    }
+  },
+  "word_abstain": {
+    "op_gate_1": {
+      "schema": "screamingface.gate-decision.v1",
+      "gate_id": "gate_1",
+      "kind": "input",
+      "when": {
+        "observe": "label:sel_1",
+        "cmp": "eq",
+        "value": "code"
+      },
+      "observed": "code",
+      "passed": true,
+      "wanted": "then",
+      "branch": "then",
+      "selectors": [
+        {
+          "id": "sel_1",
+          "kind": "keywords",
+          "status": "computed",
+          "labels": [
+            "code"
+          ],
+          "parse": "ok",
+          "raw": null,
+          "parse_error": null,
+          "input_chars": 12,
+          "input_sha256": "0a03b0c219d3c9f0"
+        }
+      ],
+      "not_run": [
+        {
+          "branch": "otherwise",
+          "reason": "not_selected",
+          "model_calls": {
+            "min": 1,
+            "max": 1
+          }
+        }
+      ],
+      "budget": null,
+      "result": {
+        "status": "abstain",
+        "reason": "gate_not_met"
+      },
+      "panel": null
+    }
+  }
+}

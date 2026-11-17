@@ -1,12 +1,13 @@
 ---
 id: OME-1812
 linear_url: https://linear.app/openmined/issue/OME-1812/name-credentials-and-connections-in-the-gateway-runtime-vocabulary-l5
-status: in_progress
+status: done
 type: task
 priority: low
 labels: [aigateway, agentic, autonomous]
 parent: OME-1138
 created: 2026-11-02
+closed: 2026-11-03
 ---
 
 # Name credentials and connections in the gateway runtime vocabulary (L5)
@@ -22,3 +23,4 @@ wire and stay. Spec `docs/spec/2026-10-29-ome-1138-closeout.md` §4.5, plan
 `docs/work/2026-11-02-neutral-vocabulary-rename.md`.
 
 - 2026-11-02: filed, implemented, PR opened.
+- 2026-11-03: PR #1652 merged as `330e4204d`; Linear Done.

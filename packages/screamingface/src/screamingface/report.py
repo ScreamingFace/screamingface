@@ -58,7 +58,9 @@ from screamingface.operation_accounting import OperationAccounting, OperationCac
 from screamingface.report_trace import TRACE_SCHEMA, TraceEntry
 from screamingface.url4 import Url4
 
-type RecipeKind = Literal["model", "fusion", "pipeline", "corrective_loop", "self_corrective"]
+type RecipeKind = Literal[
+    "model", "fusion", "pipeline", "corrective_loop", "self_corrective", "gate"
+]
 # FEATURE: OME-1252 / OME-1251 D4 — whether this run's reported cost can be believed as a
 # number. A RUN-level vocabulary, deliberately not the gateway's per-call `DirectCostStatus`:
 # a run is many calls, and no member of that one can say "forty priced, three not".
@@ -866,6 +868,7 @@ _RECIPE_KINDS: dict[str, RecipeKind] = {
     "pipeline": "pipeline",
     "corrective_loop": "corrective_loop",
     "self_corrective": "self_corrective",
+    "gate": "gate",
 }
 
 
@@ -874,7 +877,7 @@ def _kind(value: object, label: str) -> RecipeKind:
         return _RECIPE_KINDS[value]
     raise ValueError(
         f"{label} kind must be 'model', 'fusion', 'pipeline', 'corrective_loop', "
-        "or 'self_corrective'"
+        "'self_corrective' or 'gate'"
     )
 
 
@@ -978,12 +981,18 @@ def _validate_self_corrective_candidate(
         raise ValueError("a SelfCorrective Candidate cannot contain members")
 
 
+def _validate_gate_candidate(models: Sequence[str], members: Sequence[MemberResult]) -> None:
+    if members:
+        raise ValueError("a Gate Candidate cannot contain direct fanout members")
+
+
 _STRUCTURE_RULES: dict[RecipeKind, Callable[[Sequence[str], Sequence[MemberResult]], None]] = {
     "model": _validate_model_candidate,
     "fusion": _validate_fusion_candidate,
     "pipeline": _validate_pipeline_candidate,
     "corrective_loop": _validate_corrective_loop_candidate,
     "self_corrective": _validate_self_corrective_candidate,
+    "gate": _validate_gate_candidate,
 }
 
 

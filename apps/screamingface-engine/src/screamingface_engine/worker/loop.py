@@ -18,7 +18,7 @@ import os
 import signal
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import nats
@@ -33,6 +33,8 @@ if (
     from screamingface_engine.runner_queue import RunQueue
 from screamingface_engine.runner_queue import UNDECODABLE_BODY_ERRORS, topic_of_message
 from screamingface_engine.subjects import CONTROL_SUBJECT_PREFIX, OWNERSHIP_SUBJECT_PREFIX
+from screamingface_engine.worker.deletion_cost import DeletionCostPublisher, PodCostWriter
+from screamingface_engine.worker.kube_pod import build_pod_cost_writer
 from screamingface_engine.worker.metrics import (
     WorkerMetrics,
     build_worker_metrics,
@@ -152,6 +154,7 @@ class Worker:
         metrics: WorkerMetrics | None = None,
         world_digest: str | None = None,
         outcomes: CandidateOutcomeStream | None = None,
+        deletion_cost: DeletionCostPublisher | None = None,
     ) -> None:
         if slots < 1:
             raise ValueError(f"worker slots must be >= 1, got {slots}")
@@ -165,6 +168,11 @@ class Worker:
         # nothing here ever touches a shared registry.
         self._metrics = metrics if metrics is not None else build_worker_metrics()
         self._metrics.slots_total.set(slots)
+        # FEATURE (OME-1931): the pod-deletion-cost publisher. `None` (the default, and the
+        # feature off) writes nothing; the busy-slot gauge is unchanged either way.
+        self._deletion_cost = deletion_cost
+        # The writer task; cancelled at the drain signal (spec D2), awaited and closed at exit.
+        self._cost_task: asyncio.Task[None] | None = None
         # The run-control channel (OME-1090): a core NATS client subscribed to
         # `url4.runctl.*` — and, since OME-1089, to `url4.runown.*` as well. `None` disables
         # both loops AND the ownership probe (tests that do not exercise cancellation).
@@ -267,6 +275,7 @@ class Worker:
             loop.add_signal_handler(sig, self._draining.set)
         if self._pool is not None:
             self._pool.start()
+        cost_task = self._start_deletion_cost()
         try:
             # FEATURE (OME-1314, spec D2): apply the configured `max_ack_pending` to the
             # existing bucket consumers ONCE, at start. INVARIANT: never on the subscription
@@ -280,11 +289,33 @@ class Worker:
                     tg.create_task(self._control_loop(tg))
                     tg.create_task(self._ownership_loop())
         finally:
+            await self._stop_deletion_cost(cost_task)
             self._supervisor.cancel_reclaims()
             if self._pool is not None:
                 await self._pool.drain()
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.remove_signal_handler(sig)
+
+    def _start_deletion_cost(self) -> asyncio.Task[None] | None:
+        """Start the pod-deletion-cost writer task, after one start write (OME-1931)."""
+        if self._deletion_cost is None:
+            return None
+        # Spec D2, the start write: a container restart keeps the pod and its OLD annotation, and
+        # the worker cannot read it (no `get` verb), so it writes the current count (usually 0).
+        self._deletion_cost.notify(len(self._active))
+        # INVARIANT (spec D3): its own task, NOT in the supervisors' TaskGroup, so a writer
+        # failure can never cancel a run.
+        self._cost_task = asyncio.create_task(self._deletion_cost.run())
+        return self._cost_task
+
+    async def _stop_deletion_cost(self, task: asyncio.Task[None] | None) -> None:
+        """Cancel the writer task and close the writer. Never raises."""
+        if task is not None:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        if self._deletion_cost is not None:
+            await self._deletion_cost.aclose()
 
     async def _claim_loop(self, tg: asyncio.TaskGroup) -> None:
         """Claim runs from the queue and supervise them, until the drain signal.
@@ -350,7 +381,12 @@ class Worker:
             # the pull returning and the tasks registering — a scrape landing there during a
             # bursty claim under-reported utilization by the just-claimed batch, biasing
             # capacity dashboards LOW at the moments of highest throughput.
-            self._metrics.slots_busy.set(len(self._active))
+            self._report_busy()
+        # Spec D2: no write after the drain signal. Cancel the writer task NOW: Worker.run's
+        # finally runs only after the drain (up to drainGraceS), and until then a paced write or a
+        # retry of a failed write would still go out.
+        if self._cost_task is not None:
+            self._cost_task.cancel()
         await self._drain()
 
     async def _await_free_slot(self) -> None:
@@ -381,11 +417,20 @@ class Worker:
         except Exception:  # a broker blip must not stop the drain; ack_wait still returns them
             logger.warning("could not give back buffered queue messages", exc_info=True)
 
+    def _report_busy(self) -> None:
+        """Publish the busy slot count: the gauge, and the pod-deletion-cost (OME-1931)."""
+        busy = len(self._active)
+        self._metrics.slots_busy.set(busy)
+        # Spec D2: no write after the drain signal (the pod is in deletion; the cost has no
+        # effect). Spec D3: `notify` is sync and cannot raise, so this never delays a claim.
+        if self._deletion_cost is not None and not self._draining.is_set():
+            self._deletion_cost.notify(busy)
+
     def _on_task_done(self, task: asyncio.Task[None]) -> None:
-        """Drop a finished supervisor task, refresh the busy-slot gauge, and let the warm pool
-        refill into the freed slot."""
+        """Drop a finished supervisor task, refresh the busy-slot gauge and the pod-deletion-cost,
+        and let the warm pool refill into the freed slot."""
         self._active.discard(task)
-        self._metrics.slots_busy.set(len(self._active))
+        self._report_busy()
         if self._pool is not None:
             self._pool.wake()
 
@@ -623,6 +668,23 @@ def worker_composition(settings: Settings) -> tuple[RunQueue, JetStreamPublisher
     return queue, publisher
 
 
+def build_deletion_cost_publisher(
+    settings: Settings,
+    environ: Mapping[str, str],
+    metrics: WorkerMetrics,
+    *,
+    build_writer: Callable[[Settings, Mapping[str, str]], PodCostWriter | None] = (
+        build_pod_cost_writer
+    ),
+) -> DeletionCostPublisher | None:
+    """The pod-deletion-cost publisher of the composition root (OME-1931), or None when the
+    feature is off or a prerequisite is missing (spec D4, fail open; the builder logs why)."""
+    writer = build_writer(settings, environ)
+    if writer is None:
+        return None
+    return DeletionCostPublisher(writer, writes=metrics.deletion_cost_writes)
+
+
 def run_worker(settings: Settings | None = None) -> None:
     """The worker's composition root: build the queue, publisher, control channel, and
     worker from Settings.
@@ -658,6 +720,9 @@ def run_worker(settings: Settings | None = None) -> None:
             await publisher.declare_events_stream()
             # FEATURE (OME-1785, spec R11): the outcome stream, declared with the chart's limits.
             await outcomes.ensure_stream(update=True)
+            # FEATURE (OME-1931): built here, inside the running loop - the httpx client belongs
+            # to it. `None` when the feature is off or a prerequisite is missing (fail open).
+            deletion_cost = build_deletion_cost_publisher(settings, os.environ, metrics)
             worker = Worker(
                 queue=queue,
                 publisher=publisher,
@@ -688,6 +753,7 @@ def run_worker(settings: Settings | None = None) -> None:
                 # the pod loads.
                 world_digest=config_file_digest(os.environ),
                 outcomes=outcomes,
+                deletion_cost=deletion_cost,
             )
             await worker.run()
         finally:
@@ -697,4 +763,4 @@ def run_worker(settings: Settings | None = None) -> None:
     asyncio.run(_main())
 
 
-__all__ = ["PULL_TIMEOUT_S", "Worker", "run_worker"]
+__all__ = ["PULL_TIMEOUT_S", "Worker", "build_deletion_cost_publisher", "run_worker"]

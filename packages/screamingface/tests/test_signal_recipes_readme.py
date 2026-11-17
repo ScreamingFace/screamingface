@@ -35,7 +35,8 @@ _GUIDANCE = (
     "1,000,000 bytes",  # RC-D4, N3
     "2,000,000 bytes",  # RC-D4, N4
     "larger model still runs",  # RC-D2, N2
-    "E4c",  # RC-D2
+    # RC-D2; E4c (OME-1291, docs #5-#7, owner-approved edit): the token was "E4c".
+    "write it as a `sf.Cascade` to skip it",
     "nats",  # entropy unit (entropy PRD §4)
     "logprobs_unsupported",  # RC-E1 / Q5
     "openrouter/openai/gpt-4o-mini",  # Q2 pinned model

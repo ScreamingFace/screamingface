@@ -79,6 +79,35 @@ class ArtifactWriter(Protocol):
 
 
 @runtime_checkable
+class ArtifactSink(Protocol):
+    """One artifact written in chunks, then committed under its sha256 or aborted.
+
+    FEATURE: memory fix 3 (OME-1835), so a result never has to exist whole in memory.
+
+    INVARIANT: after commit or abort the sink refuses writes (ValueError). abort is
+    idempotent, never raises for a missing temp file, and is a no-op after commit. A failed
+    commit leaves no temp file.
+    """
+
+    def write(self, chunk: bytes) -> None: ...
+
+    def commit(self) -> ResultArtifact: ...
+
+    def abort(self) -> None: ...
+
+
+@runtime_checkable
+class StreamingArtifactWriter(Protocol):
+    """The Runner's side for a result written in chunks.
+
+    Sync like ArtifactWriter: the caller runs it in a worker thread. A separate port, so
+    ArtifactWriter's other users and test doubles do not change.
+    """
+
+    def open_sink(self) -> ArtifactSink: ...
+
+
+@runtime_checkable
 class ArtifactReader(Protocol):
     """The App's side: resolve a claim ticket, and reclaim what nobody redeemed.
 
@@ -96,7 +125,9 @@ class ArtifactReader(Protocol):
 __all__ = [
     "ArtifactContent",
     "ArtifactReader",
+    "ArtifactSink",
     "ArtifactWriter",
     "LocalFile",
     "RemoteStream",
+    "StreamingArtifactWriter",
 ]

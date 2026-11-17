@@ -1,9 +1,9 @@
 ---
 ticket: OME-1746
 stack: aigateway
-status: in_progress
+status: done
 started: 2026-10-27
-finished:
+finished: 2026-10-27
 ---
 
 # openrouter-refusal-metadata — OpenRouter zero proofs read billing facts, not the reply format
@@ -68,3 +68,7 @@ amendment of `docs/spec/2026-10-06-OME-1446-proven-zero-retry-accounting.md`.
   `test_unknown_server_tool_counts_are_not_zero` (metadata_shapes); `unknown-zero-cost-field`,
   `null-cost`, `boolean-prompt-tokens` (strict_evidence). Each input is now asserted certified
   in the new files. Still out of scope: the engine signal path (follow-up), old cache rows.
+
+## Landed on main
+
+- `4cb803eab` (#1571), squash-merged 2026-10-27 15:27 UTC. Review fixes: `27364bbf3` (#1575), ledger `docs/work/2026-10-27-openrouter-zero-proof-review-fixes.md`. Linear OME-1746 Done 2026-11-16.

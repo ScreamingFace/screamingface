@@ -130,6 +130,10 @@ _SPEC_COUNTS = {
     "corrective_vote_candidate.url4": 2,
     "model_synthesizer_candidate.url4": 0,
     "two_reducers_candidate.url4": 2,
+    # E4c (OME-1291, lazy-fallback #23, owner-approved edit): a judge or writer fallback compiles
+    # to call #1 and call #2, which carry the same spec (FB-I1).
+    "gate_judge_vote_candidate.url4": 2,
+    "gate_writer_vote_candidate.url4": 2,
 }
 _SPEC_START = '{"extract":'  # canonical JSON sorts the keys, so every spec starts here
 
@@ -394,13 +398,17 @@ def test_engine_parses_a_gate_on_a_vote_spec() -> None:
     assert mean.gate == GateSpec(observe="mean:conf", cmp="<=", threshold=-5.0, otherwise="writer")
 
 
-# --- GR#4: only a vote takes a gate, and an explicit null is refused ---------------------------
+# --- GR#4 (E4c gate #18, owner-approved edit): an agreement gate needs a vote; a gate needs a
+# reducer that answers; an explicit null is refused --------------------------------------------
 
 
-def test_engine_refuses_a_gate_on_another_reducer_and_an_explicit_null() -> None:
-    assert "only a vote takes a gate" in _spec_failure({**_median_spec(), "gate": dict(_SPEC_GATE)})
+def test_agreement_gate_needs_a_vote_reducer() -> None:
+    assert "an agreement gate needs a vote" in _spec_failure(
+        {**_median_spec(), "gate": dict(_SPEC_GATE)}
+    )
     rank = rank_signal_spec(3, 2, "cost_usd", "min")
-    assert "only a vote takes a gate" in _spec_failure({**rank, "gate": dict(_SPEC_GATE)})
+    ranked = {**rank, "gate": dict(_SPEC_GATE)}
+    assert "a gate needs a reducer that answers" in _spec_failure(ranked)
     assert "gate must be an object when present" in _spec_failure({**_real_vote(), "gate": None})
 
 
@@ -758,11 +766,20 @@ GATE_ABSTAIN_WIRE: dict[str, Any] = {
 
 
 def test_gate_not_met_is_an_abstain_word_on_both_sides() -> None:
-    words = ("no_votes", "cut_not_met", "output_missing", "gate_not_met", "in_band")
+    # E4c (OME-1291, budget #6, owner-approved edit)
+    words = (
+        "no_votes",
+        "cut_not_met",
+        "output_missing",
+        "gate_not_met",
+        "in_band",
+        "budget_refused",
+    )
 
     assert get_args(AbstainReason) == words
     assert ABSTAIN_REASONS == words
-    assert get_args(AnswerReason)[-2:] == ("gate_not_met", "in_band")
+    # E4c (OME-1291, budget #6, owner-approved edit)
+    assert get_args(AnswerReason)[-3:] == ("gate_not_met", "in_band", "budget_refused")
     assert NoVotes(reason="gate_not_met").reason == "gate_not_met"
     result = ResultRecord(member_id=None, value=None, status="abstain", reason="gate_not_met")
     assert result.reason == "gate_not_met"

@@ -418,7 +418,8 @@ future-compatible capability, not a v1 execution path:
   The engine request key is unchanged (F3).
 - **Only `data:` URIs.** Media parts carry inline `data:` URIs and nothing else; the gateway refuses
   any other form before its cache stage (`OME-1542`, #1479, open at this revision).
-- **Limits.** The gateway's 8 MiB (8,388,608-byte) request-body cap (#1479) bounds one request: a
+- **Limits.** The gateway's 12 MiB (12,582,912-byte) request-body cap (#1479; 8 MiB until
+  `OME-1926`, 2026-11-15, raised so url4's 8,000,000-byte attachment cap fits) bounds one request: a
   larger body gets 413 `request_too_large`, permanent, before any upstream spend. Per-Case limits
   belong to the `OME-1271` importer (#1554), which refuses an oversized Case by name: at most 20
   pictures, and at most 8,000,000 bytes for the Case input with its pictures inline. That leaves room

@@ -38,6 +38,7 @@ from typing import Any
 from screamingface_engine.activity_kinds import ActivityKind
 from screamingface_engine.benchmarks.case_records import answer_abstain_mark
 from screamingface_engine.benchmarks.case_selection import install_cases
+from screamingface_engine.benchmarks.contract import CandidateResult
 from screamingface_engine.benchmarks.grading_endpoints import (
     CandidateAnswer,
     CaseGradeBuilder,
@@ -62,7 +63,9 @@ ErrorFactory = Callable[[str], ResolutionError]
 PreflightCheck = Callable[[Path, tuple[int, ...]], None]
 # The per-benchmark reducer signature every benchmark's `aggregate.aggregate` already has:
 # (case_evaluations, root, *, benchmark_id, benchmark_revision, case_ids) -> report.
-BenchmarkReducer = Callable[..., JsonObject]
+# A reducer returns the report dict or the CandidateResult model; the aggregate endpoint
+# delivers either (a model streams into the run spool, memory fix 3, OME-1835).
+BenchmarkReducer = Callable[..., JsonObject | CandidateResult]
 
 # WHY 8: the preflight message travels in a public failure row — a bundle with
 # thousands of broken cases must not ship a megabyte of diagnostics.
@@ -125,8 +128,8 @@ class ServedBenchmark:
     - `check`: the benchmark's own grading gate, given the bundle root. Benchmark-specific by
       design — the shared grading code does not average over benchmarks.
     - `build_case_grade`: bundles checked attempts into the per-Case artifact.
-    - `reduce`: the benchmark's reducer (`aggregate.aggregate`), fed benchmark identity and the
-      exact selected case_ids.
+    - `reduce`: the benchmark's reducer (`aggregate.aggregate` or `aggregate.aggregate_result`),
+      fed benchmark identity and the exact selected case_ids.
     """
 
     benchmark_id: str
@@ -314,7 +317,7 @@ def candidate_record(
 
 def benchmark_aggregate(
     root: Path, benchmark: ServedBenchmark
-) -> Callable[[str, tuple[int, ...]], JsonObject]:
+) -> Callable[[str, tuple[int, ...]], JsonObject | CandidateResult]:
     """Forward graded Cases plus benchmark identity to the benchmark's reducer.
 
     INVARIANT: case_ids are exactly the run's selection (1..N for a ``limit``, or the explicit
@@ -322,7 +325,7 @@ def benchmark_aggregate(
     (id + revision) rides into the report.
     """
 
-    def handler(case_evaluations: str, case_ids: tuple[int, ...]) -> JsonObject:
+    def handler(case_evaluations: str, case_ids: tuple[int, ...]) -> JsonObject | CandidateResult:
         return benchmark.reduce(
             case_evaluations,
             root,

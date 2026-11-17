@@ -274,6 +274,12 @@ networkPolicy:
   # above cannot express (a differently-labelled client, a second namespace).
   allowFrom: []
 
+# Placement for the gateway Deployment, the migrate Job (migration.enabled) and the bundled
+# Garage StatefulSet (snapshot.garage.enabled). nodeSelector and tolerations reach all three;
+# affinity reaches the gateway Deployment only: it can name gateway pod labels, which Garage and
+# the migrate Job do not carry.
+# Changing placement restarts a Garage pod. Its PersistentVolume (Azure Disk) is zonal, so the
+# new pool must have a node in the disk's zone.
 nodeSelector: {}
 tolerations: []
 affinity: {}

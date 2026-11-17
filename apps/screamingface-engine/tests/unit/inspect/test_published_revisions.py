@@ -126,6 +126,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "mmmu_open": "8ce88e420239ae4d",
     # OME-1478: Humanity's Last Exam, the full set with its pictures, judged by glm-5.3-flash.
     "hle": "d30effc2a0698079",
+    # OME-1863: HLE-Diamond, the authors' 1,000 cleaned questions, judged as hle is.
+    "hle_diamond": "9640c5c7e59fc61e",
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, a local Task judged by Sonnet 4.5.
     "labbench2_figqa2_img": "770667413b4b1e51",
     "labbench2_tableqa2_img": "742c148e87b15f69",

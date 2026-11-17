@@ -23,6 +23,7 @@ from screamingface_engine.connections.aigateway_rows import (
     oauth_start_plan,
     select,
 )
+from screamingface_engine.connections.credits import GatewayCredits
 from screamingface_engine.connections.port import (
     AuthMethod,
     Caller,
@@ -68,6 +69,7 @@ class AigatewayConnections:
         # (OME-1138 L7b). Both take every status from `GET /v1/provider-access`.
         self._client = client
         self._mutable = mutable
+        self.credits = GatewayCredits(self._request, enabled=mutable)
 
     async def list(self, caller: Caller) -> tuple[Connection, ...]:
         providers = await self._providers(caller)

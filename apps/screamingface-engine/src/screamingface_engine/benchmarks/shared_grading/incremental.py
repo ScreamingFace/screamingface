@@ -9,13 +9,14 @@ from dataclasses import dataclass
 from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import SelectedCase, finalize_candidate_result
-from screamingface_engine.benchmarks.contract import CaseResult
+from screamingface_engine.benchmarks.contract import CandidateResult, CaseResult
 from screamingface_engine.benchmarks.graded_results import decode_results, encode_result
 from screamingface_engine.benchmarks.media_parking import park_cases_media
 from screamingface_engine.benchmarks.progress import ScoreCases, completed_case, grading_progress
 from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import (
     BenchmarkAggregation,
 )
+from screamingface_engine.process_memory import log_process_memory
 
 
 @dataclass(frozen=True)
@@ -28,8 +29,8 @@ class Scoring:
     scorer: ScoreCases
     metadata: Callable[[int], Mapping[str, Any]] | None = None
 
-    def aggregate(self, raw: str) -> dict[str, Any]:
-        return self.path.aggregate(
+    def aggregate_result(self, raw: str) -> CandidateResult:
+        return self.path.aggregate_result(
             raw,
             benchmark_id=self.benchmark_id,
             benchmark_revision=self.revision,
@@ -38,6 +39,9 @@ class Scoring:
             scorer=self.scorer,
             case_metadata=self.metadata,
         )
+
+    def aggregate(self, raw: str) -> dict[str, Any]:
+        return self.aggregate_result(raw).as_payload()
 
     async def grade_row(self, raw: str, index: int) -> str:
         selected = self.selected[index]
@@ -60,6 +64,12 @@ class Scoring:
         return encode_result(result, benchmark_id=self.benchmark_id, revision=self.revision)
 
     async def finish(self, raw: str) -> dict[str, Any]:
+        return (await self.finish_result(raw)).as_payload()
+
+    async def finish_result(self, raw: str) -> CandidateResult:
+        """:meth:`finish` as the model. FEATURE (memory fix 3, OME-1835): logs the same three
+        memory points as BenchmarkAggregation.aggregate_result_async."""
+        log_process_memory("aggregate_start", cases=len(self.selected))
         with grading_progress(
             self.benchmark_id,
             self.revision,
@@ -78,6 +88,7 @@ class Scoring:
                 result = await self._completed_row(row, selected, index)
                 if result is not None:
                     results.append(result)
+            log_process_memory("aggregate_marked", cases=len(results))
             # FEATURE (OME-1271, PR 5): park each Case's pictures and files in the run's
             # result store, under the sha256 its echoed placeholder carries, so a researcher
             # can open one later. WHY a thread: the store's writer is synchronous, and this is
@@ -91,6 +102,7 @@ class Scoring:
                 scorer=self.scorer,
                 failure_policy=self.path.failure_policy,
             )
+            log_process_memory("aggregate_finalized", cases=finalized.case_count)
             observed = {case.case_id for case in results}
             for case in finalized.cases:
                 if case.case_id not in observed:
@@ -101,7 +113,7 @@ class Scoring:
                         self.scorer,
                         failure_policy=self.path.failure_policy,
                     )
-            return finalized.as_payload()
+            return finalized
 
     async def _completed_row(self, row, selected, index) -> CaseResult | None:
         if (

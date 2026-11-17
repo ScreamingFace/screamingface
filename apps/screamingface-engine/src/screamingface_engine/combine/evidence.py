@@ -20,6 +20,7 @@ envelope already carries every member's full text.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
@@ -344,6 +345,12 @@ class CombineEvidence(_EvidenceModel):
     result: ResultRecord
     dropped: int
     finish_reason: Literal["stop"]
+    # E4c skip members (SM-2, C11): the members a skip-Gate did not select, in author order.
+    # Optional on the wire and the last key: written only when not empty, so every other evidence
+    # keeps its v1 bytes.
+    skipped: list[str] | None = Field(
+        default=None, min_length=1, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def _check(self) -> CombineEvidence:
@@ -371,16 +378,40 @@ class CombineEvidence(_EvidenceModel):
             raise ValueError("a member result must be the one chosen member and not built")
         _check_gate(self)
         _check_consistency(self)
+        _check_skipped(self)
         _check_narrow(self)
         return self
 
 
+def _check_skipped(evidence: CombineEvidence) -> None:
+    """E4c SM-13: a skipped member is excluded with not_selected and has no value of its own; it
+    is never chosen and never kept by a narrow step."""
+    if evidence.skipped is None:
+        return
+    skipped = set(evidence.skipped)
+    rows = {row.member_id: row for row in evidence.members}
+    if not skipped <= set(rows) or len(skipped) != len(evidence.skipped):
+        raise ValueError("skipped lists distinct members of the evidence")
+    for member in skipped:
+        row = rows[member]
+        if (row.status, row.reason) != ("excluded", "not_selected") or any(
+            value is not None for value in (row.raw, row.value, row.score, row.weight)
+        ):
+            raise ValueError("a skipped member is excluded, not_selected, with no value")
+    kept = {member for record in evidence.narrow or () for member in record.kept}
+    if not skipped.isdisjoint(kept):
+        raise ValueError("a narrow step never keeps a skipped member")
+
+
 def _check_narrow(evidence: CombineEvidence) -> None:
     """NR-I1..NR-I5 (narrow.md §4.3); NR-I6 is the ``dropped`` check, AR-I3′ ``AnswerRecord``."""
-    reasons = {row.member_id: row.reason for row in evidence.members}
+    skipped = set(evidence.skipped or ())
+    reasons = {
+        row.member_id: row.reason for row in evidence.members if row.member_id not in skipped
+    }
     narrow = evidence.narrow
     if narrow is None:
-        # NR-I4
+        # NR-I4 (E4c: widened, a skipped member is not_selected with no narrow record)
         if "not_selected" in reasons.values():
             raise ValueError("not_selected goes with a narrow record, and only with it")
         return
@@ -506,6 +537,23 @@ def _check_gate(evidence: CombineEvidence) -> None:
         raise ValueError("a judge fallback records its label reading and chooses that one member")
 
 
+@dataclass(frozen=True, slots=True)
+class PendingCombine:
+    """E4c lazy fallback (OME-1291): a ``phase=decide`` call whose gate took the fallback branch.
+
+    It answers ``""`` with no evidence; ``record`` is its gate record, which DECIDE reads
+    (branch-core D11). The fallback call and the full combine call run only in that branch.
+    ``kept`` is the majority answer: when the Budget refuses the fallback, the Gate's step slot
+    answers with it (budget BU-18). None when that answer is over 8 MiB.
+
+    WHY here, not in ``combine/endpoint.py``: ``operation_calls.py`` records it, and it imports
+    only the pure wire modules of ``combine/`` (this one and ``combine.decision``).
+    """
+
+    record: GateRecord
+    kept: str | None
+
+
 __all__ = [
     "COMBINE_EVIDENCE_SCHEMA",
     "AnswerRecord",
@@ -515,6 +563,7 @@ __all__ = [
     "GateRecord",
     "JudgeReadingRecord",
     "NarrowRecord",
+    "PendingCombine",
     "ResultRecord",
     "SampleCountRecord",
     "SignalRecord",

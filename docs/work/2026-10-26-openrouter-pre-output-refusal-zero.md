@@ -1,9 +1,9 @@
 ---
 ticket: OME-1738
 stack: aigateway + screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-26
-finished:
+finished: 2026-10-26
 ---
 
 # openrouter-pre-output-refusal-zero — price an OpenRouter refusal before output as $0
@@ -64,3 +64,7 @@ engine price that certified zero as $0, live and on a cache hit. Spec:
 - **Deviations:** the engine prices a guaranteed zero only from an allowlisted source (P5), not
   the status alone. This keeps OME-1687 R3 and the prior `guaranteed_zero` test unchanged.
   `world/accounting.py` was already over 450 lines before this unit; it grew by ~20 lines.
+
+## Landed on main
+
+- `482460344` (#1557), squash-merged 2026-10-26 23:21 UTC. Linear OME-1738 Done 2026-11-16.
