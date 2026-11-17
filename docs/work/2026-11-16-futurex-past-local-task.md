@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # Linear skipped by the user's decision (2026-11-16): no issue, no epic, no `Refs: OME-N`
+ticket: OME-1952   # filed by the ScreamingFace maintainer on review (2026-11-17); Linear otherwise skipped
 stack: screamingface-engine
 status: done   # planned | in_progress | done | blocked
 started: 2026-11-16

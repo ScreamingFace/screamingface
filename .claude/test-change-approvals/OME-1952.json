@@ -1,0 +1,38 @@
+{
+  "issue": "OME-1952",
+  "branch": "futurex-past-local-task",
+  "approver": "ScreamingFace maintainer, on ScreamingFace/screamingface#1897 (OME-1952)",
+  "date": "2026-11-17",
+  "scope": "Prior-test edits for the two new Benchmarks, futurex_past and futurex_past_study, and nothing else: one row each in replayed_cases_helpers.py (STAND_IN_METADATA), test_benchmark_declaration.py, test_inspect_imported_benchmarks.py (families judged / free_text), test_failure_policy_rows.py (group F, plus the row counts 96->98 and 17->19 its invariant asserts), test_published_revisions.py and test_benchmark_fingerprints.py (their revision and fingerprint literals; moved on 2026-11-17 by the maintainer-requested excluded-count metric), and test_whole_run_metric.py (both keys join the owner-decision list of rows that honour a whole-run metric, named in its docstring). No existing row changes.",
+  "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as hle_diamond did under OME-1863); the rows are the review act for its declaration, family, policy, revision, fingerprint and non-mean headline.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/replayed_cases_helpers.py": {
+      "base_blob": "03ab0abd1d8fa5db5e7e1e165faa9059c014fcc0",
+      "approved_blob": "38117d8dc8a18e240942ae9be9c92da70ea3ea8d"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
+      "base_blob": "47890b9cb939a12c8ee81c62ef42bbc6bf9a0abe",
+      "approved_blob": "7c888e7bd6b1c8ece779cadeb820716b94c36364"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "767d79e004bbb504175ad1c879b4ce33d91ce3f7",
+      "approved_blob": "e47743c3b62bdb4b7183b0d3d00815150d805e02"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
+      "base_blob": "3a562a5499cfd9ec215c544f1465879a9e7717af",
+      "approved_blob": "5a64560d40f5383c358144369d30e2fc5b388c59"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
+      "base_blob": "d6f72fce5ded7e6654d88c820d5929e0a980ec05",
+      "approved_blob": "6b19b517447ff7559851933b8a4110d20ba960d8"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
+      "base_blob": "0ab1e3985a8169b94db765e731a061de6813005b",
+      "approved_blob": "cc8709639be27b40b43e666cc7c2abac69e6f907"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_whole_run_metric.py": {
+      "base_blob": "ef29bdb4e56054138d442fac7aedb370d54f0f90",
+      "approved_blob": "5d1ad35eca9d1d9fb785e8af49315f473bee8ce9"
+    }
+  }
+}
