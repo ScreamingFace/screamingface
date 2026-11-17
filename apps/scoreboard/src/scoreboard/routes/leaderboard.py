@@ -211,7 +211,7 @@ async def _selected_scope(
     benchmark_id: str,
     requested: str | None,
     connection: BaseDBAsyncClient,
-) -> tuple[str | None, int | None]:
+) -> tuple[str | None, int | None, bool]:
     """The revision and Case count a read is scoped to: the registered pair, or the requested one.
 
     INVARIANT (OME-1708): a past revision is ranked against ITS OWN recorded Case count, never the
@@ -221,7 +221,10 @@ async def _selected_scope(
     """
     registered = await store.benchmark_scope(benchmark_id, connection=connection)
     if requested is None or requested == registered[0]:
-        return registered
+        return *registered, registered[0] is not None
+    if registered[0] is None:
+        # D12: stale/client-provided revision rows cannot enable a frontier on an unpinned board.
+        raise HTTPException(status_code=404, detail=REVISION_NOT_FOUND_DETAIL)
     found = await find_revision(benchmark_id, requested, connection=connection)
     if found is None:
         raise HTTPException(status_code=404, detail=REVISION_NOT_FOUND_DETAIL)
@@ -404,10 +407,11 @@ async def get_leaderboard(
         # snapshot. The pre-snapshot read decides visibility only; filtering with it let a
         # re-registration in between serve new-revision rows under the old revision's filter.
         # OME-1708: a requested past revision is scoped to its own Case count, from this snapshot.
-        revision, case_count = await _selected_scope(store, benchmark_id, revision, snapshot)
+        revision, case_count, pinned = await _selected_scope(
+            store, benchmark_id, revision, snapshot
+        )
         # The same read decides `pinned` and builds the query's revision filter, so the gate and
         # the filter can never disagree within one request.
-        pinned = revision is not None
         rows = await store.leaderboard(
             benchmark_id=benchmark_id,
             top_n=min(top, MAX_LEADERBOARD_TOP),
@@ -579,11 +583,12 @@ async def get_frontier(
     async with store.read_snapshot() as snapshot:
         # INVARIANT (review round 3): the revision and case count come from this snapshot too, so
         # the filter and the rows it filters never straddle a re-registration.
-        revision, case_count = await _selected_scope(store, benchmark_id, revision, snapshot)
+        revision, case_count, pinned = await _selected_scope(
+            store, benchmark_id, revision, snapshot
+        )
         # INVARIANT (D12): a board with no registered revision makes no frontier claim, here or in
         # the table. The same read decides the gate and builds the revision filter.
-        pinned = revision is not None
-        if revision is not None:
+        if pinned and revision is not None:
             current = await store.leaderboard_pareto_inputs(
                 benchmark_id,
                 registered_revision=revision,

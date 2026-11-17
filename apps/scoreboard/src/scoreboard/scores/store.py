@@ -12,6 +12,7 @@ from uuid import UUID
 
 from pypika_tortoise.analytics import RowNumber
 from pypika_tortoise.enums import Order
+from pypika_tortoise.functions import Count as SQLCount
 from pypika_tortoise.queries import Query, QueryBuilder
 from tortoise import BaseDBAsyncClient, Tortoise
 from tortoise.exceptions import FieldError, IntegrityError
@@ -2261,6 +2262,26 @@ class ScoreStore:
             row["source_id"] = str(row.pop("id"))
             _serve_reproduction_cost(row)
         return [LeaderboardStoreEntry(**row) for row in rows]
+
+    async def leaderboard_count(
+        self,
+        benchmark_id: str,
+        *,
+        registered_revision: str | None,
+        registered_case_count: int | None,
+        connection: BaseDBAsyncClient | None = None,
+    ) -> int:
+        """Count best complete runs without materializing their display payloads."""
+        # INVARIANT: reuse the unbounded ranked projection used by the frontier, including
+        # completeness before the window. Only one aggregate row crosses the DB boundary.
+        ranked = _build_pareto_inputs_query(
+            benchmark_id, registered_revision, registered_case_count
+        ).as_("board")
+        result = await execute_pypika(
+            Query.from_(ranked).select(SQLCount("*").as_("result_count")),
+            using_db=connection or Tortoise.get_connection("default"),
+        )
+        return int(result.rows[0]["result_count"])
 
     async def benchmark_scope(
         self, benchmark_id: str, *, connection: BaseDBAsyncClient | None = None

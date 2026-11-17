@@ -28,7 +28,7 @@ class RevisionSummary(BaseModel):
     revision: str
     first_seen_at: datetime
     first_seen_inferred: bool
-    # The next revision's first-seen time; None for the newest.
+    # The next chronological first-seen time; None for current or an unknown end date.
     until: datetime | None
     case_count: int | None
     case_count_inferred: bool
@@ -74,17 +74,20 @@ async def record_revision(benchmark_id: str, revision: str, case_count: int | No
 
 async def find_revision(
     benchmark_id: str, revision: str, *, connection: BaseDBAsyncClient | None = None
-) -> tuple[str, int | None] | None:
-    """The revision and its own Case count, or None when the board never had it."""
+) -> tuple[str, int | None, bool] | None:
+    """Revision, Case count and whether it can support frontier claims; None if unknown."""
 
     rows = await (
         BenchmarkRevision.filter(benchmark_id=benchmark_id, revision=revision)
         .using_db(connection)
-        .values("revision", "case_count")
+        .values("revision", "case_count", "case_count_inferred")
     )
     if not rows:
         return None
-    return cast("str", rows[0]["revision"]), cast("int | None", rows[0]["case_count"])
+    row = rows[0]
+    count = cast("int | None", row["case_count"])
+    # INVARIANT: a client-supplied revision/count cannot establish a best-value claim.
+    return cast("str", row["revision"]), count, count is not None and not row["case_count_inferred"]
 
 
 async def list_revisions(
@@ -92,9 +95,13 @@ async def list_revisions(
     benchmark_id: str,
     *,
     registered_revision: str | None,
+    registered_case_count: int | None,
     connection: BaseDBAsyncClient | None = None,
 ) -> list[RevisionSummary]:
-    """Every revision of a board, newest first, each with the size of its own board."""
+    """Current first, then historical revisions by first sighting, with SQL-ranked counts."""
+
+    if registered_revision is None:
+        return []
 
     rows = await (
         BenchmarkRevision.filter(benchmark_id=benchmark_id)
@@ -104,14 +111,13 @@ async def list_revisions(
     summaries: list[RevisionSummary] = []
     newer_seen_at: datetime | None = None
     for row in rows:
-        # WHY the board's own query: a revision list is short (one row per bump), and counting
-        # with the ranking query keeps the label and the board in step, best-per-spec and the
-        # completeness rule included.
-        board = await store.leaderboard(
+        current = row.revision == registered_revision
+        # WHY: the seed can clear/change the live count without rewriting historical metadata.
+        count = registered_case_count if current else row.case_count
+        result_count = await store.leaderboard_count(
             benchmark_id,
-            None,
             registered_revision=row.revision,
-            registered_case_count=row.case_count,
+            registered_case_count=count,
             connection=connection,
         )
         summaries.append(
@@ -119,12 +125,14 @@ async def list_revisions(
                 revision=row.revision,
                 first_seen_at=row.first_seen_at,
                 first_seen_inferred=row.first_seen_inferred,
-                until=newer_seen_at,
-                case_count=row.case_count,
-                case_count_inferred=row.case_count_inferred,
-                result_count=len(board),
-                current=row.revision == registered_revision,
+                until=None if current else newer_seen_at,
+                case_count=count,
+                case_count_inferred=False if current else row.case_count_inferred,
+                result_count=result_count,
+                current=current,
             )
         )
         newer_seen_at = row.first_seen_at
-    return summaries
+    # WHY: first sighting is not activation order. Empty Latest and rollbacks can have an
+    # older first sighting than historical rows; preserve dates without mislabelling Latest.
+    return sorted(summaries, key=lambda summary: not summary.current)

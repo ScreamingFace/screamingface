@@ -47,9 +47,13 @@ async def get_revisions(
     store = cast(ScoreStore, request.app.state.score_store)
     # One snapshot: the registered revision, the revision rows and each board count must agree.
     async with store.read_snapshot() as snapshot:
-        registered, _ = await store.benchmark_scope(benchmark_id, connection=snapshot)
+        registered, count = await store.benchmark_scope(benchmark_id, connection=snapshot)
         revisions = await list_revisions(
-            store, benchmark_id, registered_revision=registered, connection=snapshot
+            store,
+            benchmark_id,
+            registered_revision=registered,
+            registered_case_count=count,
+            connection=snapshot,
         )
     # INVARIANT (OME-894): visibility is read FRESH after the counts were computed and before
     # anything leaves, so a board private at the start, or flipped during the read, answers 404.

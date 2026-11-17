@@ -79,19 +79,24 @@ Phase 1 (this step): HTML mockups only, for product feedback. No code.
 
 Phase 2 (after product sign-off): spec, plan, then code. Expected scope, to confirm:
 revision history storage (seed job records each revision it sees), a list-revisions
-route, a `revision` parameter on the leaderboard, frontier and history routes, and the
+route, a `revision` parameter on the leaderboard and frontier routes, and the
 portal dropdown.
 
 ## Test plan
 
-Written in the spec once the mockups are agreed.
+Migration, recording and route regression tests cover revision scope, completeness,
+visibility, ordering and result counts. Run the scoreboard gates before publication.
 
 ## Acceptance
 
 - Phase 1: Irina and Filip agree on the dropdown's placement, labels, default and the
   empty-latest state.
 
-## Outcome (fill at the end — required before COMMIT)
+- Backend: historical scopes stay isolated; default reads stay unchanged; unknown or
+  unregistered scopes cannot make a frontier claim; Latest always appears first.
+- Portal: complete desktop/mobile, light/dark review before publishing PR 2.
+
+## Outcome
 
 ### PR 1 — revision history and API (2026-11-17)
 
@@ -125,3 +130,41 @@ Written in the spec once the mockups are agreed.
     limit.
   - The new route answers a private board with a 404, after a fresh visibility read, so
     the visibility-exit guard needed no new allowlist entry.
+
+## Review fixes — 2026-11-17 (PR #1892)
+
+Intent: address the two blockers and the count/query/purge gaps from the review.
+Filip explicitly authorized fixing the review comments in this session. This authorizes
+the backend corrections; it is not a record of prior product approval for PR 2.
+
+Planned changes:
+- Backfill only boards with a registered revision and reject explicit selection on
+  unregistered boards, even if stale revision rows exist.
+- Historical ids from score submissions cannot be authenticated retrospectively. Keep
+  those archives browsable, but suppress frontier claims for inferred/unknown counts.
+- Put Latest first regardless of its first-seen date; never fabricate a rollback date.
+- Count results in SQL using the ranking filters and the current registered count.
+- Add purge regression coverage; correct the spec and plan's obsolete statements.
+
+Validation: add failing regressions first, then run all scoreboard gates and migration
+checks. Check historical count anomalies read-only if production access is available.
+The MAX heuristic remains inferred; switching to a mode cannot establish provenance.
+
+Review-fix outcome:
+- Both blockers fixed, including the inferred historical frontier policy on registered
+  boards, empty Latest and rollback ordering. Default responses remain unchanged.
+- Current result counts use the live count; historical counts run as SQL aggregates.
+  Added a purge-with-revisions regression; removing the explicit delete makes it fail.
+  No existing tests were changed.
+- New regressions: 9 failures before fixes, then 10 passing (including the purge case
+  that already passed). All 21 focused revision/migration cases pass.
+- Full scoreboard gates passed: lint, formatting, types, full Python suite with coverage,
+  append-only preservation and every portal Node suite.
+- Local PostgreSQL: 32 route/recording/migration cases passed. A separate populated
+  migration check passed for inferred history, current counts, empty Latest and
+  unregistered-board exclusion, without deleting scores.
+- Production count audit remains outstanding: the supplied firecall SSH host timed out
+  on 2026-11-17. The spec includes the exact read-only anomaly query. No live reads or
+  writes succeeded. MAX remains explicitly inferred; historical frontier claims are off.
+- Schema check: Tortoise `makemigrations` reports "No changes detected".
+- PR 2's portal work remains on its separate branch; this commit changes no portal files.

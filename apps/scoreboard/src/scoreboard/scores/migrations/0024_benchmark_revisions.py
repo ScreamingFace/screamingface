@@ -6,9 +6,9 @@ from tortoise.migrations import operations as ops
 # revision's first-seen date nor its Case count was ever stored, so both are inferred from the
 # results under it and marked inferred:
 #   - first seen: the earliest submission under the revision;
-#   - Case count: the LARGEST question count among its results. A run never covers more Cases
-#     than its revision has; a partial `limit=n` run reports fewer; failed Cases stay in a run
-#     (scored 0), so a full run with failures still reports the full count.
+#   - Case count: the largest reported question count, a heuristic rather than verified
+#     coverage. Clients can over-report it, or every stored run could be partial. Historical
+#     scopes with inferred counts must never make a frontier claim.
 # The registered revision then takes the Engine's own count (not inferred), and a registered
 # revision with no results yet is recorded too, so the selector can show it as Latest.
 # AIDEV-NOTE: plain portable SQL (SQLite and Postgres); scores with no revision are skipped.
@@ -20,6 +20,11 @@ SELECT "benchmark_id", "benchmark_revision", MIN("submitted_at"), TRUE,
        MAX("total_questions"), TRUE
 FROM "scores"
 WHERE "benchmark_revision" IS NOT NULL
+  AND EXISTS (
+      SELECT 1 FROM "benchmarks"
+      WHERE "benchmarks"."id" = "scores"."benchmark_id"
+        AND "benchmarks"."revision" IS NOT NULL
+  )
 GROUP BY "benchmark_id", "benchmark_revision"
 """
 

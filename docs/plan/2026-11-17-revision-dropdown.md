@@ -24,7 +24,7 @@ PRs so each stays under the review size cap. `sdlc-python` loop, with the mandat
    - `routes/leaderboard.py` passes the chosen revision and its count to
      `store.leaderboard` and `leaderboard_pareto_inputs`.
    - New store read for the revision list.
-   - The history response gains the registered revision.
+   - History response stays unchanged; the portal reads the current id from `/revisions`.
 5. **Gates:** `run_gates.py scoreboard`. Then the PR.
 
 ## PR 2 — portal (after PR 1 merges)
@@ -51,3 +51,6 @@ PRs so each stays under the review size cap. `sdlc-python` loop, with the mandat
   renumbers.
 - Code starts after the product review of the mockups or Filip's sign-off (ledger
   decision 7).
+
+Review follow-up: reject unregistered scopes; suppress inferred historical frontiers;
+put Latest first; count in SQL with current scope; add regression and purge tests.
