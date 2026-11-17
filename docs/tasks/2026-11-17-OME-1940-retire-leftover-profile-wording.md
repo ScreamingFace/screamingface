@@ -1,7 +1,7 @@
 ---
 id: OME-1940
 linear_url: https://linear.app/openmined/issue/OME-1940/name-the-credential-not-a-retired-profile-in-provider-errors-and
-status: in_progress
+status: in_review
 type: task
 priority: medium
 labels: [aigateway, agentic, autonomous]
@@ -23,4 +23,4 @@ the store port lost it. The SDK fixture part is `OME-1941`, in the same PR.
 - Spec: `docs/spec/2026-11-16-ome-1138-leftover-profile-wording.md`
 - Plan: `docs/plan/2026-11-16-ome-1138-leftover-profile-wording.md`
 - Ledger: `docs/work/2026-11-16-retire-leftover-profile-wording.md`
-- 2026-11-17: filed under `OME-1138` with `OME-1941`; the PR opened. In Progress.
+- 2026-11-17: filed under `OME-1138` with `OME-1941`; the PR opened. In Review.

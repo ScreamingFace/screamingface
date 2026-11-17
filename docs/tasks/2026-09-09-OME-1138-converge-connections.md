@@ -1,12 +1,12 @@
 ---
 id: OME-1138
 linear_url: https://linear.app/openmined/issue/OME-1138/aigateway-deprecate-profiles-and-converge-on-connections
-status: done
+status: in_progress
 type: epic
 priority: high
 labels: [aigateway]
 created: 2026-09-08
-closed: 2026-11-16
+closed:
 ---
 
 # AIGateway: deprecate Profiles and converge on Connections
@@ -54,3 +54,5 @@ Closed 2026-11-16. Stage E (E1 to E5c) and every close-out leaf (L1 to L11a, L4c
 the gateway uses Connections only, and the Profile routes answer 410. Releases: gateway 1.0.0,
 1.0.1 and 1.1.0; Engine 2.0.0 and 2.1.0. The ledger section "Epic close" lists each leaf with its
 PR. `OME-1315`, `OME-1035` and `OME-1026` are no longer blocked by this epic.
+
+- 2026-11-17: reopened for `OME-1940` and `OME-1941` (#1874).
