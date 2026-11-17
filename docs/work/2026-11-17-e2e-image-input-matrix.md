@@ -1,9 +1,9 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1950
 stack: python
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-17
-finished:
+finished: 2026-11-17
 ---
 
 # e2e-image-input-matrix — workbench notebook that validates image and PDF input per model
@@ -156,17 +156,15 @@ Result with 1–4 fixed: url4 — `gemma-4-31B-it` and `Kimi-K3` read png/jpeg/w
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:**
-- **Commits:**
-- **Gates:**
-- **Deviations:**
-  - The url4 client sends the capability in the `URL4-Capability` header, not
-    `Authorization`: the Engine reads it there (OME-556; `image_url4.py` docstring).
-  - url4 spend is always `None`: the sync 200 body carries no cost, so the budget charges a
-    $0.01 estimate per url4 call that is not refused (`image_notebook.py`).
-  - Review Focus 1 counts provider-dispatch evidence (`dispatch failed` / `global cache fill`
-    lines), not "zero gateway chat calls": the gateway's 422 backstop is itself a gateway
-    request under the trace, but never reaches the provider (`image_notebook.py` docstring).
-  - `Cell` gained `case` (the gold Case a Benchmark cell checks) and `chat_calls` (the count
-    above), so `matrix.json` and the verdict can show both.
-  - `ANSWER_CAP` lives in `image_notebook.py` only; `bundle.py` imports it (final review).
+- **Actual files:** `packages/screamingface/tests/e2e/workbench/`: `image_matrix.py`, `image_url4.py`,
+  `image_notebook.py`, `fixtures/image_input/*`, `notebooks/image_input_matrix.ipynb`,
+  `build_notebooks.py`, `bundle.py`, `targets.py`, README, tests; spec + plan + this ledger.
+- **Commits:** see the PR (squash).
+- **Gates:** ruff, ruff format, pyright 0 errors; workbench 363 passed, 3 skipped; full package
+  pytest 7606 passed, 97.03 % coverage (earlier run); `build_notebooks.py --check` clean.
+- **Real runs:** 7-model OpenRouter matrix PASSED ($0.136); with HF the url4 and Benchmark paths read
+  images on gemma-4 and Kimi-K3 and refuse correctly; the full 10-model matrix is green only with
+  OME-1949, OME-1945 and OME-1946 merged.
+- **Deviations:** fixtures on jsDelivr (spec D5 amended); provider-refusal table (spec §3.2
+  amended); gpt-4o-mini out until OME-1942; `FIXTURE_REF` stays the fixtures' commit `6c127c63`
+  (pushed, reachable) — re-pin to the squash commit on `main` after merge.
