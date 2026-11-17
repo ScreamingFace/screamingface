@@ -1,0 +1,18 @@
+{
+  "issue": "OME-1955",
+  "branch": "OME-1955-refresh-curated-model-list",
+  "approver": "IonesioJunior (owner), approved in the OME-1955 session on 2026-11-17",
+  "date": "2026-11-17",
+  "scope": "Prior-test edits for the refresh of the curated OpenRouter model list, and nothing else: 49 ids added at the end of the gateway seed-pin list _SEEDS in test_openrouter_settings.py (no current entry changed, moved or removed), and the audited totals in test_model_seeds.py, 117 -> 166 ids and 88 -> 137 routable, with one dated comment line. The total of colon-bearing ids stays 29. A new test in test_model_seeds.py (two of the new models are routable) is an addition, not an edit.",
+  "reason": "The seed lists pin the gateway model set by design, so each change of the curated list moves them (as OME-816, OME-856 and the OME-1478 judge did). The owner approved the 49 models on 2026-11-17 (spec docs/spec/2026-11-17-OME-1955-refresh-curated-model-list.md, Appendix A.3). Each id was in the live OpenRouter catalogue on 2026-11-17.",
+  "files": {
+    "apps/aigateway/tests/unit/openrouter/test_openrouter_settings.py": {
+      "base_blob": "1eec577bca7976a85f53f24e0e4199bdffb5e4c6",
+      "approved_blob": "8d581eb2d12add7d8594daf24709afdff534116e"
+    },
+    "apps/screamingface-engine/tests/unit/test_model_seeds.py": {
+      "base_blob": "e26ecc2ef94ade084504f9b188cd6847078e2e63",
+      "approved_blob": "1f35d4bfbba2850564cd0ec166687026387b86fc"
+    }
+  }
+}
