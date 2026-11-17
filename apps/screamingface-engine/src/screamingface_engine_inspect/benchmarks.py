@@ -247,6 +247,13 @@ class BenchmarkSpec:
     #: How the scorer reads an answer, as pinned combine operator ids (OME-1289) — set only
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
     answer_rule: AnswerRule | None = None
+    #: Old published revisions this Benchmark may be re-graded from, each paired with the Case
+    #: Digest that revision's Cases sealed to (OME-1909). A re-grade replays an old score's
+    #: pinned cache under the current revision, which is only sound when the Cases are the same
+    #: bytes, so assembly refuses a pair whose digest is not the digest the Cases compute now.
+    #: INVARIANT: never enters the fingerprint or ``published_revision`` — it lists history, it
+    #: changes nothing a score depends on (like ``description``).
+    regradable_from: tuple[tuple[str, str], ...] = ()
 
 
 #: XSTest's examiner, shared by both halves (``xstest_safe``, ``xstest_unsafe``): the
@@ -7940,6 +7947,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     cases_spec: TaskReplayCasesSpec = _cases_declaration(spec.key)
     _check_answer_key_opt_in(spec, cases_spec)
     _check_whole_run_metric_keeps_metadata(spec, cases_spec)
+    _check_regradable_from(spec, cases_spec)
     identity_pins: tuple[str, ...] = _task_replay_pins(cases_spec)
     prepare: Callable[[Path], dict[str, Any]] = partial(
         prepare_replayed_cases, cases_spec, benchmark_key=spec.key
@@ -7996,8 +8004,24 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
         scorer_draft_feedback=spec.scorer_draft_feedback,
         published_revision=spec.published_revision,
         answer_rule=spec.answer_rule,
+        regradable_from=tuple(revision for revision, _digest in spec.regradable_from),
         **_provenance_of(spec),
     )
+
+
+def _check_regradable_from(spec: BenchmarkSpec, cases_spec: TaskReplayCasesSpec) -> None:
+    """Refuse an old revision whose Case Digest is not the one the Cases compute now (OME-1909).
+
+    WHY: a re-grade replays the old score's pinned cache, which holds the old Cases' replies;
+    under changed Cases those replies would answer different questions.
+    """
+
+    for revision, digest in spec.regradable_from:
+        if digest != cases_spec.case_digest:
+            raise ValueError(
+                f"{spec.key}: regradable_from {revision} names Case Digest {digest}, "
+                f"the Cases now digest to {cases_spec.case_digest}"
+            )
 
 
 def _provenance_of(spec: BenchmarkSpec) -> ProvenanceFields:

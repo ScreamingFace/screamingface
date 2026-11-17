@@ -420,6 +420,7 @@ def single_shot_benchmark(
     scorer_draft_feedback: bool = False,
     published_revision: str | None = None,
     answer_rule: AnswerRule | None = None,
+    regradable_from: tuple[str, ...] = (),
     **provenance: Unpack[ProvenanceFields],
 ) -> ImportedBenchmark:
     """Assemble one imported single-shot benchmark from its declarations.
@@ -503,6 +504,9 @@ def single_shot_benchmark(
             catalogue row sets it (OME-1610).
         answer_rule: how the grader reads an answer, as pinned combine operator ids (OME-1289).
             Published in the catalog; NOT hashed into the revision (like ``focus``).
+        regradable_from: the old published revisions a score may be re-graded from (OME-1909),
+            already checked against the Case Digest by the caller. Published in the catalog;
+            NOT hashed into the revision.
 
     Returns:
         The assembled benchmark, its registration ready for the plugin's entry point.
@@ -652,6 +656,7 @@ def single_shot_benchmark(
         # Benchmark Provenance, baselines, notebook (OME-1455): authored on the BenchmarkSpec
         # row like `difficulty`, threaded through verbatim; shapes checked by `Benchmark`.
         answer_rule=answer_rule,
+        regradable_from=regradable_from,
         **provenance,
         declaration=BenchmarkDeclaration(
             # WHY the row's own policy, threaded through verbatim (OME-1642): the cover sheet

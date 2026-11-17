@@ -326,6 +326,11 @@ class Benchmark:
     # INVARIANT: like `focus`, it never enters `revision`; set only for a benchmark whose grader
     # the combine operators copy exactly.
     answer_rule: AnswerRule | None = None
+    # FEATURE: the old published revisions a score may be re-graded from (OME-1909). Served so
+    # the SDK can tell which of a researcher's old entries are eligible for a re-grade.
+    # INVARIANT: like `description`, never enters `revision` — it lists history, it changes
+    # nothing a score depends on. WHY a default: only imported rows declare it.
+    regradable_from: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         for name in ("title", "description", "revision"):
@@ -391,6 +396,9 @@ class Benchmark:
             # WHY unconditionally: the declared policy is part of the benchmark's public
             # contract — reviewers approve it by reading the manifest, never engine source.
             **self.declaration.as_block(),
+            # WHY unconditionally: like `saturation`, an empty list says "no old revision
+            # qualifies", so no reader needs an absent-key branch (OME-1909).
+            "regradable_from": list(self.regradable_from),
         }
         if self.focus is not None:
             metadata["focus"] = self.focus
