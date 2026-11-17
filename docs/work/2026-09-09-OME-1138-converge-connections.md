@@ -261,10 +261,22 @@ through Connections, one per account and provider; the Profile routes answer 410
 - **Rollout:** stage and prod run `0016` and `0017` with their next gateway deploy, in the window
   the owner accepted on 2026-11-16 (`apps/aigateway/DEPLOYMENT.md`). Rolling back below 1.0.1
   needs the `0017` downgrade first.
+- **E5b purge outcome (rec-7):** applied on 2026-10-28 in each environment, on `main-581c20969`,
+  which contains E5a and E5b. Each run was a dry run, a backup of the rows it would delete, the
+  apply with a journal, and a second dry run.
+
+  | Environment | Dry run | Deleted | Second dry run | Read-only check after |
+  |---|---|---|---|---|
+  | dev | 31 accounts; 24 index rows; every other counter 0 | 24 index rows | every counter 0 | `credential_blobs` 50 → 26; no index rows; Connections unchanged |
+  | stage | 30 accounts; every counter 0 | nothing | every counter 0 | nothing to check |
+  | prod | 33 accounts; 6 index rows; every other counter 0 | 6 index rows | every counter 0 | `credential_blobs` 7; no index rows |
+
+  No run skipped an account, and no run found the legacy index. The L4a counts are in
+  `docs/work/2026-10-29-retire-quarantine-and-x-profile.md`.
 - **Records:** the L5 mirror and ledger (`OME-1812`), left open after #1652 merged, close with
   this change.
 - **Linear:** the Stage E close comment is posted, the epic is Done, and `OME-1315`, `OME-1035`
-  and `OME-1026` are no longer blocked by it.
+  and `OME-1026` are no longer blocked by it. `OME-1750` has the purge outcome above.
 
 ## Test plan
 
