@@ -66,7 +66,7 @@ def _run(handler: Handler) -> tuple[Url4Outcome, list[httpx.Request]]:
 
 
 def test_fixture_url_is_commit_pinned_raw_github() -> None:
-    assert URL == f"https://raw.githubusercontent.com/ScreamingFace/screamingface/{REF}/{PATH}"
+    assert URL == f"https://cdn.jsdelivr.net/gh/ScreamingFace/screamingface@{REF}/{PATH}"
 
 
 @pytest.mark.parametrize(("ref", "path"), [("", PATH), (REF, ""), (REF, f"/{PATH}")])

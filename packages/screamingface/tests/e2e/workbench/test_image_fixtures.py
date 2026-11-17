@@ -1,7 +1,7 @@
 """The image input matrix's known-answer fixtures (spec §3.3) match their manifest.
 
 WHY these checks: the notebook fetches each fixture from a commit-pinned
-``raw.githubusercontent.com`` URL and verifies its sha256 against ``manifest.json`` before any
+``cdn.jsdelivr.net/gh`` URL and verifies its sha256 against ``manifest.json`` before any
 model call. A manifest that drifts from the committed bytes would turn every url4 cell into a
 setup error; a file whose bytes are not the media type it claims would test the wrong decoder.
 """
@@ -47,7 +47,7 @@ def test_the_five_media_types_are_each_covered_once() -> None:
 
 @pytest.mark.parametrize("entry", _manifest(), ids=lambda e: e["media_type"])
 def test_entry_matches_its_committed_bytes(entry: dict[str, Any]) -> None:
-    # `path` is repo-relative: it is the tail of the raw.githubusercontent URL.
+    # `path` is repo-relative: it is the tail of the jsDelivr URL.
     path = _repo_root() / entry["path"]
     assert path.parent == FIXTURES.resolve(), entry["path"]
     data = path.read_bytes()

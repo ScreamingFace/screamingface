@@ -329,7 +329,7 @@ the local gateway's `/v1/models`: a model listing the modality must answer with 
 value; one that does not must be refused before any paid call. A model the listing does not
 describe is skipped, never passed.
 
-Fixtures are fetched from `raw.githubusercontent.com` at `FIXTURE_REF` and checked against
+Fixtures are fetched from `cdn.jsdelivr.net/gh` at `FIXTURE_REF` and checked against
 `manifest.json` before any model call, so a stale ref is a setup error. Local target only:
 it spends real tokens (`BUDGET_USD` caps the run). The `workbench-result` cell reports the
 matrix before the verdict cell asserts on it.

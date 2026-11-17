@@ -41,7 +41,7 @@ never a dependency.
   existing `redaction.py`.
 - **Target:** `local` only (`targets: ["local"]`). The notebook is skipped elsewhere, and is a
   failure under `SCREAMINGFACE_WORKBENCH_REQUIRE_ALL`.
-- **Fixture refs:** every fixture URL is `https://raw.githubusercontent.com/ScreamingFace/screamingface/<FIXTURE_REF>/<path>`.
+- **Fixture refs:** every fixture URL is `https://cdn.jsdelivr.net/gh/ScreamingFace/screamingface@<FIXTURE_REF>/<path>` (amended after the first paid run: raw.githubusercontent serves `.pdf` as octet-stream).
   The fetched bytes must match the manifest sha256 before any model call.
 - **Spend:** default `BUDGET_USD = 0.50`. The workbench budget guard runs before each call.
 - **Unknown is never a pass:** a cell whose expectation can't be derived is `skipped`, with a
@@ -55,7 +55,7 @@ never a dependency.
    gateway chat calls under its trace, not `error`.
 2. **A model that takes images but not PDFs** (`meta-llama/llama-4-scout`): the png to webp
    cells are expected to answer, and the pdf cell is expected to be refused.
-3. **Stale `FIXTURE_REF`**, or a 404 from raw.githubusercontent: this is a setup error naming
+3. **Stale `FIXTURE_REF`**, or a 404 from jsDelivr: this is a setup error naming
    the URL. No model call is made.
 4. **A model answers with extra text** ("The number is 7392."): it passes. A different number
    fails.

@@ -172,7 +172,7 @@ an expected `refuse` and passes. Only the other direction (listed as able, then 
 caught. Check the `expected` column against the plan's model table when the listing changes.
 
 **Re-pin after merge.** `FIXTURE_REF` in the `parameters` cell is the commit that added the
-fixtures. Every fixture is fetched from `raw.githubusercontent.com` at that ref and checked
+fixtures. Every fixture is fetched from `cdn.jsdelivr.net/gh` at that ref and checked
 against `manifest.json` before any model call, so a ref that disappears (a squashed branch) is
 a setup error naming the URL. After merge, set `FIXTURE_REF` to the fixtures' commit on `main`
 in `build_notebooks.py`, regenerate, and commit.

@@ -24,7 +24,7 @@ against real models:
 | D2 | **Both input paths**: Benchmark Cases (inline `data:` envelope, OME-1678) and url4 attachments (`src=…;accept=…`, OME-1543/1545). |
 | D3 | **Known-answer oracle**: a pass means the answer contains a value only visible in the picture. |
 | D4 | **Target `local` (paid, OpenRouter)** first; a replay snapshot is a follow-up. |
-| D5 | url4 fixtures are committed to this public repo and fetched over https from a **commit-pinned `raw.githubusercontent.com` URL**. No engine or SDK change. |
+| D5 | url4 fixtures are committed to this public repo and fetched over https from a **commit-pinned jsDelivr URL** (`cdn.jsdelivr.net/gh/…@<sha>`; amended 2026-11-17: raw.githubusercontent serves `.pdf` as `application/octet-stream`, which the Engine refuses). No engine or SDK change. |
 | D6 | The Benchmark path uses **hand-picked Cases of existing picture Benchmarks** with a pinned gold answer. No new Benchmark. |
 
 ## 3. Shape
@@ -65,7 +65,7 @@ admission and the gateway use):
   word. A `manifest.json` lists each file's media type, sha256, byte size and expected value.
 - The files are generated once by a small script and committed (binary, a few KB each), so the
   bytes behind a pinned sha never change.
-- URL: `https://raw.githubusercontent.com/ScreamingFace/screamingface/<FIXTURE_REF>/<path>`.
+- URL: `https://cdn.jsdelivr.net/gh/ScreamingFace/screamingface@<FIXTURE_REF>/<path>` (jsDelivr sends the real Content-Type; raw.githubusercontent sends `application/octet-stream` for `.pdf`).
   The notebook checks the fetched sha256 against the manifest before the run, so a wrong or moved
   ref fails as a setup error, not a model failure.
 - Prompt: "Reply with only the number (or word) shown in the attached file." The check

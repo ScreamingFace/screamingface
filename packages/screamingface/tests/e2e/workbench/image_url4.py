@@ -34,7 +34,10 @@ from urllib.parse import quote
 import httpx
 from url4 import Expression, RelExpr, Source, Url, Url4Error, build, render, src, text
 
-FIXTURE_REPO: Final = "https://raw.githubusercontent.com/ScreamingFace/screamingface"
+# jsDelivr, not raw.githubusercontent.com: raw serves `.pdf` as application/octet-stream (nosniff),
+# which the Engine refuses as an attachment type before any model call. jsDelivr serves the same
+# bytes at the same commit with the real Content-Type.
+FIXTURE_REPO: Final = "https://cdn.jsdelivr.net/gh/ScreamingFace/screamingface"
 CAPABILITY_HEADER: Final = "URL4-Capability"
 # The codes this client authors for outcomes the Engine did not name.
 SYNC_TIMEOUT: Final = "sync_timeout"
@@ -63,10 +66,10 @@ class Url4Outcome:
 
 
 def fixture_url(ref: str, path: str) -> str:
-    """The commit-pinned raw URL of a repo-relative fixture ``path`` at ``ref``."""
+    """The commit-pinned jsDelivr URL of a repo-relative fixture ``path`` at ``ref``."""
     if not ref.strip() or not path or path.startswith("/"):
         raise ValueError(f"need a ref and a repo-relative path, got ref={ref!r} path={path!r}")
-    return f"{FIXTURE_REPO}/{quote(ref, safe='')}/{quote(path)}"
+    return f"{FIXTURE_REPO}@{quote(ref, safe='')}/{quote(path)}"
 
 
 def verify_fixture(client: httpx.Client, url: str, sha256: str) -> None:

@@ -8,7 +8,7 @@ It writes ``token.{png,jpg,gif,webp}`` (the 4-digit token on a 320x120 canvas),
 ``codeword.pdf`` (a one-page text PDF holding the code word) and ``manifest.json``.
 
 WHY the outputs are committed, not generated at test time: the notebook fetches them from a
-commit-pinned ``raw.githubusercontent.com`` URL and checks each sha256 against the manifest, so
+commit-pinned ``cdn.jsdelivr.net/gh`` URL and checks each sha256 against the manifest, so
 the bytes behind a pinned commit must never change. Regenerate only on purpose, then re-pin.
 
 WHY Pillow is never a dependency: it is needed once, here, through ``uv run --with``; the tests
@@ -27,7 +27,7 @@ from typing import Final
 from PIL import Image, ImageDraw, ImageFont  # pyright: ignore[reportMissingImports]
 
 HERE: Final = Path(__file__).resolve().parent
-# The repo-relative directory: the tail of every fixture's raw.githubusercontent URL.
+# The repo-relative directory: the tail of every fixture's jsDelivr URL.
 REPO_DIR: Final = "packages/screamingface/tests/e2e/workbench/fixtures/image_input"
 TOKEN: Final = "7392"
 CODE_WORD: Final = "HELIOTROPE"
