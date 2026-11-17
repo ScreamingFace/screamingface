@@ -150,14 +150,16 @@ async def test_control_characters_in_the_benchmark_cannot_forge_a_log_line(
 ) -> None:
     # INVARIANT (security review, 2026-11-16): `benchmark` is the caller's text and RunSpec
     # admits any non-NUL character, so a newline inside it must not start a second, forged
-    # `run created` line. Control characters are replaced by `?` before logging.
+    # `run created` line. Since #1840 review round 1, any Benchmark that is not a plain name
+    # is logged as one `sha256:` token, so none of its text reaches the line.
     engine = _Engine(registry)
     with caplog.at_level(logging.INFO, logger="screamingface_engine.rest.runs"):
         response = await engine.create(ADA, benchmark="a\nrun created run=forged\x1b[0m")
 
     assert response.status_code == 201
     (line,) = _lines(caplog, "run created ")
-    assert "benchmark=a?run created run=forged?[0m cases=" in line
+    assert "benchmark=sha256:" in line
+    assert "forged" not in line and "\x1b" not in line
     assert "\n" not in line
 
 
@@ -170,12 +172,58 @@ async def test_unicode_separators_and_format_characters_are_escaped_too(
     caplog: pytest.LogCaptureFixture, registry: Registry, sneaky: str
 ) -> None:
     # WHY (security review round 2): a line break is not only `\n` — NEL, U+2028/9 and the C1
-    # controls split lines in some viewers, and format characters hide text. Every Unicode
-    # category C* plus Zl/Zp becomes `?`.
+    # controls split lines in some viewers, and format characters hide text. None of them is
+    # a plain-name character, so the Benchmark is logged as its `sha256:` token.
     engine = _Engine(registry)
     with caplog.at_level(logging.INFO, logger="screamingface_engine.rest.runs"):
         response = await engine.create(ADA, benchmark=f"a{sneaky}b")
 
     assert response.status_code == 201
     (line,) = _lines(caplog, "run created ")
-    assert "benchmark=a?b cases=" in line
+    assert "benchmark=sha256:" in line
+    assert sneaky not in line
+
+
+async def test_a_benchmark_cannot_forge_fields_on_the_run_created_line(
+    caplog: pytest.LogCaptureFixture, registry: Registry
+) -> None:
+    # HupBaHa's #1840 repro: spaces and `=` in the Benchmark forged `owner=`, `cases=`,
+    # `candidates=` and `created=` ahead of the real ones on the same line.
+    engine = _Engine(registry)
+    forged = "real owner=forged cases=0 candidates=0 created=False"
+    with caplog.at_level(logging.INFO, logger="screamingface_engine.rest.runs"):
+        response = await engine.create(ADA, benchmark=forged)
+
+    assert response.status_code == 201
+    (line,) = _lines(caplog, "run created ")
+    assert "forged" not in line
+    for field in ("owner=", "cases=", "candidates=", "created="):
+        assert line.count(field) == 1, field
+
+
+async def test_an_email_shaped_benchmark_never_reaches_the_log(
+    caplog: pytest.LogCaptureFixture, registry: Registry
+) -> None:
+    # Spec anti-goal: an email in any log record. The Benchmark is caller text, so one shaped
+    # like an address is logged only as its `sha256:` token.
+    engine = _Engine(registry)
+    with caplog.at_level(logging.INFO, logger="screamingface_engine.rest.runs"):
+        response = await engine.create(ADA, benchmark="person@example.org")
+
+    assert response.status_code == 201
+    (line,) = _lines(caplog, "run created ")
+    assert "@" not in line
+    assert "person" not in line
+    assert "benchmark=sha256:" in line
+
+
+async def test_a_plain_benchmark_name_stays_readable(
+    caplog: pytest.LogCaptureFixture, registry: Registry
+) -> None:
+    engine = _Engine(registry)
+    with caplog.at_level(logging.INFO, logger="screamingface_engine.rest.runs"):
+        response = await engine.create(ADA, benchmark="mmlu_pro:v2/cot-5")
+
+    assert response.status_code == 201
+    (line,) = _lines(caplog, "run created ")
+    assert " benchmark=mmlu_pro:v2/cot-5 cases=" in line

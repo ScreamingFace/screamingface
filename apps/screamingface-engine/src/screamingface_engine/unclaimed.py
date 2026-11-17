@@ -151,7 +151,7 @@ class UnclaimedRunWarner:
             return
         # AIDEV-NOTE: accepted race — a run claimed between the read above and this notify gets
         # the notice just before its StartedEvent. The window is one broker round trip.
-        waiting, running = self._counts()
+        waiting, running = await self._counts()
         attributes: dict[str, str | int | float | bool | None] = {"run.wait_s": int(age)}
         if waiting is not None:
             # The user's frame: how many runs wait fleet-wide — a count, not a position, and
@@ -168,17 +168,37 @@ class UnclaimedRunWarner:
             "-" if running is None else running,
         )
 
-    def _counts(self) -> tuple[int | None, int | None]:
+    async def _counts(self) -> tuple[int | None, int | None]:
         """(runs waiting unclaimed, runs executing) as far as this App can see; None = unknown.
 
         WHY no slot total: `slots_total` is a worker-side gauge the App never sees, and a
         per-bucket cap is not a fleet count — so the line says what is true and nothing more.
+        WHY a fresh read first (`unclaimed_now`): the cached `queue_snapshot` depth can omit the
+        warned run itself and say `waiting=0` (HupBaHa, #1840). The snapshot stays the fallback
+        for a runner without the fresh read.
         """
-        reader = getattr(self._runs, "queue_snapshot", None)
-        waiting: int | None = None if reader is None else reader()[0]
+        waiting = await self._fresh_waiting()
+        if waiting is None:
+            reader = getattr(self._runs, "queue_snapshot", None)
+            waiting = None if reader is None else reader()[0]
         fresh = self._demand() if self._demand is not None else None
         running = None if fresh is None else fresh[0].running
         return waiting, running
+
+    async def _fresh_waiting(self) -> int | None:
+        """The runner's fresh unclaimed count, or None when it has none or the read fails.
+
+        WHY catch everything: this is a diagnostic on a notice already decided; a broker hiccup
+        here must never stop the notice, it only turns the count into `-`.
+        """
+        fresh = getattr(self._runs, "unclaimed_now", None)
+        if fresh is None:
+            return None
+        try:
+            return await fresh()
+        except Exception:
+            _logger.debug("unclaimed-run check: fresh queue depth unreadable", exc_info=True)
+            return None
 
 
 __all__ = ["UNCLAIMED_MESSAGE", "NoticeAudience", "QueuedRuns", "UnclaimedRunWarner"]

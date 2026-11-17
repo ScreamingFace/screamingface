@@ -11,8 +11,9 @@ and no answer carries the owner.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
-import unicodedata
+import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated
@@ -238,7 +239,7 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
         "run created run=%s owner=%s benchmark=%s cases=%d candidates=%d created=%s",
         record.id,
         owner,
-        _loggable(record.benchmark),
+        _benchmark_token(record.benchmark),
         record.case_count,
         len(record.candidates),
         created,
@@ -246,22 +247,21 @@ async def create_run(request: Request, response: Response, body: RunCreate) -> R
     return RunBody.of(record)
 
 
-def _loggable(text: str) -> str:
-    """Caller text made safe for one log line: every control, format, separator-line character
-    becomes `?`.
+_SAFE_BENCHMARK = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/+-]{0,127}")
 
-    WHY: `RunSpec` admits any non-NUL character in `benchmark`, so a newline, NEL, U+2028, an
-    escape sequence or an invisible format character inside it could start a forged second
-    line, hide text or recolour an operator's terminal (security review, 2026-11-16). The value
-    is for correlation, not display — `?` keeps the line one line and the field greppable.
-    INVARIANT: every Unicode category `C*` (Cc, Cf, Cs, Co, Cn) and `Zl`/`Zp` is replaced.
+
+def _benchmark_token(text: str) -> str:
+    """The Benchmark as ONE unambiguous log token: itself when it is a plain name, else a hash.
+
+    WHY (HupBaHa, #1840): the Benchmark is caller text. Kept as-is, a space or `=` lets it forge
+    whole fields on the same line (`real owner=forged cases=0`), and an `@` can put an email in
+    the log, which the spec rules out. A plain name (letters, digits, `._:/+-`, no `@`, at most
+    128 characters) stays readable for on-call; anything else becomes `sha256:<16 hex>`, still
+    joinable across lines because the same text gives the same token.
     """
-    return "".join(
-        "?"
-        if unicodedata.category(ch)[0] == "C" or unicodedata.category(ch) in ("Zl", "Zp")
-        else ch
-        for ch in text
-    )
+    if _SAFE_BENCHMARK.fullmatch(text):
+        return text
+    return "sha256:" + hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:16]
 
 
 @router.get(

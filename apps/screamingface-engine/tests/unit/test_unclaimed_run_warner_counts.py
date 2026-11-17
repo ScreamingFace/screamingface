@@ -117,3 +117,74 @@ def test_the_message_text_is_unchanged() -> None:
         "the runner service is at capacity; your run is queued and has not started yet"
     )
     assert datetime.now(UTC) > T0  # the fixture clock is in the past, as every frame test assumes
+
+
+# --- #1840 review round 1: the waiting count must include the warned run itself ------------
+
+
+class _LiveQueue:
+    """A queue whose depth is what was actually published and not yet claimed."""
+
+    def __init__(self) -> None:
+        self.published: list[bytes] = []
+
+    async def publish(
+        self, message: bytes, *, identity: Any = None, enqueued_at: Any = None
+    ) -> None:
+        self.published.append(message)
+
+    async def depth(self) -> int:
+        return len(self.published)
+
+    async def oldest_age(self) -> float | None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_a_run_scheduled_into_an_empty_queue_is_counted_when_warned(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # HupBaHa's #1840 repro: admission caches the depth BEFORE it publishes, so
+    # `queue_snapshot()` read `(0, None)` for the run the 300 s notice warns about.
+    from datetime import timedelta
+
+    from test_queue_admission import _FakeControl, _FakePublisher
+
+    from screamingface_engine.adapters.queue_runner import QueueJobRunner
+
+    now = [T0]
+    runner = QueueJobRunner(
+        queue=_LiveQueue(),
+        publisher=_FakePublisher(),
+        control=_FakeControl(),
+        clock=lambda: now[0],
+        capability_lifetime_s=10_000.0,
+    )
+    await runner.schedule("t", "'hi'", 60)
+    assert runner.queue_snapshot()[0] == 0  # the stale cache the notice used to read
+    now[0] = T0 + timedelta(seconds=GRACE + 1)
+
+    audience = _Audience({"t"})
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        await _warner(runner, audience).sweep()
+
+    assert _warned_lines(caplog) == [
+        f"unclaimed run warned topic=t wait_s={int(GRACE + 1)} waiting=1 running=-"
+    ]
+    assert _frame(audience).data.attributes["run.queue_waiting"] == 1
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_fresh_depth_falls_back_to_the_snapshot(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    class _BrokenFresh(_CountingRunner):
+        async def unclaimed_now(self) -> int:
+            raise TimeoutError("broker slow")
+
+    runner, audience = _BrokenFresh(6, 310.0), _Audience({"t"})
+    runner.ages["t"] = 301.7
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        await _warner(runner, audience).sweep()
+
+    assert _warned_lines(caplog) == ["unclaimed run warned topic=t wait_s=302 waiting=6 running=-"]
