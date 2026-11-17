@@ -16,6 +16,42 @@
 * A start whose run-queue publish may have been stored, though its own send went unanswered or the start was cancelled, keeps its caller's in-flight slot instead of freeing it while the run executes anyway (OME-1859). The start still answers 503 (or is cancelled). The held attempts of one start take one slot however many timed out, and its retry is never refused because of them. A held slot is freed when the runner next sees the run's terminal frame (a Run cancel's tombstone included), once the run can no longer exist (twice its deadline plus 300 s), or after the one-hour reservation lease. A publish that no JetStream server answers now gets a retryable 503 instead of a plain 500.
 * Attribute collected IFEval model-call failures using the existing collected error kind from the candidate execution boundary, including Gateway-rewritten diagnostic codes. Unmarked errors and protected checker failures retain grading attribution.
 
+## [2.2.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v2.1.0...screamingface-engine-v2.2.0) (2026-11-17)
+
+
+### Features
+
+* **e4c:** routers, cascades and per-Case budgets (OME-1864, OME-1865, OME-1866) ([#1733](https://github.com/ScreamingFace/screamingface/issues/1733)) ([baedbd4](https://github.com/ScreamingFace/screamingface/commit/baedbd47afd2b007caea403712b5d29a049fc174))
+* **engine:** build image and file content parts from the run's url4 attachments ([#1588](https://github.com/ScreamingFace/screamingface/issues/1588)) ([97ec418](https://github.com/ScreamingFace/screamingface/commit/97ec4183ce550882ee93fc00308a6b2986b696b0))
+* **screamingface-engine:** add HLE-Diamond as its own Benchmark ([a7e78f1](https://github.com/ScreamingFace/screamingface/commit/a7e78f15fab1bceefe1aceca23eba8423458e2a1))
+* **screamingface-engine:** add HLE-Diamond as its own Benchmark (OME-1863) ([b85303b](https://github.com/ScreamingFace/screamingface/commit/b85303bcd6edd1e6f4f6b4f9fa84981bbffbee8a))
+* **screamingface-engine:** mention Draft Feedback only on the Benchmark page that offers it (OME-1908) ([ad86598](https://github.com/ScreamingFace/screamingface/commit/ad86598a33a6592a4a23dd0a66f9000e2cff4095))
+* **screamingface-engine:** state the answer format on each choice-graded Benchmark page (OME-1906, PR 1 of 2) ([500d74d](https://github.com/ScreamingFace/screamingface/commit/500d74da5acd9fc92abff5ab07e262d06110249b))
+* **screamingface-engine:** state the answer format on every other Benchmark page (OME-1906, PR 2 of 2) ([165acb9](https://github.com/ScreamingFace/screamingface/commit/165acb9db2327f0e01e4796ea9e12f80731dbda9))
+* **screamingface-engine:** the worker writes its busy slots as pod-deletion-cost so scale-down removes idle pods first ([#1856](https://github.com/ScreamingFace/screamingface/issues/1856)) ([4222ad9](https://github.com/ScreamingFace/screamingface/commit/4222ad93a9a840388495bfe3de41c5dc185349dd))
+* show OpenRouter credit and hosted key allowances ([#1753](https://github.com/ScreamingFace/screamingface/issues/1753)) ([95f172a](https://github.com/ScreamingFace/screamingface/commit/95f172afdc77b1e0d9f60ee126db9307aeab4dc6))
+
+
+### Bug Fixes
+
+* **engine:** OME-1925 make peak RSS never read below current RSS ([#1851](https://github.com/ScreamingFace/screamingface/issues/1851)) ([3691bd8](https://github.com/ScreamingFace/screamingface/commit/3691bd8bc3139ca2328c1bb7429d33c24ddf1714))
+* **engine:** refuse url4:// remote-node calls in engine runs ([#1750](https://github.com/ScreamingFace/screamingface/issues/1750)) ([455166b](https://github.com/ScreamingFace/screamingface/commit/455166b0dfe4475534503d82158d18622a086dfd))
+* **screamingface-engine:** drop the mid-run check sentence from hle_diamond too ([331e4f8](https://github.com/ScreamingFace/screamingface/commit/331e4f8541f9f3ec4976a5a11749c10482bf8637))
+* **screamingface-engine:** give HLE's judge room to finish its grade (OME-1939) ([a23e843](https://github.com/ScreamingFace/screamingface/commit/a23e84311d85b6d5fe29022e83bac627432f5b6f))
+* **screamingface-engine:** give HLE's judge room to finish its grade (OME-1939) ([62583fe](https://github.com/ScreamingFace/screamingface/commit/62583fe5159c3dfcb81cb434b7632f67bada0ec9))
+* **screamingface-engine:** park each Case of the Candidate Result (memory fix 3, unit 2) ([#1860](https://github.com/ScreamingFace/screamingface/issues/1860)) ([66962a1](https://github.com/ScreamingFace/screamingface/commit/66962a178bbc594e269b6cb73cd6386c03d036f0))
+* **screamingface-engine:** quote the bold label, a period after a math answer and bold yes/no words as scoring 0 ([f981dcd](https://github.com/ScreamingFace/screamingface/commit/f981dcdd15f354c56ea93584061eb45390dec734))
+* **screamingface-engine:** run Garage and the migrate Job on the chart's node placement ([#1797](https://github.com/ScreamingFace/screamingface/issues/1797)) ([d799f16](https://github.com/ScreamingFace/screamingface/commit/d799f163a2ac44e403b2d02e2d6bdb81a438fa37))
+
+
+### Documentation
+
+* **screamingface-engine:** add the hle_diamond Fidelity Record (not-comparable, judge differs) ([9e870b6](https://github.com/ScreamingFace/screamingface/commit/9e870b6e59c6df7297c355e50a7c9d5a0c85b516))
+* **screamingface-engine:** close the OME-1863 ledger and mirror; date the frontier score ([6826448](https://github.com/ScreamingFace/screamingface/commit/682644804d42f818d11c8bfeaa0c86c00004c1a0))
+* **screamingface-engine:** count 61 rows in PR 2 now that main added hle_diamond ([e76be08](https://github.com/ScreamingFace/screamingface/commit/e76be08fa6e991d267f38849537be6ce11aeef5c))
+* **screamingface-engine:** count 96 catalogue rows now that main added hle_diamond ([3476214](https://github.com/ScreamingFace/screamingface/commit/3476214d0834382450d652e0775974e19a1301d9))
+* **screamingface-engine:** declare the two hle_diamond Fidelity Record findings ([b1470ef](https://github.com/ScreamingFace/screamingface/commit/b1470efe46809440a761a92067b7e9cdb1c8bbd3))
+
 ## [2.1.0](https://github.com/ScreamingFace/screamingface/compare/screamingface-engine-v2.0.0...screamingface-engine-v2.1.0) (2026-11-13)
 
 
