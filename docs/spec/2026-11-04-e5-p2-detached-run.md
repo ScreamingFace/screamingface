@@ -131,7 +131,7 @@ Engine paths are relative to `apps/screamingface-engine/src/screamingface_engine
 | `GET /runs/{id}` | as P1 | adds `detached`, `deadline_at`, `stopped_by` and `context` (`sha256`, `size_bytes`; `null` for a Run that has none); each Candidate adds `index`, `start` and `record` (`null` until it ends). `GET /runs` (the list) carries neither `start` nor `record` |
 | `GET /runs/{id}?view=summary` | as P1 | the Run and its Candidates without `start` or `record`. `Run.progress()` and `Run.refresh()` read this |
 | `GET /runs/{id}/context` | owner-checked | the context as it was sent, streamed from the run-results store, for the Client to check against the Run's checksum; 404 `context_not_found` for a Run that has none, or after retention |
-| `GET /runs/{id}/events` | WebSocket, owner-checked | the frames of §4.2 |
+| `GET /runs/{id}/events` | WebSocket, owner-checked | the frames of §4.2; `?events=false` leaves out every `candidate.event` |
 | `GET /runs/{id}/candidates/{index}/result` | owner-checked | the result bytes, streamed from the run-results store, with their media type; 404 `result_not_found` before the Candidate ends, when it has no result, or after retention |
 | `DELETE /runs/{id}` | as P1 | as P1; records `stopped_by: "canceled"` |
 | `GET /` (start) | as today | unchanged for raw url4. The `X-SF-Run` binding (P1 R2) is removed |
@@ -169,6 +169,10 @@ JSON objects whose `type` is the frame's name, in order per Candidate:
 - A follower that reconnects gets the same frames again. The Client drops events it has seen by
   their sequence, and does not treat a gap as an error: the stream holds at most 20,000 frames per
   Candidate and there is no replay request.
+- With `?events=false` the route sends no `candidate.event` and no `running` state, and settles
+  each Candidate as soon as the registry has it terminal. `Run.wait()` asks for this: it needs
+  only when the Run ends, not up to 20,000 events per Candidate. Such a follower still stamps the
+  Run (R10). An Engine without the option ignores it and sends every frame.
 
 ### 4.3 The Candidate record
 
