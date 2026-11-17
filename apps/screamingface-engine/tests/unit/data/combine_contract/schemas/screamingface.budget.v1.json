@@ -74,7 +74,8 @@
           "model",
           "synthesis",
           "judge",
-          "writer"
+          "writer",
+          "selector"
         ],
         "title": "Stage",
         "type": "string"
@@ -93,7 +94,7 @@
   },
   "BudgetRefusal": {
     "additionalProperties": false,
-    "description": "One call that was not sent because it would exceed the cap (written by E4c).",
+    "description": "One call that was not sent because it would exceed the cap (the call layer writes it).",
     "properties": {
       "estimated": {
         "minimum": 0,
@@ -126,7 +127,8 @@
           "model",
           "synthesis",
           "judge",
-          "writer"
+          "writer",
+          "selector"
         ],
         "title": "Stage",
         "type": "string"
@@ -195,7 +197,8 @@
               "model",
               "synthesis",
               "judge",
-              "writer"
+              "writer",
+              "selector"
             ],
             "title": "Stage",
             "type": "string"
@@ -214,7 +217,7 @@
       },
       "BudgetRefusal": {
         "additionalProperties": false,
-        "description": "One call that was not sent because it would exceed the cap (written by E4c).",
+        "description": "One call that was not sent because it would exceed the cap (the call layer writes it).",
         "properties": {
           "estimated": {
             "minimum": 0,
@@ -247,7 +250,8 @@
               "model",
               "synthesis",
               "judge",
-              "writer"
+              "writer",
+              "selector"
             ],
             "title": "Stage",
             "type": "string"

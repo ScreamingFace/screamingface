@@ -24,6 +24,8 @@ class BaseBaseline(BaseScoreboardModel):
     observed_at = fields.DatetimeField(null=True)
     attached_by = fields.CharField(max_length=255, null=True)
     metadata = fields.JSONField(null=True)
+    observation_revision = fields.IntField(default=0, db_default=0)
+    observation_updated_at = fields.DatetimeField(null=True)
     # FEATURE: OME-323 — manual open/closed correction, mirrors Score.openness_override.
     # `null` defers to the classification registry; an explicit "open"/"closed" wins
     # outright.

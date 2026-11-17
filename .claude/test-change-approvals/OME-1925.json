@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1925",
+  "branch": "OME-1925-fix-rss-test-race",
+  "approver": "Sergey Bershadsky (sergio-bershadsky, owner)",
+  "date": "2026-11-15",
+  "scope": "The one prior test approved by the owner on 2026-11-15: test_process_memory.py::test_peak_reads_this_process_and_is_at_least_current. Reorder only: current_resident_bytes() is read before peak_resident_bytes(); the getrusage assertion and the peak >= current assertion are unchanged; no assertion weakened. Every changed prior test file is pinned byte-exact (1).",
+  "reason": "The test read peak before current, so resident memory growing between the reads (xdist workers) made current exceed the earlier peak and failed the test (CI: assert 324612096 >= 324947968). A high-water mark read after current is always at least that current reading.",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_process_memory.py": {
+      "base_blob": "0a8aa0d30be297d2c7bd2695966ba33ccd1bffb0",
+      "approved_blob": "dd4600744fa582dd099d1b22058b7cd8896598e6"
+    }
+  }
+}

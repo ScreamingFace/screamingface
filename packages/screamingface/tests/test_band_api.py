@@ -25,6 +25,7 @@ from test_gate_contract_fixtures import assert_fixture_matches
 import screamingface as sf
 from screamingface._evaluation.candidate import compile_candidate
 from screamingface._surface.lowering import lower
+from screamingface.branch import BranchNode, LazyDecision
 
 _MEMBERS = ["prov/alpha", "prov/beta", "prov/gamma"]
 _RUBRIC = "Pick the best answer."
@@ -212,6 +213,8 @@ def test_compile_writes_the_band() -> None:
 # --- BA#5: the url4 rebuilds the band, with and without a fallback judge (BA-3) ---
 
 
+# E4c (OME-1291, lazy-fallback #24, owner-approved edit): the judge row reads its gated vote from
+# the Gate node's otherwise body (call #2); the abstain row is today's FusionNode.
 @requires_engine_app
 @pytest.mark.parametrize("fallback", ["abstain", "judge"])
 def test_url4_rebuilds_a_band_with_and_without_a_fallback_judge(fallback: str) -> None:
@@ -219,15 +222,32 @@ def test_url4_rebuilds_a_band_with_and_without_a_fallback_judge(fallback: str) -
     url4 = _compiled(recipe)
     text = _G_TEXT if fallback == "abstain" else _G_JUDGE_TEXT
     assert text in sf.Url4(url4).to_python().splitlines()
-    lowered = lower(recipe)
-    assert isinstance(lowered, FusionNode)
-    original, rebuilt = lowered.synthesizer, _rebuilt(url4).synthesizer
-    assert isinstance(original, VoteNode)
-    assert isinstance(rebuilt, VoteNode)
+    original, rebuilt = _gated_vote(lower(recipe)), _gated_vote(_rebuilt_value(url4))
     assert rebuilt.gate is not None
     assert rebuilt.gate.abstain_band == (2.5, 3.5)
     assert rebuilt.gate == original.gate
-    assert _compiled(_rebuilt(url4)) == url4
+    assert _compiled(_rebuilt_value(url4)) == url4
+
+
+def _rebuilt_value(url4: str) -> Any:
+    """The chain ``to_python()`` builds, lowered (a FusionNode, or a Gate node for a fallback)."""
+    namespace: dict[str, Any] = {}
+    exec(sf.Url4(url4).to_python(), namespace)  # noqa: S102 - our own generated code
+    return lower(namespace["candidate"])
+
+
+def _gated_vote(node: Any) -> VoteNode:
+    """The gated vote of a lowered block. E4c (OME-1291, lazy-fallback #24, owner-approved edit):
+    a judge fallback lowers to a Gate node whose otherwise body is the full gated vote (call #2)."""
+    if isinstance(node, BranchNode):
+        assert node.panel is not None
+        assert isinstance(node.panel.synthesizer, LazyDecision)
+        node = node.otherwise
+    else:
+        assert isinstance(node, FusionNode)
+        node = node.synthesizer
+    assert isinstance(node, VoteNode)
+    return node
 
 
 # --- BA#6: a hand-edited band never rebuilds (BA-E2); the declared-name rule holds (BA-D3) ---

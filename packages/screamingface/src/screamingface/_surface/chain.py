@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, TypeGuard, cast
 
 from screamingface.recipe import (
     OPTIONAL_MEMBERS_ONLY,
@@ -74,11 +74,22 @@ class Step(_Chainable):
 
         return False
 
+    def _is_recipe(self) -> bool:
+        """Whether this chain value is a recipe stage, not a step (E4c: an input sf.Gate)."""
+
+        return False
+
     def __repr__(self) -> str:
         # WHY lazy: render.py imports every step module (rebuild-display §2)
         from screamingface._surface.render import render
 
         return render(self)
+
+
+def is_step(value: object) -> TypeGuard[Step]:
+    """Whether ``value`` is a step, not a recipe stage (E4c: an input sf.Gate is a recipe)."""
+
+    return isinstance(value, Step) and not value._is_recipe()
 
 
 def refuse_step(value: object) -> None:
@@ -89,9 +100,17 @@ def refuse_step(value: object) -> None:
     gives the same message.
     """
 
-    if isinstance(value, Step):
+    if is_step(value):
+        # WHY lazy: gate.py imports this module
+        from screamingface._surface.gate import Gate
+
         if value._category == "map":
             raise ValueError(OPEN_BLOCK)
+        if isinstance(value, Gate):
+            # GT-14: a panel gate reads the answers of a block, so it cannot stand alone.
+            raise ValueError(
+                "a panel condition reads a sf.Fanout block: put the sf.Gate after a sf.Fanout"
+            )
         raise TypeError(
             f"sf.{type(value).__name__} is a step, not a recipe: put it after a sf.Fanout"
         )
@@ -126,6 +145,7 @@ class _Block:
         object.__setattr__(self, "narrow", narrow)
         object.__setattr__(self, "terminal", terminal)
         _check_block(judge, narrow, terminal)
+        _check_skip_members(fanout, judge, terminal)
         # WHY lazy: lowering.py imports this module
         from screamingface._surface.lowering import block_node
 
@@ -141,6 +161,27 @@ class _Block:
         return (*self.fanout._recipes(), *self.terminal._recipes())
 
     __hash__: ClassVar[Any] = None
+
+
+def _check_skip_members(fanout: Fanout, judge: Step | None, terminal: Step) -> None:
+    """SM-15, SM-16 (E4c v1): a block with skip-Gate members takes no step that makes its own model
+    call over the panel (the panel holds an empty row for each skipped member) and no
+    ``sf.Consistency`` (a sample panel inside a gated body is not visible to the combine call)."""
+
+    # WHY lazy: gate.py imports this module
+    from screamingface._surface.gate import is_skip_member
+
+    if not any(is_skip_member(member) for member in fanout.members):
+        return
+    if judge is not None or terminal._sees_every_member():
+        raise ValueError(
+            "sf.Judge and model fallbacks read every member; they are not supported with skip-Gate "
+            "members in this version"
+        )
+    from screamingface.signal_sources import Consistency  # WHY lazy: a leaf of the surface
+
+    if any(isinstance(source, Consistency) for source in (fanout.signals or {}).values()):
+        raise ValueError("sf.Consistency is not supported with skip-Gate members in this version")
 
 
 def _check_block(judge: Step | None, narrow: tuple[Step, ...], terminal: Step) -> None:
@@ -266,7 +307,7 @@ class _Chain:
     def add(self, item: str | Recipe | Step) -> None:
         if isinstance(item, Pipeline) and not item._is_named:
             self._flatten(item)
-        elif isinstance(item, Step):
+        elif is_step(item):
             self.steps.append(item)
             self._add_step(item)
         else:

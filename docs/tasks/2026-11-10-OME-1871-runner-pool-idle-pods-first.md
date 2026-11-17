@@ -1,13 +1,13 @@
 ---
 id: OME-1871
 linear_url: https://linear.app/openmined/issue/OME-1871/make-the-runner-pool-remove-idle-pods-first-on-scale-down
-status: backlog
+status: canceled
 type: feature
 priority: high
 labels: [screamingface-engine, agentic, autonomous]
 parent: OME-1314
 created: 2026-11-10
-closed:
+closed: 2026-11-16
 ---
 
 # Make the runner pool remove idle pods first on scale-down
@@ -18,3 +18,5 @@ worker should annotate its own pod with `controller.kubernetes.io/pod-deletion-c
 slot count (needs a ServiceAccount token plus RBAC to patch its own pod).
 
 - 2026-11-10: filed as the follow-up recorded in `docs/spec/2026-11-10-runner-pool-autoscaling.md`.
+- 2026-11-16: closed as a duplicate of `OME-1931` (platform filed the same change with their side
+  of the work). The work is in PR #1856.
