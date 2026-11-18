@@ -549,6 +549,50 @@ uncapped bill.
   no TTL. Also: per-run concurrency goes through `FairShareGate` /
   `FairShareIOLayer` — a new IO path that bypasses it lets one run starve everyone
   else's.
+- **A new Benchmark must fit every size limit on the run path, and the PR must show it
+  measured.** A Benchmark that seals cleanly can still be unrunnable: its Cases are read,
+  parsed and sent through limits the importer never checks. Two reviews of #1833
+  (EnigmaEval, OME-1874) found the same gaps, and OME-1875 (GDP.pdf) met them at design
+  time, so on any PR that adds a Benchmark row ask for these five, each with the number:
+  - **The full-set Case load, measured under the run's memory budget.** Every run's
+    resident memory is capped by `memoryLimitMi` (Engine Helm `values.yaml`; 2,560 Mi
+    since OME-1648, where ContractEval's 192 MiB `cases.json` peaked at 1,828 MiB). A
+    small selection reads only its rows, but a full run takes `BoardStore.head`, which
+    holds the selected bytes, their decoded text and the bracketed copy at once, before
+    url4 parses any of it. EnigmaEval's `cases.json` is 400 MB and its only number was a
+    whole-file parse in a fresh process: 2,310 MiB, 250 MiB under the cap, with no Engine
+    process around it. That is reasoning, not proof. Ask for one full-set load of the
+    Cases route inside the built image under the real limit, or a declared selection
+    ceiling.
+  - **The largest Case against the Case caps.** `MAX_CASE_BYTES` (8,000,000, with
+    pictures and files inline as base64, 4/3 of the raw bytes) and `MAX_PICTURES` (20) in
+    `picture_input.py`, and url4's `MAX_ATTACHMENT_BYTES` and `MAX_ATTACHMENTS`. The PR
+    states the largest Case's bytes and the most pictures in one Case, from the
+    linux/amd64 seal.
+  - **The provider's own limits, which none of our caps check.** A Case under our caps
+    can still be refused at call time, and the limit depends on the route the call takes,
+    not only on the model. Claude's are the worked example; every provider has its own, so
+    read the current page, never this bullet. A picture may be at most 10 MB as base64 on
+    Claude's own API but 5 MB on Bedrock, and 8000 px a side; with more than 20 pictures
+    in one request a stricter 3,000 px a side applies, and on Bedrock and Vertex a PDF
+    counts toward the 20
+    ([vision limits](https://platform.claude.com/docs/en/build-with-claude/vision#request-limits)).
+    A whole request may be at most 20 MB on Bedrock against 128 MB on Claude's own API
+    ([request size limits](https://platform.claude.com/docs/en/api/overview#request-size-limits)),
+    and a PDF has a page limit
+    ([Claude PDF support](https://platform.claude.com/docs/en/build-with-claude/pdf-support)).
+    So a 7 MB picture is not unrunnable; it fails only when the call is routed to Bedrock.
+    Ask which Candidates and routes the largest Case was checked against.
+  - **Held-out Cases are a recorded decision, not a placeholder.** Cases left out for size
+    are named in one constant, counted on the card (served of total), and stated as final
+    with the decision's date and ticket. #1833 shipped the word PROVISIONAL in code beside
+    a ledger marked done: flag the pair as claims against reality. Adding the Cases back
+    later moves the Case Digest, so it is a new revision, never a quiet edit.
+  - **The card promises only what a Case row exposes.** A served Case is
+    `{id, case_id, input}`; sample metadata is sealed into the grading material and never
+    reaches a client. #1833's card told users to filter Cases by `category`, a field they
+    cannot see. Read every "filter by" and "each Case carries" on the card and in the
+    task's README against the row.
 - **Retry & race discipline.** Retryable statuses are exactly {429, 503, 529}; every
   429/503 response carries `Retry-After`. Watch Python's exception inheritance when
   mapping DB errors to HTTP: `IntegrityError` *subclasses* `OperationalError`, so a
