@@ -228,12 +228,16 @@ EXACT: Mapping[str, AnswerFormat] = {
         accepted=("Paris is in France",),
         rejected=("Paris, in France",),
     ),
-    "inspect_evals.mathvista.mathvista:mathvista_scorer": AnswerFormat(
+    # Keyed by our scorer since OME-1907: the eval's own, retried on a copy with one wrapper
+    # peeled when its mark is not right (`named_deviations/wrapped_letter/mathvista.py`).
+    "screamingface_engine_inspect.named_deviations.wrapped_letter.mathvista"
+    ":mathvista_wrapped_scorer": AnswerFormat(
         sentence=(
             "Answer format: make the last line of the reply 'ANSWER: 12'. On a free-form "
-            "question the text after ANSWER: must equal the answer exactly, ignoring case, so "
-            "'ANSWER: 12 cm', 'ANSWER: 12.0' and 'The answer is 12' score 0. On a "
-            "multiple-choice question, write ANSWER: then the option letter."
+            "question the text after ANSWER: must equal the answer exactly, ignoring case and a "
+            "wrapper around it such as 'ANSWER: **12**', so 'ANSWER: 12 cm', 'ANSWER: 12.0' and "
+            "'The answer is 12' score 0. On a multiple-choice question, write ANSWER: then the "
+            "option letter, bare or wrapped, as in 'ANSWER: (B)'."
         ),
         case_input="How many sides does the shape in the picture have?",
         material={
@@ -245,7 +249,7 @@ EXACT: Mapping[str, AnswerFormat] = {
                 "source": "FunctionQA",
             },
         },
-        accepted=("ANSWER: 12",),
+        accepted=("ANSWER: 12", "ANSWER: **12**"),
         rejected=("ANSWER: 12 cm", "ANSWER: 12.0", "The answer is 12"),
     ),
     "inspect_evals.zerobench.zerobench:zerobench_scorer": AnswerFormat(
