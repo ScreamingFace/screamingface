@@ -75,3 +75,28 @@ State on 2026-11-17: B2 is built, reviewed and committed on the branch
   - CH-1: `tests/unit/test_pinned_cache_lookup.py:181`. CH-2: the idempotency tests of
     `tests/unit/test_scores_routes.py`. CH-3: `tests/unit/test_submit_claims_copy.py`. No
     existing test is changed.
+
+### B3 (the claim pass at start and the command)
+
+- **Actual files:** as planned, plus `tests/unit/test_claim_pass_lifespan.py` (the four lifespan
+  tests K-28, K-29, K-32, K-34 are in their own file, so that each test file is at 450 lines or
+  less).
+- **Commits:** `feat(scoreboard): claim the copies of all scores at start (OME-1947)`.
+- **Gates:** `uv run .claude/scripts/run_gates.py scoreboard` → ALL GATES GREEN, with `--base` at
+  the B2 commit and with `--base a06fc9802`. `verify_chart_wiring.py` → 148/148 checks passed.
+  The two new B3 test files ran 25 times in a row with no failure.
+- **Design review:** verdict ACCEPT-WITH-FIXES, 8 low findings, none major. Fixed: F1 and F6 (the
+  ERROR record of a stopped pass names the type of the error and does not call each error a
+  database error), F2 (the runbook says that exit status 1 with a traceback is not a gateway
+  cause), F3 (the command closes the claim client also when the database does not open), F5 (the
+  wait is written as it is, not cut to a whole number), F7 (comments name the spec, not the
+  plan). Open, low: F4 (`stop()` waits with `asyncio.wait`, not with the `try`/`except` form of
+  the gateway trigger) and F8 (in a failing run, the K-29 fake makes the test wait about 15 s,
+  not 5 s).
+- **Deviations:**
+  - The task catches each `Exception` of a pass, not only a database error, writes one ERROR
+    record with the type, waits 10 minutes and tries again (Q29 names the database error; the
+    task must not end with no complete pass). It never catches `CancelledError`.
+  - Exit status 1 of the command also covers an error that is not from the gateway (with a
+    traceback). `contracts.md` K9 has four statuses; a fifth status needs an owner decision.
+  - No existing test is changed. No schema change.

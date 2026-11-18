@@ -2437,6 +2437,21 @@ class ScoreStore:
             if row["capture_status"] == "complete" and row["frozen_copy_id"] is not None
         }
 
+    async def scores_that_name_a_copy(self) -> list[tuple[str, str]]:
+        """The (score id, frozen copy id) of each Score that names a frozen copy (OME-1947).
+
+        All boards, with no filter on the board, in the order of the score id. The claim pass at
+        start and `python -m scoreboard.claim_copies` send one claim for each row (contracts.md K9).
+
+        INVARIANT: selects the two ids and nothing else; the pass needs no other field.
+        """
+        rows = await (
+            Score.filter(frozen_copy_id__isnull=False)
+            .order_by("id")
+            .values_list("id", "frozen_copy_id")
+        )
+        return [(str(score_id), str(copy_id)) for score_id, copy_id in rows]
+
     async def frontier_history_inputs(
         self,
         benchmark_id: str,
