@@ -24,7 +24,7 @@ from screamingface._engine.identity import engine_headers
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
-    from contextlib import AbstractContextManager
+    from contextlib import AbstractAsyncContextManager, AbstractContextManager
     from uuid import UUID
 
     import httpx
@@ -773,6 +773,28 @@ class Client:
         self._require_open()
         return self._http.stream("GET", path, headers=headers, timeout=timeout)
 
+    def _engine_post_stream(
+        self,
+        path: str,
+        *,
+        json: Mapping[str, Any],
+        headers: Mapping[str, str],
+        timeout: httpx.Timeout,
+    ) -> AbstractContextManager[httpx.Response]:
+        # WHY replay-safe, unlike `_engine_get` (P15): on `POST /v1/chat/completions` an Access
+        # challenge (302, 401 or 403) always comes before a run exists, because the Engine answers
+        # a scheduled run with 200. So the auth layer may send this POST one more time after the
+        # sign-in. A 408, 429 or 5xx is never sent again here: `self._http` has no retry layer.
+        self._require_open()
+        return self._http.stream(
+            "POST",
+            path,
+            json=json,
+            headers=headers,
+            timeout=timeout,
+            extensions={_REPLAY_SAFE: True},
+        )
+
     def _http_get(self, path: str) -> httpx.Response:
         self._require_open()
         return self._http.get(path, extensions={_REPLAY_SAFE: True})
@@ -1354,6 +1376,27 @@ class AsyncClient:
     def _require_open(self) -> None:
         if self._closed:
             raise RuntimeError("ScreamingFace AsyncClient is closed")
+
+    def _engine_post_stream(
+        self,
+        path: str,
+        *,
+        json: Mapping[str, Any],
+        headers: Mapping[str, str],
+        timeout: httpx.Timeout,
+    ) -> AbstractAsyncContextManager[httpx.Response]:
+        # WHY replay-safe: the same rule as `Client._engine_post_stream` (P15). An Access
+        # challenge comes before a run exists, so one more send after the sign-in is safe. A 408,
+        # 429 or 5xx is never sent again here: `self._http` has no retry layer.
+        self._require_open()
+        return self._http.stream(
+            "POST",
+            path,
+            json=json,
+            headers=headers,
+            timeout=timeout,
+            extensions={_REPLAY_SAFE: True},
+        )
 
     async def _http_get(self, path: str) -> httpx.Response:
         self._require_open()

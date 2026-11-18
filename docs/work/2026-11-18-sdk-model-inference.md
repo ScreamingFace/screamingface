@@ -77,6 +77,22 @@ docs examples run in tests.
   (L3 and L10 not done: style only). The docs page also corrects the abstain line: `content`
   is empty, not null. Gates: Engine `--skip-append-only` green; public-docs prettier, lint and
   build green.
+- **2026-11-18 — U2 (SDK foundation) done.** `sf.ModelInference` shape in
+  `screamingface/inference.py` (constructor overloads C1.1, the six `complete` rows C1.2,
+  `endpoint()` C1.5; bodies raise NotImplementedError until U4–U6), placeholder reply types in
+  `screamingface/chat_completion.py`, and the replay-safe streamed POST seam
+  `Client._engine_post_stream` / `AsyncClient._engine_post_stream` (D4, P15). Pyright basic
+  accepts the one-method overload, so the stop rule did not trigger. Tests: MI-1
+  (`test_model_inference_typing.py`), MI-2 and MI-3 (`test_engine_post_stream.py`, the 302,
+  401 and 403 challenge forms, sync and async). Built by tiered-build run `wf_f8a1db43-cf2`
+  (2 Haiku tasks); the run stopped at its gate step (see deviation below), so I ran the design
+  review by hand: accept with fixes, no structural finding; fixes 1–3 and 5–9 applied.
+  Deviations: (a) the SDK append-only check must use `--base $(git merge-base origin/main HEAD)`:
+  against `origin/main` it reports files that `main` changed after the branch point
+  (`tests/e2e/workbench/*`), not files of this branch. (b) Review finding 4 is not done: the
+  pyright helper of the new typing test copies `_pyright` of
+  `tests/test_evaluate_overload_types.py`; a shared helper needs an edit of that main test
+  file, which the append-only rule blocks. Follow-up. Gates: SDK green (vs merge base).
 
 ## Outcome (fill at the end — required before COMMIT)
 
