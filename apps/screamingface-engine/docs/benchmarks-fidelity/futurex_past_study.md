@@ -1,6 +1,6 @@
 ---
 benchmark: futurex_past_study
-origin: screamingface
+origin: external
 verdict: unverified
 verdict_reason: "grading is the study's to the last bit (prompt, reply reading, usability gate, per-Case mark and roll-up all match; 0/100 Cases differ; all 27 stored models and both fused committees reproduce rank.score_entry exactly under Python 3.12); one declared possibly-score-changing sampling deviation stays open (D3: the study called at temperature 0 and called again with a larger token cap when a reply was cut off; the row leaves sampling to the Candidate, README.md:184-187), settled per run by a Report showing temperature 0 and no truncated reply. audited_at 55d7f087f is the local unmerged head of branch futurex-past-local-task (base origin/main cc5cfd36d)"
 audited: 2026-11-16

@@ -1,6 +1,6 @@
 ---
 benchmark: futurex_past
-origin: screamingface
+origin: external
 verdict: not-comparable
 verdict_reason: "Two by-design differences. First, levels 3-4 are routed, matched and counted by openrouter/openai/gpt-5.4 with our own reworded prompts. Futurex-Eval judges, routes and extracts answers with DeepSeek V4 Flash or GPT-4.1 (declared Named Deviation, benchmarks.py:7997-8000), and spec §2.3 calls a different judge model not-comparable. Second, the Candidate answers closed-book with one generate() on resolved events. Every published FutureX number comes from search agents on live weekly questions, and none exists for this archive (frontier_score NotPublished, benchmarks.py:8038). Both are unbounded. Of the enumerable bounds, only the [Yes] key is measured: 1/2036. No undeclared deviation remains."
 audited: 2026-11-16

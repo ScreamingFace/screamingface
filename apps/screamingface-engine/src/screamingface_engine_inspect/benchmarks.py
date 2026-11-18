@@ -7969,7 +7969,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         # Judged benchmark, and judge feedback on a forecast would leak the outcome.
         with_check_surface=False,
-        origin="screamingface",
+        # Written by a contributor outside the team (OME-1960): the catalogue marks it external
+        # and credits the author; the id stays bare, like any other local Task.
+        origin="external",
+        contributors=("yimingliao-blad",),
         paper_url="https://arxiv.org/abs/2508.11987",
         authors="Zeng et al., 2025",
         citation=(
@@ -8053,7 +8056,10 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         whole_run_headline="study_score",
         # No judge and no Draft Feedback: feedback on a forecast would leak the outcome.
         with_check_surface=False,
-        origin="screamingface",
+        # Written by a contributor outside the team (OME-1960): the catalogue marks it external
+        # and credits the author; the id stays bare, like any other local Task.
+        origin="external",
+        contributors=("yimingliao-blad",),
         paper_url="https://arxiv.org/abs/2508.11987",
         authors="Zeng et al., 2025",
         citation=(

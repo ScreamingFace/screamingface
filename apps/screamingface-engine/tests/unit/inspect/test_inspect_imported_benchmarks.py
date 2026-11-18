@@ -233,11 +233,13 @@ def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() ->
     # OME-1513: a LOCAL Task — our own eval in inspect's shape under `local_tasks/`, fed to
     # the same importer — is the one row that says "screamingface": it is ours, not brought
     # in. The origin must match where the task code lives, both ways.
+    # OME-1960: a local Task an outside contributor wrote says "external" instead; it is
+    # still not an inspect_evals import, and only a row that names its contributors may say so.
     expected = {
         imported_benchmark_id(spec.key, spec.origin): (
             "inspect_evals"
             if TASK_REPLAY_CASES[spec.key].task.startswith("inspect_evals.")
-            else "screamingface"
+            else ("external" if spec.contributors is not None else "screamingface")
         )
         for spec in BENCHMARKS
     }

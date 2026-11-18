@@ -17,7 +17,8 @@ Benchmarks, so a fused LLM committee cannot be scored on it today. This unit add
 in inspect's shape and fed to the existing importer, like MuSiQue
 (`docs/adding-an-imported-benchmark.md`, "Importing a local Task").
 
-Two catalogue keys come from one package, both with `origin="screamingface"`:
+Two catalogue keys come from one package, both with `origin="external"` and the contributor
+named in `contributors` (set after OME-1960 added that origin; first written as `screamingface`):
 
 | Key | Data pin | Grading | For |
 |---|---|---|---|

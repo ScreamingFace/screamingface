@@ -377,7 +377,8 @@ def test_the_rows_serve_both_case_sets_and_pin_the_house_judge_on_futurex_past_o
     spec = next(row for row in BENCHMARKS if row.key == "futurex_past")
 
     assert (official.benchmark.case_count, study.benchmark.case_count) == (2036, 1118)
-    assert official.benchmark.origin == study.benchmark.origin == "screamingface"
+    assert official.benchmark.origin == study.benchmark.origin == "external"
+    assert official.benchmark.contributors == study.benchmark.contributors == ("yimingliao-blad",)
     assert provenance_gaps(official.benchmark) == provenance_gaps(study.benchmark) == []
     assert spec.judge is not None and spec.judge.model == _JUDGE_ROUTE.removeprefix("/")
     assert list(spec.judge.params) == _JUDGE_PARAMS
