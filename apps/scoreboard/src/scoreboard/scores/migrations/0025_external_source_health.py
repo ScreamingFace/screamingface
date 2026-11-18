@@ -3,7 +3,7 @@ from tortoise.migrations import operations as ops
 
 
 class Migration(migrations.Migration):
-    dependencies = [("models", "0023_baseline_history")]
+    dependencies = [("models", "0024_benchmark_revisions")]
 
     initial = False
 

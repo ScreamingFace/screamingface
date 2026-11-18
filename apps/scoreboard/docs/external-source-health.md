@@ -6,7 +6,7 @@ This checks whether the page responds, not whether it still contains the cited s
 
 ## Run a check
 
-Use the deployed Scoreboard image and its existing database configuration. Apply migration `0024_external_source_health` before starting the new application or this command; the existing Helm migration hook handles the schema. This change follows the edit-history migration from #1731.
+Use the deployed Scoreboard image and its existing database configuration. Apply migration `0025_external_source_health` before starting the new application or this command; the existing Helm migration hook handles the schema. This change follows benchmark revision migration `0024_benchmark_revisions` from #1892, which follows edit history from #1731.
 
 ```sh
 python -m scoreboard.check_sources --benchmark-id inspect-sad_facts_llms
