@@ -16,6 +16,11 @@ connection panel shows, so the two never disagree:
   `hosted_unavailable` → "Not available on hosted" (the Engine reports it with no job
   identity, or for a hosted key with no per-key limit).
   `management_key_required` and `account_unverified` keep their current notes.
+  On the account box only, `credential_rejected` reads "Management key rejected": the
+  account amount comes from the management key, so "Key rejected" there would read as the
+  execution key failing (OME-1968).
+- **Failed request:** when the credit request itself fails, every amount, hosted included,
+  is `lookup_failed`, so a hosted panel says "Lookup failed" (OME-1968).
 - **Shared with the panel:** the labels live in the one renderer the connection panel
   and the card both use, so the panel gains them too and the two always agree.
 - **Nothing known** (every amount unavailable and no hosted marker, e.g. the SDK's
