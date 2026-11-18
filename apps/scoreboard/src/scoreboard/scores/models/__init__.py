@@ -4,6 +4,7 @@ from .base import BaseScoreboardModel
 from .baseline import BaseBaseline, Baseline
 from .baseline_revision import BaseBaselineRevision, BaselineRevision
 from .benchmark import BaseBenchmark, Benchmark
+from .benchmark_revision import BaseBenchmarkRevision, BenchmarkRevision
 from .idempotency_key import BaseIdempotencyKey, IdempotencyKey
 from .score import BaseScore, Score
 from .score_metadata_event import BaseScoreMetadataEvent, ScoreMetadataEvent
@@ -15,6 +16,8 @@ __all__ = [
     "BaseScoreboardModel",
     "BaseBenchmark",
     "Benchmark",
+    "BaseBenchmarkRevision",
+    "BenchmarkRevision",
     "BaseScore",
     "Score",
     "BaseScoreMetadataEvent",
