@@ -131,6 +131,29 @@
     return null;
   }
 
+  // The board route's own answer for a revision it does not have. An unknown benchmark is also a
+  // 404, with a different detail, and must not be mistaken for an unknown revision.
+  var REVISION_NOT_FOUND_DETAIL = "Revision not found for this benchmark";
+
+  function isRevisionNotFound(err) {
+    if (!err || err.status !== 404 || typeof err.body !== "string") return false;
+    try {
+      var body = JSON.parse(err.body);
+      return !!body && body.detail === REVISION_NOT_FOUND_DETAIL;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // A history row's revision as the board lists it: { current } when listed, else null. A run's
+  // revision comes from its client, so an id the board never had gets no link.
+  function listedRevision(rows, revision) {
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].revision === revision) return { current: !!rows[i].current };
+    }
+    return null;
+  }
+
   function notFoundNotice(requested) {
     return "Revision " + shortId(requested) + " is not on this leaderboard. Showing the latest.";
   }
@@ -143,6 +166,8 @@
     searchWith: searchWith,
     emptyLatestPointer: emptyLatestPointer,
     notFoundNotice: notFoundNotice,
+    isRevisionNotFound: isRevisionNotFound,
+    listedRevision: listedRevision,
     shortId: shortId,
   };
 });

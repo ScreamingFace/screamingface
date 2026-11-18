@@ -422,19 +422,39 @@
     var R = window.SFRevisionSelector;
     var revisions = [];
 
+    // Each load takes a number; a response that arrives after a newer load started is dropped, so a
+    // slow answer for an earlier choice can never paint over the revision now selected.
+    var generation = 0;
+
+    // Everything a board fills in, back to its state before any board loaded. A switch, or a switch
+    // that fails, must not leave the previous revision's numbers under the new selection.
+    function clearBoard() {
+      wrap.hidden = true;
+      legend.hidden = true;
+      var summary = document.getElementById("leaderboard-summary");
+      if (summary) {
+        summary.hidden = true;
+        // The strip is two columns until a frontier card is shown (see renderFrontier).
+        summary.classList.add("stats--two");
+      }
+      ["summary-frontier-card", "leaderboard-climb-section", "pareto-chart-section", "external-comparison"]
+        .forEach(function (nodeId) {
+          var node = document.getElementById(nodeId);
+          if (node) node.hidden = true;
+        });
+    }
+
     // `?revision=` scopes the board and the frontier; absent means Latest, exactly as
     // before. Every switch re-runs this load, so it resets what a previous revision left behind.
     function load(revision) {
+      var mine = ++generation;
       var scope = revision ? "&revision=" + encodeURIComponent(revision) : "";
       P.showLoading(statusNode, "Loading leaderboard…");
-      wrap.hidden = true;
-      legend.hidden = true;
-      // The frontier card only ever un-hides itself, so a switch must hide the previous value.
-      var frontierCard = document.getElementById("summary-frontier-card");
-      if (frontierCard) frontierCard.hidden = true;
+      clearBoard();
 
       P.fetchJson("/v1/leaderboard/" + encodeURIComponent(id) + "?top=50" + scope).then(
         function (data) {
+          if (mine !== generation) return;
           var b = data && data.benchmark;
           if (b) {
             var name = b.display_name || b.id;
@@ -478,7 +498,11 @@
           renderClimb(state.rows);
           renderHead(document.getElementById("leaderboard-head"));
           renderBody(document.getElementById("leaderboard-body"));
-          P.setStatus(statusNode, null);
+          // Imported reference rows can fill a table whose revision has no community runs yet; the
+          // pointer to the previous revision's runs still belongs above it.
+          if (state.entries.length > 0 || !showRevisionPointer(statusNode)) {
+            P.setStatus(statusNode, null);
+          }
           wrap.hidden = false;
           // The frontier key appears only when a row actually carries the mark. If frontier
           // publication is unavailable, or every cost is null, nothing is
@@ -494,7 +518,8 @@
           renderParetoChart(chartEntries);
         },
         function (err) {
-          if (err && err.status === 404 && revision) {
+          if (mine !== generation) return;
+          if (revision && R && R.isRevisionNotFound(err)) {
             // The revision list was unavailable and the URL named an id the board does not have:
             // fall back to Latest and say so, rather than calling the benchmark missing.
             showRevisionNotice(R.notFoundNotice(revision));
@@ -503,6 +528,7 @@
             return;
           }
           if (err && err.status === 404) {
+            showRevisionNotice("");
             setBenchmarkCrumb(crumbNode, "");
             showNotFound(statusNode, "Benchmark not found.");
             return;
@@ -518,7 +544,9 @@
       P.fetchJson(
         "/v1/leaderboard/" + encodeURIComponent(id) + "/frontier" + (scope ? "?" + scope.slice(1) : "")
       ).then(
-        renderFrontier,
+        function (data) {
+          if (mine === generation) renderFrontier(data);
+        },
         function () {}
       );
     }
@@ -526,16 +554,25 @@
     // An empty Latest after a bump points to the earlier revision's results
     // instead of switching to it silently; any other empty board keeps the original line.
     function showEmptyBoard(node) {
+      if (!showRevisionPointer(node)) P.showEmpty(node, "No submissions yet. Be the first.");
+    }
+
+    // True when Latest has no community runs and an earlier revision has some: the line and its
+    // button are shown in `node`.
+    function showRevisionPointer(node) {
       var pointer = R ? R.emptyLatestPointer(revisions, currentSelection()) : null;
-      if (!pointer) {
-        P.showEmpty(node, "No submissions yet. Be the first.");
-        return;
-      }
+      if (!pointer) return false;
       P.showEmpty(node, pointer.text + " ");
       var button = P.el("button", "revision-pointer", "Show them");
       button.type = "button";
-      button.addEventListener("click", function () { choose(pointer.revision); });
+      button.addEventListener("click", function () {
+        choose(pointer.revision);
+        // The button disappears with the load it starts; keep keyboard focus on the selector.
+        var select = document.getElementById("revision-select");
+        if (select && !select.hidden) select.focus();
+      });
       node.appendChild(button);
+      return true;
     }
 
     function currentSelection() {

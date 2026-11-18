@@ -12,32 +12,47 @@
 (function (P) {
   "use strict";
 
-  // Every run stays listed, with the revision it was graded under. The id
-  // links to that revision's leaderboard; rows under an earlier revision are dimmed.
-  function revisionCell(s, benchmarkId, currentRevision) {
+  // Every run stays listed, with the revision it was graded under. An id the board lists
+  // links to that revision's leaderboard; any other id (one its client sent but the board never
+  // had, or every id when the list is unavailable) is plain text. Rows under an earlier revision
+  // are dimmed.
+  function revisionCell(s, benchmarkId, revisions) {
     var td = P.el("td", "mono", "");
     var revision = s.benchmark_revision;
     if (!revision) {
       td.textContent = "—";
       return td;
     }
-    var isCurrent = revision === currentRevision;
+    var short = String(revision).slice(0, 8);
+    var listed = window.SFRevisionSelector
+      ? window.SFRevisionSelector.listedRevision(revisions, revision)
+      : null;
+    if (!listed) {
+      td.textContent = short;
+      return td;
+    }
     // The board's own address in whichever form this page is served at, plus the revision as a
     // query parameter; Latest gets none, so the link keeps meaning "whatever is current".
     var target = new URL(P.boardHref(benchmarkId), window.location.href);
-    if (!isCurrent) target.searchParams.set("revision", revision);
-    td.appendChild(P.link(null, target.href, String(revision).slice(0, 8)));
-    if (isCurrent) td.appendChild(P.el("span", "revision-tag", "latest"));
+    if (!listed.current) target.searchParams.set("revision", revision);
+    td.appendChild(P.link(null, target.href, short));
+    if (listed.current) td.appendChild(P.el("span", "revision-tag", "latest"));
     return td;
   }
 
-  function historyRow(s, benchmarkId, currentRevision) {
+  function currentOf(revisions) {
+    var current = revisions.filter(function (row) { return row.current; })[0];
+    return current ? current.revision : null;
+  }
+
+  function historyRow(s, benchmarkId, revisions) {
     var tr = document.createElement("tr");
+    var currentRevision = currentOf(revisions);
     if (currentRevision && s.benchmark_revision && s.benchmark_revision !== currentRevision) {
       tr.className = "revision-older";
     }
     tr.appendChild(P.el("td", null, P.formatDate(s.submitted_at)));
-    tr.appendChild(revisionCell(s, benchmarkId, currentRevision));
+    tr.appendChild(revisionCell(s, benchmarkId, revisions));
     tr.appendChild(P.el("td", "cell-wrap", P.formatSubmitter(s.submitted_by)));
     tr.appendChild(P.el("td", "cell-wrap", P.formatAuthors(s.authors)));
     tr.appendChild(P.el("td", "num", P.formatScore(s.score)));
@@ -137,27 +152,23 @@
 
     resolveBenchmarkName(benchmarkId).then(setBenchmarkName);
 
-    // Which revision is current comes from /revisions (the history response itself is unchanged).
-    // Best-effort: without it the column still shows each run's revision, just no "latest" tag.
-    var currentRevision = P.fetchJson(
+    // The board's revisions come from /revisions (the history response itself is unchanged).
+    // Best-effort: without them the column still shows each run's revision, unlinked and untagged.
+    var boardRevisions = P.fetchJson(
       "/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "/revisions"
     ).then(
-      function (data) {
-        var rows = (data && data.revisions) || [];
-        var current = rows.filter(function (row) { return row.current; })[0];
-        return current ? current.revision : null;
-      },
-      function () { return null; }
+      function (data) { return (data && data.revisions) || []; },
+      function () { return []; }
     );
 
     P.fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "/" + encodeURIComponent(specId) + "/history?limit=20").then(
       function (data) {
-        return currentRevision.then(function (current) { return [data, current]; });
+        return boardRevisions.then(function (revisions) { return [data, revisions]; });
       }
     ).then(
       function (pair) {
         var data = pair[0];
-        var current = pair[1];
+        var revisions = pair[1];
         var submissions = (data && data.submissions) || [];
         if (submissions.length === 0) {
           P.showEmpty(statusNode, "No runs of this submission yet.");
@@ -171,7 +182,7 @@
 
         var body = document.getElementById("history-body");
         P.clear(body);
-        submissions.forEach(function (s) { body.appendChild(historyRow(s, benchmarkId, current)); });
+        submissions.forEach(function (s) { body.appendChild(historyRow(s, benchmarkId, revisions)); });
 
         P.setStatus(statusNode, null);
         contentNode.hidden = false;
