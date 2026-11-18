@@ -13,6 +13,11 @@ name = "screamingface-engine"
 version = "2.2.0"
 description = "screamingface-engine — the ScreamingFace Engine: the control plane (REST + WebSocket, schedules Runner Jobs) and the url4 run mode those Jobs execute."
 requires-python = ">=3.12"
+# WHY: the distribution and both Engine images ship code contributed under this repository's
+# Apache-2.0 licence (e.g. the vendored FutureX-Past study scorer), so they carry its text. The
+# copy beside this file mirrors packages/url4's; hatchling reads license-files from here.
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 # Merging the former runner distribution in cost NO new dependency: its deps
 # (httpx, nats-py, url4) were already a strict subset of these. What the run mode gains is
 # serving-side packages it never imports; the layering gate is what keeps that true.
