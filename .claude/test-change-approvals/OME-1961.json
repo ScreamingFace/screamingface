@@ -1,0 +1,14 @@
+{
+  "issue": "OME-1961",
+  "branch": "OME-1961-cases-route-full-read-memory",
+  "approver": "owner, in the working session of 2026-11-18 (asked for the fix to be pushed after being shown this change)",
+  "date": "2026-11-18",
+  "scope": "One test only: test_head_equals_the_legacy_slice. Its expected text is built with ensure_ascii=True where it was ensure_ascii=False, one assertion is added (the served text parses back to the same rows), and its docstring says why. No other test in the file changes.",
+  "reason": "OME-1961: the indexed store now serves non-ASCII characters as JSON escapes so one wide character cannot multiply a run's memory (EnigmaEval's full-set read: 5,048 MiB to 840 MiB). The test's rows hold non-ASCII characters, so byte equality with the raw spelling cannot hold; the rows served are the same JSON value, and url4 hands on the same Case texts (test_board_store_ascii_serving.py).",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_board_store.py": {
+      "base_blob": "116fa9d9f1d6b3c3013b741215d418bad89e0a90",
+      "approved_blob": "36a4a023b625536177efd2eccf7ff0ccc5d6c13a"
+    }
+  }
+}

@@ -45,6 +45,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple, Protocol
 
+from screamingface_engine.benchmarks.ascii_json import ascii_row
 from screamingface_engine.benchmarks.board_record import (
     BOARD_FILE,
     BOARD_SCHEMA,
@@ -126,7 +127,10 @@ class BoardStore(Protocol):
         ...
 
     def head(self, count: int) -> str:
-        """The first ``count`` rows as a JSON array, byte-identical to the legacy slice.
+        """The first ``count`` rows as a JSON array, the same JSON value as the legacy slice.
+
+        The indexed store writes it as ASCII text (non-ASCII as ``\\uXXXX``), so an all-ASCII
+        board is served byte for byte as written; see ``ascii_row`` for why.
 
         Raises:
             ValueError: ``count`` is outside ``1..case_count()``, or a legacy board is malformed.
@@ -251,37 +255,35 @@ class IndexedBoard:
 
     def head(self, count: int) -> str:
         _check_count(count, self._count)
-        try:
-            with self._offsets.open("rb") as handle:
-                entries: list[tuple[int, int]] = list(
-                    _ENTRY.iter_unpack(handle.read(count * _ENTRY.size))
-                )
-            if len(entries) != count:
-                raise broken(f"{OFFSETS_FILE} holds fewer than {count} entries")
-            start: int = entries[0][0]
-            end: int = entries[-1][0] + entries[-1][1]
-            self._check_layout(entries, start, end)
-            with self._cases.open("rb") as handle:
-                handle.seek(start)
-                chunk: bytes = handle.read(end - start)
-            if len(chunk) != end - start:
-                raise broken(f"{CASES_FILE} is shorter than its index")
-            for position, (offset, length) in enumerate(entries, start=1):
-                _check_row(chunk, offset - start, length, position)
-            text: str = chunk.decode("utf-8")
-        # WHY ValueError: json.JSONDecodeError and UnicodeDecodeError are both ValueErrors.
-        except (OSError, struct.error, ValueError) as exc:
-            raise broken(f"{OFFSETS_FILE} does not match {CASES_FILE} ({exc})") from exc
-        # INVARIANT: "[" + one object per entry joined by "," + "]" — a JSON array of exactly
-        # the selected rows, served as the original bytes (never re-serialised).
-        return "[" + text + "]"
+        return self._serve(count, None)
 
     def rows(self, case_ids: Sequence[int]) -> str:
         _check_ids(case_ids, self._count)
         if case_ids[-1] == len(case_ids):
-            return self.head(len(case_ids))  # 1..N: one contiguous read, as ``head``
-        selected: frozenset[int] = frozenset(case_ids)
-        last: int = case_ids[-1]
+            return self.head(len(case_ids))  # 1..N: every tile is selected, as ``head``
+        return self._serve(case_ids[-1], frozenset(case_ids))
+
+    def _serve(self, last: int, selected: frozenset[int] | None) -> str:
+        """Tiles ``1..last`` proven one by one; the selected ones (all, for ``None``) served.
+
+        Think of it as walking the Cases file one Case at a time, checking each Case is where
+        the index says, and copying out only the wanted ones as plain ASCII text.
+
+        Stage 1: read the first ``last`` index entries and check they tile the file in order.
+        Stage 2: read each tile alone, prove it is Case ``position`` (``_check_row``), and keep
+        a selected one as ASCII text (``ascii_row``).
+        Stage 3: join the kept rows into one JSON array.
+
+        Worked example (EnigmaEval, 1,158 Cases, a 381 MiB file, one Case holding U+1F815):
+        reading the prefix as one chunk and decoding it gave a 4-bytes-a-character string of
+        1,525 MiB, held twice beside the 381 MiB of bytes: a 5,048 MiB peak against the run's
+        2,560 MiB budget. Row by row as ASCII, the kept rows are 381 MiB and the joined text
+        381 MiB: a peak of about 1.2 GiB, and 381 MiB once this returns.
+
+        Raises:
+            ResolutionError: ``benchmark_unavailable``; the index does not match its rows.
+        """
+
         served: list[str] = []
         # INVARIANT (review on #1636, round 2): a selected tile is proven a top-level element
         # by INDUCTION from the array start, never by its neighbouring bytes. A delimiter
@@ -297,6 +299,7 @@ class IndexedBoard:
         # board.json at prepare time would let a selected read trust the index and go back to
         # O(selected) I/O — a follow-up, not this PR.
         try:
+            # Stage 1 — the index entries for tiles 1..last, checked to tile the file in order.
             with self._offsets.open("rb") as handle:
                 entries: list[tuple[int, int]] = list(
                     _ENTRY.iter_unpack(handle.read(last * _ENTRY.size))
@@ -304,6 +307,7 @@ class IndexedBoard:
             if len(entries) != last:
                 raise broken(f"{OFFSETS_FILE} holds fewer than {last} entries")
             self._check_layout(entries, entries[0][0], entries[-1][0] + entries[-1][1])
+            # Stage 2 — one tile in flight at a time: prove it, keep it if selected.
             with self._cases.open("rb") as cases:
                 for position, (offset, length) in enumerate(entries, start=1):
                     # WHY the gap byte: ``_check_row`` proves the "," before every tile but the
@@ -314,12 +318,17 @@ class IndexedBoard:
                     if len(chunk) != length + first:
                         raise broken(f"{CASES_FILE} is shorter than its index")
                     _check_row(chunk, first, length, position)
-                    if position in selected:
-                        served.append(chunk[first:].decode("utf-8"))
+                    if selected is None or position in selected:
+                        served.append(ascii_row(chunk[first:]))
         # WHY ValueError: json.JSONDecodeError and UnicodeDecodeError are both ValueErrors.
         except (OSError, struct.error, ValueError) as exc:
             raise broken(f"{OFFSETS_FILE} does not match {CASES_FILE} ({exc})") from exc
-        return "[" + ",".join(served) + "]"
+        # Stage 3 — "[" + the kept rows joined by "," + "]": a JSON array of exactly the selected
+        # rows. WHY the brackets go onto the first and last row: ``"[" + joined + "]"`` would
+        # hold a third copy of the whole selection for a moment, 381 MiB more on EnigmaEval.
+        served[0] = "[" + served[0]
+        served[-1] += "]"
+        return ",".join(served)
 
     def _check_layout(self, entries: Sequence[tuple[int, int]], start: int, end: int) -> None:
         """The rows are contiguous, comma-separated, and inside the array brackets."""
