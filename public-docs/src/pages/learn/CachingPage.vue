@@ -87,7 +87,7 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       A cache saves money, but it is not a record. Its rules can change between releases, and a
       model can be retired. So a run can make a <strong>pinned cache</strong> of itself. A pinned
       cache keeps every model answer and every web-tool result of the run. It is separate from the
-      request cache. It does not use the cache's keys or rules, and it is kept forever.
+      request cache. It does not use the cache's keys or rules.
     </p>
 
     <p>
@@ -98,6 +98,22 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       captured answers. A replay never captures; explicit <code>capture=True</code> is an error. The
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> shows the
       calls and the outcomes.
+    </p>
+
+    <p>
+      A pinned cache that a leaderboard score uses is kept for as long as the score exists on the
+      board. A pinned cache with no submitted score is deleted 90 days after it is sealed; a run
+      seals its pinned cache when it ends. Submit the score within those 90 days. For a pinned cache
+      that was sealed before this rule started, the 90 days count from the start of the rule. A
+      replay of a deleted pinned cache fails with a message that says it expired. The rule also
+      applies to a local engine: a pinned cache in a local gateway is deleted 90 days after it is
+      sealed, because no hosted leaderboard score can use it there.
+    </p>
+
+    <p>
+      A score can be submitted to the hosted leaderboard with a pinned cache only when the hosted
+      service holds that pinned cache complete. A run whose pinned cache was not sealed, and a run
+      on a local engine with capture, cannot be submitted there with their pinned cache.
     </p>
 
     <p>
@@ -314,10 +330,11 @@ import { learnNavigation as navigation } from '@/navigation/learn'
       </li>
       <li>
         <strong>A copy that is not available.</strong> The copy is unknown, or it is not sealed (for
-        example, the Engine stopped during the original run), or the gateway is older and has no
-        pinned caches. A web-tool lookup or a model call that the gateway does not answer, because
-        of a transport failure or an error other than not found, is the same. Cases fail, and the
-        replay is reported as <code>frozen_copy_unavailable</code>.
+        example, the Engine stopped during the original run), or it expired (no leaderboard score
+        used it in its 90 days), or the gateway is older and has no pinned caches. A web-tool lookup
+        or a model call that the gateway does not answer, because of a transport failure or an error
+        other than not found, is the same. Cases fail, and the replay is reported as
+        <code>frozen_copy_unavailable</code>.
       </li>
       <li>
         <strong>A changed engine or SDK</strong> may build a request in another way. The copy has no
