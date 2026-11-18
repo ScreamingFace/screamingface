@@ -11,6 +11,20 @@ from collections.abc import Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, overload
 
+from screamingface import _default_client
+from screamingface._inference.request import (
+    INCLUDE_USAGE,
+    ChatCall,
+    ModelSource,
+    chat_body,
+    chat_messages,
+    chat_tools,
+    check_options,
+    check_other,
+    model_source,
+    model_text,
+)
+from screamingface._inference.transport import send_chat
 from screamingface.chat_completion import AsyncChatStream, ChatCompletion, ChatStream
 
 # WHY a run-time import: U4 checks the client type with isinstance, and reading
@@ -142,10 +156,43 @@ class Chat[ClientT: (Client, AsyncClient)]:
 
         With a sync Client the call blocks and returns the reply, or a ChatStream when
         ``stream`` is True. With an AsyncClient the call returns a coroutine.
+
+        Raises:
+            TypeError: an argument has the wrong type.
+            ValueError: an argument has a wrong value.
+            PlanningError: the model or a parameter is refused.
+            AuthenticationError: the Engine rejects the caller.
+            EngineCapabilityError: the Engine lacks the chat route.
+            ExecutionError: the run fails, times out or gives a wrong answer.
+            EngineUnavailableError: the Engine cannot be reached.
         """
 
-        # AIDEV-NOTE: unit U4 (sync) and unit U5 (streams, async) fill this body.
-        raise NotImplementedError("ModelInference.chat.complete is not available yet")
+        messages_list = chat_messages(prompt, messages)
+        tools_list = chat_tools(tools)
+        check_options(
+            stream=stream,
+            stream_options=stream_options,
+            use_cache=use_cache,
+            max_retries=max_retries,
+            timeout=timeout,
+        )
+        # WHY directly here: check_other warns with stacklevel=3, so the warning names the line
+        # of the caller.
+        check_other(other)
+        client = self._owner._call_client()
+        if isinstance(client, AsyncClient) or stream:
+            # AIDEV-NOTE: unit U5 fills the async path and the stream=True path (ChatStream,
+            # AsyncChatStream).
+            raise NotImplementedError(
+                "ModelInference streams and the async client are not available yet"
+            )
+        # INVARIANT: a closed client raises its RuntimeError before a request, also before the
+        # catalogue load.
+        client._require_open()
+        model = model_text(self._owner._source, client._operator_catalog.load)
+        body = chat_body(model, messages_list, tools_list, stream_options=INCLUDE_USAGE)
+        call = ChatCall(body=body, use_cache=use_cache, max_retries=max_retries, timeout=timeout)
+        return send_chat(client._engine_post_stream, client.engine_url, call)
 
 
 class ModelInference[ClientT: (Client, AsyncClient)]:
@@ -177,11 +224,22 @@ class ModelInference[ClientT: (Client, AsyncClient)]:
         *,
         client: Client | AsyncClient | None = None,
     ) -> None:
-        # AIDEV-NOTE: unit U4 adds the model rule (P1, P14), the type checks and the compile
-        # step (P2, P17). The constructor sends no request (P2).
-        self._model = model
+        # INVARIANT: the constructor sends no request (P2); a recipe with a reducer compiles at
+        # each call.
+        if client is not None and not isinstance(client, Client | AsyncClient):
+            raise TypeError("client must be a sf.Client, a sf.AsyncClient or None")
+        self._source: ModelSource = model_source(model)
         self._client = client
         self.chat = Chat(self)
+
+    def _call_client(self) -> Client | AsyncClient:
+        """The client of one call: the client of the object, or the default client at this time."""
+
+        if self._client is not None:
+            return self._client
+        # WHY at each call (MI-S20b): sf.configure() and sf.close() change the default client, as
+        # for sf.classify.
+        return _default_client.default_client()
 
     @overload
     def endpoint(self: ModelInference[Client]) -> InferenceEndpoint: ...

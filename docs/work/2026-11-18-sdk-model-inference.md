@@ -106,6 +106,24 @@ docs examples run in tests.
   `wrong_shape`. Known drift point: `tests/_chat_frames.py` copies the Engine wire by hand
   (no cross-package import); MI-28 (U8) catches drift. Open for U4 (F4): read lines with
   httpx `iter_lines()` and keep `lines_from_bytes` only if production uses it. Gates: SDK green.
+- **2026-11-18 — U4 (sync call) done.** `screamingface/_inference/request.py` (model rule P1/P14,
+  compile P2/P17 with the operator catalogue at each call for a reducer, parameter policy P4 with
+  `IgnoredParameterWarning`, body and headers C2.1), `screamingface/_inference/transport.py`
+  (send through the seam via a Protocol, `iter_lines()`, read limit and total timeout P11, each
+  limit bounded by the time left, `max_retries` C2.5, close on each exit),
+  `screamingface/_inference/error_map.py` (C2.4, one Retry-After parser reused from
+  `_core/retry.py`), and the sync half of `Chat.complete` (default client at each call).
+  Tests MI-6…MI-19, MI-23, MI-29, MI-30, sync MI-31 (`test_model_inference_*.py`, helper
+  `tests/_chat_engine.py`). Tiered-build run `wf_d81ddcce-ef2`: it stopped once at a wave
+  check whose grep for `not_text` also hit four test files of `main`; I checked the real
+  intent by hand (no hits) and resumed with that one check filtered. Review accept with fixes,
+  no structural finding; F1–F9, F11, F12 fixed. U3 note F4 done: `lines_from_bytes` and the
+  `not_text` reason removed (production reads with httpx). Deviations: (a) plan D3 puts the
+  error map in `transport.py`; it is a fourth private module `error_map.py` (450-line limit,
+  U5 async twin). (b) F13 open for U5: tests inject the clock and sleep as module globals; U5
+  decides once for sync and async. (c) For U5: with `stream=True` the caller's
+  `stream_options` decides if the usage chunk reaches the caller (C2.1); the wire always asks
+  for usage. Gates: SDK green.
 
 ## Outcome (fill at the end — required before COMMIT)
 

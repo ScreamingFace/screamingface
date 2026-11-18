@@ -23,6 +23,7 @@ from _chat_frames import (
     engine_stream,
     error_line,
     info,
+    sse_lines,
     wire,
 )
 
@@ -31,7 +32,6 @@ from screamingface._inference.frames import (
     StreamError,
     build_completion,
     completion_from_lines,
-    lines_from_bytes,
     read_chunks,
 )
 from screamingface.errors import ScreamingFaceError
@@ -73,7 +73,6 @@ def _tool_call_pieces() -> bytes:
     ("name", "body", "reason"),
     [
         ("not-json", b'data: {"secret Paris"\n\n', "not_json"),
-        ("not-utf8", b"data: \xff\xfe\n\n", "not_text"),
         ("json-array", wire([[1, 2]]), "wrong_shape"),
         ("no-done", wire(TEXT, done=False), "truncated"),
         ("keep-alive-only", KEEP_ALIVE + KEEP_ALIVE, "truncated"),
@@ -151,7 +150,7 @@ def test_malformed_or_cut_stream_is_invalid_response(name: str, body: bytes, rea
     """MI-5 / C2.3: a stream with a wrong form raises FrameError, with no value of the stream."""
 
     with pytest.raises(FrameError) as caught:
-        completion_from_lines(lines_from_bytes(body))
+        completion_from_lines(sse_lines(body))
     assert caught.value.reason == reason
     assert "Paris" not in str(caught.value)
     assert not isinstance(caught.value, ScreamingFaceError)
@@ -212,8 +211,8 @@ def test_error_event_is_a_typed_value(
     """MI-5 / C4.1: the error event is a StreamError, and the stream ends with no [DONE]."""
 
     body = data_line({"error": error})
-    assert completion_from_lines(lines_from_bytes(body)) == expected
-    assert list(read_chunks(lines_from_bytes(body))) == [expected]
+    assert completion_from_lines(sse_lines(body)) == expected
+    assert list(read_chunks(sse_lines(body))) == [expected]
 
 
 def test_error_event_ends_the_read() -> None:
@@ -224,7 +223,7 @@ def test_error_event_ends_the_read() -> None:
         + error_line(message="failed", type="server_error", code="timeout", should_retry=False)
         + b"data: {not json\n\n"
     )
-    result = completion_from_lines(lines_from_bytes(body))
+    result = completion_from_lines(sse_lines(body))
     assert isinstance(result, StreamError)
     assert result.code == "timeout"
 
@@ -244,7 +243,7 @@ def test_wrong_error_event_is_wrong_shape(error: Any) -> None:
     """MI-5 / C4.1: an error event with a wrong value is a FrameError (wrong_shape)."""
 
     with pytest.raises(FrameError) as caught:
-        completion_from_lines(lines_from_bytes(data_line({"error": error})))
+        completion_from_lines(sse_lines(data_line({"error": error})))
     assert caught.value.reason == "wrong_shape"
 
 
@@ -304,5 +303,5 @@ def test_split_or_repeated_values_are_wrong_shape(name: str, body: bytes) -> Non
     negative. Each other form is a FrameError (wrong_shape)."""
 
     with pytest.raises(FrameError) as caught:
-        completion_from_lines(lines_from_bytes(body))
+        completion_from_lines(sse_lines(body))
     assert caught.value.reason == "wrong_shape"

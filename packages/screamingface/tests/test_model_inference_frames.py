@@ -26,6 +26,7 @@ from _chat_frames import (
     engine_stream,
     info,
     message,
+    sse_lines,
     wire,
 )
 
@@ -34,7 +35,6 @@ from screamingface._inference.frames import (
     build_completion,
     completion_from_lines,
     event_from_line,
-    lines_from_bytes,
     read_chunks,
 )
 from screamingface.chat_completion import ChatCompletion, ChatCompletionChunk, ChatToolCall
@@ -107,14 +107,14 @@ ROWS: list[tuple[str, list[Any], dict[str, Any], str, dict[str, Any], dict[str, 
 
 
 def _reply(body: bytes) -> ChatCompletion:
-    result = completion_from_lines(lines_from_bytes(body))
+    result = completion_from_lines(sse_lines(body))
     assert isinstance(result, ChatCompletion)
     return result
 
 
 def _chunks(body: bytes) -> list[ChatCompletionChunk]:
     items: list[ChatCompletionChunk] = []
-    for item in read_chunks(lines_from_bytes(body)):
+    for item in read_chunks(sse_lines(body)):
         assert isinstance(item, ChatCompletionChunk)
         items.append(item)
     return items
@@ -260,7 +260,7 @@ def test_build_completion_equals_the_reply_of_the_lines() -> None:
 def test_lines_after_done_are_not_read() -> None:
     """MI-4 / C2.3: the lines after [DONE] are not read, so bad JSON there is harmless."""
 
-    lines = lines_from_bytes(wire(TEXT)) + ["data: {not json"]
+    lines = sse_lines(wire(TEXT)) + ["data: {not json"]
     result = completion_from_lines(lines)
     assert isinstance(result, ChatCompletion)
     assert result.text == "Hello"

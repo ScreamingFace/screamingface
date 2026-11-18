@@ -14,7 +14,6 @@ does not call them.
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
@@ -40,14 +39,10 @@ __all__ = [
     "FrameErrorReason",
     "StreamError",
     "completion_from_lines",
-    "lines_from_bytes",
     "read_chunks",
 ]
 
-type FrameErrorReason = Literal["not_text", "not_json", "wrong_shape", "truncated"]
-
-# WHY: the SSE standard allows CRLF, LF and CR line ends.
-_LINE_END: Final = re.compile(r"\r\n|\r|\n")
+type FrameErrorReason = Literal["not_json", "wrong_shape", "truncated"]
 
 
 class FrameError(Exception):
@@ -80,19 +75,6 @@ class StreamError:
     code: str
     should_retry: bool | None
     retry_after: int | None
-
-
-# AIDEV-NOTE: unit U4 decides how the transport reads the body. If U4 reads the lines with httpx
-# (Response.iter_lines or aiter_lines), delete this function and _LINE_END, and give the httpx
-# lines to completion_from_lines and read_chunks.
-def lines_from_bytes(body: bytes) -> list[str]:
-    """The lines of an SSE body, split at each SSE line end."""
-
-    try:
-        text = body.decode("utf-8")
-    except UnicodeDecodeError:
-        raise FrameError("not_text", "the chat stream is not UTF-8 text") from None
-    return _LINE_END.split(text)
 
 
 def event_from_line(line: str) -> dict[str, Any] | StreamError | StreamDone | None:

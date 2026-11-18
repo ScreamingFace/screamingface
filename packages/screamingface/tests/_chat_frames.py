@@ -13,6 +13,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import httpx
+
 KEEP_ALIVE = b": keep-alive\n\n"
 DONE_LINE = b"data: [DONE]\n\n"
 META: dict[str, Any] = {
@@ -114,3 +116,9 @@ def message(
     """The expected message object of a plain reply."""
 
     return {"role": "assistant", "content": content, "tool_calls": tool_calls, "refusal": refusal}
+
+
+def sse_lines(body: bytes) -> list[str]:
+    """The lines of an SSE body, read as the transport reads them (httpx Response.iter_lines)."""
+
+    return list(httpx.Response(200, content=body).iter_lines())
