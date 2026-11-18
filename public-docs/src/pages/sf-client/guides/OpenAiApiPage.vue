@@ -539,7 +539,7 @@ const errorEnvelope = `{
       <li data-limit="large-bodies">
         At most four bodies above 1,000,000 bytes are in parse at one time. When no place is free in
         5 seconds, the answer is 429 <code>overloaded</code>. A body above 1,000,000 bytes must
-        arrive in full in 60 seconds after it gets a place. If not, the answer is 408
+        arrive in full in 30 seconds after it gets a place. If not, the answer is 408
         <code>request_timeout</code>.
       </li>
       <li data-limit="time-limit">
