@@ -63,22 +63,22 @@ const pipelineSig = `sf.Pipeline(
     :version="version"
   >
     <p>
-      A <strong>Pipeline</strong> is a recipe composed of an ordered list of
-      <strong>stages</strong>. It doesn't run anything by itself; like every recipe, building one
-      makes no requests. The stages run only during an
+      A Pipeline is a recipe made of an ordered list of stages. Use it when each step should build
+      on the answer before it, for example when a draft gets reviewed and then polished. A Pipeline
+      does not run anything by itself. Like every recipe, building one makes no requests. The stages
+      run only during an
       <RouterLink to="/sf-client/guides/running-an-evaluation">evaluation</RouterLink>: the first
       stage answers the case, and each later stage takes the <em>previous</em> stage's answer as its
-      input (a draft gets reviewed, then polished). The benchmark grades only the last stage's
-      answer, so a Pipeline competes head-to-head with a solo
-      <RouterLink to="/sf-client/guides/models">Model</RouterLink> or a
+      input. The benchmark grades only the last stage's answer, so a Pipeline competes head to head
+      with a solo <RouterLink to="/sf-client/guides/models">Model</RouterLink> or a
       <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>.
     </p>
 
     <p>
       A stage can be any recipe: a <code>Model</code>, a fusion (<code
         >sf.Fanout(...) &gt;&gt; sf.Synthesize(...)</code
-      >), or another <code>Pipeline</code>. Refine, review, or re-rank as many times as your
-      experiment needs. Like all recipes, a Pipeline is immutable. Building one makes no requests.
+      >), or another <code>Pipeline</code>. You can refine, review, or re-rank as many times as your
+      experiment needs. A Pipeline is immutable, like all recipes.
     </p>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -188,9 +188,9 @@ const pipelineSig = `sf.Pipeline(
     <h3>1 · Chain two recipes</h3>
 
     <p>
-      Stages come first (positional), in the order they run. The Pipeline's name defaults to stage
-      names joined with <code>-&gt;</code>. Give it an explicit <code>name</code> for a custom label
-      in reports.
+      Pass the stages first, as a positional list in the order they run. The Pipeline's name
+      defaults to the stage names joined with <code>-&gt;</code>. Pass an explicit <code>name</code>
+      to set a custom label for reports.
     </p>
 
     <div class="not-prose">
@@ -244,7 +244,7 @@ const pipelineSig = `sf.Pipeline(
 
     <p>
       <code>&gt;&gt;</code> joins two stages, so a chain reads left to right. It builds the same
-      Pipeline as the constructor: <code>draft &gt;&gt; review &gt;&gt; final</code> is equal to
+      Pipeline as the constructor: <code>draft &gt;&gt; review &gt;&gt; final</code> equals
       <code>sf.Pipeline([draft, review, final])</code>. A route string on the left also works.
     </p>
 
@@ -302,8 +302,8 @@ const pipelineSig = `sf.Pipeline(
     <h3>3 · Flatten vs. nest</h3>
 
     <p>
-      An <em>unnamed</em> Pipeline inside another Pipeline flattens into one sequence. Nesting for
-      convenience never changes what runs.
+      An <em>unnamed</em> Pipeline inside another Pipeline flattens into a single sequence. Nesting
+      for convenience never changes what runs.
     </p>
 
     <div class="not-prose">
@@ -359,8 +359,8 @@ const pipelineSig = `sf.Pipeline(
     </figure>
 
     <p>
-      Give the inner Pipeline a <code>name</code> and it is kept as a single stage instead, so a
-      named chain stays a named, reusable unit.
+      Give the inner Pipeline a <code>name</code> and it is kept as a single stage instead. A named
+      chain stays a named, reusable unit.
     </p>
 
     <div class="not-prose">
@@ -419,8 +419,8 @@ const pipelineSig = `sf.Pipeline(
 
     <p>
       A stage is any recipe. A <RouterLink to="/sf-client/guides/fusions">fusion</RouterLink>'s
-      members and synthesizer are any recipe too. So the two compose freely: a fusion of Pipelines,
-      a Pipeline of fusions, or a fusion whose synthesizer is itself a Pipeline.
+      members and synthesizer are any recipe too. The two compose freely: a fusion of Pipelines, a
+      Pipeline of fusions, or a fusion whose synthesizer is itself a Pipeline.
     </p>
 
     <div class="not-prose">
@@ -485,11 +485,11 @@ const pipelineSig = `sf.Pipeline(
     <h3>5 · Mix recipe types as stages</h3>
 
     <p>
-      Because a stage is just a recipe, one Pipeline can mix a <code>Model</code>, a fusion, and a
+      Because a stage is any recipe, one Pipeline can mix a <code>Model</code>, a fusion, and a
       nested <code>Pipeline</code> as its stages. The unnamed <code>panel</code> chain flattens, so
-      the output lists its two steps, <code>Fanout</code> and <code>Synthesize</code>. They still
-      run as one stage. The named <code>refine</code> stays grouped. The last stage's answer is
-      still what the benchmark grades.
+      the output lists its two steps, <code>Fanout</code> and <code>Synthesize</code>, which still
+      run as one stage. The named <code>refine</code> stays grouped. The benchmark still grades the
+      last stage's answer.
     </p>
 
     <div class="not-prose">
@@ -586,15 +586,15 @@ const pipelineSig = `sf.Pipeline(
           <td>
             Marks this Pipeline as optional when it is a member of a
             <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>, so the Fusion can
-            succeed without it when its quorum is met. Default <code>False</code>.
+            succeed without it once its quorum is met. Default <code>False</code>.
           </td>
         </tr>
         <tr>
           <td><code>optional</code></td>
           <td><code>bool</code></td>
           <td>
-            Defaults to <code>False</code>. Set it to <code>True</code> for a chain that is an
-            optional member of a <code>sf.Fanout</code>.
+            Defaults to <code>False</code>. Set it to <code>True</code> when the chain is an optional
+            member of a <code>sf.Fanout</code>.
           </td>
         </tr>
       </tbody>

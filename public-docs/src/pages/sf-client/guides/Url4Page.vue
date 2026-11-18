@@ -47,16 +47,17 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
   >
     <p>
       Every candidate result carries a
-      <RouterLink to="/learn/url4"><code>url4</code></RouterLink> string: the complete plan
-      <RouterLink to="/learn/engine">the engine</RouterLink> actually ran (your candidate, the
-      benchmark's routes, retry prompts, and protocol revision), written as a single line of text
-      you can read, diff, and share.
+      <RouterLink to="/learn/url4"><code>url4</code></RouterLink> string. This is the complete plan
+      <RouterLink to="/learn/engine">the engine</RouterLink> actually ran: your candidate, the
+      benchmark's routes, the retry prompts, and the protocol revision, written as a single line of
+      text you can read, diff, and share.
     </p>
 
     <p>
-      The shape is always <code>(sources)!intent</code>: inputs in parentheses, then what to do with
-      them after the <code>!</code>. A source can itself be another url4, so the format is
-      recursive, which is how a fusion nests inside a larger expression without special handling.
+      The shape is always <code>(sources)!intent</code>: the inputs go in parentheses, then what to
+      do with them comes after the <code>!</code>. A source can itself be another url4, so the format
+      is recursive. That is how a fusion nests inside a larger expression without any special
+      handling.
     </p>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -150,10 +151,10 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
     </figure>
 
     <p>
-      Here is a real one: the candidate part of the url4 of a single
-      <RouterLink to="/sf-client/guides/models">Model</RouterLink> evaluated on MedXpert (its answer
-      prompt trimmed to <code>…</code>). The full expression wraps it with the benchmark's routes
-      and pinned revision:
+      Here is a real one: the candidate part of the url4 for a single
+      <RouterLink to="/sf-client/guides/models">Model</RouterLink> evaluated on MedXpert, with its
+      answer prompt trimmed to <code>…</code>. The full expression wraps this with the benchmark's
+      routes and pinned revision.
     </p>
 
     <CodeBlock :code="readable" language="text" />
@@ -168,7 +169,7 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
       <li>
         <code>model_1</code> is the first source: a call to the model route
         <code>/openrouter/deepseek/deepseek-v4-flash</code> with the case input
-        <code>$input</code> bound, and its own intent, the answer prompt. The <code>0.0</code> after
+        <code>$input</code> bound, and its own intent (the answer prompt). The <code>0.0</code> after
         the name is its weight.
       </li>
       <li>
@@ -179,16 +180,16 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
 
     <p>
       A <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink> reads the same way, with more
-      members (<code>model_2</code>, …) and a <code>synthesis_1</code> step that reads the members
-      as <code>outputs</code> and writes the synthesis, which the final intent returns. Nothing is
-      held back from the line: the routes, the parameters, the prompts, and the pinned protocol are
-      all written into it. See <RouterLink to="/learn/url4">url4</RouterLink> for the full grammar
-      and protocol.
+      members (<code>model_2</code>, and so on) and a <code>synthesis_1</code> step that reads the
+      members as <code>outputs</code> and writes the synthesis, which the final intent returns.
+      Nothing is held back from the line. The routes, the parameters, the prompts, and the pinned
+      protocol are all written into it. See <RouterLink to="/learn/url4">url4</RouterLink> for the
+      full grammar and protocol.
     </p>
 
     <p>
-      This makes a result reproducible. A score alone is a claim. A score with its url4 shows
-      exactly what produced it. And since the expression is also an address the engine can resolve,
+      This is what makes a result reproducible. A score on its own is a claim. A score with its url4
+      shows exactly what produced it. The expression is also an address the engine can resolve, so
       that same string reruns the evaluation or calls the fusion like a single model, in whatever
       workflow you use. See <RouterLink to="/learn/url4">url4</RouterLink> for the protocol itself.
     </p>
@@ -217,8 +218,8 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
         <tr>
           <td><code>sf.Url4(text)</code></td>
           <td>
-            Wrap a url4 string you were given, so a copied expression becomes the same first-class
-            value a report hands back.
+            Wrap a url4 string you were given. A copied expression becomes the same first-class value
+            a report hands back.
           </td>
         </tr>
         <tr>
@@ -238,8 +239,8 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
         <tr>
           <td><code>CandidateResult.operations</code></td>
           <td>
-            Same plan as structured data: a DAG of <code>sf.OperationInfo</code> values, each with
-            <code>id</code>, <code>kind</code>, <code>label</code>, and <code>depends_on</code>
+            The same plan as structured data: a DAG of <code>sf.OperationInfo</code> values, each
+            with <code>id</code>, <code>kind</code>, <code>label</code>, and <code>depends_on</code>
             edges.
           </td>
         </tr>
@@ -268,11 +269,12 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
     <h3>1 · Read a url4</h3>
 
     <p>
-      A url4 comes from a completed run. Each candidate in a report carries the expression that
-      actually executed as <code>report.candidates[name].url4</code>. A Recipe on its own does not
-      have one yet, because the benchmark's routes and pinned revision are only linked in at
-      evaluation time. If somebody sends you an expression as plain text, wrap it in
-      <code>sf.Url4()</code> to get the same object back.
+      Read a url4 when you want to see exactly what a run executed. A url4 comes from a completed run.
+      Each candidate in a report carries the expression that actually executed as
+      <code>report.candidates[name].url4</code>. A Recipe on its own does not have one yet, because
+      the benchmark's routes and pinned revision are only linked in at evaluation time. If somebody
+      sends you an expression as plain text, wrap it in <code>sf.Url4()</code> to get the same object
+      back.
     </p>
 
     <div class="not-prose">
@@ -280,22 +282,23 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
     </div>
 
     <p>
-      What you get back is the full expression in the shape annotated above: the routes, the
-      parameters, the answer prompt, and the pinned benchmark revision. The single-Model run above
-      produces 1,888 characters, because everything the SDK filled in on your behalf is written out
-      explicitly, but all of it is meant to be read.
+      What you get back is the full expression in the shape shown above: the routes, the parameters,
+      the answer prompt, and the pinned benchmark revision. The single-Model run above produces 1,888
+      characters, because everything the SDK filled in on your behalf is written out explicitly. All
+      of it is meant to be read.
     </p>
 
     <h3>2 · Turn a url4 back into code</h3>
 
     <p>
+      Turn a url4 back into code when you want to edit a recipe and run your own version of it.
       Because a <code>url4</code> is a complete plan, it converts back into the recipe that produced
       it. <code>to_python()</code> reconstructs the <code>sf.Model</code>, <code>sf.Fanout</code>,
-      <code>sf.Synthesize</code>, <code>sf.Pipeline</code> and the judge, narrow and reducer steps
-      as a chain joined with <code>&gt;&gt;</code>, nested as they originally were, so you can edit
-      one part and run the result as your own next attempt. It costs nothing, since it is a local
-      transformation rather than a run. Passing the expression to <code>sf.evaluate()</code> instead
-      runs it again as it stands, which can spend.
+      <code>sf.Synthesize</code> and <code>sf.Pipeline</code> steps, along with the judge, narrow and
+      reducer steps, as a chain joined with <code>&gt;&gt;</code>, nested as they originally were. You
+      can then edit one part and run the result as your own next attempt. This costs nothing, because
+      it is a local transformation rather than a run. Passing the expression to
+      <code>sf.evaluate()</code> instead runs it again as it stands, which can spend.
     </p>
 
     <div class="not-prose">
@@ -303,11 +306,11 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
     </div>
 
     <p>
-      The generated code compiles back to the same url4: a plain fusion and a judge chain, each run
-      through <code>to_python()</code> and evaluated, gave the url4 they started with. A recipe with
-      no scoring judge and no field pick has the same url4 as on 0.1.10: the single-model run above
-      and a plain fusion (2,694 characters) are byte for byte equal. Two kinds of recipe have a new
-      url4, so their gateway calls miss the cache once:
+      The generated code compiles back to the same url4. A plain fusion and a judge chain, each run
+      through <code>to_python()</code> and evaluated, gave back the url4 they started with. A recipe
+      with no scoring judge and no field pick has the same url4 as on 0.1.10: the single-model run
+      above and a plain fusion (2,694 characters) are byte for byte equal. Two kinds of recipe have a
+      new url4, so their gateway calls miss the cache once:
     </p>
 
     <ul>
@@ -335,9 +338,10 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
     <h3>3 · Inspect the operation graph</h3>
 
     <p>
-      <code>operations</code> is the same plan as structured data: a directed acyclic graph of
-      <code>OperationInfo</code> values, each with an <code>id</code>, a <code>kind</code>, a
-      <code>label</code> and its <code>depends_on</code> edges.
+      Inspect the operation graph when you want the plan as structured data instead of a string.
+      <code>operations</code> is a directed acyclic graph of <code>OperationInfo</code> values, each
+      with an <code>id</code>, a <code>kind</code>, a <code>label</code> and its
+      <code>depends_on</code> edges.
     </p>
 
     <div class="not-prose">
@@ -347,8 +351,8 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
     <p>
       A solo model is one operation. A
       <RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink>
-      contributes one per member plus the synthesis step, so this is where you read a fusion's shape
-      rather than inferring it from its name.
+      has one operation per member plus the synthesis step. This is where you read a fusion's shape
+      directly, rather than inferring it from its name.
     </p>
 
     <h3>4 · Identify the run</h3>
@@ -364,27 +368,28 @@ const readable = `(model_1:0.0:/openrouter/deepseek/deepseek-v4-flash($input)!'A
     </div>
 
     <p>
-      The dict carries a <code>schema</code> field, <code>screamingface.report.v1</code>, so a
-      consumer can tell what shape it is reading. Every candidate's <code>url4</code>, scores,
-      metrics, usage and the pinned benchmark revision travel with it.
+      Share the whole report when you want to hand off everything from a run at once. The dict carries
+      a <code>schema</code> field, <code>screamingface.report.v1</code>, so a consumer can tell what
+      shape it is reading. Every candidate's <code>url4</code>, scores, metrics, usage and the pinned
+      benchmark revision travel with it.
     </p>
 
     <h2>What "reproduce" means here</h2>
 
     <p>
-      A url4 pins the run's <strong>definition</strong>. Pass it to <code>sf.evaluate()</code> and
-      you start a new run. With the cache on, that run goes through it like any other: a call that
-      the cache already holds is a hit and costs nothing, and the other calls are paid. The local
-      gateway starts with the request cache on. <code>sf.evaluate(..., use_cache=False)</code>
-      opts a run out of it, and every call is then paid. A run that bypasses the cache asks the same
-      models the same questions under the same protocol. Models are not deterministic, so a fresh
-      run can diverge slightly.
+      A url4 pins the run's definition, not its exact outputs. Pass it to <code>sf.evaluate()</code>
+      and you start a new run. With the cache on, that run goes through the cache like any other: a
+      call the cache already holds is a hit and costs nothing, and the other calls are paid. The local
+      gateway starts with the request cache on. <code>sf.evaluate(..., use_cache=False)</code> opts a
+      run out of the cache, and every call is then paid. A run that bypasses the cache asks the same
+      models the same questions under the same protocol. Models are not deterministic, so a fresh run
+      can diverge slightly.
     </p>
 
     <p>
       To check a published score, use <code>sf.evaluate(pinned_cache="…")</code> or
       <code>sf.evaluate(score_id="…")</code>. The Client reads the original recipe and seed from the
-      board, runs against the pinned cache, and returns a report with the verdict on its single
+      board, runs against the pinned cache, and returns a report. The verdict lands on its single
       result's <code>reproduction</code> field. A replay that cannot start raises
       <code>sf.ReproductionError</code>. See the
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink> and the

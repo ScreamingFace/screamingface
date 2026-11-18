@@ -82,6 +82,7 @@ else:
 Warning
 └── UserWarning
     └── EvaluationWarning
+        ├── CascadeSeedWarning
         ├── DuplicateMembersWarning
         ├── FixedSeedSittingWarning
         └── JudgeWriterWarning"
@@ -327,6 +328,15 @@ Warning
             A submission carries a caveat. A run made with <code>limit</code> is a partial
             submission, which is not directly comparable with a full run and does not enter the
             ranking.
+          </td>
+        </tr>
+        <tr>
+          <td><code>CascadeSeedWarning</code></td>
+          <td>
+            A <RouterLink to="/sf-client/api/cascades-gates">cascade</RouterLink> tier reuses the
+            sample seeds of an earlier tier, so the escalated samples can be the same cached answers.
+            Give the later tier fresh <code>seeds=</code>. It is emitted once per tier, when the SDK
+            builds the recipe.
           </td>
         </tr>
         <tr>

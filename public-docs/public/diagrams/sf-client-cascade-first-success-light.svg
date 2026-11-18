@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="5.0 132 1060 132" width="1060" height="132" font-family="Helvetica Neue, Arial, sans-serif">
+<title>First success: escalate only on no answer</title>
+<defs><marker id="a-mid" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5a6069"/></marker><marker id="a-bad" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d0634a"/></marker><marker id="a-ok" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#58b36e"/></marker><marker id="a-accent" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#c9821f"/></marker></defs>
+<path d="M290 198 L410 198" fill="none" stroke="#d0634a" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#a-bad)"/>
+<path d="M660 198 L780 198" fill="none" stroke="#d0634a" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#a-bad)"/>
+<rect x="40" y="150" width="250" height="96" rx="11" fill="#f1f9f3" stroke="#58b36e" stroke-width="1.6"/>
+<text x="165.0" y="181.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">gpt-4o-mini</text>
+<text x="165.0" y="205.0" font-size="13" fill="#5a6069" text-anchor="middle">tries first</text>
+<text x="165.0" y="225.0" font-size="13" fill="#5a6069" text-anchor="middle">answers, then stops</text>
+<rect x="410" y="150" width="250" height="96" rx="11" fill="#f1f9f3" stroke="#58b36e" stroke-width="1.6"/>
+<text x="535.0" y="181.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">gemini-flash</text>
+<text x="535.0" y="205.0" font-size="13" fill="#5a6069" text-anchor="middle">runs only if the first</text>
+<text x="535.0" y="225.0" font-size="13" fill="#5a6069" text-anchor="middle">gave no answer</text>
+<rect x="780" y="150" width="250" height="96" rx="11" fill="#fdf7ec" stroke="#c9821f" stroke-width="1.6"/>
+<text x="905.0" y="181.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">gpt-4.1</text>
+<text x="905.0" y="205.0" font-size="13" fill="#5a6069" text-anchor="middle">the last tier</text>
+<text x="905.0" y="225.0" font-size="13" fill="#5a6069" text-anchor="middle">always answers</text>
+<text x="350" y="189" font-size="13" fill="#d0634a" text-anchor="middle" font-weight="600">unanswered</text>
+<text x="720" y="189" font-size="13" fill="#d0634a" text-anchor="middle" font-weight="600">unanswered</text>
+</svg>
