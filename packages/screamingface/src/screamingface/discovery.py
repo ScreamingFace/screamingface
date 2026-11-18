@@ -315,7 +315,8 @@ class BenchmarkProvenance:
     The exam's cover sheet: the paper with its authors and a citation, for an Imported
     Benchmark who ported it into inspect (GitHub handles), the website, the original harness
     pinned to a commit or tag, the dataset licence with any restriction, a content warning,
-    how humans and the best published model scored, and the SDK notebook that runs it. Every
+    how humans and the best published model scored, the SDK notebook that runs it, and for a
+    Benchmark from outside the team (origin ``external``) who wrote it (GitHub handles). Every
     field is optional: the Engine serves a key only when the Benchmark declares a value, and
     declares none-published facts with no key at all.
     """
@@ -332,6 +333,8 @@ class BenchmarkProvenance:
     human_baseline: PublishedScore | None = None
     frontier_score: PublishedScore | None = None
     notebook: str | None = None
+    # WHY last: the dataclass is public, so a new field never shifts a positional argument.
+    contributors: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         for name in (
@@ -348,11 +351,12 @@ class BenchmarkProvenance:
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, _nonblank(value, f"BenchmarkProvenance {name}"))
-        handles = self.inspect_contributors
-        if handles is not None and (
-            not isinstance(handles, tuple) or not all(isinstance(h, str) for h in handles)
-        ):
-            raise TypeError("BenchmarkProvenance inspect_contributors must be a tuple of strings")
+        for name in ("inspect_contributors", "contributors"):
+            handles = getattr(self, name)
+            if handles is not None and (
+                not isinstance(handles, tuple) or not all(isinstance(h, str) for h in handles)
+            ):
+                raise TypeError(f"BenchmarkProvenance {name} must be a tuple of strings")
         for name in ("human_baseline", "frontier_score"):
             value = getattr(self, name)
             if value is not None and not isinstance(value, PublishedScore):

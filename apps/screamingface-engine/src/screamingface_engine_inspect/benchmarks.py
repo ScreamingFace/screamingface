@@ -157,10 +157,13 @@ class BenchmarkSpec:
     authors: str | None = None
     citation: str | NotPublished | None = None
     inspect_contributors: tuple[str, ...] | None = None
+    #: The GitHub handles of whoever wrote an `external` row; None on every other origin.
+    contributors: tuple[str, ...] | None = None
     #: Who authored the eval this row serves. `inspect_evals` for every import; `screamingface`
     #: for a LOCAL Task — an eval we wrote in inspect's shape under `local_tasks/` and fed to
     #: the same importer (OME-1513). A local row has no inspect porters to credit, and the
-    #: provenance rule asks `screamingface`-origin Benchmarks for none.
+    #: provenance rule asks `screamingface`-origin Benchmarks for none. `external` for a LOCAL
+    #: Task an outside contributor wrote: the rule asks it for `contributors` instead.
     origin: BenchmarkOrigin = "inspect_evals"
     homepage_url: str | None = None
     harness_url: str | None = None

@@ -48,6 +48,7 @@ class ProvenanceFields(TypedDict, total=False):
     authors: str | None
     citation: str | NotPublished | None
     inspect_contributors: tuple[str, ...] | None
+    contributors: tuple[str, ...] | None
     homepage_url: str | None
     harness_url: str | None
     license: str | NotPublished | None
@@ -64,7 +65,8 @@ PROVENANCE_FIELD_NAMES: tuple[str, ...] = tuple(ProvenanceFields.__annotations__
 
 #: Required means present, or declared NotPublished with a reason (spec §2.1). The three
 #: optional fields (homepage_url, license_note, content_warning) are never asked for;
-#: inspect_contributors is asked for on an inspect_evals-origin Benchmark only.
+#: inspect_contributors is asked for on an inspect_evals-origin Benchmark only, and
+#: contributors on an external-origin Benchmark only.
 #: WHY here and not in the test: the conformance test runs in CI's inspect lane (the only
 #: lane where the imported Benchmarks register), the fixture probe runs in the extra-less
 #: lane, and the fidelity sweep (OME-1471) will ask the same question — one rule, one home.
@@ -256,12 +258,18 @@ def _check_links_and_text(benchmark: Benchmark) -> None:
 
 
 def _check_people(benchmark: Benchmark) -> None:
-    """The inspect porters' handle list, and the rule that it exists only on an import.
+    """The two handle lists, and the rule that each exists on one origin only.
 
-    WHY no `contributors` list for who typed the row here (owner decision, 2026-10-06): in a
+    ``inspect_contributors`` credits whoever ported the eval into inspect, so only an
+    ``inspect_evals``-origin Benchmark may declare it. ``contributors`` credits whoever
+    wrote a Benchmark from outside the team, so only an ``external``-origin one may.
+
+    WHY no `contributors` on a row the team wrote (owner decision, 2026-10-06): in a
     team-only registry it was one handle on 57 of 65 rows, git already holds it, and the
     field a syft-space data owner will need is a different one (org and contact, not a
-    GitHub handle tuple). The porters upstream are real provenance: credit owed outside.
+    GitHub handle tuple). WHY it exists on an ``external`` row (owner decision, 2026-11-18):
+    the first Benchmark from an outside contributor arrived, and that is credit owed outside,
+    like the inspect porters'.
     """
 
     _check_handles("inspect_contributors", benchmark.inspect_contributors)
@@ -269,6 +277,12 @@ def _check_people(benchmark: Benchmark) -> None:
         raise ValueError(
             "Benchmark inspect_contributors credits whoever ported the eval into inspect, "
             "so only an inspect_evals-origin Benchmark may declare it"
+        )
+    _check_handles("contributors", benchmark.contributors)
+    if benchmark.contributors is not None and benchmark.origin != "external":
+        raise ValueError(
+            "Benchmark contributors credits whoever wrote the Benchmark from outside the "
+            "team, so only an external-origin Benchmark may declare it"
         )
 
 
@@ -315,6 +329,8 @@ def provenance_metadata(benchmark: Benchmark) -> dict[str, object]:
             served[name] = value
     if benchmark.inspect_contributors is not None:
         served["inspect_contributors"] = list(benchmark.inspect_contributors)
+    if benchmark.contributors is not None:
+        served["contributors"] = list(benchmark.contributors)
     if isinstance(benchmark.human_baseline, HumanBaseline):
         served["human_baseline"] = benchmark.human_baseline.as_block()
     if isinstance(benchmark.frontier_score, FrontierScore):
@@ -334,6 +350,8 @@ def provenance_gaps(benchmark: Benchmark) -> list[str]:
     ]
     if benchmark.origin == "inspect_evals" and benchmark.inspect_contributors is None:
         gaps.append("inspect_contributors")
+    if benchmark.origin == "external" and benchmark.contributors is None:
+        gaps.append("contributors")
     return gaps
 
 
