@@ -51,7 +51,7 @@ LIMITS: dict[str, tuple[str, ...]] = {
     "large-bodies": (
         "At most four bodies above 1,000,000 bytes",
         "429 overloaded",
-        "60 seconds",
+        "30 seconds",
         "408 request_timeout",
     ),
     "time-limit": ("chat_max_wait_s seconds (600 by default)", "504 timeout"),
