@@ -120,3 +120,35 @@ def test_a_registered_revision_with_no_results_is_still_recorded(tmp_path: Path)
         ).fetchall()
 
     assert rows == [("ifeval", "rev-a", "2026-10-01 00:00:00", 1, 541, 0)]
+
+
+def test_an_empty_latest_is_never_dated_before_an_older_revision(tmp_path: Path) -> None:
+    # WHY: a board created at R1 and bumped to an empty R2 would otherwise date Latest by the
+    # board's creation (1 Aug), before R1's first run (2 Aug). first_seen_at never moves once
+    # written, so the selector would show "since about 1 Aug" above "about 2 Aug" for good.
+    database = tmp_path / "bumped.sqlite3"
+    _migrate(database, "0023_baseline_history")
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO benchmarks (id, display_name, created_at, revision, case_count) "
+            "VALUES ('ifeval', 'IFEval', '2026-08-01 00:00:00', 'rev-2', 541)"
+        )
+        for submitted_at in ("2026-08-02 00:00:00", "2026-09-15 00:00:00"):
+            _score(
+                connection,
+                benchmark="ifeval",
+                revision="rev-1",
+                total=541,
+                submitted_at=submitted_at,
+            )
+
+    _migrate(database, "0024_benchmark_revisions")
+
+    with sqlite3.connect(database) as connection:
+        latest = connection.execute(
+            "SELECT first_seen_at, first_seen_inferred FROM benchmark_revisions "
+            "WHERE benchmark_id = 'ifeval' AND revision = 'rev-2'"
+        ).fetchone()
+
+    # The newest other revision's first sighting is the tightest lower bound the data has.
+    assert latest == ("2026-08-02 00:00:00", 1)

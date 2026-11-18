@@ -43,11 +43,20 @@ WHERE EXISTS (
 )
 """
 
+# WHY not plain `created_at`: a board created at R1 and later bumped to an empty R2 would date
+# Latest before R1's first run ("since about 1 Aug" above "about 2 Aug"), and first_seen_at never
+# moves afterwards. The latest other revision's date is the tightest lower bound the data has.
 _REGISTERED_WITHOUT_RESULTS = """
 INSERT INTO "benchmark_revisions"
     ("benchmark_id", "revision", "first_seen_at", "first_seen_inferred",
      "case_count", "case_count_inferred")
-SELECT "id", "revision", "created_at", TRUE, "case_count", FALSE
+SELECT "id", "revision",
+       COALESCE((
+           SELECT MAX("benchmark_revisions"."first_seen_at") FROM "benchmark_revisions"
+           WHERE "benchmark_revisions"."benchmark_id" = "benchmarks"."id"
+             AND "benchmark_revisions"."first_seen_at" > "benchmarks"."created_at"
+       ), "created_at"),
+       TRUE, "case_count", FALSE
 FROM "benchmarks"
 WHERE "revision" IS NOT NULL
   AND NOT EXISTS (

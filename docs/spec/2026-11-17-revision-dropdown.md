@@ -102,7 +102,9 @@ selector.
 - **Backfilled by the migration:**
   - For every distinct (benchmark_id, benchmark_revision) in `scores`, plus each
     benchmark's registered revision, insert one row, only for boards with a registered revision.
-  - `first_seen_at` is MIN(`submitted_at`), marked inferred.
+  - `first_seen_at` is MIN(`submitted_at`), marked inferred. A registered revision with no
+    results takes the later of the benchmark's creation date and the newest other revision's
+    date, so Latest is never dated before an older revision.
   - `case_count` is the registered count for the current revision; for older revisions it
     is MAX(`total_questions`), marked inferred.
   - Scores with a null revision are left out.
