@@ -87,10 +87,14 @@ class IdentityAwareJobRunner(JobRunner):
         answer_seed: int | None = None,
         client_version: str | None = None,
         shape: RunShape = "expression",
+        chat_input: str | None = None,
         capture: bool = False,
         replay_frozen_copy: str | None = None,
         enqueued_at: datetime | None = None,
-    ) -> str: ...
+    ) -> str:
+        """`chat_input` is the CHAT_INPUT blob ref of a `chat` run (chat-run erd §2.2); other
+        shapes pass None."""
+        ...
 
     @contextlib.contextmanager
     def start_attempt(self, topic: str) -> Iterator[None]:

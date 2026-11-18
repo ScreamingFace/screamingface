@@ -35,6 +35,7 @@ from screamingface_engine.benchmarks.registry import served_routes
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.world.branch import install_branch_runtime
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.chat_turn import install_chat_turn
 from screamingface_engine.world.classification import CLASSIFY_ROUTE, ClassificationEndpoint
 from screamingface_engine.world.combine import install_combine_runtime
 from screamingface_engine.world.config import (
@@ -176,13 +177,26 @@ def _install_engine_runtimes(node: Url4Node) -> None:
     # capability, not benchmark surface — installed once beside the candidate
     # invocation for every world that runs benchmarks.
     install_corrective_runtime(node)
-    # The deterministic combine endpoint (OME-1289 E4a) is engine capability too:
-    # one route, the built-in operators, installed once for every benchmark world and
-    # never a direct mount (the snapshot above is taken before it exists).
+
+
+def _install_internal_routes(node: Url4Node) -> None:
+    """The engine's internal routes, in each gateway world and never a direct mount (CR-S19)."""
+    # The deterministic combine endpoint (OME-1289 E4a) is engine capability:
+    # one route, the built-in operators.
     install_combine_runtime(node, BUILTIN_OPERATORS)
-    # The sf.Gate branch endpoints (OME-1291 E4c): pure AFTER/DECIDE/OPEN/JOIN routes,
-    # installed once, never a direct mount.
+    # The sf.Gate branch endpoints (OME-1291 E4c): pure AFTER/DECIDE/OPEN/JOIN routes.
     install_branch_runtime(node)
+    # The chat turn route (chat-run): one route per gateway world.
+    install_chat_turn(node)
+
+
+async def _install_internal_routes_or_close(world: AigatewayWorld) -> None:
+    """Install the internal routes on a gateway world; a refusal closes the world first."""
+    try:
+        _install_internal_routes(world.node)
+    except ValueError as exc:
+        await world.aclose()
+        raise WorldConfigError(f"cannot install the engine routes: {exc}") from exc
 
 
 async def build_world(
@@ -250,6 +264,8 @@ async def build_world(
     # instead of re-deriving "final routes minus benchmark routes" through a second scratch-node
     # build.
     _DIRECT_MOUNTS[world.node] = served_routes(world.node)
+    # WHY after the snapshot: the internal routes are never direct mounts.
+    await _install_internal_routes_or_close(world)
     if len(benchmarks):
         # WHY: installation can fail through any concrete Benchmark adapter. AsyncExitStack
         # guarantees the already-open model world closes without a catch-all exception clause.

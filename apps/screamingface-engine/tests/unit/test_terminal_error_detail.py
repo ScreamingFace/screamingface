@@ -345,6 +345,9 @@ ALLOWLISTED_CODES = (
     "fail_closed",
     "quorum_not_met",
     "signal_missing",
+    "chat_input_unavailable",
+    "chat_input_invalid",
+    "final_step_ambiguous",
 )
 
 

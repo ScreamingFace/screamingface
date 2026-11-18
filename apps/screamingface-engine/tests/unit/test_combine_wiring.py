@@ -33,6 +33,14 @@ from screamingface_engine.combine.endpoint import COMBINE_ROUTE
 from screamingface_engine.config import Settings
 from screamingface_engine.testing import InMemoryEventStream
 from screamingface_engine.world import factory
+from screamingface_engine.world.branch import (
+    AFTER_ROUTE,
+    DECIDE_ROUTE,
+    JOIN_ROUTE,
+    KEYWORDS_ROUTE,
+    OPEN_ROUTE,
+)
+from screamingface_engine.world.chat_turn import CHAT_TURN_ROUTE
 from screamingface_engine.world.combine import install_combine_runtime
 from screamingface_engine.world.config import ModelSpec, WorldConfig, parse_config
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
@@ -212,7 +220,7 @@ async def test_build_world_installs_the_combine_route(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_world_without_benchmarks_has_no_combine_route() -> None:
+async def test_world_without_benchmarks_serves_chat_combine_and_branch_routes() -> None:  # CR-25
     async with httpx.AsyncClient(
         transport=httpx.MockTransport(_answer_by_model()), base_url="http://aigateway.test"
     ) as client:
@@ -220,7 +228,19 @@ async def test_a_world_without_benchmarks_has_no_combine_route() -> None:
         assert aclose is not None
         try:
             assert isinstance(node, Url4Node)
-            assert COMBINE_ROUTE not in node.processor_routes()
+            internal = (
+                COMBINE_ROUTE,
+                AFTER_ROUTE,
+                DECIDE_ROUTE,
+                OPEN_ROUTE,
+                JOIN_ROUTE,
+                KEYWORDS_ROUTE,
+                CHAT_TURN_ROUTE,
+            )
+            direct = direct_mount_paths(node)
+            for route in internal:
+                assert route in node.processor_routes()
+                assert route not in direct
         finally:
             await aclose()
 

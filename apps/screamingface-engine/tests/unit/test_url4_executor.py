@@ -680,6 +680,10 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         # OME-1291 E4c: the branch route adapter registers /ensemble/branch/v1 and
         # /ensemble/select/v1 on the node, the same way as the combine adapter.
         Path("screamingface_engine/world/branch.py"),
+        # The chat turn route adapter registers /ensemble/chat/v1/turn on the node and dispatches
+        # it as one observed node, the same way as the combine and branch adapters
+        # (owner-approved edit, 2026-11-17).
+        Path("screamingface_engine/world/chat_turn.py"),
     }
 )
 

@@ -41,7 +41,7 @@ from starlette.datastructures import Headers
 from screamingface_engine import job_env
 from screamingface_engine.adapters.inprocess import InProcessJobRunner
 from screamingface_engine.adapters.memory import InMemoryCandidateOutcomeStream, InMemoryEventStream
-from screamingface_engine.app import create_app
+from screamingface_engine.app import blob_store_values, create_app
 from screamingface_engine.benchmarks import (
     BENCHMARK_ASSETS_ENV,
     EMPTY_BENCHMARKS,
@@ -74,16 +74,16 @@ from screamingface_engine.rest.mounts import register_mounts
 from screamingface_engine.runner.fair_share import FairShareGate
 from screamingface_engine.runs.wiring import install_runs
 from screamingface_engine.world.config import config_file_digest, load_config
-from screamingface_engine.world.factory import SharedWorld, direct_mount_paths
+from screamingface_engine.world.factory import SharedWorld
 from screamingface_engine.world.models.registry import LOCAL_MODEL_PROVIDERS
 from screamingface_engine.world.publication import private_mount_paths
 from screamingface_engine.world.serving import (
     MountTable,
     NodeMountRoute,
     compose_serving_world,
+    direct_mount_descriptors,
     engine_route_paths,
     install_node_route,
-    mount_descriptors,
     node_eval_path,
 )
 from screamingface_engine.world.wire import (
@@ -192,6 +192,29 @@ def _with_local_gateway(settings: Settings) -> Settings:
     if settings.aigateway_base_url is not None:
         return settings
     return settings.model_copy(update={"aigateway_base_url": settings.local_aigateway_base_url})
+
+
+def _with_local_blob_store(settings: Settings) -> Settings:
+    """Plan D3: a filesystem blob store when none is configured, read by the App and the runs."""
+    if settings.blob_store is not None:
+        return settings
+    blobs_dir = settings.blobs_dir or job_env.DEFAULT_BLOBS_DIR
+    return settings.model_copy(update={"blob_store": "filesystem", "blobs_dir": blobs_dir})
+
+
+def _with_blob_store_env(run_env: Mapping[str, str], settings: Settings) -> dict[str, str]:
+    """A copy of `run_env` that names the blob store of `settings`.
+
+    INVARIANT: both halves name the same store, because the runs read the chat input that the App
+    wrote. A non-empty value is set and an empty one is removed (the wiring reads both the same).
+    """
+    mirrored = {**run_env}
+    for name, value in blob_store_values(settings).items():
+        if value:
+            mirrored[name] = value
+        else:
+            mirrored.pop(name, None)
+    return mirrored
 
 
 def _local_model_prefixes(settings: Settings) -> tuple[str, ...]:
@@ -386,8 +409,9 @@ def _install_local_node(
             # corrective/judge endpoints — is CAPTURED by `world.factory.build_world` itself,
             # right after the declared read-side mounts register and before any Benchmark or the
             # shared candidate/corrective adapters ever exist on this node (see `build_world`'s
-            # own comment). `direct_mount_paths` reads that capture back, so this mount's path
-            # set matches the DEPLOYED shape's exactly: model + data mounts only.
+            # own comment). `direct_mount_descriptors` reads that capture back (the same filter
+            # the deployed App uses), so this mount's path set matches the DEPLOYED shape's
+            # exactly: model + data mounts only.
             #
             # WHY excluding a benchmark endpoint matters: a connector applies the run's
             # X-Answer-Seed to every model call it makes. Inside a candidate invocation that is
@@ -404,7 +428,6 @@ def _install_local_node(
             # `origin == "sync"` regardless of a candidate-invocation flag, so a judge model call
             # issued THROUGH the eval path is still seeded. Closing that would mean the eval path
             # stops evaluating arbitrary expressions, which is the whole point of `serve --local`.
-            direct = direct_mount_paths(world)
             private = private_mount_paths(resolved_config)
             # FEATURE (uniform executor PRD 04, MC-D13): the MOUNTS go through the SAME route
             # code as the deployed App — a direct run on this process's in-process runner,
@@ -413,11 +436,7 @@ def _install_local_node(
             register_mounts(
                 app,
                 MountTable(
-                    mounts=tuple(
-                        m
-                        for m in mount_descriptors(world, private_paths=private)
-                        if m.path in direct
-                    ),
+                    mounts=direct_mount_descriptors(world, private_paths=private),
                     config_digest=config_file_digest(run_env),
                 ),
                 require_identity=False,
@@ -483,12 +502,16 @@ def create_local_app(
     from screamingface_engine.observation_plugins import observation_factories
     from screamingface_engine.runner.main import build_executor
 
+    settings = _with_local_blob_store(settings)
     # FEATURE: E14 Q23 — every run this App starts is a local run (the marker is read per run).
-    run_env = {
-        **_with_runner_config(env if env is not None else os.environ),
-        job_env.ACTIVITY_LEVEL: activity_level,
-        job_env.LOCAL_RUNTIME: "1",
-    }
+    run_env = _with_blob_store_env(
+        {
+            **_with_runner_config(env if env is not None else os.environ),
+            job_env.ACTIVITY_LEVEL: activity_level,
+            job_env.LOCAL_RUNTIME: "1",
+        },
+        settings,
+    )
     observers = observation_factories(run_env)
     if benchmarks is None:
         benchmarks = _local_benchmarks(run_env)

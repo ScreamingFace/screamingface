@@ -94,6 +94,12 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         # world/branch.py DECIDE via benchmarks/failure_classes.py::signal_missing (E4c) — a
         # recipe-otherwise Gate read a missing number. One fixed message plus the gate id.
         "signal_missing",
+        # world/chat_turn.py (chat_input_unavailable, chat_input_invalid) and world/chat_final.py
+        # (final_step_ambiguous, unit U6) of POST /v1/chat/completions — each raise site uses a
+        # fixed message and interpolates no value, never the input or a provider text.
+        "chat_input_unavailable",
+        "chat_input_invalid",
+        "final_step_ambiguous",
     }
 )
 

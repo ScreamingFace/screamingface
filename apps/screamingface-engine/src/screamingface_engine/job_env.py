@@ -25,7 +25,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, cast
 
 from url4.streaming.protocol import CachePolicy
 
@@ -196,7 +196,14 @@ RUN_SHAPE = "URL4_CLOUD_RUN_SHAPE"
 """What the run's EXPRESSION is (uniform executor PRD 04, erd.md §2): ``expression`` — a url4
 expression the run evaluates as a DAG — or ``direct`` — a mount call, ``<mount path>?<raw query>``,
 that runs ONE registered handler through ``url4.peer.dispatch_direct`` and never a DAG (D1).
+``chat`` runs the internal chat turn route on a Candidate URL4 (POST /v1/chat/completions).
 Absent means ``expression``, so a message from before the change still decodes."""
+
+CHAT_INPUT = "URL4_CLOUD_CHAT_INPUT"
+"""The blob ref (`blob:sha256/<hex>`) of a chat run's CHAT_INPUT record.
+
+Written only for shape `chat`, and required for it (chat-run erd §2.2).
+"""
 
 SPEC_VERSION = "URL4_CLOUD_SPEC_VERSION"
 """The run message's major version (erd.md §2). Absent means ``1``. A worker refuses an unknown
@@ -229,15 +236,57 @@ make every simple call occupy a slot for a minute after it answered."""
 MAX_DIRECT_TARGET_BYTES = 8 * 1024
 """The longest ``<mount path>?<raw query>`` a direct run carries (erd.md §2; 414 over it)."""
 
-RunShape = Literal["expression", "direct"]
+RunShape = Literal["expression", "direct", "chat"]
 
 
 def run_shape_from_env(env: Mapping[str, str]) -> RunShape:
     """The run's shape; absent is ``expression``. An unknown value raises ``ValueError``."""
     shape = env.get(RUN_SHAPE, "expression")
-    if shape not in ("expression", "direct"):
-        raise ValueError(f"{RUN_SHAPE}={shape!r} is not 'expression' or 'direct'")
-    return shape  # type: ignore[return-value]
+    if shape not in ("expression", "direct", "chat"):
+        raise ValueError(f"{RUN_SHAPE}={shape!r} is not 'expression', 'direct' or 'chat'")
+    return cast("RunShape", shape)
+
+
+def chat_input_from_env(env: Mapping[str, str]) -> str | None:
+    """The CHAT_INPUT blob ref of a chat run; None for any other shape (chat-run CR-S9).
+
+    Raises:
+        ValueError: shape `chat` without the key (or with an empty value), or the key with
+            another shape.
+    """
+    shape = run_shape_from_env(env)
+    ref = env.get(CHAT_INPUT)
+    if shape == "chat" and not ref:
+        raise ValueError(f"{RUN_SHAPE}=chat needs {CHAT_INPUT}")
+    if shape != "chat" and CHAT_INPUT in env:
+        raise ValueError(
+            f"{CHAT_INPUT} is set, but {RUN_SHAPE}={shape!r}; only a chat run carries it"
+        )
+    return ref if shape == "chat" else None
+
+
+def shape_env(shape: RunShape, chat_input: str | None) -> dict[str, str]:
+    """The run-shape keys of a run message, for both adapters (chat-run CR-S9).
+
+    RUN_SHAPE is written for `direct` and `chat` (absent means `expression`); CHAT_INPUT only
+    for `chat`.
+
+    Raises:
+        ValueError: shape `chat` with no chat input (None or empty), or a chat input with
+            another shape.
+    """
+    if shape == "chat" and not chat_input:
+        raise ValueError(f"{RUN_SHAPE}=chat needs {CHAT_INPUT}")
+    if shape != "chat" and chat_input is not None:
+        raise ValueError(
+            f"{CHAT_INPUT} is given, but {RUN_SHAPE}={shape!r}; only a chat run carries it"
+        )
+    env: dict[str, str] = {}
+    if shape != "expression":
+        env[RUN_SHAPE] = shape
+    if shape == "chat" and chat_input:
+        env[CHAT_INPUT] = chat_input
+    return env
 
 
 EXTRA_MODELS = "URL4_CLOUD_EXTRA_MODELS"
@@ -668,6 +717,7 @@ WRITTEN_BY_APP = frozenset(
         EXTRA_MODELS,
         IO_CONCURRENCY,
         RUN_SHAPE,
+        CHAT_INPUT,
         SPEC_VERSION,
         WORLD_DIGEST,
         *IDENTITY_HEADER_ENV.values(),
@@ -722,6 +772,7 @@ __all__ = [
     "BRIDGE_MEMORY_BUDGET_BYTES",
     "CACHE_MAX_AGE_S",
     "CACHE_PARTICIPATE",
+    "CHAT_INPUT",
     "DEFAULT_ARTIFACTS_DIR",
     "DEFAULT_BRIDGE_MEMORY_BUDGET_BYTES",
     "DEFAULT_NATS_URL",
@@ -764,11 +815,13 @@ __all__ = [
     "cache_policy_from_env",
     "io_concurrency_from_env",
     "cache_policy_to_env",
+    "chat_input_from_env",
     "extra_models_to_env",
     "identity_from_env",
     "identity_from_headers",
     "identity_for_forwarding",
     "identity_to_env",
     "number_from_env",
+    "shape_env",
     "upstream_headers",
 ]
