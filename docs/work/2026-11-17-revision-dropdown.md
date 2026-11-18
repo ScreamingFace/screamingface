@@ -218,3 +218,27 @@ Review-fix outcome:
     Latest that points to the 2 earlier results.
   - musique's earlier revision was first seen 28 minutes before its current one, on the same
     day. A same-day range now shows that day once ("about 20 Oct 2026"), with one new test.
+- **Independent review loop (2026-11-18, PR #1943):** four rounds by a fresh reviewer that saw
+  only the diff, the API and the spec. Fixed after review:
+  - Overlapping loads: each load takes a number, and a stale board or frontier answer is
+    dropped.
+  - Every switch resets the summary, frontier card, two-column strip, score bars, chart and
+    comparison notes.
+  - An unknown revision is told from an unknown benchmark by the 404's JSON `detail`.
+  - History rows link and tag only revisions the board lists, and dim only listed earlier ones.
+    The table draws first and gains links when the list arrives.
+  - The spec's "Case count inferred from results." line, beside the dropdown.
+  - An empty past revision says "No complete runs under this revision."; the status line is
+    judged on community runs, so imported reference rows never hide it.
+  - Latest loads without waiting for the revision list.
+  - The 404 fallback moves the dropdown back to Latest; URL updates keep the `#fragment`;
+    focus moves to the dropdown after "Show them".
+  - New tests: `revision-selector-review.test.js` (2) and `revision-selector-scope.test.js`
+    (2). They are separate files because the append-only gate cannot verify an appended
+    `.js` test (OME-1709).
+  - Declined: everything that happens only when `/revisions` is unavailable or the board is
+    private (the backend ignores `revision` there), the shared-link `og:url` (backend code
+    outside this PR), screen-reader timing on the notice (unverified), and the label on the
+    single-revision text. Round 4 found nothing else worth fixing.
+  - The board page at `/benchmarks/<id>/` is read once at server start, so a portal change
+    shows only after a restart. A deploy restarts it anyway.
