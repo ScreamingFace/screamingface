@@ -27,7 +27,11 @@ from screamingface_engine.adapters.jetstream import JetStreamPublisher
 from screamingface_engine.artifacts import ArtifactWriter, StreamingArtifactWriter
 from screamingface_engine.artifacts.run_results import RunResultWriter
 from screamingface_engine.artifacts.spool import ResultSpool
-from screamingface_engine.artifacts.wiring import result_sink_from_env, result_writer_from_env
+from screamingface_engine.artifacts.wiring import (
+    chat_input_reader_from_env,
+    result_sink_from_env,
+    result_writer_from_env,
+)
 from screamingface_engine.benchmarks import EMPTY_BENCHMARKS, BenchmarkRegistry
 from screamingface_engine.benchmarks.builtins import BUILTIN_BENCHMARKS
 from screamingface_engine.candidate_outcomes import CandidateOutcome
@@ -98,7 +102,8 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
             ``ANSWER_SEED`` is present but not an integer. This is the same
             refusal `job_env.answer_seed_from_env` always produced — a run silently executed
             without its declared seed would publish a score claiming a sitting it never had.
-            Also an unknown ``RUN_SHAPE``, and a malformed ``JOB_DEADLINE_S`` on a direct run.
+            Also an unknown ``RUN_SHAPE``, a ``CHAT_INPUT`` that disagrees with the shape, and a
+            malformed ``JOB_DEADLINE_S`` on a direct run.
     """
 
     try:
@@ -109,7 +114,10 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
             raise ValueError(
                 f"{job_env.CAPTURE} and {job_env.REPLAY_FROZEN_COPY} cannot be set together"
             )
-        direct = job_env.run_shape_from_env(env) == "direct"
+        shape = job_env.run_shape_from_env(env)
+        # WHY: checks the shape/key pair (CR-S9); `build_executor` reads the value by the same rule.
+        job_env.chat_input_from_env(env)
+        direct = shape == "direct"
     except ValueError as exc:
         raise RunnerConfigError(str(exc)) from exc
     # FEATURE (uniform executor PRD 04, review of PRD 05): a DIRECT run is a mount call — the
@@ -117,7 +125,9 @@ def request_scope_from_env(env: Mapping[str, str]) -> RequestScope:
     # lets the caller's declared `X-Answer-Seed` reach aigateway outside a candidate invocation
     # (the connector's seed rule), and the run's own deadline bounds each aigateway attempt and
     # retry (04-review-fixes §2.1) — no aigateway attempt starts past the run's own deadline.
-    job_deadline = _deadline_from_env(env) if direct else None
+    # FEATURE: chat-run CR-S15. A chat run gets the run deadline too, but keeps origin `run`:
+    # it is not a sync surface.
+    job_deadline = _deadline_from_env(env) if shape in ("direct", "chat") else None
     return RequestScope(
         identity_headers=job_env.identity_from_env(env),
         answer_seed=answer_seed,
@@ -425,6 +435,18 @@ def _cache_stated(policy: CachePolicy) -> str:
     return "not-stated"
 
 
+def _chat_input_or_none(env: Mapping[str, str]) -> str | None:
+    """The chat input of a chat run, by job_env's one rule; None when the pair is wrong.
+
+    The pair error is raised inside the run by `request_scope_from_env` (CR-S9), before the
+    world is built, so the executor build does not raise it.
+    """
+    try:
+        return job_env.chat_input_from_env(env)
+    except ValueError:
+        return None
+
+
 def build_executor(
     env: Mapping[str, str],
     config: WorldConfig | None = None,
@@ -522,6 +544,11 @@ def build_executor(
     # Candidate's prefix in the run-results store, the only place it is read from; any other run
     # spills into the artifact store as before.
     spill_into = artifact_store if result_sink is None else RunResultWriter(result_sink)
+    shape = job_env.run_shape_from_env(env)
+    # WHY lazy: the reader is built inside the run, so a run whose blob store is not configured
+    # fails INSIDE the run with `chat_input_unavailable`. The pair rule of shape and key is
+    # checked by `request_scope_from_env`, also inside the run.
+    chat = shape == "chat"
     return OperationCapturingExecutor(
         Url4Executor(
             world_factory=world_factory,
@@ -532,8 +559,10 @@ def build_executor(
             artifact_store=artifact_store,
             io_wrap=io_wrap,
             io_concurrency=None if io_wrap is not None else job_env.io_concurrency_from_env(env),
-            run_shape=job_env.run_shape_from_env(env),
+            run_shape=shape,
             result_sink=result_sink,
+            chat_input=_chat_input_or_none(env),
+            chat_input_reader=functools.partial(chat_input_reader_from_env, env) if chat else None,
         ),
         observers=observers,
         media_writer=artifact_store,

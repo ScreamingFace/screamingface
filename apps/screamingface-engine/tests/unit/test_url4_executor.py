@@ -683,6 +683,10 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         # OME-1822 C3: `/classify` and `/route-answer` register on the node and translate their
         # errors to url4's, moved out of `factory` (owner-approved edit, 2026-11-04).
         Path("screamingface_engine/world/gateway_endpoints.py"),
+        # The chat turn route adapter registers /ensemble/chat/v1/turn on the node and dispatches
+        # it as one observed node, the same way as the combine and branch adapters
+        # (owner-approved edit, 2026-11-17).
+        Path("screamingface_engine/world/chat_turn.py"),
     }
 )
 

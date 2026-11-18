@@ -322,6 +322,7 @@ async def _schedule(
     answer_seed: int | None = None,
     client_version: str | None = None,
     shape: job_env.RunShape = "expression",
+    chat_input: str | None = None,
     deadline_s: int | None = None,
     capture: bool = False,
     replay_frozen_copy: str | None = None,
@@ -354,6 +355,7 @@ async def _schedule(
             answer_seed=answer_seed,
             client_version=client_version,
             shape=shape,
+            chat_input=chat_input,
             capture=capture,
             replay_frozen_copy=replay_frozen_copy,
         )

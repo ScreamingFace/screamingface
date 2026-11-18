@@ -346,6 +346,9 @@ ALLOWLISTED_CODES = (
     "quorum_not_met",
     "signal_missing",
     "provider_key_refused",
+    "chat_input_unavailable",
+    "chat_input_invalid",
+    "final_step_ambiguous",
 )
 
 

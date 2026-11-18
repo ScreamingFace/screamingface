@@ -15,6 +15,7 @@ import ast
 import inspect
 import time
 from collections.abc import Callable
+from types import ModuleType
 
 import httpx
 import pytest
@@ -75,10 +76,10 @@ _MOVED_NAMES = (
 )
 
 
-def _top_level_names(module: object) -> set[str]:
+def _top_level_names(module: ModuleType) -> set[str]:
     """The functions, classes and assigned names that a module DEFINES (imports left out)."""
     names: set[str] = set()
-    for node in ast.parse(inspect.getsource(module)).body:  # type: ignore[arg-type]
+    for node in ast.parse(inspect.getsource(module)).body:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
             names.add(node.name)
         elif isinstance(node, ast.Assign):
@@ -97,10 +98,10 @@ def _collect(records: list[dict[str, object]]) -> Callable[..., None]:
     return sink
 
 
-def _names_imported_from_gateway_transport(module: object) -> list[str]:
+def _names_imported_from_gateway_transport(module: ModuleType) -> list[str]:
     return [
         alias.name
-        for node in ast.walk(ast.parse(inspect.getsource(module)))  # type: ignore[arg-type]
+        for node in ast.walk(ast.parse(inspect.getsource(module)))
         if isinstance(node, ast.ImportFrom)
         and node.module == "screamingface_engine.world.gateway_transport"
         for alias in node.names

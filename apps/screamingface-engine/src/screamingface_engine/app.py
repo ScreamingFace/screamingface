@@ -31,6 +31,7 @@ from screamingface_engine.artifacts import (
     S3ArtifactStore,
 )
 from screamingface_engine.artifacts.blobs import BlobPolicy, BlobStore
+from screamingface_engine.artifacts.chat_inputs import chat_input_store
 from screamingface_engine.artifacts.wiring import (
     BlobStoreNotConfigured,
     blob_objects_from_values,
@@ -391,6 +392,12 @@ def _install_storage(app: FastAPI, settings: Settings) -> None:
     app.state.artifact_store = _build_artifact_reader(settings)
     # FEATURE: the run blob store (OME-1540) — on its own backend (#1603 review).
     app.state.blob_store = _build_blob_store(settings)
+    # FEATURE: the chat-input store of POST /v1/chat/completions (erd §1.1), a second BlobStore
+    # on the same objects; none without a blob store, and the chat route then answers 503 (U4).
+    blob_store: BlobStore | None = app.state.blob_store
+    app.state.chat_input_store = (
+        None if blob_store is None else chat_input_store(blob_store.objects)
+    )
     # WHY startup + periodic: fetching never deletes (OME-892 review — content addressing means
     # one object backs many tickets, and a Range request must leave the rest fetchable), so TTL
     # is the ONLY cleanup and every redeemed parcel also waits for it. The boot sweep clears the
@@ -448,8 +455,11 @@ def _build_blob_store(settings: Settings) -> BlobStore | None:
     return BlobStore(objects, policy)
 
 
-def _blob_values(settings: Settings) -> dict[str, str]:
-    """`Settings` rendered into the env-named shape the shared wiring reads."""
+def blob_store_values(settings: Settings) -> dict[str, str]:
+    """The blob-store `Settings` as `job_env.BLOB_*` names and values (an empty value = unset).
+
+    The local App mirrors these into its run env, so both halves name the same store.
+    """
     return {
         job_env.BLOB_STORE: settings.blob_store or "",
         job_env.BLOBS_DIR: settings.blobs_dir,
@@ -458,6 +468,13 @@ def _blob_values(settings: Settings) -> dict[str, str]:
         job_env.BLOB_S3_REGION: settings.blob_s3_region,
         job_env.BLOB_S3_ACCESS_KEY: settings.blob_s3_access_key,
         job_env.BLOB_S3_SECRET_KEY: settings.blob_s3_secret_key,
+    }
+
+
+def _blob_values(settings: Settings) -> dict[str, str]:
+    """`Settings` rendered into the env-named shape the shared wiring reads."""
+    return {
+        **blob_store_values(settings),
         job_env.ARTIFACT_STORE: settings.artifact_store,
         job_env.ARTIFACTS_DIR: settings.artifacts_dir,
         job_env.ARTIFACT_S3_ENDPOINT_URL: settings.artifact_s3_endpoint_url,

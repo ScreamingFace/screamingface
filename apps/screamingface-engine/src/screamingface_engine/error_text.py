@@ -102,6 +102,12 @@ ENGINE_ERROR_CODES: frozenset[str] = frozenset(
         # key. Fixed messages plus the Engine's own model id and a count, never the gateway's
         # code or text.
         "provider_key_refused",
+        # world/chat_turn.py (chat_input_unavailable, chat_input_invalid) and world/chat_final.py
+        # (final_step_ambiguous, unit U6) of POST /v1/chat/completions — each raise site uses a
+        # fixed message and interpolates no value, never the input or a provider text.
+        "chat_input_unavailable",
+        "chat_input_invalid",
+        "final_step_ambiguous",
     }
 )
 
