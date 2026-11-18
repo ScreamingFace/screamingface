@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from ipaddress import ip_network
 from typing import Any
 from uuid import UUID, uuid4
@@ -13,8 +13,17 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from aigateway.config import Settings
 from aigateway.core.frozen_copy.models import STATUS_ABANDONED, STATUS_EXPIRED, FrozenCopy
-from tests.unit.test_frozen_copy_support import account_id_of, run_async, seed_copy, store
+from aigateway.core.frozen_copy.sweep import build_frozen_copy_sweep
+from tests.unit.test_frozen_copy_support import (
+    account_id_of,
+    run_async,
+    seed_copy,
+    store,
+    stored_entries,
+)
+from tests.unit.test_frozen_copy_sweep_support import make_entries
 
 CLAIMER = "scoreboard@openmined.org"
 ADMIN = "admin@openmined.org"
@@ -346,3 +355,34 @@ def test_b1_3_a_claim_writes_one_info_record_with_the_copy_id_and_no_email(
     assert records[0].getMessage() == f"frozen copy claimed copy={copy_id}"
     assert CLAIMER not in caplog.text
     assert str(owner) not in caplog.text
+
+
+def test_k25_a_claim_of_an_unmarked_copy_past_its_period_keeps_it(
+    authenticated_client: TestClient,
+) -> None:
+    client = authenticated_client
+    owner = account_id_of(client)
+    kept_id = seed_copy(client, owner, make_entries(2))
+    lost_id = seed_copy(client, owner, make_entries(2))
+
+    async def _age() -> None:
+        old = datetime.now(UTC) - timedelta(days=91)
+        await FrozenCopy.filter(id__in=[UUID(kept_id), UUID(lost_id)]).update(sealed_at=old)
+
+    run_async(client, _age)
+    claimer = _claim_client(client)
+
+    resp = claimer.post(_claim_path(kept_id), headers={"X-User-Email": CLAIMER})
+
+    assert resp.status_code == 200
+    assert resp.json()["already"] is False
+    assert _read_copy(client, kept_id).claimed_at is not None
+    no_env_file: dict[str, Any] = {"_env_file": None}
+    sweep = build_frozen_copy_sweep(Settings(**no_env_file))
+    report = run_async(client, lambda: sweep.run_pass(trigger="command"))
+    assert report.marked["expired"] == 1
+    kept = _read_copy(client, kept_id)
+    assert kept.status == "sealed"
+    assert len(stored_entries(client, kept_id)) == 2
+    # WHY the second copy: without it this test passes when the builder has no expiry rule.
+    assert _read_copy(client, lost_id).status == "expired"

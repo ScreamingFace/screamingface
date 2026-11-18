@@ -1,14 +1,22 @@
 {
   "issue": "OME-1947",
-  "branch": "OME-1947-frozen-copy-retention-stack-a",
+  "branch": "OME-1947-frozen-copy-expiry",
   "approver": "Ionesio Junior (owner)",
   "date": "2026-11-17",
-  "scope": "Assertion only, two assertions of test_0014_creates_both_tables_with_the_design_columns. (1) The equality check of the column set of frozen_copies (`set(copies) == {eight names}`) becomes a subset check (`{eight names} <= set(copies)`). (2) The check of the nullable columns of frozen_copies is limited to the eight columns of 0014; its expected result stays [provenance, sealed_at]. The eight names do not change. No other edit to that test or file.",
-  "reason": "OME-1947 adds migration 0018_frozen_copy_retention, which adds the nullable columns claimed_at, swept_at and purged_at to frozen_copies. The test migrates to the newest migration, so the exact column set and the exact list of nullable columns of 0014 can no longer be true. The eight design columns of 0014 and their null rules are still asserted; the new columns are asserted in tests/unit/test_frozen_copy_retention_migration.py (S-28). Owner approvals in the session of 2026-11-17: the first assertion ('approved + change of the one existing test'), then the second assertion (answer 'Yes, limit to 0014 columns').",
+  "scope": "Assertion only, two assertions of test_0014_creates_both_tables_with_the_design_columns. (1) The equality check of the column set of frozen_copies (`set(copies) == {eight names}`) becomes a subset check (`{eight names} <= set(copies)`). (2) The check of the nullable columns of frozen_copies is limited to the eight columns of 0014; its expected result stays [provenance, sealed_at]. The eight names do not change. No other edit to that test or file. Update 2026-11-17 (unit C1, branch OME-1947-frozen-copy-expiry; owner decision Q27 of the spec, 00-overview.md section 5.4): two more assertion-only changes. (3) In test_the_builder_uses_the_idle_time_and_the_budget_of_the_settings (tests/unit/test_frozen_copy_sweep.py), `report.marked == {\"abandoned\": 1}` becomes `== {\"abandoned\": 1, \"expired\": 0}`. (4) In test_run_marks_and_purges_in_one_pass (tests/unit/test_frozen_copy_sweep_cli.py), `out[\"marked\"] == {\"abandoned\": 2}` becomes `== {\"abandoned\": 2, \"expired\": 0}`. No other edit to those tests or files.",
+  "reason": "OME-1947 adds migration 0018_frozen_copy_retention, which adds the nullable columns claimed_at, swept_at and purged_at to frozen_copies. The test migrates to the newest migration, so the exact column set and the exact list of nullable columns of 0014 can no longer be true. The eight design columns of 0014 and their null rules are still asserted; the new columns are asserted in tests/unit/test_frozen_copy_retention_migration.py (S-28). Owner approvals in the session of 2026-11-17: the first assertion ('approved + change of the one existing test'), then the second assertion (answer 'Yes, limit to 0014 columns'). Update 2026-11-17: unit C1 adds the expiry rule to build_frozen_copy_sweep, so the run report has one key for each of the two rules. The count of abandoned copies in both tests does not change; the new key `expired` is 0 in both. The owner approved the two changes and this update of the record on 2026-11-17 (answer '2 - approved' to the question about the two assertion-only changes in C1).",
   "files": {
     "apps/aigateway/tests/unit/test_frozen_copy_migration.py": {
       "base_blob": "2ff02b0f7306af249bbbd636304d63761a4cbbae",
       "approved_blob": "afb1ea1d5c7879038b1aad8072994419203ac47e"
+    },
+    "apps/aigateway/tests/unit/test_frozen_copy_sweep.py": {
+      "base_blob": "a7d0254ecab4a7502dfec1a45d486daca2e6a122",
+      "approved_blob": "38af5bd6f1aef62604d8f4025ae516ff4030da17"
+    },
+    "apps/aigateway/tests/unit/test_frozen_copy_sweep_cli.py": {
+      "base_blob": "50bf4cf9658795136706db4eebe4207ce0e3f753",
+      "approved_blob": "55c7ffa48fd973bff217a0c288cec8f9739f5fba"
     }
   }
 }

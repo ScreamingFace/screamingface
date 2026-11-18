@@ -19,8 +19,10 @@ from tests.unit.test_frozen_copy_support import (
     call_key,
     chat_body,
     chat_response,
+    lookup_path,
     seed_copy,
     seed_keyed_copy,
+    set_copy_status,
 )
 
 # Occurrence values a caller may send that are not 1 to 9 ASCII digits (design §4.2).
@@ -486,3 +488,62 @@ def test_a_malformed_copy_id_on_replay_is_404_unavailable_not_422(
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "frozen_copy_unavailable"
+
+
+_EXPIRED_DETAIL = {
+    "code": "frozen_copy_expired",
+    "state": "expired",
+    "message": "the frozen copy expired and its entries were deleted",
+}
+_TOOL_DESCRIPTION = {"tool": "web_search", "query": "q"}
+
+
+def _swept_copy(client: TestClient, status: str) -> str:
+    copy_id = seed_copy(
+        client, account_id_of(client), [("chat", chat_body(), chat_response("a"), 200)]
+    )
+    set_copy_status(client, copy_id, status)
+    return copy_id
+
+
+def test_r1_a_chat_replay_of_an_expired_copy_is_410_with_no_replay_header(
+    authenticated_client: TestClient,
+) -> None:
+    copy_id = _swept_copy(authenticated_client, "expired")
+
+    response = authenticated_client.post(
+        _replay_path(copy_id), json=chat_body(), headers=call_key()
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == _EXPIRED_DETAIL
+    assert "X-AIGW-Replay" not in response.headers
+
+
+def test_r2_a_tool_lookup_of_an_expired_copy_is_the_same_410(
+    authenticated_client: TestClient,
+) -> None:
+    copy_id = _swept_copy(authenticated_client, "expired")
+
+    response = authenticated_client.post(
+        lookup_path(copy_id), json={"description": _TOOL_DESCRIPTION}, headers=call_key()
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"] == _EXPIRED_DETAIL
+    assert "X-AIGW-Replay" not in response.headers
+
+
+def test_r3_a_replay_of_an_abandoned_copy_is_404_unavailable_on_both_routes(
+    authenticated_client: TestClient,
+) -> None:
+    copy_id = _swept_copy(authenticated_client, "abandoned")
+
+    chat = authenticated_client.post(_replay_path(copy_id), json=chat_body(), headers=call_key())
+    lookup = authenticated_client.post(
+        lookup_path(copy_id), json={"description": _TOOL_DESCRIPTION}, headers=call_key()
+    )
+
+    for response in (chat, lookup):
+        assert response.status_code == 404
+        assert response.json()["detail"]["code"] == "frozen_copy_unavailable"

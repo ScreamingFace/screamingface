@@ -66,3 +66,26 @@ def test_the_lowest_legal_value_is_accepted(
 ) -> None:
     monkeypatch.setenv(name, value)
     _settings()
+
+
+_TTL_NAME = "AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS"
+
+
+def test_the_unclaimed_ttl_has_a_default_of_90_days(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(_TTL_NAME, raising=False)
+    assert _settings().frozen_copy_unclaimed_ttl_seconds == 7_776_000
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_an_unclaimed_ttl_of_0_or_less_is_refused_and_named(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    monkeypatch.setenv(_TTL_NAME, value)
+    with pytest.raises(ValidationError) as exc_info:
+        _settings()
+    assert _TTL_NAME in str(exc_info.value)
+
+
+def test_an_unclaimed_ttl_of_1_is_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(_TTL_NAME, "1")
+    assert _settings().frozen_copy_unclaimed_ttl_seconds == 1

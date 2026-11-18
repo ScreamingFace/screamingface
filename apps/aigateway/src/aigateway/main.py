@@ -255,6 +255,10 @@ async def _lifespan(app):
             app.state.settings.frozen_copy_open_idle_seconds,
             app.state.settings.frozen_copy_sweep_max_entries,
         )
+        logger.info(
+            "frozen copy expiry armed (unclaimed_ttl_s=%s)",
+            app.state.settings.frozen_copy_unclaimed_ttl_seconds,
+        )
 
         yield
     finally:
