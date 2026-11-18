@@ -509,12 +509,13 @@ class Client:
            refusals (`not_allowed`, `already_regraded`, `not_current_revision`) arrive only here,
            after the replay has run.
 
-        Worked example: score `af95…` scored 0.5 on DRACO's revision `old-revision` with a Fusion
-        of two members and a synthesiser, captured with answer seed 7 in copy `0b1f…`. DRACO is now
-        at `new-revision`, which lists `old-revision` as re-gradable. `regrade("af95…")` runs the
-        new DRACO url4 around the same Fusion text, all 3 Cases replay from `0b1f…` at seed 7, the
-        new grading scores 1.0, and the board answers with a new entry `3c9a…` at `new-revision`,
-        submitted by the original researcher. Returns that new entry.
+        Worked example: score `af95…` scored 0.5 on DRACO's revision `old-revision` with a fanout
+        of two members and a final synthesis step, captured with answer seed 7 in copy `0b1f…`.
+        DRACO is now at `new-revision`, which lists `old-revision` as re-gradable.
+        `regrade("af95…")` runs the new DRACO url4 around the same Candidate text, all 3 Cases
+        replay from `0b1f…` at seed 7, the new grading scores 1.0, and the board answers with a
+        new entry `3c9a…` at `new-revision`, submitted by the original researcher. Returns that
+        new entry.
         """
 
         from screamingface._regrade import regrade_sync
