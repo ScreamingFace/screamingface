@@ -51,6 +51,7 @@ from screamingface_engine.request_scope import (
 )
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
+from screamingface_engine.rest.caller_watch import WAIT_GONE, first_or_gone
 from screamingface_engine.rest.interest import SubscriberGate
 from screamingface_engine.rest.runs_boundary import PRIVATE_HEADERS_DOC, request_caller
 from screamingface_engine.rest.runs_start import (
@@ -631,20 +632,6 @@ def _converge_cache(
     return resolution.effective
 
 
-_DISCONNECT_POLL_S = 0.5
-"""How often a sync wait checks that its caller is still connected (PRD 02 §4: the hold is
-released within 1 s of a disconnect)."""
-
-
-async def _until_disconnected(is_disconnected: Callable[[], Awaitable[bool]]) -> None:
-    while not await is_disconnected():
-        await asyncio.sleep(_DISCONNECT_POLL_S)
-
-
-WAIT_GONE = object()
-"""`wait_terminal_or_gone`'s answer when the caller disconnected first."""
-
-
 async def wait_terminal_or_gone(
     stream: EventConsumer,
     topic: str,
@@ -654,20 +641,11 @@ async def wait_terminal_or_gone(
     """Race the run's terminal frame (bounded by `bound_s`) against the caller leaving.
 
     The terminal frame and its result; ``None`` when the bound passed first; ``WAIT_GONE`` when
-    the caller disconnected first. Both tasks are cancelled and reaped on every exit. Shared by
-    the sync `GET /?q=` and the mount calls, which differ only in what they do with the answer.
+    the caller disconnected first. Both tasks are cancelled and reaped on every exit
+    (`rest/caller_watch.py`). Shared by the sync `GET /?q=` and the mount calls, which differ
+    only in what they do with the answer.
     """
-    wait = asyncio.ensure_future(_await_terminal(stream, topic, bound_s))
-    gone = asyncio.ensure_future(_until_disconnected(is_disconnected))
-    try:
-        await asyncio.wait({wait, gone}, return_when=asyncio.FIRST_COMPLETED)
-    finally:
-        for task in (wait, gone):
-            task.cancel()
-        await asyncio.gather(wait, gone, return_exceptions=True)
-    if wait.cancelled():
-        return WAIT_GONE
-    return wait.result()
+    return await first_or_gone(_await_terminal(stream, topic, bound_s), is_disconnected)
 
 
 async def _run_sync(
