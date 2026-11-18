@@ -611,7 +611,7 @@ async def _chat_completion_loop(
             **extra,
             **attempt_body_field(cache_attempt),
         }
-        choice = await gateway_transport._logged_round_trip(
+        choice = await gateway_transport.round_trip(
             http_client,
             real_model_id=real_model_id,
             headers=headers,

@@ -11,7 +11,13 @@ INVARIANT: this module never imports `world.connector`. The connector imports th
 (`gateway_transport.x`), never its names, so a test that still patches a moved name on
 `connector` fails with an AttributeError instead of patching nothing.
 
-AIDEV-NOTE: the code below moved here from `connector.py` with no change of a function body.
+AIDEV-NOTE: `round_trip` is the public entry (one observed, logged call). The other names keep
+their leading underscore: they are private to the `world` package, and `connector.py` and
+`classification.py` read them as attributes of this module.
+
+AIDEV-NOTE: a name that BOTH modules import (`httpx`, `current_scope`, `record_operation_call`,
+`job_env`, `math`, `provider_of`) is one binding in each module. A test that replaces such a
+name on `connector` does not reach the code here; patch it on this module.
 """
 
 from __future__ import annotations
@@ -167,7 +173,7 @@ async def _in_flight_heartbeat(model_id: str, started: float) -> None:
         wait = min(wait * 2, _IN_FLIGHT_HEARTBEAT_MAX_S)
 
 
-async def _logged_round_trip(
+async def round_trip(
     http_client: httpx.AsyncClient,
     *,
     real_model_id: str,
@@ -1382,6 +1388,4 @@ def timeout_headers(execution_timeout_s: float, queue_timeout_s: float) -> dict[
     }
 
 
-round_trip = _logged_round_trip
-"""The public entry: one observed, logged gateway call. Callers outside `connector.py` use
-this name."""
+__all__ = ["round_trip", "timeout_headers"]

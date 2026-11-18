@@ -12,7 +12,7 @@ to make the move pass.
 
 AIDEV-NOTE: a small fake gateway of its own, because the shared `frozen_copy_support` lives in
 `tests/unit`, which is not on the import path of an integration test. The only private
-`connector` name is in `_no_waits`: after the move, retarget that one line.
+name is in `_no_waits`. The move changed that one patch target and no golden.
 """
 
 from __future__ import annotations
@@ -66,8 +66,7 @@ _ANSWER_BODY: dict[str, Any] = {
 def _no_waits(monkeypatch: pytest.MonkeyPatch) -> None:
     """Zero every retry wait.
 
-    AIDEV-NOTE: the ONE private `connector` name in this file. After the move, patch it on
-    `gateway_transport` instead.
+    AIDEV-NOTE: the ONE private name in this file. Before the move it was patched on `connector`.
     """
 
     async def no_wait(_attempt: int, _delay: float) -> None:

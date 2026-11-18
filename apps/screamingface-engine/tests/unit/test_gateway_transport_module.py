@@ -13,12 +13,18 @@ from __future__ import annotations
 
 import ast
 import inspect
+import time
+from collections.abc import Callable
 
 import httpx
 import pytest
 from frozen_copy_support import CHAT, MODEL, Gateway, chat
 
-from screamingface_engine.operation_accounting import OperationAccounting
+from screamingface_engine.operation_accounting import (
+    OperationAccounting,
+    OperationCache,
+    OperationUsage,
+)
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.world import classification, connector, gateway_transport
 from url4.streaming.protocol import CachePolicy
@@ -27,7 +33,7 @@ from url4.streaming.protocol import CachePolicy
 # and helpers that only the moved code reads. Written by hand, so a later edit of either module
 # cannot shrink the list without a change here.
 _MOVED_NAMES = (
-    "_logged_round_trip",
+    "round_trip",
     "_observed_round_trip",
     "_in_flight_heartbeat",
     "_recorded_completion",
@@ -82,6 +88,15 @@ def _top_level_names(module: object) -> set[str]:
     return names
 
 
+def _collect(records: list[dict[str, object]]) -> Callable[..., None]:
+    """A sink that keeps each report as the keyword arguments it got."""
+
+    def sink(**fields: object) -> None:
+        records.append(fields)
+
+    return sink
+
+
 def _names_imported_from_gateway_transport(module: object) -> list[str]:
     return [
         alias.name
@@ -102,7 +117,11 @@ async def test_round_trip_works_without_model_endpoint(monkeypatch: pytest.Monke
     async def no_wait(_attempt: int, _delay: float) -> None:
         return None
 
+    usage: list[dict[str, object]] = []
+    responses: list[dict[str, object]] = []
     monkeypatch.setattr(gateway_transport, "_wait_to_retry", no_wait)
+    monkeypatch.setattr(gateway_transport, "current_usage_sink", lambda: _collect(usage))
+    monkeypatch.setattr(gateway_transport, "current_response_sink", lambda: _collect(responses))
     gateway = Gateway([httpx.ReadError("the first send breaks"), chat("the final answer")])
     scope = RequestScope(
         origin="run",
@@ -141,7 +160,71 @@ async def test_round_trip_works_without_model_endpoint(monkeypatch: pytest.Monke
         "messages": [{"role": "user", "content": "hello"}],
         "cache": {"use-cache": False},
     }
-    assert len(accounting) == 1
+    assert accounting == [
+        OperationAccounting(
+            provider="anthropic",
+            request_model=MODEL,
+            response_model=None,
+            usage=OperationUsage(
+                input_tokens=1,
+                output_tokens=1,
+                cache_read_tokens=None,
+                cache_creation_tokens=None,
+                reasoning_tokens=None,
+                cost_usd=None,
+            ),
+            provider_latency_ms=None,
+            provider_attempts=None,
+            cache=OperationCache(hits=0, misses=0, bypasses=0, unknown=1),
+        )
+    ]
+    assert usage == [
+        {
+            "provider": "anthropic",
+            "model": MODEL,
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "response_model": None,
+            "cache_read_tokens": None,
+            "cache_creation_tokens": None,
+            "reasoning_tokens": None,
+            "cost_usd": None,
+            "image_and_file_tokens": None,
+        }
+    ]
+    assert responses == [
+        {
+            "finish_reason": None,
+            "refusal": None,
+            "cache_status": None,
+            "cache_reason": None,
+            "cache_saved_cost_usd": None,
+            "cache_saved_cost_provenance": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_round_trip_sends_the_remaining_time_of_the_scope_deadline() -> None:
+    """GT-5 (deadline): the round trip reads the deadline of the bound scope by itself."""
+    gateway = Gateway([chat("in time")])
+    scope = RequestScope(origin="run", deadline=time.monotonic() + 30.0)
+
+    async with gateway.client() as client:
+        with request_scope(scope):
+            choice = await gateway_transport.round_trip(
+                client,
+                real_model_id=MODEL,
+                headers=gateway_transport.timeout_headers(45.0, 15.0),
+                body={"model": MODEL, "messages": [{"role": "user", "content": "hello"}]},
+                cache=scope.cache,
+                max_tokens=None,
+                operation_accounting=[],
+            )
+
+    assert choice.content == "in time"
+    [(headers, _body)] = gateway.calls(CHAT)
+    assert 0.0 < float(headers["x-aigw-remaining-timeout-s"]) <= 30.0
 
 
 def test_timeout_headers_take_plain_numbers() -> None:
@@ -154,7 +237,7 @@ def test_timeout_headers_take_plain_numbers() -> None:
 
 def test_connector_has_no_private_copy_of_moved_functions() -> None:
     """GT-6: each moved name has ONE definition, and no module imports a moved name by name."""
-    moved = _top_level_names(gateway_transport) - {"logger"}
+    moved = _top_level_names(gateway_transport) - {"logger", "__all__"}
 
     assert moved >= set(_MOVED_NAMES) - {
         "ModelCall",
@@ -187,14 +270,19 @@ def test_moved_names_are_not_attributes_of_connector(
 
 def test_gateway_transport_does_not_import_connector() -> None:
     """GT-S5: the new module is below the connector. It imports neither the connector nor a half."""
-    imported = {
-        node.module
-        for node in ast.walk(ast.parse(inspect.getsource(gateway_transport)))
-        if isinstance(node, ast.ImportFrom) and node.module
-    }
+    imported: set[str] = set()
+    for node in ast.walk(ast.parse(inspect.getsource(gateway_transport))):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            # `from pkg import name` can import the submodule `pkg.name`: record both forms.
+            imported.add(node.module)
+            imported.update(f"{node.module}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Import):
+            imported.update(alias.name for alias in node.names)
 
-    assert "screamingface_engine.world.connector" not in imported
-    assert not any(
-        module.startswith(("screamingface_engine.runner", "screamingface_engine.rest"))
-        for module in imported
+    forbidden = (
+        "screamingface_engine.world.connector",
+        "screamingface_engine.runner",
+        "screamingface_engine.rest",
+        "screamingface_engine.worker",
     )
+    assert [module for module in sorted(imported) if module.startswith(forbidden)] == []

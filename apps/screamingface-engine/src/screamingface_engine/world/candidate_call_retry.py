@@ -11,7 +11,7 @@ The rule, in the order the connector applies it:
    retries. A judge already gets 2 re-asks of its own (``judge_redraw.py`` or url4's
    ``;retry=2``); a connector retry on top would give each judge item 3 x 3 = 9 tries.
 2. Only a temporary answer retries: 429 or any 5xx, the same statuses the connector marks
-   ``permanent=False`` (``connector._raise_for_status``).
+   ``permanent=False`` (``gateway_transport._raise_for_status``).
 3. Retry k waits ``RETRY_WAITS_S[k-1]``, raised to the gateway's ``Retry-After`` when that
    asks for longer (never more than ``RETRY_AFTER_CAP_S``), plus up to ``JITTER_S`` of jitter.
 

@@ -97,8 +97,8 @@ def _sanitized_error(error: ErrorInfo | None) -> tuple[str | None, str | None, b
        takes ``code`` from ``getattr(exc, "code")`` and ``message`` from ``str(exc)`` of whatever
        exception ended the run — provider text verbatim for any provider-facing adapter. Only a
        code in :data:`ENGINE_ERROR_CODES` vouches for its message's author, and that set is
-       reserved engine-wide: ``world/connector.py::_raise_for_status`` refuses to mint one of
-       those codes from an upstream response body, so an upstream cannot borrow the vouching.
+       reserved engine-wide: ``world/gateway_transport.py::_raise_for_status`` refuses to mint one
+       of those codes from an upstream response body, so an upstream cannot borrow the vouching.
        One shared set, not a second copy that would be free to drift.
     2. **Content, regardless of authorship.** Even a vouched message goes through the same
        :func:`public_message` the benchmark result contract uses: capped, flattened to one line,

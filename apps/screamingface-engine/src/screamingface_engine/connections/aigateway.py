@@ -379,8 +379,8 @@ def _is_uuid(value: object) -> bool:
 def _headers(caller: Caller) -> dict[str, str]:
     """The upstream headers for one caller-scoped request (``job_env.upstream_headers``).
 
-    The same rule ``world.connector._headers`` and ``catalog.aigateway._headers`` apply. A zero
-    traceparent is omitted rather than sent: it parses everywhere while joining nothing.
+    The same rule ``world.gateway_transport._headers`` and ``catalog.aigateway._headers`` apply.
+    A zero traceparent is omitted rather than sent: it parses everywhere while joining nothing.
     """
     return job_env.upstream_headers(caller.identity, caller.traceparent)
 

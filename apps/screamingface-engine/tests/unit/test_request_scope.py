@@ -199,6 +199,7 @@ async def test_no_handler_world_or_module_object_retains_a_request_scope() -> No
     and the connector module holds none either.
     """
     import screamingface_engine.world.connector as connector_module
+    from screamingface_engine.world import gateway_transport
 
     gw = _MockAigateway((MODEL,))
     cfg = AigatewayConfig(models=gw.models, default_model=MODEL)
@@ -225,6 +226,9 @@ async def test_no_handler_world_or_module_object_retains_a_request_scope() -> No
         for value in vars(world).values():
             assert not isinstance(value, RequestScope)
         for value in vars(connector_module).values():
+            assert not isinstance(value, RequestScope)
+        # The round trip, which builds the headers from the scope, is in its own module now.
+        for value in vars(gateway_transport).values():
             assert not isinstance(value, RequestScope)
 
 
