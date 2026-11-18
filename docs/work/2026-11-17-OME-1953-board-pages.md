@@ -1,9 +1,9 @@
 ---
 ticket: OME-1953
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-11-17
-finished:
+finished: 2026-11-18
 ---
 
 # OME-1953 — Complete per-board search pages
@@ -49,3 +49,5 @@ Real asyncpg connection-refusal probe: both the board route and sitemap return 5
 Owner authorized an internal pass and merge without posting another review. The combined current-main checkout exposed a relative imported-result history link under the new nested board addresses. Route that link through the existing `ScorePortal.pageHref` helper; add a regression using the real portal scripts at an HTTPS board URL and a file URL. Preserve existing tests. Validate the full scoreboard gates and the two PRs together, and check the history navigation in a headless local preview before pushing.
 
 Final-pass validation: the new HTTPS regression failed on the old link and passes with `pageHref`; the file-page regression also passes. Full scoreboard gates are green against the branch's main ancestor (93b103cc3). In an isolated checkout combining both PRs with current main, 110 Python tests and 46 focused Node tests pass. Headless previews at 1440px and 390px in both themes show the Updated link; following it opens the history page and loads saved versions, with zero browser errors. Local preview: http://127.0.0.1:9195/benchmarks/inspect-agieval_sat_en/. CodeQL alert 28 was dismissed as a false positive after 680 hostile redirect probes. No review was posted.
+
+Merged in PR #1800 on 2026-11-18. The recorded implementation and validation work is complete; Linear and the task mirror are Done.
