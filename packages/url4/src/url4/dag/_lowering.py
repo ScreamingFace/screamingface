@@ -68,6 +68,7 @@ from url4.core.parser import (
     strip_one_paren_layer,
 )
 from url4.dag.semantics.ensemble import find_references
+from url4.dag.source_scan import holds_holdings_ref
 
 from url4.dag._descriptor import _lower_source, slot_identity  # isort: skip
 from url4.dag._code_wiring import (  # isort: skip
@@ -229,10 +230,10 @@ def _wire_context_slots(
 def _context_slots(context: str | None, registry: LoweringRegistry) -> list[_Slot] | None:
     # INVARIANT (spec §5.6.3.1/.2): a holdings ref ("@") in a call's context is
     # scoped to the RECEIVING route and travels in the q= payload verbatim —
-    # never resolved caller-side. The "@" check is deliberately conservative:
-    # an email-ish literal merely falls back to the raw-text path, which is
-    # the pre-`OME-535` behavior — safe, just unresolved.
-    if context is None or not context.strip() or "@" in context:
+    # never resolved caller-side. Decided by the run-start scan's own predicate
+    # (parsed segments, OME-1945): an "@" inside a URL or quoted text lowers like
+    # any source, so lowering and the attachment scan never disagree.
+    if context is None or not context.strip() or holds_holdings_ref(context):
         return None
     try:
         segments = [seg.strip() for seg in split_top_level_commas(context)]
