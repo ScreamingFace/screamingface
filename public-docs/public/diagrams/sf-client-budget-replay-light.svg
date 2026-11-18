@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-10.0 74 1060 264" width="1060" height="264" font-family="Helvetica Neue, Arial, sans-serif">
+<title>A replay takes the same branch as the live run</title>
+<defs><marker id="a-mid" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5a6069"/></marker><marker id="a-bad" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d0634a"/></marker><marker id="a-ok" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#58b36e"/></marker><marker id="a-accent" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#c9821f"/></marker></defs>
+<path d="M320 134 L380 134 L380 180 L440 180" fill="none" stroke="#5a6069" stroke-width="1.8" marker-end="url(#a-mid)"/>
+<path d="M320 278 L380 278 L380 210 L440 210" fill="none" stroke="#5a6069" stroke-width="1.8" marker-end="url(#a-mid)"/>
+<path d="M690 195 L790 195" fill="none" stroke="#c9821f" stroke-width="1.8" marker-end="url(#a-accent)"/>
+<rect x="40" y="92" width="280" height="84" rx="11" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1.6"/>
+<text x="180.0" y="127.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">live run</text>
+<text x="180.0" y="151.0" font-size="13" fill="#5a6069" text-anchor="middle">charges each call's real cost</text>
+<rect x="40" y="236" width="280" height="84" rx="11" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1.6"/>
+<text x="180.0" y="271.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">replay (cache hit)</text>
+<text x="180.0" y="295.0" font-size="13" fill="#5a6069" text-anchor="middle">charges the reference price</text>
+<rect x="440" y="150" width="250" height="90" rx="11" fill="#f4f5f7" stroke="#cdd0d6" stroke-width="1.6"/>
+<text x="565.0" y="188.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">same spend seen</text>
+<text x="565.0" y="212.0" font-size="13" fill="#5a6069" text-anchor="middle">by the budget</text>
+<rect x="790" y="150" width="210" height="90" rx="11" fill="#fdf7ec" stroke="#c9821f" stroke-width="1.6"/>
+<text x="895.0" y="188.0" font-size="15" fill="#2c2f36" text-anchor="middle" font-weight="600">same branch</text>
+<text x="895.0" y="212.0" font-size="13" fill="#5a6069" text-anchor="middle">taken both times</text>
+</svg>

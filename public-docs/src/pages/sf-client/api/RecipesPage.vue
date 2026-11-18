@@ -47,9 +47,9 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
     :version="version"
   >
     <p>
-      A recipe tells ScreamingFace how to produce one answer: that's what a benchmark grades. This
-      page documents <code>Recipe</code>, the abstract base every candidate shares. The three
-      concrete types each have their own home: a single model route in
+      A recipe tells ScreamingFace how to produce one answer. That answer is what a benchmark
+      grades. This page documents <code>Recipe</code>, the abstract base every candidate shares.
+      The three concrete types are each documented elsewhere: a single model route in
       <RouterLink to="/sf-client/api/models">Models</RouterLink>, several members combined by a
       synthesizer (<code>sf.Fanout(...) &gt;&gt; sf.Synthesize(...)</code>) in the
       <RouterLink to="/sf-client/guides/fusions">Fusions guide</RouterLink>, and stages chained in
@@ -58,16 +58,16 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
 
     <p>
       Every constructible recipe is frozen and holds no client. Building one makes no network
-      requests, so you can compose them before connecting to anything. Recipes nest: a fusion or a
-      <code>Pipeline</code> can contain a <code>Model</code>, another fusion, or another
+      requests, so you can compose recipes before you connect to anything. Recipes nest: a fusion
+      or a <code>Pipeline</code> can contain a <code>Model</code>, another fusion, or another
       <code>Pipeline</code>, in any combination.
     </p>
 
     <Note>
       Recipes compare by value. Two recipes built with identical arguments are equal, and
-      <RouterLink to="/learn/engine">the engine</RouterLink> treats them as one candidate. Give a
-      <code>Model</code> an explicit <code>name</code> for an independent sample. Recipes are
-      unhashable: you can't use them as dict keys or put them in sets.
+      <RouterLink to="/learn/engine">the engine</RouterLink> treats them as one candidate. To get an
+      independent sample, give a <code>Model</code> an explicit <code>name</code>. Recipes are
+      unhashable, so you can't use them as dict keys or put them in sets.
     </Note>
 
     <div class="not-prose">
@@ -78,15 +78,15 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
 
     <p>
       <code>Recipe</code> is the abstract base the concrete types inherit from. You can't
-      instantiate it directly. It exists for type annotations and so a <code>Fanout</code> or a
-      <code>Pipeline</code> can hold a mixed list of members.
+      instantiate it directly. It exists for type annotations, and so that a <code>Fanout</code> or
+      a <code>Pipeline</code> can hold a mixed list of members.
     </p>
 
     <p>
       Every recipe has one public attribute: <code>name</code> (a <code>str</code>).
       <code>a &gt;&gt; b</code> joins two recipes and returns a
       <RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink>. A corrective loop is a
-      whole candidate: it cannot be a stage.
+      whole candidate, so it cannot be used as a stage.
     </p>
 
     <p>Calling <code>sf.Recipe()</code> directly raises:</p>
@@ -107,27 +107,27 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
       <li>
         <strong><RouterLink to="/sf-client/guides/fusions">Fusion</RouterLink></strong
         >: members combined by a synthesizer, built with <code>sf.Fanout</code> and
-        <code>sf.Synthesize</code>. The Fusions guide carries its full reference.
+        <code>sf.Synthesize</code>. The Fusions guide holds its full reference.
       </li>
       <li>
         <strong><RouterLink to="/sf-client/guides/pipelines">Pipeline</RouterLink></strong
-        >: stages chained in series. The Pipelines guide carries its full reference.
+        >: stages chained in series. The Pipelines guide holds its full reference.
       </li>
     </ul>
 
     <h2>Corrective loops</h2>
 
     <p>
-      Two further recipes, documented here, draft under the benchmark's own check and retry until a
-      draft passes. Members draft in parallel; the benchmark marks each draft; the first passing
-      draft is submitted word for word. A round where nothing passes makes one judge coaching call
-      and a retry, up to <code>max_rounds</code>, which is a cost cap and not a target. The whole
-      loop compiles into one candidate expression on the client, so it runs on any benchmark that
-      advertises a check.
+      Two more recipes, documented here, draft under the benchmark's own check and retry until a
+      draft passes. Members draft in parallel, the benchmark marks each draft, and the first passing
+      draft is submitted word for word. When a round produces no passing draft, the loop makes one
+      judge coaching call and retries, up to <code>max_rounds</code> (a cost cap, not a target). The
+      whole loop compiles into one candidate expression on the client, so it runs on any benchmark
+      that advertises a check.
     </p>
 
     <p>
-      The two corrective recipes are the bottom row of a small grid: the same models, run with or
+      The two corrective recipes form the bottom row of a small grid. The same models run with or
       without a correction loop.
     </p>
 
@@ -154,18 +154,18 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
     </table>
 
     <Note>
-      <code>medxpert</code>, the benchmark a local engine started with
-      <code>screamingface up</code> serves, does not support mid-run checking: a corrective
-      candidate on it raises <code>PlanningError</code>. Run corrective candidates on a hosted
-      benchmark that advertises a check, such as <code>ifeval</code>.
+      <code>medxpert</code>, the benchmark served by a local engine started with
+      <code>screamingface up</code>, does not support mid-run checking. A corrective candidate on it
+      raises <code>PlanningError</code>. Run corrective candidates on a hosted benchmark that
+      advertises a check, such as <code>ifeval</code>.
     </Note>
 
     <Note>
-      What a correction round costs depends on the benchmark's check surface. A deterministic
+      What a correction round costs depends on how the benchmark checks drafts. A deterministic
       verifier such as <code>ifeval</code> checks every draft without a model call, so only the
       correction rounds add model calls. A rubric-graded benchmark such as
       <code>healthbench-worst30</code> or <code>draco</code> makes a judge call per draft on every
-      round, first-round pass included, and <code>max_rounds</code> caps that.
+      round, including a first-round pass, and <code>max_rounds</code> caps that.
     </Note>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -251,9 +251,9 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
     <h3>CorrectiveLoop</h3>
 
     <p>
-      A panel of members drafting under the check. The single <code>judge</code> plays two roles the
-      loop keeps apart: it selects among passing drafts, and it coaches after a no-pass round. It
-      never writes the answer itself. A panel needs at least two members.
+      A panel of members that draft under the check. The single <code>judge</code> plays two roles
+      the loop keeps apart: it selects among passing drafts, and it coaches after a round with no
+      pass. The judge never writes the answer itself. A panel needs at least two members.
     </p>
 
     <CodeBlock :code="correctiveSig" language="python" />
@@ -271,8 +271,8 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
           <td><code>name</code></td>
           <td><code>str</code></td>
           <td>
-            The loop's name. Inferred by joining member names with <code>+</code> unless you pass
-            one.
+            The loop's name. Unless you pass one, it is inferred by joining member names with
+            <code>+</code>.
           </td>
         </tr>
         <tr>
@@ -284,14 +284,15 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
           <td><code>judge</code></td>
           <td><code>Recipe</code></td>
           <td>
-            Selects among passing drafts and coaches after a no-pass round. Never writes the answer.
+            Selects among passing drafts and coaches after a round with no pass. Never writes the
+            answer.
           </td>
         </tr>
         <tr>
           <td><code>max_rounds</code></td>
           <td><code>int</code></td>
           <td>
-            The most rounds the loop will run. A cost cap, not a target; defaults to <code>3</code>.
+            The most rounds the loop will run. A cost cap, not a target. Defaults to <code>3</code>.
           </td>
         </tr>
       </tbody>
@@ -305,8 +306,8 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
 
     <p>
       The solo shape: one model drafts under the same check and writes its own retry feedback from
-      the check's sanitized violations: the coaching role the panel gives to a separate judge,
-      played by the only model present.
+      the check's sanitized violations. The coaching role that a panel gives to a separate judge is
+      here played by the only model present.
     </p>
 
     <CodeBlock :code="selfCorrectiveSig" language="python" />
@@ -334,7 +335,7 @@ report = sf.evaluate(loop, benchmark="ifeval", limit=1)`
           <td><code>max_rounds</code></td>
           <td><code>int</code></td>
           <td>
-            The most rounds it will run. A cost cap, not a target; defaults to <code>3</code>.
+            The most rounds it will run. A cost cap, not a target. Defaults to <code>3</code>.
           </td>
         </tr>
       </tbody>

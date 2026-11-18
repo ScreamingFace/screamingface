@@ -88,33 +88,30 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
 <template>
   <DocLayout
     title="Map-reduce for fusions"
-    description="A fusion can dispatch a question to its member models, then map, filter and reduce what comes back into the one answer a benchmark grades. This page covers each stage and the signals that pass between them."
+    description="A fusion can dispatch a question to its member models, then map, filter, and reduce what comes back into the one answer a benchmark grades. This page covers each stage and the signals that pass between them."
     :navigation="navigation"
     :version="version"
   >
     <p>
       In ScreamingFace, every <RouterLink to="/sf-client/guides/fusions">fusion</RouterLink> can be
-      constructed as a map-reduce pipeline. A <strong>dispatch</strong> stage puts the question to the
-      member models. A
-      <strong>reduce</strong> stage turns what comes back into a single answer, and that answer is
-      what the benchmark grades. Two optional stages can sit in between: <strong>map</strong>
-      attaches a number, called a <strong>signal</strong>, to each answer independently, and
-      <strong>filter</strong> drops answers before the reducer sees them.
+      built as a map-reduce pipeline. A dispatch stage puts the question to the member models. A
+      reduce stage turns what comes back into a single answer, and that answer is what the benchmark
+      grades. Two optional stages can sit in between. A map stage attaches a number, called a signal,
+      to each answer on its own. A filter stage drops answers before the reducer sees them.
     </p>
 
     <p>
-      What varies most between fusions is the dispatch. The simplest, <code>sf.Fanout</code>,
-      broadcasts the question to every member in parallel and hands on a <strong>panel</strong>: N
-      answers, one per member. Other strategies route the question to some members, cascade through
-      them in order, or
-      <RouterLink to="/sf-client/guides/pipelines">chain them as a pipeline</RouterLink>, and what
-      they hand on depends on the strategy.
+      What varies most between fusions is the dispatch. The simplest one, <code>sf.Fanout</code>,
+      broadcasts the question to every member in parallel and hands on a panel: N answers, one per
+      member. Other strategies route the question to some members, cascade through them in order, or
+      <RouterLink to="/sf-client/guides/pipelines">chain them as a pipeline</RouterLink>. What a
+      strategy hands on depends on the strategy.
     </p>
 
     <p>
       You write the stages left to right and join them with <code>&gt;&gt;</code>. A fusion starts
       with a dispatch (or a solo <RouterLink to="/sf-client/guides/models">Model</RouterLink>) and
-      ends with a reducer; anything in between is optional.
+      ends with a reducer. Anything in between is optional.
     </p>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -222,8 +219,8 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
     <h2>The four stages at a glance</h2>
 
     <p>
-      In the fusions on this page, every step is one of four kinds, and each kind has a fixed
-      contract with the panel:
+      In the fusions on this page, every step is one of four kinds. Each kind has a fixed contract
+      with the panel:
     </p>
 
     <table>
@@ -276,13 +273,13 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
     <h2 id="dispatch">Dispatch: fan out to a panel</h2>
 
     <p>
-      <code>sf.Fanout(members)</code> is the simplest dispatch: it broadcasts the question to every
-      member in parallel and returns a <strong>panel</strong> with one answer per member. Nothing is
-      scored or chosen yet. Members are usually <code>sf.Model</code> instances, each identified by a
-      provider-prefixed model id (see <RouterLink to="/sf-client/guides/models">Models</RouterLink>);
-      since fusions nest, a member can also be another fusion. The fan-out is also where you declare
-      signals measured from each member's own response, with <code>signals=</code>, covered under Map
-      below.
+      <code>sf.Fanout(members)</code> is the simplest dispatch. It broadcasts the question to every
+      member in parallel and returns a panel with one answer per member. Nothing is scored or chosen
+      yet. Members are usually <code>sf.Model</code> instances, each identified by a provider-prefixed
+      model id (see <RouterLink to="/sf-client/guides/models">Models</RouterLink>). Because fusions
+      nest, a member can also be another fusion. The fan-out is also where you declare signals
+      measured from each member's own response, with <code>signals=</code>. Those are covered under
+      Map below.
     </p>
 
     <p>
@@ -297,9 +294,9 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
     <h2 id="reduce">Reduce: collapse to one answer</h2>
 
     <p>
-      A <strong>reducer</strong> reads the whole panel and returns one answer. It is
-      <strong>terminal</strong>: nothing can follow it, and its output is what the benchmark grades.
-      The simplest is <code>sf.Vote()</code>, which returns the answer most members agree on:
+      A reducer reads the whole panel and returns one answer. It is terminal: nothing can follow it,
+      and its output is what the benchmark grades. The simplest is <code>sf.Vote()</code>, which
+      returns the answer most members agree on:
     </p>
 
     <div class="not-prose">
@@ -317,7 +314,8 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
       Reducers differ in where the final answer comes from: copied verbatim from one member, computed
       from the members' answers, or newly written by a model. Several decide using a signal, the
       number covered in the next section. The
-      <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> has full signatures.
+      <RouterLink to="/sf-client/api/reducers">Reducers reference</RouterLink> has the full
+      signatures.
     </p>
 
     <table>
@@ -357,10 +355,10 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
     <h2 id="map">Map: score each answer</h2>
 
     <p>
-      A <strong>signal</strong> is a named number on each answer: a stated confidence, a judge's
-      score, a cost. Every answer carries a <code>signals</code> map of name to number, for example
+      A signal is a named number on each answer: a stated confidence, a judge's score, a cost. Every
+      answer carries a <code>signals</code> map of name to number, for example
       <code>{ "conf": 90, "cost_usd": 0.004 }</code>. A step names the one it wants (as
-      <code>weights=</code>, <code>by=</code> or <code>where=</code>), and you can read them yourself
+      <code>weights=</code>, <code>by=</code>, or <code>where=</code>), and you can read them yourself
       with <code>answer.signals["name"]</code>. Signals come from three places:
     </p>
 
@@ -386,7 +384,7 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
       </li>
       <li>
         <strong>Scored by a judge</strong>, an extra step that runs after the answers come back.
-        <code>sf.Judge</code> runs a separate judge model over each answer and records its grade as
+        <code>sf.Judge</code> runs a separate judge model over each answer and records the grade as
         <code>score:judge</code>.
       </li>
       <li>
@@ -398,8 +396,8 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
     </ul>
 
     <p>
-      The example below reads a signal as a <strong>weight</strong>. Each member is prompted to end
-      with a <code>Confidence:</code> line, <code>sf.Verbalized</code> pulls that number out as
+      The example below reads a signal as a weight. Each member is prompted to end with a
+      <code>Confidence:</code> line, <code>sf.Verbalized</code> pulls that number out as
       <code>conf</code>, and <code>sf.Vote(weights="conf")</code> makes more confident answers count
       for more. Every signal has its own requirement, listed in the table that follows.
     </p>
@@ -473,14 +471,14 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
     <p>
       A missing value is not an error. If an answer lacks the signal (say a model skipped its
       <code>Confidence:</code> line), the value is <code>None</code> and that answer sits out the
-      step. An unknown name is an error: a name that no earlier step provides raises before any model
+      step. An unknown name is an error. A name that no earlier step provides raises before any model
       is called, so a typo never costs you a run.
     </p>
 
     <h3>Signals in practice</h3>
 
     <p>
-      A few canonical patterns. Each declares or reads a different signal, then lets a reducer act on
+      A few common patterns. Each declares or reads a different signal, then lets a reducer act on
       it:
     </p>
 
@@ -500,19 +498,18 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
       members, <code>sf.Judge</code> <strong>maps</strong> a <code>score:judge</code> onto each
       answer, and <code>sf.ArgMax("score:judge")</code> <strong>reduces</strong> the panel to the
       best-scored answer. <code>sf.evaluate</code> then runs the fusion on 20 IFEval prompts and
-      grades each final answer. Every stage swaps independently: change the rubric, weigh by the
-      judge's score with <code>sf.Vote(weights="score:judge")</code> instead of taking the max, or
-      drop the judge and rank by a declared signal. Each swap is a new fusion built from the same
-      four kinds of step.
+      grades each final answer. Every stage swaps independently. You can change the rubric, weigh by
+      the judge's score with <code>sf.Vote(weights="score:judge")</code> instead of taking the max, or
+      drop the judge and rank by a declared signal. Each swap is a new fusion built from the same four
+      kinds of step.
     </p>
 
     <h2 id="filter">Filter: drop answers before reducing</h2>
 
     <p>
-      A <strong>selector</strong> removes answers from the panel, usually by reading a signal, so the
-      reducer only sees the ones worth keeping. This matters most for <code>sf.Synthesize</code>,
-      which reads every answer it's given. A selector is not terminal: a reducer still has to follow
-      it.
+      A selector removes answers from the panel, usually by reading a signal, so the reducer only sees
+      the ones worth keeping. This matters most for <code>sf.Synthesize</code>, which reads every
+      answer it is given. A selector is not terminal: a reducer still has to follow it.
     </p>
 
     <ul>
@@ -528,7 +525,7 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
     </ul>
 
     <p>
-      Selectors read the same signals reducers do. The <code>conf</code> signal from earlier can
+      Selectors read the same signals that reducers do. The <code>conf</code> signal from earlier can
       decide whether an answer survives, or how much it counts:
     </p>
 
@@ -602,11 +599,11 @@ sf.Fanout([a, b, c]) >> sf.Rank(2, by="cost_usd", order="min") >> sf.Vote()`</sc
 
     <p>
       <code>sf.Fanout</code> is the simplest dispatch: every member answers every question. Routers,
-      cascades and pipelines are dispatch strategies too. They add <strong>control flow</strong>,
-      deciding <em>which</em> members run and in what order, often by reading the same signals you
-      have seen here. <code>sf.Gate</code> is the first control-flow piece: it reads a signal and
-      decides whether to answer or abstain. What each strategy hands to the stages after it depends on
-      the strategy; this page covers what follows a fan-out.
+      cascades, and pipelines are dispatch strategies too. They add control flow, deciding which
+      members run and in what order, often by reading the same signals you have seen here.
+      <code>sf.Gate</code> is one such piece: it reads a signal and decides whether to answer or
+      abstain. What each strategy hands to the stages after it depends on the strategy. This page
+      covers what follows a fan-out.
     </p>
 
     <h2>See also</h2>
