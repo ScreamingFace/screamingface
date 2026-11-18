@@ -14,7 +14,7 @@ from starlette.types import Receive
 
 from screamingface_engine.rest.chat_cleanup import ChatCleanup
 from screamingface_engine.rest.chat_drain import ChatDrain
-from screamingface_engine.rest.chat_errors import ChatError
+from screamingface_engine.rest.chat_errors import ChatError, restart_retry_after
 from screamingface_engine.rest.chat_frames import RunFrames, WaitEnd
 from screamingface_engine.rest.chat_observe import RequestFacts
 from url4.streaming.interfaces import EventConsumer
@@ -140,7 +140,12 @@ def settle_wait(ended: RunFrames | WaitEnd, cleanup: ChatCleanup, facts: Request
     """
     if isinstance(ended, WaitEnd):
         status, code, should_retry = WAIT_ROWS[ended]
-        raise ChatError(status, code, should_retry=should_retry)
+        raise ChatError(
+            status,
+            code,
+            retry_after=restart_retry_after(status, should_retry),
+            should_retry=should_retry,
+        )
     cleanup.finished = True
     facts.trace_id = parse_traceparent(ended.terminated.traceparent) or facts.trace_id
     return ended

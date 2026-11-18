@@ -32,7 +32,7 @@ from screamingface_engine.chat.wire import (
     ScreamingFaceInfo,
     Usage,
 )
-from screamingface_engine.rest.chat_errors import ChatError
+from screamingface_engine.rest.chat_errors import ChatError, restart_retry_after
 from screamingface_engine.rest.chat_frames import RunFrames
 from screamingface_engine.rest.routes import _sanitized_error
 from screamingface_engine.world.accounting import UNPRICED
@@ -117,7 +117,13 @@ def failure(terminated: TerminatedEvent) -> ChatError:
     status, body_code, should_retry = _row(terminated.data.status, raw, code, permanent)
     # WHY only for the same code: a remapped body code (run_failed) gets its own fixed message.
     shown = message if body_code == code and message else None
-    return ChatError(status, body_code, shown, should_retry=should_retry)
+    return ChatError(
+        status,
+        body_code,
+        shown,
+        retry_after=restart_retry_after(status, should_retry),
+        should_retry=should_retry,
+    )
 
 
 def _row(state: str, raw: str | None, code: str | None, permanent: bool | None) -> _Row:

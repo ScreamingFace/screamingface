@@ -211,7 +211,7 @@ async def test_request_after_drain_event_is_503_before_schedule() -> None:
     assert error(resp)["code"] == "server_restarting"
     assert error(resp)["type"] == "server_error"
     assert resp.headers["x-should-retry"] == "true"
-    assert "retry-after" not in resp.headers
+    assert resp.headers["retry-after"] == "5"
     assert ca.runner.scheduled == []
     assert ca.objects.objects == {}
     assert ca.source is not None

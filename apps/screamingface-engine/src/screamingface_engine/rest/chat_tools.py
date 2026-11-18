@@ -3,8 +3,9 @@
 With `tools` in the request, each final model step must be able to take them. TC-S11: a final
 step that asks for a search on a route whose search is the Engine tool loop is refused, as the
 final-step endpoint has no tool loop. TC-S10: each final model must list `tools` in its
-`supported_parameters` in the catalogue, which is GET /v1/models of the caller. Each refusal
-comes before the input write, so no blob and no run exist.
+`supported_parameters` in the catalogue, which is GET /v1/models of the caller. The re-point proof
+of the worker (`chat.recipe.repoint_final_steps`) runs here too, so a recipe that fails it is a
+400 and not a failed run. Each refusal comes before the input write, so no blob and no run exist.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from screamingface_engine.chat.recipe import (
     RepointError,
     check_recipe,
     final_model_steps,
+    repoint_final_steps,
 )
 from screamingface_engine.rest.chat_errors import ChatError
 from screamingface_engine.rest.chat_model import catalog_unavailable
@@ -49,7 +51,14 @@ async def check_tool_steps(
 
 def _final_steps(recipe: str) -> tuple[FinalModelStep, ...]:
     try:
-        return final_model_steps(check_recipe(recipe, with_tools=True))
+        checked = check_recipe(recipe, with_tools=True)
+        steps = final_model_steps(checked)
+        models = [position for position in checked.positions if position.kind == "model"]
+        if models:
+            # WHY: the same proof as the worker (world/chat_turn.py), before any blob or run; only
+            # the proof matters here, so the re-pointed text is not used.
+            repoint_final_steps(checked.root, models)
+        return steps
     except RecipeRefusal as exc:
         raise ChatError(400, exc.code, exc.message, param="model") from None
     except RepointError:

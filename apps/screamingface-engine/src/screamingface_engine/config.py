@@ -216,7 +216,7 @@ class Settings(BaseSettings):
     sync_max_wait_s: float = 30.0
     # FEATURE: POST /v1/chat/completions (prd/chat-completion.md §4): how long a chat request
     # waits for its run; the run deadline is int(limit) + 5.
-    chat_max_wait_s: float = 600.0
+    chat_max_wait_s: float = Field(default=600.0, gt=0.0)
     # FEATURE: POST /v1/chat/completions with stream true (prd/streaming.md §4): the interval of the
     # ": keep-alive" comment lines while a streamed request waits for its run.
     chat_keepalive_s: float = Field(default=15.0, gt=0.0)

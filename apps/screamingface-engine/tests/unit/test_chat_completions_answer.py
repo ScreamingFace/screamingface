@@ -38,23 +38,23 @@ pytestmark = pytest.mark.asyncio
 ANSWER_LOGGER = "screamingface_engine.rest.chat_answer"
 ARTIFACT = ResultArtifact(id="ab" * 32, size_bytes=10, sha256="ab" * 32)
 
-# (run status, terminal code, permanent, HTTP status, error code, x-should-retry)
+# (run status, terminal code, permanent, HTTP status, error code, x-should-retry, Retry-After)
 TERMINAL_ROWS = [
-    ("failed", "fail_closed", True, 422, "fail_closed", "false"),
-    ("failed", "chat_input_unavailable", False, 500, "chat_input_unavailable", "false"),
-    ("failed", "chat_input_invalid", True, 500, "chat_input_invalid", "false"),
-    ("failed", "final_step_ambiguous", True, 502, "final_step_ambiguous", "false"),
-    ("failed", "quorum_not_met", True, 502, "quorum_not_met", "false"),
-    ("failed", "unbound_reference", False, 502, "unbound_reference", "true"),
-    ("failed", "queue_expired", False, 502, "queue_expired", "true"),
-    ("failed", "provider_secret_code", True, 502, "internal_error", "false"),
-    ("failed", "memory_budget_exceeded", True, 503, "run_failed", "false"),
-    ("failed", "oom_killed", False, 503, "run_failed", "true"),
-    ("failed", "killed", False, 503, "run_failed", "true"),
-    ("failed", "child_exited", False, 503, "run_failed", "true"),
-    ("stopped", "worker_draining", False, 503, "worker_draining", "true"),
-    ("stopped", "cancelled", False, 503, "run_failed", "true"),
-    ("timed_out", "deadline_exceeded", False, 504, "timeout", "false"),
+    ("failed", "fail_closed", True, 422, "fail_closed", "false", None),
+    ("failed", "chat_input_unavailable", False, 500, "chat_input_unavailable", "false", None),
+    ("failed", "chat_input_invalid", True, 500, "chat_input_invalid", "false", None),
+    ("failed", "final_step_ambiguous", True, 502, "final_step_ambiguous", "false", None),
+    ("failed", "quorum_not_met", True, 502, "quorum_not_met", "false", None),
+    ("failed", "unbound_reference", False, 502, "unbound_reference", "true", None),
+    ("failed", "queue_expired", False, 502, "queue_expired", "true", None),
+    ("failed", "provider_secret_code", True, 502, "internal_error", "false", None),
+    ("failed", "memory_budget_exceeded", True, 503, "run_failed", "false", None),
+    ("failed", "oom_killed", False, 503, "run_failed", "true", "5"),
+    ("failed", "killed", False, 503, "run_failed", "true", "5"),
+    ("failed", "child_exited", False, 503, "run_failed", "true", "5"),
+    ("stopped", "worker_draining", False, 503, "worker_draining", "true", "5"),
+    ("stopped", "cancelled", False, 503, "run_failed", "true", "5"),
+    ("timed_out", "deadline_exceeded", False, 504, "timeout", "false", None),
 ]
 
 # (name, script, HTTP status, error code): a succeeded run that has no usable result.
@@ -154,7 +154,8 @@ async def test_abstained_result_is_200_empty_content_with_status() -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "code", "permanent", "http_status", "error_code", "retry"), TERMINAL_ROWS
+    ("status", "code", "permanent", "http_status", "error_code", "retry", "retry_after"),
+    TERMINAL_ROWS,
 )
 async def test_each_row_of_the_terminal_table_gives_its_status_code_and_retry_header(
     status: Any,
@@ -163,7 +164,9 @@ async def test_each_row_of_the_terminal_table_gives_its_status_code_and_retry_he
     http_status: int,
     error_code: str,
     retry: str,
+    retry_after: str | None,
 ) -> None:
+    """Only the retryable 503 rows send Retry-After, so an SDK does not retry into a restart."""
     ca = chat_app(ended(status, code, permanent=permanent))
     resp = await post(ca.app, body())
 
@@ -171,7 +174,7 @@ async def test_each_row_of_the_terminal_table_gives_its_status_code_and_retry_he
     assert error(resp)["code"] == error_code
     assert error(resp)["type"] == _error_type(http_status)
     assert resp.headers["x-should-retry"] == retry
-    assert "retry-after" not in resp.headers
+    assert resp.headers.get("retry-after") == retry_after
 
 
 @pytest.mark.parametrize(("name", "script", "http_status", "error_code"), SUCCESS_ROWS)
@@ -219,11 +222,11 @@ async def test_refused_result_maps_to_refusal_message_and_content_filter() -> No
 
 
 @pytest.mark.parametrize(
-    ("code", "permanent", "retry"),
-    [("oom_killed", False, "true"), ("memory_budget_exceeded", True, "false")],
+    ("code", "permanent", "retry", "retry_after"),
+    [("oom_killed", False, "true", "5"), ("memory_budget_exceeded", True, "false", None)],
 )
 async def test_worker_loss_or_memory_breach_is_503_run_failed(
-    code: str, permanent: bool, retry: str
+    code: str, permanent: bool, retry: str, retry_after: str | None
 ) -> None:
     ca = chat_app(ended("failed", code, permanent=permanent))
     resp = await post(ca.app, body())
@@ -231,6 +234,7 @@ async def test_worker_loss_or_memory_breach_is_503_run_failed(
     assert resp.status_code == 503
     assert error(resp)["code"] == "run_failed"
     assert resp.headers["x-should-retry"] == retry
+    assert resp.headers.get("retry-after") == retry_after
 
 
 async def test_timeout_and_permanent_failures_send_x_should_retry_false() -> None:
