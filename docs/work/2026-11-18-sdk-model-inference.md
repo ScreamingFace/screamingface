@@ -93,6 +93,19 @@ docs examples run in tests.
   pyright helper of the new typing test copies `_pyright` of
   `tests/test_evaluate_overload_types.py`; a shared helper needs an edit of that main test
   file, which the append-only rule blocks. Follow-up. Gates: SDK green (vs merge base).
+- **2026-11-18 — U3 (reply types and frame reader) done.** The C1.3 types in
+  `screamingface/chat_completion.py` (frozen, `to_dict()`, short forms) and the pure reader
+  `screamingface/_inference/frames.py` (SSE lines to events, events to chunks, chunks to one
+  `ChatCompletion` by C2.3). Tests MI-4, MI-5, MI-26 (`test_chat_completion_types.py`,
+  `test_model_inference_frames.py`, `test_model_inference_frames_invalid.py`, helper
+  `tests/_chat_frames.py`). Tiered-build run `wf_4ed732d0-c5e`; review accept with fixes, no
+  structural finding; F1–F3, F5–F8 fixed in the run, F9 skipped (C1.3 has no place for "key
+  missing" vs null). Readings of C2.3 (strict, as the Engine sends a buffered stream): a content,
+  refusal or tool call split over two deltas, or a repeated tool-call index, is `wrong_shape`
+  (U4 maps it to invalid_response); a body that is not UTF-8 is `not_text`; a negative cost is
+  `wrong_shape`. Known drift point: `tests/_chat_frames.py` copies the Engine wire by hand
+  (no cross-package import); MI-28 (U8) catches drift. Open for U4 (F4): read lines with
+  httpx `iter_lines()` and keep `lines_from_bytes` only if production uses it. Gates: SDK green.
 
 ## Outcome (fill at the end — required before COMMIT)
 
