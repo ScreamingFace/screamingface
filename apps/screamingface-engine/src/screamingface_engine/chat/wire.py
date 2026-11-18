@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 __all__ = [
     "AssistantMessage",
@@ -184,12 +184,14 @@ class ChatCompletionRequest(_Wire):
     modalities: list[str] | None = None
     audio: dict[str, Any] | None = None
 
-    @model_validator(mode="after")
-    def _unique_tool_names(self) -> ChatCompletionRequest:
-        names = [tool.function.name for tool in self.tools or []]
+    @field_validator("tools")
+    @classmethod
+    def _unique_tool_names(cls, tools: list[ToolSpec] | None) -> list[ToolSpec] | None:
+        # WHY a field validator: the error location is ("tools",), so the route names the param.
+        names = [tool.function.name for tool in tools or []]
         if len(names) != len(set(names)):
             raise ValueError("each tool name must be unique")
-        return self
+        return tools
 
 
 class Usage(_Out):

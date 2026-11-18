@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal, cast
@@ -21,11 +21,17 @@ from httpx import ASGITransport
 
 from screamingface_engine.app import create_app
 from screamingface_engine.artifacts.chat_inputs import chat_input_store
-from screamingface_engine.catalog.port import Credential, ModelParameterResponse
+from screamingface_engine.catalog.port import (
+    Credential,
+    ModelCatalog,
+    ModelParameterResponse,
+    compute_etag,
+)
 from screamingface_engine.chat.result import CHAT_RESULT_MEDIA_TYPE, ChatResult, encode_chat_result
 from screamingface_engine.config import Settings
 from screamingface_engine.runner_queue import RunQueueUnavailable
 from screamingface_engine.testing import InMemoryEventStream
+from screamingface_engine.world.models.registry import encode_route_id
 from url4.streaming.interfaces import JobAlreadyExists, JobRunnerAtCapacity
 from url4.streaming.protocol import (
     CostUsageEvent,
@@ -53,6 +59,7 @@ __all__ = [
     "Receive",
     "Script",
     "ScriptedRunner",
+    "ToolCatalog",
     "answered",
     "asgi_call",
     "asgi_scope",
@@ -274,6 +281,33 @@ class LookupSource:
         return ModelParameterResponse(status=status, content=b"{}")
 
 
+class ToolCatalog:
+    """A fake model catalogue: one row per model, in route form, with its supported parameters."""
+
+    def __init__(
+        self, supported: Mapping[str, list[str]], *, error: Exception | None = None
+    ) -> None:
+        self.supported = dict(supported)
+        self.error = error
+        self.calls: list[str] = []
+
+    async def fetch(self, credential: Credential) -> ModelCatalog:
+        """The catalogue of every caller, or the configured error."""
+        self.calls.append(credential.key)
+        if self.error is not None:
+            raise self.error
+        data = [
+            {"id": encode_route_id(model), "object": "model", "supported_parameters": params}
+            for model, params in self.supported.items()
+        ]
+        body: dict[str, object] = {"object": "list", "data": data}
+        return ModelCatalog(body=body, etag=compute_etag(body))
+
+    def max_age_s(self, credential: Credential) -> int:
+        """The fixed cache age of the fake."""
+        return 60
+
+
 @dataclass
 class ChatApp:
     """An App built by `chat_app`, with the fakes it was built over."""
@@ -294,9 +328,13 @@ def chat_app(
     with_source: bool = True,
     blob_store: bool = True,
     job_runner: bool = True,
+    catalog: Any = None,
     **runner_flags: Any,
 ) -> ChatApp:
-    """An App on create_app with a scripted runner and an in-memory chat-input store."""
+    """An App on create_app with a scripted runner and an in-memory chat-input store.
+
+    `catalog`, when given, replaces the App's model catalogue (the tool-support check).
+    """
     stream = InMemoryEventStream()
     objects = MemoryObjects()
     runner = ScriptedRunner(stream, script, objects, **runner_flags)
@@ -310,6 +348,8 @@ def chat_app(
         model_parameters=source,
     )
     app.state.chat_input_store = chat_input_store(objects) if blob_store else None
+    if catalog is not None:
+        app.state.catalog = catalog
     return ChatApp(app, runner, stream, objects, source)
 
 

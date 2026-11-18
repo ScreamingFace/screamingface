@@ -35,6 +35,7 @@ from screamingface_engine.benchmarks.registry import served_routes
 from screamingface_engine.combine.builtins import BUILTIN_OPERATORS
 from screamingface_engine.world.branch import install_branch_runtime
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
+from screamingface_engine.world.chat_final import install_chat_final
 from screamingface_engine.world.chat_turn import install_chat_turn
 from screamingface_engine.world.combine import install_combine_runtime
 from screamingface_engine.world.config import (
@@ -189,10 +190,13 @@ def _install_internal_routes(node: Url4Node) -> None:
     install_chat_turn(node)
 
 
-async def _install_internal_routes_or_close(world: AigatewayWorld) -> None:
-    """Install the internal routes on a gateway world; a refusal closes the world first."""
+async def _install_internal_routes_or_close(world: AigatewayWorld, cfg: AigatewayConfig) -> None:
+    """Install the internal and final-step routes on a gateway world; a refusal closes it first."""
     try:
         _install_internal_routes(world.node)
+        # The chat final-step routes (tool-calls §3.2): one per declared model, with the gateway
+        # world.
+        install_chat_final(world, cfg)
     except ValueError as exc:
         await world.aclose()
         raise WorldConfigError(f"cannot install the engine routes: {exc}") from exc
@@ -245,8 +249,9 @@ async def build_world(
     # `disabled` locally, and NEITHER mode reads `Authorization` — so there is no token to demand.
     # Identity is forwarded when present and simply absent locally, where every caller is
     # anonymous.
+    cfg = _aigateway_config(section)
     world = await _gateway_world(
-        section, resolved.routing, env=env, client=client, tavily_client=tavily_client
+        cfg, resolved.routing, env=env, client=client, tavily_client=tavily_client
     )
     # F3 (prd/02): the read-side mounts register on the SAME node that serves model routes, before
     # any benchmark endpoint, so a declared path is addressable exactly where a model route is. A
@@ -266,7 +271,7 @@ async def build_world(
     # build.
     _DIRECT_MOUNTS[world.node] = served_routes(world.node)
     # WHY after the snapshot: the internal routes are never direct mounts.
-    await _install_internal_routes_or_close(world)
+    await _install_internal_routes_or_close(world, cfg)
     if len(benchmarks):
         # WHY: installation can fail through any concrete Benchmark adapter. AsyncExitStack
         # guarantees the already-open model world closes without a catch-all exception clause.
@@ -292,8 +297,21 @@ async def build_world(
     return world.node, world.aclose
 
 
+def _aigateway_config(section: AigatewaySection) -> AigatewayConfig:
+    """The connector config of the declared `[aigateway]` table."""
+    return AigatewayConfig(
+        base_url=section.base_url,
+        default_model=section.default_model,
+        models=section.models,
+        allow_outbound=section.allow_outbound,
+        timeout_s=section.timeout_s,
+        queue_timeout_s=section.queue_timeout_s,
+        web_tool_max_iterations=section.web_tool_max_iterations,
+    )
+
+
 async def _gateway_world(
-    section: AigatewaySection,
+    cfg: AigatewayConfig,
     routing: Mapping[str, RoutingProfile],
     *,
     env: Mapping[str, str],
@@ -315,15 +333,6 @@ async def _gateway_world(
         WorldConfigError: the connector's own refusals, or a declared model at `/classify` or
             `/route-answer`; the half-built world is closed first.
     """
-    cfg = AigatewayConfig(
-        base_url=section.base_url,
-        default_model=section.default_model,
-        models=section.models,
-        allow_outbound=section.allow_outbound,
-        timeout_s=section.timeout_s,
-        queue_timeout_s=section.queue_timeout_s,
-        web_tool_max_iterations=section.web_tool_max_iterations,
-    )
     world = await build_aigateway_world(
         cfg,
         client=client,

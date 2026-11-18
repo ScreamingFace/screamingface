@@ -1,7 +1,9 @@
 """The OpenAI error envelope of POST /v1/chat/completions, with fixed messages.
 
-WHY fixed messages: no provider text and no client text reaches a caller through this envelope.
-Each code has one message in FIXED_MESSAGES; a code without one gets the generic run failure.
+WHY fixed messages: no provider text and no client text reaches a caller through this envelope,
+with one exception: `model_does_not_support_tools` (TC-S10) names the model id of a final step,
+a route parsed from the client's recipe. Each code has one message in FIXED_MESSAGES; a code
+without one gets the generic run failure.
 """
 
 from fastapi.responses import JSONResponse

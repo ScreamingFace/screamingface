@@ -9,14 +9,16 @@ Outside one it fails closed before any read or model call (CR-S18). A nested tur
 run (a recipe that names the turn route) also fails closed before any read or model call.
 INVARIANT: no log carries the content of a message. A log names a code and a digest only.
 INVARIANT: the route binds no retrieval policy (CR-S16): each model step keeps its own route.
+FEATURE: tool-calls §3.2. With client tools, the handler re-points each final model step of the
+run's copy of the recipe to the final-step route, binds the turn for that endpoint, and reads the
+tool calls, the provider finish_reason and the usage of the final step from its collector.
 """
 
 from __future__ import annotations
 
 import contextvars
 import logging
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 
 from screamingface_engine.artifacts.blob_schema import blob_ref_digest
 from screamingface_engine.artifacts.blobs import BlobError
@@ -34,6 +36,12 @@ from screamingface_engine.benchmarks.operation_outputs import (
 )
 from screamingface_engine.candidate_scope import candidate_invocation_scope
 from screamingface_engine.chat.input import ChatInput, ChatInputError, decode_chat_input
+from screamingface_engine.chat.recipe import (
+    RecipeRefusal,
+    RepointError,
+    check_recipe,
+    repoint_final_steps,
+)
 from screamingface_engine.chat.result import (
     ChatResult,
     FinalStep,
@@ -41,7 +49,10 @@ from screamingface_engine.chat.result import (
     finish_reason_of,
 )
 from screamingface_engine.chat.views import text_view
+from screamingface_engine.operation_accounting import OperationAccounting
 from screamingface_engine.world.attachment_parts import BlobReader
+from screamingface_engine.world.chat_final import FinalCall, FinalTurn, final_turn_scope
+from screamingface_engine.world.chat_marker import chat_run_reader, chat_run_scope
 from url4.core.errors import ErrorCode, ResolutionError
 from url4.observe import Observer
 from url4.peer import dispatch_direct
@@ -59,6 +70,7 @@ __all__ = [
     "dispatch_chat_turn",
     "install_chat_turn",
     "read_chat_input",
+    "tools_expression",
 ]
 
 CHAT_TURN_ROUTE = "/ensemble/chat/v1/turn"
@@ -67,27 +79,12 @@ CHAT_INPUT_INVALID = "chat_input_invalid"
 
 _logger = logging.getLogger(__name__)
 
-# WHY a ContextVar holding a factory: the marker exists only inside a chat run, and the handler
-# builds the reader lazily, so a store that is not configured fails INSIDE the run.
-_chat_run: contextvars.ContextVar[Callable[[], BlobReader] | None] = contextvars.ContextVar(
-    "screamingface_engine_chat_run", default=None
-)
 # WHY a second marker: a chat run runs ONE turn. The reader marker stays bound for the whole
 # evaluation, because the final-step endpoint needs it inside the same evaluation (contracts C7),
 # so it cannot tell an outer turn from a nested one.
 _turn_entered: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "screamingface_engine_chat_turn_entered", default=False
 )
-
-
-@contextmanager
-def chat_run_scope(reader: Callable[[], BlobReader]) -> Iterator[None]:
-    """Mark the enclosed calls as one chat run that reads its input through `reader`."""
-    token = _chat_run.set(reader)
-    try:
-        yield
-    finally:
-        _chat_run.reset(token)
 
 
 def chat_turn_target(input_ref: str, recipe: str) -> str:
@@ -154,20 +151,70 @@ async def read_chat_input(reader: Callable[[], BlobReader], input_ref: str) -> C
         raise _invalid() from None
 
 
-def _final_step(final: OperationOutput | None) -> FinalStep | None:
-    """The facts of the final model step, or None for a reducer or a step with no accounting."""
-    if final is None or final.combine is not None or final.accounting is None:
-        return None
-    accounting = final.accounting
-    if not accounting.request_model:
+def tools_expression(recipe: str) -> str:
+    """The run's copy of `recipe` with each final model step on the final-step route (§3.2).
+
+    The `model` value of the client is not changed. A recipe with no final model step (each
+    final position is an outcome) is returned as it is.
+
+    Raises:
+        ResolutionError: permanent; the code of the recipe check when it refuses the recipe, or
+            `internal_error` when the re-point cannot prove its copy.
+    """
+    try:
+        checked = check_recipe(recipe, with_tools=True)
+        models = [position for position in checked.positions if position.kind == "model"]
+        return repoint_final_steps(checked.root, models) if models else recipe
+    except RecipeRefusal as exc:
+        raise ResolutionError(exc.message, code=exc.code, permanent=True) from None
+    except RepointError:
+        raise ResolutionError(
+            "the recipe could not be prepared for tools", code="internal_error", permanent=True
+        ) from None
+
+
+def _step(binding: str, accounting: OperationAccounting | None) -> FinalStep | None:
+    """The facts of one final model step, or None when it has no accounting or request model."""
+    if accounting is None or not accounting.request_model:
         return None
     usage = accounting.usage
     prompt, completion = usage.input_tokens, usage.output_tokens
     total = prompt + completion if prompt is not None and completion is not None else None
     return FinalStep(
-        binding=final.operation_id.removeprefix("op_"),
+        binding=binding,
         model=accounting.request_model,
         usage={"prompt_tokens": prompt, "completion_tokens": completion, "total_tokens": total},
+    )
+
+
+def _final_step(final: OperationOutput | None) -> FinalStep | None:
+    """The facts of the final model step, or None for a reducer or a step with no accounting."""
+    if final is None or final.combine is not None:
+        return None
+    return _step(final.operation_id.removeprefix("op_"), final.accounting)
+
+
+def _answered(
+    invocation: CandidateInvocation,
+    final: OperationOutput | None,
+    final_call: FinalCall | None,
+    step: FinalStep | None,
+) -> ChatResult:
+    """The answered result: with tools, the tool calls and finish_reason of the final call."""
+    if final_call is not None:
+        tool_calls = list(final_call.tool_calls)
+        provider = final_call.finish_reason
+    else:
+        tool_calls = []
+        # WHY: a reducer, or no single attributed final operation (final is None), has no
+        # provider value and no tool call, so the value is "stop" and final_step is null (§2.4).
+        provider = None if final is None or final.combine is not None else final.finish_reason
+    return ChatResult(
+        status="answered",
+        content=invocation.output,
+        tool_calls=tool_calls,
+        finish_reason=finish_reason_of(provider, tool_calls),
+        final_step=step,
     )
 
 
@@ -176,9 +223,18 @@ def chat_result_from_invocation(
     final: OperationOutput | None,
     *,
     abstain_reason: str | None,
+    final_call: FinalCall | None = None,
 ) -> ChatResult:
-    """The CHAT_RESULT of one Candidate Invocation and its final operation (erd §2.4)."""
-    step = _final_step(final)
+    """The CHAT_RESULT of one Candidate Invocation and its final operation (erd §2.4).
+
+    With tools, `final_call` is the one call of the final-step endpoint: it gives the tool calls,
+    the provider finish_reason and the final step.
+    """
+    step = (
+        _final_step(final)
+        if final_call is None
+        else _step(final_call.binding, final_call.accounting)
+    )
     if invocation.status == "refused":
         return ChatResult(
             status="refused",
@@ -190,15 +246,7 @@ def chat_result_from_invocation(
         return ChatResult(
             status="abstained", finish_reason="stop", abstain_reason=abstain_reason, final_step=step
         )
-    # WHY: a reducer, or no single attributed final operation (final is None), has no provider
-    # value and no tool call, so the value is "stop" and final_step is null (erd §2.4).
-    provider = None if final is None or final.combine is not None else final.finish_reason
-    return ChatResult(
-        status="answered",
-        content=invocation.output,
-        finish_reason=finish_reason_of(provider, []),
-        final_step=step,
-    )
+    return _answered(invocation, final, final_call, step)
 
 
 class ChatTurnRoute:
@@ -210,7 +258,7 @@ class ChatTurnRoute:
         self._node = node
 
     async def __call__(self, request: Request) -> str:
-        reader = _chat_run.get()
+        reader = chat_run_reader()
         if reader is None:
             raise ResolutionError(
                 "the chat turn route runs only in a chat run",
@@ -232,20 +280,28 @@ class ChatTurnRoute:
     async def _run_turn(self, reader: Callable[[], BlobReader], request: Request) -> str:
         record = await read_chat_input(reader, request.context)
         view = text_view(record.messages, record.tools)
+        turn = (
+            FinalTurn(tuple(record.messages), tuple(record.tools), view) if record.tools else None
+        )
+        # INVARIANT: with no tools the run evaluates the recipe as built (CR-7 parity).
+        expression = request.intent if turn is None else tools_expression(request.intent)
         # INVARIANT: an error of the evaluation propagates unchanged, so the terminal frame
         # carries its Engine code (CR-S5).
-        with candidate_invocation_scope():
+        with candidate_invocation_scope(), final_turn_scope(turn):
             envelope = await evaluate_candidate_recipe(
-                self._node, request.intent, view, isolate_operation_calls=True
+                self._node, expression, view, isolate_operation_calls=True
             )
         invocation = decode_candidate_invocation_record(envelope)
-        final = final_operation(request.intent, invocation.operations)
+        final = final_operation(expression, invocation.operations)
         reason = (
-            final_operation_abstain_reason(request.intent, invocation.operations)
+            final_operation_abstain_reason(expression, invocation.operations)
             if invocation.abstained
             else None
         )
-        result = chat_result_from_invocation(invocation, final, abstain_reason=reason)
+        call = turn.calls.result() if turn is not None else None
+        result = chat_result_from_invocation(
+            invocation, final, abstain_reason=reason, final_call=call
+        )
         return encode_chat_result(result).decode("utf-8")
 
 

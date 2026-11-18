@@ -687,6 +687,10 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         # it as one observed node, the same way as the combine and branch adapters
         # (owner-approved edit, 2026-11-17).
         Path("screamingface_engine/world/chat_turn.py"),
+        # The chat final-step adapter registers /ensemble/chat/v1/final/<route id> for each
+        # declared model and sends the one final request through the shared round trip
+        # (owner-approved edit, 2026-11-17).
+        Path("screamingface_engine/world/chat_final.py"),
     }
 )
 

@@ -83,7 +83,8 @@ CHAT_RESPONSES: dict[int | str, dict[str, Any]] = {
     },
     400: _error(
         "`invalid_request`, `unsupported_parameter`, `unsupported_content`, "
-        "`recipe_invalid` or `recipe_not_supported`."
+        "`recipe_invalid`, `recipe_not_supported`, `final_step_not_model` or "
+        "`model_does_not_support_tools`."
     ),
     401: _error("`identity_required`: no verified caller identity."),
     404: _error("`model_not_found`: the model id is not known."),

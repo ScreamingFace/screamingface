@@ -14,12 +14,26 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Any, Literal
+from typing import Any
 
 from screamingface_engine.benchmarks.operation_outputs import parsed_iterate_body
 from screamingface_engine.benchmarks.picture_admission import _candidate_recipes
+from screamingface_engine.chat._recipe_types import (
+    FINAL_NOT_UNIQUE_MESSAGE,
+    FINAL_SEARCH_MESSAGE,
+    FINAL_STEP_NOT_MODEL_MESSAGE,
+    LINKED_EXPRESSION_MESSAGE,
+    UNKNOWN_FINAL_MESSAGE,
+    FinalModelStep,
+    FinalPosition,
+    PositionKind,
+    RecipeRefusal,
+    RefusalCode,
+    RepointError,
+)
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE
 from url4.core.errors import Url4Error
 from url4.core.nodes import Expression, Iteration, Node, RelExpr, Source, Text, VarRef, walk
@@ -28,16 +42,21 @@ from url4.core.render import render
 
 __all__ = [
     "CHAT_ROUTE_PREFIX",
+    "FINAL_NOT_UNIQUE_MESSAGE",
+    "FINAL_SEARCH_MESSAGE",
     "FINAL_STEP_NOT_MODEL_MESSAGE",
     "FINAL_STEP_ROUTE",
     "LINKED_EXPRESSION_MESSAGE",
+    "UNKNOWN_FINAL_MESSAGE",
     "CheckedRecipe",
+    "FinalModelStep",
     "FinalPosition",
     "PositionKind",
     "RecipeRefusal",
     "RefusalCode",
     "RepointError",
     "check_recipe",
+    "final_model_steps",
     "final_positions",
     "is_recipe_value",
     "one_model_recipe",
@@ -47,22 +66,12 @@ __all__ = [
 CHAT_ROUTE_PREFIX = "/ensemble/chat/v1/"
 FINAL_STEP_ROUTE = "/ensemble/chat/v1/final"
 
-FINAL_STEP_NOT_MODEL_MESSAGE = (
-    "With tools, the last step of the recipe must be a model step. Add a final model stage, "
-    "for example cascade >> model."
-)
-LINKED_EXPRESSION_MESSAGE = (
-    "the model value is a benchmark-linked expression; send the Candidate URL4 as the model"
-)
 _INVALID_MESSAGE = "the model value is not a valid URL4 recipe"
 _NO_FINAL_FORM_MESSAGE = "the final form of the recipe is not known"
 _DANGLING_MESSAGE = "the recipe names a final step that it does not define"
 _CHAT_ROUTE_MESSAGE = "the recipe names a route that only the Engine may use"
 _LOOP_MESSAGE = "a corrective loop needs a Benchmark; the chat route does not run it"
-_UNKNOWN_MESSAGE = "with tools, the check cannot find the last step of the recipe"
 
-RefusalCode = Literal["recipe_invalid", "recipe_not_supported", "final_step_not_model"]
-PositionKind = Literal["model", "reducer", "step", "outcome", "loop", "unknown"]
 
 _REFERENCE = re.compile(r"\$([A-Za-z0-9_]+)")
 # WHY: in lock-step with FINAL_BINDING of packages/screamingface/src/screamingface/
@@ -76,29 +85,7 @@ _OUTCOMES = frozenset({"abstain", "fail_closed", "skip"})
 
 type _Groups = dict[tuple[str, ...], frozenset[str]]
 type _Flat = dict[tuple[tuple[str, ...], str], Node]
-
-
-class RecipeRefusal(ValueError):
-    """The chat route refuses the recipe. The message never echoes recipe text."""
-
-    def __init__(self, code: RefusalCode, message: str) -> None:
-        super().__init__(message)
-        self.code: RefusalCode = code
-        self.message = message
-
-
-class RepointError(ValueError):
-    """The re-point could not prove that its copy changed only the selected steps."""
-
-
-@dataclass(frozen=True)
-class FinalPosition:
-    """One place whose output can be the answer of the recipe (prd/tool-calls.md §3.1)."""
-
-    kind: PositionKind
-    binding: str | None
-    scope: tuple[str, ...]
-    route: str | None
+type _Counts = Counter[tuple[tuple[str, ...], str]]
 
 
 @dataclass(frozen=True)
@@ -155,7 +142,8 @@ def check_recipe(expression: str, *, with_tools: bool) -> CheckedRecipe:
 
     The order: the chat route prefix (TC-S23), the parse, a benchmark-linked root (CC-S15), the
     final form (CC-S13), a corrective loop (CC-S14), and with tools only, a reducer or step final
-    (TC-S7, TC-S22) and then an unknown final (TC-S9). Without tools, the other finals run as built.
+    (TC-S7, TC-S22), an unknown final (TC-S9) and then a final model binding with two sources at
+    its scope (TC-S16). Without tools, the other finals run as built.
     """
 
     # WHY: a text test, not a walk of the parsed paths, so it also finds the prefix in a body that
@@ -180,6 +168,7 @@ def check_recipe(expression: str, *, with_tools: bool) -> CheckedRecipe:
         raise RecipeRefusal("recipe_not_supported", _LOOP_MESSAGE)
     if with_tools:
         _check_tool_kinds(kinds)
+        _check_unique_finals(root, positions)
     return CheckedRecipe(root, positions)
 
 
@@ -212,7 +201,31 @@ def _check_tool_kinds(kinds: set[PositionKind]) -> None:
     if kinds & {"reducer", "step"}:
         raise RecipeRefusal("final_step_not_model", FINAL_STEP_NOT_MODEL_MESSAGE)
     if "unknown" in kinds:
-        raise RecipeRefusal("recipe_not_supported", _UNKNOWN_MESSAGE)
+        raise RecipeRefusal("recipe_not_supported", UNKNOWN_FINAL_MESSAGE)
+
+
+def _check_unique_finals(root: Expression, positions: tuple[FinalPosition, ...]) -> None:
+    """TC-S16 before the run: the re-point moves each source of a final binding, so a final model
+    binding with two sources at its scope would run two paid final steps and fail the turn."""
+
+    counts = _source_counts(root, ())
+    if any(p.kind == "model" and counts[(p.scope, p.binding or "")] > 1 for p in positions):
+        raise RecipeRefusal("recipe_not_supported", FINAL_NOT_UNIQUE_MESSAGE)
+
+
+def _source_counts(expr: Expression, scope: tuple[str, ...]) -> _Counts:
+    """The number of sources of each name by scope; a block and a parsed branch body too."""
+
+    counts: _Counts = Counter()
+    for node in expr.sources:
+        if not isinstance(node, Source) or not node.name:
+            continue
+        counts[(scope, node.name)] += 1
+        value = node.value
+        inner = parsed_iterate_body(value) if isinstance(value, Iteration) else value
+        if isinstance(inner, Expression):
+            counts.update(_source_counts(inner, (*scope, node.name)))
+    return counts
 
 
 def _reference(intent: Node | None) -> str | None:
@@ -334,6 +347,28 @@ def _recipe_branch(
     if body is None or name is None:
         return [_unknown(body_name, scope)]
     return _classify(body, name, (*scope, body_name))
+
+
+def final_model_steps(checked: CheckedRecipe) -> tuple[FinalModelStep, ...]:
+    """Each final model position with the route and the parameters of its model call.
+
+    A source is found by its scope and binding name, never by its path. A position whose source
+    is not a model call raises RepointError.
+    """
+
+    flat = _flatten(checked.root, ())
+    steps: list[FinalModelStep] = []
+    for position in checked.positions:
+        if position.kind != "model" or position.binding is None:
+            continue
+        source = flat.get((position.scope, position.binding))
+        value = source.value if isinstance(source, Source) else None
+        if not isinstance(value, RelExpr):
+            raise RepointError("a final model step is not a model call")
+        steps.append(
+            FinalModelStep(binding=position.binding, route=value.path, params=dict(value.params))
+        )
+    return tuple(steps)
 
 
 def repoint_final_steps(root: Expression, positions: Sequence[FinalPosition]) -> str:
