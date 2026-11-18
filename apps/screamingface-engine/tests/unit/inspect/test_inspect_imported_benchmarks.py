@@ -235,6 +235,7 @@ def test_every_benchmark_from_this_plugin_names_inspect_evals_as_its_source() ->
     # in. The origin must match where the task code lives, both ways.
     # OME-1960: a local Task an outside contributor wrote says "external" instead; it is
     # still not an inspect_evals import, and only a row that names its contributors may say so.
+    # Assertion change approved by the owner on 2026-11-18 (test-change approval OME-1952).
     expected = {
         imported_benchmark_id(spec.key, spec.origin): (
             "inspect_evals"
