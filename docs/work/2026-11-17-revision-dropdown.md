@@ -206,3 +206,15 @@ Review-fix outcome:
   - Latest is now always listed first. An earlier revision can therefore arrive with no end
     date, and its label reads "from 9 Oct 2026" instead of a bare day. One new test.
   - The gate card and CI keep main's new `board-url.test.js` alongside the new suite.
+- **Prod audit (2026-11-18, read-only, firecall):** both queries ran in a read-only
+  transaction inside the prod scoreboard pod. Migration 0024 is not applied on prod yet.
+  - Four boards have runs under a past revision: draco-3pass (7 runs), inspect-frontierscience
+    (6), inspect-winogrande (2) and musique (7). Each has one submitter, and each was submitted
+    before the board's current revision was first used. These are real earlier revisions,
+    not stray ids.
+  - The largest question count equals the board's Case count on all four, and no group's
+    largest count differs from its most common one. The backfilled counts hold.
+  - inspect-winogrande has no runs under its current revision, so it will open on an empty
+    Latest that points to the 2 earlier results.
+  - musique's earlier revision was first seen 28 minutes before its current one, on the same
+    day, so its label reads "about 20 Oct – 20 Oct 2026".
