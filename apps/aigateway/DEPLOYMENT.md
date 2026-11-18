@@ -990,12 +990,85 @@ period of low load.
   release, runs it (see "Keep the release's values in every upgrade below" in the Migrations
   section).
 
+### The claim route
+
+The scoreboard claims the frozen copy of each Score with
+`POST /v1/frozen-copies/{copy_id}/claim`. The request has no body. A claim sets `claimed_at` of a
+`sealed` copy. The expiry rule of a later pull request of OME-1947 keeps a claimed copy. The spec
+is `docs/spec/2026-11-16-frozen-copy-retention/prd/score-claim.md` and `contracts.md` K4.
+
+| Environment variable | Chart key | Default | Meaning |
+| --- | --- | --- | --- |
+| `AIGW_FROZEN_COPY_CLAIM_EMAILS` | `config.frozenCopyClaimEmails` | empty | The addresses that may claim, separated by commas. Set it to the actor address of the scoreboard (`SCOREBOARD_GATEWAY_ACTOR`). |
+
+- This list is not the admin list (`AIGATEWAY_ADMIN_EMAILS`). An address on the admin list
+  cannot claim. An address on the claim list cannot use `/v1/admin`.
+- The comparison ignores upper case and lower case.
+- A claim makes no account row for the caller.
+- With an empty list, the claim route answers `503` in `cloudflare_headers` mode.
+
+The answers of the route:
+
+| Case | Answer |
+| --- | --- |
+| `sealed` copy, first claim | `200` with `id`, `status: "sealed"`, `claimed_at` (UTC) and `already: false` |
+| `sealed` copy, claimed before | `200` with the first `claimed_at` and `already: true` |
+| `open` copy | `409`, `detail.code` is `frozen_copy_not_sealed` |
+| `abandoned` or `expired` copy | `410`, `detail.code` is `frozen_copy_expired`, `detail.state` is the status |
+| unknown or malformed copy id | `404`, `detail.code` is `frozen_copy_not_found` |
+| `cloudflare_headers` mode, empty claim list | `503` |
+| `cloudflare_headers` mode, peer not in `AIGW_ALLOWED_NETWORKS`, or address not in the list | `403` |
+| `cloudflare_headers` mode, no `X-User-Email` header | `401` |
+| `jwt` mode | `503` |
+| `disabled` mode (loopback only) | the call is accepted with no list |
+
+You can send a claim again at any time. A claim changes no copy that is not `sealed`. The first
+claim of a copy writes one INFO record:
+
+```text
+frozen copy claimed copy=<copy id>
+```
+
+**The network.** The scoreboard is in a different namespace. Add one element to
+`networkPolicy.allowFrom` that has the namespace selector and the pod selector of the scoreboard
+together (see "Who may connect" in `charts/aigateway/README.md`). Do not use
+`networkPolicy.clientPodNames`: that list is for one namespace only. Also add the address range
+of the scoreboard pods to `config.allowedNetworks` (`AIGW_ALLOWED_NETWORKS`).
+
+```yaml
+networkPolicy:
+  allowFrom:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: scoreboard
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: scoreboard
+```
+
+**Check before the scoreboard gets its gateway URL** (step 1 of
+`docs/spec/2026-11-16-frozen-copy-retention/test-plan.md` section 5.2). From a scoreboard pod,
+send a claim for a random UUID to the gateway URL, with the actor address in the header
+`X-User-Email`:
+
+```bash
+kubectl exec -n <scoreboard namespace> deploy/<scoreboard deployment> -- python -c \
+  "import httpx, uuid; r = httpx.post('<gateway URL>/v1/frozen-copies/' + str(uuid.uuid4()) + '/claim', headers={'X-User-Email': '<actor address>'}); print(r.status_code, r.text)"
+```
+
+The answer must be `404` with `detail.code` `frozen_copy_not_found`. This shows that the URL, the
+NetworkPolicy and the claim list are correct. A `403`, a `503` or a connect timeout shows a fault
+in one of them.
+
 ### After an event that can remove claims
 
 `docs/spec/2026-11-16-frozen-copy-retention/test-plan.md` section 5.4 has the advice for such an
-event. In this release, no claim exists yet. Thus the step that applies now is the migration Job
-after a restore (see "Restore of the gateway database" above). The steps with
-`python -m scoreboard.claim_copies` apply when the claim of OME-1947 is released.
+event. A restore of the gateway database removes each claim that was made after the time of the
+backup. This release has the gateway part of the claim (see "The claim route" above). The
+scoreboard part (the claim pass at each start of the scoreboard, and
+`python -m scoreboard.claim_copies`) comes in a later pull request of OME-1947. Until it is
+released, the step that applies is the migration Job after a restore (see "Restore of the gateway
+database" above). When it is released, do the steps of section 5.4.
 
 ## Operations Notes
 

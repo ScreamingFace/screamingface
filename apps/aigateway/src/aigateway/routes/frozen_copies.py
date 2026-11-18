@@ -7,7 +7,9 @@ are the frozen-copy store and the shared ingress preparation, so the digest of a
 is the digest the capture took.
 
 Replay is open to any authenticated account that holds the copy id and sends the exact request
-(design Q16). No route here lists or reads back a stored request (design F2).
+(design Q16). No route here lists or reads back a stored request (design F2). The claim route is
+open only to a caller on the claim list (OME-1947, contracts K4): it sets `claimed_at` of a sealed
+copy, so that the expiry rule keeps the copy.
 """
 
 from __future__ import annotations
@@ -15,11 +17,12 @@ from __future__ import annotations
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from ..call_context import current_call_id, current_trace_id
+from ..core.auth.copy_claim import require_copy_claimer
 from ..core.auth.middleware import CurrentAccount
 from ..core.frozen_copy.headers import STORED_HEADERS_FIELD, MalformedCallKey, parse_call_key
 from ..core.frozen_copy.models import (
@@ -34,6 +37,7 @@ from ..core.frozen_copy.store import (
     frozen_copy_store_for,
     log_capture_failure,
 )
+from ..core.frozen_copy.times import as_utc
 from ..core.request_cache.canonical import CanonicalizationError
 from ..core.request_hardening import chat_body_shape_error, prepare_ingress_body
 from ..plugins.taxonomy import new_gateway_call_id
@@ -263,6 +267,13 @@ def _sealed() -> HTTPException:
     )
 
 
+def _not_sealed() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={"code": "frozen_copy_not_sealed", "message": "the frozen copy is not sealed"},
+    )
+
+
 def _gone(state: str) -> HTTPException:
     # FEATURE (OME-1947, contracts K2): the sweep made the copy final and deleted its entries.
     return HTTPException(
@@ -305,6 +316,31 @@ async def read_provenance(
     """
     copy = await _sealed_copy(request, copy_id)
     return _read_stored(copy.provenance)
+
+
+@router.post("/v1/frozen-copies/{copy_id}/claim", dependencies=[Depends(require_copy_claimer)])
+async def claim_frozen_copy(copy_id: str, request: Request) -> dict[str, Any]:
+    # WHY `str` and not `UUID`: a malformed id must be the same 404 as an unknown id, not a 422.
+    try:
+        parsed_id = UUID(copy_id)
+    except ValueError:
+        raise _not_found() from None
+    outcome = await frozen_copy_store_for(request.app).claim(parsed_id)
+    if outcome is None:
+        raise _not_found()
+    copy = outcome.copy
+    if copy.status in (STATUS_ABANDONED, STATUS_EXPIRED):
+        raise _gone(copy.status)
+    if copy.status != STATUS_SEALED:
+        raise _not_sealed()
+    # INVARIANT: `claim` leaves `claimed_at` set on each sealed copy, so a 200 always has it.
+    assert copy.claimed_at is not None
+    return {
+        "id": str(copy.id),
+        "status": copy.status,
+        "claimed_at": as_utc(copy.claimed_at).isoformat(),
+        "already": not outcome.first,
+    }
 
 
 @router.post("/v1/frozen-copies/{copy_id}/tool-results")
