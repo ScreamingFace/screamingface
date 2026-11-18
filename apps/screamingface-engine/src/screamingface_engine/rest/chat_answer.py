@@ -40,7 +40,15 @@ from url4.streaming.protocol import ResultEvent, TerminatedEvent
 from url4.streaming.protocol.signals import CostUsageData
 from url4.streaming.trace import parse_traceparent
 
-__all__ = ["answer", "failure", "missing_root_frame_usage", "usage_and_cost"]
+__all__ = [
+    "answer",
+    "completion_id",
+    "completion_parts",
+    "failure",
+    "missing_root_frame_usage",
+    "read_result",
+    "usage_and_cost",
+]
 
 _logger = logging.getLogger(__name__)
 
@@ -70,10 +78,35 @@ _STATE_ROWS: dict[str, _Row] = {
 
 async def answer(frames: RunFrames, model: str, store: ArtifactReader | None) -> JSONResponse:
     """The 200 answer of a succeeded run, or the ChatError of its terminal row."""
+    result = await read_result(frames, store)
+    return JSONResponse(_completion(result, frames, model).model_dump(mode="json"))
+
+
+async def read_result(frames: RunFrames, store: ArtifactReader | None) -> ChatResult:
+    """The CHAT_RESULT of a succeeded run; the ChatError of its terminal row otherwise."""
     if frames.terminated.data.status != "succeeded":
         raise failure(frames.terminated)
-    result = await _chat_result(frames.result, store)
-    return JSONResponse(_completion(result, frames, model).model_dump(mode="json"))
+    return await _chat_result(frames.result, store)
+
+
+def completion_id() -> str:
+    """A new completion id."""
+    # INVARIANT: never the topic, which is a bearer secret (prd §4 Security).
+    return "chatcmpl-" + uuid.uuid4().hex
+
+
+def completion_parts(result: ChatResult, frames: RunFrames) -> tuple[Usage, ScreamingFaceInfo]:
+    """C9: the usage and the screamingface object of an answer."""
+    trace_id = parse_traceparent(frames.terminated.traceparent)
+    usage, cost_usd = usage_and_cost(frames.root_cost, trace_id)
+    info = ScreamingFaceInfo(
+        status=result.status,
+        abstain_reason=result.abstain_reason,
+        cost_usd=cost_usd,
+        trace_id=trace_id,
+        final_step=_final_step(result.final_step),
+    )
+    return usage, info
 
 
 def failure(terminated: TerminatedEvent) -> ChatError:
@@ -131,8 +164,7 @@ async def _content_bytes(content: ArtifactContent) -> bytes:
 
 
 def _completion(result: ChatResult, frames: RunFrames, model: str) -> ChatCompletionResponse:
-    trace_id = parse_traceparent(frames.terminated.traceparent)
-    usage, cost_usd = usage_and_cost(frames.root_cost, trace_id)
+    usage, info = completion_parts(result, frames)
     refused = result.status == "refused"
     message = ResponseMessage(
         content=None if refused else result.content,
@@ -140,19 +172,12 @@ def _completion(result: ChatResult, frames: RunFrames, model: str) -> ChatComple
         refusal=result.refusal,
     )
     return ChatCompletionResponse(
-        # INVARIANT: never the topic, which is a bearer secret (prd §4 Security).
-        id="chatcmpl-" + uuid.uuid4().hex,
+        id=completion_id(),
         created=int(time.time()),
         model=model,
         choices=[Choice(index=0, finish_reason=result.finish_reason, message=message)],
         usage=usage,
-        screamingface=ScreamingFaceInfo(
-            status=result.status,
-            abstain_reason=result.abstain_reason,
-            cost_usd=cost_usd,
-            trace_id=trace_id,
-            final_step=_final_step(result.final_step),
-        ),
+        screamingface=info,
     )
 
 

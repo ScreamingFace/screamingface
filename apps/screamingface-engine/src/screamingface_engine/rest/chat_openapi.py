@@ -2,6 +2,7 @@
 
 The route declares no body parameter (it reads the body with a running cap), so its request
 body is documented here through `openapi_extra`. Each error answer is the OpenAI envelope.
+The 200 entry lists both answers: the JSON completion and the streamed event answer.
 """
 
 from __future__ import annotations
@@ -53,6 +54,12 @@ REQUEST_BODY: dict[str, Any] = {
                         "messages": {"type": "array", "items": {"type": "object"}},
                         "tools": {"type": "array", "items": {"type": "object"}},
                         "stream": {"type": "boolean"},
+                        "stream_options": {
+                            "type": "object",
+                            "description": "With `stream: true`: `include_usage` adds one usage "
+                            "chunk before `[DONE]`.",
+                            "properties": {"include_usage": {"type": "boolean"}},
+                        },
                     },
                     "additionalProperties": True,
                 }
@@ -62,7 +69,18 @@ REQUEST_BODY: dict[str, Any] = {
 }
 
 CHAT_RESPONSES: dict[int | str, dict[str, Any]] = {
-    200: {"description": "The chat completion, with an extra `screamingface` object."},
+    200: {
+        "description": (
+            "The chat completion as JSON, with an extra `screamingface` object. With "
+            "`stream: true`, a `text/event-stream` of `chat.completion.chunk` data lines and "
+            "`: keep-alive` comments that ends with `data: [DONE]`; an error after the stream "
+            'starts is one `{"error": ...}` data line and no `[DONE]`.'
+        ),
+        "content": {
+            "application/json": {"schema": {"type": "object"}},
+            "text/event-stream": {"schema": {"type": "string"}},
+        },
+    },
     400: _error(
         "`invalid_request`, `unsupported_parameter`, `unsupported_content`, "
         "`recipe_invalid` or `recipe_not_supported`."

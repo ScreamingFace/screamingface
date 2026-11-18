@@ -73,19 +73,30 @@ class ParseGate:
 
 
 class ChatBody:
-    """What the later stages need from the body: the model value, the facts of the log line,
-    and the encoded record.
+    """What the later stages need from the body: the model value, the stream flags, the facts of
+    the log line, and the encoded record.
 
     INVARIANT (CC-S35): the record is handed over once (`take_record`), so nothing holds it after
     the blob write while the request waits for its run.
     """
 
-    __slots__ = ("_record", "digest", "messages", "model", "size")
+    __slots__ = ("_record", "digest", "include_usage", "messages", "model", "size", "stream")
 
-    def __init__(self, model: str, record: bytes, *, size: int, messages: int) -> None:
+    def __init__(
+        self,
+        model: str,
+        record: bytes,
+        *,
+        size: int,
+        messages: int,
+        stream: bool,
+        include_usage: bool,
+    ) -> None:
         self.model = model
         self.size = size
         self.messages = messages
+        self.stream = stream
+        self.include_usage = include_usage
         self.digest = hashlib.sha256(record).hexdigest()
         self._record: bytes | None = record
 
@@ -212,7 +223,14 @@ def _checked(raw: bytes) -> ChatBody:
         record = encode_chat_input(chat_input_from_request(parsed))
     except ChatInputTooLarge:
         raise _too_large() from None
-    return ChatBody(parsed.model, record, size=len(raw), messages=len(parsed.messages))
+    return ChatBody(
+        parsed.model,
+        record,
+        size=len(raw),
+        messages=len(parsed.messages),
+        stream=parsed.stream,
+        include_usage=parsed.stream_options is not None and parsed.stream_options.include_usage,
+    )
 
 
 def _param(exc: ValidationError) -> str | None:

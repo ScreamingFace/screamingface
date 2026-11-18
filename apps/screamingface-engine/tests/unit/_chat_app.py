@@ -289,6 +289,7 @@ def chat_app(
     script: Script | None = None,
     *,
     chat_max_wait_s: float = 5.0,
+    chat_keepalive_s: float = 15.0,
     known: tuple[str, ...] = (MODEL,),
     with_source: bool = True,
     blob_store: bool = True,
@@ -301,7 +302,9 @@ def chat_app(
     runner = ScriptedRunner(stream, script, objects, **runner_flags)
     source = LookupSource(known) if with_source else None
     app = create_app(
-        Settings(jwt_secret=SECRET, chat_max_wait_s=chat_max_wait_s),
+        Settings(
+            jwt_secret=SECRET, chat_max_wait_s=chat_max_wait_s, chat_keepalive_s=chat_keepalive_s
+        ),
         stream=stream,
         job_runner=cast(Any, runner) if job_runner else None,
         model_parameters=source,
