@@ -1,14 +1,17 @@
-"""POST /v1/chat/completions: the OpenAI-compatible chat endpoint, not streamed (U4).
+"""POST /v1/chat/completions: the OpenAI-compatible chat endpoint (U4, U5).
 
 FEATURE: OpenAI-compatible Engine API (prd/chat-completion.md). The handler runs the stages of
 the plan in order: media type, identity and drain (1); body read, parse gate and validation
 (2, 3); model resolution (4); input write and schedule with shape `chat` (5); wait (6); answer
-(7). Each refusal and failure leaves in the OpenAI envelope with fixed, vouched messages
-(`rest.chat_errors`); no `application/problem+json` body leaves this route, and an error that
-no stage expected leaves as 500 `internal_error` (review F1).
+(7). With `stream: true`, stage 7 answers as a buffered SSE stream (`rest.chat_stream`, U5);
+every error before the stream starts keeps the JSON answer. Each refusal and failure leaves in
+the OpenAI envelope with fixed, vouched messages (`rest.chat_errors`); no
+`application/problem+json` body leaves this route, and an error that no stage expected leaves as
+500 `internal_error` (review F1).
 
 INVARIANT: the input blob is deleted on every exit after its write, and the run is stopped on
-every exit that has no terminal frame (`rest.chat_cleanup`).
+every exit that has no terminal frame (`rest.chat_cleanup`). A streamed answer hands both to
+its response, which runs them at the end of the stream.
 """
 
 from __future__ import annotations
@@ -30,11 +33,11 @@ from screamingface_engine.rest.chat_body import ParseGate, check_media_type, rea
 from screamingface_engine.rest.chat_cleanup import ChatCleanup
 from screamingface_engine.rest.chat_drain import ChatDrain
 from screamingface_engine.rest.chat_errors import ChatError, from_problem
-from screamingface_engine.rest.chat_frames import WaitEnd
 from screamingface_engine.rest.chat_model import ModelLookupCache, recipe_for
 from screamingface_engine.rest.chat_observe import RequestFacts, observe
 from screamingface_engine.rest.chat_openapi import CHAT_RESPONSES, CHAT_TAG, REQUEST_BODY
-from screamingface_engine.rest.chat_wait import wait_for_run
+from screamingface_engine.rest.chat_stream import ChatStreamResponse, StreamPlan, stream_answer
+from screamingface_engine.rest.chat_wait import settle_wait, wait_for_run
 from screamingface_engine.rest.routes import (
     _converge_cache,
     _Deps,
@@ -54,13 +57,6 @@ router = APIRouter()
 _logger = logging.getLogger(__name__)
 
 _EMAIL_HEADER = "X-User-Email"
-# INVARIANT: (HTTP status, body code, x-should-retry) of a wait that ended with no terminal frame.
-_WAIT_ROWS: dict[WaitEnd, tuple[int, str, bool]] = {
-    WaitEnd.TIMEOUT: (504, "timeout", False),
-    WaitEnd.DRAINED: (503, "server_restarting", True),
-    # WHY: nobody reads this answer; the status only names the outcome in the metrics.
-    WaitEnd.GONE: (499, "client_disconnected", False),
-}
 
 
 def install_chat_state(app: FastAPI) -> None:
@@ -87,6 +83,10 @@ async def chat_completions(request: Request) -> Response:
     """One chat completion, counted by outcome, timed and logged once."""
     started = time.monotonic()
     facts = RequestFacts()
+
+    def finish(outcome: str, status: int) -> None:
+        observe(request, facts, outcome, status, time.monotonic() - started)
+
     try:
         response: Response = await _complete(request, facts)
         outcome = "ok"
@@ -102,7 +102,11 @@ async def chat_completions(request: Request) -> Response:
             "chat request failed trace_id=%s: %s", facts.trace_id or "-", type(exc).__name__
         )
         response, outcome = ChatError(500, "internal_error").response(), "internal_error"
-    observe(request, facts, outcome, response.status_code, time.monotonic() - started)
+    if isinstance(response, ChatStreamResponse):
+        # WHY: a streamed answer is observed once, at the end of its stream.
+        response.on_end = finish
+        return response
+    finish(outcome, response.status_code)
     return response
 
 
@@ -116,6 +120,8 @@ class _Turn:
     recipe: str
     traceparent: str | None
     topic: str
+    stream: bool
+    include_usage: bool
 
 
 async def _complete(request: Request, facts: RequestFacts) -> Response:
@@ -140,12 +146,19 @@ async def _complete(request: Request, facts: RequestFacts) -> Response:
     topic = new_topic()
     scope = BlobScope.for_caller((identity or {}).get(_EMAIL_HEADER), topic)
     cleanup = ChatCleanup(store, scope, body.digest, deps.job_runner.stop, topic)
-    turn = _Turn(deps, identity, body.model, recipe, traceparent, topic)
+    turn = _Turn(
+        deps, identity, body.model, recipe, traceparent, topic, body.stream, body.include_usage
+    )
+    handed_over = False
     try:
         ref = await cleanup.write(body)
-        return await _run(request, turn, cleanup, ref, facts)
+        response = await _run(request, turn, cleanup, ref, facts)
+        # INVARIANT: once the stream response exists, its __call__ owns the cleanup.
+        handed_over = isinstance(response, ChatStreamResponse)
+        return response
     finally:
-        await cleanup.run()
+        if not handed_over:
+            await cleanup.run()
 
 
 def _identity(request: Request) -> dict[str, str] | None:
@@ -177,7 +190,11 @@ def _deps_or_error(request: Request) -> _Deps:
 
 
 async def _run(
-    request: Request, turn: _Turn, cleanup: ChatCleanup, ref: str, facts: RequestFacts
+    request: Request,
+    turn: _Turn,
+    cleanup: ChatCleanup,
+    ref: str,
+    facts: RequestFacts,
 ) -> Response:
     """Stages 5 to 7, after the input write."""
     drain: ChatDrain = request.app.state.chat_drain
@@ -192,14 +209,25 @@ async def _run(
         cleanup.scheduling = exc.code == "queue_unavailable"
         raise
     settings = turn.deps.settings
-    frames = await wait_for_run(
-        turn.deps.stream, turn.topic, settings.chat_max_wait_s, request.receive, drain
+    if turn.stream:
+        plan = StreamPlan(
+            events=turn.deps.stream,
+            topic=turn.topic,
+            model=turn.model,
+            include_usage=turn.include_usage,
+            max_wait_s=settings.chat_max_wait_s,
+            keepalive_s=settings.chat_keepalive_s,
+            drain=drain,
+            artifacts=turn.deps.artifact_store,
+        )
+        return stream_answer(plan, cleanup, facts)
+    frames = settle_wait(
+        await wait_for_run(
+            turn.deps.stream, turn.topic, settings.chat_max_wait_s, request.receive, drain
+        ),
+        cleanup,
+        facts,
     )
-    if isinstance(frames, WaitEnd):
-        status, code, should_retry = _WAIT_ROWS[frames]
-        raise ChatError(status, code, should_retry=should_retry)
-    cleanup.finished = True
-    facts.trace_id = parse_traceparent(frames.terminated.traceparent) or facts.trace_id
     return await answer(frames, turn.model, turn.deps.artifact_store)
 
 
