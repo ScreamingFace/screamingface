@@ -14,8 +14,15 @@ import dataclasses
 
 import pytest
 
-from screamingface_engine_inspect.benchmarks import BENCHMARKS, BenchmarkSpec, imported_benchmark
-from screamingface_engine_inspect.single_shot import imported_benchmark_id
+pytest.importorskip("inspect_ai")
+pytest.importorskip("inspect_evals")
+
+from screamingface_engine_inspect.benchmarks import (  # noqa: E402
+    BENCHMARKS,
+    BenchmarkSpec,
+    imported_benchmark,
+)
+from screamingface_engine_inspect.single_shot import imported_benchmark_id  # noqa: E402
 
 
 @pytest.mark.parametrize(
