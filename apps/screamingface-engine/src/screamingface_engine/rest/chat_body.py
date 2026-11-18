@@ -80,7 +80,16 @@ class ChatBody:
     the blob write while the request waits for its run.
     """
 
-    __slots__ = ("_record", "digest", "include_usage", "messages", "model", "size", "stream")
+    __slots__ = (
+        "_record",
+        "digest",
+        "has_tools",
+        "include_usage",
+        "messages",
+        "model",
+        "size",
+        "stream",
+    )
 
     def __init__(
         self,
@@ -91,8 +100,10 @@ class ChatBody:
         messages: int,
         stream: bool,
         include_usage: bool,
+        has_tools: bool,
     ) -> None:
         self.model = model
+        self.has_tools = has_tools
         self.size = size
         self.messages = messages
         self.stream = stream
@@ -230,6 +241,8 @@ def _checked(raw: bytes) -> ChatBody:
         messages=len(parsed.messages),
         stream=parsed.stream,
         include_usage=parsed.stream_options is not None and parsed.stream_options.include_usage,
+        # INVARIANT (TC-S13): `tools: []` is no tools.
+        has_tools=bool(parsed.tools),
     )
 
 

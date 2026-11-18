@@ -1,9 +1,9 @@
 """Stage 4 of POST /v1/chat/completions: the model value becomes the recipe of the run.
 
 CC-S1: a value that starts with "(" after white space is a URL4; it runs as built after the
-recipe check (with no tools, owner answer Q6). Any other value is a gateway model id: it becomes
-the one-model recipe (plan D4), and the model-parameters lookup must know it. A positive lookup
-is kept for 60 s for the same caller and id; a "not known" answer is never kept.
+recipe check (owner answer Q6). Any other value is a gateway model id: it becomes the one-model
+recipe (plan D4), and the model-parameters lookup must know it. A positive lookup is kept for
+60 s for the same caller and id; a "not known" answer is never kept.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ __all__ = [
     "CATALOG_RETRY_AFTER_S",
     "MODEL_LOOKUP_TTL_S",
     "ModelLookupCache",
+    "catalog_unavailable",
     "recipe_for",
 ]
 
@@ -38,6 +39,16 @@ CATALOG_RETRY_AFTER_S = 5
 _MAX_ENTRIES = 4096
 
 type _Key = tuple[str, str]
+
+
+def catalog_unavailable(*, retry: bool) -> ChatError:
+    """The 503 of a catalogue outage: no catalogue (`retry` False), or a failed fetch."""
+    if not retry:
+        # WHY no Retry-After: only an operator can configure a gateway (owner answer Q5).
+        return ChatError(503, "catalog_unavailable")
+    return ChatError(
+        503, "catalog_unavailable", retry_after=CATALOG_RETRY_AFTER_S, should_retry=True
+    )
 
 
 class ModelLookupCache:
@@ -88,7 +99,7 @@ async def recipe_for(
 
 
 def _checked_recipe(model: str) -> str:
-    """CC-S13 to CC-S15: the recipe check with no tools; the URL4 runs as the client sent it."""
+    """CC-S13 to CC-S15; the URL4 runs as the client sent it."""
     try:
         check_recipe(model, with_tools=False)
     except RecipeRefusal as exc:
@@ -113,8 +124,7 @@ async def _look_up(
 ) -> None:
     """CC-S1, CC-S12: the catalogue must know the id as the client sent it."""
     if source is None:
-        # WHY no Retry-After: only an operator can configure a gateway (owner answer Q5).
-        raise ChatError(503, "catalog_unavailable")
+        raise catalog_unavailable(retry=False)
     credential = Credential.derive(identity)
     key = (credential.key, model)
     if cache.known(key):
@@ -124,12 +134,7 @@ async def _look_up(
     except ModelNotInstalled:
         raise ChatError(404, "model_not_found", param="model") from None
     except CatalogError:
-        raise ChatError(
-            503,
-            "catalog_unavailable",
-            retry_after=CATALOG_RETRY_AFTER_S,
-            should_retry=True,
-        ) from None
+        raise catalog_unavailable(retry=True) from None
     if not 200 <= answer.status < 300:
         raise ChatError(404, "model_not_found", param="model")
     cache.keep(key)

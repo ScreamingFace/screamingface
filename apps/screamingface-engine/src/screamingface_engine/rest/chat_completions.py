@@ -2,12 +2,12 @@
 
 FEATURE: OpenAI-compatible Engine API (prd/chat-completion.md). The handler runs the stages of
 the plan in order: media type, identity and drain (1); body read, parse gate and validation
-(2, 3); model resolution (4); input write and schedule with shape `chat` (5); wait (6); answer
-(7). With `stream: true`, stage 7 answers as a buffered SSE stream (`rest.chat_stream`, U5);
-every error before the stream starts keeps the JSON answer. Each refusal and failure leaves in
-the OpenAI envelope with fixed, vouched messages (`rest.chat_errors`); no
-`application/problem+json` body leaves this route, and an error that no stage expected leaves as
-500 `internal_error` (review F1).
+(2, 3); model resolution, and with tools the checks of the final steps (4, 4b); input write
+and schedule with shape `chat` (5); wait (6); answer (7). With `stream: true`, stage 7 answers
+as a buffered SSE stream (`rest.chat_stream`, U5); every error before the stream starts keeps
+the JSON answer. Each refusal and failure leaves in the OpenAI envelope with fixed, vouched
+messages (`rest.chat_errors`); no `application/problem+json` body leaves this route, and an
+error that no stage expected leaves as 500 `internal_error` (review F1).
 
 INVARIANT: the input blob is deleted on every exit after its write, and the run is stopped on
 every exit that has no terminal frame (`rest.chat_cleanup`). A streamed answer hands both to
@@ -29,7 +29,12 @@ from screamingface_engine.artifacts.blobs import BlobStore
 from screamingface_engine.auth import ProblemException
 from screamingface_engine.auth.token import new_topic
 from screamingface_engine.rest.chat_answer import answer
-from screamingface_engine.rest.chat_body import ParseGate, check_media_type, read_chat_body
+from screamingface_engine.rest.chat_body import (
+    ChatBody,
+    ParseGate,
+    check_media_type,
+    read_chat_body,
+)
 from screamingface_engine.rest.chat_cleanup import ChatCleanup
 from screamingface_engine.rest.chat_drain import ChatDrain
 from screamingface_engine.rest.chat_errors import ChatError, from_problem
@@ -37,6 +42,7 @@ from screamingface_engine.rest.chat_model import ModelLookupCache, recipe_for
 from screamingface_engine.rest.chat_observe import RequestFacts, observe
 from screamingface_engine.rest.chat_openapi import CHAT_RESPONSES, CHAT_TAG, REQUEST_BODY
 from screamingface_engine.rest.chat_stream import ChatStreamResponse, StreamPlan, stream_answer
+from screamingface_engine.rest.chat_tools import check_tool_steps
 from screamingface_engine.rest.chat_wait import settle_wait, wait_for_run
 from screamingface_engine.rest.routes import (
     _converge_cache,
@@ -136,13 +142,7 @@ async def _complete(request: Request, facts: RequestFacts) -> Response:
     facts.trace_id = parse_traceparent(traceparent)
     body = await read_chat_body(request, state.chat_parse_gate)
     facts.digest, facts.size, facts.messages = body.digest, body.size, body.messages
-    recipe = await recipe_for(
-        body.model,
-        identity=identity,
-        source=state.model_parameters,
-        cache=state.chat_model_cache,
-        traceparent=traceparent,
-    )
+    recipe = await _recipe(state, body, identity, traceparent)
     topic = new_topic()
     scope = BlobScope.for_caller((identity or {}).get(_EMAIL_HEADER), topic)
     cleanup = ChatCleanup(store, scope, body.digest, deps.job_runner.stop, topic)
@@ -159,6 +159,26 @@ async def _complete(request: Request, facts: RequestFacts) -> Response:
     finally:
         if not handed_over:
             await cleanup.run()
+
+
+async def _recipe(
+    state: Any, body: ChatBody, identity: dict[str, str] | None, traceparent: str | None
+) -> str:
+    """Stage 4: the recipe of the run; with tools, stage 4b: the with-tools recipe check
+    (TC-S7 to TC-S11), then the tool support of each final model (TC-S10).
+
+    INVARIANT: each refusal comes before the input write, so no blob and no run exist.
+    """
+    recipe = await recipe_for(
+        body.model,
+        identity=identity,
+        source=state.model_parameters,
+        cache=state.chat_model_cache,
+        traceparent=traceparent,
+    )
+    if body.has_tools:
+        await check_tool_steps(recipe, identity=identity, catalog=state.catalog)
+    return recipe
 
 
 def _identity(request: Request) -> dict[str, str] | None:
