@@ -2,7 +2,7 @@
 benchmark: futurex_past
 origin: external
 verdict: not-comparable
-verdict_reason: "Two by-design differences, each unbounded. First, levels 3-4 are routed, matched and counted by openrouter/openai/gpt-5.4 with our own reworded prompts, where Futurex-Eval judges, routes and extracts with DeepSeek V4 Flash or GPT-4.1 (declared, benchmarks.py:7965-7967); spec §2.3 calls a judge other than the one behind the paper's number not-comparable. Second, the Candidate answers closed-book with one generate() on resolved events, while every published FutureX number comes from search agents on live weekly questions; none exists for this archive (frontier_score NotPublished, benchmarks.py:8009-8014). The one measured enumerable bound is 1/2036 (the [Yes] key). The 24 prompts that do not show the \\boxed{} syntax could cost up to 24/2036 against the Candidate (not measured). One undeclared finding (U8, a failed scoring-question judge call leaves the headline instead of counting 0) is run-dependent and does not move the verdict."
+verdict_reason: "Two by-design differences, each unbounded. First, levels 3-4 are routed, matched and counted by openrouter/openai/gpt-5.4 with our own reworded prompts, where Futurex-Eval judges, routes and extracts with DeepSeek V4 Flash or GPT-4.1 (declared, benchmarks.py:7965-7967); spec §2.3 calls a judge other than the one behind the paper's number not-comparable. Second, the Candidate answers closed-book with one generate() on resolved events, while every published FutureX number comes from search agents on live weekly questions; none exists for this archive (frontier_score NotPublished, benchmarks.py:8009-8014). The one measured enumerable bound is 1/2036 (the [Yes] key). The 24 prompts that do not show the \\boxed{} syntax could cost up to 24/2036 against the Candidate (not measured). One finding, U8 (a failed scoring-question judge call leaves the headline instead of counting 0), was undeclared at the audit and is declared since (see Since the audit); it is run-dependent and does not move the verdict."
 audited: 2026-11-18
 audited_at: 2dcc38aaf   # HEAD of branch futurex-past-local-task (PR 1897), not main; reachable from that branch
 fingerprint:
@@ -70,7 +70,7 @@ What changed in the scorer since the last record:
 ## Deviations
 
 Ten declared deviations carry over (D1-D10), one declared deviation is new (D11) and one finding
-is undeclared (U8).
+was undeclared at the audit (U8) and is declared since (see Since the audit).
 
 ### D1 — the key `[Yes]` is read as `["Yes"]` (Case 310)
 - **Declared.** `inspect-pkg:benchmarks.py:7946`; `task:futurex_past.py:96-98`; README `task:README.md:86`.
@@ -179,7 +179,7 @@ is undeclared (U8).
   and at most 3/338 + 5.6/326 = 0.0261 of the tier-weighted headline. How much of that is realised
   depends on how a Candidate boxes, so it is unknown without replies.
 
-### U8 (undeclared) — a failed scoring-question judge call fails the Case
+### U8 (undeclared at the audit, declared since) — a failed scoring-question judge call fails the Case
 - **Where.** A judge call for a match, rank, overlap, number or set question that still fails after
   `judge_until_parsed`'s two retries of a temporary fault (`inspect-pkg:judge_redraw.py:182-191`)
   propagates out of the scorer. The adapter names it `scorer_error`
@@ -231,7 +231,8 @@ appears (`git log -S`). The earlier record's hashes (`c8dadab6c`, `e463be2e9`, `
     number grid used float predictions, which never reach the judge; the roll-up stubbed
     `extract_answers`, `prewarm_metric_routes` and `estimate_routed_scores`.
 - [x] **Harness over paper.** See Upstream notes.
-- [x] **Declared is not a finding.** D1-D11 are declared. U8 is undeclared.
+- [x] **Declared is not a finding.** D1-D11 are declared. U8 was undeclared at the audit and is
+  declared since (row and README; see Since the audit).
 - [x] **Every cell has evidence.** Each row says whether its evidence was ran, read, or carried
   from an earlier audit.
 - [x] **Every `file:line` is copied from command output.** Ours: `grep -n` at 2dcc38aaf on
