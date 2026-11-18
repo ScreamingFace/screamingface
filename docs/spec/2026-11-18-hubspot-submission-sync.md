@@ -42,6 +42,15 @@ A HubSpot outage delays this and never fails or slows a submission.
 - The scoreboard namespace denies egress by default; each allowed destination is a
   NetworkPolicy in the infra repo (`kubernetes/apps/sf-scoreboard/base/netpol.yaml`).
 - Secrets reach pods from Azure Key Vault through ExternalSecrets (`base/secrets.yaml`).
+- HubSpot, read with the sync key on 2026-11-18 (schema and counts only): scopes
+  `crm.objects.{contacts,deals}.{read,write}`, `crm.schemas.{contacts,deals}.read`. The key sees
+  48,764 contacts and 587 deals, 35 of them on 😱 SOTA (pipeline `941434182`). Stages by
+  display order: Onboarding `1450673809` (0), Engaged `1489861179` (1), Submission 1
+  `1450673810` (2), Submission 2 `1450673811` (3), Submission 3 `1450673812` (4), SOTA
+  `1450673813` (5), Dropped out `1450673814` (6). Deal fields: 😱 Leaderboard entry =
+  `sf_leaderboard_url` (string, text); 😱 Submissions = `sf_submission_count` (number). Other
+  fields the meeting touched: deal `sf_last_heard_date` (date), contact `sf_last_active_date`
+  (date).
 
 ## Behaviour
 
@@ -201,9 +210,12 @@ deleted after (Bennett's rule).
 
 ## Open questions
 
-1. **HubSpot names and types** (blocked: Filip's seat shows no contacts or deals yet): the
-   internal names and types of 😱 Leaderboard entry and 😱 Submissions, the SOTA pipeline id,
-   and the stage ids and their order.
+1. **HubSpot names and ids:** answered (Facts). Two follow-ups:
+   - **Dropped out** sorts after SOTA, so "forward only by display order" never moves a
+     dropped-out person who submits again. Should a new submission bring that card back to
+     its Submission stage? The forward rule would then apply to Onboarding through SOTA only.
+   - Should the job also set the contact's `sf_last_active_date` to the submission date?
+     It is a date the job knows exactly, and the meeting asked for activity tracking.
 2. **Name "Unknown":** `firstname` = "Unknown" and empty `lastname`, or both? Only on create.
 3. **New card name:** proposed "<email> · leaderboard".
 4. **History:** send it once after a checked dry run (recommended), or start from deploy time.
