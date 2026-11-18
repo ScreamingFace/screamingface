@@ -64,6 +64,20 @@ test("a range crossing a year names both years", () => {
   assert.equal(R.optionLabel(old), "Previous · 20 Dec 2025 – 5 Jan 2026 · a41c09e2 · 9 results");
 });
 
+// Two revisions first seen on the same UTC day (a quick re-registration) would otherwise read
+// "20 Oct – 20 Oct 2026".
+test("a range that starts and ends on the same day shows that day once", () => {
+  const sameDay = revision({
+    first_seen_at: "2026-10-20T18:25:03Z",
+    first_seen_inferred: true,
+    until: "2026-10-20T18:53:25Z",
+    result_count: 7,
+    current: false,
+  });
+
+  assert.equal(R.optionLabel(sameDay, 1), "Previous · about 20 Oct 2026 · a41c09e2 · 7 results");
+});
+
 // After a rollback or an empty Latest, Latest is listed first but is not the newest first
 // sighting, so the newest earlier revision arrives with no end date.
 test("an earlier revision with no end date reads 'from', not as a single day", () => {

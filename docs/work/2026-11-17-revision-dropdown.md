@@ -217,4 +217,4 @@ Review-fix outcome:
   - inspect-winogrande has no runs under its current revision, so it will open on an empty
     Latest that points to the 2 earlier results.
   - musique's earlier revision was first seen 28 minutes before its current one, on the same
-    day, so its label reads "about 20 Oct – 20 Oct 2026".
+    day. A same-day range now shows that day once ("about 20 Oct 2026"), with one new test.

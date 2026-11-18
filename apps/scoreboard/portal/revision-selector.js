@@ -35,6 +35,9 @@
   function range(fromIso, untilIso) {
     var from = parts(fromIso);
     var until = parts(untilIso);
+    if (from.day === until.day && from.month === until.month && from.year === until.year) {
+      return day(fromIso);
+    }
     var start = from.day + " " + from.month + (from.year === until.year ? "" : " " + from.year);
     return start + " – " + until.day + " " + until.month + " " + until.year;
   }
