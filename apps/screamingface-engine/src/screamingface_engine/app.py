@@ -82,6 +82,8 @@ from screamingface_engine.rest import (
 )
 from screamingface_engine.rest import router as rest_router
 from screamingface_engine.rest.cache_entries import router as cache_entries_router
+from screamingface_engine.rest.chat_completions import install_chat_state
+from screamingface_engine.rest.chat_completions import router as chat_router
 from screamingface_engine.rest.limits import router as limits_router
 from screamingface_engine.rest.mounts import install_mounts
 from screamingface_engine.rest.runs import router as runs_router
@@ -117,6 +119,7 @@ _ROUTERS = (
     connection_router,
     credit_router,
     cache_entries_router,
+    chat_router,
     runs_router,
     runs_objects_router,
     runs_events_router,
@@ -291,6 +294,9 @@ def _install_surfaces(app: FastAPI, span_sink: SpanSink | None = None) -> None:
     # FEATURE (OME-1218): the run-submission route's accept span. `None` (the default) keeps
     # the route exactly as it was: no span, the inbound traceparent forwarded verbatim.
     _install_span_sink(app, span_sink)
+    # FEATURE: POST /v1/chat/completions (prd/chat-completion.md): the drain, the parse gate and
+    # the model lookup cache of the chat route.
+    install_chat_state(app)
     install_problem_handlers(app)
     for api_router in _ROUTERS:
         app.include_router(api_router)

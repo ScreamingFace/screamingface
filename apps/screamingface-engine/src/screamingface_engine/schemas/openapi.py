@@ -34,6 +34,10 @@ Both dialects stay, deliberately (OQ-3.1). A `url4` client can point at this eng
 gain. The split is by path: **mount paths speak `url4`, everything else speaks RFC 9457.** See
 `contracts.md` C1 and the engine README.
 
+The OpenAI-compatible chat path `POST /v1/chat/completions` is the second exception: it speaks
+the OpenAI `{"error": {"message", "type", "param", "code"}}` envelope, so an OpenAI client reads
+its errors.
+
 ## Execution flows
 
 **Synchronous** — `GET /` holds until the terminal frame (bounded by `SYNC_MAX_WAIT`) and returns
@@ -133,6 +137,16 @@ TAGS: list[dict[str, str]] = [
             "Read provider credit for the execution connection and manage optional BYOK "
             "account-credit credentials. Hosted reads expose only the key allowance. "
             + _ERROR_DIALECT_NOTE
+        ),
+    },
+    {
+        "name": "Chat",
+        "description": (
+            "Create a chat completion with an OpenAI client: `model` is a Candidate URL4 or a "
+            "model id of `GET /v1/models`. This path does not use RFC 9457: its errors use the "
+            'OpenAI `{"error": {"message", "type", "param", "code"}}` envelope, with '
+            "`x-should-retry`. The other engine paths speak RFC 9457, and the sync mount surface "
+            "(`GET /<mount>?q=`) speaks the url4 envelope."
         ),
     },
     {
