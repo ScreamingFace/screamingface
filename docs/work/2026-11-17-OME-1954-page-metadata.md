@@ -1,9 +1,9 @@
 ---
 ticket: OME-1954
 stack: scoreboard
-status: in_progress
+status: done
 started: 2026-11-17
-finished:
+finished: 2026-11-18
 ---
 
 # OME-1954 — Complete portal search metadata
@@ -40,3 +40,5 @@ Implemented the accepted review scope and integrated current main without rewrit
 - Browser checks: legacy redirects retain tracking parameters; submission links open history; intercepted follow-board signup includes the correct board id, current page URL and UTM value. No live HubSpot submission was sent.
 - Local preview: `http://127.0.0.1:9181/benchmarks/inspect-agieval_sat_en/` (local fixture data only).
 - Hosted checks and review remain required before merge. This takeover does not merge the PR.
+
+Merged in PR #1801 on 2026-11-18. The recorded implementation and validation work is complete; Linear and the task mirror are Done.
