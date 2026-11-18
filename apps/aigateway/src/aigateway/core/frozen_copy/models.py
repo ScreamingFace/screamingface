@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 STATUS_OPEN = "open"
 STATUS_SEALED = "sealed"
 # Final states (OME-1947): the sweep set the status and deleted the entries; the row stays.
-# Stack A writes only `abandoned`; `expired` is for the expiry rule of stack C.
+# AIDEV-NOTE: the idle rule writes `abandoned`; the expiry rule writes `expired`.
 STATUS_ABANDONED = "abandoned"
 STATUS_EXPIRED = "expired"
 
@@ -56,6 +56,8 @@ class FrozenCopy(Model):
     swept_at = fields.DatetimeField(null=True)
     # The time the sweep deleted the last entry. NULL on a swept copy = entries can remain.
     purged_at = fields.DatetimeField(null=True)
+    # INVARIANT (Q24): only migration 0019 writes it; NULL = the expiry clock starts at sealed_at.
+    retention_from = fields.DatetimeField(null=True)
 
     if TYPE_CHECKING:
         account_id: uuid.UUID

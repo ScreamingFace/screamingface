@@ -342,7 +342,7 @@ def test_the_builder_uses_the_idle_time_and_the_budget_of_the_settings(
 
     report = run_async(authenticated_client, lambda: sweep.run_pass(trigger="command"))
 
-    assert report.marked == {"abandoned": 1}
+    assert report.marked == {"abandoned": 1, "expired": 0}
     assert report.entries_purged == 1
     assert report.purge_stopped == "budget"
     assert read_copy(authenticated_client, copy_id).status == "abandoned"

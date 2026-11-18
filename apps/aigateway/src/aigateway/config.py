@@ -211,7 +211,9 @@ class Settings(BaseSettings):
     # FEATURE (OME-1947): the frozen copy retention sweep. It has no switch: each gateway always
     # runs it (owner decision Q22). Interval = time between two periodic runs; idle time = an open
     # copy with no new entry for this long becomes `abandoned`; budget = most entries one run
-    # deletes.
+    # deletes. Unclaimed TTL = a sealed copy that no Score claims becomes `expired` this
+    # long after the start of its clock (`retention_from`, else `sealed_at`). No switch and no
+    # date setting (Q22, Q24).
     # AIDEV-NOTE: advice, not a check (the idle time has no lower limit tied to the engine, Q18):
     # keep the idle time above the engine run deadline (16 hours), or the sweep abandons the copy
     # of a run that is still in progress (spec prd/copy-sweep.md section 4.1).
@@ -223,6 +225,9 @@ class Settings(BaseSettings):
     )
     frozen_copy_sweep_max_entries: int = Field(
         default=100_000, ge=1, validation_alias="AIGW_FROZEN_COPY_SWEEP_MAX_ENTRIES"
+    )
+    frozen_copy_unclaimed_ttl_seconds: int = Field(
+        default=7_776_000, gt=0, validation_alias="AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS"
     )
 
     # Admin cache-snapshot upload cap (OME-952): the COMPRESSED archive size accepted by
