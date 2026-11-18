@@ -23,10 +23,11 @@ _SURROGATE_MASK: int = 0x3FF
 
 
 def _json_escape(match: re.Match[str]) -> str:
-    """One non-ASCII character as the ``\\uXXXX`` escape ``json.dumps`` writes for it.
+    """One non-ASCII character as a JSON ``\\uXXXX`` escape.
 
     Worked example: "π" (U+03C0) is ``\\u03c0``; "🠕" (U+1F815) is above U+FFFF, so it is the
-    UTF-16 surrogate pair ``\\ud83e\\udc15``, the only form JSON has for it.
+    UTF-16 surrogate pair ``\\ud83e\\udc15``, the only form JSON has for it. For a non-ASCII
+    character this is also the spelling ``json.dumps`` writes.
     """
 
     code_point: int = ord(match.group())
@@ -46,9 +47,13 @@ def ascii_row(row: bytes) -> str:
     ASCII text always costs 1.
     INVARIANT: the value does not change. ``_check_row`` has parsed ``row`` as JSON, and in
     valid JSON a non-ASCII character can only sit inside a string, where its escape means the
-    same character. url4's ``parse_collection`` re-serialises each row with ``json.dumps``,
-    which writes these same escapes, so the item texts a run fans out are byte for byte what
-    they were (``test_board_store_ascii_serving.py``).
+    same character. url4's ``parse_collection`` re-serialises each row from its parsed value,
+    so the item texts a run fans out are byte for byte what they were
+    (``test_board_store_ascii_serving.py``).
+    AIDEV-NOTE: the promise is "same JSON value, ASCII text", NOT "the text ``json.dumps``
+    would write". Every ASCII character is left as the writer wrote it, DEL (U+007F) included,
+    which ``json.dumps`` would spell ``\\u007f``. Compare served rows by value, never by
+    spelling.
 
     Raises:
         ValueError: the bytes are not UTF-8 (the caller bounds it).

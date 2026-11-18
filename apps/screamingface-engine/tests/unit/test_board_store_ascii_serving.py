@@ -3,7 +3,7 @@
 STORY: as a researcher running every Case of a large picture Benchmark, the run's Cases step
 fits the run's memory budget. Measured on EnigmaEval (1,158 Cases, a 381 MiB ``cases.json``):
 the old read peaked at 5,048 MiB against a 2,560 MiB budget and was killed before the first
-model call; this read peaks at about 1.2 GiB.
+model call; this read peaks at 840 MiB.
 
 WHY it was so large: Python stores a ``str`` at the width of its widest character. One Case
 held U+1F815, so the whole 381-million-character text cost 4 bytes a character, and the read
@@ -66,7 +66,7 @@ def test_an_id_list_is_served_as_ascii_text_of_the_same_rows(tmp_path: Path) -> 
 
 
 def test_a_character_above_the_basic_plane_is_served_as_a_surrogate_pair(tmp_path: Path) -> None:
-    """The escape is the one ``json.dumps`` writes, so any JSON reader takes it back.
+    """A non-ASCII character gets the escape ``json.dumps`` writes, so any reader takes it back.
 
     Example: "🠕" is U+1F815, written as the pair ``\\ud83e\\udc15``; "π" is ``\\u03c0``.
     """
@@ -104,6 +104,29 @@ def test_url4_hands_on_the_same_item_texts_as_it_did_for_the_files_own_text(
     assert parse_collection(board.rows((2, 3))) == parse_collection(as_written, window=(1, 3))
 
 
+def test_an_ascii_character_is_never_respelled_even_del(tmp_path: Path) -> None:
+    """The promise is "same value, ASCII text", not "the text ``json.dumps`` would write".
+
+    WHY DEL: U+007F is the one ASCII character ``json.dumps`` escapes (as ``\\u007f``) that the
+    writer leaves raw. The store leaves every ASCII character as written, so a row holding DEL
+    keeps its bytes, beside a non-ASCII character or not. A test that compares served rows to
+    ``json.dumps`` text would fail on such a row for no bug; compare values.
+    """
+
+    rows: list[dict[str, Any]] = [
+        {"id": 1, "input": "del \x7f alone"},
+        {"id": 2, "input": "del \x7f beside π"},
+    ]
+    board: IndexedBoard = _board(tmp_path, rows)
+
+    served: str = board.head(2)
+
+    assert served.isascii()
+    assert json.loads(served) == rows
+    assert served.count("\x7f") == 2
+    assert "\\u007f" not in served
+
+
 def _traced_peak(build: Any) -> int:
     gc.collect()
     tracemalloc.start()
@@ -121,8 +144,8 @@ def test_one_wide_character_does_not_multiply_the_memory_of_a_full_read(tmp_path
 
     Worked example: 256 Cases of 16 KiB each make a 4 MiB ``cases.json``. Decoded as one string
     that holds "🠕", it costs 4 bytes a character, 16 MiB a copy; the old read held the file's
-    bytes and two such copies, about 9x the file. Served row by row as ASCII, the rows and the
-    joined text are about 2x the file.
+    bytes and two such copies, measured at 13x the file. Served row by row as ASCII, the rows and
+    the joined text are 2x the file.
     """
 
     rows: list[dict[str, Any]] = [

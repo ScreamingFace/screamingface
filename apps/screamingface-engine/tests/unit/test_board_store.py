@@ -127,15 +127,15 @@ def test_head_equals_the_legacy_slice(tmp_path: Path, count: int) -> None:
 
     WHY no longer byte-identical: these rows hold non-ASCII characters, and the indexed store
     serves those as ``\\uXXXX`` escapes so one wide character cannot multiply a run's memory
-    (``test_board_store_ascii_serving.py``). The value is the same; the spelling is
-    ``json.dumps``'s default.
+    (``test_board_store_ascii_serving.py``). The promise is the same JSON value in ASCII text,
+    so the rows are compared by value, never by spelling.
     """
 
     board = IndexedBoard(_write(tmp_path, _TEXT_ROWS))
 
-    expected = json.dumps(_TEXT_ROWS[:count], ensure_ascii=True, separators=(",", ":"))
-    assert board.head(count) == expected
-    assert json.loads(board.head(count)) == _TEXT_ROWS[:count]
+    served: str = board.head(count)
+    assert served.isascii()
+    assert json.loads(served) == _TEXT_ROWS[:count]
     assert board.case_count() == 4
     assert "image" not in board.modalities()
 

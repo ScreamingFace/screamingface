@@ -31,8 +31,9 @@ INVARIANT: every file is a pure function of the rows (no timestamps, no paths, f
 so two prepares of the same pins give the same bytes and the Case Digest never moves.
 
 AIDEV-NOTE: a selection is a prefix (:meth:`BoardStore.head`) or, since OME-1739, explicit
-Case ids (:meth:`BoardStore.rows`, one seek per selected row). Id-keyed reads for aggregation
-(OME-1789) and an input lookup for the check surface are left for those units.
+Case ids (:meth:`BoardStore.rows`). Both walk the tiles one read at a time (``_serve``).
+Id-keyed reads for aggregation (OME-1789) and an input lookup for the check surface are left
+for those units.
 """
 
 from __future__ import annotations
@@ -278,7 +279,7 @@ class IndexedBoard:
         reading the prefix as one chunk and decoding it gave a 4-bytes-a-character string of
         1,525 MiB, held twice beside the 381 MiB of bytes: a 5,048 MiB peak against the run's
         2,560 MiB budget. Row by row as ASCII, the kept rows are 381 MiB and the joined text
-        381 MiB: a peak of about 1.2 GiB, and 381 MiB once this returns.
+        381 MiB: a measured peak of 840 MiB, and 381 MiB once this returns.
 
         Raises:
             ResolutionError: ``benchmark_unavailable``; the index does not match its rows.

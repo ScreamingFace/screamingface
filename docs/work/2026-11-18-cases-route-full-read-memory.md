@@ -48,7 +48,7 @@ byte the same.
 - url4's `parse_collection` gives the same item texts for the served text as for the file's own
   bytes: the invariant that makes the change invisible downstream.
 - Memory: serving a Benchmark that holds one astral character peaks under 3x the file size
-  (tracemalloc); the old path peaks above 8x.
+  (tracemalloc); the old path peaks at 13x.
 - Every prior refusal test (truncated files, shifted offsets, nested objects, invalid UTF-8)
   stays green unmodified.
 
@@ -82,8 +82,9 @@ byte the same.
 - **Gates:** the 8 store and Cases-route test files (`test_board_store_ascii_serving`,
   `test_board_store`, `test_board_rows_hardening`, `test_board_cases_route`,
   `test_board_integrity`, `test_board_modalities`, `test_board_index_prepare`,
-  `test_selected_case_routes`): 172 passed. ruff and pyright clean on the 3 touched Python
-  files. The full Engine gate is left to CI.
+  `test_selected_case_routes`): 173 passed. ruff and pyright clean on the 5 touched Python
+  files. The pre-push gate (append-only check, ruff, pyright, layering, the full Engine suite
+  with coverage) was green on the first push.
 - **Deviations:** `head` no longer does one contiguous read; it makes one read per Case, like
   `rows`. Acceptance target was 1,280 MiB; measured 840 MiB.
 - **Owner-verify:** a full paid EnigmaEval run on a real Runner; the measurement here ran under
