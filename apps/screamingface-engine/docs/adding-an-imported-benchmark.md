@@ -425,7 +425,9 @@ move ships with:
 5. When only the grading changed, the old id and its Case Digest on the row, as the line the bump
    command prints, e.g. `regradable_from=(("8f4e0e9c0864a6e7", "<case digest>"),),` (OME-1909).
    Without it every re-grade onto the new id is refused, and assembly refuses a digest the Cases
-   no longer compute. A row that already lists pairs keeps them and adds this one. Hand-built
+   no longer compute. That digest is today's, so it catches a Case change made after the bump;
+   an earlier one, under a held id, is caught when the old score's pinned cache misses. A row
+   that already lists pairs keeps them and adds this one. Hand-built
    Benchmarks (medxpert) have no `regradable_from` path yet: their old entries need a fresh run.
 6. After the deploy, a re-grade of every old entry that has a pinned cache (OME-1909), so the
    board under the new id is not left empty.

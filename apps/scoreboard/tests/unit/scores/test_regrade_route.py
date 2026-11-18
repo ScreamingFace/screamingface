@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncGenerator
+from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
@@ -475,6 +476,38 @@ async def test_the_regraded_entry_ranks_under_the_new_revision_and_the_source_do
         (NEW_REVISION, 0.75)
     ]
     assert entries[0]["submitted_by"] == "alice"  # the source's submitter, published masked
+
+
+@pytest.mark.asyncio
+async def test_a_regrade_keeps_the_sources_cost_not_the_replays_unpriced_one(
+    client: AsyncClient,
+) -> None:
+    # WHY: a replay serves every Candidate answer from the pinned cache, so the SDK reports an
+    # unpriced `partial` with no amount. Stored as is, the re-graded entry would leave the cost
+    # ranking for good (one re-grade per source per revision), though the source knows what the
+    # Candidate run spent.
+    source_id: str = await _submit_source(
+        client,
+        run_cost_usd="12.34",
+        run_cost_status="complete",
+        cache_saved_cost_usd="1.5",
+        cache_saved_cost_archive_usd="0.25",
+    )
+
+    created: Response = await _post_regrade(
+        client, source_id, run_cost_usd=None, run_cost_status="partial"
+    )
+
+    assert created.status_code == 201, created.text
+    stored: Score = await Score.get(id=created.json()["id"])
+    assert (stored.run_cost_usd, stored.run_cost_status) == (Decimal("12.34"), "complete")
+    assert stored.cache_saved_cost_usd == Decimal("1.5")
+    assert stored.cache_saved_cost_archive_usd == Decimal("0.25")
+    board: Response = await client.get("/v1/leaderboard/hle")
+    assert board.status_code == 200, board.text
+    entry: dict[str, Any] = board.json()["entries"][0]
+    # The board publishes the reproduction cost: what was spent plus what the cache saved.
+    assert Decimal(entry["run_cost_usd"]) == Decimal("12.34") + Decimal("1.5") + Decimal("0.25")
 
 
 @pytest.mark.asyncio

@@ -235,11 +235,13 @@ class BenchmarkSpec:
     #: ``test_published_revision.py`` refuses a row without it. None is for test stand-ins only.
     #: AIDEV-NOTE — the rule (``docs/adding-an-imported-benchmark.md``, "Changing a Benchmark's
     #: published revision"):
-    #: - NEVER edit this to make a red fingerprint test green. A refactor, a grading fix or a
-    #:   package bump that keeps the same Cases holds the id; update only the fingerprint pin.
-    #: - Move it only on a fundamental change (a changed Case set, a new Benchmark), only after
+    #: - NEVER edit this to make a red fingerprint test green. A refactor, a code move or a
+    #:   package bump that leaves every grade the same holds the id; update only the fingerprint
+    #:   pin.
+    #: - Move it when what a score means changes (a changed Case set, a changed grading rule, a
+    #:   new Benchmark; rule of 2026-11-17, OME-1909), only after
     #:   ``just engine benchmark-bump <key>``, and only with the owner's sign-off: a move hides
-    #:   every leaderboard result under the old id and marks every submission outdated.
+    #:   every leaderboard result under the old id until it is re-graded onto the new one.
     #: - A move ships with a CHANGELOG line and a team post, so the people using it are told.
     #: Never compared with the fingerprint at run time (owner decision, 2026-10-15). NOT part
     #: of the revision.
@@ -248,9 +250,12 @@ class BenchmarkSpec:
     #: where the combine operators copy the scorer exactly (GSM8K, AIME). Not part of the revision.
     answer_rule: AnswerRule | None = None
     #: Old published revisions this Benchmark may be re-graded from, each paired with the Case
-    #: Digest that revision's Cases sealed to (OME-1909). A re-grade replays an old score's
-    #: pinned cache under the current revision, which is only sound when the Cases are the same
-    #: bytes, so assembly refuses a pair whose digest is not the digest the Cases compute now.
+    #: Digest the Cases computed on the day of the bump (the one ``benchmark-bump`` prints;
+    #: OME-1909). A re-grade replays an old score's pinned cache under the current revision,
+    #: which is only sound when the Cases are the same bytes, so assembly refuses a pair whose
+    #: digest is not the digest the Cases compute now. That catches a Case change made AFTER the
+    #: bump, not one made earlier under a held id: there, the guard is the pinned cache itself,
+    #: since a changed Case misses it and a miss refuses the re-grade.
     #: INVARIANT: never enters the fingerprint or ``published_revision`` — it lists history, it
     #: changes nothing a score depends on (like ``description``).
     regradable_from: tuple[tuple[str, str], ...] = ()

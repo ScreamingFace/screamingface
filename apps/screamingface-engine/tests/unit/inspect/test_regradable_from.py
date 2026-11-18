@@ -5,8 +5,9 @@
 
 A re-grade replays an old score's pinned cache under the Benchmark's bumped published
 revision, which is only sound when the Cases are the same bytes. The row therefore pairs each
-old revision with that revision's Case Digest, and assembly refuses a pair whose digest is not
-the digest the Cases compute now.
+old revision with the Case Digest the Cases computed on the day of the bump, and assembly refuses
+a pair whose digest is not the digest the Cases compute now. That catches a Case change made
+after the bump; an earlier one, under a held id, is caught by the pinned cache missing instead.
 
 Runs only with the `inspect` extra installed.
 """

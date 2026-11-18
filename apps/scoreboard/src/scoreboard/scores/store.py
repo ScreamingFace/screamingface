@@ -1995,7 +1995,15 @@ class ScoreStore:
         """Store ``submission`` as ``source``'s one re-grade at its revision; None if it is gone.
 
         FEATURE: OME-1909 — a re-grade is a NEW row, not an edit of the source. The result
-        (score, revision, cost, client) is the replay's; everything that says WHO is the source's.
+        (score, revision, client) is the replay's; everything that says WHO is the source's, and so
+        is the cost.
+
+        WHY the cost is the source's: a replay serves every Candidate answer from the pinned
+        cache, so it reports an unpriced `partial` with no amount. Stored as is, every re-graded
+        entry would leave the cost ranking for good (one re-grade per source per revision), though
+        the source knows what the Candidate run spent. Example: a source at 12.34 / `complete`
+        re-graded by a replay at None / `partial` stores 12.34 / `complete`. A live-judge re-grade
+        keeps the source's figure too: the judges it re-runs are a small slice of the run's spend.
 
         Stages:
         0. Refuse a replay that is not at the board's registered revision, or that is at the
@@ -2003,8 +2011,9 @@ class ScoreStore:
            board moved to `rev-2`; only a replay resolving to `rev-2` is accepted. The revision is
            resolved the way a submission's is, so one named only in `metadata` counts.
         1. Build the row from the replay with the normal submission mapping, then overwrite the
-           credit with the source's (`submitted_by`, `authors`, their metadata, the paper link) and
-           `verified_by_screamingface` with the source's flag.
+           credit with the source's (`submitted_by`, `authors`, their metadata, the paper link),
+           `verified_by_screamingface` with the source's flag, and the four cost fields with the
+           source's.
         2. Clear the frozen copy, its capture status and its case digest. The copy belongs to the
            source (one copy, one score, OME-1596), and the digest is only ever set with a status.
         3. Insert under the board's lock, re-checked public (`_insert_regrade`).
@@ -2035,6 +2044,10 @@ class ScoreStore:
             "paper_url": source.paper_url,
             "paper_metadata": source.paper_metadata,
             "verified_by_screamingface": source.verified_by_screamingface,
+            "run_cost_usd": source.run_cost_usd,
+            "run_cost_status": source.run_cost_status,
+            "cache_saved_cost_usd": source.cache_saved_cost_usd,
+            "cache_saved_cost_archive_usd": source.cache_saved_cost_archive_usd,
             # Stage 2 — the source's frozen copy stays the source's.
             "frozen_copy_id": None,
             "capture_status": None,
