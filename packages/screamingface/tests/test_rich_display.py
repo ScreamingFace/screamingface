@@ -482,3 +482,76 @@ async def test_async_client_repr_html_renders_the_same_connection_card() -> None
     assert "http://127.0.0.1:9108" in html
     assert "http://127.0.0.1:9106" in html
     assert ">local<" in html
+
+
+def _notebook_search_body(catalogue: object, query: str, monkeypatch: pytest.MonkeyPatch) -> str:
+    widgets = pytest.importorskip("ipywidgets")
+    display_module = pytest.importorskip("IPython.display")
+    shown: list[object] = []
+    monkeypatch.setattr(display_module, "display", shown.append)
+    cast(Any, catalogue)._ipython_display_()
+    search = next(item for item in _walk(shown[0]) if isinstance(item, widgets.Text))
+    search.value = query
+    return "\n".join(
+        item.value
+        for item in _walk(shown[0])
+        if isinstance(item, widgets.HTML) and isinstance(item.value, str)
+    )
+
+
+def test_catalogue_notebook_search_matches_each_word_in_any_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _client(_handler) as client:
+        models = client.models.list()
+
+    # WHY: "5.5 openrouter" is already a substring of the search text; the reverse
+    # order proves each word matches on its own.
+    for query in ("5.5 openrouter", "openrouter 5.5", "openrouter   5.5"):
+        body = _notebook_search_body(models, query, monkeypatch)
+
+        assert "openrouter/openai/gpt-5.5" in body
+        assert "anthropic/claude-opus-4.8" not in body
+
+
+def test_catalogue_notebook_search_needs_every_word_to_match(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _client(_handler) as client:
+        models = client.models.list()
+
+    body = _notebook_search_body(models, "claude openrouter", monkeypatch)
+
+    assert "No models match." in body
+    assert "anthropic/claude-opus-4.8" not in body
+    assert "openrouter/openai/gpt-5.5" not in body
+
+
+def test_catalogue_notebook_search_of_only_spaces_shows_every_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _client(_handler) as client:
+        models = client.models.list()
+
+    body = _notebook_search_body(models, "   ", monkeypatch)
+
+    assert "anthropic/claude-opus-4.8" in body
+    assert "openrouter/openai/gpt-5.5" in body
+    assert "No models match." not in body
+
+
+def test_benchmark_catalogue_notebook_search_matches_each_word(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with _client(_handler) as client:
+        benchmarks = client.benchmarks.list()
+
+    body = _notebook_search_body(benchmarks, "probe draco", monkeypatch)
+
+    assert "DRACO &lt;benchmark&gt;" in body
+    assert "No benchmarks match." not in body
+
+    missing = _notebook_search_body(benchmarks, "draco missing", monkeypatch)
+
+    assert "No benchmarks match." in missing
+    assert "DRACO &lt;benchmark&gt;" not in missing

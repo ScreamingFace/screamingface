@@ -17,8 +17,8 @@ _INSERT_SCORE = (
 
 
 def _seed_legacy_score(database: Path) -> str:
-    """Migrate to 0023 and store one ordinary score from before the re-grade columns."""
-    _migrate(database, "0023_baseline_history")
+    """Migrate to 0024 and store one ordinary score from before the re-grade columns."""
+    _migrate(database, "0024_benchmark_revisions")
     row_id: str = str(uuid4())
     with sqlite3.connect(database) as connection:
         connection.execute(
@@ -36,12 +36,12 @@ def _seed_legacy_score(database: Path) -> str:
 
 
 def test_regrade_migration_keeps_existing_scores_as_ordinary_rows(tmp_path: Path) -> None:
-    # WHY: nothing was ever re-graded before 0024, so every existing row must read as an ordinary
+    # WHY: nothing was ever re-graded before 0025, so every existing row must read as an ordinary
     # submission (both columns NULL), and no backfill may invent a link.
     database: Path = tmp_path / "regrade.sqlite3"
     row_id: str = _seed_legacy_score(database)
 
-    _migrate(database, "0024_score_regraded_from")
+    _migrate(database, "0025_score_regraded_from")
 
     with sqlite3.connect(database) as connection:
         row: tuple[object, ...] | None = connection.execute(
@@ -59,7 +59,7 @@ def test_regrade_migration_allows_one_regrade_per_source_and_revision_and_many_o
     # because only the root source keeps a pinned cache to replay after the next grading change.
     database: Path = tmp_path / "regrade.sqlite3"
     source_id: str = _seed_legacy_score(database)
-    _migrate(database, "0024_score_regraded_from")
+    _migrate(database, "0025_score_regraded_from")
 
     with sqlite3.connect(database) as connection:
         connection.execute(_INSERT_SCORE, (str(uuid4()), None, "rev-2"))

@@ -26,10 +26,11 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from tortoise.exceptions import IntegrityError
+from tortoise.transactions import in_transaction
 
 from .config import Settings
-from .db import close_db, init_db
-from .scores.models import Baseline, Benchmark, Score
+from .db import DEFAULT_CONNECTION, close_db, init_db
+from .scores.models import Baseline, Benchmark, BenchmarkRevision, Score
 
 
 class RetirementRefused(RuntimeError):
@@ -85,7 +86,19 @@ async def _delete_exactly_one(benchmark_id: str, *, include_engine_owned: bool) 
         predicate["revision"] = None
 
     try:
-        deleted = await Benchmark.filter(**predicate).delete()
+        async with in_transaction(DEFAULT_CONNECTION) as connection:
+            # OME-1708: the benchmark's revision history goes first, explicitly. Left to the
+            # database cascade, SQLite counts the cascaded rows in the delete count and the
+            # exactly-one check below would refuse every retirement. The transaction makes the
+            # pair atomic: a refusal raised below rolls the history back with the benchmark.
+            await BenchmarkRevision.filter(benchmark_id=benchmark_id).using_db(connection).delete()
+            deleted = await Benchmark.filter(**predicate).using_db(connection).delete()
+            if deleted != 1:
+                raise RetirementRefused(
+                    f"refusing to report {benchmark_id!r} retired: the delete matched {deleted} "
+                    "rows. It disappeared or became Engine-owned while this ran; re-run to see "
+                    "its current state."
+                )
     except IntegrityError as exc:
         # A score or baseline inserted between the blockers check and this DELETE must surface as
         # the same readable refusal, not the traceback this module exists to replace. The RESTRICT
@@ -97,13 +110,6 @@ async def _delete_exactly_one(benchmark_id: str, *, include_engine_owned: bool) 
             else f"refusing to retire {benchmark_id!r}: something began referencing it "
             "while this ran."
         ) from exc
-
-    if deleted != 1:
-        raise RetirementRefused(
-            f"refusing to report {benchmark_id!r} retired: the delete matched {deleted} rows. "
-            "It disappeared or became Engine-owned while this ran; re-run to see its current "
-            "state."
-        )
 
 
 async def retire_benchmark(

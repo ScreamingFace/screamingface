@@ -6,7 +6,7 @@ from tortoise.migrations.constraints import UniqueConstraint
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("models", "0023_baseline_history"),
+        ("models", "0024_benchmark_revisions"),
     ]
 
     initial = False

@@ -127,7 +127,7 @@ class OpenAIPluginSettings(PluginSettings):
         # WHY syntax ONLY (OME-884): membership in ``default_models`` used to be
         # required here. That coupling made the published catalog govern an operational
         # readiness probe, so an operator who unpublished a model also broke API-key
-        # validation for every profile. The probe still has to be route-legal, because a
+        # validation for every connection. The probe still has to be route-legal, because a
         # malformed id could never reach OpenAI at all — but which models are PUBLISHED
         # is not a fact about which models can be PROBED.
         return _validate_model_id(value)

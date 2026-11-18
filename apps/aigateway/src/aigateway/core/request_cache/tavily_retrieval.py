@@ -11,7 +11,7 @@ re-pay Tavily nor re-pay the model, because both halves of the turn now key iden
 INVARIANT: aigateway never calls Tavily and never holds a Tavily credential. The Runner
 keeps both. This module only describes and keys a retrieval request.
 
-INVARIANT: this key is identity-free — no account, profile, auth mode or credential reaches
+INVARIANT: this key is identity-free — no account, connection, auth mode or credential reaches
 any signature here. The route mixes the caller's account on top of this key (decision Q30,
 `routes/tavily_retrieval_cache._key_hash`), so a row is shared only within one account. Keep
 identity out of this module.

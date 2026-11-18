@@ -34,9 +34,6 @@ class _FakeStore:
 
     async def delete(self, service: str, account: str) -> None: ...
 
-    async def mutate(self, service: str, account: str, mutator) -> None:
-        self._blob = mutator(self._blob)
-
 
 def test_plugin_identity() -> None:
     assert isinstance(PLUGIN, HuggingFaceProviderPlugin)

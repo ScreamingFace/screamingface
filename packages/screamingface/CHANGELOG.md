@@ -13,6 +13,15 @@
   `LeaderboardScore.regraded_from` names the score a re-graded entry came from, and a re-grade
   of a re-graded entry is refused (`regrade_the_source`) naming that root score to re-grade.
 
+- The notebook filter of `sf.models.list()` and `sf.benchmarks.list()` matches each word of the
+  query, in any order: `claude 5.5` shows the entries that contain both words.
+
+- `sf.credits()` now renders as a notebook card in the connection panel's style, instead of
+  the plain dataclass repr. An unavailable amount says why ("Not connected", "Key
+  rejected", "Lookup failed", "Not supported", "Unreadable response", "Not available on
+  hosted"), in the card and in the connection panel. When no amount is known, the card shows one "Credits unavailable"
+  box (OME-1935).
+
 - Notebook credits now show account credit separately from the key spending cap,
   with optional account settings and visible-only five-minute refresh. OpenRouter
   evaluations emit a nonblocking notice for a confirmed zero read within five minutes.

@@ -1,0 +1,15 @@
+{
+  "issue": "OME-1809",
+  "branch": "OME-1809-blind-model-admission",
+  "approver": "Sergey Bershadsky (owner)",
+  "date": "2026-11-09",
+  "scope": "apps/screamingface-engine/tests/unit/test_fair_share_fetch_bytes.py: exactly test_a_gate_bound_run_with_an_https_attachment_reaches_the_model — its mock gateway now answers /v1/models listing MODEL with input_modalities [text, image]; no other test line changes (intent kept: a gate-bound run with an https attachment reaches the model)",
+  "reason": "owner decision 2026-11-09 (session approval): OME-1809's fail-closed run admission reads /v1/models before any call; the old mock answered it with a chat body, so the run was refused retryably",
+  "note": "The file is new on the OME-1545 stack and absent from origin/main. Pinned base e7a07c1f7 (branch HEAD 093b6ead3) -> approved b42ae1922 (bf97746e0).",
+  "files": {
+    "apps/screamingface-engine/tests/unit/test_fair_share_fetch_bytes.py": {
+      "base_blob": "e7a07c1f7aeb4cd3d5c9e5b56c5a68eda8fa6643",
+      "approved_blob": "b42ae192255567ef6cfff877e7bfa3682a69c019"
+    }
+  }
+}

@@ -147,6 +147,9 @@ async def test_a_gate_bound_run_with_an_https_attachment_reaches_the_model(
     posts: list[httpx.Request] = []
 
     def gateway(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/v1/models"):  # OME-1809: the run's model check
+            data = [{"id": MODEL, "input_modalities": ["text", "image"]}]
+            return httpx.Response(200, json={"object": "list", "data": data})
         posts.append(request)
         return httpx.Response(200, json=_completion(request))
 

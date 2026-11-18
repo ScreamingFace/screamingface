@@ -293,6 +293,7 @@ class FairShareIOLayer:
     fetch_holdings: Any
     processor_routes: Any
     default_route: Any
+    eval_expression: Any
 
     def __init__(self, inner: IOLayer, gate: FairShareGate, run: str) -> None:
         self._inner = inner
@@ -318,6 +319,12 @@ class FairShareIOLayer:
         # declaration: not I/O, never bounded, forwarded unconditionally when present.
         if isinstance(inner, SupportsDefaultRoute):
             self.default_route = inner.default_route
+        # WHY (OME-1811 round 11): url4's remote-node precheck asks the io world what its own
+        # eval path (`/v1`) would run; local mode always wraps the node's io here, so without
+        # this the precheck could not see a `/v1` call. A pure, synchronous lookup — not I/O,
+        # never gated. getattr, not the port Protocol: it lives in url4's private engine layer.
+        if (eval_expression := getattr(inner, "eval_expression", None)) is not None:
+            self.eval_expression = eval_expression
 
     @property
     def run(self) -> str:

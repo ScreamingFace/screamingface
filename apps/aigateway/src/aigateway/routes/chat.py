@@ -41,7 +41,7 @@ from litellm.exceptions import (
 
 from ..core.auth.middleware import CurrentAccount
 from ..core.auth_types import AuthMode
-from ..core.content_parts import check_input_modalities
+from ..core.content_parts import check_input_modalities, provider_media_refusal
 from ..core.credential_blob import DispatchObservation
 from ..core.endpoint_access import EndpointOperation, permits
 from ..core.frozen_copy.headers import (
@@ -193,7 +193,7 @@ async def _dispatch_and_finalize_accounting(
         )
         raise await _safe_dispatch_failure_response(
             request,
-            exc,
+            _media_refusal_or(exc, body, provider),
             plugin=plugin,
             provider=provider,
             account_id=account_id,
@@ -220,7 +220,9 @@ async def _dispatch_and_finalize_accounting(
         )
         raise await _safe_dispatch_failure_response(
             request,
-            _litellm_http_exception(exc, forbidden=credential_values(body)),
+            _media_refusal_or(
+                _litellm_http_exception(exc, forbidden=credential_values(body)), body, provider
+            ),
             plugin=plugin,
             provider=provider,
             account_id=account_id,
@@ -279,6 +281,16 @@ async def _dispatch_and_finalize_accounting(
         final_response=result if isinstance(result, dict) else None,
     )
     return result
+
+
+def _media_refusal_or(exc: HTTPException, body: dict[str, Any], provider: str) -> HTTPException:
+    """A provider's 415 on a request carrying image/file parts, as the content-part refusal.
+
+    OME-1946: anything else — including a 415 on a text-only request — is ``exc`` unchanged.
+    The status read is the already-sanitized one, so a malformed upstream status never maps.
+    """
+    refusal = provider_media_refusal(exc.status_code, body.get("messages"), provider=provider)
+    return exc if refusal is None else refusal
 
 
 def _error_view(exc: Exception) -> tuple[int, Any]:

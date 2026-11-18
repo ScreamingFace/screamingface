@@ -14,7 +14,7 @@ INVARIANT: the trust is a property of the NETWORK, not of this module. It holds 
 aigateway is unreachable except through that chain. Expose this port directly and anyone can claim
 any identity with one header. Nothing here can detect that, so the mode is opt-in, not default.
 
-The account this produces is an ordinary `Account` row, so everything downstream — profiles,
+The account this produces is an ordinary `Account` row, so everything downstream — connections,
 `credential_blobs`, the request cache — keeps working unchanged.
 """
 

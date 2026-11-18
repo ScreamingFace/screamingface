@@ -18,7 +18,7 @@ _NONCE_BYTES = 12  # 96-bit nonce, the GCM-recommended size
 # hyphenated tag segments are allowed before the vN: marker). Used to tell an
 # envelope this provider cannot decode apart from genuine pre-encryption
 # plaintext. Real stored values never match (JSON begins with "{"; token_urlsafe
-# secrets and profile-id lists contain no ":").
+# secrets contain no ":", nor did the retired profile-id lists).
 _SECRET_ENVELOPE_RE = re.compile(r"^(?:[a-z][a-z0-9]*-)*v[0-9]+:")
 
 

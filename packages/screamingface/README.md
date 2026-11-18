@@ -2117,6 +2117,8 @@ inspect_evals boards alongside ours, and opens JupyterLab against it.
   call).
 - [`examples/20_routers_cascades.ipynb`](examples/20_routers_cascades.ipynb): the router, cascade
   and budget recipes of "Choose whether a model runs", built and compiled offline (no model call).
+- [`examples/21_runs.ipynb`](examples/21_runs.ipynb): list, reopen, inspect, wait on, and cancel
+  Engine-owned Runs; paid evaluation and cancellation are disabled by default.
 
 All notebooks are deterministic outputs of `scripts/build_notebooks.py`.
 
