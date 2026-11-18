@@ -47,6 +47,11 @@ inspect_evals' catalogue does for its External shelf. Spec:
   requires every served provenance key to be a declared Scoreboard field), and one word in
   `public-docs/src/pages/sf-client/api/BenchmarksPage.vue`.
 - **Commits:** one commit on branch `OME-1960-external-benchmark-origin`, `feat(screamingface-engine): mark a Benchmark from an outside contributor as external`.
+- **After review (2026-11-18):** the fidelity checker (`scripts/fidelity_check.py`) kept its own
+  two-word origin list, so an `external` Benchmark's record had no valid state; it now knows the
+  word and a test pins the list to the Engine's. The "every row has no contributors" test became
+  a default-value test, so the PR that flips FutureX-Past edits no test it did not write. The
+  onboarding guide names `external`. Wording fixed: the Scoreboard receives the handle only.
 - **Owner verify:** merge the PR; then PR 1897 flips FutureX-Past's two rows.
 - **Gates:** Engine 9 test files, 1,157 passed; SDK `test_benchmark_provenance_wire.py` and
   `test_public_surface.py`, 27 passed; Scoreboard `test_benchmark_provenance_seed.py`, 24

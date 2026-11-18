@@ -34,7 +34,7 @@ flowchart TB
     direction LR
     b1["👤 Outside contributor opens a PR<br/>e.g. FutureX-Past, PR 1897"]:::plain
     b2["✅ Catalogue row<br/>origin: external<br/>contributors: yimingliao-blad<br/>id stays futurex_past, revision unchanged"]:::good
-    b3["✅ Reader of the catalogue<br/>SDK and Scoreboard receive origin external<br/>and the contributor's GitHub handle<br/>still works: no existing row changes, 96 rows keep origin and revision"]:::good
+    b3["✅ Reader of the catalogue<br/>SDK receives origin external and the contributor's GitHub handle<br/>Scoreboard receives the handle only: it stores no origin yet<br/>still works: no existing row changes, 96 rows keep origin and revision"]:::good
     b1 -->|"row is written"| b2 -->|"Engine serves the row"| b3
   end
   KEY ~~~ TODAY
@@ -73,7 +73,8 @@ there. An outside contributor is credit owed outside (owner decision, 2026-11-18
 |---|---|---|
 | Engine: the third origin, the field, the rule, the bare id | A badge for external Benchmarks in the SDK listing and on the Scoreboard page | Marking a pull request itself (a GitHub label) |
 | SDK: decode `contributors`, expose it on `BenchmarkProvenance` | Flipping FutureX-Past's two rows, in PR 1897 after this merges | A contributor's organisation or contact |
-| Scoreboard: declare the key so the seed keeps it | | |
+| Scoreboard: declare the `contributors` key so the seed keeps it | The Scoreboard storing a Benchmark's origin, which that badge needs first | |
+| Fidelity checker: learn the third origin | | |
 
 ## Acceptance
 
@@ -84,3 +85,4 @@ there. An outside contributor is credit owed outside (owner decision, 2026-11-18
 4. The SDK decodes the key onto `Benchmark.provenance.contributors`; the public-surface
    snapshot is unchanged.
 5. No existing row's served entry changes: 0 of the 96 rows sets `contributors`.
+6. A Fidelity Record with `origin: external` is fresh against an `external` declaration.
