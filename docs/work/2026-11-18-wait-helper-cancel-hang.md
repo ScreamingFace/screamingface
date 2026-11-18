@@ -1,5 +1,5 @@
 ---
-ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
+ticket: OME-1962   # filed at PR-open on 2026-11-18 (bug: Triage, unassigned, no epic)
 stack: screamingface-engine
 status: done   # planned | in_progress | done | blocked
 started: 2026-11-18
@@ -105,7 +105,7 @@ Write these tests first. They must fail on the `origin/main` code, and they must
   `benchmarks/shared_grading/benchmark_aggregation.py:1228`, `adapters/inprocess.py:585`. This
   was not reproduced and it is a different trigger (a time limit, not a scope that is always
   cancelled).
-- **Commits:** one commit on branch `wait-helper-cancel-hang`,
+- **Commits:** one code commit on branch `OME-1962-wait-helper-cancel-hang` (first name: `wait-helper-cancel-hang`),
   `fix(engine): end the sync wait when the disconnect check swallows a cancel`.
 - **Gates:** `run_gates.py screamingface-engine --base origin/main`: `ALL GATES GREEN` (append-only
   check, ruff check, ruff format, pyright, layering, pytest with coverage; no gate skipped).
@@ -115,4 +115,7 @@ Write these tests first. They must fail on the `origin/main` code, and they must
   the RED run was made with the same tests before those lines were added. (3) A disconnect
   check that ignores each cancel and does not return leaves its poll task alive after the
   helper returns (with a warning). That task ends when the check returns. No design can end such
-  a task. (4) Not done by order of the caller: push, PR, Linear issue, `docs/tasks` mirror.
+  a task. (4) The worker stopped at the commit, by order of the caller. The calling session then
+  filed the Linear bug OME-1962 (Triage, not assigned, no epic, Irina and Kevin tagged), renamed
+  the branch to `OME-1962-wait-helper-cancel-hang`, wrote the `docs/tasks` mirror and opened
+  the PR. The Linear MCP connector was not signed in; the owner chose the Linear CLI.
