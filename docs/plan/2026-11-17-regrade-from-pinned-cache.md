@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Amended 2026-11-18 (owner):** Task 5's bump of the 47 revisions was built here, then moved to OME-1958's PR so it deploys right before the batch re-grade. This PR keeps Tasks 0-4 and Task 5's docs.
+
 **Goal:** a ScreamingFace team member can move an old leaderboard entry onto its Benchmark's bumped revision by replaying the entry's pinned cache under the new grading, at no Candidate cost, and the PR that adds this also bumps the 47 revisions OME-1907's grader change touches.
 
 **Architecture:** the Engine catalogue serves, per Benchmark, the old revisions it may be re-graded from; each is declared on the row with that revision's Case Digest, and assembly refuses a declaration whose digest no longer matches (so "same Cases" is checked at build time). The SDK's `Client.regrade(score_id)` rebuilds the published run's url4 against the current catalogue (the partial-replay rebuild, `_replay_partial.py`), replays it from the pinned cache, refuses on any cache miss, and posts the result to a new Scoreboard route that creates a linked entry credited to the original submitter. An optional live-judge header sends chosen Cases' judge calls live while every Candidate call still replays.

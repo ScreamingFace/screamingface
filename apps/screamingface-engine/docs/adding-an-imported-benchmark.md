@@ -406,7 +406,7 @@ changed Case set moved the id). Everything else holds it:
   golden that grades identically is the evidence; without it, treat the change as a grading change.
 - **Same Cases, changed grading** (a scorer, reply reader, judge or judge-parameter change, a fix
   adopted from inspect_evals included): the id moves, and the old entries are re-graded onto the
-  new one. OME-1907 moves 47 rows this way. Before 2026-11-17 such fixes held the id: OME-1701
+  new one. OME-1907's 47 rows move this way (OME-1958). Before 2026-11-17 such fixes held the id: OME-1701
   held paws, boolq, chembench, infinite_bench_math_find, math and aime24/25/26.
 - **Changed Cases**: the id moves. A re-grade cannot move these entries, since their old replies
   answer a different exam. OME-1701 moved worldsense, stereoset and onet_m6 when their Case sets

@@ -82,8 +82,7 @@ _FINGERPRINTS: dict[str, str] = {
     # also the id it publishes: no change since its id was last set. EXCEPT OME-1907: the 46
     # rows graded from option marks (inspect's choice, lab_bench, cyse4, bbh) and mathvista
     # moved with the wrapped-letter rule (an answer such as `ANSWER: $B` is read), a grading
-    # fix that keeps every Case. #1783 held each published id; OME-1909 then moved each one to
-    # the fingerprint below (old ids in test_published_revisions.py), under the 2026-11-17 rule.
+    # fix that keeps every Case, so each published id is HELD and only its literal moved here.
     "gsm8k": "7eebba58799a2f22",
     "mmlu": "e6a95e4c1f1ced71",
     "arc_easy": "e74d42010074448c",
