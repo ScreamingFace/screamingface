@@ -206,10 +206,16 @@ def test_openai_sdk_stream_parser_accepts_every_frame_sequence(
 
 def test_openai_sdk_raises_api_error_on_the_error_event() -> None:
     message = "the request did not finish in time; the run was stopped"
-    raw = KEEP_ALIVE + error_event(message, "server_error", "timeout")
+    raw = KEEP_ALIVE + error_event(message, "server_error", "timeout", should_retry=False)
 
     with pytest.raises(openai.APIError) as caught:
         _sdk_chunks(raw, include_usage=False)
 
     assert caught.value.code == "timeout"
-    assert caught.value.body == {"message": message, "type": "server_error", "code": "timeout"}
+    # SE-S6: the OpenAI SDK still raises on the event, and keeps the added retry key.
+    assert caught.value.body == {
+        "message": message,
+        "type": "server_error",
+        "code": "timeout",
+        "should_retry": False,
+    }

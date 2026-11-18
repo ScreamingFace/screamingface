@@ -155,7 +155,7 @@ async def test_failure_after_start_sends_error_event_and_no_done() -> None:
     event = payloads[0]
     assert isinstance(event, dict)
     assert set(event) == {"error"}
-    assert set(event["error"]) == {"message", "type", "code"}
+    assert set(event["error"]) == {"message", "type", "code", "should_retry"}
     assert event["error"]["code"] == "fail_closed"
     assert event["error"]["type"] == "invalid_request_error"
     assert DONE not in payloads
@@ -174,6 +174,8 @@ async def test_time_limit_during_stream_stops_run_and_sends_timeout_event() -> N
     assert isinstance(last, dict)
     assert last["error"]["code"] == "timeout"
     assert last["error"]["type"] == "server_error"
+    assert last["error"]["should_retry"] is False
+    assert "retry_after" not in last["error"]
     assert DONE not in payloads
     assert ca.runner.scheduled[0]["topic"] in ca.runner.stopped
     assert ca.objects.objects == {}
@@ -191,6 +193,9 @@ async def test_drain_during_stream_sends_server_restarting_event() -> None:
     last = sent_payloads(sent)[-1]
     assert isinstance(last, dict)
     assert last["error"]["code"] == "server_restarting"
+    # SE-2 (SDK model inference): the drain is retryable, after the same 5 s as the plain 503.
+    assert last["error"]["should_retry"] is True
+    assert last["error"]["retry_after"] == 5
     assert DONE not in sent_payloads(sent)
     assert topic in ca.runner.stopped
     assert ca.objects.objects == {}

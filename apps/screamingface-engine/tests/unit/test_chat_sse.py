@@ -175,8 +175,9 @@ def test_abstained_result_frames_with_status_in_last_chunk(usage: Usage | None) 
 
 
 def test_error_event_is_one_data_line_with_message_type_and_code() -> None:
-    assert error_event("the run failed", "server_error", "run_failed") == (
-        b'data: {"error":{"message":"the run failed","type":"server_error","code":"run_failed"}}'
+    assert error_event("the run failed", "server_error", "run_failed", should_retry=False) == (
+        b'data: {"error":{"message":"the run failed","type":"server_error","code":"run_failed",'
+        b'"should_retry":false}}'
         b"\n\n"
     )
 

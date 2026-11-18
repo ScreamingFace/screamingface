@@ -172,8 +172,12 @@ async def _content_bytes(content: ArtifactContent) -> bytes:
 def _completion(result: ChatResult, frames: RunFrames, model: str) -> ChatCompletionResponse:
     usage, info = completion_parts(result, frames)
     refused = result.status == "refused"
+    # WHY: a reply with tool calls and no text has content null, as OpenAI sends it and as the
+    # stream gives it (no content key), so a client that builds the reply from the chunks gets
+    # the same reply (prd/stream-error-retry-flag.md SE-S7).
+    no_text = not result.content and bool(result.tool_calls)
     message = ResponseMessage(
-        content=None if refused else result.content,
+        content=None if refused or no_text else result.content,
         tool_calls=list(result.tool_calls) or None,
         refusal=result.refusal,
     )

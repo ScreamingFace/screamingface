@@ -306,7 +306,8 @@ def _assert_tool_call_answer(completion: Any) -> None:
     call = calls[0]
     assert (call.id, call.type) == ("call_1", "function")
     assert (call.function.name, call.function.arguments) == ("get_weather", ARGUMENTS)
-    assert choice.message.content in ("", None)
+    # P13 of the SDK model inference spec: a tool-call reply with no text has content null.
+    assert choice.message.content is None
     assert _extra(completion)["final_step"]["binding"] == "synthesis_1"
 
 

@@ -96,6 +96,14 @@ def _limit_items(source: str) -> dict[str, str]:
     return items
 
 
+def test_stream_section_names_the_retry_keys_of_the_error_event() -> None:
+    """SE-6 of the SDK model inference spec (prd/stream-error-retry-flag.md): the error event of a
+    stream has should_retry and retry_after."""
+    text = PAGE.read_text(encoding="utf-8")
+    assert "<code>should_retry</code>" in text
+    assert "<code>retry_after</code>" in text
+
+
 def test_page_lists_every_documented_limit() -> None:
     items = _limit_items(PAGE.read_text(encoding="utf-8"))
     missing = sorted(set(LIMITS) - set(items))

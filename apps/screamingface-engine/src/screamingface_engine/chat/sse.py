@@ -41,10 +41,27 @@ def data_line(payload: Mapping[str, Any]) -> bytes:
     return b"data: " + body.encode("ascii") + b"\n\n"
 
 
-def error_event(message: str, type_: str, code: str) -> bytes:
-    """The error event of a stream that already started (ST-S6): one data line, no [DONE]."""
+def error_event(
+    message: str, type_: str, code: str, *, should_retry: bool, retry_after: int | None = None
+) -> bytes:
+    """The error event of a stream that already started (ST-S6): one data line, no [DONE].
 
-    return data_line({"error": {"message": message, "type": type_, "code": code}})
+    FEATURE: SDK model inference (prd/stream-error-retry-flag.md). should_retry and retry_after
+    are the values that the plain answer sends as x-should-retry and Retry-After for the same
+    failure, so a client that reads the stream knows if a retry is safe.
+    """
+
+    # WHY should_retry has no default: each caller must state it. A client cannot derive it
+    # from the code, because one code (run_failed) has both values.
+    error: dict[str, Any] = {
+        "message": message,
+        "type": type_,
+        "code": code,
+        "should_retry": should_retry,
+    }
+    if retry_after is not None:
+        error["retry_after"] = retry_after
+    return data_line({"error": error})
 
 
 def frames(

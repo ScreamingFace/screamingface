@@ -335,7 +335,8 @@ curl http://localhost:9108/v1/chat/completions -H 'Content-Type: application/jso
   run, and the client gets `504 timeout`.
 - **`chat_keepalive_s`** (`URL4_CLOUD_CHAT_KEEPALIVE_S`, default `15`, must be more than 0) is
   the interval of the `: keep-alive` comment lines of a streamed answer (`"stream": true`). The
-  stream is buffered: the answer comes after the run ends.
+  stream is buffered: the answer comes after the run ends. The ScreamingFace SDK reads each
+  byte with a 60 s limit, so a value above 60 is not supported with it.
 - **Errors** use the OpenAI error envelope (`{"error": {"message", "type", "param", "code"}}`)
   with fixed messages. The header `x-should-retry` tells the client if a retry is safe. The full
   status table is in `prd/chat-completion.md` §3.2 of the spec directory.
@@ -344,6 +345,10 @@ curl http://localhost:9108/v1/chat/completions -H 'Content-Type: application/jso
   then stops its run, deletes its input record, and answers `503 server_restarting` (a stream
   gets the error event). uvicorn calls the shutdown hook of the App only after each open request
   has ended, so a hook is too late for this.
+- **Stream errors.** An error after a stream started is one event
+  `data: {"error": {"message", "type", "code", "should_retry", "retry_after"?}}`; `should_retry` and
+  `retry_after` are the values of the `x-should-retry` and `Retry-After` headers of a plain answer
+  for the same failure.
 - **Shared cache.** A chat run uses the shared cache as other runs do. `Cache-Control: no-store`
   on the request keeps it out (owner decision of 2026-11-18, spec ledger Q33).
 - **Deploy order: workers first, then the App.** An old worker refuses an unknown run shape,

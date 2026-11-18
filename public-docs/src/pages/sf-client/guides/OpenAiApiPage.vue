@@ -300,10 +300,11 @@ const errorEnvelope = `{
     </table>
 
     <p>
-      When the ensemble abstains, <code>content</code> is null, <code>finish_reason</code> is
+      When the ensemble abstains, <code>content</code> is empty, <code>finish_reason</code> is
       <code>stop</code> and <code>abstain_reason</code> tells why. When the provider refuses,
       <code>content</code> is null, <code>refusal</code> holds the text of the refusal and
-      <code>finish_reason</code> is <code>content_filter</code>.
+      <code>finish_reason</code> is <code>content_filter</code>. When the reply has tool calls and
+      no text, <code>content</code> is null, as OpenAI sends it.
     </p>
 
     <h3>Streaming</h3>
@@ -321,7 +322,10 @@ const errorEnvelope = `{
 
     <p>
       An error after the stream starts comes as one data line with an <code>error</code> object. No
-      <code>[DONE]</code> line follows it.
+      <code>[DONE]</code> line follows it. The object has <code>message</code>,
+      <code>type</code> and <code>code</code>, as in a plain error, and also
+      <code>should_retry</code> (the value of the <code>x-should-retry</code> header of a plain
+      answer) and, for some codes, <code>retry_after</code> in seconds.
     </p>
     <h2>Tools</h2>
 

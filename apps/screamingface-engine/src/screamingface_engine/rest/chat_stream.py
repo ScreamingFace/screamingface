@@ -107,7 +107,7 @@ class ChatStream:
             ended = await wait.next(self._plan.keepalive_s)
             step = None if ended is None else (await self._answer_lines(ended), "ok")
         except ChatError as exc:
-            step = [error_event(exc.message, error_type(exc.status), exc.code)], exc.code
+            step = [_error_line(exc)], exc.code
         # WHY: the stream already started, so an error that no stage expected still ends it with
         # the error event. Only the class name is logged, as the message can quote a request or a
         # provider. A cancel is a BaseException and passes.
@@ -118,7 +118,7 @@ class ChatStream:
                 type(exc).__name__,
             )
             failed = ChatError(500, "internal_error")
-            step = [error_event(failed.message, error_type(500), failed.code)], failed.code
+            step = [_error_line(failed)], failed.code
         return step
 
     async def _answer_lines(self, ended: RunFrames | WaitEnd) -> list[bytes]:
@@ -158,3 +158,18 @@ def stream_answer(
 ) -> ChatStreamResponse:
     """The streamed answer of a scheduled run; it owns the cleanup from now on."""
     return ChatStreamResponse(ChatStream(plan, cleanup, facts))
+
+
+def _error_line(exc: ChatError) -> bytes:
+    """The error event of a ChatError, with the retry values that its plain answer sends.
+
+    INVARIANT: one builder for each error event, so the event and the plain answer cannot
+    differ in their retry values (prd/stream-error-retry-flag.md SE-S4).
+    """
+    return error_event(
+        exc.message,
+        error_type(exc.status),
+        exc.code,
+        should_retry=exc.should_retry,
+        retry_after=exc.retry_after,
+    )
