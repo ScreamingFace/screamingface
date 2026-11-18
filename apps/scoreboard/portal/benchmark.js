@@ -425,6 +425,26 @@
     // Each load takes a number; a response that arrives after a newer load started is dropped, so a
     // slow answer for an earlier choice can never paint over the revision now selected.
     var generation = 0;
+    // The generation whose board is on screen, so the status line can be redone when the revision
+    // list arrives after the board.
+    var loaded = 0;
+
+    // The line above the table, decided from community runs only: imported reference rows appear
+    // under every revision, so they never stand in for this revision's own results.
+    function showBoardStatus() {
+      if (state.entries.length > 0) {
+        P.setStatus(statusNode, null);
+        return;
+      }
+      if (state.rows.length === 0) {
+        showEmptyBoard(statusNode);
+        return;
+      }
+      if (showRevisionPointer(statusNode)) return;
+      var selected = R ? currentSelection() : null;
+      if (selected && !selected.current) P.showEmpty(statusNode, R.emptyBoardText(selected));
+      else P.setStatus(statusNode, null);
+    }
 
     // Everything a board fills in, back to its state before any board loaded. A switch, or a switch
     // that fails, must not leave the previous revision's numbers under the new selection.
@@ -488,7 +508,8 @@
             renderClimb(state.rows);
             renderHead(document.getElementById("leaderboard-head"));
             P.clear(document.getElementById("leaderboard-body"));
-            showEmptyBoard(statusNode);
+            loaded = mine;
+            showBoardStatus();
             wrap.hidden = false;
             // No rows at all: the key would point at nothing.
             legend.hidden = true;
@@ -499,11 +520,8 @@
           renderClimb(state.rows);
           renderHead(document.getElementById("leaderboard-head"));
           renderBody(document.getElementById("leaderboard-body"));
-          // Imported reference rows can fill a table whose revision has no community runs yet; the
-          // pointer to the previous revision's runs still belongs above it.
-          if (state.entries.length > 0 || !showRevisionPointer(statusNode)) {
-            P.setStatus(statusNode, null);
-          }
+          loaded = mine;
+          showBoardStatus();
           wrap.hidden = false;
           // The frontier key appears only when a row actually carries the mark. If frontier
           // publication is unavailable, or every cost is null, nothing is
@@ -654,9 +672,27 @@
       load(null);
       return;
     }
-    // The revision list decides which revision to load, so it is read first. If it cannot be read,
-    // the board still loads, scoped by the URL alone.
-    P.fetchJson("/v1/leaderboard/" + encodeURIComponent(id) + "/revisions").then(
+    var revisionsUrl = "/v1/leaderboard/" + encodeURIComponent(id) + "/revisions";
+    if (!R.requestedRevision(window.location.search)) {
+      // No revision in the URL means Latest, so the board need not wait for the list. The list
+      // adds the selector when it arrives, and redoes the status line, which may point back to an
+      // earlier revision's runs.
+      load(null);
+      P.fetchJson(revisionsUrl).then(
+        function (data) {
+          revisions = (data && data.revisions) || [];
+          var selected = R.resolveSelection(revisions, null).selected;
+          if (selected) renderRevisionSelector(selected);
+          showScopeNote();
+          if (loaded === generation) showBoardStatus();
+        },
+        function () {}
+      );
+      return;
+    }
+    // A revision in the URL is checked against the list before the board loads. If the list cannot
+    // be read, the board still loads, scoped by the URL alone.
+    P.fetchJson(revisionsUrl).then(
       function (data) {
         revisions = (data && data.revisions) || [];
         var requested = R.requestedRevision(window.location.search);
