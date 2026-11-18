@@ -26,6 +26,9 @@ A HubSpot outage delays this and never fails or slows a submission.
 - Co-authors and lab principal investigators: one card per submitter.
 - Private boards (decision 5): left out until Irina decides.
 - Moving a card backwards when a result is later beaten.
+- Cards in Dropped out (Filip, 2026-11-18): the job neither moves them nor writes their
+  fields, even when the person submits again. Moving a card into or out of Dropped out is the
+  team's call.
 - Sending email to anyone.
 
 ## Facts this design rests on
@@ -89,7 +92,8 @@ For one submitter:
    replace it later).
 2. **Card:** read the contact's associated deals and keep those in the SOTA pipeline.
    - none: create one in the stage computed above and associate it with the contact;
-   - one: update it;
+   - one in Dropped out: change nothing; the rows are `skipped` with reason `dropped_out`;
+   - one in any other stage: update it;
    - more than one: change nothing and mark the row `failed` with reason `ambiguous_card`, so
      a person picks the right card.
 3. **Never overwrite a hand-typed value.** Before writing a property, read its history. Write
@@ -210,12 +214,13 @@ deleted after (Bennett's rule).
 
 ## Open questions
 
-1. **HubSpot names and ids:** answered (Facts). Two follow-ups:
-   - **Dropped out** sorts after SOTA, so "forward only by display order" never moves a
-     dropped-out person who submits again. Should a new submission bring that card back to
-     its Submission stage? The forward rule would then apply to Onboarding through SOTA only.
-   - Should the job also set the contact's `sf_last_active_date` to the submission date?
-     It is a date the job knows exactly, and the meeting asked for activity tracking.
+1. **HubSpot names and ids:** answered (Facts).
+1a. **One system-owned date (proposal, needs Bennett):** set the contact's
+   `sf_last_active_date` (😱 Last Active Date) to the newest eligible submission time, and
+   never write any other date. On 2026-11-18 it is empty on all 48,764 contacts, so nobody
+   fills it by hand and the job would own it outright. It is outside Bennett's three fields,
+   and the key cannot create a dedicated property (no `crm.schemas.*.write` scope), so either
+   Bennett agrees to this field or he creates a dedicated one.
 2. **Name "Unknown":** `firstname` = "Unknown" and empty `lastname`, or both? Only on create.
 3. **New card name:** proposed "<email> · leaderboard".
 4. **History:** send it once after a checked dry run (recommended), or start from deploy time.
