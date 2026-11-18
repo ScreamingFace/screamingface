@@ -154,3 +154,19 @@ class BaselineStore:
             except ValidationError:
                 logger.warning("skipping baseline %s: failed schema validation", baseline.id)
         return baselines
+
+    async def best_ranked_scores(self, benchmark_ids: Sequence[str]) -> dict[str, float]:
+        """Bulk read for search indexing, using the displayed rows' eligibility rules."""
+        if not benchmark_ids:
+            return {}
+        rows = await Baseline.filter(benchmark_id__in=benchmark_ids).select_related("benchmark")
+        scores: dict[str, float] = {}
+        for baseline in rows:
+            try:
+                row = _baseline_to_schema(baseline, cast(Benchmark, baseline.benchmark))
+            except ValidationError:
+                logger.warning("skipping baseline %s: failed schema validation", baseline.id)
+                continue
+            if row.ranking_eligible:
+                scores[row.benchmark_id] = max(scores.get(row.benchmark_id, row.score), row.score)
+        return scores

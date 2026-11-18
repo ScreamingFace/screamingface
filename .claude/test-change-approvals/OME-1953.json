@@ -1,0 +1,11 @@
+{
+  "issue": "OME-1953",
+  "branch": "OME-1953-board-pages",
+  "reason": "Owner authorized taking over the reviewed fixes and pushing to existing PR #1800 on 2026-11-17. The posted review explicitly requires updating the obsolete legacy-board test: assert 301, then a seeded 200 response with the per-board og:url. The remaining static parameter-page assertions are retained. This pins only that authorized test-contract correction.",
+  "files": {
+    "apps/scoreboard/tests/unit/test_portal_static.py": {
+      "base_blob": "b26bc147666db842a728fed5d06409771bc694ab",
+      "approved_blob": "8491f476e632936f155866b26c21d2e782e5fd4a"
+    }
+  }
+}

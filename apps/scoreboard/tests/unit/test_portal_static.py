@@ -7,9 +7,11 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from tortoise import Tortoise
 
 from scoreboard.config import Settings
 from scoreboard.main import create_app
+from scoreboard.scores.models import Benchmark
 
 
 def _settings(tmp_path: Path, **overrides: object) -> Settings:
@@ -114,21 +116,30 @@ def test_link_preview_images_name_the_public_origin_and_agree(tmp_path: Path) ->
 
 
 def test_parameter_pages_declare_no_og_url_that_drops_the_shared_item(tmp_path: Path) -> None:
-    """A shared deep link keeps its identity: no og:url collapses it onto the bare page.
+    """A deep link retains its identity through the board-address migration."""
 
-    benchmark.html, spec.html and data.html only show something with their query parameters,
-    and the static page cannot echo them back. og:url is the object's identity for preview
-    services, so a fixed value would make every benchmark share the same "No benchmark
-    specified." destination. Home and About have one fixed identity and keep theirs.
-    """
-    with TestClient(create_app(_settings(tmp_path))) as client:
+    async def seed_boards() -> None:
+        await Tortoise.generate_schemas()
+        for board in ("draco-3pass", "inspect-frontierscience"):
+            await Benchmark.create(id=board, display_name=board)
+
+    with TestClient(create_app(_settings(tmp_path)), follow_redirects=False) as client:
+        assert client.portal is not None
+        client.portal.call(seed_boards)
+        for board in ("draco-3pass", "inspect-frontierscience"):
+            redirect = client.get("/benchmark.html", params={"id": board})
+            assert redirect.status_code == 301
+            assert redirect.headers["location"] == f"/benchmarks/{board}/"
+            page = client.get(redirect.headers["location"])
+            assert page.status_code == 200
+            assert _preview_meta(page.text)["og:url"] == f"{PUBLIC_ORIGIN}/benchmarks/{board}/"
         for path in (
-            "/benchmark.html?id=draco-3pass",
-            "/benchmark.html?id=inspect-frontierscience",
             "/spec.html?benchmark=draco-3pass&spec=example",
             "/data.html?file=example.jsonl",
         ):
-            assert "og:url" not in _preview_meta(client.get(path).text), path
+            page = client.get(path)
+            assert page.status_code == 200
+            assert "og:url" not in _preview_meta(page.text), path
         assert _preview_meta(client.get("/index.html").text)["og:url"] == f"{PUBLIC_ORIGIN}/"
         about = _preview_meta(client.get("/about.html").text)
         assert about["og:url"] == f"{PUBLIC_ORIGIN}/about.html"

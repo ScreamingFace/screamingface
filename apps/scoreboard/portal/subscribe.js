@@ -1,7 +1,7 @@
 /* Email subscribe forms for the leaderboard portal.
  *
  * Two scopes share one HubSpot form:
- *   - "board": updates for one leaderboard (a board page, `benchmark.html?id=<id>`).
+ *   - "board": updates for one leaderboard (a board page, `/benchmarks/<id>/`).
  *   - "all":   updates about ScreamingFace as a whole.
  * Each submission records which board it is for, where on the page the form sat, the page it was
  * sent from and the UTM tags on the URL, so the list can be split by any of them later.
@@ -14,13 +14,13 @@
  */
 (function (root, factory) {
   "use strict";
-  var api = factory();
-  if (typeof module === "object" && module.exports) module.exports = api;
+  if (typeof module === "object" && module.exports) module.exports = factory(require("./board-url.js"));
   else {
+    var api = factory(root.SFBoardUrl);
     root.SFSubscribe = api;
     api.install(root);
   }
-})(typeof self !== "undefined" ? self : this, function () {
+})(typeof self !== "undefined" ? self : this, function (U) {
   "use strict";
 
   var PORTAL_ID = "6487402";
@@ -272,7 +272,10 @@
     });
   }
 
+  // The board this page shows, from either address (board-url.js). Without that file the query
+  // string is still read.
   function boardId(root) {
+    if (U) return U.idFromLocation(root.location);
     return new URLSearchParams(root.location.search || "").get("id") || null;
   }
 
@@ -337,6 +340,7 @@
     isValidEmail: isValidEmail,
     copyFor: copyFor,
     buildSubmission: buildSubmission,
+    boardId: boardId,
     install: install,
   };
 });
