@@ -54,8 +54,8 @@ class AnthropicOAuth(BaseOAuthStrategy):
         raw = await self._store.read(self.credential_service(), self.credential_account())
         if raw is None:
             raise CredentialNotFoundError(
-                f"No tokens for anthropic profile {self.credential_name!r}. "
-                "Re-authenticate via Electron."
+                f"No tokens for anthropic credential {self.credential_name!r}. "
+                "Reconnect the provider."
             )
         try:
             creds = json.loads(raw)
@@ -98,7 +98,7 @@ class AnthropicOAuth(BaseOAuthStrategy):
         if resp.status_code != 200:
             if is_reauth_refresh_failure(resp.status_code, resp.text):
                 raise ReauthRequiredError(
-                    f"Refresh token rejected for profile {self.credential_name!r} "
+                    f"Refresh token rejected for credential {self.credential_name!r} "
                     f"(HTTP {resp.status_code}). Re-auth required."
                 )
             raise AuthError(f"OAuth refresh failed status {resp.status_code}: {resp.text[:500]}")

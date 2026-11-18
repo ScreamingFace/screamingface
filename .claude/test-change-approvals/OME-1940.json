@@ -1,0 +1,46 @@
+{
+  "issue": "OME-1940",
+  "branch": "OME-1940-retire-leftover-profile-wording",
+  "approver": "Dmitry Stebukov (owner)",
+  "date": "2026-11-16",
+  "scope": "The nine prior test files listed in the ledger and approved by the owner on 2026-11-16. Eight gateway test doubles lose the `mutate` method that nothing calls since the store port lost it (two of them also lose the `Callable` import it needed); no test assertion changes. The SDK hosted BYOM fixture sends the scope `account_connection` instead of `account_profile`. Every changed prior test file is pinned byte-exact (9).",
+  "reason": "OME-1138 close-review follow-up (spec docs/spec/2026-11-16-ome-1138-leftover-profile-wording.md sections 2.3 and 2.4; leaves OME-1940 and OME-1941): L4b removed ORMStore.mutate, so the doubles' copies are dead, and since OME-1781 the gateway sends account_connection, which the SDK passes through as opaque text.",
+  "files": {
+    "apps/aigateway/tests/unit/anthropic/test_anthropic_auth.py": {
+      "base_blob": "0b332dac743c3632317e19855352caac1c1684c6",
+      "approved_blob": "788d3056d50cbd03ca5b5f1fe68200fceb7f2f11"
+    },
+    "apps/aigateway/tests/unit/antigravity/test_antigravity_auth.py": {
+      "base_blob": "4327fc08b01c9823c7a357fe017fbfb9e4639ce3",
+      "approved_blob": "33e9e273311255c5474f30dac508cb372f4362f9"
+    },
+    "apps/aigateway/tests/unit/codex/test_codex_auth.py": {
+      "base_blob": "10e30124caaeb4afc15a2bb59a953d0d628de4c4",
+      "approved_blob": "68149a93ef1c09cf1d78e1d9ad1dfbda72ff6c31"
+    },
+    "apps/aigateway/tests/unit/gemini/test_gemini_auth.py": {
+      "base_blob": "0bda2941ca090ed2a4df42937436dbb44e12d8b3",
+      "approved_blob": "805cee6297141737907f8288a24b2c4b6744146b"
+    },
+    "apps/aigateway/tests/unit/huggingface/test_huggingface_provider.py": {
+      "base_blob": "d0fcf3174f359c5044eaf73ed2794f21b3e36408",
+      "approved_blob": "9b74a125c9bf7252f12342b0f1506b003e43d905"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_origin_binding.py": {
+      "base_blob": "24264223362a77f9d3328c502686054f225c5c32",
+      "approved_blob": "657d1bcdf6c25678e6b00946862b68889f4e9cdc"
+    },
+    "apps/aigateway/tests/unit/remote_endpoint/test_plugin.py": {
+      "base_blob": "b8a3cf6a2a48958eb8fd3e924d65634b805379ce",
+      "approved_blob": "c4eb6b19aae95260eae6e6f206fdee3c134a04f9"
+    },
+    "apps/aigateway/tests/unit/test_api_key_strategy.py": {
+      "base_blob": "45cebf35c622ef4f6394090fae4cba65100eaa5f",
+      "approved_blob": "fe497846be80d555b1ee968d7d8ba95f82fe2dba"
+    },
+    "packages/screamingface/tests/test_hosted_byom_preflight.py": {
+      "base_blob": "db6ce5fa3390722ed4c15a9e5f3c4f9728fcd6fb",
+      "approved_blob": "e6b9137f56bfb83d4acbc92b4f619ce69d74c7f1"
+    }
+  }
+}

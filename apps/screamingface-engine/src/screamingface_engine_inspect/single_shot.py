@@ -382,9 +382,10 @@ class ImportedBenchmark:
 def imported_benchmark_id(benchmark_key: str, origin: BenchmarkOrigin) -> str:
     """The catalogue id this plugin gives a row: ``inspect-<key>`` for an inspect_evals import,
     the bare key for a local Task (our own eval in inspect's shape, OME-1513) — "musique", not
-    "inspect-musique", because nothing about it came from inspect_evals."""
+    "inspect-musique", because nothing about it came from inspect_evals. An ``external``
+    row is a local Task an outside contributor wrote, so it takes the bare key too."""
 
-    return benchmark_key if origin == "screamingface" else f"inspect-{benchmark_key}"
+    return f"inspect-{benchmark_key}" if origin == "inspect_evals" else benchmark_key
 
 
 def single_shot_benchmark(

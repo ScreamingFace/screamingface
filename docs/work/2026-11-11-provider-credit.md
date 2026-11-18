@@ -328,5 +328,52 @@ The fix is ready for PR review; merge and the remaining code-owner reviews are p
 - **Deviations:** the CodeQL sha256 fingerprint alert was dismissed as a false positive (the
   digest stays inside the encrypted blob) rather than changed in code. The notice for a
   negative balance was declined per spec; only a verified zero triggers it.
-- **Open follow-up:** the live SDK → Engine → Gateway check, deferred to dev, can now run on
-  staging after the 2026-11-16 promotion.
+- **Live check:** the SDK → Engine → Gateway check deferred to dev passed on authenticated
+  dev on 2026-11-16; see the dev verification section below.
+
+## Dev verification, 2026-11-16
+
+PR #1753 merged as `95f172afdc77b1e0d9f60ee126db9307aeab4dc6` after all
+30 pre-merge checks passed (5 skipped). The final implementation
+includes the notebook input-preservation and hosted-label regressions. Gateway,
+Engine core, and SDK local gates passed at the coverage thresholds recorded above.
+
+Authenticated dev health/readiness and the published credit routes returned 200.
+The first cached and fresh credit reads returned a structured `credential_rejected`
+for the caller's stored hosted key. The admin console showed one active API-key
+credential, last refreshed October 15, without conflicts. Its write-only design
+prevented comparing the stored key with the owner's local keys.
+
+The owner then authorized use of the keys in the local environment file after the
+specific replacement and one-token validation step were explained. Verification:
+
+- The team execution key reports a numeric allowance through the shipped adapter.
+- The matching personal execution/management pair reports both account credit and
+  key allowance. The personal management key paired with the team execution key
+  yields `account_unverified` for account credit while retaining the key allowance.
+- The normal admin save replaced only the caller's dev OpenRouter execution key
+  with the verified team key. The standard save includes provider authentication
+  and one-token model validation. No management key was uploaded to hosted dev.
+- After replacement, cached and fresh synchronous SDK reads through the real
+  dev Engine/Gateway return an available numeric hosted allowance. Async reads
+  also pass; hosted and key values agree, account credit remains hidden, and
+  management-key configuration remains false.
+- The notebook card's HTML, rendered from this live dev response, has exactly one
+  Hosted allowance label and a numeric value. Desktop/mobile light/dark visual
+  inspection was already completed with representative fixtures in the fix cycle.
+- Unsupported-provider reads remain unavailable and invalid provider IDs return
+  422. Responses use private/no-store caching headers.
+
+Replacing the stored execution credential resolved the observed dev rejection.
+The prior secret was not readable, so its precise defect was not established.
+No secrets or personal balance values were printed, persisted in this ledger, or
+committed. Personal account checks were read-only adapter checks; they were not
+credential writes to hosted dev. The only model request in this verification was
+the standard key-save validation, not an evaluation run.
+
+The three implementation issues and mirrors are complete. The repository records
+are reconciled in a documentation-only follow-up. Irina's requested follow-up with
+Dean remains a human communication step; no message to Dean was sent. SDK PyPI
+publication is separate from testing the merged SDK against dev. The health
+response does not identify a deployed Git SHA; this verifies the live feature's
+behavior, not that every dev component runs the exact same revision.

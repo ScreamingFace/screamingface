@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" data-brand="marketing">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OME-1708 · revision selector placement</title>
+  <!-- Mockup only: the real portal stylesheets, so tokens, type and table match production. -->
+  <link rel="stylesheet" href="../../../../apps/scoreboard/portal/fonts.css">
+  <link rel="stylesheet" href="../../../../apps/scoreboard/portal/tokens.css">
+  <link rel="stylesheet" href="../../../../apps/scoreboard/portal/style.css">
+  <link rel="stylesheet" href="../../../../apps/scoreboard/portal/portal.css">
+  <style>
+    /* Mockup scaffolding: option frames and the proposed controls. */
+    .opt { border: 2px dashed var(--line); padding: 0 var(--space-6) var(--space-6); margin: var(--space-10) 0; }
+    .opt > .opt-head { font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2);
+      margin: 0 calc(-1 * var(--space-6)) var(--space-4); padding: var(--space-3) var(--space-6);
+      background: var(--surface-2); border-bottom: 1px solid var(--line); }
+    .opt > .opt-head b { color: var(--ink); }
+    .rev { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+      font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2); margin: calc(-1 * var(--space-6)) 0 var(--space-6); }
+    .rev label { text-transform: uppercase; letter-spacing: .06em; font-size: var(--text-micro); }
+    .rev select { font: inherit; color: var(--ink); background: var(--surface-1, transparent);
+      border: 1px solid var(--line-2, var(--line)); padding: 6px 28px 6px 10px; border-radius: 0; }
+    .rev .static { color: var(--ink); }
+    .rev--table { margin: 0 0 var(--space-3); justify-content: space-between; }
+    .seg { display: inline-flex; border: 1px solid var(--line); }
+    .seg button { font: inherit; background: none; border: 0; border-right: 1px solid var(--line);
+      padding: 6px 12px; color: var(--ink-2); cursor: pointer; }
+    .seg button:last-child { border-right: 0; }
+    .seg button[aria-pressed="true"] { color: var(--ink); background: var(--surface-2); box-shadow: inset 0 -2px 0 var(--accent-solid); }
+    .seg .n { color: var(--ink-3); margin-left: 4px; }
+    .pointer { font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2);
+      border: 1px solid var(--line); padding: var(--space-4); margin: 0 0 var(--space-5); }
+    .pointer a { color: var(--accent-text, var(--ink)); }
+    .mini table td, .mini table th { padding: 6px 10px; }
+    .sample { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-3); }
+  </style>
+</head>
+<body>
+  <div class="wrap wide">
+    <header class="masthead">
+      <div class="eyebrow">OME-1708 · mockup for product feedback</div>
+      <h1>Where the revision selector goes</h1>
+    </header>
+    <p class="lead">Four placements on the benchmark page, then the agreed "Latest is empty" state.
+      Every option scopes the stats, the score bars, the frontier chart and the table together.
+      Labels follow the agreed format: date range and short id, with result counts.</p>
+    <p class="sample">Sample data, MMLU-Pro after a hypothetical bump. Not real scores.</p>
+
+    <!-- ─────────────── A ─────────────── -->
+    <section class="opt">
+      <div class="opt-head"><b>A · Under the title, dropdown only when there is more than one revision</b> (recommended)</div>
+      <header class="masthead"><div class="eyebrow">Leaderboard</div><h1>MMLU-Pro</h1></header>
+      <div class="rev">
+        <label for="a-rev">Revision</label>
+        <select id="a-rev">
+          <option>Latest · since 17 Nov 2026 · a41c09e2 · 9 results</option>
+          <option>Previous · 9 Oct – 17 Nov 2026 · 32a91cf1 · 12 results</option>
+        </select>
+      </div>
+      <div class="stats stats--two">
+        <div class="s"><span class="k">Best score</span><div class="v gain">0.9318</div></div>
+        <div class="s"><span class="k">Results shown</span><div class="v">9</div></div>
+      </div>
+      <div class="mini"><table><thead><tr><th>#</th><th>Submission</th><th>Score</th><th>Cost</th></tr></thead>
+        <tbody><tr><td>1</td><td>sota_open_only</td><td>0.9402</td><td>$61.20</td></tr>
+        <tr><td>2</td><td>robust_ai_lab_trio</td><td>0.9318</td><td>$484.22</td></tr></tbody></table></div>
+      <p class="meta">With a single revision (most benchmarks today) the dropdown becomes plain text:</p>
+      <div class="rev" style="margin-top:0"><label>Revision</label><span class="static">a41c09e2 · since 9 Oct 2026</span></div>
+    </section>
+
+    <!-- ─────────────── B ─────────────── -->
+    <section class="opt">
+      <div class="opt-head"><b>B · Under the title, always a dropdown</b></div>
+      <header class="masthead"><div class="eyebrow">Leaderboard</div><h1>IFEval</h1></header>
+      <div class="rev">
+        <label for="b-rev">Revision</label>
+        <select id="b-rev"><option>Latest · since 9 Oct 2026 · 7eebba58 · 14 results</option></select>
+      </div>
+      <p class="meta">Same control everywhere, but with one option the dropdown opens to a single choice.</p>
+    </section>
+
+    <!-- ─────────────── C ─────────────── -->
+    <section class="opt">
+      <div class="opt-head"><b>C · Just above the table, as a table filter</b></div>
+      <header class="masthead"><div class="eyebrow">Leaderboard</div><h1>MMLU-Pro</h1></header>
+      <div class="stats stats--two">
+        <div class="s"><span class="k">Best score</span><div class="v gain">0.9318</div></div>
+        <div class="s"><span class="k">Results shown</span><div class="v">9</div></div>
+      </div>
+      <p class="meta">… score bars and Pareto chart …</p>
+      <div class="rev rev--table">
+        <span><label for="c-rev">Revision</label>&nbsp;
+        <select id="c-rev">
+          <option>Latest · since 17 Nov 2026 · a41c09e2 · 9 results</option>
+          <option>Previous · 9 Oct – 17 Nov 2026 · 32a91cf1 · 12 results</option>
+        </select></span>
+        <span>gold row = highest score</span>
+      </div>
+      <div class="mini"><table><thead><tr><th>#</th><th>Submission</th><th>Score</th><th>Cost</th></tr></thead>
+        <tbody><tr><td>1</td><td>sota_open_only</td><td>0.9402</td><td>$61.20</td></tr></tbody></table></div>
+      <p class="meta">Closest to the table, but the stats and chart above it change too when you pick a revision, which is easy to miss.</p>
+    </section>
+
+    <!-- ─────────────── D ─────────────── -->
+    <section class="opt">
+      <div class="opt-head"><b>D · Under the title, as buttons instead of a dropdown</b></div>
+      <header class="masthead"><div class="eyebrow">Leaderboard</div><h1>MMLU-Pro</h1></header>
+      <div class="rev">
+        <label>Revision</label>
+        <span class="seg" role="group" aria-label="Revision">
+          <button aria-pressed="true">Latest · a41c09e2<span class="n">9</span></button>
+          <button aria-pressed="false">9 Oct – 17 Nov · 32a91cf1<span class="n">12</span></button>
+        </span>
+      </div>
+      <p class="meta">Every revision visible at a glance, one click to switch. Grows wide after three or four bumps.</p>
+    </section>
+
+    <!-- ─────────────── Empty latest ─────────────── -->
+    <section class="opt">
+      <div class="opt-head"><b>Agreed state · Latest is empty right after a bump</b> (shown with A)</div>
+      <header class="masthead"><div class="eyebrow">Leaderboard</div><h1>MMLU-Pro</h1></header>
+      <div class="rev">
+        <label for="e-rev">Revision</label>
+        <select id="e-rev">
+          <option>Latest · since 17 Nov 2026 · a41c09e2 · 0 results</option>
+          <option>Previous · 9 Oct – 17 Nov 2026 · 32a91cf1 · 12 results</option>
+        </select>
+      </div>
+      <div class="pointer">No results under this revision yet. 12 results under 32a91cf1 (previous) —
+        <a href="#e-rev">show them</a>.</div>
+    </section>
+  </div>
+</body>
+</html>

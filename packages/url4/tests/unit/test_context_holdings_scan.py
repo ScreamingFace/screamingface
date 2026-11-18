@@ -127,3 +127,48 @@ def test_an_unparseable_segment_holding_an_at_sign_keeps_the_context_verbatim() 
 def test_an_unparseable_segment_without_an_at_sign_does_not_hide_the_others() -> None:
     text = f"/model(note: run 1, src={AT_URL};accept=image/png)!'d'"
     assert _occurrence_targets(text) == [AT_URL]
+
+
+# --- lowering agrees with the scan (OME-1945) ------------------------------------------------
+
+PLAIN_URL = "https://cdn.jsdelivr.net/gh/ScreamingFace/screamingface/fixtures/chart.png"
+
+
+async def _context_seen(text: str) -> str:
+    node = build_node(ServeConfig(commands={"/echo": ("cat",)}, data={}))
+    seen: list[str] = []
+
+    @node.endpoint("/model")
+    def model(request: Request) -> str:
+        seen.append(request.context)
+        return "described"
+
+    try:
+        await node.evaluate(text)
+    finally:
+        await node.aclose()
+    assert len(seen) == 1
+    return seen[0]
+
+
+@pytest.mark.asyncio
+async def test_an_at_sign_url_context_reaches_the_model_like_the_same_url_without_it(
+    web: _Web,
+) -> None:
+    def call(url: str) -> str:
+        return f"/model(src={url};accept=image/png)!'What is the chart title code?'"
+
+    at_context = await _context_seen(call(AT_URL))
+    plain_context = await _context_seen(call(PLAIN_URL))
+    assert at_context == plain_context.replace(PLAIN_URL, AT_URL)
+    assert "src=" not in at_context
+    assert ";accept=" not in at_context
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("holdings", ["@", "@emily"])
+async def test_a_real_holdings_ref_context_still_reaches_the_route_verbatim(
+    web: _Web, holdings: str
+) -> None:
+    context = f"{holdings}, src={AT_URL};accept=image/png"
+    assert await _context_seen(f"/model({context})!'d'") == context

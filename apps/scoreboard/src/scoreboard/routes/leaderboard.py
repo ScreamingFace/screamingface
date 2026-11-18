@@ -6,8 +6,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from tortoise import BaseDBAsyncClient
 
-from scoreboard.classification.openness import EntryVerdict
+from scoreboard.classification.openness import EntryVerdict, is_hybrid_entry
 from scoreboard.routes.dependencies import (
     PRIVATE_CACHE_HEADERS,
     ReadIdentity,
@@ -25,6 +26,7 @@ from scoreboard.scores.frontier import (
 from scoreboard.scores.models import Benchmark
 from scoreboard.scores.pareto import compute_pareto_frontier_ids
 from scoreboard.scores.reproduction_cost import reproduction_cost
+from scoreboard.scores.revisions import find_revision
 from scoreboard.scores.schemas import (
     Authors,
     BaselineSchema,
@@ -110,6 +112,9 @@ class RankedLeaderboardEntry(BaseModel):
     # AIDEV-NOTE: this is NOT a verification claim. It says what the entry declares, not that
     # anyone re-ran it (OME-1146, OME-1319); the portal renders it without success green.
     openness: EntryVerdict
+    # OME-1918: display detail only; hybrids remain closed for frontier statistics.
+    # Omit false so non-hybrid rows retain their existing response shape.
+    is_hybrid: bool = Field(default=False, exclude_if=lambda value: not value)
 
     # FEATURE: OME-1596 — the pinned cache (frozen copy) a researcher replays this row from, with
     # `sf.evaluate(pinned_cache=...)`. The portal's Reproduce button copies exactly that.
@@ -190,6 +195,45 @@ class HistoryResponse(BaseModel):
     submissions: list[HistorySubmission]
 
 
+# OME-1708: `?revision=` on the board and the frontier. Absent means the registered revision, so
+# every existing caller gets exactly what it got before.
+RevisionParam = Annotated[
+    str | None,
+    Query(
+        min_length=1,
+        max_length=64,
+        description="Revision to show; defaults to the benchmark's current revision.",
+    ),
+]
+
+REVISION_NOT_FOUND_DETAIL = "Revision not found for this benchmark"
+
+
+async def _selected_scope(
+    store: ScoreStore,
+    benchmark_id: str,
+    requested: str | None,
+    connection: BaseDBAsyncClient,
+) -> tuple[str | None, int | None, bool]:
+    """The revision and Case count a read is scoped to: the registered pair, or the requested one.
+
+    INVARIANT (OME-1708): a past revision is ranked against ITS OWN recorded Case count, never the
+    current one, so the completeness rule (OME-1056) holds within whichever revision is shown.
+    WHY the registered pair is returned untouched when requested equals it: the default read must
+    stay byte-identical to the pre-OME-1708 response.
+    """
+    registered = await store.benchmark_scope(benchmark_id, connection=connection)
+    if requested is None or requested == registered[0]:
+        return *registered, registered[0] is not None
+    if registered[0] is None:
+        # D12: stale/client-provided revision rows cannot enable a frontier on an unpinned board.
+        raise HTTPException(status_code=404, detail=REVISION_NOT_FOUND_DETAIL)
+    found = await find_revision(benchmark_id, requested, connection=connection)
+    if found is None:
+        raise HTTPException(status_code=404, detail=REVISION_NOT_FOUND_DETAIL)
+    return found
+
+
 def _score_store(request: Request) -> ScoreStore:
     return cast(ScoreStore, request.app.state.score_store)
 
@@ -218,12 +262,14 @@ def _ranked_entry(
     *,
     on_pareto_frontier: bool,
     openness: EntryVerdict,
+    is_hybrid: bool = False,
     pinned_cache: str | None = None,
 ) -> RankedLeaderboardEntry:
     return RankedLeaderboardEntry(
         rank=rank,
         on_pareto_frontier=on_pareto_frontier,
         openness=openness,
+        is_hybrid=is_hybrid,
         pinned_cache=pinned_cache,
         **entry.model_dump(),
     )
@@ -328,6 +374,7 @@ async def get_leaderboard(
             description="Maximum entries to return. Values above 200 are clamped.",
         ),
     ] = 50,
+    revision: RevisionParam = None,
 ) -> LeaderboardResponse:
     """Return the best-per-spec leaderboard for a registered benchmark.
 
@@ -364,10 +411,12 @@ async def get_leaderboard(
         # INVARIANT (review round 3): the revision and case count are re-read INSIDE the
         # snapshot. The pre-snapshot read decides visibility only; filtering with it let a
         # re-registration in between serve new-revision rows under the old revision's filter.
-        revision, case_count = await store.benchmark_scope(benchmark_id, connection=snapshot)
+        # OME-1708: a requested past revision is scoped to its own Case count, from this snapshot.
+        revision, case_count, pinned = await _selected_scope(
+            store, benchmark_id, revision, snapshot
+        )
         # The same read decides `pinned` and builds the query's revision filter, so the gate and
         # the filter can never disagree within one request.
-        pinned = revision is not None
         rows = await store.leaderboard(
             benchmark_id=benchmark_id,
             top_n=min(top, MAX_LEADERBOARD_TOP),
@@ -416,6 +465,11 @@ async def get_leaderboard(
     # WHY `classify_members`: the card's own classifier, which logs the page's unknown routes as
     # ONE warning. `classify_entry` alone is silent.
     verdicts = classify_members(members)
+    hybrid_ids = {
+        source_id
+        for source_id, member in members.items()
+        if is_hybrid_entry(member.models, member.openness_override)
+    }
 
     return LeaderboardResponse(
         benchmark=benchmark,
@@ -430,6 +484,7 @@ async def get_leaderboard(
                 # A row the verdict read did not return (deleted between the reads) is
                 # unidentified, never guessed, exactly as the card treats it.
                 openness=verdicts.get(row.source_id, ("unidentified", ()))[0],
+                is_hybrid=row.source_id in hybrid_ids,
                 pinned_cache=pinned_caches.get(row.source_id),
             )
             for index, row in enumerate(rows, start=1)
@@ -508,7 +563,9 @@ async def get_spec_history(
     response_model=FrontierResponse,
     tags=["leaderboard"],
 )
-async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
+async def get_frontier(
+    benchmark_id: str, request: Request, revision: RevisionParam = None
+) -> FrontierResponse:
     """How much of `benchmark_id`'s cost/score Pareto frontier is open (OME-1145).
 
     Of the entries the ranked table marks as best score for the money, how many declare only
@@ -537,11 +594,12 @@ async def get_frontier(benchmark_id: str, request: Request) -> FrontierResponse:
     async with store.read_snapshot() as snapshot:
         # INVARIANT (review round 3): the revision and case count come from this snapshot too, so
         # the filter and the rows it filters never straddle a re-registration.
-        revision, case_count = await store.benchmark_scope(benchmark_id, connection=snapshot)
+        revision, case_count, pinned = await _selected_scope(
+            store, benchmark_id, revision, snapshot
+        )
         # INVARIANT (D12): a board with no registered revision makes no frontier claim, here or in
         # the table. The same read decides the gate and builds the revision filter.
-        pinned = revision is not None
-        if revision is not None:
+        if pinned and revision is not None:
             current = await store.leaderboard_pareto_inputs(
                 benchmark_id,
                 registered_revision=revision,

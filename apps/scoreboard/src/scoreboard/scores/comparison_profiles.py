@@ -29,4 +29,16 @@ PROFILES = {
         minimum=Decimal(0),
         maximum=Decimal(1),
     ),
+    "inspect-sad_facts_llms": ComparisonProfile(
+        revision="c55f043049f958b9",
+        case_count=249,
+        # WHY: pins source questions/answers before option shuffling, not rendered prompts.
+        question_set_sha256="c05b00d70bcf25bbccafb3cd64aadbce684a84041c36e7ac34cba533508a4f61",
+        grading_id="inspect-evals-0.20.0-sad-lenient-mcq-choice",
+        # INVARIANT: chance credit makes SAD distinct from plain correct-count accuracy.
+        metric_name="sad_score",
+        unit="fraction",
+        minimum=Decimal(0),
+        maximum=Decimal(1),
+    ),
 }

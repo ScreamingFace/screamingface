@@ -71,8 +71,8 @@
     var date = P.el("td", null, P.formatDate(row.submitted_at));
     if (row.submitted_at) date.title = "Imported on " + row.submitted_at;
     if (row.observation_revision > 1 && row.baseline_id && row.benchmark_id) {
-      var history = P.link("external-result__history", "external-result-history.html?benchmark="
-        + encodeURIComponent(row.benchmark_id) + "&result=" + encodeURIComponent(row.baseline_id), "Updated");
+      var history = P.link("external-result__history", P.pageHref("external-result-history.html?benchmark="
+        + encodeURIComponent(row.benchmark_id) + "&result=" + encodeURIComponent(row.baseline_id)), "Updated");
       history.setAttribute("aria-label", "View update history for " + row.spec_id);
       if (row.observation_updated_at) history.title = "Updated " + P.formatDate(row.observation_updated_at);
       date.appendChild(history);

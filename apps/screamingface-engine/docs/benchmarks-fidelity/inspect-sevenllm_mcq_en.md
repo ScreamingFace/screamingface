@@ -1,8 +1,8 @@
 ---
 benchmark: inspect-sevenllm_mcq_en
 origin: inspect_evals
-verdict: comparable-to-inspect
-verdict_reason: ""
+verdict: unverified
+verdict_reason: "OME-1907 (2026-11-13): grading now reads an answer inside a wrapper, such as 'ANSWER: $B' or 'ANSWER: **B**', that inspect_ai v0.3.263 reads as no answer (our Named Deviation for inspect_ai issue 5055), so a reply with a wrapper can grade differently from inspect's; only a paid run can bound how often that happens, so the rule gives unverified. Verdict before: comparable-to-inspect. "
 audited: 2026-11-09
 audited_at: 48fe0ec5b
 fingerprint:

@@ -39,6 +39,7 @@ from screamingface_engine.config import Settings
 from screamingface_engine.error_text import (
     CONTROL_PLANE_TERMINAL_CODES,
     ENGINE_ERROR_CODES,
+    PUBLIC_UNVOUCHED_CODES,
     public_message,
 )
 from screamingface_engine.ports import IdentityAwareJobRunner, StoppedBeforeSchedule
@@ -50,8 +51,9 @@ from screamingface_engine.request_scope import (
 )
 from screamingface_engine.rest.artifacts import artifact_response
 from screamingface_engine.rest.cache_policy import resolve
+from screamingface_engine.rest.caller_watch import WAIT_GONE, first_or_gone
 from screamingface_engine.rest.interest import SubscriberGate
-from screamingface_engine.rest.runs_boundary import PRIVATE_HEADERS_DOC
+from screamingface_engine.rest.runs_boundary import PRIVATE_HEADERS_DOC, request_caller
 from screamingface_engine.rest.runs_start import (
     StartBinding,
     bind_start,
@@ -106,8 +108,9 @@ def _sanitized_error(error: ErrorInfo | None) -> tuple[str | None, str | None, b
        embeds ``{token!r}`` of the caller's expression with no limit of its own.
 
     A code in :data:`CONTROL_PLANE_TERMINAL_CODES` (the supervisor's own ``cancelled``,
-    ``queue_expired``, ``deadline_exceeded``, ``spawn_failed``) is reported as itself, with its
-    message withheld.
+    ``queue_expired``, ``deadline_exceeded``, ``spawn_failed``) or in
+    :data:`PUBLIC_UNVOUCHED_CODES` (``intent_error``, a refusal that may carry gateway text) is
+    reported as itself, with its message withheld.
 
     An unvouched or withheld message yields ``None``, and the caller falls back to the fixed
     table detail for the status. NOTE that ``_SCRUBBED_CODE`` is the genuine ``internal_error``
@@ -121,8 +124,10 @@ def _sanitized_error(error: ErrorInfo | None) -> tuple[str | None, str | None, b
         return error.code, public_message(error.message, default=""), error.permanent
     # The control plane's own terminal reason keeps its code — a cancelled or expired run is not
     # an engine fault — but, like every unvouched code, never its message (`spawn_failed` carries
-    # `str(exc)`). Anything else is scrubbed to `internal_error`.
-    code = error.code if error.code in CONTROL_PLANE_TERMINAL_CODES else _SCRUBBED_CODE
+    # `str(exc)`). So does a refusal (`intent_error`), whose message may be gateway text. Anything
+    # else is scrubbed to `internal_error`.
+    public = error.code in CONTROL_PLANE_TERMINAL_CODES or error.code in PUBLIC_UNVOUCHED_CODES
+    code = error.code if public else _SCRUBBED_CODE
     return code, None, error.permanent
 
 
@@ -350,6 +355,11 @@ async def _admit_named_models(
         )
 
 
+def _dash(value: object | None) -> str:
+    """A log field's value, or `-` when unknown (OME-1924: never a blank or `None`)."""
+    return "-" if value is None else str(value)
+
+
 async def _schedule(
     deps: _Deps,
     topic: str,
@@ -365,6 +375,9 @@ async def _schedule(
     capture: bool = False,
     replay_frozen_copy: str | None = None,
     enqueued_at: datetime | None = None,
+    owner: str = "anonymous",
+    run_id: str | None = None,
+    candidate: int | None = None,
 ) -> None:
     """Schedule the run on the job runner; raise 409 if the runner reports it already exists.
 
@@ -400,11 +413,17 @@ async def _schedule(
         )
         # The expression itself is the caller's, and may carry prompts — its LENGTH is
         # enough to tell a large Evaluation from a smoke run when reading back a failure.
+        # FEATURE: queue visibility in the logs (OME-1924). INVARIANT: `owner` is the sha256
+        # owner key (or `anonymous`), never the email; `run`/`candidate` join this line to the
+        # `run created` line of `POST /runs`, `-` for a start that named no Run.
         _logger.info(
-            "run scheduled topic=%s url4_chars=%d cache=%s",
+            "run scheduled topic=%s url4_chars=%d cache=%s owner=%s run=%s candidate=%s",
             topic,
             len(url4),
             cache,
+            owner,
+            _dash(run_id),
+            _dash(candidate),
         )
     except StoppedBeforeSchedule as exc:
         # Before the "scheduled" log and the accept span's enqueue: nothing was scheduled. Also
@@ -613,20 +632,6 @@ def _converge_cache(
     return resolution.effective
 
 
-_DISCONNECT_POLL_S = 0.5
-"""How often a sync wait checks that its caller is still connected (PRD 02 §4: the hold is
-released within 1 s of a disconnect)."""
-
-
-async def _until_disconnected(is_disconnected: Callable[[], Awaitable[bool]]) -> None:
-    while not await is_disconnected():
-        await asyncio.sleep(_DISCONNECT_POLL_S)
-
-
-WAIT_GONE = object()
-"""`wait_terminal_or_gone`'s answer when the caller disconnected first."""
-
-
 async def wait_terminal_or_gone(
     stream: EventConsumer,
     topic: str,
@@ -636,20 +641,11 @@ async def wait_terminal_or_gone(
     """Race the run's terminal frame (bounded by `bound_s`) against the caller leaving.
 
     The terminal frame and its result; ``None`` when the bound passed first; ``WAIT_GONE`` when
-    the caller disconnected first. Both tasks are cancelled and reaped on every exit. Shared by
-    the sync `GET /?q=` and the mount calls, which differ only in what they do with the answer.
+    the caller disconnected first. Both tasks are cancelled and reaped on every exit
+    (`rest/caller_watch.py`). Shared by the sync `GET /?q=` and the mount calls, which differ
+    only in what they do with the answer.
     """
-    wait = asyncio.ensure_future(_await_terminal(stream, topic, bound_s))
-    gone = asyncio.ensure_future(_until_disconnected(is_disconnected))
-    try:
-        await asyncio.wait({wait, gone}, return_when=asyncio.FIRST_COMPLETED)
-    finally:
-        for task in (wait, gone):
-            task.cancel()
-        await asyncio.gather(wait, gone, return_exceptions=True)
-    if wait.cancelled():
-        return WAIT_GONE
-    return wait.result()
+    return await first_or_gone(_await_terminal(stream, topic, bound_s), is_disconnected)
 
 
 async def _run_sync(
@@ -935,6 +931,9 @@ async def start_run(
                     capture=capture,
                     replay_frozen_copy=replay_frozen_copy,
                     enqueued_at=binding.bound_at,
+                    owner=request_caller(request) or "anonymous",
+                    run_id=binding.run_id,
+                    candidate=binding.candidate,
                 )
                 # INVARIANT (OME-1218 D2): the accept ends at ENQUEUE, before any sync hold — the
                 # hold is not accept latency, and counting it would hide the queue-wait gap. So it

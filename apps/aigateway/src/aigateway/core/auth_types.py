@@ -1,4 +1,4 @@
-"""The credential-type vocabulary, shared by Profiles, Connections and every provider plugin.
+"""The credential-type vocabulary, shared by Connections and every provider plugin.
 
 # FEATURE: OME-1209 Stage E, E2a — moved out of `profile_models.py` so the gateway's core and its
 # plugins no longer depend on the legacy Profile module.
@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Literal
 
 # INVARIANT: AuthType is the PERSISTED credential type — the only values a stored
-# Profile or OAuthConnection may hold, and the only ones a credential strategy can
+# OAuthConnection may hold, and the only ones a credential strategy can
 # be built for. AuthMode is the RESOLVED outcome, which additionally admits "none"
 # for a provider that needs no upstream credential at all (OME-636).
 #

@@ -118,7 +118,8 @@ class _Catalog[T](Sequence[T], ABC):
         return body, refresh
 
     def _matches(self, value: T, query: str) -> bool:
-        return not query or query in self._search_text(value).casefold()
+        text = self._search_text(value).casefold()
+        return all(word in text for word in query.split())
 
     @abstractmethod
     def _search_text(self, value: T) -> str:

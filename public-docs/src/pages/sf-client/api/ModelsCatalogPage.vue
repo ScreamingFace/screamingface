@@ -154,8 +154,8 @@ const modelSig = `sf.Model(
 
     <p>
       These are the read-only values model discovery returns.
-      <code>client.models.list()</code> hands back a <code>ModelInfo</code> for every route the
-      configured engine can currently reach, and <code>client.models.get(id)</code> returns the
+      <code>client.models.list()</code> hands back a <code>ModelInfo</code> for each of the curated
+      routes of the configured engine, and <code>client.models.get(id)</code> returns the
       fuller <code>ModelDetails</code> for one route. Consulting them before naming a route in a
       <a href="#model">Model</a> is worthwhile: a route the engine does not carry raises a
       <code>PlanningError</code> at evaluation time rather than at construction time.
@@ -171,9 +171,10 @@ const modelSig = `sf.Model(
 
     <p>
       A <code>ModelInfo</code> is one model route the configured engine can currently reach.
-      <code>client.models.list()</code> returns every addressable route, and consulting it before
-      naming a route in a <a href="#model">Model</a> is worthwhile: a route the engine does not
-      carry raises a <code>PlanningError</code> at evaluation time rather than at construction time.
+      <code>client.models.list()</code> returns the curated routes of the configured engine, and
+      consulting it before naming a route in a <a href="#model">Model</a> is worthwhile: a route the
+      engine does not carry raises a <code>PlanningError</code> at evaluation time rather than at
+      construction time.
     </p>
 
     <table>

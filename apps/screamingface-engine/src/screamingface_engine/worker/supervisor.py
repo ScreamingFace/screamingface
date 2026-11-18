@@ -62,6 +62,12 @@ from url4.streaming.protocol import (
 
 logger = logging.getLogger(__name__)
 
+
+def _seconds(value: float | None) -> str:
+    """A seconds field for a log line: whole seconds, or `-` when unknown (OME-1924)."""
+    return "-" if value is None else f"{value:.0f}"
+
+
 TerminalStatus = Literal["succeeded", "failed", "stopped", "timed_out"]
 """The four terminal statuses a run can end in (``TerminatedData.status``)."""
 
@@ -407,6 +413,10 @@ class RunSupervisor:
         # the subject whole until `max_age`, as before the cap.
         self._trim_retained = trim_retained
         self._reclaims: set[asyncio.Task[None]] = set()
+        # How each in-flight claim ended, by topic, for the `run finished` line (OME-1924). Set
+        # where the ending is decided (terminal publish, settlement, early ack), read once in
+        # `_supervise`'s finally. One topic is in flight at most once (the duplicate guard).
+        self._endings: dict[str, str] = {}
 
     async def supervise(self, msg: ClaimedMessage) -> None:
         """Claim one run and see it through to a terminal frame and an ack.
@@ -418,12 +428,12 @@ class RunSupervisor:
         """
         started = time.monotonic()
         try:
-            await self._supervise(msg)
+            await self._supervise(msg, started)
         finally:
             if self._metrics is not None:
                 self._metrics.run_duration_s.observe(time.monotonic() - started)
 
-    async def _supervise(self, msg: ClaimedMessage) -> None:
+    async def _supervise(self, msg: ClaimedMessage, started: float) -> None:
         """The body of :meth:`supervise`, wrapped for the run-duration metric."""
         if self._metrics is not None and self._redelivered(msg):
             self._metrics.redeliveries.inc()
@@ -441,21 +451,47 @@ class RunSupervisor:
                     "duplicate claim of %s acked away; the run is already executing here", topic
                 )
                 await msg.ack()
+                logger.info("run claim dropped topic=%s reason=duplicate", topic)
                 return
             self._topics_in_flight.add(topic)
             # Registered as STARTING from here until the child registers (or fails to):
             # a cancel that lands in the spawn window is answered from this set, so it is
             # acknowledged — not ignored while the child runs to a second terminal frame.
             self._starting.add(topic)
+            ending = "error"  # replaced below unless `_claim` raises (M1: never a stale name)
             try:
                 await self._claim(msg, topic)
+                ending = self._endings.pop(topic, "unknown")
             finally:
+                self._endings.pop(topic, None)
                 self._starting.discard(topic)
                 # The cancel mark is per-run (a stale entry would misclassify a LATER run
                 # of the same topic), and the control loop can now set it for a run with
                 # no child yet — so every exit path clears it, not just `_release_child`.
                 self._cancelled.discard(topic)
                 self._topics_in_flight.discard(topic)
+                # FEATURE: queue visibility in the logs (OME-1924). Every claim that reached
+                # here ends with one `run finished` line, whatever path ended it.
+                self._log_finished(topic, ending, started)
+
+    def _log_finished(self, topic: str, outcome: str, started: float) -> None:
+        logger.info(
+            "run finished topic=%s outcome=%s ran_s=%.0f",
+            topic,
+            outcome,
+            time.monotonic() - started,
+        )
+
+    def _waited_s(self, msg: ClaimedMessage) -> float | None:
+        """Seconds the run sat in the queue before this claim, or ``None`` when unstamped.
+
+        WHY not the pull's `claim_latency_s`: that metric times the pull call itself, not the
+        wait since the App enqueued the run (OME-1924).
+        """
+        published_at = self._published_at(msg)
+        if published_at is None:
+            return None
+        return max(0.0, (datetime.now(UTC) - published_at).total_seconds())
 
     async def _topic_or_settle(self, msg: ClaimedMessage) -> str | None:
         """This message's topic, or ``None`` after settling a body that cannot name one.
@@ -508,7 +544,11 @@ class RunSupervisor:
             await self._enact_accepted_cancel(msg, topic)
             return
         if await self._already_settled(msg, topic):
+            self._endings.setdefault(topic, "settled")
             return
+        # FEATURE: queue visibility in the logs (OME-1924): the claim is real from here — a
+        # child is about to run. `waited_s` joins the runner log to the App's `run scheduled`.
+        logger.info("run claimed topic=%s waited_s=%s", topic, _seconds(self._waited_s(msg)))
         await self._run_child(msg, topic)
 
     async def _enact_accepted_cancel(self, msg: ClaimedMessage, topic: str) -> None:
@@ -578,6 +618,7 @@ class RunSupervisor:
             # the ack leaves the message for redelivery: the next attempt re-runs this check
             # and, once the broker is readable again, the dedupe answer is the real one.
             logger.warning("stream tail unreadable for %s; leaving the claim for redelivery", topic)
+            self._endings[topic] = "redelivery"
             return True
         if already_terminal:
             await msg.ack()
@@ -669,6 +710,7 @@ class RunSupervisor:
         frames, which is the very duplication the probe exists to prevent.
         """
         if await self._refuse_cross_pod_duplicate(msg, topic):
+            self._endings[topic] = "duplicate"
             return True
         if not self._capability_expired(msg):
             return False
@@ -1285,6 +1327,7 @@ class RunSupervisor:
         assigns the sequence — so the client's replay cursor advances past it exactly as it
         would past the child's own terminal frame.
         """
+        self._endings[topic] = str(status)  # the `run finished` outcome (OME-1924)
         if self._metrics is not None:
             self._metrics.terminals.labels(code=code).inc()
         await self._publisher.ensure_stream(topic)
@@ -1315,6 +1358,8 @@ class RunSupervisor:
         proc: _ChildProcess,
     ) -> None:
         """The run's terminal frame when the child wrote none, then the child's own outcome."""
+        if classification is not None:
+            self._endings[topic] = str(classification[0])
         await self._publish_if_needed(topic, classification)
         await self._publish_settlement(topic, proc)
 
@@ -1326,6 +1371,9 @@ class RunSupervisor:
         """
         outcome = await self._child_outcome(topic, proc)
         if outcome is not None:
+            # The child's own verdict is the ending on-call reads (OME-1924), over the
+            # worker's classification of the exit.
+            self._endings[topic] = str(outcome.status)
             await publish_outcome(self._outcomes, topic, outcome)
 
     async def _child_outcome(self, topic: str, proc: _ChildProcess) -> CandidateOutcome | None:

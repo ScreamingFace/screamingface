@@ -9,7 +9,7 @@ STORY: as a benchmark operator I re-run the same suite from a second account and
 the identical calls are answered from the first run's stored responses, with no
 second provider dispatch and no access to the second account's credential.
 
-INVARIANT: identity is structurally absent. There is no account, profile, user,
+INVARIANT: identity is structurally absent. There is no account, connection, user,
 auth-mode or credential parameter anywhere in this module, and the provider
 projection port is a function of the request body alone. That is what makes one
 row safe to share globally.

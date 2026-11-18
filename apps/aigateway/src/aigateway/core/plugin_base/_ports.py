@@ -108,15 +108,15 @@ class CredentialStrategy(ABC):
 
     @abstractmethod
     async def persist_credentials(self, credentials: dict[str, Any]) -> None:
-        """Persist newly exchanged provider credentials for this profile."""
+        """Persist newly exchanged provider credentials for this connection."""
 
     @abstractmethod
     async def delete_credentials(self) -> None:
-        """Delete persisted provider credentials for this profile."""
+        """Delete persisted provider credentials for this connection."""
 
     @abstractmethod
     async def refresh_credentials(self) -> None:
-        """Refresh persisted provider credentials for this profile."""
+        """Refresh persisted provider credentials for this connection."""
 
 
 # Back-compat alias: existing plugins/tests import the port under its original

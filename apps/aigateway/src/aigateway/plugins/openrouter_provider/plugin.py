@@ -138,7 +138,7 @@ if TYPE_CHECKING:
 
 
 def _credential_service_for(credential_name: str) -> str:
-    """Namespace the stored credential slot by provider + profile/connection."""
+    """Namespace the stored credential slot by provider + connection."""
     return f"aigateway:openrouter:{credential_name}"
 
 
@@ -237,6 +237,7 @@ class OpenRouterProviderPlugin(ProviderPluginBase[OpenRouterPluginSettings]):
             self.settings,
             publishable_upstream_ids(catalog.ids),
             input_modalities=catalog.input_modalities,
+            created=catalog.created,
         )
 
     async def admit_model(

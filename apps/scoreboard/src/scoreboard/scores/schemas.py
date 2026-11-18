@@ -954,6 +954,7 @@ class ProvenanceSchema(BaseModel):
     authors: str | None = None
     citation: str | None = None
     inspect_contributors: list[str] | None = None
+    contributors: list[str] | None = None
     homepage_url: str | None = None
     harness_url: str | None = None
     license: str | None = None

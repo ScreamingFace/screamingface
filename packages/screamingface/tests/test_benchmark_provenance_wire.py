@@ -143,6 +143,35 @@ def test_a_present_but_malformed_value_is_a_catalogue_defect(corrupt: dict[str, 
         client.benchmarks.list()
 
 
+def test_an_external_benchmark_carries_who_wrote_it_from_the_wire() -> None:
+    """FEATURE: a Benchmark an outside contributor wrote arrives with origin ``external`` and
+    their GitHub handles, so a listing can mark it and credit them."""
+
+    entry = _entry("futurex_past", origin="external", contributors=["yimingliao-blad"])
+    with _client(_catalogue(entry)) as client:
+        benchmark = client.benchmarks.list()[0]
+
+    assert benchmark.origin == "external"
+    assert benchmark.provenance == BenchmarkProvenance(contributors=("yimingliao-blad",))
+
+
+@pytest.mark.parametrize(
+    "contributors", ["yimingliao-blad", ["yimingliao-blad", 7]], ids=["a-word", "a-number"]
+)
+def test_a_malformed_contributors_list_is_a_catalogue_defect(contributors: object) -> None:
+    # INVARIANT: a present key must have its shape; the SDK never guesses a handle list.
+    with (
+        _client(_catalogue(_entry("futurex_past", contributors=contributors))) as client,
+        pytest.raises(PlanningError, match="invalid_catalogue|Benchmark"),
+    ):
+        client.benchmarks.list()
+
+
+def test_the_public_provenance_refuses_contributors_that_are_not_a_tuple() -> None:
+    with pytest.raises(TypeError, match="BenchmarkProvenance contributors"):
+        BenchmarkProvenance(contributors="yimingliao-blad")  # type: ignore[arg-type]
+
+
 def test_the_verdict_is_an_open_set_on_the_wire() -> None:
     # INVARIANT (origin tolerance doctrine): an older SDK keeps decoding a newer Engine's
     # catalogue when a new verdict word ships; the known words only ORDER the listing.

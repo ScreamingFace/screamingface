@@ -2,7 +2,7 @@
 
 Mode-independent and provider-neutral: applied at the /v1/chat/completions
 ingress for EVERY provider, after JSON parsing and body-shape validation but
-before profile lookup, cache planning, or credential access.
+before connection lookup, cache planning, or credential access.
 
 ``DISPATCH_CONTROL_FIELDS`` is the known LiteLLM control plane: fields that
 redirect routing (``api_base``/``base_url``/``fallbacks``/``model_list`` are

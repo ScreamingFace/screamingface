@@ -146,6 +146,25 @@ class RelUrlNode:
         call = SubrequestCall(path, context, intent, params, quote=quote)  # see SubrequestFetch
         return await _fetch(ctx, SubrequestFetch(call, accept=self.accept))
 
+    def static_target(self) -> str | None:
+        """The target this call requests, as far as it is known before the run (OME-1811 r10).
+
+        ``None`` when the path needs a run-time value. A resolved (slotted) context is run-time
+        DATA and stands as ``""``; a verbatim context keeps its text; a computed intent stands as
+        none. WHY: the remote-node precheck asks the io world what its eval path would run.
+        """
+        if "$" in self.path:
+            return None
+        if not self.is_expr:
+            return self.path
+        intent = self.deps.get("intent")
+        literal = intent.template if isinstance(intent, TextNode) else None
+        context = self.context or "" if self.ctx_slots is None else ""
+        params = _wire_params(self.params)
+        return SubrequestCall(
+            self.path, context, literal, params, quote=not self.verbatim_intent
+        ).encode()
+
 
 def _resolved_context(
     context: str | None,
