@@ -262,8 +262,10 @@
   // field must understate openness, never overstate it.
   function opennessLabel(entry) {
     var verdict = entry && entry.openness;
-    if (verdict === "open") return { text: "Open", tone: "open" };
-    if (verdict === "closed") return { text: "Closed", tone: "closed" };
+    if (verdict === "open") return { text: "open", tone: "open" };
+    if (verdict === "closed") return {
+      text: entry.is_hybrid === true ? "hybrid" : "closed", tone: "closed",
+    };
     return {
       text: "\u2014",
       tone: "unknown",

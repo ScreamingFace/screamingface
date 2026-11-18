@@ -143,7 +143,7 @@
     return td;
   }
 
-  // The SFDS `.status` recipe, a square plus a sentence-case word. Deliberately NOT
+  // The SFDS `.status` recipe, a square plus the lowercase weight label. Deliberately NOT
   // `.status.on`: that state is success green, and green means verified in SFDS, which this is
   // not. `.status--open` keeps the square neutral ink at full tone; `.status--closed` keeps the
   // recipe's muted square with its word at --ink-2, which passes WCAG AA where the whisper
@@ -162,7 +162,7 @@
     var square = P.el("span", "sq");
     square.setAttribute("aria-hidden", "true");
     status.appendChild(square);
-    status.appendChild(document.createTextNode(label.text + " weights"));
+    status.appendChild(document.createTextNode(label.text));
     line.appendChild(status);
     return line;
   }

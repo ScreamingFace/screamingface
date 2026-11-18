@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from tortoise import BaseDBAsyncClient
 
-from scoreboard.classification.openness import EntryVerdict
+from scoreboard.classification.openness import EntryVerdict, is_hybrid_entry
 from scoreboard.routes.dependencies import (
     PRIVATE_CACHE_HEADERS,
     ReadIdentity,
@@ -112,6 +112,9 @@ class RankedLeaderboardEntry(BaseModel):
     # AIDEV-NOTE: this is NOT a verification claim. It says what the entry declares, not that
     # anyone re-ran it (OME-1146, OME-1319); the portal renders it without success green.
     openness: EntryVerdict
+    # OME-1918: display detail only; hybrids remain closed for frontier statistics.
+    # Omit false so non-hybrid rows retain their existing response shape.
+    is_hybrid: bool = Field(default=False, exclude_if=lambda value: not value)
 
     # FEATURE: OME-1596 — the pinned cache (frozen copy) a researcher replays this row from, with
     # `sf.evaluate(pinned_cache=...)`. The portal's Reproduce button copies exactly that.
@@ -259,12 +262,14 @@ def _ranked_entry(
     *,
     on_pareto_frontier: bool,
     openness: EntryVerdict,
+    is_hybrid: bool = False,
     pinned_cache: str | None = None,
 ) -> RankedLeaderboardEntry:
     return RankedLeaderboardEntry(
         rank=rank,
         on_pareto_frontier=on_pareto_frontier,
         openness=openness,
+        is_hybrid=is_hybrid,
         pinned_cache=pinned_cache,
         **entry.model_dump(),
     )
@@ -460,6 +465,11 @@ async def get_leaderboard(
     # WHY `classify_members`: the card's own classifier, which logs the page's unknown routes as
     # ONE warning. `classify_entry` alone is silent.
     verdicts = classify_members(members)
+    hybrid_ids = {
+        source_id
+        for source_id, member in members.items()
+        if is_hybrid_entry(member.models, member.openness_override)
+    }
 
     return LeaderboardResponse(
         benchmark=benchmark,
@@ -474,6 +484,7 @@ async def get_leaderboard(
                 # A row the verdict read did not return (deleted between the reads) is
                 # unidentified, never guessed, exactly as the card treats it.
                 openness=verdicts.get(row.source_id, ("unidentified", ()))[0],
+                is_hybrid=row.source_id in hybrid_ids,
                 pinned_cache=pinned_caches.get(row.source_id),
             )
             for index, row in enumerate(rows, start=1)
