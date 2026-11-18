@@ -267,6 +267,7 @@ def test_execution_modules_do_not_import_activity():
     src = Path(__file__).resolve().parents[2] / "src/screamingface_engine"
     for path in (
         src / "world/connector.py",
+        src / "world/gateway_transport.py",
         src / "runner/executor.py",
         src / "runner/operation_capture.py",
     ):

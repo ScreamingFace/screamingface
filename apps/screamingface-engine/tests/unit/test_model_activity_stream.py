@@ -218,7 +218,7 @@ async def test_actual_connector_cancellation_keeps_error_and_joins_timer(monkeyp
                 observation_factories({"URL4_CLOUD_ACTIVITY_LEVEL": "full"})
             )
             with observations.bind():
-                return await gateway_transport._logged_round_trip(
+                return await gateway_transport.round_trip(
                     client,
                     real_model_id="model",
                     headers={},

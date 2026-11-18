@@ -1,7 +1,7 @@
 """Characterization tests for the gateway round trip, written before the move.
 
 FEATURE: shared gateway round trip (PRD `gateway-transport.md`, GT-S1, GT-S2, GT-S3). The round
-trip of one model call (`_logged_round_trip` down to `_raise_for_status`) moves out of
+trip of one model call (`round_trip` down to `_raise_for_status`) moves out of
 `world/connector.py` into `world/gateway_transport.py`, and no function body changes. These tests
 pin what that code does today: the outbound headers, the request body and its digest, the error
 code and the retry count of each gateway reply class, and the usage records.
@@ -11,7 +11,7 @@ them changes behaviour. Do not regenerate a golden to make the move pass.
 
 AIDEV-NOTE: the tests drive the production endpoint (`build_aigateway_world` and url4 `run`)
 through the shared fake gateway of `frozen_copy_support`, never a private helper. The only private
-`connector` name is in `_no_waits`: after the move, retarget that one line.
+name is in `_no_waits`. The move changed that one patch target and no golden.
 """
 
 from __future__ import annotations
@@ -79,8 +79,7 @@ _HTTPX_OWN_HEADERS = frozenset(
 def _no_waits(monkeypatch: pytest.MonkeyPatch) -> None:
     """Zero every retry wait: the transport back-off and the Candidate-call wait.
 
-    AIDEV-NOTE: the ONE private `connector` name in this file. After the move, patch it on
-    `gateway_transport` instead.
+    AIDEV-NOTE: the ONE private name in this file. Before the move it was patched on `connector`.
     """
 
     async def no_wait(_attempt: int, _delay: float) -> None:

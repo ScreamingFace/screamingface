@@ -1152,7 +1152,7 @@ class Url4Executor(Executor):
 
         async def _drive() -> _EvalResult:
             # FEATURE (OME-1119): the run's trace is bound HERE, inside the driving task, so the
-            # world's outbound aigateway calls carry it (`world.connector._headers`).
+            # world's outbound aigateway calls carry it (`world.gateway_transport._headers`).
             #
             # WHY not around `execute`'s own `async for ... yield`: `execute` is an ASYNC
             # GENERATOR, and consecutive steps of one can be driven from different contexts —

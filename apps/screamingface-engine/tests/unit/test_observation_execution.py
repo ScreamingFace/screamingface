@@ -43,7 +43,7 @@ def response():
 
 async def call(client):
     accounting = []
-    choice = await gateway_transport._logged_round_trip(
+    choice = await gateway_transport.round_trip(
         client, real_model_id='model', headers={}, body={}, cache=CachePolicy(),
         max_tokens=None, operation_accounting=accounting,
     )
