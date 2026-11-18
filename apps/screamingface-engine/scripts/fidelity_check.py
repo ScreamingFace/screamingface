@@ -52,7 +52,9 @@ VERDICTS: frozenset[str] = frozenset(
 #: Verdicts whose front matter must say why (spec §2.1).
 _VERDICTS_NEEDING_A_REASON: frozenset[str] = frozenset({"not-comparable", "unverified"})
 _REFERENCE_KEYS: tuple[str, ...] = ("paper", "original_harness", "inspect_evals", "inspect_ai")
-ORIGINS: frozenset[str] = frozenset({"screamingface", "inspect_evals"})
+#: INVARIANT: word for word the Engine's `_BENCHMARK_ORIGINS` (benchmarks/definition.py); pinned
+#: by test_fidelity_check, so a new origin cannot leave its records with no valid state.
+ORIGINS: frozenset[str] = frozenset({"screamingface", "inspect_evals", "external"})
 # WHY: comparable-to-inspect says "ours matches inspect_evals, which differs from the paper";
 # a Benchmark that is not imported from inspect_evals has no inspect_evals to match (spec §2.3).
 _IMPORTED_ONLY_VERDICT: str = "comparable-to-inspect"

@@ -52,6 +52,12 @@ class CreditStatus:
     connection_token: str | None = None
     management_key_configured: bool = False
 
+    def _repr_html_(self) -> str:
+        # FEATURE: OME-1935 — a static notebook card; calling `sf.credits()` again refreshes.
+        from screamingface._ui.credit_view import credit_card_html
+
+        return credit_card_html(self)
+
 
 def credits(provider: str = "openrouter", *, refresh: bool = True) -> CreditStatus:
     """Read credits for the default Client's execution connection."""

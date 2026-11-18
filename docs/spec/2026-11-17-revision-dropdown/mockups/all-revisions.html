@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" data-brand="marketing">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OME-1708 · showing all revisions</title>
+  <!-- Mockup only: the real portal stylesheets, so tokens, type and table match production. -->
+  <link rel="stylesheet" href="../../../../apps/scoreboard/portal/fonts.css">
+  <link rel="stylesheet" href="../../../../apps/scoreboard/portal/tokens.css">
+  <link rel="stylesheet" href="../../../../apps/scoreboard/portal/style.css">
+  <link rel="stylesheet" href="../../../../apps/scoreboard/portal/portal.css">
+  <style>
+    .opt { border: 2px dashed var(--line); padding: 0 var(--space-6) var(--space-6); margin: var(--space-10) 0; }
+    .opt > .opt-head { font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2);
+      margin: 0 calc(-1 * var(--space-6)) var(--space-4); padding: var(--space-3) var(--space-6);
+      background: var(--surface-2); border-bottom: 1px solid var(--line); }
+    .opt > .opt-head b { color: var(--ink); }
+    .rev { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+      font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2); margin: calc(-1 * var(--space-6)) 0 var(--space-6); }
+    .rev label { text-transform: uppercase; letter-spacing: .06em; font-size: var(--text-micro); }
+    .rev select { font: inherit; color: var(--ink); background: transparent;
+      border: 1px solid var(--line); padding: 6px 28px 6px 10px; border-radius: 0; }
+    .tag { font-family: var(--f-mono); font-size: var(--text-micro); border: 1px solid var(--line);
+      padding: 1px 6px; color: var(--ink-2); margin-left: 6px; }
+    .tag--latest { color: var(--ink); border-color: var(--accent-solid); }
+    tr.group th { text-align: left; background: var(--surface-2); color: var(--ink-2); font-weight: 500; }
+    tr.older td { color: var(--ink-2); }
+    .note-old { font-family: var(--f-mono); font-size: var(--text-sm); color: var(--ink-2);
+      border-left: 3px solid var(--line); padding: var(--space-2) var(--space-4); margin: 0 0 var(--space-5); }
+    .sample { font-family: var(--f-mono); font-size: var(--text-micro); color: var(--ink-3); }
+  </style>
+</head>
+<body>
+  <div class="wrap wide">
+    <header class="masthead">
+      <div class="eyebrow">OME-1708 · mockup for product feedback</div>
+      <h1>Showing all revisions</h1>
+    </header>
+    <p class="lead">1 is decided: the submission history page lists every run, with a Revision column.
+      2 is a possible extra: an "All revisions" choice in the leaderboard dropdown, below
+      Latest and the individual revisions.</p>
+    <p class="sample">Sample data, MMLU-Pro after a hypothetical bump. Not real scores.</p>
+
+    <!-- ─────────────── 1 ─────────────── -->
+    <section class="opt">
+      <div class="opt-head"><b>1 · Submission history: every run, with a Revision column</b> (decided)</div>
+      <header class="masthead"><div class="eyebrow">Submission history</div><h1>Run history</h1></header>
+      <p class="meta mono">robust_ai_lab_trio · MMLU-Pro</p>
+      <div class="stats">
+        <div class="s"><span class="k">Best score</span><div class="v gain">0.9318</div></div>
+        <div class="s"><span class="k">Runs</span><div class="v">3</div></div>
+        <div class="s"><span class="k">Reproduce</span><div class="v" style="font-size:var(--text-sm)">Copy url4</div></div>
+      </div>
+      <h2>History</h2>
+      <div class="table-wrap"><table aria-label="Run history">
+        <thead><tr><th>When</th><th>Revision</th><th>Submitter</th><th class="num">Score</th><th class="num">Questions</th></tr></thead>
+        <tbody>
+          <tr><td>2026-11-17</td><td>a41c09e2<span class="tag tag--latest">latest</span></td><td>deana</td><td class="num">0.9318</td><td class="num">12,032</td></tr>
+          <tr class="older"><td>2026-11-12</td><td>32a91cf1</td><td>deana</td><td class="num">0.9318</td><td class="num">12,032</td></tr>
+          <tr class="older"><td>2026-11-10</td><td>32a91cf1</td><td>deana</td><td class="num">0.5850</td><td class="num">200</td></tr>
+        </tbody></table></div>
+      <p class="meta">Newest first, as today. Older revisions are dimmed so the current grading stands out; the
+        short id links to that revision's leaderboard (…&amp;revision=32a91cf1e087f719).</p>
+    </section>
+
+    <!-- ─────────────── 2 ─────────────── -->
+    <section class="opt">
+      <div class="opt-head"><b>2 · Leaderboard dropdown with an "All revisions" choice</b> (possible extra, not decided)</div>
+      <header class="masthead"><div class="eyebrow">Leaderboard</div><h1>MMLU-Pro</h1></header>
+      <div class="rev">
+        <label for="r">Revision</label>
+        <select id="r">
+          <option>Latest · since 17 Nov 2026 · a41c09e2 · 9 results</option>
+          <option>Previous · 9 Oct – 17 Nov 2026 · 32a91cf1 · 12 results</option>
+          <option selected>All revisions · 21 results</option>
+        </select>
+      </div>
+      <div class="note-old">Results from different revisions were graded differently and are ranked separately.
+        No frontier chart or best score across revisions.</div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>#</th><th>Submission</th><th class="num">Score</th><th class="num">Cost</th></tr></thead>
+        <tbody>
+          <tr class="group"><th colspan="4">Latest · a41c09e2 · since 17 Nov 2026 · 9 results</th></tr>
+          <tr><td>1</td><td>sota_open_only</td><td class="num">0.9402</td><td class="num">$61.20</td></tr>
+          <tr><td>2</td><td>robust_ai_lab_trio</td><td class="num">0.9318</td><td class="num">$484.22</td></tr>
+          <tr class="group"><th colspan="4">Previous · 32a91cf1 · 9 Oct – 17 Nov 2026 · 12 results</th></tr>
+          <tr class="older"><td>1</td><td>sota_open_only</td><td class="num">0.9311</td><td class="num">$61.20</td></tr>
+          <tr class="older"><td>2</td><td>claude-opus-5.5</td><td class="num">0.9104</td><td class="num">$140.45</td></tr>
+        </tbody></table></div>
+      <p class="meta">Each revision keeps its own ranking (#1 restarts per group), so scores graded differently are never
+        ranked against each other. The stats row and Pareto chart are hidden in this view.</p>
+    </section>
+  </div>
+</body>
+</html>

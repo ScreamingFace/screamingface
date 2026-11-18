@@ -32,8 +32,9 @@ def test_the_shipped_world_totals_match_the_audited_gap() -> None:
     # failing; the equality guard names the exact ids to add to a seeds/ module.
     # 2026-10-22: 117 -> 116, codex's five retired ids replaced by its live four (#1441).
     # 2026-11-02: 116 -> 117 and routable 87 -> 88, the HLE judge glm-5.3-flash (OME-1478).
-    assert len(BUILTIN_MODEL_WORLD) == 117
-    assert len(BUILTIN_MODEL_WORLD.routable) == 88
+    # 2026-11-17: 117 -> 166 and routable 88 -> 137, 49 new OpenRouter models (OME-1955).
+    assert len(BUILTIN_MODEL_WORLD) == 166
+    assert len(BUILTIN_MODEL_WORLD.routable) == 137
     assert len(BUILTIN_MODEL_WORLD.aigateway_only) == 29
 
 
@@ -63,3 +64,9 @@ def test_every_huggingface_id_is_aigateway_only() -> None:
     hf = {i for i in BUILTIN_MODEL_WORLD.all_ids if i.startswith("huggingface/")}
 
     assert hf and hf <= BUILTIN_MODEL_WORLD.aigateway_only
+
+
+def test_the_ome_1955_models_are_routable() -> None:
+    # WHY (OME-1955): the refresh adds the new models of the large labs; these two are samples.
+    assert "openrouter/anthropic/claude-opus-5.5" in BUILTIN_MODEL_WORLD.routable
+    assert "openrouter/deepseek/deepseek-v4.1-flash-1017" in BUILTIN_MODEL_WORLD.routable

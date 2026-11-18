@@ -295,7 +295,10 @@ Four things differ from an inspect_evals import:
 
 - **Origin.** The generated `BenchmarkSpec` row gets `origin="screamingface"`: the Benchmark is
   ours, and the provenance rule then asks it for no `inspect_contributors`. Leave the default
-  (`inspect_evals`) only for evals that really came from inspect_evals.
+  (`inspect_evals`) only for evals that really came from inspect_evals. If you are contributing
+  from outside the team, set `origin="external"` instead and name yourself with
+  `contributors=("<your GitHub handle>",)`: the catalogue then credits you, and the Benchmark
+  keeps its bare id like any other local Task.
 - **Provenance is hand-written.** There is no `eval.yaml` to read, so every TODO (paper,
   authors, citation, licence, baselines, difficulty) is yours to fill from the paper and the
   reference harness. Registration refuses the row until every TODO is gone.

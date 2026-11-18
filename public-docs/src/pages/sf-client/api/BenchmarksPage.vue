@@ -138,7 +138,8 @@ const listRunOut = `[('medxpert', 2450)]`
           <td><code>BenchmarkProvenance | None</code></td>
           <td>
             The benchmark's cover sheet: <code>paper_url</code>, <code>authors</code>,
-            <code>citation</code>, <code>inspect_contributors</code>, <code>homepage_url</code>,
+            <code>citation</code>, <code>inspect_contributors</code>, <code>contributors</code>,
+            <code>homepage_url</code>,
             <code>harness_url</code>, <code>license</code>, <code>license_note</code>,
             <code>content_warning</code>, <code>human_baseline</code>,
             <code>frontier_score</code> (each score a <code>PublishedScore</code> with
