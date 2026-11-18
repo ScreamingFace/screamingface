@@ -7,24 +7,30 @@ client type and on the value of ``stream`` give the result type (ans:Q7).
 
 from __future__ import annotations
 
-from collections.abc import Coroutine, Mapping, Sequence
+from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, overload
 
 from screamingface import _default_client
 from screamingface._inference.request import (
-    INCLUDE_USAGE,
     ChatCall,
     ModelSource,
-    chat_body,
+    chat_call,
     chat_messages,
     chat_tools,
     check_options,
     check_other,
     model_source,
     model_text,
+    model_text_async,
 )
-from screamingface._inference.transport import send_chat
+from screamingface._inference.transport import (
+    open_chat_stream,
+    open_chat_stream_async,
+    send_chat,
+    send_chat_async,
+)
 from screamingface.chat_completion import AsyncChatStream, ChatCompletion, ChatStream
 
 # WHY a run-time import: U4 checks the client type with isinstance, and reading
@@ -157,6 +163,10 @@ class Chat[ClientT: (Client, AsyncClient)]:
         With a sync Client the call blocks and returns the reply, or a ChatStream when
         ``stream`` is True. With an AsyncClient the call returns a coroutine.
 
+        With stream=True and a sync Client, the call returns a ChatStream that is open at its first
+        chunk. With an AsyncClient, this call raises each argument error before a coroutine exists;
+        the await raises the network and Engine errors.
+
         Raises:
             TypeError: an argument has the wrong type.
             ValueError: an argument has a wrong value.
@@ -180,19 +190,42 @@ class Chat[ClientT: (Client, AsyncClient)]:
         # of the caller.
         check_other(other)
         client = self._owner._call_client()
-        if isinstance(client, AsyncClient) or stream:
-            # AIDEV-NOTE: unit U5 fills the async path and the stream=True path (ChatStream,
-            # AsyncChatStream).
-            raise NotImplementedError(
-                "ModelInference streams and the async client are not available yet"
-            )
-        # INVARIANT: a closed client raises its RuntimeError before a request, also before the
-        # catalogue load.
+        # INVARIANT: a closed client raises its RuntimeError before a request, before the catalogue
+        # load and before a coroutine exists.
         client._require_open()
-        model = model_text(self._owner._source, client._operator_catalog.load)
-        body = chat_body(model, messages_list, tools_list, stream_options=INCLUDE_USAGE)
-        call = ChatCall(body=body, use_cache=use_cache, max_retries=max_retries, timeout=timeout)
+        build = partial(
+            chat_call,
+            messages=messages_list,
+            tools=tools_list,
+            stream=stream,
+            stream_options=stream_options,
+            use_cache=use_cache,
+            max_retries=max_retries,
+            timeout=timeout,
+        )
+        if isinstance(client, AsyncClient):
+            # WHY a coroutine from a plain def (C1.2, MI-24): each argument error above is raised
+            # by this call; only the catalogue, network and Engine errors come at the await.
+            return _complete_async(client, self._owner._source, build, stream=stream)
+        call = build(model_text(self._owner._source, client._operator_catalog.load))
+        if stream:
+            return open_chat_stream(client._engine_post_stream, client.engine_url, call)
         return send_chat(client._engine_post_stream, client.engine_url, call)
+
+
+async def _complete_async(
+    client: AsyncClient,
+    source: ModelSource,
+    build: Callable[[str], ChatCall],
+    *,
+    stream: bool,
+) -> ChatCompletion | AsyncChatStream:
+    """The async half of Chat.complete: the catalogue load, the compile and the send (C1.2)."""
+
+    call = build(await model_text_async(source, client._operator_catalog.load))
+    if stream:
+        return await open_chat_stream_async(client._engine_post_stream, client.engine_url, call)
+    return await send_chat_async(client._engine_post_stream, client.engine_url, call)
 
 
 class ModelInference[ClientT: (Client, AsyncClient)]:

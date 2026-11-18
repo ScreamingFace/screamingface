@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import warnings
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Final
@@ -198,6 +198,17 @@ def model_text(source: ModelSource, load_operators: Callable[[], _OperatorCatalo
     return compile_candidate(source, operators=load_operators(), warn_judge_writers=False).url4
 
 
+async def model_text_async(
+    source: ModelSource, load_operators: Callable[[], Awaitable[_OperatorCatalog]]
+) -> str:
+    """The async twin of model_text: the catalogue loads with await, then the same compile."""
+
+    if isinstance(source, str):
+        return source
+    catalog = await load_operators()
+    return model_text(source, lambda: catalog)
+
+
 def chat_messages(prompt: object, messages: object) -> list[dict[str, Any]]:
     """The messages of one chat call: the prompt as one user message, or the messages (C1.2)."""
 
@@ -244,6 +255,12 @@ def check_options(
     _use_cache_value(use_cache)
     if stream_options is not None and not isinstance(stream_options, Mapping):
         raise TypeError("stream_options must be a dict or None")
+    # WHY: OpenAI refuses an include_usage that is not a bool; a value such as 1 must not drop the
+    # usage chunk with no error.
+    if stream_options is not None and not isinstance(
+        stream_options.get("include_usage", False), bool
+    ):
+        raise TypeError("stream_options['include_usage'] must be a bool")
     _check_retries(max_retries)
     _check_timeout(timeout)
 
@@ -318,6 +335,30 @@ def chat_body(
     return body
 
 
+def chat_call(
+    model: str,
+    *,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+    stream: bool,
+    stream_options: Mapping[str, Any] | None,
+    use_cache: bool,
+    max_retries: int,
+    timeout: float | None,
+) -> ChatCall:
+    """The chat call of one model text for the transport (C2.1).
+
+    WHY two forms of stream_options (C2.1, P6): with stream=False the SDK builds the reply, and the
+    reply needs the usage chunk, so the wire always asks for it. With stream=True the wire carries
+    the value of the caller, so the caller gets the chunks that an OpenAI client gets, and the SDK
+    does not copy the frame rule of the Engine.
+    """
+
+    options = stream_options if stream else INCLUDE_USAGE
+    body = chat_body(model, messages, tools, stream_options=options)
+    return ChatCall(body=body, use_cache=use_cache, max_retries=max_retries, timeout=timeout)
+
+
 def chat_headers(*, use_cache: bool) -> tuple[dict[str, str], str]:
     """The headers of one try and its trace id (C2.1, P8).
 
@@ -337,6 +378,7 @@ __all__ = [
     "ChatCall",
     "ModelSource",
     "chat_body",
+    "chat_call",
     "chat_headers",
     "chat_messages",
     "chat_tools",
@@ -344,5 +386,6 @@ __all__ = [
     "check_other",
     "model_source",
     "model_text",
+    "model_text_async",
     "url4_text",
 ]

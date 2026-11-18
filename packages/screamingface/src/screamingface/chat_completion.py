@@ -2,13 +2,15 @@
 
 FEATURE: SDK model inference (docs/spec/2026-11-18-sdk-model-inference, contracts C1.3 and C1.4).
 The field names are those of the OpenAI objects (ans:Q2).
-AIDEV-NOTE: unit U5 adds the iteration, the close and the context manager of the two streams (C1.4).
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from decimal import Decimal
+from types import TracebackType
+from typing import Self
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -296,8 +298,116 @@ class ChatCompletionChunk:
 
 
 class ChatStream:
-    """The chunks of one reply, for a sync client and ``stream=True`` (contracts C1.4)."""
+    """The chunks of one reply, for a sync client and ``stream=True`` (contracts C1.4).
+
+    Iterate it to get each ChatCompletionChunk in the order of the Engine. It is a context
+    manager. The stream closes its connection at the end of the chunks, at an error, at close(),
+    at the exit of a with block and when Python frees it. The SDK makes the stream; do not make
+    one yourself.
+
+    The Engine sends a buffered stream: the first chunk comes when the run has ended, and then
+    all chunks come at one time. It is not a token stream.
+    """
+
+    __slots__ = ("_chunks", "_close", "_closed")
+
+    def __init__(self, chunks: Iterator[ChatCompletionChunk], close: Callable[[], None]) -> None:
+        self._chunks = chunks
+        self._close = close
+        self._closed = False
+
+    def __iter__(self) -> Self:
+        return self
+
+    def __next__(self) -> ChatCompletionChunk:
+        if self._closed:
+            raise StopIteration
+        try:
+            chunk = next(self._chunks, None)
+        except Exception:
+            self.close()
+            raise
+        if chunk is None:
+            self.close()
+            raise StopIteration
+        return chunk
+
+    def close(self) -> None:
+        """Release the connection. A second call does nothing."""
+
+        if self._closed:
+            return
+        self._closed = True
+        self._close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        self.close()
 
 
 class AsyncChatStream:
-    """The chunks of one reply, for an AsyncClient and ``stream=True`` (contracts C1.4)."""
+    """The chunks of one reply, for an AsyncClient and ``stream=True`` (contracts C1.4).
+
+    Iterate it with ``async for`` to get each ChatCompletionChunk in the order of the Engine.
+    It is an async context manager. The stream closes its connection at the end of the chunks,
+    at an error, at aclose(), and at the exit of an ``async with`` block.
+    WHY no close when Python frees it: the close needs an await. asyncio closes the open
+    connection later through its hooks for async generators. Use ``async with`` or aclose() to
+    close it at once.
+
+    The Engine sends a buffered stream: the first chunk comes when the run has ended, and then
+    all chunks come at one time. It is not a token stream.
+    """
+
+    __slots__ = ("_chunks", "_aclose", "_closed")
+
+    def __init__(
+        self,
+        chunks: AsyncIterator[ChatCompletionChunk],
+        aclose: Callable[[], Awaitable[None]],
+    ) -> None:
+        self._chunks = chunks
+        self._aclose = aclose
+        self._closed = False
+
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self) -> ChatCompletionChunk:
+        if self._closed:
+            raise StopAsyncIteration
+        try:
+            chunk = await anext(self._chunks, None)
+        except Exception:
+            await self.aclose()
+            raise
+        if chunk is None:
+            await self.aclose()
+            raise StopAsyncIteration
+        return chunk
+
+    async def aclose(self) -> None:
+        """Release the connection. A second call does nothing."""
+
+        if self._closed:
+            return
+        self._closed = True
+        await self._aclose()
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        await self.aclose()

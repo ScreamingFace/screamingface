@@ -6,9 +6,9 @@ INVARIANT: pure code: no I/O, no log, no SDK error. Unit U4 maps FrameError to E
 AIDEV-NOTE: the Engine pins the same reply rule in
 apps/screamingface-engine/tests/unit/test_chat_stream_retry_flag.py::_reply_from_chunks.
 Change the two together.
-AIDEV-NOTE: the entry points are completion_from_lines (unit U4, stream=False) and read_chunks
-(unit U5, stream=True). The other names are steps of these two and test seams; the transport
-does not call them.
+AIDEV-NOTE: the transport reads with EventReader (one line at a time, sync and async),
+chunk_from_payload and build_completion. events_from_lines, read_chunks and completion_from_lines
+are the pull forms of the same steps; the table tests use them.
 """
 
 from __future__ import annotations
@@ -35,6 +35,7 @@ from screamingface.chat_completion import (
 )
 
 __all__ = [
+    "EventReader",
     "FrameError",
     "FrameErrorReason",
     "StreamError",
@@ -91,22 +92,61 @@ def event_from_line(line: str) -> dict[str, Any] | StreamError | StreamDone | No
     return _event_from_data(value)
 
 
+class EventReader:
+    """The push form of events_from_lines: one SSE line in, its event out (contracts C2.3).
+
+    The sync and the async transport give each line to one reader, so the two read the stream by
+    the same rule. After the [DONE] line or the error event, ended is True and the caller stops
+    to read.
+    """
+
+    __slots__ = ("_ended",)
+
+    def __init__(self) -> None:
+        self._ended = False
+
+    @property
+    def ended(self) -> bool:
+        """True after the [DONE] line or the error event."""
+
+        return self._ended
+
+    def push(self, line: str) -> dict[str, Any] | StreamError | None:
+        """The event of one line, or None for a line with no event and for the [DONE] line.
+
+        It raises FrameError for a data line that is not a JSON object.
+        """
+
+        event = event_from_line(line)
+        if isinstance(event, StreamDone):
+            self._ended = True
+            return None
+        if isinstance(event, StreamError):
+            self._ended = True
+        return event
+
+    def end(self) -> None:
+        """Check the end of the lines: FrameError (truncated) when no [DONE] and no error event
+        came."""
+
+        if not self._ended:
+            raise FrameError("truncated", "the chat stream ended before its [DONE] line")
+
+
 def events_from_lines(lines: Iterable[str]) -> Iterator[dict[str, Any] | StreamError]:
     """The events of the lines, up to [DONE] or the error event.
 
     The lines after [DONE] or after the error event are not read.
     """
 
+    reader = EventReader()
     for line in lines:
-        event = event_from_line(line)
-        if event is None:
-            continue
-        if isinstance(event, StreamDone):
+        event = reader.push(line)
+        if event is not None:
+            yield event
+        if reader.ended:
             return
-        yield event
-        if isinstance(event, StreamError):
-            return
-    raise FrameError("truncated", "the chat stream ended before its [DONE] line")
+    reader.end()
 
 
 def chunk_from_payload(payload: Mapping[str, Any]) -> ChatCompletionChunk:

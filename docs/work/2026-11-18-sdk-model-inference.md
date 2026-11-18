@@ -124,6 +124,27 @@ docs examples run in tests.
   decides once for sync and async. (c) For U5: with `stream=True` the caller's
   `stream_options` decides if the usage chunk reaches the caller (C2.1); the wire always asks
   for usage. Gates: SDK green.
+  **Correction (U5):** note (c) above was wrong. Contracts C2.1 (P6) say that with
+  `stream=True` the wire carries the caller's `stream_options`; only `stream=False` always
+  asks for usage.
+- **2026-11-18 — U5 (streams, async, concurrency) done.** `ChatStream` / `AsyncChatStream`
+  (C1.4), the async twin of the transport, `complete` returns a coroutine with an
+  `AsyncClient` (argument errors before the coroutine), pure chunk steps in
+  `screamingface/_inference/chunks.py`, a push-form `EventReader` in `frames.py`. Tests MI-20,
+  MI-21, MI-22, MI-24, the stream and async half of MI-31. Tiered-build run `wf_d38f572c-6c1`
+  (6 Haiku tasks); the review gave one STRUCTURAL finding (F3): from my wrong run note, the SDK
+  always asked for usage and copied the Engine frame rule to drop the usage chunk for the
+  caller. Per the routing rule, I fixed it in the main loop: the stream body carries the
+  caller's `stream_options` (C2.1), the stream gives each wire chunk as it is, and
+  `CallerChunks` / `caller_view` / `caller_wants_usage` are deleted. Same pass: F1 (a stream
+  stops the caller deadline at the first chunk, because the Engine stream is buffered; a reply
+  call keeps it to the end; tests sync and async), F4, F6 (one shared per-line step), F7 (WHY on
+  the retry rule of `send_chat`), F10 (`include_usage` must be a bool). Not done: F2 (the pull
+  helpers of `frames.py` are thin compositions of the same steps; low drift risk), F5 (a stream
+  passes the wire through, as an OpenAI client gets it), F9 (stream constructor parameters:
+  check in U7 with the surface snapshot), F11, F12 (style). F13 of U4 decided: module globals
+  for the clock and both sleeps. `frames.py` and `transport.py` are at 450 lines (no headroom).
+  Gates: SDK green.
 
 ## Outcome (fill at the end — required before COMMIT)
 
