@@ -28,7 +28,7 @@ import pytest
 from screamingface_engine.benchmarks.case_context import case_scope
 from screamingface_engine.capture_outcomes import CaptureTally, capture_outcomes, request_digest
 from screamingface_engine.request_scope import RequestScope, request_scope
-from screamingface_engine.world import connector
+from screamingface_engine.world import gateway_transport
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
 from url4.dag import run as url4_run
@@ -73,7 +73,7 @@ def _no_waits(monkeypatch: pytest.MonkeyPatch) -> None:
     async def no_wait(_attempt: int, _delay: float) -> None:
         return None
 
-    monkeypatch.setattr(connector, "_wait_to_retry", no_wait)
+    monkeypatch.setattr(gateway_transport, "_wait_to_retry", no_wait)
 
 
 class _FakeGateway:

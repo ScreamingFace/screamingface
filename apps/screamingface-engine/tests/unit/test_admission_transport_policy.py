@@ -7,6 +7,7 @@ import pytest
 
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.world import connector as c
+from screamingface_engine.world import gateway_transport
 from screamingface_engine.world.config import WorldConfigError
 from url4.core.errors import ResolutionError
 
@@ -15,14 +16,14 @@ from url4.core.errors import ResolutionError
 @pytest.mark.parametrize("failure_kind", ["queue", "transport"])
 async def test_retry_rechecks_full_budget_after_backoff(monkeypatch, failure_kind):
     clock = [100.0]
-    monkeypatch.setattr(c, "time", SimpleNamespace(monotonic=lambda: clock[0]))
-    monkeypatch.setattr(c, "_queue_retry_delay", lambda *_: 0.5)
-    monkeypatch.setattr(c, "_transport_backoff", lambda *_: 0.5)
+    monkeypatch.setattr(gateway_transport, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    monkeypatch.setattr(gateway_transport, "_queue_retry_delay", lambda *_: 0.5)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda *_: 0.5)
 
     async def delayed_wakeup(attempt, delay):
         clock[0] += 3.0
 
-    monkeypatch.setattr(c, "_wait_to_retry", delayed_wakeup)
+    monkeypatch.setattr(gateway_transport, "_wait_to_retry", delayed_wakeup)
     calls = []
 
     def handler(request):
@@ -38,10 +39,12 @@ async def test_retry_rechecks_full_budget_after_backoff(monkeypatch, failure_kin
         with request_scope(RequestScope(origin="run", deadline=108.0)):
             if failure_kind == "transport":
                 with pytest.raises(ResolutionError) as error:
-                    await c._post_completion(client, headers=headers, body={})
+                    await gateway_transport._post_completion(client, headers=headers, body={})
                 assert error.value.code == "aigateway_deadline_exceeded"
             else:
-                response, uncertain = await c._post_completion(client, headers=headers, body={})
+                response, uncertain = await gateway_transport._post_completion(
+                    client, headers=headers, body={}
+                )
                 assert response.status_code == 503
                 assert not uncertain
     assert len(calls) == 1, "A retry started with 5 seconds left, below its 6-second full budget"
@@ -59,7 +62,7 @@ async def test_declared_budgets_preserve_short_transport_phase_limits():
     async with httpx.AsyncClient(
         base_url="http://fake", transport=httpx.MockTransport(handler), timeout=timeout
     ) as client:
-        await c._post_completion(
+        await gateway_transport._post_completion(
             client,
             headers={"x-aigw-execution-timeout-s": "600", "x-aigw-queue-timeout-s": "600"},
             body={},

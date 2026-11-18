@@ -659,6 +659,9 @@ _ALLOWED_RUNNER_IMPORTERS = frozenset(
         # delegation is exactly why the engine imports url4 here rather than parsing again.
         Path("screamingface_engine/world/config.py"),
         Path("screamingface_engine/world/connector.py"),
+        # The gateway round trip moved out of `connector.py` with its url4 imports (errors,
+        # guard retry, observation sinks, cache policy). It is the same world adapter code.
+        Path("screamingface_engine/world/gateway_transport.py"),
         Path("screamingface_engine/world/factory.py"),
         Path("screamingface_engine/world/candidate_adapter.py"),
         # FX-56 (04-review-fixes.md B3): the F4 collision guard now checks `isinstance(io,

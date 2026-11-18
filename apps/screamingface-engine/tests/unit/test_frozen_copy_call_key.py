@@ -41,13 +41,13 @@ from screamingface_engine.capture_outcomes import (
     case_key_for,
 )
 from screamingface_engine.grading_call_scope import grading_call_scope
-from screamingface_engine.world import connector
+from screamingface_engine.world import gateway_transport
 
 
 @pytest.fixture(autouse=True)
 def _no_backoff(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
-    monkeypatch.setattr(connector, "_TRANSPORT_BACKOFF_JITTER_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_BASE_S", 0.0)
+    monkeypatch.setattr(gateway_transport, "_TRANSPORT_BACKOFF_JITTER_S", 0.0)
 
 
 def _keys(gateway: Gateway, path: str) -> list[tuple[str | None, str]]:

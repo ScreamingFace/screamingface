@@ -15,7 +15,7 @@ from screamingface_engine.world.attachment_parts import (
     GatewayContentPartRefusal,
     intent_error_for,
 )
-from screamingface_engine.world.connector import _raise_for_status
+from screamingface_engine.world.gateway_transport import _raise_for_status
 from url4.core.errors import ResolutionError
 
 _INFO = {
@@ -102,7 +102,7 @@ def test_the_intent_error_is_a_gateway_refusal_with_its_status_and_permanence() 
     """Merge of #1587 into #1588 (owner decision 2026-11-02): one `_GatewayRefusal` type for every
     gateway non-2xx, so the intent branch keeps the status and is never read as a 400
     "unknown provider" refusal by `refuses_provider`."""
-    from screamingface_engine.world.connector import _GatewayRefusal
+    from screamingface_engine.world.gateway_transport import _GatewayRefusal
 
     with pytest.raises(_GatewayRefusal) as caught:
         _raise_for_status(_gateway(422, _INFO))

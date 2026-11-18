@@ -41,7 +41,7 @@ from screamingface_engine.benchmarks.shared_grading.benchmark_aggregation import
 )
 from screamingface_engine.benchmarks.shared_grading.payloads import TextPayload  # noqa: E402
 from screamingface_engine.request_scope import RequestScope, request_scope  # noqa: E402
-from screamingface_engine.world.connector import _raise_for_status  # noqa: E402
+from screamingface_engine.world.gateway_transport import _raise_for_status  # noqa: E402
 from screamingface_engine_inspect.benchmarks import BENCHMARKS, imported_benchmark  # noqa: E402
 from screamingface_engine_inspect.judge_provider import (  # noqa: E402
     JudgeTransport,
