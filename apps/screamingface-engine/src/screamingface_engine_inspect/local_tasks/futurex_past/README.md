@@ -35,8 +35,12 @@ read. The dataset is re-published weekly, which is why both Benchmarks pin a com
 
 ## The prompt
 
-The row's `prompt`, byte for byte, as one user message. FutureX ships a complete prompt that ends
-with its own answer format (`\boxed{...}`), so nothing is added.
+The row's `prompt`, byte for byte, as one user message. FutureX ships a complete prompt that asks
+for a boxed answer, so nothing is added. 2,012 of the 2,036 prompts at `8299bfa1` show the syntax
+(`\boxed{...}`); the other 24 (10 at level 3, 14 at level 4) say only that the answer "MUST end
+with exactly one boxed numeric value". The scorer reads a literal `\boxed{}` on every question, so
+a reply to one of those 24 that boxes its answer some other way scores 0. All 1,118 prompts at
+`3c2e3969` show the syntax.
 
 ## Reading the reply
 
@@ -57,8 +61,8 @@ the upstream function.
 | Level | Rule | Upstream |
 |---|---|---|
 | 1-2 | Labels normalised (quotes, wrappers, a lone letter upper-cased, Yes/No). One key: the prediction list must equal it. Several keys: set F1. | `eval.py` `estimate_score_level_1_2` |
-| 3-4, routing | The Judge decides, once per Case in each grading run, whether the answer is option labels, a number/text/ranking, or an unordered set. A Yes/No prompt whose key is not Yes/No skips the router. An unreadable route falls back to number/text/ranking. | `metric_router.py` `route_metric` |
-| 3-4, one number | A whole plain number is read by rule (LaTeX's `{,}` thousands separator read as a comma); prose goes to the Judge, which extracts the number from its first comma piece. Score = max(0, 1 − ((ŷ − y)/σ)²), σ = 5% of the key, 0.01 for a zero key; a non-finite prediction scores 0. | `eval.py` `estimate_score_level_3_4`, `llm_judge_level_34.py` |
+| 3-4, routing | The Judge decides, once per Case in each grading run, whether the answer is option labels, a number/text/ranking, or an unordered set. A Yes/No prompt whose key is not Yes/No skips the router. An unreadable route, or a router call that fails (a 429, a 5xx), falls back to number/text/ranking, as upstream's `except Exception` does; the Score keeps the error's type in `route_fallback_why`. | `metric_router.py` `route_metric` |
+| 3-4, one number | A whole plain number is read by rule (LaTeX's `{,}` thousands separator read as a comma); prose goes to the Judge, which extracts the number from its first comma piece; a comma inside a number is not a separator, so `12,500 points` is read whole. Score = max(0, 1 − ((ŷ − y)/σ)²), σ = 5% of the key, 0.01 for a zero key; a non-finite prediction scores 0. | `eval.py` `estimate_score_level_3_4`, `llm_judge_level_34.py` |
 | 3-4, one name | The Judge says whether the first comma piece of the answer matches the key, ignoring language and wording. | `judge_str_match` |
 | 3-4, a ranking | Option letters in any order → 1. The Judge's position-by-position Yes → 1. Otherwise 0.8 × the Judge's overlap count / k. | `judge_rank_overall` |
 | 3-4, an unordered set | The same set, case-folded → 1. Otherwise the Judge counts one-to-one matches m: 1 when m = k = \|prediction\|, else 0.8 × m / k. | `judge_unordered_set_overall` |
@@ -85,7 +89,8 @@ through the shared redraw loop.
 - An unreadable judge reply (no count, no extracted number) is redrawn twice, then fails the Case
   as `judge_reply_invalid`. Upstream scores it 0. Under `coverage_declare` such a Case leaves the
   headline's denominator (it shows in Coverage) instead of counting 0. The router keeps
-  upstream's fallback, after three asks where upstream makes two.
+  upstream's fallback, for an unreadable reply and for a failed call, after three asks where
+  upstream makes two.
 - The Judge's token cap is 4,096 for every question. Upstream allows 5,000 for its judges and 512
   for the router and the set count.
 - A rank overlap count is capped at k, so a Case stays in [0, 1]. Upstream does not cap it.
@@ -157,9 +162,10 @@ questions are these Case positions (1-based, file order), to pass as `cases=[...
 ```
 
 `test_local_task_futurex_past_study.py` feeds the study's stored answers through this scorer and
-reproduces the study's reported score of all 27 models and of the fused-medoids committee
-(**0.302**, Table III of the study), with every exclusion the study made (23 no-answer and 15
-uninterpretable cells). It matches to 1e-12: Python 3.11 and 3.12 round `statistics.fmean`'s last
+reproduces the study's reported score of all 27 models, with every exclusion the study made (23
+no-answer and 15 uninterpretable cells). The fused-medoids committee's stored answers score
+**0.306** here, with `excluded` 2, where the study reports **0.302** (its Table III): see "A
+committee tie" below. It matches to 1e-12: Python 3.11 and 3.12 round `statistics.fmean`'s last
 bit differently, and the study's kit gives our exact values under 3.12. The fixtures were generated
 from the study package by `tests/fixtures/futurex_past_study/make_replication_fixture.py`.
 
@@ -192,6 +198,12 @@ ScreamingFace fusion answers on a tie (the contributor's fusions keep the first 
 so on those questions it is marked on a real answer: the headline can differ from the study's by
 up to +0.0071 (2 level-1 Cases). Grading is the study's either way; this is what the Candidate
 writes.
+
+NAMED DEVIATION: an empty answer leaves the score here whoever wrote it. The scorer sees one
+reply per Case and cannot tell a committee from a model, so it cannot apply the study's
+committee rule (abstain = 0, kept). The study's stored fused-medoids answers, which are empty on
+those 2 questions, therefore score 0.306 with `excluded` 2, not 0.302. The same answers under the
+study's rule give 0.302; both numbers are pinned by tests.
 
 ## Baselines
 

@@ -21,7 +21,7 @@ Execution order for one level-3/4 reply (``grade_level_34``):
     1. read the box (``last_boxed`` → ``unwrap_text`` → ``answer_tokens``); no answer → 0, no call;
     2. route: ``legacy_type_a`` (labels), ``legacy_type_b`` (number, text, ranking) or
        ``unordered_set``; a Yes/No prompt with a non-boolean key skips the router; an
-       unreadable route falls back to ``legacy_type_b``;
+       unreadable route, or a router call that fails, falls back to ``legacy_type_b``;
     3. score by the route; every judge question goes through the injected ``Ask``, which in
        production is ``judge_until_parsed`` (redraws, then ``judge_reply_invalid``).
 """
@@ -35,8 +35,6 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Protocol
 
-from screamingface_engine_inspect.judge_redraw import JudgeReplyUnparseable
-
 
 class Ask(Protocol):
     """One judge question: the prompt, the reply reader, and a purpose naming it in errors."""
@@ -48,12 +46,15 @@ class Ask(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class Graded:
-    """One level-3/4 Case: its score in [0, 1], the route that scored it, and whether the route
-    is the level default because the router was skipped or unreadable."""
+    """One level-3/4 Case: its score in [0, 1], the route that scored it, whether the route is
+    the level default because the router was skipped, unreadable or failed, and why."""
 
     score: float
     route: str
     route_fallback: bool = False
+    #: ``contract_conflict``, or the type name of the error the router call raised (never its
+    #: message, which may hold the question); None when the router answered.
+    route_fallback_why: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -398,26 +399,36 @@ async def grade_level_34(ask: Ask, question: str, gold: Sequence[Any], box: str 
     if not tokens or text is None:
         # WHY no call: a missing prediction scores 0 in the official roll-up.
         return Graded(score=0.0, route="no_answer")
-    route, fallback = await _route(ask, question, gold)
+    route, fallback_why = await _route(ask, question, gold)
     if route == "legacy_type_a":
         score: float = label_score(gold, tokens)
     elif route == "unordered_set":
         score = await _unordered(ask, question, tokens, gold)
     else:
         score = await _type_b(ask, question, normalize_gold(gold), text, tokens)
-    return Graded(score=score, route=route, route_fallback=fallback)
+    return Graded(
+        score=score,
+        route=route,
+        route_fallback=fallback_why is not None,
+        route_fallback_why=fallback_why,
+    )
 
 
-async def _route(ask: Ask, question: str, gold: Sequence[Any]) -> tuple[str, bool]:
-    """The route and whether it is the fallback (``metric_router.route_metric``)."""
+async def _route(ask: Ask, question: str, gold: Sequence[Any]) -> tuple[str, str | None]:
+    """The route, and why it is the fallback or None (``metric_router.route_metric``)."""
 
     if contract_conflict(question, gold):
-        return DEFAULT_ROUTE, True
+        return DEFAULT_ROUTE, "contract_conflict"
     try:
-        return await ask(router_prompt(question, gold), parse_route, "route"), False
-    except JudgeReplyUnparseable:
-        # WHY: upstream falls back to the level default when the router stays unreadable.
-        return DEFAULT_ROUTE, True
+        return await ask(router_prompt(question, gold), parse_route, "route"), None
+    except Exception as exc:  # noqa: BLE001
+        # WHY broad: Futurex-Eval's ``route_metric`` wraps the router in ``except Exception``
+        # and scores the question by the level default, whether the reply stayed unreadable
+        # (``JudgeReplyUnparseable`` here) or the call itself failed (a 429, a 5xx, a dropped
+        # connection). Failing the Case instead would drop it from the tier-weighted headline
+        # under ``coverage_declare``. The Score keeps the error's type as evidence; a judge
+        # that is truly down fails the Case at the next question, which is not caught.
+        return DEFAULT_ROUTE, type(exc).__name__
 
 
 async def _type_b(ask: Ask, question: str, gold: list[Any], text: str, tokens: list[str]) -> float:
@@ -433,6 +444,15 @@ async def _type_b(ask: Ask, question: str, gold: list[Any], text: str, tokens: l
     return 1.0 if matched else 0.0
 
 
+#: A comma that separates answer pieces: any comma EXCEPT one inside a number, between a digit
+#: and exactly three more digits. WHY (first review on PR 1897): split on every comma,
+#: ``12,500 points`` gave the judge ``12`` and a right answer scored 0 against the key 12500;
+#: upstream's LLM extractor reads such a reply whole, as the number it is.
+#: Worked example: ``12,500 points`` → one piece; ``about 249.41, or 498.82`` → ``about 249.41``;
+#: ``3,000,000 units`` → one piece; ``1,2,3`` → ``1``.
+_THOUSANDS_SAFE_COMMA: Final[re.Pattern[str]] = re.compile(r"(?<!\d),|,(?!\d{3}(?!\d))")
+
+
 async def _number(ask: Ask, text: str, key: float) -> float:
     # WHY {,}: LaTeX's thousands separator; read raw, ``1{,}234`` would be the number 1.
     plain: str = text.replace("{,}", ",")
@@ -441,7 +461,7 @@ async def _number(ask: Ask, text: str, key: float) -> float:
         # AIDEV-NOTE: upstream asks an LLM whether the WHOLE reply is a number; a bare number is
         # read by rule here (``to_float``) and only prose goes to the judge (spec §4.2) -- its
         # first comma piece, as upstream judges ``model_prediction[0]`` (fidelity audit U2).
-        first: str = answer_tokens(plain)[0]
+        first: str = _THOUSANDS_SAFE_COMMA.split(plain)[0].strip()
         extracted: ExtractedNumber = await ask(number_prompt(first), parse_number, "number")
         predicted = extracted.value
     return 0.0 if predicted is None else number_score(predicted, key)

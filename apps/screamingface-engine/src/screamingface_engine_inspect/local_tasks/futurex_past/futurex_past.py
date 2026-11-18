@@ -193,7 +193,8 @@ def _asker(judge: Model, case: object, redraws: list[int]) -> Ask:
                     judge, prompt, parse, item=f"case {case} {purpose}"
                 )
             except JudgeReplyUnparseable as exc:
-                # WHY: the router falls back on this error; its spent redraws stay in evidence.
+                # WHY: the router falls back on this error (and on a failed call, which spends
+                # no redraw); its spent redraws stay in evidence.
                 redraws.append(exc.redraws)
                 raise
             redraws.append(judged.redraws)
@@ -230,6 +231,7 @@ def futurex_score(judge_model: str = JUDGE_MODEL) -> Scorer:
             "level": level,
             "route": graded.route,
             "route_fallback": graded.route_fallback,
+            "route_fallback_why": graded.route_fallback_why,
             "judge_redraws": sum(redraws),
         }
         return Score(value=graded.score, answer=box or "", metadata=metadata)

@@ -6,7 +6,12 @@
 
 FEATURE: replication of the study "behavior-aware LLM crowds for future prediction" (spec
 docs/spec/2026-11-16-futurex-past-local-task.md §10). STORY: as a reader of that study, I rerun
-its committees on ScreamingFace and get its numbers, 0.302 for the fused-medoids committee.
+its models on ScreamingFace and get its numbers (all 27 stored models reproduce exactly).
+
+NAMED DEVIATION: an empty answer leaves the score whoever wrote it. The study scored a COMMITTEE
+with no majority 0 and kept it; this scorer sees one reply per Case and cannot tell a committee
+from a model. So the study's stored fused-medoids answers, empty on 2 of the 100 questions,
+score 0.306 here with ``excluded`` 2, where the study reports 0.302.
 
 Think of it as the same archive of questions marked by a second, stricter marker: no judge, and
 an answer counts only when its text equals the key after case-folding. That is how the study

@@ -134,7 +134,60 @@ def test_an_unreadable_route_falls_back_to_the_level_default() -> None:
     graded: g.Graded = _grade(judge, ["Beijing"], "Beijing")
 
     assert graded.route == "legacy_type_b" and graded.route_fallback is True
+    assert graded.route_fallback_why == "JudgeReplyUnparseable"
     assert graded.score == 1.0
+
+
+class _RouterDown(_Judge):
+    """A judge whose router call fails outright (a 429, a 5xx), then answers normally."""
+
+    async def __call__(self, prompt: str, parse: Callable[[str], Any], purpose: str) -> Any:
+        if purpose == "route":
+            self.calls.append((purpose, prompt))
+            raise RuntimeError("503 from the gateway")
+        return await super().__call__(prompt, parse, purpose)
+
+
+def test_a_router_call_that_fails_falls_back_to_the_level_default() -> None:
+    """``route_metric`` wraps the router in ``except Exception``: a failed call, like an
+    unreadable reply, scores the question by the level default (second review on PR 1897).
+
+    WHY it matters: failing the Case instead drops it from the tier-weighted headline under
+    ``coverage_declare``, so a flaky router would quietly shrink the exam.
+    """
+
+    judge = _RouterDown("\\boxed{Yes}")
+
+    graded: g.Graded = _grade(judge, ["Beijing"], "Beijing")
+
+    assert judge.purposes == ["route", "match"]
+    assert graded.route == "legacy_type_b" and graded.route_fallback is True
+    # The error's type is kept as evidence; its message, which may quote the question, is not.
+    assert graded.route_fallback_why == "RuntimeError"
+    assert graded.score == 1.0
+
+
+def test_only_the_router_is_forgiven_a_failed_call() -> None:
+    """INVARIANT: a judge that fails on the marking question still fails the Case; the
+    fallback covers the route alone, as upstream's does."""
+
+    class _MatchDown(_Judge):
+        async def __call__(self, prompt: str, parse: Callable[[str], Any], purpose: str) -> Any:
+            if purpose == "match":
+                raise RuntimeError("503 from the gateway")
+            return await super().__call__(prompt, parse, purpose)
+
+    with pytest.raises(RuntimeError, match="503"):
+        _grade(_MatchDown(_ROUTE_B), ["Beijing"], "Beijing")
+
+
+def test_a_skipped_router_says_why() -> None:
+    judge = _Judge("\\boxed{Yes}")
+    question: str = "Answer \\boxed{Yes} or \\boxed{No}: will it be Beijing?"
+
+    graded: g.Graded = _grade(judge, ["Beijing"], "Beijing", question=question)
+
+    assert graded.route_fallback is True and graded.route_fallback_why == "contract_conflict"
 
 
 @pytest.mark.parametrize(
@@ -197,6 +250,38 @@ def test_a_number_in_prose_is_extracted_by_the_judge() -> None:
     assert judge.purposes == ["route", "number"]
     assert "roughly 205 points" in judge.calls[1][1]
     assert graded.score == pytest.approx(0.75)
+
+
+def test_a_number_with_a_thousands_comma_and_a_unit_reaches_the_judge_whole() -> None:
+    """``12,500 points`` against the key 12500 (first review on PR 1897): split on every comma,
+    the judge was shown ``12`` and a right answer scored 0. A comma inside a number is not a
+    separator, so the judge now sees the number whole."""
+
+    judge = _Judge(_ROUTE_B, "\\boxed{12500}")
+
+    graded: g.Graded = _grade(judge, [12500.0], "12,500 points")
+
+    assert judge.purposes == ["route", "number"]
+    assert judge.calls[1][1].endswith("TEXT: 12,500 points")
+    assert graded.score == 1.0
+
+
+@pytest.mark.parametrize(
+    ("box", "shown"),
+    [
+        ("12,500 points", "12,500 points"),
+        ("3,000,000 units", "3,000,000 units"),
+        ("about 249.41, or 498.82", "about 249.41"),  # a list comma still splits (audit U2)
+        ("1,2,3 goals", "1"),  # one digit after the comma is not a thousands group
+        ("12,5000 points", "12"),  # nor are four
+    ],
+)
+def test_only_a_thousands_comma_keeps_a_number_together(box: str, shown: str) -> None:
+    judge = _Judge(_ROUTE_B, "\\boxed{None}")
+
+    _grade(judge, [12500.0], box)
+
+    assert judge.calls[1][1].endswith(f"TEXT: {shown}")
 
 
 def test_a_reply_the_judge_finds_no_number_in_scores_zero() -> None:

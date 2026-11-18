@@ -7,8 +7,10 @@ What these tests pin, and why (spec docs/spec/2026-11-16-futurex-past-local-task
 - the scorer is the study's ``committee_kit/metrics.py``, byte for byte below our header;
 - the data is commit 3c2e3969, the latest that holds all 100 of the study's questions, and the
   100 Case positions the README publishes are exactly the study's ``item_id``s;
-- the study's stored answers, scored here, give the study's own numbers to the last bit,
-  including the fused-medoids committee's 0.302 (the paper's Table III).
+- the study's stored answers, scored here, give the study's own number for all 27 models;
+- the fused-medoids committee's stored answers give 0.306 here, not the study's 0.302 (its
+  Table III): the committee abstained on 2 of the 100 questions, the study counts a committee
+  abstain as 0, and here an empty answer leaves the score like any other (``excluded`` 2).
 
 The fixture ``tests/fixtures/futurex_past_study/replication.json`` was generated from the study
 package by ``make_replication_fixture.py`` beside it; its expected scores are the study kit's.
@@ -143,9 +145,7 @@ def _sample_scores(answers: dict[str, Any], gold: dict[str, Any]) -> list[Sample
     ]
 
 
-@pytest.mark.parametrize(
-    "entry", ["claude-haiku-4.5", "claude-opus-4.6", "claude-sonnet-4.6", "fused-medoids"]
-)
+@pytest.mark.parametrize("entry", ["claude-haiku-4.5", "claude-opus-4.6", "claude-sonnet-4.6"])
 def test_the_studys_stored_answers_reproduce_the_studys_scores_exactly(entry: str) -> None:
     """The replication contract: same answers in, the study's number out, to 0.0 tolerance."""
 
@@ -156,11 +156,19 @@ def test_the_studys_stored_answers_reproduce_the_studys_scores_exactly(entry: st
     assert value == fixture["expected"][entry]
 
 
-def test_the_fused_medoids_committee_scores_the_papers_0_302() -> None:
+def test_the_studys_own_committee_rule_gives_its_0_302() -> None:
+    """The study's number, by the STUDY'S rule, which is not this Benchmark's scorer.
+
+    WHY kept: it shows where the 0.302 of the study's Table III comes from. ``_sample_scores``
+    marks every cell usable, so the 2 questions the committee abstained on stay in as 0 (the
+    study's ``rank.decide``). The production reading drops them; the next test pins that.
+    """
+
     fixture: dict[str, Any] = _fixture()
 
     value: Any = _headline(_sample_scores(fixture["answers"]["fused-medoids"], fixture["gold"]))
 
+    assert value == fixture["expected"]["fused-medoids"]
     assert round(float(value), 3) == 0.302
 
 
@@ -275,12 +283,11 @@ def _study_scores(cells: dict[str, Any], fixture: dict[str, Any]) -> list[Sample
         gold: dict[str, Any] = fixture["gold"][item]
         reply: str = "(stored answer)\n\\boxed{" + ", ".join(cell["tokens"]) + "}"
         reading = study.study_reading(reply, fixture["prompts"][item])
-        # A committee with no majority abstained: scored 0 and kept (the study's rank.decide).
-        usable: bool = reading.usable or bool(cell.get("abstained"))
         value: float = study.study_item_score(gold["level"], gold["ground_truth"], reading.tokens)
+        metadata: dict[str, Any] = {"level": gold["level"], "study_usable": reading.usable}
         scores.append(
             SampleScore(
-                score=Score(value=value, metadata={"level": gold["level"], "study_usable": usable}),
+                score=Score(value=value, metadata=metadata),
                 sample_id=item,
                 sample_metadata={"level": gold["level"]},
             )
@@ -289,8 +296,8 @@ def _study_scores(cells: dict[str, Any], fixture: dict[str, Any]) -> list[Sample
 
 
 def test_every_entry_in_the_study_reproduces_its_reported_score_exactly() -> None:
-    """All 27 models and the fused-medoids committee: our headline equals the study's
-    ``rank.score_entry`` (which drops unusable cells from both sides).
+    """All 27 models: our headline, through the production reading of each stored reply,
+    equals the study's ``rank.score_entry`` (which drops unusable cells from both sides).
 
     WHY 1e-12, not equality: the fixture's expected values were computed under Python 3.11 and
     the Engine runs 3.12, whose ``statistics.fmean`` can round the last bit differently; the
@@ -299,10 +306,34 @@ def test_every_entry_in_the_study_reproduces_its_reported_score_exactly() -> Non
     """
 
     fixture: dict[str, Any] = _all_models()
-    assert len(fixture["expected"]) == 28
-    for entry, cells in fixture["answers"].items():
-        value: Any = _headline(_study_scores(cells, fixture))
+    models: list[str] = [entry for entry in fixture["answers"] if entry != "fused-medoids"]
+    assert len(models) == 27
+    for entry in models:
+        value: Any = _headline(_study_scores(fixture["answers"][entry], fixture))
         assert value == pytest.approx(fixture["expected"][entry], abs=1e-12), entry
+
+
+def test_the_fused_committees_answers_score_0_306_here_with_two_cases_excluded() -> None:
+    """The same stored answers the study scored 0.302, through the production reading.
+
+    NAMED DEVIATION (second review on PR 1897): the committee abstained on 2 of the 100
+    questions (no majority, an empty answer). The study's ``rank.decide`` scores a committee
+    abstain 0 and keeps it; this scorer sees one reply per Case and cannot tell a committee
+    from a model, so an empty answer leaves the score, as it does for a model in the study.
+    The run metric ``excluded`` shows the 2.
+    """
+
+    fixture: dict[str, Any] = _all_models()
+    cells: dict[str, Any] = fixture["answers"]["fused-medoids"]
+    assert sum(1 for cell in cells.values() if cell.get("abstained")) == 2
+    compute: Any = study.study_headline()
+
+    result: dict[str, Any] = compute(_study_scores(cells, fixture))
+
+    assert result["answered"] == 98 and result["excluded"] == 2
+    assert result["study_score"] == pytest.approx(0.3060836169346808, abs=1e-12)
+    assert round(result["study_score"], 3) == 0.306
+    assert round(fixture["expected"]["fused-medoids"], 3) == 0.302
 
 
 def test_an_unusable_case_leaves_both_sides_of_the_headline() -> None:

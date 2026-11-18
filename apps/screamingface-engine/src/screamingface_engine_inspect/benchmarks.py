@@ -7912,7 +7912,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past",
-        published_revision="a4593e342d18b512",
+        published_revision="5b47c8f485e6716f",
         title="FutureX-Past",
         description=(
             "2,036 resolved real-world forecasting questions from FutureX, a live benchmark of "
@@ -7950,6 +7950,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         #   after two redraws (upstream scores it 0), and a rank overlap count is capped at k.
         # NAMED DEVIATION: the router gets three asks (upstream two), and every judge question
         #   one 4,096-token cap (upstream 5,000 for judges, 512 for the router and set count).
+        #   A router call that fails falls back to the level default, as upstream's does.
+        # NAMED DEVIATION: a number in prose reaches the judge as its first comma piece, as
+        #   upstream; a comma inside a number (12,500 points) does not split it.
         # NAMED DEVIATION: an abstained Case whose grading failed reaches the headline as a bare
         #   0 with no level and is left out of it (upstream counts a scoring failure 0).
         scorer="screamingface_engine_inspect.local_tasks.futurex_past.futurex_past:futurex_score",
@@ -8013,7 +8016,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past_study",
-        published_revision="d6ced6d27a3d18ef",
+        published_revision="5f0592a339ea841d",
         title="FutureX-Past (study scoring)",
         description=(
             "FutureX-Past as the crowd-wisdom study (behavior-aware LLM crowds for future "
@@ -8028,7 +8031,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "the level means 10/20/30/40. Names and numbers must match as text, so this scores "
             "below futurex_past on levels 3-4 by design; use futurex_past for a score on the "
             "FutureX authors' scale. Pass the study's 100 Case positions as cases=[...] "
-            "(README) to rerun its runs; the study's best committee scored 0.302."
+            "(README) to rerun its runs. All 27 of the study's models reproduce exactly; its best "
+            "committee's stored answers score 0.306 here against the study's 0.302, because the "
+            "study counts a committee's abstain as 0 and here an empty answer leaves the score."
         ),
         focus="Replicating a forecasting study, exact-match scoring",
         dataset_url="https://huggingface.co/datasets/futurex-ai/Futurex-Past",
@@ -8036,6 +8041,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # WHY coverage_declare: a whole-run metric admits no other policy yet (OME-1642); a failed
         # Candidate call leaves the denominator, the study's NO_RESPONSE rule for a failed call.
         # A reply with no usable answer leaves it too, through the metric (study_tier_weighted).
+        # NAMED DEVIATION: that holds for a committee's abstain as well (the study scores it 0
+        #   and keeps it), so the study's fused-medoids answers give 0.306 here, not 0.302.
         failure_policy="coverage_declare",
         # Provenance: this scorer is declared by the Task of
         #   screamingface_engine_inspect.local_tasks.futurex_past.futurex_past_study:

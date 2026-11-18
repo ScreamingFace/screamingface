@@ -221,8 +221,9 @@ JUDGED: Mapping[str, AnswerFormat] = {
             "(levels 1-2) are read by rule: a single correct option must match exactly, and "
             "several are scored by overlap with the key. For open questions (levels 3-4) a "
             "judge compares the box with the key: a number earns credit only within about 5% "
-            "of the true value, a ranking earns partial credit for overlap with the key, and "
-            "any other answer scores 1 when it matches the key, else 0."
+            "of the true value (within 0.01 when the true value is 0), a ranking or a set of "
+            "names that is not exactly right earns 0.8 of its overlap with the key, and any "
+            "other answer scores 1 when it matches the key, else 0."
         ),
     ),
 }
