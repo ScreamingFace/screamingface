@@ -308,6 +308,24 @@ async def test_a_stored_key_of_the_wrong_type_costs_that_key_not_the_listing(
     assert served["frontier_score"] is None
 
 
+async def test_an_external_benchmarks_contributors_are_stored_and_served(
+    async_client: httpx.AsyncClient,
+) -> None:
+    # WHY: the seed drops any key ProvenanceSchema does not declare, with a deploy that exits
+    # 0, so the Engine's new `contributors` key must be a declared field here to survive.
+    await ScoreStore().register_benchmark(
+        benchmark_id="futurex_past",
+        display_name="FutureX-Past",
+        provenance={"license": "Apache-2.0", "contributors": ["yimingliao-blad"]},
+    )
+
+    response = await async_client.get("/v1/benchmarks")
+
+    assert response.status_code == 200
+    served = response.json()["benchmarks"][0]["provenance"]
+    assert served["contributors"] == ["yimingliao-blad"]
+
+
 async def test_a_stored_block_with_no_readable_key_is_served_as_null(
     async_client: httpx.AsyncClient,
 ) -> None:

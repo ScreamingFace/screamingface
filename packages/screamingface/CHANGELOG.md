@@ -4,6 +4,9 @@
 
 ### Added
 
+- `Benchmark.provenance.contributors` names the GitHub handles of whoever wrote a Benchmark
+  from outside the team; such a Benchmark's `origin` is `external`.
+
 - The notebook filter of `sf.models.list()` and `sf.benchmarks.list()` matches each word of the
   query, in any order: `claude 5.5` shows the entries that contain both words.
 
