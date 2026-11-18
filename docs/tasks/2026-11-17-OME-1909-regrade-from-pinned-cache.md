@@ -21,12 +21,13 @@ checked at assembly); the Engine can send chosen Cases' judge calls live; the Sc
 a re-grade only from the identities in `regrade_identities`; the SDK adds `Client.regrade`.
 
 The owner changed the revision rule on 2026-11-17: a grading change now moves the published
-revision. This PR, stacked on #1783 (OME-1907), moves the 47 revisions OME-1907's
+revision. This PR, landing after #1783 (OME-1907), moves the 47 revisions OME-1907's
 wrapped-answer-letter change touches; their old ids are in the comments of
 `test_published_revisions.py`.
 
 - 2026-11-13: filed under epic `OME-1299` as a design session.
 - 2026-11-17: rule change, plan and build in one PR stacked on #1783.
+- 2026-11-18: #1783 and #1892 landed; merged main in, migration renumbered to 0025, a re-grade keeps its source's cost.
 - Pending the owner: post to the team before merging, set `regrade_identities`, and after the
   deploy (and the Scoreboard seed showing the new revision) re-grade the cached entries the live
   board lists (130 of 138 on 30 boards on 2026-11-17) and rerun the 8 with no pinned cache.
