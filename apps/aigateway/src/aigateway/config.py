@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     :mod:`aigateway.core.auth.admin`.
     """
 
+    frozen_copy_claim_emails: Annotated[frozenset[str], NoDecode] = Field(
+        default=frozenset(), validation_alias="AIGW_FROZEN_COPY_CLAIM_EMAILS"
+    )
+
     jwt_ttl_seconds: int = Field(default=86_400, validation_alias="AIGATEWAY_JWT_TTL_SECONDS")
     public_url: str | None = Field(default=None, validation_alias="AIGATEWAY_PUBLIC_URL")
 
@@ -363,7 +367,7 @@ class Settings(BaseSettings):
             ip_network(entry, strict=True) for part in value.split(",") if (entry := part.strip())
         )
 
-    @field_validator("admin_emails", mode="before")
+    @field_validator("admin_emails", "frozen_copy_claim_emails", mode="before")
     @classmethod
     def _parse_admin_emails(cls, value: object) -> object:
         """Parse the comma-separated address list into a case-folded set.

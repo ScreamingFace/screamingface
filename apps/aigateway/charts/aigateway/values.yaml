@@ -89,6 +89,10 @@ config:
   # Matched case-insensitively (the app lowercases both sides), so an entry cannot fail to match a
   # caller by case alone.
   adminEmails: []
+  # The callers that may claim a frozen copy (OME-1947): the actor address of the scoreboard
+  # (`SCOREBOARD_GATEWAY_ACTOR`). It is a separate list from `adminEmails`. EMPTY = the claim
+  # route answers 503 in `cloudflare_headers` mode. Matched case-insensitively.
+  frozenCopyClaimEmails: []
   jwtTtlSeconds: 86400
   # Optional finite positive seconds waiting for provider capacity. Null preserves
   # the app default: use the effective execution allowance (1800s via `extraEnv`).
