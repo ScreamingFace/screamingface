@@ -18,7 +18,18 @@ from workbench.build_notebooks import (
     render_golden_candidate,
     serialize,
 )
+from workbench.image_matrix import Cell, verdict
+from workbench.image_notebook import (
+    Budget,
+    coverage_failures,
+    html_table,
+    matrix_rows,
+    reported_trace_ids,
+    upstream_calls,
+)
+from workbench.redaction import redact
 from workbench.runner import RESULT_PREFIX
+from workbench.verdict import declares_target
 
 
 @pytest.mark.parametrize("path", sorted(GOLDENS_DIR.glob("*.golden.json")), ids=lambda p: p.name)
@@ -44,7 +55,9 @@ def test_every_notebook_has_parameters_result_and_target_metadata() -> None:
         tags = [t for c in nb.cells for t in c.metadata.get("tags", [])]
         assert "parameters" in tags and "workbench-result" in tags, stem
         assert nb.metadata["workbench"]["targets"], stem
-        assert nb.metadata["workbench"]["required_result"] == ["trace_ids"], stem
+        # Every notebook reports trace ids; a notebook may declare more (image_input_matrix).
+        assert "trace_ids" in nb.metadata["workbench"]["required_result"], stem
+    assert build()["quickstart"].metadata["workbench"]["required_result"] == ["trace_ids"]
 
 
 def test_every_code_cell_compiles() -> None:
@@ -251,3 +264,146 @@ def test_the_builder_refuses_a_notebook_without_one_result_cell_and_marker(
     cells = [_code(src, *tags) for src, tags in sources]
     with pytest.raises(ValueError, match=why):
         _notebook("bad", cells, {"targets": ["replay"], "required_result": ["trace_ids"]})
+
+
+# --- image_input_matrix (image input matrix plan Task 5) ---------------------------------------
+
+
+def _matrix_code(tag: str | None = None, contains: str | None = None) -> str:
+    for cell in build()["image_input_matrix"].cells:
+        if cell.cell_type != "code":
+            continue
+        if tag and tag in cell.metadata.get("tags", []):
+            return cell.source
+        if contains and contains in cell.source:
+            return cell.source
+    raise AssertionError(f"no image_input_matrix cell with tag={tag} contains={contains}")
+
+
+def test_image_input_matrix_is_local_only_and_requires_the_matrix() -> None:
+    nb = build()["image_input_matrix"]
+    assert nb.metadata["workbench"] == {
+        "targets": ["local"],
+        "required_result": ["trace_ids", "matrix"],
+    }
+    assert (NOTEBOOK_DIR / "image_input_matrix.ipynb").is_file()
+    tagged = [c for c in nb.cells if "workbench-result" in c.metadata.get("tags", [])]
+    assert len(tagged) == 1
+
+
+def test_image_input_matrix_parameters_are_complete_and_carry_no_secret() -> None:
+    source = _matrix_code(tag="parameters")
+    assert redact(source) == source
+    assert "OPENROUTER_API_KEY" not in source and "sk-" not in source
+    ns: dict[str, Any] = {}
+    exec(source, ns)
+    params = {k: v for k, v in ns.items() if not k.startswith("__")}
+    assert set(params) == {
+        "MODELS",
+        "MEDIA",
+        "PATHS",
+        "FIXTURE_REF",
+        "BUDGET_USD",
+        "ENGINE_URL",
+        "SCOREBOARD_URL",
+        "GATEWAY_URL",
+        "EVENTS_PATH",
+    }
+    assert len(params["MODELS"]) == 10
+    assert params["MEDIA"] == [
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "application/pdf",
+    ]
+    assert params["PATHS"] == ["url4", "benchmark"]
+    assert params["FIXTURE_REF"].strip()
+    assert params["BUDGET_USD"] == 1.0
+
+
+def test_image_input_matrix_reads_the_key_from_env_only() -> None:
+    setup = _matrix_code(contains="client.connect(")
+    assert 'os.environ["OPENROUTER_API_KEY"]' in setup
+
+
+def test_image_input_matrix_result_cell_reports_ids_and_matrix(capsys) -> None:
+    """The result cell reports only ids that reached a model (the chain can find them) and the
+    whole matrix, before the verdict cell asserts anything."""
+    answered = Cell("url4", "m", "image/png", "answer", "answered", "7392", None, _TID, None, None)
+    refused = Cell(
+        "url4", "t", "image/png", "refuse", "refused", None, "intent_error", _TID2, None, None
+    )
+    ns: dict[str, Any] = {
+        "json": json,
+        "cells": [answered, refused],
+        "reported_trace_ids": reported_trace_ids,
+        "matrix_rows": matrix_rows,
+    }
+    exec(_matrix_code(tag="workbench-result"), ns)
+    (line,) = [ln for ln in capsys.readouterr().out.splitlines() if ln.startswith(RESULT_PREFIX)]
+    payload = json.loads(line[len(RESULT_PREFIX) :])
+    assert payload["trace_ids"] == [_TID]
+    assert [row["observed"] for row in payload["matrix"]] == ["answered", "refused"]
+
+
+def test_image_input_matrix_verdict_cell_fails_on_any_failure() -> None:
+    wrong = Cell("url4", "m", "image/png", "answer", "wrong", "1111", None, _TID, None, None)
+    ns: dict[str, Any] = {
+        "cells": [wrong],
+        "media_failures": [],
+        "verdict": verdict,
+        "coverage_failures": coverage_failures,
+    }
+    with pytest.raises(AssertionError, match="picture was not read"):
+        exec(_matrix_code(contains="assert not failures"), ns)
+    ns["cells"] = [
+        Cell("url4", "m", "image/png", "answer", "answered", "7392", None, _TID, None, None)
+    ]
+    ns["media_failures"] = ["benchmark m b#1: fetched media digest differs"]
+    with pytest.raises(AssertionError, match="digest differs"):
+        exec(_matrix_code(contains="assert not failures"), ns)
+
+
+def test_image_input_matrix_evidence_cell_fills_chat_calls_so_the_verdict_sees_them(
+    tmp_path,
+) -> None:
+    """Review Focus 1 hinges on this cell: a refused cell whose trace shows a provider dispatch
+    must fail the verdict. Dropping the ``replace(chat_calls=...)`` would leave every count at
+    ``None`` and pass any refusal, so the cell itself is executed here, not only compiled."""
+    from dataclasses import replace
+    from decimal import Decimal
+    from pathlib import Path
+
+    log = tmp_path / "runtime.log"
+    log.write_text(
+        f"2026-11-17T10:00:00Z [gateway] INFO: dispatch failed provider=openrouter status=400 "
+        f"trace_id={_TID2} gateway_call_id=c1\n",
+        encoding="utf-8",
+    )
+    refused = Cell(
+        "url4", "t", "image/png", "refuse", "refused", None, "intent_error", _TID2, None, None
+    )
+    unrun = Cell("url4", "s", "image/png", "answer", "skipped", None, None, None, None, "budget")
+    ns: dict[str, Any] = {
+        "EVENTS_PATH": str(log),
+        "Path": Path,
+        "replace": replace,
+        "cells": [refused, unrun],
+        "upstream_calls": upstream_calls,
+        "html_table": html_table,
+        "display": lambda _obj: None,
+        "HTML": str,
+        "budget": Budget(Decimal("0.5")),
+    }
+    exec(_matrix_code(contains="Path(EVENTS_PATH).read_text("), ns)
+    assert [c.chat_calls for c in ns["cells"]] == [1, None]
+    assert any("1 gateway chat call(s) ran" in f for f in verdict(ns["cells"]))
+
+
+def test_a_local_only_notebook_is_not_collected_for_replay() -> None:
+    # REQUIRE_ALL turns any workbench skip into a failure, so a notebook that cannot run on
+    # replay must not be collected there at all (OME-1950).
+    matrix = NOTEBOOK_DIR / "image_input_matrix.ipynb"
+    assert declares_target(matrix, "local")
+    assert not declares_target(matrix, "replay")

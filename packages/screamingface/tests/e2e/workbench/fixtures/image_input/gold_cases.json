@@ -1,0 +1,14 @@
+[
+  {
+    "benchmark": "inspect-lab_bench_figqa",
+    "case": 1,
+    "expected": "B",
+    "note": "Calibrated 2026-11-17 on local (Mac), Cases 1-10: gemini-3-flash-preview and gpt-5-nano both scored 1.0 (ANSWER: B). Gold = targets/1.json target B. One image/jpeg, sha256 3fcd47b91497d9cd78e49e90efc006bb54f74c2a8f4057c8b2424fa9d6ec1a5a. Case digest 616aeb49."
+  },
+  {
+    "benchmark": "inspect-lab_bench_figqa",
+    "case": 2,
+    "expected": "F",
+    "note": "Calibrated 2026-11-17 on local (Mac), Cases 1-10: gemini-3-flash-preview and gpt-5-nano both scored 1.0 (ANSWER: F). Gold = targets/2.json target F. One image/jpeg, sha256 210de746b01e82103e1a2a95ade2221a1984278cb26b10cc3c0b9e91dc289b84. Case digest 616aeb49."
+  }
+]

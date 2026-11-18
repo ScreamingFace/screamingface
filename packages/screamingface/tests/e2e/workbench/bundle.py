@@ -1,6 +1,9 @@
 """Write one notebook run's evidence bundle (e2e workbench spec §3.3). Secrets never land.
 
 Redaction is ``workbench.redaction`` (values, never serialised JSON — see its INVARIANT).
+
+A result carrying a ``matrix`` (the image input matrix notebook) also gets ``matrix.json``:
+the same rows, redacted, each answer capped at ``ANSWER_CAP`` characters.
 """
 
 from __future__ import annotations
@@ -8,18 +11,38 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import nbformat
 
 from workbench.evidence import TraceChain
+from workbench.image_notebook import ANSWER_CAP
 from workbench.redaction import redact, redact_tree
 from workbench.runner import NotebookRun
 
+MATRIX_FILE = "matrix.json"
 _HEADER = "| target | notebook | outcome | trace ids | reasons |\n|---|---|---|---|---|\n"
 
 
 def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _capped_answers(matrix: Any) -> Any:
+    """Each row's ``answer`` cut to ``ANSWER_CAP`` characters; anything else kept as reported.
+
+    WHY after redaction: a cut through a key would leave a fragment no pattern recognises.
+    WHY keep a malformed matrix: the bundle records evidence; ``check_result`` and the
+    notebook's verdict decide pass or fail.
+    """
+    if not isinstance(matrix, list):
+        return matrix
+    rows: list[Any] = []
+    for row in matrix:  # pyright: ignore[reportUnknownVariableType]
+        if isinstance(row, dict) and isinstance(row.get("answer"), str):  # pyright: ignore[reportUnknownMemberType]
+            row = {**row, "answer": row["answer"][:ANSWER_CAP]}  # pyright: ignore[reportUnknownVariableType]
+        rows.append(row)
+    return rows
 
 
 def write_bundle(
@@ -49,6 +72,9 @@ def write_bundle(
         "error": run.error,
     }
     (out / "trace.json").write_text(json.dumps(redact_tree(trace), indent=2))
+    if run.result is not None and "matrix" in run.result:
+        matrix = _capped_answers(redact_tree(run.result["matrix"]))
+        (out / MATRIX_FILE).write_text(json.dumps(matrix, indent=2))
 
     ids = ", ".join(chain.trace_ids) or "—"
     why = "; ".join(reasons) or "—"
