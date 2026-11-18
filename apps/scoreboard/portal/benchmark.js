@@ -451,6 +451,7 @@
       var scope = revision ? "&revision=" + encodeURIComponent(revision) : "";
       P.showLoading(statusNode, "Loading leaderboard…");
       clearBoard();
+      showScopeNote();
 
       P.fetchJson("/v1/leaderboard/" + encodeURIComponent(id) + "?top=50" + scope).then(
         function (data) {
@@ -524,6 +525,10 @@
             // fall back to Latest and say so, rather than calling the benchmark missing.
             showRevisionNotice(R.notFoundNotice(revision));
             replaceSearch(null);
+            // A listed revision can still vanish between the two reads; the dropdown follows the board.
+            var select = document.getElementById("revision-select");
+            var latestRow = currentSelection();
+            if (select && latestRow) select.value = latestRow.revision;
             load(null);
             return;
           }
@@ -554,7 +559,17 @@
     // An empty Latest after a bump points to the earlier revision's results
     // instead of switching to it silently; any other empty board keeps the original line.
     function showEmptyBoard(node) {
-      if (!showRevisionPointer(node)) P.showEmpty(node, "No submissions yet. Be the first.");
+      if (showRevisionPointer(node)) return;
+      P.showEmpty(node, R ? R.emptyBoardText(currentSelection()) : "No submissions yet. Be the first.");
+    }
+
+    // Says when the shown revision's Case count was inferred from its runs rather than recorded.
+    function showScopeNote() {
+      var note = document.getElementById("revision-scope-note");
+      if (!note) return;
+      var text = R ? R.scopeNote(currentSelection()) : null;
+      note.textContent = text || "";
+      note.hidden = !text;
     }
 
     // True when Latest has no community runs and an earlier revision has some: the line and its
@@ -588,7 +603,7 @@
         var text = params.toString();
         return text ? "?" + text : "";
       })();
-      window.history.replaceState(null, "", window.location.pathname + search);
+      window.history.replaceState(null, "", window.location.pathname + search + window.location.hash);
     }
 
     function showRevisionNotice(text) {

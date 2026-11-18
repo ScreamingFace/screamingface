@@ -154,6 +154,19 @@
     return null;
   }
 
+  // A backfilled Case count is the largest question count among the revision's runs. If every run
+  // was partial it is too small, so the board says where the number came from.
+  function scopeNote(selected) {
+    return selected && selected.case_count_inferred ? "Case count inferred from results." : null;
+  }
+
+  // Nobody can submit to an earlier revision, so only the current one invites a first run.
+  function emptyBoardText(selected) {
+    return selected && !selected.current
+      ? "No complete runs under this revision."
+      : "No submissions yet. Be the first.";
+  }
+
   function notFoundNotice(requested) {
     return "Revision " + shortId(requested) + " is not on this leaderboard. Showing the latest.";
   }
@@ -168,6 +181,8 @@
     notFoundNotice: notFoundNotice,
     isRevisionNotFound: isRevisionNotFound,
     listedRevision: listedRevision,
+    scopeNote: scopeNote,
+    emptyBoardText: emptyBoardText,
     shortId: shortId,
   };
 });

@@ -40,17 +40,14 @@
     return td;
   }
 
-  function currentOf(revisions) {
-    var current = revisions.filter(function (row) { return row.current; })[0];
-    return current ? current.revision : null;
-  }
-
   function historyRow(s, benchmarkId, revisions) {
     var tr = document.createElement("tr");
-    var currentRevision = currentOf(revisions);
-    if (currentRevision && s.benchmark_revision && s.benchmark_revision !== currentRevision) {
-      tr.className = "revision-older";
-    }
+    // Dimmed only when the board lists the run's revision as an earlier one; an id the board never
+    // listed is not known to be older.
+    var listed = window.SFRevisionSelector && s.benchmark_revision
+      ? window.SFRevisionSelector.listedRevision(revisions, s.benchmark_revision)
+      : null;
+    if (listed && !listed.current) tr.className = "revision-older";
     tr.appendChild(P.el("td", null, P.formatDate(s.submitted_at)));
     tr.appendChild(revisionCell(s, benchmarkId, revisions));
     tr.appendChild(P.el("td", "cell-wrap", P.formatSubmitter(s.submitted_by)));
@@ -163,12 +160,6 @@
 
     P.fetchJson("/v1/leaderboard/" + encodeURIComponent(benchmarkId) + "/" + encodeURIComponent(specId) + "/history?limit=20").then(
       function (data) {
-        return boardRevisions.then(function (revisions) { return [data, revisions]; });
-      }
-    ).then(
-      function (pair) {
-        var data = pair[0];
-        var revisions = pair[1];
         var submissions = (data && data.submissions) || [];
         if (submissions.length === 0) {
           P.showEmpty(statusNode, "No runs of this submission yet.");
@@ -181,8 +172,14 @@
         document.getElementById("submission-count").textContent = submissions.length.toLocaleString();
 
         var body = document.getElementById("history-body");
-        P.clear(body);
-        submissions.forEach(function (s) { body.appendChild(historyRow(s, benchmarkId, revisions)); });
+        function renderRows(revisions) {
+          P.clear(body);
+          submissions.forEach(function (s) { body.appendChild(historyRow(s, benchmarkId, revisions)); });
+        }
+        // The table never waits for the revision list: it draws now, unlinked, and gains the links,
+        // tag and dimming when the list arrives.
+        renderRows([]);
+        boardRevisions.then(renderRows);
 
         P.setStatus(statusNode, null);
         contentNode.hidden = false;
