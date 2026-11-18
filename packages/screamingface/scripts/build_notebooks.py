@@ -2275,13 +2275,15 @@ def _futurex_past_e2e() -> NotebookNode:
 [FutureX](https://arxiv.org/abs/2508.11987) is a live benchmark of real-world forecasting: every
 week it asks agents about events that have not happened yet. **FutureX-Past** is its archive of
 questions that have since resolved, from January to November 2026: sports results, rankings,
-prices, releases. Each question is the dataset's own prompt, word for word, and asks for the
-answer in a `\\boxed{}` at the end of the reply.
+prices, releases. Each question is the dataset's own prompt, word for word, and asks for a
+boxed answer (`\\boxed{}`) at the end of the reply.
 
 Two Benchmarks read this archive:
 
-- **`futurex_past`** (2,036 questions) is scored the way the FutureX authors score it today.
-  Levels 1-2 (pick one option, pick every right option) are marked by rule. Levels 3-4 (a
+- **`futurex_past`** (2,036 questions) is scored by our re-implementation of the FutureX
+  authors' current rules, with our house Judge in place of theirs. A score is on their scale
+  but is not comparable with their leaderboard. Levels 1-2 (pick one option, pick every
+  right option) are marked by rule. Levels 3-4 (a
   number, a name or a ranked list) go to our house Judge, which first decides whether a list is
   a ranking or an unordered set and then compares meanings across wording and language. Numbers
   score by distance: within 5% of the truth earns partial credit. The headline weights the four
@@ -2308,8 +2310,8 @@ screamingface status""",
         nbformat.v4.new_markdown_cell("""\
 ## 1. Read the Benchmark's card
 
-`futurex_past` is a Benchmark we author ourselves (origin `screamingface`). The card carries the
-pinned dataset release, the Judge it pins, and the scoring caveats."""),
+`futurex_past` was written by a contributor outside the team (origin `external`). The card
+carries the pinned dataset release, the Judge it pins, and the scoring caveats."""),
         nbformat.v4.new_code_cell("""\
 sf.benchmarks.get("futurex_past")"""),
         nbformat.v4.new_markdown_cell("""\
@@ -2345,9 +2347,10 @@ for case in report.candidates.only.cases:
 
 The study scored its committees on 100 FutureX-Past questions; its best, the three cluster
 medoids fused by vote, scored 0.302. `STUDY_CASES` are those questions' positions in
-`futurex_past_study`. A run on chosen cases cannot be submitted to the leaderboard. The study
-called every model at temperature 0; a reply with no usable answer (no box, a hedge, every
-option) leaves the score, as it did in the study."""),
+`futurex_past_study`. A run on chosen cases cannot be submitted to the leaderboard. A reply with
+no usable answer (no box, a hedge, every option) leaves the score, as it did for a model in the
+study, and the run metric `excluded` counts those. The study counted a committee's abstain as 0
+instead, so that committee's stored answers score 0.306 here, not 0.302."""),
         nbformat.v4.new_code_cell("""\
 # fmt: off
 STUDY_CASES = [
@@ -2361,10 +2364,9 @@ STUDY_CASES = [
 ]
 # fmt: on
 
-# The study's sampling. Drop "temperature" for a model whose provider rejects it.
-study_model = sf.Model(
-    model="openrouter/openai/gpt-5.5", params={"max_tokens": 8192, "temperature": 0.0}
-)
+# The study called every model at temperature 0. OpenRouter rejects that parameter for
+# `openai/gpt-5.5`, so it is left out here; add "temperature": 0.0 for a model that accepts it.
+study_model = sf.Model(model="openrouter/openai/gpt-5.5", params={"max_tokens": 8192})
 study_report = sf.evaluate(study_model, benchmark="futurex_past_study", cases=STUDY_CASES)
 study_report"""),
         nbformat.v4.new_markdown_cell("""\

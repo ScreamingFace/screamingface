@@ -22,7 +22,7 @@ named in `contributors` (set after OME-1960 added that origin; first written as 
 
 | Key | Data pin | Grading | For |
 |---|---|---|---|
-| `futurex_past` | `8299bfa1`, 2,036 questions | the FutureX authors' current rules, with an LLM judge on levels 3–4 (§2–§7) | a score comparable with FutureX's own |
+| `futurex_past` | `8299bfa1`, 2,036 questions | the FutureX authors' current rules, with an LLM judge on levels 3–4 (§2–§7) | a score on the FutureX authors' scale; not comparable with their leaderboard (§8) |
 | `futurex_past_study` | `3c2e3969`, 1,118 questions | the contributor's study rules, with no judge (§10) | replicating the study's published numbers |
 
 The study scores differently from the FutureX default, so it gets its own Benchmark (§10). One
@@ -155,7 +155,7 @@ Benchmark here). Every other dimension should match or be a declared deviation.
 - Search or tool use for the Candidate.
 - Any change to other Benchmarks' rows, revisions or digests.
 
-## 9. Process notes (Linear skipped)
+## 9. Process notes (Linear: OME-1952, filed by the maintainer on review)
 
 - **Test-table approvals.** A new Benchmark adds one row to several existing test tables:
   declaration, imported-benchmarks family, failure-policy rows and counts, published revisions,
@@ -240,7 +240,7 @@ the fused-medoids decisions (`4_fused_committee`) and requires **0.302**.
 
 It is not the FutureX authors' scoring. Free-text and ranking answers are compared as exact
 strings, so it scores below `futurex_past` on levels 3–4. The README and the row say so, and point
-to `futurex_past` for a FutureX-comparable number. Its fidelity reference is the study's own
+to `futurex_past` for a number on the FutureX authors' scale. Its fidelity reference is the study's own
 code, not Futurex-Eval; the fidelity agent audits it against the study package.
 
 ## 11. Amendments during implementation (2026-11-16)
@@ -273,3 +273,22 @@ the fidelity audits, or from the code review; the ledger lists them too.
   instead would break the replication of the study's numbers, so they still leave the score.
 - **The test-change approval** is `.claude/test-change-approvals/OME-1952.json`, keyed to this
   branch (`futurex-past-local-task`), which the open PR keeps.
+
+### Amendment after the second review (2026-11-18, OME-1952)
+
+- **The origin is `external`.** OME-1960 added that origin for a Benchmark written outside the
+  team; both rows carry it and name the contributor. The issue sits under the epic OME-1330.
+- **The fused-medoids committee scores 0.306 here, not 0.302.** §10 required 0.302. The study
+  counts a committee's abstain as 0 and keeps it; this scorer sees one reply per Case and drops
+  an empty answer whoever wrote it. The 27 models still reproduce exactly. The test now runs the
+  production reading and pins 0.306 with `excluded` 2; a second test pins 0.302 under the study's
+  own rule. Declared on the row and in the README.
+- **A router call that fails falls back to the level default**, as Futurex-Eval's
+  `route_metric` does (`except Exception`). Before, only an unreadable reply fell back, and a
+  429 or a 5xx failed the Case.
+- **A comma inside a number does not split the answer.** `\boxed{12,500 points}` reached the
+  judge as `12` and scored 0 against the key 12500.
+- **24 prompts do not show `\boxed{}`.** §3 said every prompt ends with that syntax. At
+  `8299bfa1`, 2,012 of 2,036 do; 24 on levels 3-4 ask only for a "boxed numeric value".
+- **"Comparable" is withdrawn from the summary table.** `futurex_past` is on the FutureX
+  authors' scale by construction, and its Fidelity Record's verdict is `not-comparable`.

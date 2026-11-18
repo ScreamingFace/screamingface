@@ -17,9 +17,10 @@ cannot be scored on it. This unit adds it as a local inspect Task under
 `screamingface_engine_inspect/local_tasks/`, imported with the existing importer, with the
 benchmark's own prompt passed through verbatim and the FutureX authors' per-level scoring, plus a second Benchmark, `futurex_past_study`, that scores with the contributor's study rules so the study's published numbers can be replicated.
 
-**Process note:** the Linear steps of the root `CLAUDE.md` SDLC (epic-first, issue at PR-open,
-`Refs: OME-N`, branch rename, mirror in `docs/tasks/`) are skipped by the contributor's decision;
-the ScreamingFace team said the Linear step may be skipped. `ticket` stays `unfiled`.
+**Process note:** this is an outside contribution. The maintainer filed OME-1952 for it on review
+(2026-11-17), under the epic OME-1330; its mirror is
+`docs/tasks/2026-11-17-OME-1952-futurex-past-local-task.md`. The branch keeps its name
+(`futurex-past-local-task`), since renaming it would mean a new PR.
 
 ## Planned changes
 
@@ -33,7 +34,8 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
   byte), and `README.md`.
 - `prepare.py` and `benchmarks.py`: two generated and hand-filled rows.
 - New tests: `test_local_task_futurex_past.py`, `test_futurex_past_grading.py`,
-  `test_local_task_futurex_past_study.py`, `test_futurex_past_study_replication.py`, plus fixtures.
+  `test_local_task_futurex_past_study.py` (which also holds the replication tests first planned
+  as `test_futurex_past_study_replication.py`), plus fixtures.
 - Shared test tables: stand-in metadata, declaration, family, failure policy, published revision,
   and fingerprint.
 - `packages/screamingface`: the example notebook `22_futurex_past`.
@@ -151,3 +153,20 @@ Spec `docs/spec/2026-11-16-futurex-past-local-task.md` and plan
     `0d516b151df8c19e`, each the fingerprint of the finished code. Earlier drafts had
     `cbe050d3…`/`c3b5c2b7…`, `baf0c231…`/`a006da2f…` and `25b22985…`/`c7f36b93…`. Neither
     Benchmark was ever published.
+
+## After the reviews (2026-11-18, maintainer-assisted, OME-1952)
+
+- **Origin:** both rows are `origin="external"` with the contributor named (OME-1960).
+- **Fused-medoids:** the replication test no longer marks the committee's 2 abstained cells
+  usable by hand. Through the production reading the stored answers score 0.306 with
+  `excluded` 2; a separate test pins the study's 0.302 under the study's own rule. Declared on
+  the row, in the module docstring and in the README.
+- **Router:** a router call that fails falls back to the level default, as Futurex-Eval's
+  `route_metric` does; the Score records why in `route_fallback_why`.
+- **Numbers:** a comma inside a number no longer splits the answer (`12,500 points`).
+- **Copy:** 24 of 2,036 prompts do not show `\boxed{}` (measured on the pinned file); the
+  "comparable" wording is withdrawn; the answer format names the zero-key rule and the set rule.
+- **Notebook:** the study cell no longer sends `temperature` to a model that rejects it.
+- **Test counts:** the inspect-lane count above (3,267) and the PR body's (3,646) were taken at
+  different commits by the contributor; neither was re-run here. The files touched after the
+  reviews were run instead; the PR lists them.
