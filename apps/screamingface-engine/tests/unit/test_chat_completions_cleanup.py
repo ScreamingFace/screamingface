@@ -116,6 +116,7 @@ async def test_drain_stops_a_waiting_request_and_answers_server_restarting() -> 
     assert resp.status_code == 503
     assert error(resp)["code"] == "server_restarting"
     assert resp.headers["x-should-retry"] == "true"
+    assert resp.headers["retry-after"] == "5"
     assert ca.runner.stopped == [topic]
     assert ca.objects.objects == {}
 

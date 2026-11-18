@@ -96,7 +96,8 @@ CHAT_RESPONSES: dict[int | str, dict[str, Any]] = {
     502: _error("The run failed, or its result could not be read."),
     503: _error(
         "`chat_unavailable`, `catalog_unavailable`, `queue_unavailable`, `run_failed`, "
-        "`worker_draining` or `server_restarting`."
+        "`worker_draining` or `server_restarting`. A retryable `run_failed`, "
+        "`worker_draining` and `server_restarting` send `Retry-After: 5`."
     ),
     504: _error("`timeout`: the run did not end in time and was stopped."),
 }

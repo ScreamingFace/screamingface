@@ -53,6 +53,12 @@ LIMITS: dict[str, tuple[str, ...]] = {
     "remote-media": ("refuses remote picture URLs", "data: URIs"),
     "unsupported-fields": ("refuses n above 1, logprobs and audio",),
     "buffered-stream": ("The stream is buffered",),
+    "long-requests": (
+        "sends no bytes until the answer is ready",
+        "stream: true",
+        "keep-alive line",
+        "15 seconds by default",
+    ),
     "turn-cost": ("Each turn runs the full ensemble",),
     "web-search-default": ("Web search is on by default", "web_search=false"),
     "web-search-cost": (

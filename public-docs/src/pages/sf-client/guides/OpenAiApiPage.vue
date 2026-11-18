@@ -323,7 +323,6 @@ const errorEnvelope = `{
       An error after the stream starts comes as one data line with an <code>error</code> object. No
       <code>[DONE]</code> line follows it.
     </p>
-
     <h2>Tools</h2>
 
     <p>
@@ -450,7 +449,11 @@ const errorEnvelope = `{
             <code>queue_unavailable</code>, <code>run_failed</code>, <code>worker_draining</code>,
             <code>server_restarting</code>
           </td>
-          <td>The Engine cannot run the request now.</td>
+          <td>
+            The Engine cannot run the request now. A retryable <code>run_failed</code>,
+            <code>worker_draining</code> or <code>server_restarting</code> answer has a
+            <code>Retry-After: 5</code> header.
+          </td>
           <td>
             true, but false for <code>chat_unavailable</code>, for
             <code>catalog_unavailable</code> when the Engine has no catalogue, and for
@@ -546,6 +549,12 @@ const errorEnvelope = `{
       </li>
       <li data-limit="buffered-stream">
         The stream is buffered. The answer comes in one piece at the end of the run.
+      </li>
+      <li data-limit="long-requests">
+        A plain request sends no bytes until the answer is ready. A proxy between the client and the
+        Engine can close a connection that stays silent for a long time. For a recipe that can take
+        a long time, use <code>stream: true</code>. The Engine then sends a keep-alive line at a
+        fixed interval (15 seconds by default) while the run works.
       </li>
       <li data-limit="turn-cost">
         Each turn runs the full ensemble. Thus, the cost of a turn is the cost of the ensemble.

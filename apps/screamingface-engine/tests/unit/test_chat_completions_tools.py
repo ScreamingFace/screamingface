@@ -28,8 +28,11 @@ from screamingface_engine.catalog.port import CatalogUnavailable
 from screamingface_engine.chat.recipe import (
     FINAL_SEARCH_MESSAGE,
     FINAL_STEP_NOT_MODEL_MESSAGE,
+    UNKNOWN_FINAL_MESSAGE,
+    RepointError,
     one_model_recipe,
 )
+from screamingface_engine.rest import chat_tools
 from screamingface_engine.rest.chat_model import CATALOG_RETRY_AFTER_S, catalog_unavailable
 from url4 import RelExpr, expr, render, src, text
 
@@ -292,6 +295,29 @@ async def test_final_step_search_that_the_route_can_do_is_not_refused(
     resp = await post(ca.app, body(member_search, tools=[TOOL]))
     assert resp.status_code == 200
     assert ca.runner.scheduled[0]["url4"] == member_search
+
+
+async def test_recipe_that_fails_the_repoint_proof_is_400_before_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The App runs the re-point proof of the worker, so a recipe that fails it gets no blob and
+    no run: 400 recipe_not_supported, not a 502 internal_error from the worker."""
+
+    def _fails(*_args: Any) -> str:
+        raise RepointError("the re-point changed the shape of the recipe")
+
+    monkeypatch.setattr(chat_tools, "repoint_final_steps", _fails)
+    ca = _tools_app()
+    resp = await post(ca.app, body("prov/a", tools=[TOOL]))
+    assert resp.status_code == 400
+    assert resp.headers["x-should-retry"] == "false"
+    envelope = error(resp)
+    assert envelope["code"] == "recipe_not_supported"
+    assert envelope["message"] == UNKNOWN_FINAL_MESSAGE
+    assert envelope["param"] == "model"
+    assert ca.runner.scheduled == []
+    assert _catalog(ca).calls == []
+    _assert_refused_before_run(ca)
 
 
 async def test_member_web_search_is_not_a_final_step_search() -> None:

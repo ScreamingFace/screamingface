@@ -196,6 +196,20 @@ async def test_drain_during_stream_sends_server_restarting_event() -> None:
     assert ca.objects.objects == {}
 
 
+async def test_drain_before_stream_is_json_503_with_retry_after() -> None:
+    """A drain before the stream starts is the plain 503 `server_restarting`, with Retry-After;
+    an error event after the start has no headers."""
+    ca = chat_app(answered())
+    ca.app.state.chat_drain.request()
+    resp = await post(ca.app, stream_body())
+    assert resp.status_code == 503
+    assert resp.headers["content-type"].startswith("application/json")
+    assert error(resp)["code"] == "server_restarting"
+    assert resp.headers["x-should-retry"] == "true"
+    assert resp.headers["retry-after"] == "5"
+    assert ca.runner.scheduled == []
+
+
 async def test_response_headers_disable_proxy_buffering() -> None:
     """ST-9 / ST-S9: the proxy headers, and each frame is its own body message (one flush)."""
     _, resp = await _streamed(answered())

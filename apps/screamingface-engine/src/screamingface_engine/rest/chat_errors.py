@@ -16,11 +16,17 @@ from url4.streaming.interfaces import JobRunnerAtCapacity
 
 __all__ = [
     "FIXED_MESSAGES",
+    "RESTART_RETRY_AFTER_S",
     "ChatError",
     "error_type",
     "fixed_message",
     "from_problem",
+    "restart_retry_after",
 ]
+
+# WHY: an OpenAI SDK with no Retry-After retries after about one second, into the same restart.
+# The retryable 503 answers of a failed run, a draining worker and a restarting App send this.
+RESTART_RETRY_AFTER_S = 5
 
 FIXED_MESSAGES: dict[str, str] = {
     "unsupported_media_type": "Content-Type must be application/json",
@@ -95,6 +101,11 @@ class ChatError(Exception):
         if self.retry_after is not None:
             headers["Retry-After"] = str(self.retry_after)
         return JSONResponse(content=body, status_code=self.status, headers=headers)
+
+
+def restart_retry_after(status: int, should_retry: bool) -> int | None:
+    """The Retry-After of a run or wait answer: only a retryable 503 has one."""
+    return RESTART_RETRY_AFTER_S if status == 503 and should_retry else None
 
 
 def _retry_after(headers: dict[str, str] | None, default: int) -> int:

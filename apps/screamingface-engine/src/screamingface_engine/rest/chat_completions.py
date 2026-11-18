@@ -37,7 +37,11 @@ from screamingface_engine.rest.chat_body import (
 )
 from screamingface_engine.rest.chat_cleanup import ChatCleanup
 from screamingface_engine.rest.chat_drain import ChatDrain
-from screamingface_engine.rest.chat_errors import ChatError, from_problem
+from screamingface_engine.rest.chat_errors import (
+    RESTART_RETRY_AFTER_S,
+    ChatError,
+    from_problem,
+)
 from screamingface_engine.rest.chat_model import ModelLookupCache, recipe_for
 from screamingface_engine.rest.chat_observe import RequestFacts, observe
 from screamingface_engine.rest.chat_openapi import CHAT_RESPONSES, CHAT_TAG, REQUEST_BODY
@@ -191,7 +195,9 @@ def _identity(request: Request) -> dict[str, str] | None:
 def _refuse_drained(drain: ChatDrain) -> None:
     """CC-S37: after the stop signal, a new request schedules nothing."""
     if drain.requested:
-        raise ChatError(503, "server_restarting", should_retry=True)
+        raise ChatError(
+            503, "server_restarting", retry_after=RESTART_RETRY_AFTER_S, should_retry=True
+        )
 
 
 def _chat_input_store(state: Any) -> BlobStore:
