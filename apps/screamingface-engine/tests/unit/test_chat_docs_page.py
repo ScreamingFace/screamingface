@@ -38,6 +38,11 @@ LIMITS: dict[str, tuple[str, ...]] = {
     "tools-unique-final-step": ("final step of the recipe must be unique",),
     "corrective-loop": ("refuses a recipe with a corrective loop",),
     "benchmark-linked": ("refuses a benchmark-linked expression", "Candidate URL4"),
+    "shared-cache": (
+        "uses the shared community cache",
+        "each signed-in account can read the stored answers",
+        "Cache-Control: no-store",
+    ),
     "cache-zero-tokens": ("counts 0 tokens",),
     "unpriced-cost": ("cost_usd is null when one call of the run has no price",),
     "run-limit": ("24 runs in flight for each user", "429 overloaded", "local_max_concurrent_runs"),
@@ -46,7 +51,7 @@ LIMITS: dict[str, tuple[str, ...]] = {
     "large-bodies": (
         "At most four bodies above 1,000,000 bytes",
         "429 overloaded",
-        "30 seconds",
+        "60 seconds",
         "408 request_timeout",
     ),
     "time-limit": ("chat_max_wait_s seconds (600 by default)", "504 timeout"),

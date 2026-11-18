@@ -508,6 +508,12 @@ const errorEnvelope = `{
       <li data-limit="benchmark-linked">
         The Engine refuses a benchmark-linked expression. Send the Candidate URL4.
       </li>
+      <li data-limit="shared-cache">
+        A chat request uses the shared community cache, as an evaluation does. The cache stores each
+        model answer of the request, and each signed-in account can read the stored answers (not the
+        prompts, but an answer can quote its prompt). To keep a request out of the cache, send
+        <code>Cache-Control: no-store</code>.
+      </li>
       <li data-limit="cache-zero-tokens">
         A call that the shared cache serves counts 0 tokens in <code>usage</code>.
       </li>
@@ -533,7 +539,7 @@ const errorEnvelope = `{
       <li data-limit="large-bodies">
         At most four bodies above 1,000,000 bytes are in parse at one time. When no place is free in
         5 seconds, the answer is 429 <code>overloaded</code>. A body above 1,000,000 bytes must
-        arrive in full in 30 seconds after it gets a place. If not, the answer is 408
+        arrive in full in 60 seconds after it gets a place. If not, the answer is 408
         <code>request_timeout</code>.
       </li>
       <li data-limit="time-limit">

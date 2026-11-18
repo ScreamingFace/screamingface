@@ -57,13 +57,11 @@ def test_local_resolves_the_real_local_app_factory(monkeypatch: pytest.MonkeyPat
     """`_serve_local` itself, unshimmed — so its lazy imports are proven to resolve.
 
     The tests above replace `_serve_local` wholesale, which would keep passing even if it named a
-    module or factory that no longer exists. This patches uvicorn instead, so a rename in
+    module or factory that no longer exists. This patches the server seam instead, so a rename in
     `screamingface_engine.local` fails here rather than at a developer's first `--local` boot.
     """
-    import uvicorn
-
     captured: dict[str, object] = {}
-    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: captured.update(app=app, **kw))
+    monkeypatch.setattr(cli, "_run_server", lambda app, **kw: captured.update(app=app, **kw))
 
     cli._serve_local()
 
@@ -124,10 +122,8 @@ def test_local_rejects_a_port_outside_the_tcp_range(local_ports: list[object], v
 
 def test_the_real_local_server_binds_the_requested_port(monkeypatch: pytest.MonkeyPatch) -> None:
     """`_serve_local(port=…)` unshimmed: the port reaches uvicorn, and the host stays loopback."""
-    import uvicorn
-
     captured: dict[str, object] = {}
-    monkeypatch.setattr(uvicorn, "run", lambda app, **kw: captured.update(app=app, **kw))
+    monkeypatch.setattr(cli, "_run_server", lambda app, **kw: captured.update(app=app, **kw))
 
     cli._serve_local(port=9111)
 

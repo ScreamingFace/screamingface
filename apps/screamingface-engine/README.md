@@ -339,6 +339,13 @@ curl http://localhost:9108/v1/chat/completions -H 'Content-Type: application/jso
 - **Errors** use the OpenAI error envelope (`{"error": {"message", "type", "param", "code"}}`)
   with fixed messages. The header `x-should-retry` tells the client if a retry is safe. The full
   status table is in `prd/chat-completion.md` §3.2 of the spec directory.
+- **App shutdown.** The CLI starts uvicorn through `cli._run_server`. On the stop signal, that
+  server requests the chat drain before the normal shutdown of uvicorn. Each waiting chat request
+  then stops its run, deletes its input record, and answers `503 server_restarting` (a stream
+  gets the error event). uvicorn calls the shutdown hook of the App only after each open request
+  has ended, so a hook is too late for this.
+- **Shared cache.** A chat run uses the shared cache as other runs do. `Cache-Control: no-store`
+  on the request keeps it out (owner decision of 2026-11-18, spec ledger Q33).
 - **Deploy order: workers first, then the App.** An old worker refuses an unknown run shape,
   because `run_shape_from_env` raises. Thus the App must not schedule `chat` runs before each
   worker knows the shape (spec P19, erd §2.2).
