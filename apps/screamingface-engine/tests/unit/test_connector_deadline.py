@@ -16,7 +16,7 @@ import httpx
 import pytest
 
 from screamingface_engine.request_scope import RequestScope, request_scope
-from screamingface_engine.world import connector as connector_module
+from screamingface_engine.world import gateway_transport
 from url4.core.errors import ResolutionError
 
 pytestmark = pytest.mark.asyncio
@@ -48,11 +48,11 @@ async def test_no_deadline_keeps_the_client_timeout_and_the_retry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The ensemble path binds no deadline: two attempts, each under the client's own timeout."""
-    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0.0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0.0)
     gateway = _Gateway(fail_times=1)
     async with _client(gateway, timeout=28.0) as client:
         with request_scope(RequestScope(origin="run")):
-            _resp, retried = await connector_module._post_completion(client, headers={}, body={})
+            _resp, retried = await gateway_transport._post_completion(client, headers={}, body={})
     assert retried is True
     assert gateway.read_timeouts == [28.0, 28.0]
 
@@ -60,11 +60,11 @@ async def test_no_deadline_keeps_the_client_timeout_and_the_retry(
 async def test_each_attempt_timeout_is_capped_by_the_time_left(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0.0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0.0)
     gateway = _Gateway(fail_times=0)
     async with _client(gateway, timeout=28.0) as client:
         with request_scope(RequestScope(origin="run", deadline=time.monotonic() + 1.0)):
-            await connector_module._post_completion(client, headers={}, body={})
+            await gateway_transport._post_completion(client, headers={}, body={})
     [timeout] = gateway.read_timeouts
     assert timeout is not None and 0.0 < timeout <= 1.0
 
@@ -73,13 +73,13 @@ async def test_a_retry_that_cannot_fit_backoff_plus_one_attempt_is_not_started(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """deadline - now < delay + configured timeout → raise the transient error, do not sleep."""
-    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0.5)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0.5)
     gateway = _Gateway(fail_times=1)
     started = time.monotonic()
     async with _client(gateway, timeout=1.0) as client:
         with request_scope(RequestScope(origin="run", deadline=time.monotonic() + 1.2)):
             with pytest.raises(ResolutionError) as caught:
-                await connector_module._post_completion(client, headers={}, body={})
+                await gateway_transport._post_completion(client, headers={}, body={})
     assert caught.value.code == "aigateway_deadline_exceeded"
     assert caught.value.permanent is False
     assert len(gateway.read_timeouts) == 1
@@ -89,11 +89,11 @@ async def test_a_retry_that_cannot_fit_backoff_plus_one_attempt_is_not_started(
 async def test_a_retry_runs_when_the_deadline_leaves_room(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(connector_module, "_transport_backoff", lambda _: 0.0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0.0)
     gateway = _Gateway(fail_times=1)
     async with _client(gateway, timeout=0.2) as client:
         with request_scope(RequestScope(origin="run", deadline=time.monotonic() + 5.0)):
-            _resp, retried = await connector_module._post_completion(client, headers={}, body={})
+            _resp, retried = await gateway_transport._post_completion(client, headers={}, body={})
     assert retried is True
     assert len(gateway.read_timeouts) == 2
 
@@ -103,7 +103,7 @@ async def test_an_expired_deadline_makes_no_call() -> None:
     async with _client(gateway, timeout=28.0) as client:
         with request_scope(RequestScope(origin="run", deadline=time.monotonic() - 0.1)):
             with pytest.raises(ResolutionError) as caught:
-                await connector_module._post_completion(client, headers={}, body={})
+                await gateway_transport._post_completion(client, headers={}, body={})
     assert caught.value.code == "aigateway_deadline_exceeded"
     assert caught.value.permanent is False
     assert gateway.read_timeouts == []

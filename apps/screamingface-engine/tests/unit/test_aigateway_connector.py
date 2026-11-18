@@ -17,9 +17,9 @@ from screamingface_engine.world.connector import (
     AigatewayConfig,
     _messages,
     _ModelEndpoint,
-    _raise_for_status,
     build_aigateway_world,
 )
+from screamingface_engine.world.gateway_transport import _raise_for_status
 from url4.core.errors import ResolutionError
 from url4.dag import run as url4_run
 from url4.observe import ObservationEvent, Usage
@@ -444,9 +444,15 @@ async def test_aigateway_transport_errors_map_to_retryable_resolution_error() ->
         world = await build_aigateway_world(cfg, client=client)
 
         with (
-            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
-            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
-            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+            mock.patch(
+                "screamingface_engine.world.gateway_transport._TRANSPORT_BACKOFF_BASE_S", 0.0
+            ),
+            mock.patch(
+                "screamingface_engine.world.gateway_transport._TRANSPORT_BACKOFF_MAX_S", 0.0
+            ),
+            mock.patch(
+                "screamingface_engine.world.gateway_transport._TRANSPORT_BACKOFF_JITTER_S", 0.0
+            ),
         ):
             with pytest.raises(ResolutionError) as exc_info:
                 await url4_run("/anthropic/claude-haiku-4-5(ctx)!go", io=world.node)
@@ -490,9 +496,15 @@ async def test_aigateway_transport_error_is_retried_then_succeeds() -> None:
         world = await build_aigateway_world(cfg, client=client)
 
         with (
-            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_BASE_S", 0.0),
-            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_MAX_S", 0.0),
-            mock.patch("screamingface_engine.world.connector._TRANSPORT_BACKOFF_JITTER_S", 0.0),
+            mock.patch(
+                "screamingface_engine.world.gateway_transport._TRANSPORT_BACKOFF_BASE_S", 0.0
+            ),
+            mock.patch(
+                "screamingface_engine.world.gateway_transport._TRANSPORT_BACKOFF_MAX_S", 0.0
+            ),
+            mock.patch(
+                "screamingface_engine.world.gateway_transport._TRANSPORT_BACKOFF_JITTER_S", 0.0
+            ),
         ):
             result = await url4_run("/anthropic/claude-haiku-4-5(ctx)!go", io=world.node)
 

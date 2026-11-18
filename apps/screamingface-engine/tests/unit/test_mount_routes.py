@@ -517,7 +517,7 @@ async def test_a_gateway_unsupported_content_part_reaches_a_mount_caller_as_422_
     into an `ErrorInfo` by url4's real `_error_info`, and only then terminates the direct run —
     so the mount caller sees url4's `intent_error` (422) with the gateway's diagnosis kept.
     """
-    from screamingface_engine.world.connector import _raise_for_status
+    from screamingface_engine.world.gateway_transport import _raise_for_status
     from url4.core.errors import ResolutionError
     from url4.streaming.lifecycle import _error_info
 
@@ -552,7 +552,7 @@ async def test_a_gateway_unsupported_content_part_reaches_a_mount_caller_as_422_
 
 async def test_a_different_permanent_gateway_code_still_reaches_a_mount_caller_unchanged() -> None:
     """Only `unsupported_content_part` is translated: `provider_refused` stays itself, 502."""
-    from screamingface_engine.world.connector import _raise_for_status
+    from screamingface_engine.world.gateway_transport import _raise_for_status
     from url4.core.errors import ResolutionError
     from url4.streaming.lifecycle import _error_info
 

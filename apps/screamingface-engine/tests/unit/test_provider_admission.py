@@ -8,6 +8,7 @@ import pytest
 
 from screamingface_engine.request_scope import RequestScope, request_scope
 from screamingface_engine.world import connector as c
+from screamingface_engine.world import gateway_transport
 from screamingface_engine.world.config import WorldConfigError
 from url4.core.errors import ResolutionError
 
@@ -44,14 +45,14 @@ def test_invalid_budget_rejected(value):
     [("3600", 8), ("0", 0.5), ("2", 2), ("nan", 0.75), ("-1", 0.75), ("bad", 0.75)],
 )
 def test_retry_after_is_bounded(value, expected, monkeypatch):
-    monkeypatch.setattr(c, "_transport_backoff", lambda _: 0.75)
-    assert c._queue_retry_delay(busy(value), 0) == expected
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0.75)
+    assert gateway_transport._queue_retry_delay(busy(value), 0) == expected
 
 
 @pytest.mark.asyncio
 async def test_queue_retries_share_existing_attempt_limit(monkeypatch):
     calls = []
-    monkeypatch.setattr(c, "_queue_retry_delay", lambda *_: 0)
+    monkeypatch.setattr(gateway_transport, "_queue_retry_delay", lambda *_: 0)
 
     def handler(request):
         calls.append(request)
@@ -60,11 +61,11 @@ async def test_queue_retries_share_existing_attempt_limit(monkeypatch):
     async with httpx.AsyncClient(
         base_url="http://gateway", transport=httpx.MockTransport(handler)
     ) as client:
-        response, retried = await c._post_completion(client, headers={}, body={})
+        response, retried = await gateway_transport._post_completion(client, headers={}, body={})
     assert not retried  # explicit admission refusals cannot hide billed work
     assert len(calls) == 2
     with pytest.raises(ResolutionError) as error:
-        c._raise_for_status(response)
+        gateway_transport._raise_for_status(response)
     assert error.value.code == "provider_queue_timeout"
     assert not error.value.permanent
 
@@ -80,11 +81,11 @@ async def test_execution_timeout_is_not_retried_by_queue_policy():
     async with httpx.AsyncClient(
         base_url="http://gateway", transport=httpx.MockTransport(handler)
     ) as client:
-        response, retried = await c._post_completion(client, headers={}, body={})
+        response, retried = await gateway_transport._post_completion(client, headers={}, body={})
     assert not retried
     assert len(calls) == 1
     with pytest.raises(ResolutionError) as error:
-        c._raise_for_status(response)
+        gateway_transport._raise_for_status(response)
     assert error.value.code == "provider_execution_timeout"
 
 
@@ -101,7 +102,9 @@ async def test_declared_budgets_extend_transport_and_preserve_caller_cap():
         base_url="http://gateway", transport=httpx.MockTransport(handler)
     ) as client:
         with request_scope(RequestScope(origin="run", deadline=time.monotonic() + 10)):
-            response, retried = await c._post_completion(client, headers=headers, body={})
+            response, retried = await gateway_transport._post_completion(
+                client, headers=headers, body={}
+            )
     assert response.status_code == 503
     assert not retried  # no room for a full retry
     assert len(calls) == 1
@@ -120,7 +123,7 @@ async def test_outer_timeout_accommodates_both_declared_budgets():
     async with httpx.AsyncClient(
         base_url="http://gateway", transport=httpx.MockTransport(handler)
     ) as client:
-        await c._post_completion(
+        await gateway_transport._post_completion(
             client,
             headers={"x-aigw-execution-timeout-s": "600", "x-aigw-queue-timeout-s": "30"},
             body={},
@@ -142,7 +145,7 @@ async def test_cancellation_during_queue_retry_does_not_start_another_attempt(mo
     async with httpx.AsyncClient(
         base_url="http://gateway", transport=httpx.MockTransport(handler)
     ) as client:
-        task = asyncio.create_task(c._post_completion(client, headers={}, body={}))
+        task = asyncio.create_task(gateway_transport._post_completion(client, headers={}, body={}))
         await waiting.wait()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -156,8 +159,8 @@ async def test_queue_retry_preserves_known_spend_but_transport_loss_stays_unknow
     transport_failure, monkeypatch
 ):
     attempts = 0
-    monkeypatch.setattr(c, "_transport_backoff", lambda _: 0)
-    monkeypatch.setattr(c, "_queue_retry_delay", lambda *_: 0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0)
+    monkeypatch.setattr(gateway_transport, "_queue_retry_delay", lambda *_: 0)
 
     def handler(request):
         nonlocal attempts
@@ -171,7 +174,9 @@ async def test_queue_retry_preserves_known_spend_but_transport_loss_stays_unknow
     async with httpx.AsyncClient(
         base_url="http://gateway", transport=httpx.MockTransport(handler)
     ) as client:
-        response, uncertain_spend = await c._post_completion(client, headers={}, body={})
+        response, uncertain_spend = await gateway_transport._post_completion(
+            client, headers={}, body={}
+        )
     assert response.status_code == 200
     assert attempts == 2
     assert uncertain_spend is transport_failure

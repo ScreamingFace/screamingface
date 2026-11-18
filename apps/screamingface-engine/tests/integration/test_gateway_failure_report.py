@@ -15,7 +15,7 @@ from screamingface_engine.benchmarks.medxpert import runtime
 from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.benchmarks.medxpert.prepare import emit
 from screamingface_engine.benchmarks.registry import BenchmarkRegistry
-from screamingface_engine.world import candidate_call_retry, connector
+from screamingface_engine.world import candidate_call_retry, gateway_transport
 from screamingface_engine.world.candidate_adapter import install_candidate_invocation
 from screamingface_engine.world.config import ModelSpec
 from screamingface_engine.world.connector import AigatewayConfig, build_aigateway_world
@@ -140,7 +140,7 @@ async def test_failure_survives_to_final_report(
     retryable: bool,
     attempts: int,
 ) -> None:
-    monkeypatch.setattr(connector, "_transport_backoff", lambda _: 0)
+    monkeypatch.setattr(gateway_transport, "_transport_backoff", lambda _: 0)
     monkeypatch.setattr(candidate_call_retry, "retry_wait", lambda *_: 0.0)
     gateway = Gateway(mode, turn)
     result = await _run(tmp_path, gateway)
