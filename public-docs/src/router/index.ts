@@ -89,6 +89,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/guides/Url4Page.vue'),
     },
     {
+      path: '/sf-client/guides/openai-api',
+      name: 'sf-client-guides-openai-api',
+      component: () => import('@/pages/sf-client/guides/OpenAiApiPage.vue'),
+    },
+    {
       path: '/sf-client/api/recipes',
       name: 'sf-client-api-recipes',
       component: () => import('@/pages/sf-client/api/RecipesPage.vue'),
