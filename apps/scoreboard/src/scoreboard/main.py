@@ -10,7 +10,9 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings
+from .core.copy_claims import CopyClaims
 from .db import close_db, init_db
+from .gateway_copy_claims import build_copy_claims
 from .logs import configure as configure_logging
 from .portal import register_portal
 from .routes import baseline_history, catalog, health, leaderboard, revisions, scores
@@ -101,13 +103,30 @@ def _find_forwarded_allow_ips_overlap(
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = app.state.settings
     await init_db(settings.database_url, pool=settings.db_pool)
+    claims: CopyClaims | None = app.state.copy_claims
     try:
         yield
     finally:
-        await close_db()
+        # INVARIANT: close the claim client before the database (prd/score-claim.md section 7.1).
+        try:
+            if claims is not None:
+                await claims.aclose()
+        finally:
+            await close_db()
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def _attach_state(app: FastAPI, settings: Settings, copy_claims: CopyClaims | None) -> None:
+    # WHY a helper: `create_app` is at the limit of 26 statements.
+    app.state.settings = settings
+    app.state.score_store = ScoreStore()
+    app.state.baseline_store = BaselineStore()
+    # WHY: a test passes a fake client; the service builds its client from the settings.
+    app.state.copy_claims = copy_claims if copy_claims is not None else build_copy_claims(settings)
+
+
+def create_app(
+    settings: Settings | None = None, *, copy_claims: CopyClaims | None = None
+) -> FastAPI:
     # WHY first, and here rather than in cli.main: create_app is the one door every ASGI host
     # goes through (`scoreboard` CLI, a bare `uvicorn scoreboard.main:app`, an embedding
     # process), and uvicorn never configures the `scoreboard` logger (OME-937).
@@ -185,9 +204,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="scoreboard", version="0.1.1", lifespan=_lifespan)
     app.exception_handler(RequestValidationError)(safe_request_validation_handler)
-    app.state.settings = settings
-    app.state.score_store = ScoreStore()
-    app.state.baseline_store = BaselineStore()
+    _attach_state(app, settings, copy_claims)
 
     if settings.cors_origins:
         app.add_middleware(

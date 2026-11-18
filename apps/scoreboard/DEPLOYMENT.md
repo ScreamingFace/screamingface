@@ -417,6 +417,78 @@ deliberate — it should be easier to postpone a rollback than to destroy a chal
 private, so a rollback target that understands `visibility` already exists in `helm history`. The
 preflight cannot check this for you — it sees the database, not the release history.
 
+## Frozen copy claims (OME-1947)
+
+The scoreboard sends a claim to the AI Gateway for the frozen copy (the pinned cache) of each
+new submit that names one. Scores that are already stored get no claim. The gateway keeps a
+claimed copy. With no gateway URL, the scoreboard makes no claim and works as before.
+
+### Settings
+
+| Chart value (`config:`) | Variable | Default | Meaning |
+|---|---|---|---|
+| `gatewayUrl` | `SCOREBOARD_GATEWAY_URL` | empty | The address of the AI Gateway service in the cluster, for example `http://<gateway-service>.<namespace>.svc:<port>`. Empty means no claim. |
+| `gatewayActor` | `SCOREBOARD_GATEWAY_ACTOR` | empty | The email that the scoreboard sends in `X-User-Email`. It must be in `AIGW_FROZEN_COPY_CLAIM_EMAILS` of the gateway. It must be an address that cannot log in through Cloudflare Access. Set it when the URL is set. Without it, the service does not start. |
+| `gatewayTimeoutS` | `SCOREBOARD_GATEWAY_TIMEOUT_S` | `5` | The time limit in seconds for one claim call. The scoreboard does not retry. |
+
+`values-prod.yaml` does not set these values. The infrastructure repo sets them.
+
+The egress rule of this chart already permits the call. The NetworkPolicy of the gateway must
+admit the scoreboard pods. Add one `networkPolicy.allowFrom` element with the namespace selector
+and the pod selector of the scoreboard.
+
+### Before you set the gateway URL
+
+Release the gateway with the claim route first. A gateway with no claim route answers `404` with
+no code. Then each submit with a pinned cache gets `503`.
+
+Then do step 1 of the release checks. From a scoreboard pod, send a claim for a random UUID:
+
+```bash
+kubectl -n "$NAMESPACE" exec "deploy/$DEPLOYMENT" -- python -c '
+import sys, uuid, httpx
+r = httpx.post(f"{sys.argv[1]}/v1/frozen-copies/{uuid.uuid4()}/claim",
+               headers={"X-User-Email": sys.argv[2]}, timeout=5)
+print(r.status_code, r.text)' "$GATEWAY_URL" "$GATEWAY_ACTOR"
+```
+
+The answer must be `404` with `frozen_copy_not_found`. This answer proves the URL, the
+NetworkPolicy and the claim list.
+A `403`, `401` or `503` means that the gateway refuses the actor or the peer.
+Do not set `gatewayUrl` until the answer is correct.
+
+### What a submit gets
+
+A submit that names a frozen copy sends the claim before the Score is stored.
+
+| Gateway answer | Submit answer |
+|---|---|
+| Sealed (first or repeated claim) | The Score is stored. |
+| Expired | `422` `frozen_copy_expired` |
+| Not sealed, abandoned, or not known | `422` `frozen_copy_unavailable` |
+| Any other answer, a timeout, or a connection error | `503` `frozen_copy_check_unavailable` with `Retry-After: 5` |
+
+A `422` is permanent. The user must run the evaluation again.
+The SDK sends the submit again after a `503`.
+A submit with no frozen copy makes no claim.
+
+### Log records
+
+The scoreboard writes two WARNING records:
+
+- `no gateway URL: no claim for frozen copy <id>`: The scoreboard has no gateway URL and stored
+  a Score that names a copy with no claim.
+- `frozen copy claim refused: result=<result> frozen_copy_id=<id>`: The claim did not give
+  `claimed` or `already`. `<result>` is `not_sealed`, `abandoned`, `expired`, `not_found` or
+  `unavailable`.
+
+The records contain no email.
+
+### Release checks
+
+For the full release checks, see section 5.2 of
+`docs/spec/2026-11-16-frozen-copy-retention/test-plan.md`.
+
 ## Troubleshooting
 
 Inspect resources:
