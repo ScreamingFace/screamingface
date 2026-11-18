@@ -570,13 +570,19 @@ uncapped bill.
     states the largest Case's bytes and the most pictures in one Case, from the
     linux/amd64 seal.
   - **The provider's own limits, which none of our caps check.** A Case under our caps
-    can still be refused at call time: Claude takes at most 5 MB and 8000 px a side per
-    picture ([vision limits](https://platform.claude.com/docs/en/build-with-claude/vision));
-    a request may be at most 20 MB when a Claude call is routed to Bedrock
-    ([request size limits](https://platform.claude.com/docs/en/api/overview#request-size-limits));
-    a PDF has a page limit per provider
+    can still be refused at call time, and the limit depends on the route the call takes,
+    not only on the model. Claude's are the worked example; every provider has its own, so
+    read the current page, never this bullet. A picture may be at most 10 MB as base64 on
+    Claude's own API but 5 MB on Bedrock, and 8000 px a side; with more than 20 pictures
+    in one request a stricter 3,000 px a side applies, and on Bedrock and Vertex a PDF
+    counts toward the 20
+    ([vision limits](https://platform.claude.com/docs/en/build-with-claude/vision#request-limits)).
+    A whole request may be at most 20 MB on Bedrock against 128 MB on Claude's own API
+    ([request size limits](https://platform.claude.com/docs/en/api/overview#request-size-limits)),
+    and a PDF has a page limit
     ([Claude PDF support](https://platform.claude.com/docs/en/build-with-claude/pdf-support)).
-    Ask which Candidates the largest Case was checked against.
+    So a 7 MB picture is not unrunnable; it fails only when the call is routed to Bedrock.
+    Ask which Candidates and routes the largest Case was checked against.
   - **Held-out Cases are a recorded decision, not a placeholder.** Cases left out for size
     are named in one constant, counted on the card (served of total), and stated as final
     with the decision's date and ticket. #1833 shipped the word PROVISIONAL in code beside
