@@ -69,3 +69,7 @@ per-board `og:url` it guards against losing is asserted directly in the new test
 3. Implement the accepted scope and update the obsolete test contracts.
 4. Run full scoreboard and repository gates; inspect desktop/mobile in both themes.
 5. Update the existing PR as FilipBolt.
+
+## Final integration correction, 2026-11-18
+
+Imported-result history links must also use `pageHref`, just like submission history links. Add a real-script regression for nested HTTPS board pages and local file pages; preserve the existing history query and accessible label.

@@ -278,3 +278,33 @@ test("an address with no board says so and fetches no leaderboard", async () => 
   assert.match(text, /No benchmark specified/);
   assert.ok(hrefs(status).includes("/index.html"), hrefs(status).join(", "));
 });
+
+for (const pageUrl of ["https://board.test/benchmarks/hle/", "file:///portal/benchmark.html?id=hle"]) {
+  test("imported history resolves to the portal page from " + pageUrl, () => {
+    const context = {
+      URL, URLSearchParams, location: new URL(pageUrl),
+      document: {
+        createElement: makeNode,
+        createTextNode: text => ({ textContent: String(text) }),
+      },
+    };
+    context.window = context;
+    context.self = context;
+    vm.createContext(context);
+    for (const file of ["board-url.js", "leaderboard-logic.js", "main.js", "external-results.js"]) {
+      vm.runInContext(fs.readFileSync(path.join(PORTAL, file), "utf8"), context, { filename: file });
+    }
+    const row = context.SFExternalResults.renderRow({
+      rank: 1, spec_id: "Imported model", score: 0.8,
+      baseline_id: "result & one", benchmark_id: "hle", observation_revision: 2,
+      submitted_at: "2026-11-17T12:00:00Z", source_url: "https://example.org/result",
+    }, makeNode("td"));
+    const link = descendants(row).find(node => node.className === "external-result__history");
+    assert.ok(link);
+    const resolved = new URL(link.attrs.href, pageUrl);
+    assert.equal(resolved.href, pageUrl.startsWith("https:")
+      ? "https://board.test/external-result-history.html?benchmark=hle&result=result%20%26%20one"
+      : "file:///portal/external-result-history.html?benchmark=hle&result=result%20%26%20one");
+    assert.equal(link.attrs["aria-label"], "View update history for Imported model");
+  });
+}
