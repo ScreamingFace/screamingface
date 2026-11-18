@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import Settings
-from .core.copy_claims import CopyClaims
+from .core.copy_claims import ClaimPassTask, CopyClaims
 from .db import close_db, init_db
 from .gateway_copy_claims import build_copy_claims
 from .logs import configure as configure_logging
@@ -104,15 +104,30 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = app.state.settings
     await init_db(settings.database_url, pool=settings.db_pool)
     claims: CopyClaims | None = app.state.copy_claims
+    task = (
+        ClaimPassTask(claims, app.state.score_store.scores_that_name_a_copy)
+        if claims is not None
+        else None
+    )
+    app.state.claim_pass_task = task
+    if task is not None:
+        # WHY not awaited: the start and /readyz do not wait for the pass (prd/score-claim.md C19).
+        task.start()
     try:
         yield
     finally:
-        # INVARIANT: close the claim client before the database (prd/score-claim.md section 7.1).
+        # INVARIANT: stop the task, then close the claim client, then the database
+        # (prd/score-claim.md C23). A task that is in a claim call must not find a closed client
+        # or a closed database.
         try:
-            if claims is not None:
-                await claims.aclose()
+            if task is not None:
+                await task.stop()
         finally:
-            await close_db()
+            try:
+                if claims is not None:
+                    await claims.aclose()
+            finally:
+                await close_db()
 
 
 def _attach_state(app: FastAPI, settings: Settings, copy_claims: CopyClaims | None) -> None:
