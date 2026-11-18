@@ -810,8 +810,11 @@ td.col-run { white-space: nowrap; }
 }
 .revision-pointer:focus-visible { outline: 2px solid var(--accent-solid); outline-offset: 2px; }
 /* The history page: the current revision is tagged; runs under earlier revisions are dimmed. */
+/* Under the id rather than beside it, so the tag never widens the Revision column. `table`
+   keeps the box as wide as the word. */
 .revision-tag {
-  margin-left: var(--space-2);
+  display: table;
+  margin-top: var(--space-1);
   padding: 0 var(--space-1);
   border: var(--border-hairline) solid var(--accent-solid);
   font-size: var(--text-micro);
