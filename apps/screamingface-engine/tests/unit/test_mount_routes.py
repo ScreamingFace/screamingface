@@ -331,10 +331,10 @@ async def test_openapi_never_cached_without_mounts() -> None:
     app = create_app(Settings(jwt_secret="mount-secret"), stream=stream, job_runner=runner)
     async with _client(app) as client:
         before = (await client.get("/openapi.json")).json()
-        assert "/v1/chat/completions" not in before["paths"]
+        assert "/v1/benchmarks/data/foo" not in before["paths"]
         register_mounts(app, TABLE)
         after = (await client.get("/openapi.json")).json()
-    assert "/v1/chat/completions" in after["paths"]
+    assert "/v1/benchmarks/data/foo" in after["paths"]
 
 
 async def test_eval_path_is_404_in_production() -> None:
@@ -462,7 +462,7 @@ async def test_a_wrong_method_on_a_mount_is_the_nodes_405_envelope() -> None:
     """AC14 parity (review C8): url4's `method_not_allowed`, not the framework's `detail`."""
     app, runner = _app(_ok("x"))
     async with _client(app) as client:
-        resp = await client.post("/v1/chat/completions?q=(a)!b", headers=EMAIL)
+        resp = await client.post("/v1/benchmarks/data/foo?q=(a)!b", headers=EMAIL)
     assert resp.status_code == 405
     assert _error(resp)["code"] == "method_not_allowed"
     assert runner.scheduled == []

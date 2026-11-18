@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
-from prometheus_client import CollectorRegistry, Counter
+from prometheus_client import CollectorRegistry, Counter, Histogram
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -24,6 +24,10 @@ class Metrics:
     # Optional so a caller that builds `Metrics` by hand (a test of another series) needs none.
     mount_calls: Counter | None = None
     mount_unsigned_spill: Counter | None = None
+    # POST /v1/chat/completions (prd/chat-completion.md §3.4): requests by outcome, and their
+    # duration.
+    chat_requests: Counter | None = None
+    chat_request_duration: Histogram | None = None
 
 
 # The `path` label value used when a request matched no route. Every unrouted request — a 404, a
@@ -60,11 +64,25 @@ def build_metrics() -> Metrics:
         "Mount results over 1 MiB streamed inline because no artifact signing key is set.",
         registry=registry,
     )
+    chat_requests = Counter(
+        "screamingface_engine_chat_requests",
+        "Chat completion requests (POST /v1/chat/completions), by outcome: ok or the error code.",
+        ["outcome"],
+        registry=registry,
+    )
+    chat_request_duration = Histogram(
+        "screamingface_engine_chat_request_duration_seconds",
+        "Duration of chat completion requests (POST /v1/chat/completions).",
+        buckets=(0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0),
+        registry=registry,
+    )
     return Metrics(
         registry=registry,
         requests=requests,
         mount_calls=mount_calls,
         mount_unsigned_spill=mount_unsigned_spill,
+        chat_requests=chat_requests,
+        chat_request_duration=chat_request_duration,
     )
 
 

@@ -19,6 +19,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal
 
 from screamingface_engine.benchmarks.operation_outputs import parsed_iterate_body
+from screamingface_engine.benchmarks.picture_admission import _candidate_recipes
 from screamingface_engine.combine.endpoint import COMBINE_ROUTE
 from url4.core.errors import Url4Error
 from url4.core.nodes import Expression, Iteration, Node, RelExpr, Source, Text, VarRef, walk
@@ -29,6 +30,7 @@ __all__ = [
     "CHAT_ROUTE_PREFIX",
     "FINAL_STEP_NOT_MODEL_MESSAGE",
     "FINAL_STEP_ROUTE",
+    "LINKED_EXPRESSION_MESSAGE",
     "CheckedRecipe",
     "FinalPosition",
     "PositionKind",
@@ -48,6 +50,9 @@ FINAL_STEP_ROUTE = "/ensemble/chat/v1/final"
 FINAL_STEP_NOT_MODEL_MESSAGE = (
     "With tools, the last step of the recipe must be a model step. Add a final model stage, "
     "for example cascade >> model."
+)
+LINKED_EXPRESSION_MESSAGE = (
+    "the model value is a benchmark-linked expression; send the Candidate URL4 as the model"
 )
 _INVALID_MESSAGE = "the model value is not a valid URL4 recipe"
 _NO_FINAL_FORM_MESSAGE = "the final form of the recipe is not known"
@@ -148,9 +153,9 @@ def final_positions(root: Expression) -> tuple[FinalPosition, ...]:
 def check_recipe(expression: str, *, with_tools: bool) -> CheckedRecipe:
     """Parse and check a client recipe; raise RecipeRefusal when the chat route cannot run it.
 
-    The order: the chat route prefix (TC-S23), the parse, the final form (CC-S13), a corrective
-    loop (CC-S14), and with tools only, a reducer or step final (TC-S7, TC-S22) and then an
-    unknown final (TC-S9). Without tools, every other final position runs as built.
+    The order: the chat route prefix (TC-S23), the parse, a benchmark-linked root (CC-S15), the
+    final form (CC-S13), a corrective loop (CC-S14), and with tools only, a reducer or step final
+    (TC-S7, TC-S22) and then an unknown final (TC-S9). Without tools, the other finals run as built.
     """
 
     # WHY: a text test, not a walk of the parsed paths, so it also finds the prefix in a body that
@@ -158,6 +163,10 @@ def check_recipe(expression: str, *, with_tools: bool) -> CheckedRecipe:
     if CHAT_ROUTE_PREFIX in expression:
         raise RecipeRefusal("recipe_not_supported", _CHAT_ROUTE_MESSAGE)
     root = _parse(expression)
+    # WHY the scan of picture admission: one rule for a top-level `candidate` Text source
+    # (CC-S15), the Candidate URL4 of a benchmark-linked expression.
+    if _candidate_recipes(expression):
+        raise RecipeRefusal("recipe_invalid", LINKED_EXPRESSION_MESSAGE)
     name = _root_final_name(root)
     if name is None:
         raise RecipeRefusal("recipe_invalid", _NO_FINAL_FORM_MESSAGE)
