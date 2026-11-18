@@ -1,7 +1,3 @@
-# pyright: reportMissingImports=false
-# WHY file-level: this module imports the `inspect` extra's packages (through judge_redraw),
-# absent in the default (extra-less) install the typecheck gate runs against; it is loaded only
-# behind `inspect_available()`, like every other module in this package.
 """FutureX-Past's marking rules: reading the reply, levels 1-2 by rule, levels 3-4 by the judge.
 
 FEATURE: FutureX-Past scored the way the FutureX authors score it today. Their scorer is

@@ -130,8 +130,8 @@ _PUBLISHED_REVISIONS: dict[str, str] = {
     "hle_diamond": "9640c5c7e59fc61e",
     # OME-1952: FutureX-Past, an outside contribution: the authors' scoring and the crowd-wisdom
     # study's, two local Tasks over one loader; first ids, set the day they were added.
-    "futurex_past": "5b47c8f485e6716f",
-    "futurex_past_study": "5f0592a339ea841d",
+    "futurex_past": "200cf4f72481ffb0",
+    "futurex_past_study": "3c66e638e04516ed",
     # OME-1733: LABBench2 FigQA2 and TableQA2 image, a local Task judged by Sonnet 4.5.
     "labbench2_figqa2_img": "770667413b4b1e51",
     "labbench2_tableqa2_img": "742c148e87b15f69",

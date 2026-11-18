@@ -37,8 +37,9 @@ read. The dataset is re-published weekly, which is why both Benchmarks pin a com
 
 The row's `prompt`, byte for byte, as one user message. FutureX ships a complete prompt that asks
 for a boxed answer, so nothing is added. 2,012 of the 2,036 prompts at `8299bfa1` show the syntax
-(`\boxed{...}`); the other 24 (10 at level 3, 14 at level 4) say only that the answer "MUST end
-with exactly one boxed numeric value". The scorer reads a literal `\boxed{}` on every question, so
+(`\boxed{...}`); the other 24 (10 at level 3, 14 at level 4) do not: 21 say the answer "MUST end
+with exactly one boxed numeric value", and Cases 1285, 1288 and 1327 ask for a "boxed answer
+following the requested format" (1288: "requested list format"). The scorer reads a literal `\boxed{}` on every question, so
 a reply to one of those 24 that boxes its answer some other way scores 0. All 1,118 prompts at
 `3c2e3969` show the syntax.
 
@@ -91,6 +92,10 @@ through the shared redraw loop.
   headline's denominator (it shows in Coverage) instead of counting 0. The router keeps
   upstream's fallback, for an unreadable reply and for a failed call, after three asks where
   upstream makes two.
+- A Judge call on a marking question (match, rank, count, number, set) that still fails after
+  its retries fails the Case as `scorer_error`, and the Case leaves the headline's denominator
+  the same way. Upstream swallows the error and scores the Case 0. Only the router is forgiven a
+  failed call.
 - The Judge's token cap is 4,096 for every question. Upstream allows 5,000 for its judges and 512
   for the router and the set count.
 - A rank overlap count is capped at k, so a Case stays in [0, 1]. Upstream does not cap it.

@@ -7912,7 +7912,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past",
-        published_revision="5b47c8f485e6716f",
+        published_revision="200cf4f72481ffb0",
         title="FutureX-Past",
         description=(
             "2,036 resolved real-world forecasting questions from FutureX, a live benchmark of "
@@ -7951,6 +7951,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # NAMED DEVIATION: the router gets three asks (upstream two), and every judge question
         #   one 4,096-token cap (upstream 5,000 for judges, 512 for the router and set count).
         #   A router call that fails falls back to the level default, as upstream's does.
+        # NAMED DEVIATION: a judge call on a marking question that still fails after its retries
+        #   fails the Case as scorer_error (upstream scores it 0); only the router is forgiven.
         # NAMED DEVIATION: a number in prose reaches the judge as its first comma piece, as
         #   upstream; a comma inside a number (12,500 points) does not split it.
         # NAMED DEVIATION: an abstained Case whose grading failed reaches the headline as a bare
@@ -8016,7 +8018,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
     ),
     BenchmarkSpec(
         key="futurex_past_study",
-        published_revision="5f0592a339ea841d",
+        published_revision="3c66e638e04516ed",
         title="FutureX-Past (study scoring)",
         description=(
             "FutureX-Past as the crowd-wisdom study (behavior-aware LLM crowds for future "
