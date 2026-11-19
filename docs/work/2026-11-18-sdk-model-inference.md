@@ -145,6 +145,19 @@ docs examples run in tests.
   check in U7 with the surface snapshot), F11, F12 (style). F13 of U4 decided: module globals
   for the clock and both sleeps. `frames.py` and `transport.py` are at 450 lines (no headroom).
   Gates: SDK green.
+- **2026-11-19 — U6 (`endpoint()`) done.** `InferenceEndpoint` repr hides header values,
+  hashable (headers excluded from the hash); `endpoint()` sync and async, login first on an
+  https Engine, the Access header from the client auth, no headers on an http Engine; the
+  model text from the same compile step as `complete()`. D9: `openai==2.54.0` in the SDK dev
+  group, `uv.lock` updated. Tests EB-1…EB-7 (EB-7 runs the C5 example with the real openai
+  client on the mock wire). Tiered-build run `wf_ee4e9f4e-29a`; review accept with fixes, no
+  structural finding; F1, F3, F6, F8 fixed. Open: F2/F4 (an https Engine with no Access in
+  front: `login()` raises; this follows C1.5 as written, owner may decide later), F5 (EB-7 does
+  not run the public-docs snippet: U8), F7 (`tests/_endpoint_access.py` is the fifth copy of the
+  Access fake; later units import it). The run used the network beyond `uv lock`: it
+  downloaded the openai wheel and the locked `notebook` extra wheels into the package venv.
+  Gate pitfall: the SDK venv needs `uv sync --locked --extra notebook` (as CI) or pyright fails
+  on the ipywidgets imports. Gates: SDK green.
 
 ## Outcome (fill at the end — required before COMMIT)
 

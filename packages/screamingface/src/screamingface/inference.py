@@ -10,7 +10,9 @@ from __future__ import annotations
 from collections.abc import Callable, Coroutine, Mapping, Sequence
 from dataclasses import dataclass, field
 from functools import partial
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, overload
+from urllib.parse import urlsplit
 
 from screamingface import _default_client
 from screamingface._inference.request import (
@@ -46,13 +48,24 @@ if TYPE_CHECKING:
 class InferenceEndpoint:
     """The values that another OpenAI client needs to call this model (contracts C1.5).
 
-    AIDEV-NOTE: unit U6 adds a repr that shows the header names and hides each value. Until
-    then, the repr does not show the headers.
+    The values are a snapshot. On a hosted Engine the Access token in ``headers`` expires. Then
+    call ``endpoint()`` again.
     """
 
     base_url: str
     model: str
-    headers: Mapping[str, str] = field(repr=False)
+    # WHY hash=False: a read-only mapping has no hash. Equal endpoints still have equal hashes,
+    # because the hash uses base_url and model.
+    headers: Mapping[str, str] = field(hash=False)
+
+    def __repr__(self) -> str:
+        # INVARIANT (EB-S4): a header value can be an Access token. The text form shows the header
+        # names and hides each value. str() uses this text too.
+        names = ", ".join(f"{name!r}: '***'" for name in self.headers)
+        return (
+            f"InferenceEndpoint(base_url={self.base_url!r}, model={self.model!r}, "
+            f"headers={{{names}}})"
+        )
 
 
 class Chat[ClientT: (Client, AsyncClient)]:
@@ -279,7 +292,65 @@ class ModelInference[ClientT: (Client, AsyncClient)]:
     @overload
     def endpoint(self: ModelInference[AsyncClient]) -> Coroutine[Any, Any, InferenceEndpoint]: ...
     def endpoint(self) -> InferenceEndpoint | Coroutine[Any, Any, InferenceEndpoint]:
-        """Give the URL, the model text and the headers for another OpenAI client (C1.5)."""
+        """Give the URL, the model text and the headers for another OpenAI client (C1.5).
 
-        # AIDEV-NOTE: unit U6 fills this body.
-        raise NotImplementedError("ModelInference.endpoint is not available yet")
+        On an https Engine this call signs in first with ``Client.login()``. That call returns at
+        once when a usable token exists. With no usable token, it starts the browser sign-in and
+        can wait up to 300 seconds. In a script with no browser, set SCREAMINGFACE_ACCESS_TOKEN or
+        call client.login() first. The values are a snapshot: when the Access token expires, call
+        ``endpoint()`` again. With an AsyncClient the call returns a coroutine.
+
+        Raises:
+            RuntimeError: the client is closed.
+            AuthenticationError: the sign-in fails.
+            ValueError: the recipe does not compile.
+            PlanningError: the recipe does not compile.
+            EngineCapabilityError: the operator catalogue cannot load.
+            EngineUnavailableError: the Engine cannot be reached.
+        """
+
+        client = self._call_client()
+        # INVARIANT: a closed client raises its RuntimeError before a request and before a
+        # coroutine exists.
+        client._require_open()
+        if isinstance(client, AsyncClient):
+            # WHY a coroutine from a plain def (EB-S7): the same form as Chat.complete.
+            return _endpoint_async(client, self._source)
+        hosted = _hosted(client.engine_url)
+        if hosted:
+            # WHY first (C1.5): the sign-in learns the audience of the token, so the catalogue
+            # load and the headers below carry the token.
+            client.login()
+        model = model_text(self._source, client._operator_catalog.load)
+        headers = client._engine_auth.websocket_headers() if hosted else {}
+        return _endpoint(client.engine_url, model, headers)
+
+
+async def _endpoint_async(client: AsyncClient, source: ModelSource) -> InferenceEndpoint:
+    """The async half of ModelInference.endpoint: the sign-in, the compile and the headers."""
+
+    hosted = _hosted(client.engine_url)
+    if hosted:
+        await client.login()
+    model = await model_text_async(source, client._operator_catalog.load)
+    headers = await client._engine_auth.websocket_headers_async() if hosted else {}
+    return _endpoint(client.engine_url, model, headers)
+
+
+def _hosted(engine_url: str) -> bool:
+    """True for an https Engine, which is behind Cloudflare Access (C1.5).
+
+    A local http Engine needs no sign-in and no auth header (EB-S2).
+    """
+
+    return urlsplit(engine_url).scheme == "https"
+
+
+def _endpoint(engine_url: str, model: str, headers: Mapping[str, str]) -> InferenceEndpoint:
+    """One InferenceEndpoint with a read-only copy of the headers (a snapshot, EB-S6)."""
+
+    # WHY /v1: the OpenAI client adds /chat/completions to its base_url, and the Engine route
+    # is POST /v1/chat/completions (C2.1).
+    return InferenceEndpoint(
+        base_url=f"{engine_url}/v1", model=model, headers=MappingProxyType(dict(headers))
+    )
