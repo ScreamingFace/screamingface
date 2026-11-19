@@ -63,3 +63,18 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
   Q1 checkbox and §10 Q1 (resolved, citing B §5.4.2, §5.6.4, §5.6.9; C §11.6.2; H §29.2.1, §31, §33,
   §35). Open note, not changed: Part H §31 still calls the header `ABC-Auth-Token`. No other design
   decision changed; Q2–Q6 stay open. Branch not synced with `main` (squash-merge absorbs the gap).
+- **2026-11-19 review round (HupBaHa, PR #1647, CHANGES_REQUESTED 2026-11-17):** six protocol
+  blockers. Owner chose to fix all of them now (2026-11-19). The direction (RFC 9421 plus signed
+  grants) and the #1450 refusals are unchanged.
+  1. Auth is now a route property: peer routes under `/url4/peer/` are always verified, and peer
+     headers elsewhere are refused (§5.5, R10).
+  2. Share grants use `aud` = the resource node and `grantee` = the reader (§5.4, §5.5 steps 2 and 7).
+  3. Exactly-once C6 execution goes through an atomic receiver idempotency store keyed by caller and
+     key, with a fingerprint and saved-result replay. Three new codes (§5.9, R11).
+  4. Nested remote calls inside a delegated run are refused with `x.peer_nested_call_refused`, and
+     attenuation is deferred to a follow-up (§5.10, R12).
+  5. Separate `typ` and an exact RFC 8725 profile per grant kind, with no `kind` claim (§5.4).
+  6. RFC 9421 request-context profile: the verifier uses its configured authority, the raw path and
+     query, duplicate fields refused, `url4` label selection (§5.3.1).
+
+  §9 gains a test vector for each blocker. Q2–Q6 are unchanged and still open for Kevin.
