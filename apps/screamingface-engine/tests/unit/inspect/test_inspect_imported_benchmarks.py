@@ -112,6 +112,9 @@ _EXPECTED_FAMILIES: dict[str, str] = {
     # OME-1854: MaCBench mixes multiple choice (several right letters) with numbers, graded
     # by the eval's own answer-tag scorer, as chembench.
     "macbench": "mcq",
+    # OME-1874: EnigmaEval, a local Task; free text read from the answer box by the authors'
+    # own normaliser.
+    "enigmaeval": "free_text",
     "frontierscience": "judged",
     # OME-1269: the first question-filter benchmark — the eval's own filter picks the
     # questions; MCQ graded by the choice scorer, no draft-feedback offer.
