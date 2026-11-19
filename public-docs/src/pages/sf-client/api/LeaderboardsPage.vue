@@ -642,9 +642,9 @@ if result.reproduction is not None:
           <td><code>failed</code></td>
           <td><code>frozen_copy_unavailable</code></td>
           <td>
-            The copy is unknown or not sealed, or the gateway has no pinned caches (an older
-            gateway), or the gateway did not serve a model call or a web-tool lookup of the replay.
-            The cases fail, and the run finishes.
+            The copy is unknown, not sealed or expired, or the gateway has no pinned caches (an
+            older gateway), or the gateway did not serve a model call or a web-tool lookup of the
+            replay. The cases fail, and the run finishes.
           </td>
         </tr>
         <tr>
