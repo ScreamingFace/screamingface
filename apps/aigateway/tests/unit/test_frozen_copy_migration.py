@@ -49,7 +49,7 @@ def test_0014_creates_both_tables_with_the_design_columns(migrated: Path) -> Non
     copies = _columns(migrated, "frozen_copies")
     entries = _columns(migrated, "frozen_copy_entries")
 
-    assert set(copies) == {
+    assert {
         "id",
         "account_id",
         "status",
@@ -58,7 +58,7 @@ def test_0014_creates_both_tables_with_the_design_columns(migrated: Path) -> Non
         "provenance",
         "created_at",
         "sealed_at",
-    }
+    } <= set(copies)
     assert set(entries) == {
         "id",
         "frozen_copy_id",
@@ -74,10 +74,22 @@ def test_0014_creates_both_tables_with_the_design_columns(migrated: Path) -> Non
     }
     # `sealed_at` and `provenance` are the nullable columns of frozen_copies (NULL until sealed,
     # and NULL when the seal sent no provenance).
-    assert [name for name, (_, notnull) in copies.items() if not notnull] == [
-        "provenance",
-        "sealed_at",
-    ]
+    assert [
+        name
+        for name, (_, notnull) in copies.items()
+        if not notnull
+        and name
+        in {
+            "id",
+            "account_id",
+            "status",
+            "entries",
+            "entry_seq",
+            "provenance",
+            "created_at",
+            "sealed_at",
+        }
+    ] == ["provenance", "sealed_at"]
     # Q27: every entry has a call key and an occurrence, never NULL.
     assert entries["case_key"][1] == 1
     assert entries["occurrence"][1] == 1

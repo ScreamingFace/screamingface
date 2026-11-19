@@ -44,6 +44,13 @@ data:
   # though the standalone app default remains false; operators can explicitly render false.
   #
   AIGW_REQUEST_CACHE_ENABLED: {{ .Values.config.requestCache.enabled | quote }}
+  # The frozen copy retention sweep (OME-1947). Emitted in every case: the sweep has no switch,
+  # so these three values are its whole posture (spec prd/copy-sweep.md section 4.1).
+  # WHY int64 before quote: Helm reads a number from a values file as a float, and renders
+  # 1000000 as "1e+06", which the gateway refuses as an int.
+  AIGW_FROZEN_COPY_SWEEP_INTERVAL_SECONDS: {{ .Values.config.frozenCopySweep.intervalSeconds | int64 | quote }}
+  AIGW_FROZEN_COPY_OPEN_IDLE_SECONDS: {{ .Values.config.frozenCopySweep.openIdleSeconds | int64 | quote }}
+  AIGW_FROZEN_COPY_SWEEP_MAX_ENTRIES: {{ .Values.config.frozenCopySweep.maxEntries | int64 | quote }}
   # The weekly cache snapshot (OME-1021). Emitted in every case so the chart's posture is
   # visible in the manifest: off unless `snapshot.enabled`, with the one schedule form the
   # app accepts stated rather than assumed. The endpoint is emitted only when enabled —
