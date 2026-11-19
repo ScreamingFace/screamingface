@@ -8,6 +8,7 @@ soon as the triggering call returns, exactly as a finished cell would.
 """
 
 import asyncio
+import builtins
 import socket
 import sys
 import threading
@@ -240,3 +241,71 @@ def test_async_finished_event_is_acknowledged_before_the_call_returns(cell):
     cell.running.clear()
     assert cell.delivered[-1] == "evaluation_finished"
     assert analytics.status()["enabled"]
+
+
+# --- D1 at import: settle after the importing cell's code, outside the import lock ---------
+# WHY: waiting inside `screamingface/__init__.py` deadlocks on the package import lock (the
+# worker imports `screamingface` modules), observed in Colab on 2026-11-19. A one-shot IPython
+# `post_run_cell` callback runs after the cell's code while Colab still treats it as running.
+
+
+class FakeEvents:
+    def __init__(self) -> None:
+        self.callbacks: list = []
+
+    def register(self, name, callback):
+        assert name == "post_run_cell"
+        self.callbacks.append(callback)
+
+    def unregister(self, name, callback):
+        assert name == "post_run_cell"
+        self.callbacks.remove(callback)
+
+    def trigger(self):
+        for callback in self.callbacks[:]:
+            callback(None)
+
+
+@pytest.fixture
+def shell(monkeypatch):
+    fake = types.SimpleNamespace(events=FakeEvents())
+    monkeypatch.setattr(builtins, "get_ipython", lambda: fake, raising=False)
+    return fake
+
+
+@pytest.mark.usefixtures("browser")
+def test_import_offer_settles_after_the_importing_cell_in_colab(cell, shell, monkeypatch):
+    settled = []
+    monkeypatch.setattr(prompt, "offer_and_settle", lambda: settled.append(True))
+    start = time.monotonic()
+    prompt.offer_at_import()
+    assert time.monotonic() - start < 0.5
+    assert len(shell.events.callbacks) == 1
+    shell.events.trigger()
+    assert settled == [True]
+    assert shell.events.callbacks == []
+    shell.events.trigger()
+    assert settled == [True]
+
+
+@pytest.mark.usefixtures("browser")
+def test_import_offer_then_cell_end_ends_accepted(cell, shell):
+    prompt.offer_at_import()
+    shell.events.trigger()
+    cell.running.clear()
+    state = analytics.status()
+    assert state["choice"] == "accepted" and state["last_error"] is None
+
+
+def test_import_offer_outside_colab_registers_nothing(shell, monkeypatch):
+    monkeypatch.setattr(prompt, "origin", lambda: "python")
+    monkeypatch.setattr(prompt, "offer", lambda: None)
+    prompt.offer_at_import()
+    assert shell.events.callbacks == []
+
+
+@pytest.mark.usefixtures("browser")
+def test_import_offer_without_an_ipython_shell_is_harmless(monkeypatch):
+    monkeypatch.setattr(builtins, "get_ipython", lambda: None, raising=False)
+    monkeypatch.setattr(prompt, "offer", lambda: None)
+    prompt.offer_at_import()
