@@ -56,7 +56,9 @@ Behaviour is specified in `docs/spec/2026-11-17-credits-repr.md` (updated here).
   (`_ACCOUNT_NOTES`, a `notes` parameter on `_amount_html`), `tests/test_credit_repr.py`
   (4 new tests, 1 case moved), `CHANGELOG.md`, the OME-1935 spec; plus this ledger, the
   mirror and `.claude/test-change-approvals/OME-1968.json`.
-- **Commits:** the commit carrying this ledger (`Refs: OME-1968`).
+- **Commits:** `31c1158e8`, squash of
+  [PR #1942](https://github.com/ScreamingFace/screamingface/pull/1942), merged 2026-11-19
+  after HupBaHa's approval.
 - **Gates:** `run_gates.py screamingface` all green, including the append-only check with
   the approved OME-1968 transition. `test_credit_repr.py`: 27 passed.
 - **Deviations:** the `credential_rejected` case of `test_an_unavailable_amount_says_why`
