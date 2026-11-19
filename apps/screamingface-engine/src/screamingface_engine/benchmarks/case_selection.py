@@ -106,7 +106,8 @@ def board_cases_handler(
         try:
             board: BoardStore = open_board()
             selection: CaseSelection = CaseSelection.parse(intent, available=board.case_count())
-            # OME-1739: an id list reads one row per id; 1..N stays one contiguous read.
+            # OME-1739: an id list keeps one row per id; 1..N keeps every row. Both read the
+            # tiles one at a time (OME-1961), never the selection as one chunk.
             selected: str = (
                 board.head(selection.count)
                 if selection.is_prefix
