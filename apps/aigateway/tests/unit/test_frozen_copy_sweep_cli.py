@@ -128,7 +128,7 @@ def test_run_marks_and_purges_in_one_pass(
 
     out = _last_json(capsys)
     assert out["trigger"] == "command"
-    assert out["marked"] == {"abandoned": 2}
+    assert out["marked"] == {"abandoned": 2, "expired": 0}
     assert out["entries_purged"] == 5
     assert out["copies_completed"] == 2
     assert out["purge_stopped"] is None

@@ -823,10 +823,24 @@ copies that no run uses again. No user flow starts it. The spec is in
   {"detail": {"code": "frozen_copy_expired", "state": "abandoned", "message": "…"}}
   ```
 
-  A replay of an `abandoned` copy gets the `404` `frozen_copy_unavailable`, as for each copy that
-  is not `sealed` (`contracts.md` K3).
-- This release has no rule for `sealed` copies. The expiry rule comes in a later pull request of
-  OME-1947.
+  A replay of an `abandoned` copy gets the `404` `frozen_copy_unavailable`, as for an `open` or
+  unknown copy (`contracts.md` K3).
+- A `sealed` copy that no Score claims (`claimed_at` is empty) becomes `expired` when its period
+  ends. The period is `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` (default 90 days).
+- The period starts at `retention_from` when it is set, else at `sealed_at`. Migration `0019` sets
+  `retention_from` to the time of the migration for each copy that is `sealed` at that time. No
+  code writes `retention_from` after that. Thus the first copies expire 90 days after the release
+  of the expiry rule.
+- A claimed copy never expires. Under the row lock, the sweep checks again that the copy is
+  `sealed`, has no claim, and is past its period. A claim that commits first wins.
+- Then the sweep deletes the entries of the `expired` copy, as for an `abandoned` copy.
+- A replay of an `expired` copy gets `410`:
+
+  ```json
+  {"detail": {"code": "frozen_copy_expired", "state": "expired", "message": "the frozen copy expired and its entries were deleted"}}
+  ```
+
+  The `410` has no `X-AIGW-Replay` header.
 - The first run starts 1 to 5 minutes after the pod starts. The delay is random. Then one run
   starts for each interval. In one pod, a run does not start while a run is in progress.
 - Two replicas can run at the same time. A replica and the command can also run at the same
@@ -852,14 +866,19 @@ copies that no run uses again. No user flow starts it. The spec is in
 | `AIGW_FROZEN_COPY_SWEEP_INTERVAL_SECONDS` | `config.frozenCopySweep.intervalSeconds` | `3600` | ≥ 60 | The time between two periodic runs. |
 | `AIGW_FROZEN_COPY_OPEN_IDLE_SECONDS` | `config.frozenCopySweep.openIdleSeconds` | `86400` | > 0 | The idle time. An `open` copy with no new entry for this time becomes `abandoned`. |
 | `AIGW_FROZEN_COPY_SWEEP_MAX_ENTRIES` | `config.frozenCopySweep.maxEntries` | `100000` | ≥ 1 | The budget: the most entries that one run deletes. |
+| `AIGW_FROZEN_COPY_UNCLAIMED_TTL_SECONDS` | `config.frozenCopyUnclaimedTtlSeconds` | `7776000` | > 0 | The period of a `sealed` copy that no Score claims. After this time, the copy becomes `expired`. |
 
 - If a value is outside its limit, the gateway does not start. The error names the setting.
 - **CAUTION:** Keep the idle time above the engine run deadline of 16 hours. A lower value
   abandons the copy of a run that is in progress. That run then reports a partial capture.
-- At start, the gateway writes one INFO line with the three values:
+- **CAUTION:** A lower period expires copies sooner. Keep the default in production. The rule has
+  no switch and no date setting.
+- At start, the gateway writes two INFO lines. The first line has the three values of the sweep.
+  The second line has the period of the expiry rule:
 
   ```text
   frozen copy sweep armed (interval_s=3600, open_idle_s=86400, max_entries=100000)
+  frozen copy expiry armed (unclaimed_ttl_s=7776000)
   ```
 
 ### The command
@@ -872,11 +891,13 @@ kubectl exec -n <namespace> deploy/<release>-aigateway -- python -m aigateway.fr
 
 | Arguments | What the command does |
 | --- | --- |
-| (none) | A dry run at the current database time. It changes nothing. It prints one JSON document with the keys `evaluated_at`, `rules`, `by_account` and `candidates`. In this release, the counts under `rules.expired` are always 0. |
+| (none) | A dry run at the current database time. It changes nothing. It prints one JSON document with the keys `evaluated_at`, `rules`, `by_account` and `candidates`. The counts under `rules.expired` are the `sealed` copies with no claim whose period ended. |
 | `--cutoff <ISO time with a zone>` | A dry run at that time. A future time is allowed. A time with no zone is refused. |
 | `--run` | One full pass: mark, then purge up to the budget. This is the same code as one periodic run. It prints the run report as one JSON document, with the fields of the run log record below. |
 | `--run --max-entries <n>` | One full pass with a budget of `<n>` entries (1 or more) for this pass only. |
 
+- To see the copies that expire at a later time, give that time to `--cutoff` (for example, the
+  time of the release plus 90 days).
 - The command refuses `--run` together with `--cutoff`. It refuses `--max-entries` without
   `--run`.
 - For `--run`, give `-it` to `kubectl exec`. Then Ctrl-C stops the command in the pod. With no
@@ -902,15 +923,17 @@ Each run writes one INFO record. The record has counts only. It has no account n
 id. Example:
 
 ```text
-frozen copy sweep run trigger=periodic marked={"abandoned": 3} skipped={"abandoned": {}} entries_purged=1500 copies_completed=3 copies_with_entries=0 purge_stopped=none
+frozen copy sweep run trigger=periodic marked={"abandoned": 3, "expired": 2} skipped={"abandoned": {}, "expired": {}} entries_purged=1500 copies_completed=5 copies_with_entries=0 purge_stopped=none
 ```
 
 - `trigger`: `periodic` for the trigger in the pod, `command` for `--run`.
-- `marked`: for each rule, the number of copies that this run marked.
+- `marked`: for each rule (the keys are `abandoned` and `expired`), the number of copies that this
+  run marked.
 - `skipped`: for each rule, the number of copies that this run skipped, for each cause. The
   causes are:
   - `rule no longer true`: under the row lock, the copy was not `open` (for example, a seal came
-    first), or the copy got a new entry.
+    first), or the copy got a new entry. For the expiry rule: the copy was not `sealed`, it had a
+    claim, or its period did not end.
   - `lock timeout`: a different transaction held the row lock for more than 2 seconds. The next
     run tries the copy again.
   - `newest entry not found`: the copy has entries, but the sweep did not find its newest entry.
@@ -953,9 +976,23 @@ endpoint and no alert. Use these log records.
   3. If the p95 latency grows by more than 2 times, stop the command (Ctrl-C). A later run
      continues the purge.
 
+- `test-plan.md` section 5.3 has the release checks of the expiry rule (migration `0019`, the dry
+  run with `--cutoff`, the run log record after 90 days). Before the release of the expiry rule, do
+  the checks 3 and 4 of section 5.2 in production.
+
 ### Rollback and restore
 
 The source is `docs/spec/2026-11-16-frozen-copy-retention/erd.md` section 5.1.
+
+**Downgrade of migration `0019`.** The downgrade drops the column `retention_from` with one
+`ALTER TABLE frozen_copies DROP COLUMN retention_from`. Roll back the image to an image with no
+expiry rule at the same time. When `0019` is applied again, it stamps each `sealed` copy with the
+new time, so each clock starts again. No copy expires earlier. The downgrade does not limit its
+wait for the table lock. Do it in a period of low load.
+
+```bash
+python -m tortoise -c aigateway.db.TORTOISE_CONFIG downgrade models 0018_frozen_copy_retention
+```
 
 **Downgrade of migration `0018`.** The downgrade drops the index on `(status, purged_at)` and the
 three columns `claimed_at`, `swept_at` and `purged_at`. Entries that the sweep deleted do not come
@@ -967,7 +1004,8 @@ the current image, just before the rollback of the image:
 python -m tortoise -c aigateway.db.TORTOISE_CONFIG downgrade models 0017_drop_migration_note
 ```
 
-Between the downgrade and the rollback, each query of the current image on `frozen_copies` fails.
+Between the downgrade and the rollback, each query of the current image on `frozen_copies`
+fails. A downgrade to `0017_drop_migration_note` also drops `0019` first.
 
 The downgrade does not limit its wait for the table lock (the same as `0017`). Each `DROP INDEX` and
 `DROP COLUMN` waits for a lock that stops each reader of `frozen_copies`. If a long transaction uses
@@ -980,8 +1018,10 @@ period of low load.
 - The old seal code seals each copy that is not `sealed`. Thus a seal of a swept copy makes an
   empty `sealed` copy. No run sends a seal 24 hours after its last entry, so this is accepted.
 - The old image has no sweep. Nothing is deleted while it runs.
+- An image with no expiry rule refuses an `expired` copy on replay as "not sealed" (`404`). It
+  expires no copy.
 
-**Restore of the gateway database to a time before migration `0018`.**
+**Restore of the gateway database.**
 
 - The gateway does not migrate at start. Only the migration Job of the chart migrates.
 - Until the migration Job runs, each query of the new code on `frozen_copies` fails: capture,
@@ -990,11 +1030,19 @@ period of low load.
   release, runs it (see "Keep the release's values in every upgrade below" in the Migrations
   section).
 
+Do these steps after a restore:
+
+1. Run the migration Job first, if the backup is older than migration `0018` or `0019`.
+2. When the gateway is up, run `python -m scoreboard.claim_copies` in a scoreboard pod at once. A
+   restore removes each claim that was made after the time of the backup. A copy with no claim that
+   is past its period expires at the next run of the sweep, 1 to 5 minutes after the gateway starts.
+3. Do the checks of `test-plan.md` section 5.4.
+
 ### The claim route
 
 The scoreboard claims the frozen copy of each Score with
 `POST /v1/frozen-copies/{copy_id}/claim`. The request has no body. A claim sets `claimed_at` of a
-`sealed` copy. The expiry rule of a later pull request of OME-1947 keeps a claimed copy. The spec
+`sealed` copy. The expiry rule keeps a claimed copy (see "What the sweep does" above). The spec
 is `docs/spec/2026-11-16-frozen-copy-retention/prd/score-claim.md` and `contracts.md` K4.
 
 | Environment variable | Chart key | Default | Meaning |
@@ -1064,11 +1112,9 @@ in one of them.
 
 `docs/spec/2026-11-16-frozen-copy-retention/test-plan.md` section 5.4 has the advice for such an
 event. A restore of the gateway database removes each claim that was made after the time of the
-backup. This release has the gateway part of the claim (see "The claim route" above). The
-scoreboard part (the claim pass at each start of the scoreboard, and
-`python -m scoreboard.claim_copies`) comes in a later pull request of OME-1947. Until it is
-released, the step that applies is the migration Job after a restore (see "Restore of the gateway
-database" above). When it is released, do the steps of section 5.4.
+backup. With the expiry rule, a copy that lost its claim and is past its period expires at the
+next run of the sweep. Do the steps of section 5.4 at once: the migration Job first (see "Restore
+of the gateway database" above), then `python -m scoreboard.claim_copies` in a scoreboard pod.
 
 ## Operations Notes
 

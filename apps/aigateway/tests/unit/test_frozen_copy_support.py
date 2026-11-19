@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
+from aigateway.core.frozen_copy.models import FrozenCopy
 from aigateway.core.frozen_copy.store import FrozenCopyStore
 from aigateway.core.oauth.store import OAuthConnectionStore, credential_key_for
 from aigateway.plugins.anthropic_provider.auth import credential_service_for
@@ -208,3 +209,17 @@ def server_errors_as_responses(client: TestClient) -> Iterator[None]:
         yield
     finally:
         transport.raise_server_exceptions = previous
+
+
+def lookup_path(copy_id: str) -> str:
+    """The tool result lookup route of one frozen copy."""
+    return f"/v1/frozen-copies/{copy_id}/tool-results/lookup"
+
+
+def set_copy_status(client: TestClient, copy_id: str, status: str) -> None:
+    """Write `status` on the copy row directly, as the sweep does, with no route."""
+
+    async def _update() -> None:
+        await FrozenCopy.filter(id=UUID(copy_id)).update(status=status)
+
+    run_async(client, _update)
