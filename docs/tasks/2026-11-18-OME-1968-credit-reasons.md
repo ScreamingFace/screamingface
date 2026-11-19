@@ -21,4 +21,5 @@ Spec: `docs/spec/2026-11-17-credits-repr.md`.
 Ledger: `docs/work/2026-11-18-credit-reasons.md`.
 Branch: `OME-1968-credit-reasons`.
 
-Merged [PR #1942](https://github.com/ScreamingFace/screamingface/pull/1942) as `31c1158e8`. Linear is Done.
+Merged [PR #1942](https://github.com/ScreamingFace/screamingface/pull/1942) as `31c1158e8`.
+Linear is Done.
