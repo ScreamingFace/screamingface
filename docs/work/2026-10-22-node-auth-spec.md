@@ -78,3 +78,17 @@ codes, and how C2/C6 are enabled alongside the #1521 destination guard. Design o
      query, duplicate fields refused, `url4` label selection (§5.3.1).
 
   §9 gains a test vector for each blocker. Q2–Q6 are unchanged and still open for Kevin.
+- **2026-11-19 second round (HupBaHa, CHANGES_REQUESTED 15:42Z):** HupBaHa confirmed three fixes
+  (share `aud`/`grantee`, nested-call refusal, separate JWT profiles). Four blockers remained, all
+  fixed in this round:
+  1. §5.9 is at-most-once: `claimed` → `dispatched` (before any external effect) → `completed`, with
+     epoch fencing. A failure or expired lease after dispatch becomes `outcome_unknown` (new code),
+     which is reconciled through provider idempotency keys (`op_id`) or by an operator, never re-run.
+     The claim precedes the child run.
+  2. The fingerprint is RFC 8785 JCS and now includes the `URL4-Auth-Token` digest and `trace`.
+  3. §5.5 maps C6 `/v1` and C2 `/blob` onto the `/url4/peer` wire prefix: the caller rewrites, the
+     signature covers it, and the receiver strips it after verification.
+  4. §5.3.1 parses `Signature-Input`, `Signature` and `Content-Digest` as RFC 8941 dictionaries, with
+     exactly one `url4` member and all other members refused.
+
+  §9 vectors are added for each.

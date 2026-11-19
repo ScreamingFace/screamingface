@@ -13,12 +13,15 @@ Kevin's live input. An assumption is not a decision; each one names what changes
 otherwise.
 
 Revised 2026-11-19 for HupBaHa's review of PR #1647 (six protocol blockers):
-1. Peer authentication is now a route property (§5.5).
+1. Peer authentication is now a route property (§5.5); second round: the `url4://` → wire path
+   mapping onto `/url4/peer`.
 2. Share grants put the resource node in `aud` and the reader in `grantee` (§5.4).
-3. Paid C6 calls are deduplicated at the receiver (§5.9).
+3. Paid C6 calls are deduplicated at the receiver (§5.9); second round: at-most-once with
+   `outcome_unknown` and reconciliation, and a full JCS fingerprint.
 4. Nested remote calls under a delegated run are refused (§5.10).
 5. The two grant kinds have separate, exact validation profiles (§5.4).
-6. The RFC 9421 request context behind proxies is fixed (§5.3.1).
+6. The RFC 9421 request context behind proxies is fixed (§5.3.1); second round: fields are parsed
+   as RFC 8941 dictionaries holding exactly one `url4` member.
 
 The direction (RFC 9421 plus signed grants) is unchanged, and #1450's fail-closed refusals still stand.
 
@@ -106,8 +109,9 @@ federate with. Model-level prompt injection and a compromised node host are out 
   with the v1 codes.
 - **R10** Peer authentication is a property of the route, not of the request: a request cannot avoid
   it by omitting the signature.
-- **R11** A paid C6 call runs at most once per `(caller, Idempotency-Key)`, however many times it is
-  retried or duplicated.
+- **R11** Within a retention horizon, a paid C6 call starts its paid work at most once per
+  `(caller, Idempotency-Key)`, however often it is retried or duplicated; an unprovable outcome is
+  reported and reconciled, never re-run.
 - **R12** Delegation never broadens access across hops; until attenuation is specified, a delegated
   run makes no further remote calls.
 
@@ -199,13 +203,19 @@ HTTP/3.
 - The signer refuses to build a peer request whose path has a `.` or `..` segment, or an encoded
   `/` (`%2F`) or `\` (`%5C`). The verifier refuses such a request with `x.peer_auth_failed` before
   routing. A path that routes differently from what was signed cannot verify.
-- **Each covered field appears at most once.** A request with more than one field line, or a
-  comma-joined list, for `Signature-Input`, `Signature`, `URL4-Authz-Token`, `URL4-Auth-Token`,
-  `Content-Digest` or `Idempotency-Key` is refused with `x.peer_auth_failed`. No combining rules apply.
-- **Signature selection.** The receiver reads only the member labelled `url4` in `Signature-Input` and
-  `Signature`, and ignores other labels. That member must exist once, carry `tag="url4-peer"` and
-  `alg="ed25519"`, and cover at least the §5.3 components that apply to the request. Otherwise
-  `x.peer_auth_failed`. Exactly one signature is verified.
+- **One field line each.** A request with more than one field line for `Signature-Input`,
+  `Signature`, `Content-Digest`, `URL4-Authz-Token`, `URL4-Auth-Token` or `Idempotency-Key` is refused
+  with `x.peer_auth_failed`. No combining rules apply.
+- **Structured fields are parsed, not split on commas.** `Signature-Input`, `Signature` (RFC 9421) and
+  `Content-Digest` (RFC 9530) are Structured Field dictionaries (RFC 8941). Each is parsed as one; a
+  parse failure is `x.peer_auth_failed`.
+  - `Signature-Input` and `Signature` must each hold **exactly one member, labelled `url4`**. Any
+    other member is refused, so a peer request carries one signature only. That member must carry
+    `tag="url4-peer"` and `alg="ed25519"` and cover at least the §5.3 components that apply to the
+    request.
+  - `Content-Digest` must hold exactly one member, `sha-256`.
+  - `URL4-Authz-Token` is one compact JWS, `URL4-Auth-Token` one opaque token, and `Idempotency-Key`
+    one sf-string (RFC 8941). None of them may contain a comma.
 - `X-Forwarded-*` and `Forwarded` are never inputs to identity, authority or authorization.
 
 ### 5.4 `URL4-Authz-Token`: the authorization grant
@@ -268,10 +278,23 @@ C2 stays refused until delivery is specified (§10).
 
 **Peer authentication is a route property (R10).** It does not depend on whether a request happens to
 carry a signature.
-- A node that enables C2 or C6 serves peer traffic only on its **peer routes**: the eval route and the
-  blob route under one prefix, `/url4/peer/…`. They are mounted behind the verifier, so every request
-  on them, signed or not, runs the steps below. A request with no signature there is
-  `x.peer_auth_required`. Nothing on a peer route can be reached without step 7 passing.
+- A node that enables C2 or C6 serves peer traffic only on its **peer routes**, under one prefix,
+  `/url4/peer`. They are mounted behind the verifier, so every request on them, signed or not, runs
+  the steps below. A request with no signature there is `x.peer_auth_required`. Nothing on a peer
+  route can be reached without step 7 passing.
+- **Address mapping.** The url4 addresses #1450 governs keep their form in expressions. Only the wire
+  path gains the prefix:
+
+  | In the expression | Outbound rewrite (caller) | Signed `@path` | Receiver dispatch |
+  |---|---|---|---|
+  | C6 `url4://n2.example/v1(…)` | `https://n2.example/url4/peer/v1…` | `/url4/peer/v1…` (raw) | strip `/url4/peer` once, then run the existing `/v1` eval handler |
+  | C2 `url4://n2.example/blob/sha256/<hex>` | `https://n2.example/url4/peer/blob/sha256/<hex>` | `/url4/peer/blob/sha256/<hex>` | strip `/url4/peer` once, then run the existing blob handler |
+
+  The caller's `url4://` → `https://` rewrite (today `url4/io/http.py`) inserts `/url4/peer` before
+  the path, for peer targets only. The signature always covers the prefixed wire path. The receiver
+  strips the prefix only after step 7 succeeds, and passes the verified peer context with the
+  request. The bare `/v1` and `/blob` routes stay non-peer, so a peer header there is refused (next
+  point). There is no second way in.
 - No other HTTP route establishes a peer context. A request on any other route that carries
   `Signature-Input`, `Signature` or `URL4-Authz-Token` is refused with `x.peer_auth_failed`. The peer
   headers are never ignored and never half-honoured.
@@ -308,13 +331,14 @@ For every request on a peer route, in this order:
 
    Any failure → `x.peer_not_authorized`. Nested delegation is stopped where the delegated run
    executes (§5.10), not here.
-8. **Bind a local run context** (taken from the verified grant, never from the expression):
+8. **C6 only: claim the idempotency record** (§5.9) before anything else is created. No child run,
+   execution or spend exists without a claim.
+9. **Bind a local run context** (taken from the verified grant, never from the expression):
    - C6 (`delegation`): the operator maps `(peer authority, sub)` to a local tenant (default: one
      local tenant per peer, `peer:<authority>`); the receiver opens a **new child run** under it,
      carrying `trace` and the caller's run id as attribution. `budget`, if present, caps that run's
      spend, and the peer entry's own cap applies regardless.
    - C2 (`share`): tenant = `sub`, run = `run` from the receiver's own share grant.
-9. **C6 only: claim the idempotency record** (§5.9) before any execution or spend.
 10. **Then** spec #1450 F3's order runs unchanged: authorize the digest against that tenant + run,
     verify sha256, and only then touch caches. An in-grant digest missing from the store, and any
     out-of-scope digest, is `source_not_found` (T9).
@@ -361,6 +385,7 @@ the code and a generic message, never the token, signature or which component mi
 | `x.peer_replay` | receiving node | 401 | permanent | step 6 |
 | `x.peer_idempotency_required` | receiving node | 400 | permanent | §5.9: C6 request without exactly one `Idempotency-Key` |
 | `x.peer_request_in_progress` | receiving node | 409 | retryable (with backoff) | §5.9: the same call is still running |
+| `x.peer_outcome_unknown` | receiving node | 409 | permanent for automatic retry; resolved by reconciliation | §5.9: paid work may have happened and cannot be proven either way |
 | `x.peer_idempotency_conflict` | receiving node | 422 | permanent | §5.9: same key, different request fingerprint |
 | `x.peer_nested_call_refused` | the node hosting the delegated run | 422 | permanent | §5.10: a remote call from inside a delegated run; before any I/O |
 | `x.peer_signing_unconfigured` | calling node | 500 | permanent | caller has a configured peer but no signing key; before any I/O |
@@ -369,33 +394,75 @@ the code and a generic message, never the token, signature or which component mi
 
 This closes #1450 §4's "remote-node authentication failure has no v1 owner".
 
-### 5.9 Exactly-once paid execution for C6 (R11)
+### 5.9 At-most-once paid execution for C6 (R11)
 
 Replay protection (step 6) stops a captured request from being resent. It does not stop a legitimate
 retry, which is re-signed with a fresh nonce on purpose (§5.3). Paid execution is made safe by the
 receiver's **idempotency store**, not by the nonce. The url4 server does not deduplicate
 `Idempotency-Key` today; this section is new behaviour that C6 requires.
 
+**The guarantee.** Within the retention horizon (below), a `(caller, Idempotency-Key)` starts its
+paid work **at most once**. If the receiver cannot prove whether that work happened, the call ends as
+`outcome_unknown` and is reconciled. It is never run again automatically. A local compare-and-set
+cannot fence a provider call that is already in flight, so the store never re-runs work that may
+have reached a provider.
+
 - **Key.** The record key is `(caller authority, Idempotency-Key)`. A C6 request must carry exactly one
   `Idempotency-Key`; a missing or malformed key (not 22 base64url characters) is
   `x.peer_idempotency_required`.
-- **Request fingerprint.** sha256 over the canonical serialization of: `@method`, `@path`, `@query`
-  (§5.3.1 raw forms), the `Content-Digest` value (or empty), and the grant's `sub`, `run`, `scope` and
-  `budget`. The fingerprint leaves out what legitimately changes between retries: the signature, its
-  nonce and `created`, and the grant's `iat`, `exp` and `jti`.
-- **Claim (step 9).** In one atomic insert-if-absent, shared by every replica serving the authority,
-  create `{state: in_progress, fingerprint, owner, lease_until}` before any model call or spend. Then:
-  - inserted → execute;
+- **Request fingerprint.** sha256 over the RFC 8785 (JCS) serialization of this JSON object. Every key
+  is always present, with `null` when absent:
+
+  ```
+  {"v":1, "method":…, "path":…, "query":…,        // §5.3.1 raw forms
+   "content_digest":…,                             // the sha-256 member value, or null
+   "auth_token_sha256":…,                          // sha256 hex of the URL4-Auth-Token bytes, or null
+   "sub":…, "run":…, "trace":…, "scope":…, "budget":…}   // from the verified grant
+  ```
+
+  - `URL4-Auth-Token` is in the fingerprint because the receiver decrypts it and uses the credential.
+    A key reused with a different credential is a conflict, never a replay of the first credential's
+    result. The caller must send the same token bytes on every retry.
+  - `trace` is stable for a logical call, so it is fingerprinted. A retry under a new trace is a
+    conflict.
+  - Left out, because they legitimately change between retries: the signature, its nonce and
+    `created`, and the grant's `iat`, `exp` and `jti`.
+- **Claim (§5.5 step 8).** Before the child run is created and before any spend, one atomic
+  insert-if-absent, shared by every replica serving the authority, creates
+  `{phase: "claimed", fingerprint, op_id, epoch: 1, owner, lease_until}`. `op_id` is
+  `sha256(caller authority ‖ Idempotency-Key)`, the stable operation identity. Then:
+  - inserted → proceed;
+  - exists, different fingerprint → `x.peer_idempotency_conflict`;
   - exists, same fingerprint, `completed` → **replay the saved response** (same status, body and
     `x.` code), with no new execution and no new spend;
-  - exists, same fingerprint, `in_progress` with a live lease → `x.peer_request_in_progress`;
-  - exists, different fingerprint → `x.peer_idempotency_conflict`.
-- **Complete.** When execution ends, success or a permanent failure, the result is saved and the state
-  becomes `completed`, atomically. A retryable failure removes the record so that a retry runs again,
-  because nothing was charged or the charge was reversed by its owner. An expired lease (the owner
-  crashed) lets the next retry take over the record by compare-and-set on `owner`.
-- **Retention.** At least 24 h after completion, longer than any caller retry schedule. A key reused
-  after that window is a new call.
+  - exists, same fingerprint, `outcome_unknown` → `x.peer_outcome_unknown`;
+  - exists, same fingerprint, `claimed` or `dispatched` with a live lease → `x.peer_request_in_progress`.
+- **Phases.**
+  - `claimed`: nothing external has happened yet. The child run is opened under the claim.
+  - `dispatched`: set by compare-and-set on `(owner, epoch)` **before the first provider call, or any
+    other external effect** (a paid call, an outbound fetch that costs). Every provider call carries
+    `op_id` (plus a per-call suffix) as the provider's idempotency key where the provider supports
+    one.
+  - `completed`: the result is saved by compare-and-set on `(owner, epoch)`. A write from an owner
+    whose epoch is stale is rejected, and that result is discarded.
+  - `outcome_unknown`: terminal until reconciled.
+- **Failures and expired leases.**
+  - Retryable failure while `claimed` (nothing external happened): the record is deleted, so a retry
+    runs normally.
+  - Expired lease while `claimed`: the next retry takes over by compare-and-set, bumping `epoch`.
+    The old owner's later writes fail the epoch check, and it had dispatched nothing.
+  - Any failure, or an expired lease, while `dispatched`: the record becomes `outcome_unknown`. It is
+    **never deleted and never taken over** for re-execution, because a provider may already have
+    charged or acted.
+- **Reconciliation of `outcome_unknown`.** Where every provider used supports idempotency keys, the
+  receiver may reconcile automatically: it re-issues the same provider calls with the same `op_id`
+  keys, which the providers deduplicate. Then it saves the result and moves to `completed`.
+  Otherwise the record stays `outcome_unknown` until an operator resolves it, by marking it
+  `completed` with a result or by releasing it with an explicit "safe to re-run". The caller surfaces
+  `x.peer_outcome_unknown` and does not retry it automatically.
+- **Retention.** At least 24 h after the record reaches `completed` or is released, and never while it
+  is `outcome_unknown`. The guarantee holds only inside this horizon. A key reused after it is a new
+  call.
 - **Store unavailable** → fail closed with `x.peer_key_unavailable` (retryable) before any execution.
 - The caller treats a replayed response exactly like the original.
 
@@ -403,7 +470,7 @@ receiver's **idempotency store**, not by the nonce. The url4 server does not ded
 
 A delegated run gets no enforceable parent scope, budget or expiry at a third node, so the first C6
 slice does not allow chains:
-- A child run opened from a delegation grant (§5.5 step 8) has C2 and C6 **off**, whatever the node's
+- A child run opened from a delegation grant (§5.5 step 9) has C2 and C6 **off**, whatever the node's
   own settings. A `url4://` peer target or a remote blob ref inside it fails with
   `x.peer_nested_call_refused` before any I/O. No socket is opened and no grant is minted.
 - The refusal happens at the node that hosts the delegated run, because only that node knows the run
@@ -494,21 +561,55 @@ Request context (§5.3.1), each as a fixed vector (raw request plus expected sig
   `%20` are not interchanged.
 - The same signed request verifies over HTTP/1.1 and HTTP/2, and when a proxy rewrote `Host` or added
   `X-Forwarded-Host`. It fails when signed for another authority.
-- A duplicate `Signature`, `Signature-Input`, `URL4-Authz-Token`, `Content-Digest` or
-  `Idempotency-Key` line, or a comma-joined value → `x.peer_auth_failed`.
-- Two members labelled `url4`, a `url4` member without `tag="url4-peer"`, and a request that has only
-  other labels → `x.peer_auth_failed`. Extra non-`url4` labels are ignored.
+- A second field line for any of the six fields → `x.peer_auth_failed`.
+- `Signature-Input`/`Signature` parsed as RFC 8941 dictionaries: a lone `url4` member verifies. The
+  following each give `x.peer_auth_failed`:
+  - `url4` plus any other member (`url4=…, other=…`);
+  - two `url4` members;
+  - only other members;
+  - a `url4` member without `tag="url4-peer"`;
+  - a value that does not parse as a dictionary.
+- `Content-Digest` with a member other than `sha-256`, or with two members → `x.peer_auth_failed`.
+  A comma inside `URL4-Authz-Token`, `URL4-Auth-Token` or `Idempotency-Key` → `x.peer_auth_failed`.
 
-Exactly-once execution (§5.9), counting executions and spend at the receiver:
-- Lost response: the first call completes and its response is dropped. A re-signed retry with the same
-  key returns the saved response, with exactly one execution.
+At-most-once execution (§5.9). Each test counts provider calls and spend at the receiver, using a
+fake provider that can charge and then drop its response:
+- Lost response after completion: a re-signed retry with the same key returns the saved response.
+  Exactly one provider call is made.
 - Concurrent duplicates: N parallel requests with the same key and fingerprint (across two replicas
-  sharing the store) give one execution. The others get `x.peer_request_in_progress` or the replayed
-  result.
-- Same key with a different body, `sub` or `budget` → `x.peer_idempotency_conflict`, with no execution.
-- A retryable failure frees the key, so a retry executes once. A crash during the lease lets the next
-  retry take over, with one completed execution in total.
+  sharing the store) make one provider call. The others get `x.peer_request_in_progress` or the
+  replayed result.
+- Conflicts, each with zero provider calls → `x.peer_idempotency_conflict`. A conflict arises when the
+  same key comes with a different:
+  - body;
+  - `sub` or `budget`;
+  - `trace`;
+  - `URL4-Auth-Token` (and the first token's saved response is not returned).
+- Fingerprint vectors: fixed inputs give a fixed JCS string and sha256, with `null` for absent fields.
+- Retryable failure while `claimed`: the record is deleted, and the retry makes one provider call.
+- Provider charges, then its response is lost (the failure is in `dispatched`): the record becomes
+  `outcome_unknown`, and a retry gets `x.peer_outcome_unknown` with zero further provider calls.
+- Lease expiry in `dispatched` (the owner is paused mid-call, then resumes): no takeover, the record is
+  `outcome_unknown`, the old owner's completion is rejected on epoch, and there is one provider call
+  in total.
+- Lease expiry in `claimed`: a takeover bumps `epoch`, and the stale owner's writes are rejected. One
+  provider call is made in total.
+- Reconciliation: with an idempotency-key provider fake, re-issuing with the same `op_id` keys
+  completes the record, and the provider sees duplicates it deduplicates (one charge). With a
+  provider that has no idempotency key, the record stays `outcome_unknown` until operator release.
+- The claim exists before the child run: a failure injected between them leaves no orphan child run.
 - A missing `Idempotency-Key`, and the store being down, refuse before any execution.
+
+Address mapping (§5.5), end to end over ASGI with the exact #1450 expressions:
+- C6: `(url4://n2.example/v1(…)!'Describe')!'Summarize'`. n1 sends
+  `https://n2.example/url4/peer/v1…`, the signature covers that path, and n2 strips the prefix after
+  verification and runs its `/v1` handler. The trace and child run are asserted.
+- C2: `(img:src=url4://n2.example/blob/sha256/<hex>)` with a share grant →
+  `/url4/peer/blob/sha256/<hex>` at n2 and the bytes are returned. Without the grant →
+  `source_not_found`.
+- A signed request sent to bare `/v1` or `/blob/…` → `x.peer_auth_failed`. A request that is valid
+  for `/url4/peer/v1…` and replayed with its path rewritten to `/v1…` fails.
+- A prefix is stripped exactly once: `/url4/peer/url4/peer/v1` does not reach `/v1`.
 
 Nested delegation (§5.10):
 - Three nodes n1 → n2 → n3: the expression delegated to n2 contains a `url4://n3/…` call. n2 refuses
@@ -585,7 +686,7 @@ right for `x.peer_auth_expired`, and should it be retryable?
 **Q6 Tenant mapping.** Should a delegation grant's `sub` be opaque, as here, or should url4 define
 cross-node tenant identity?
 - *Assumption:* opaque. The receiver maps `(peer authority, sub)` to a local tenant (default one
-  tenant per peer, `peer:<authority>`) and opens a child run under it (§5.5 step 8).
+  tenant per peer, `peer:<authority>`) and opens a child run under it (§5.5 step 9).
 - *Consequence:* F3 tenant + run scoping stays purely local; the confused-deputy defence (T2) rests
   on the grant naming tenant and run, not on shared tenant ids.
 - *If Kevin says otherwise:* the allowlist's tenant map is keyed by the url4 tenant id, the grant
