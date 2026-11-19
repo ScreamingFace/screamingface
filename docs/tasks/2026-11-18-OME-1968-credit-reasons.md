@@ -1,13 +1,13 @@
 ---
 id: OME-1968
 linear_url: https://linear.app/openmined/issue/OME-1968/show-the-right-reason-when-a-hosted-credit-lookup-or-a-management-key
-status: In Progress
+status: Done
 type: bug
 priority: medium
 labels: [client-sf, agentic, autonomous]
 parent: OME-1294
 created: 2026-11-18
-closed:
+closed: 2026-11-19
 ---
 
 # Show the right reason when a hosted credit lookup or a management key fails
@@ -20,3 +20,5 @@ rejected".
 Spec: `docs/spec/2026-11-17-credits-repr.md`.
 Ledger: `docs/work/2026-11-18-credit-reasons.md`.
 Branch: `OME-1968-credit-reasons`.
+
+Merged [PR #1942](https://github.com/ScreamingFace/screamingface/pull/1942) as `31c1158e8`. Linear is Done.
