@@ -122,7 +122,6 @@ def test_unlimited_key_says_no_key_limit() -> None:
     ("reason", "label"),
     [
         ("not_connected", "Not connected"),
-        ("credential_rejected", "Key rejected"),
         ("lookup_failed", "Lookup failed"),
         ("unsupported", "Not supported"),
         ("invalid_response", "Unreadable response"),
@@ -273,3 +272,47 @@ def test_hosted_panel_keeps_its_layout_when_every_amount_is_unavailable() -> Non
     panel = _parse(credit_html(failed, hosted=True))
 
     assert panel.texts("sf-credits__label") == ["Hosted allowance"]
+
+
+# Second independent review of PR #1883 (OME-1935).
+
+
+def test_hosted_panel_says_lookup_failed_when_the_sdk_lookup_failed() -> None:
+    # WHY: a failed request falls back to `_unavailable()`; a hosted user must read
+    # "Lookup failed", not that the feature does not exist on hosted.
+    from screamingface._ui.credit_view import credit_html
+    from screamingface.credit import _unavailable as sdk_unavailable
+
+    panel = _parse(credit_html(sdk_unavailable("openrouter"), hosted=True))
+
+    assert panel.texts("sf-credits__label") == ["Hosted allowance"]
+    assert panel.texts("sf-credits__note") == ["Lookup failed"]
+
+
+def test_a_rejected_management_key_is_not_reported_as_the_execution_key() -> None:
+    # WHY: the Gateway marks the account `credential_rejected` when the MANAGEMENT key's
+    # lookup gets a 401 while the execution key still reads fine.
+    card = _parse(_byok(_unavailable("credential_rejected"), _available("5"))._repr_html_())
+
+    assert card.texts("sf-credits__note")[0] == "Management key rejected"
+    assert card.texts("sf-credits__value") == ["Unavailable", "$5.00"]
+
+
+def test_a_rejected_execution_key_reads_key_rejected_in_the_neutral_box() -> None:
+    # The Gateway marks both amounts `credential_rejected` when the execution key's
+    # lookup gets a 401.
+    status = _byok(_unavailable("credential_rejected"), _unavailable("credential_rejected"))
+    card = _parse(status._repr_html_())
+
+    assert card.texts("sf-credits__note") == ["Key rejected"]
+
+
+def test_a_rejected_execution_key_says_key_rejected_on_the_key_box() -> None:
+    # OME-1968: the `credential_rejected` case of `test_an_unavailable_amount_says_why`
+    # moved here. On the account box that reason means the MANAGEMENT key was rejected
+    # (see `test_a_rejected_management_key_is_not_reported_as_the_execution_key`); on the
+    # key box it is the execution key, and "Key rejected" is right.
+    card = _parse(_byok(_available("24.5"), _unavailable("credential_rejected"))._repr_html_())
+
+    assert card.texts("sf-credits__value") == ["$24.50", "Unavailable"]
+    assert card.texts("sf-credits__note")[1] == "Key rejected"

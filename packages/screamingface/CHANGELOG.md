@@ -13,8 +13,10 @@
 - `sf.credits()` now renders as a notebook card in the connection panel's style, instead of
   the plain dataclass repr. An unavailable amount says why ("Not connected", "Key
   rejected", "Lookup failed", "Not supported", "Unreadable response", "Not available on
-  hosted"), in the card and in the connection panel. When no amount is known, the card shows one "Credits unavailable"
-  box (OME-1935).
+  hosted"), in the card and in the connection panel. When no amount is known, the card
+  shows one "Credits unavailable" box (OME-1935). A hosted panel says "Lookup failed" when
+  the credit request fails, and a rejected management key reads "Management key
+  rejected" on the account box (OME-1968).
 
 - Notebook credits now show account credit separately from the key spending cap,
   with optional account settings and visible-only five-minute refresh. OpenRouter
