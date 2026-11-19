@@ -8079,9 +8079,15 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             # Benchmark pins the house judge FRAMES, XSTest and HealthBench also call, for judge
             # consistency across our judged Benchmarks (owner decision 2026-09-29).
             model="openrouter/openai/gpt-5.4",
-            # Futurex-Eval asks its judge at temperature 0; grading is retrieval-free and the
-            # token cap is an engine-side safety bound (HealthBench's precedent).
-            params=(("temperature", "0"), ("max_tokens", "4096"), ("web_search", "false")),
+            # HealthBench's judge-params precedent: grading is retrieval-free and the token cap
+            # is an engine-side safety bound.
+            # NAMED DEVIATION: Futurex-Eval asks its judge at temperature 0; this Judge sends no
+            # temperature and samples at the provider default. WHY: no OpenRouter endpoint for
+            # gpt-5.4 accepts temperature, and the gateway forces require_parameters, so a pin
+            # failed every Judge call (every level-3/4 Case scorer_error, 2026-11-19). No
+            # temperature, as on the other gpt-5.4 rows (OME-1602);
+            # tests/unit/inspect/test_judge_param_support.py guards it.
+            params=(("web_search", "false"), ("max_tokens", "4096")),
         ),
         # Judged benchmark, and judge feedback on a forecast would leak the outcome.
         with_check_surface=False,
