@@ -221,8 +221,18 @@ deleted after (Bennett's rule).
    fills it by hand and the job would own it outright. It is outside Bennett's three fields,
    and the key cannot create a dedicated property (no `crm.schemas.*.write` scope), so either
    Bennett agrees to this field or he creates a dedicated one.
-2. **Name "Unknown":** `firstname` = "Unknown" and empty `lastname`, or both? Only on create.
-3. **New card name:** proposed "<email> · leaderboard".
-4. **History:** send it once after a checked dry run (recommended), or start from deploy time.
+2. **Name "Unknown":** decided (Filip, 2026-11-18): `firstname` = "Unknown", `lastname` empty,
+   only on create. Names need not be unique in HubSpot; no contact was named "Unknown" before.
+3. **New card name:** the 35 existing SOTA cards are named after the person (`<first> <last>`
+   on 32). A new card takes the contact's name, or the email when the contact has none.
+   Proposed 2026-11-19, not yet confirmed by Filip.
+4. **History:** decided (Filip, 2026-11-18): send it once after a dry run. A read-only dry
+   run on 2026-11-19 (8 people, 52 pairs) would create 1 contact and 2 cards and move 6 cards
+   that all sit in Submission 1 today; none had the sync's fields filled.
+4a. **What qualifies for SOTA (asked Irina, 2026-11-19):** on the Pareto frontier rule, 7 of 8
+   people reach SOTA, mostly through the cheapest run or the only entry on a board; only one
+   holds a top score against other submitters. Proposed instead: the top score at processing
+   time, on a board with at least one other submitter. The CSV sent to Irina is not kept in
+   the repo (it lists emails).
 5. **Integration source check:** confirm HubSpot's property history marks writes by this
    private app distinctly from UI edits, on the dummy record.
