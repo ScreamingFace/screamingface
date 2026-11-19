@@ -169,7 +169,12 @@ The token is a secret and is never logged; the settings repr masks it.
 
 ### Infra (OpenMined/infrastructure, separate PR)
 
-1. Key Vault record `sf-scoreboard-prod-hubspot-token` (vault access needed: Stephen).
+1. Key Vault record `sf-scoreboard-prod-hubspot-token` in `kv-openmined-prod-eastus`, the
+   vault the prod `azure-kv` ClusterSecretStore reads. Nobody holds standing write access;
+   the owner writes it with `scripts/ops/write-vault-record.sh kv-openmined-prod-eastus
+   sf-scoreboard-prod-hubspot-token` (hidden prompt, break-glass grant, write, revoke;
+   `docs/runbooks/secret-rotation.md`). The value comes from 1Password (screamingface-infra,
+   "HubSpot: ScreamingFace Leaderboard sync"), so it never passes through a chat or a repo.
 2. An ExternalSecret `scoreboard-hubspot` in `kubernetes/apps/sf-scoreboard`.
 3. A NetworkPolicy allowing the job's pods egress on TCP 443 to HubSpot's API.
 4. The chart's new CronJob enabled in `values/prod.yaml`, with the pipeline and stage ids.
@@ -224,8 +229,8 @@ deleted after (Bennett's rule).
 2. **Name "Unknown":** decided (Filip, 2026-11-18): `firstname` = "Unknown", `lastname` empty,
    only on create. Names need not be unique in HubSpot; no contact was named "Unknown" before.
 3. **New card name:** the 35 existing SOTA cards are named after the person (`<first> <last>`
-   on 32). A new card takes the contact's name, or the email when the contact has none.
-   Proposed 2026-11-19, not yet confirmed by Filip.
+   on 32). Decided (Filip, 2026-11-19): consistent with them, a new card takes the contact's
+   `<first> <last>`, or the email when the contact has no name.
 4. **History:** decided (Filip, 2026-11-18): send it once after a dry run. A read-only dry
    run on 2026-11-19 (8 people, 52 pairs) would create 1 contact and 2 cards and move 6 cards
    that all sit in Submission 1 today; none had the sync's fields filled.
