@@ -51,6 +51,10 @@ data:
     data_dir = "/var/lib/garage/data"
     db_engine = "sqlite"
     replication_factor = 1
+    # WHY fsync: one server, so a write Garage confirms must already be on disk. Garage turns
+    # both off by default, and a crash right after a confirmed write would lose it.
+    metadata_fsync = true
+    data_fsync = true
     # Cluster-internal only: this store is reached by the App and by the runner pool's pods,
     # never from
     # outside. The read path deliberately goes THROUGH the App (spec D4) rather than handing a
