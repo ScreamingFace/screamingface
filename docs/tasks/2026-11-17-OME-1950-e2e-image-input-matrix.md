@@ -1,13 +1,13 @@
 ---
 id: OME-1950
 linear_url: https://linear.app/openmined/issue/OME-1950/e2e-workbench-notebook-that-validates-image-and-pdf-input-per-model
-status: in_review
+status: done
 type: feature
 priority: high
 labels: [repo-dev-processes, agentic, autonomous]
 parent: OME-1636
 created: 2026-11-17
-closed:
+closed: 2026-11-18
 ---
 
 # E2E workbench notebook that validates image and PDF input per model

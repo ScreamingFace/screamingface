@@ -168,3 +168,13 @@ Result with 1–4 fixed: url4 — `gemma-4-31B-it` and `Kimi-K3` read png/jpeg/w
 - **Deviations:** fixtures on jsDelivr (spec D5 amended); provider-refusal table (spec §3.2
   amended); gpt-4o-mini out until OME-1942; `FIXTURE_REF` stays the fixtures' commit `6c127c63`
   (pushed, reachable) — re-pin to the squash commit on `main` after merge.
+
+## Close-out (2026-11-18)
+
+- Merged as `1e0200977` (#1891), after `#1888`, `#1889` and `#1890`. The four `docs/tasks` mirrors are now set to done.
+- `FIXTURE_REF` stays on `6c127c63` and is NOT re-pinned to the squash commit. jsDelivr returns
+  403 "Package size exceeded the configured limit of 50 MB" for `codeword.pdf` and `token.gif` at
+  `1e0200977`, because the repo at a main commit is over its per-package limit. At `6c127c63` all
+  six fixtures serve 200 with the right Content-Type. GitHub keeps that commit through
+  `refs/pull/1891/head`. If it ever stops serving, move the fixtures to a small dedicated repo or
+  release asset. Re-pinning to another main commit would not fix it.
