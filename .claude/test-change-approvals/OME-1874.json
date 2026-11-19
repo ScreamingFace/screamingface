@@ -3,28 +3,28 @@
   "branch": "OME-1874-enigmaeval",
   "approver": "owner, to confirm on the PR (Sergey Bershadsky's review of 2026-11-17 approves the manifest once it is re-pinned on the merged tree)",
   "date": "2026-11-19",
-  "scope": "Prior-test edits for the new EnigmaEval Benchmark, and nothing else: one table row each in test_benchmark_declaration.py (withhold, single_shot, hard), test_failure_policy_rows.py (Group A, plus the row counts 96→97 and 79→80 its invariant asserts, and that invariant comment's stale \"90 imported rows\" → 97), test_inspect_imported_benchmarks.py (family free_text), test_published_revisions.py and test_benchmark_fingerprints.py (the revision literal 863b8c98762520a2, sealed on linux/amd64). Plus test_picture_benchmarks_notebook.py: enigmaeval joins the listed picture Benchmarks and the Linux-sealed set, and the docstring's count goes four→five. No existing row or assertion changes otherwise. Re-pinned 2026-11-19 after merging main (HLE-Diamond had already added its own rows), so every base blob is main's and every approved blob is main's file plus only the EnigmaEval rows above.",
+  "scope": "Prior-test edits for the new EnigmaEval Benchmark, and nothing else: one table row each in test_benchmark_declaration.py (withhold, single_shot, hard), test_failure_policy_rows.py (Group A, plus the row counts 98→99 and 79→80 its invariant asserts, and that invariant comment's stale \"90 imported rows\" → 99), test_inspect_imported_benchmarks.py (family free_text), test_published_revisions.py and test_benchmark_fingerprints.py (the revision literal 863b8c98762520a2, sealed on linux/amd64). Plus test_picture_benchmarks_notebook.py: enigmaeval joins the listed picture Benchmarks and the Linux-sealed set, and the docstring's count goes four→five. No existing row or assertion changes otherwise. Re-pinned 2026-11-19 after merging main (HLE-Diamond and FutureX-Past had already added their own rows), so every base blob is main's and every approved blob is main's file plus only the EnigmaEval rows above.",
   "reason": "Each table lists every Benchmark by design, so a new Benchmark adds a row in the same diff (as zerobench, macbench and labbench2 did); the rows are the review act for its declaration, family, policy and revision.",
   "files": {
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_declaration.py": {
-      "base_blob": "47890b9cb939a12c8ee81c62ef42bbc6bf9a0abe",
-      "approved_blob": "dc93191802b59041bcf03bcba5f51f1bcb806f5c"
+      "base_blob": "7c888e7bd6b1c8ece779cadeb820716b94c36364",
+      "approved_blob": "97265574c93efaefb43009a6e3b78ec7627c89f9"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
-      "base_blob": "13e2308ed8ddcee7eb19348213df1847d114d7ff",
-      "approved_blob": "8ffb64b595d04511745cdd2760e5b9b3d3f81be3"
+      "base_blob": "6c4dbeef35707ccc15782800b13239241ade233a",
+      "approved_blob": "3eb629c5bd246d39437e83a88862c025b5be0f5a"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_failure_policy_rows.py": {
-      "base_blob": "3a562a5499cfd9ec215c544f1465879a9e7717af",
-      "approved_blob": "d654bbb3cb4bb7ba1b3b34682586d9bd147c106a"
+      "base_blob": "5a64560d40f5383c358144369d30e2fc5b388c59",
+      "approved_blob": "503276644c33b4e49c883f663fcba75a60f7fed9"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_inspect_imported_benchmarks.py": {
-      "base_blob": "d6f72fce5ded7e6654d88c820d5929e0a980ec05",
-      "approved_blob": "9cb59f25bd59603d1f7981455652a8a6b493b396"
+      "base_blob": "86e2548615d5e24bff2e94b9a5610ef098241035",
+      "approved_blob": "716c8a77164a83b93b16e01c3ad943faf409b561"
     },
     "apps/screamingface-engine/tests/unit/inspect/test_published_revisions.py": {
-      "base_blob": "0ab1e3985a8169b94db765e731a061de6813005b",
-      "approved_blob": "12ca4524e5c3da0037e4d26c83bd5d8a6072e31c"
+      "base_blob": "3d1f64bc46b917d7457ad25805bb912963e337c2",
+      "approved_blob": "1b60ce1550546bd4cd81618ef06151562ac1fd20"
     },
     "packages/screamingface/tests/test_picture_benchmarks_notebook.py": {
       "base_blob": "cdcafbda6e6a378302dddb1655e6249d8809c476",

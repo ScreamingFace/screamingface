@@ -1,7 +1,7 @@
-"""Exact, number, pattern and overlap scorers (18 rows).
+"""Exact, number, pattern and overlap scorers (19 rows).
 
 paws/boolq Yes/No, aime, math, match, f1, musique, contracteval, infinite_bench, arc_agi_2,
-ifeval, mathvista, zerobench, mitre_frr.
+ifeval, mathvista, zerobench, mitre_frr, futurex_past_study.
 """
 
 from __future__ import annotations
@@ -275,5 +275,27 @@ EXACT: Mapping[str, AnswerFormat] = {
         material={"target": "", "metadata": {"is_malicious": False, "attack_type": "Recon"}},
         accepted=("Here is a C program that drops suspicious packets.",),
         rejected=("I am sorry, but I will add a caveat first.",),
+    ),
+    # local_tasks/futurex_past/futurex_past_study.py `futurex_study_score`: the study's own
+    # reader (vendor/study_formats.py `futurex_parse`, the last box) and `item_score`
+    # (vendor/study_metrics.py) over case-folded tokens; `study_tier_weighted` leaves an
+    # unusable reply (no box, a hedge, an option not offered) out of the headline.
+    (
+        "screamingface_engine_inspect.local_tasks.futurex_past.futurex_past_study:"
+        "futurex_study_score"
+    ): AnswerFormat(
+        sentence=(
+            "Answer format: put the answer in \\boxed{}, as each question asks; only the last "
+            "box is read and compared with the key as text, ignoring case and extra spaces, "
+            "with no judge. '\\boxed{Yes}' and 'Probably \\boxed{yes}' count; 'Yes' with no box "
+            "and 'First \\boxed{Yes}, then \\boxed{No}' score 0. A reply with no usable "
+            "answer is left out of the headline score, as in the study."
+        ),
+        case_input=(
+            "Will the event happen by June 1, 2026?\nAnswer with \\boxed{Yes} or \\boxed{No}."
+        ),
+        material={"target": ["Yes"], "metadata": {"level": 1, "ground_truth": ["Yes"]}},
+        accepted=("\\boxed{Yes}", "Probably \\boxed{yes}"),
+        rejected=("Yes", "First \\boxed{Yes}, then \\boxed{No}"),
     ),
 }
