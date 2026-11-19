@@ -2303,6 +2303,39 @@ TASK_REPLAY_CASES: dict[str, TaskReplayCasesSpec] = {
         needs_hf_token=True,
         license="mit",
     ),
+    # futurex_past — imported by Task replay on 2026-11-16 from
+    #   screamingface_engine_inspect.local_tasks.futurex_past.futurex_past:futurex_past.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurex-ai/Futurex-Past/data/train-00000-of-00001.parquet
+    #     pin revision 8299bfa1609dec30f267891a74d76e62902c9d71
+    "futurex_past": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.futurex_past.futurex_past:futurex_past",
+        case_count=2036,
+        case_digest="ea2bcb82214683610d1d75c50525f20d0cacfd004a9dd4d64fd32a75af503c63",
+        case_set_digest="9c59833fd435df1a02d85fe8687f19c2d9e6ca6c8f8f87b75ff476f5ed19ec52",
+        keep_sample_metadata=True,
+        keep_sample_input=True,
+        source_pins={
+            "futurex-ai/Futurex-Past": "8299bfa1609dec30f267891a74d76e62902c9d71",
+        },
+        license="apache-2.0",
+    ),
+    # futurex_past_study — imported by Task replay on 2026-11-16 from
+    #   screamingface_engine_inspect.local_tasks.futurex_past.futurex_past_study:futurex_past_study.
+    # Case Sources, as recorded at import (review them; the Case Digest pins them):
+    #   hugging-face futurex-ai/Futurex-Past/data/train-00000-of-00001.parquet
+    #     pin revision 3c2e39690de35eb1fcc621251f56343c72bae8c4
+    "futurex_past_study": TaskReplayCasesSpec(
+        task="screamingface_engine_inspect.local_tasks.futurex_past.futurex_past_study:futurex_past_study",
+        case_count=1118,
+        case_digest="f59af6364123f213bc57f51e5b505023c72e81e48c8a45eb75ce768939fa072f",
+        case_set_digest="0d705e3a32adfd09acfe9f408445f391b5ebe1239da93c03ee2d8e0c8b1ae433",
+        keep_sample_metadata=True,
+        source_pins={
+            "futurex-ai/Futurex-Past": "3c2e39690de35eb1fcc621251f56343c72bae8c4",
+        },
+        license="apache-2.0",
+    ),
     # --- importer: generated TaskReplayCasesSpec rows land above this line ---
 }
 

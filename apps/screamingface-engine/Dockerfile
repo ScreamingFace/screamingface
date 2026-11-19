@@ -47,6 +47,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Now the app source (siblings above are already in place).
 COPY apps/screamingface-engine/src ./src
 COPY apps/screamingface-engine/url4.toml ./url4.toml
+# The project's license-files: hatchling refuses to build the editable install without it, and the
+# runtime stage copies this whole directory, so the licence text ships in both images (the
+# benchmark image is FROM this one).
+COPY apps/screamingface-engine/LICENSE ./LICENSE
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --extra inspect
 
@@ -54,6 +58,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 FROM python:3.13-slim-bookworm AS runtime
 LABEL org.opencontainers.image.title="screamingface-engine" \
       org.opencontainers.image.source="https://github.com/ScreamingFace/screamingface" \
+      org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.description="screamingface-engine — REST + WebSocket control plane and url4 run mode"
 RUN apt-get update && apt-get install -y --no-install-recommends tini \
  && rm -rf /var/lib/apt/lists/* \
