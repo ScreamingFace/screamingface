@@ -1,0 +1,26 @@
+{
+  "issue": "OME-1939",
+  "branch": "OME-1939-raise-hle-judge-token-cap",
+  "approver": "Khoa Nguyen (owner), to confirm on the PR",
+  "date": "2026-11-17",
+  "scope": "test_benchmark_fingerprints.py: hle and hle_diamond move from the unchanged-row block to the held-row block with their new computed fingerprints (published ids unchanged). test_hle_cases.py: the hle row's judge max_tokens assertion 32768 -> 131072. test_judge_redraws_a_repeat.py: _PINS max_tokens 32768 -> 131072 and the role binding passes the pins, as a run now does. test_judge_settings_the_wire_carries.py: _HLE_JUDGE_PINS max_tokens 32768 -> 131072 in the existing tests, the payoff test binds the role with the pins, and two tests are added (bare binding refused under HLE's stanza; the run's grading face binds the raised cap). No assertion is weakened.",
+  "reason": "Owner decision 2026-11-17 on OME-1939: HLE's judge max_tokens rises from inspect_evals' default.yaml 32768 to 131072 so a judge that reasons long still writes its grade; published revisions held, a re-grade and revision bump follow in their own PR (OME-1909).",
+  "files": {
+    "apps/screamingface-engine/tests/unit/inspect/test_benchmark_fingerprints.py": {
+      "base_blob": "240791322961a36566221c5598f2ac574539c793",
+      "approved_blob": "767d79e004bbb504175ad1c879b4ce33d91ce3f7"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_hle_cases.py": {
+      "base_blob": "fde289f2a0974fcac35e61b6db5817d478d83dea",
+      "approved_blob": "808156c0079891984284e0aa79ebb83dc3f59d31"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_judge_redraws_a_repeat.py": {
+      "base_blob": "9981fd0221de5d5376141df768c48f67db55097f",
+      "approved_blob": "534a10b442cf37d90f9ba89f6dee3930cfaa1b30"
+    },
+    "apps/screamingface-engine/tests/unit/inspect/test_judge_settings_the_wire_carries.py": {
+      "base_blob": "da61c64e329b17ebb05b4d003ec4af3c47ab42d8",
+      "approved_blob": "1a3f5e7fdd25ab02fbd75bfbab6e1129c5a4133d"
+    }
+  }
+}

@@ -13,6 +13,7 @@ from scoreboard.classification.openness import Openness
 from scoreboard.db import DEFAULT_CONNECTION
 
 from .baseline_comparison import validate_comparison
+from .baseline_history import preserve_legacy_observation, record_observation
 from .models import Baseline, Benchmark
 from .schemas import BaselineImportRow, BaselineSchema
 
@@ -32,6 +33,8 @@ def _baseline_to_schema(model: Baseline, benchmark: Benchmark | None = None) -> 
         metric_name=model.metric_name,
         observed_at=model.observed_at,
         metadata=model.metadata,
+        observation_revision=model.observation_revision,
+        observation_updated_at=model.observation_updated_at,
         # WHY: tortoise-orm >=1.1.8 types CharField as `str | None`, which no longer
         # satisfies the schema's `Openness | None`. The DB column is a bare CharField, so
         # the narrowing is ours to assert; Pydantic still rejects a junk value on
@@ -57,6 +60,8 @@ def _ranking_eligible(
                 "last_imported_at",
                 "openness_override",
                 "ranking_eligible",
+                "observation_revision",
+                "observation_updated_at",
             }
         )
         candidate = BaselineImportRow.model_validate({**data, "attached_by": attached_by})
@@ -95,6 +100,7 @@ class BaselineStore:
         # Stamp after locking, never while building defaults before a contended write.
         connection_name = using_db.connection_name if using_db else DEFAULT_CONNECTION
         async with in_transaction(connection_name=connection_name) as connection:
+            await preserve_legacy_observation(row, connection)
             baseline, _ = await Baseline.update_or_create(
                 benchmark_id=row.benchmark_id,
                 model_name=row.model_name,
@@ -116,7 +122,15 @@ class BaselineStore:
                 baseline.imported_at,
                 baseline.last_imported_at or baseline.imported_at,
             )
-            await baseline.save(using_db=connection, update_fields=["last_imported_at"])
+            await record_observation(baseline, connection)
+            await baseline.save(
+                using_db=connection,
+                update_fields=[
+                    "last_imported_at",
+                    "observation_revision",
+                    "observation_updated_at",
+                ],
+            )
         return _baseline_to_schema(baseline, benchmark)
 
     async def import_many(self, rows: Sequence[BaselineImportRow]) -> list[BaselineSchema]:
@@ -140,3 +154,19 @@ class BaselineStore:
             except ValidationError:
                 logger.warning("skipping baseline %s: failed schema validation", baseline.id)
         return baselines
+
+    async def best_ranked_scores(self, benchmark_ids: Sequence[str]) -> dict[str, float]:
+        """Bulk read for search indexing, using the displayed rows' eligibility rules."""
+        if not benchmark_ids:
+            return {}
+        rows = await Baseline.filter(benchmark_id__in=benchmark_ids).select_related("benchmark")
+        scores: dict[str, float] = {}
+        for baseline in rows:
+            try:
+                row = _baseline_to_schema(baseline, cast(Benchmark, baseline.benchmark))
+            except ValidationError:
+                logger.warning("skipping baseline %s: failed schema validation", baseline.id)
+                continue
+            if row.ranking_eligible:
+                scores[row.benchmark_id] = max(scores.get(row.benchmark_id, row.score), row.score)
+        return scores

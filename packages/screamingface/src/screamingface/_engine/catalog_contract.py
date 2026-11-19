@@ -176,7 +176,7 @@ _PROVENANCE_TEXT_KEYS: tuple[str, ...] = (
     "content_warning",
     "notebook",
 )
-_PROVENANCE_HANDLE_KEYS: tuple[str, ...] = ("inspect_contributors",)
+_PROVENANCE_HANDLE_KEYS: tuple[str, ...] = ("inspect_contributors", "contributors")
 _PROVENANCE_SCORE_KEYS: tuple[str, ...] = ("human_baseline", "frontier_score")
 #: Every provenance key the Engine serves flat on a catalogue entry — the SDK's ONE copy of
 #: the list. The local seed twin (`_runtime/bootstrap.py`) reads it from here.

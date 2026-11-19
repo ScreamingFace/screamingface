@@ -3,11 +3,17 @@ name: AI Gateway Tests
 on:
   push:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "apps/aigateway/**"
+      # url4's attachment cap, read with ast by tests/unit/test_url4_attachment_cap_request.py
+      - "packages/url4/src/url4/dag/_caps.py"
       - ".github/workflows/aigateway-tests.yml"
   pull_request:
     paths:
+      - "docs/spec/2026-11-11-provider-credit/credit-contract.json"
       - "apps/aigateway/**"
+      # url4's attachment cap, read with ast by tests/unit/test_url4_attachment_cap_request.py
+      - "packages/url4/src/url4/dag/_caps.py"
       - ".github/workflows/aigateway-tests.yml"
   workflow_dispatch:
 
@@ -86,6 +92,8 @@ jobs:
 
       - name: Test report
         uses: dorny/test-reporter@v3
+        # Publishing only: the test step fails the job; a spent GITHUB_TOKEN limit must not.
+        continue-on-error: true
         if: always()
         with:
           name: AI Gateway Test Results (${{ matrix.python-version }})
@@ -94,6 +102,8 @@ jobs:
 
       - name: Coverage report
         uses: orgoro/coverage@v3.3
+        # Publishing only: the test step fails the job; a spent GITHUB_TOKEN limit must not.
+        continue-on-error: true
         if: always() && github.event_name == 'pull_request'
         with:
           coverageFile: apps/aigateway/coverage.xml

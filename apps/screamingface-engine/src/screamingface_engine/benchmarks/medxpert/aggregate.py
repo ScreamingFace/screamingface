@@ -33,7 +33,7 @@ from typing import Any
 
 from screamingface_engine.benchmarks.aggregation import CandidateScore, SelectedCase
 from screamingface_engine.benchmarks.case_records import abstain_mark
-from screamingface_engine.benchmarks.contract import CaseResult
+from screamingface_engine.benchmarks.contract import CandidateResult, CaseResult
 from screamingface_engine.benchmarks.medxpert.case_grade import decode_case_grade
 from screamingface_engine.benchmarks.medxpert.definition import MEDXPERT
 from screamingface_engine.benchmarks.medxpert.prepare import METADATA_COLUMNS
@@ -90,9 +90,28 @@ def aggregate(
     benchmark_revision: str,
     case_ids: tuple[int, ...],
 ) -> dict[str, Any]:
+    return aggregate_result(
+        raw_case_grades,
+        root,
+        benchmark_id=benchmark_id,
+        benchmark_revision=benchmark_revision,
+        case_ids=case_ids,
+    ).as_payload()
+
+
+def aggregate_result(
+    raw_case_grades: str,
+    root: Path,
+    *,
+    benchmark_id: str,
+    benchmark_revision: str,
+    case_ids: tuple[int, ...],
+) -> CandidateResult:
+    """:func:`aggregate` as the model, so the endpoint can stream it (memory fix 3, OME-1835)."""
+
     return scoring(
         root, benchmark_id=benchmark_id, benchmark_revision=benchmark_revision, case_ids=case_ids
-    ).aggregate(raw_case_grades)
+    ).aggregate_result(raw_case_grades)
 
 
 def scoring(
@@ -270,4 +289,4 @@ _PATH = BenchmarkAggregation(
     failure_policy=MEDXPERT.declaration.failure_policy,
 )
 
-__all__ = ["AggregateError", "aggregate", "load_answer", "selected_cases"]
+__all__ = ["AggregateError", "aggregate", "aggregate_result", "load_answer", "selected_cases"]

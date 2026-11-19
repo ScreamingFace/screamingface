@@ -309,7 +309,7 @@ const modelsRow = `GET /v1/models
           <tr>
             <td>Gateway request body</td>
             <td>
-              8 MiB (8,388,608 bytes), <code>AIGW_MAX_REQUEST_BYTES</code>. Over it: 413
+              12 MiB (12,582,912 bytes), <code>AIGW_MAX_REQUEST_BYTES</code>. Over it: 413
               <code>request_too_large</code>, before any upstream spend.
             </td>
             <td>on main (#1479)</td>
@@ -471,7 +471,7 @@ const modelsRow = `GET /v1/models
           </tr>
           <tr>
             <td><code>request_too_large</code></td>
-            <td>Gateway body over 8 MiB. HTTP 413.</td>
+            <td>Gateway body over 12 MiB. HTTP 413.</td>
             <td>on main</td>
           </tr>
           <tr>

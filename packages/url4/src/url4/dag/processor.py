@@ -154,4 +154,10 @@ def _route_for_id(processor_id: str, io: IOLayer) -> str:
     )
 
 
-__all__ = ["ProcessorForm", "ProcessorTarget", "classify_processor", "resolve_processor_target"]
+__all__ = [
+    "ProcessorForm",
+    "ProcessorTarget",
+    "classify_processor",
+    "remote_processor_hop",
+    "resolve_processor_target",
+]

@@ -43,6 +43,14 @@ const readOneOut = `Connection(provider='openrouter', display_name='OpenRouter',
 
 const remove = `sf.disconnect("openrouter")`
 
+const credit = `status = sf.credits()                 # how the connection you run against is doing
+status.account.amount_usd             # your balance (needs a management key)
+status.key.amount_usd                 # the spending cap on the key you run with`
+
+const manageKey = `client = sf.Client()
+client.set_credit_management_key("openrouter", api_key="sk-or-v1-…")
+client.clear_credit_management_key("openrouter")`
+
 const panelProviders: Provider[] = [
   { id: 'anthropic', name: 'Anthropic', status: 'disconnected' },
   { id: 'antigravity', name: 'Antigravity', status: 'disconnected' },
@@ -62,27 +70,27 @@ const panelProviders: Provider[] = [
     :version="version"
   >
     <p>
-      A <strong>connection</strong> is a provider credential
-      <RouterLink to="/learn/engine">the engine</RouterLink> holds on your behalf. The Client never
-      talks to OpenRouter, Anthropic or any other provider directly. It sends your key to the engine
-      once, the engine passes it to AI Gateway to validate and store encrypted, and every later
-      model call is dispatched there.
+      A connection is a provider credential that
+      <RouterLink to="/learn/engine">the engine</RouterLink> holds for you. The Client never talks to
+      OpenRouter, Anthropic, or any other provider directly. You send your key to the engine once,
+      the engine passes it to AI Gateway to validate and store encrypted, and every model call after
+      that is dispatched there.
     </p>
 
     <p>
-      Two steps get you there: configure the engine, then connect a provider. Without a connection
-      the engine can still list benchmarks and models, but any evaluation fails: there is no
-      credential to call a model with.
+      Getting set up takes two steps: configure the engine, then connect a provider. Without a
+      connection the engine can still list benchmarks and models, but any evaluation fails, because
+      there is no credential to call a model with.
     </p>
 
     <h2>What you can do with it</h2>
 
     <ul>
-      <li>Login to the engine, or point the Client at your own engine instead.</li>
+      <li>Log in to the engine, or point the Client at your own engine instead.</li>
       <li>
         Connect a provider interactively from a notebook, or with an explicit key from a script.
       </li>
-      <li>Read which providers this engine advertises, and the state of each.</li>
+      <li>Read which providers this engine advertises, and the state of each one.</li>
       <li>Remove a credential.</li>
     </ul>
 
@@ -99,43 +107,43 @@ const panelProviders: Provider[] = [
         <tr>
           <td><code>sf.connect()</code></td>
           <td>
-            Called with no arguments, returns a <code>ConnectionPanel</code> widget listing every
+            With no arguments, returns a <code>ConnectionPanel</code> widget that lists every
             provider the engine advertises.
           </td>
         </tr>
         <tr>
           <td><code>sf.connect(provider, api_key=…)</code></td>
           <td>
-            Connects one provider directly and returns the resulting <code>Connection</code> instead
-            of a widget.
+            Connects one provider directly and returns the resulting <code>Connection</code> rather
+            than a widget.
           </td>
         </tr>
         <tr>
           <td><code>sf.connections.list()</code></td>
           <td>
-            Returns a tuple of every provider this engine advertises, one <code>Connection</code>
-            each.
+            Returns a tuple with one <code>Connection</code> for every provider this engine
+            advertises.
           </td>
         </tr>
         <tr>
           <td><code>sf.connections.get(provider)</code></td>
           <td>
-            Fetches a single provider by name, returning its current state as a
+            Fetches a single provider by name and returns its current state as a
             <code>Connection</code>.
           </td>
         </tr>
         <tr>
           <td><code>sf.disconnect(provider)</code></td>
           <td>
-            Removes a stored credential. On a local engine repeated calls are harmless and return
-            the provider back in its <code>not_connected</code> state.
+            Removes a stored credential. On a local engine, repeated calls are harmless and return
+            the provider in its <code>not_connected</code> state.
           </td>
         </tr>
         <tr>
           <td><code>sf.Connection</code></td>
           <td>
-            The sanitised provider-state value, carrying the public provider name, its supported
-            methods, and its state.
+            The sanitised provider-state value. It carries the public provider name, its supported
+            auth methods, and its state.
           </td>
         </tr>
         <tr>
@@ -147,7 +155,7 @@ const panelProviders: Provider[] = [
         <tr>
           <td><code>sf.Client.login()</code> · <code>sf.Client.logout()</code></td>
           <td>
-            Log in to and out of a hosted engine behind Cloudflare Access; <code>login()</code>
+            Log in to and out of a hosted engine behind Cloudflare Access. <code>login()</code>
             prints a URL (a script also opens it in your browser) and holds the token in process
             memory only.
           </td>
@@ -159,15 +167,15 @@ const panelProviders: Provider[] = [
 
     <h3>1 · Configure engine</h3>
 
-    <p>Point the Client at an engine. There are two ways, depending on where it runs.</p>
+    <p>Point the Client at an engine. There are two ways to do this, depending on where it runs.</p>
 
     <Tabs :labels="['Hosted engine', 'Local engine']">
       <template #tab-0>
         <p>
-          A hosted engine sits behind <strong>Cloudflare Access</strong>. There is no token to
-          paste: <code>login()</code> prints a URL (a script also opens it in your browser; a
-          notebook only prints it), then polls an encrypted transfer service and decrypts the
-          returned token locally. The token lives only in process memory and is sent as
+          A hosted engine sits behind Cloudflare Access, so there is no token to paste.
+          <code>login()</code> prints a URL (a script also opens it in your browser; a notebook only
+          prints it), then polls an encrypted transfer service and decrypts the returned token
+          locally. The token lives only in process memory and is sent as
           <code>Cf-Access-Token</code>. <code>logout()</code> forgets it.
         </p>
 
@@ -176,34 +184,34 @@ const panelProviders: Provider[] = [
         </div>
 
         <p>
-          In a notebook you rarely call this directly: the panel below handles it. A protected
-          engine shows a login row first and loads provider rows only once login succeeds.
+          In a notebook you rarely call this directly, because the panel below handles it. A
+          protected engine shows a login row first and loads provider rows only once login succeeds.
         </p>
 
         <p>
-          Logging in is not enough to run an evaluation. The OpenMined team grants hosted access:
+          Logging in is not enough to run an evaluation. The OpenMined team grants hosted access, so
           reach out to them. Until your account has access, every provider shows as unavailable and
           an evaluation is refused with <code>provider_not_connected</code>. On a local engine you
           use the providers the engine advertises, with the keys you hold yourself. On a hosted
-          engine you use only the compute that has been subsidised for you, through a grant call or
-          a direct allocation. A hosted engine takes no keys of its own, so
+          engine you use only the compute that has been subsidised for you, through a grant call or a
+          direct allocation. A hosted engine takes no keys of its own, so
           <code>connect(provider, api_key=…)</code> and <code>disconnect(provider)</code> raise
           <code>ProviderConnectionError</code> with the code
-          <code>connection_method_unsupported</code>. The rest of this guide, from step 2, describes
-          a local engine.
+          <code>connection_method_unsupported</code>. The rest of this guide, from step 2 on,
+          describes a local engine.
         </p>
       </template>
 
       <template #tab-1>
         <p>
-          If you run the engine yourself, point the Client at it and skip the login step entirely: a
-          local engine advertises no Cloudflare Access, so the panel shows provider rows
-          immediately. Calling <code>login()</code> on a local engine raises
-          <code>AuthenticationError</code>. A non-default <code>engine_url</code> requires
-          <code>scoreboard_url</code> in <code>sf.configure()</code>; without it the call raises
-          <code>ValueError</code>. <code>SCREAMINGFACE_ENGINE_URL</code> requires
-          <code>SCREAMINGFACE_SCOREBOARD_URL</code> the same way. When <code>screamingface up</code>
-          is running and neither is set, the module-level functions connect to that stack.
+          If you run the engine yourself, point the Client at it and skip the login step entirely. A
+          local engine advertises no Cloudflare Access, so the panel shows provider rows immediately.
+          Calling <code>login()</code> on a local engine raises <code>AuthenticationError</code>. A
+          non-default <code>engine_url</code> requires <code>scoreboard_url</code> in
+          <code>sf.configure()</code>; without it the call raises <code>ValueError</code>.
+          <code>SCREAMINGFACE_ENGINE_URL</code> requires <code>SCREAMINGFACE_SCOREBOARD_URL</code> the
+          same way. When <code>screamingface up</code> is running and neither is set, the
+          module-level functions connect to that stack.
         </p>
 
         <div class="not-prose">
@@ -215,11 +223,10 @@ const panelProviders: Provider[] = [
     <h3>2 · Connect from a notebook</h3>
 
     <p>
-      Called with no arguments, <code>sf.connect()</code> returns a <code>ConnectionPanel</code>: a
-      live widget listing every provider the engine advertises, with a field for each one's
-      supported auth method. The
-      <RouterLink to="/sf-client/reproduce-draco">Reproduce DRACO</RouterLink> steps through the
-      whole flow state by state.
+      With no arguments, <code>sf.connect()</code> returns a <code>ConnectionPanel</code>, a live
+      widget that lists every provider the engine advertises, with a field for each one's supported
+      auth method. The <RouterLink to="/sf-client/reproduce-draco">Reproduce DRACO</RouterLink> guide
+      steps through the whole flow, state by state.
     </p>
 
     <div class="not-prose">
@@ -231,8 +238,8 @@ const panelProviders: Provider[] = [
     <h3>3 · Connect from a script</h3>
 
     <p>
-      With a provider and a key, the same function connects directly and returns the resulting
-      <code>Connection</code> instead of a widget.
+      Given a provider and a key, the same function connects directly and returns the resulting
+      <code>Connection</code> rather than a widget.
     </p>
 
     <div class="not-prose">
@@ -242,7 +249,7 @@ const panelProviders: Provider[] = [
     <p>
       The two arguments go together. <code>sf.connect("openrouter")</code> without a key raises
       <code>ValueError</code>, and passing <code>api_key=</code> without a provider raises
-      <code>TypeError</code>: there is no partial form that silently does nothing.
+      <code>TypeError</code>. There is no partial form that silently does nothing.
     </p>
 
     <h3>4 · Read the current state</h3>
@@ -254,9 +261,9 @@ const panelProviders: Provider[] = [
     </div>
 
     <p>
-      <code>list()</code> returns a <strong>tuple</strong>, not a list, with one
-      <code>Connection</code> per provider: seven on a local engine. The line above reads just the
-      status of each. Fetch a single one by name when you want its full state:
+      <code>list()</code> returns a tuple, not a list, with one <code>Connection</code> per provider:
+      seven on a local engine. The line above reads just the status of each one. Fetch a single
+      provider by name when you want its full state:
     </p>
 
     <div class="not-prose">
@@ -272,16 +279,16 @@ const panelProviders: Provider[] = [
     </div>
 
     <p>
-      On a local engine repeated calls are harmless. The returned <code>Connection</code> shows the
+      On a local engine, repeated calls are harmless. The returned <code>Connection</code> shows the
       provider back in its <code>not_connected</code> state.
     </p>
 
     <h2>What a connection carries</h2>
 
     <p>
-      Every <code>Connection</code> is sanitised: the public provider name, its supported methods,
-      and its state. AI Gateway account IDs, credential locators and upstream error bodies never
-      cross this boundary.
+      Every <code>Connection</code> is sanitised. It holds the public provider name, its supported
+      auth methods, and its state. AI Gateway account IDs, credential locators, and upstream error
+      bodies never cross this boundary.
     </p>
 
     <ul>
@@ -290,7 +297,7 @@ const panelProviders: Provider[] = [
         <code>connected</code>, <code>needs_reauth</code>, <code>error</code>
       </li>
       <li>
-        <code>auth_methods</code>: what the provider supports. A local engine advertises
+        <code>auth_methods</code>: the auth methods the provider supports. A local engine advertises
         <code>('api_key',)</code> for OpenRouter, OpenAI and Hugging Face,
         <code>('api_key', 'oauth')</code> for Anthropic and Gemini CLI, and
         <code>('oauth',)</code> for Codex and Antigravity
@@ -304,14 +311,45 @@ const panelProviders: Provider[] = [
     <p>
       Credential problems raise <code>ProviderConnectionError</code>, which carries a stable
       <code>code</code> and a <code>hint</code>. One rule is worth knowing before you deploy: an API
-      key sent to a non-loopback <code>http://</code> engine is
-      <strong>refused outright</strong> with <code>secure_transport_required</code>. A remote engine
-      must be HTTPS.
+      key sent to a non-loopback <code>http://</code> engine is refused outright with
+      <code>secure_transport_required</code>. A remote engine must use HTTPS.
+    </p>
+
+    <h2>See your provider credit</h2>
+
+    <p>
+      Open <code>sf.connect()</code> in a notebook and each connected provider shows its current key
+      allowance and account balance. For programmatic access, <code>sf.credits()</code> reads the
+      connection the engine runs against. It only reads, so a low balance never stops a run, and for
+      now it covers <code>openrouter</code> only.
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="8" :code="credit" />
+    </div>
+
+    <p>
+      Don't add the two figures together. <code>account</code> is your OpenRouter balance, and
+      <code>key</code> is the spending cap on the key you run with. Reading the balance takes a
+      management key, which the engine stores encrypted and never hands back. Set or clear it on the
+      Client (the connection card offers the same):
+    </p>
+
+    <div class="not-prose">
+      <NbCell :count="9" :code="manageKey" />
+    </div>
+
+    <p>
+      Hosted engines show a single <code>hosted</code> allowance instead and skip the management-key
+      setup. The card refreshes every five minutes while it's on screen, and an OpenRouter run warns
+      you about a recent zero balance without holding up the run. For every field and state, see the
+      <RouterLink to="/sf-client/api/credits">Credits API reference</RouterLink>.
     </p>
 
     <h2>Links</h2>
 
     <ul>
+      <li><RouterLink to="/sf-client/api/credits">Credits (API reference)</RouterLink></li>
       <li>
         <a
           href="https://github.com/ScreamingFace/screamingface/blob/main/packages/screamingface/examples/00_quickstart.ipynb"

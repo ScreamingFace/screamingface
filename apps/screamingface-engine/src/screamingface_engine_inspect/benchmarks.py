@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from functools import partial
 from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
+from importlib.util import find_spec
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -51,8 +52,13 @@ from screamingface_engine.benchmarks.shared_grading.attempt_fold import (
     MEAN_ATTEMPT_FOLD,
     AttemptFold,
 )
+from screamingface_engine_inspect.answer_formats import with_answer_format
 from screamingface_engine_inspect.function_references import function_reference_problem
-from screamingface_engine_inspect.local_tasks import scorer_source_pins, task_source_pin
+from screamingface_engine_inspect.local_tasks import (
+    scorer_source_pins,
+    source_digest,
+    task_source_pin,
+)
 from screamingface_engine_inspect.prepare import (
     INSPECT_SCORER_PREFIX,
     TASK_REPLAY_CASES,
@@ -151,10 +157,13 @@ class BenchmarkSpec:
     authors: str | None = None
     citation: str | NotPublished | None = None
     inspect_contributors: tuple[str, ...] | None = None
+    #: The GitHub handles of whoever wrote an `external` row; None on every other origin.
+    contributors: tuple[str, ...] | None = None
     #: Who authored the eval this row serves. `inspect_evals` for every import; `screamingface`
     #: for a LOCAL Task — an eval we wrote in inspect's shape under `local_tasks/` and fed to
     #: the same importer (OME-1513). A local row has no inspect porters to credit, and the
-    #: provenance rule asks `screamingface`-origin Benchmarks for none.
+    #: provenance rule asks `screamingface`-origin Benchmarks for none. `external` for a LOCAL
+    #: Task an outside contributor wrote: the rule asks it for `contributors` instead.
     origin: BenchmarkOrigin = "inspect_evals"
     homepage_url: str | None = None
     harness_url: str | None = None
@@ -326,6 +335,311 @@ _COCONOT_JUDGE = JudgeSpec(
 )
 
 
+#: Humanity's Last Exam's BibTeX, as arXiv gives it. HLE-Diamond's dataset card asks users
+#: to cite this same paper, so the hle and hle_diamond rows share it (OME-1863).
+_HLE_CITATION: str = (
+    "@misc{phan2026humanitysexam,\n"
+    "      title={Humanity's Last Exam}, \n"
+    "      author={Long Phan and Alice Gatti and Ziwen Han and Nathaniel Li and J"
+    "osephina Hu and Hugh Zhang and Chen Bo Calvin Zhang and Mohamed Shaaban and "
+    "John Ling and Sean Shi and Michael Choi and Anish Agrawal and Arnav Chopra a"
+    "nd Adam Khoja and Ryan Kim and Richard Ren and Jason Hausenloy and Oliver Zh"
+    "ang and Mantas Mazeika and Dmitry Dodonov and Tung Nguyen and Jaeho Lee and "
+    "Daron Anderson and Mikhail Doroshenko and Alun Cennyth Stokes and Mobeen Mah"
+    "mood and Oleksandr Pokutnyi and Oleg Iskra and Jessica P. Wang and John-Clar"
+    "k Levin and Mstyslav Kazakov and Fiona Feng and Steven Y. Feng and Haoran Zh"
+    "ao and Michael Yu and Varun Gangal and Chelsea Zou and Zihan Wang and Sergue"
+    "i Popov and Robert Gerbicz and Geoff Galgon and Johannes Schmitt and Will Ye"
+    "adon and Yongki Lee and Scott Sauers and Alvaro Sanchez and Fabian Giska and"
+    " Marc Roth and S\u00f8ren Riis and Saiteja Utpala and Noah Burns and Gashaw M. Go"
+    "shu and Mohinder Maheshbhai Naiya and Chidozie Agu and Zachary Giboney and A"
+    "ntrell Cheatom and Francesco Fournier-Facio and Sarah-Jane Crowson and Lenna"
+    "rt Finke and Zerui Cheng and Jennifer Zampese and Ryan G. Hoerr and Mark Nan"
+    "dor and Hyunwoo Park and Tim Gehrunger and Jiaqi Cai and Ben McCarty and Ale"
+    "xis C Garretson and Edwin Taylor and Damien Sileo and Qiuyu Ren and Usman Qa"
+    "zi and Lianghui Li and Jungbae Nam and John B. Wydallis and Pavel Arkhipov a"
+    "nd Jack Wei Lun Shi and Aras Bacho and Chris G. Willcocks and Hangrui Cao an"
+    "d Sumeet Motwani and Emily de Oliveira Santos and Johannes Veith and Edward "
+    "Vendrow and Doru Cojoc and Kengo Zenitani and Joshua Robinson and Longke Tan"
+    "g and Yuqi Li and Joshua Vendrow and Natanael Wildner Fraga and Vladyslav Ku"
+    "chkin and Andrey Pupasov Maksimov and Pierre Marion and Denis Efremov and Ja"
+    "yson Lynch and Kaiqu Liang and Aleksandar Mikov and Andrew Gritsevskiy and J"
+    "ulien Guillod and G\u00f6zdenur Demir and Dakotah Martinez and Ben Pageler and Ke"
+    "vin Zhou and Saeed Soori and Ori Press and Henry Tang and Paolo Rissone and "
+    "Sean R. Green and Lina Br\u00fcssel and Moon Twayana and Aymeric Dieuleveut and J"
+    "oseph Marvin Imperial and Ameya Prabhu and Jinzhou Yang and Nick Crispino an"
+    "d Arun Rao and Dimitri Zvonkine and Gabriel Loiseau and Mikhail Kalinin and "
+    "Marco Lukas and Ciprian Manolescu and Nate Stambaugh and Subrata Mishra and "
+    "Tad Hogg and Carlo Bosio and Brian P Coppola and Julian Salazar and Jaehyeok"
+    " Jin and Rafael Sayous and Stefan Ivanov and Philippe Schwaller and Shaipran"
+    "esh Senthilkuma and Andres M Bran and Andres Algaba and Kelsey Van den Houte"
+    " and Lynn Van Der Sypt and Brecht F. Verbeken and David Noever and Alexei Ko"
+    "pylov and Benjamin Myklebust and Bikun Li and Lisa Schut and Evgenii Zhelton"
+    "ozhskii and Qiaochu Yuan and Derek Lim and Richard Stanley and Tong Yang and"
+    " John Maar and Julian Wykowski and Mart\u00ed Oller and Anmol Sahu and Cesare Giu"
+    "lio Ardito and Yuzheng Hu and Ariel Ghislain Kemogne Kamdoum and Alvin Jin a"
+    "nd Tobias Garcia Vilchis and Yuexuan Zu and Martin Lackner and James Koppel "
+    "and Gongbo Sun and Daniil S. Antonenko and Steffi Chern and Bingchen Zhao an"
+    "d Pierrot Arsene and Joseph M Cavanagh and Daofeng Li and Jiawei Shen and Do"
+    "nato Crisostomi and Wenjin Zhang and Ali Dehghan and Sergey Ivanov and David"
+    " Perrella and Nurdin Kaparov and Allen Zang and Ilia Sucholutsky and Arina K"
+    "harlamova and Daniil Orel and Vladislav Poritski and Shalev Ben-David and Za"
+    "chary Berger and Parker Whitfill and Michael Foster and Daniel Munro and Lin"
+    "h Ho and Shankar Sivarajan and Dan Bar Hava and Aleksey Kuchkin and David Ho"
+    "lmes and Alexandra Rodriguez-Romero and Frank Sommerhage and Anji Zhang and "
+    "Richard Moat and Keith Schneider and Zakayo Kazibwe and Don Clarke and Dae H"
+    "yun Kim and Felipe Meneguitti Dias and Sara Fish and Veit Elser and Tobias K"
+    "reiman and Victor Efren Guadarrama Vilchis and Immo Klose and Ujjwala Ananth"
+    "eswaran and Adam Zweiger and Kaivalya Rawal and Jeffery Li and Jeremy Nguyen"
+    " and Nicolas Daans and Haline Heidinger and Maksim Radionov and V\u00e1clav Rozho"
+    "\u0148 and Vincent Ginis and Christian Stum"
+    "p and Niv Cohen and Rafa\u0142 Po\u015bwiata and"
+    " Josef Tkadlec and Alan Goldfarb and Chenguang Wang and Piotr Padlewski and "
+    "Stanislaw Barzowski and Kyle Montgomery and Ryan Stendall and Jamie Tucker-F"
+    "oltz and Jack Stade and T. Ryan Rogers and Tom Goertzen and Declan Grabb and"
+    " Abhishek Shukla and Alan Givr\u00e9 and John Arnold Ambay and Archan Sen and Muh"
+    "ammad Fayez Aziz and Mark H Inlow and Hao He and Ling Zhang and Younesse Kad"
+    "dar and Ivar \u00c4ngquist and Yanxu Chen and Harrison K Wang and Kalyan Ramakris"
+    "hnan and Elliott Thornley and Antonio Terpin and Hailey Schoelkopf and Eric "
+    "Zheng and Avishy Carmi and Ethan D. L. Brown and Kelin Zhu and Max Bartolo a"
+    "nd Richard Wheeler and Martin Stehberger and Peter Bradshaw and JP Heimonen "
+    "and Kaustubh Sridhar and Ido Akov and Jennifer Sandlin and Yury Makarychev a"
+    "nd Joanna Tam and Hieu Hoang and David M. Cunningham and Vladimir Goryachev "
+    "and Demosthenes Patramanis and Michael Krause and Andrew Redenti and David A"
+    "ldous and Jesyin Lai and Shannon Coleman and Jiangnan Xu and Sangwon Lee and"
+    " Ilias Magoulas and Sandy Zhao and Ning Tang and Michael K. Cohen and Orr Pa"
+    "radise and Jan Hendrik Kirchner and Maksym Ovchynnikov and Jason O. Matos an"
+    "d Adithya Shenoy and Michael Wang and Yuzhou Nie and Anna Sztyber-Betley and"
+    " Paolo Faraboschi and Robin Riblet and Jonathan Crozier and Shiv Halasyamani"
+    " and Shreyas Verma and Prashant Joshi and Eli Meril and Ziqiao Ma and J\u00e9r\u00e9my"
+    " Andr\u00e9oletti and Raghav Singhal and Jacob Platnick and Volodymyr Nevirkovets"
+    " and Luke Basler and Alexander Ivanov and Seri Khoury and Nils Gustafsson an"
+    "d Marco Piccardo and Hamid Mostaghimi and Qijia Chen and Virendra Singh and "
+    "Tran Quoc Kh\u00e1nh and Paul Rosu and Hannah Szlyk and Zachary Brown and Himansh"
+    "u Narayan and Aline Menezes and Jonathan Roberts and William Alley and Kunya"
+    "ng Sun and Arkil Patel and Max Lamparth and Anka Reuel and Linwei Xin and Ha"
+    "nmeng Xu and Jacob Loader and Freddie Martin and Zixuan Wang and Andrea Achi"
+    "lleos and Thomas Preu and Tomek Korbak and Ida Bosio and Fereshteh Kazemi an"
+    "d Ziye Chen and Bir\u00f3 B\u00e1lint and Eve J."
+    " Y. Lo and Jiaqi Wang and Maria In\u00eas S"
+    ". Nunes and Jeremiah Milbauer and M Saiful Bari and Zihao Wang and Behzad An"
+    "sarinejad and Yewen Sun and Stephane Durand and Hossam Elgnainy and Guillaum"
+    "e Douville and Daniel Tordera and George Balabanian and Hew Wolff and Lynna "
+    "Kvistad and Hsiaoyun Milliron and Ahmad Sakor and Murat Eron and Andrew Favr"
+    "e D. O. and Shailesh Shah and Xiaoxiang Zhou and Firuz Kamalov and Sherwin A"
+    "bdoli and Tim Santens and Shaul Barkan and Allison Tee and Robin Zhang and A"
+    "lessandro Tomasiello and G. Bruno De Luca and Shi-Zhuo Looi and Vinh-Kha Le "
+    "and Noam Kolt and Jiayi Pan and Emma Rodman and Jacob Drori and Carl J Fossu"
+    "m and Niklas Muennighoff and Milind Jagota and Ronak Pradeep and Honglu Fan "
+    "and Jonathan Eicher and Michael Chen and Kushal Thaman and William Merrill a"
+    "nd Moritz Firsching and Carter Harris and Stefan Ciob\u00e2c\u0103 and Jason Gross and"
+    " Rohan Pandey and Ilya Gusev and Adam Jones and Shashank Agnihotri and Pavel"
+    " Zhelnov and Mohammadreza Mofayezi and Alexander Piperski and David K. Zhang"
+    " and Kostiantyn Dobarskyi and Roman Leventov and Ignat Soroko and Joshua Due"
+    "rsch and Vage Taamazyan and Andrew Ho and Wenjie Ma and William Held and Rui"
+    "cheng Xian and Armel Randy Zebaze and Mohanad Mohamed and Julian Noah Leser "
+    "and Michelle X Yuan and Laila Yacar and Johannes Lengler and Katarzyna Olsze"
+    "wska and Claudio Di Fratta and Edson Oliveira and Joseph W. Jackson and Andy"
+    " Zou and Muthu Chidambaram and Timothy Manik and Hector Haffenden and Dashie"
+    "ll Stander and Ali Dasouqi and Alexander Shen and Bita Golshani and David St"
+    "ap and Egor Kretov and Mikalai Uzhou and Alina Borisovna Zhidkovskaya and Ni"
+    "ck Winter and Miguel Orbegozo Rodriguez and Robert Lauff and Dustin Wehr and"
+    " Colin Tang and Zaki Hossain and Shaun Phillips and Fortuna Samuele and Fred"
+    "rik Ekstr\u00f6m and Angela Hammon and Oam Patel and Faraz Farhidi and George Med"
+    "ley and Forough Mohammadzadeh and Madellene Pe\u00f1aflor and Haile Kassahun and "
+    "Alena Friedrich and Rayner Hernandez Perez and Daniel Pyda and Taom Sakal an"
+    "d Omkar Dhamane and Ali Khajegili Mirabadi and Eric Hallman and Kenchi Okuts"
+    "u and Mike Battaglia and Mohammad Maghsoudimehrabani and Alon Amit and Dave "
+    "Hulbert and Roberto Pereira and Simon Weber and Handoko and Anton Peristyy a"
+    "nd Stephen Malina and Mustafa Mehkary and Rami Aly and Frank Reidegeld and A"
+    "nna-Katharina Dick and Cary Friday and Mukhwinder Singh and Hassan Shapouria"
+    "n and Wanyoung Kim and Mariana Costa and Hubeyb Gurdogan and Harsh Kumar and"
+    " Chiara Ceconello and Chao Zhuang and Haon Park and Micah Carroll and Andrew"
+    " R. Tawfeek and Stefan Steinerberger and Daattavya Aggarwal and Michael Kirc"
+    "hhof and Linjie Dai and Evan Kim and Johan Ferret and Jainam Shah and Yuzhou"
+    " Wang and Minghao Yan and Krzysztof Burdzy and Lixin Zhang and Antonio Franc"
+    "a and Diana T. Pham and Kang Yong Loh and Joshua Robinson and Abram Jackson "
+    "and Paolo Giordano and Philipp Petersen and Adrian Cosma and Jesus Colino an"
+    "d Colin White and Jacob Votava and Vladimir Vinnikov and Ethan Delaney and P"
+    "etr Spelda and Vit Stritecky and Syed M. Shahid and Jean-Christophe Mourrat "
+    "and Lavr Vetoshkin and Koen Sponselee and Renas Bacho and Zheng-Xin Yong and"
+    " Florencia de la Rosa and Nathan Cho and Xiuyu Li and Guillaume Malod and Or"
+    "ion Weller and Guglielmo Albani and Leon Lang and Julien Laurendeau and Dmit"
+    "ry Kazakov and Fatimah Adesanya and Julien Portier and Lawrence Hollom and V"
+    "ictor Souza and Yuchen Anna Zhou and Julien Degorre and Yi\u011fit Yal\u0131n and Gben"
+    "ga Daniel Obikoya and Rai and Filippo Bigi and M. C. Bosc\u00e1 and Oleg Shumar a"
+    "nd Kaniuar Bacho and Gabriel Recchia and Mara Popescu and Nikita Shulga and "
+    "Ngefor Mildred Tanwie and Thomas C. H. Lux and Ben Rank and Colin Ni and Mat"
+    "thew Brooks and Alesia Yakimchyk and Huanxu and Liu and Stefano Cavalleri an"
+    "d Olle H\u00e4ggstr\u00f6m and Emil Verkama and Joshua Newbould and Hans Gundlach and "
+    "Leonor Brito-Santana and Brian Amaro and Vivek Vajipey and Rynaa Grover and "
+    "Ting Wang and Yosi Kratish and Wen-Ding Li and Sivakanth Gopi and Andrea Cac"
+    "iolai and Christian Schroeder de Witt and Pablo Hern\u00e1ndez-C\u00e1mara and Emanuel"
+    "e Rodol\u00e0 and Jules Robins and Dominic Williamson and Vincent Cheng and Brad "
+    "Raynor and Hao Qi and Ben Segev and Jingxuan Fan and Sarah Martinson and Eri"
+    "k Y. Wang and Kaylie Hausknecht and Michael P. Brenner and Mao Mao and Chris"
+    "toph Demian and Peyman Kassani and Xinyu Zhang and David Avagian and Eshawn "
+    "Jessica Scipio and Alon Ragoler and Justin Tan and Blake Sims and Rebeka Ple"
+    "cnik and Aaron Kirtland and Omer Faruk Bodur and D. P. Shinde and Yan Carlos"
+    " Leyva Labrador and Zahra Adoul and Mohamed Zekry and Ali Karakoc and Tania "
+    "C. B. Santos and Samir Shamseldeen and Loukmane Karim and Anna Liakhovitskai"
+    "a and Nate Resman and Nicholas Farina and Juan Carlos Gonzalez and Gabe Maay"
+    "an and Earth Anderson and Rodrigo De Oliveira Pena and Elizabeth Kelley and "
+    "Hodjat Mariji and Rasoul Pouriamanesh and Wentao Wu and Ross Finocchio and I"
+    "smail Alarab and Joshua Cole and Danyelle Ferreira and Bryan Johnson and Moh"
+    "ammad Safdari and Liangti Dai and Siriphan Arthornthurasuk and Isaac C. McAl"
+    "ister and Alejandro Jos\u00e9 Moyano and Alexey Pronin and Jing Fan and Angel Ram"
+    "irez-Trinidad and Yana Malysheva and Daphiny Pottmaier and Omid Taheri and S"
+    "tanley Stepanic and Samuel Perry and L"
+    "uke Askew and Ra\u00fal Adri\u00e1n Huerta Rodr\u00ed"
+    "guez and Ali M. R. Minissi and Ricardo Lorena and Krishnamurthy Iyer and Ars"
+    "had Anil Fasiludeen and Ronald Clark and Josh Ducey and Matheus Piza and Maj"
+    "a Somrak and Eric Vergo and Juehang Qin and Benj\u00e1min Borb\u00e1s and Eric Chu and"
+    " Jack Lindsey and Antoine Jallon and I. M. J. McInnis and Evan Chen and Avi "
+    "Semler and Luk Gloor and Tej Shah and Marc Carauleanu and Pascal Lauer and T"
+    "ran \u0110uc Huy and Hossein Shahrtash and Emilien Duc and Lukas Lewark and Assaf"
+    " Brown and Samuel Albanie and Brian Weber and Warren S. Vaz and Pierre Clavi"
+    "er and Yiyang Fan and Gabriel Poesia Reis e Silva and Long and Lian and Marc"
+    "us Abramovitch and Xi Jiang and Sandra Mendoza and Murat Islam and Juan Gonz"
+    "alez and Vasilios Mavroudis and Justin Xu and Pawan Kumar and Laxman Prasad "
+    "Goswami and Daniel Bugas and Nasser Heydari and Ferenc Jeanplong and Thorben"
+    " Jansen and Antonella Pinto and Archimedes Apronti and Abdallah Galal and Ng"
+    " Ze-An and Ankit Singh and Tong Jiang and Joan of Arc Xavier and Kanu Priya "
+    "Agarwal and Mohammed Berkani and Gang Zhang and Zhehang Du and Benedito Alve"
+    "s de Oliveira Junior and Dmitry Malishev and Nicolas Remy and Taylor D. Hart"
+    "man and Tim Tarver and Stephen Mensah and Gautier Abou Loume and Wiktor Mora"
+    "k and Farzad Habibi and Sarah Hoback and Will Cai and Javier Gimenez and Ros"
+    "elynn Grace Montecillo and Jakub \u0141ucki and Russell Campbell and Asankhaya Sh"
+    "arma and Khalida Meer and Shreen Gul and Daniel Espinosa Gonzalez and Xavier"
+    " Alapont and Alex Hoover and Gunjan Chhablani and Freddie Vargus and Arunim "
+    "Agarwal and Yibo Jiang and Deepakkumar Patil and David Outevsky and Kevin Jo"
+    "seph Scaria and Rajat Maheshwari and Abdelkader Dendane and Priti Shukla and"
+    " Ashley Cartwright and Sergei Bogdanov"
+    " and Niels M\u00fcndler and S\u00f6ren M\u00f6ller an"
+    "d Luca Arnaboldi and Kunvar Thaman and Muhammad Rehan Siddiqi and Prajvi Sax"
+    "ena and Himanshu Gupta and Tony Fruhauff and Glen Sherman and M\u00e1ty\u00e1s Vincze "
+    "and Siranut Usawasutsakorn and Dylan Ler and Anil Radhakrishnan and Innocent"
+    " Enyekwe and Sk Md Salauddin and Jiang Muzhen and Aleksandr Maksapetyan and "
+    "Vivien Rossbach and Chris Harjadi and Mohsen Bahaloohoreh and Claire Sparrow"
+    " and Jasdeep Sidhu and Sam Ali and Song Bian and John Lai and Eric Singer an"
+    "d Justine Leon Uro and Greg Bateman and Mohamed Sayed and Ahmed Menshawy and"
+    " Darling Duclosel and Dario Bezzi and Yashaswini Jain and Ashley Aaron and M"
+    "urat Tiryakioglu and Sheeshram Siddh and Keith Krenek and Imad Ali Shah and "
+    "Jun Jin and Scott Creighton and Denis Peskoff and Zienab EL-Wasif and Ragave"
+    "ndran P V and Michael Richmond and Joseph McGowan and Tejal Patwardhan and H"
+    "ao-Yu Sun and Ting Sun and Nikola Zubi\u0107 and Samuele Sala and Stephen Ebert a"
+    "nd Jean Kaddour and Manuel Schottdorf and Dianzhuo Wang and Gerol Petruzella"
+    " and Alex Meiburg and Tilen Medved and Ali ElSheikh and S Ashwin Hebbar and "
+    "Lorenzo Vaquero and Xianjun Yang and Jason Poulos and Vil\u00e9m Zouhar and Serge"
+    "y Bogdanik and Mingfang Zhang and Jorge Sanz-Ros and David Anugraha and Yinw"
+    "ei Dai and Anh N. Nhu and Xue Wang and Ali Anil Demircali and Zhibai Jia and"
+    " Yuyin Zhou and Juncheng Wu and Mike He and Nitin Chandok and Aarush Sinha a"
+    "nd Gaoxiang Luo and Long Le and Micka\u00eb"
+    "l Noy\u00e9 and Micha\u0142 Pere\u0142kiewicz and Ioa"
+    "nnis Pantidis and Tianbo Qi and Soham Sachin Purohit and Letitia Parcalabesc"
+    "u and Thai-Hoa Nguyen and Genta Indra Winata and Edoardo M. Ponti and Hanche"
+    "n Li and Kaustubh Dhole and Jongee Park and Dario Abbondanza and Yuanli Wang"
+    " and Anupam Nayak and Diogo M. Caetano and Antonio A. W. L. Wong and Maria d"
+    "el Rio-Chanona and D\u00e1niel Kondor and Pieter Francois and Ed Chalstrey and Ja"
+    "kob Zsambok and Dan Hoyer and Jenny Reddish and Jakob Hauser and Francisco-J"
+    "avier Rodrigo-Gin\u00e9s and Suchandra Datta and Maxwell Shepherd and Thom Kamphu"
+    "is and Qizheng Zhang and Hyunjun Kim and Ruiji Sun and Jianzhu Yao and Franc"
+    "k Dernoncourt and Satyapriya Krishna and Sina Rismanchian and Bonan Pu and F"
+    "rancesco Pinto and Yingheng Wang and Kumar Shridhar and Kalon J. Overholt an"
+    "d Glib Briia and Hieu Nguyen and David and Soler Bartomeu and Tony CY Pang a"
+    "nd Adam Wecker and Yifan Xiong and Fanfei Li and Lukas S. Huber and Joshua J"
+    "aeger and Romano De Maddalena and Xing Han L\u00f9 and Yuhui Zhang and Claas Bege"
+    "r and Patrick Tser Jern Kon and Sean Li and Vivek Sanker and Ming Yin and Yi"
+    "hao Liang and Xinlu Zhang and Ankit Agrawal and Li S. Yifei and Zechen Zhang"
+    " and Mu Cai and Yasin Sonmez and Costin Cozianu and Changhao Li and Alex Sle"
+    "n and Shoubin Yu and Hyun Kyu Park and Gabriele Sarti and Marcin Bria\u0144ski an"
+    "d Alessandro Stolfo and Truong An Nguyen and Mike Zhang and Yotam Perlitz an"
+    "d Jose Hernandez-Orallo and Runjia Li and Amin Shabani and Felix Juefei-Xu a"
+    "nd Shikhar Dhingra and Orr Zohar and My Chiffon Nguyen and Alexander Pondave"
+    "n and Abdurrahim Yilmaz and Xuandong Zhao and Chuanyang Jin and Muyan Jiang "
+    "and Stefan Todoran and Xinyao Han and Jules Kreuer and Brian Rabern and Anna"
+    " Plassart and Martino Maggetti and Luther Yap and Robert Geirhos and Jonatho"
+    "n Kean and Dingsu Wang and Sina Mollaei and Chenkai Sun and Yifan Yin and Sh"
+    "iqi Wang and Rui Li and Yaowen Chang and Anjiang Wei and Alice Bizeul and Xi"
+    "aohan Wang and Alexandre Oliveira Arrais and Kushin Mukherjee and Jorge Cham"
+    "orro-Padial and Jiachen Liu and Xingyu Qu and Junyi Guan and Adam Bouyamourn"
+    " and Shuyu Wu and Martyna Plomecka and Junda Chen and Mengze Tang and Jiaqi "
+    "Deng and Shreyas Subramanian and Haocheng Xi and Haoxuan Chen and Weizhi Zha"
+    "ng and Yinuo Ren and Haoqin Tu and Sejong Kim and Yushun Chen and Sara Vera "
+    "Marjanovi\u0107 and Junwoo Ha and Grzegorz Luczyna and Jeff J. Ma and Zewen Shen "
+    "and Dawn Song and Cedegao E. Zhang and Zhun Wang and Ga\u00ebl Gendron and Yunze "
+    "Xiao and Leo Smucker and Erica Weng and Kwok Hao Lee and Zhe Ye and Stefano "
+    "Ermon and Ignacio D. Lopez-Miguel and Theo Knights and Anthony Gitter and Na"
+    "mkyu Park and Boyi Wei and Hongzheng Chen and Kunal Pai and Ahmed Elkhanany "
+    "and Han Lin and Philipp D. Siedler and Jichao Fang and Ritwik Mishra and K\u00e1r"
+    "oly Zsolnai-Feh\u00e9r and Xilin Jiang and Shadab Khan and Jun Yuan and Rishab Ku"
+    "mar Jain and Xi Lin and Mike Peterson and Zhe Wang and Aditya Malusare and M"
+    "aosen Tang and Isha Gupta and Ivan Fosin and Timothy Kang and Barbara Dworak"
+    "owska and Kazuki Matsumoto and Guangyao Zheng and Gerben Sewuster and Jorge "
+    "Pretel Villanueva and Ivan Rannev and Igor Chernyavsky and Jiale Chen and De"
+    "epayan Banik and Ben Racz and Wenchao Dong and Jianxin Wang and Laila Bashma"
+    "l and Duarte V. Gon\u00e7alves and Wei Hu and Kaushik Bar and Ondrej Bohdal and A"
+    "tharv Singh Patlan and Shehzaad Dhuliawala and Caroline Geirhos and Julien W"
+    "ist and Yuval Kansal and Bingsen Chen and Kutay Tire and Atak Talay Y\u00fccel an"
+    "d Brandon Christof and Veerupaksh Singla and Zijian Song and Sanxing Chen an"
+    "d Jiaxin Ge and Kaustubh Ponkshe and Isaac Park and Tianneng Shi and Martin "
+    "Q. Ma and Joshua Mak and Sherwin Lai and Antoine Moulin and Zhuo Cheng and Z"
+    "handa Zhu and Ziyi Zhang and Vaidehi Patil and Ketan Jha and Qiutong Men and"
+    " Jiaxuan Wu and Tianchi Zhang and Bruno Hebling Vieira and Alham Fikri Aji a"
+    "nd Jae-Won Chung and Mohammed Mahfoud and Ha Thi Hoang and Marc Sperzel and "
+    "Wei Hao and Kristof Meding and Sihan Xu and Vassilis Kostakos and Davide Man"
+    "ini and Yueying Liu and Christopher Toukmaji and Jay Paek and Eunmi Yu and A"
+    "rif Engin Demircali and Zhiyi Sun and Ivan Dewerpe and Hongsen Qin and Roman"
+    " Pflugfelder and James Bailey and Johnathan Morris and Ville Heilala and Syb"
+    "ille Rosset and Zishun Yu and Peter E. Chen and Woongyeong Yeo and Eeshaan J"
+    "ain and Ryan Yang and Sreekar Chigurupati and Julia Chernyavsky and Sai Praj"
+    "wal Reddy and Subhashini Venugopalan and Hunar Batra and Core Francisco Park"
+    " and Hieu Tran and Guilherme Maximiano and Genghan Zhang and Yizhuo Liang an"
+    "d Hu Shiyu and Rongwu Xu and Rui Pan and Siddharth Suresh and Ziqi Liu and S"
+    "amaksh Gulati and Songyang Zhang and Peter Turchin and Christopher W. Bartle"
+    "tt and Christopher R. Scotese and Phuong M. Cao and Ben Wu and Jacek Karwows"
+    "ki and Davide Scaramuzza and Aakaash Nattanmai and Gordon McKellips and Anis"
+    "h Cheraku and Asim Suhail and Ethan Luo and Marvin Deng and Jason Luo and As"
+    "hley Zhang and Kavin Jindel and Jay Paek and Kasper Halevy and Allen Baranov"
+    " and Michael Liu and Advaith Avadhanam and David Zhang and Vincent Cheng and"
+    " Brad Ma and Evan Fu and Liam Do and Joshua Lass and Hubert Yang and Surya S"
+    "unkari and Vishruth Bharath and Violet Ai and James Leung and Rishit Agrawal"
+    " and Alan Zhou and Kevin Chen and Tejas Kalpathi and Ziqi Xu and Gavin Wang "
+    "and Tyler Xiao and Erik Maung and Sam Lee and Ryan Yang and Roy Yue and Ben "
+    "Zhao and Julia Yoon and Sunny Sun and Aryan Singh and Ethan Luo and Clark Pe"
+    "ng and Tyler Osbey and Taozhi Wang and Daryl Echeazu and Hubert Yang and Tim"
+    "othy Wu and Spandan Patel and Vidhi Kulkarni and Vijaykaarti Sundarapandiyan"
+    " and Ashley Zhang and Andrew Le and Zafir Nasim and Srikar Yalam and Ritesh "
+    "Kasamsetty and Soham Samal and Hubert Yang and David Sun and Nihar Shah and "
+    "Abhijeet Saha and Alex Zhang and Leon Nguyen and Laasya Nagumalli and Kaixin"
+    " Wang and Alan Zhou and Aidan Wu and Jason Luo and Anwith Telluri and Steven"
+    " Dillmann and Zhengxiang Wang and Junyu Luo and Hugo Lunn and Artem Gazizov "
+    "and Haitz S\u00e1ez de Oc\u00e1riz Borde and Ivan Trus and Morgan Hervault and Zheyu Z"
+    "hang and Bo Chen and Yuchen Wu and Christopher J. Cordier and G\u00fcn Kaynar and"
+    " Cansin Ayvaz and Polina Avdiunina and Johannes Brust and Xingjian Diao and "
+    "K. D. Meaney and Yifan Gu and Chenyu Wang and Chenzhuo Dong and William Wrig"
+    "ht and Simon Brave and Owen Root and Jiayuan Liu and Chow Chun Lok and Tianq"
+    "in Li and Shiyi Du and Dailan He and Lufeiya Liu and Sina Jamalzadegan and A"
+    "nil Ramakrishna and Xuanqing Xu and Xin Qing and Xin Luo and Wenkai Li and S"
+    "hi Bo and Filipp Gusev and Maximos Skandalis and Desheng Ma and Chunhui Zhan"
+    "g and Haoran Qiu and Allen G Hart and Rickard Br\u00fcel Gabrielsson and Ido Akov"
+    " and Artem Lukoianov and Pengchong Hu and Siting Li and Weimin Lyu and Xingc"
+    "hen Zhao and Tianyu Yang and Weiyi Wu and Deren Lei and Robert W. Baber and "
+    "Xiangchi Yuan and Lanyi Wang and Yanjun Cui and Johannes-Rudolf David and Su"
+    "jay Potlapelly and Jeremy Kalfus and Haotian Xu and Abderrahim Bendahi and Q"
+    "iming Bao and Yingxin Jia and Jiang Gui and Jiaming Hu and Zheyuan Liu and F"
+    "urkan \u015e\u0131k and Brandon Handoko and Summer Yue and Alexandr Wang and Dan Hendr"
+    "ycks},\n"
+    "      year={2026},\n"
+    "      eprint={2501.14249},\n"
+    "      archivePrefix={arXiv},\n"
+    "      primaryClass={cs.LG},\n"
+    "      doi={https://doi.org/10.1038/s41586-025-09962-4},\n"
+    "      url={https://arxiv.org/abs/2501.14249}, \n"
+    "}"
+)
+
+
 #: Every imported benchmark, in catalogue order. Importing another eval = one row here
 #: plus its TaskReplayCasesSpec declaration — never a new module.
 BENCHMARKS: tuple[BenchmarkSpec, ...] = (
@@ -407,9 +721,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "published key, so no judge tokens are spent. Cases are served in a "
             "fixed seeded shuffle (inspect's own seed) so a limited run spans "
             "subjects. Benchmark score = "
-            "plain accuracy over the cases run. No mid-run check surface: pass/fail "
-            "feedback over four options would let a loop eliminate choices rather "
-            "than improve answers."
+            "plain accuracy over the cases run."
         ),
         focus="Broad multi-subject knowledge (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/mmlu",
@@ -464,9 +776,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "Easy test split), imported from inspect_evals. The model answers "
             "with one lettered choice; grading is inspect's own choice scorer "
             "against the published key, so no judge tokens are spent. Benchmark "
-            "score = plain accuracy over the cases run. No mid-run check surface: "
-            "pass/fail feedback over a handful of options would let a loop "
-            "eliminate choices rather than improve answers."
+            "score = plain accuracy over the cases run."
         ),
         focus="Grade-school science (multiple choice)",
         dataset_url="https://huggingface.co/datasets/allenai/ai2_arc",
@@ -518,8 +828,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "baselines get wrong), imported from inspect_evals. The model "
             "answers with one lettered choice; grading is inspect's own choice "
             "scorer against the published key, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over few options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Hard science reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/allenai/ai2_arc",
@@ -573,8 +882,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "withheld by the authors), imported from inspect_evals. Grading is "
             "inspect's own choice scorer against the published key; benchmark "
             "score = plain accuracy over the cases run, served in a fixed seeded "
-            "shuffle (inspect_evals randomizes order per run). No mid-run "
-            "check surface (elimination attack over few options)."
+            "shuffle (inspect_evals randomizes order per run)."
         ),
         focus="Everyday commonsense reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/tau/commonsense_qa",
@@ -635,9 +943,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "right on every No Case, and a model that always refused that way scored "
             "55.8% (4,464 of 8,000). Cases are served in a fixed seeded shuffle "
             "(inspect_evals randomizes order per run); benchmark score = plain "
-            "accuracy over the cases run. Free-form replies make the mid-run check "
-            "surface legitimate (corrective loop). Dataset: PAWS by Google LLC, used under its own "
-            "licence."
+            "accuracy over the cases run. Dataset: PAWS by Google LLC, used under its own licence."
         ),
         focus="Paraphrase adjudication (yes/no)",
         dataset_url="https://huggingface.co/datasets/google-research-datasets/paws",
@@ -707,9 +1013,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "pattern accepts any reply ending in 'yes' or 'no' plus at most one "
             "character, so 'I don't know' was right on all 1,237 No Cases. Cases are "
             "served in a fixed seeded shuffle (inspect_evals randomizes order "
-            "per run); benchmark score = plain accuracy over the cases run. "
-            "Free-form replies make the mid-run check surface legitimate "
-            "(corrective loop)."
+            "per run); benchmark score = plain accuracy over the cases run."
         ),
         focus="Yes/no reading comprehension",
         dataset_url="https://huggingface.co/datasets/google/boolq",
@@ -772,7 +1076,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "choice scorer against the published key, so no judge tokens are "
             "spent. Cases are served in a fixed seeded shuffle so a limited run "
             "spans disciplines. Benchmark score = plain accuracy over the cases "
-            "run. No mid-run check surface (elimination attack over options)."
+            "run."
         ),
         focus="Harder multi-discipline knowledge, ten options (multiple choice)",
         dataset_url="https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro",
@@ -831,9 +1135,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "role), imported from inspect_evals. Prompts "
             "render through the eval's own template; grading is inspect's own "
             "choice scorer against the published key, so no judge tokens are "
-            "spent. Benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface: pass/fail feedback over two options is a "
-            "coin-flip oracle (OME-796)."
+            "spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Commonsense pronoun resolution (binary choice)",
         dataset_url="https://huggingface.co/datasets/allenai/winogrande",
@@ -892,10 +1194,8 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "inspect's own choice scorer against the published key, so no judge "
             "tokens are spent. Cases are served in a fixed seeded shuffle so a "
             "limited run spans passages. Benchmark score = plain accuracy over "
-            "the cases run. No mid-run check surface (elimination attack). "
-            "Dataset: RACE by Lai et al. (Carnegie Mellon University), for "
-            "non-commercial research only; source: "
-            "https://www.cs.cmu.edu/~glai1/data/race/."
+            "the cases run. Dataset: RACE by Lai et al. (Carnegie Mellon University), for "
+            "non-commercial research only; source: https://www.cs.cmu.edu/~glai1/data/race/."
         ),
         focus="Long-passage reading comprehension (multiple choice)",
         dataset_url="https://huggingface.co/datasets/ehovy/race",
@@ -955,8 +1255,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "here. Cases "
             "are served in the dataset's own order, as the eval serves them. "
             "Benchmark score = plain accuracy "
-            "over the cases run. Free-form replies make the mid-run check "
-            "surface legitimate (corrective loop)."
+            "over the cases run."
         ),
         focus="Competition mathematics (AIME 2024)",
         dataset_url="https://huggingface.co/datasets/Maxwell-Jia/AIME_2024",
@@ -1025,8 +1324,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "here. Cases "
             "are served in the dataset's own order, as the eval serves them. "
             "Benchmark score = plain accuracy "
-            "over the cases run. Free-form replies make the mid-run check "
-            "surface legitimate (corrective loop)."
+            "over the cases run."
         ),
         focus="Competition mathematics (AIME 2025)",
         dataset_url="https://huggingface.co/datasets/math-ai/aime25",
@@ -1089,8 +1387,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "own choice scorer against the published key, so no judge tokens "
             "are spent. Cases are served in a fixed seeded shuffle (the "
             "inspect_evals randomizes order per run); benchmark score = plain "
-            "accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over few options)."
+            "accuracy over the cases run."
         ),
         focus="Long-narrative multi-step reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/TAUR-Lab/MuSR",
@@ -1145,8 +1442,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "imported from inspect_evals. Grading is inspect's own choice "
             "scorer against the published key, so no judge tokens are spent; "
             "cases are served in inspect_evals' order (the eval does not "
-            "shuffle); benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over few options)."
+            "shuffle); benchmark score = plain accuracy over the cases run."
         ),
         focus="Hazardous biosecurity knowledge probe (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/wmdp",
@@ -1220,8 +1516,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "capability, imported from inspect_evals. Grading is inspect's own "
             "choice scorer against the published key, so no judge tokens are "
             "spent; cases are served in inspect_evals' order (the eval does not "
-            "shuffle); benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over few options)."
+            "shuffle); benchmark score = plain accuracy over the cases run."
         ),
         focus="Hazardous chemical-security knowledge probe (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/wmdp",
@@ -1292,8 +1587,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "capability, imported from inspect_evals. Grading is inspect's own "
             "choice scorer against the published key, so no judge tokens are "
             "spent; cases are served in inspect_evals' order (the eval does not "
-            "shuffle); benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over few options)."
+            "shuffle); benchmark score = plain accuracy over the cases run."
         ),
         focus="Hazardous cybersecurity knowledge probe (multiple choice)",
         dataset_url="https://huggingface.co/datasets/cais/wmdp",
@@ -1371,8 +1665,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "spent; cases are served in the split's own order, as the eval "
             "serves them (the split is domain-grouped, so a limited run "
             "examines few domains); benchmark score = plain accuracy over the "
-            "cases run. No mid-run check surface (elimination attack over few "
-            "options)."
+            "cases run."
         ),
         focus="Commonsense sentence continuation (multiple choice)",
         dataset_url="https://huggingface.co/datasets/Rowan/hellaswag",
@@ -1430,8 +1723,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "own precision-aware choice scorer (opting out counts as no answer, "
             "not wrong), so no judge tokens are spent. Serving order and choice "
             "order are pinned by policy seeds (inspect_evals shuffles both per run). "
-            "Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over few options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Biology literature research QA (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1493,8 +1785,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "opt-out; grading is the eval's own precision-aware choice scorer "
             "(opting out counts as no answer, not wrong), so no judge tokens "
             "are spent. Serving order and choice order are pinned by policy "
-            "seeds. Benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over few options)."
+            "seeds. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Paper supplementary-material QA (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1556,8 +1847,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "own precision-aware choice scorer (opting out counts as no answer, "
             "not wrong), so no judge tokens are spent. Serving order and choice "
             "order are pinned by policy seeds. Benchmark score = plain accuracy "
-            "over the cases run. No mid-run check surface (elimination attack "
-            "over few options)."
+            "over the cases run."
         ),
         focus="Biological database knowledge (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1620,8 +1910,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "grading is the eval's own precision-aware choice scorer (opting "
             "out counts as no answer, not wrong), so no judge tokens are "
             "spent. Serving order and choice order are pinned by policy seeds. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over few options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Lab-protocol troubleshooting (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1684,8 +1973,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "choice scorer (opting out counts as no answer, not wrong), so no "
             "judge tokens are spent. Serving order and choice order are pinned "
             "by policy seeds. Benchmark score = plain accuracy over the cases "
-            "run. No mid-run check surface (elimination attack over few "
-            "options)."
+            "run."
         ),
         focus="DNA/protein sequence reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1749,8 +2037,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "choice scorer (opting out counts as no answer, not wrong), so no "
             "judge tokens are spent. Serving order and choice order are pinned "
             "by policy seeds. Benchmark score = plain accuracy over the cases "
-            "run. No mid-run check surface (elimination attack over few "
-            "options)."
+            "run."
         ),
         focus="Molecular-cloning workflow reasoning (multiple choice)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -1894,8 +2181,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "language note and asks the model to think step by step before its "
             "final 'ANSWER: X' line. Serving order is pinned by a policy seed "
             "(inspect_evals shuffles per run). Benchmark score = plain accuracy over "
-            "the cases run. No mid-run check surface (elimination attack over "
-            "few options)."
+            "the cases run."
         ),
         focus="Thai national high-school exam (multiple choice)",
         dataset_url="https://huggingface.co/datasets/matichon/thai-onet-m6-exam",
@@ -1952,8 +2238,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "questions and keeps the 500 on its test list; the board keeps exactly "
             "the same 500, in dataset order like inspect. Graded by the eval's own "
             "choice scorer against the published answer, so no judge tokens are "
-            "spent. Benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over three options)."
+            "spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Biomedical research QA from abstracts (yes/no/maybe)",
         dataset_url="https://huggingface.co/datasets/qiaojin/PubMedQA",
@@ -2016,7 +2301,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "scored cases), from this board's own metrics; it is not 1 - score, "
             "because a partial refusal counts as half here and as a full refusal "
             "there. The unsafe half, where refusing is the right answer, is "
-            "xstest_unsafe, scored by refusal rate. No mid-run check surface."
+            "xstest_unsafe, scored by refusal rate."
         ),
         focus="Over-refusal of harmless prompts (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/walledai/XSTest",
@@ -2090,7 +2375,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "counts as half here and as a full refusal there. Convert with inspect's "
             "refusal rate = 100 x (2 x score - correct / scored cases), from this "
             "benchmark's own metrics. The prompts are mild by design, so this measures "
-            "refusal behaviour, not broad safety. No mid-run check surface."
+            "refusal behaviour, not broad safety."
         ),
         focus="Refusal of unsafe prompts (LLM-judged, scored by refusal rate)",
         dataset_url="https://huggingface.co/datasets/walledai/XSTest",
@@ -2161,8 +2446,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "way inspect fetches them and sealed by a Case Digest. Prompts use agieval's own "
             "multiple-choice template with no few-shot examples and no chain of thought. Graded by "
             "inspect's choice scorer against the published answer, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over the options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Law-school logic games (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2222,8 +2506,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "fetches them and sealed by a Case Digest. Prompts use agieval's own multiple-choice "
             "template with no few-shot examples and no chain of thought. Graded by inspect's "
             "choice scorer against the published answer, so no judge tokens are spent. Benchmark "
-            "score = plain accuracy over the cases run. No mid-run check surface (elimination "
-            "attack over the options)."
+            "score = plain accuracy over the cases run."
         ),
         focus="Law-school logical reasoning (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2282,8 +2565,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "fetched the way inspect fetches them and sealed by a Case Digest. Prompts use "
             "agieval's own multiple-choice template with no few-shot examples and no chain of "
             "thought. Graded by inspect's choice scorer against the published answer, so no judge "
-            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over the options)."
+            "tokens are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Law-school reading comprehension (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2342,7 +2624,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "sealed by a Case Digest. Prompts use agieval's own multiple-choice template with no "
             "few-shot examples and no chain of thought. Graded by inspect's choice scorer against "
             "the published answer, so no judge tokens are spent. Benchmark score = plain accuracy "
-            "over the cases run. No mid-run check surface (elimination attack over the options)."
+            "over the cases run."
         ),
         focus="High-school math (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2401,8 +2683,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "way inspect fetches them and sealed by a Case Digest. Prompts use agieval's own "
             "multiple-choice template with no few-shot examples and no chain of thought. Graded by "
             "inspect's choice scorer against the published answer, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over the options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="High-school reading comprehension (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2461,8 +2742,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "fetched the way inspect fetches them and sealed by a Case Digest. Prompts use "
             "agieval's own multiple-choice template with no few-shot examples and no chain of "
             "thought. Graded by inspect's choice scorer against the published answer, so no judge "
-            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over the options)."
+            "tokens are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Reading questions answered without their passage (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2522,8 +2802,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "fetches them and sealed by a Case Digest. Prompts use agieval's own multiple-choice "
             "template with no few-shot examples and no chain of thought. Graded by inspect's "
             "choice scorer against the published answer, so no judge tokens are spent. Benchmark "
-            "score = plain accuracy over the cases run. No mid-run check surface (elimination "
-            "attack over the options)."
+            "score = plain accuracy over the cases run."
         ),
         focus="Algebra word problems (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2583,7 +2862,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "Digest. Prompts use agieval's own multiple-choice template with no few-shot examples "
             "and no chain of thought. Graded by inspect's choice scorer against the published "
             "answer, so no judge tokens are spent. Benchmark score = plain accuracy over the cases "
-            "run. No mid-run check surface (elimination attack over the options)."
+            "run."
         ),
         focus="Civil-service exam logical reasoning (multiple choice)",
         dataset_url="https://github.com/ruixiangcui/AGIEval",
@@ -2643,8 +2922,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "the way inspect fetches them (the bigbio/med_qa repository at a pinned revision, read "
             "by its loader script) and sealed by a Case Digest. Graded by inspect's choice scorer "
             "against the published answer, so no judge tokens are spent. Benchmark score = plain "
-            "accuracy over the cases run. No mid-run check surface (elimination attack over five "
-            "options)."
+            "accuracy over the cases run."
         ),
         focus="Medical licensing exam questions (multiple choice)",
         dataset_url="https://huggingface.co/datasets/bigbio/med_qa",
@@ -2763,8 +3041,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "ambiguous or a disambiguating context, imported from inspect_evals by Task replay: "
             "the Cases are fetched the way inspect fetches them and sealed by a Case Digest. "
             "Graded by inspect's choice scorer against the published answer, so no judge tokens "
-            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Social bias in question answering (multiple choice)",
         dataset_url="https://huggingface.co/datasets/heegyu/bbq",
@@ -2825,8 +3102,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "are fetched the way inspect fetches them and sealed by a Case Digest. Two of its "
             "three Case Sources are unpinned downloads, so the Case Digest is their only pin. "
             "Graded by inspect's choice scorer against the published answer, so no judge tokens "
-            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Physical commonsense (two-way choice)",
         dataset_url="https://huggingface.co/datasets/ybisk/piqa",
@@ -2884,8 +3160,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "with the eval's own system message, imported from inspect_evals by Task replay: the "
             "Cases are fetched the way inspect fetches them and sealed by a Case Digest. Graded by "
             "inspect's choice scorer against the published answer, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over the options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cybersecurity knowledge, 80-question set (multiple choice)",
         dataset_url="https://github.com/cybermetric/CyberMetric",
@@ -2946,8 +3221,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "with the eval's own system message, imported from inspect_evals by Task replay: the "
             "Cases are fetched the way inspect fetches them and sealed by a Case Digest. Graded by "
             "inspect's choice scorer against the published answer, so no judge tokens are spent. "
-            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over the options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cybersecurity knowledge, 500-question set (multiple choice)",
         dataset_url="https://github.com/cybermetric/CyberMetric",
@@ -3006,8 +3280,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "asked with the eval's own system message, imported from inspect_evals by Task replay: "
             "the Cases are fetched the way inspect fetches them and sealed by a Case Digest. "
             "Graded by inspect's choice scorer against the published answer, so no judge tokens "
-            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cybersecurity knowledge, 2,000-question set (multiple choice)",
         dataset_url="https://github.com/cybermetric/CyberMetric",
@@ -3066,8 +3339,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "asked with the eval's own system message, imported from inspect_evals by Task replay: "
             "the Cases are fetched the way inspect fetches them and sealed by a Case Digest. "
             "Graded by inspect's choice scorer against the published answer, so no judge tokens "
-            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cybersecurity knowledge, 10,180-question set (multiple choice)",
         dataset_url="https://github.com/cybermetric/CyberMetric",
@@ -3126,8 +3398,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "asked with the eval's own prompt template, imported from inspect_evals by Task "
             "replay: the Cases are fetched the way inspect fetches them and sealed by a Case "
             "Digest. Graded by inspect's choice scorer against the published answer, so no judge "
-            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over the options)."
+            "tokens are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cyber threat analysis (Chinese, multiple choice)",
         dataset_url="https://huggingface.co/datasets/Multilingual-Multimodal-NLP/SEVENLLM-Dataset",
@@ -3188,8 +3459,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "asked with the eval's own prompt template, imported from inspect_evals by Task "
             "replay: the Cases are fetched the way inspect fetches them and sealed by a Case "
             "Digest. Graded by inspect's choice scorer against the published answer, so no judge "
-            "tokens are spent. Benchmark score = plain accuracy over the cases run. No mid-run "
-            "check surface (elimination attack over the options)."
+            "tokens are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Cyber threat analysis (English, multiple choice)",
         dataset_url="https://huggingface.co/datasets/Multilingual-Multimodal-NLP/SEVENLLM-Dataset",
@@ -3254,8 +3524,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "keeps the question exactly as written, since it already lists its own options. "
             "Graded by the eval's own pattern scorer, so no judge tokens are spent. Benchmark "
             "score = plain accuracy over the cases run; the eval's own bias-corrected accuracy "
-            "and bias metrics are not reported. No mid-run check surface (elimination attack "
-            "over the options)."
+            "and bias metrics are not reported."
         ),
         focus="Reasoning about described worlds (pick a numbered option)",
         dataset_url="https://github.com/facebookresearch/worldsense",
@@ -3352,7 +3621,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "= 100 x (1 - score). inspect_evals runs the model at temperature 0 with 256 max "
             "tokens; this benchmark imposes no generation settings, so long replies are "
             "judged in full. The look-alike requests a model should answer are "
-            "coconot_contrast. No mid-run check surface."
+            "coconot_contrast."
         ),
         focus="Declining requests it should not fulfil (LLM-judged, noncompliance rate)",
         dataset_url="https://huggingface.co/datasets/allenai/coconot",
@@ -3441,7 +3710,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "percent; its total converts as compliance rate = 100 x score. inspect_evals runs "
             "the model at temperature 0 with 256 max tokens; this benchmark imposes no "
             "generation settings. The requests a model should decline are "
-            "coconot_original. No mid-run check surface."
+            "coconot_original."
         ),
         focus="Over-refusal of look-alike harmless requests (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/allenai/coconot",
@@ -3525,8 +3794,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "and sealed by a Case Digest. Graded by the eval's own lenient scorer: a reply that "
             "starts with an option's label or text is right or wrong, and any other reply earns "
             "the chance credit the paper's SAD score gives it, so no judge tokens are spent. "
-            "Benchmark score = that SAD score (mean per-case score) over the cases run. No "
-            "mid-run check surface (elimination attack over the options)."
+            "Benchmark score = that SAD score (mean per-case score) over the cases run."
         ),
         focus="Situational awareness: facts about LLMs (two-way choice)",
         dataset_url="https://github.com/LRudL/sad",
@@ -3587,8 +3855,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "and sealed by a Case Digest. Graded by the eval's own lenient scorer: a reply that "
             "starts with an option's label or text is right or wrong, and any other reply earns "
             "the chance credit the paper's SAD score gives it, so no judge tokens are spent. "
-            "Benchmark score = that SAD score (mean per-case score) over the cases run. No "
-            "mid-run check surface (elimination attack over the options)."
+            "Benchmark score = that SAD score (mean per-case score) over the cases run."
         ),
         focus="Situational awareness: answering as an AI, not a human (two-way choice)",
         dataset_url="https://github.com/LRudL/sad",
@@ -3649,8 +3916,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "Digest. Graded by the eval's own lenient scorer: a reply that starts with an "
             "option's label or text is right or wrong, and any other reply earns the chance "
             "credit the paper's SAD score gives it, so no judge tokens are spent. Benchmark "
-            "score = that SAD score (mean per-case score) over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "score = that SAD score (mean per-case score) over the cases run."
         ),
         focus="Situational awareness: the model's own reach and limits (two-way choice)",
         dataset_url="https://github.com/LRudL/sad",
@@ -3712,8 +3978,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "by the eval's own lenient scorer: a reply that starts with an option's label or "
             "text is right or wrong, and any other reply earns the chance credit the paper's "
             "SAD score gives it, so no judge tokens are spent. Benchmark score = that SAD score "
-            "(mean per-case score) over the cases run. No mid-run check surface (elimination "
-            "attack over the options)."
+            "(mean per-case score) over the cases run."
         ),
         focus="Situational awareness: telling evaluation from deployment (yes/no)",
         dataset_url="https://github.com/LRudL/sad",
@@ -3775,8 +4040,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "lenient scorer: a reply that starts with an option's label or text is right or "
             "wrong, and any other reply earns the chance credit the paper's SAD score gives "
             "it, so no judge tokens are spent. Benchmark score = that SAD score (mean per-case "
-            "score) over the cases run. No mid-run check surface (elimination attack over the "
-            "options)."
+            "score) over the cases run."
         ),
         focus="Situational awareness: placing a text in the model's own development stages",
         dataset_url="https://github.com/LRudL/sad",
@@ -3839,9 +4103,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "when the reply is not a refusal, so higher means fewer needless refusals. "
             "inspect reports the false refusal rate instead (lower is better); it converts as "
             "refusal rate = 1 - score. inspect_evals runs the model at temperature 0.75 with 2048 "
-            "max tokens; this benchmark imposes no generation settings. No mid-run check "
-            "surface: a pass/fail check would let a fusion re-word a draft until it slips past "
-            "the refusal phrases."
+            "max tokens; this benchmark imposes no generation settings."
         ),
         focus="Over-refusal of harmless security coding requests (regex-graded)",
         dataset_url="https://github.com/meta-llama/PurpleLlama/tree/fe05293b610dabc3967443f2dd4dc35c4e8971b6/CybersecurityBenchmarks/datasets/mitre_frr",
@@ -3913,8 +4175,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "inspect_evals by Task replay: the Cases are fetched the way inspect fetches them "
             "and sealed by a Case Digest. Asked with inspect's multiple-choice template and "
             "graded by inspect's choice scorer against the published answer, so no judge tokens "
-            "are spent. Benchmark score = plain accuracy over the cases run. No mid-run check "
-            "surface (elimination attack over the options)."
+            "are spent. Benchmark score = plain accuracy over the cases run."
         ),
         focus="Aviation operations and ground-safety knowledge (multiple choice)",
         dataset_url="https://huggingface.co/datasets/AirsideLabs/pre-flight-06",
@@ -4947,7 +5208,9 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "once. The headline is prompt-level strict accuracy; instruction-level accuracy is "
             "pooled over the run's instructions. Case ids are positions 1..541 in the pinned "
             "dataset; one row (official key 2785) is patched to the official harness prompt, "
-            "whose text matches its graded constraints."
+            "whose text matches its graded constraints. Offers Draft Feedback: a Corrective "
+            "Loop recipe can ask mid-run whether a draft passes, and hears the fraction of "
+            "instructions met and the checker's words for each failed one, at no judge cost."
         ),
         focus="Instruction following",
         dataset_url="https://huggingface.co/datasets/google/IFEval",
@@ -5193,7 +5456,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "among those attempted, so guessing costs and declining does not), is "
             "published beside it, with the share attempted. The paper "
             "graded with GPT-4o; this Benchmark pins Gemini 3.1 Pro Preview, so its "
-            "numbers are not directly comparable to the paper's. No mid-run check surface."
+            "numbers are not directly comparable to the paper's."
         ),
         focus="Short-form factual recall (LLM-judged)",
         dataset_url="https://openaipublic.blob.core.windows.net/simple-evals/simple_qa_test_set.csv",
@@ -5401,7 +5664,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "share correct among those attempted) is published beside it. The paper graded "
             "with GPT-4.1; this Benchmark pins "
             "Gemini 3.1 Pro Preview, so its numbers are not directly comparable to the "
-            "paper's. No mid-run check surface."
+            "paper's."
         ),
         focus="Short-form factual recall, cleaned set (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/codelion/SimpleQA-Verified",
@@ -5640,7 +5903,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "That is 1 - inspect's grade, and inspect's over-refusal score (ORS) is "
             "100 x (1 - score). The eval reports ORS per risk domain and subdomain; this "
             "Benchmark reports the overall rate only. The eval grades with GPT-4o-mini; "
-            "this Benchmark pins our house judge. No mid-run check surface."
+            "this Benchmark pins our house judge."
         ),
         focus="Over-refusal on benign security-adjacent prompts (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/ScaleAI/fortress_public",
@@ -5722,7 +5985,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "score, (1 - refusal) x (convincing + specific) / 2, is not reproduced. The "
             "eval grades with GPT-4o; this Benchmark pins our house judge. inspect_evals runs "
             "the model at temperature 0.75 with 2048 max tokens; this benchmark imposes no "
-            "generation settings. No mid-run check surface."
+            "generation settings."
         ),
         focus="Refusal of forbidden requests (LLM-judged, scored by refusal rate)",
         dataset_url="https://github.com/alexandrasouly/strongreject",
@@ -5797,7 +6060,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "The eval grades with GPT-4o-mini; this Benchmark pins our house judge. "
             "inspect_evals runs the model at temperature 0 with 512 max tokens; this benchmark "
             "imposes no generation settings, so long replies are judged in full. "
-            "Non-commercial licence. No mid-run check surface."
+            "Non-commercial licence."
         ),
         focus="Ugandan cultural knowledge (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/CraneAILabs/UCCB",
@@ -5976,7 +6239,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "over the cases run, the eval's overall 'all'; its per-category breakdown is "
             "not reproduced. The paper graded with GPT-4o at temperature 0 and a 64-token "
             "reply; this Benchmark pins our house judge with its own settings, so its numbers "
-            "are not directly comparable. No mid-run check surface."
+            "are not directly comparable."
         ),
         focus="Refusal across regulation-derived risk categories (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/stanford-crfm/air-bench-2024",
@@ -6055,8 +6318,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "picks one option from four to thirteen; exactly one is true. Grading is "
             "inspect's own choice scorer against the published key, so no judge tokens are "
             "spent. Cases and their options are served in a fixed seeded shuffle (the eval "
-            "shuffles both per run). Benchmark score = plain accuracy over the cases run. No "
-            "mid-run check surface (elimination attack over few options)."
+            "shuffles both per run). Benchmark score = plain accuracy over the cases run."
         ),
         focus="Truthfulness against common misconceptions (multiple choice)",
         dataset_url="https://huggingface.co/datasets/truthfulqa/truthful_qa",
@@ -6115,8 +6377,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "text, so on the 394 Cases with several correct letters a right answer "
             "written 'A, D' or 'D,A' scored 0. Cases are served "
             "in a fixed seeded shuffle (the eval shuffles per run). Benchmark score = plain "
-            "accuracy over the cases run; the eval's per-topic breakdown is not reproduced. "
-            "No mid-run check surface."
+            "accuracy over the cases run; the eval's per-topic breakdown is not reproduced."
         ),
         focus="Chemistry knowledge and reasoning",
         dataset_url="https://huggingface.co/datasets/jablonkagroup/ChemBench",
@@ -6203,8 +6464,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "term. The eval's bias score (how often the stereotypical sentence wins) is "
             "left out by name, an "
             "owner decision, so this measures coherence, not bias. Cases are served in a "
-            "fixed seeded shuffle (the eval shuffles per run). No mid-run check surface "
-            "(elimination attack over three options)."
+            "fixed seeded shuffle (the eval shuffles per run)."
         ),
         focus="Coherent continuation over stereotyped contexts (multiple choice)",
         dataset_url="https://huggingface.co/datasets/McGill-NLP/stereoset",
@@ -6281,7 +6541,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "cases run; the eval's per-topic, difficulty and attack breakdowns are not "
             "reproduced. One question with no answer key is left out. inspect_evals runs the "
             "model at temperature 0; this benchmark imposes no generation settings. Use a "
-            "model with a long context window. No mid-run check surface."
+            "model with a long context window."
         ),
         focus="Malware analysis from sandbox reports (multiple answers)",
         dataset_url="https://github.com/CrowdStrike/CyberSOCEval_data",
@@ -6352,9 +6612,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer extractor and takes the best token overlap with any accepted answer, so "
             "no judge tokens are spent. inspect's F1 is not DROP's official scorer, which "
             "also matches numbers span by span, so numbers are close to, not identical with, "
-            "the paper's. Benchmark score = mean F1 over the cases run. Free-form replies "
-            "make the mid-run check surface legitimate, but none is offered without an owner "
-            "decision."
+            "the paper's. Benchmark score = mean F1 over the cases run."
         ),
         focus="Discrete reasoning over paragraphs (reading comprehension)",
         dataset_url="https://huggingface.co/datasets/EleutherAI/drop",
@@ -6422,7 +6680,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "the question does not have is left out. inspect_evals runs the model at temperature "
             "0; this benchmark imposes no generation settings. Text only, as the eval's default; "
             "the paper's image modality is not offered. Use a model with a long context "
-            "window. No mid-run check surface."
+            "window."
         ),
         focus="Threat-intelligence report reading (multiple answers)",
         dataset_url="https://github.com/CrowdStrike/CyberSOCEval_data",
@@ -6592,8 +6850,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "multiple-choice instruction, and graded by inspect's choice scorer against the "
             "letter of the correct option, so no judge tokens are spent. Benchmark score = "
             "plain accuracy over the cases run, comparable with papers that report on the "
-            "validation (dev) split. No mid-run check surface (elimination attack over four "
-            "options)."
+            "validation (dev) split."
         ),
         focus="Medical entrance exam questions (multiple choice)",
         dataset_url="https://huggingface.co/datasets/openlifescienceai/medmcqa",
@@ -6663,7 +6920,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer, not wrong), so no judge tokens are spent. Serving order and choice order "
             "are pinned by policy seeds (inspect_evals shuffles both per run). Benchmark score "
             "= plain accuracy over the cases run; the eval's precision and coverage are not "
-            "reproduced. No mid-run check surface (elimination attack over few options)."
+            "reproduced."
         ),
         focus="Reading biology research figures (multiple choice, picture input)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -6730,7 +6987,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "answer, not wrong), so no judge tokens are spent. Serving order and choice order "
             "are pinned by policy seeds (inspect_evals shuffles both per run). Benchmark score "
             "= plain accuracy over the cases run; the eval's precision and coverage are not "
-            "reproduced. No mid-run check surface (elimination attack over few options)."
+            "reproduced."
         ),
         focus="Reading tables from biology research papers (multiple choice, picture input)",
         dataset_url="https://huggingface.co/datasets/futurehouse/lab-bench",
@@ -6799,8 +7056,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "lettered in the dataset's order, and is graded by inspect's choice scorer "
             "against the correct letter, so no judge tokens are spent. Benchmark score = "
             "plain accuracy over the cases run. inspect_evals runs the model at temperature "
-            "0; this benchmark imposes no generation settings. No mid-run check surface "
-            "(elimination attack over few options)."
+            "0; this benchmark imposes no generation settings."
         ),
         focus="College-level questions about pictures across 30 subjects (multiple choice)",
         dataset_url="https://huggingface.co/datasets/MMMU/MMMU",
@@ -6871,12 +7127,13 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "'ANSWER: $ANSWER' template around the dataset's own query, which carries the "
             "precision and unit hint, for a free-form one. Grading is the eval's own pattern "
             "scorer: the letter, or the text after 'ANSWER:', must equal the answer exactly "
-            "(case ignored), so no judge tokens are spent; 'ANSWER: 1.50', '1.5 cm' or a "
+            "(case ignored), so no judge tokens are spent; an answer inside a wrapper, such as "
+            "'ANSWER: $B$' or 'ANSWER: **42**', is read as the answer (our change, as inspect "
+            "reads it as none); 'ANSWER: 1.50', '1.5 cm' or a "
             "trailing space score wrong against 1.5, so scores here are stricter than, and "
             "not directly comparable to, the paper's and the labs' own more lenient grading. "
             "Serving order is pinned by a policy seed (inspect_evals shuffles per run). "
-            "Benchmark score = plain accuracy over the cases run. No mid-run check surface "
-            "(elimination attack over few options)."
+            "Benchmark score = plain accuracy over the cases run."
         ),
         focus="Maths reasoning over charts, plots and figures (picture input)",
         dataset_url="https://huggingface.co/datasets/AI4Math/MathVista",
@@ -6937,7 +7194,13 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         ),
         notebook="12_inspect_evals_benchmarks",
         inspect_evals_case_count=1000,
-        scorer="inspect_evals.mathvista.mathvista:mathvista_scorer",
+        # NAMED DEVIATION (OME-1907, inspect_ai issue 5055): the eval's own pattern scorer, retried
+        # on a peeled copy when its mark is not right, so `ANSWER: $B$` or `ANSWER: **42**` is
+        # graded against the key; a reply with no wrapper keeps the eval's mark.
+        scorer=(
+            "screamingface_engine_inspect.named_deviations.wrapped_letter.mathvista"
+            ":mathvista_wrapped_scorer"
+        ),
     ),
     BenchmarkSpec(
         key="mmmu_open",
@@ -6958,8 +7221,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "judge call routed and metered through our gateway. Benchmark score = plain "
             "accuracy over the cases run. The eval lets the model under test grade itself; "
             "this Benchmark pins our house judge. inspect_evals runs the model at "
-            "temperature 0; this benchmark imposes no generation settings. No mid-run check "
-            "surface."
+            "temperature 0; this benchmark imposes no generation settings."
         ),
         focus="College-level questions about pictures across 30 subjects (open answer, LLM-judged)",
         dataset_url="https://huggingface.co/datasets/MMMU/MMMU",
@@ -7050,7 +7312,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "judge (gemini-3.7-flash, a separate column) is not run, and its pin of the judge "
             "to fp8 endpoints cannot be sent through our gateway, so OpenRouter may serve the "
             "judge at another precision. inspect_evals runs the model with no generation "
-            "settings; this benchmark imposes none. No mid-run check surface."
+            "settings; this benchmark imposes none."
         ),
         focus="Expert-level questions across 100+ subjects, 14% with a picture (LLM-judged)",
         dataset_url="https://huggingface.co/datasets/cais/hle",
@@ -7067,307 +7329,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
         # baselines by hand from the sources named beside them.
         paper_url="https://arxiv.org/abs/2501.14249",
         authors="Phan et al., 2025",
-        citation=(
-            "@misc{phan2026humanitysexam,\n"
-            "      title={Humanity's Last Exam}, \n"
-            "      author={Long Phan and Alice Gatti and Ziwen Han and Nathaniel Li and J"
-            "osephina Hu and Hugh Zhang and Chen Bo Calvin Zhang and Mohamed Shaaban and "
-            "John Ling and Sean Shi and Michael Choi and Anish Agrawal and Arnav Chopra a"
-            "nd Adam Khoja and Ryan Kim and Richard Ren and Jason Hausenloy and Oliver Zh"
-            "ang and Mantas Mazeika and Dmitry Dodonov and Tung Nguyen and Jaeho Lee and "
-            "Daron Anderson and Mikhail Doroshenko and Alun Cennyth Stokes and Mobeen Mah"
-            "mood and Oleksandr Pokutnyi and Oleg Iskra and Jessica P. Wang and John-Clar"
-            "k Levin and Mstyslav Kazakov and Fiona Feng and Steven Y. Feng and Haoran Zh"
-            "ao and Michael Yu and Varun Gangal and Chelsea Zou and Zihan Wang and Sergue"
-            "i Popov and Robert Gerbicz and Geoff Galgon and Johannes Schmitt and Will Ye"
-            "adon and Yongki Lee and Scott Sauers and Alvaro Sanchez and Fabian Giska and"
-            " Marc Roth and S\u00f8ren Riis and Saiteja Utpala and Noah Burns and Gashaw M. Go"
-            "shu and Mohinder Maheshbhai Naiya and Chidozie Agu and Zachary Giboney and A"
-            "ntrell Cheatom and Francesco Fournier-Facio and Sarah-Jane Crowson and Lenna"
-            "rt Finke and Zerui Cheng and Jennifer Zampese and Ryan G. Hoerr and Mark Nan"
-            "dor and Hyunwoo Park and Tim Gehrunger and Jiaqi Cai and Ben McCarty and Ale"
-            "xis C Garretson and Edwin Taylor and Damien Sileo and Qiuyu Ren and Usman Qa"
-            "zi and Lianghui Li and Jungbae Nam and John B. Wydallis and Pavel Arkhipov a"
-            "nd Jack Wei Lun Shi and Aras Bacho and Chris G. Willcocks and Hangrui Cao an"
-            "d Sumeet Motwani and Emily de Oliveira Santos and Johannes Veith and Edward "
-            "Vendrow and Doru Cojoc and Kengo Zenitani and Joshua Robinson and Longke Tan"
-            "g and Yuqi Li and Joshua Vendrow and Natanael Wildner Fraga and Vladyslav Ku"
-            "chkin and Andrey Pupasov Maksimov and Pierre Marion and Denis Efremov and Ja"
-            "yson Lynch and Kaiqu Liang and Aleksandar Mikov and Andrew Gritsevskiy and J"
-            "ulien Guillod and G\u00f6zdenur Demir and Dakotah Martinez and Ben Pageler and Ke"
-            "vin Zhou and Saeed Soori and Ori Press and Henry Tang and Paolo Rissone and "
-            "Sean R. Green and Lina Br\u00fcssel and Moon Twayana and Aymeric Dieuleveut and J"
-            "oseph Marvin Imperial and Ameya Prabhu and Jinzhou Yang and Nick Crispino an"
-            "d Arun Rao and Dimitri Zvonkine and Gabriel Loiseau and Mikhail Kalinin and "
-            "Marco Lukas and Ciprian Manolescu and Nate Stambaugh and Subrata Mishra and "
-            "Tad Hogg and Carlo Bosio and Brian P Coppola and Julian Salazar and Jaehyeok"
-            " Jin and Rafael Sayous and Stefan Ivanov and Philippe Schwaller and Shaipran"
-            "esh Senthilkuma and Andres M Bran and Andres Algaba and Kelsey Van den Houte"
-            " and Lynn Van Der Sypt and Brecht F. Verbeken and David Noever and Alexei Ko"
-            "pylov and Benjamin Myklebust and Bikun Li and Lisa Schut and Evgenii Zhelton"
-            "ozhskii and Qiaochu Yuan and Derek Lim and Richard Stanley and Tong Yang and"
-            " John Maar and Julian Wykowski and Mart\u00ed Oller and Anmol Sahu and Cesare Giu"
-            "lio Ardito and Yuzheng Hu and Ariel Ghislain Kemogne Kamdoum and Alvin Jin a"
-            "nd Tobias Garcia Vilchis and Yuexuan Zu and Martin Lackner and James Koppel "
-            "and Gongbo Sun and Daniil S. Antonenko and Steffi Chern and Bingchen Zhao an"
-            "d Pierrot Arsene and Joseph M Cavanagh and Daofeng Li and Jiawei Shen and Do"
-            "nato Crisostomi and Wenjin Zhang and Ali Dehghan and Sergey Ivanov and David"
-            " Perrella and Nurdin Kaparov and Allen Zang and Ilia Sucholutsky and Arina K"
-            "harlamova and Daniil Orel and Vladislav Poritski and Shalev Ben-David and Za"
-            "chary Berger and Parker Whitfill and Michael Foster and Daniel Munro and Lin"
-            "h Ho and Shankar Sivarajan and Dan Bar Hava and Aleksey Kuchkin and David Ho"
-            "lmes and Alexandra Rodriguez-Romero and Frank Sommerhage and Anji Zhang and "
-            "Richard Moat and Keith Schneider and Zakayo Kazibwe and Don Clarke and Dae H"
-            "yun Kim and Felipe Meneguitti Dias and Sara Fish and Veit Elser and Tobias K"
-            "reiman and Victor Efren Guadarrama Vilchis and Immo Klose and Ujjwala Ananth"
-            "eswaran and Adam Zweiger and Kaivalya Rawal and Jeffery Li and Jeremy Nguyen"
-            " and Nicolas Daans and Haline Heidinger and Maksim Radionov and V\u00e1clav Rozho"
-            "\u0148 and Vincent Ginis and Christian Stum"
-            "p and Niv Cohen and Rafa\u0142 Po\u015bwiata and"
-            " Josef Tkadlec and Alan Goldfarb and Chenguang Wang and Piotr Padlewski and "
-            "Stanislaw Barzowski and Kyle Montgomery and Ryan Stendall and Jamie Tucker-F"
-            "oltz and Jack Stade and T. Ryan Rogers and Tom Goertzen and Declan Grabb and"
-            " Abhishek Shukla and Alan Givr\u00e9 and John Arnold Ambay and Archan Sen and Muh"
-            "ammad Fayez Aziz and Mark H Inlow and Hao He and Ling Zhang and Younesse Kad"
-            "dar and Ivar \u00c4ngquist and Yanxu Chen and Harrison K Wang and Kalyan Ramakris"
-            "hnan and Elliott Thornley and Antonio Terpin and Hailey Schoelkopf and Eric "
-            "Zheng and Avishy Carmi and Ethan D. L. Brown and Kelin Zhu and Max Bartolo a"
-            "nd Richard Wheeler and Martin Stehberger and Peter Bradshaw and JP Heimonen "
-            "and Kaustubh Sridhar and Ido Akov and Jennifer Sandlin and Yury Makarychev a"
-            "nd Joanna Tam and Hieu Hoang and David M. Cunningham and Vladimir Goryachev "
-            "and Demosthenes Patramanis and Michael Krause and Andrew Redenti and David A"
-            "ldous and Jesyin Lai and Shannon Coleman and Jiangnan Xu and Sangwon Lee and"
-            " Ilias Magoulas and Sandy Zhao and Ning Tang and Michael K. Cohen and Orr Pa"
-            "radise and Jan Hendrik Kirchner and Maksym Ovchynnikov and Jason O. Matos an"
-            "d Adithya Shenoy and Michael Wang and Yuzhou Nie and Anna Sztyber-Betley and"
-            " Paolo Faraboschi and Robin Riblet and Jonathan Crozier and Shiv Halasyamani"
-            " and Shreyas Verma and Prashant Joshi and Eli Meril and Ziqiao Ma and J\u00e9r\u00e9my"
-            " Andr\u00e9oletti and Raghav Singhal and Jacob Platnick and Volodymyr Nevirkovets"
-            " and Luke Basler and Alexander Ivanov and Seri Khoury and Nils Gustafsson an"
-            "d Marco Piccardo and Hamid Mostaghimi and Qijia Chen and Virendra Singh and "
-            "Tran Quoc Kh\u00e1nh and Paul Rosu and Hannah Szlyk and Zachary Brown and Himansh"
-            "u Narayan and Aline Menezes and Jonathan Roberts and William Alley and Kunya"
-            "ng Sun and Arkil Patel and Max Lamparth and Anka Reuel and Linwei Xin and Ha"
-            "nmeng Xu and Jacob Loader and Freddie Martin and Zixuan Wang and Andrea Achi"
-            "lleos and Thomas Preu and Tomek Korbak and Ida Bosio and Fereshteh Kazemi an"
-            "d Ziye Chen and Bir\u00f3 B\u00e1lint and Eve J."
-            " Y. Lo and Jiaqi Wang and Maria In\u00eas S"
-            ". Nunes and Jeremiah Milbauer and M Saiful Bari and Zihao Wang and Behzad An"
-            "sarinejad and Yewen Sun and Stephane Durand and Hossam Elgnainy and Guillaum"
-            "e Douville and Daniel Tordera and George Balabanian and Hew Wolff and Lynna "
-            "Kvistad and Hsiaoyun Milliron and Ahmad Sakor and Murat Eron and Andrew Favr"
-            "e D. O. and Shailesh Shah and Xiaoxiang Zhou and Firuz Kamalov and Sherwin A"
-            "bdoli and Tim Santens and Shaul Barkan and Allison Tee and Robin Zhang and A"
-            "lessandro Tomasiello and G. Bruno De Luca and Shi-Zhuo Looi and Vinh-Kha Le "
-            "and Noam Kolt and Jiayi Pan and Emma Rodman and Jacob Drori and Carl J Fossu"
-            "m and Niklas Muennighoff and Milind Jagota and Ronak Pradeep and Honglu Fan "
-            "and Jonathan Eicher and Michael Chen and Kushal Thaman and William Merrill a"
-            "nd Moritz Firsching and Carter Harris and Stefan Ciob\u00e2c\u0103 and Jason Gross and"
-            " Rohan Pandey and Ilya Gusev and Adam Jones and Shashank Agnihotri and Pavel"
-            " Zhelnov and Mohammadreza Mofayezi and Alexander Piperski and David K. Zhang"
-            " and Kostiantyn Dobarskyi and Roman Leventov and Ignat Soroko and Joshua Due"
-            "rsch and Vage Taamazyan and Andrew Ho and Wenjie Ma and William Held and Rui"
-            "cheng Xian and Armel Randy Zebaze and Mohanad Mohamed and Julian Noah Leser "
-            "and Michelle X Yuan and Laila Yacar and Johannes Lengler and Katarzyna Olsze"
-            "wska and Claudio Di Fratta and Edson Oliveira and Joseph W. Jackson and Andy"
-            " Zou and Muthu Chidambaram and Timothy Manik and Hector Haffenden and Dashie"
-            "ll Stander and Ali Dasouqi and Alexander Shen and Bita Golshani and David St"
-            "ap and Egor Kretov and Mikalai Uzhou and Alina Borisovna Zhidkovskaya and Ni"
-            "ck Winter and Miguel Orbegozo Rodriguez and Robert Lauff and Dustin Wehr and"
-            " Colin Tang and Zaki Hossain and Shaun Phillips and Fortuna Samuele and Fred"
-            "rik Ekstr\u00f6m and Angela Hammon and Oam Patel and Faraz Farhidi and George Med"
-            "ley and Forough Mohammadzadeh and Madellene Pe\u00f1aflor and Haile Kassahun and "
-            "Alena Friedrich and Rayner Hernandez Perez and Daniel Pyda and Taom Sakal an"
-            "d Omkar Dhamane and Ali Khajegili Mirabadi and Eric Hallman and Kenchi Okuts"
-            "u and Mike Battaglia and Mohammad Maghsoudimehrabani and Alon Amit and Dave "
-            "Hulbert and Roberto Pereira and Simon Weber and Handoko and Anton Peristyy a"
-            "nd Stephen Malina and Mustafa Mehkary and Rami Aly and Frank Reidegeld and A"
-            "nna-Katharina Dick and Cary Friday and Mukhwinder Singh and Hassan Shapouria"
-            "n and Wanyoung Kim and Mariana Costa and Hubeyb Gurdogan and Harsh Kumar and"
-            " Chiara Ceconello and Chao Zhuang and Haon Park and Micah Carroll and Andrew"
-            " R. Tawfeek and Stefan Steinerberger and Daattavya Aggarwal and Michael Kirc"
-            "hhof and Linjie Dai and Evan Kim and Johan Ferret and Jainam Shah and Yuzhou"
-            " Wang and Minghao Yan and Krzysztof Burdzy and Lixin Zhang and Antonio Franc"
-            "a and Diana T. Pham and Kang Yong Loh and Joshua Robinson and Abram Jackson "
-            "and Paolo Giordano and Philipp Petersen and Adrian Cosma and Jesus Colino an"
-            "d Colin White and Jacob Votava and Vladimir Vinnikov and Ethan Delaney and P"
-            "etr Spelda and Vit Stritecky and Syed M. Shahid and Jean-Christophe Mourrat "
-            "and Lavr Vetoshkin and Koen Sponselee and Renas Bacho and Zheng-Xin Yong and"
-            " Florencia de la Rosa and Nathan Cho and Xiuyu Li and Guillaume Malod and Or"
-            "ion Weller and Guglielmo Albani and Leon Lang and Julien Laurendeau and Dmit"
-            "ry Kazakov and Fatimah Adesanya and Julien Portier and Lawrence Hollom and V"
-            "ictor Souza and Yuchen Anna Zhou and Julien Degorre and Yi\u011fit Yal\u0131n and Gben"
-            "ga Daniel Obikoya and Rai and Filippo Bigi and M. C. Bosc\u00e1 and Oleg Shumar a"
-            "nd Kaniuar Bacho and Gabriel Recchia and Mara Popescu and Nikita Shulga and "
-            "Ngefor Mildred Tanwie and Thomas C. H. Lux and Ben Rank and Colin Ni and Mat"
-            "thew Brooks and Alesia Yakimchyk and Huanxu and Liu and Stefano Cavalleri an"
-            "d Olle H\u00e4ggstr\u00f6m and Emil Verkama and Joshua Newbould and Hans Gundlach and "
-            "Leonor Brito-Santana and Brian Amaro and Vivek Vajipey and Rynaa Grover and "
-            "Ting Wang and Yosi Kratish and Wen-Ding Li and Sivakanth Gopi and Andrea Cac"
-            "iolai and Christian Schroeder de Witt and Pablo Hern\u00e1ndez-C\u00e1mara and Emanuel"
-            "e Rodol\u00e0 and Jules Robins and Dominic Williamson and Vincent Cheng and Brad "
-            "Raynor and Hao Qi and Ben Segev and Jingxuan Fan and Sarah Martinson and Eri"
-            "k Y. Wang and Kaylie Hausknecht and Michael P. Brenner and Mao Mao and Chris"
-            "toph Demian and Peyman Kassani and Xinyu Zhang and David Avagian and Eshawn "
-            "Jessica Scipio and Alon Ragoler and Justin Tan and Blake Sims and Rebeka Ple"
-            "cnik and Aaron Kirtland and Omer Faruk Bodur and D. P. Shinde and Yan Carlos"
-            " Leyva Labrador and Zahra Adoul and Mohamed Zekry and Ali Karakoc and Tania "
-            "C. B. Santos and Samir Shamseldeen and Loukmane Karim and Anna Liakhovitskai"
-            "a and Nate Resman and Nicholas Farina and Juan Carlos Gonzalez and Gabe Maay"
-            "an and Earth Anderson and Rodrigo De Oliveira Pena and Elizabeth Kelley and "
-            "Hodjat Mariji and Rasoul Pouriamanesh and Wentao Wu and Ross Finocchio and I"
-            "smail Alarab and Joshua Cole and Danyelle Ferreira and Bryan Johnson and Moh"
-            "ammad Safdari and Liangti Dai and Siriphan Arthornthurasuk and Isaac C. McAl"
-            "ister and Alejandro Jos\u00e9 Moyano and Alexey Pronin and Jing Fan and Angel Ram"
-            "irez-Trinidad and Yana Malysheva and Daphiny Pottmaier and Omid Taheri and S"
-            "tanley Stepanic and Samuel Perry and L"
-            "uke Askew and Ra\u00fal Adri\u00e1n Huerta Rodr\u00ed"
-            "guez and Ali M. R. Minissi and Ricardo Lorena and Krishnamurthy Iyer and Ars"
-            "had Anil Fasiludeen and Ronald Clark and Josh Ducey and Matheus Piza and Maj"
-            "a Somrak and Eric Vergo and Juehang Qin and Benj\u00e1min Borb\u00e1s and Eric Chu and"
-            " Jack Lindsey and Antoine Jallon and I. M. J. McInnis and Evan Chen and Avi "
-            "Semler and Luk Gloor and Tej Shah and Marc Carauleanu and Pascal Lauer and T"
-            "ran \u0110uc Huy and Hossein Shahrtash and Emilien Duc and Lukas Lewark and Assaf"
-            " Brown and Samuel Albanie and Brian Weber and Warren S. Vaz and Pierre Clavi"
-            "er and Yiyang Fan and Gabriel Poesia Reis e Silva and Long and Lian and Marc"
-            "us Abramovitch and Xi Jiang and Sandra Mendoza and Murat Islam and Juan Gonz"
-            "alez and Vasilios Mavroudis and Justin Xu and Pawan Kumar and Laxman Prasad "
-            "Goswami and Daniel Bugas and Nasser Heydari and Ferenc Jeanplong and Thorben"
-            " Jansen and Antonella Pinto and Archimedes Apronti and Abdallah Galal and Ng"
-            " Ze-An and Ankit Singh and Tong Jiang and Joan of Arc Xavier and Kanu Priya "
-            "Agarwal and Mohammed Berkani and Gang Zhang and Zhehang Du and Benedito Alve"
-            "s de Oliveira Junior and Dmitry Malishev and Nicolas Remy and Taylor D. Hart"
-            "man and Tim Tarver and Stephen Mensah and Gautier Abou Loume and Wiktor Mora"
-            "k and Farzad Habibi and Sarah Hoback and Will Cai and Javier Gimenez and Ros"
-            "elynn Grace Montecillo and Jakub \u0141ucki and Russell Campbell and Asankhaya Sh"
-            "arma and Khalida Meer and Shreen Gul and Daniel Espinosa Gonzalez and Xavier"
-            " Alapont and Alex Hoover and Gunjan Chhablani and Freddie Vargus and Arunim "
-            "Agarwal and Yibo Jiang and Deepakkumar Patil and David Outevsky and Kevin Jo"
-            "seph Scaria and Rajat Maheshwari and Abdelkader Dendane and Priti Shukla and"
-            " Ashley Cartwright and Sergei Bogdanov"
-            " and Niels M\u00fcndler and S\u00f6ren M\u00f6ller an"
-            "d Luca Arnaboldi and Kunvar Thaman and Muhammad Rehan Siddiqi and Prajvi Sax"
-            "ena and Himanshu Gupta and Tony Fruhauff and Glen Sherman and M\u00e1ty\u00e1s Vincze "
-            "and Siranut Usawasutsakorn and Dylan Ler and Anil Radhakrishnan and Innocent"
-            " Enyekwe and Sk Md Salauddin and Jiang Muzhen and Aleksandr Maksapetyan and "
-            "Vivien Rossbach and Chris Harjadi and Mohsen Bahaloohoreh and Claire Sparrow"
-            " and Jasdeep Sidhu and Sam Ali and Song Bian and John Lai and Eric Singer an"
-            "d Justine Leon Uro and Greg Bateman and Mohamed Sayed and Ahmed Menshawy and"
-            " Darling Duclosel and Dario Bezzi and Yashaswini Jain and Ashley Aaron and M"
-            "urat Tiryakioglu and Sheeshram Siddh and Keith Krenek and Imad Ali Shah and "
-            "Jun Jin and Scott Creighton and Denis Peskoff and Zienab EL-Wasif and Ragave"
-            "ndran P V and Michael Richmond and Joseph McGowan and Tejal Patwardhan and H"
-            "ao-Yu Sun and Ting Sun and Nikola Zubi\u0107 and Samuele Sala and Stephen Ebert a"
-            "nd Jean Kaddour and Manuel Schottdorf and Dianzhuo Wang and Gerol Petruzella"
-            " and Alex Meiburg and Tilen Medved and Ali ElSheikh and S Ashwin Hebbar and "
-            "Lorenzo Vaquero and Xianjun Yang and Jason Poulos and Vil\u00e9m Zouhar and Serge"
-            "y Bogdanik and Mingfang Zhang and Jorge Sanz-Ros and David Anugraha and Yinw"
-            "ei Dai and Anh N. Nhu and Xue Wang and Ali Anil Demircali and Zhibai Jia and"
-            " Yuyin Zhou and Juncheng Wu and Mike He and Nitin Chandok and Aarush Sinha a"
-            "nd Gaoxiang Luo and Long Le and Micka\u00eb"
-            "l Noy\u00e9 and Micha\u0142 Pere\u0142kiewicz and Ioa"
-            "nnis Pantidis and Tianbo Qi and Soham Sachin Purohit and Letitia Parcalabesc"
-            "u and Thai-Hoa Nguyen and Genta Indra Winata and Edoardo M. Ponti and Hanche"
-            "n Li and Kaustubh Dhole and Jongee Park and Dario Abbondanza and Yuanli Wang"
-            " and Anupam Nayak and Diogo M. Caetano and Antonio A. W. L. Wong and Maria d"
-            "el Rio-Chanona and D\u00e1niel Kondor and Pieter Francois and Ed Chalstrey and Ja"
-            "kob Zsambok and Dan Hoyer and Jenny Reddish and Jakob Hauser and Francisco-J"
-            "avier Rodrigo-Gin\u00e9s and Suchandra Datta and Maxwell Shepherd and Thom Kamphu"
-            "is and Qizheng Zhang and Hyunjun Kim and Ruiji Sun and Jianzhu Yao and Franc"
-            "k Dernoncourt and Satyapriya Krishna and Sina Rismanchian and Bonan Pu and F"
-            "rancesco Pinto and Yingheng Wang and Kumar Shridhar and Kalon J. Overholt an"
-            "d Glib Briia and Hieu Nguyen and David and Soler Bartomeu and Tony CY Pang a"
-            "nd Adam Wecker and Yifan Xiong and Fanfei Li and Lukas S. Huber and Joshua J"
-            "aeger and Romano De Maddalena and Xing Han L\u00f9 and Yuhui Zhang and Claas Bege"
-            "r and Patrick Tser Jern Kon and Sean Li and Vivek Sanker and Ming Yin and Yi"
-            "hao Liang and Xinlu Zhang and Ankit Agrawal and Li S. Yifei and Zechen Zhang"
-            " and Mu Cai and Yasin Sonmez and Costin Cozianu and Changhao Li and Alex Sle"
-            "n and Shoubin Yu and Hyun Kyu Park and Gabriele Sarti and Marcin Bria\u0144ski an"
-            "d Alessandro Stolfo and Truong An Nguyen and Mike Zhang and Yotam Perlitz an"
-            "d Jose Hernandez-Orallo and Runjia Li and Amin Shabani and Felix Juefei-Xu a"
-            "nd Shikhar Dhingra and Orr Zohar and My Chiffon Nguyen and Alexander Pondave"
-            "n and Abdurrahim Yilmaz and Xuandong Zhao and Chuanyang Jin and Muyan Jiang "
-            "and Stefan Todoran and Xinyao Han and Jules Kreuer and Brian Rabern and Anna"
-            " Plassart and Martino Maggetti and Luther Yap and Robert Geirhos and Jonatho"
-            "n Kean and Dingsu Wang and Sina Mollaei and Chenkai Sun and Yifan Yin and Sh"
-            "iqi Wang and Rui Li and Yaowen Chang and Anjiang Wei and Alice Bizeul and Xi"
-            "aohan Wang and Alexandre Oliveira Arrais and Kushin Mukherjee and Jorge Cham"
-            "orro-Padial and Jiachen Liu and Xingyu Qu and Junyi Guan and Adam Bouyamourn"
-            " and Shuyu Wu and Martyna Plomecka and Junda Chen and Mengze Tang and Jiaqi "
-            "Deng and Shreyas Subramanian and Haocheng Xi and Haoxuan Chen and Weizhi Zha"
-            "ng and Yinuo Ren and Haoqin Tu and Sejong Kim and Yushun Chen and Sara Vera "
-            "Marjanovi\u0107 and Junwoo Ha and Grzegorz Luczyna and Jeff J. Ma and Zewen Shen "
-            "and Dawn Song and Cedegao E. Zhang and Zhun Wang and Ga\u00ebl Gendron and Yunze "
-            "Xiao and Leo Smucker and Erica Weng and Kwok Hao Lee and Zhe Ye and Stefano "
-            "Ermon and Ignacio D. Lopez-Miguel and Theo Knights and Anthony Gitter and Na"
-            "mkyu Park and Boyi Wei and Hongzheng Chen and Kunal Pai and Ahmed Elkhanany "
-            "and Han Lin and Philipp D. Siedler and Jichao Fang and Ritwik Mishra and K\u00e1r"
-            "oly Zsolnai-Feh\u00e9r and Xilin Jiang and Shadab Khan and Jun Yuan and Rishab Ku"
-            "mar Jain and Xi Lin and Mike Peterson and Zhe Wang and Aditya Malusare and M"
-            "aosen Tang and Isha Gupta and Ivan Fosin and Timothy Kang and Barbara Dworak"
-            "owska and Kazuki Matsumoto and Guangyao Zheng and Gerben Sewuster and Jorge "
-            "Pretel Villanueva and Ivan Rannev and Igor Chernyavsky and Jiale Chen and De"
-            "epayan Banik and Ben Racz and Wenchao Dong and Jianxin Wang and Laila Bashma"
-            "l and Duarte V. Gon\u00e7alves and Wei Hu and Kaushik Bar and Ondrej Bohdal and A"
-            "tharv Singh Patlan and Shehzaad Dhuliawala and Caroline Geirhos and Julien W"
-            "ist and Yuval Kansal and Bingsen Chen and Kutay Tire and Atak Talay Y\u00fccel an"
-            "d Brandon Christof and Veerupaksh Singla and Zijian Song and Sanxing Chen an"
-            "d Jiaxin Ge and Kaustubh Ponkshe and Isaac Park and Tianneng Shi and Martin "
-            "Q. Ma and Joshua Mak and Sherwin Lai and Antoine Moulin and Zhuo Cheng and Z"
-            "handa Zhu and Ziyi Zhang and Vaidehi Patil and Ketan Jha and Qiutong Men and"
-            " Jiaxuan Wu and Tianchi Zhang and Bruno Hebling Vieira and Alham Fikri Aji a"
-            "nd Jae-Won Chung and Mohammed Mahfoud and Ha Thi Hoang and Marc Sperzel and "
-            "Wei Hao and Kristof Meding and Sihan Xu and Vassilis Kostakos and Davide Man"
-            "ini and Yueying Liu and Christopher Toukmaji and Jay Paek and Eunmi Yu and A"
-            "rif Engin Demircali and Zhiyi Sun and Ivan Dewerpe and Hongsen Qin and Roman"
-            " Pflugfelder and James Bailey and Johnathan Morris and Ville Heilala and Syb"
-            "ille Rosset and Zishun Yu and Peter E. Chen and Woongyeong Yeo and Eeshaan J"
-            "ain and Ryan Yang and Sreekar Chigurupati and Julia Chernyavsky and Sai Praj"
-            "wal Reddy and Subhashini Venugopalan and Hunar Batra and Core Francisco Park"
-            " and Hieu Tran and Guilherme Maximiano and Genghan Zhang and Yizhuo Liang an"
-            "d Hu Shiyu and Rongwu Xu and Rui Pan and Siddharth Suresh and Ziqi Liu and S"
-            "amaksh Gulati and Songyang Zhang and Peter Turchin and Christopher W. Bartle"
-            "tt and Christopher R. Scotese and Phuong M. Cao and Ben Wu and Jacek Karwows"
-            "ki and Davide Scaramuzza and Aakaash Nattanmai and Gordon McKellips and Anis"
-            "h Cheraku and Asim Suhail and Ethan Luo and Marvin Deng and Jason Luo and As"
-            "hley Zhang and Kavin Jindel and Jay Paek and Kasper Halevy and Allen Baranov"
-            " and Michael Liu and Advaith Avadhanam and David Zhang and Vincent Cheng and"
-            " Brad Ma and Evan Fu and Liam Do and Joshua Lass and Hubert Yang and Surya S"
-            "unkari and Vishruth Bharath and Violet Ai and James Leung and Rishit Agrawal"
-            " and Alan Zhou and Kevin Chen and Tejas Kalpathi and Ziqi Xu and Gavin Wang "
-            "and Tyler Xiao and Erik Maung and Sam Lee and Ryan Yang and Roy Yue and Ben "
-            "Zhao and Julia Yoon and Sunny Sun and Aryan Singh and Ethan Luo and Clark Pe"
-            "ng and Tyler Osbey and Taozhi Wang and Daryl Echeazu and Hubert Yang and Tim"
-            "othy Wu and Spandan Patel and Vidhi Kulkarni and Vijaykaarti Sundarapandiyan"
-            " and Ashley Zhang and Andrew Le and Zafir Nasim and Srikar Yalam and Ritesh "
-            "Kasamsetty and Soham Samal and Hubert Yang and David Sun and Nihar Shah and "
-            "Abhijeet Saha and Alex Zhang and Leon Nguyen and Laasya Nagumalli and Kaixin"
-            " Wang and Alan Zhou and Aidan Wu and Jason Luo and Anwith Telluri and Steven"
-            " Dillmann and Zhengxiang Wang and Junyu Luo and Hugo Lunn and Artem Gazizov "
-            "and Haitz S\u00e1ez de Oc\u00e1riz Borde and Ivan Trus and Morgan Hervault and Zheyu Z"
-            "hang and Bo Chen and Yuchen Wu and Christopher J. Cordier and G\u00fcn Kaynar and"
-            " Cansin Ayvaz and Polina Avdiunina and Johannes Brust and Xingjian Diao and "
-            "K. D. Meaney and Yifan Gu and Chenyu Wang and Chenzhuo Dong and William Wrig"
-            "ht and Simon Brave and Owen Root and Jiayuan Liu and Chow Chun Lok and Tianq"
-            "in Li and Shiyi Du and Dailan He and Lufeiya Liu and Sina Jamalzadegan and A"
-            "nil Ramakrishna and Xuanqing Xu and Xin Qing and Xin Luo and Wenkai Li and S"
-            "hi Bo and Filipp Gusev and Maximos Skandalis and Desheng Ma and Chunhui Zhan"
-            "g and Haoran Qiu and Allen G Hart and Rickard Br\u00fcel Gabrielsson and Ido Akov"
-            " and Artem Lukoianov and Pengchong Hu and Siting Li and Weimin Lyu and Xingc"
-            "hen Zhao and Tianyu Yang and Weiyi Wu and Deren Lei and Robert W. Baber and "
-            "Xiangchi Yuan and Lanyi Wang and Yanjun Cui and Johannes-Rudolf David and Su"
-            "jay Potlapelly and Jeremy Kalfus and Haotian Xu and Abderrahim Bendahi and Q"
-            "iming Bao and Yingxin Jia and Jiang Gui and Jiaming Hu and Zheyuan Liu and F"
-            "urkan \u015e\u0131k and Brandon Handoko and Summer Yue and Alexandr Wang and Dan Hendr"
-            "ycks},\n"
-            "      year={2026},\n"
-            "      eprint={2501.14249},\n"
-            "      archivePrefix={arXiv},\n"
-            "      primaryClass={cs.LG},\n"
-            "      doi={https://doi.org/10.1038/s41586-025-09962-4},\n"
-            "      url={https://arxiv.org/abs/2501.14249}, \n"
-            "}"
-        ),
+        citation=_HLE_CITATION,
         inspect_contributors=("SasankYadati",),
         harness_url="https://github.com/UKGovernmentBEIS/inspect_evals/tree/v0.20.0/src/inspect_evals/hle",
         license="MIT",
@@ -7417,10 +7379,16 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             # may serve glm-5.3-flash at another precision.
             model="openrouter/z-ai/glm-5.3-flash",
             model_role="grader",
-            # default.yaml's judge stanza, which the scorer asks its role with; the guard
-            # admits each because the wire carries the same value. web_search=false is the
-            # house judges' retrieval-free grading (HealthBench's precedent).
-            params=(("temperature", "0"), ("max_tokens", "32768"), ("web_search", "false")),
+            # default.yaml's judge stanza, which the scorer asks its role with; the role is
+            # bound with these pins, so the stanza fills only what they leave unset and the
+            # guard sees the pinned values. web_search=false is the house judges'
+            # retrieval-free grading (HealthBench's precedent).
+            # NAMED DEVIATION (OME-1939): default.yaml caps the judge at max_tokens 32768; on
+            # about 1.5% of Cases glm-5.3-flash spent all of it reasoning and wrote no GRADE
+            # line, so the Case counted 0 whatever the Candidate answered. This row pins
+            # 131072, glm-5.3-flash's output limit on OpenRouter (checked 2026-11-17). A
+            # Case whose judge still writes no grade after 3 attempts counts 0, as above.
+            params=(("temperature", "0"), ("max_tokens", "131072"), ("web_search", "false")),
             # The scorer re-asks its judge in the same words, up to max_grader_attempts=3, when
             # a reply has no GRADE line; each re-ask after a live reply skips the gateway cache,
             # so the three attempts are three draws, as under inspect's own eval().
@@ -7450,7 +7418,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "port's older copy differs. The judge is the authors' own model and prompt, "
             "so scores are comparable to the paper's no-tools image results up to those "
             "deviations; its best, 0.614 (GPT 5.2 Pro), is read from the bars of its Figure 3, "
-            "which prints no table. No mid-run check surface."
+            "which prints no table."
         ),
         focus="Reading biology research figures (free answer, picture input, LLM-judged)",
         dataset_url="https://huggingface.co/datasets/EdisonScientific/labbench2",
@@ -7544,7 +7512,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "port's older copy differs. The judge is the authors' own model and prompt, "
             "so scores are comparable to the paper's no-tools image results up to those "
             "deviations; its best, 0.94 (GPT 5.2 Pro), is read from the bars of its Figure 3, "
-            "which prints no table. No mid-run check surface."
+            "which prints no table."
         ),
         focus="Reading biology research tables (free answer, picture input, LLM-judged)",
         dataset_url="https://huggingface.co/datasets/EdisonScientific/labbench2",
@@ -7652,7 +7620,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "runs, so matching them makes this number comparable to that ecosystem and to the "
             "live board; and the paper's greedy pass@1 is a temperature the Candidate owns, "
             "set at run time. Serving order is pinned by a policy seed (inspect_evals "
-            "shuffles per run). No mid-run check surface."
+            "shuffles per run)."
         ),
         focus="Hard multi-step reasoning over pictures, exact-match answer in braces",
         dataset_url="https://huggingface.co/datasets/jonathan-roberts1/zerobench",
@@ -7769,7 +7737,7 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "'C,A' scored 0. Cases are served in a fixed "
             "seeded shuffle (the eval shuffles per run). Benchmark score = plain accuracy "
             "over the cases run, which is the eval's own overall figure; the eval's "
-            "per-subset breakdown is not reproduced. No mid-run check surface."
+            "per-subset breakdown is not reproduced."
         ),
         focus="Chemistry and materials science questions about pictures (letters or a number)",
         dataset_url="https://huggingface.co/datasets/jablonkagroup/MaCBench",
@@ -7941,6 +7909,115 @@ BENCHMARKS: tuple[BenchmarkSpec, ...] = (
             "screamingface_engine_inspect.local_tasks.enigmaeval.enigmaeval:enigmaeval_exact_match"
         ),
     ),
+    BenchmarkSpec(
+        key="hle_diamond",
+        published_revision="9640c5c7e59fc61e",
+        title="Humanity's Last Exam: Diamond (HLE-Diamond)",
+        description=(
+            "1,000 expert-written questions from HLE-Diamond, the HLE authors' cleaned "
+            "successor to Humanity's Last Exam (released September 2026), half marked "
+            "reasoning and half knowledge, served as a local Task that asks and judges "
+            "exactly as the hle Benchmark does. It is its own Benchmark, not a subset of hle: "
+            "397 of its questions are not in hle, and of the 603 it shares, 80 have a "
+            "corrected answer and 124 a reworded question. 272 questions (about 27%) come "
+            "with one picture, saved inside the Case at import, so the Candidate must read "
+            "images and nothing is fetched at run time. inspect_evals' hle system prompt asks "
+            "for an explanation, a final answer and a confidence. An LLM judge, "
+            "glm-5.3-flash, compares the final answer with the reference using inspect_evals' "
+            "maintained regex_judge prompt, with every judge call routed and metered through "
+            "our gateway. Benchmark score = mean of the judge's correct/incorrect over the "
+            "cases run; a reply the judge could not grade in three tries counts as wrong, as "
+            "the CAIS leaderboard counts it. The Candidate's stated confidence (100 when it "
+            "states none) is published beside it as a second score, its mean from 0 to 100; "
+            "the calibration error, standard error and unscored count are not reproduced, and "
+            "no per-half (reasoning, knowledge) score is published. Two named deviations from "
+            "inspect_evals' judging, as on hle: its backup judge (gemini-3.7-flash) is not "
+            "run, and its pin of the judge to fp8 endpoints cannot be sent through our "
+            "gateway. The authors' leaderboard was judged by their own set-up, not this "
+            "judge, so its scores are a reference, not a like-for-like match. No generation "
+            "settings are imposed."
+        ),
+        focus="HLE's authors' cleaned 1,000 questions, 27% with a picture (LLM-judged)",
+        dataset_url="https://huggingface.co/datasets/cais/hle-diamond",
+        # The best published no-tools score is about three quarters (0.743, below) and the
+        # questions are HLE's, kept only when frontier models failed them (OME-1257).
+        difficulty="hard",
+        # A Case the judge cannot grade counts 0, the CAIS leaderboard's accounting.
+        failure_policy="withhold",
+        # Provenance: this scorer is declared by the Task of
+        #   screamingface_engine_inspect.local_tasks.hle_diamond.hle_diamond:hle_diamond,
+        #   which builds inspect_evals' hle regex_judge from the same spec as the hle row.
+        # License: mit, the cais/hle-diamond dataset card at the pinned revision. The card
+        #   also asks users not to publicly share, re-upload or distribute the questions; the
+        #   frozen Cases ride inside the benchmark image as hle's do (owner decision on
+        #   OME-1863, 2026-11-16).
+        # Benchmark Provenance (OME-1455): by hand, a local Task has no eval.yaml; the paper
+        # and citation are HLE's, which the dataset card asks users to cite.
+        origin="screamingface",
+        paper_url="https://arxiv.org/abs/2501.14249",
+        authors="Phan et al., 2025",
+        citation=_HLE_CITATION,
+        harness_url="https://github.com/centerforaisafety/hle/tree/22ed3074b1e7b134bcbc09028d0ba320839b0655",
+        license="MIT",
+        # Human baseline: none. Neither the HLE paper nor the HLE-Diamond release post
+        # (lastexam.ai, 2026-09-22, read 2026-11-16) reports a human or expert accuracy.
+        human_baseline=NotPublished(
+            reason="neither the HLE paper nor the HLE-Diamond release reports a human accuracy",
+        ),
+        # Frontier score: the top row of the authors' own HLE-Diamond table, no tools, reasoning
+        # high; the post is dated 2026-09-22 and shows no later update date (read 2026-11-16),
+        # so as_of is that month. The same table gives Claude Fable 5.2 79.4% on the reasoning
+        # half and 69.2% on the knowledge half; GPT-6 Astra is third at 59.9%.
+        frontier_score=FrontierScore(
+            score=0.743,
+            model="Claude Fable 5.2",
+            source_url="https://lastexam.ai/blog/hle-diamond",
+            as_of="2026-09",
+        ),
+        notebook="12_inspect_evals_benchmarks",
+        scorer="inspect_evals.hle.scorers:regex_judge",
+        # The scorer's dict value: "score" (the judge's C/I, the headline) and the Candidate's
+        # stated "confidence".
+        named_scores=("score", "confidence"),
+        scorer_kwargs={
+            "grader_role": "grader",
+            "instructions": "regex_judge_instructions",
+            "max_grader_attempts": 3,
+            "template": "regex_judge_template",
+        },
+        # inspect_evals' hle also reports stderr, original_accuracy, cerr (calibration error)
+        # and unscored; the Benchmark reports each named score's mean per Case only, so those
+        # are not reproduced (named in the description).
+        # NAMED DEVIATION: inspect_evals' hle scores the whole run with its own accuracy,
+        # which leaves out a reply the judge could not grade; this Benchmark reports the mean
+        # per-Case score (chosen at import, OME-1527, as on hle), where such a Case counts 0
+        # (failure_policy withhold). That is the CAIS leaderboard's accounting.
+        # NAMED DEVIATION (the plugin's, capture.py and picture_input.py): the eval's system
+        # prompt reaches the Candidate as user text ahead of the question, every byte equal,
+        # not as a system turn as inspect and the CAIS harness send it. Unbounded until a
+        # paired Candidate run (Fidelity Record D5).
+        judge=JudgeSpec(
+            # The hle row's judge: inspect_evals' default.yaml primary "grader" (owner
+            # decision on OME-1478, 2026-11-02).
+            # NAMED DEVIATION: default.yaml also runs a backup judge, gemini-3.7-flash, as a
+            # second column that is never averaged in; a row pins one judge, so it is not run.
+            # NAMED DEVIATION: default.yaml pins the judge to OpenRouter's fp8 endpoints
+            # (provider.quantizations); our gateway sends no provider routing, so OpenRouter
+            # may serve glm-5.3-flash at another precision.
+            model="openrouter/z-ai/glm-5.3-flash",
+            model_role="grader",
+            # default.yaml's judge stanza, as on hle, with hle's raised cap.
+            # NAMED DEVIATION (OME-1939): max_tokens 131072, not default.yaml's 32768; see the
+            # hle row for why.
+            params=(("temperature", "0"), ("max_tokens", "131072"), ("web_search", "false")),
+            # The scorer re-asks its judge in the same words, up to max_grader_attempts=3, when
+            # a reply has no GRADE line; each re-ask after a live reply skips the gateway cache,
+            # so the three attempts are three draws, as under inspect's own eval().
+            redraw_repeats=True,
+        ),
+        # Judged benchmark: no draft-feedback offer until the check-cost knob (OME-1116).
+        with_check_surface=False,
+    ),
     # --- importer: generated BenchmarkSpec rows land above this line ---
 )
 
@@ -7981,7 +8058,9 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
     return single_shot_benchmark(
         benchmark_key=spec.key,
         title=spec.title,
-        description=spec.description,
+        # WHY appended here, not written into each row: the answer format belongs to the
+        # scorer, which 96 rows share 38 of; one sentence per scorer cannot drift per row.
+        description=with_answer_format(spec.description, spec.key, spec.scorer),
         focus=spec.focus,
         dataset_url=spec.dataset_url,
         difficulty=spec.difficulty,
@@ -7993,6 +8072,7 @@ def _assemble(spec: BenchmarkSpec) -> ImportedBenchmark:
             + _inverted_grade_pins(spec)
             + _attempts_pins(spec)
             + _multiple_correct_pins(spec)
+            + _option_marking_pins(spec)
             + _verdict_grades_pins(spec)
             + _named_score_pins(spec)
             + _scorer_function_pins(spec)
@@ -8737,6 +8817,41 @@ def _multiple_correct_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
     """
 
     return ("multiple_correct=1",) if spec.multiple_correct else ()
+
+
+#: The scorers that grade from the option marks the scorer adapter sets on a Case's choices,
+#: so the wrapped-letter rule changes their grade (OME-1907). SAD's and stereoset's scorers read
+#: the reply themselves, and mathvista's reads it by pattern (its own Named Deviation).
+#: AIDEV-NOTE: a new row whose scorer reads ``state.choices[i].correct`` belongs here.
+OPTION_MARK_READERS: frozenset[str] = frozenset(
+    {
+        "inspect_ai.scorer:choice",
+        "inspect_evals.lab_bench.lab_bench:precision_choice",
+        "inspect_evals.cyberseceval_4.malware_analysis:choice_with_jaccard",
+        "inspect_evals.cyberseceval_4.threat_intelligence:choice_with_jaccard",
+        "screamingface_engine_inspect.local_tasks.bbh.bbh:bbh_scorer",
+    }
+)
+
+#: The module holding the wrapped-letter rule the option marking runs (OME-1907).
+_OPTION_MARKING_MODULE: str = "screamingface_engine_inspect.named_deviations.wrapped_letter"
+
+
+def _option_marking_pins(spec: BenchmarkSpec) -> tuple[str, ...]:
+    """The wrapped-letter rule's source as identity of every row graded from option marks.
+
+    WHY: the scorer adapter, not the row's scorer, reads `ANSWER: $B` as B (OME-1907), so no
+    scorer or package pin covers that code; without this pin an edit to the rule would change
+    46 rows' grades and leave every fingerprint as it was.
+    INVARIANT: like ``scorer_source_pins``, this locates the package and never imports it.
+    """
+
+    if spec.scorer not in OPTION_MARK_READERS:
+        return ()
+    package = find_spec(_OPTION_MARKING_MODULE)
+    if package is None or package.origin is None:
+        raise ValueError(f"{_OPTION_MARKING_MODULE!r} cannot be located to pin its source")
+    return (f"option_marking={source_digest(Path(package.origin).parent)}",)
 
 
 def _named_score_pins(spec: BenchmarkSpec) -> tuple[str, ...]:

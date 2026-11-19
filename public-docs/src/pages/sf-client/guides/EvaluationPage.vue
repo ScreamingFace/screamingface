@@ -80,9 +80,9 @@ client.close()`
     </p>
 
     <p>
-      Everything expensive happens inside this call, but validation happens first and in full. An
-      unknown benchmark, an unreachable route, or a malformed candidate all fail
-      <strong>before the first paid request</strong>.
+      Everything expensive happens inside this call, and validation runs first and in full. An
+      unknown benchmark, an unreachable route, or a malformed candidate all fail before the first
+      paid request.
     </p>
 
     <figure class="not-prose" style="margin: var(--space-8) 0">
@@ -172,7 +172,7 @@ client.close()`
       To replay captured answers, call <code>sf.evaluate(pinned_cache="…")</code> or
       <code>sf.evaluate(score_id="…")</code> with no positional candidate and no
       <code>benchmark</code>. The board supplies the recipe and seed. The returned report's single
-      result has a <code>reproduction</code> object with an <code>outcome</code> of
+      result carries a <code>reproduction</code> object with an <code>outcome</code> of
       <code>exact</code> or <code>failed</code>. A partial replay with <code>limit=n</code>
       has no verdict. See the
       <RouterLink to="/sf-client/guides/leaderboards">Leaderboards guide</RouterLink>
@@ -238,7 +238,7 @@ client.close()`
     <h3>1 · Evaluate one candidate</h3>
 
     <p>
-      The benchmark id is <strong>required</strong>, with no default and no implicit choice.
+      The benchmark id is required. There is no default and no implicit choice.
       <code>limit</code> caps the case count and is your main cost control.
     </p>
 
@@ -247,15 +247,15 @@ client.close()`
     </div>
 
     <p>
-      The repr is a summary: which benchmark, which candidates, whether anything failed.
+      The repr is a summary: which benchmark, which candidates, and whether anything failed.
       <code>ok</code> is <code>True</code> only when no candidate and no member had a failure.
     </p>
 
     <h3>2 · Read the score</h3>
 
     <p>
-      Scores live on candidates rather than on the report, since a report can hold several. With one
-      candidate, <code>.only</code> gets you right to it.
+      Scores live on candidates rather than on the report, because a report can hold several. With
+      one candidate, <code>.only</code> gets you right to it.
     </p>
 
     <div class="not-prose">
@@ -263,9 +263,9 @@ client.close()`
     </div>
 
     <p>
-      Notice the two case counts: <code>report.case_count</code> is how many cases <em>ran</em>;
-      <code>report.benchmark.case_count</code> is how many the benchmark has. Running 3 of 2,450 is
-      a smoke test, and the report keeps both numbers visible so that stays obvious later.
+      Notice the two case counts: <code>report.case_count</code> is how many cases <em>ran</em>, and
+      <code>report.benchmark.case_count</code> is how many the benchmark has. Running 3 of 2,450 is a
+      smoke test, and the report keeps both numbers visible so that stays obvious later.
     </p>
 
     <p>
@@ -278,19 +278,19 @@ client.close()`
     </div>
 
     <p>
-      Read <code>coverage</code> beside the score. It is the fraction of the selected cases the
-      score was computed from, and anything below <code>1.0</code> means the engine graded only part
-      of the run and the score describes that part. A candidate can also finish with both a score
-      and entries in <code>failures</code>, which is a completed run carrying warnings worth reading
-      rather than a broken one.
+      Read <code>coverage</code> beside the score. It is the fraction of the selected cases the score
+      was computed from. Anything below <code>1.0</code> means the engine graded only part of the
+      run, so the score describes that part. A candidate can also finish with both a score and
+      entries in <code>failures</code>. That is a completed run carrying warnings worth reading, not a
+      broken one.
     </p>
 
     <h3>3 · Evaluate several at once</h3>
 
     <p>
-      Pass a list. Every candidate runs against the same pinned exam in the same call. That's what
-      makes the comparison fair. It's the only way to compare, because a report has no "baseline" or
-      "gain" field. You put the solo model and the fusion in one run and read both scores.
+      Pass a list. Every candidate runs against the same pinned exam in the same call, which is what
+      makes the comparison fair. It is also the only way to compare, because a report has no
+      "baseline" or "gain" field. Put the solo model and the fusion in one run and read both scores.
     </p>
 
     <div class="not-prose">
@@ -298,8 +298,8 @@ client.close()`
     </div>
 
     <p>
-      Results come back in declared order. MedXpert grading is an exact match, so it is free and
-      this costs only the answers. On DRACO every criterion is graded by five judge passes, so even
+      Results come back in declared order. MedXpert grading is an exact match, so it is free and this
+      run costs only the answers. On DRACO every criterion is graded by five judge passes, so even
       <code>limit=1</code> is a real spend.
     </p>
 
@@ -312,13 +312,13 @@ client.close()`
     <p>
       <code>cost_usd</code> is the cost the provider reported, for example
       <code>Decimal('0.020283')</code>. Any field is <code>None</code> if even one candidate run
-      failed to report it, rather than being silently summed as a partial total.
+      failed to report it, so a partial total is never summed silently.
     </p>
 
     <p>
-      The local gateway starts with the request cache on, so a repeated call can be answered from it
-      and report <code>cost_usd=Decimal('0')</code>. <code>use_cache=False</code> opts one
-      evaluation out: its calls are made fresh and the report shows them as cache
+      The local gateway starts with the request cache on, so a repeated call can be answered from the
+      cache and report <code>cost_usd=Decimal('0')</code>. <code>use_cache=False</code> opts one
+      evaluation out: its calls are made fresh, and the report shows them as cache
       <code>bypass</code> with the reason <code>opted_out</code>.
     </p>
 
@@ -338,7 +338,7 @@ client.close()`
 
     <p>
       <code>sf.evaluate()</code> never asks where the engine is. Left unconfigured and with no local
-      stack running, it falls back to <code>DEFAULT_ENGINE_URL</code>, a hosted engine, which is not
+      stack running, it falls back to <code>DEFAULT_ENGINE_URL</code>, a hosted engine. That is not
       what you want when the engine you mean is your own, so name it once with
       <code>sf.configure()</code>, together with its scoreboard, and every later call uses it. When
       <code>screamingface up</code> is running and nothing is configured, the shared Client connects
@@ -347,8 +347,8 @@ client.close()`
     </p>
 
     <p>
-      Holding your own <code>sf.Client</code> is the alternative, and the only way to address two
-      engines from one process. <code>sf.AsyncClient</code> has the same interface with
+      The alternative is to hold your own <code>sf.Client</code>, which is also the only way to
+      address two engines from one process. <code>sf.AsyncClient</code> has the same interface with
       <code>await</code>.
     </p>
 
@@ -362,7 +362,7 @@ client.close()`
       Every completed evaluation is saved to <code>~/.screamingface/results</code> on your machine,
       outside the engine's data directory and shared by every environment you use. A run that ends
       with failures is saved too, so you can still fetch its report. The files hold the prompts and
-      outputs of the run.
+      outputs from the run.
     </p>
 
     <div class="not-prose">
@@ -373,6 +373,13 @@ client.close()`
       <code>sf.reports.get_async(report_id)</code> is the awaitable form. To stop a Client saving
       reports, build it with <code>save_results=False</code>; <code>sf.configure()</code> does not
       take that option.
+    </p>
+
+    <p>
+      <code>sf.reports</code> reopens results on <em>this</em> machine. To find, follow or cancel the
+      run itself (from any notebook signed in as you, for 30 days), use its
+      <code>report.run_id</code> and the
+      <RouterLink to="/sf-client/guides/managing-experiments">Managing experiments</RouterLink> guide.
     </p>
 
     <div class="not-prose">
@@ -389,7 +396,7 @@ client.close()`
       <code>report.selected_cases</code> names the Cases scored, in ascending order, and
       <code>report.selection_fingerprint</code> is the <code>sha256:</code> of the sorted ids joined
       by commas, which a paper can cite. Both are <code>None</code> for a full run and for a
-      <code>limit</code> run, and a list equal to Cases 1 to N is the same run as
+      <code>limit</code> run. A list equal to Cases 1 to N is the same run as
       <code>limit=N</code>.
     </p>
 
@@ -455,26 +462,26 @@ client.close()`
     <CodeBlock :code="casesRefusedOut" language="text" />
 
     <p>
-      A run on chosen Cases cannot be submitted to a leaderboard:
+      A run on chosen Cases cannot be submitted to a leaderboard.
       <code>sf.leaderboards.submit</code> raises <code>ValueError</code> with
       <code>a run on selected Cases can't be submitted to the leaderboard; submit a full run</code>.
-      The hosted engine serves the selection route: it refuses an id above the case count with the
-      same <code>PlanningError</code>, before any model call. The SDK posts the list to the Engine's
-      selection route and refuses before any model call when the Engine does not echo the list back,
-      so an older Engine never runs and bills every Case. The report JSON written by
-      <code>to_json()</code> carries no <code>selected_cases</code> key.
+      The hosted engine serves the selection route, and it refuses an id above the case count with
+      the same <code>PlanningError</code> before any model call. The SDK posts the list to the
+      Engine's selection route, then refuses before any model call when the Engine does not echo the
+      list back. This keeps an older Engine from running and billing every Case. The report JSON
+      written by <code>to_json()</code> carries no <code>selected_cases</code> key.
     </p>
 
     <h2>When it fails</h2>
 
     <p>
       <code>PlanningError</code> means the run never started: change the candidate, benchmark or
-      configuration. <code>ExecutionError</code> means it reached the engine and ended without a
-      valid report. <code>EngineUnavailableError</code> means the engine was not reachable at all.
+      configuration. <code>ExecutionError</code> means it reached the engine and ended without a valid
+      report. <code>EngineUnavailableError</code> means the engine was not reachable at all.
       <code>ReproductionError</code> means a replay could not start. A benchmark the engine does not
-      publish raises <code>PlanningError</code>: a local engine started with
+      publish also raises <code>PlanningError</code>. A local engine started with
       <code>screamingface up</code> comes with <code>medxpert</code> ready to run, so a run against a
-      benchmark it has not prepared raises it. Each carries a stable
+      benchmark it has not prepared raises that error. Each error carries a stable
       <code>code</code> and a <code>hint</code>.
     </p>
 

@@ -9,7 +9,7 @@ bearer token and answers per account, while /v1/models is process-wide. So this 
 dials ONLY with a credential a dispatch hands it (today: the refusal path) and caches per
 account id. INVARIANT (security): an account's list is returned only to that account's own
 request — it never feeds the shared listing, which serves the static seeds (models.py).
-It never enumerates stored profiles — no cross-tenant credential reads.
+It never enumerates stored connections — no cross-tenant credential reads.
 
 INVARIANT (fail closed, all-or-nothing): a malformed, empty, or oversized catalog raises a
 sanitized ``DiscoveryError`` and never replaces the last good list. Live data changes what is

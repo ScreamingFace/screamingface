@@ -2,17 +2,21 @@
 import { storeToRefs } from 'pinia'
 import { useThemeStore } from '@/stores/themeStore'
 
-defineProps<{
-  name: string
-  alt: string
-  caption: string
-}>()
+withDefaults(
+  defineProps<{
+    name: string
+    alt: string
+    caption: string
+    bare?: boolean
+  }>(),
+  { bare: false },
+)
 
 const { isDark } = storeToRefs(useThemeStore())
 </script>
 
 <template>
-  <figure class="not-prose diagram">
+  <figure class="not-prose diagram" :class="{ bare }">
     <img :src="`/diagrams/${name}-${isDark ? 'dark' : 'light'}.svg`" :alt="alt" />
     <figcaption>{{ caption }}</figcaption>
   </figure>
@@ -35,5 +39,19 @@ const { isDark } = storeToRefs(useThemeStore())
   padding: var(--space-3) var(--space-5);
   font-size: var(--text-sm);
   color: var(--text-2);
+}
+
+/* Bare: the diagram sits directly in the page, no card border or background. */
+.diagram.bare {
+  border: none;
+  background: transparent;
+}
+.diagram.bare img {
+  padding: var(--space-4) 0;
+}
+.diagram.bare figcaption {
+  border-top: none;
+  padding: 0;
+  text-align: center;
 }
 </style>

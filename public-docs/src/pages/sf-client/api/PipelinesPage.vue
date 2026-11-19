@@ -30,9 +30,10 @@ report = sf.evaluate(pipeline, benchmark="medxpert", limit=1)`
     :version="version"
   >
     <p>
-      A Pipeline is a <RouterLink to="/sf-client/api/recipes">Recipe</RouterLink> that passes one
-      input through an ordered sequence of stages; each stage refines the previous stage's answer,
-      and the last stage's answer is graded. Like every recipe it is frozen and holds no Client. The
+      A Pipeline is a <RouterLink to="/sf-client/api/recipes">Recipe</RouterLink> that runs stages
+      in order. It feeds one input through the stages, each stage refines the answer from the stage
+      before it, and the last stage's answer is graded. Use a Pipeline when you want several steps to
+      build on each other. Like every recipe, it is frozen and holds no Client. The
       <RouterLink to="/sf-client/guides/pipelines">Pipelines guide</RouterLink> walks through
       building one.
     </p>
@@ -52,45 +53,46 @@ report = sf.evaluate(pipeline, benchmark="medxpert", limit=1)`
           <td><code>name</code></td>
           <td><code>str</code></td>
           <td>
-            The pipeline's name. Inferred by joining stage names with <code>-&gt;</code> unless you
-            pass one.
+            The pipeline's name. If you don't pass one, it is built by joining the stage names with
+            <code>-&gt;</code>.
           </td>
         </tr>
         <tr>
           <td><code>optional</code></td>
           <td><code>bool</code></td>
           <td>
-            <code>True</code> for a chain that is an optional member of a <code>sf.Fanout</code>.
-            Defaults to <code>False</code>.
+            Set to <code>True</code> when this chain is an optional member of a
+            <code>sf.Fanout</code>. Defaults to <code>False</code>.
           </td>
         </tr>
         <tr>
           <td><code>steps</code></td>
           <td><code>tuple</code></td>
           <td>
-            The ordered steps, each refining the previous answer. At least one. A fusion block shows
-            as its <code>Fanout</code> and <code>Synthesize</code> steps.
+            The steps in order, each refining the previous answer. There must be at least one. A
+            fusion block appears as its <code>Fanout</code> and <code>Synthesize</code> steps.
           </td>
         </tr>
         <tr>
           <td><code>optional</code></td>
           <td><code>bool</code></td>
           <td>
-            Whether this Pipeline, as a Fusion member, may fail without stopping the Fusion while
-            its <RouterLink to="/sf-client/api/fusions">quorum</RouterLink> is met.
+            Whether this Pipeline, as a Fusion member, may fail without stopping the Fusion, as long
+            as the Fusion's <RouterLink to="/sf-client/api/fusions">quorum</RouterLink> is still met.
           </td>
         </tr>
       </tbody>
     </table>
 
     <Note>
-      An unnamed Pipeline nested inside another flattens into the outer pipeline's stages; a
-      Pipeline you give an explicit <code>name</code> stays grouped as one stage. Naming is
-      behavioral, not cosmetic: it participates in equality, so two pipelines with the same stages
-      but different naming are not equal.
+      An unnamed Pipeline nested inside another flattens into the outer pipeline's stages. A Pipeline
+      you give an explicit <code>name</code> stays grouped as one stage. Naming affects behavior, not
+      just appearance: the name counts toward equality, so two pipelines with the same stages but
+      different names are not equal.
     </Note>
 
     <p>
+      You can also build a Pipeline with the <code>&gt;&gt;</code> operator.
       <code>a &gt;&gt; b</code> joins two stages and returns a Pipeline.
       <code>a &gt;&gt; b &gt;&gt; c</code> reads left to right and returns a new
       <code>sf.Pipeline</code>. See <RouterLink to="/sf-client/api/recipes">Recipe</RouterLink>.

@@ -46,7 +46,7 @@ def _env_api_key() -> str | None:
 
 
 def _header_api_key(headers: Any) -> str | None:
-    """Per-profile API key injected by the gateway's ApiKeyStrategy.
+    """Per-connection API key injected by the gateway's ApiKeyStrategy.
 
     Caller-supplied copies of this header are stripped by the plugin's
     prepare_chat_body before the gateway merges strategy headers, so a value
@@ -141,13 +141,13 @@ class GeminiCustomLLM(CustomLLM):
                 timeout,
             )
 
-        profile_key = _header_api_key(headers or {})
-        if profile_key:
+        connection_key = _header_api_key(headers or {})
+        if connection_key:
             return await self._run_api_key(
                 model_slug,
                 normalized_messages,
                 optional_params or {},
-                profile_key,
+                connection_key,
                 timeout,
             )
 
@@ -163,7 +163,7 @@ class GeminiCustomLLM(CustomLLM):
         raise CustomLLMError(
             status_code=401,
             message=(
-                "Gemini requires an OAuth profile, a profile API key, "
+                "Gemini requires a connected OAuth or API-key credential, "
                 "or GEMINI_API_KEY/GOOGLE_API_KEY"
             ),
         )

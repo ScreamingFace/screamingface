@@ -55,6 +55,8 @@ _WITHHOLD: frozenset[str] = frozenset(
         "mmmu_open",
         # OME-1478: HLE, a per-Case mean over the judge's grade, like mmmu_open — Group A.
         "hle",
+        # OME-1863: HLE-Diamond, hle's judge over the Diamond questions — Group A.
+        "hle_diamond",
         # OME-1733: LABBench2 FigQA2 and TableQA2 image, a per-Case mean over the judge's grade,
         # like hle — Group A.
         "labbench2_figqa2_img",
@@ -162,10 +164,10 @@ def test_failure_policy_is_a_required_row_field_after_difficulty() -> None:
 
 
 def test_every_row_declares_the_policy_of_the_table() -> None:
-    # INVARIANT: 90 imported rows, each with exactly the policy the table names. A new row or a
+    # INVARIANT: 97 imported rows, each with exactly the policy the table names. A new row or a
     # changed policy trips here, deliberately.
-    assert len(BENCHMARKS) == 96
-    assert len(_WITHHOLD) == 79
+    assert len(BENCHMARKS) == 97
+    assert len(_WITHHOLD) == 80
     assert len(_COVERAGE_DECLARE) == 17
     actual = {spec.key: spec.failure_policy for spec in BENCHMARKS}
     assert actual == _EXPECTED

@@ -63,7 +63,7 @@ stacks:
       # expands globs itself. A renamed file would leave a permanently green gate
       # covering nothing. A missing explicit path exits 1. Add new test files here
       # by name (OME-798).
-      - node --test tests/portal/leaderboard-logic.test.js tests/portal/featured-benchmarks.test.js tests/portal/pareto-chart.test.js tests/portal/pareto-chart-review.test.js tests/portal/pareto-origin.test.js tests/portal/index-cards.test.js tests/portal/analytics.test.js tests/portal/subscribe.test.js tests/portal/paper-link.test.js tests/portal/reproduce-button.test.js tests/portal/spec-meta-lines.test.js tests/portal/pareto-chart-launch-copy.test.js tests/portal/benchmark-chart-isolation.test.js tests/portal/copy-feedback.test.js tests/portal/benchmark-picker-search.test.js tests/portal/external-results.test.js
+      - node --test tests/portal/leaderboard-logic.test.js tests/portal/featured-benchmarks.test.js tests/portal/pareto-chart.test.js tests/portal/pareto-chart-review.test.js tests/portal/pareto-origin.test.js tests/portal/index-cards.test.js tests/portal/analytics.test.js tests/portal/subscribe.test.js tests/portal/board-url.test.js tests/portal/paper-link.test.js tests/portal/reproduce-button.test.js tests/portal/spec-meta-lines.test.js tests/portal/pareto-chart-launch-copy.test.js tests/portal/benchmark-chart-isolation.test.js tests/portal/copy-feedback.test.js tests/portal/benchmark-picker-search.test.js tests/portal/external-results.test.js tests/portal/external-result-history.test.js
   - name: report-intake
     root: apps/report-intake
     skill: sdlc-python
@@ -97,6 +97,7 @@ stacks:
       # worksteal lets an idle worker take the second one, 110s. pytest-cov merges the workers'
       # coverage before the floor is checked, so the floor means what it did serially (OME-1444).
       - uv run pytest -n auto --dist worksteal --cov=screamingface --cov-fail-under=95 -q
+      - node --test tests/credit_refresh.test.mjs
       - uv run --extra notebook python scripts/check_notebooks.py
       - uv build
       - uv run python scripts/check_distribution.py

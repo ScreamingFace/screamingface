@@ -154,10 +154,10 @@ async def test_a_single_20_mib_body_is_refused_after_about_the_cap_not_20_mib(
 
 @pytest.mark.asyncio
 async def test_exactly_the_cap_passes(wire: list[_Wire]) -> None:
-    wire.append(_Wire({"/a.png": 4_000_000, "/b.png": 4_000_000}))
+    wire.append(_Wire({"/a.png": CAP // 2, "/b.png": CAP - CAP // 2}))
     model = _Model()
     assert await _run(_expr(["a", "b"]), model) == "ok"
-    assert sum(len(a.body) for a in model.seen[0]) == 8_000_000
+    assert sum(len(a.body) for a in model.seen[0]) == CAP
 
 
 @pytest.mark.asyncio
@@ -241,15 +241,16 @@ class _Streaming(StaticIOLayer):
 async def test_an_optional_source_that_fails_does_not_consume_budget() -> None:
     gone, kept = _url("gone"), _url("kept")
     io = _Streaming(
-        {gone: b"g" * 7_000_000, kept: b"k" * 5_000_000},
+        {gone: b"g" * (CAP * 7 // 8), kept: b"k" * (CAP * 5 // 8)},
         fail=frozenset({gone}),
         order={kept: gone},
     )
     model = _Model()
     text = f"(src={gone};accept=image/png;optional, src={kept};accept=image/png)!'d'"
     assert await run(text, io, process=model) == "ok"
-    # 7 MB streamed by the failed optional flight + 5 MB kept would be 12 MB without the refund.
-    assert [len(a.body) for a in model.seen[0]] == [5_000_000]
+    # 7/8 of the cap streamed by the failed optional flight + 5/8 kept would pass the cap
+    # without the refund.
+    assert [len(a.body) for a in model.seen[0]] == [CAP * 5 // 8]
 
 
 @pytest.mark.asyncio
@@ -267,13 +268,14 @@ async def test_each_flight_reads_at_most_the_budget_left_by_settled_entries() ->
 
 def test_live_charges_are_settled_once_per_key_by_the_final_charge() -> None:
     budget = CapBudget()
-    budget.charge_bytes("a", 3_000_000)
-    budget.charge_bytes("a", 1_000_000)
+    half = CAP // 2
+    budget.charge_bytes("a", half - CAP // 8)
+    budget.charge_bytes("a", CAP // 8)
     assert budget.remaining() == CAP  # in-flight bytes do not lower a new flight's ceiling
-    budget.charge("a", 4_000_000)  # settles: the live 4 MB become the counted 4 MB
-    budget.charge("a", 4_000_000)  # once per key
-    assert budget.remaining() == CAP - 4_000_000
-    budget.charge_bytes("b", 4_000_000)  # exactly at the cap: allowed
+    budget.charge("a", half)  # settles: the live half becomes the counted half
+    budget.charge("a", half)  # once per key
+    assert budget.remaining() == CAP - half
+    budget.charge_bytes("b", CAP - half)  # exactly at the cap: allowed
     with pytest.raises(ResolutionError) as caught:
         budget.charge_bytes("b", 1)
     assert caught.value.code == ErrorCode.ATTACHMENTS_TOO_LARGE
@@ -283,10 +285,10 @@ def test_live_charges_are_settled_once_per_key_by_the_final_charge() -> None:
 
 def test_release_gives_a_keys_live_bytes_back() -> None:
     budget = CapBudget()
-    budget.charge_bytes("opt", 7_000_000)
+    budget.charge_bytes("opt", CAP * 7 // 8)
     budget.release("opt")
     budget.release("never-charged")
-    budget.charge_bytes("req", 8_000_000)
+    budget.charge_bytes("req", CAP)
     budget.raise_if_refused()  # nothing was refused
 
 

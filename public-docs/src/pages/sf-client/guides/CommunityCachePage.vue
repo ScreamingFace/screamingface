@@ -54,11 +54,12 @@ except sf.cache.CachePullError as exc:
 
     <p>
       A local engine starts with only your own cache. Pull the hosted community cache into it, and
-      your local runs answer every model call the community has already made for free. With your local
-      stack running, it takes one command.
+      your local runs answer every model call the community has already made, for free. Once your
+      local stack is running, it takes one command.
     </p>
 
     <ThemedDiagram
+      bare
       name="sf-community-cache-pull"
       alt="Your local cache fills from your own runs and from pulling the shared global community cache; calls already in the cache run for free."
       caption="Your cache fills from your own runs and from the shared global cache. Calls already in it run for free."
@@ -78,8 +79,8 @@ except sf.cache.CachePullError as exc:
 
     <p>
       This creates the local gateway database, which the pull loads rows into, and turns request
-      caching on. If you exported <code>AIGW_REQUEST_CACHE_ENABLED=false</code>, unset it first: with
-      caching off, the gateway does not serve from its store.
+      caching on. If you have exported <code>AIGW_REQUEST_CACHE_ENABLED=false</code>, unset it first.
+      With caching off, the gateway does not serve from its store.
     </p>
 
     <p>
@@ -92,9 +93,9 @@ except sf.cache.CachePullError as exc:
     <h2>2 · Pull the cache for your models</h2>
 
     <p>
-      Pull only the models your run uses, candidates and judge. A run can hit only those models'
-      rows, so a filtered pull loses no hits and finishes sooner. Write each name exactly as the
-      hosted cache names it.
+      Pull only the models your run uses: its candidates and its judge. A run can hit only those
+      models' rows, so a filtered pull loses no hits and finishes sooner. Write each name exactly as
+      the hosted cache names it.
     </p>
 
     <CodeBlock :code="pull" language="python" />
@@ -105,8 +106,8 @@ except sf.cache.CachePullError as exc:
     </p>
 
     <p>
-      The first pull opens the engine's sign-in in your browser. One sign-in covers every later pull
-      in the same process.
+      The first pull opens the engine's sign-in page in your browser. One sign-in covers every later
+      pull in the same process.
     </p>
 
     <p>
@@ -140,7 +141,7 @@ except sf.cache.CachePullError as exc:
 
     <p>
       Run as usual. <code>use_cache=True</code> is the default, so every call already in the cache is
-      answered from it for free. A call that is not in the cache runs fresh and is billed to the
+      answered from it for free. A call that is not in the cache runs fresh, and is billed to the
       provider account that runs it.
     </p>
 
@@ -154,17 +155,17 @@ except sf.cache.CachePullError as exc:
     <h2>If the pull stops</h2>
 
     <p>
-      A pull that stops before its last page raises <code>sf.cache.CachePullError</code>, after 4
-      automatic retries of dropped connections, rate limits and edge errors. Rows loaded so far stay
-      loaded. Call again in the same process, with the same models and url, and the pull continues
-      from the last loaded page.
+      A pull that stops before its last page raises <code>sf.cache.CachePullError</code>. It does this
+      only after 4 automatic retries of dropped connections, rate limits, and edge errors. Rows loaded
+      so far stay loaded. To resume, call again in the same process with the same models and url, and
+      the pull continues from the last loaded page.
     </p>
 
     <CodeBlock :code="retry" language="python" />
 
     <p>
-      A new process starts again from the first page, but rows already loaded are kept, so it costs
-      only time. <code>Ctrl-C</code> behaves the same way: the next call in the process continues.
+      A new process starts again from the first page, but rows already loaded are kept, so restarting
+      costs only time. <code>Ctrl-C</code> behaves the same way: the next call in the process continues.
     </p>
 
     <p>

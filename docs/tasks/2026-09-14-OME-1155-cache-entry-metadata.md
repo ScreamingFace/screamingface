@@ -1,12 +1,12 @@
 ---
 id: OME-1155
 linear_url: https://linear.app/openmined/issue/OME-1155/cache-gateway-metadata-end-to-end-for-openrouter
-status: in_progress
+status: done
 type: feature
 priority: 3
 labels: [aigateway, agentic]
 created: 2026-09-14
-closed:
+closed: 2026-11-16
 ---
 
 # Cache gateway metadata end to end for OpenRouter
@@ -32,3 +32,10 @@ Spec: `docs/spec/2026-09-13-cache-entry-metadata-prd.md` ·
 (both reconstructed 2026-09-14 from the implementation — see their provenance notes)
 Ledger: `docs/work/2026-09-14-OME-1155-review-findings.md`
 PR: https://github.com/ScreamingFace/screamingface/pull/930
+
+## Close
+
+- 2026-11-16: PR #930 squash-merged as `0d2c00f82` on 2026-09-17. The owner decided on 2026-09-28
+  to keep the current cache-hit shape (`docs/spec/2026-09-28-aigateway-cache-hit-metadata.md`
+  §4 Q1); the follow-up OME-1397 merged as `16bb09ae3` (#1100) on 2026-09-28. Linear Done
+  2026-11-16 with the close-comment. OME-1156 now sits under OME-1287 and does not block this close.

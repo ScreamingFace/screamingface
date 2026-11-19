@@ -1,9 +1,9 @@
 ---
 ticket: OME-1914
 stack: aigateway
-status: verified
+status: done
 started: 2026-11-13
-finished:
+finished: 2026-11-13
 ---
 
 # aigateway chart placement for the migrate Job and Garage
@@ -63,3 +63,7 @@ Source: Stephen follow-up on PR #1738 (https://github.com/ScreamingFace/screamin
 ## Status
 
 Code, tests and gates are done. One local commit. Not pushed.
+
+## Landed on main
+
+- `babcaf11a` (#1798), squash-merged 2026-11-13 13:58 UTC. Linear OME-1914 Done 2026-11-16.

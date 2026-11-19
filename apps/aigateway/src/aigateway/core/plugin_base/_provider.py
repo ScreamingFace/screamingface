@@ -95,7 +95,7 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         ``catalog_cache`` is app-owned mutable scratch the provider may use to
         TTL-cache its catalog; ``credentialed`` says whether the CALLING account
         holds a usable credential for this provider — the route resolves it,
-        because credential scoping is account+profile shaped and lives in core.
+        because credential scoping is account+connection shaped and lives in core.
         Returns a ``ModelAdmission`` — never raises for a refusal.
         """
         del model_id, discovery_client, discovery_limits, catalog_cache, credentialed
@@ -218,7 +218,7 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
 
         # FEATURE: image and file input (OME-1529). The chat route calls this at its media
         # boundary, next to the provider-neutral data:-only guard.
-        # INVARIANT: called BEFORE the cache stage and credential resolution, so a profile or
+        # INVARIANT: called BEFORE the cache stage and credential resolution, so a connection or
         # auth error can never preempt the media 422 and a refused body never reaches the cache.
         # WHY a hook: which slots hold text only is the provider's wire knowledge (Anthropic's
         # top-level ``system``); core states the seam, the plugin fills it, and core never
@@ -250,7 +250,7 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
 
         INVARIANT (this is the whole reason the port exists): PURE. Synchronous, no
         I/O, no clock, no randomness, no counter, no cache lookup — and it receives
-        the request body ALONE, so no account, profile, user, auth mode or
+        the request body ALONE, so no account, connection, user, auth mode or
         credential can reach a globally shared key. A provider that cannot describe
         itself under those terms returns ``CacheBypass``.
 
@@ -315,7 +315,7 @@ class ProviderPluginCore[TSettings: PluginSettings](ABC):
         could only answer that by disabling the whole provider, which would abandon
         every unrelated model's cache over one poisoned alias.
 
-        INVARIANT: nothing ELSE crosses this port. No body, no account, no profile, no
+        INVARIANT: nothing ELSE crosses this port. No body, no account, no connection, no
         auth mode, no credential, no settings instance — this hook may read
         deployment-local state, but the request itself reaches it only as this one id.
 

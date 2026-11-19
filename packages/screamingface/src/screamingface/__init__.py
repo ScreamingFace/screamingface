@@ -54,6 +54,7 @@ from screamingface.classification import Classification, LabelScore
 from screamingface.client import AsyncClient, Client
 from screamingface.connections import AsyncOAuthFlow, Connection, OAuthFlow
 from screamingface.corrective import CorrectiveLoop, SelfCorrective
+from screamingface.credit import CreditAmount, CreditStatus, credits
 from screamingface.discovery import (
     Benchmark,
     BenchmarkInfo,
@@ -126,6 +127,9 @@ _offer_analytics()
 del _offer_analytics
 
 __all__ = [
+    "CreditAmount",
+    "CreditStatus",
+    "credits",
     "analytics",
     "__version__",
     "reports",

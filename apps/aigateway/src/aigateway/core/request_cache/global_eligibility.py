@@ -12,7 +12,7 @@ Anything else bypasses. A key this module fails to account for is a key that
 silently does not participate in the hash — which is the one failure mode a shared
 cache may never have.
 
-INVARIANT: no identity. Nothing here takes an account, profile, user, auth mode or
+INVARIANT: no identity. Nothing here takes an account, connection, user, auth mode or
 credential, and the provider projection is called with the request body alone.
 
 AIDEV-NOTE (OME-653 pattern): split out of ``.global_keys`` purely to keep each

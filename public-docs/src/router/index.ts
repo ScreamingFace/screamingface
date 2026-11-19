@@ -59,6 +59,16 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/guides/PipelinesPage.vue'),
     },
     {
+      path: '/sf-client/guides/cascades-gates',
+      name: 'sf-client-guides-cascades-gates',
+      component: () => import('@/pages/sf-client/guides/CascadesGatesPage.vue'),
+    },
+    {
+      path: '/sf-client/guides/budget-capped-recipe',
+      name: 'sf-client-guides-budget-capped-recipe',
+      component: () => import('@/pages/sf-client/guides/BudgetCappedRecipePage.vue'),
+    },
+    {
       path: '/sf-client/guides/community-cache',
       name: 'sf-client-guides-community-cache',
       component: () => import('@/pages/sf-client/guides/CommunityCachePage.vue'),
@@ -72,6 +82,11 @@ const router = createRouter({
       path: '/sf-client/guides/running-an-evaluation',
       name: 'sf-client-guides-evaluation',
       component: () => import('@/pages/sf-client/guides/EvaluationPage.vue'),
+    },
+    {
+      path: '/sf-client/guides/managing-experiments',
+      name: 'sf-client-guides-experiments',
+      component: () => import('@/pages/sf-client/guides/ExperimentsPage.vue'),
     },
     {
       path: '/sf-client/guides/leaderboards',
@@ -114,6 +129,11 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/UsagePage.vue'),
     },
     {
+      path: '/sf-client/api/runs',
+      name: 'sf-client-api-runs',
+      component: () => import('@/pages/sf-client/api/RunsPage.vue'),
+    },
+    {
       path: '/sf-client/api/clients',
       name: 'sf-client-api-clients',
       component: () => import('@/pages/sf-client/api/ClientsPage.vue'),
@@ -129,6 +149,21 @@ const router = createRouter({
       component: () => import('@/pages/sf-client/api/ReducersPage.vue'),
     },
     {
+      path: '/sf-client/api/cascades-gates',
+      name: 'sf-client-api-cascades-gates',
+      component: () => import('@/pages/sf-client/api/CascadesGatesPage.vue'),
+    },
+    {
+      path: '/sf-client/api/routers',
+      name: 'sf-client-api-routers',
+      component: () => import('@/pages/sf-client/api/RoutersPage.vue'),
+    },
+    {
+      path: '/sf-client/api/budgeted-runs',
+      name: 'sf-client-api-budgeted-runs',
+      component: () => import('@/pages/sf-client/api/BudgetedRunsPage.vue'),
+    },
+    {
       path: '/sf-client/api/pipelines',
       name: 'sf-client-api-pipelines',
       component: () => import('@/pages/sf-client/api/PipelinesPage.vue'),
@@ -142,6 +177,11 @@ const router = createRouter({
       path: '/sf-client/api/connections',
       name: 'sf-client-api-connections',
       component: () => import('@/pages/sf-client/api/ConnectionsPage.vue'),
+    },
+    {
+      path: '/sf-client/api/credits',
+      name: 'sf-client-api-credits',
+      component: () => import('@/pages/sf-client/api/CreditsPage.vue'),
     },
     {
       path: '/sf-client/api/modules',

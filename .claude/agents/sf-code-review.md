@@ -272,6 +272,31 @@ findings block when they demonstrate a grading-integrity violation.
   "no penalty" — the score is wrong in the candidate's favor and nobody knows. So
   `spine/rubric.py` fails the whole case instead. It also dedupes verdicts so "criteria
   met" can never exceed "criteria judged". A diff relaxing either is blocking.
+- **Grading must never reward a hedge.** A **hedge** is a reply that lists several
+  answers so that one of them matches the key, like `ANSWER: (A) (B) (C) (D)` on a
+  four-option question. If a hedge can score 1, a model gets full marks by listing every
+  option. inspect's own parser already refuses the plain hedge `ANSWER: A B C D`. The
+  danger is code we add on top to be more forgiving, such as unwrapping `$B$`, removing
+  `**`, or retrying on a cleaned-up copy. That code only runs after inspect found no
+  answer, so every mistake it makes gives the model a point it didn't earn.
+  [PR 1783](https://github.com/ScreamingFace/screamingface/pull/1783) did exactly this.
+  It unwrapped only the first `(A)`, read the hedge as A, and would have given full
+  marks on 46 Benchmarks to a model that listed every option.
+
+  **How to check:** take each reply the new code accepts, remove the decoration by hand,
+  and grade that plain version with inspect at the pinned version. The new code must
+  never give more credit than the plain version gets. The author's table of replies that
+  should now pass is not enough. Ask for tests on replies that must still fail:
+  - **every option wrapped:** `ANSWER: (A) (B) (C) (D)` must stay no answer;
+  - **mixed wrappers:** `ANSWER: (A), [B]` reads both letters, never just A;
+  - **a changed answer:** in `ANSWER: (A)` … `Final ANSWER: $C$`, the retracted A must
+    never win (PR 1783's first review round);
+  - **a retry over several cleaned copies:** it keeps the first copy that scores, so
+    check that each copy only removes decoration and never brings in a new answer.
+
+  A forgiving grader without these tests is Action required. The same mistake broke
+  inspect_ai's own attempt at this fix
+  ([PR 5058](https://github.com/UKGovernmentBEIS/inspect_ai/pull/5058), 5 tests).
 - **Goldens are byte-exact, and drift is a bug, not noise.** A golden file is a
   recorded correct run. Replaying it must reproduce it byte-for-byte, in a fixed
   compare order (expression-sha → case statuses → failure codes → coverage → score as a
@@ -524,6 +549,50 @@ uncapped bill.
   no TTL. Also: per-run concurrency goes through `FairShareGate` /
   `FairShareIOLayer` — a new IO path that bypasses it lets one run starve everyone
   else's.
+- **A new Benchmark must fit every size limit on the run path, and the PR must show it
+  measured.** A Benchmark that seals cleanly can still be unrunnable: its Cases are read,
+  parsed and sent through limits the importer never checks. Two reviews of #1833
+  (EnigmaEval, OME-1874) found the same gaps, and OME-1875 (GDP.pdf) met them at design
+  time, so on any PR that adds a Benchmark row ask for these five, each with the number:
+  - **The full-set Case load, measured under the run's memory budget.** Every run's
+    resident memory is capped by `memoryLimitMi` (Engine Helm `values.yaml`; 2,560 Mi
+    since OME-1648, where ContractEval's 192 MiB `cases.json` peaked at 1,828 MiB). A
+    small selection reads only its rows, but a full run takes `BoardStore.head`, which
+    holds the selected bytes, their decoded text and the bracketed copy at once, before
+    url4 parses any of it. EnigmaEval's `cases.json` is 400 MB and its only number was a
+    whole-file parse in a fresh process: 2,310 MiB, 250 MiB under the cap, with no Engine
+    process around it. That is reasoning, not proof. Ask for one full-set load of the
+    Cases route inside the built image under the real limit, or a declared selection
+    ceiling.
+  - **The largest Case against the Case caps.** `MAX_CASE_BYTES` (8,000,000, with
+    pictures and files inline as base64, 4/3 of the raw bytes) and `MAX_PICTURES` (20) in
+    `picture_input.py`, and url4's `MAX_ATTACHMENT_BYTES` and `MAX_ATTACHMENTS`. The PR
+    states the largest Case's bytes and the most pictures in one Case, from the
+    linux/amd64 seal.
+  - **The provider's own limits, which none of our caps check.** A Case under our caps
+    can still be refused at call time, and the limit depends on the route the call takes,
+    not only on the model. Claude's are the worked example; every provider has its own, so
+    read the current page, never this bullet. A picture may be at most 10 MB as base64 on
+    Claude's own API but 5 MB on Bedrock, and 8000 px a side; with more than 20 pictures
+    in one request a stricter 3,000 px a side applies, and on Bedrock and Vertex a PDF
+    counts toward the 20
+    ([vision limits](https://platform.claude.com/docs/en/build-with-claude/vision#request-limits)).
+    A whole request may be at most 20 MB on Bedrock against 128 MB on Claude's own API
+    ([request size limits](https://platform.claude.com/docs/en/api/overview#request-size-limits)),
+    and a PDF has a page limit
+    ([Claude PDF support](https://platform.claude.com/docs/en/build-with-claude/pdf-support)).
+    So a 7 MB picture is not unrunnable; it fails only when the call is routed to Bedrock.
+    Ask which Candidates and routes the largest Case was checked against.
+  - **Held-out Cases are a recorded decision, not a placeholder.** Cases left out for size
+    are named in one constant, counted on the card (served of total), and stated as final
+    with the decision's date and ticket. #1833 shipped the word PROVISIONAL in code beside
+    a ledger marked done: flag the pair as claims against reality. Adding the Cases back
+    later moves the Case Digest, so it is a new revision, never a quiet edit.
+  - **The card promises only what a Case row exposes.** A served Case is
+    `{id, case_id, input}`; sample metadata is sealed into the grading material and never
+    reaches a client. #1833's card told users to filter Cases by `category`, a field they
+    cannot see. Read every "filter by" and "each Case carries" on the card and in the
+    task's README against the row.
 - **Retry & race discipline.** Retryable statuses are exactly {429, 503, 529}; every
   429/503 response carries `Retry-After`. Watch Python's exception inheritance when
   mapping DB errors to HTTP: `IntegrityError` *subclasses* `OperationalError`, so a

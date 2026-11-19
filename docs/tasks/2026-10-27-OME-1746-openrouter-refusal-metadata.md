@@ -1,13 +1,13 @@
 ---
 id: OME-1746
 linear_url: https://linear.app/openmined/issue/OME-1746/base-the-openrouter-zero-proofs-on-billing-facts-not-the-reply-format
-status: in_progress
+status: done
 type: fix
 priority: high
 labels: [aigateway, agentic, autonomous]
 parent: OME-1287
 created: 2026-10-27
-closed:
+closed: 2026-11-16
 ---
 
 # Base the OpenRouter zero proofs on billing facts, not the reply format
@@ -30,3 +30,7 @@ Review follow-up (same issue, owner decision 2026-10-27): the `/code-review` of 
 gaps, fixed in a second PR: no proof raises on a value of any shape; the refusal proof sees output
 in any message field; both proofs share the paid-stage rule. Ledger:
 `docs/work/2026-10-27-openrouter-zero-proof-review-fixes.md`.
+
+## Close
+
+- 2026-11-16: PR #1571 squash-merged as `4cb803eab` and review-fix PR #1575 as `27364bbf3`, both on 2026-10-27. Linear Done 2026-11-16 with a close-comment that names the PR and the merge commit; checked against `origin/main`.

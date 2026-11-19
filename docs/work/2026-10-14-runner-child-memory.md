@@ -1,9 +1,9 @@
 ---
 ticket: OME-1607
 stack: screamingface-engine
-status: in_progress
+status: done
 started: 2026-10-14
-finished:
+finished: 2026-10-14
 ---
 
 # runner-child-memory — large judged runs survive the runner child, and a dead child ends the client run
@@ -73,3 +73,7 @@ cases E1–E13, requirements R1–R7). Plan: `docs/plan/2026-10-14-OME-1607-runn
   of three stacked PRs (owner). U3 redesigned after review (release-on-finish instead of a window).
   U6 dropped (SDK admission budget 900 s < draco run time). Owner-approved append-only exception
   for tests created earlier on this branch.
+
+## Landed on main
+
+- `bc08d99d5` (#1420), squash-merged 2026-10-14 22:21 UTC. The unit is done. Linear OME-1607 stays In Review until the owner decides on the RSS follow-up.

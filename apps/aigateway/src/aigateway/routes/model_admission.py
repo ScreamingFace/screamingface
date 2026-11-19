@@ -15,7 +15,7 @@ INVARIANT: admission state lives on ``app.state`` only — nothing persists, a
 restart forgets every admission, and re-admission is idempotent.
 INVARIANT (hexagonal): this core route knows no provider. The decision is the
 plugin's ``admit_model`` port; core contributes only the account-scoped
-credential verdict, which is core's own vocabulary (profiles/connections).
+credential verdict, which is core's own vocabulary (connections).
 """
 
 from __future__ import annotations

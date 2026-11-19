@@ -65,6 +65,7 @@ from screamingface_engine_inspect.judge_shape import (
     JudgeShape,
     judge_shape,
 )
+from screamingface_engine_inspect.local_tasks import INSPECT_EVALS_PREFIX, LOCAL_TASK_PREFIX
 
 # WHY a runtime import is safe here: provenance_facts imports only the stdlib and yaml,
 # never this module, so no cycle (OME-1455).
@@ -716,7 +717,16 @@ def _home_in_eval_package(registry_name: str, name: str, module: Any) -> str | N
     package: str = (
         module.__name__ if hasattr(module, "__path__") else module.__name__.rpartition(".")[0]
     )
-    if home is None or not package or not home.startswith(f"{package}."):
+    # WHY a local Task may also reach into inspect_evals (OME-1863): HLE-Diamond is our Task
+    # around inspect_evals' hle, graded by hle's ``regex_judge``. Its code is pinned by the
+    # inspect-evals version, as for any import. An inspect_evals Task keeps the old rule, so a
+    # gsm8k Task still cannot borrow another eval's scorer.
+    local_task_reaching_inspect_evals: bool = module.__name__.startswith(LOCAL_TASK_PREFIX) and (
+        home or ""
+    ).startswith(INSPECT_EVALS_PREFIX)
+    if home is None or not package:
+        return None
+    if not home.startswith(f"{package}.") and not local_task_reaching_inspect_evals:
         return None
     return home if getattr(importlib.import_module(home), name, None) is factory else None
 
