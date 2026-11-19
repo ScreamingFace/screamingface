@@ -24,6 +24,7 @@ before the batch re-grade: old entries are off the Latest board for minutes.
 - `tests/unit/inspect/test_published_revisions.py`: 47 literals, each comment naming its old id.
 - `tests/unit/inspect/test_benchmark_fingerprints.py`: the OME-1907 comment says the ids moved.
 - Engine `CHANGELOG.md`: one line listing the 47 and why.
+- `packages/screamingface/scripts/regrade_batch.py` + `tests/unit/test_regrade_batch_script.py`: the batch re-grade, dry run by default, a JSONL log a re-run resumes from (owner, 2026-11-19).
 
 ## Test plan
 
@@ -38,6 +39,7 @@ before the batch re-grade: old entries are off the Latest board for minutes.
 
 - **Actual files:** as planned, plus `.claude/test-change-approvals/OME-1958.json`, this ledger and the mirror.
 - **Commits:** the bump (cherry-picked from 2347b5810 with its references moved from OME-1909 to OME-1958), and this docs commit. Stacked on #1896 (`OME-1909-regrade-from-pinned-cache`), because `regradable_from` lands there.
+- **Batch script (2026-11-19):** finds every row each public board shows at an older revision (public Scoreboard reads only), resolves each pinned cache to its score id, and calls `Client.regrade` per entry; `no_pinned_cache` rows are logged for the owner. A 404 on the revisions route stops the run instead of reading as zero entries. Dry run against the dev Scoreboard: 11 old-revision rows (draco-3pass), none with a pinned cache. 5 passed in `test_regrade_batch_script.py`; ruff and pyright clean.
 - **Gates:** Engine with the inspect extra: 246 passed in `test_published_revisions.py`, `test_published_revision.py`, `test_benchmark_fingerprints.py`, `test_regradable_from.py`, `test_benchmark_bump_regradable.py`, `test_benchmark_foundation.py`.
 - **Deviations:** the manifest pins every prior-test edit on this branch against main, #1896's ten included, because the checker accepts only a manifest naming the current branch; re-pin to this PR's two files once #1896 merges.
-- **Owner verify:** merge only after #1896 is deployed, and right before the batch: post to the team (47 boards move), merge, wait for the Engine and the Scoreboard pins to reach prod, check https://leaderboard.screamingface.ai/v1/leaderboard/inspect-mmlu_pro shows `4efebd6cc74c2dca`, then run the batch re-grade in OME-1958's steps.
+- **Owner verify:** merge only after #1896 is deployed, and right before the batch: post to the team (47 boards move), merge, wait for the Engine and the Scoreboard pins to reach prod, check https://leaderboard.screamingface.ai/v1/leaderboard/inspect-mmlu_pro shows `4efebd6cc74c2dca`, then from `packages/screamingface`: `uv run --isolated python scripts/regrade_batch.py` (dry run), then the same with `--apply`.
