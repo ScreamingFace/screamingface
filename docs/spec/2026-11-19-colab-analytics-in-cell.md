@@ -28,10 +28,13 @@ unacknowledged upload is an uncertain consent period). Users see `enabled: False
 1. **A lost reply is a timeout.** When `eval_js` returns `None`, `exchange()` raises
    `TimeoutError`. Status shows `setup_timeout` / `delivery_timeout` at the stage that was
    waiting. Replies that do arrive but are malformed are still `invalid_response`.
-2. **Colab setup finishes inside the triggering cell.** In Colab, `offer()` waits for the setup
-   it started, at most `BRIDGE_TIMEOUT` (5 s). A healthy browser answers in about 1–2 s, so
-   `import screamingface` or client creation in Colab takes that much longer once per runtime.
-   Afterwards `status()` reports `accepted` with no error.
+2. **Colab setup finishes inside the triggering cell.** `sf.connect()` / `Client.connect()`
+   wait for the setup they started, at most `BRIDGE_TIMEOUT` (5 s). `import screamingface`
+   cannot wait inside the import (the worker's own `screamingface` imports block on the package
+   import lock, verified in Colab), so it registers a one-shot IPython `post_run_cell` callback
+   that waits right after the importing cell's code, while Colab still treats the cell as
+   running. A healthy browser answers in about 1–2 s. Afterwards `status()` reports `accepted`
+   with no error. `prompt.offer()` itself stays non-blocking.
 3. **The terminal event is flushed before the tracked call returns.** After a tracked operation
    emits its terminal event in Colab, the wrapper waits for the bridge to acknowledge it, at
    most `BRIDGE_TIMEOUT`. A cancelled operation (`KeyboardInterrupt`, `CancelledError`) does not
@@ -46,7 +49,7 @@ unacknowledged upload is an uncertain consent period). Users see `enabled: False
 
 | # | Decision | Recommended | Alternative |
 |---|---|---|---|
-| D1 | Make Colab `offer()` block up to 5 s for setup | Yes: status is right from the first cell, and the notice keeps its earliest touchpoint | Start setup only at the first evaluation (no import delay; status reads `unknown` until then) |
+| D1 | Make Colab setup started on import or connect finish inside that cell, up to 5 s | Yes: status is right from the first cell, and the notice keeps its earliest touchpoint | Start setup only at the first evaluation (no import delay; status reads `unknown` until then) |
 | D2 | Flush the terminal event before a tracked call returns, up to 5 s, skipped on cancel | Yes | Leave delivery fully async (status can still flip to unknown after an evaluation) |
 | D3 | Map a `None` reply to `timeout` inside the real `exchange()` | Yes | Map it in `ColabBridge._exchange`, which changes a pinned prior test (`test_safe_failure_details_clear_after_recovery`, `(None, "invalid_response")`) |
 

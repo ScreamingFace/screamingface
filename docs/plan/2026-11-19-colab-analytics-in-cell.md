@@ -36,6 +36,10 @@ as recommended). Ledger: `docs/work/2026-11-19-colab-analytics-status.md`. One u
    flush.
 4. **Gates:** `uv run .claude/scripts/run_gates.py screamingface`. Any prior test that fails
    is a STOP (ask), never an edit.
+   **Revised after the Colab check:** waiting inside `import screamingface` deadlocked on the
+   package import lock, so the import hook uses `prompt.offer_at_import()`: `offer()` plus a
+   one-shot IPython `post_run_cell` callback that calls `offer_and_settle()`. The connect
+   panels keep the direct `offer_and_settle()`.
 5. **Manual check** in a fresh Colab runtime with the built wheel (spec, Verification), then
    PR, bug filed in Triage with Irina and Kevin tagged, mirror in `docs/tasks/`.
 

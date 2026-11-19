@@ -1,9 +1,9 @@
 ---
 ticket: unfiled   # slug-named ledger; set to OME-N when the issue is filed at PR-open
 stack: screamingface
-status: in_progress   # planned | in_progress | done | blocked
+status: done   # planned | in_progress | done | blocked
 started: 2026-11-19
-finished:
+finished: 2026-11-19
 ---
 
 # colab-analytics-status — Colab analytics status reports "unknown" although delivery works
@@ -82,7 +82,34 @@ that from enabling tracking.
 
 ## Outcome (fill at the end — required before COMMIT)
 
-- **Actual files:** <vs planned>
-- **Commits:** <sha — message>
-- **Gates:** <run_gates.py result line / counts>
-- **Deviations:** <anything that differed from the plan, or "none">
+- **Actual files:**
+  - `_analytics/colab.py`: in-flight counter and `flush()`.
+  - `_analytics/colab_transport.py` (new): the `eval_js` script template and `exchange()`,
+    moved out of `colab.py` to stay under the 450-line limit. A `None` reply becomes the
+    script's own timeout marker.
+  - `_analytics/prompt.py`: `offer_and_settle()` and `offer_at_import()`.
+  - `_analytics/tracking.py`: a bounded terminal-event flush in both wrappers, skipped on
+    cancel.
+  - `__init__.py`, `client.py`, `_default_client.py`: the call sites.
+  - `tests/test_analytics_colab_in_cell.py` (new, 18 tests).
+- **Commits:** `38e0215d1` ledger and spec · `f62a645ef` fix · `67a31db80` import settles
+  after the importing cell.
+- **Gates:** `run_gates.py screamingface` ALL GATES GREEN, run on the final code. The full
+  suite (7,666 passed, 38 skipped, coverage 97.03%) was counted on `f62a645ef`. Append-only
+  check green: no prior test edited.
+- **Colab check (fresh runtime, branch build, 2026-11-19):**
+  - `import screamingface` took 1.22 s. Status in the next cell: `accepted`, enabled, no
+    error, 1 setup attempt.
+  - After a fail-fast `sf.evaluate` (`PlanningError`, no model calls), status is still
+    `accepted` with no error.
+  - Not exercised in Colab: the first-time `enroll` path, because this browser already
+    holds consent. The unit tests cover it.
+- **Deviations:**
+  - D3 is placed inside `exchange()` as the existing timeout marker, not as a raised
+    `TimeoutError`. Raising would have broken the prior `test_analytics_endpoint.py`.
+  - D1 at import uses an IPython `post_run_cell` callback. Waiting inside the import
+    deadlocked on the import lock in real Colab, so the spec and plan were revised.
+  - The transport moved to its own module for the file-size limit.
+  - The new test file avoids re-importing fixtures under their own names, because the
+    pre-commit ruff (0.14.0) flags that pattern. It also flags it in existing files, which
+    were not touched.
