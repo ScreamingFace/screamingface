@@ -361,9 +361,8 @@ def test_the_task_generates_once_and_scores_with_one_scorer_under_the_tier_weigh
 
 _JUDGE_ROUTE: str = "/openrouter/openai/gpt-5.4"
 _JUDGE_PARAMS: list[tuple[str, str]] = [
-    ("temperature", "0"),
-    ("max_tokens", "4096"),
     ("web_search", "false"),
+    ("max_tokens", "4096"),
 ]
 
 
